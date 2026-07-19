@@ -1,42 +1,56 @@
-# Online Booking NextJs Template: Chisfis
+# The BHA Hotels Booking
 
-Welcome to **Chisfis**, a responsive Nextjs template theme tailored for Online booking, Listing, Real Estate, and booking systems. Whether you're running an accommodation service, travel experience, cruise, car rental, real estate, or a travel agency, Chisfis has got you covered.
+The BHA Hotels Booking is organized as a monorepo for the customer experience, a future administration experience, and the booking API.
 
-![Chisfis Banner](https://i.ibb.co/JqPfydC/b-landing.png) 
+## Repository layout
 
-## 🌟 Features
+```text
+.
+|-- Back_End/
+|   |-- TheBha.Booking.sln
+|   |-- src/
+|   |   |-- TheBha.Api/
+|   |   |-- TheBha.Application/
+|   |   |-- TheBha.Domain/
+|   |   `-- TheBha.Infrastructure/
+|   `-- tests/
+|       |-- TheBha.UnitTests/
+|       `-- TheBha.IntegrationTests/
+|-- Front_End/
+|   |-- Admin_Web/
+|   `-- Customer_Web/
+`-- docs/
+    `-- ARCHITECTURE.md
+```
 
-- **Responsive Design**: Modern and fresh design across all devices.
-- **Booking & Listing**: Dedicated templates for booking and listing.
-- **30+ Pages**: A plethora of pages to suit all your needs.
-- **Tailwindcss v3.x**: Built on the latest version for a sleek design.
-- **Dark & Light Modes**: Switch between themes seamlessly.
-- **Latest Tech Stack**: NextJs 13.4.x (`app` directory), Typescript, and TailwindCss.
-- **React Ecosystem**: HeadlessUI components, React v.18.x, Google Map React, React-datepicker, and more.
-- **Code Quality**: Proptypes checking, React hooks, and Prettier for a consistent codebase.
-- **Interactive Components**: Over 8 listing cards, modal gallery, checkout pages, and more.
-- **Built-in React Packages**: A collection of essential packages for a smooth development experience.
+## Applications
 
-## 📦 In The Box
+- `Front_End/Customer_Web` contains the existing Next.js customer template. Its source, dependency lockfile, theme attribution, and license-related notices are preserved in place. See its README for the original author attribution.
+- `Front_End/Admin_Web` is reserved for the future administration application.
+- `Back_End` contains an ASP.NET Core 8 Web API organized around Clean Architecture boundaries.
 
-- Full source code of the theme.
-- All React component files.
-- CSS & SCSS source codes.
-- All plugins & libraries.
-- Comprehensive documentation.
+## Local development
 
-## 🚀 Getting Started
+Customer web:
 
-1. Clone the repository.
-2. Navigate to the `app` directory.
-3. Install dependencies using `npm install` or `yarn install`.
-4. Run the development server using `npm run dev` or `yarn dev`.
-5. Explore the documentation for more details.
+```powershell
+cd Front_End/Customer_Web
+npm ci
+npm run dev
+```
 
-## 🙏 Acknowledgements
+Backend:
 
-A big shoutout to all the libraries, plugins, and assets that made this project possible.
+```powershell
+cd Back_End
+dotnet restore TheBha.Booking.sln
+dotnet run --project src/TheBha.Api/TheBha.Api.csproj
+```
 
----
+With the API running in the Development environment:
 
-Crafted with ❤️ by [Hamed Hasan](https://github.com/Hamed-Hasan). Connect with me on [LinkedIn](https://www.linkedin.com/in/hamed-hasan).
+- Health: `GET /health`
+- Swagger UI: `/swagger`
+- OpenAPI document: `/swagger/v1/swagger.json`
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for dependency rules and current architectural scope.
