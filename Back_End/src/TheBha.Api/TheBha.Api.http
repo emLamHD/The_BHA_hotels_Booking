@@ -1,0 +1,11 @@
+@TheBha.Api_HostAddress = http://localhost:5145
+
+GET {{TheBha.Api_HostAddress}}/health
+Accept: application/json
+
+###
+
+GET {{TheBha.Api_HostAddress}}/swagger/v1/swagger.json
+Accept: application/json
+
+###
