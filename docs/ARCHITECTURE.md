@@ -28,11 +28,17 @@ Project reference rules:
 
 ## API foundation
 
-`TheBha.Api` uses ASP.NET Core controllers with nullable reference types and implicit usings enabled. Swagger/OpenAPI is available in the Development environment, and `GET /health` provides a lightweight process-health endpoint.
+`TheBha.Api` uses ASP.NET Core controllers with nullable reference types and implicit usings enabled. Swagger/OpenAPI is available in the Development environment. `GET /health` provides a lightweight process-health endpoint, while `GET /health/ready` checks PostgreSQL connectivity through EF Core.
+
+## Persistence foundation
+
+`TheBha.Infrastructure/Persistence` owns `TheBhaDbContext` and the dependency-registration extension for EF Core 8 and Npgsql. The API supplies `ConnectionStrings:TheBhaDatabase` through external configuration. Future migrations belong to the `TheBha.Infrastructure` assembly, but no migration or business `DbSet` exists in the current foundation.
+
+PostgreSQL 17 runs locally through Docker Compose with a named volume and is also used by the backend integration-test job in GitHub Actions. The API does not call `EnsureCreated()` or apply migrations during startup.
 
 ## Deliberately deferred decisions
 
-Persistence, PostgreSQL, Entity Framework Core, MediatR, AutoMapper, FluentValidation, payment integrations, and business entities are not part of this foundation. They should be introduced only after the corresponding domain and operational requirements are defined.
+Business persistence schema, MediatR, AutoMapper, FluentValidation, payment integrations, and business entities are not part of this foundation. They should be introduced only after the corresponding domain and operational requirements are defined.
 
 ## Current operational scope
 

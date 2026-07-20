@@ -47,6 +47,9 @@ npm run dev
 Backend:
 
 ```powershell
+Copy-Item .env.example .env
+docker compose up -d postgres
+dotnet user-secrets set --project Back_End/src/TheBha.Api/TheBha.Api.csproj "ConnectionStrings:TheBhaDatabase" "Host=localhost;Port=5432;Database=thebha;Username=thebha;Password=<your-local-password>"
 cd Back_End
 dotnet restore TheBha.Booking.sln
 dotnet run --project src/TheBha.Api/TheBha.Api.csproj
@@ -55,8 +58,12 @@ dotnet run --project src/TheBha.Api/TheBha.Api.csproj
 With the API running in the Development environment:
 
 - Health: `GET /health`
+- Database readiness: `GET /health/ready`
 - Swagger UI: `/swagger`
 - OpenAPI document: `/swagger/v1/swagger.json`
+
+See [docs/DATABASE.md](docs/DATABASE.md) for the complete PostgreSQL, User
+Secrets, integration-test, and outage-recovery workflow.
 
 ## Local production simulation
 
@@ -84,4 +91,4 @@ Local development and local production simulation are the current runtime target
 
 Vercel deployment, public hosting, custom domains, hosting secrets, and continuous deployment are intentionally deferred. Vercel Preview is not a quality gate for the current foundation.
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for dependency rules and current architectural scope.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for dependency rules and current architectural scope, and [docs/ADR/0002-use-postgresql.md](docs/ADR/0002-use-postgresql.md) for the persistence decision.

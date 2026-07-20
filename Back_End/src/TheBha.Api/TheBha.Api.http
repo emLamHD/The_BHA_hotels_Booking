@@ -5,6 +5,11 @@ Accept: application/json
 
 ###
 
+GET {{TheBha.Api_HostAddress}}/health/ready
+Accept: text/plain
+
+###
+
 GET {{TheBha.Api_HostAddress}}/swagger/v1/swagger.json
 Accept: application/json
 
