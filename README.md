@@ -47,7 +47,11 @@ npm run dev
 Backend:
 
 ```powershell
-Copy-Item .env.example .env
+if (Test-Path -LiteralPath .env) {
+    throw "STOP: .env already exists and was not overwritten."
+}
+
+Copy-Item -LiteralPath .env.example -Destination .env
 docker compose up -d postgres
 dotnet user-secrets set --project Back_End/src/TheBha.Api/TheBha.Api.csproj "ConnectionStrings:TheBhaDatabase" "Host=localhost;Port=5432;Database=thebha;Username=thebha;Password=<your-local-password>"
 cd Back_End

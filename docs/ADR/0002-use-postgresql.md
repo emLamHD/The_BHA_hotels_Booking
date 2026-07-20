@@ -13,6 +13,11 @@ those business decisions are made.
 Readiness must reflect whether the API can reach its database, while liveness
 must continue to report whether the API process itself can serve requests.
 
+The source of truth for price, inventory, and reservation has not yet been
+decided. The pending decision is whether the PMS or The BHA application owns
+each of these datasets. This ADR does not resolve that ownership question or
+infer a business schema from it.
+
 ## Decision
 
 PostgreSQL 17 is the backend database. Local development uses the official

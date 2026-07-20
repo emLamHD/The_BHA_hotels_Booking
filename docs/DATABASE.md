@@ -17,7 +17,11 @@ Create a local environment file and replace the example password before starting
 the service. `.env` is ignored by Git and must not be committed.
 
 ```powershell
-Copy-Item .env.example .env
+if (Test-Path -LiteralPath .env) {
+    throw "STOP: .env already exists and was not overwritten."
+}
+
+Copy-Item -LiteralPath .env.example -Destination .env
 notepad .env
 docker compose config
 docker compose up -d postgres
