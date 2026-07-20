@@ -31,6 +31,11 @@ The BHA Hotels Booking is organized as a monorepo for the customer experience, a
 
 ## Local development
 
+Required toolchains:
+
+- Node.js `22.23.1` with npm `10.x` for `Front_End/Customer_Web`.
+- .NET SDK `8.0.423`; `global.json` permits roll-forward only within .NET 8.
+
 Customer web:
 
 ```powershell
@@ -52,5 +57,31 @@ With the API running in the Development environment:
 - Health: `GET /health`
 - Swagger UI: `/swagger`
 - OpenAPI document: `/swagger/v1/swagger.json`
+
+## Local production simulation
+
+Customer web:
+
+```powershell
+cd Front_End/Customer_Web
+npm ci
+npm run build
+npm start
+```
+
+Backend API in the Development environment so that the Swagger quality gate is available:
+
+```powershell
+dotnet restore Back_End/TheBha.Booking.sln
+dotnet build Back_End/TheBha.Booking.sln --configuration Release --no-restore
+$env:ASPNETCORE_ENVIRONMENT = "Development"
+dotnet run --project Back_End/src/TheBha.Api/TheBha.Api.csproj --configuration Release --no-build
+```
+
+## Current delivery scope
+
+Local development and local production simulation are the current runtime targets. GitHub Actions CI is the automated quality gate and validates the reproducible frontend install/build plus the backend restore/build/test sequence.
+
+Vercel deployment, public hosting, custom domains, hosting secrets, and continuous deployment are intentionally deferred. Vercel Preview is not a quality gate for the current foundation.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for dependency rules and current architectural scope.

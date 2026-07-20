@@ -34,6 +34,12 @@ Project reference rules:
 
 Persistence, PostgreSQL, Entity Framework Core, MediatR, AutoMapper, FluentValidation, payment integrations, and business entities are not part of this foundation. They should be introduced only after the corresponding domain and operational requirements are defined.
 
+## Current operational scope
+
+The current targets are local development and local production simulation. GitHub Actions CI is the automated quality gate for frontend installation/build and backend restore/build/test.
+
+Vercel, public hosting, custom domains, hosting secrets, and continuous deployment are deliberately deferred. This foundation does not define or run a deployment workflow.
+
 ## Front-end provenance
 
 The customer web theme was relocated without changing its source or dependencies. Original theme attribution remains in `Front_End/Customer_Web/README.md` and must be preserved when the application evolves.
