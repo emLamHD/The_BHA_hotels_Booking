@@ -10,7 +10,8 @@ using TheBha.Infrastructure.Persistence;
 
 namespace TheBha.IntegrationTests;
 
-public sealed class HealthEndpointTests : IClassFixture<PostgreSqlWebApplicationFactory>
+[Collection(PostgreSqlCollection.Name)]
+public sealed class HealthEndpointTests
 {
     private const string UnavailableDatabaseConnectionString =
         "Host=127.0.0.1;Port=1;Database=unavailable;Username=unavailable;" +
@@ -89,12 +90,4 @@ public sealed class HealthEndpointTests : IClassFixture<PostgreSqlWebApplication
     }
 
     private sealed record HealthResponse(string Status);
-}
-
-public sealed class PostgreSqlWebApplicationFactory : WebApplicationFactory<Program>
-{
-    protected override void ConfigureWebHost(IWebHostBuilder builder)
-    {
-        builder.UseEnvironment("Development");
-    }
 }

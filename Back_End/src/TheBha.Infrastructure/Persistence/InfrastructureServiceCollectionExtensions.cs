@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using TheBha.Application.Properties;
 
 namespace TheBha.Infrastructure.Persistence;
 
@@ -29,6 +30,9 @@ public static class InfrastructureServiceCollectionExtensions
             options.UseNpgsql(
                 connectionString,
                 npgsqlOptions => npgsqlOptions.MigrationsAssembly("TheBha.Infrastructure")));
+
+        services.AddScoped<IPropertyCatalogQueries, PropertyCatalogQueries>();
+        services.AddScoped<DevelopmentDataSeeder>();
 
         services
             .AddHealthChecks()

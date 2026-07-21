@@ -17,4 +17,19 @@ public sealed class ArchitectureTests
 
         Assert.Empty(internalReferences);
     }
+
+    [Fact]
+    public void Application_references_only_domain()
+    {
+        var applicationAssembly = Assembly.Load("TheBha.Application");
+
+        var internalReferences = applicationAssembly
+            .GetReferencedAssemblies()
+            .Where(reference => reference.Name?.StartsWith("TheBha.", StringComparison.Ordinal) == true)
+            .Select(reference => reference.Name)
+            .ToArray();
+
+        Assert.Equal(["TheBha.Domain"], internalReferences);
+    }
+
 }
