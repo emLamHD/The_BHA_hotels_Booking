@@ -56,6 +56,7 @@ docker compose up -d postgres
 dotnet user-secrets set --project Back_End/src/TheBha.Api/TheBha.Api.csproj "ConnectionStrings:TheBhaDatabase" "Host=localhost;Port=5432;Database=thebha;Username=thebha;Password=<your-local-password>"
 cd Back_End
 dotnet restore TheBha.Booking.sln
+dotnet ef database update --project src/TheBha.Infrastructure/TheBha.Infrastructure.csproj --startup-project src/TheBha.Api/TheBha.Api.csproj
 dotnet run --project src/TheBha.Api/TheBha.Api.csproj
 ```
 
@@ -68,6 +69,11 @@ With the API running in the Development environment:
 
 See [docs/DATABASE.md](docs/DATABASE.md) for the complete PostgreSQL, User
 Secrets, integration-test, and outage-recovery workflow.
+
+The customer property catalog is exposed at `/api/v1/properties` and
+`/api/v1/room-types/{roomTypeId}`. See
+[docs/BE-001-PROPERTY-INVENTORY.md](docs/BE-001-PROPERTY-INVENTORY.md) for the
+domain, schema, API contracts, migration, and explicit development-seed workflow.
 
 ## Local production simulation
 

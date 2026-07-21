@@ -1,7 +1,8 @@
 # Database development guide
 
-The backend persistence foundation uses PostgreSQL 17, EF Core 8, and Npgsql.
-There is deliberately no business schema, migration, or seed data yet.
+The backend persistence layer uses PostgreSQL 17, EF Core 8, and Npgsql. BE-001
+adds the first business migration for Property, RoomType, PhysicalRoom, Amenity,
+and Media metadata.
 
 ## Prerequisites
 
@@ -75,6 +76,44 @@ dotnet build Back_End/TheBha.Booking.sln --configuration Release --no-restore
 dotnet test Back_End/TheBha.Booking.sln --configuration Release --no-build
 ```
 
+Integration tests create a uniquely named database on the configured PostgreSQL
+server, apply all migrations, run the tests, and drop that database. The configured
+test user therefore needs permission to create databases. Tests never use EF
+InMemory or SQLite.
+
+## Apply the business migration
+
+Install an EF Core CLI compatible with EF Core 8, then apply migrations explicitly:
+
+```powershell
+dotnet ef database update `
+  --project Back_End/src/TheBha.Infrastructure/TheBha.Infrastructure.csproj `
+  --startup-project Back_End/src/TheBha.Api/TheBha.Api.csproj
+```
+
+The current business migration is
+`20260721175848_InitialPropertyRoomInventory`. Run this command before the
+development seed. The API never calls `EnsureCreated()` and never applies a
+migration during startup.
+
+## Run the explicit development seed
+
+After applying migrations, run the seed only in Development:
+
+```powershell
+$env:ASPNETCORE_ENVIRONMENT = "Development"
+dotnet run `
+  --project Back_End/src/TheBha.Api/TheBha.Api.csproj `
+  -- `
+  --seed-development
+```
+
+The command creates The BHA Hotel, two room types, three physical rooms,
+amenities, media metadata, and their associations. It uses natural-key checks and
+database uniqueness constraints, so running it a second time does not create
+duplicates. It does not run in production, does not run during normal API startup,
+and does not apply migrations.
+
 Run the API after configuring `ConnectionStrings:TheBhaDatabase` through User
 Secrets or the environment variable shown above:
 
@@ -119,7 +158,7 @@ After PostgreSQL becomes healthy again, readiness returns HTTP 200.
 
 ## Migration policy
 
-Future migrations belong to `TheBha.Infrastructure`. The API does not create the
-database schema with `EnsureCreated()` and does not automatically apply
-migrations during startup. No migration should be added until a real business
-schema has been approved.
+Migrations belong to `TheBha.Infrastructure`. The API does not create the database
+schema with `EnsureCreated()` and does not automatically apply migrations during
+startup. Schema changes require an approved work item and PostgreSQL integration
+evidence.

@@ -4,7 +4,9 @@
 
 The repository separates deployable applications under `Front_End` and `Back_End`. The customer-facing Next.js application remains independent from the ASP.NET Core API, while `Admin_Web` is intentionally only a placeholder.
 
-The backend targets .NET 8 and starts with Clean Architecture project boundaries. It contains no fabricated hotel, room, booking, or payment domain model.
+The backend targets .NET 8 and uses Clean Architecture project boundaries. BE-001
+adds the approved Property, RoomType, PhysicalRoom, Amenity, and Media domain
+model without introducing booking, availability, pricing, or payment behavior.
 
 ## Backend dependency direction
 
@@ -28,17 +30,23 @@ Project reference rules:
 
 ## API foundation
 
-`TheBha.Api` uses ASP.NET Core controllers with nullable reference types and implicit usings enabled. Swagger/OpenAPI is available in the Development environment. `GET /health` provides a lightweight process-health endpoint, while `GET /health/ready` checks PostgreSQL connectivity through EF Core.
+`TheBha.Api` uses ASP.NET Core controllers with nullable reference types and implicit usings enabled. Swagger/OpenAPI is available in the Development environment. `GET /health` provides a lightweight process-health endpoint, while `GET /health/ready` checks PostgreSQL connectivity through EF Core. Versioned customer catalog controllers depend on Application query contracts and return DTOs rather than EF entities.
 
 ## Persistence foundation
 
-`TheBha.Infrastructure/Persistence` owns `TheBhaDbContext` and the dependency-registration extension for EF Core 8 and Npgsql. The API supplies `ConnectionStrings:TheBhaDatabase` through external configuration. Future migrations belong to the `TheBha.Infrastructure` assembly, but no migration or business `DbSet` exists in the current foundation.
+`TheBha.Infrastructure/Persistence` owns `TheBhaDbContext`, entity configurations,
+read-query implementations, the explicit development seeder, and EF Core
+migrations. The API supplies `ConnectionStrings:TheBhaDatabase` through external
+configuration. PostgreSQL is the sole source of catalog data. The API does not
+apply migrations or seed data during normal startup.
 
 PostgreSQL 17 runs locally through Docker Compose with a named volume and is also used by the backend integration-test job in GitHub Actions. The API does not call `EnsureCreated()` or apply migrations during startup.
 
 ## Deliberately deferred decisions
 
-Business persistence schema, MediatR, AutoMapper, FluentValidation, payment integrations, and business entities are not part of this foundation. They should be introduced only after the corresponding domain and operational requirements are defined.
+MediatR, AutoMapper, FluentValidation, rate plans, availability, reservations,
+authentication, payment integrations, housekeeping, and maintenance workflows
+remain deliberately deferred.
 
 ## Current operational scope
 
