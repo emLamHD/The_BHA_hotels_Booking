@@ -32,6 +32,10 @@ public static class InfrastructureServiceCollectionExtensions
                 npgsqlOptions => npgsqlOptions.MigrationsAssembly("TheBha.Infrastructure")));
 
         services.AddScoped<IPropertyCatalogQueries, PropertyCatalogQueries>();
+        services.AddSingleton(TimeProvider.System);
+        services.AddScoped<IDailyRoomRateStore, DailyRoomRateStore>();
+        services.AddScoped<IDailyRoomRatePricing, DailyRoomRatePricing>();
+        services.AddScoped<IDailyRoomRateQueries, DailyRoomRateQueries>();
         services.AddScoped<DevelopmentDataSeeder>();
 
         services

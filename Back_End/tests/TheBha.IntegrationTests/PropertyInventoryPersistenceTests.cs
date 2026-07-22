@@ -23,6 +23,8 @@ public sealed class PropertyInventoryPersistenceTests(PostgreSqlWebApplicationFa
 
         Assert.Contains(applied, migration => migration.EndsWith("_InitialPropertyRoomInventory"));
         Assert.Contains(applied, migration => migration.EndsWith("_AddRatePlanFoundation"));
+        Assert.Contains(applied, migration => migration.EndsWith("_AddDailyRoomRates"));
+        Assert.Equal(3, applied.Count());
         Assert.Empty(pending);
         Assert.StartsWith("17.", version, StringComparison.Ordinal);
     }
@@ -250,21 +252,88 @@ public sealed class PropertyInventoryPersistenceTests(PostgreSqlWebApplicationFa
     {
         await factory.ResetDatabaseAsync();
         await using var context = factory.CreateDbContext();
-        var seeder = new DevelopmentDataSeeder(context);
+        var fixedClock = new FixedTimeProvider(DateTimeOffset.Parse("2026-07-22T18:30:00Z"));
+        var seeder = new DevelopmentDataSeeder(context, fixedClock);
 
         await seeder.SeedAsync(CancellationToken.None);
         var first = await ReadCountsAsync(context);
         var ratePlan = await context.RatePlans.SingleAsync();
+        var seededRates = await context.DailyRoomRates.OrderBy(rate => rate.StayDate).ToListAsync();
+        var customizedRate = seededRates[0];
+        var customizedId = customizedRate.Id;
+        var customizedStayDate = customizedRate.StayDate;
+        var customizedRoomTypeId = customizedRate.RoomTypeId;
+        var customizedRatePlanId = customizedRate.RatePlanId;
+        const decimal customizedAmount = 9876543.21m;
+        customizedRate.UpdateAmount(customizedAmount, fixedClock.GetUtcNow().AddMinutes(1));
+        await context.SaveChangesAsync();
         context.ChangeTracker.Clear();
         await seeder.SeedAsync(CancellationToken.None);
         var second = await ReadCountsAsync(context);
+        context.ChangeTracker.Clear();
+        var preservedRate = await context.DailyRoomRates.SingleAsync(rate => rate.Id == customizedId);
 
-        Assert.Equal(new SeedCounts(1, 2, 1, 3, 4, 4, 3, 5, 2, 2), first);
+        Assert.Equal(new SeedCounts(1, 2, 1, 28, 3, 4, 4, 3, 5, 2, 2), first);
         Assert.Equal("STANDARD", ratePlan.Code);
         Assert.Equal("Standard Rate", ratePlan.Name);
         Assert.Equal("VND", ratePlan.CurrencyCode);
         Assert.True(ratePlan.IsActive);
+        Assert.Equal(28, seededRates.Count);
+        Assert.Equal(new DateOnly(2026, 7, 23), seededRates.First().StayDate);
+        Assert.Equal(new DateOnly(2026, 8, 5), seededRates.Last().StayDate);
+        Assert.DoesNotContain(seededRates, rate => rate.StayDate == new DateOnly(2026, 8, 6));
+        Assert.All(seededRates, rate => { Assert.Equal(ratePlan.Id, rate.RatePlanId); Assert.True(rate.Amount > 0); });
+        Assert.Equal(2, seededRates.Select(rate => rate.RoomTypeId).Distinct().Count());
+        Assert.All(seededRates.GroupBy(rate => rate.RoomTypeId), group => Assert.Equal(14, group.Count()));
         Assert.Equal(first, second);
+        Assert.Equal(customizedId, preservedRate.Id);
+        Assert.Equal(customizedStayDate, preservedRate.StayDate);
+        Assert.Equal(customizedRoomTypeId, preservedRate.RoomTypeId);
+        Assert.Equal(customizedRatePlanId, preservedRate.RatePlanId);
+        Assert.Equal(customizedAmount, preservedRate.Amount);
+    }
+
+    private sealed class FixedTimeProvider(DateTimeOffset value) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => value;
+    }
+
+    [Fact]
+    public async Task Daily_room_rate_composite_room_type_foreign_key_rejects_cross_property()
+    {
+        await factory.ResetDatabaseAsync(); await using var context = factory.CreateDbContext();
+        var a = CreateProperty("a"); var b = CreateProperty("b"); var roomA = CreateRoomType(a.Id, "A", "a"); var planB = new RatePlan(Guid.NewGuid(), b.Id, "STANDARD", "Standard", null, "VND", true, Now);
+        context.AddRange(a, b, roomA, planB); await context.SaveChangesAsync();
+        var action = () => context.Database.ExecuteSqlInterpolatedAsync($"""INSERT INTO "DailyRoomRates" ("Id","PropertyId","RoomTypeId","RatePlanId","StayDate","Amount","CreatedAt","UpdatedAt") VALUES ({Guid.NewGuid()},{b.Id},{roomA.Id},{planB.Id},{new DateOnly(2026,8,1)},{100m},{Now},{Now});""");
+        await AssertPostgresErrorAsync(action, PostgresErrorCodes.ForeignKeyViolation);
+    }
+
+    [Fact]
+    public async Task Daily_room_rate_composite_rate_plan_foreign_key_rejects_cross_property()
+    {
+        await factory.ResetDatabaseAsync(); await using var context = factory.CreateDbContext();
+        var a = CreateProperty("a"); var b = CreateProperty("b"); var roomB = CreateRoomType(b.Id, "B", "b"); var planA = new RatePlan(Guid.NewGuid(), a.Id, "STANDARD", "Standard", null, "VND", true, Now);
+        context.AddRange(a, b, roomB, planA); await context.SaveChangesAsync();
+        var action = () => context.Database.ExecuteSqlInterpolatedAsync($"""INSERT INTO "DailyRoomRates" ("Id","PropertyId","RoomTypeId","RatePlanId","StayDate","Amount","CreatedAt","UpdatedAt") VALUES ({Guid.NewGuid()},{b.Id},{roomB.Id},{planA.Id},{new DateOnly(2026,8,1)},{100m},{Now},{Now});""");
+        await AssertPostgresErrorAsync(action, PostgresErrorCodes.ForeignKeyViolation);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public async Task Daily_room_rate_amount_constraint_rejects_non_positive_values(decimal amount)
+    {
+        await factory.ResetDatabaseAsync(); await using var context = factory.CreateDbContext(); var property = CreateProperty("p"); var room = CreateRoomType(property.Id, "D", "d"); var plan = new RatePlan(Guid.NewGuid(), property.Id, "STANDARD", "Standard", null, "VND", true, Now); context.AddRange(property, room, plan); await context.SaveChangesAsync();
+        var action = () => context.Database.ExecuteSqlInterpolatedAsync($"""INSERT INTO "DailyRoomRates" ("Id","PropertyId","RoomTypeId","RatePlanId","StayDate","Amount","CreatedAt","UpdatedAt") VALUES ({Guid.NewGuid()},{property.Id},{room.Id},{plan.Id},{new DateOnly(2026,8,1)},{amount},{Now},{Now});""");
+        await AssertPostgresErrorAsync(action, PostgresErrorCodes.CheckViolation);
+    }
+
+    [Fact]
+    public async Task Daily_room_rate_timestamp_constraint_rejects_backward_update()
+    {
+        await factory.ResetDatabaseAsync(); await using var context = factory.CreateDbContext(); var property = CreateProperty("p"); var room = CreateRoomType(property.Id, "D", "d"); var plan = new RatePlan(Guid.NewGuid(), property.Id, "STANDARD", "Standard", null, "VND", true, Now); context.AddRange(property, room, plan); await context.SaveChangesAsync();
+        var action = () => context.Database.ExecuteSqlInterpolatedAsync($"""INSERT INTO "DailyRoomRates" ("Id","PropertyId","RoomTypeId","RatePlanId","StayDate","Amount","CreatedAt","UpdatedAt") VALUES ({Guid.NewGuid()},{property.Id},{room.Id},{plan.Id},{new DateOnly(2026,8,1)},{100m},{Now},{Now.AddMinutes(-1)});""");
+        await AssertPostgresErrorAsync(action, PostgresErrorCodes.CheckViolation);
     }
 
     private static Property CreateProperty(string slug)
@@ -318,6 +387,7 @@ public sealed class PropertyInventoryPersistenceTests(PostgreSqlWebApplicationFa
             await context.Properties.CountAsync(),
             await context.RoomTypes.CountAsync(),
             await context.RatePlans.CountAsync(),
+            await context.DailyRoomRates.CountAsync(),
             await context.PhysicalRooms.CountAsync(),
             await context.Amenities.CountAsync(),
             await context.Media.CountAsync(),
@@ -331,6 +401,7 @@ public sealed class PropertyInventoryPersistenceTests(PostgreSqlWebApplicationFa
         int Properties,
         int RoomTypes,
         int RatePlans,
+        int DailyRoomRates,
         int PhysicalRooms,
         int Amenities,
         int Media,
