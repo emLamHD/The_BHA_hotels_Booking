@@ -92,6 +92,7 @@ public sealed class PostgreSqlWebApplicationFactory : WebApplicationFactory<Prog
         await context.Database.ExecuteSqlRawAsync(
             """
             TRUNCATE TABLE
+                "RatePlans",
                 "PhysicalRooms",
                 "PropertyAmenities",
                 "PropertyMedia",

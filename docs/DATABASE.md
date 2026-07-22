@@ -92,7 +92,8 @@ dotnet ef database update `
 ```
 
 The current business migration is
-`20260721175848_InitialPropertyRoomInventory`. Run this command before the
+`20260722102552_AddRatePlanFoundation` (following
+`20260721175848_InitialPropertyRoomInventory`). Run this command before the
 development seed. The API never calls `EnsureCreated()` and never applies a
 migration during startup.
 
@@ -108,7 +109,8 @@ dotnet run `
   --seed-development
 ```
 
-The command creates The BHA Hotel, two room types, three physical rooms,
+The command creates The BHA Hotel, two room types, one `STANDARD`/`VND` rate
+plan, three physical rooms,
 amenities, media metadata, and their associations. It uses natural-key checks and
 database uniqueness constraints, so running it a second time does not create
 duplicates. It does not run in production, does not run during normal API startup,
