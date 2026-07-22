@@ -39,6 +39,8 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<IDailyInventoryControlStore, DailyInventoryControlStore>();
         services.AddScoped<IDailyInventoryControlCommands, DailyInventoryControlCommands>();
         services.AddScoped<IDailyInventoryQueries, DailyInventoryQueries>();
+        services.AddScoped<IAvailabilityDataSource, AvailabilityDataSource>();
+        services.AddScoped<IAvailabilitySearch, AvailabilitySearch>();
         services.AddScoped<DevelopmentDataSeeder>();
 
         services

@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Npgsql;
 using TheBha.Infrastructure.Persistence;
 
@@ -43,11 +45,23 @@ public sealed class PostgreSqlWebApplicationFactory : WebApplicationFactory<Prog
 
     public string DatabaseName { get; }
     public string ConnectionString { get; }
+    public MutableTimeProvider Clock { get; } = new(TimeProvider.System.GetUtcNow());
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Development");
         builder.UseSetting("ConnectionStrings:TheBhaDatabase", ConnectionString);
+        builder.ConfigureServices(services =>
+        {
+            services.RemoveAll<TimeProvider>();
+            services.AddSingleton<TimeProvider>(Clock);
+        });
+    }
+
+    public sealed class MutableTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        public DateTimeOffset UtcNow { get; set; } = utcNow;
+        public override DateTimeOffset GetUtcNow() => UtcNow;
     }
 
     async Task IAsyncLifetime.InitializeAsync()
