@@ -9,6 +9,7 @@ public sealed class TheBhaDbContext(DbContextOptions<TheBhaDbContext> options)
     public DbSet<Property> Properties => Set<Property>();
     public DbSet<RoomType> RoomTypes => Set<RoomType>();
     public DbSet<RatePlan> RatePlans => Set<RatePlan>();
+    public DbSet<DailyRoomRate> DailyRoomRates => Set<DailyRoomRate>();
     public DbSet<PhysicalRoom> PhysicalRooms => Set<PhysicalRoom>();
     public DbSet<Amenity> Amenities => Set<Amenity>();
     public DbSet<Media> Media => Set<Media>();

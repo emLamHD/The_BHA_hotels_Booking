@@ -3,10 +3,19 @@ using TheBha.Domain.Properties;
 
 namespace TheBha.Infrastructure.Persistence;
 
-public sealed class DevelopmentDataSeeder(TheBhaDbContext dbContext)
+public sealed class DevelopmentDataSeeder
 {
-    private static readonly DateTimeOffset SeedTimestamp =
-        new(2026, 7, 22, 0, 0, 0, TimeSpan.Zero);
+    public const int DailyRateSeedDays = 14;
+    private readonly TheBhaDbContext dbContext;
+    private readonly TimeProvider timeProvider;
+
+    public DevelopmentDataSeeder(TheBhaDbContext dbContext, TimeProvider? timeProvider = null)
+    {
+        this.dbContext = dbContext;
+        this.timeProvider = timeProvider ?? TimeProvider.System;
+    }
+
+    private DateTimeOffset SeedTimestamp => timeProvider.GetUtcNow();
 
     public async Task SeedAsync(CancellationToken cancellationToken)
     {
@@ -37,6 +46,9 @@ public sealed class DevelopmentDataSeeder(TheBhaDbContext dbContext)
         var amenities = await EnsureAmenitiesAsync(cancellationToken);
         var roomTypes = await EnsureRoomTypesAsync(property.Id, cancellationToken);
         await EnsureRatePlanAsync(property.Id, cancellationToken);
+        var ratePlan = await dbContext.RatePlans.SingleAsync(
+            item => item.PropertyId == property.Id && item.Code == "STANDARD", cancellationToken);
+        await EnsureDailyRoomRatesAsync(property, roomTypes, ratePlan, cancellationToken);
         await EnsurePhysicalRoomsAsync(property.Id, roomTypes, cancellationToken);
         var media = await EnsureMediaAsync(cancellationToken);
         await EnsureAssociationsAsync(property.Id, roomTypes, amenities, media, cancellationToken);
@@ -62,6 +74,25 @@ public sealed class DevelopmentDataSeeder(TheBhaDbContext dbContext)
                 SeedTimestamp));
             await dbContext.SaveChangesAsync(cancellationToken);
         }
+    }
+
+    private async Task EnsureDailyRoomRatesAsync(Property property, IReadOnlyDictionary<string, RoomType> roomTypes, RatePlan ratePlan, CancellationToken cancellationToken)
+    {
+        var timeZone = TimeZoneInfo.FindSystemTimeZoneById(property.TimeZone);
+        var localToday = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(timeProvider.GetUtcNow(), timeZone).DateTime);
+        var definitions = new[] { ("DLX-KING", 1500000m), ("FAMILY", 2200000m) };
+        foreach (var definition in definitions)
+        {
+            for (var offset = 0; offset < DailyRateSeedDays; offset++)
+            {
+                var stayDate = localToday.AddDays(offset);
+                if (!await dbContext.DailyRoomRates.AnyAsync(item => item.PropertyId == property.Id && item.RoomTypeId == roomTypes[definition.Item1].Id && item.RatePlanId == ratePlan.Id && item.StayDate == stayDate, cancellationToken))
+                {
+                    dbContext.DailyRoomRates.Add(new DailyRoomRate(Guid.NewGuid(), property.Id, roomTypes[definition.Item1].Id, ratePlan.Id, stayDate, definition.Item2, SeedTimestamp));
+                }
+            }
+        }
+        await dbContext.SaveChangesAsync(cancellationToken);
     }
 
     private async Task<Dictionary<string, Amenity>> EnsureAmenitiesAsync(
