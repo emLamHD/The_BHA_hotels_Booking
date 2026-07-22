@@ -50,10 +50,39 @@ public sealed class DevelopmentDataSeeder
             item => item.PropertyId == property.Id && item.Code == "STANDARD", cancellationToken);
         await EnsureDailyRoomRatesAsync(property, roomTypes, ratePlan, cancellationToken);
         await EnsurePhysicalRoomsAsync(property.Id, roomTypes, cancellationToken);
+        await EnsureDailyInventoryControlsAsync(property, roomTypes, cancellationToken);
         var media = await EnsureMediaAsync(cancellationToken);
         await EnsureAssociationsAsync(property.Id, roomTypes, amenities, media, cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
+    }
+
+    private async Task EnsureDailyInventoryControlsAsync(
+        Property property,
+        IReadOnlyDictionary<string, RoomType> roomTypes,
+        CancellationToken cancellationToken)
+    {
+        var timeZone = TimeZoneInfo.FindSystemTimeZoneById(property.TimeZone);
+        var localToday = DateOnly.FromDateTime(
+            TimeZoneInfo.ConvertTime(timeProvider.GetUtcNow(), timeZone).DateTime);
+        var definitions = new[]
+        {
+            new InventoryControlDefinition("DLX-KING", localToday.AddDays(1), 1, false, "70000000-0000-0000-0000-000000000001"),
+            new InventoryControlDefinition("FAMILY", localToday.AddDays(2), null, true, "70000000-0000-0000-0000-000000000002")
+        };
+        foreach (var definition in definitions)
+        {
+            var roomTypeId = roomTypes[definition.RoomTypeCode].Id;
+            if (!await dbContext.DailyInventoryControls.AnyAsync(
+                    item => item.PropertyId == property.Id && item.RoomTypeId == roomTypeId && item.StayDate == definition.StayDate,
+                    cancellationToken))
+            {
+                dbContext.DailyInventoryControls.Add(new DailyInventoryControl(
+                    Guid.Parse(definition.Id), property.Id, roomTypeId, definition.StayDate,
+                    definition.SellableLimit, definition.IsStopSell, SeedTimestamp));
+            }
+        }
+        await dbContext.SaveChangesAsync(cancellationToken);
     }
 
     private async Task EnsureRatePlanAsync(Guid propertyId, CancellationToken cancellationToken)
@@ -334,4 +363,5 @@ public sealed class DevelopmentDataSeeder
         string Id);
     private sealed record PhysicalRoomDefinition(string RoomNumber, int Floor, string RoomTypeCode, string Id);
     private sealed record MediaDefinition(string Key, string Url, string AltText, string Id);
+    private sealed record InventoryControlDefinition(string RoomTypeCode, DateOnly StayDate, int? SellableLimit, bool IsStopSell, string Id);
 }

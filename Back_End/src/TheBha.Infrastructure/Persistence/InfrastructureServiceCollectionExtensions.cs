@@ -36,6 +36,9 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<IDailyRoomRateStore, DailyRoomRateStore>();
         services.AddScoped<IDailyRoomRatePricing, DailyRoomRatePricing>();
         services.AddScoped<IDailyRoomRateQueries, DailyRoomRateQueries>();
+        services.AddScoped<IDailyInventoryControlStore, DailyInventoryControlStore>();
+        services.AddScoped<IDailyInventoryControlCommands, DailyInventoryControlCommands>();
+        services.AddScoped<IDailyInventoryQueries, DailyInventoryQueries>();
         services.AddScoped<DevelopmentDataSeeder>();
 
         services

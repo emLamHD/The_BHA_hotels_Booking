@@ -24,7 +24,8 @@ public sealed class PropertyInventoryPersistenceTests(PostgreSqlWebApplicationFa
         Assert.Contains(applied, migration => migration.EndsWith("_InitialPropertyRoomInventory"));
         Assert.Contains(applied, migration => migration.EndsWith("_AddRatePlanFoundation"));
         Assert.Contains(applied, migration => migration.EndsWith("_AddDailyRoomRates"));
-        Assert.Equal(3, applied.Count());
+        Assert.Contains(applied, migration => migration.EndsWith("_AddDailyInventoryControls"));
+        Assert.Equal(4, applied.Count());
         Assert.Empty(pending);
         Assert.StartsWith("17.", version, StringComparison.Ordinal);
     }
@@ -259,6 +260,9 @@ public sealed class PropertyInventoryPersistenceTests(PostgreSqlWebApplicationFa
         var first = await ReadCountsAsync(context);
         var ratePlan = await context.RatePlans.SingleAsync();
         var seededRates = await context.DailyRoomRates.OrderBy(rate => rate.StayDate).ToListAsync();
+        var seededControls = await context.DailyInventoryControls.OrderBy(control => control.StayDate).ToListAsync();
+        var hasLimitDemo = seededControls.Any(control => control.StayDate == new DateOnly(2026, 7, 24) && control.SellableLimit == 1 && !control.IsStopSell);
+        var hasStopSellDemo = seededControls.Any(control => control.StayDate == new DateOnly(2026, 7, 25) && control.SellableLimit is null && control.IsStopSell);
         var customizedRate = seededRates[0];
         var customizedId = customizedRate.Id;
         var customizedStayDate = customizedRate.StayDate;
@@ -266,14 +270,18 @@ public sealed class PropertyInventoryPersistenceTests(PostgreSqlWebApplicationFa
         var customizedRatePlanId = customizedRate.RatePlanId;
         const decimal customizedAmount = 9876543.21m;
         customizedRate.UpdateAmount(customizedAmount, fixedClock.GetUtcNow().AddMinutes(1));
+        var customizedControl = seededControls[0];
+        var customizedControlId = customizedControl.Id;
+        customizedControl.Update(0, false, fixedClock.GetUtcNow().AddMinutes(2));
         await context.SaveChangesAsync();
         context.ChangeTracker.Clear();
         await seeder.SeedAsync(CancellationToken.None);
         var second = await ReadCountsAsync(context);
         context.ChangeTracker.Clear();
         var preservedRate = await context.DailyRoomRates.SingleAsync(rate => rate.Id == customizedId);
+        var preservedControl = await context.DailyInventoryControls.SingleAsync(control => control.Id == customizedControlId);
 
-        Assert.Equal(new SeedCounts(1, 2, 1, 28, 3, 4, 4, 3, 5, 2, 2), first);
+        Assert.Equal(new SeedCounts(1, 2, 1, 28, 2, 3, 4, 4, 3, 5, 2, 2), first);
         Assert.Equal("STANDARD", ratePlan.Code);
         Assert.Equal("Standard Rate", ratePlan.Name);
         Assert.Equal("VND", ratePlan.CurrencyCode);
@@ -291,6 +299,13 @@ public sealed class PropertyInventoryPersistenceTests(PostgreSqlWebApplicationFa
         Assert.Equal(customizedRoomTypeId, preservedRate.RoomTypeId);
         Assert.Equal(customizedRatePlanId, preservedRate.RatePlanId);
         Assert.Equal(customizedAmount, preservedRate.Amount);
+        Assert.Equal(2, seededControls.Count);
+        Assert.True(hasLimitDemo);
+        Assert.True(hasStopSellDemo);
+        Assert.All(seededControls, control => Assert.InRange(control.StayDate, new DateOnly(2026, 7, 23), new DateOnly(2026, 8, 5)));
+        Assert.Equal(customizedControlId, preservedControl.Id);
+        Assert.Equal(0, preservedControl.SellableLimit);
+        Assert.False(preservedControl.IsStopSell);
     }
 
     private sealed class FixedTimeProvider(DateTimeOffset value) : TimeProvider
@@ -388,6 +403,7 @@ public sealed class PropertyInventoryPersistenceTests(PostgreSqlWebApplicationFa
             await context.RoomTypes.CountAsync(),
             await context.RatePlans.CountAsync(),
             await context.DailyRoomRates.CountAsync(),
+            await context.DailyInventoryControls.CountAsync(),
             await context.PhysicalRooms.CountAsync(),
             await context.Amenities.CountAsync(),
             await context.Media.CountAsync(),
@@ -402,6 +418,7 @@ public sealed class PropertyInventoryPersistenceTests(PostgreSqlWebApplicationFa
         int RoomTypes,
         int RatePlans,
         int DailyRoomRates,
+        int DailyInventoryControls,
         int PhysicalRooms,
         int Amenities,
         int Media,

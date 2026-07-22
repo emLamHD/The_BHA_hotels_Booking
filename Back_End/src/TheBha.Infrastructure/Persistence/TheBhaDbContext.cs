@@ -10,6 +10,7 @@ public sealed class TheBhaDbContext(DbContextOptions<TheBhaDbContext> options)
     public DbSet<RoomType> RoomTypes => Set<RoomType>();
     public DbSet<RatePlan> RatePlans => Set<RatePlan>();
     public DbSet<DailyRoomRate> DailyRoomRates => Set<DailyRoomRate>();
+    public DbSet<DailyInventoryControl> DailyInventoryControls => Set<DailyInventoryControl>();
     public DbSet<PhysicalRoom> PhysicalRooms => Set<PhysicalRoom>();
     public DbSet<Amenity> Amenities => Set<Amenity>();
     public DbSet<Media> Media => Set<Media>();
