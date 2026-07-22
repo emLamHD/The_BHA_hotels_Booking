@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using TheBha.Infrastructure.Persistence;
@@ -11,9 +12,11 @@ using TheBha.Infrastructure.Persistence;
 namespace TheBha.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(TheBhaDbContext))]
-    partial class TheBhaDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260722121010_AddDailyInventoryControls")]
+    partial class AddDailyInventoryControls
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
