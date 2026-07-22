@@ -22,6 +22,7 @@ public sealed class PropertyInventoryPersistenceTests(PostgreSqlWebApplicationFa
         var version = (string?)await command.ExecuteScalarAsync();
 
         Assert.Contains(applied, migration => migration.EndsWith("_InitialPropertyRoomInventory"));
+        Assert.Contains(applied, migration => migration.EndsWith("_AddRatePlanFoundation"));
         Assert.Empty(pending);
         Assert.StartsWith("17.", version, StringComparison.Ordinal);
     }
@@ -88,6 +89,70 @@ public sealed class PropertyInventoryPersistenceTests(PostgreSqlWebApplicationFa
         await context.SaveChangesAsync();
 
         Assert.Equal(2, await context.RoomTypes.CountAsync());
+    }
+
+    [Fact]
+    public async Task Rate_plan_persists_and_its_code_is_unique_within_property()
+    {
+        await factory.ResetDatabaseAsync();
+        await using var context = factory.CreateDbContext();
+        var property = CreateProperty("hotel");
+        context.Add(property);
+        context.RatePlans.Add(new RatePlan(
+            Guid.NewGuid(), property.Id, "STANDARD", "Standard Rate", null, "VND", true, Now));
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+
+        var saved = await context.RatePlans.SingleAsync();
+        Assert.Equal("STANDARD", saved.Code);
+        Assert.Equal("VND", saved.CurrencyCode);
+
+        context.RatePlans.Add(new RatePlan(
+            Guid.NewGuid(), property.Id, "STANDARD", "Another Standard", null, "VND", true, Now));
+        await AssertDatabaseErrorAsync(() => context.SaveChangesAsync(), PostgresErrorCodes.UniqueViolation);
+    }
+
+    [Fact]
+    public async Task Rate_plan_code_can_be_reused_by_another_property_and_foreign_key_is_enforced()
+    {
+        await factory.ResetDatabaseAsync();
+        await using var context = factory.CreateDbContext();
+        var first = CreateProperty("first-hotel");
+        var second = CreateProperty("second-hotel");
+        context.AddRange(first, second);
+        context.RatePlans.AddRange(
+            new RatePlan(Guid.NewGuid(), first.Id, "STANDARD", "Standard Rate", null, "VND", true, Now),
+            new RatePlan(Guid.NewGuid(), second.Id, "STANDARD", "Standard Rate", null, "VND", true, Now));
+        await context.SaveChangesAsync();
+        Assert.Equal(2, await context.RatePlans.CountAsync());
+
+        var action = () => context.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "RatePlans" ("Id", "PropertyId", "Code", "Name", "CurrencyCode", "IsActive", "CreatedAt", "UpdatedAt")
+            VALUES ({Guid.NewGuid()}, {Guid.NewGuid()}, {"INVALID"}, {"Invalid"}, {"VND"}, {true}, {Now}, {Now});
+            """);
+        await AssertPostgresErrorAsync(action, PostgresErrorCodes.ForeignKeyViolation);
+    }
+
+    [Fact]
+    public async Task Rate_plan_check_constraints_reject_invalid_currency_and_timestamp_order()
+    {
+        await factory.ResetDatabaseAsync();
+        await using var context = factory.CreateDbContext();
+        var property = CreateProperty("hotel");
+        context.Add(property);
+        await context.SaveChangesAsync();
+
+        var invalidCurrency = () => context.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "RatePlans" ("Id", "PropertyId", "Code", "Name", "CurrencyCode", "IsActive", "CreatedAt", "UpdatedAt")
+            VALUES ({Guid.NewGuid()}, {property.Id}, {"INVALID"}, {"Invalid"}, {"VN1"}, {true}, {Now}, {Now});
+            """);
+        await AssertPostgresErrorAsync(invalidCurrency, PostgresErrorCodes.CheckViolation);
+
+        var invalidTimestamp = () => context.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "RatePlans" ("Id", "PropertyId", "Code", "Name", "CurrencyCode", "IsActive", "CreatedAt", "UpdatedAt")
+            VALUES ({Guid.NewGuid()}, {property.Id}, {"INVALID2"}, {"Invalid"}, {"VND"}, {true}, {Now}, {Now.AddMinutes(-1)});
+            """);
+        await AssertPostgresErrorAsync(invalidTimestamp, PostgresErrorCodes.CheckViolation);
     }
 
     [Fact]
@@ -189,11 +254,16 @@ public sealed class PropertyInventoryPersistenceTests(PostgreSqlWebApplicationFa
 
         await seeder.SeedAsync(CancellationToken.None);
         var first = await ReadCountsAsync(context);
+        var ratePlan = await context.RatePlans.SingleAsync();
         context.ChangeTracker.Clear();
         await seeder.SeedAsync(CancellationToken.None);
         var second = await ReadCountsAsync(context);
 
-        Assert.Equal(new SeedCounts(1, 2, 3, 4, 4, 3, 5, 2, 2), first);
+        Assert.Equal(new SeedCounts(1, 2, 1, 3, 4, 4, 3, 5, 2, 2), first);
+        Assert.Equal("STANDARD", ratePlan.Code);
+        Assert.Equal("Standard Rate", ratePlan.Name);
+        Assert.Equal("VND", ratePlan.CurrencyCode);
+        Assert.True(ratePlan.IsActive);
         Assert.Equal(first, second);
     }
 
@@ -247,6 +317,7 @@ public sealed class PropertyInventoryPersistenceTests(PostgreSqlWebApplicationFa
         return new SeedCounts(
             await context.Properties.CountAsync(),
             await context.RoomTypes.CountAsync(),
+            await context.RatePlans.CountAsync(),
             await context.PhysicalRooms.CountAsync(),
             await context.Amenities.CountAsync(),
             await context.Media.CountAsync(),
@@ -259,6 +330,7 @@ public sealed class PropertyInventoryPersistenceTests(PostgreSqlWebApplicationFa
     private sealed record SeedCounts(
         int Properties,
         int RoomTypes,
+        int RatePlans,
         int PhysicalRooms,
         int Amenities,
         int Media,

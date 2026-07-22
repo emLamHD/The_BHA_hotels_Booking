@@ -36,11 +36,32 @@ public sealed class DevelopmentDataSeeder(TheBhaDbContext dbContext)
 
         var amenities = await EnsureAmenitiesAsync(cancellationToken);
         var roomTypes = await EnsureRoomTypesAsync(property.Id, cancellationToken);
+        await EnsureRatePlanAsync(property.Id, cancellationToken);
         await EnsurePhysicalRoomsAsync(property.Id, roomTypes, cancellationToken);
         var media = await EnsureMediaAsync(cancellationToken);
         await EnsureAssociationsAsync(property.Id, roomTypes, amenities, media, cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
+    }
+
+    private async Task EnsureRatePlanAsync(Guid propertyId, CancellationToken cancellationToken)
+    {
+        var exists = await dbContext.RatePlans.AnyAsync(
+            ratePlan => ratePlan.PropertyId == propertyId && ratePlan.Code == "STANDARD",
+            cancellationToken);
+        if (!exists)
+        {
+            dbContext.RatePlans.Add(new RatePlan(
+                Guid.Parse("60000000-0000-0000-0000-000000000001"),
+                propertyId,
+                "STANDARD",
+                "Standard Rate",
+                null,
+                "VND",
+                true,
+                SeedTimestamp));
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
     }
 
     private async Task<Dictionary<string, Amenity>> EnsureAmenitiesAsync(

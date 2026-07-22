@@ -74,6 +74,8 @@ The customer property catalog is exposed at `/api/v1/properties` and
 `/api/v1/room-types/{roomTypeId}`. See
 [docs/BE-001-PROPERTY-INVENTORY.md](docs/BE-001-PROPERTY-INVENTORY.md) for the
 domain, schema, API contracts, migration, and explicit development-seed workflow.
+See [docs/BE-002-1-RATE-PLAN-FOUNDATION.md](docs/BE-002-1-RATE-PLAN-FOUNDATION.md)
+for the Property rate-plan foundation.
 
 ## Local production simulation
 
