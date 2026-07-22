@@ -91,11 +91,15 @@ dotnet ef database update `
   --startup-project Back_End/src/TheBha.Api/TheBha.Api.csproj
 ```
 
-The current business migration is
-`20260722102552_AddRatePlanFoundation` (following
-`20260721175848_InitialPropertyRoomInventory`). Run this command before the
-development seed. The API never calls `EnsureCreated()` and never applies a
-migration during startup.
+The current migration chain is:
+
+1. `20260721175848_InitialPropertyRoomInventory`
+2. `20260722102552_AddRatePlanFoundation`
+3. `20260722112304_AddDailyRoomRates`
+4. `20260722121010_AddDailyInventoryControls`
+
+Run the update command before the development seed. The API never calls
+`EnsureCreated()` and never applies a migration during startup.
 
 ## Run the explicit development seed
 
@@ -110,11 +114,12 @@ dotnet run `
 ```
 
 The command creates The BHA Hotel, two room types, one `STANDARD`/`VND` rate
-plan, three physical rooms,
-amenities, media metadata, and their associations. It uses natural-key checks and
-database uniqueness constraints, so running it a second time does not create
-duplicates. It does not run in production, does not run during normal API startup,
-and does not apply migrations.
+plan, three physical rooms, a rolling 14-night demo rate window, two demo
+inventory controls, amenities, media metadata, and their associations. It uses
+natural-key checks and database uniqueness constraints, so running it a second
+time does not create duplicates or overwrite customized rates and controls. It
+does not run in production, does not run during normal API startup, and does not
+apply migrations.
 
 Run the API after configuring `ConnectionStrings:TheBhaDatabase` through User
 Secrets or the environment variable shown above:
