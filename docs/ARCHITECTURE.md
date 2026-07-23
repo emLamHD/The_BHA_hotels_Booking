@@ -30,12 +30,12 @@ Project reference rules:
 
 ## API foundation
 
-`TheBha.Api` uses ASP.NET Core controllers with nullable reference types and implicit usings enabled. Swagger/OpenAPI is available in the Development environment. `GET /health` provides a lightweight process-health endpoint, while `GET /health/ready` checks PostgreSQL connectivity through EF Core. Versioned customer catalog controllers depend on Application query contracts and return DTOs rather than EF entities.
+`TheBha.Api` uses ASP.NET Core controllers with nullable reference types and implicit usings enabled. Swagger/OpenAPI is available in the Development environment. `GET /health` provides a lightweight process-health endpoint, while `GET /health/ready` checks PostgreSQL connectivity through EF Core. Versioned customer catalog controllers depend on Application query contracts and return DTOs rather than EF entities. BE-003.1 composes customer cookie authentication, antiforgery, credentialed CORS, and authentication rate limits in this API layer.
 
 ## Persistence foundation
 
 `TheBha.Infrastructure/Persistence` owns `TheBhaDbContext`, entity configurations,
-read-query implementations, the explicit development seeder, and EF Core
+read-query implementations, ASP.NET Core Identity Core persistence, the explicit development seeder, and EF Core
 migrations. The API supplies `ConnectionStrings:TheBhaDatabase` through external
 configuration. PostgreSQL is the sole source of catalog data. The API does not
 apply migrations or seed data during normal startup.
@@ -44,8 +44,9 @@ PostgreSQL 17 runs locally through Docker Compose with a named volume and is als
 
 ## Deliberately deferred decisions
 
-MediatR, AutoMapper, FluentValidation, rate plans, availability, reservations,
-authentication, payment integrations, housekeeping, and maintenance workflows
+MediatR, AutoMapper, FluentValidation, reservations, guest tokens, customer
+verification and recovery, MFA, administration authentication, payment
+integrations, housekeeping, and maintenance workflows
 remain deliberately deferred.
 
 ## Current operational scope
