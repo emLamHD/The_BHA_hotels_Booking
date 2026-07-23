@@ -43,10 +43,26 @@ public sealed class ArchitectureTests
             .GetReferencedAssemblies()
             .Where(reference =>
                 reference.Name?.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal) == true ||
+                reference.Name?.StartsWith("Microsoft.EntityFrameworkCore", StringComparison.Ordinal) == true ||
                 reference.Name?.Contains("Identity", StringComparison.Ordinal) == true)
             .Select(reference => reference.Name)
             .ToArray();
 
         Assert.Empty(forbiddenReferences);
+    }
+
+    [Fact]
+    public void Application_contains_no_hold_or_reservation_workflow()
+    {
+        var applicationAssembly = Assembly.Load("TheBha.Application");
+        var bookingWorkflowTypes = applicationAssembly
+            .GetTypes()
+            .Where(type =>
+                type.Name.Contains("BookingHold", StringComparison.Ordinal) ||
+                type.Name.Contains("Reservation", StringComparison.Ordinal))
+            .Select(type => type.FullName)
+            .ToArray();
+
+        Assert.Empty(bookingWorkflowTypes);
     }
 }
