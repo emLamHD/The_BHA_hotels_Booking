@@ -100,6 +100,13 @@ The current migration chain is:
 5. `20260723085814_CustomerBookingIdentity`
 6. `20260723105404_AddBookingHoldReservationFoundation`
 
+BE-003.3 adds no migration. Atomic Hold creation reuses the sixth migration's
+unique idempotency-hash safeguard and booking demand indexes. It acquires
+parameterized, transaction-scoped PostgreSQL advisory locks for idempotency and
+for each Property/RoomType/stay-date inventory identity before re-reading price,
+inventory controls, and committed demand. The complete lock-key algorithm is
+recorded in `docs/BE-003-3-ATOMIC-BOOKING-HOLD.md`.
+
 Run the update command before the development seed. The API never calls
 `EnsureCreated()` and never applies a migration during startup.
 

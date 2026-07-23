@@ -78,6 +78,26 @@ public sealed class AvailabilitySearchTests
     }
 
     [Fact]
+    public async Task Subtracts_committed_demand_per_night_and_clamps_at_zero()
+    {
+        var data = BuildData(limit: null);
+        var roomTypeId = data.RoomTypes.Single().Id;
+        data = data with
+        {
+            CommittedDemand =
+            [
+                new AvailabilityCommittedDemandData(roomTypeId, LocalToday, 1),
+                new AvailabilityCommittedDemandData(roomTypeId, LocalToday.AddDays(1), 9)
+            ]
+        };
+
+        var result = await Service(new DataSource { Data = data })
+            .SearchAsync(Request(), CancellationToken.None);
+
+        Assert.Empty(result.Offers);
+    }
+
+    [Fact]
     public async Task Missing_or_inactive_property_maps_to_not_found_and_cancellation_propagates()
     {
         var missing = await Service(new DataSource { Data = null }).SearchAsync(Request(), CancellationToken.None);
@@ -103,7 +123,8 @@ public sealed class AvailabilitySearchTests
         return new AvailabilityData(new AvailabilityPropertyData(propertyId, "Asia/Ho_Chi_Minh"),
             [new AvailabilityRoomTypeData(roomId, propertyId, "DLX", "Deluxe", "Room", 2, [])], plans, rates,
             new Dictionary<Guid, int> { [roomId] = 3 },
-            [new AvailabilityInventoryControlData(roomId, LocalToday.AddDays(1), limit, stopSell)]);
+            [new AvailabilityInventoryControlData(roomId, LocalToday.AddDays(1), limit, stopSell)],
+            []);
     }
 
     private sealed class DataSource : IAvailabilityDataSource
@@ -111,7 +132,7 @@ public sealed class AvailabilitySearchTests
         public AvailabilityData? Data { get; init; }
         public bool Loaded { get; private set; }
         public CancellationToken Token { get; private set; }
-        public Task<AvailabilityData?> LoadAsync(Guid propertyId, DateOnly checkIn, DateOnly checkOut, CancellationToken token) { Loaded = true; Token = token; token.ThrowIfCancellationRequested(); return Task.FromResult(Data); }
+        public Task<AvailabilityData?> LoadAsync(Guid propertyId, DateOnly checkIn, DateOnly checkOut, DateTimeOffset utcNow, CancellationToken token) { Loaded = true; Token = token; token.ThrowIfCancellationRequested(); return Task.FromResult(Data); }
     }
     private sealed class FixedTimeProvider(DateTimeOffset value) : TimeProvider { public override DateTimeOffset GetUtcNow() => value; }
 }

@@ -27,17 +27,24 @@ public sealed record AvailabilityRoomTypeData(Guid Id, Guid PropertyId, string C
 public sealed record AvailabilityRatePlanData(Guid Id, Guid PropertyId, string Code, string Name, string CurrencyCode);
 public sealed record AvailabilityDailyRateData(Guid RoomTypeId, Guid RatePlanId, DateOnly StayDate, decimal Amount);
 public sealed record AvailabilityInventoryControlData(Guid RoomTypeId, DateOnly StayDate, int? SellableLimit, bool IsStopSell);
+public sealed record AvailabilityCommittedDemandData(Guid RoomTypeId, DateOnly StayDate, int Rooms);
 public sealed record AvailabilityData(
     AvailabilityPropertyData Property,
     IReadOnlyList<AvailabilityRoomTypeData> RoomTypes,
     IReadOnlyList<AvailabilityRatePlanData> RatePlans,
     IReadOnlyList<AvailabilityDailyRateData> DailyRates,
     IReadOnlyDictionary<Guid, int> ActiveRoomCounts,
-    IReadOnlyList<AvailabilityInventoryControlData> InventoryControls);
+    IReadOnlyList<AvailabilityInventoryControlData> InventoryControls,
+    IReadOnlyList<AvailabilityCommittedDemandData> CommittedDemand);
 
 public interface IAvailabilityDataSource
 {
-    Task<AvailabilityData?> LoadAsync(Guid propertyId, DateOnly checkIn, DateOnly checkOut, CancellationToken cancellationToken);
+    Task<AvailabilityData?> LoadAsync(
+        Guid propertyId,
+        DateOnly checkIn,
+        DateOnly checkOut,
+        DateTimeOffset utcNow,
+        CancellationToken cancellationToken);
 }
 
 public interface IAvailabilitySearch
@@ -51,15 +58,22 @@ public sealed class AvailabilitySearch(IAvailabilityDataSource dataSource, TimeP
     {
         var basicError = ValidateBasic(request);
         if (basicError is not null) return AvailabilitySearchResult.Invalid(basicError);
-        var data = await dataSource.LoadAsync(request.PropertyId, request.CheckIn, request.CheckOut, cancellationToken);
+        var utcNow = timeProvider.GetUtcNow();
+        var data = await dataSource.LoadAsync(
+            request.PropertyId,
+            request.CheckIn,
+            request.CheckOut,
+            utcNow,
+            cancellationToken);
         if (data is null) return AvailabilitySearchResult.NotFound();
         var timeZone = TimeZoneInfo.FindSystemTimeZoneById(data.Property.TimeZone);
-        var localToday = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(timeProvider.GetUtcNow(), timeZone).DateTime);
+        var localToday = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(utcNow, timeZone).DateTime);
         if (request.CheckIn < localToday) return AvailabilitySearchResult.Invalid("checkIn cannot be earlier than the Property local date.");
 
         var nights = request.CheckOut.DayNumber - request.CheckIn.DayNumber;
         var people = (long)request.Adults + request.Children;
         var controls = data.InventoryControls.GroupBy(x => x.RoomTypeId).ToDictionary(group => group.Key, group => group.ToDictionary(x => x.StayDate));
+        var demand = data.CommittedDemand.ToDictionary(x => (x.RoomTypeId, x.StayDate), x => x.Rooms);
         var rates = data.DailyRates.GroupBy(x => (x.RoomTypeId, x.RatePlanId)).ToDictionary(group => group.Key, group => group.OrderBy(x => x.StayDate).ToList());
         var offers = new List<AvailabilityOfferDto>();
         foreach (var roomType in data.RoomTypes.Where(x => people <= (long)x.MaxOccupancy * request.Rooms))
@@ -69,7 +83,12 @@ public sealed class AvailabilitySearch(IAvailabilityDataSource dataSource, TimeP
             {
                 AvailabilityInventoryControlData? control = null;
                 if (controls.TryGetValue(roomType.Id, out var roomControls)) roomControls.TryGetValue(date, out control);
-                return control?.IsStopSell == true ? 0 : Math.Min(baseInventory, control?.SellableLimit ?? baseInventory);
+                var controlledInventory = control?.IsStopSell == true
+                    ? 0
+                    : Math.Min(baseInventory, control?.SellableLimit ?? baseInventory);
+                return Math.Max(
+                    0,
+                    controlledInventory - demand.GetValueOrDefault((roomType.Id, date)));
             }).Min();
             if (availableRooms < request.Rooms) continue;
             foreach (var plan in data.RatePlans)

@@ -519,7 +519,7 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
     }
 
     [Fact]
-    public async Task OpenApi_has_no_hold_or_reservation_paths()
+    public async Task OpenApi_has_only_the_approved_hold_creation_path_and_no_reservation_paths()
     {
         using var client = factory.CreateClient();
         var response = await client.GetAsync("/swagger/v1/swagger.json");
@@ -527,15 +527,12 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
         await using var payload = await response.Content.ReadAsStreamAsync();
         using var document = await JsonDocument.ParseAsync(payload);
 
-        var paths = document.RootElement.GetProperty("paths")
-            .EnumerateObject()
-            .Select(path => path.Name)
-            .ToArray();
+        var paths = document.RootElement.GetProperty("paths");
+        var holdPath = paths.GetProperty("/api/v1/booking-holds");
+        Assert.True(holdPath.TryGetProperty("post", out _));
         Assert.DoesNotContain(
-            paths,
-            path =>
-                path.Contains("booking-hold", StringComparison.OrdinalIgnoreCase) ||
-                path.Contains("reservation", StringComparison.OrdinalIgnoreCase));
+            paths.EnumerateObject(),
+            path => path.Name.Contains("reservation", StringComparison.OrdinalIgnoreCase));
     }
 
     private static ReferenceData AddReferences(
