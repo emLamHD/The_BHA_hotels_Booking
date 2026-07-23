@@ -5,9 +5,10 @@
 The repository separates deployable applications under `Front_End` and `Back_End`. The customer-facing Next.js application remains independent from the ASP.NET Core API, while `Admin_Web` is intentionally only a placeholder.
 
 The backend targets .NET 8 and uses Clean Architecture project boundaries. The
-Domain contains catalog, pricing/inventory-control, and BE-003.2 transactional
-Hold/Reservation structures. Booking workflows remain outside the delivered
-Application and API layers.
+Domain contains catalog, pricing/inventory-control, and transactional
+Hold/Reservation structures. BE-003.3 adds the first booking workflow:
+Application-level Hold request normalization and hashing, an API creation
+endpoint, and Infrastructure-owned atomic PostgreSQL persistence.
 
 ## Backend dependency direction
 
@@ -31,7 +32,7 @@ Project reference rules:
 
 ## API foundation
 
-`TheBha.Api` uses ASP.NET Core controllers with nullable reference types and implicit usings enabled. Swagger/OpenAPI is available in the Development environment. `GET /health` provides a lightweight process-health endpoint, while `GET /health/ready` checks PostgreSQL connectivity through EF Core. Versioned customer catalog controllers depend on Application query contracts and return DTOs rather than EF entities. BE-003.1 composes customer cookie authentication, antiforgery, credentialed CORS, and authentication rate limits in this API layer.
+`TheBha.Api` uses ASP.NET Core controllers with nullable reference types and implicit usings enabled. Swagger/OpenAPI is available in the Development environment. `GET /health` provides a lightweight process-health endpoint, while `GET /health/ready` checks PostgreSQL connectivity through EF Core. Versioned customer catalog controllers depend on Application query contracts and return DTOs rather than EF entities. BE-003.1 composes customer cookie authentication, antiforgery, credentialed CORS, and authentication rate limits in this API layer. `POST /api/v1/booking-holds` permits guest or cookie-authenticated callers while retaining the global antiforgery policy and returns only customer-safe Application DTOs.
 
 ## Persistence foundation
 
@@ -39,15 +40,18 @@ Project reference rules:
 read-query implementations, ASP.NET Core Identity Core and transactional booking
 persistence, the explicit development seeder, and EF Core migrations. The API
 supplies `ConnectionStrings:TheBhaDatabase` through external
-configuration. PostgreSQL is the sole source of catalog data. The API does not
+configuration. PostgreSQL is the sole source of catalog and booking data.
+Atomic Hold creation uses explicit transactions and parameterized
+`pg_advisory_xact_lock` calls in Infrastructure; Application and Domain contain
+no PostgreSQL dependency. The API does not
 apply migrations or seed data during normal startup.
 
 PostgreSQL 17 runs locally through Docker Compose with a named volume and is also used by the backend integration-test job in GitHub Actions. The API does not call `EnsureCreated()` or apply migrations during startup.
 
 ## Deliberately deferred decisions
 
-MediatR, AutoMapper, FluentValidation, Hold/Reservation Application and API
-workflows, guest-token transport, committed-demand changes, customer verification
+MediatR, AutoMapper, FluentValidation, Hold reads or lifecycle transitions,
+Reservation Application/API workflows, guest-token authorization, customer verification
 and recovery, MFA, administration authentication, payment integrations,
 housekeeping, and maintenance workflows
 remain deliberately deferred.

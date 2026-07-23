@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using TheBha.Application.Bookings;
 using TheBha.Application.Properties;
 
 namespace TheBha.Infrastructure.Persistence;
@@ -41,6 +42,9 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<IDailyInventoryQueries, DailyInventoryQueries>();
         services.AddScoped<IAvailabilityDataSource, AvailabilityDataSource>();
         services.AddScoped<IAvailabilitySearch, AvailabilitySearch>();
+        services.AddScoped<IBookingHoldCreationStore, BookingHoldCreationStore>();
+        services.AddScoped<IBookingHoldCreation, BookingHoldCreation>();
+        services.AddSingleton<IGuestAccessTokenGenerator, CryptographicGuestAccessTokenGenerator>();
         services.AddScoped<DevelopmentDataSeeder>();
 
         services

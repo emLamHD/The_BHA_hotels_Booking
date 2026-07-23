@@ -9,6 +9,7 @@ using System.Security.Claims;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using TheBha.Api.Authentication;
+using TheBha.Api.Bookings;
 using TheBha.Application.Customers;
 using TheBha.Infrastructure.Identity;
 using TheBha.Infrastructure.Persistence;
@@ -79,6 +80,7 @@ builder.Services.AddSwaggerGen(options =>
             Description = "Secure HttpOnly customer session cookie; not a bearer token."
         });
     options.OperationFilter<AuthOperationFilter>();
+    options.OperationFilter<BookingHoldOperationFilter>();
 });
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services
