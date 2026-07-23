@@ -79,6 +79,8 @@ for the Property rate-plan foundation.
 See [docs/BE-003-1-CUSTOMER-BOOKING-IDENTITY.md](docs/BE-003-1-CUSTOMER-BOOKING-IDENTITY.md)
 for the customer Identity Core, cookie-session, antiforgery, CORS, rate-limit,
 and Data Protection contract.
+See [docs/BE-003-2-HOLD-RESERVATION-DOMAIN-FOUNDATION.md](docs/BE-003-2-HOLD-RESERVATION-DOMAIN-FOUNDATION.md)
+for the persistence-ready Hold and Reservation aggregates and schema foundation.
 
 ## Local production simulation
 

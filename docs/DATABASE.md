@@ -98,6 +98,7 @@ The current migration chain is:
 3. `20260722112304_AddDailyRoomRates`
 4. `20260722121010_AddDailyInventoryControls`
 5. `20260723085814_CustomerBookingIdentity`
+6. `20260723105404_AddBookingHoldReservationFoundation`
 
 Run the update command before the development seed. The API never calls
 `EnsureCreated()` and never applies a migration during startup.

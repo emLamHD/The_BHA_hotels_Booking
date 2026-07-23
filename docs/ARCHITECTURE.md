@@ -4,9 +4,10 @@
 
 The repository separates deployable applications under `Front_End` and `Back_End`. The customer-facing Next.js application remains independent from the ASP.NET Core API, while `Admin_Web` is intentionally only a placeholder.
 
-The backend targets .NET 8 and uses Clean Architecture project boundaries. BE-001
-adds the approved Property, RoomType, PhysicalRoom, Amenity, and Media domain
-model without introducing booking, availability, pricing, or payment behavior.
+The backend targets .NET 8 and uses Clean Architecture project boundaries. The
+Domain contains catalog, pricing/inventory-control, and BE-003.2 transactional
+Hold/Reservation structures. Booking workflows remain outside the delivered
+Application and API layers.
 
 ## Backend dependency direction
 
@@ -35,8 +36,9 @@ Project reference rules:
 ## Persistence foundation
 
 `TheBha.Infrastructure/Persistence` owns `TheBhaDbContext`, entity configurations,
-read-query implementations, ASP.NET Core Identity Core persistence, the explicit development seeder, and EF Core
-migrations. The API supplies `ConnectionStrings:TheBhaDatabase` through external
+read-query implementations, ASP.NET Core Identity Core and transactional booking
+persistence, the explicit development seeder, and EF Core migrations. The API
+supplies `ConnectionStrings:TheBhaDatabase` through external
 configuration. PostgreSQL is the sole source of catalog data. The API does not
 apply migrations or seed data during normal startup.
 
@@ -44,9 +46,10 @@ PostgreSQL 17 runs locally through Docker Compose with a named volume and is als
 
 ## Deliberately deferred decisions
 
-MediatR, AutoMapper, FluentValidation, reservations, guest tokens, customer
-verification and recovery, MFA, administration authentication, payment
-integrations, housekeeping, and maintenance workflows
+MediatR, AutoMapper, FluentValidation, Hold/Reservation Application and API
+workflows, guest-token transport, committed-demand changes, customer verification
+and recovery, MFA, administration authentication, payment integrations,
+housekeeping, and maintenance workflows
 remain deliberately deferred.
 
 ## Current operational scope

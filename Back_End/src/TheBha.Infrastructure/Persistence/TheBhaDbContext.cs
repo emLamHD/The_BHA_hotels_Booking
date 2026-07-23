@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using TheBha.Domain.Bookings;
 using TheBha.Infrastructure.Identity;
 using TheBha.Domain.Properties;
 
@@ -9,6 +10,10 @@ public sealed class TheBhaDbContext(DbContextOptions<TheBhaDbContext> options)
     : IdentityUserContext<CustomerAccount, Guid>(options)
 {
     public DbSet<CustomerAccount> CustomerAccounts => Set<CustomerAccount>();
+    public DbSet<BookingHold> BookingHolds => Set<BookingHold>();
+    public DbSet<BookingHoldNight> BookingHoldNights => Set<BookingHoldNight>();
+    public DbSet<Reservation> Reservations => Set<Reservation>();
+    public DbSet<ReservationNight> ReservationNights => Set<ReservationNight>();
     public DbSet<Property> Properties => Set<Property>();
     public DbSet<RoomType> RoomTypes => Set<RoomType>();
     public DbSet<RatePlan> RatePlans => Set<RatePlan>();
