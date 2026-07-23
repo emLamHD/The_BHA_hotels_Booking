@@ -76,6 +76,9 @@ The customer property catalog is exposed at `/api/v1/properties` and
 domain, schema, API contracts, migration, and explicit development-seed workflow.
 See [docs/BE-002-1-RATE-PLAN-FOUNDATION.md](docs/BE-002-1-RATE-PLAN-FOUNDATION.md)
 for the Property rate-plan foundation.
+See [docs/BE-003-1-CUSTOMER-BOOKING-IDENTITY.md](docs/BE-003-1-CUSTOMER-BOOKING-IDENTITY.md)
+for the customer Identity Core, cookie-session, antiforgery, CORS, rate-limit,
+and Data Protection contract.
 
 ## Local production simulation
 

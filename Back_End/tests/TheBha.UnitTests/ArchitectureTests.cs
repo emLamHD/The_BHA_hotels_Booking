@@ -32,4 +32,21 @@ public sealed class ArchitectureTests
         Assert.Equal(["TheBha.Domain"], internalReferences);
     }
 
+    [Theory]
+    [InlineData("TheBha.Domain")]
+    [InlineData("TheBha.Application")]
+    public void Domain_and_application_do_not_reference_transport_or_identity(
+        string assemblyName)
+    {
+        var assembly = Assembly.Load(assemblyName);
+        var forbiddenReferences = assembly
+            .GetReferencedAssemblies()
+            .Where(reference =>
+                reference.Name?.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal) == true ||
+                reference.Name?.Contains("Identity", StringComparison.Ordinal) == true)
+            .Select(reference => reference.Name)
+            .ToArray();
+
+        Assert.Empty(forbiddenReferences);
+    }
 }

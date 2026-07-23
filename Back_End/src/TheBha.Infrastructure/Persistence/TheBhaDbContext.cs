@@ -1,11 +1,14 @@
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using TheBha.Infrastructure.Identity;
 using TheBha.Domain.Properties;
 
 namespace TheBha.Infrastructure.Persistence;
 
 public sealed class TheBhaDbContext(DbContextOptions<TheBhaDbContext> options)
-    : DbContext(options)
+    : IdentityUserContext<CustomerAccount, Guid>(options)
 {
+    public DbSet<CustomerAccount> CustomerAccounts => Set<CustomerAccount>();
     public DbSet<Property> Properties => Set<Property>();
     public DbSet<RoomType> RoomTypes => Set<RoomType>();
     public DbSet<RatePlan> RatePlans => Set<RatePlan>();
@@ -22,6 +25,7 @@ public sealed class TheBhaDbContext(DbContextOptions<TheBhaDbContext> options)
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ArgumentNullException.ThrowIfNull(modelBuilder);
+        base.OnModelCreating(modelBuilder);
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(TheBhaDbContext).Assembly);
     }
 }

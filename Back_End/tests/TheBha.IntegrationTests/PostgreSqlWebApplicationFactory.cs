@@ -30,7 +30,7 @@ public sealed class PostgreSqlWebApplicationFactory : WebApplicationFactory<Prog
         databasePrefix = string.IsNullOrWhiteSpace(databasePrefix) ? "thebha" : databasePrefix;
         databasePrefix = databasePrefix[..Math.Min(databasePrefix.Length, 20)];
 
-        DatabaseName = $"{databasePrefix}_be001_{Guid.NewGuid():N}";
+        DatabaseName = $"{databasePrefix}_integration_{Guid.NewGuid():N}";
         applicationBuilder.Database = DatabaseName;
         applicationBuilder.Pooling = false;
         ConnectionString = applicationBuilder.ConnectionString;
@@ -106,6 +106,7 @@ public sealed class PostgreSqlWebApplicationFactory : WebApplicationFactory<Prog
         await context.Database.ExecuteSqlRawAsync(
             """
             TRUNCATE TABLE
+                "AspNetUsers",
                 "DailyInventoryControls",
                 "DailyRoomRates",
                 "RatePlans",
