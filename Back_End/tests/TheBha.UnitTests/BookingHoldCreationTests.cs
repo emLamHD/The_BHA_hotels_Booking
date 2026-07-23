@@ -104,14 +104,12 @@ public sealed class BookingHoldCreationTests
     }
 
     [Fact]
-    public async Task Guest_request_is_normalized_and_prepared_with_one_time_token_hash()
+    public async Task Guest_request_is_normalized_without_generating_transport_secrets()
     {
         var store = new RecordingStore();
-        var token = new StubTokenGenerator("opaque-guest-token");
         var service = new BookingHoldCreation(
             new StubCurrentCustomer(false, null),
-            store,
-            token);
+            store);
 
         await service.CreateAsync(
             "Key",
@@ -121,29 +119,19 @@ public sealed class BookingHoldCreationTests
         Assert.NotNull(store.Request);
         Assert.Null(store.Request.CustomerAccountId);
         Assert.Equal("Guest Name", store.Request.FullName);
-        Assert.Equal("opaque-guest-token", store.Request.GuestAccessToken);
-        Assert.Equal(
-            BookingHoldRequestSecurity.Sha256Hex("opaque-guest-token"),
-            store.Request.GuestAccessTokenHash);
-        Assert.Equal(1, token.Calls);
     }
 
     [Fact]
     public async Task Authenticated_request_uses_current_customer_and_generates_no_guest_token()
     {
         var store = new RecordingStore();
-        var token = new StubTokenGenerator("must-not-be-used");
         var service = new BookingHoldCreation(
             new StubCurrentCustomer(true, CustomerId),
-            store,
-            token);
+            store);
 
         await service.CreateAsync("Key", ValidRequest(), CancellationToken.None);
 
         Assert.Equal(CustomerId, store.Request!.CustomerAccountId);
-        Assert.Null(store.Request.GuestAccessToken);
-        Assert.Null(store.Request.GuestAccessTokenHash);
-        Assert.Equal(0, token.Calls);
     }
 
     [Fact]
@@ -152,8 +140,7 @@ public sealed class BookingHoldCreationTests
         var store = new RecordingStore();
         var service = new BookingHoldCreation(
             new StubCurrentCustomer(true, null),
-            store,
-            new StubTokenGenerator("unused"));
+            store);
 
         var result = await service.CreateAsync(
             "Key",
@@ -198,8 +185,7 @@ public sealed class BookingHoldCreationTests
         var store = new RecordingStore();
         var result = await new BookingHoldCreation(
                 new StubCurrentCustomer(false, null),
-                store,
-                new StubTokenGenerator("unused"))
+                store)
             .CreateAsync("Key", request, CancellationToken.None);
 
         Assert.Equal(BookingHoldCreationStatus.Invalid, result.Status);
@@ -253,16 +239,6 @@ public sealed class BookingHoldCreationTests
         public bool IsAuthenticated { get; } = isAuthenticated;
         public Guid? CustomerAccountId { get; } = customerAccountId;
         public string? Email => null;
-    }
-
-    private sealed class StubTokenGenerator(string token) : IGuestAccessTokenGenerator
-    {
-        public int Calls { get; private set; }
-        public string Generate()
-        {
-            Calls++;
-            return token;
-        }
     }
 
     private sealed class RecordingStore : IBookingHoldCreationStore

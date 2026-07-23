@@ -99,9 +99,7 @@ public sealed record PreparedBookingHoldRequest(
     string Phone,
     Guid? CustomerAccountId,
     string IdempotencyKeyHash,
-    string RequestFingerprint,
-    string? GuestAccessToken,
-    string? GuestAccessTokenHash);
+    string RequestFingerprint);
 
 public interface IBookingHoldCreationStore
 {
@@ -138,8 +136,7 @@ public sealed class CryptographicGuestAccessTokenGenerator : IGuestAccessTokenGe
 
 public sealed class BookingHoldCreation(
     ICurrentCustomer currentCustomer,
-    IBookingHoldCreationStore store,
-    IGuestAccessTokenGenerator guestTokenGenerator) : IBookingHoldCreation
+    IBookingHoldCreationStore store) : IBookingHoldCreation
 {
     public async Task<BookingHoldCreationResult> CreateAsync(
         string? idempotencyKey,
@@ -179,13 +176,6 @@ public sealed class BookingHoldCreation(
         var fingerprint = BookingHoldRequestSecurity.CreateFingerprint(
             normalized,
             customerAccountId);
-        string? guestToken = null;
-        string? guestTokenHash = null;
-        if (customerAccountId is null)
-        {
-            guestToken = guestTokenGenerator.Generate();
-            guestTokenHash = BookingHoldRequestSecurity.Sha256Hex(guestToken);
-        }
 
         return await store.CreateAsync(
             new PreparedBookingHoldRequest(
@@ -202,9 +192,7 @@ public sealed class BookingHoldCreation(
                 normalized.Phone!,
                 customerAccountId,
                 keyHash,
-                fingerprint,
-                guestToken,
-                guestTokenHash),
+                fingerprint),
             cancellationToken);
     }
 }

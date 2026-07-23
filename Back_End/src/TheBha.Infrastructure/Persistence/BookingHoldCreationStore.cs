@@ -13,7 +13,8 @@ namespace TheBha.Infrastructure.Persistence;
 
 internal sealed class BookingHoldCreationStore(
     TheBhaDbContext dbContext,
-    TimeProvider timeProvider) : IBookingHoldCreationStore
+    TimeProvider timeProvider,
+    IGuestAccessTokenGenerator guestAccessTokenGenerator) : IBookingHoldCreationStore
 {
     public async Task<BookingHoldCreationResult> CreateAsync(
         PreparedBookingHoldRequest request,
@@ -242,6 +243,15 @@ internal sealed class BookingHoldCreationStore(
             }
 
             BookingHold hold;
+            string? guestAccessToken = null;
+            string? guestAccessTokenHash = null;
+            if (request.CustomerAccountId is null)
+            {
+                guestAccessToken = guestAccessTokenGenerator.Generate();
+                guestAccessTokenHash = BookingHoldRequestSecurity.Sha256Hex(
+                    guestAccessToken);
+            }
+
             try
             {
                 hold = new BookingHold(
@@ -263,7 +273,7 @@ internal sealed class BookingHoldCreationStore(
                     utcNow,
                     request.IdempotencyKeyHash,
                     request.RequestFingerprint,
-                    request.GuestAccessTokenHash,
+                    guestAccessTokenHash,
                     snapshots);
             }
             catch (DomainException exception)
@@ -279,7 +289,7 @@ internal sealed class BookingHoldCreationStore(
             await dbContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return BookingHoldCreationResult.Created(
-                Map(hold, request.GuestAccessToken));
+                Map(hold, guestAccessToken));
         }
         catch (DbUpdateException exception) when (IsIdempotencyUniqueViolation(exception))
         {

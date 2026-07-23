@@ -62,6 +62,11 @@ and from every authenticated response and cannot be recovered from storage.
 Losing this one-time token prevents later guest access; changing that security
 contract requires a future explicit decision.
 
+Token generation occurs only inside the Infrastructure new-creation path, after
+the transaction holds the idempotency advisory lock, replay checks find no
+existing Hold, and the locked offer revalidation succeeds. Sequential and
+concurrent replays therefore never invoke the token generator.
+
 ## Transaction and advisory-lock contract
 
 Every new Hold uses one explicit PostgreSQL transaction. Lock keys are stable
