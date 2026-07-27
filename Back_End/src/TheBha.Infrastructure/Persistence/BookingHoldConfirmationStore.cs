@@ -50,6 +50,16 @@ internal sealed class BookingHoldConfirmationStore(
                     cancellationToken);
             if (existingReservation is not null)
             {
+                if (!hold.IsCoherentReservation(existingReservation))
+                {
+                    return await RollbackResultAsync(
+                        transaction,
+                        BookingHoldConfirmationResult.Conflict(
+                            "The Hold cannot be confirmed: existing confirmation " +
+                            "state is inconsistent."),
+                        cancellationToken);
+                }
+
                 await transaction.RollbackAsync(cancellationToken);
                 return BookingHoldConfirmationResult.Replayed(Map(existingReservation));
             }
@@ -102,13 +112,25 @@ internal sealed class BookingHoldConfirmationStore(
         {
             await transaction.RollbackAsync(cancellationToken);
             dbContext.ChangeTracker.Clear();
+
+            var reloadedHold = await dbContext.BookingHolds
+                .AsNoTracking()
+                .Include(item => item.Nights)
+                .SingleOrDefaultAsync(item => item.Id == holdId, cancellationToken);
             var existing = await dbContext.Reservations
                 .AsNoTracking()
                 .Include(item => item.Nights)
                 .SingleOrDefaultAsync(item => item.SourceHoldId == holdId, cancellationToken);
-            if (existing is null)
+            if (reloadedHold is null || existing is null)
             {
                 throw;
+            }
+
+            if (!reloadedHold.IsCoherentReservation(existing))
+            {
+                return BookingHoldConfirmationResult.Conflict(
+                    "The Hold cannot be confirmed: existing confirmation state is " +
+                    "inconsistent.");
             }
 
             return BookingHoldConfirmationResult.Replayed(Map(existing));

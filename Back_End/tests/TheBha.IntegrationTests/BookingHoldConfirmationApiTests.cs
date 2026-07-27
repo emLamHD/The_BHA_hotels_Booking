@@ -119,6 +119,99 @@ public sealed class BookingHoldConfirmationApiTests(PostgreSqlWebApplicationFact
     }
 
     [Fact]
+    public async Task Incoherent_persisted_contact_field_fails_replay_closed_without_mutation()
+    {
+        await SeedFixedAsync();
+        using var client = factory.CreateClient();
+        var created = await CreateHoldAsync(client, "Confirm-Incoherent-Contact-Key", DeluxeRoomTypeId);
+        var guestToken = created.GetProperty("guestAccessToken").GetString()!;
+        var holdId = created.GetProperty("holdId").GetGuid();
+        var first = await ConfirmAsync(client, holdId, guestToken);
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+
+        await using (var context = factory.CreateDbContext())
+        {
+            await context.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                 UPDATE "Reservations" SET "FullName" = 'Corrupted Name'
+                 WHERE "SourceHoldId" = {holdId}
+                 """);
+        }
+
+        AssertProblem(await ConfirmAsync(client, holdId, guestToken), HttpStatusCode.Conflict);
+
+        await using var verify = factory.CreateDbContext();
+        Assert.Equal(1, await verify.Reservations.CountAsync());
+        var reservation = await verify.Reservations.SingleAsync();
+        Assert.Equal("Corrupted Name", reservation.FullName);
+    }
+
+    [Fact]
+    public async Task Incoherent_persisted_ownership_fails_replay_closed_without_mutation()
+    {
+        await SeedFixedAsync();
+        using var client = factory.CreateClient();
+        var created = await CreateHoldAsync(client, "Confirm-Incoherent-Owner-Key", DeluxeRoomTypeId);
+        var guestToken = created.GetProperty("guestAccessToken").GetString()!;
+        var holdId = created.GetProperty("holdId").GetGuid();
+        var first = await ConfirmAsync(client, holdId, guestToken);
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        var otherHash = BookingHoldRequestSecurity.Sha256Hex(
+            new CryptographicGuestAccessTokenGenerator().Generate());
+
+        await using (var context = factory.CreateDbContext())
+        {
+            await context.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                 UPDATE "Reservations" SET "GuestAccessTokenHash" = {otherHash}
+                 WHERE "SourceHoldId" = {holdId}
+                 """);
+        }
+
+        // The original guest token still authorizes against the (untouched) Hold,
+        // so the request reaches the coherence gate rather than being rejected as
+        // unauthorized/not-found.
+        AssertProblem(await ConfirmAsync(client, holdId, guestToken), HttpStatusCode.Conflict);
+
+        await using var verify = factory.CreateDbContext();
+        Assert.Equal(1, await verify.Reservations.CountAsync());
+        var reservation = await verify.Reservations.SingleAsync();
+        Assert.Equal(otherHash, reservation.GuestAccessTokenHash);
+    }
+
+    [Fact]
+    public async Task Incoherent_persisted_night_amount_fails_replay_closed_without_mutation()
+    {
+        await SeedFixedAsync();
+        using var client = factory.CreateClient();
+        var created = await CreateHoldAsync(client, "Confirm-Incoherent-Night-Key", DeluxeRoomTypeId);
+        var guestToken = created.GetProperty("guestAccessToken").GetString()!;
+        var holdId = created.GetProperty("holdId").GetGuid();
+        var first = await ConfirmAsync(client, holdId, guestToken);
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        var reservationId = (await first.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("reservationId").GetGuid();
+
+        await using (var context = factory.CreateDbContext())
+        {
+            await context.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                 UPDATE "ReservationNights"
+                 SET "UnitAmount" = 999999, "NightTotal" = 999999
+                 WHERE "ReservationId" = {reservationId}
+                 """);
+        }
+
+        AssertProblem(await ConfirmAsync(client, holdId, guestToken), HttpStatusCode.Conflict);
+
+        await using var verify = factory.CreateDbContext();
+        Assert.Equal(1, await verify.Reservations.CountAsync());
+        Assert.All(
+            await verify.ReservationNights.Where(n => n.ReservationId == reservationId).ToListAsync(),
+            night => Assert.Equal(999999m, night.UnitAmount));
+    }
+
+    [Fact]
     public async Task Authenticated_confirmation_persists_no_guest_hash()
     {
         await SeedFixedAsync();

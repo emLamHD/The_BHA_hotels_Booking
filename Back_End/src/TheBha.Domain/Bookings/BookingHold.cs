@@ -174,4 +174,66 @@ public sealed class BookingHold
         Status = BookingHoldStatus.Confirmed;
         return reservation;
     }
+
+    /// <summary>
+    /// True only if <paramref name="reservation"/> is exactly the immutable snapshot
+    /// copy this Hold's own <see cref="Confirm"/> call would have produced: same
+    /// source, same Confirmed-terminal Hold state, same ownership, same business
+    /// fields, and the same ordered nights. Confirmation replay must never disclose
+    /// an existing Reservation to a caller without first proving this.
+    /// </summary>
+    public bool IsCoherentReservation(Reservation reservation)
+    {
+        ArgumentNullException.ThrowIfNull(reservation);
+
+        if (reservation.SourceHoldId != Id || Status != BookingHoldStatus.Confirmed)
+        {
+            return false;
+        }
+
+        if (reservation.CustomerAccountId != CustomerAccountId ||
+            reservation.GuestAccessTokenHash != GuestAccessTokenHash)
+        {
+            return false;
+        }
+
+        if (reservation.PropertyId != PropertyId ||
+            reservation.RoomTypeId != RoomTypeId ||
+            reservation.RatePlanId != RatePlanId ||
+            reservation.CheckIn != CheckIn ||
+            reservation.CheckOut != CheckOut)
+        {
+            return false;
+        }
+
+        if (reservation.FullName != FullName ||
+            reservation.Email != Email ||
+            reservation.Phone != Phone)
+        {
+            return false;
+        }
+
+        if (reservation.Adults != Adults ||
+            reservation.Children != Children ||
+            reservation.Rooms != Rooms)
+        {
+            return false;
+        }
+
+        if (reservation.CurrencyCode != CurrencyCode ||
+            reservation.TotalAmount != TotalAmount)
+        {
+            return false;
+        }
+
+        var expectedNights = Nights
+            .OrderBy(night => night.StayDate)
+            .Select(night => (night.StayDate, night.Rooms, night.UnitAmount, night.NightTotal))
+            .ToArray();
+        var actualNights = reservation.Nights
+            .OrderBy(night => night.StayDate)
+            .Select(night => (night.StayDate, night.Rooms, night.UnitAmount, night.NightTotal))
+            .ToArray();
+        return expectedNights.SequenceEqual(actualNights);
+    }
 }
