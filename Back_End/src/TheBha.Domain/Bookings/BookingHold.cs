@@ -118,4 +118,60 @@ public sealed class BookingHold
         BookingGuard.RequireUtc(utcNow, nameof(utcNow));
         return Status == BookingHoldStatus.Active && utcNow >= ExpiresAtUtc;
     }
+
+    /// <summary>
+    /// Atomically validates the confirmation transition, transitions this Hold to
+    /// <see cref="BookingHoldStatus.Confirmed"/>, and returns the immutable Reservation
+    /// snapshot copy. Throws <see cref="DomainException"/> for any invalid transition
+    /// (not Active, or expired at <paramref name="utcNow"/>); callers must not have
+    /// already found an existing Reservation for this Hold before calling this method.
+    /// </summary>
+    public Reservation Confirm(
+        Guid reservationId,
+        string confirmationNumber,
+        DateTimeOffset utcNow)
+    {
+        BookingGuard.RequireUtc(utcNow, nameof(utcNow));
+        if (Status != BookingHoldStatus.Active)
+        {
+            throw new DomainException("Only an Active Hold can be confirmed.");
+        }
+
+        if (utcNow >= ExpiresAtUtc)
+        {
+            throw new DomainException("The Hold has expired and cannot be confirmed.");
+        }
+
+        var reservation = new Reservation(
+            reservationId,
+            confirmationNumber,
+            Id,
+            PropertyId,
+            RoomTypeId,
+            RatePlanId,
+            CustomerAccountId,
+            FullName,
+            Email,
+            Phone,
+            CheckIn,
+            CheckOut,
+            Adults,
+            Children,
+            Rooms,
+            CurrencyCode,
+            TotalAmount,
+            ReservationStatus.Confirmed,
+            utcNow,
+            null,
+            null,
+            GuestAccessTokenHash,
+            Nights.Select(night => new BookingNightSnapshot(
+                night.StayDate,
+                night.Rooms,
+                night.UnitAmount,
+                night.NightTotal)));
+
+        Status = BookingHoldStatus.Confirmed;
+        return reservation;
+    }
 }
