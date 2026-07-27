@@ -32,7 +32,7 @@ Project reference rules:
 
 ## API foundation
 
-`TheBha.Api` uses ASP.NET Core controllers with nullable reference types and implicit usings enabled. Swagger/OpenAPI is available in the Development environment. `GET /health` provides a lightweight process-health endpoint, while `GET /health/ready` checks PostgreSQL connectivity through EF Core. Versioned customer catalog controllers depend on Application query contracts and return DTOs rather than EF entities. BE-003.1 composes customer cookie authentication, antiforgery, credentialed CORS, and authentication rate limits in this API layer. `POST /api/v1/booking-holds` permits guest or cookie-authenticated callers while retaining the global antiforgery policy and returns only customer-safe Application DTOs.
+`TheBha.Api` uses ASP.NET Core controllers with nullable reference types and implicit usings enabled. Swagger/OpenAPI is available in the Development environment. `GET /health` provides a lightweight process-health endpoint, while `GET /health/ready` checks PostgreSQL connectivity through EF Core. Versioned customer catalog controllers depend on Application query contracts and return DTOs rather than EF entities. BE-003.1 composes customer cookie authentication, antiforgery, credentialed CORS, and authentication rate limits in this API layer. `POST /api/v1/booking-holds` permits guest or cookie-authenticated callers while retaining the global antiforgery policy and returns only customer-safe Application DTOs. BE-003.5 completes the ownership-protected booking lifecycle with `GET /api/v1/booking-holds/{holdId}`, `POST /api/v1/booking-holds/{holdId}/cancel`, and `POST /api/v1/reservations/{reservationId}/cancel`; the two cancellation endpoints remain under the global antiforgery policy, while the GET endpoints do not require it.
 
 ## Persistence foundation
 
@@ -43,18 +43,23 @@ supplies `ConnectionStrings:TheBhaDatabase` through external
 configuration. PostgreSQL is the sole source of catalog and booking data.
 Atomic Hold creation uses explicit transactions and parameterized
 `pg_advisory_xact_lock` calls in Infrastructure; Application and Domain contain
-no PostgreSQL dependency. The API does not
+no PostgreSQL dependency. BE-003.5 extends this same transaction/advisory-lock
+contract to Hold cancellation and Reservation cancellation, reusing the
+existing Hold-transition and per-night inventory lock keys in the same
+lifecycle-then-inventory order. The API does not
 apply migrations or seed data during normal startup.
 
 PostgreSQL 17 runs locally through Docker Compose with a named volume and is also used by the backend integration-test job in GitHub Actions. The API does not call `EnsureCreated()` or apply migrations during startup.
 
 ## Deliberately deferred decisions
 
-MediatR, AutoMapper, FluentValidation, Hold reads or lifecycle transitions,
-Reservation Application/API workflows, guest-token authorization, customer verification
+MediatR, AutoMapper, FluentValidation, customer verification
 and recovery, MFA, administration authentication, payment integrations,
-housekeeping, and maintenance workflows
-remain deliberately deferred.
+housekeeping, and maintenance workflows remain deliberately deferred. Hold
+read, Hold confirmation, Reservation read, Hold cancellation, and Reservation
+cancellation are delivered (BE-003.3–BE-003.5); a persisted `Expired` Hold
+status and background expiry cleanup remain deliberately deferred, since
+logical expiry is already correct without them.
 
 ## Current operational scope
 
