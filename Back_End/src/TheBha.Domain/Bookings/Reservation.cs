@@ -112,4 +112,47 @@ public sealed class Reservation
     public string? CancellationReason { get; private set; }
     public string? GuestAccessTokenHash { get; private set; }
     public IReadOnlyList<ReservationNight> Nights => _nights.AsReadOnly();
+
+    /// <summary>
+    /// Transitions this Reservation from <see cref="ReservationStatus.Confirmed"/> to
+    /// <see cref="ReservationStatus.Cancelled"/>, enforced strictly before the Property-local
+    /// <paramref name="propertyLocalDate"/> reaches <see cref="CheckIn"/>. Already-<see
+    /// cref="ReservationStatus.Cancelled"/> is an idempotent no-op that preserves the original
+    /// <see cref="CancelledAtUtc"/> and <see cref="CancellationReason"/> even if called again at
+    /// or after the check-in cutoff. <paramref name="utcNow"/> and <paramref
+    /// name="propertyLocalDate"/> must be server-derived; this method never accepts client time.
+    /// </summary>
+    public void Cancel(string reason, DateTimeOffset utcNow, DateOnly propertyLocalDate)
+    {
+        if (Status == ReservationStatus.Cancelled)
+        {
+            return;
+        }
+
+        if (Status != ReservationStatus.Confirmed)
+        {
+            throw new DomainException("Only a Confirmed Reservation can be cancelled.");
+        }
+
+        BookingGuard.RequireUtc(utcNow, nameof(utcNow));
+        if (utcNow < ConfirmedAtUtc)
+        {
+            throw new DomainException("cancelledAtUtc cannot be earlier than confirmedAtUtc.");
+        }
+
+        if (propertyLocalDate >= CheckIn)
+        {
+            throw new DomainException(
+                "The Reservation cannot be cancelled on or after the Property-local check-in date.");
+        }
+
+        var normalizedReason = DomainGuard.Required(
+            reason,
+            nameof(reason),
+            BookingFieldLimits.CancellationReason);
+
+        Status = ReservationStatus.Cancelled;
+        CancelledAtUtc = utcNow;
+        CancellationReason = normalizedReason;
+    }
 }

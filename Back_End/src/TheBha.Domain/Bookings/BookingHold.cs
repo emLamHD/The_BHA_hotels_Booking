@@ -176,6 +176,30 @@ public sealed class BookingHold
     }
 
     /// <summary>
+    /// Transitions this Hold from <see cref="BookingHoldStatus.Active"/> to
+    /// <see cref="BookingHoldStatus.Cancelled"/>. Already-<see cref="BookingHoldStatus.Cancelled"/>
+    /// is treated as an idempotent no-op. A <see cref="BookingHoldStatus.Confirmed"/> Hold cannot
+    /// be cancelled because commitment now belongs to its Reservation. This transition does not
+    /// evaluate expiry: an Active Hold may be explicitly cancelled even at or after
+    /// <see cref="ExpiresAtUtc"/>, since expiry has already released logical demand and
+    /// cancellation merely records the terminal lifecycle state.
+    /// </summary>
+    public void Cancel()
+    {
+        if (Status == BookingHoldStatus.Cancelled)
+        {
+            return;
+        }
+
+        if (Status != BookingHoldStatus.Active)
+        {
+            throw new DomainException("Only an Active Hold can be cancelled.");
+        }
+
+        Status = BookingHoldStatus.Cancelled;
+    }
+
+    /// <summary>
     /// True only if <paramref name="reservation"/> is exactly the immutable snapshot
     /// copy this Hold's own <see cref="Confirm"/> call would have produced: same
     /// source, same Confirmed-terminal Hold state, same ownership, same business
