@@ -8,8 +8,12 @@ public sealed class BookingHoldOperationFilter : IOperationFilter
 {
     public void Apply(OpenApiOperation operation, OperationFilterContext context)
     {
+        // Identify the Create action itself, not "any POST on this controller" - Confirm
+        // and Cancel are also POST actions on BookingHoldsController and must not receive
+        // Create Hold's Idempotency-Key header or a second, duplicate X-CSRF-TOKEN on top
+        // of the one ReservationLifecycleOperationFilter already adds for them.
         if (context.MethodInfo.DeclaringType != typeof(BookingHoldsController) ||
-            context.ApiDescription.HttpMethod != "POST")
+            context.MethodInfo.Name != nameof(BookingHoldsController.Create))
         {
             return;
         }
@@ -40,14 +44,23 @@ public sealed class BookingHoldOperationFilter : IOperationFilter
         idempotencyHeader.Description =
             "Opaque, case-sensitive request identity; maximum 256 UTF-8 bytes. " +
             "The raw value is never persisted.";
-        operation.Parameters.Add(new OpenApiParameter
+
+        var csrfHeader = operation.Parameters.SingleOrDefault(
+            parameter =>
+                parameter.In == ParameterLocation.Header &&
+                string.Equals(parameter.Name, "X-CSRF-TOKEN", StringComparison.OrdinalIgnoreCase));
+        if (csrfHeader is null)
         {
-            Name = "X-CSRF-TOKEN",
-            In = ParameterLocation.Header,
-            Required = true,
-            Description = "Request token returned by GET /api/v1/auth/csrf.",
-            Schema = new OpenApiSchema { Type = "string" }
-        });
+            operation.Parameters.Add(new OpenApiParameter
+            {
+                Name = "X-CSRF-TOKEN",
+                In = ParameterLocation.Header,
+                Required = true,
+                Description = "Request token returned by GET /api/v1/auth/csrf.",
+                Schema = new OpenApiSchema { Type = "string" }
+            });
+        }
+
         operation.Security =
         [
             new OpenApiSecurityRequirement(),

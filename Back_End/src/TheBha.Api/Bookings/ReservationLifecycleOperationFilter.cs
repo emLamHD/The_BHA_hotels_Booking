@@ -57,19 +57,41 @@ public sealed class ReservationLifecycleOperationFilter : IOperationFilter
         };
 
         operation.Parameters ??= [];
-        operation.Parameters.Add(new OpenApiParameter
-        {
-            Name = "X-Booking-Access-Token",
-            In = ParameterLocation.Header,
-            Required = false,
-            Description =
-                "Opaque one-time guest access token returned only on the initial Hold " +
-                "creation response. Required for guest ownership when no customer cookie " +
-                "session is present.",
-            Schema = new OpenApiSchema { Type = "string" }
-        });
 
-        if (isUnsafeMutation)
+        // Every action this filter matches already declares a [FromHeader] guest-token
+        // parameter, so Swashbuckle has already generated a bare (description-less)
+        // X-Booking-Access-Token entry from the method signature. Enrich that existing
+        // entry in place instead of unconditionally adding a second one - only fall back
+        // to adding a new parameter if no auto-generated entry exists.
+        var guestTokenHeader = operation.Parameters.SingleOrDefault(
+            parameter =>
+                parameter.In == ParameterLocation.Header &&
+                string.Equals(
+                    parameter.Name,
+                    "X-Booking-Access-Token",
+                    StringComparison.OrdinalIgnoreCase));
+        if (guestTokenHeader is null)
+        {
+            guestTokenHeader = new OpenApiParameter
+            {
+                Name = "X-Booking-Access-Token",
+                In = ParameterLocation.Header,
+                Schema = new OpenApiSchema { Type = "string" }
+            };
+            operation.Parameters.Add(guestTokenHeader);
+        }
+
+        guestTokenHeader.Required = false;
+        guestTokenHeader.Description =
+            "Opaque one-time guest access token returned only on the initial Hold " +
+            "creation response. Required for guest ownership when no customer cookie " +
+            "session is present.";
+        guestTokenHeader.Schema ??= new OpenApiSchema { Type = "string" };
+
+        if (isUnsafeMutation &&
+            !operation.Parameters.Any(parameter =>
+                parameter.In == ParameterLocation.Header &&
+                string.Equals(parameter.Name, "X-CSRF-TOKEN", StringComparison.OrdinalIgnoreCase)))
         {
             operation.Parameters.Add(new OpenApiParameter
             {
