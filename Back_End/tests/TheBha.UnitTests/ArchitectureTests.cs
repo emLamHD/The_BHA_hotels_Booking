@@ -53,15 +53,17 @@ public sealed class ArchitectureTests
     }
 
     [Fact]
-    public void Application_contains_no_reservation_workflow()
+    public void Application_reservation_workflow_excludes_cancellation()
     {
         var applicationAssembly = Assembly.Load("TheBha.Application");
-        var reservationWorkflowTypes = applicationAssembly
+        var cancellationTypes = applicationAssembly
             .GetTypes()
-            .Where(type => type.Name.Contains("Reservation", StringComparison.Ordinal))
+            .Where(type =>
+                type.Name.Contains("Reservation", StringComparison.Ordinal) &&
+                type.Name.Contains("Cancel", StringComparison.Ordinal))
             .Select(type => type.FullName)
             .ToArray();
 
-        Assert.Empty(reservationWorkflowTypes);
+        Assert.Empty(cancellationTypes);
     }
 }

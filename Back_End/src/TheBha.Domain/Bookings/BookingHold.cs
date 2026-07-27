@@ -118,4 +118,122 @@ public sealed class BookingHold
         BookingGuard.RequireUtc(utcNow, nameof(utcNow));
         return Status == BookingHoldStatus.Active && utcNow >= ExpiresAtUtc;
     }
+
+    /// <summary>
+    /// Atomically validates the confirmation transition, transitions this Hold to
+    /// <see cref="BookingHoldStatus.Confirmed"/>, and returns the immutable Reservation
+    /// snapshot copy. Throws <see cref="DomainException"/> for any invalid transition
+    /// (not Active, or expired at <paramref name="utcNow"/>); callers must not have
+    /// already found an existing Reservation for this Hold before calling this method.
+    /// </summary>
+    public Reservation Confirm(
+        Guid reservationId,
+        string confirmationNumber,
+        DateTimeOffset utcNow)
+    {
+        BookingGuard.RequireUtc(utcNow, nameof(utcNow));
+        if (Status != BookingHoldStatus.Active)
+        {
+            throw new DomainException("Only an Active Hold can be confirmed.");
+        }
+
+        if (utcNow >= ExpiresAtUtc)
+        {
+            throw new DomainException("The Hold has expired and cannot be confirmed.");
+        }
+
+        var reservation = new Reservation(
+            reservationId,
+            confirmationNumber,
+            Id,
+            PropertyId,
+            RoomTypeId,
+            RatePlanId,
+            CustomerAccountId,
+            FullName,
+            Email,
+            Phone,
+            CheckIn,
+            CheckOut,
+            Adults,
+            Children,
+            Rooms,
+            CurrencyCode,
+            TotalAmount,
+            ReservationStatus.Confirmed,
+            utcNow,
+            null,
+            null,
+            GuestAccessTokenHash,
+            Nights.Select(night => new BookingNightSnapshot(
+                night.StayDate,
+                night.Rooms,
+                night.UnitAmount,
+                night.NightTotal)));
+
+        Status = BookingHoldStatus.Confirmed;
+        return reservation;
+    }
+
+    /// <summary>
+    /// True only if <paramref name="reservation"/> is exactly the immutable snapshot
+    /// copy this Hold's own <see cref="Confirm"/> call would have produced: same
+    /// source, same Confirmed-terminal Hold state, same ownership, same business
+    /// fields, and the same ordered nights. Confirmation replay must never disclose
+    /// an existing Reservation to a caller without first proving this.
+    /// </summary>
+    public bool IsCoherentReservation(Reservation reservation)
+    {
+        ArgumentNullException.ThrowIfNull(reservation);
+
+        if (reservation.SourceHoldId != Id || Status != BookingHoldStatus.Confirmed)
+        {
+            return false;
+        }
+
+        if (reservation.CustomerAccountId != CustomerAccountId ||
+            reservation.GuestAccessTokenHash != GuestAccessTokenHash)
+        {
+            return false;
+        }
+
+        if (reservation.PropertyId != PropertyId ||
+            reservation.RoomTypeId != RoomTypeId ||
+            reservation.RatePlanId != RatePlanId ||
+            reservation.CheckIn != CheckIn ||
+            reservation.CheckOut != CheckOut)
+        {
+            return false;
+        }
+
+        if (reservation.FullName != FullName ||
+            reservation.Email != Email ||
+            reservation.Phone != Phone)
+        {
+            return false;
+        }
+
+        if (reservation.Adults != Adults ||
+            reservation.Children != Children ||
+            reservation.Rooms != Rooms)
+        {
+            return false;
+        }
+
+        if (reservation.CurrencyCode != CurrencyCode ||
+            reservation.TotalAmount != TotalAmount)
+        {
+            return false;
+        }
+
+        var expectedNights = Nights
+            .OrderBy(night => night.StayDate)
+            .Select(night => (night.StayDate, night.Rooms, night.UnitAmount, night.NightTotal))
+            .ToArray();
+        var actualNights = reservation.Nights
+            .OrderBy(night => night.StayDate)
+            .Select(night => (night.StayDate, night.Rooms, night.UnitAmount, night.NightTotal))
+            .ToArray();
+        return expectedNights.SequenceEqual(actualNights);
+    }
 }

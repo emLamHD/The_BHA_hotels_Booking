@@ -81,6 +81,9 @@ for the customer Identity Core, cookie-session, antiforgery, CORS, rate-limit,
 and Data Protection contract.
 See [docs/BE-003-2-HOLD-RESERVATION-DOMAIN-FOUNDATION.md](docs/BE-003-2-HOLD-RESERVATION-DOMAIN-FOUNDATION.md)
 for the persistence-ready Hold and Reservation aggregates and schema foundation.
+See [docs/BE-003-4-HOLD-CONFIRMATION-RESERVATION-READ.md](docs/BE-003-4-HOLD-CONFIRMATION-RESERVATION-READ.md)
+for the Hold confirmation, idempotent replay, and ownership-protected
+Reservation read contract.
 
 ## Local production simulation
 

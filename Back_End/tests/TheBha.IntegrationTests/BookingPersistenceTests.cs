@@ -519,7 +519,7 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
     }
 
     [Fact]
-    public async Task OpenApi_has_only_the_approved_hold_creation_path_and_no_reservation_paths()
+    public async Task OpenApi_exposes_only_the_approved_hold_and_reservation_lifecycle_paths()
     {
         using var client = factory.CreateClient();
         var response = await client.GetAsync("/swagger/v1/swagger.json");
@@ -530,9 +530,29 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
         var paths = document.RootElement.GetProperty("paths");
         var holdPath = paths.GetProperty("/api/v1/booking-holds");
         Assert.True(holdPath.TryGetProperty("post", out _));
+
+        var reservationRelatedPaths = paths.EnumerateObject()
+            .Where(path => path.Name.Contains("reservation", StringComparison.OrdinalIgnoreCase) ||
+                path.Name.Contains("confirm", StringComparison.OrdinalIgnoreCase))
+            .Select(path => path.Name)
+            .Order()
+            .ToArray();
+        Assert.Equal(
+            new[]
+            {
+                "/api/v1/booking-holds/{holdId}/confirm",
+                "/api/v1/reservations/{reservationId}"
+            }.Order(),
+            reservationRelatedPaths);
+        Assert.True(paths.GetProperty("/api/v1/booking-holds/{holdId}/confirm")
+            .TryGetProperty("post", out _));
+        Assert.True(paths.GetProperty("/api/v1/reservations/{reservationId}")
+            .TryGetProperty("get", out _));
+        Assert.False(paths.GetProperty("/api/v1/reservations/{reservationId}")
+            .TryGetProperty("delete", out _));
         Assert.DoesNotContain(
             paths.EnumerateObject(),
-            path => path.Name.Contains("reservation", StringComparison.OrdinalIgnoreCase));
+            path => path.Name.Contains("cancel", StringComparison.OrdinalIgnoreCase));
     }
 
     private static ReferenceData AddReferences(

@@ -1,0 +1,1112 @@
+using System.Data.Common;
+using System.Net;
+using System.Net.Http.Json;
+using System.Text.Json;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Npgsql;
+using TheBha.Application.Bookings;
+using TheBha.Domain.Bookings;
+using TheBha.Domain.Properties;
+using TheBha.Infrastructure.Identity;
+using TheBha.Infrastructure.Persistence;
+
+namespace TheBha.IntegrationTests;
+
+[Collection(PostgreSqlCollection.Name)]
+public sealed class BookingHoldConfirmationApiTests(PostgreSqlWebApplicationFactory factory)
+{
+    private static readonly DateTimeOffset FixedUtc =
+        DateTimeOffset.Parse("2026-07-22T18:30:00Z");
+    private static readonly DateOnly LocalToday = new(2026, 7, 23);
+    private static readonly Guid PropertyId =
+        Guid.Parse("10000000-0000-0000-0000-000000000001");
+    private static readonly Guid DeluxeRoomTypeId =
+        Guid.Parse("30000000-0000-0000-0000-000000000001");
+    private static readonly Guid FamilyRoomTypeId =
+        Guid.Parse("30000000-0000-0000-0000-000000000002");
+    private static readonly Guid RatePlanId =
+        Guid.Parse("60000000-0000-0000-0000-000000000001");
+    private const string StrongPassword = "Strong!Password123";
+
+    [Fact]
+    public async Task Guest_confirms_with_original_token_and_receives_created_with_location()
+    {
+        await SeedFixedAsync();
+        using var client = factory.CreateClient();
+        var created = await CreateHoldAsync(client, "Confirm-Guest-Key", DeluxeRoomTypeId);
+        var guestToken = created.GetProperty("guestAccessToken").GetString()!;
+        var holdId = created.GetProperty("holdId").GetGuid();
+
+        var response = await ConfirmAsync(client, holdId, guestToken);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var location = response.Headers.Location!.ToString();
+        Assert.Contains($"/api/v1/reservations/", location, StringComparison.Ordinal);
+
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(ReservationStatus.Confirmed.ToString(), body.GetProperty("status").GetString());
+        Assert.Equal(FixedUtc, body.GetProperty("confirmedAtUtc").GetDateTimeOffset());
+        Assert.Equal(JsonValueKind.Null, body.GetProperty("cancelledAtUtc").ValueKind);
+        Assert.Equal(JsonValueKind.Null, body.GetProperty("cancellationReason").ValueKind);
+        var responseJson = body.GetRawText();
+        foreach (var forbidden in new[]
+                 {
+                     "customerAccountId",
+                     "guestAccessTokenHash",
+                     "guestAccessToken",
+                     "idempotencyKeyHash",
+                     "requestFingerprint"
+                 })
+        {
+            Assert.DoesNotContain(forbidden, responseJson, StringComparison.OrdinalIgnoreCase);
+        }
+
+        await using var context = factory.CreateDbContext();
+        var reservation = await context.Reservations
+            .Include(item => item.Nights)
+            .SingleAsync();
+        Assert.Equal(holdId, reservation.SourceHoldId);
+        Assert.Null(reservation.CustomerAccountId);
+        Assert.Equal(
+            BookingHoldRequestSecurity.Sha256Hex(guestToken),
+            reservation.GuestAccessTokenHash);
+        var hold = await context.BookingHolds.SingleAsync(item => item.Id == holdId);
+        Assert.Equal(BookingHoldStatus.Confirmed, hold.Status);
+    }
+
+    [Fact]
+    public async Task Sequential_replay_returns_same_reservation_without_new_token_or_reprice()
+    {
+        await SeedFixedAsync();
+        using var client = factory.CreateClient();
+        var created = await CreateHoldAsync(client, "Confirm-Replay-Key", DeluxeRoomTypeId);
+        var guestToken = created.GetProperty("guestAccessToken").GetString()!;
+        var holdId = created.GetProperty("holdId").GetGuid();
+
+        var first = await ConfirmAsync(client, holdId, guestToken);
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        var firstBody = await first.Content.ReadFromJsonAsync<JsonElement>();
+
+        await using (var pricing = factory.CreateDbContext())
+        {
+            var rate = await pricing.DailyRoomRates.SingleAsync(item =>
+                item.RoomTypeId == DeluxeRoomTypeId &&
+                item.RatePlanId == RatePlanId &&
+                item.StayDate == LocalToday);
+            rate.UpdateAmount(9_999_999m, FixedUtc.AddMinutes(1));
+            await pricing.SaveChangesAsync();
+        }
+
+        var replay = await ConfirmAsync(client, holdId, guestToken);
+        Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+        var replayBody = await replay.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal(
+            firstBody.GetProperty("reservationId").GetGuid(),
+            replayBody.GetProperty("reservationId").GetGuid());
+        Assert.Equal(
+            firstBody.GetProperty("confirmationNumber").GetString(),
+            replayBody.GetProperty("confirmationNumber").GetString());
+        Assert.Equal(
+            firstBody.GetProperty("confirmedAtUtc").GetDateTimeOffset(),
+            replayBody.GetProperty("confirmedAtUtc").GetDateTimeOffset());
+        Assert.Equal(
+            firstBody.GetProperty("totalAmount").GetDecimal(),
+            replayBody.GetProperty("totalAmount").GetDecimal());
+
+        await using var context = factory.CreateDbContext();
+        Assert.Equal(1, await context.Reservations.CountAsync());
+        Assert.Equal(1, await context.ReservationNights.CountAsync());
+    }
+
+    [Fact]
+    public async Task Incoherent_persisted_contact_field_fails_replay_closed_without_mutation()
+    {
+        await SeedFixedAsync();
+        using var client = factory.CreateClient();
+        var created = await CreateHoldAsync(client, "Confirm-Incoherent-Contact-Key", DeluxeRoomTypeId);
+        var guestToken = created.GetProperty("guestAccessToken").GetString()!;
+        var holdId = created.GetProperty("holdId").GetGuid();
+        var first = await ConfirmAsync(client, holdId, guestToken);
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+
+        await using (var context = factory.CreateDbContext())
+        {
+            await context.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                 UPDATE "Reservations" SET "FullName" = 'Corrupted Name'
+                 WHERE "SourceHoldId" = {holdId}
+                 """);
+        }
+
+        AssertProblem(await ConfirmAsync(client, holdId, guestToken), HttpStatusCode.Conflict);
+
+        await using var verify = factory.CreateDbContext();
+        Assert.Equal(1, await verify.Reservations.CountAsync());
+        var reservation = await verify.Reservations.SingleAsync();
+        Assert.Equal("Corrupted Name", reservation.FullName);
+    }
+
+    [Fact]
+    public async Task Incoherent_persisted_ownership_fails_replay_closed_without_mutation()
+    {
+        await SeedFixedAsync();
+        using var client = factory.CreateClient();
+        var created = await CreateHoldAsync(client, "Confirm-Incoherent-Owner-Key", DeluxeRoomTypeId);
+        var guestToken = created.GetProperty("guestAccessToken").GetString()!;
+        var holdId = created.GetProperty("holdId").GetGuid();
+        var first = await ConfirmAsync(client, holdId, guestToken);
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        var otherHash = BookingHoldRequestSecurity.Sha256Hex(
+            new CryptographicGuestAccessTokenGenerator().Generate());
+
+        await using (var context = factory.CreateDbContext())
+        {
+            await context.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                 UPDATE "Reservations" SET "GuestAccessTokenHash" = {otherHash}
+                 WHERE "SourceHoldId" = {holdId}
+                 """);
+        }
+
+        // The original guest token still authorizes against the (untouched) Hold,
+        // so the request reaches the coherence gate rather than being rejected as
+        // unauthorized/not-found.
+        AssertProblem(await ConfirmAsync(client, holdId, guestToken), HttpStatusCode.Conflict);
+
+        await using var verify = factory.CreateDbContext();
+        Assert.Equal(1, await verify.Reservations.CountAsync());
+        var reservation = await verify.Reservations.SingleAsync();
+        Assert.Equal(otherHash, reservation.GuestAccessTokenHash);
+    }
+
+    [Fact]
+    public async Task Incoherent_persisted_night_amount_fails_replay_closed_without_mutation()
+    {
+        await SeedFixedAsync();
+        using var client = factory.CreateClient();
+        var created = await CreateHoldAsync(client, "Confirm-Incoherent-Night-Key", DeluxeRoomTypeId);
+        var guestToken = created.GetProperty("guestAccessToken").GetString()!;
+        var holdId = created.GetProperty("holdId").GetGuid();
+        var first = await ConfirmAsync(client, holdId, guestToken);
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        var reservationId = (await first.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("reservationId").GetGuid();
+
+        await using (var context = factory.CreateDbContext())
+        {
+            await context.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                 UPDATE "ReservationNights"
+                 SET "UnitAmount" = 999999, "NightTotal" = 999999
+                 WHERE "ReservationId" = {reservationId}
+                 """);
+        }
+
+        AssertProblem(await ConfirmAsync(client, holdId, guestToken), HttpStatusCode.Conflict);
+
+        await using var verify = factory.CreateDbContext();
+        Assert.Equal(1, await verify.Reservations.CountAsync());
+        Assert.All(
+            await verify.ReservationNights.Where(n => n.ReservationId == reservationId).ToListAsync(),
+            night => Assert.Equal(999999m, night.UnitAmount));
+    }
+
+    [Fact]
+    public async Task Authenticated_confirmation_persists_no_guest_hash()
+    {
+        await SeedFixedAsync();
+        using var client = factory.CreateClient();
+        var customerId = await CreateCustomerAsync(client, "confirm-owner@example.com");
+
+        var created = await CreateHoldAsync(client, "Confirm-Auth-Key", DeluxeRoomTypeId);
+        var holdId = created.GetProperty("holdId").GetGuid();
+
+        var response = await ConfirmAsync(client, holdId, null);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        await using var context = factory.CreateDbContext();
+        var reservation = await context.Reservations.SingleAsync();
+        Assert.Equal(customerId, reservation.CustomerAccountId);
+        Assert.Null(reservation.GuestAccessTokenHash);
+    }
+
+    [Fact]
+    public async Task Exact_expiry_boundary_and_after_expiry_conflict_without_creating_reservation()
+    {
+        await SeedFixedAsync();
+        using var client = factory.CreateClient();
+        var created = await CreateHoldAsync(client, "Confirm-Expiry-Key", DeluxeRoomTypeId);
+        var guestToken = created.GetProperty("guestAccessToken").GetString()!;
+        var holdId = created.GetProperty("holdId").GetGuid();
+
+        factory.Clock.UtcNow = FixedUtc.AddMinutes(15);
+        AssertProblem(await ConfirmAsync(client, holdId, guestToken), HttpStatusCode.Conflict);
+
+        factory.Clock.UtcNow = FixedUtc.AddMinutes(16);
+        AssertProblem(await ConfirmAsync(client, holdId, guestToken), HttpStatusCode.Conflict);
+
+        await using var context = factory.CreateDbContext();
+        Assert.Empty(await context.Reservations.ToListAsync());
+        var hold = await context.BookingHolds.SingleAsync();
+        Assert.Equal(BookingHoldStatus.Active, hold.Status);
+    }
+
+    [Fact]
+    public async Task Replay_after_the_original_expiry_time_still_succeeds_without_waiting_on_inventory()
+    {
+        await SeedFixedAsync();
+        using var client = factory.CreateClient();
+        var created = await CreateHoldAsync(client, "Confirm-ReplayAfterExpiry-Key", DeluxeRoomTypeId);
+        var guestToken = created.GetProperty("guestAccessToken").GetString()!;
+        var holdId = created.GetProperty("holdId").GetGuid();
+
+        var first = await ConfirmAsync(client, holdId, guestToken);
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        var firstBody = await first.Content.ReadFromJsonAsync<JsonElement>();
+
+        factory.Clock.UtcNow = FixedUtc.AddMinutes(30);
+
+        await using var blockerConnection = new NpgsqlConnection(factory.ConnectionString);
+        await blockerConnection.OpenAsync();
+        await using var blockerTransaction = await blockerConnection.BeginTransactionAsync();
+        try
+        {
+            await AcquireAdvisoryLockAsync(
+                blockerConnection,
+                BookingAdvisoryLockKeys.ForInventory(PropertyId, DeluxeRoomTypeId, LocalToday),
+                CancellationToken.None);
+
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            var replay = await ConfirmAsync(client, holdId, guestToken, timeout.Token);
+
+            Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+            var replayBody = await replay.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(
+                firstBody.GetProperty("reservationId").GetGuid(),
+                replayBody.GetProperty("reservationId").GetGuid());
+            Assert.Equal(
+                firstBody.GetProperty("confirmationNumber").GetString(),
+                replayBody.GetProperty("confirmationNumber").GetString());
+            Assert.Equal(
+                firstBody.GetProperty("confirmedAtUtc").GetDateTimeOffset(),
+                replayBody.GetProperty("confirmedAtUtc").GetDateTimeOffset());
+        }
+        finally
+        {
+            await blockerTransaction.RollbackAsync();
+        }
+
+        await using var context = factory.CreateDbContext();
+        Assert.Equal(1, await context.Reservations.CountAsync());
+    }
+
+    [Fact]
+    public async Task Cancelled_hold_conflicts_and_missing_hold_is_not_disclosed()
+    {
+        await SeedFixedAsync();
+        using var client = factory.CreateClient();
+        var created = await CreateHoldAsync(client, "Confirm-Cancelled-Key", DeluxeRoomTypeId);
+        var guestToken = created.GetProperty("guestAccessToken").GetString()!;
+        var holdId = created.GetProperty("holdId").GetGuid();
+
+        await using (var context = factory.CreateDbContext())
+        {
+            await context.Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE \"BookingHolds\" SET \"Status\" = 'Cancelled' WHERE \"Id\" = {holdId}");
+        }
+
+        AssertProblem(await ConfirmAsync(client, holdId, guestToken), HttpStatusCode.Conflict);
+        AssertProblem(
+            await ConfirmAsync(client, Guid.NewGuid(), guestToken),
+            HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Wrong_foreign_and_missing_credentials_are_not_disclosing()
+    {
+        await SeedFixedAsync();
+        using var client = factory.CreateClient();
+        var created = await CreateHoldAsync(client, "Confirm-Wrong-Cred-Key", DeluxeRoomTypeId);
+        var holdId = created.GetProperty("holdId").GetGuid();
+        var otherToken = new CryptographicGuestAccessTokenGenerator().Generate();
+
+        AssertProblem(
+            await ConfirmAsync(client, holdId, otherToken),
+            HttpStatusCode.NotFound);
+        AssertProblem(
+            await ConfirmAsync(client, holdId, null),
+            HttpStatusCode.Unauthorized);
+        AssertProblem(
+            await ConfirmAsync(client, holdId, "not-a-valid-token"),
+            HttpStatusCode.Unauthorized);
+
+        var otherCustomerClient = factory.CreateClient();
+        await CreateCustomerAsync(otherCustomerClient, "other-confirm@example.com");
+        AssertProblem(
+            await ConfirmAsync(otherCustomerClient, holdId, null),
+            HttpStatusCode.NotFound);
+
+        await using var context = factory.CreateDbContext();
+        Assert.Empty(await context.Reservations.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Guest_token_cannot_confirm_an_authenticated_holds_reservation()
+    {
+        await SeedFixedAsync();
+        using var ownerApplication = WithGenerousLoginRateLimit();
+        using var ownerClient = ownerApplication.CreateClient();
+        await CreateCustomerAsync(ownerClient, "confirm-owner-negative@example.com");
+        var created = await CreateHoldAsync(ownerClient, "Confirm-AuthOwned-Key", DeluxeRoomTypeId);
+        var holdId = created.GetProperty("holdId").GetGuid();
+        var unrelatedGuestToken = new CryptographicGuestAccessTokenGenerator().Generate();
+
+        using var anonymousClient = factory.CreateClient();
+        AssertProblem(
+            await ConfirmAsync(anonymousClient, holdId, unrelatedGuestToken),
+            HttpStatusCode.NotFound);
+
+        await using var context = factory.CreateDbContext();
+        Assert.Empty(await context.Reservations.ToListAsync());
+        var hold = await context.BookingHolds.SingleAsync();
+        Assert.Equal(BookingHoldStatus.Active, hold.Status);
+    }
+
+    [Fact]
+    public async Task Guest_token_for_one_hold_cannot_confirm_another_with_identical_contact_details()
+    {
+        // ValidRequest() always uses the same fullName/email/phone, so two
+        // independently created guest Holds are identical-contact by
+        // construction here - the only thing distinguishing them is each
+        // one's own opaque token.
+        await SeedFixedAsync();
+        using var client = factory.CreateClient();
+        var createdA = await CreateHoldAsync(client, "Confirm-Identical-A-Key", DeluxeRoomTypeId);
+        var holdIdA = createdA.GetProperty("holdId").GetGuid();
+        var createdB = await CreateHoldAsync(client, "Confirm-Identical-B-Key", FamilyRoomTypeId);
+        var tokenB = createdB.GetProperty("guestAccessToken").GetString()!;
+
+        AssertProblem(
+            await ConfirmAsync(client, holdIdA, tokenB),
+            HttpStatusCode.NotFound);
+
+        await using var context = factory.CreateDbContext();
+        Assert.Empty(await context.Reservations.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Matching_contact_email_alone_does_not_grant_confirm_ownership_without_the_guest_token()
+    {
+        const string SharedEmail = "shared-confirm-contact@example.com";
+        await SeedFixedAsync();
+        using var guestClient = factory.CreateClient();
+        var holdResponse = await PostHoldAsync(
+            guestClient,
+            "Confirm-SharedEmail-Guest-Key",
+            ValidRequest(DeluxeRoomTypeId) with { Email = SharedEmail });
+        Assert.Equal(HttpStatusCode.Created, holdResponse.StatusCode);
+        var holdId = (await holdResponse.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("holdId").GetGuid();
+
+        using var authenticatedApplication = WithGenerousLoginRateLimit();
+        using var authenticatedClient = authenticatedApplication.CreateClient();
+        await CreateCustomerAsync(authenticatedClient, SharedEmail);
+
+        AssertProblem(
+            await ConfirmAsync(authenticatedClient, holdId, null),
+            HttpStatusCode.NotFound);
+
+        await using var context = factory.CreateDbContext();
+        Assert.Empty(await context.Reservations.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Confirmation_requires_antiforgery_token()
+    {
+        await SeedFixedAsync();
+        using var client = factory.CreateClient();
+        var created = await CreateHoldAsync(client, "Confirm-Antiforgery-Key", DeluxeRoomTypeId);
+        var guestToken = created.GetProperty("guestAccessToken").GetString()!;
+        var holdId = created.GetProperty("holdId").GetGuid();
+
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/api/v1/booking-holds/{holdId}/confirm");
+        request.Headers.Add("X-Booking-Access-Token", guestToken);
+        var response = await client.SendAsync(request);
+
+        AssertProblem(response, HttpStatusCode.BadRequest);
+        await using var context = factory.CreateDbContext();
+        Assert.Empty(await context.Reservations.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Invalid_customer_cookie_is_not_silently_ignored()
+    {
+        await SeedFixedAsync();
+        using var client = factory.CreateClient();
+        var created = await CreateHoldAsync(client, "Confirm-Invalid-Cookie-Key", DeluxeRoomTypeId);
+        var holdId = created.GetProperty("holdId").GetGuid();
+
+        client.DefaultRequestHeaders.Add("Cookie", ".TheBha.Customer=tampered-value");
+        AssertProblem(
+            await ConfirmAsync(client, holdId, null),
+            HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Successful_confirmation_leaves_availability_unchanged()
+    {
+        await SeedFixedAsync();
+        using var client = factory.CreateClient();
+        var before = await GetAvailableRoomsAsync(client, "DLX-KING");
+
+        var created = await CreateHoldAsync(client, "Confirm-Availability-Key", DeluxeRoomTypeId);
+        var guestToken = created.GetProperty("guestAccessToken").GetString()!;
+        var holdId = created.GetProperty("holdId").GetGuid();
+        var afterHold = await GetAvailableRoomsAsync(client, "DLX-KING");
+        Assert.Equal(before - 1, afterHold);
+
+        var response = await ConfirmAsync(client, holdId, guestToken);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var afterConfirm = await GetAvailableRoomsAsync(client, "DLX-KING");
+
+        Assert.Equal(afterHold, afterConfirm);
+    }
+
+    [Fact]
+    public async Task First_confirmation_uses_hold_snapshot_despite_stop_sell_limit_and_catalog_changes()
+    {
+        // The active Hold is already committed demand and an immutable
+        // commercial snapshot; none of these post-Hold server/catalog changes
+        // may affect a still-pending first confirmation.
+        await SeedFixedAsync();
+        using var client = factory.CreateClient();
+        var created = await CreateHoldAsync(client, "Confirm-CatalogChange-Key", DeluxeRoomTypeId);
+        var guestToken = created.GetProperty("guestAccessToken").GetString()!;
+        var holdId = created.GetProperty("holdId").GetGuid();
+        var originalTotal = created.GetProperty("totalAmount").GetDecimal();
+        var originalNights = created.GetProperty("nights").EnumerateArray()
+            .Select(night => night.GetProperty("unitAmount").GetDecimal())
+            .ToArray();
+
+        await using (var context = factory.CreateDbContext())
+        {
+            var existingControls = await context.DailyInventoryControls
+                .Where(control =>
+                    control.PropertyId == PropertyId &&
+                    control.RoomTypeId == DeluxeRoomTypeId &&
+                    control.StayDate == LocalToday)
+                .ToListAsync();
+            context.DailyInventoryControls.RemoveRange(existingControls);
+            context.DailyInventoryControls.Add(new DailyInventoryControl(
+                Guid.NewGuid(),
+                PropertyId,
+                DeluxeRoomTypeId,
+                LocalToday,
+                0,
+                true,
+                FixedUtc.AddMinutes(1)));
+
+            (await context.RoomTypes.SingleAsync(roomType => roomType.Id == DeluxeRoomTypeId))
+                .Deactivate(FixedUtc.AddMinutes(1));
+            (await context.RatePlans.SingleAsync(ratePlan => ratePlan.Id == RatePlanId))
+                .Deactivate(FixedUtc.AddMinutes(1));
+            await context.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                 UPDATE "PhysicalRooms" SET "OperationalStatus" = 'Inactive'
+                 WHERE "PropertyId" = {PropertyId} AND "RoomTypeId" = {DeluxeRoomTypeId}
+                 """);
+
+            await context.SaveChangesAsync();
+        }
+
+        var response = await ConfirmAsync(client, holdId, guestToken);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(originalTotal, body.GetProperty("totalAmount").GetDecimal());
+        var confirmedNightAmounts = body.GetProperty("nights").EnumerateArray()
+            .Select(night => night.GetProperty("unitAmount").GetDecimal())
+            .ToArray();
+        Assert.Equal(originalNights, confirmedNightAmounts);
+
+        await using var verify = factory.CreateDbContext();
+        var reservation = await verify.Reservations.Include(item => item.Nights).SingleAsync();
+        Assert.Equal(originalTotal, reservation.TotalAmount);
+        Assert.All(
+            reservation.Nights,
+            night => Assert.Contains(night.UnitAmount, originalNights));
+    }
+
+    [Fact]
+    public async Task Concurrent_same_hold_confirmation_persists_exactly_one_reservation()
+    {
+        await SeedFixedAsync();
+        using var client = factory.CreateClient();
+        var created = await CreateHoldAsync(client, "Confirm-Concurrent-Key", DeluxeRoomTypeId);
+        var guestToken = created.GetProperty("guestAccessToken").GetString()!;
+        var holdId = created.GetProperty("holdId").GetGuid();
+
+        using var firstClient = factory.CreateClient();
+        using var secondClient = factory.CreateClient();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var responses = await Task.WhenAll(
+            ConfirmAsync(firstClient, holdId, guestToken, timeout.Token),
+            ConfirmAsync(secondClient, holdId, guestToken, timeout.Token));
+
+        Assert.Equal(
+            [HttpStatusCode.OK, HttpStatusCode.Created],
+            responses.Select(response => response.StatusCode).Order().ToArray());
+        var bodies = await Task.WhenAll(
+            responses.Select(response =>
+                response.Content.ReadFromJsonAsync<JsonElement>(timeout.Token)));
+        Assert.Equal(
+            bodies[0].GetProperty("reservationId").GetGuid(),
+            bodies[1].GetProperty("reservationId").GetGuid());
+
+        await using var context = factory.CreateDbContext();
+        Assert.Equal(1, await context.Reservations.CountAsync());
+        Assert.Equal(1, await context.ReservationNights.CountAsync());
+    }
+
+    [Fact]
+    public async Task Concurrent_overlapping_multi_night_confirmations_complete_without_deadlock()
+    {
+        // DLX-KING has two active physical rooms at baseline (day+1 alone
+        // carries a seeded sellable-limit of 1, so these ranges deliberately
+        // avoid it), so two 1-room, 3-night Holds with a two-night overlap
+        // can both be created; each confirmation then acquires the exact
+        // BE-003.3 inventory-lock identity for every one of its nights, in
+        // ascending stay-date order, so the two overlapping lock sets can
+        // only ever contend, never form a lock cycle.
+        await SeedFixedAsync();
+        using var setupClient = factory.CreateClient();
+        Assert.Equal(2, await GetAvailableRoomsAsync(setupClient, "DLX-KING"));
+
+        var earlyRequest = ValidRequest(DeluxeRoomTypeId) with
+        {
+            CheckIn = LocalToday.AddDays(2),
+            CheckOut = LocalToday.AddDays(5)
+        };
+        var lateRequest = ValidRequest(DeluxeRoomTypeId) with
+        {
+            CheckIn = LocalToday.AddDays(3),
+            CheckOut = LocalToday.AddDays(6)
+        };
+        var earlyCreated = await PostHoldAsync(setupClient, "MultiNight-Early-Key", earlyRequest);
+        Assert.Equal(HttpStatusCode.Created, earlyCreated.StatusCode);
+        var lateCreated = await PostHoldAsync(setupClient, "MultiNight-Late-Key", lateRequest);
+        Assert.Equal(HttpStatusCode.Created, lateCreated.StatusCode);
+        var earlyBody = await earlyCreated.Content.ReadFromJsonAsync<JsonElement>();
+        var lateBody = await lateCreated.Content.ReadFromJsonAsync<JsonElement>();
+        var earlyHoldId = earlyBody.GetProperty("holdId").GetGuid();
+        var lateHoldId = lateBody.GetProperty("holdId").GetGuid();
+        var earlyToken = earlyBody.GetProperty("guestAccessToken").GetString()!;
+        var lateToken = lateBody.GetProperty("guestAccessToken").GetString()!;
+
+        using var earlyClient = factory.CreateClient();
+        using var lateClient = factory.CreateClient();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var responses = await Task.WhenAll(
+            ConfirmAsync(earlyClient, earlyHoldId, earlyToken, timeout.Token),
+            ConfirmAsync(lateClient, lateHoldId, lateToken, timeout.Token));
+
+        Assert.All(responses, response => Assert.Equal(HttpStatusCode.Created, response.StatusCode));
+
+        await using var context = factory.CreateDbContext();
+        Assert.Equal(2, await context.Reservations.CountAsync());
+        Assert.Equal(
+            1,
+            await context.Reservations.CountAsync(reservation => reservation.SourceHoldId == earlyHoldId));
+        Assert.Equal(
+            1,
+            await context.Reservations.CountAsync(reservation => reservation.SourceHoldId == lateHoldId));
+        Assert.Equal(3, await context.ReservationNights.CountAsync(
+            night => context.Reservations
+                .Where(reservation => reservation.SourceHoldId == earlyHoldId)
+                .Select(reservation => reservation.Id)
+                .Contains(night.ReservationId)));
+    }
+
+    [Fact]
+    public async Task Confirmation_versus_new_hold_creation_cannot_overbook_last_room()
+    {
+        await SeedFixedAsync();
+        using var setupClient = factory.CreateClient();
+        var created = await CreateHoldAsync(setupClient, "Confirm-LastRoom-Key", FamilyRoomTypeId);
+        var guestToken = created.GetProperty("guestAccessToken").GetString()!;
+        var holdId = created.GetProperty("holdId").GetGuid();
+        Assert.Equal(0, await GetAvailableRoomsAsync(setupClient, "FAMILY"));
+
+        using var confirmClient = factory.CreateClient();
+        using var newHoldClient = factory.CreateClient();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+
+        var confirmTask = ConfirmAsync(confirmClient, holdId, guestToken, timeout.Token);
+        var newHoldTask = PostHoldAsync(
+            newHoldClient,
+            "Confirm-LastRoom-Competing-Key",
+            ValidRequest(FamilyRoomTypeId),
+            timeout.Token);
+        await Task.WhenAll(confirmTask, newHoldTask);
+
+        var confirmResponse = await confirmTask;
+        var newHoldResponse = await newHoldTask;
+        Assert.Equal(HttpStatusCode.Created, confirmResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, newHoldResponse.StatusCode);
+
+        Assert.Equal(0, await GetAvailableRoomsAsync(setupClient, "FAMILY"));
+        await using var context = factory.CreateDbContext();
+        Assert.Equal(1, await context.Reservations.CountAsync());
+        Assert.Equal(1, await context.BookingHolds.CountAsync());
+        Assert.Equal(
+            0,
+            await context.BookingHolds.CountAsync(hold => hold.Status == BookingHoldStatus.Active));
+    }
+
+    [Fact]
+    public async Task Expiry_is_rechecked_after_waiting_for_the_inventory_lock()
+    {
+        await SeedFixedAsync();
+        using var setupClient = factory.CreateClient();
+        var created = await CreateHoldAsync(setupClient, "Confirm-ExpiryWait-Key", DeluxeRoomTypeId);
+        var guestToken = created.GetProperty("guestAccessToken").GetString()!;
+        var holdId = created.GetProperty("holdId").GetGuid();
+
+        var inventoryLock = BookingAdvisoryLockKeys.ForInventory(
+            PropertyId,
+            DeluxeRoomTypeId,
+            LocalToday);
+        await using var blockerConnection = new NpgsqlConnection(factory.ConnectionString);
+        await blockerConnection.OpenAsync();
+        await using var blockerTransaction = await blockerConnection.BeginTransactionAsync();
+        await AcquireAdvisoryLockAsync(blockerConnection, inventoryLock, CancellationToken.None);
+
+        using var client = factory.CreateClient();
+        var confirmTask = ConfirmAsync(client, holdId, guestToken);
+        await WaitUntilLockIsHeldAsync(
+            BookingAdvisoryLockKeys.ForHoldTransition(holdId),
+            TimeSpan.FromSeconds(10));
+
+        factory.Clock.UtcNow = FixedUtc.AddMinutes(15);
+        await blockerTransaction.RollbackAsync();
+
+        var response = await confirmTask;
+        AssertProblem(response, HttpStatusCode.Conflict);
+        await using var context = factory.CreateDbContext();
+        Assert.Empty(await context.Reservations.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Cancelling_the_request_releases_its_own_hold_transition_lock()
+    {
+        // The blocker holds only the INVENTORY lock, never the Hold-transition
+        // lock, so observing the transition lock as held proves the confirmation
+        // request itself acquired it and is now the one waiting on inventory -
+        // not merely observing the blocker's own lock.
+        await SeedFixedAsync();
+        using var setupClient = factory.CreateClient();
+        var created = await CreateHoldAsync(setupClient, "Confirm-Cancel-Key", DeluxeRoomTypeId);
+        var guestToken = created.GetProperty("guestAccessToken").GetString()!;
+        var holdId = created.GetProperty("holdId").GetGuid();
+        var transitionLock = BookingAdvisoryLockKeys.ForHoldTransition(holdId);
+        var inventoryLock = BookingAdvisoryLockKeys.ForInventory(
+            PropertyId,
+            DeluxeRoomTypeId,
+            LocalToday);
+
+        await using var blockerConnection = new NpgsqlConnection(factory.ConnectionString);
+        await blockerConnection.OpenAsync();
+        await using var blockerTransaction = await blockerConnection.BeginTransactionAsync();
+        try
+        {
+            await AcquireAdvisoryLockAsync(blockerConnection, inventoryLock, CancellationToken.None);
+
+            using var client = factory.CreateClient();
+            var csrf = await GetCsrfAsync(client, CancellationToken.None);
+            using var cancellation = new CancellationTokenSource();
+            using var request = new HttpRequestMessage(
+                HttpMethod.Post,
+                $"/api/v1/booking-holds/{holdId}/confirm");
+            request.Headers.Add("X-Booking-Access-Token", guestToken);
+            request.Headers.Add(csrf.HeaderName, csrf.Token);
+            var operation = client.SendAsync(request, cancellation.Token);
+
+            // The request must be the one holding its own transition lock (not
+            // the blocker, which never touches that key), and it must still be
+            // waiting on the inventory lock the blocker holds.
+            await WaitUntilLockIsHeldAsync(transitionLock, TimeSpan.FromSeconds(10));
+            Assert.False(await CanAcquireAdvisoryLockAsync(inventoryLock));
+
+            cancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await operation);
+
+            // Prove the request's own transition lock is released by
+            // cancellation alone, while the blocker's inventory lock is still
+            // held - this cannot be explained by the blocker's lock, since the
+            // blocker never acquired the transition lock in the first place.
+            await WaitUntilLockIsAvailableAsync(transitionLock, TimeSpan.FromSeconds(10));
+            Assert.False(await CanAcquireAdvisoryLockAsync(inventoryLock));
+
+            await using var context = factory.CreateDbContext();
+            Assert.Empty(await context.Reservations.ToListAsync());
+            Assert.Empty(await context.ReservationNights.ToListAsync());
+            var hold = await context.BookingHolds.SingleAsync();
+            Assert.Equal(BookingHoldStatus.Active, hold.Status);
+        }
+        finally
+        {
+            await blockerTransaction.RollbackAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Forced_failure_before_commit_releases_both_lock_classes_and_leaves_no_partial_state()
+    {
+        await SeedFixedAsync();
+        using var setupClient = factory.CreateClient();
+        var created = await CreateHoldAsync(setupClient, "Confirm-ForcedFailure-Key", DeluxeRoomTypeId);
+        var guestToken = created.GetProperty("guestAccessToken").GetString()!;
+        var holdId = created.GetProperty("holdId").GetGuid();
+        var transitionLock = BookingAdvisoryLockKeys.ForHoldTransition(holdId);
+        var inventoryLock = BookingAdvisoryLockKeys.ForInventory(
+            PropertyId,
+            DeluxeRoomTypeId,
+            LocalToday);
+
+        using var interceptingApplication = factory.WithWebHostBuilder(builder =>
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<DbContextOptions<TheBhaDbContext>>();
+                services.RemoveAll<TheBhaDbContext>();
+                services.AddDbContext<TheBhaDbContext>(options =>
+                    options.UseNpgsql(
+                            factory.ConnectionString,
+                            npgsql => npgsql.MigrationsAssembly("TheBha.Infrastructure"))
+                        .AddInterceptors(new ThrowBeforeReservationInsertInterceptor()));
+            }));
+        using var client = interceptingApplication.CreateClient();
+
+        var response = await ConfirmAsync(client, holdId, guestToken);
+        Assert.False(response.IsSuccessStatusCode);
+        Assert.True((int)response.StatusCode >= 500);
+
+        await using var context = factory.CreateDbContext();
+        Assert.Empty(await context.Reservations.ToListAsync());
+        Assert.Empty(await context.ReservationNights.ToListAsync());
+        var hold = await context.BookingHolds.SingleAsync();
+        Assert.Equal(BookingHoldStatus.Active, hold.Status);
+
+        Assert.True(await CanAcquireAdvisoryLockAsync(transitionLock));
+        Assert.True(await CanAcquireAdvisoryLockAsync(inventoryLock));
+    }
+
+    [Fact]
+    public async Task OpenApi_documents_confirmation_endpoint_and_guest_header()
+    {
+        await SeedFixedAsync();
+        using var client = factory.CreateClient();
+        var swagger = await client.GetFromJsonAsync<JsonElement>("/swagger/v1/swagger.json");
+        var operation = swagger.GetProperty("paths")
+            .GetProperty("/api/v1/booking-holds/{holdId}/confirm")
+            .GetProperty("post");
+        var headerNames = operation.GetProperty("parameters")
+            .EnumerateArray()
+            .Select(parameter => parameter.GetProperty("name").GetString())
+            .ToArray();
+        Assert.Contains("X-Booking-Access-Token", headerNames);
+        Assert.Contains("X-CSRF-TOKEN", headerNames);
+        foreach (var status in new[] { "200", "201", "401", "404", "409" })
+        {
+            Assert.True(operation.GetProperty("responses").TryGetProperty(status, out _));
+        }
+
+        var securitySchemeIds = operation.GetProperty("security")
+            .EnumerateArray()
+            .SelectMany(requirement => requirement.EnumerateObject())
+            .Select(scheme => scheme.Name)
+            .ToArray();
+        Assert.DoesNotContain("bearer", securitySchemeIds, StringComparer.OrdinalIgnoreCase);
+        Assert.All(
+            securitySchemeIds,
+            id => Assert.Equal("CustomerCookie", id, StringComparer.Ordinal));
+    }
+
+    private async Task<JsonElement> CreateHoldAsync(
+        HttpClient client,
+        string idempotencyKey,
+        Guid roomTypeId)
+    {
+        var response = await PostHoldAsync(client, idempotencyKey, ValidRequest(roomTypeId));
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        return await response.Content.ReadFromJsonAsync<JsonElement>();
+    }
+
+    private static async Task<HttpResponseMessage> ConfirmAsync(
+        HttpClient client,
+        Guid holdId,
+        string? guestAccessToken,
+        CancellationToken cancellationToken = default)
+    {
+        var csrf = await GetCsrfAsync(client, cancellationToken);
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/api/v1/booking-holds/{holdId}/confirm");
+        if (guestAccessToken is not null)
+        {
+            request.Headers.Add("X-Booking-Access-Token", guestAccessToken);
+        }
+
+        request.Headers.Add(csrf.HeaderName, csrf.Token);
+        return await client.SendAsync(request, cancellationToken);
+    }
+
+    /// <summary>
+    /// The whole PostgreSQL integration collection shares one factory and
+    /// therefore one login rate-limiter counter across every test class. Tests
+    /// that only incidentally need a login (not testing rate-limiting itself)
+    /// use an isolated host with a generously raised limit, mirroring the
+    /// existing WithWebHostBuilder + UseSetting override pattern
+    /// CustomerAuthenticationTests already uses to test the opposite
+    /// direction (a deliberately low limit).
+    /// </summary>
+    private WebApplicationFactory<Program> WithGenerousLoginRateLimit() =>
+        factory.WithWebHostBuilder(builder =>
+            builder.UseSetting("Authentication:RateLimiting:LoginPermitLimit", "1000"));
+
+    private async Task<int> GetAvailableRoomsAsync(HttpClient client, string code)
+    {
+        var payload = await client.GetFromJsonAsync<JsonElement>(
+            $"/api/v1/properties/{PropertyId}/availability" +
+            $"?checkIn={LocalToday:yyyy-MM-dd}&checkOut={LocalToday.AddDays(1):yyyy-MM-dd}" +
+            "&adults=1&children=0&rooms=1");
+        var offer = payload.EnumerateArray()
+            .SingleOrDefault(item => item.GetProperty("roomTypeCode").GetString() == code);
+        return offer.ValueKind == JsonValueKind.Undefined
+            ? 0
+            : offer.GetProperty("availableRooms").GetInt32();
+    }
+
+    private static ApiRequest ValidRequest(Guid roomTypeId) =>
+        new(
+            PropertyId,
+            roomTypeId,
+            RatePlanId,
+            LocalToday,
+            LocalToday.AddDays(1),
+            1,
+            0,
+            1,
+            "Guest Name",
+            "guest@example.com",
+            "+84 123 4567");
+
+    private static async Task<HttpResponseMessage> PostHoldAsync(
+        HttpClient client,
+        string idempotencyKey,
+        object payload,
+        CancellationToken cancellationToken = default)
+    {
+        var csrf = await GetCsrfAsync(client, cancellationToken);
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            "/api/v1/booking-holds")
+        {
+            Content = JsonContent.Create(payload)
+        };
+        request.Headers.Add("Idempotency-Key", idempotencyKey);
+        request.Headers.Add(csrf.HeaderName, csrf.Token);
+        return await client.SendAsync(request, cancellationToken);
+    }
+
+    private static async Task<CsrfResponse> GetCsrfAsync(
+        HttpClient client,
+        CancellationToken cancellationToken)
+    {
+        var response = await client.GetAsync("/api/v1/auth/csrf", cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<CsrfResponse>(
+            cancellationToken: cancellationToken))!;
+    }
+
+    private async Task<bool> CanAcquireAdvisoryLockAsync(long lockKey)
+    {
+        await using var connection = new NpgsqlConnection(factory.ConnectionString);
+        await connection.OpenAsync();
+        await using var transaction = await connection.BeginTransactionAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT pg_try_advisory_xact_lock(@lockKey)";
+        command.Parameters.AddWithValue("lockKey", lockKey);
+        var acquired = (bool)(await command.ExecuteScalarAsync())!;
+        await transaction.RollbackAsync();
+        return acquired;
+    }
+
+    private static async Task AcquireAdvisoryLockAsync(
+        NpgsqlConnection connection,
+        long lockKey,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT pg_advisory_xact_lock(@lockKey)";
+        command.Parameters.AddWithValue("lockKey", lockKey);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private async Task WaitUntilLockIsHeldAsync(long lockKey, TimeSpan timeout)
+    {
+        var deadline = DateTimeOffset.UtcNow.Add(timeout);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            if (!await CanAcquireAdvisoryLockAsync(lockKey))
+            {
+                return;
+            }
+
+            await Task.Delay(50);
+        }
+
+        throw new TimeoutException(
+            "The confirmation operation did not acquire the expected advisory lock.");
+    }
+
+    private async Task WaitUntilLockIsAvailableAsync(long lockKey, TimeSpan timeout)
+    {
+        var deadline = DateTimeOffset.UtcNow.Add(timeout);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            if (await CanAcquireAdvisoryLockAsync(lockKey))
+            {
+                return;
+            }
+
+            await Task.Delay(50);
+        }
+
+        throw new TimeoutException(
+            "The confirmation operation did not release the expected advisory lock.");
+    }
+
+    private async Task SeedFixedAsync()
+    {
+        factory.Clock.UtcNow = FixedUtc;
+        await factory.ResetDatabaseAsync();
+        await using var context = factory.CreateDbContext();
+        await new DevelopmentDataSeeder(context, new FixedTimeProvider(FixedUtc))
+            .SeedAsync(CancellationToken.None);
+    }
+
+    private async Task<Guid> CreateCustomerAsync(HttpClient client, string email)
+    {
+        await using var scope = factory.Services.CreateAsyncScope();
+        var userManager = scope.ServiceProvider
+            .GetRequiredService<UserManager<CustomerAccount>>();
+        var account = new CustomerAccount
+        {
+            Id = Guid.NewGuid(),
+            Email = email,
+            UserName = email
+        };
+        var result = await userManager.CreateAsync(account, StrongPassword);
+        Assert.True(result.Succeeded);
+        var login = await client.PostAsJsonAsync(
+            "/api/v1/auth/login",
+            new { email, password = StrongPassword });
+        Assert.Equal(HttpStatusCode.OK, login.StatusCode);
+        return account.Id;
+    }
+
+    private static void AssertProblem(HttpResponseMessage response, HttpStatusCode status)
+    {
+        Assert.Equal(status, response.StatusCode);
+        Assert.Equal(
+            "application/problem+json",
+            response.Content.Headers.ContentType?.MediaType);
+    }
+
+    private sealed record CsrfResponse(string Token, string HeaderName);
+
+    private sealed record ApiRequest(
+        Guid PropertyId,
+        Guid RoomTypeId,
+        Guid RatePlanId,
+        DateOnly CheckIn,
+        DateOnly CheckOut,
+        int Adults,
+        int Children,
+        int Rooms,
+        string FullName,
+        string Email,
+        string Phone);
+
+    private sealed class FixedTimeProvider(DateTimeOffset value) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => value;
+    }
+
+    /// <summary>
+    /// Test-host-only EF Core interceptor that forces a failure exactly at the
+    /// Reservation insert, i.e. strictly after both the Hold-transition and
+    /// inventory advisory locks have already been acquired but strictly before
+    /// commit - proving rollback releases both lock classes and leaves no
+    /// partial state. Registered only for one dedicated WebApplicationFactory
+    /// host; production DI registration is never touched.
+    /// </summary>
+    private sealed class ThrowBeforeReservationInsertInterceptor : DbCommandInterceptor
+    {
+        public override InterceptionResult<int> NonQueryExecuting(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<int> result)
+        {
+            ThrowIfTargetCommand(command);
+            return base.NonQueryExecuting(command, eventData, result);
+        }
+
+        public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            ThrowIfTargetCommand(command);
+            return base.NonQueryExecutingAsync(command, eventData, result, cancellationToken);
+        }
+
+        public override InterceptionResult<DbDataReader> ReaderExecuting(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result)
+        {
+            ThrowIfTargetCommand(command);
+            return base.ReaderExecuting(command, eventData, result);
+        }
+
+        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            ThrowIfTargetCommand(command);
+            return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
+        }
+
+        private static void ThrowIfTargetCommand(DbCommand command)
+        {
+            if (command.CommandText.Contains(
+                    "INSERT INTO \"Reservations\"",
+                    StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    "Forced test failure immediately before the Reservation insert.");
+            }
+        }
+    }
+}

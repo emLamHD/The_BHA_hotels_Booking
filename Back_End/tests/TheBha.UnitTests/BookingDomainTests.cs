@@ -329,6 +329,100 @@ public sealed class BookingDomainTests
     }
 
     [Fact]
+    public void Confirm_before_expiry_transitions_status_and_copies_exact_snapshot()
+    {
+        var hold = CreateHold();
+        var reservationId = Guid.NewGuid();
+
+        var reservation = hold.Confirm(
+            reservationId,
+            "BHA-TEST-0001",
+            hold.ExpiresAtUtc.AddTicks(-1));
+
+        Assert.Equal(BookingHoldStatus.Confirmed, hold.Status);
+        Assert.Equal(reservationId, reservation.Id);
+        Assert.Equal("BHA-TEST-0001", reservation.ConfirmationNumber);
+        Assert.Equal(hold.Id, reservation.SourceHoldId);
+        Assert.Equal(hold.PropertyId, reservation.PropertyId);
+        Assert.Equal(hold.RoomTypeId, reservation.RoomTypeId);
+        Assert.Equal(hold.RatePlanId, reservation.RatePlanId);
+        Assert.Equal(hold.CustomerAccountId, reservation.CustomerAccountId);
+        Assert.Equal(hold.GuestAccessTokenHash, reservation.GuestAccessTokenHash);
+        Assert.Equal(hold.FullName, reservation.FullName);
+        Assert.Equal(hold.Email, reservation.Email);
+        Assert.Equal(hold.Phone, reservation.Phone);
+        Assert.Equal(hold.CheckIn, reservation.CheckIn);
+        Assert.Equal(hold.CheckOut, reservation.CheckOut);
+        Assert.Equal(hold.Adults, reservation.Adults);
+        Assert.Equal(hold.Children, reservation.Children);
+        Assert.Equal(hold.Rooms, reservation.Rooms);
+        Assert.Equal(hold.CurrencyCode, reservation.CurrencyCode);
+        Assert.Equal(hold.TotalAmount, reservation.TotalAmount);
+        Assert.Equal(
+            hold.Nights.Select(night => (night.StayDate, night.Rooms, night.UnitAmount, night.NightTotal)),
+            reservation.Nights.Select(night => (night.StayDate, night.Rooms, night.UnitAmount, night.NightTotal)));
+        Assert.Equal(ReservationStatus.Confirmed, reservation.Status);
+        Assert.Null(reservation.CancelledAtUtc);
+        Assert.Null(reservation.CancellationReason);
+    }
+
+    [Fact]
+    public void Confirm_at_exact_expiry_boundary_conflicts()
+    {
+        var hold = CreateHold();
+
+        Assert.Throws<DomainException>(() =>
+            hold.Confirm(Guid.NewGuid(), "BHA-TEST-0002", hold.ExpiresAtUtc));
+        Assert.Equal(BookingHoldStatus.Active, hold.Status);
+    }
+
+    [Fact]
+    public void Confirm_after_expiry_conflicts()
+    {
+        var hold = CreateHold();
+
+        Assert.Throws<DomainException>(() =>
+            hold.Confirm(Guid.NewGuid(), "BHA-TEST-0003", hold.ExpiresAtUtc.AddTicks(1)));
+        Assert.Equal(BookingHoldStatus.Active, hold.Status);
+    }
+
+    [Fact]
+    public void Confirm_rejects_non_utc_time()
+    {
+        var hold = CreateHold();
+
+        Assert.Throws<DomainException>(() =>
+            hold.Confirm(
+                Guid.NewGuid(),
+                "BHA-TEST-0004",
+                hold.ExpiresAtUtc.AddTicks(-1).ToOffset(TimeSpan.FromHours(7))));
+        Assert.Equal(BookingHoldStatus.Active, hold.Status);
+    }
+
+    [Fact]
+    public void Confirm_is_terminal_and_cannot_be_repeated_or_reversed()
+    {
+        var hold = CreateHold();
+        hold.Confirm(Guid.NewGuid(), "BHA-TEST-0005", hold.ExpiresAtUtc.AddTicks(-1));
+
+        Assert.Throws<DomainException>(() =>
+            hold.Confirm(Guid.NewGuid(), "BHA-TEST-0006", hold.ExpiresAtUtc.AddTicks(-1)));
+        Assert.Equal(BookingHoldStatus.Confirmed, hold.Status);
+    }
+
+    [Fact]
+    public void Cancelled_hold_cannot_confirm()
+    {
+        var hold = CreateHold();
+        typeof(BookingHold)
+            .GetProperty(nameof(BookingHold.Status))!
+            .SetValue(hold, BookingHoldStatus.Cancelled);
+
+        Assert.Throws<DomainException>(() =>
+            hold.Confirm(Guid.NewGuid(), "BHA-TEST-0007", hold.ExpiresAtUtc.AddTicks(-1)));
+    }
+
+    [Fact]
     public void Aggregates_expose_no_mutable_nights_or_raw_material_properties()
     {
         var hold = CreateHold();

@@ -10,6 +10,7 @@ namespace TheBha.Api.Controllers;
 [Route("api/v1/booking-holds")]
 public sealed class BookingHoldsController(
     IBookingHoldCreation creation,
+    IBookingHoldConfirmation confirmation,
     ICurrentCustomer currentCustomer) : ControllerBase
 {
     [HttpPost]
@@ -69,6 +70,54 @@ public sealed class BookingHoldsController(
             _ => Problem(
                 statusCode: StatusCodes.Status400BadRequest,
                 title: "Invalid booking Hold request",
+                detail: result.Error)
+        };
+    }
+
+    [HttpPost("{holdId:guid}/confirm")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(ReservationDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ReservationDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<ReservationDto>> Confirm(
+        Guid holdId,
+        [FromHeader(Name = "X-Booking-Access-Token")] string? bookingAccessToken,
+        CancellationToken cancellationToken)
+    {
+        if (Request.Cookies.ContainsKey(".TheBha.Customer") &&
+            !currentCustomer.IsAuthenticated)
+        {
+            return Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Invalid customer session",
+                detail: "The supplied customer session is invalid.");
+        }
+
+        var result = await confirmation.ConfirmAsync(
+            holdId,
+            bookingAccessToken,
+            cancellationToken);
+        return result.Status switch
+        {
+            BookingHoldConfirmationStatus.Confirmed => CreatedAtAction(
+                nameof(ReservationsController.Get),
+                "Reservations",
+                new { reservationId = result.Reservation!.ReservationId },
+                result.Reservation),
+            BookingHoldConfirmationStatus.Replayed => Ok(result.Reservation),
+            BookingHoldConfirmationStatus.Unauthorized => Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Invalid booking access credential",
+                detail: result.Error),
+            BookingHoldConfirmationStatus.Conflict => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "Booking Hold cannot be confirmed",
+                detail: result.Error),
+            _ => Problem(
+                statusCode: StatusCodes.Status404NotFound,
+                title: "Booking Hold not found",
                 detail: result.Error)
         };
     }

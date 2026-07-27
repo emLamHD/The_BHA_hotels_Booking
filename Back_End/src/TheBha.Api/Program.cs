@@ -81,6 +81,7 @@ builder.Services.AddSwaggerGen(options =>
         });
     options.OperationFilter<AuthOperationFilter>();
     options.OperationFilter<BookingHoldOperationFilter>();
+    options.OperationFilter<ReservationLifecycleOperationFilter>();
 });
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services
