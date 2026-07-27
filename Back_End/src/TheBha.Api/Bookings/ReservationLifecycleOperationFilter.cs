@@ -69,7 +69,10 @@ public sealed class ReservationLifecycleOperationFilter : IOperationFilter
             Schema = new OpenApiSchema { Type = "string" }
         });
 
-        if (isUnsafeMutation)
+        if (isUnsafeMutation &&
+            !operation.Parameters.Any(parameter =>
+                parameter.In == ParameterLocation.Header &&
+                string.Equals(parameter.Name, "X-CSRF-TOKEN", StringComparison.OrdinalIgnoreCase)))
         {
             operation.Parameters.Add(new OpenApiParameter
             {
