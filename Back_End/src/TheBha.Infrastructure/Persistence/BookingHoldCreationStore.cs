@@ -424,9 +424,13 @@ public static class BookingAdvisoryLockKeys
 {
     private const string IdempotencyNamespace = "thebha:booking:idempotency:v1:";
     private const string InventoryNamespace = "thebha:booking:inventory:v1:";
+    private const string HoldTransitionNamespace = "thebha:booking:hold-transition:v1:";
 
     public static long ForIdempotency(string idempotencyKeyHash) =>
         HashToInt64(IdempotencyNamespace + idempotencyKeyHash);
+
+    public static long ForHoldTransition(Guid holdId) =>
+        HashToInt64(HoldTransitionNamespace + holdId.ToString("D"));
 
     public static long ForInventory(
         Guid propertyId,
