@@ -2,7 +2,9 @@ using System.Data.Common;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
@@ -10,6 +12,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Npgsql;
 using TheBha.Application.Bookings;
 using TheBha.Domain.Bookings;
+using TheBha.Domain.Properties;
 using TheBha.Infrastructure.Identity;
 using TheBha.Infrastructure.Persistence;
 
@@ -255,6 +258,55 @@ public sealed class BookingHoldConfirmationApiTests(PostgreSqlWebApplicationFact
     }
 
     [Fact]
+    public async Task Replay_after_the_original_expiry_time_still_succeeds_without_waiting_on_inventory()
+    {
+        await SeedFixedAsync();
+        using var client = factory.CreateClient();
+        var created = await CreateHoldAsync(client, "Confirm-ReplayAfterExpiry-Key", DeluxeRoomTypeId);
+        var guestToken = created.GetProperty("guestAccessToken").GetString()!;
+        var holdId = created.GetProperty("holdId").GetGuid();
+
+        var first = await ConfirmAsync(client, holdId, guestToken);
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        var firstBody = await first.Content.ReadFromJsonAsync<JsonElement>();
+
+        factory.Clock.UtcNow = FixedUtc.AddMinutes(30);
+
+        await using var blockerConnection = new NpgsqlConnection(factory.ConnectionString);
+        await blockerConnection.OpenAsync();
+        await using var blockerTransaction = await blockerConnection.BeginTransactionAsync();
+        try
+        {
+            await AcquireAdvisoryLockAsync(
+                blockerConnection,
+                BookingAdvisoryLockKeys.ForInventory(PropertyId, DeluxeRoomTypeId, LocalToday),
+                CancellationToken.None);
+
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            var replay = await ConfirmAsync(client, holdId, guestToken, timeout.Token);
+
+            Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+            var replayBody = await replay.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(
+                firstBody.GetProperty("reservationId").GetGuid(),
+                replayBody.GetProperty("reservationId").GetGuid());
+            Assert.Equal(
+                firstBody.GetProperty("confirmationNumber").GetString(),
+                replayBody.GetProperty("confirmationNumber").GetString());
+            Assert.Equal(
+                firstBody.GetProperty("confirmedAtUtc").GetDateTimeOffset(),
+                replayBody.GetProperty("confirmedAtUtc").GetDateTimeOffset());
+        }
+        finally
+        {
+            await blockerTransaction.RollbackAsync();
+        }
+
+        await using var context = factory.CreateDbContext();
+        Assert.Equal(1, await context.Reservations.CountAsync());
+    }
+
+    [Fact]
     public async Task Cancelled_hold_conflicts_and_missing_hold_is_not_disclosed()
     {
         await SeedFixedAsync();
@@ -298,6 +350,76 @@ public sealed class BookingHoldConfirmationApiTests(PostgreSqlWebApplicationFact
         await CreateCustomerAsync(otherCustomerClient, "other-confirm@example.com");
         AssertProblem(
             await ConfirmAsync(otherCustomerClient, holdId, null),
+            HttpStatusCode.NotFound);
+
+        await using var context = factory.CreateDbContext();
+        Assert.Empty(await context.Reservations.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Guest_token_cannot_confirm_an_authenticated_holds_reservation()
+    {
+        await SeedFixedAsync();
+        using var ownerApplication = WithGenerousLoginRateLimit();
+        using var ownerClient = ownerApplication.CreateClient();
+        await CreateCustomerAsync(ownerClient, "confirm-owner-negative@example.com");
+        var created = await CreateHoldAsync(ownerClient, "Confirm-AuthOwned-Key", DeluxeRoomTypeId);
+        var holdId = created.GetProperty("holdId").GetGuid();
+        var unrelatedGuestToken = new CryptographicGuestAccessTokenGenerator().Generate();
+
+        using var anonymousClient = factory.CreateClient();
+        AssertProblem(
+            await ConfirmAsync(anonymousClient, holdId, unrelatedGuestToken),
+            HttpStatusCode.NotFound);
+
+        await using var context = factory.CreateDbContext();
+        Assert.Empty(await context.Reservations.ToListAsync());
+        var hold = await context.BookingHolds.SingleAsync();
+        Assert.Equal(BookingHoldStatus.Active, hold.Status);
+    }
+
+    [Fact]
+    public async Task Guest_token_for_one_hold_cannot_confirm_another_with_identical_contact_details()
+    {
+        // ValidRequest() always uses the same fullName/email/phone, so two
+        // independently created guest Holds are identical-contact by
+        // construction here - the only thing distinguishing them is each
+        // one's own opaque token.
+        await SeedFixedAsync();
+        using var client = factory.CreateClient();
+        var createdA = await CreateHoldAsync(client, "Confirm-Identical-A-Key", DeluxeRoomTypeId);
+        var holdIdA = createdA.GetProperty("holdId").GetGuid();
+        var createdB = await CreateHoldAsync(client, "Confirm-Identical-B-Key", FamilyRoomTypeId);
+        var tokenB = createdB.GetProperty("guestAccessToken").GetString()!;
+
+        AssertProblem(
+            await ConfirmAsync(client, holdIdA, tokenB),
+            HttpStatusCode.NotFound);
+
+        await using var context = factory.CreateDbContext();
+        Assert.Empty(await context.Reservations.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Matching_contact_email_alone_does_not_grant_confirm_ownership_without_the_guest_token()
+    {
+        const string SharedEmail = "shared-confirm-contact@example.com";
+        await SeedFixedAsync();
+        using var guestClient = factory.CreateClient();
+        var holdResponse = await PostHoldAsync(
+            guestClient,
+            "Confirm-SharedEmail-Guest-Key",
+            ValidRequest(DeluxeRoomTypeId) with { Email = SharedEmail });
+        Assert.Equal(HttpStatusCode.Created, holdResponse.StatusCode);
+        var holdId = (await holdResponse.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("holdId").GetGuid();
+
+        using var authenticatedApplication = WithGenerousLoginRateLimit();
+        using var authenticatedClient = authenticatedApplication.CreateClient();
+        await CreateCustomerAsync(authenticatedClient, SharedEmail);
+
+        AssertProblem(
+            await ConfirmAsync(authenticatedClient, holdId, null),
             HttpStatusCode.NotFound);
 
         await using var context = factory.CreateDbContext();
@@ -359,6 +481,70 @@ public sealed class BookingHoldConfirmationApiTests(PostgreSqlWebApplicationFact
     }
 
     [Fact]
+    public async Task First_confirmation_uses_hold_snapshot_despite_stop_sell_limit_and_catalog_changes()
+    {
+        // The active Hold is already committed demand and an immutable
+        // commercial snapshot; none of these post-Hold server/catalog changes
+        // may affect a still-pending first confirmation.
+        await SeedFixedAsync();
+        using var client = factory.CreateClient();
+        var created = await CreateHoldAsync(client, "Confirm-CatalogChange-Key", DeluxeRoomTypeId);
+        var guestToken = created.GetProperty("guestAccessToken").GetString()!;
+        var holdId = created.GetProperty("holdId").GetGuid();
+        var originalTotal = created.GetProperty("totalAmount").GetDecimal();
+        var originalNights = created.GetProperty("nights").EnumerateArray()
+            .Select(night => night.GetProperty("unitAmount").GetDecimal())
+            .ToArray();
+
+        await using (var context = factory.CreateDbContext())
+        {
+            var existingControls = await context.DailyInventoryControls
+                .Where(control =>
+                    control.PropertyId == PropertyId &&
+                    control.RoomTypeId == DeluxeRoomTypeId &&
+                    control.StayDate == LocalToday)
+                .ToListAsync();
+            context.DailyInventoryControls.RemoveRange(existingControls);
+            context.DailyInventoryControls.Add(new DailyInventoryControl(
+                Guid.NewGuid(),
+                PropertyId,
+                DeluxeRoomTypeId,
+                LocalToday,
+                0,
+                true,
+                FixedUtc.AddMinutes(1)));
+
+            (await context.RoomTypes.SingleAsync(roomType => roomType.Id == DeluxeRoomTypeId))
+                .Deactivate(FixedUtc.AddMinutes(1));
+            (await context.RatePlans.SingleAsync(ratePlan => ratePlan.Id == RatePlanId))
+                .Deactivate(FixedUtc.AddMinutes(1));
+            await context.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                 UPDATE "PhysicalRooms" SET "OperationalStatus" = 'Inactive'
+                 WHERE "PropertyId" = {PropertyId} AND "RoomTypeId" = {DeluxeRoomTypeId}
+                 """);
+
+            await context.SaveChangesAsync();
+        }
+
+        var response = await ConfirmAsync(client, holdId, guestToken);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(originalTotal, body.GetProperty("totalAmount").GetDecimal());
+        var confirmedNightAmounts = body.GetProperty("nights").EnumerateArray()
+            .Select(night => night.GetProperty("unitAmount").GetDecimal())
+            .ToArray();
+        Assert.Equal(originalNights, confirmedNightAmounts);
+
+        await using var verify = factory.CreateDbContext();
+        var reservation = await verify.Reservations.Include(item => item.Nights).SingleAsync();
+        Assert.Equal(originalTotal, reservation.TotalAmount);
+        Assert.All(
+            reservation.Nights,
+            night => Assert.Contains(night.UnitAmount, originalNights));
+    }
+
+    [Fact]
     public async Task Concurrent_same_hold_confirmation_persists_exactly_one_reservation()
     {
         await SeedFixedAsync();
@@ -387,6 +573,65 @@ public sealed class BookingHoldConfirmationApiTests(PostgreSqlWebApplicationFact
         await using var context = factory.CreateDbContext();
         Assert.Equal(1, await context.Reservations.CountAsync());
         Assert.Equal(1, await context.ReservationNights.CountAsync());
+    }
+
+    [Fact]
+    public async Task Concurrent_overlapping_multi_night_confirmations_complete_without_deadlock()
+    {
+        // DLX-KING has two active physical rooms at baseline (day+1 alone
+        // carries a seeded sellable-limit of 1, so these ranges deliberately
+        // avoid it), so two 1-room, 3-night Holds with a two-night overlap
+        // can both be created; each confirmation then acquires the exact
+        // BE-003.3 inventory-lock identity for every one of its nights, in
+        // ascending stay-date order, so the two overlapping lock sets can
+        // only ever contend, never form a lock cycle.
+        await SeedFixedAsync();
+        using var setupClient = factory.CreateClient();
+        Assert.Equal(2, await GetAvailableRoomsAsync(setupClient, "DLX-KING"));
+
+        var earlyRequest = ValidRequest(DeluxeRoomTypeId) with
+        {
+            CheckIn = LocalToday.AddDays(2),
+            CheckOut = LocalToday.AddDays(5)
+        };
+        var lateRequest = ValidRequest(DeluxeRoomTypeId) with
+        {
+            CheckIn = LocalToday.AddDays(3),
+            CheckOut = LocalToday.AddDays(6)
+        };
+        var earlyCreated = await PostHoldAsync(setupClient, "MultiNight-Early-Key", earlyRequest);
+        Assert.Equal(HttpStatusCode.Created, earlyCreated.StatusCode);
+        var lateCreated = await PostHoldAsync(setupClient, "MultiNight-Late-Key", lateRequest);
+        Assert.Equal(HttpStatusCode.Created, lateCreated.StatusCode);
+        var earlyBody = await earlyCreated.Content.ReadFromJsonAsync<JsonElement>();
+        var lateBody = await lateCreated.Content.ReadFromJsonAsync<JsonElement>();
+        var earlyHoldId = earlyBody.GetProperty("holdId").GetGuid();
+        var lateHoldId = lateBody.GetProperty("holdId").GetGuid();
+        var earlyToken = earlyBody.GetProperty("guestAccessToken").GetString()!;
+        var lateToken = lateBody.GetProperty("guestAccessToken").GetString()!;
+
+        using var earlyClient = factory.CreateClient();
+        using var lateClient = factory.CreateClient();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var responses = await Task.WhenAll(
+            ConfirmAsync(earlyClient, earlyHoldId, earlyToken, timeout.Token),
+            ConfirmAsync(lateClient, lateHoldId, lateToken, timeout.Token));
+
+        Assert.All(responses, response => Assert.Equal(HttpStatusCode.Created, response.StatusCode));
+
+        await using var context = factory.CreateDbContext();
+        Assert.Equal(2, await context.Reservations.CountAsync());
+        Assert.Equal(
+            1,
+            await context.Reservations.CountAsync(reservation => reservation.SourceHoldId == earlyHoldId));
+        Assert.Equal(
+            1,
+            await context.Reservations.CountAsync(reservation => reservation.SourceHoldId == lateHoldId));
+        Assert.Equal(3, await context.ReservationNights.CountAsync(
+            night => context.Reservations
+                .Where(reservation => reservation.SourceHoldId == earlyHoldId)
+                .Select(reservation => reservation.Id)
+                .Contains(night.ReservationId)));
     }
 
     [Fact]
@@ -621,6 +866,19 @@ public sealed class BookingHoldConfirmationApiTests(PostgreSqlWebApplicationFact
         request.Headers.Add(csrf.HeaderName, csrf.Token);
         return await client.SendAsync(request, cancellationToken);
     }
+
+    /// <summary>
+    /// The whole PostgreSQL integration collection shares one factory and
+    /// therefore one login rate-limiter counter across every test class. Tests
+    /// that only incidentally need a login (not testing rate-limiting itself)
+    /// use an isolated host with a generously raised limit, mirroring the
+    /// existing WithWebHostBuilder + UseSetting override pattern
+    /// CustomerAuthenticationTests already uses to test the opposite
+    /// direction (a deliberately low limit).
+    /// </summary>
+    private WebApplicationFactory<Program> WithGenerousLoginRateLimit() =>
+        factory.WithWebHostBuilder(builder =>
+            builder.UseSetting("Authentication:RateLimiting:LoginPermitLimit", "1000"));
 
     private async Task<int> GetAvailableRoomsAsync(HttpClient client, string code)
     {

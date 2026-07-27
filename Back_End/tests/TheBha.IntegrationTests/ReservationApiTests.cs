@@ -1,7 +1,9 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using TheBha.Application.Bookings;
@@ -135,6 +137,68 @@ public sealed class ReservationApiTests(PostgreSqlWebApplicationFactory factory)
         AssertProblem(
             await GetAsync(attackerClient, holdId, null),
             HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Guest_token_cannot_read_an_authenticated_holds_reservation()
+    {
+        await SeedFixedAsync();
+        using var authApplication = WithGenerousLoginRateLimit();
+        using var authClient = authApplication.CreateClient();
+        await CreateCustomerAsync(authClient, "read-owner-negative@example.com");
+        var (reservationId, _, _) = await CreateAndConfirmAuthenticatedHoldAsync(authClient);
+        var unrelatedGuestToken = new CryptographicGuestAccessTokenGenerator().Generate();
+
+        using var anonymousClient = factory.CreateClient();
+        AssertProblem(
+            await GetAsync(anonymousClient, reservationId, unrelatedGuestToken),
+            HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Guest_token_for_one_reservation_cannot_read_another_with_identical_contact_details()
+    {
+        // ValidRequest() always uses the same fullName/email/phone, so two
+        // independently created guest holds are identical-contact by
+        // construction here - the only thing distinguishing them is each
+        // one's own opaque token.
+        await SeedFixedAsync();
+        using var client = factory.CreateClient();
+        var (reservationIdA, _, _) = await CreateAndConfirmGuestHoldAsync(client);
+        var (_, tokenB, _) = await CreateAndConfirmGuestHoldAsync(client);
+
+        AssertProblem(
+            await GetAsync(client, reservationIdA, tokenB),
+            HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Matching_contact_email_alone_does_not_grant_read_ownership_without_the_guest_token()
+    {
+        const string SharedEmail = "shared-contact@example.com";
+        await SeedFixedAsync();
+        using var guestClient = factory.CreateClient();
+        var holdResponse = await PostHoldAsync(
+            guestClient,
+            "Read-SharedEmail-Guest",
+            ValidRequest() with { Email = SharedEmail });
+        Assert.Equal(HttpStatusCode.Created, holdResponse.StatusCode);
+        var holdBody = await holdResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var holdId = holdBody.GetProperty("holdId").GetGuid();
+        var guestToken = holdBody.GetProperty("guestAccessToken").GetString();
+
+        var confirmed = await ConfirmAsync(guestClient, holdId, guestToken);
+        Assert.Equal(HttpStatusCode.Created, confirmed.StatusCode);
+        var reservationId = (await confirmed.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("reservationId").GetGuid();
+
+        using var authenticatedApplication = WithGenerousLoginRateLimit();
+        using var authenticatedClient = authenticatedApplication.CreateClient();
+        await CreateCustomerAsync(authenticatedClient, SharedEmail);
+
+        AssertProblem(
+            await GetAsync(authenticatedClient, reservationId, null),
+            HttpStatusCode.NotFound);
     }
 
     [Fact]
@@ -289,6 +353,19 @@ public sealed class ReservationApiTests(PostgreSqlWebApplicationFactory factory)
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<CsrfResponse>())!;
     }
+
+    /// <summary>
+    /// The whole PostgreSQL integration collection shares one factory and
+    /// therefore one login rate-limiter counter across every test class. Tests
+    /// that only incidentally need a login (not testing rate-limiting itself)
+    /// use an isolated host with a generously raised limit, mirroring the
+    /// existing WithWebHostBuilder + UseSetting override pattern
+    /// CustomerAuthenticationTests already uses to test the opposite
+    /// direction (a deliberately low limit).
+    /// </summary>
+    private WebApplicationFactory<Program> WithGenerousLoginRateLimit() =>
+        factory.WithWebHostBuilder(builder =>
+            builder.UseSetting("Authentication:RateLimiting:LoginPermitLimit", "1000"));
 
     private async Task SeedFixedAsync()
     {
