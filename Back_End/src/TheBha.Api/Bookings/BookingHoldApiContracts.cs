@@ -12,3 +12,5 @@ public sealed record CreateBookingHoldApiRequest(
     string? FullName,
     string? Email,
     string? Phone);
+
+public sealed record CancelReservationApiRequest(string? Reason);
