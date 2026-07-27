@@ -107,6 +107,15 @@ for each Property/RoomType/stay-date inventory identity before re-reading price,
 inventory controls, and committed demand. The complete lock-key algorithm is
 recorded in `docs/BE-003-3-ATOMIC-BOOKING-HOLD.md`.
 
+BE-003.5 (Hold read/cancellation and Reservation cancellation) also adds no
+migration. It reuses the sixth migration's `Cancelled` status values,
+`CancelledAtUtc`/`CancellationReason` columns, and cancellation consistency
+check constraint, and extends the existing Hold-transition and per-night
+inventory advisory-lock keys to the two cancellation workflows in the same
+lifecycle-then-inventory lock order already used by confirmation. See
+`docs/BE-003-5-CANCELLATION-LIFECYCLE-HARDENING.md` for the complete
+contract.
+
 Run the update command before the development seed. The API never calls
 `EnsureCreated()` and never applies a migration during startup.
 

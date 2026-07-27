@@ -11,6 +11,8 @@ namespace TheBha.Api.Controllers;
 public sealed class BookingHoldsController(
     IBookingHoldCreation creation,
     IBookingHoldConfirmation confirmation,
+    IBookingHoldRead read,
+    IBookingHoldCancellation cancellation,
     ICurrentCustomer currentCustomer) : ControllerBase
 {
     [HttpPost]
@@ -114,6 +116,80 @@ public sealed class BookingHoldsController(
             BookingHoldConfirmationStatus.Conflict => Problem(
                 statusCode: StatusCodes.Status409Conflict,
                 title: "Booking Hold cannot be confirmed",
+                detail: result.Error),
+            _ => Problem(
+                statusCode: StatusCodes.Status404NotFound,
+                title: "Booking Hold not found",
+                detail: result.Error)
+        };
+    }
+
+    [HttpGet("{holdId:guid}")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(BookingHoldDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<BookingHoldDto>> Get(
+        Guid holdId,
+        [FromHeader(Name = "X-Booking-Access-Token")] string? bookingAccessToken,
+        CancellationToken cancellationToken)
+    {
+        if (Request.Cookies.ContainsKey(".TheBha.Customer") &&
+            !currentCustomer.IsAuthenticated)
+        {
+            return Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Invalid customer session",
+                detail: "The supplied customer session is invalid.");
+        }
+
+        var result = await read.GetAsync(holdId, bookingAccessToken, cancellationToken);
+        return result.Status switch
+        {
+            BookingHoldReadStatus.Found => Ok(result.Hold),
+            BookingHoldReadStatus.Unauthorized => Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Invalid booking access credential",
+                detail: result.Error),
+            _ => Problem(
+                statusCode: StatusCodes.Status404NotFound,
+                title: "Booking Hold not found",
+                detail: result.Error)
+        };
+    }
+
+    [HttpPost("{holdId:guid}/cancel")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(BookingHoldDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<BookingHoldDto>> Cancel(
+        Guid holdId,
+        [FromHeader(Name = "X-Booking-Access-Token")] string? bookingAccessToken,
+        CancellationToken cancellationToken)
+    {
+        if (Request.Cookies.ContainsKey(".TheBha.Customer") &&
+            !currentCustomer.IsAuthenticated)
+        {
+            return Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Invalid customer session",
+                detail: "The supplied customer session is invalid.");
+        }
+
+        var result = await cancellation.CancelAsync(holdId, bookingAccessToken, cancellationToken);
+        return result.Status switch
+        {
+            BookingHoldCancellationStatus.Cancelled => Ok(result.Hold),
+            BookingHoldCancellationStatus.Replayed => Ok(result.Hold),
+            BookingHoldCancellationStatus.Unauthorized => Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Invalid booking access credential",
+                detail: result.Error),
+            BookingHoldCancellationStatus.Conflict => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "Booking Hold cannot be cancelled",
                 detail: result.Error),
             _ => Problem(
                 statusCode: StatusCodes.Status404NotFound,

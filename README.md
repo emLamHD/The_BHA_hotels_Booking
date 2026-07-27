@@ -81,9 +81,15 @@ for the customer Identity Core, cookie-session, antiforgery, CORS, rate-limit,
 and Data Protection contract.
 See [docs/BE-003-2-HOLD-RESERVATION-DOMAIN-FOUNDATION.md](docs/BE-003-2-HOLD-RESERVATION-DOMAIN-FOUNDATION.md)
 for the persistence-ready Hold and Reservation aggregates and schema foundation.
+See [docs/BE-003-3-ATOMIC-BOOKING-HOLD.md](docs/BE-003-3-ATOMIC-BOOKING-HOLD.md)
+for atomic server-priced Hold creation, idempotent replay, and the
+PostgreSQL advisory-lock and committed-demand contract.
 See [docs/BE-003-4-HOLD-CONFIRMATION-RESERVATION-READ.md](docs/BE-003-4-HOLD-CONFIRMATION-RESERVATION-READ.md)
 for the Hold confirmation, idempotent replay, and ownership-protected
 Reservation read contract.
+See [docs/BE-003-5-CANCELLATION-LIFECYCLE-HARDENING.md](docs/BE-003-5-CANCELLATION-LIFECYCLE-HARDENING.md)
+for the Hold read, Hold cancellation, and Reservation cancellation contract
+that closes the BE-003 reservation lifecycle.
 
 ## Local production simulation
 
