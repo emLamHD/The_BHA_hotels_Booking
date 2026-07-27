@@ -8,7 +8,8 @@ namespace TheBha.Infrastructure.Persistence;
 
 internal sealed class BookingHoldConfirmationStore(
     TheBhaDbContext dbContext,
-    TimeProvider timeProvider) : IBookingHoldConfirmationStore
+    TimeProvider timeProvider,
+    IReservationIdGenerator reservationIdGenerator) : IBookingHoldConfirmationStore
 {
     public async Task<BookingHoldConfirmationResult> ConfirmAsync(
         Guid holdId,
@@ -75,7 +76,7 @@ internal sealed class BookingHoldConfirmationStore(
             }
 
             var utcNow = timeProvider.GetUtcNow().ToUniversalTime();
-            var reservationId = Guid.NewGuid();
+            var reservationId = reservationIdGenerator.Generate();
             var confirmationNumber = ConfirmationNumberGenerator.Generate(reservationId);
 
             Reservation reservation;
