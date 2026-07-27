@@ -72,6 +72,52 @@ public sealed class BookingOpenApiHeaderContractTests(PostgreSqlWebApplicationFa
         Assert.Equal(0, CountHeaders(operation, "X-CSRF-TOKEN"));
     }
 
+    [Theory]
+    [InlineData(ConfirmHoldPath, "post")]
+    [InlineData(ReadHoldPath, "get")]
+    [InlineData(CancelHoldPath, "post")]
+    [InlineData(ReadReservationPath, "get")]
+    [InlineData(CancelReservationPath, "post")]
+    public async Task Every_guest_booking_access_token_operation_declares_exactly_one_header(
+        string path,
+        string httpMethod)
+    {
+        var operation = await GetOperationAsync(path, httpMethod);
+
+        Assert.Equal(1, CountHeaders(operation, "X-Booking-Access-Token"));
+    }
+
+    [Fact]
+    public async Task Create_hold_declares_zero_guest_access_token_headers()
+    {
+        // Create Hold's action has no [FromHeader] guest-token parameter, so Swashbuckle
+        // never auto-generates one and the shared lifecycle filter never runs for it.
+        var operation = await GetOperationAsync(CreateHoldPath, "post");
+
+        Assert.Equal(0, CountHeaders(operation, "X-Booking-Access-Token"));
+    }
+
+    [Fact]
+    public async Task Guest_access_token_header_schema_and_optionality_are_preserved()
+    {
+        var operation = await GetOperationAsync(ConfirmHoldPath, "post");
+
+        var header = operation.GetProperty("parameters").EnumerateArray()
+            .Single(parameter =>
+                string.Equals(
+                    parameter.GetProperty("name").GetString(),
+                    "X-Booking-Access-Token",
+                    StringComparison.OrdinalIgnoreCase));
+        Assert.Equal("string", header.GetProperty("schema").GetProperty("type").GetString());
+        Assert.False(
+            header.TryGetProperty("required", out var requiredProperty) &&
+            requiredProperty.GetBoolean());
+        Assert.Contains(
+            "one-time guest access token",
+            header.GetProperty("description").GetString(),
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task Create_hold_idempotency_key_header_remains_required_with_its_description()
     {
