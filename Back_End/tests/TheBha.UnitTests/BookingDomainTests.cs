@@ -423,6 +423,209 @@ public sealed class BookingDomainTests
     }
 
     [Fact]
+    public void Hold_cancel_transitions_active_to_cancelled()
+    {
+        var hold = CreateHold();
+
+        hold.Cancel();
+
+        Assert.Equal(BookingHoldStatus.Cancelled, hold.Status);
+    }
+
+    [Fact]
+    public void Hold_cancel_is_idempotent_when_already_cancelled()
+    {
+        var hold = CreateHold();
+        hold.Cancel();
+
+        hold.Cancel();
+
+        Assert.Equal(BookingHoldStatus.Cancelled, hold.Status);
+    }
+
+    [Fact]
+    public void Hold_cancel_rejects_confirmed()
+    {
+        var hold = CreateHold();
+        hold.Confirm(Guid.NewGuid(), "BHA-TEST-0008", hold.ExpiresAtUtc.AddTicks(-1));
+
+        Assert.Throws<DomainException>(() => hold.Cancel());
+        Assert.Equal(BookingHoldStatus.Confirmed, hold.Status);
+    }
+
+    [Fact]
+    public void Hold_cancel_succeeds_even_after_expiry_boundary()
+    {
+        var hold = CreateHold();
+        Assert.True(hold.IsExpiredAt(hold.ExpiresAtUtc));
+
+        hold.Cancel();
+
+        Assert.Equal(BookingHoldStatus.Cancelled, hold.Status);
+    }
+
+    [Fact]
+    public void Hold_cancel_leaves_immutable_fields_and_nights_unchanged()
+    {
+        var hold = CreateHold();
+        var originalNights = hold.Nights
+            .Select(night => (night.StayDate, night.Rooms, night.UnitAmount, night.NightTotal))
+            .ToArray();
+
+        hold.Cancel();
+
+        Assert.Equal(PropertyId, hold.PropertyId);
+        Assert.Equal(RoomTypeId, hold.RoomTypeId);
+        Assert.Equal(RatePlanId, hold.RatePlanId);
+        Assert.Equal(CreatedAt, hold.CreatedAtUtc);
+        Assert.Equal(CreatedAt.AddMinutes(15), hold.ExpiresAtUtc);
+        Assert.Equal(GuestHash, hold.GuestAccessTokenHash);
+        Assert.Equal(
+            originalNights,
+            hold.Nights.Select(night =>
+                (night.StayDate, night.Rooms, night.UnitAmount, night.NightTotal)));
+    }
+
+    [Fact]
+    public void Reservation_cancel_transitions_confirmed_to_cancelled_before_checkin()
+    {
+        var reservation = CreateReservation();
+        var utcNow = CreatedAt.AddHours(1);
+        var localDateBeforeCheckIn = CheckIn.AddDays(-1);
+
+        reservation.Cancel("Guest requested cancellation.", utcNow, localDateBeforeCheckIn);
+
+        Assert.Equal(ReservationStatus.Cancelled, reservation.Status);
+        Assert.Equal(utcNow, reservation.CancelledAtUtc);
+        Assert.Equal("Guest requested cancellation.", reservation.CancellationReason);
+    }
+
+    [Fact]
+    public void Reservation_cancel_trims_reason()
+    {
+        var reservation = CreateReservation();
+
+        reservation.Cancel("  Trimmed reason.  ", CreatedAt.AddHours(1), CheckIn.AddDays(-1));
+
+        Assert.Equal("Trimmed reason.", reservation.CancellationReason);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Reservation_cancel_rejects_missing_reason(string? reason)
+    {
+        var reservation = CreateReservation();
+
+        Assert.Throws<DomainException>(() =>
+            reservation.Cancel(reason!, CreatedAt.AddHours(1), CheckIn.AddDays(-1)));
+        Assert.Equal(ReservationStatus.Confirmed, reservation.Status);
+    }
+
+    [Fact]
+    public void Reservation_cancel_rejects_reason_over_limit()
+    {
+        var reservation = CreateReservation();
+        var overLimit = new string('x', BookingFieldLimits.CancellationReason + 1);
+
+        Assert.Throws<DomainException>(() =>
+            reservation.Cancel(overLimit, CreatedAt.AddHours(1), CheckIn.AddDays(-1)));
+        Assert.Equal(ReservationStatus.Confirmed, reservation.Status);
+    }
+
+    [Fact]
+    public void Reservation_cancel_accepts_reason_at_exact_limit()
+    {
+        var reservation = CreateReservation();
+        var atLimit = new string('x', BookingFieldLimits.CancellationReason);
+
+        reservation.Cancel(atLimit, CreatedAt.AddHours(1), CheckIn.AddDays(-1));
+
+        Assert.Equal(atLimit, reservation.CancellationReason);
+    }
+
+    [Fact]
+    public void Reservation_cancel_rejects_non_utc_time()
+    {
+        var reservation = CreateReservation();
+
+        Assert.Throws<DomainException>(() => reservation.Cancel(
+            "Reason",
+            CreatedAt.AddHours(1).ToOffset(TimeSpan.FromHours(7)),
+            CheckIn.AddDays(-1)));
+        Assert.Equal(ReservationStatus.Confirmed, reservation.Status);
+    }
+
+    [Fact]
+    public void Reservation_cancel_rejects_time_earlier_than_confirmation()
+    {
+        var reservation = CreateReservation();
+
+        Assert.Throws<DomainException>(() => reservation.Cancel(
+            "Reason",
+            CreatedAt.AddMinutes(-1),
+            CheckIn.AddDays(-1)));
+        Assert.Equal(ReservationStatus.Confirmed, reservation.Status);
+    }
+
+    [Fact]
+    public void Reservation_cancel_rejects_at_exact_local_checkin_boundary()
+    {
+        var reservation = CreateReservation();
+
+        Assert.Throws<DomainException>(() =>
+            reservation.Cancel("Reason", CreatedAt.AddHours(1), CheckIn));
+        Assert.Equal(ReservationStatus.Confirmed, reservation.Status);
+    }
+
+    [Fact]
+    public void Reservation_cancel_rejects_after_local_checkin_date()
+    {
+        var reservation = CreateReservation();
+
+        Assert.Throws<DomainException>(() =>
+            reservation.Cancel("Reason", CreatedAt.AddHours(1), CheckIn.AddDays(1)));
+        Assert.Equal(ReservationStatus.Confirmed, reservation.Status);
+    }
+
+    [Fact]
+    public void Reservation_cancel_is_idempotent_and_preserves_original_timestamp_and_reason()
+    {
+        var reservation = CreateReservation();
+        var firstCancelAt = CreatedAt.AddHours(1);
+        reservation.Cancel("Original reason.", firstCancelAt, CheckIn.AddDays(-1));
+
+        reservation.Cancel("A different, later reason.", CreatedAt.AddHours(2), CheckIn.AddDays(1));
+
+        Assert.Equal(ReservationStatus.Cancelled, reservation.Status);
+        Assert.Equal(firstCancelAt, reservation.CancelledAtUtc);
+        Assert.Equal("Original reason.", reservation.CancellationReason);
+    }
+
+    [Fact]
+    public void Reservation_cancel_leaves_immutable_fields_and_nights_unchanged()
+    {
+        var reservation = CreateReservation();
+        var originalNights = reservation.Nights
+            .Select(night => (night.StayDate, night.Rooms, night.UnitAmount, night.NightTotal))
+            .ToArray();
+
+        reservation.Cancel("Reason", CreatedAt.AddHours(1), CheckIn.AddDays(-1));
+
+        Assert.Equal(PropertyId, reservation.PropertyId);
+        Assert.Equal(RoomTypeId, reservation.RoomTypeId);
+        Assert.Equal(RatePlanId, reservation.RatePlanId);
+        Assert.Equal("BHA-GUEST-0001", reservation.ConfirmationNumber);
+        Assert.Equal(GuestHash, reservation.GuestAccessTokenHash);
+        Assert.Equal(CreatedAt, reservation.ConfirmedAtUtc);
+        Assert.Equal(
+            originalNights,
+            reservation.Nights.Select(night =>
+                (night.StayDate, night.Rooms, night.UnitAmount, night.NightTotal)));
+    }
+
+    [Fact]
     public void Aggregates_expose_no_mutable_nights_or_raw_material_properties()
     {
         var hold = CreateHold();

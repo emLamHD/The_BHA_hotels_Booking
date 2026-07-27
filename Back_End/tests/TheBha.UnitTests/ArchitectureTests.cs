@@ -53,17 +53,15 @@ public sealed class ArchitectureTests
     }
 
     [Fact]
-    public void Application_reservation_workflow_excludes_cancellation()
+    public void Application_exposes_the_be_003_5_lifecycle_cancellation_contracts()
     {
         var applicationAssembly = Assembly.Load("TheBha.Application");
-        var cancellationTypes = applicationAssembly
-            .GetTypes()
-            .Where(type =>
-                type.Name.Contains("Reservation", StringComparison.Ordinal) &&
-                type.Name.Contains("Cancel", StringComparison.Ordinal))
-            .Select(type => type.FullName)
-            .ToArray();
+        var typeNames = applicationAssembly.GetTypes()
+            .Select(type => type.Name)
+            .ToHashSet(StringComparer.Ordinal);
 
-        Assert.Empty(cancellationTypes);
+        Assert.Contains("IBookingHoldRead", typeNames);
+        Assert.Contains("IBookingHoldCancellation", typeNames);
+        Assert.Contains("IReservationCancellation", typeNames);
     }
 }

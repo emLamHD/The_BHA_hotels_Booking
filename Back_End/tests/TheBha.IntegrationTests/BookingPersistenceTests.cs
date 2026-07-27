@@ -533,26 +533,36 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
 
         var reservationRelatedPaths = paths.EnumerateObject()
             .Where(path => path.Name.Contains("reservation", StringComparison.OrdinalIgnoreCase) ||
-                path.Name.Contains("confirm", StringComparison.OrdinalIgnoreCase))
+                path.Name.Contains("confirm", StringComparison.OrdinalIgnoreCase) ||
+                (path.Name.StartsWith("/api/v1/booking-holds/", StringComparison.Ordinal) &&
+                    path.Name.Contains("holdId", StringComparison.Ordinal)))
             .Select(path => path.Name)
             .Order()
             .ToArray();
         Assert.Equal(
             new[]
             {
+                "/api/v1/booking-holds/{holdId}",
+                "/api/v1/booking-holds/{holdId}/cancel",
                 "/api/v1/booking-holds/{holdId}/confirm",
-                "/api/v1/reservations/{reservationId}"
+                "/api/v1/reservations/{reservationId}",
+                "/api/v1/reservations/{reservationId}/cancel"
             }.Order(),
             reservationRelatedPaths);
+        Assert.True(paths.GetProperty("/api/v1/booking-holds/{holdId}")
+            .TryGetProperty("get", out _));
+        Assert.True(paths.GetProperty("/api/v1/booking-holds/{holdId}/cancel")
+            .TryGetProperty("post", out _));
         Assert.True(paths.GetProperty("/api/v1/booking-holds/{holdId}/confirm")
             .TryGetProperty("post", out _));
         Assert.True(paths.GetProperty("/api/v1/reservations/{reservationId}")
             .TryGetProperty("get", out _));
+        Assert.True(paths.GetProperty("/api/v1/reservations/{reservationId}/cancel")
+            .TryGetProperty("post", out _));
         Assert.False(paths.GetProperty("/api/v1/reservations/{reservationId}")
             .TryGetProperty("delete", out _));
-        Assert.DoesNotContain(
-            paths.EnumerateObject(),
-            path => path.Name.Contains("cancel", StringComparison.OrdinalIgnoreCase));
+        Assert.False(paths.GetProperty("/api/v1/booking-holds/{holdId}")
+            .TryGetProperty("delete", out _));
     }
 
     private static ReferenceData AddReferences(
