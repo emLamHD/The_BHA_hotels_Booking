@@ -49,6 +49,12 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddSingleton<IReservationIdGenerator, CryptographicReservationIdGenerator>();
         services.AddScoped<IReservationReadStore, ReservationReadStore>();
         services.AddScoped<IReservationRead, ReservationRead>();
+        services.AddScoped<IBookingHoldReadStore, BookingHoldReadStore>();
+        services.AddScoped<IBookingHoldRead, BookingHoldRead>();
+        services.AddScoped<IBookingHoldCancellationStore, BookingHoldCancellationStore>();
+        services.AddScoped<IBookingHoldCancellation, BookingHoldCancellation>();
+        services.AddScoped<IReservationCancellationStore, ReservationCancellationStore>();
+        services.AddScoped<IReservationCancellation, ReservationCancellation>();
         services.AddSingleton<IGuestAccessTokenGenerator, CryptographicGuestAccessTokenGenerator>();
         services.AddScoped<DevelopmentDataSeeder>();
 

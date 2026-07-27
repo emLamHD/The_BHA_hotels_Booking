@@ -386,7 +386,7 @@ internal sealed class BookingHoldCreationStore(
         return result;
     }
 
-    private static BookingHoldDto Map(BookingHold hold, string? guestAccessToken) =>
+    internal static BookingHoldDto Map(BookingHold hold, string? guestAccessToken) =>
         new(
             hold.Id,
             hold.Status,
