@@ -240,6 +240,77 @@ public sealed class ReservationCancellationApiTests(PostgreSqlWebApplicationFact
     }
 
     [Fact]
+    public async Task Logged_in_caller_can_cancel_a_guest_owned_reservation_via_correct_token_without_claiming_it()
+    {
+        await SeedFixedAsync();
+        using var guestClient = factory.CreateClient();
+        var (reservationId, guestToken, _) = await CreateAndConfirmGuestHoldAsync(guestClient);
+
+        using var loggedInApplication = WithGenerousLoginRateLimit();
+        using var loggedInClient = loggedInApplication.CreateClient();
+        await CreateCustomerAsync(loggedInClient, "logged-in-reservation-canceller@example.com");
+
+        var response = await CancelAsync(loggedInClient, reservationId, guestToken, "Reason");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        await using var context = factory.CreateDbContext();
+        var reservation = await context.Reservations.SingleAsync(item => item.Id == reservationId);
+        Assert.Null(reservation.CustomerAccountId);
+        Assert.NotNull(reservation.GuestAccessTokenHash);
+        Assert.Equal(ReservationStatus.Cancelled, reservation.Status);
+    }
+
+    [Fact]
+    public async Task Guest_token_from_another_real_reservation_cannot_cancel_the_target()
+    {
+        await SeedFixedAsync();
+        using var client = factory.CreateClient();
+        var (reservationIdA, _, _) = await CreateAndConfirmGuestHoldAsync(client);
+        var (_, tokenB, _) = await CreateAndConfirmGuestHoldAsync(client);
+
+        AssertProblem(
+            await CancelAsync(client, reservationIdA, tokenB, "Reason"),
+            HttpStatusCode.NotFound);
+
+        await using var context = factory.CreateDbContext();
+        var reservationA = await context.Reservations.SingleAsync(item => item.Id == reservationIdA);
+        Assert.Equal(ReservationStatus.Confirmed, reservationA.Status);
+    }
+
+    [Fact]
+    public async Task Matching_contact_email_alone_does_not_grant_cancel_ownership_without_the_guest_token()
+    {
+        const string SharedEmail = "shared-reservation-cancel-contact@example.com";
+        await SeedFixedAsync();
+        using var guestClient = factory.CreateClient();
+        var holdResponse = await PostHoldAsync(
+            guestClient,
+            "Cancel-Reservation-SharedEmail-Key",
+            ValidRequest(DeluxeRoomTypeId, DefaultCheckIn) with { Email = SharedEmail });
+        Assert.Equal(HttpStatusCode.Created, holdResponse.StatusCode);
+        var holdBody = await holdResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var holdId = holdBody.GetProperty("holdId").GetGuid();
+        var guestToken = holdBody.GetProperty("guestAccessToken").GetString();
+
+        var confirmed = await ConfirmAsync(guestClient, holdId, guestToken);
+        Assert.Equal(HttpStatusCode.Created, confirmed.StatusCode);
+        var reservationId = (await confirmed.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("reservationId").GetGuid();
+
+        using var authenticatedApplication = WithGenerousLoginRateLimit();
+        using var authenticatedClient = authenticatedApplication.CreateClient();
+        await CreateCustomerAsync(authenticatedClient, SharedEmail);
+
+        AssertProblem(
+            await CancelAsync(authenticatedClient, reservationId, null, "Reason"),
+            HttpStatusCode.NotFound);
+
+        await using var context = factory.CreateDbContext();
+        var reservation = await context.Reservations.SingleAsync(item => item.Id == reservationId);
+        Assert.Equal(ReservationStatus.Confirmed, reservation.Status);
+    }
+
+    [Fact]
     public async Task Invalid_customer_cookie_is_not_silently_ignored()
     {
         await SeedFixedAsync();
@@ -430,6 +501,94 @@ public sealed class ReservationCancellationApiTests(PostgreSqlWebApplicationFact
 
         var response = await CancelAsync(client, reservationId, guestToken, "Reason");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Cancelling_the_request_releases_its_own_hold_transition_lock()
+    {
+        // The blocker holds only the INVENTORY lock, never the Hold-transition
+        // lock, so observing the transition lock as held proves the cancel
+        // request itself acquired it and is now the one waiting on inventory -
+        // not merely observing the blocker's own lock.
+        await SeedFixedAsync();
+        using var setupClient = factory.CreateClient();
+        var (reservationId, guestToken, holdId) = await CreateAndConfirmGuestHoldAsync(setupClient);
+        var transitionLock = BookingAdvisoryLockKeys.ForHoldTransition(holdId);
+        var inventoryLock = BookingAdvisoryLockKeys.ForInventory(
+            PropertyId,
+            DeluxeRoomTypeId,
+            DefaultCheckIn);
+
+        await using var blockerConnection = new NpgsqlConnection(factory.ConnectionString);
+        await blockerConnection.OpenAsync();
+        await using var blockerTransaction = await blockerConnection.BeginTransactionAsync();
+        try
+        {
+            await AcquireAdvisoryLockAsync(blockerConnection, inventoryLock, CancellationToken.None);
+
+            using var client = factory.CreateClient();
+            var csrf = await GetCsrfAsync(client);
+            using var cancellation = new CancellationTokenSource();
+            using var request = new HttpRequestMessage(
+                HttpMethod.Post,
+                $"/api/v1/reservations/{reservationId}/cancel")
+            {
+                Content = JsonContent.Create(new { reason = "Reason" })
+            };
+            request.Headers.Add("X-Booking-Access-Token", guestToken);
+            request.Headers.Add(csrf.HeaderName, csrf.Token);
+            var operation = client.SendAsync(request, cancellation.Token);
+
+            await WaitUntilLockIsHeldAsync(transitionLock, TimeSpan.FromSeconds(10));
+            Assert.False(await CanAcquireAdvisoryLockAsync(inventoryLock));
+
+            cancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await operation);
+
+            await WaitUntilLockIsAvailableAsync(transitionLock, TimeSpan.FromSeconds(10));
+            Assert.False(await CanAcquireAdvisoryLockAsync(inventoryLock));
+
+            await using var context = factory.CreateDbContext();
+            var reservation = await context.Reservations.SingleAsync(item => item.Id == reservationId);
+            Assert.Equal(ReservationStatus.Confirmed, reservation.Status);
+            Assert.Null(reservation.CancelledAtUtc);
+            Assert.Null(reservation.CancellationReason);
+        }
+        finally
+        {
+            await blockerTransaction.RollbackAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Cancelled_reservation_replay_succeeds_without_waiting_on_inventory_lock()
+    {
+        await SeedFixedAsync();
+        using var client = factory.CreateClient();
+        var (reservationId, guestToken, _) = await CreateAndConfirmGuestHoldAsync(client);
+
+        var first = await CancelAsync(client, reservationId, guestToken, "Original reason.");
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+
+        var inventoryLock = BookingAdvisoryLockKeys.ForInventory(
+            PropertyId,
+            DeluxeRoomTypeId,
+            DefaultCheckIn);
+        await using var blockerConnection = new NpgsqlConnection(factory.ConnectionString);
+        await blockerConnection.OpenAsync();
+        await using var blockerTransaction = await blockerConnection.BeginTransactionAsync();
+        try
+        {
+            await AcquireAdvisoryLockAsync(blockerConnection, inventoryLock, CancellationToken.None);
+
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            var replay = await CancelAsync(client, reservationId, guestToken, "Later reason.", timeout.Token);
+            Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+        }
+        finally
+        {
+            await blockerTransaction.RollbackAsync();
+        }
     }
 
     [Fact]
@@ -683,6 +842,23 @@ public sealed class ReservationCancellationApiTests(PostgreSqlWebApplicationFact
 
         throw new TimeoutException(
             "The cancellation operation did not acquire the expected advisory lock.");
+    }
+
+    private async Task WaitUntilLockIsAvailableAsync(long lockKey, TimeSpan timeout)
+    {
+        var deadline = DateTimeOffset.UtcNow.Add(timeout);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            if (await CanAcquireAdvisoryLockAsync(lockKey))
+            {
+                return;
+            }
+
+            await Task.Delay(50);
+        }
+
+        throw new TimeoutException(
+            "The cancellation operation did not release the expected advisory lock.");
     }
 
     private async Task SeedFixedAsync()
