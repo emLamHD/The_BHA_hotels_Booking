@@ -19,15 +19,16 @@ internal sealed class ReservationCancellationStore(
         await using var transaction = await dbContext.Database.BeginTransactionAsync(
             cancellationToken);
 
-        var reservation = await dbContext.Reservations
-            .Include(item => item.Nights)
-            .SingleOrDefaultAsync(item => item.Id == reservationId, cancellationToken);
-        if (reservation is null ||
-            !BookingOwnership.IsOwner(
-                reservation.CustomerAccountId,
-                reservation.GuestAccessTokenHash,
-                customerAccountId,
-                guestAccessTokenHash))
+        var sourceHoldId = await dbContext.Reservations
+            .AsNoTracking()
+            .Where(item => item.Id == reservationId)
+            .Where(item =>
+                (customerAccountId != null && item.CustomerAccountId == customerAccountId) ||
+                (guestAccessTokenHash != null &&
+                 item.GuestAccessTokenHash == guestAccessTokenHash))
+            .Select(item => (Guid?)item.SourceHoldId)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (sourceHoldId is null)
         {
             await transaction.RollbackAsync(cancellationToken);
             return ReservationCancellationResult.NotFound(
@@ -35,10 +36,26 @@ internal sealed class ReservationCancellationStore(
         }
 
         await AcquireLockAsync(
-            BookingAdvisoryLockKeys.ForHoldTransition(reservation.SourceHoldId),
+            BookingAdvisoryLockKeys.ForHoldTransition(sourceHoldId.Value),
             cancellationToken);
 
-        await dbContext.Entry(reservation).ReloadAsync(cancellationToken);
+        // Re-run the same bounded ownership+identity predicate under the lock rather
+        // than trusting the pre-lock read: this both revalidates ownership and picks
+        // up any Status a concurrent transaction committed while this request waited.
+        var reservation = await dbContext.Reservations
+            .Include(item => item.Nights)
+            .Where(item => item.Id == reservationId)
+            .Where(item =>
+                (customerAccountId != null && item.CustomerAccountId == customerAccountId) ||
+                (guestAccessTokenHash != null &&
+                 item.GuestAccessTokenHash == guestAccessTokenHash))
+            .SingleOrDefaultAsync(cancellationToken);
+        if (reservation is null)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return ReservationCancellationResult.NotFound(
+                "The requested Reservation does not exist.");
+        }
 
         if (reservation.Status == ReservationStatus.Cancelled)
         {

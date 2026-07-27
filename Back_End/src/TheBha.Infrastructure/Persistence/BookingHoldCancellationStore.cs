@@ -22,13 +22,13 @@ internal sealed class BookingHoldCancellationStore(TheBhaDbContext dbContext)
 
         var hold = await dbContext.BookingHolds
             .Include(item => item.Nights)
-            .SingleOrDefaultAsync(item => item.Id == holdId, cancellationToken);
-        if (hold is null ||
-            !BookingOwnership.IsOwner(
-                hold.CustomerAccountId,
-                hold.GuestAccessTokenHash,
-                customerAccountId,
-                guestAccessTokenHash))
+            .Where(item => item.Id == holdId)
+            .Where(item =>
+                (customerAccountId != null && item.CustomerAccountId == customerAccountId) ||
+                (guestAccessTokenHash != null &&
+                 item.GuestAccessTokenHash == guestAccessTokenHash))
+            .SingleOrDefaultAsync(cancellationToken);
+        if (hold is null)
         {
             await transaction.RollbackAsync(cancellationToken);
             return BookingHoldCancellationResult.NotFound(
