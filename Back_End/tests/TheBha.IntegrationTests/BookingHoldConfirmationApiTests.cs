@@ -1,9 +1,12 @@
+using System.Data.Common;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Npgsql;
 using TheBha.Application.Bookings;
 using TheBha.Domain.Bookings;
@@ -456,40 +459,107 @@ public sealed class BookingHoldConfirmationApiTests(PostgreSqlWebApplicationFact
     }
 
     [Fact]
-    public async Task Cancelling_the_request_releases_the_hold_transition_lock()
+    public async Task Cancelling_the_request_releases_its_own_hold_transition_lock()
     {
+        // The blocker holds only the INVENTORY lock, never the Hold-transition
+        // lock, so observing the transition lock as held proves the confirmation
+        // request itself acquired it and is now the one waiting on inventory -
+        // not merely observing the blocker's own lock.
         await SeedFixedAsync();
         using var setupClient = factory.CreateClient();
         var created = await CreateHoldAsync(setupClient, "Confirm-Cancel-Key", DeluxeRoomTypeId);
         var guestToken = created.GetProperty("guestAccessToken").GetString()!;
         var holdId = created.GetProperty("holdId").GetGuid();
         var transitionLock = BookingAdvisoryLockKeys.ForHoldTransition(holdId);
+        var inventoryLock = BookingAdvisoryLockKeys.ForInventory(
+            PropertyId,
+            DeluxeRoomTypeId,
+            LocalToday);
 
         await using var blockerConnection = new NpgsqlConnection(factory.ConnectionString);
         await blockerConnection.OpenAsync();
         await using var blockerTransaction = await blockerConnection.BeginTransactionAsync();
-        await AcquireAdvisoryLockAsync(blockerConnection, transitionLock, CancellationToken.None);
+        try
+        {
+            await AcquireAdvisoryLockAsync(blockerConnection, inventoryLock, CancellationToken.None);
 
-        using var client = factory.CreateClient();
-        var csrf = await GetCsrfAsync(client, CancellationToken.None);
-        using var cancellation = new CancellationTokenSource();
-        using var request = new HttpRequestMessage(
-            HttpMethod.Post,
-            $"/api/v1/booking-holds/{holdId}/confirm");
-        request.Headers.Add("X-Booking-Access-Token", guestToken);
-        request.Headers.Add(csrf.HeaderName, csrf.Token);
-        var operation = client.SendAsync(request, cancellation.Token);
+            using var client = factory.CreateClient();
+            var csrf = await GetCsrfAsync(client, CancellationToken.None);
+            using var cancellation = new CancellationTokenSource();
+            using var request = new HttpRequestMessage(
+                HttpMethod.Post,
+                $"/api/v1/booking-holds/{holdId}/confirm");
+            request.Headers.Add("X-Booking-Access-Token", guestToken);
+            request.Headers.Add(csrf.HeaderName, csrf.Token);
+            var operation = client.SendAsync(request, cancellation.Token);
 
-        await WaitUntilLockIsHeldAsync(transitionLock, TimeSpan.FromSeconds(10));
-        cancellation.Cancel();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await operation);
-        await blockerTransaction.RollbackAsync();
+            // The request must be the one holding its own transition lock (not
+            // the blocker, which never touches that key), and it must still be
+            // waiting on the inventory lock the blocker holds.
+            await WaitUntilLockIsHeldAsync(transitionLock, TimeSpan.FromSeconds(10));
+            Assert.False(await CanAcquireAdvisoryLockAsync(inventoryLock));
 
-        await WaitUntilLockIsAvailableAsync(transitionLock, TimeSpan.FromSeconds(10));
+            cancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await operation);
+
+            // Prove the request's own transition lock is released by
+            // cancellation alone, while the blocker's inventory lock is still
+            // held - this cannot be explained by the blocker's lock, since the
+            // blocker never acquired the transition lock in the first place.
+            await WaitUntilLockIsAvailableAsync(transitionLock, TimeSpan.FromSeconds(10));
+            Assert.False(await CanAcquireAdvisoryLockAsync(inventoryLock));
+
+            await using var context = factory.CreateDbContext();
+            Assert.Empty(await context.Reservations.ToListAsync());
+            Assert.Empty(await context.ReservationNights.ToListAsync());
+            var hold = await context.BookingHolds.SingleAsync();
+            Assert.Equal(BookingHoldStatus.Active, hold.Status);
+        }
+        finally
+        {
+            await blockerTransaction.RollbackAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Forced_failure_before_commit_releases_both_lock_classes_and_leaves_no_partial_state()
+    {
+        await SeedFixedAsync();
+        using var setupClient = factory.CreateClient();
+        var created = await CreateHoldAsync(setupClient, "Confirm-ForcedFailure-Key", DeluxeRoomTypeId);
+        var guestToken = created.GetProperty("guestAccessToken").GetString()!;
+        var holdId = created.GetProperty("holdId").GetGuid();
+        var transitionLock = BookingAdvisoryLockKeys.ForHoldTransition(holdId);
+        var inventoryLock = BookingAdvisoryLockKeys.ForInventory(
+            PropertyId,
+            DeluxeRoomTypeId,
+            LocalToday);
+
+        using var interceptingApplication = factory.WithWebHostBuilder(builder =>
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<DbContextOptions<TheBhaDbContext>>();
+                services.RemoveAll<TheBhaDbContext>();
+                services.AddDbContext<TheBhaDbContext>(options =>
+                    options.UseNpgsql(
+                            factory.ConnectionString,
+                            npgsql => npgsql.MigrationsAssembly("TheBha.Infrastructure"))
+                        .AddInterceptors(new ThrowBeforeReservationInsertInterceptor()));
+            }));
+        using var client = interceptingApplication.CreateClient();
+
+        var response = await ConfirmAsync(client, holdId, guestToken);
+        Assert.False(response.IsSuccessStatusCode);
+        Assert.True((int)response.StatusCode >= 500);
+
         await using var context = factory.CreateDbContext();
         Assert.Empty(await context.Reservations.ToListAsync());
+        Assert.Empty(await context.ReservationNights.ToListAsync());
         var hold = await context.BookingHolds.SingleAsync();
         Assert.Equal(BookingHoldStatus.Active, hold.Status);
+
+        Assert.True(await CanAcquireAdvisoryLockAsync(transitionLock));
+        Assert.True(await CanAcquireAdvisoryLockAsync(inventoryLock));
     }
 
     [Fact]
@@ -720,5 +790,65 @@ public sealed class BookingHoldConfirmationApiTests(PostgreSqlWebApplicationFact
     private sealed class FixedTimeProvider(DateTimeOffset value) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => value;
+    }
+
+    /// <summary>
+    /// Test-host-only EF Core interceptor that forces a failure exactly at the
+    /// Reservation insert, i.e. strictly after both the Hold-transition and
+    /// inventory advisory locks have already been acquired but strictly before
+    /// commit - proving rollback releases both lock classes and leaves no
+    /// partial state. Registered only for one dedicated WebApplicationFactory
+    /// host; production DI registration is never touched.
+    /// </summary>
+    private sealed class ThrowBeforeReservationInsertInterceptor : DbCommandInterceptor
+    {
+        public override InterceptionResult<int> NonQueryExecuting(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<int> result)
+        {
+            ThrowIfTargetCommand(command);
+            return base.NonQueryExecuting(command, eventData, result);
+        }
+
+        public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            ThrowIfTargetCommand(command);
+            return base.NonQueryExecutingAsync(command, eventData, result, cancellationToken);
+        }
+
+        public override InterceptionResult<DbDataReader> ReaderExecuting(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result)
+        {
+            ThrowIfTargetCommand(command);
+            return base.ReaderExecuting(command, eventData, result);
+        }
+
+        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            ThrowIfTargetCommand(command);
+            return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
+        }
+
+        private static void ThrowIfTargetCommand(DbCommand command)
+        {
+            if (command.CommandText.Contains(
+                    "INSERT INTO \"Reservations\"",
+                    StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    "Forced test failure immediately before the Reservation insert.");
+            }
+        }
     }
 }
