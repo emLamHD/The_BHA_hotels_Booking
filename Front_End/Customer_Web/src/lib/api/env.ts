@@ -32,7 +32,7 @@ export function getApiBaseUrl(): string {
     return cachedBaseUrl;
   }
 
-  const rawValue = process.env[ENV_VAR_NAME];
+  const rawValue = process.env.NEXT_PUBLIC_API_BASE_URL;
 
   if (!rawValue || rawValue.trim() === "") {
     throw new Error(
