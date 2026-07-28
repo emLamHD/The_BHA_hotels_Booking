@@ -108,15 +108,25 @@ times, real amenity names, and a cover image.
 
 ## Image fallback behavior
 
-`PropertyLiveCard` prefers the API's flagged cover image (or, absent a
-flag, the lowest `SortOrder`/media-ID image). If the API provides no
-usable image, or the `<img>` fails to load (`onError`), the card falls
-back to the bundled template asset
-`Front_End/Customer_Web/src/images/placeholder-large-h.png` rendered via
-`next/image`. No new image assets were downloaded, and no broken-image
-request is left visible: the seed data's `images.example.com` media URLs
-are illustrative placeholders that do not resolve, and the automatic
-fallback is what a reviewer will actually see with the current seed data.
+`selectCoverImage` (`src/lib/api/propertyPresentation.ts`) picks the API's
+flagged cover image (or, absent a flag, the lowest `SortOrder`/media-ID
+image), but only from media whose URL passes `isUsableMediaUrl`: a
+well-formed absolute `http`/`https` URL that is not an RFC 2606 reserved
+example host (`example.com`, `example.net`, `example.org`, or a
+subdomain — e.g. the seed data's `images.example.com`). Reserved-example
+and malformed URLs are excluded *before* an image `src` is ever assigned,
+so the browser never issues a request known in advance to fail.
+
+`PropertyLiveCard` renders that selected image when one exists; otherwise
+it renders the bundled template asset
+`Front_End/Customer_Web/src/images/placeholder-large-h.png` via
+`next/image` immediately, with no intermediate failed request. No new
+image assets were downloaded. A defensive `onError` handler remains on the
+`<img>` element to catch unexpected runtime failures (e.g. a legitimate,
+non-reserved host returning 404) by swapping to the same placeholder — it
+is a safety net for cases the URL-usability check cannot know about ahead
+of time, not the mechanism used for the seeded `images.example.com` data,
+which is filtered out before rendering.
 
 ## Manual UI verification steps
 

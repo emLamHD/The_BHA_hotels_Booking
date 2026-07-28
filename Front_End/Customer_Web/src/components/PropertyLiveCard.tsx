@@ -34,7 +34,10 @@ const PropertyLiveCard: FC<PropertyLiveCardProps> = ({
         <div className="flex-shrink-0 p-3 w-full sm:w-64">
           <div className="relative w-full aspect-w-1 aspect-h-1 rounded-2xl overflow-hidden bg-neutral-100 dark:bg-neutral-800">
             {useApiImage ? (
-              // API-origin URLs are not known ahead of time, so next/image's static remote allowlist does not apply.
+              // selectCoverImage already excludes reserved-example-host and malformed
+              // URLs, so this src is never a known-unusable request. onError stays as a
+              // defensive fallback for unexpected runtime failures (e.g. a genuine host
+              // returning 404), not as the primary filter.
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={coverImage!.url!}

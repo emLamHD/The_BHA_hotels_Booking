@@ -2,14 +2,19 @@ import { describe, expect, it } from "vitest";
 import {
   formatLocation,
   formatTime,
+  isUsableMediaUrl,
   selectCoverImage,
 } from "../propertyPresentation";
 import { MediaDto, PropertyDto } from "../propertyTypes";
 
+// Deliberately not a reserved example host, so tests that don't care about
+// media-URL usability aren't incidentally exercising the reserved-host filter.
+const USABLE_URL = "https://cdn.thebha-hotels.test/photos/a.jpg";
+
 function media(overrides: Partial<MediaDto>): MediaDto {
   return {
     id: "m1",
-    url: "https://images.example.com/a.jpg",
+    url: USABLE_URL,
     altText: null,
     mediaType: "Image",
     sortOrder: 0,
@@ -68,6 +73,73 @@ describe("selectCoverImage", () => {
   it("preserves the backend altText value verbatim", () => {
     const cover = media({ isCover: true, altText: "The BHA Hotel exterior" });
     expect(selectCoverImage([cover])?.altText).toBe("The BHA Hotel exterior");
+  });
+
+  it("excludes the current seeded images.example.com URL and falls back to the placeholder", () => {
+    const seeded = media({
+      isCover: true,
+      url: "https://images.example.com/the-bha/property-cover.jpg",
+    });
+
+    expect(selectCoverImage([seeded])).toBeUndefined();
+  });
+
+  it("keeps a valid, non-reserved backend media URL selected", () => {
+    const valid = media({ isCover: true, url: USABLE_URL });
+    expect(selectCoverImage([valid])).toBe(valid);
+  });
+
+  it("falls back to the placeholder for absent, malformed, or unsupported media URLs", () => {
+    expect(selectCoverImage([media({ url: null })])).toBeUndefined();
+    expect(selectCoverImage([media({ url: "" })])).toBeUndefined();
+    expect(selectCoverImage([media({ url: "not a url" })])).toBeUndefined();
+    expect(
+      selectCoverImage([media({ url: "javascript:alert(1)" })])
+    ).toBeUndefined();
+    expect(selectCoverImage([media({ url: "ftp://files.example.net/a.jpg" })])).toBeUndefined();
+  });
+
+  it("does not alter or fabricate the source Property's text fields when filtering media", () => {
+    const source = property({
+      name: "The BHA Hotel",
+      description: "A welcoming city hotel.",
+      media: [
+        media({ isCover: true, url: "https://images.example.com/cover.jpg" }),
+      ],
+    });
+    const snapshot = JSON.parse(JSON.stringify(source));
+
+    selectCoverImage(source.media);
+
+    expect(source).toEqual(snapshot);
+    expect(source.name).toBe("The BHA Hotel");
+    expect(source.description).toBe("A welcoming city hotel.");
+  });
+});
+
+describe("isUsableMediaUrl", () => {
+  it("accepts a well-formed, non-reserved http(s) URL", () => {
+    expect(isUsableMediaUrl(USABLE_URL)).toBe(true);
+    expect(isUsableMediaUrl("http://localhost:5145/media/a.jpg")).toBe(true);
+  });
+
+  it("rejects RFC 2606 reserved example hosts and their subdomains", () => {
+    expect(isUsableMediaUrl("https://example.com/a.jpg")).toBe(false);
+    expect(isUsableMediaUrl("https://images.example.com/a.jpg")).toBe(false);
+    expect(isUsableMediaUrl("https://sub.deep.example.net/a.jpg")).toBe(false);
+    expect(isUsableMediaUrl("http://example.org/a.jpg")).toBe(false);
+  });
+
+  it("rejects absent, empty, or malformed values", () => {
+    expect(isUsableMediaUrl(null)).toBe(false);
+    expect(isUsableMediaUrl(undefined)).toBe(false);
+    expect(isUsableMediaUrl("")).toBe(false);
+    expect(isUsableMediaUrl("not a url")).toBe(false);
+  });
+
+  it("rejects non-http(s) schemes", () => {
+    expect(isUsableMediaUrl("javascript:alert(1)")).toBe(false);
+    expect(isUsableMediaUrl("ftp://files.example.net/a.jpg")).toBe(false);
   });
 });
 
