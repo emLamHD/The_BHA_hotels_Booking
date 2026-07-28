@@ -40,9 +40,18 @@ Customer web:
 
 ```powershell
 cd Front_End/Customer_Web
+Copy-Item -LiteralPath .env.local.example -Destination .env.local
 npm ci
 npm run dev
 ```
+
+`NEXT_PUBLIC_API_BASE_URL` (set in `.env.local`, default
+`http://localhost:5145`) configures the shared Axios API client in
+`src/lib/api`. Run `npm test` for the frontend's Vitest suite (Node
+environment, no browser dependencies). See
+[docs/FE-001-1-AXIOS-PROPERTY-UI.md](docs/FE-001-1-AXIOS-PROPERTY-UI.md) for
+the Axios foundation, the live Property UI at `/home-2`, and manual UI
+verification steps.
 
 Backend:
 
