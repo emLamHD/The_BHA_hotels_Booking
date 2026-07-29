@@ -51,6 +51,42 @@ future customer UI is hosted cross-site, operators must explicitly review CORS,
 HTTPS, and set `SameSite=None`; this is a deployment decision, not an automatic
 runtime weakening.
 
+### Antiforgery failure contract (CT-CONTRACT-002)
+
+The global `AutoValidateAntiforgeryTokenAttribute` policy validates every
+unsafe action not explicitly marked `[IgnoreAntiforgeryToken]`. When that MVC
+authorization filter rejects a request, it short-circuits with the framework's
+`AntiforgeryValidationFailedResult` — before the request ever reaches an
+action. The `[ApiController]` convention's built-in `ClientErrorResultFilter`
+(an always-run result filter at `Order -2000`) would otherwise rewrite that
+result into a generic, untitled `400` first.
+
+`AntiforgeryProblemDetailsResultFilter` (`TheBha.Api.Authentication`) is a
+global `IAlwaysRunResultFilter` ordered at `int.MinValue` so it observes the
+original result — matched by the framework's own
+`IAntiforgeryValidationFailedResult` marker interface, never by status code,
+response body, or endpoint name — before `ClientErrorResultFilter` converts
+it. It replaces only that result with a stable, generic body:
+
+```json
+{
+  "title": "Invalid antiforgery token",
+  "status": 400,
+  "detail": "A valid antiforgery token is required for this operation."
+}
+```
+
+served as `application/problem+json`. This is the one response any unsafe
+request rejected by the antiforgery policy returns — whether the cookie is
+missing, the header is missing, or the token is malformed or mismatched.
+Every other result, including ordinary application/business-validation `400`s
+(e.g. Create Hold's own `"Invalid booking Hold request"`), passes through
+unchanged. No token, cookie value, or internal exception detail is ever
+included. A now-fully-dead post-`next` middleware that checked
+`IAntiforgeryValidationFeature` (a feature this MVC-filter-based validation
+path never populated) has been removed — there is exactly one antiforgery
+failure formatter.
+
 ## CORS and Data Protection operations
 
 Credentialed CORS origins come only from `Cors:AllowedOrigins`. Wildcards and
