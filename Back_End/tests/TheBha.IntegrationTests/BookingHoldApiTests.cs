@@ -239,6 +239,93 @@ public sealed class BookingHoldApiTests(PostgreSqlWebApplicationFactory factory)
     }
 
     [Fact]
+    public async Task Antiforgery_failure_with_no_cookie_or_header_returns_stable_problem_details()
+    {
+        await SeedFixedAsync();
+        using var client = factory.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/booking-holds")
+        {
+            Content = JsonContent.Create(ValidRequest(DeluxeRoomTypeId))
+        };
+        request.Headers.Add("Idempotency-Key", "antiforgery-no-cookie-no-header");
+
+        var response = await client.SendAsync(request);
+
+        await AssertAntiforgeryProblemAsync(response);
+    }
+
+    [Fact]
+    public async Task Antiforgery_failure_with_cookie_but_missing_header_returns_stable_problem_details()
+    {
+        await SeedFixedAsync();
+        using var client = factory.CreateClient();
+        await GetCsrfAsync(client, CancellationToken.None);
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/booking-holds")
+        {
+            Content = JsonContent.Create(ValidRequest(DeluxeRoomTypeId))
+        };
+        request.Headers.Add("Idempotency-Key", "antiforgery-cookie-no-header");
+
+        var response = await client.SendAsync(request);
+
+        await AssertAntiforgeryProblemAsync(response);
+    }
+
+    [Fact]
+    public async Task Antiforgery_failure_with_malformed_token_returns_stable_problem_details()
+    {
+        await SeedFixedAsync();
+        using var client = factory.CreateClient();
+        await GetCsrfAsync(client, CancellationToken.None);
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/booking-holds")
+        {
+            Content = JsonContent.Create(ValidRequest(DeluxeRoomTypeId))
+        };
+        request.Headers.Add("Idempotency-Key", "antiforgery-malformed-token");
+        request.Headers.Add("X-CSRF-TOKEN", "not-a-real-antiforgery-token");
+
+        var response = await client.SendAsync(request);
+
+        await AssertAntiforgeryProblemAsync(response);
+    }
+
+    [Fact]
+    public async Task Business_validation_failure_with_valid_csrf_is_not_relabeled_as_antiforgery_failure()
+    {
+        await SeedFixedAsync();
+        using var client = factory.CreateClient();
+        var invalidRequest = ValidRequest(DeluxeRoomTypeId) with { CheckOut = LocalToday };
+
+        var response = await PostHoldAsync(client, "business-validation-key", invalidRequest);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(
+            "application/problem+json",
+            response.Content.Headers.ContentType?.MediaType);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("Invalid booking Hold request", body.GetProperty("title").GetString());
+        Assert.NotEqual("Invalid antiforgery token", body.GetProperty("title").GetString());
+    }
+
+    private static async Task AssertAntiforgeryProblemAsync(HttpResponseMessage response)
+    {
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(
+            "application/problem+json",
+            response.Content.Headers.ContentType?.MediaType);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("Invalid antiforgery token", body.GetProperty("title").GetString());
+        Assert.Equal(400, body.GetProperty("status").GetInt32());
+        Assert.Equal(
+            "A valid antiforgery token is required for this operation.",
+            body.GetProperty("detail").GetString());
+
+        var raw = body.GetRawText();
+        Assert.DoesNotContain("CfDJ", raw, StringComparison.Ordinal);
+        Assert.DoesNotContain(".TheBha.Antiforgery", raw, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Active_hold_reduces_availability_and_exact_expiry_restores_it()
     {
         await SeedFixedAsync();
