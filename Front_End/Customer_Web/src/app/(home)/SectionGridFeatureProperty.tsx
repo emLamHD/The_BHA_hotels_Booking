@@ -4,6 +4,7 @@ import React, { FC, useCallback, useEffect, useRef, useState } from "react";
 import Heading from "@/shared/Heading";
 import ButtonSecondary from "@/shared/ButtonSecondary";
 import PropertyLiveCard from "@/components/PropertyLiveCard";
+import SectionGridRoomTypes from "./SectionGridRoomTypes";
 import { getProperties } from "@/lib/api/propertyService";
 import { PropertyDto } from "@/lib/api/propertyTypes";
 import { ApiConfigError, ApiHttpError, ApiNetworkError } from "@/lib/api/errors";
@@ -110,13 +111,17 @@ const SectionGridFeatureProperty: FC<SectionGridFeaturePropertyProps> = ({
       )}
 
       {status === "success" && properties.length > 0 && (
-        <div
-          className={`grid gap-6 md:gap-8 grid-cols-1 sm:grid-cols-1 xl:grid-cols-2 ${gridClass}`}
-        >
-          {properties.map((property) => (
-            <PropertyLiveCard key={property.id} className="h-full" data={property} />
-          ))}
-        </div>
+        <>
+          <div
+            className={`grid gap-6 md:gap-8 grid-cols-1 sm:grid-cols-1 xl:grid-cols-2 ${gridClass}`}
+          >
+            {properties.map((property) => (
+              <PropertyLiveCard key={property.id} className="h-full" data={property} />
+            ))}
+          </div>
+
+          <SectionGridRoomTypes className="mt-16" properties={properties} />
+        </>
       )}
     </div>
   );
