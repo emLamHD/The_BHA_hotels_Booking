@@ -63,7 +63,10 @@ if (!string.IsNullOrWhiteSpace(dataProtectionKeysPath))
 
 builder.Services
     .AddControllersWithViews(options =>
-        options.Filters.Add(new AutoValidateAntiforgeryTokenAttribute()))
+    {
+        options.Filters.Add(new AutoValidateAntiforgeryTokenAttribute());
+        options.Filters.Add(new AntiforgeryProblemDetailsResultFilter());
+    })
     .AddJsonOptions(options =>
         options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddProblemDetails();
@@ -202,23 +205,6 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseExceptionHandler();
-app.Use(async (httpContext, next) =>
-{
-    await next();
-    var antiforgeryValidation =
-        httpContext.Features.Get<Microsoft.AspNetCore.Antiforgery.IAntiforgeryValidationFeature>();
-    if (antiforgeryValidation?.IsValid == false &&
-        httpContext.Response.StatusCode == StatusCodes.Status400BadRequest &&
-        !httpContext.Response.HasStarted)
-    {
-        httpContext.Response.Clear();
-        await Results.Problem(
-                statusCode: StatusCodes.Status400BadRequest,
-                title: "Invalid antiforgery token",
-                detail: "A valid antiforgery token is required for this operation.")
-            .ExecuteAsync(httpContext);
-    }
-});
 app.UseCors("customer-web");
 app.UseRateLimiter();
 app.UseAuthentication();
