@@ -5,6 +5,7 @@ import Heading from "@/shared/Heading";
 import ButtonSecondary from "@/shared/ButtonSecondary";
 import PropertyLiveCard from "@/components/PropertyLiveCard";
 import SectionGridRoomTypes from "./SectionGridRoomTypes";
+import SectionAvailabilitySearch from "./SectionAvailabilitySearch";
 import { getProperties } from "@/lib/api/propertyService";
 import { PropertyDto } from "@/lib/api/propertyTypes";
 import { ApiConfigError, ApiHttpError, ApiNetworkError } from "@/lib/api/errors";
@@ -121,6 +122,8 @@ const SectionGridFeatureProperty: FC<SectionGridFeaturePropertyProps> = ({
           </div>
 
           <SectionGridRoomTypes className="mt-16" properties={properties} />
+
+          <SectionAvailabilitySearch className="mt-16" properties={properties} />
         </>
       )}
     </div>
