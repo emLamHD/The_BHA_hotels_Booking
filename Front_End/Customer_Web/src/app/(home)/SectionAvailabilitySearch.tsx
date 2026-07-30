@@ -7,8 +7,10 @@ import Select from "@/shared/Select";
 import ButtonPrimary from "@/shared/ButtonPrimary";
 import ButtonSecondary from "@/shared/ButtonSecondary";
 import AvailabilityOfferCard from "@/components/AvailabilityOfferCard";
+import BookingHoldPanel from "@/components/BookingHoldPanel";
 import { searchAvailability } from "@/lib/api/availabilityService";
 import { AvailabilityOfferDto, AvailabilityQuery } from "@/lib/api/availabilityTypes";
+import { ActiveHoldSession, SelectedOfferSnapshot } from "@/lib/api/bookingHoldAttempt";
 import {
   AvailabilityDraft,
   AvailabilityFieldErrors,
@@ -80,6 +82,11 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
   const [offers, setOffers] = useState<AvailabilityOfferDto[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [submittedQuery, setSubmittedQuery] = useState<SubmittedQuery | null>(null);
+  const [selectedOffer, setSelectedOffer] = useState<{
+    snapshot: SelectedOfferSnapshot;
+    label: string;
+  } | null>(null);
+  const [activeHoldSession, setActiveHoldSession] = useState<ActiveHoldSession | null>(null);
 
   const activeRequest = useRef<AbortController | null>(null);
   const latestRequestId = useRef(0);
@@ -93,6 +100,14 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
       const controller = new AbortController();
       activeRequest.current = controller;
       const requestId = ++latestRequestId.current;
+
+      // A new explicit Availability request abandons any unsubmitted/failed
+      // Hold selection so it can never be attributed to stale criteria. Once
+      // a Hold has actually succeeded, it is preserved rather than silently
+      // replaced by a later search.
+      if (!activeHoldSession) {
+        setSelectedOffer(null);
+      }
 
       setStatus("loading");
       setErrorMessage(null);
@@ -118,7 +133,7 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
           setStatus("error");
         });
     },
-    []
+    [activeHoldSession]
   );
 
   useEffect(() => {
@@ -165,6 +180,25 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
     }
     const { propertyId: pid, propertyName, ...query } = submittedQuery;
     runSearch(pid, query, propertyName);
+  };
+
+  const handleSelectOffer = (offer: AvailabilityOfferDto) => {
+    if (activeHoldSession || !submittedQuery) {
+      return;
+    }
+    setSelectedOffer({
+      snapshot: {
+        propertyId: submittedQuery.propertyId,
+        roomTypeId: offer.roomTypeId,
+        ratePlanId: offer.ratePlanId,
+        checkIn: submittedQuery.checkIn,
+        checkOut: submittedQuery.checkOut,
+        adults: submittedQuery.adults,
+        children: submittedQuery.children,
+        rooms: submittedQuery.rooms,
+      },
+      label: `${offer.roomTypeName ?? "Room type"} · ${offer.ratePlanName ?? "Rate plan"} at ${submittedQuery.propertyName}`,
+    });
   };
 
   if (properties.length === 0) {
@@ -407,10 +441,22 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
                 <AvailabilityOfferCard
                   key={`${offer.roomTypeId}:${offer.ratePlanId}`}
                   data={offer}
+                  onHold={() => handleSelectOffer(offer)}
+                  holdDisabled={!!activeHoldSession}
                 />
               ))}
             </div>
           </>
+        )}
+
+        {selectedOffer && (
+          <BookingHoldPanel
+            className="mt-8"
+            offer={selectedOffer.snapshot}
+            offerLabel={selectedOffer.label}
+            session={activeHoldSession}
+            onSessionChange={setActiveHoldSession}
+          />
         )}
       </div>
     </div>

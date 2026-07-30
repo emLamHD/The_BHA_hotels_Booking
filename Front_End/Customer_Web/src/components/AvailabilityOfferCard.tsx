@@ -3,6 +3,7 @@
 import React, { FC, useState } from "react";
 import Image from "next/image";
 import placeholderImage from "@/images/placeholder-large-h.png";
+import ButtonPrimary from "@/shared/ButtonPrimary";
 import { AvailabilityOfferDto } from "@/lib/api/availabilityTypes";
 import { selectCoverImage } from "@/lib/api/propertyPresentation";
 import { formatCurrencyAmount } from "@/lib/api/availabilityPresentation";
@@ -10,11 +11,17 @@ import { formatCurrencyAmount } from "@/lib/api/availabilityPresentation";
 export interface AvailabilityOfferCardProps {
   className?: string;
   data: AvailabilityOfferDto;
+  /** Selects this exact offer for a Hold attempt; absent when Holds are out of scope for this render. */
+  onHold?: () => void;
+  /** True once an active Hold already exists, or another offer is mid-selection; disables this CTA. */
+  holdDisabled?: boolean;
 }
 
 const AvailabilityOfferCard: FC<AvailabilityOfferCardProps> = ({
   className = "",
   data,
+  onHold,
+  holdDisabled = false,
 }) => {
   const [apiImageFailed, setApiImageFailed] = useState(false);
   const coverImage = selectCoverImage(data.media);
@@ -94,6 +101,17 @@ const AvailabilityOfferCard: FC<AvailabilityOfferCardProps> = ({
             {formatCurrencyAmount(data.totalAmount, data.currencyCode)}
           </span>
         </div>
+
+        {onHold && (
+          <ButtonPrimary
+            type="button"
+            className="w-full !py-2.5"
+            disabled={holdDisabled}
+            onClick={onHold}
+          >
+            Hold this room
+          </ButtonPrimary>
+        )}
       </div>
     </div>
   );
