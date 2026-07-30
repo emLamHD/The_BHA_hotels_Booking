@@ -8,9 +8,9 @@ import ButtonPrimary from "@/shared/ButtonPrimary";
 import ButtonSecondary from "@/shared/ButtonSecondary";
 import AvailabilityOfferCard from "@/components/AvailabilityOfferCard";
 import BookingHoldPanel from "@/components/BookingHoldPanel";
+import { useBookingHoldFlow } from "@/app/BookingHoldProvider";
 import { searchAvailability } from "@/lib/api/availabilityService";
 import { AvailabilityOfferDto, AvailabilityQuery } from "@/lib/api/availabilityTypes";
-import { ActiveHoldSession, SelectedOfferSnapshot } from "@/lib/api/bookingHoldAttempt";
 import {
   AvailabilityDraft,
   AvailabilityFieldErrors,
@@ -82,11 +82,15 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
   const [offers, setOffers] = useState<AvailabilityOfferDto[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [submittedQuery, setSubmittedQuery] = useState<SubmittedQuery | null>(null);
-  const [selectedOffer, setSelectedOffer] = useState<{
-    snapshot: SelectedOfferSnapshot;
-    label: string;
-  } | null>(null);
-  const [activeHoldSession, setActiveHoldSession] = useState<ActiveHoldSession | null>(null);
+
+  const { state: holdFlowState, selectOffer, resetSearchSelection } = useBookingHoldFlow();
+  const holdPhase = holdFlowState.phase;
+  // Search, retry-search, and offer switching are all blocked while a Hold
+  // attempt is in flight or its outcome is unresolved — enforced here (not
+  // only by disabled styling) so a stale render or a bypassed control can't
+  // start a second Availability request or a second Hold attempt.
+  const searchLocked = holdPhase === "submitting" || holdPhase === "uncertain";
+  const offerSelectionLocked = searchLocked || holdPhase === "active-session";
 
   const activeRequest = useRef<AbortController | null>(null);
   const latestRequestId = useRef(0);
@@ -102,12 +106,11 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
       const requestId = ++latestRequestId.current;
 
       // A new explicit Availability request abandons any unsubmitted/failed
-      // Hold selection so it can never be attributed to stale criteria. Once
-      // a Hold has actually succeeded, it is preserved rather than silently
-      // replaced by a later search.
-      if (!activeHoldSession) {
-        setSelectedOffer(null);
-      }
+      // Hold selection so it can never be attributed to stale criteria.
+      // resetSearchSelection() itself is a no-op while the flow is
+      // submitting/uncertain/active-session, so this can never clear or
+      // replace an app-retained in-flight attempt or a succeeded Hold.
+      resetSearchSelection();
 
       setStatus("loading");
       setErrorMessage(null);
@@ -133,7 +136,7 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
           setStatus("error");
         });
     },
-    [activeHoldSession]
+    [resetSearchSelection]
   );
 
   useEffect(() => {
@@ -164,6 +167,9 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (searchLocked) {
+      return;
+    }
     const result = validateAvailabilityDraft(draft);
     if (!result.ok) {
       setFieldErrors(result.errors);
@@ -175,7 +181,7 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
   };
 
   const handleRetryLastSearch = () => {
-    if (!submittedQuery) {
+    if (searchLocked || !submittedQuery) {
       return;
     }
     const { propertyId: pid, propertyName, ...query } = submittedQuery;
@@ -183,11 +189,11 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
   };
 
   const handleSelectOffer = (offer: AvailabilityOfferDto) => {
-    if (activeHoldSession || !submittedQuery) {
+    if (offerSelectionLocked || !submittedQuery) {
       return;
     }
-    setSelectedOffer({
-      snapshot: {
+    selectOffer(
+      {
         propertyId: submittedQuery.propertyId,
         roomTypeId: offer.roomTypeId,
         ratePlanId: offer.ratePlanId,
@@ -197,8 +203,8 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
         children: submittedQuery.children,
         rooms: submittedQuery.rooms,
       },
-      label: `${offer.roomTypeName ?? "Room type"} · ${offer.ratePlanName ?? "Rate plan"} at ${submittedQuery.propertyName}`,
-    });
+      `${offer.roomTypeName ?? "Room type"} · ${offer.ratePlanName ?? "Rate plan"} at ${submittedQuery.propertyName}`
+    );
   };
 
   if (properties.length === 0) {
@@ -385,7 +391,9 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
         </div>
 
         <div>
-          <ButtonPrimary type="submit">Search availability</ButtonPrimary>
+          <ButtonPrimary type="submit" disabled={searchLocked}>
+            Search availability
+          </ButtonPrimary>
         </div>
       </form>
 
@@ -412,7 +420,7 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
             className="py-10 flex flex-col items-center text-center space-y-4"
           >
             <p className="text-neutral-600 dark:text-neutral-300">{errorMessage}</p>
-            <ButtonSecondary onClick={handleRetryLastSearch}>
+            <ButtonSecondary onClick={handleRetryLastSearch} disabled={searchLocked}>
               Retry last search
             </ButtonSecondary>
           </div>
@@ -442,22 +450,14 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
                   key={`${offer.roomTypeId}:${offer.ratePlanId}`}
                   data={offer}
                   onHold={() => handleSelectOffer(offer)}
-                  holdDisabled={!!activeHoldSession}
+                  holdDisabled={offerSelectionLocked}
                 />
               ))}
             </div>
           </>
         )}
 
-        {selectedOffer && (
-          <BookingHoldPanel
-            className="mt-8"
-            offer={selectedOffer.snapshot}
-            offerLabel={selectedOffer.label}
-            session={activeHoldSession}
-            onSessionChange={setActiveHoldSession}
-          />
-        )}
+        {holdPhase !== "idle" && <BookingHoldPanel className="mt-8" />}
       </div>
     </div>
   );

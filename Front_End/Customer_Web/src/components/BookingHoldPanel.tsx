@@ -1,51 +1,14 @@
 "use client";
 
-import React, { FC, FormEvent, useEffect, useRef, useState } from "react";
+import React, { FC, FormEvent, useEffect, useRef } from "react";
 import Input from "@/shared/Input";
 import ButtonPrimary from "@/shared/ButtonPrimary";
 import ButtonSecondary from "@/shared/ButtonSecondary";
-import { createBookingHold } from "@/lib/api/bookingHoldService";
-import {
-  ActiveHoldSession,
-  BookingHoldAttemptSnapshot,
-  ContactFieldErrors,
-  ContactInput,
-  SelectedOfferSnapshot,
-  buildBookingHoldRequest,
-  mergeHoldSession,
-  validateContact,
-} from "@/lib/api/bookingHoldAttempt";
-import { generateIdempotencyKey } from "@/lib/api/idempotencyKey";
+import { useBookingHoldFlow } from "@/app/BookingHoldProvider";
 import { formatCurrencyAmount } from "@/lib/api/availabilityPresentation";
-import {
-  ApiConfigError,
-  ApiHttpError,
-  ApiNetworkError,
-  ApiValidationError,
-} from "@/lib/api/errors";
-import { isRequestCancelledError } from "@/lib/api/httpClient";
-
-type SubmissionStatus = "idle" | "submitting" | "known-error" | "uncertain";
 
 export interface BookingHoldPanelProps {
   className?: string;
-  offer: SelectedOfferSnapshot;
-  offerLabel: string;
-  session: ActiveHoldSession | null;
-  onSessionChange: (session: ActiveHoldSession) => void;
-}
-
-function offerKeyOf(offer: SelectedOfferSnapshot): string {
-  return [
-    offer.propertyId,
-    offer.roomTypeId,
-    offer.ratePlanId,
-    offer.checkIn,
-    offer.checkOut,
-    offer.adults,
-    offer.children,
-    offer.rooms,
-  ].join(":");
 }
 
 function formatUtcInstant(iso: string): string {
@@ -53,125 +16,38 @@ function formatUtcInstant(iso: string): string {
   return Number.isNaN(parsed.getTime()) ? iso : parsed.toLocaleString();
 }
 
-function describeError(error: unknown): string {
-  if (error instanceof ApiValidationError) {
-    const firstFieldMessage = Object.values(error.errors).flat()[0];
-    return firstFieldMessage ?? error.problem.detail ?? error.problem.title;
-  }
-  if (error instanceof ApiHttpError) {
-    return error.problem.detail ?? error.problem.title;
-  }
-  if (error instanceof ApiConfigError) {
-    return "The booking service is not configured correctly.";
-  }
-  return "Something went wrong while creating your Hold.";
-}
+/**
+ * Renders purely from the app-lifetime authoritative flow
+ * (`useBookingHoldFlow`) — it owns no submission state, immutable attempt,
+ * or AbortController of its own, so this panel (or /home-2 itself)
+ * unmounting during client navigation never aborts an in-flight request or
+ * loses the retained session/guest token.
+ */
+const BookingHoldPanel: FC<BookingHoldPanelProps> = ({ className = "" }) => {
+  const { state, updateContact, submit, retryExact } = useBookingHoldFlow();
+  const { phase, offer, offerLabel, contact, fieldErrors, errorMessage, session } = state;
 
-const BookingHoldPanel: FC<BookingHoldPanelProps> = ({
-  className = "",
-  offer,
-  offerLabel,
-  session,
-  onSessionChange,
-}) => {
-  const [contact, setContact] = useState<ContactInput>({ fullName: "", email: "", phone: "" });
-  const [fieldErrors, setFieldErrors] = useState<ContactFieldErrors | null>(null);
-  const [status, setStatus] = useState<SubmissionStatus>("idle");
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  const attemptRef = useRef<BookingHoldAttemptSnapshot | null>(null);
-  const controllerRef = useRef<AbortController | null>(null);
-  const previousOfferKeyRef = useRef(offerKeyOf(offer));
   const headingRef = useRef<HTMLHeadingElement>(null);
-
-  // A different offer was selected before this attempt succeeded: abandon
-  // the previous immutable attempt rather than silently reusing its key.
-  useEffect(() => {
-    const key = offerKeyOf(offer);
-    if (previousOfferKeyRef.current !== key && !session) {
-      previousOfferKeyRef.current = key;
-      attemptRef.current = null;
-      setStatus("idle");
-      setErrorMessage(null);
-      setFieldErrors(null);
-    } else {
-      previousOfferKeyRef.current = key;
-    }
-  }, [offer, session]);
 
   useEffect(() => {
     headingRef.current?.focus();
-  }, []);
+    // Re-focus whenever the panel's headline content changes (new
+    // selection or a resolved outcome), not on every contact keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, offer?.roomTypeId, offer?.ratePlanId]);
 
-  useEffect(() => {
-    return () => {
-      controllerRef.current?.abort();
-    };
-  }, []);
+  if (phase === "idle" || !offer) {
+    return null;
+  }
 
-  const runAttempt = async (attempt: BookingHoldAttemptSnapshot) => {
-    setStatus("submitting");
-    setErrorMessage(null);
-    const controller = new AbortController();
-    controllerRef.current = controller;
-
-    try {
-      const result = await createBookingHold(attempt.request, attempt.idempotencyKey, {
-        signal: controller.signal,
-      });
-      onSessionChange(mergeHoldSession(session, result));
-      setStatus("idle");
-    } catch (error) {
-      if (isRequestCancelledError(error)) {
-        return;
-      }
-      if (error instanceof ApiNetworkError) {
-        setStatus("uncertain");
-        return;
-      }
-      if (
-        error instanceof ApiValidationError ||
-        error instanceof ApiHttpError ||
-        error instanceof ApiConfigError
-      ) {
-        setStatus("known-error");
-        setErrorMessage(describeError(error));
-        return;
-      }
-      // Unclassified failure: honestly ambiguous rather than falsely "known".
-      setStatus("uncertain");
-    }
-  };
+  const locked = phase === "submitting" || phase === "uncertain";
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (status === "submitting" || session) {
-      return;
-    }
-
-    const errors = validateContact(contact);
-    if (errors) {
-      setFieldErrors(errors);
-      return;
-    }
-    setFieldErrors(null);
-
-    const attempt: BookingHoldAttemptSnapshot = {
-      request: buildBookingHoldRequest(offer, contact),
-      idempotencyKey: generateIdempotencyKey(),
-    };
-    attemptRef.current = attempt;
-    void runAttempt(attempt);
+    submit();
   };
 
-  const handleExactRetry = () => {
-    if (status === "submitting" || !attemptRef.current) {
-      return;
-    }
-    void runAttempt(attemptRef.current);
-  };
-
-  if (session) {
+  if (phase === "active-session" && session) {
     const { hold } = session;
     return (
       <div
@@ -212,8 +88,9 @@ const BookingHoldPanel: FC<BookingHoldPanelProps> = ({
           </p>
           {session.guestAccessToken ? (
             <p className="text-neutral-500 dark:text-neutral-400">
-              Please remain in this tab — your one-time guest access code is stored only for
-              this browser session and cannot be shown again or recovered later.
+              Please remain in this browser tab — your one-time guest access code is stored only
+              in memory for this application session and cannot be shown again or recovered
+              later.
             </p>
           ) : (
             <p className="text-neutral-500 dark:text-neutral-400">
@@ -249,10 +126,8 @@ const BookingHoldPanel: FC<BookingHoldPanelProps> = ({
             type="text"
             autoComplete="name"
             value={contact.fullName}
-            disabled={status === "submitting"}
-            onChange={(event) =>
-              setContact((current) => ({ ...current, fullName: event.target.value }))
-            }
+            disabled={locked}
+            onChange={(event) => updateContact({ ...contact, fullName: event.target.value })}
             aria-invalid={!!fieldErrors?.fullName}
             aria-describedby={fieldErrors?.fullName ? "hold-full-name-error" : undefined}
           />
@@ -275,10 +150,8 @@ const BookingHoldPanel: FC<BookingHoldPanelProps> = ({
             type="email"
             autoComplete="email"
             value={contact.email}
-            disabled={status === "submitting"}
-            onChange={(event) =>
-              setContact((current) => ({ ...current, email: event.target.value }))
-            }
+            disabled={locked}
+            onChange={(event) => updateContact({ ...contact, email: event.target.value })}
             aria-invalid={!!fieldErrors?.email}
             aria-describedby={fieldErrors?.email ? "hold-email-error" : undefined}
           />
@@ -301,10 +174,8 @@ const BookingHoldPanel: FC<BookingHoldPanelProps> = ({
             type="tel"
             autoComplete="tel"
             value={contact.phone}
-            disabled={status === "submitting"}
-            onChange={(event) =>
-              setContact((current) => ({ ...current, phone: event.target.value }))
-            }
+            disabled={locked}
+            onChange={(event) => updateContact({ ...contact, phone: event.target.value })}
             aria-invalid={!!fieldErrors?.phone}
             aria-describedby={fieldErrors?.phone ? "hold-phone-error" : undefined}
           />
@@ -315,33 +186,35 @@ const BookingHoldPanel: FC<BookingHoldPanelProps> = ({
           )}
         </div>
 
-        {status === "submitting" && (
+        {phase === "submitting" && (
           <div role="status" aria-live="polite" className="text-sm text-neutral-500 dark:text-neutral-400">
             Creating your Hold…
           </div>
         )}
 
-        {status === "known-error" && errorMessage && (
+        {phase === "known-error" && errorMessage && (
           <div role="alert" className="text-sm text-red-600 dark:text-red-400">
             {errorMessage}
           </div>
         )}
 
-        {status === "uncertain" && (
+        {phase === "uncertain" && (
           <div role="alert" className="space-y-2 text-sm text-amber-600 dark:text-amber-400">
             <p>
               We couldn&apos;t confirm whether your Hold was created — the connection was lost
               before a response arrived. Sending again reuses the exact same request.
             </p>
-            <ButtonSecondary type="button" onClick={handleExactRetry}>
+            <ButtonSecondary type="button" onClick={retryExact}>
               Retry exact request
             </ButtonSecondary>
           </div>
         )}
 
-        <ButtonPrimary type="submit" loading={status === "submitting"} disabled={status === "submitting"}>
-          {status === "submitting" ? "Creating your Hold…" : "Confirm Hold"}
-        </ButtonPrimary>
+        {phase !== "uncertain" && (
+          <ButtonPrimary type="submit" loading={phase === "submitting"} disabled={locked}>
+            {phase === "submitting" ? "Creating your Hold…" : "Confirm Hold"}
+          </ButtonPrimary>
+        )}
       </form>
     </div>
   );
