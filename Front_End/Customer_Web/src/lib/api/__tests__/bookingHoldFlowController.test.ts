@@ -158,7 +158,7 @@ describe("createBookingHoldFlowController — locking while submitting/uncertain
     expect(harness.getState().phase).toBe("submitting");
 
     controller.selectOffer(OTHER_OFFER, "other label");
-    controller.resetSearchSelection();
+    expect(controller.tryBeginAvailabilitySearch()).toBe(false);
     controller.submit();
 
     expect(harness.getState().offer).toEqual(OFFER);
@@ -226,7 +226,7 @@ describe("createBookingHoldFlowController — locking while submitting/uncertain
     await vi.waitFor(() => expect(harness.getState().phase).toBe("uncertain"));
 
     controller.selectOffer(OTHER_OFFER, "other");
-    controller.resetSearchSelection();
+    expect(controller.tryBeginAvailabilitySearch()).toBe(false);
     controller.updateContact({ ...CONTACT, fullName: "Changed" });
 
     expect(harness.getState().offer).toEqual(OFFER);
@@ -326,5 +326,246 @@ describe("createBookingHoldFlowController — no mutation from mere construction
     expect(createBookingHoldMock).not.toHaveBeenCalled();
     expect(generateIdempotencyKeyMock).not.toHaveBeenCalled();
     expect(harness.getState().phase).toBe("idle");
+  });
+});
+
+describe("createBookingHoldFlowController — tryBeginAvailabilitySearch gate", () => {
+  it("accepts from idle and from selected, and two ordinary searches both succeed", async () => {
+    const { createBookingHoldFlowController } = await import("../bookingHoldFlowController");
+    const harness = createHarness();
+    const controller = createBookingHoldFlowController({
+      getState: harness.getState,
+      dispatch: harness.dispatch,
+    });
+
+    expect(controller.tryBeginAvailabilitySearch()).toBe(true); // from idle
+    controller.selectOffer(OFFER, "label");
+    expect(controller.tryBeginAvailabilitySearch()).toBe(true); // from selected
+  });
+
+  it("rejects while submitting", async () => {
+    const { createBookingHoldFlowController } = await import("../bookingHoldFlowController");
+    const harness = createHarness();
+    const controller = createBookingHoldFlowController({
+      getState: harness.getState,
+      dispatch: harness.dispatch,
+    });
+    const pending = deferred<{ hold: BookingHoldDto; outcome: "created" }>();
+    createBookingHoldMock.mockReturnValueOnce(pending.promise);
+
+    controller.selectOffer(OFFER, "label");
+    controller.updateContact(CONTACT);
+    controller.submit();
+    expect(harness.getState().phase).toBe("submitting");
+
+    expect(controller.tryBeginAvailabilitySearch()).toBe(false);
+
+    pending.resolve({ hold: holdFixture(), outcome: "created" });
+    await pending.promise;
+  });
+
+  it("rejects while uncertain", async () => {
+    const { createBookingHoldFlowController } = await import("../bookingHoldFlowController");
+    const harness = createHarness();
+    const controller = createBookingHoldFlowController({
+      getState: harness.getState,
+      dispatch: harness.dispatch,
+    });
+    createBookingHoldMock.mockRejectedValueOnce(new ApiNetworkError());
+    controller.selectOffer(OFFER, "label");
+    controller.updateContact(CONTACT);
+    controller.submit();
+    await vi.waitFor(() => expect(harness.getState().phase).toBe("uncertain"));
+
+    expect(controller.tryBeginAvailabilitySearch()).toBe(false);
+  });
+
+  it("rejects search, retry-search, and offer switching from active-session", async () => {
+    const { createBookingHoldFlowController } = await import("../bookingHoldFlowController");
+    const harness = createHarness();
+    const controller = createBookingHoldFlowController({
+      getState: harness.getState,
+      dispatch: harness.dispatch,
+    });
+    createBookingHoldMock.mockResolvedValueOnce({ hold: holdFixture(), outcome: "created" });
+    controller.selectOffer(OFFER, "label");
+    controller.updateContact(CONTACT);
+    controller.submit();
+    await vi.waitFor(() => expect(harness.getState().phase).toBe("active-session"));
+
+    expect(controller.tryBeginAvailabilitySearch()).toBe(false); // search / retry-search
+    controller.selectOffer(OTHER_OFFER, "other"); // offer switching
+    expect(harness.getState().offer).toBeNull(); // scrubbed by P2, and never replaced
+  });
+});
+
+describe("createBookingHoldFlowController — cross-flow same-tick serialization", () => {
+  it("Hold submit first, then Availability in the same tick: one key, one POST, search rejected", async () => {
+    const { createBookingHoldFlowController } = await import("../bookingHoldFlowController");
+    const harness = createHarness();
+    const controller = createBookingHoldFlowController({
+      getState: harness.getState,
+      dispatch: harness.dispatch,
+    });
+    const pending = deferred<{ hold: BookingHoldDto; outcome: "created" }>();
+    createBookingHoldMock.mockReturnValueOnce(pending.promise);
+
+    controller.selectOffer(OFFER, "label");
+    controller.updateContact(CONTACT);
+
+    // Same synchronous tick: Hold submit acquires the lock first, then an
+    // Availability operation is attempted immediately afterward — before
+    // React would ever have re-rendered `phase` to "submitting".
+    controller.submit();
+    const searchAccepted = controller.tryBeginAvailabilitySearch();
+
+    expect(searchAccepted).toBe(false);
+    expect(generateIdempotencyKeyMock).toHaveBeenCalledTimes(1);
+    expect(createBookingHoldMock).toHaveBeenCalledTimes(1);
+    expect(harness.getState().phase).toBe("submitting");
+    expect(harness.getState().offer).toEqual(OFFER); // never reset by the rejected search
+
+    pending.resolve({ hold: holdFixture(), outcome: "created" });
+    await pending.promise;
+  });
+
+  it("Exact retry first, then Availability in the same tick: retry remains the only mutation", async () => {
+    const { createBookingHoldFlowController } = await import("../bookingHoldFlowController");
+    const harness = createHarness();
+    const controller = createBookingHoldFlowController({
+      getState: harness.getState,
+      dispatch: harness.dispatch,
+    });
+    createBookingHoldMock.mockRejectedValueOnce(new ApiNetworkError());
+    controller.selectOffer(OFFER, "label");
+    controller.updateContact(CONTACT);
+    controller.submit();
+    await vi.waitFor(() => expect(harness.getState().phase).toBe("uncertain"));
+
+    const pending = deferred<{ hold: BookingHoldDto; outcome: "created" }>();
+    createBookingHoldMock.mockReturnValueOnce(pending.promise);
+
+    controller.retryExact();
+    const searchAccepted = controller.tryBeginAvailabilitySearch();
+
+    expect(searchAccepted).toBe(false);
+    expect(createBookingHoldMock).toHaveBeenCalledTimes(2); // 1 original + 1 retry, never a search-triggered call
+    expect(generateIdempotencyKeyMock).toHaveBeenCalledTimes(1); // retry never regenerates a key
+
+    pending.resolve({ hold: holdFixture(), outcome: "created" });
+    await pending.promise;
+  });
+
+  it("Availability accepted first, then Hold submit in the same tick: the old offer cannot produce a Hold", async () => {
+    const { createBookingHoldFlowController } = await import("../bookingHoldFlowController");
+    const harness = createHarness();
+    const controller = createBookingHoldFlowController({
+      getState: harness.getState,
+      dispatch: harness.dispatch,
+    });
+
+    controller.selectOffer(OFFER, "label");
+    controller.updateContact(CONTACT);
+
+    // Same synchronous tick: an Availability search is accepted first
+    // (synchronously invalidating the current offer selection), and a
+    // fresh Hold submit is attempted immediately afterward — before
+    // `getState()` would ever reflect the reducer's eventual
+    // "search-reset". The old offer must not produce a Hold.
+    const searchAccepted = controller.tryBeginAvailabilitySearch();
+    controller.submit();
+
+    expect(searchAccepted).toBe(true);
+    expect(generateIdempotencyKeyMock).not.toHaveBeenCalled();
+    expect(createBookingHoldMock).not.toHaveBeenCalled();
+  });
+
+  it("a live offer explicitly selected after an accepted search can still be submitted", async () => {
+    const { createBookingHoldFlowController } = await import("../bookingHoldFlowController");
+    const harness = createHarness();
+    const controller = createBookingHoldFlowController({
+      getState: harness.getState,
+      dispatch: harness.dispatch,
+    });
+    createBookingHoldMock.mockResolvedValueOnce({ hold: holdFixture(), outcome: "created" });
+
+    controller.selectOffer(OFFER, "label");
+    expect(controller.tryBeginAvailabilitySearch()).toBe(true);
+
+    // A genuinely new offer selection (e.g. from the new search's results)
+    // is accepted normally and can be submitted.
+    controller.selectOffer(OTHER_OFFER, "new label");
+    controller.updateContact(CONTACT);
+    controller.submit();
+
+    expect(generateIdempotencyKeyMock).toHaveBeenCalledTimes(1);
+    expect(createBookingHoldMock).toHaveBeenCalledTimes(1);
+    expect(createBookingHoldMock.mock.calls[0][0]).toMatchObject({ roomTypeId: OTHER_OFFER.roomTypeId });
+  });
+});
+
+describe("runIfAvailabilitySearchAllowed", () => {
+  it("performs no side effect at all when the gate rejects", async () => {
+    const { runIfAvailabilitySearchAllowed } = await import("../bookingHoldFlowController");
+    const performSearch = vi.fn();
+    const tryBeginAvailabilitySearch = vi.fn(() => false);
+
+    const accepted = runIfAvailabilitySearchAllowed(tryBeginAvailabilitySearch, performSearch);
+
+    expect(accepted).toBe(false);
+    expect(performSearch).not.toHaveBeenCalled();
+  });
+
+  it("performs the side effect exactly once when the gate accepts", async () => {
+    const { runIfAvailabilitySearchAllowed } = await import("../bookingHoldFlowController");
+    const performSearch = vi.fn();
+    const tryBeginAvailabilitySearch = vi.fn(() => true);
+
+    const accepted = runIfAvailabilitySearchAllowed(tryBeginAvailabilitySearch, performSearch);
+
+    expect(accepted).toBe(true);
+    expect(performSearch).toHaveBeenCalledTimes(1);
+  });
+
+  it("proves the real gate rejects before any Availability-shaped side effect runs (submitting)", async () => {
+    const { createBookingHoldFlowController, runIfAvailabilitySearchAllowed } = await import(
+      "../bookingHoldFlowController"
+    );
+    const harness = createHarness();
+    const controller = createBookingHoldFlowController({
+      getState: harness.getState,
+      dispatch: harness.dispatch,
+    });
+    const pending = deferred<{ hold: BookingHoldDto; outcome: "created" }>();
+    createBookingHoldMock.mockReturnValueOnce(pending.promise);
+
+    controller.selectOffer(OFFER, "label");
+    controller.updateContact(CONTACT);
+    controller.submit();
+
+    // Simulates exactly what SectionAvailabilitySearch.runSearch does: an
+    // abort, a request-identity bump, local state mutation, and finally
+    // the network call — all bundled as one `performSearch` side effect.
+    let aborted = false;
+    let requestId = 0;
+    let searchAvailabilityCalled = false;
+    const performSearch = () => {
+      aborted = true;
+      requestId += 1;
+      searchAvailabilityCalled = true;
+    };
+
+    const accepted = runIfAvailabilitySearchAllowed(
+      controller.tryBeginAvailabilitySearch,
+      performSearch
+    );
+
+    expect(accepted).toBe(false);
+    expect(aborted).toBe(false);
+    expect(requestId).toBe(0);
+    expect(searchAvailabilityCalled).toBe(false);
+
+    pending.resolve({ hold: holdFixture(), outcome: "created" });
+    await pending.promise;
   });
 });

@@ -288,6 +288,130 @@ describe("bookingHoldFlowReducer — stale-operation guard", () => {
 // stale-operation tests above already confirm the reducer's
 // "attempt-succeeded" case applies that same merge to `state.session`.
 
+describe("bookingHoldFlowReducer — definitive-success scrubbing (P2)", () => {
+  it("resets contact and clears offer/offerLabel/attempt/fieldErrors/errorMessage", () => {
+    let state = bookingHoldFlowReducer(selected(), {
+      type: "contact-changed",
+      contact: CONTACT,
+    });
+    state = bookingHoldFlowReducer(state, {
+      type: "submit-requested",
+      attempt: ATTEMPT,
+      operationId: 1,
+    });
+    // A prior validation failure should also be scrubbed, not just a
+    // successful field set.
+    state = { ...state, fieldErrors: { fullName: "stale error" } };
+
+    const result = { hold: holdFixture({ guestAccessToken: "one-time-token" }), outcome: "created" as const };
+    const afterSuccess = bookingHoldFlowReducer(state, {
+      type: "attempt-succeeded",
+      operationId: 1,
+      result,
+    });
+
+    expect(afterSuccess.phase).toBe("active-session");
+    expect(afterSuccess.contact).toEqual({ fullName: "", email: "", phone: "" });
+    expect(afterSuccess.offer).toBeNull();
+    expect(afterSuccess.offerLabel).toBeNull();
+    expect(afterSuccess.attempt).toBeNull();
+    expect(afterSuccess.fieldErrors).toBeNull();
+    expect(afterSuccess.errorMessage).toBeNull();
+  });
+
+  it("still retains the correct server-backed active session and guest token", () => {
+    const state = bookingHoldFlowReducer(selected(), {
+      type: "submit-requested",
+      attempt: ATTEMPT,
+      operationId: 1,
+    });
+    const result = { hold: holdFixture({ guestAccessToken: "one-time-token" }), outcome: "created" as const };
+    const afterSuccess = bookingHoldFlowReducer(state, {
+      type: "attempt-succeeded",
+      operationId: 1,
+      result,
+    });
+
+    expect(afterSuccess.session?.hold).toEqual(holdFixture({ guestAccessToken: "one-time-token" }));
+    expect(afterSuccess.session?.outcome).toBe("created");
+    expect(afterSuccess.session?.guestAccessToken).toBe("one-time-token");
+  });
+
+  it("still applies the same-Hold replay-null guest-token retention rule on success", () => {
+    // First success retains a real token (simulated directly, mirroring the
+    // stale-operation tests' pattern of composing states by hand for a
+    // scenario the reducer's own guards would not let arise sequentially).
+    const firstSession = {
+      hold: holdFixture({ holdId: "hold-1", guestAccessToken: null }),
+      guestAccessToken: "retained-token",
+      outcome: "created" as const,
+    };
+    const stateWithPriorSession: BookingHoldFlowState = {
+      ...selected(),
+      session: firstSession,
+      phase: "submitting",
+      attempt: ATTEMPT,
+      operationId: 5,
+    };
+
+    const replay = {
+      hold: holdFixture({ holdId: "hold-1", guestAccessToken: null }),
+      outcome: "replayed" as const,
+    };
+    const afterReplay = bookingHoldFlowReducer(stateWithPriorSession, {
+      type: "attempt-succeeded",
+      operationId: 5,
+      result: replay,
+    });
+
+    expect(afterReplay.session?.guestAccessToken).toBe("retained-token");
+    expect(afterReplay.contact).toEqual({ fullName: "", email: "", phone: "" });
+    expect(afterReplay.offer).toBeNull();
+  });
+
+  it("does not scrub contact/attempt while merely uncertain (retained for exact retry)", () => {
+    let state = bookingHoldFlowReducer(selected(), {
+      type: "contact-changed",
+      contact: CONTACT,
+    });
+    state = bookingHoldFlowReducer(state, {
+      type: "submit-requested",
+      attempt: ATTEMPT,
+      operationId: 1,
+    });
+    const afterUncertain = bookingHoldFlowReducer(state, {
+      type: "attempt-uncertain",
+      operationId: 1,
+    });
+
+    expect(afterUncertain.phase).toBe("uncertain");
+    expect(afterUncertain.contact).toEqual(CONTACT);
+    expect(afterUncertain.attempt).toEqual(ATTEMPT);
+    expect(afterUncertain.offer).toEqual(OFFER);
+  });
+
+  it("does not scrub contact while transitioning to known-error (contact stays editable)", () => {
+    let state = bookingHoldFlowReducer(selected(), {
+      type: "contact-changed",
+      contact: CONTACT,
+    });
+    state = bookingHoldFlowReducer(state, {
+      type: "submit-requested",
+      attempt: ATTEMPT,
+      operationId: 1,
+    });
+    const afterKnownError = bookingHoldFlowReducer(state, {
+      type: "attempt-known-error",
+      operationId: 1,
+      message: "Invalid booking Hold request",
+    });
+
+    expect(afterKnownError.phase).toBe("known-error");
+    expect(afterKnownError.contact).toEqual(CONTACT);
+    expect(afterKnownError.offer).toEqual(OFFER);
+  });
+});
+
 describe("bookingHoldFlowReducer — search-reset", () => {
   it("resets an idle/selected/known-error selection to idle", () => {
     const result = bookingHoldFlowReducer(selected(), { type: "search-reset" });
