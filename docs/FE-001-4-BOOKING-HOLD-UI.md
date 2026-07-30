@@ -37,7 +37,25 @@ read/cancel, authentication UI, and payment remain out of scope.
 > success kept the just-submitted contact PII and the now-obsolete offer
 > selection in memory instead of scrubbing them. Fixed by constructing the
 > post-success state explicitly (see "Definitive-success scrubbing"
-> below). Everything in this document describes the **fully corrected**
+> below).
+>
+> **Third correction (post-review):** one further P2 finding on
+> `SectionAvailabilitySearch.handleSubmit`. It ran draft validation and
+> called `setFieldErrors(...)` *before* the authoritative synchronous gate
+> was consulted — that gate only ran inside `runSearch()`, reached *after*
+> validation succeeded. A same-tick Hold submit/retry holding the
+> coordinator's `inFlight` lock could still be followed by an Availability
+> form submit that mutated `fieldErrors` state, and for an invalid draft the
+> gate was never reached at all, so it was bypassed entirely. Fixed by
+> adding a read-only, synchronous authorization check —
+> `isAvailabilitySearchLocked()` — backed by the exact same lock predicate
+> as the committing `tryBeginAvailabilitySearch()` gate, and by extracting
+> the orchestration itself into a small React-free function,
+> `runAvailabilityFormSubmit` (`src/lib/api/availabilityFormSubmit.ts`), so
+> the authorization check runs *before* validation or any field-error
+> mutation and Vitest exercises the exact same decision/order as
+> `handleSubmit` (see "The synchronous Availability gate" below).
+> Everything in this document describes the **fully corrected**
 > architecture.
 
 ## Inherited architecture
@@ -253,6 +271,43 @@ rejection. `SectionAvailabilitySearch.runSearch` calls this helper directly,
 so the exact same guarded path is both what the UI runs and what Vitest
 exercises.
 
+`tryBeginAvailabilitySearch()` *commits* — it dispatches `search-reset` and
+clears `offerSelectionActive` on acceptance, so it must never run before a
+caller is actually ready to start the search. But `runSearch()` is only
+reached after `SectionAvailabilitySearch.handleSubmit` has already
+validated the draft and updated `fieldErrors` — side effects that must not
+happen at all for a same-tick, already-locked submit. A second,
+**read-only** method, `isAvailabilitySearchLocked()`, exposes the identical
+lock predicate (`isFlowLockedForAvailability`, defined once and shared by
+both methods so the rule is never duplicated) without committing anything,
+so it is safe to call *before* validation.
+
+The actual orchestration for an explicit form submit is extracted into a
+small, React-free function, `runAvailabilityFormSubmit(draft, deps)`
+(`src/lib/api/availabilityFormSubmit.ts`), so the decision order is
+identical for the real UI and for Vitest:
+
+1. Calls `isAvailabilitySearchLocked()` first. If locked, returns
+   `"locked"` immediately — no validation, no `setFieldErrors`, no offer
+   invalidation, no network call. This is a complete no-op regardless of
+   whether the current draft happens to be valid or invalid.
+2. Otherwise validates the draft. An invalid draft calls `setFieldErrors`
+   with the validation errors and returns `"invalid"` — ordinary,
+   non-locked validation-error display, with no search started and the
+   current offer selection untouched.
+3. A valid, unlocked draft clears `fieldErrors` and calls `runSearch`
+   (which still separately consults the committing
+   `tryBeginAvailabilitySearch()` gate exactly once), returning
+   `"started"`.
+
+`SectionAvailabilitySearch.handleSubmit` calls `runAvailabilityFormSubmit`
+directly with its real `isAvailabilitySearchLocked`, `setFieldErrors`, and
+`runSearch`, so production and test exercise the exact same function, not a
+detached duplicate of the rule. `handleRetryLastSearch` (which has no draft
+to validate) calls `isAvailabilitySearchLocked()` directly instead of the
+React-rendered `flowLocked` boolean, for the same same-tick-authority
+reason.
+
 Search and Hold submission therefore serialize safely in **both** same-tick
 orders:
 
@@ -317,8 +372,8 @@ submission state, immutable attempt, or `AbortController` of its own:
 ## Focused automated tests
 
 Node-environment Vitest only; no jsdom/RTL/Playwright/Cypress/MSW added.
-107 new tests across seven files, on top of the 96 original baseline tests
-(**203/203** total):
+116 new tests across eight files, on top of the 96 original baseline tests
+(**212/212** total):
 
 - `bookingHoldFlow.test.ts` (22) — every reducer transition and its guard
   (offer selection/contact edits/fresh submit/search-reset rejected outside
@@ -343,7 +398,30 @@ Node-environment Vitest only; no jsdom/RTL/Playwright/Cypress/MSW added.
   zero keys and zero POSTs) — are proven directly against
   `tryBeginAvailabilitySearch()`, including through
   `runIfAvailabilitySearchAllowed` with a stand-in "abort/request-id/local
-  state" side effect to prove rejection happens before any of it runs.
+  state" side effect to prove rejection happens before any of it runs. This
+  file proves the *controller-level* gate and lock predicate; it does not
+  exercise `SectionAvailabilitySearch.handleSubmit`'s own validation/
+  field-error ordering — see `availabilityFormSubmit.test.ts` below for
+  that.
+- `availabilityFormSubmit.test.ts` (9) — the third-correction P2 fix. Four
+  tests drive `runAvailabilityFormSubmit` directly with mocked deps: a
+  locked check short-circuits before validation for both a valid and an
+  invalid draft (zero `setFieldErrors`/`runSearch` calls in either case);
+  an unlocked invalid draft calls `setFieldErrors` exactly once and never
+  starts a search; an unlocked valid draft clears errors and starts exactly
+  one search. Four more combine `runAvailabilityFormSubmit` with the *real*
+  `createBookingHoldFlowController` (not a stand-in) to prove the exact
+  same-tick cross-flow races at the orchestration level that
+  `bookingHoldFlowController.test.ts` proves at the controller level: a
+  Hold submit holding `inFlight`, followed same-tick by an Availability
+  form submit with either a valid or an invalid draft, is a complete
+  no-op (`"locked"`, zero `setFieldErrors`/`runSearch` calls, exactly one
+  Hold key/POST); an exact retry holding the lock same-tick-blocks a form
+  submit the same way; and an accepted Availability search followed
+  same-tick by a Hold submit still produces zero Hold keys/POSTs, proving
+  the now-obsolete-offer guarantee holds through the new orchestration
+  seam too. One final test confirms ordinary unlocked-invalid semantics
+  are unchanged (`runSearch` still not called).
 - `httpClientUnsafe.test.ts` (13) — credentials, exact JSON body,
   conditional `Content-Type`, caller headers/signal forwarding, header
   case-dedup, `201`/`200`/`204` status exposure, Problem Details/network/
@@ -500,6 +578,58 @@ on `POST /api/v1/booking-holds`:
    verification pass; the only `localhost:5145` endpoints observed were the
    same allowed set as before (properties, room-types, availability, csrf,
    booking-holds plus its CORS preflight).
+
+### Form-submit-order evidence (third post-review correction)
+
+Verified live against the Development API and Customer Web dev server, with
+the same kind of temporary, non-committed browser-only response delay on
+`POST /api/v1/booking-holds` used for the prior round's races:
+
+1. With a Hold submit's `POST` held pending (`inFlight` synchronously
+   `true`), an invalid Availability draft (check-out before check-in) was
+   submitted in the same JS tick (both button `.click()` calls issued from
+   one script execution, guaranteeing true same-tick ordering, not just two
+   close automation calls). Zero `GET .../availability` requests were
+   observed, and the field-error DOM element never appeared — confirming
+   the lock rejection is a complete no-op even for an invalid draft, which
+   the pre-fix code could not guarantee since validation ran before the
+   gate.
+2. The same same-tick Hold-submit-first scenario was repeated with a
+   *valid* Availability draft: immediately after both clicks, the network
+   log showed only the pending Hold `POST` and its preceding CSRF `GET` —
+   zero Availability requests at any point.
+3. With no Hold flow active (`idle` phase, unlocked), an invalid draft
+   (check-out before check-in) was submitted alone: the
+   `availability-checkout-error` element appeared with the expected
+   message, and no `GET .../availability` request was sent — ordinary
+   validation-error display is unaffected by the fix.
+4. With a real offer already selected (`phase: "selected"`, confirmed via
+   direct in-memory state inspection through the React fiber tree — the
+   same technique React DevTools uses, reporting only phase names and
+   boolean presence, never raw values), the check-out date was broken again
+   and the form submitted alone (unlocked). The field error reappeared,
+   zero new network requests were sent, and the selected offer/offer label
+   were confirmed still present and the phase still `"selected"` afterward
+   — proving an ordinary unlocked invalid submit never clears the current
+   offer selection.
+5. A genuinely valid, unlocked Availability search was submitted and
+   returned real offers normally (`GET .../availability` → `200`).
+6. With a real offer selected and valid contact details entered, an
+   Availability search (valid draft) and the Hold `Confirm Hold` submit
+   were fired in the same JS tick, search first. Exactly one
+   `GET .../availability` request fired and **zero** `POST
+   /api/v1/booking-holds` requests were sent; direct in-memory state
+   inspection afterward confirmed `phase: "idle"` and no retained offer —
+   the search's synchronous `offerSelectionActive = false` correctly
+   rejected the same-tick Hold submit before it could use the now-obsolete
+   offer, exactly as the existing search-first race guarantee requires,
+   now proven through the corrected orchestration path as well.
+7. Zero unexpected console errors were observed at any point in this
+   verification pass, and the only `localhost:5145` endpoints observed
+   across the whole pass were the same allowed set as before (properties,
+   room-types, availability, csrf, booking-holds plus its CORS preflight) —
+   no Hold read/confirm/cancel, Reservation, auth mutation, or payment
+   request occurred.
 
 - Responsive verification followed the FE-001.2/FE-001.3 precedent: this
   sandbox's `resize_window` does not change the tab's actual
