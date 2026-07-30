@@ -36,10 +36,6 @@ const BookingHoldPanel: FC<BookingHoldPanelProps> = ({ className = "" }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, offer?.roomTypeId, offer?.ratePlanId]);
 
-  if (phase === "idle" || !offer) {
-    return null;
-  }
-
   const locked = phase === "submitting" || phase === "uncertain";
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -102,6 +98,10 @@ const BookingHoldPanel: FC<BookingHoldPanelProps> = ({ className = "" }) => {
         </div>
       </div>
     );
+  }
+
+  if (phase === "idle" || !offer) {
+    return null;
   }
 
   return (
