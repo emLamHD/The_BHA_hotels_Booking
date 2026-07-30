@@ -55,6 +55,17 @@ read/cancel, authentication UI, and payment remain out of scope.
 > the authorization check runs *before* validation or any field-error
 > mutation and Vitest exercises the exact same decision/order as
 > `handleSubmit` (see "The synchronous Availability gate" below).
+>
+> **Fourth correction (post-review):** the definitive-success scrub from
+> the second correction intentionally leaves `phase: "active-session"` and
+> a server-backed `session`, but clears `offer`/`offerLabel`. The production
+> panel checked `phase === "idle" || !offer` before its active-session
+> branch, so that valid scrubbed state returned `null` and made the success
+> summary unreachable. `BookingHoldPanel` now renders
+> `active-session + session` first, entirely from `session`/`session.hold`,
+> and applies the offer-required guard only to pre-success form phases. A
+> focused Node-environment server-render test exercises that exact
+> production component decision (see "Focused automated tests" below).
 > Everything in this document describes the **fully corrected**
 > architecture.
 
@@ -223,6 +234,15 @@ This scrub is specific to a *definitive* success. `uncertain` and
 those early would break "Retry exact request"), and `known-error` keeps
 `contact`/`offer` so the customer can correct and resubmit.
 
+The success summary does not reconstruct or retain any of the scrubbed
+fields. `BookingHoldPanel` evaluates `phase === "active-session" && session`
+before the pre-success `idle || !offer` guard, and both the created and
+replayed presentations read their Hold ID, status, stay, occupancy, nightly
+amounts, total/currency, and timestamps exclusively from `session.hold`.
+An inconsistent active-session state without a session therefore cannot
+fall through to a stale contact form, while a valid active session does not
+need an offer or offer label to remain visible.
+
 ### Synchronous guards (`src/lib/api/bookingHoldFlowController.ts`)
 
 React state updates are not visible until the next render, so two clicks in
@@ -344,8 +364,9 @@ submission state, immutable attempt, or `AbortController` of its own:
   client-derived countdown), and the `created`/`replayed` outcome. When a
   guest token is retained, the panel tells the customer to remain in the
   tab; when a replay has no retained token, it says so honestly rather than
-  implying recovery. No Confirm/Cancel/Pay/Login/Reservation action is
-  rendered.
+  implying recovery. This branch is selected from the retained `session`
+  before any guard that requires the now-scrubbed offer. No contact form or
+  Confirm/Retry/Cancel/Pay/Login/Reservation action is rendered.
 - The panel's heading receives focus (`tabIndex={-1}` + a ref) whenever the
   phase or the selected offer changes, satisfying the "move focus or
   announce" requirement without a route change.
@@ -372,8 +393,20 @@ submission state, immutable attempt, or `AbortController` of its own:
 ## Focused automated tests
 
 Node-environment Vitest only; no jsdom/RTL/Playwright/Cypress/MSW added.
-116 new tests across eight files, on top of the 96 original baseline tests
-(**212/212** total):
+126 new tests across nine files, on top of the 96 original baseline tests
+(**222/222** total):
+
+- `BookingHoldPanel.test.ts` (10) — uses React's existing server renderer
+  in the Node Vitest environment to invoke the real production
+  `BookingHoldPanel` decision, not a detached duplicate. A real reducer
+  success produces `active-session + session + offer:null +
+  offerLabel:null + empty contact + attempt:null` and still renders the
+  summary; created and replayed sessions select their distinct headings;
+  Hold ID/status/stay/nightly values/total/timestamps come from
+  `session.hold`; `role="status"`, `aria-live="polite"`, and the focusable
+  heading remain present; synthetic contact/token/key sentinels and the
+  contact/Confirm/Retry UI are absent. Idle stays hidden, while selected,
+  submitting, known-error, and uncertain presentations remain reachable.
 
 - `bookingHoldFlow.test.ts` (22) — every reducer transition and its guard
   (offer selection/contact edits/fresh submit/search-reset rejected outside
@@ -455,6 +488,14 @@ Verified against the Development API (`http://localhost:5145`) with real
 PostgreSQL and existing seed data, and the Customer Web dev server
 (`http://localhost:3000`):
 
+The first three evidence sections below record earlier FE-001.4 correction
+passes. In particular, reducer inspection proving `session` retention and
+offer/contact/attempt scrubbing did **not** prove the production panel could
+render that scrubbed state. Any earlier statement that a success summary was
+visible applies only to the pre-scrub revision and is not evidence for the
+current state. The post-scrub, production-panel proof is the fourth-correction
+section below.
+
 - `/home-2` still loads Property/RoomType/Availability with zero console
   errors; zero CSRF/Hold requests before an offer is explicitly selected
   and submitted.
@@ -471,11 +512,10 @@ PostgreSQL and existing seed data, and the Customer Web dev server
   replay with `guestAccessToken: null`, the exact CT-CONTRACT-002 body for
   missing/absent/malformed antiforgery tokens, and a distinct ordinary
   business-validation `400`).
-- The API returned a real `201`, and the UI rendered the real Active Hold:
-  status, Hold ID, stay dates, per-night snapshot, total/currency, and
-  server `createdAtUtc`/`expiresAtUtc` — with the one-time guest token
-  retained only in memory (confirmed absent from the DOM text, URL, and
-  browser storage).
+- The API returned a real `201`; at this pre-definitive-scrub revision, the
+  UI rendered the real Active Hold. This historical observation does not
+  establish reachability after the later reducer began clearing `offer`;
+  that current-state proof is recorded under the fourth correction below.
 - A deliberate duplicate click on `Confirm Hold` produced no duplicate
   `POST`; after success, every offer's `Hold this room` CTA was disabled
   and a click produced no new request — the retained Hold was never
@@ -630,6 +670,53 @@ the same kind of temporary, non-committed browser-only response delay on
    room-types, availability, csrf, booking-holds plus its CORS preflight) —
    no Hold read/confirm/cancel, Reservation, auth mutation, or payment
    request occurred.
+
+### Scrubbed success-summary evidence (fourth post-review correction)
+
+Verified with an isolated temporary Edge profile driven through the local
+DevTools protocol (no browser dependency, repository file, screenshot, or
+committed fault-injection code), against the running Development API,
+Customer Web, real seeded PostgreSQL, and real live offers:
+
+1. **Real `201 Created`:** one normal customer submit returned `201` and
+   rendered **Hold created** while the authoritative state was
+   `active-session`, `session` was present, `offer`/`offerLabel`/`attempt`
+   were `null`, contact fields were empty, and field errors were `null`.
+   The visible `role="status" aria-live="polite"` summary and focusable
+   heading showed the server-backed Active Hold
+   `b8c42f83-5cad-408e-8719-ffdb78da43e9`, stay
+   `2026-08-01` → `2026-08-03`, `VND 3,000,000`, and the server creation/
+   expiry instants. The contact form and Confirm/Retry buttons were absent;
+   all six Availability inputs, its submit action, and every visible offer
+   CTA were disabled.
+2. **Real `200 OK` exact replay through the actual Retry UI:** a separate
+   live attempt was allowed to commit a real server `201`, but temporary
+   response-stage browser fault injection withheld only that first
+   response from the app. The flow honestly entered `uncertain`, retained
+   its offer/contact/immutable attempt, hid Confirm, exposed only
+   **Retry exact request**, and kept Availability locked. Clicking Retry
+   sent a second POST whose body and `Idempotency-Key` were both confirmed
+   exactly equal in memory (values never printed or persisted); the API
+   returned real `200` with the same Hold ID, so exactly one distinct Hold
+   existed for the two POSTs. The panel then rendered **Hold already
+   exists** from the scrubbed active session for Hold
+   `7c2944f1-6973-4b9b-b2e5-60a05f5ebf3a`, Active,
+   `2026-08-01` → `2026-08-03`, `VND 3,000,000`, with server timestamps.
+3. For both outcomes, the summary's public fields matched `session.hold`;
+   the raw guest token and synthetic contact values were absent from DOM
+   text, URL, `localStorage`, and `sessionStorage`; `document.cookie` was
+   empty; no screenshot was taken. There were zero unexpected console
+   errors and zero uncaught exceptions.
+4. Across the exact-retry scenario, the only Hold mutation requests were
+   the initial POST and its exact retry. There were zero Hold
+   read/confirm/cancel, Reservation, auth-mutation, or payment requests;
+   the two server outcomes were `201` then `200` and had one distinct Hold
+   ID.
+5. A real internal `next/link` navigation to `/author` and browser-history
+   navigation back to `/home-2` caused no document reload and issued no
+   automatic CSRF or Hold request. The same memory-only active session and
+   created/replayed heading remained visible with the same Hold ID; its
+   offer/contact/attempt state remained scrubbed and was never restored.
 
 - Responsive verification followed the FE-001.2/FE-001.3 precedent: this
   sandbox's `resize_window` does not change the tab's actual
