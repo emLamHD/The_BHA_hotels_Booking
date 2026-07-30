@@ -9,6 +9,19 @@ details, and create a real 15-minute Booking Hold through
 represented safely in the current tab. Hold read/confirm/cancel, Reservation
 read/cancel, authentication UI, and payment remain out of scope.
 
+> **Correction (post-review):** an earlier revision of this document and
+> implementation had `SectionAvailabilitySearch` own the active Hold
+> session as local component `useState`, and had `BookingHoldPanel` own the
+> in-flight submission/`AbortController` as local state. Two P1 defects
+> followed from that ownership: (1) an unresolved `submitting`/`uncertain`
+> attempt could be abandoned — and a second Hold created — by switching
+> offers, starting a new search, or unmounting the panel; (2) the one-time
+> guest access token was lost on ordinary Next.js client-side navigation
+> away from `/home-2`, since it lived in a component that unmounted. Both
+> are fixed by moving all of this into an app-lifetime root provider — see
+> "Corrected ownership: the root Booking Hold provider" below. Everything
+> in this document describes the **corrected** architecture.
+
 ## Inherited architecture
 
 - `src/lib/api/httpClient.ts` — the one lazy Axios instance
@@ -17,11 +30,10 @@ read/cancel, authentication UI, and payment remain out of scope.
 - `src/lib/api/errors.ts` — `ApiConfigError` / `ApiNetworkError` /
   `ApiHttpError` / `ApiValidationError`, `isRequestCancelledError` —
   unchanged.
-- `src/components/AvailabilityOfferCard.tsx` and
-  `src/app/(home)/SectionAvailabilitySearch.tsx` — extended with an optional
-  `onHold`/`holdDisabled` CTA and Hold selection/session state; the existing
-  read-only Availability search, draft/submitted-query separation, and
-  stale-response guarding are unchanged.
+- `src/components/AvailabilityOfferCard.tsx` — extended with an optional
+  `onHold`/`holdDisabled` CTA; the existing read-only Availability search,
+  draft/submitted-query separation, and stale-response guarding in
+  `SectionAvailabilitySearch` are otherwise unchanged.
 
 ## New transport contracts (`src/lib/api/bookingHoldTypes.ts`)
 
@@ -105,45 +117,116 @@ Pure, framework-free types and functions used by `BookingHoldPanel`:
 `crypto.randomUUID()` (never `Math.random`, a timestamp, or request/contact
 data) with a short `bha-hold-` prefix, well under the 256 UTF-8 byte limit.
 
-## UI wiring
+## Corrected ownership: the root Booking Hold provider
 
-- `AvailabilityOfferCard` renders one honest `Hold this room` action per
-  card (only when the parent supplies `onHold`), disabled once an active
-  Hold session exists.
-- `SectionAvailabilitySearch` owns `selectedOffer` (offer snapshot + label)
-  and `activeHoldSession` state. Selecting an offer snapshots the *exact
-  last submitted* Availability criteria — never the live draft. A new
-  explicit search (initial submit or "Retry last search") abandons any
-  unsubmitted/failed selection; once a Hold has actually succeeded, that
-  session is preserved rather than silently replaced, and every other
-  offer's CTA is disabled — no second Hold can be created in this flow.
-- `BookingHoldPanel` (`src/components/BookingHoldPanel.tsx`) owns the
-  contact form and the mutation state machine:
-  `idle → selected (implicit) → submitting → success | known-error |
-  uncertain`, using native inputs with `<label htmlFor>`, `aria-invalid`,
-  `aria-describedby`, and `role="alert"` field errors, matching the
-  established Availability form pattern.
-  - **Submitting** — the submit button is disabled and shows "Creating your
-    Hold…"; a `role="status" aria-live="polite"` region announces it.
-  - **Known error** — `ApiConfigError` / `ApiHttpError` / `ApiValidationError`
-    (a normalized, non-ambiguous failure) render a `role="alert"` message
-    from the normalized Problem Details.
-  - **Uncertain** — `ApiNetworkError` or any other unclassified failure
-    renders an honest "we couldn't confirm" message plus an explicit
-    `Retry exact request` button that reuses the exact same immutable
-    attempt (body + idempotency key); it is never fired automatically.
-  - **Success** — renders only server-backed fields: status, Hold ID, stay
-    dates, room/occupancy counts, the server's per-night snapshot, the
-    server's total/currency (via the existing `formatCurrencyAmount`
-    helper — no recomputation), `createdAtUtc`/`expiresAtUtc` as returned
-    (no client-derived countdown), and the `created`/`replayed` outcome.
-    When a guest token is retained, the panel tells the customer to remain
-    in the tab; when a replay has no retained token, it says so honestly
-    rather than implying recovery. No Confirm/Cancel/Pay/Login/Reservation
-    action is rendered.
-  - The panel's heading receives focus (`tabIndex={-1}` + a ref) when it
-    first renders, satisfying the "move focus or announce" requirement
-    without a route change.
+Authoritative Booking Hold flow state — the selected offer, the immutable
+in-flight/retryable attempt, the submission phase, the active session, and
+the one-time guest token — lives in `BookingHoldProvider`
+(`src/app/BookingHoldProvider.tsx`), a client component mounted once in
+`src/app/layout.tsx` inside `<body>`, wrapping the whole page tree. Because
+the root layout stays mounted across ordinary Next.js App Router client
+navigation, this state now survives:
+
+- switching between `/home-2` and any other route and back;
+- `SectionAvailabilitySearch`/`BookingHoldPanel` unmounting and remounting
+  (e.g. because an unrelated sibling section's own data reload temporarily
+  gates their render tree);
+
+and is lost only on a hard reload, tab close, or crash — an explicit,
+documented FE-001.4 limitation, never silently promised otherwise. The
+provider is per-mounted-app `useReducer`/`useRef` state, not a module-level
+mutable singleton, so nothing can leak across SSR requests or users.
+
+`BookingHoldProvider` is a thin wrapper: it supplies `useReducer`'s
+`dispatch` and a ref-backed `getState` (so guards always read the current
+state, never a stale closure) to a React-free coordinator,
+`createBookingHoldFlowController` (`src/lib/api/bookingHoldFlowController.ts`),
+which owns the actual guard/network logic and is exercised directly by
+Vitest — see "Focused automated tests" below. `AbortController` creation is
+also owned by the provider (via the coordinator's `onAttemptStart` hook),
+so a page/panel unmounting during navigation never aborts the in-flight
+request — only the provider's own (whole-app) teardown may.
+
+### Phase machine (`src/lib/api/bookingHoldFlow.ts`)
+
+A pure reducer drives six phases — `idle`, `selected`, `submitting`,
+`known-error`, `uncertain`, `active-session` — and every transition is
+guarded in the reducer itself, not only by disabled button styling:
+
+- **`selected`/`known-error`** — contact is editable and a fresh, newly
+  keyed submit is allowed.
+- **`submitting`/`uncertain`/`active-session`** — offer switching, a new
+  Availability search, and a fresh submit are all rejected as no-ops by the
+  reducer (`offer-selected`, `search-reset`, `submit-requested` are ignored
+  outside `selected`/`known-error`). `retry-requested` is the *only* action
+  accepted in `uncertain`, and only when an attempt is retained.
+- Every `attempt-succeeded`/`attempt-known-error`/`attempt-uncertain`
+  action carries the operation's identity and is applied only if
+  `phase === "submitting"` and that identity still matches the reducer's
+  current `operationId` — a stale completion from a superseded operation is
+  silently ignored, so it can never resurrect an old outcome over a newer
+  one (including turning a real success back into `uncertain`).
+- `attempt-succeeded` merges into `session` via the existing
+  `mergeHoldSession` (reading the reducer's *current* `state.session`, never
+  a stale closure) and clears the immutable attempt — only the active
+  session and its guest token are retained past a definitive success.
+
+### Synchronous guards (`src/lib/api/bookingHoldFlowController.ts`)
+
+React state updates are not visible until the next render, so two clicks in
+the same tick would both see the "old" state if the only guard were
+`phase`. The coordinator additionally holds a plain closure boolean
+(`inFlight`, not React state) that is set **before** the idempotency key is
+generated or the service is called, and cleared only in the settling
+operation's `finally`. Combined with a monotonic `operationId` counter
+(incremented synchronously, before any `await`/microtask), this guarantees:
+
+- two same-tick submits (a rapid double-click, or a click plus the
+  Enter-key firing a second `submit()` in the same tick) produce exactly
+  one key generation and one `createBookingHold` call;
+- a stale completion (identified by its captured `operationId` no longer
+  matching the coordinator's current one) never updates the reducer, even
+  if the underlying network call is still technically in flight when a
+  newer operation starts.
+
+### `BookingHoldPanel` and `SectionAvailabilitySearch`
+
+Both now render purely from `useBookingHoldFlow()` — the panel owns no
+submission state, immutable attempt, or `AbortController` of its own:
+
+- **Submitting** — the submit button is disabled and shows "Creating your
+  Hold…"; a `role="status" aria-live="polite"` region announces it; the
+  Availability form's own submit/retry buttons and every offer's `Hold this
+  room` CTA are also disabled (`SectionAvailabilitySearch` derives
+  `searchLocked`/`offerSelectionLocked` from the shared `phase`).
+- **Known error** — a normalized, non-ambiguous failure (`ApiConfigError` /
+  `ApiHttpError` / `ApiValidationError`) renders a `role="alert"` message;
+  contact stays editable and a fresh submit mints a genuinely new
+  attempt/key.
+- **Uncertain** — an honest "we couldn't confirm" message; the ordinary
+  `Confirm Hold` button is not rendered at all (only `Retry exact request`
+  is), contact fields are disabled, and search/offer controls are disabled
+  too. `Retry exact request` reuses the exact retained body and
+  `Idempotency-Key` and is never fired automatically.
+- **Active session** — renders only server-backed fields: status, Hold ID,
+  stay dates, room/occupancy counts, the server's per-night snapshot, the
+  server's total/currency (via the existing `formatCurrencyAmount` helper —
+  no recomputation), `createdAtUtc`/`expiresAtUtc` as returned (no
+  client-derived countdown), and the `created`/`replayed` outcome. When a
+  guest token is retained, the panel tells the customer to remain in the
+  tab; when a replay has no retained token, it says so honestly rather than
+  implying recovery. No Confirm/Cancel/Pay/Login/Reservation action is
+  rendered, and every offer's CTA stays disabled — no second Hold can be
+  created in this flow.
+- The panel's heading receives focus (`tabIndex={-1}` + a ref) whenever the
+  phase or the selected offer changes, satisfying the "move focus or
+  announce" requirement without a route change.
+- `SectionAvailabilitySearch`'s own initial/automatic effects (Property
+  list validation) never call `resetSearchSelection()` — only an *explicit*
+  user search submit or "Retry last search" does, and that call is itself a
+  no-op while the flow is `submitting`/`uncertain`/`active-session` — so a
+  page remount after navigating back to `/home-2` can never clear or
+  replace an app-retained in-flight attempt or a succeeded Hold.
 
 ## Security/disclosure invariants
 
@@ -157,9 +240,30 @@ data) with a short `bha-hold-` prefix, well under the 256 UTF-8 byte limit.
 ## Focused automated tests
 
 Node-environment Vitest only; no jsdom/RTL/Playwright/Cypress/MSW added.
-64 new tests across five files, on top of the 96 existing tests (**160/160**
-total):
+91 new tests across seven files, on top of the 96 original baseline tests
+(**187/187** total):
 
+- `bookingHoldFlow.test.ts` (17) — every reducer transition and its guard
+  (offer selection/contact edits/fresh submit/search-reset rejected outside
+  their allowed phases), and the stale-operation guard directly: a
+  superseded operation's late `attempt-succeeded`/`attempt-uncertain`/
+  `attempt-known-error` is proven to leave state completely unchanged,
+  including the case where it would otherwise have turned a real
+  `active-session` back into `uncertain`.
+- `bookingHoldFlowController.test.ts` (10) — exercises the real
+  React-free coordinator against a real reducer instance (a small
+  dispatch/getState harness, no mocked state machine) with
+  `createBookingHold`/`generateIdempotencyKey` mocked: two same-tick
+  `submit()` calls (and a simulated Enter-key double-submit) produce
+  exactly one key and one service call; `submitting` blocks offer
+  switching, search-reset, and a fresh submit; a network failure preserves
+  the exact attempt and enters `uncertain`; `uncertain` rejects a fresh
+  submit without generating a new key and keeps search/offer locked;
+  `retryExact()` reuses the exact same request body and key (never
+  regenerating one); a same-tick double retry produces exactly one retry
+  call; a `known-error` unlocks editing and a genuinely new key on the next
+  submit; and constructing the controller (simulating a remount) never
+  calls the service or generates a key by itself.
 - `httpClientUnsafe.test.ts` (13) — credentials, exact JSON body,
   conditional `Content-Type`, caller headers/signal forwarding, header
   case-dedup, `201`/`200`/`204` status exposure, Problem Details/network/
@@ -225,6 +329,50 @@ PostgreSQL and existing seed data, and the Customer Web dev server
   real `201`.
 - No `GET`/confirm/cancel Hold request, Reservation request, or auth
   mutation occurred at any point in the session.
+
+### Race and client-navigation evidence (post-review correction)
+
+Using a temporary, non-committed browser-only response delay (never written
+to the repository) on `POST /api/v1/booking-holds`:
+
+1. With the Create Hold response held pending, a rapid repeated submit
+   click, an Enter-key submit, clicking the other offer's `Hold this room`,
+   and submitting a fresh Availability search were all attempted in quick
+   succession. Exactly one `POST /api/v1/booking-holds` was ever sent
+   (confirmed by an injected send-counter observed before and after); once
+   the pending request resolved, both offer CTAs were correctly disabled.
+2. A genuine backend outage (process stopped, not merely delayed) produced
+   exactly one failed request and the **uncertain** phase. While uncertain:
+   the ordinary `Confirm Hold` button was not rendered at all; the
+   Availability search submit/retry buttons and both offer `Hold this room`
+   buttons were confirmed `disabled` in the DOM; clicking them anyway
+   produced zero new network requests. Restarting the API and clicking
+   `Retry exact request` sent the identical body/key and resolved safely
+   with a real `201`.
+3. From an **active session**, a real Next.js client-side navigation (a
+   `next/link` click, confirmed by the absence of any full-document reload
+   network entry) away from `/home-2` and back — via `history.back()` —
+   preserved the exact same Hold ID, `createdAtUtc`/`expiresAtUtc`, and the
+   guest-token-retained message, with **zero** new `GET /api/v1/auth/csrf`
+   or `POST /api/v1/booking-holds` requests on return. `localStorage`
+   contained only the pre-existing, unrelated `theme` key; `sessionStorage`
+   and `document.cookie` were empty; the URL carried no query/hash state.
+4. From an **uncertain** attempt, the same client-side navigate-away and
+   `history.back()` was repeated — additionally surviving an unrelated
+   remount of `SectionAvailabilitySearch`/`BookingHoldPanel` (triggered by
+   the sibling Property-list section's own load/retry cycle while the API
+   was still down). On return, the flow still showed **uncertain** with the
+   exact same retained contact values and `Retry exact request` button —
+   never reset to idle, never auto-submitted, never re-keyed. Restarting
+   the API and clicking `Retry exact request` then resolved with a real
+   `201`, using the one attempt/key that existed for the entire scenario.
+5. Across the whole corrected-flow verification session, the only
+   `localhost:5145` endpoints ever called were `GET /api/v1/properties`,
+   `GET .../room-types`, `GET .../availability`, `GET /api/v1/auth/csrf`,
+   and `POST /api/v1/booking-holds` (plus its CORS preflight) — no Hold
+   read/confirm/cancel, Reservation, auth mutation, or payment request.
+6. Zero unexpected console errors were observed at any point.
+
 - Responsive verification followed the FE-001.2/FE-001.3 precedent: this
   sandbox's `resize_window` does not change the tab's actual
   `window.innerWidth`, so mobile-first behavior was verified via the
