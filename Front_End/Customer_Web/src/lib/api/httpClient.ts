@@ -40,9 +40,11 @@ export function resetApiClientForTests(): void {
 
 /**
  * Merges caller-supplied headers, collapsing case-only duplicates so the
- * later entry for a given header name wins regardless of casing.
+ * later entry for a given header name wins regardless of casing. Exported
+ * so other unsafe-request callers (e.g. the CSRF helper) can apply the same
+ * no-duplicate-header guarantee before their own headers reach this module.
  */
-function mergeHeaders(
+export function mergeHeaders(
   overrides?: Record<string, string>
 ): Record<string, string> | undefined {
   if (!overrides) {
@@ -119,6 +121,28 @@ export function isRequestCancelledError(error: unknown): boolean {
   return axios.isCancel(error);
 }
 
+/** Normalizes an Axios failure into the shared error model; rethrows cancellation unchanged. */
+function normalizeRequestError(error: unknown): never {
+  if (axios.isCancel(error)) {
+    throw error;
+  }
+
+  if (axios.isAxiosError(error)) {
+    if (error.response) {
+      const status = error.response.status;
+      const validationProblem = toValidationProblemDetails(status, error.response.data);
+      if (validationProblem) {
+        throw new ApiValidationError(status, validationProblem);
+      }
+      throw new ApiHttpError(status, toProblemDetails(status, error.response.data));
+    }
+
+    throw new ApiNetworkError();
+  }
+
+  throw error;
+}
+
 async function apiRequest<T>(
   path: string,
   method: AxiosRequestConfig["method"],
@@ -142,27 +166,7 @@ async function apiRequest<T>(
 
     return response.data;
   } catch (error) {
-    if (axios.isCancel(error)) {
-      throw error;
-    }
-
-    if (axios.isAxiosError(error)) {
-      if (error.response) {
-        const status = error.response.status;
-        const validationProblem = toValidationProblemDetails(
-          status,
-          error.response.data
-        );
-        if (validationProblem) {
-          throw new ApiValidationError(status, validationProblem);
-        }
-        throw new ApiHttpError(status, toProblemDetails(status, error.response.data));
-      }
-
-      throw new ApiNetworkError();
-    }
-
-    throw error;
+    normalizeRequestError(error);
   }
 }
 
@@ -171,4 +175,48 @@ export function apiGet<T>(
   options: ApiRequestOptions = {}
 ): Promise<T | undefined> {
   return apiRequest<T>(path, "GET", options);
+}
+
+export interface ApiUnsafeResponse<T> {
+  data: T | undefined;
+  status: number;
+}
+
+/**
+ * Generic unsafe (mutating) JSON request path shared by every future unsafe
+ * caller. Contains no endpoint-specific (Hold, CSRF) logic: callers own
+ * their own headers (e.g. Idempotency-Key, X-CSRF-TOKEN) and are responsible
+ * for any retry policy. `status` is exposed so a caller can distinguish
+ * `201 Created` from `200 OK` without inferring it from the response body.
+ */
+export async function apiUnsafeRequest<T>(
+  path: string,
+  method: Exclude<AxiosRequestConfig["method"], "GET" | "HEAD">,
+  body: unknown,
+  options: ApiRequestOptions = {}
+): Promise<ApiUnsafeResponse<T>> {
+  const instance = getClient();
+  const hasBody = body !== undefined;
+  const headers = mergeHeaders(
+    hasBody ? { "Content-Type": "application/json", ...options.headers } : options.headers
+  );
+
+  try {
+    const response = await instance.request<T>({
+      url: path,
+      method,
+      withCredentials: true,
+      headers,
+      data: hasBody ? body : undefined,
+      params: options.params,
+      signal: options.signal,
+    });
+
+    return {
+      data: response.status === 204 ? undefined : response.data,
+      status: response.status,
+    };
+  } catch (error) {
+    normalizeRequestError(error);
+  }
 }
