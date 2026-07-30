@@ -30,8 +30,18 @@ export interface BookingHoldFlowController {
   updateContact: (contact: ContactInput) => void;
   submit: () => void;
   retryExact: () => void;
-  /** Abandons an idle/selected/known-error selection; a locked flow ignores this. */
-  resetSearchSelection: () => void;
+  /**
+   * The single authoritative, synchronous decision point for whether an
+   * explicit Availability operation (a fresh search or "Retry last
+   * search") may begin. Callers must call this *before* any Availability
+   * side effect (aborting/replacing the current request, bumping request
+   * identity, mutating local search state, or calling the search service)
+   * and must perform none of those side effects if it returns `false`.
+   * On `true`, the current Hold offer selection has already been
+   * synchronously invalidated — a same-tick Hold submit afterward cannot
+   * create a Hold from the now-obsolete offer.
+   */
+  tryBeginAvailabilitySearch: () => boolean;
 }
 
 export interface CreateBookingHoldFlowControllerOptions {
@@ -68,6 +78,14 @@ export function createBookingHoldFlowController(
   // Monotonic operation identity; a completion may update the flow only if
   // it still matches the operation that is current when it settles.
   let operationId = 0;
+  // Synchronously mirrors "is there a live, submittable offer selection
+  // right now" — set true by an accepted selectOffer and false by an
+  // accepted tryBeginAvailabilitySearch. `getState()`/`stateRef` only
+  // reflect a dispatch after React re-renders (one tick later), so submit()
+  // cannot rely on `getState().offer` alone to reject a same-tick submit
+  // that follows a just-accepted Availability search; this flag closes that
+  // gap without depending on React's render/commit timing.
+  let offerSelectionActive = false;
 
   function runAttempt(attempt: BookingHoldAttemptSnapshot, kind: "submit" | "retry"): void {
     const thisOperationId = ++operationId;
@@ -128,6 +146,7 @@ export function createBookingHoldFlowController(
       if (phase === "submitting" || phase === "uncertain" || phase === "active-session") {
         return;
       }
+      offerSelectionActive = true;
       dispatch({ type: "offer-selected", offer, label });
     },
 
@@ -141,6 +160,12 @@ export function createBookingHoldFlowController(
 
     submit() {
       if (inFlight) {
+        return;
+      }
+      // Rejects a same-tick submit that follows an Availability search
+      // already accepted this tick, even before `getState()` reflects the
+      // reducer's eventual "search-reset" — see `offerSelectionActive`.
+      if (!offerSelectionActive) {
         return;
       }
       const current = getState();
@@ -175,12 +200,45 @@ export function createBookingHoldFlowController(
       runAttempt(current.attempt, "retry");
     },
 
-    resetSearchSelection() {
+    tryBeginAvailabilitySearch() {
+      // Same-tick guard: a Hold submit/retry that has already acquired the
+      // synchronous lock this tick (even before React commits `phase`)
+      // must block Availability, exactly mirroring the protection
+      // `inFlight` already gives Hold-vs-Hold same-tick races.
+      if (inFlight) {
+        return false;
+      }
       const phase = getState().phase;
       if (phase === "submitting" || phase === "uncertain" || phase === "active-session") {
-        return;
+        return false;
       }
+
+      // Accepted: synchronously invalidate the current Hold selection
+      // before the caller is allowed to start the Availability request, so
+      // a same-tick Hold submit afterward cannot use the now-obsolete
+      // offer (see `offerSelectionActive` and `submit()`).
+      offerSelectionActive = false;
       dispatch({ type: "search-reset" });
+      return true;
     },
   };
+}
+
+/**
+ * Runs `performSearch` only if `tryBeginAvailabilitySearch` accepts the
+ * operation; otherwise performs no side effect at all — no abort, no
+ * request-identity bump, no local search-state mutation, no network call.
+ * Shared verbatim between `SectionAvailabilitySearch` and its Vitest
+ * coverage so the guarded path under test is the exact path the UI runs,
+ * never a detached duplicate of it.
+ */
+export function runIfAvailabilitySearchAllowed(
+  tryBeginAvailabilitySearch: () => boolean,
+  performSearch: () => void
+): boolean {
+  if (!tryBeginAvailabilitySearch()) {
+    return false;
+  }
+  performSearch();
+  return true;
 }

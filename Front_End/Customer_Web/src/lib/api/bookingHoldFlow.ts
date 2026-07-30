@@ -134,16 +134,24 @@ export function bookingHoldFlowReducer(
       if (state.phase !== "submitting" || action.operationId !== state.operationId) {
         return state;
       }
+      // Deliberately constructed rather than spreading ...state: a
+      // definitive success must scrub contact PII and the now-obsolete
+      // offer selection, retaining only the minimal active session (and,
+      // via mergeHoldSession, the guest token) required by later
+      // lifecycle work.
       return {
-        ...state,
         phase: "active-session",
+        offer: null,
+        offerLabel: null,
+        contact: initialContact,
+        fieldErrors: null,
+        attempt: null,
+        errorMessage: null,
         // Reads state.session — the reducer's current state, never a stale
         // closure — so a same-Hold replay-null can never overwrite a
         // retained token from an earlier operation.
         session: mergeHoldSession(state.session, action.result),
-        attempt: null,
-        fieldErrors: null,
-        errorMessage: null,
+        operationId: state.operationId,
       };
     }
 

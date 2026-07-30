@@ -9,6 +9,7 @@ import ButtonSecondary from "@/shared/ButtonSecondary";
 import AvailabilityOfferCard from "@/components/AvailabilityOfferCard";
 import BookingHoldPanel from "@/components/BookingHoldPanel";
 import { useBookingHoldFlow } from "@/app/BookingHoldProvider";
+import { runIfAvailabilitySearchAllowed } from "@/lib/api/bookingHoldFlowController";
 import { searchAvailability } from "@/lib/api/availabilityService";
 import { AvailabilityOfferDto, AvailabilityQuery } from "@/lib/api/availabilityTypes";
 import {
@@ -83,60 +84,64 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [submittedQuery, setSubmittedQuery] = useState<SubmittedQuery | null>(null);
 
-  const { state: holdFlowState, selectOffer, resetSearchSelection } = useBookingHoldFlow();
+  const { state: holdFlowState, selectOffer, tryBeginAvailabilitySearch } = useBookingHoldFlow();
   const holdPhase = holdFlowState.phase;
-  // Search, retry-search, and offer switching are all blocked while a Hold
-  // attempt is in flight or its outcome is unresolved — enforced here (not
-  // only by disabled styling) so a stale render or a bypassed control can't
-  // start a second Availability request or a second Hold attempt.
-  const searchLocked = holdPhase === "submitting" || holdPhase === "uncertain";
-  const offerSelectionLocked = searchLocked || holdPhase === "active-session";
+  // Search, retry-search, every Availability input, and offer switching are
+  // all blocked while a Hold attempt is in flight, its outcome is
+  // unresolved, or it has already succeeded (no second Hold). This shared
+  // predicate only drives *display*/accessibility; the actual behavioral
+  // authority is the synchronous `tryBeginAvailabilitySearch()` gate below,
+  // which a stale render of this boolean can never bypass.
+  const flowLocked =
+    holdPhase === "submitting" || holdPhase === "uncertain" || holdPhase === "active-session";
 
   const activeRequest = useRef<AbortController | null>(null);
   const latestRequestId = useRef(0);
 
   const runSearch = useCallback(
     (targetPropertyId: string, query: AvailabilityQuery, propertyName: string) => {
-      // Abort any in-flight attempt before starting a new one, and bump the
-      // request identity so an older response that resolves later (even
-      // post-abort) can never overwrite a newer attempt's state.
-      activeRequest.current?.abort();
-      const controller = new AbortController();
-      activeRequest.current = controller;
-      const requestId = ++latestRequestId.current;
+      // `runIfAvailabilitySearchAllowed` consults the single authoritative,
+      // synchronous coordinator gate and performs *none* of the side
+      // effects below (no abort, no request-identity bump, no local state
+      // change, no network call) unless it accepts the operation. On
+      // acceptance, it has already synchronously invalidated any current
+      // Hold offer selection, so a same-tick Hold submit afterward can
+      // never use the now-obsolete offer.
+      runIfAvailabilitySearchAllowed(tryBeginAvailabilitySearch, () => {
+        // Abort any in-flight attempt before starting a new one, and bump
+        // the request identity so an older response that resolves later
+        // (even post-abort) can never overwrite a newer attempt's state.
+        activeRequest.current?.abort();
+        const controller = new AbortController();
+        activeRequest.current = controller;
+        const requestId = ++latestRequestId.current;
 
-      // A new explicit Availability request abandons any unsubmitted/failed
-      // Hold selection so it can never be attributed to stale criteria.
-      // resetSearchSelection() itself is a no-op while the flow is
-      // submitting/uncertain/active-session, so this can never clear or
-      // replace an app-retained in-flight attempt or a succeeded Hold.
-      resetSearchSelection();
+        setStatus("loading");
+        setErrorMessage(null);
+        setSubmittedQuery({ propertyId: targetPropertyId, propertyName, ...query });
 
-      setStatus("loading");
-      setErrorMessage(null);
-      setSubmittedQuery({ propertyId: targetPropertyId, propertyName, ...query });
-
-      searchAvailability(targetPropertyId, query, { signal: controller.signal })
-        .then((data) => {
-          if (requestId !== latestRequestId.current || controller.signal.aborted) {
-            return;
-          }
-          setOffers(data);
-          setStatus(data.length === 0 ? "empty" : "success");
-        })
-        .catch((error) => {
-          if (isRequestCancelledError(error) || controller.signal.aborted) {
-            return;
-          }
-          if (requestId !== latestRequestId.current) {
-            return;
-          }
-          setOffers([]);
-          setErrorMessage(describeError(error));
-          setStatus("error");
-        });
+        searchAvailability(targetPropertyId, query, { signal: controller.signal })
+          .then((data) => {
+            if (requestId !== latestRequestId.current || controller.signal.aborted) {
+              return;
+            }
+            setOffers(data);
+            setStatus(data.length === 0 ? "empty" : "success");
+          })
+          .catch((error) => {
+            if (isRequestCancelledError(error) || controller.signal.aborted) {
+              return;
+            }
+            if (requestId !== latestRequestId.current) {
+              return;
+            }
+            setOffers([]);
+            setErrorMessage(describeError(error));
+            setStatus("error");
+          });
+      });
     },
-    [resetSearchSelection]
+    [tryBeginAvailabilitySearch]
   );
 
   useEffect(() => {
@@ -167,7 +172,7 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (searchLocked) {
+    if (flowLocked) {
       return;
     }
     const result = validateAvailabilityDraft(draft);
@@ -181,7 +186,7 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
   };
 
   const handleRetryLastSearch = () => {
-    if (searchLocked || !submittedQuery) {
+    if (flowLocked || !submittedQuery) {
       return;
     }
     const { propertyId: pid, propertyName, ...query } = submittedQuery;
@@ -189,7 +194,7 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
   };
 
   const handleSelectOffer = (offer: AvailabilityOfferDto) => {
-    if (offerSelectionLocked || !submittedQuery) {
+    if (flowLocked || !submittedQuery) {
       return;
     }
     selectOffer(
@@ -229,6 +234,7 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
             <Select
               id="availability-property"
               value={propertyId}
+              disabled={flowLocked}
               onChange={(event) => setPropertyId(event.target.value)}
             >
               {properties.map((property) => (
@@ -250,6 +256,7 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
               id="availability-checkin"
               type="date"
               value={draft.checkIn}
+              disabled={flowLocked}
               onChange={(event) =>
                 setDraft((current) => ({ ...current, checkIn: event.target.value }))
               }
@@ -278,6 +285,7 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
               id="availability-checkout"
               type="date"
               value={draft.checkOut}
+              disabled={flowLocked}
               onChange={(event) =>
                 setDraft((current) => ({ ...current, checkOut: event.target.value }))
               }
@@ -309,6 +317,7 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
               step={1}
               inputMode="numeric"
               value={draft.adults}
+              disabled={flowLocked}
               onChange={(event) =>
                 setDraft((current) => ({ ...current, adults: event.target.value }))
               }
@@ -340,6 +349,7 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
               step={1}
               inputMode="numeric"
               value={draft.children}
+              disabled={flowLocked}
               onChange={(event) =>
                 setDraft((current) => ({ ...current, children: event.target.value }))
               }
@@ -372,6 +382,7 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
               step={1}
               inputMode="numeric"
               value={draft.rooms}
+              disabled={flowLocked}
               onChange={(event) =>
                 setDraft((current) => ({ ...current, rooms: event.target.value }))
               }
@@ -391,7 +402,7 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
         </div>
 
         <div>
-          <ButtonPrimary type="submit" disabled={searchLocked}>
+          <ButtonPrimary type="submit" disabled={flowLocked}>
             Search availability
           </ButtonPrimary>
         </div>
@@ -420,7 +431,7 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
             className="py-10 flex flex-col items-center text-center space-y-4"
           >
             <p className="text-neutral-600 dark:text-neutral-300">{errorMessage}</p>
-            <ButtonSecondary onClick={handleRetryLastSearch} disabled={searchLocked}>
+            <ButtonSecondary onClick={handleRetryLastSearch} disabled={flowLocked}>
               Retry last search
             </ButtonSecondary>
           </div>
@@ -450,7 +461,7 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
                   key={`${offer.roomTypeId}:${offer.ratePlanId}`}
                   data={offer}
                   onHold={() => handleSelectOffer(offer)}
-                  holdDisabled={offerSelectionLocked}
+                  holdDisabled={flowLocked}
                 />
               ))}
             </div>
