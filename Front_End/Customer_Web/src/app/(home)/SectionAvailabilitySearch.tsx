@@ -10,13 +10,10 @@ import AvailabilityOfferCard from "@/components/AvailabilityOfferCard";
 import BookingHoldPanel from "@/components/BookingHoldPanel";
 import { useBookingHoldFlow } from "@/app/BookingHoldProvider";
 import { runIfAvailabilitySearchAllowed } from "@/lib/api/bookingHoldFlowController";
+import { runAvailabilityFormSubmit } from "@/lib/api/availabilityFormSubmit";
 import { searchAvailability } from "@/lib/api/availabilityService";
 import { AvailabilityOfferDto, AvailabilityQuery } from "@/lib/api/availabilityTypes";
-import {
-  AvailabilityDraft,
-  AvailabilityFieldErrors,
-  validateAvailabilityDraft,
-} from "@/lib/api/availabilityValidation";
+import { AvailabilityDraft, AvailabilityFieldErrors } from "@/lib/api/availabilityValidation";
 import { PropertyDto } from "@/lib/api/propertyTypes";
 import {
   ApiConfigError,
@@ -84,7 +81,12 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [submittedQuery, setSubmittedQuery] = useState<SubmittedQuery | null>(null);
 
-  const { state: holdFlowState, selectOffer, tryBeginAvailabilitySearch } = useBookingHoldFlow();
+  const {
+    state: holdFlowState,
+    selectOffer,
+    tryBeginAvailabilitySearch,
+    isAvailabilitySearchLocked,
+  } = useBookingHoldFlow();
   const holdPhase = holdFlowState.phase;
   // Search, retry-search, every Availability input, and offer switching are
   // all blocked while a Hold attempt is in flight, its outcome is
@@ -172,21 +174,25 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (flowLocked) {
-      return;
-    }
-    const result = validateAvailabilityDraft(draft);
-    if (!result.ok) {
-      setFieldErrors(result.errors);
-      return;
-    }
-    setFieldErrors({});
-    const property = properties.find((item) => item.id === propertyId);
-    runSearch(propertyId, result.value, property?.name ?? "Property");
+    // The authoritative same-tick Hold-flow lock is consulted first, inside
+    // `runAvailabilityFormSubmit`, *before* draft validation or any
+    // field-error state change — never the React-rendered `flowLocked`
+    // boolean, which can still read `false` in the exact tick a Hold
+    // submit/retry already acquired the coordinator's synchronous lock. A
+    // locked same-tick submit is therefore a complete no-op regardless of
+    // whether the current draft is valid or invalid.
+    runAvailabilityFormSubmit(draft, {
+      isAvailabilitySearchLocked,
+      setFieldErrors,
+      runSearch: (query) => {
+        const property = properties.find((item) => item.id === propertyId);
+        runSearch(propertyId, query, property?.name ?? "Property");
+      },
+    });
   };
 
   const handleRetryLastSearch = () => {
-    if (flowLocked || !submittedQuery) {
+    if (isAvailabilitySearchLocked() || !submittedQuery) {
       return;
     }
     const { propertyId: pid, propertyName, ...query } = submittedQuery;

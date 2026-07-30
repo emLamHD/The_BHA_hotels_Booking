@@ -42,6 +42,16 @@ export interface BookingHoldFlowController {
    * create a Hold from the now-obsolete offer.
    */
   tryBeginAvailabilitySearch: () => boolean;
+  /**
+   * Read-only synchronous authorization check backed by the exact same
+   * lock predicate as `tryBeginAvailabilitySearch` — but it never commits
+   * anything (no dispatch, no offer invalidation). Callers must consult
+   * this *before* any Availability-form side effect, including draft
+   * validation and field-error state, so a same-tick lock rejection is a
+   * complete no-op regardless of whether the current draft is valid or
+   * invalid.
+   */
+  isAvailabilitySearchLocked: () => boolean;
 }
 
 export interface CreateBookingHoldFlowControllerOptions {
@@ -86,6 +96,16 @@ export function createBookingHoldFlowController(
   // that follows a just-accepted Availability search; this flag closes that
   // gap without depending on React's render/commit timing.
   let offerSelectionActive = false;
+
+  // The one lock predicate shared by both the read-only authorization check
+  // and the committing gate below — never duplicated, never re-derived.
+  function isFlowLockedForAvailability(): boolean {
+    if (inFlight) {
+      return true;
+    }
+    const phase = getState().phase;
+    return phase === "submitting" || phase === "uncertain" || phase === "active-session";
+  }
 
   function runAttempt(attempt: BookingHoldAttemptSnapshot, kind: "submit" | "retry"): void {
     const thisOperationId = ++operationId;
@@ -205,11 +225,7 @@ export function createBookingHoldFlowController(
       // synchronous lock this tick (even before React commits `phase`)
       // must block Availability, exactly mirroring the protection
       // `inFlight` already gives Hold-vs-Hold same-tick races.
-      if (inFlight) {
-        return false;
-      }
-      const phase = getState().phase;
-      if (phase === "submitting" || phase === "uncertain" || phase === "active-session") {
+      if (isFlowLockedForAvailability()) {
         return false;
       }
 
@@ -220,6 +236,10 @@ export function createBookingHoldFlowController(
       offerSelectionActive = false;
       dispatch({ type: "search-reset" });
       return true;
+    },
+
+    isAvailabilitySearchLocked() {
+      return isFlowLockedForAvailability();
     },
   };
 }
