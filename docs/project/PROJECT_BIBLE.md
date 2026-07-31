@@ -1,7 +1,7 @@
 # PROJECT BIBLE — The BHA Hotels Booking
 
-**Status:** Active  
-**Document type:** Stable project knowledge
+- **Status:** Active
+- **Document type:** Stable project knowledge
 
 File này mô tả dự án và các nguyên tắc thiết kế tương đối ổn định. Trạng thái
 task/PR hiện tại nằm trong `docs/project/SNAPSHOT.md`.

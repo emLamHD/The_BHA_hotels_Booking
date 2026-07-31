@@ -1,6 +1,7 @@
 # AGENTS.md — The BHA Hotels Booking
 
-> Shared executor contract for Claude Code and Codex.  
+> Shared executor contract for Claude Code and Codex.
+>
 > `docs/governance/RULES.md` remains the highest repository-level authority.
 
 ## 1. Project identity

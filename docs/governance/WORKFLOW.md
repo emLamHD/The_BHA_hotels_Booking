@@ -1,7 +1,9 @@
 # THE BHA — WORKFLOW
 
-> Trạng thái: quy trình vận hành chuẩn  
-> Cập nhật: 2026-07-31  
+> Trạng thái: quy trình vận hành chuẩn
+>
+> Cập nhật: 2026-07-31
+>
 > Phụ thuộc: `RULES.md` luôn có hiệu lực
 
 ## 1. Mục tiêu

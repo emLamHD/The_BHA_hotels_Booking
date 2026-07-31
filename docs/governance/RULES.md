@@ -1,7 +1,9 @@
 # THE BHA — RULES
 
-> Trạng thái: quy tắc quản trị bắt buộc  
-> Cập nhật: 2026-07-31  
+> Trạng thái: quy tắc quản trị bắt buộc
+>
+> Cập nhật: 2026-07-31
+>
 > Phạm vi: mọi phiên Control Tower, Operations Coordinator, Claude Code và Codex
 
 ## 1. Mục đích

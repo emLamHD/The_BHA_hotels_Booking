@@ -1,7 +1,7 @@
 # BE-001 Completion Report
 
-**Status:** PASS — DONE  
-**Completed:** 2026-07-22
+- **Status:** PASS — DONE
+- **Completed:** 2026-07-22
 
 ## Delivery
 

@@ -1,6 +1,7 @@
 # THE BHA — SNAPSHOT
 
-> Ngày cập nhật: 2026-07-31  
+> Ngày cập nhật: 2026-07-31
+>
 > Mục đích: phục hồi trạng thái hiện tại mà không cần nạp worklog lịch sử
 
 ## 1. Repository state

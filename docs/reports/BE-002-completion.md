@@ -1,8 +1,8 @@
 # BE-002 Epic Completion Report
 
-**Overall status:** PASS — DONE  
-**Completed:** 2026-07-22  
-**Develop HEAD:** `3e4be8a2759fe0542a74a594891b43d85cdcf401`
+- **Overall status:** PASS — DONE
+- **Completed:** 2026-07-22
+- **Develop HEAD:** `3e4be8a2759fe0542a74a594891b43d85cdcf401`
 
 ## Coordinator ledger
 

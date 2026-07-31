@@ -1,7 +1,7 @@
 # ADR 0003: Model hotel stays with half-open date ranges
 
-**Status:** Accepted  
-**Date:** 2026-07-22
+- **Status:** Accepted
+- **Date:** 2026-07-22
 
 ## Context
 

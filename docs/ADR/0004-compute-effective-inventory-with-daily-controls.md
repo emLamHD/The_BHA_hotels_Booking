@@ -1,7 +1,7 @@
 # ADR 0004: Compute effective inventory with daily controls
 
-**Status:** Accepted  
-**Date:** 2026-07-22
+- **Status:** Accepted
+- **Date:** 2026-07-22
 
 ## Context
 
