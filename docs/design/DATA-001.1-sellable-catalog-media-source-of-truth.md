@@ -1362,22 +1362,56 @@ whether derivatives/cropping are permitted (where relevant), which
 environments it may appear in (development/preview/production), and its
 replacement/removal behavior.
 
-**Important disambiguation** (not previously stated this precisely): the
-current bundled template images (`src/images/*`, including
-`placeholder-large-h.png`, hero/HIW/feature/download-app imagery) are
-**not** "rights-unknown" in the sense of unlicensed/stolen content — they
-carry whatever license the Next.js theme itself carries, and README
-§"Front-end provenance" already requires preserving that theme's source
-and license attribution. They are, however, **never** hotel-specific
-photography and were never intended to represent a real BHA Hotels
-Property/RoomType. Under this contract they are classified as
-**template-licensed decorative/placeholder assets**: rights are not the
-open question for them, *role* is — they may serve as decoration or as the
-system fallback (§10.3, §16), but must never be promoted to "this is a
-photo of a real Property/RoomType." This is a distinct case from **future
-hotel-specific real photography**, whose rights (not just role) are
-entirely unconfirmed today, whether sourced internally or from a
-third party.
+**Correction (Tech Lead rights-evidence review, post-Checkpoint-3)**: an
+earlier version of this section asserted that the bundled template images
+"carry whatever license the Next.js theme itself carries" and classified
+them as "template-licensed." That assertion was not backed by a verifiable
+evidence reference and is corrected below.
+
+A direct check of the only provenance artifact in this repository —
+`Front_End/Customer_Web/README.md` (the relocated upstream theme README,
+preserved byte-for-byte per `.gitattributes`) — found **no license text, no
+rights grant, no permitted-use statement, and no terms governing
+commercial use, rebranding, or use as product imagery**; it contains only
+a feature description and an author credit ("Crafted with ❤️ by Hamed
+Hasan"). No `LICENSE` file exists anywhere in the repository (root or
+`Front_End/Customer_Web/`). The root `README.md`'s "Front-end provenance"
+note and `.gitattributes`'s preservation rule establish an
+**attribution-preservation obligation** — keep whatever notice exists
+intact — not a verified rights grant; they do not themselves document what
+uses are actually permitted.
+
+Without a verifiable evidence reference confirming the template license
+permits the intended use (bundled decorative content and a development
+fallback image on a commercial hotel-booking site), the current bundled
+template images (`src/images/*`, including `placeholder-large-h.png` and
+every hero/HIW/feature/download-app/partner-logo image) **must not be
+described as licensed, rights-cleared, or approved**. They are classified
+as **dormant template / development-only assets**, with rights state
+`unknown` under §15.2's five-state model (not even `pending`, since no
+evidence has yet been located to begin a review). They may continue to be
+used in development exactly as today — decoration, and, for
+`placeholder-large-h.png` specifically, the system fallback (§10.3, §16) —
+but **must never be promoted to production or treated as approved catalog
+media** without an Owner/legal rights review closing this gap. They were,
+separately and regardless of rights state, never intended to represent a
+real BHA Hotels Property/RoomType and must never be presented as such
+(§16.3's alt-text/role rules already enforce this).
+
+**Exact evidence requirement to unlock this rights state later**: a
+citable license grant — a `LICENSE` file, a purchase/marketplace license
+record, or equivalent — that explicitly covers the theme's bundled image
+assets and states whether commercial use, modification, and use as
+representative product imagery are permitted, reviewed and confirmed by
+the Owner. Until that evidence exists and is confirmed, this class stays
+`unknown`; only after Owner review may it move to `pending` (under active
+review) or `approved`/`rejected`.
+
+This is a distinct question from **future hotel-specific real photography**
+(e.g. actual BHA Property/RoomType photos), whose rights are separately
+and entirely unconfirmed today (§4/§19 item 2) — resolving the
+template-asset question above does not resolve that separate one, and vice
+versa.
 
 Locked rules:
 
@@ -1465,7 +1499,7 @@ sequence.
 | Rejected asset | Same as above | Retained for record-keeping only, per §15.3's replacement/removal behavior | Must not resolve to a rendered image | `rejected` | Same fallback treatment as missing | Never promotes; must be replaced by a different candidate asset |
 | Missing editorial media | Frontend editorial configuration | N/A until the config mechanism exists | N/A | Same five-state model applies conceptually | Section-level behavior per Checkpoint 2 §9: hide, neutral placeholder, or dev-only marker — the specific choice per section is not decided here | Promotes once an Owner-approved editorial asset reference is added to the configuration |
 | Unconfirmed brand-identity asset | Would be frontend-owned once real (Checkpoint 2 §10.3) | None exists — no real BHA brand asset was found in the current inventory | N/A | `unknown` by default (nothing has even reached `pending`) | No fallback needed today because nothing currently claims to be a BHA brand asset — the generic partner-logo grid is not brand identity (§10.3) | Cannot promote until an Owner supplies an actual asset and its rights/role are confirmed |
-| Shared system fallback (`placeholder-large-h.png`) itself becoming unavailable | Frontend build | Its own bundled-asset identity (a build-time import, always present as long as the file exists) | Always resolves at build time — not a runtime delivery concern | `development-only` role, template-licensed (§15.3) | This *is* the fallback — there is no further fallback beneath it; if this asset were ever removed, that would be a hard failure, not a graceful case | Never "promotes" to catalog content — doing so would violate its locked role (§15.3) |
+| Shared system fallback (`placeholder-large-h.png`) itself becoming unavailable | Frontend build | Its own bundled-asset identity (a build-time import, always present as long as the file exists) | Always resolves at build time — not a runtime delivery concern | `unknown` — no verifiable license grant was found for this or any other bundled template image (§15.3 correction); development-only use permitted regardless, since it is never presented as real Property/RoomType content | This *is* the fallback — there is no further fallback beneath it; if this asset were ever removed, that would be a hard failure, not a graceful case | Never "promotes" to catalog content — doing so would violate its locked role, and its `unknown` rights state independently blocks any production/catalog use until an Owner rights review closes the gap (§15.3) |
 
 Per-case behavior notes:
 
