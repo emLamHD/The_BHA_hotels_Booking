@@ -1,6 +1,6 @@
 # DATA-001.1 — Sellable Catalog and Media Source-of-Truth Design
 
-Status: Draft — Current-state inventory completed; target design not yet approved.
+Status: Draft — Current-state inventory and ownership/mapping design completed; dataset/media execution contract and decision gate pending.
 
 ## 1. Scope and evidence method
 
@@ -597,3 +597,487 @@ prohibitions:
 No architectural conflict or backend/frontend contract mismatch was found
 during this inventory (see §2.5's explicit conclusion), so this checkpoint
 did not need to stop `BLOCKED` before commit.
+
+---
+
+# Checkpoint 2 — Source-of-truth and template mapping design
+
+Everything from this point on is Checkpoint 2 content: ownership boundaries
+and mapping design built on top of the Checkpoint 1 inventory above (§1–§5,
+unchanged). Throughout, **`Current`** means "this is what the code does
+today, per the verified §1–§5 inventory"; **`Target`** means "this is the
+ownership boundary this design proposes, not yet implemented"; **`Future
+work`** means "out of scope for `DATA-001.1` entirely, named only so a later
+work item does not have to re-derive the boundary." No `Target` or `Future
+work` label below should be read as an existing capability.
+
+## 6. Target classification and design principles
+
+### 6.1 Design principles
+
+1. **Single authority per fact.** Every data/content item has exactly one
+   system that may originate or mutate it. Every other system either reads
+   through that authority's API/contract or does not represent the fact at
+   all.
+2. **No frontend shadow catalog.** Sellable/operational facts (Property,
+   RoomType, RatePlan, pricing, inventory, availability, Hold/Reservation
+   identifiers) are never re-declared as React literals, fixture arrays, or
+   `.env` values. The frontend's only legitimate representation of these
+   facts is the TypeScript wire type it already deserializes an API
+   response into (`PropertyDto`, `RoomTypeDto`, `AvailabilityOfferDto`, per
+   Checkpoint 1 §2.1/§2.2/§2.5).
+3. **No frontend-computed booking arithmetic.** Nightly price, inventory
+   count, stop-sell effect, offer totals, and availability decisions are
+   never recomputed, re-derived, or overridden client-side; the frontend
+   only formats a server-supplied value (already true today per Checkpoint
+   1 §2.5 — this principle keeps it true as the design evolves).
+4. **Editorial content is a distinct ownership class from operational
+   catalog data**, even when both currently render inside the same
+   component tree (e.g. `PropertyLiveCard` mixes an operational
+   `description` field with, elsewhere on the page, purely editorial copy —
+   see §8). Ownership is decided per data item, not per UI section.
+5. **A binary is never its own identity.** A media binary's storage
+   location/delivery URL is a resolvable detail, not the stable reference
+   other systems key on (see §6.4 for the current-model gap this creates).
+6. **Provider neutrality.** No object storage, CDN, or CMS vendor is chosen
+   by this design; "delivery class" (e.g. "object storage + CDN") is as
+   specific as this checkpoint gets.
+7. **A field is promoted into the operational model only when it earns
+   it** (see §6.2) — never merely because a template already has a text
+   string in that position.
+
+### 6.2 Classification model
+
+**(1) Sellable and operational catalog.** Property, RoomType, RatePlan and
+currency, capacity/occupancy, catalog-linked amenities, availability/
+pricing/inventory controls, and every identifier Hold/Reservation consumes
+(`PropertyId`, `RoomTypeId`, `RatePlanId`, plus the Hold/Reservation IDs
+themselves).
+
+- **Target authority**: PostgreSQL, exactly as already true today
+  (Checkpoint 1 §2.1–§2.4) — `Current`, not a change.
+- **Target validation/write boundary**: `TheBha.Domain` invariants +
+  `TheBha.Application` command/query services + `TheBha.Api` controllers,
+  exactly as already true for Property/RoomType/RatePlan/DailyRoomRate/
+  DailyInventoryControl reads and for the existing Hold/Reservation write
+  path — `Current` for what's already exposed, `Future work` for the
+  DailyRoomRate/DailyInventoryControl **write** capability that Checkpoint
+  1 §2.4 found registered in DI but reachable by no controller.
+- **Target frontend boundary**: read-only, through the existing/expanded
+  API surface; never a parallel fixture or literal copy of this data.
+
+**(2) Server-authoritative transactional calculations.** Daily pricing,
+inventory, stop-sell, offer totals and nightly breakdown, the availability
+decision itself, and Hold/Reservation identifiers/snapshots.
+
+- These are a strict subset of (1) that additionally can never be
+  reconstructed client-side even for display purposes — the frontend may
+  format (`formatCurrencyAmount`, per Checkpoint 1 §2.5) but never compute.
+  This is already the current behavior; the design principle is to keep it
+  that way as new UI is built.
+
+**(3) Marketing/editorial content.** Hero copy, section headings/
+subheadings, how-it-works copy, feature/value-proposition explanations, CTA
+labels, download-app promotion, subscription copy, editorial category
+labels, and decorative/trust/logo sections that are not an operational
+fact. For MVP, this class's target home is a version-controlled, typed
+frontend editorial-configuration boundary (§9) — no config file is created
+in this checkpoint.
+
+**(4) Media binaries.** The bytes themselves — never a React source file,
+never a database row. Target: a provider-neutral "delivery class"
+(object storage + CDN-shaped delivery), not a chosen vendor. An absolute
+provider URL is a resolvable delivery detail, not a stable asset identity
+(§6.4). Repository-local/bundled template images are, under this design, a
+transitional or development-only asset class — the exact policy for which
+images stay, move, or get replaced is Checkpoint 3 scope, not decided here.
+
+### 6.3 Media references and metadata — ownership split
+
+| Metadata | Catalog media (Property/RoomType-linked) | Editorial media (section/campaign-linked) |
+| --- | --- | --- |
+| Logical role (e.g. "cover", "gallery") | Backend catalog persistence/API boundary — already true today via `PropertyMedia.IsCover`/`RoomTypeMedia.IsCover` (Checkpoint 1 §2.1/§2.2) | MVP: frontend editorial configuration (§9); `Future work`: CMS (§11) |
+| Association (which Property/RoomType/section) | Backend, via the existing `PropertyMedia`/`RoomTypeMedia` join tables | Frontend editorial configuration entry references the section it belongs to |
+| Ordering | Backend `SortOrder`, already true today | Editorial configuration's own array/list order |
+| Alt text | Backend `Media.AltText`, already true today | Editorial configuration entry |
+| Stable asset identity/reference | `Target`: a provider-neutral identifier the backend owns and resolves to a delivery URL — **gap against the current model**, see §6.4 | `Target`: an editorial-configuration-owned reference, resolved the same provider-neutral way |
+| Delivery URL / URL resolution | Resolved from the stable identity at read time (`Target`); `Current` model instead stores the URL itself as `Media.Url` | Same resolution mechanism, applied to editorial media |
+
+### 6.4 Current `Media.Url` model — limitation and future implementation gap
+
+`Current` (per Checkpoint 1 §2.1, §2.6): `Media.Url` (`Back_End/src/TheBha.Domain/Properties/Media.cs`)
+is validated only as "an absolute http/https URL" and *is* the identity —
+there is no separate stable key, storage path, or provider-neutral
+reference alongside it. This is sufficient for the current
+reserved-example-host development seed and for the frontend's own
+`isUsableMediaUrl`/`selectCoverImage` filtering (Checkpoint 1 §2.7), which
+operate purely on the URL string.
+
+**Future implementation gap** (not raised or resolved in this checkpoint):
+if the target design in §6.4/§10 eventually requires a stable,
+provider-neutral asset identity that survives a delivery-location or
+provider change (e.g. migrating where binaries are hosted without touching
+every `PropertyMedia`/`RoomTypeMedia` row), the current `Media` entity has
+no field for that — `Media.Url` conflates identity and delivery address.
+Closing that gap would mean an EF Core schema change to `Media`, which is
+explicitly out of scope for `DATA-001.1` (no migration authorized this
+checkpoint) and is named here only so Checkpoint 3 / a future work item
+does not have to rediscover it.
+
+### 6.5 Development-only and unknown data — classification
+
+| Class | Definition | Current example(s) |
+| --- | --- | --- |
+| Confirmed real data | A fact with actual Owner/business confirmation of accuracy | None identified in the current inventory — see Owner-confirmation candidates (§4) |
+| Synthetic development data | Constructed for local development, not claimed as real by any evidence in code | The four `images.example.com` seed Media URLs (RFC 2606 reserved, non-functional by construction — Checkpoint 1 §2.6) |
+| Unknown / Owner input required | Plausible-looking but with no code-level citation of its real-world accuracy | Seeded Property name/address/city/country/time zone, RoomType names/descriptions, seeded prices (Checkpoint 1 §2.6) |
+| Rights-pending media | Any binary whose usage/licensing rights have not been confirmed | Not applicable to the current four seed Media rows (they are non-functional placeholders, not real images pending rights review); would apply to any future real photography before an Owner rights confirmation |
+| Dormant template artifact | Bundled with the theme, unrelated to hotel domain, currently still rendering or present but inert | Hero real-estate copy/search form, both category sliders, author/host grid, download-app section, most of `src/images`/`src/data` (Checkpoint 1 §2.7/§2.9) |
+
+This checkpoint only classifies; the seed policy that decides what to keep,
+replace, or gate behind an environment flag is Checkpoint 3 scope.
+
+### 6.6 Field-promotion discipline
+
+A UI/content need may be proposed for promotion into the operational
+database/API model only when **at least one** of the following holds:
+
+- It affects booking or validation outcomes.
+- It is a shared fact multiple clients/channels would need identically
+  (not just one page's presentation choice).
+- It requires server-authoritative mutation and/or audit history.
+- It needs to be queried, filtered, or searched.
+- It attaches stably to a specific Property/RoomType/RatePlan record's
+  identity/lifecycle.
+- It has a lifecycle independent of frontend deployment (i.e., it should be
+  able to change without a frontend release, or vice versa).
+
+A UI/content need must **not** be promoted merely because:
+
+- A template happens to already have a text string in that position.
+- The content is campaign/aesthetic in nature.
+- Only one frontend section currently consumes it.
+- It's expected to change alongside a frontend release anyway.
+- The asset is purely decorative.
+
+Applying this discipline to the current, verified `/home-2` inventory
+(§2, §8): **no UI need in the currently active render tree justifies a new
+operational database/API field.** Every field genuinely required for
+booking-relevant display already exists and is already exposed
+(`PropertyDto`, `RoomTypeDto`, `AvailabilityOfferDto` — Checkpoint 1
+§2.1/§2.2/§2.5). The gaps Checkpoint 1 found (minimum/maximum stay,
+arrival/departure controls, a write API for rates/inventory controls) are
+pre-existing Application-layer capability questions, not something a
+`/home-2` UI need is asking to be promoted — they are not re-litigated
+here, and this document does not propose a schema/migration for them (that
+would itself violate this checkpoint's prohibition on schema/API design).
+If a future checkpoint or work item proposes a new field, it must record,
+per this discipline: the business reason, the owning aggregate/boundary,
+the consumer, why an editorial-configuration entry is insufficient, and an
+explicit statement that it is future work, not current capability.
+
+## 7. Source-of-truth matrix
+
+Labels: **C** = Current, **T** = Target (this design), **F** = Future work
+(named, not scoped here).
+
+| Data/content class | Examples/current representation | Persistent authority | Validation/write boundary | Frontend read boundary | MVP ownership | Future extension | Prohibited duplicate |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Property operational facts | Name, Slug, Description, Address, City, Country, TimeZone, CheckIn/CheckOutTime (Checkpoint 1 §2.1) | PostgreSQL `Properties` table (**C**) | `TheBha.Domain.Properties.Property` invariants + `PropertiesController` (**C**) | `PropertyDto` via `GET /api/v1/properties[/{id}]` only (**C**) | Backend catalog boundary (**C**) | None proposed | Frontend must never hold a parallel Property literal/fixture for this data |
+| RoomType operational facts | Code, Name, Slug, Description, Base/MaxOccupancy (Checkpoint 1 §2.2) | PostgreSQL `RoomTypes` table (**C**) | `RoomType` invariants + `PropertiesController`/`RoomTypesController` (**C**) | `RoomTypeDto` via existing endpoints (**C**) | Backend catalog boundary (**C**) | None proposed | Same as above |
+| Amenities (catalog-linked) | `Amenity` + `PropertyAmenity`/`RoomTypeAmenity` joins (Checkpoint 1 §2.1/§2.2) | PostgreSQL `Amenities` + join tables (**C**) | Domain + `PropertyCatalogQueries` filtering to `IsActive` (**C**) | Nested `AmenityDto[]` on `PropertyDto`/`RoomTypeDto` (**C**) | Backend catalog boundary (**C**) | None proposed | Frontend must not hard-code an amenity list/icon-label map that duplicates `Amenity.Name`/`Category` as a second source |
+| RatePlan | Code, Name, Description, CurrencyCode (Checkpoint 1 §2.3) | PostgreSQL `RatePlans` table (**C**) | `RatePlan` invariants; no dedicated controller (**C**, confirmed absent) | Only flattened, no-Description fields inside an Availability offer (**C**); never a standalone list (**C**, confirmed absent) | Backend (**C**) | A `RatePlansController`/standalone listing is **F**, pending Owner input (§4 item 4) — not designed here | Frontend must not maintain its own RatePlan name/currency list |
+| Daily rates | `DailyRoomRate` (Checkpoint 1 §2.4) | PostgreSQL `DailyRoomRates` table (**C**) | Domain invariants; `IDailyRoomRatePricing` exists but is called by no controller (**C**, confirmed unreachable) | Never exposed directly; only via `NightlyRateDto[]`/`TotalAmount` on an Availability offer (**C**) | Backend (**C** for reads, **F** for a reachable write path) | A management API surfacing `IDailyRoomRatePricing` is **F** | Frontend must never compute or store its own nightly price |
+| Inventory controls | `DailyInventoryControl` (stop-sell, sellable limit) (Checkpoint 1 §2.4) | PostgreSQL `DailyInventoryControls` table (**C**) | Domain invariants; `IDailyInventoryControlCommands` exists but is called by no controller (**C**, confirmed unreachable) | Never exposed directly; only reflected in `AvailableRooms` on an offer, or the RoomType/date simply absent from results (**C**) | Backend (**C** for reads, **F** for a reachable write path) | A management API surfacing `IDailyInventoryControlCommands` is **F** | Frontend must never compute its own availability count |
+| Availability offers | `AvailabilityOfferDto` (Checkpoint 1 §2.5) | Computed at request time from the above tables, PostgreSQL-sourced (**C**) | `AvailabilitySearch.SearchAsync` + `AvailabilityDataSource` (**C**) | `AvailabilityOfferDto` TS contract, field-for-field match confirmed (**C**) | Backend (**C**) | None proposed | Frontend must never persist/cache an offer as if it were a new fact independent of the next search |
+| Hold/Reservation transactional data | BE-003 Hold/Reservation aggregates (referenced, not re-verified this checkpoint) | PostgreSQL, per BE-003 docs (**C**, out of this checkpoint's re-verification scope) | `TheBha.Application.Bookings` + `BookingHoldsController`/`ReservationsController` (**C**) | `BookingHoldProvider`/`BookingHoldPanel` read-only display of server state (**C**) | Backend (**C**) | None proposed — out of `DATA-001.1` scope entirely | Frontend must never fabricate a Hold/Reservation status independent of the server response |
+| Catalog media association and metadata | `PropertyMedia`/`RoomTypeMedia` (`SortOrder`, `IsCover`), `Media.AltText`/`MediaType` (Checkpoint 1 §2.1/§2.2) | PostgreSQL join tables + `Media` table (**C**) | Domain + EF configuration (unique-cover-per-Property/RoomType constraint) (**C**) | Nested `MediaDto[]` on `PropertyDto`/`RoomTypeDto`/`AvailabilityOfferDto` (**C**) | Backend catalog boundary (**C**) | Stable provider-neutral asset identity alongside `Media.Url` is **F** (§6.4 gap) | Frontend must never re-derive ordering/cover/alt text itself (already true — `selectCoverImage` reads server flags, per Checkpoint 1 §2.7) |
+| Media binaries | The seed's four placeholder images; bundled template images used as fallback (Checkpoint 1 §2.6/§2.7) | **T**: object-storage-class delivery, provider unnamed; **C** today: template images bundled in frontend build, seed URLs point at a non-functional reserved host | **F**: an upload/rights-acceptance boundary (Checkpoint 3) | Frontend renders whatever delivery URL it resolves/receives; never stores the binary itself | **T**: binaries are never "owned" by either the API request/response body or React source beyond a reference | Object-storage/CDN delivery class is **F**; no vendor chosen here | Neither backend DB row nor frontend bundle should be the "real" copy of a binary that the other also independently embeds |
+| Property/RoomType marketing descriptions | `Property.Description`, `RoomType.Description` (Checkpoint 1 §2.1/§2.2) | PostgreSQL, same tables as the operational facts above (**C** — this is existing, implemented capability, not a proposal) | Same Domain/API boundary as Property/RoomType (**C**) | Rendered directly by `PropertyLiveCard`/`RoomTypeLiveCard` (**C**) | Backend catalog boundary (**C**) | None proposed — already correctly owned; kept in this matrix only because §B requires covering it explicitly | Frontend must not add a second, editorial-config-owned description for the same Property/RoomType |
+| Site-wide editorial copy | Hero heading, "Happening cities" bullets, "Mobile Apps" copy, newsletter copy, etc. (Checkpoint 1 §2.7) | **T**: frontend editorial configuration (§9), version-controlled with the frontend | **T**: frontend build/deploy boundary, not the booking API | Frontend reads its own editorial configuration directly (no network round-trip needed) | **T**: frontend | CMS (§11) may take this over later without changing catalog authority | Must never be sourced from or duplicated into the booking database |
+| Hero and section content | `SectionHero2` heading + `HeroRealEstateSearchForm` (currently real-estate-domain, dormant re: hotel booking — Checkpoint 1 §2.7 item 1) | Same as "Site-wide editorial copy" row (**T**) | Same (**T**) | Same (**T**) | **T**: frontend editorial configuration, or a Remove/repurpose candidate (§8) — Owner input pending (§4 item 7) | CMS (§11) | Must never become a Property/RoomType field |
+| Brand identity assets | No confirmed real BHA-specific brand asset identified in the current inventory; the partner-logo grid (`logo1`–`logo5`) is generic template trust-logo content, not BHA's own brand identity (Checkpoint 1 §2.7 item 2) | **Unknown** — no real BHA brand asset (logo, favicon, etc.) was found anywhere in the current repository | N/A until an Owner supplies a real asset | N/A | **T**, once supplied: frontend-owned versioned brand asset, distinct class from both catalog and generic editorial media | CMS (§11) could host brand assets too | A future real BHA logo must not be modeled as `Media`/catalog media (it is not Property/RoomType-scoped) |
+| Trust/customer/partner logos | `logo1`–`logo5` template images, `DEMO_AUTHORS` "author"/host cards (Checkpoint 1 §2.7 items 2, 8) | **T**: editorial media, if kept at all (§10) | **T**: frontend editorial configuration | **T**: frontend | **T**: frontend, or Remove/repurpose candidate (§8) | CMS (§11) | Must never be modeled as catalog media — none of it is Property/RoomType-scoped |
+| Contact/location claims | Only `PropertyLiveCard`'s `formatLocation` (city/country) is real; no phone/email/contact claim exists anywhere today (Checkpoint 1 §2.7, confirmed absent) | City/country: PostgreSQL `Properties` table (**C**, already covered by the Property row above). Any future phone/email/contact-detail field is **Unknown** whether it should be Property-scoped operational data (if multi-property/contact-varies-by-property) or global editorial copy (if single, site-wide contact detail) | N/A until this is resolved | N/A | **Unknown** — genuinely underdetermined, not decided by this checkpoint | N/A | If added, must pick exactly one authority — never both a Property field and an editorial-config entry for the same contact fact |
+| Download-app claims/assets | `SectionDowloadApp` — fully static, dead `href="##"` store links, no evidence any real BHA mobile app exists (Checkpoint 1 §2.7 item 6) | **T**, if kept: editorial configuration (app-store URLs and promotional copy are not booking-relevant facts) | **T**: frontend | **T**: frontend | **T**: frontend, or Remove/repurpose candidate (§8) — Owner input pending (§4 item 8) | N/A | Must never be modeled as catalog data |
+| Newsletter/subscribe copy | `SectionSubscribe2` — static copy, non-functional `<form>` (Checkpoint 1 §2.7 item 10) | **T**, if kept: editorial configuration | **T**: frontend; a real subscription would need a **F** integration (unspecified) to actually deliver signups | **T**: frontend | **T**: frontend, or Remove/repurpose candidate (§8) | A real newsletter integration is **F**, unscoped | Must never be modeled as catalog data |
+| Template fixtures | `DEMO_CATS`, `DEMO_CATS_2`, `DEMO_AUTHORS` (Checkpoint 1 §2.7/§2.9) | **C** today: frontend source literals/fixture modules | N/A | N/A | Development-only/dormant-template classification (§6.5); Remove/repurpose candidate (§8) — Owner input pending (§4 item 8) | N/A | Must never be treated as if it were real catalog or editorial content without an explicit Owner decision to keep it |
+| Development-only synthetic data | Seed's four `images.example.com` Media rows (Checkpoint 1 §2.6) | PostgreSQL, seed-originated only (**C**) | `DevelopmentDataSeeder`, Development-environment-gated (**C**) | Filtered out by `isUsableMediaUrl` before render (**C**) | Backend seed boundary (**C**); detailed seed policy is Checkpoint 3 | Real media replacing these is **F**, pending Owner input (§4 item 2) | Must never be treated as production-ready by any consumer |
+| Unknown / rights-pending data | Seeded Property/RoomType name, address, descriptions, prices (Checkpoint 1 §2.6) | PostgreSQL, seed-originated only (**C**) | Same as above (**C**) | Rendered as-is by live cards today, with no "unverified" indicator in the UI (**C** — a UX gap this design does not propose closing) | Classified `Unknown`, per §6.5, until Owner-confirmed (§4 items 1–2) | N/A | Must never be asserted as confirmed-real in any future document without an actual Owner confirmation on record |
+
+## 8. Template-to-domain/content/media mapping
+
+Covers the entire active `/home-2` render tree already inventoried in
+Checkpoint 1 §2.7/§2.8, not only the three live sections.
+
+| `/home-2` section/UI need | Current source | Content class | Existing domain/API field | Missing operational field, if justified | Editorial configuration | Media role/reference | Owner input or disposition | Target rendering rule |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Hero heading + `HeroRealEstateSearchForm` | `SectionHero2.tsx` | Marketing/editorial (currently wrong-domain) | None | None justified (§6.6) | Yes — heading text; the search widget itself is a component-replacement question, not a config-value question | Local bundled `hero-right-3.png` → editorial media (§10) if hero is kept in any form | Remove, hide, or repurpose candidate — §4 item 7 | If kept: render from editorial config, never from a Property/RoomType field. Not decided here whether it's kept |
+| Partner-logo grid | `page.tsx` inline | Decorative/trust, not an operational fact | None | None justified | Yes, if kept | Local bundled `logo1..5.png` → editorial media, or brand-identity class if ever replaced with a real BHA asset (§10) | Remove, hide, or repurpose candidate — §4 item 8 | Editorial-config-driven list of logos, never hard-coded per §6.1 principle 2 once a config boundary exists |
+| How-it-works (3-step) | `page.tsx` `data` prop + `SectionHowItWork.tsx` | Marketing/editorial | None | None justified | Yes | Local bundled `HIW2-*.png` → editorial media | Owner input on whether hotel-specific "how it works" copy should replace the current generic real-estate-flavored steps — not answered here | Editorial config, typed per §9 |
+| Live Property card (`PropertyLiveCard`) | `SectionGridFeatureProperty.tsx` | Sellable/operational catalog | `PropertyDto` (name, location, description, times, amenities) — fully backed already | None justified (§6.6) | No — this is API-sourced, not editorial | Catalog media via `MediaDto`, resolved through `selectCoverImage` | None — already correctly sourced | Keep reading exclusively from `GET /api/v1/properties`; never fork a fixture copy |
+| Live RoomType cards (`RoomTypeLiveCard`) | `SectionGridRoomTypes.tsx` | Sellable/operational catalog | `RoomTypeDto` — fully backed already | None justified | No | Catalog media via `MediaDto` | None | Same rule as Property card |
+| Availability search + offer cards (`AvailabilityOfferCard`) | `SectionAvailabilitySearch.tsx` | Server-authoritative transactional calculation | `AvailabilityOfferDto` — fully backed already, contract-matched (Checkpoint 1 §2.5) | None justified | No | Catalog media via offer's `MediaDto` | None | Frontend must keep formatting-only behavior (`formatCurrencyAmount`); never compute a total/nightly rate itself |
+| Hold CTA / current-hold boundary | `AvailabilityOfferCard` "Hold this room" → `BookingHoldProvider`/`BookingHoldPanel` | Server-authoritative transactional (Hold state) | Existing BE-003/FE-001.4 contract, out of this checkpoint's re-verification scope | Not evaluated here | No | N/A | None — out of `DATA-001.1` scope | No change proposed; boundary identified only so this design doesn't collide with it |
+| "Our features" / value-proposition | `SectionOurFeatures.tsx` | Marketing/editorial | None | None justified | Yes | Local bundled `our-features-2.png` → editorial media | Remove, hide, or repurpose candidate — §4 item 8 | Editorial config |
+| Download-app section | `SectionDowloadApp.tsx` | Marketing/editorial (currently non-functional) | None | None justified | Yes, if kept | Local bundled app-promo images → editorial media | Remove, hide, or repurpose candidate — §4 item 8 (no evidence a real app exists) | Editorial config, or removed entirely per Owner decision |
+| Category slider #1 (`DEMO_CATS_2`, real-estate links) | `page.tsx` inline | Development-only synthetic / dormant template artifact | None | None justified | N/A unless repurposed | Remote `images.pexels.com` hotlinks — neither catalog nor an owned editorial asset today | Remove, hide, or repurpose candidate — §4 item 8 | If repurposed toward real hotel categories, would need a fresh editorial-config or catalog decision, not designed here |
+| Category slider #2 (default `DEMO_CATS`) | `SectionSliderNewCategories.tsx` default | Development-only synthetic / dormant template artifact | None | None justified | N/A unless repurposed | Remote `images.pexels.com` hotlinks | Remove, hide, or repurpose candidate — §4 item 8 | Same as slider #1 |
+| Author/host grid | `SectionGridAuthorBox.tsx` + `DEMO_AUTHORS` | Development-only synthetic / dormant template artifact (marketplace-domain concept absent from hotel Domain model) | None — no "host"/"author" concept exists in the Domain | None justified — this is a domain-mismatch, not a missing field | N/A unless repurposed | Fixture-defined images in `src/data/authors.ts` | Remove, hide, or repurpose candidate — §4 item 8 | Not designed here; likely removal given no hotel-domain analog exists |
+| Newsletter/subscribe | `SectionSubscribe2.tsx` | Marketing/editorial (currently non-functional) | None | None justified | Yes, if kept | Local bundled `SVG-subcribe2.png` → editorial media | Remove, hide, or repurpose candidate — §4 item 8 | Editorial config; a functioning subscribe integration is future work, unscoped |
+| Loading/empty/error states (Property, RoomType, Availability) | `SectionGridFeatureProperty.tsx`, `SectionGridRoomTypes.tsx`, `SectionAvailabilitySearch.tsx` | Server-authoritative transactional (status derived from API responses) | Already implemented (Checkpoint 1 §2.5/§2.7) | None justified | No — status copy strings ("Loading properties…", etc.) are small enough to be simple UI copy today; if made configurable later, that would be an editorial-config extension, not an operational field | N/A | None | No change proposed |
+| Shared placeholder/fallback image (`placeholder-large-h.png`) | `propertyPresentation.ts` `selectCoverImage`, used by all three live cards | Media binary — currently a bundled template asset used as a **development fallback**, not catalog or editorial content itself | N/A | None justified | N/A | Development fallback class (§6.5); under this design, a fallback image is neither catalog media (it's not Property/RoomType-specific) nor typical editorial media (it's a system-level default, not campaign content) — it is its own "system fallback asset" role | None — already correctly used as a last-resort default; whether it stays a bundled template asset or becomes an object-storage-delivered default is Checkpoint 3 scope | Keep as the deterministic fallback whenever `selectCoverImage` returns nothing usable; do not remove without providing an equivalent |
+
+Every row above disposes to exactly one of: existing operational domain/API
+field, editorial configuration, catalog media metadata/reference, editorial
+media reference, development-only synthetic data, or a Remove/hide/
+repurpose candidate awaiting Owner input. No row required the "truly
+missing operational field" disposition — consistent with §6.6's conclusion
+that the currently active `/home-2` render tree does not justify any new
+operational database/API field.
+
+## 9. MVP editorial configuration boundary
+
+Contract-level description only — no TypeScript file, no literal
+production content is created in this checkpoint.
+
+- **Ownership**: version-controlled with `Front_End/Customer_Web`, built
+  and deployed alongside the frontend. Not the booking API's concern.
+- **Shape**: typed, with stable section keys (e.g. a key per `/home-2`
+  section identified in §8's mapping table — `hero`, `howItWorks`,
+  `ourFeatures`, `downloadApp`, `newsletter`, etc.). "Stable" means a
+  section's key does not change across unrelated content edits, so a
+  future consumer (including a future CMS, §11) can target a section
+  without a frontend code change.
+- **What it may contain**: editorial copy, CTA labels, layout/variant
+  choices (e.g. which card type a slider uses), and references to
+  editorial media (§10) — never the media binary itself.
+- **What it must never contain**: rates, inventory, availability, or any
+  sellable/operational identifier (`PropertyId`, `RoomTypeId`,
+  `RatePlanId`, etc.) as a source of truth. If an editorial section wants
+  to reference a real operational fact (e.g. "our flagship Property"), the
+  fact itself must still come from the API at render time — the
+  configuration may hold at most a pointer (e.g. "feature Property X") or
+  an explicitly Owner-confirmed snapshot value that is clearly labeled as
+  a snapshot, never a second live copy of the fact. The anti-duplication
+  rule is the same as §6.1 principle 1: exactly one authority, and an
+  editorial "snapshot" must be visibly marked as a point-in-time copy, not
+  presented as equivalent to a live API read.
+- **Rights-pending assets**: a rights-pending media reference must never
+  appear in this configuration as if it were approved, production-ready
+  content — it stays out of the configuration (or behind an explicit
+  not-yet-approved marker) until an Owner rights confirmation exists. This
+  checkpoint does not design that acceptance procedure (Checkpoint 3).
+- **Missing-content behavior**: each section must have an explicit,
+  declared behavior for "no approved content yet" — one of: hide the
+  section, render a neutral placeholder, or render a visibly
+  development-only marker. Which behavior applies to which section is not
+  decided in this checkpoint; the requirement is that the behavior be
+  explicit and typed, not an accidental blank render.
+- **Environment variables are not a CMS.** A `NEXT_PUBLIC_*`-style
+  environment value may configure a deployment-level setting (e.g. an API
+  base URL, as already done today), but it must never become the
+  mechanism for delivering editorial copy or content — that is what the
+  typed configuration boundary above (and, later, §11's CMS seam) is for.
+- **No transient Hold state.** `BookingHoldProvider`'s in-memory Hold flow
+  state (Checkpoint 1 §2.7) is request/session-scoped runtime state, not
+  content, and must never be represented inside this editorial
+  configuration.
+
+Illustrative shape only (not an implementation, not literal production
+content):
+
+```text
+EditorialSection<"hero"> = {
+  key: "hero";
+  heading: string;
+  subheading?: string;
+  media?: EditorialMediaRef;   // see §10 — never a raw binary
+  missingContentBehavior: "hide" | "placeholder" | "devOnlyMarker";
+}
+```
+
+## 10. Catalog-media and editorial-media ownership
+
+### 10.1 Catalog media
+
+- Attaches stably to a Property or RoomType record (`PropertyMedia`/
+  `RoomTypeMedia`, already true today).
+- Metadata (`SortOrder`, `IsCover`, `AltText`, `MediaType`) belongs to the
+  backend catalog persistence/API boundary — unchanged from Current.
+- Frontend receives a resolved presentation reference through the existing
+  API (`MediaDto` nested in `PropertyDto`/`RoomTypeDto`/
+  `AvailabilityOfferDto`) and must never re-derive ordering, cover choice,
+  logical role, or association client-side — already true today
+  (`selectCoverImage` reads server-provided flags, per Checkpoint 1 §2.7)
+  and this design keeps it a hard rule.
+- Missing/unusable media has a deterministic fallback — already true today
+  (`placeholder-large-h.png`, per Checkpoint 1 §2.7) via the shared
+  "system fallback asset" role identified in §8's last row.
+
+### 10.2 Editorial media
+
+- Attaches to a section, campaign, or layout choice — never to a sellable
+  record.
+- In the MVP, owned by the frontend editorial configuration (§9): a
+  reference inside a typed config entry, not a database row.
+- A future CMS (§11) can take over authoring/hosting this class without
+  touching Property/RoomType/catalog-media ownership at all — the seam is
+  exactly the editorial-configuration boundary itself.
+
+### 10.3 Shared/brand assets — disambiguation rule
+
+An asset is exactly one of the following at any time; this design
+prohibits an asset carrying more than one ownership class without a
+declared canonical role:
+
+- **Brand identity** — represents BHA Hotels itself (e.g. a real logo,
+  favicon). Per §7's matrix, no such asset was confirmed present in the
+  current inventory. If/when one exists, it is frontend-owned and
+  versioned separately from both catalog media and general editorial
+  media, because unlike editorial media it is not tied to a particular
+  section/campaign and unlike catalog media it is not tied to a sellable
+  Property/RoomType record.
+- **Catalog media** — tied to a specific Property/RoomType (§10.1).
+- **Editorial media** — tied to a section/campaign, not a sellable record
+  (§10.2).
+- **Development fallback** — a system-level default shown when catalog
+  media is missing/unusable (e.g. `placeholder-large-h.png`), not itself
+  campaign content or a sellable-record asset. This is its own class, not
+  a subtype of editorial media, because it is selected by absence-of-data
+  logic (`selectCoverImage`) rather than by an editorial author's choice.
+
+The current template's partner-logo grid (`logo1`–`logo5`) is, under this
+rule, generic dormant editorial/trust-decoration content — **not** BHA
+brand identity (no evidence it represents BHA at all) and **not** catalog
+media (not Property/RoomType-scoped). Its disposition (kept as editorial,
+or removed) is an Owner decision (§4 item 8), not resolved here.
+
+Full storage-key contract, migration path from bundled/template assets to
+an object-storage-class delivery, rights-acceptance procedure, and the
+final missing-media lifecycle are Checkpoint 3 scope, not this section.
+
+## 11. Future CMS extension path
+
+This section names an extension seam; it does not select a CMS, does not
+produce an integration plan, and does not write code.
+
+- A future CMS may become the authoring/management system for editorial
+  content (§9) and editorial media metadata (§10.2) — headings, CTA
+  copy, layout choices, editorial image/asset references.
+- A future CMS must never become an authority for pricing, inventory,
+  availability, Hold, or Reservation data. Those remain exclusively
+  PostgreSQL-backed and exclusively reachable through
+  `TheBha.Api`, per §7's matrix — this is a hard boundary, not a
+  preference.
+- If a future CMS ever manages Property/RoomType **descriptive** content
+  (e.g. it becomes the authoring tool for `Property.Description`) or
+  catalog media **metadata**, the booking API remains the delivery/
+  validation boundary the customer frontend reads through — the frontend
+  must not read catalog facts directly from the CMS. Whatever the CMS
+  produces would still have to reach the customer-facing frontend via
+  `TheBha.Api` (or a still-undesigned ingestion path into PostgreSQL), not
+  via a second, parallel frontend-to-CMS read path.
+- The frontend must never assemble a single sellable offer by reading from
+  both a CMS and the booking database independently at render time — this
+  would recreate exactly the "duplicate source of truth" failure mode this
+  entire design exists to prevent (§6.1 principle 1).
+- No CMS vendor, hosting model, or integration mechanism is chosen here.
+
+## 12. Remaining design work, Owner-input disposition, and checkpoint boundary
+
+### 12.1 What this checkpoint locked in, independent of Owner answers
+
+The following ownership/mapping decisions are provider-neutral and
+fact-neutral, and hold regardless of how any Owner-confirmation candidate
+(§4) is eventually answered:
+
+- The single-authority principle and the six-class classification model
+  (§6).
+- The full source-of-truth matrix (§7) — every row's authority/boundary
+  assignment is independent of whether, e.g., "The BHA Hotel" turns out to
+  be real or placeholder data; that question affects the *value*, not the
+  *ownership boundary*.
+- The template mapping's disposition of every `/home-2` section into one
+  of the seven fixed categories (§8) — the exact list of which template
+  sections get removed vs. kept-as-editorial is not locked (that needs
+  Owner input), but *that* a kept section would be editorial-configuration
+  content, never a database field, is locked.
+- The MVP editorial-configuration contract shape and rules (§9).
+- The catalog-media/editorial-media/brand/fallback disambiguation rule
+  (§10).
+- The CMS extension seam and its hard boundary against ever owning
+  pricing/inventory/availability/Hold/Reservation (§11).
+
+### 12.2 Owner-confirmation candidates — disposition impact
+
+Restating the eight items from Checkpoint 1 §4, each tied to the design
+row/section it affects. No answer is invented here.
+
+1. **Is "The BHA Hotel" real or placeholder?** Affects: §7's "Unknown /
+   rights-pending data" row and the Property row's *value* only, not its
+   authority (PostgreSQL/backend remains the authority either way). Until
+   answered, this data stays classified `Unknown` per §6.5.
+2. **Is there real, licensed hotel photography available?** Affects: §7's
+   "Media binaries" and "Development-only synthetic data" rows, and §10.3
+   (nothing to disambiguate as brand identity yet). Until answered, all
+   current Media rows stay `Synthetic development data` and the
+   `placeholder-large-h.png` fallback remains what every live card
+   renders (per Checkpoint 1 §2.7).
+3. **Is the missing DailyRoomRate/DailyInventoryControl write API an
+   intentional deferral?** Affects: §7's Daily rates/Inventory controls
+   rows' "Future extension" column. Until answered, this design records
+   only that a reachable write path is `Future work`, not whether/when it
+   should be built.
+4. **Should RatePlan become independently browsable?** Affects: §7's
+   RatePlan row's "Future extension" column. Until answered, RatePlan
+   stays exposed only indirectly through an Availability offer (§6.2
+   class 1, §7).
+5. **Is flat, non-occupancy-based pricing the intended near-term model?**
+   Affects: the "server-authoritative transactional calculations" class
+   (§6.2 class 2) only in that any future occupancy-based pricing would
+   still have to remain server-authoritative — the boundary is locked
+   either way; only the pricing *formula* is unresolved, and that is not
+   this checkpoint's concern.
+6. **Are min/max-stay and arrival/departure controls planned?** Affects:
+   nothing in this checkpoint's matrix directly (they weren't found in
+   Checkpoint 1 and aren't proposed here per §6.6's field-promotion
+   conclusion); relevant only to a future inventory-control design.
+7. **Is the real-estate-domain hero content known/accepted debt?**
+   Affects: §8's Hero row disposition (Remove/hide/repurpose candidate,
+   unresolved) and §7's "Hero and section content" row.
+8. **Are the non-hotel-domain template sections intended to be
+   replaced/removed/kept?** Affects: nearly every "Remove, hide, or
+   repurpose candidate" disposition in §8 (partner logos, how-it-works,
+   our-features, download-app, both category sliders, author/host grid,
+   newsletter) and the corresponding §7 matrix rows. Until answered, all
+   of these stay classified as dormant template artifacts (§6.5) — this
+   design does not decide to keep or remove any of them.
+
+### 12.3 Conflicts or corrections against Checkpoint 1
+
+None. No factual contradiction was found in the Checkpoint 1 inventory
+(§1–§5) while producing this design; §1–§5 are unchanged from the prior
+commit.
+
+### 12.4 Not written in this checkpoint
+
+Per the execution prompt's explicit exclusions, none of the following are
+present anywhere in this document:
+
+- Detailed development dataset policy.
+- A seed manifest/contract.
+- A seed environment-safety procedure.
+- An asset-rights acceptance procedure.
+- A detailed media upload/storage-key/resolution contract.
+- A local/template-to-object-storage migration sequence.
+- A final missing-media lifecycle.
+- A `DATA-001.2` implementation plan.
+- A final decision gate, `READY_FOR_DATA-001.2`,
+  `DEFER_DATA-001.2_AND_START_FE-002.1`, or any other final
+  recommendation.
+
+These remain Checkpoint 3 scope. This checkpoint's deliverable is the
+ownership/mapping design (§6–§11) that Checkpoint 3 can build a dataset/
+media execution contract on top of without re-deriving source-of-truth
+boundaries.
