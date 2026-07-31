@@ -1,6 +1,6 @@
 # DATA-001.1 — Sellable Catalog and Media Source-of-Truth Design
 
-Status: Draft — Current-state inventory and ownership/mapping design completed; dataset/media execution contract and decision gate pending.
+Status: Draft — Design and execution contract completed; technical recommendation recorded; Owner approval and implementation pending.
 
 ## 1. Scope and evidence method
 
@@ -1081,3 +1081,623 @@ These remain Checkpoint 3 scope. This checkpoint's deliverable is the
 ownership/mapping design (§6–§11) that Checkpoint 3 can build a dataset/
 media execution contract on top of without re-deriving source-of-truth
 boundaries.
+
+---
+
+# Checkpoint 3 — Dataset, seed, and media execution contract
+
+Everything from this point on is Checkpoint 3 content, built on the
+unchanged Checkpoint 1 inventory (§1–§5) and unchanged Checkpoint 2
+ownership design (§6–§12). Labels are stricter here than "Current/Target"
+alone: **`Current`** = implemented and verified in Checkpoints 1–2;
+**`Target contract`** = the logical design this checkpoint specifies, not
+implemented; **`Future implementation`** = an explicit gap this design
+depends on eventually closing, named so it isn't rediscovered later. No
+`Target contract` or `Future implementation` label should be read as
+existing capability, an executable manifest, or a migration.
+
+## 13. Development dataset policy
+
+### 13.1 Classification and treatment
+
+| Class | Definition | Seed inclusion | Authority | UI without dev marker? | Promotion condition |
+| --- | --- | --- | --- | --- | --- |
+| Confirmed real operational data | An Owner-confirmed fact about The BHA Hotels | Yes — becomes the actual seeded/loaded value | PostgreSQL/backend, unchanged from §7 | Yes, once confirmed (no longer a "development" concern) | N/A — already at target state |
+| Owner-unconfirmed operational-looking data | Plausible Property/RoomType/rate values with no Owner citation (today's seed, per Checkpoint 1 §2.6) | Yes, but only as **Target contract**: must carry a provenance/classification marker distinguishing it from confirmed data — **Future implementation gap**, no such marker exists in the current schema (§13.3) | PostgreSQL/backend (same tables as confirmed data — structurally indistinguishable today, which is exactly the gap) | **No** — must not be presented as confirmed without a marker; **Current implementation has no marker mechanism**, so today's UI cannot make this distinction at all (a real, evidence-based gap, not a proposal to fix it here) | Replaced by an Owner-confirmed value; the row then becomes "Confirmed real operational data" |
+| Synthetic development data | Data explicitly constructed for local dev with no claim to reality (e.g. the seed's reserved-example-host Media URLs) | Yes | PostgreSQL/backend, seed-owned | Ideally no (dev marker desired); **Current**: no marker exists, but this class is already self-evident today because reserved-host URLs are non-functional by construction and get filtered client-side (Checkpoint 1 §2.7) | Never "promotes" — only replaced outright by different, confirmed data |
+| Rights-approved media | Media with an Owner-confirmed rights record | Yes | Backend Media/catalog boundary + a rights record (§15.2) — **Future implementation**, no rights-state model exists yet | Yes | Already at target state once approved |
+| Rights-pending media | Media whose usage rights are not yet confirmed | May exist in a `pending` state (§15.2) but **must never resolve to a live catalog cover image** | Backend Media boundary + rights gate (**Future implementation**) | No | Owner rights confirmation moves it to `approved` or `rejected` |
+| Development fallback asset | E.g. `placeholder-large-h.png` — a bundled frontend default, not a database row | Not a seed-data concept at all | Frontend build (**Current**) | Yes, deliberately, always as a fallback — never claimed to be a real Property/RoomType photo (§10.3, §17) | N/A — not a promotable class |
+| Dormant template fixture/asset | `DEMO_CATS`/`DEMO_CATS_2`/`DEMO_AUTHORS`, unrelated theme images (Checkpoint 1 §2.7/§2.9) | **Never** as catalog/operational data | Frontend source only, if kept at all; disposition pending Owner (§4 item 8) | N/A | Never promotes into the operational database under any circumstance (see locked rule below) |
+| Editorial configuration | Checkpoint 2 §9's MVP boundary | **Not part of the backend catalog seed** | Frontend, version-controlled (**Target**, not yet created) | N/A — not an operational-seed question | N/A |
+| Transactional/test-only data | Hold/Reservation rows from integration tests or manual QA | **Never part of the catalog development seed by default** | Backend transactional boundary; ephemeral, test-run-scoped | N/A | N/A |
+
+### 13.2 Locked principles
+
+- Template marketplace/rental content (`DEMO_CATS`, `DEMO_CATS_2`,
+  `DEMO_AUTHORS`, or any other dormant fixture) is never seeded into
+  `Property`, `RoomType`, `RatePlan`, `Amenity`, or any catalog table
+  merely to make the UI look complete.
+- Marketing/editorial copy is never inserted into an operational field
+  (e.g. `Property.Description`) as if it were an Owner-confirmed fact,
+  without an actual Owner confirmation on record.
+- Synthetic data must remain identifiable as synthetic and must never be
+  described, in code, seed output, or any report, as a real fact about The
+  BHA Hotels.
+- A rights-pending asset is never treated as approved, in the seed or
+  anywhere else.
+- Editorial content is never written into the operational catalog seed —
+  the frontend editorial-configuration boundary (Checkpoint 2 §9) is the
+  locked authority for that class, and duplicating it into the backend
+  seed would violate the single-authority principle (§6.1).
+- Hold/Reservation transient/transactional data is not part of the default
+  catalog development seed.
+
+### 13.3 Development dataset contract
+
+| Data group | Current representation | Target seed inclusion | Authority | Mutation strategy | Owner input | Acceptance evidence |
+| --- | --- | --- | --- | --- | --- | --- |
+| Property/RoomType/RatePlan/Amenity operational facts | One Property, two RoomTypes, one RatePlan, four Amenities — all Owner-unconfirmed (Checkpoint 1 §2.6) | Continue as synthetic/unconfirmed dataset until Owner input; **Target**: tag each with a provenance marker (**Future implementation gap** — no such column exists today) | PostgreSQL/backend, unchanged | **Current**: create-only-if-missing (natural key), never updates existing rows. **Target**: same, until a provenance marker enables safe update-in-place | §4 item 1 | Owner statement confirming/replacing each fact |
+| Daily rates / inventory controls | 14-night rolling window from seed-time "today," 2 inventory-control rows (Checkpoint 1 §2.4/§2.6) | Continue as synthetic, rolling-horizon dataset (§14.3) | PostgreSQL/backend, unchanged | **Current**: create-only-if-missing per natural key (includes `StayDate`, so re-running after time has passed naturally extends coverage without touching prior rows — verified from `DevelopmentDataSeeder.EnsureDailyRoomRatesAsync`'s natural-key check). **Target**: same mechanism, formalized with an explicit re-run/maintenance procedure (§14.3) | None directly (mechanical, not a fact question) | Availability search returns non-empty offers for a near-future date range |
+| Catalog media (Property/RoomType) | Four `images.example.com` placeholder rows, all non-functional by construction (Checkpoint 1 §2.6) | Continue as synthetic placeholders until real, rights-approved media exists | Backend Media/catalog boundary, unchanged | Create-only-if-missing, unchanged | §4 item 2 | An Owner-approved image renders as a live card's cover (currently untested — see §17) |
+| Development fallback asset | `placeholder-large-h.png`, bundled frontend asset | Stays a bundled frontend asset; not a seed row | Frontend build | N/A — not seed-mutated | None | Renders whenever `selectCoverImage` returns nothing usable (already proven true today, since 100% of seed media is filtered) |
+| Dormant template fixtures | `DEMO_CATS`, `DEMO_CATS_2`, `DEMO_AUTHORS`, unrelated bundled images | **Excluded** from the catalog seed entirely | Frontend source only, if kept | N/A | §4 item 8 | Absence from any `Property`/`RoomType`/`RatePlan`/`Amenity`/`Media` row is itself the acceptance evidence |
+| Editorial configuration | Not yet created (Checkpoint 2 §9) | **Excluded** from the catalog seed entirely | Frontend, version-controlled | N/A | §4 items 7–8 (content), out of this checkpoint's scope to design the file | N/A |
+| Hold/Reservation transactional/test data | BE-003 aggregates, exercised by integration tests | **Excluded** from the default catalog development seed | Backend transactional boundary | Test-run-scoped, not seed-owned | None | Integration test suite results (already exercised today, per Checkpoint 0 baseline: 253 PostgreSQL integration tests) |
+
+## 14. Seed manifest and execution-safety contract
+
+### 14.1 Manifest logical contract
+
+A **Target contract** only — no manifest file or executable format is
+created in this checkpoint. A dataset manifest must be able to represent:
+
+- **Dataset identifier and schema/version** — which logical dataset this
+  is (e.g. "the-bha-hotel-dev-v1") and a version so a future manifest
+  format change can be detected and handled deliberately.
+- **Record classification/provenance** — one of §13.1's classes
+  (confirmed / owner-unconfirmed / synthetic / rights-approved /
+  rights-pending / dormant-fixture / editorial / transactional-test),
+  recorded per record, not just per dataset.
+- **Stable semantic key** — the natural-key equivalent already used today
+  (`Property.Slug`, `RoomType.(PropertyId, Code)`,
+  `RatePlan.(PropertyId, Code)`, the `DailyRoomRate`/
+  `DailyInventoryControl` 4-tuple/3-tuple, `Amenity.Code`, `Media.Url`) —
+  the manifest format's job is to make these keys explicit and
+  cross-referenced, not to invent new ones.
+- **Property/RoomType/Amenity/RatePlan association** — exactly the
+  relationships already enforced by the existing EF foreign keys/alternate
+  keys (Checkpoint 1 §2.1–§2.3).
+- **Daily rate and inventory-control coverage** — which stay-date range a
+  dataset's rate/control records are meant to cover, and by what strategy
+  (§14.3).
+- **Media reference association** — which Property/RoomType (or, for
+  editorial media, which section key) a media reference belongs to, plus
+  its role/order/alt-text (Checkpoint 2 §6.3).
+- **Synthetic/confirmed/unknown status** — per §13.1.
+- **Rights status** — per §15.2's states, for any record carrying media.
+- **Expected idempotency/mutation behavior** — per record or per class:
+  create-only, create-or-update-if-dataset-owned, or never-touch (§14.4).
+- **Dependency/application order** — e.g. Property before RoomType before
+  DailyRoomRate, mirroring the existing FK/alternate-key dependency chain.
+- **Validation expectations** — the natural-key/FK constraints the manifest
+  should pre-check before touching the database (§14.2).
+- **Dataset-owned versus externally owned records** — which rows this
+  manifest run is allowed to consider "its own" (and thus eligible for
+  future update-in-place) versus rows it must never touch (any
+  Hold/Reservation/Identity data, or a different dataset's rows).
+
+Illustrative shape only — not implemented, not executable, and containing
+no real BHA fact or environment value:
+
+```text
+DatasetManifest {
+  datasetId: string;              // e.g. "the-bha-hotel-dev-v1"
+  schemaVersion: string;
+  records: ManifestRecord[];
+}
+
+ManifestRecord {
+  entityType: "Property" | "RoomType" | "RatePlan" | "Amenity"
+            | "DailyRoomRate" | "DailyInventoryControl" | "Media"
+            | "PropertyMedia" | "RoomTypeMedia" | "PropertyAmenity"
+            | "RoomTypeAmenity";
+  semanticKey: string[];          // the natural-key fields for this entityType
+  classification: "confirmedReal" | "ownerUnconfirmed" | "synthetic"
+                | "rightsApproved" | "rightsPending";
+  dependsOn?: string[];           // other records' semanticKey this one requires first
+  mutationPolicy: "createOnly" | "createOrUpdateIfDatasetOwned" | "neverTouch";
+}
+```
+
+### 14.2 Date-bound data strategy (daily rates, inventory controls)
+
+- **Rolling horizon, not fixed dates** — and this is already how the
+  **Current** seeder behaves: `DevelopmentDataSeeder.EnsureDailyRoomRatesAsync`
+  computes `localToday` from `timeProvider.GetUtcNow()` at the moment it
+  runs and seeds `DailyRateSeedDays = 14` nights starting there, not at a
+  hardcoded calendar date. This checkpoint's **Target contract** keeps
+  that strategy — it does not propose fixed-date seeding.
+- **Keeping availability search useful over time**: because the natural
+  key for `DailyRoomRate`/`DailyInventoryControl` includes `StayDate`,
+  re-running the seed after real time has passed inserts a fresh window of
+  new dates without touching the now-past rows left over from a prior run
+  (past rows become simply irrelevant, since `AvailabilitySearch` rejects
+  `CheckIn < localToday` — Checkpoint 1 §2.4/§2.5 — not conflicting or
+  overwritten). **Target contract**: this natural extension behavior is
+  sufficient for a manually or CI-triggered periodic re-run; no new
+  mechanism is required for the *insertion* side of rolling maintenance.
+- **Avoiding overwriting local customization on re-run**: already true
+  today for the *insert* case (create-if-missing skips any existing row
+  regardless of who or what set its value). It is **not** true for a
+  hypothetical *update* case — because there is no schema field
+  distinguishing "this row is still the dataset's default value" from
+  "this row was hand-edited after seeding," a future update-in-place
+  capability cannot safely tell the two apart. This is a genuine,
+  evidence-based **implementation gap**, not assumed: the current
+  `DailyRoomRate`/`DailyInventoryControl` entities (Checkpoint 1 §2.4)
+  have no provenance/ownership column at all.
+- **Which records the seed may create, update, or must never touch**:
+  **Target contract**, matching Current behavior exactly until the gap
+  above is closed — the seed may **create** rows matching its own
+  manifest's semantic keys when absent; it may **not** update any existing
+  row (same as Current); it must **never** touch `BookingHold`/
+  `Reservation`/Identity rows or any row outside its own manifest's
+  declared dataset.
+- **Prerequisite for a richer rolling-maintenance/update strategy**: a
+  provenance/dataset-ownership marker in the schema (§14.1's
+  `mutationPolicy` field presumes this exists; today it does not). This is
+  named as a **Future implementation** dependency for `DATA-001.2` (§17);
+  no migration or schema payload is designed here.
+
+### 14.3 Seed safety
+
+| Concern | Current behavior | Target contract | Failure behavior | Implementation gap |
+| --- | --- | --- | --- | --- |
+| Environment gate | `--seed-development` CLI flag + `!app.Environment.IsDevelopment()` throws (Checkpoint 1 §2.6, `Program.cs`) | Same, unchanged — Development-only, explicit opt-in, refuse-by-default elsewhere, never a production-startup side effect | Throws `InvalidOperationException` before touching the database | None — already correctly implemented |
+| Connection-target safety | Connection string comes from User Secrets/environment variable, same as normal API startup (Checkpoint 0 §8/§DATABASE.md) | Same; **Target**: an explicit statement that the manifest/seed tooling must never accept an unvalidated arbitrary connection target — it should use exactly the same configuration path the API already uses, not a bespoke one | N/A | Not verified this checkpoint whether any additional target-validation exists beyond "use the configured connection string"; no new validation is designed here |
+| Migration/schema compatibility preflight | **Not found** — the `--seed-development` branch in `Program.cs` performs no explicit "are migrations applied" check before seeding; an unmigrated database would presumably fail with whatever EF/Npgsql error naturally occurs | A manifest-aware seed should explicitly verify schema compatibility before mutating | Refuse to proceed with a clear error, not a partial write | **Future implementation** — no explicit preflight check exists today |
+| Dataset schema/version compatibility | N/A — no manifest exists | Manifest declares a `schemaVersion`; seed tooling checks it before applying | Refuse to proceed on a version mismatch | **Future implementation** — manifest format doesn't exist yet |
+| Dependency/reference validation | Enforced implicitly by EF foreign-key/alternate-key constraints at persistence time (DB-level safety net — Checkpoint 1 §2.1–§2.4 configs) | Same DB-level net, plus an earlier manifest-level pre-check (§14.1 `dependsOn`) so failures surface before any write | DB constraint violation → transaction rollback (already true, see below); Target adds an earlier, clearer failure | **Future implementation** for the manifest-level pre-check; DB-level net already exists |
+| Duplicate semantic-key detection | Implicit via `AnyAsync`/`SingleOrDefaultAsync` pre-checks per record (Checkpoint 1 §2.6) | Same mechanism, plus manifest-level detection before hitting the database | Existing record wins; no duplicate created (already true) | None for the DB-level behavior; manifest-level pre-check is **Future implementation** |
+| Rights/classification validation for media | **Not found** — no rights model exists in the current schema at all | Manifest/seed tooling validates a media record's rights state before allowing it into a non-development-only dataset | Refuse to seed a `pending`/`unknown`-rights asset outside `development-only` use | **Future implementation** — depends on §15.2's rights-state model, which is itself not yet implemented |
+| Secret/connection-string logging | Not verified in this checkpoint (no logging behavior was inspected) | Any structured summary/log the seed tooling produces must never contain a connection string, password, or credential | N/A | Not verified either way this checkpoint; stated as a hard requirement regardless |
+| Transactional mutation | **Current**: the entire `SeedAsync` is wrapped in one `dbContext.Database.BeginTransactionAsync(...)` … `transaction.CommitAsync(...)` — confirmed from `DevelopmentDataSeeder.cs` structure (Checkpoint 1 §2.6) | Same — keep the whole manifest application transactional | An exception before `CommitAsync` never commits; `await using` disposal performs an implicit rollback (already true today) | None — already correctly implemented |
+| Idempotent repeat execution | **Current**: true, via natural-key create-if-missing on every entity (Checkpoint 1 §2.6) | Same, formalized via the manifest's `mutationPolicy` | Re-running a second time changes nothing already present | None for create-only; update-in-place is **Future implementation** (§14.2) |
+| Destructive cleanup | **Current**: none — no delete call exists anywhere in `DevelopmentDataSeeder` | Same — no destructive cleanup by default, ever | N/A | None |
+| Update/delete of non-dataset-owned rows | **Current**: trivially true (the seeder never updates or deletes anything at all, dataset-owned or not) | Must remain true once update-in-place exists — only rows provably dataset-owned (via the §14.2 provenance marker) may ever be mutated | Attempting to touch a non-owned row must fail loudly, never silently proceed | **Future implementation** — depends on the provenance marker not yet existing |
+| Conflict on existing natural key | **Current**: always silently skips (cannot distinguish "we seeded this before" from "something else created a same-keyed row with a different value," because no provenance marker exists) | With a provenance marker: dataset-owned + matching → skip; dataset-owned + diverged → policy-defined (fail or preserve, never silent overwrite); not dataset-owned → always skip/fail, never overwrite | Never silently overwrites today (verified); cannot yet distinguish the two conflict flavors above | **Future implementation** — same provenance-marker dependency |
+| Concurrent execution | **Not evaluated this checkpoint** (no live run was performed, per this checkpoint's prohibitions) — but the existing unique DB indexes on every natural key (`Slug`, `(PropertyId,Code)`, the rate/control tuples, etc. — Checkpoint 1 §2.1–§2.4) mean a genuine two-process race inserting the same key would hit a unique-constraint violation and one transaction would fail/roll back rather than corrupt data | An explicit, tested guarantee of deterministic outcome or safe rejection under concurrent execution | One concurrent run fails cleanly (roll back), the other succeeds; no partial/corrupted state | Existing unique indexes likely already provide this safety net structurally, but it is **not explicitly tested** — naming this as a verification gap, not a code gap |
+| Structured result summary | **Current**: none — `SeedAsync` returns `Task`, no created/unchanged/updated/skipped/conflicted/failed breakdown is produced | A structured summary object/report with exactly those categories | N/A | **Future implementation** — no such reporting exists today |
+| Verification path independent of "UI looks right" | **Current**: already possible today via direct DB query or hitting `GET /api/v1/properties[...]`/`/room-types`/`/availability` directly (mechanically available, not a new capability) | Same mechanism, formalized as an explicit, documented verification step | N/A | Formalizing the *procedure* is **Future implementation**; the underlying mechanism already exists |
+
+### 14.4 Current vs. Target vs. Future work — summary
+
+- **Current seeder behavior** already correctly provides: Development-only
+  environment gating, explicit opt-in, no production-startup side effect,
+  full-run transactionality with implicit rollback-on-failure, per-record
+  idempotent create-if-missing, zero destructive mutation, and a
+  rolling-horizon date strategy that naturally extends on re-run without
+  overwriting anything.
+- **Target contract** (this checkpoint) keeps every one of those
+  properties and adds: an explicit manifest format, explicit preflight
+  checks (schema/dataset-version/dependency/rights), and an explicit
+  structured result report.
+- **Future implementation** work this contract depends on but does not
+  build: the dataset-ownership/provenance marker (enables safe
+  update-in-place and richer conflict handling), the rights-state model
+  (§15.2), the manifest format itself as executable code, and a stable
+  media identity separate from delivery URL (§15.1). None of these exist
+  in the current schema or codebase.
+
+## 15. Media identity, delivery and rights contract
+
+### 15.1 Stable identity versus delivery
+
+- **Asset identity is not the absolute delivery URL.** A stable logical
+  key is the identity; the delivery URL is a resolvable, replaceable
+  detail (Checkpoint 2 §6.1 principle 5, §6.4).
+- **Target contract** — each media reference should logically carry: a
+  stable logical key (scoped to its Property/RoomType, or to an editorial
+  section key for editorial media); an asset class + canonical role
+  (already partially present today via `MediaType`/`IsCover` — Checkpoint
+  1 §2.1/§2.2); its association (Property/RoomType id, or editorial
+  section key); ordering and alt text (already backend-owned for catalog
+  media today, frontend-editorial-owned for editorial media per
+  Checkpoint 2 §10); and, only where justified (e.g. once binaries are
+  hosted externally and tamper/corruption evidence matters), an optional
+  checksum/integrity value — not required for the MVP, named only so a
+  later design doesn't have to reconsider whether it's ever relevant.
+- **Current compatibility**: `Media.Url` (`Back_End/src/TheBha.Domain/Properties/Media.cs`)
+  remains the actual, currently-implemented capability today — it is
+  valid, it is what the seed populates, and it is what the frontend's
+  `isUsableMediaUrl`/`selectCoverImage` filtering correctly operates
+  against (Checkpoint 1 §2.7). This contract does not deprecate or break
+  that. `Media.Url` today conflates identity and delivery address — there
+  is no separate stable key field. Closing that gap is **Future
+  implementation** (an EF Core schema change), not designed in migration
+  detail here, and not claimed to already exist.
+- **Compatibility path**, named only as a direction, not designed: if a
+  stable-key field is eventually added, the API could keep returning a
+  resolved `url` for existing frontend code to keep working unchanged,
+  while gaining a new stable-key field alongside it — a additive, not
+  breaking, change. No payload/migration is specified here.
+
+### 15.2 Binary delivery
+
+- Object storage / CDN is a **delivery class**, never a chosen vendor —
+  this contract does not select one.
+- An absolute provider-specific URL is never hard-coded into React source.
+  **Current**: verified true — no catalog-media URL is ever constructed in
+  frontend code; every rendered `<img>`/`Image` `src` for catalog media
+  comes directly from an API-supplied `MediaDto.url` (Checkpoint 1 §2.7),
+  and bundled template images are local build-time imports, not
+  provider URLs. This contract keeps that rule as a hard requirement going
+  forward.
+- The backend/API resolves the catalog-media presentation reference.
+  **Current**: this "resolution" is a pass-through today (the API returns
+  `Media.Url` directly, since identity and delivery are the same field) —
+  genuine key→URL resolution is **Future implementation**, dependent on
+  §15.1's stable-key gap being closed first.
+- Editorial configuration resolves an editorial-media reference through a
+  consistent boundary mirroring the same mechanism — **Future
+  implementation**; not built in Checkpoint 2 or here.
+- The frontend never assembles an object-storage URL by concatenating
+  business identifiers (e.g. never builds a URL from a `propertyId`/
+  `roomTypeId` client-side). **Current**: no evidence this happens
+  anywhere in the inventoried code. This contract keeps it prohibited.
+
+### 15.3 Asset-rights acceptance procedure
+
+Minimum states: `unknown`, `pending`, `approved`, `rejected`,
+`development-only`. **Target contract**, not implemented — no rights-state
+column or table exists in the current schema.
+
+Per-asset fields this procedure requires (logical, not a schema payload):
+source/provenance, canonical role, intended use, rights state, an approval
+**evidence reference** (a pointer/citation, never the legal document or
+credential itself — source manifests must never store confidential legal
+documents or credentials, only a reference to where such evidence lives),
+whether derivatives/cropping are permitted (where relevant), which
+environments it may appear in (development/preview/production), and its
+replacement/removal behavior.
+
+**Important disambiguation** (not previously stated this precisely): the
+current bundled template images (`src/images/*`, including
+`placeholder-large-h.png`, hero/HIW/feature/download-app imagery) are
+**not** "rights-unknown" in the sense of unlicensed/stolen content — they
+carry whatever license the Next.js theme itself carries, and README
+§"Front-end provenance" already requires preserving that theme's source
+and license attribution. They are, however, **never** hotel-specific
+photography and were never intended to represent a real BHA Hotels
+Property/RoomType. Under this contract they are classified as
+**template-licensed decorative/placeholder assets**: rights are not the
+open question for them, *role* is — they may serve as decoration or as the
+system fallback (§10.3, §16), but must never be promoted to "this is a
+photo of a real Property/RoomType." This is a distinct case from **future
+hotel-specific real photography**, whose rights (not just role) are
+entirely unconfirmed today, whether sourced internally or from a
+third party.
+
+Locked rules:
+
+- Rights are never inferred merely from an asset's presence in the
+  repository or template.
+- A partner/customer/brand logo is never promoted to production use
+  without rights evidence — the current partner-logo grid has none
+  (Checkpoint 2 §10.3).
+- `rights-pending` is never silently renamed or treated as `approved`.
+- The development fallback (`placeholder-large-h.png`) never becomes "the
+  hero image of a Property" merely because it is currently what renders —
+  its role stays pinned to system fallback (§16).
+- No confidential legal document or credential is ever stored in a source
+  manifest — only a reference, and only once such a reference mechanism is
+  actually implemented (**Future implementation** — not built here).
+
+## 16. Media ingestion and missing-media lifecycle
+
+### 16.1 Ingestion/migration sequence (Target contract — described, not executed)
+
+1. Inventory and classify the candidate asset (source: internal
+   photography, licensed stock, template-bundled, unknown).
+2. Resolve Owner confirmation / rights state (§15.3's five states).
+3. Assign canonical role and stable logical identity (§15.1 — depends on
+   the stable-key gap being closed first; **Future implementation**
+   dependency named, not resolved here).
+4. Validate file type, size/integrity, and metadata. **Current**: the only
+   validation that exists today is `Media`'s domain constructor check that
+   the URL is an absolute http/https string (`Media.cs`) — no file-level
+   validation exists because no upload path exists. Anything beyond URL
+   well-formedness is **Future implementation**.
+5. Place the binary into the configured delivery boundary (object-storage
+   class, vendor unnamed) — **Future implementation**, no such boundary
+   exists today.
+6. Resolve the delivery reference — **Future implementation**, depends on
+   step 3/5 existing.
+7. Persist the catalog association (backend DB, `PropertyMedia`/
+   `RoomTypeMedia` — **Current**, this insertion mechanism already exists
+   and works today) or the editorial reference (frontend editorial config
+   — **Future implementation**, since Checkpoint 2 deliberately did not
+   create that file).
+8. Verify API/config consumption — mechanically possible today already
+   (hit `GET /api/v1/properties/{id}` and confirm the media resolves), but
+   only as a manual step; an automated check is **Future implementation**.
+9. Verify fallback and inaccessible-media behavior — **Current**, already
+   proven true today: because 100% of current seed media is on the
+   filtered `images.example.com` host, this path is exercised by the
+   existing state of the repository right now, not hypothetically
+   (Checkpoint 1 §2.7).
+10. Only after acceptance does an asset leave development-only state and
+    become promotable — depends on §15.3's rights-state model existing as
+    real, enforced state (**Future implementation**; this checkpoint only
+    designs the states logically).
+
+### 16.2 Migration source coverage
+
+- **Repository-local template asset** → stays a development
+  fallback/editorial asset (§10.3); not migrated into catalog media, since
+  it is not Property/RoomType-scoped content.
+- **Shared development fallback** (`placeholder-large-h.png`) → stays
+  as-is; no migration required unless the fallback mechanism itself later
+  moves to object-storage-class delivery (**Future implementation**, not
+  needed for the MVP).
+- **Current reserved-host `Media.Url` rows** → must be replaced by real,
+  rights-approved media before being production-ready; until then, they
+  correctly stay filtered out client-side, exactly as today.
+- **Future approved catalog media** → flows through steps 1–10, lands as
+  `PropertyMedia`/`RoomTypeMedia`-associated rows, backend-owned.
+- **Future editorial media** → flows through an analogous, but
+  frontend-owned, path once the editorial-configuration mechanism itself
+  is built (**Future implementation**).
+
+No vendor is chosen, no asset is uploaded/copied/generated, and no command
+containing a real endpoint or credential is written anywhere in this
+sequence.
+
+### 16.3 Missing-media lifecycle
+
+| Asset class/state | Canonical owner | Stable identity | Delivery resolution | Rights gate | Fallback/disposition | Promotion rule |
+| --- | --- | --- | --- | --- | --- | --- |
+| Missing catalog media (no `MediaDto` at all) | Backend catalog (Property/RoomType) | N/A — nothing to identify | N/A | N/A | **Deterministic fallback**: `placeholder-large-h.png`, via `selectCoverImage` returning `undefined` (Checkpoint 1 §2.7, **Current**) | Promotes once real, rights-approved media is associated via `PropertyMedia`/`RoomTypeMedia` |
+| Unusable/reserved-host URL (e.g. current seed) | Backend catalog | The URL itself, today (§15.1 gap) | Filtered out before use | Not applicable — it's a non-functional placeholder, not a rights question | Same fallback as above, via `isUsableMediaUrl` returning `false` (**Current**, verified) | Never promotes as-is; must be replaced with a real, usable URL |
+| Failed delivery resolution (a genuine host returns 404 at runtime) | Backend catalog | Unaffected — identity, if it existed separately, would remain valid; only delivery failed | Failed at request time | N/A | Same fallback, via the `<img onError>` handler already implemented in `PropertyLiveCard`/`RoomTypeLiveCard`/`AvailabilityOfferCard` (**Current**, verified in Checkpoint 1 §2.7) | Not a promotion case — this is a runtime delivery failure on an already-promoted asset; investigate the delivery boundary, not the catalog association |
+| Rights-pending media | Backend catalog or editorial, per §15.3 | May have an assigned key already | May have a resolvable URL already | `pending` | **Must not render as live catalog/editorial content** — treated as if missing (same fallback path) until resolved | Promotes only on an Owner `approved` decision |
+| Rejected asset | Same as above | Retained for record-keeping only, per §15.3's replacement/removal behavior | Must not resolve to a rendered image | `rejected` | Same fallback treatment as missing | Never promotes; must be replaced by a different candidate asset |
+| Missing editorial media | Frontend editorial configuration | N/A until the config mechanism exists | N/A | Same five-state model applies conceptually | Section-level behavior per Checkpoint 2 §9: hide, neutral placeholder, or dev-only marker — the specific choice per section is not decided here | Promotes once an Owner-approved editorial asset reference is added to the configuration |
+| Unconfirmed brand-identity asset | Would be frontend-owned once real (Checkpoint 2 §10.3) | None exists — no real BHA brand asset was found in the current inventory | N/A | `unknown` by default (nothing has even reached `pending`) | No fallback needed today because nothing currently claims to be a BHA brand asset — the generic partner-logo grid is not brand identity (§10.3) | Cannot promote until an Owner supplies an actual asset and its rights/role are confirmed |
+| Shared system fallback (`placeholder-large-h.png`) itself becoming unavailable | Frontend build | Its own bundled-asset identity (a build-time import, always present as long as the file exists) | Always resolves at build time — not a runtime delivery concern | `development-only` role, template-licensed (§15.3) | This *is* the fallback — there is no further fallback beneath it; if this asset were ever removed, that would be a hard failure, not a graceful case | Never "promotes" to catalog content — doing so would violate its locked role (§15.3) |
+
+Per-case behavior notes:
+
+- **Hide vs. fallback vs. dev marker vs. hard failure**: catalog media
+  (Property/RoomType/offer cards) always uses the deterministic fallback
+  image, never hides the card and never hard-fails — this is already
+  Current, verified behavior and this contract keeps it that way. Editorial
+  media's hide/placeholder/dev-marker choice is per-section, per Checkpoint
+  2 §9, not decided here. A hard failure is reserved for cases outside
+  this lifecycle entirely (e.g. the fallback asset itself missing from the
+  build — effectively a build-time defect, not a runtime data state).
+- **Which UI may use the fallback**: `PropertyLiveCard`, `RoomTypeLiveCard`,
+  and `AvailabilityOfferCard` — the same three components that already use
+  it today (Checkpoint 1 §2.7). No other component is authorized to invent
+  its own fallback image.
+- **Alt-text behavior**: when the fallback renders, alt text describes the
+  fallback's purpose (e.g. "`{name} photo placeholder`," already the
+  Current implementation in all three cards), never the same alt text a
+  real photo would carry — this avoids implying the fallback depicts the
+  actual Property/RoomType.
+  **Diagnostic/logging expectation**: a missing/unusable/failed-delivery
+  case should be diagnosable (e.g. via the existing `onError` handler
+  already present) without requiring a human to eyeball the rendered page;
+  formalizing this into actual logging/telemetry is **Future
+  implementation**, not built here.
+- **When a record/reference is invalid**: a `Media` row whose URL is
+  malformed, non-http(s), or on a reserved-example host is invalid for
+  *display* purposes (filtered by `isUsableMediaUrl`) but remains
+  structurally valid *data* (it still passes `Media`'s own domain
+  constructor check, which only requires a well-formed absolute http/https
+  URL) — display-invalidity and data-invalidity are two different
+  questions, and this contract keeps that distinction rather than
+  conflating them.
+- **Avoiding the fallback being mistaken for a real photo**: the alt-text
+  rule above, plus §15.3's locked rule that the fallback's role stays
+  pinned to "system fallback" — it is never re-labeled, re-associated with
+  a specific Property/RoomType as if it were their photo, or presented in
+  any report/document as confirmed real imagery.
+- **Frontend stays a consumer, not an authority**: all of the above is the
+  frontend correctly reacting to what the backend/API returns (or fails to
+  return) — the frontend never decides catalog-media ordering, cover
+  selection, or association itself; it already only reads server-provided
+  flags (`selectCoverImage`, Checkpoint 1 §2.7) and this contract does not
+  change that boundary.
+
+## 17. DATA-001.2 implementation envelope
+
+A bounded, **dormant** implementation plan — not an execution prompt, not
+started. Per §18, this envelope stays dormant pending the unlock
+conditions in §19.
+
+- **In scope** (if/when unlocked): (1) the seed-manifest format from §14.1
+  as actual, tested code, applied against the *existing* schema (no
+  migration required for this slice, since natural-key idempotency already
+  works); (2) a dataset-ownership/provenance marker (schema addition) for
+  the current Property/RoomType/RatePlan/DailyRoomRate/
+  DailyInventoryControl/Media tables, enabling safe update-in-place and
+  richer conflict handling (§14.2/§14.3 gaps); (3) a rights-state field/
+  table for `Media` (§15.3); (4) a stable media identity separate from
+  delivery URL (§15.1) — the largest schema change in this envelope; (5)
+  population of real, Owner-confirmed content and rights-approved media,
+  strictly gated on Owner input (§19).
+- **Out of scope**: any CMS integration or evaluation, an admin panel,
+  selecting a production object-storage/CDN provider, a full rewrite of
+  the dormant template sections identified in Checkpoint 2 §8, a
+  `RatePlansController`/RatePlan-browsability feature, minimum/maximum-stay
+  or arrival/departure inventory controls, and any change to Hold/
+  Reservation behavior. None of these belong in `DATA-001.2` even once
+  unlocked — each would need its own separately authorized work item.
+- **Dependencies**: at minimum, Owner answers to §4 items 1–2 before any
+  real content/media population; a Control-Tower scope decision on §4
+  items 3–4 before deciding whether items (2)–(4) above even need to
+  include a write-API-shaped change or stay data-only.
+- **Required Owner inputs**: all eight from §4/§19, with items 1, 2, 3, and
+  4 being hard prerequisites for starting (they change *what* gets built,
+  not just its content); items 5, 6, 7, 8 affect scope/value but do not by
+  themselves block a first slice limited to manifest tooling and schema
+  provenance work.
+- **Schema/API/media gaps this envelope would close**: the `Media.Url`
+  identity/delivery conflation (§15.1), the missing dataset-ownership
+  marker (§14.2), the missing rights-state model (§15.3), and,
+  conditionally on Owner/Control-Tower input, the missing
+  `DailyRoomRate`/`DailyInventoryControl` write path (Checkpoint 1 §2.4).
+- **Safe implementation order** (sequenced by risk, lowest first): (1)
+  manifest format for existing fields, no schema change; (2)
+  dataset-ownership/provenance marker, smallest schema addition; (3)
+  rights-state tracking for `Media`; (4) stable media identity/delivery
+  separation, the largest schema change; (5) real content/media
+  population, gated on Owner confirmation throughout.
+- **Required tests**: unit tests for manifest validation logic;
+  PostgreSQL integration tests (never EF InMemory/SQLite, per
+  `docs/DATABASE.md`) for idempotent re-run behavior (create/skip/
+  no-mutate-existing) and for any new migration, run the same way as the
+  existing 253 integration tests (Checkpoint 0 baseline).
+- **API verification**: re-verify the existing `GET /api/v1/properties[...]`
+  /`room-types`/`availability` endpoints against updated seed content; no
+  new endpoint is required for slices (1)–(3) above; a write-API surface
+  is only in scope if Control Tower separately authorizes it per §4 item
+  3.
+- **UI verification**: confirm `/home-2`'s live sections keep rendering
+  correctly against an updated dataset; specifically exercise the
+  **currently-untested** "a real, non-reserved-host image renders
+  successfully" path — every current seed image is filtered out today, so
+  this path has never actually been exercised by the existing test suite
+  or manual verification, and should be a named acceptance check once real
+  media exists.
+- **Migration/rollback considerations**: any schema addition (provenance
+  marker, rights state, stable key) needs a normal EF Core migration with
+  PostgreSQL integration-test evidence per `docs/DATABASE.md`, and must
+  not alter existing `Property`/`RoomType`/`RatePlan`/`DailyRoomRate`/
+  `DailyInventoryControl` semantics or the BE-003 Hold/Reservation
+  contract.
+- **Acceptance criteria** (illustrative, not final): the manifest applies
+  idempotently with identical, evidence-verified outcomes against both a
+  clean and an already-seeded database; no schema change touches
+  `BookingHold`/`Reservation`/Identity tables; the existing 241 unit + 253
+  integration backend tests and 222 frontend tests continue passing
+  unmodified; new tests are added only for new capability.
+- **Condition to protect Hold/Reservation and current availability
+  authority**: no `DATA-001.2` change may alter `AvailabilitySearch`,
+  `AvailabilityDataSource`, the Hold/Reservation aggregates, or their
+  advisory-lock/atomic-pricing contract (BE-003.3/BE-003.5) — the envelope
+  is strictly additive to catalog/media data and its manifest/provenance
+  tooling.
+
+Given §18's recommendation, this envelope stays a **dormant plan**. No
+execution prompt is created here, and `FE-002.1` is not designed beyond
+naming it, per §18/§19, as the Control-Tower-designated alternative gate.
+
+## 18. Final decision gate and technical recommendation
+
+### 18.1 Decision gate
+
+| Gate criterion | Evidence required for READY | Current evidence | Result | Consequence |
+| --- | --- | --- | --- | --- |
+| Does the current dataset block `FE-002.1`? | A demonstrated dependency from `FE-002.1`'s actual scope on a `DATA-001.1` gap | `FE-002.1`'s scope was not provided to this checkpoint; no evidence anywhere in the inventoried code or docs ties it to the write-API, media-identity, or rights gaps found here | Not blocking (no evidence found) | Weighs toward defer |
+| Is the existing seed sufficient for booking-flow development? | A concrete booking feature that failed or was blocked by seed content | Four frontend work units (FE-001.1–FE-001.4) already built and merged successfully against exactly this seed; Checkpoint 0 baseline: 222/222 frontend tests, 494/494 backend tests, all passing | Sufficient, proven by track record | Weighs toward defer |
+| Is there a mandatory-now operational field gap? | A concrete missing field tied to a defined, currently-blocked feature | §6.6 found none justified from the active `/home-2` render tree; the named gaps (min/max stay, arrival/departure controls, RatePlan browsability) have no demonstrated immediate-blocking need | None identified | Weighs toward defer |
+| Is dataset ownership/provenance sufficient to mutate safely? | A provenance/ownership marker enabling safe update-in-place | None exists (§14.2/§14.3); current safety is entirely create-only-never-update | Sufficient only for continuing exactly today's create-only behavior | Weighs toward defer — building further mutation capability now has limited near-term payoff without it |
+| Are Owner-confirmed catalog facts sufficient? | Owner confirmation on at least the core Property/RoomType facts | Zero of eight Owner inputs answered (§19) | Not sufficient | Strongly weighs toward defer |
+| Is approved catalog media sufficient? | At least one Owner-rights-approved, functioning image | Zero — all four seed `Media` rows are non-functional reserved-host placeholders | Not sufficient | Weighs toward defer |
+| Does rights status permit promotion? | An `approved` rights state on at least one production-intended asset | No rights-state model exists yet; no asset has been evaluated against one | Not satisfied / not applicable | Weighs toward defer |
+| Would the implementation create a duplicate source of truth? | Evidence the design avoids duplication | §7's matrix and this checkpoint's dataset/media design both maintain single authority per class throughout; no duplication designed | Satisfied — this is a quality gate, not a blocker | Neutral: confirms the design is sound whenever it is eventually implemented |
+| Does `DATA-001.2` deliver prerequisite value, or mainly cosmetic/content enrichment? | A demonstrated hard dependency from a concrete upcoming feature | None found; booking integration (Hold/Reservation) already works end-to-end against the current seed; the remaining work formalizes infrastructure for content whose real values are entirely unknown (8/8 Owner inputs open) | Reads as content-enrichment/tooling-formalization, not a booking-integration prerequisite | Strongly weighs toward defer |
+| Would an unresolved Owner input materially change the implementation? | No open input that would change schema, dataset values, media rights, or mutation safety | Multiple open inputs would: §4 items 3–4 change whether a write-API/RatePlan-endpoint slice belongs in scope at all; items 1–2 change every real dataset value; items 7–8 change which `/home-2` sections need editorial config in the first place | Yes, materially | Per the explicit rule below, this alone precludes `READY` |
+
+### 18.2 Technical recommendation
+
+```text
+DEFER_DATA-001.2_AND_START_FE-002.1
+```
+
+**Rationale**: every criterion in §18.1 either weighs toward deferral or is
+neutral; none weighs toward `READY`. The current dataset/seed is proven
+sufficient for booking-flow development by the track record of four
+already-merged frontend work units. No operational field gap was found to
+mandate immediate schema/API work. The substantive remaining gaps — real
+Owner-confirmed content, real rights-approved media, a stable media
+identity, and richer mutation safety — are either entirely blocked on
+unanswered Owner input (eight of eight open, §19) or are infrastructure
+investment ahead of having real content to justify it. Building the fuller
+execution contract now risks rework once Owner answers arrive. Finally,
+per this checkpoint's explicit decision rule, an unresolved Owner input
+that would materially change schema, dataset values, media rights, or
+mutation safety precludes a `READY` call regardless of how complete the
+design itself is — and multiple such inputs remain open here.
+
+**Exact unlock conditions** for revisiting this recommendation:
+
+1. Owner answers to §4/§19 items 1 and 2 (real-vs-placeholder Property/
+   RoomType facts; availability of real, rights-cleared photography) —
+   without these, `DATA-001.2` work has nothing real to populate.
+2. A Control-Tower scope decision on §4/§19 item 3 (whether a
+   `DailyRoomRate`/`DailyInventoryControl` write API is in scope) —
+   determines whether `DATA-001.2` stays seed-manifest-only or also needs
+   an Application/API surface.
+3. A Control-Tower scope decision on §4/§19 item 4 (RatePlan
+   browsability) — determines whether a `RatePlansController`-shaped
+   addition belongs in `DATA-001.2`'s scope.
+4. Once 1–3 are answered, `DATA-001.2` may be re-scoped from §17's dormant
+   envelope into an actual execution prompt — that re-scoping is a
+   Control-Tower decision, not automatic, and is not performed here.
+
+This is a technical recommendation only. It does not start `DATA-001.2`,
+does not start `FE-002.1`, does not create an execution prompt for either,
+and does not bind the Owner's roadmap decision.
+
+## 19. Owner inputs and unlock conditions
+
+All eight Checkpoint 1 §4 candidates, carried forward unchanged and traced
+to their affected design rows. No answer is invented or silently dropped.
+
+| # | Candidate | Current status | Affected row/section | Blocks implementation or only production promotion? | Default-safe treatment until answered | Exact evidence needed from Owner | Effect on recommendation |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | Is "The BHA Hotel" real or placeholder? | Open | §7 Property row; §13.1 "Owner-unconfirmed operational-looking data" | Blocks production promotion; does not block continuing current dev-only use | Stays classified `Owner-unconfirmed`, no dev-marker mechanism exists yet to surface this in UI (named gap, §13.1) | An explicit Owner statement confirming or replacing each fact (name, address, city, country, time zone, check-in/out times) | Hard prerequisite for `DATA-001.2` (§17); its absence is part of why §18.2 recommends defer |
+| 2 | Is real, licensed hotel photography available? | Open | §7 Media binaries row; §13.1 rights classes; §15.3; §16 | Blocks production promotion; current placeholder media is fine for continued dev use | Stays `synthetic development data`, filtered client-side (`isUsableMediaUrl`), fallback renders (already true today) | Confirmation of whether real photography exists anywhere (internal or third-party) and its rights status | Hard prerequisite for `DATA-001.2`; its absence is part of why §18.2 recommends defer |
+| 3 | Is the missing `DailyRoomRate`/`DailyInventoryControl` write API an intentional deferral? | Open | §7 Daily rates/Inventory controls rows; §17 scope | Blocks a specific implementation *decision* (whether to build it), not current read-path booking flow | Stays unreachable exactly as today — no write path is built by default | A Control-Tower scope decision, not a fact — whether/when a management API is planned | Determines `DATA-001.2`'s scope shape if/when unlocked; contributes to defer via §18.1's "materially changes implementation" criterion |
+| 4 | Should RatePlan become independently browsable? | Open | §7 RatePlan row; §17 scope | Blocks a scope decision, not current Availability-offer behavior | RatePlan stays exposed only indirectly through an offer, exactly as today | A Control-Tower/product decision on whether RatePlan needs its own endpoint | Same as item 3 — scope-shaping, contributes to defer |
+| 5 | Is flat, non-occupancy-based pricing the intended near-term model? | Open | §6.2 class 2 (server-authoritative calculations) | Blocks nothing structural — the server-authoritative boundary holds either way; only the pricing *formula* is unresolved | Current flat-pricing formula continues unchanged | Confirmation of near-term pricing-model expectations | No effect on this recommendation — orthogonal to dataset/media readiness |
+| 6 | Are min/max-stay and arrival/departure controls planned? | Open | Named in Checkpoint 1 §3, not re-designed here (§6.6 confirmed no promotion justified from `/home-2`) | Blocks nothing in this checkpoint's scope | Absent, exactly as today | A roadmap decision on whether/when these are planned | No effect on this recommendation |
+| 7 | Is the real-estate-domain hero content known/accepted debt? | Open | §8 Hero row; §13.1 dormant-fixture class | Blocks a content/removal decision, not any technical capability | Stays rendered exactly as today (Remove/hide/repurpose candidate, undecided) | An Owner/product decision: keep, replace, or remove | No effect on this recommendation — a `/home-2` content question, not a dataset-infrastructure one |
+| 8 | Are the eight non-hotel-domain template sections intended to be replaced/removed/kept? | Open | §8 rows for partner logos, how-it-works, our-features, download-app, both category sliders, author/host grid, newsletter; §13.1 dormant-fixture class | Blocks a content/removal decision, not any technical capability | All stay rendered exactly as today, correctly excluded from the operational seed regardless (§13.2's locked rule) | An Owner/product decision per section: keep as editorial, remove, or repurpose | No effect on this recommendation |
+
+No candidate was answered, defaulted to a convenient value, or dropped.
+Items 1–4 are the ones with material weight on §18.2's recommendation;
+items 5–8 are real open questions but do not change the dataset/media
+readiness conclusion.
+
+## 20. Final checkpoint boundary
+
+This checkpoint completed the design and execution contract (§13–§19) and
+recorded exactly one technical recommendation (§18.2). It did not, and per
+its explicit prohibitions could not, perform any of the following — all
+remain future, separately authorized work:
+
+- No executable seed manifest, config file, or tooling was created —
+  §14.1's shape is illustrative only.
+- No EF Core migration, schema change, or model-snapshot change was made —
+  every schema gap named (§14.2, §15.1, §15.3) is recorded as **Future
+  implementation**, not built.
+- No development seed was run or modified.
+- No media was uploaded, copied, downloaded, or generated.
+- No production storage/CDN/CMS vendor was chosen anywhere in §13–§17.
+- No CMS was integrated (the seam remains exactly Checkpoint 2 §11's
+  description).
+- No Owner-confirmation candidate (§19) was answered, guessed, or
+  silently dropped.
+- No `DATA-001.2` execution prompt was created; §17's envelope remains a
+  dormant plan pending §18.2's unlock conditions.
+- No `FE-002.1` design work was performed beyond naming it, per the
+  Operations Coordinator's framing, as the Control-Tower-designated
+  alternative gate.
+- The Owner/Control Tower remains the sole authority for whether and when
+  to act on §18.2's recommendation — this document records a technical
+  conclusion, not a roadmap decision.
