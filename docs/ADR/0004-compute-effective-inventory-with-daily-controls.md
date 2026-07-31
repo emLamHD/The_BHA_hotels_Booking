@@ -1,4 +1,4 @@
-# ADR-002 — Compute effective inventory with daily controls
+# ADR 0004: Compute effective inventory with daily controls
 
 **Status:** Accepted  
 **Date:** 2026-07-22

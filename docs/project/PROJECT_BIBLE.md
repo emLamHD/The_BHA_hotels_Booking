@@ -119,7 +119,7 @@ Quan hệ cùng Property phải được bảo vệ ở cả domain và PostgreS
 - Không dùng UTC timestamp để đại diện cho một đêm khách sạn.
 - Logic “ngày hiện tại” phải có clock/time provider để test được.
 
-Xem `ADR-001-model-hotel-stays-with-half-open-date-ranges.md`.
+Xem [ADR 0003](../ADR/0003-model-hotel-stays-with-half-open-date-ranges.md).
 
 ## 7. Quy tắc tiền và giá
 
@@ -146,7 +146,7 @@ Xem `ADR-001-model-hotel-stays-with-half-open-date-ranges.md`.
 - Hold/reservation và concurrency protection phải được bổ sung ở capability
   riêng trước khi hệ thống có thể bảo đảm chống overbooking.
 
-Xem `ADR-002-compute-effective-inventory-with-daily-controls.md`.
+Xem [ADR 0004](../ADR/0004-compute-effective-inventory-with-daily-controls.md).
 
 ## 9. Quy tắc occupancy MVP
 
