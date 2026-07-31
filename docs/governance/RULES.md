@@ -130,7 +130,7 @@ Các nguồn sự thật có vai trò khác nhau:
 - `docs/governance/WORKFLOW.md`: quy trình vận hành.
 - `docs/project/PROJECT_BIBLE.md`: sự thật sản phẩm và kiến trúc ổn định.
 - `docs/project/SNAPSHOT.md`: trạng thái hiện tại có thể phục hồi.
-- `docs/project/adr/`: quyết định kiến trúc bền vững.
+- `docs/ADR/`: quyết định kiến trúc bền vững.
 - `docs/daily/YYYY-MM/YYYY-MM-DD-plan.md`: kế hoạch của ngày.
 - `docs/daily/YYYY-MM/YYYY-MM-DD-worklog.md`: lịch sử thực thi của ngày.
 - `docs/reports/`: completion/phase report cần lưu lâu hơn phiên chat.
