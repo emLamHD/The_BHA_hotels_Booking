@@ -1,6 +1,6 @@
 # AGENTS.md — The BHA Hotels Booking
 
-> Shared executor contract for Claude Code and Codex.
+> Shared contract: Claude implements, Codex reviews read-only.
 >
 > `docs/governance/RULES.md` remains the highest repository-level authority.
 
@@ -20,27 +20,39 @@ The BHA Hotels Booking is a monorepo:
 
 The operating chain is:
 
-`Owner + Control Tower → Operations Coordinator → Active Executor → Owner → OC review → Owner decision`
+`Owner + Control Tower → Operations Coordinator → Claude (implementer) → Owner → OC review → Owner decision`
 
 Owner Hồ Đình Lâm alone decides Ready/merge, branch cleanup and whether the next task starts.
 
-Claude Code and Codex are equal executor options. You are active only when the current Master Execution Prompt:
+Fixed invariant: **Claude writes. Codex reviews. OC decides. Owner merges.** This is a permanent role assignment, not a per-work-item choice. Claude does not infer it might be replaced as implementer, and Codex is never assigned as an alternate `ACTIVE_EXECUTOR`.
 
-- identifies your agent in `ACTIVE_EXECUTOR` for the current phase;
-- identifies the execution mode, baseline, branch/worktree, scope and acceptance;
-- has been activated by Owner/OC after any previous agent has stopped.
+There are two distinct activation contexts.
 
-If any of these conditions is absent or another coding agent still has write access, return `BLOCKED`. Do not self-assign, negotiate with another agent or infer that you are the reviewer because you are Codex.
+### 2.A Claude implementation context
 
-## 3. One-active-agent invariant
+- Claude is the only write-capable implementer for this repository.
+- Claude requires a valid Master Execution Prompt containing at minimum `IMPLEMENTER: CLAUDE`, `REVIEWER: CODEX_READ_ONLY`, branch/worktree, baseline, scope, acceptance, checks, skill policy and stop conditions before making any edit.
+- Claude may implement, test, checkpoint, commit, push and open a Draft PR only when the Master Execution Prompt explicitly authorizes each of those actions.
+- Claude never grants Codex write access, never invokes Codex or any other coding agent, never creates nested agents and never runs an implementation in parallel with another agent.
+- If the Master Execution Prompt is missing, incomplete, or another coding agent may still have write access, Claude returns `BLOCKED`.
 
-- Only one coding agent may write to the worktree at a time.
-- `SINGLE_AGENT` uses one executor for the work item.
-- `SEQUENTIAL_DUAL_AGENT` uses OC-assigned phases in a fixed order.
-- Both agents may receive the same Master Execution Prompt, but each executes only its assigned phase.
-- Never invoke the other coding agent, create nested agents, fan out work or run parallel implementations.
-- Sequential phases use the same branch/worktree unless Owner approved an exception.
-- A handoff requires a stopped prior agent, Git checkpoint/state evidence and phase report.
+### 2.B Dedicated Codex review context
+
+- A native dedicated Codex review launched through the approved `/codex:review` command is already authorized as a read-only review invocation.
+- Codex review does not require `ACTIVE_EXECUTOR`, `PHASE_ID`, `EXECUTION_MODE`, or a repeated full Master Execution Prompt inside the native review request.
+- Codex reviews the explicit Git target/diff supplied in the review command and the applicable repository review rules.
+- Absence of executor-activation fields in native review context is not a blocker.
+- If the target diff is empty, the review reports that there is no reviewable diff; it does not report missing executor authorization.
+- Codex must remain read-only: no file edits, formatter writes, commits, pushes, PR changes or merges.
+- Codex findings are evidence for OC, not a governance verdict. OC decides `PASS`, `CORRECTION_REQUIRED` or `BLOCKED`; Owner alone decides Ready/merge/branch cleanup.
+- Only Owner invokes `/codex:review`. Claude never runs, triggers or requests execution of the review command itself.
+
+## 3. Fixed roles and write lock
+
+- Claude is the only coding agent with write access to the worktree, for every work item, at every phase.
+- Claude never invokes Codex, creates nested agents, fans out work or runs an implementation in parallel with any other agent.
+- Before Owner invokes Codex review, Claude stops all writes and leaves the worktree at a stable, reviewable checkpoint for the duration of the review.
+- A correction cycle requires an OC correction prompt and Owner activation before Claude resumes writing.
 
 ## 4. Reading order and context
 
@@ -68,16 +80,16 @@ If sources conflict, report exact file/reference evidence. Do not silently choos
 
 ## 6. Preflight before editing
 
-1. Confirm `WORK_ITEM`, `PHASE_ID`, `EXECUTION_MODE` and `ACTIVE_EXECUTOR`.
+1. Confirm `WORK_ITEM`, `IMPLEMENTER: CLAUDE`, `REVIEWER: CODEX_READ_ONLY`, branch/worktree, baseline, scope and acceptance from the Master Execution Prompt.
 2. Verify repository root, current branch and working-tree cleanliness.
 3. Run `git fetch --prune origin` when network access and prompt policy allow it.
 4. Verify HEAD/base against `BASELINE_SHA` and ahead/behind against the expected base.
-5. Confirm the prior agent is stopped and inspect the phase report/checkpoint when applicable.
+5. Confirm no other write session is active; when resuming a correction, inspect the previous checkpoint and report.
 6. Inspect current implementation and tests for the area in scope.
 7. Confirm allowed/forbidden files, acceptance, checks and stop conditions.
 8. Confirm required tools are available; optional tool absence is reported, not worked around by broad scope expansion.
 
-Preflight output must stay short: `Work item/phase`, `Active executor`, `Branch/HEAD`, `Worktree`, `Scope`, `First action`.
+Preflight output must stay short: `Work item`, `Branch/HEAD`, `Worktree`, `Scope`, `First action`.
 
 ## 7. Scope and architecture constraints
 
@@ -149,9 +161,9 @@ Use targeted checks first, then broader/CI-parity checks required by prompt and 
 ## 10. GitNexus, Orca and skills
 
 - Use GitNexus for code graph/impact analysis when it improves confidence; verify conclusions against source/tests.
-- Orca is a cockpit/worktree manager, not an authority. Do not enable parallel worktrees, auto-routing, nested execution or autonomous merge.
+- Orca is not part of the active workflow (discontinued 2026-08-07 per `docs/project/SNAPSHOT.md`). Do not enable Orca orchestration, parallel worktrees, auto-routing, nested execution or autonomous merge.
 - Use only skills listed/approved by the prompt and repository policy.
-- A skill never overrides RULES, scope, active-agent ownership or test requirements.
+- A skill never overrides RULES, scope, the fixed Claude-write/Codex-review roles or test requirements.
 - If a skill/tool is unavailable, report it accurately; do not install or modify global configuration unless the prompt explicitly authorizes setup.
 
 ## 11. Stop and escalation conditions
@@ -171,14 +183,24 @@ Stop with `BLOCKED` when:
 
 Do not repair unrelated baseline failures unless OC explicitly puts them in scope.
 
-## 12. Phase handoff report
+## 12. Checkpoint report
 
-For a non-final phase, report: `Status: PASS | BLOCKED`; work item/phase; executor; branch/base/HEAD; checkpoint commits; files changed; acceptance evidence; checks; worktree status; deviations/risks/blockers; next phase and assigned executor; and confirmation that the executor stopped without merge, Ready, rebase or branch deletion.
+When a work item has more than one internal phase, Claude reports at each checkpoint: `Status: PASS | BLOCKED`; work item/phase; branch/base/HEAD; checkpoint commits; files changed; acceptance evidence for that phase; checks; worktree status; deviations/risks/blockers; and confirmation that Claude stopped writing without merge, Ready, rebase or branch deletion.
 
 `PASS` requires every phase acceptance criterion to be met. Anything incomplete or unverified is `BLOCKED`.
 
-## 13. Completion report
+## 13. Completion report and Codex review handoff
 
-Final report contains: `Status: PASS | BLOCKED`; work item; execution mode/completed phases; branch/base/head; commits; authorized Draft PR URL; diff stat/files; acceptance; exact checks/outcomes; self-review; deviations; risks/`NOT RUN`; blockers when blocked; requested Owner/OC decision; and confirmation that no merge, Ready transition, history rewrite or branch deletion occurred.
+After the final phase of a work item, Claude stops all writes at a stable checkpoint and reports: `Status: PASS | BLOCKED`; work item; branch/base/HEAD; commits; authorized Draft PR URL; diff stat/files; acceptance; exact checks/outcomes; self-review; deviations; risks/`NOT RUN`; blockers when blocked; requested Owner/OC decision.
 
-Send the report to Owner and stop. Owner forwards it to OC for review. Do not start the next task on your own.
+Claude then prints exactly:
+
+```
+READY_FOR_CODEX_REVIEW
+Owner must now invoke:
+/codex:review --base origin/develop
+```
+
+using the exact review command from the Master Execution Prompt. Claude does not invoke the review command itself and makes no further repository mutations after printing this line.
+
+Send the report to Owner and stop. Owner invokes Codex review, then forwards the report — and, when Owner asks Claude to continue the report, the returned Codex result verbatim — to OC for review. Claude never silently fixes a Codex finding; a fix requires an OC correction prompt. Do not start the next task on your own.

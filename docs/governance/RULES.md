@@ -63,8 +63,8 @@ Tại mọi thời điểm chỉ Claude được phép có quyền ghi vào work
 
 - Không tạo worktree thứ hai cho Codex để cùng giải một work item.
 - Codex review cùng Git state/diff mà Claude vừa hoàn tất, nhưng chỉ trong sandbox read-only.
-- Trước khi gọi Codex review, Claude phải dừng mọi thao tác ghi và giữ worktree ở một checkpoint ổn định trong suốt lượt review.
-- Claude chỉ được gọi Codex qua review command đã duyệt. Không dùng Codex để rescue, transfer, implement, sửa findings hoặc tự phân chia task.
+- Trước khi Owner gọi Codex review, Claude phải dừng mọi thao tác ghi và giữ worktree ở một checkpoint ổn định trong suốt lượt review.
+- Chỉ Owner được phép gọi Codex, và chỉ qua review command đã duyệt (`/codex:review`). Claude không tự thực thi review command này; không dùng Codex để rescue, transfer, implement, sửa findings hoặc tự phân chia task.
 - Không bật automatic review gate hoặc vòng lặp Claude–Codex tự động. Mỗi lượt review phải là một invocation hữu hạn, có chủ đích và được ghi trong report.
 - Không tạo nested-agent/fan-out ngoài review invocation đã duyệt.
 - Control Tower hoặc OC có thể tư vấn/review nhưng không được sửa worktree do Claude nắm giữ.
@@ -96,6 +96,8 @@ Mỗi Master Execution Prompt gửi cho Claude phải kết thúc bằng đúng 
 
 Câu nhắc này không thay thế review contract ở các mục 2, 3 và 7, cũng không trao cho Codex quyền ghi.
 
+Master Execution Prompt là bắt buộc cho work item implementation của Claude, nhưng không được lặp lại như executor-activation context bên trong native Codex review request. Native review chỉ cần review command tường minh, diff/target mục tiêu và review-mode rule ở mục 2 và 3; review không cần và không chờ `ACTIVE_EXECUTOR`, `PHASE_ID` hay `EXECUTION_MODE`.
+
 Nếu prompt thiếu baseline, scope, acceptance, review base hoặc skill policy có ảnh hưởng đến cách triển khai, Claude phải trả `BLOCKED` thay vì tự đoán.
 
 ## 5. Branch, worktree và ownership
@@ -119,25 +121,26 @@ Trước khi chuyển từ implementation sang Codex review, Claude phải:
 4. tạo commit/checkpoint nếu prompt yêu cầu;
 5. chuẩn bị provisional completion report với branch, baseline, HEAD, diff scope, checks và rủi ro;
 6. dừng mọi thao tác ghi;
-7. gọi đúng review command đã duyệt.
+7. công bố `READY_FOR_CODEX_REVIEW` kèm đúng review command Owner cần chạy; Claude không tự gọi command đó.
 
-Codex chỉ trả findings hoặc xác nhận không có finding trong phạm vi đã review. Sau đó Claude đưa nguyên trạng kết quả review vào completion report và dừng. Codex không nhận write lock ở bất kỳ thời điểm nào.
+Chỉ Owner được gọi review command này. Codex chỉ trả findings hoặc xác nhận không có finding trong phạm vi đã review. Sau khi Owner chuyển kết quả về, Claude đưa nguyên trạng kết quả review vào completion report và dừng. Codex không nhận write lock ở bất kỳ thời điểm nào.
 
 ## 7. Review và quyền merge
 
 Luồng mặc định sau execution:
 
 1. Claude hoàn tất implementation/correction và mandatory checks.
-2. Claude dừng ghi và chạy một lượt `/codex:review --base origin/develop`, trừ khi Master Execution Prompt chỉ định review base khác.
-3. Codex review read-only và trả findings; không được sửa code.
-4. Claude chèn nguyên trạng review result, review base và trạng thái `RUN`/`NOT RUN` vào completion report rồi gửi Owner và dừng.
-5. Owner chuyển report cho OC.
-6. OC kiểm tra Codex findings cùng report, diff, test và PR nếu có.
-7. Nếu cần correction, OC phát correction prompt cho Claude; sau correction, Codex review lại đúng phần thay đổi.
-8. Khi pass, OC trả recommendation cho Owner.
-9. Owner quyết định Ready/merge/delete branch và có mở task tiếp theo hay không.
+2. Claude dừng mọi thao tác ghi tại một checkpoint ổn định, công bố `READY_FOR_CODEX_REVIEW` và in đúng command Owner cần chạy (mặc định `/codex:review --base origin/develop`, trừ khi Master Execution Prompt chỉ định review base khác).
+3. Owner gọi `/codex:review` (hoặc command được chỉ định). Đây là invocation duy nhất cho lượt review này; Claude không tự chạy command này.
+4. Codex thực hiện native read-only review trên đúng diff/target được yêu cầu và trả findings; không được sửa code.
+5. Owner chuyển kết quả Codex về cho Claude; Claude chèn nguyên trạng review result, review base và trạng thái `RUN`/`NOT RUN` vào completion report rồi gửi Owner và dừng.
+6. Owner chuyển report cho OC.
+7. OC kiểm tra Codex findings cùng report, diff, test và PR nếu có.
+8. Nếu cần correction, OC phát correction prompt cho Claude; sau correction, Claude lặp lại bước 1–6 cho đúng phần thay đổi.
+9. Khi pass, OC trả recommendation cho Owner.
+10. Owner quyết định Ready/merge/delete branch và có mở task tiếp theo hay không.
 
-Codex review là mandatory gate mặc định. Nếu command không khả dụng, treo hoặc không tạo được kết quả đáng tin cậy, Claude ghi `CODEX_REVIEW: NOT RUN` kèm evidence và trả `BLOCKED`; không tự thay bằng rescue, transfer hay self-review.
+Codex review là mandatory gate mặc định. Chỉ Owner được invoke `/codex:review`; Claude không tự gọi command này. Nếu Owner không thể invoke được review (command không khả dụng, treo hoặc không tạo được kết quả đáng tin cậy), Claude ghi `CODEX_REVIEW: NOT RUN` kèm evidence khi được Owner thông báo, và trả `BLOCKED`; không tự thay bằng rescue, transfer hay self-review.
 
 Chỉ escalation lên Control Tower khi vấn đề chạm business scope, kiến trúc, dependency cấp dự án hoặc vượt quyền OC.
 
@@ -186,7 +189,7 @@ Không dùng chat history làm nguồn sự thật lâu dài.
 ## 11. Công cụ và skill
 
 - `openai/codex-plugin-cc` chỉ được dùng làm cầu review giữa Claude Code và Codex.
-- Review mặc định dùng `/codex:review --base origin/develop`. `/codex:adversarial-review` chỉ được dùng khi OC yêu cầu rõ cho work item rủi ro cao.
+- Review mặc định dùng `/codex:review --base origin/develop`, do Owner invoke sau khi Claude công bố `READY_FOR_CODEX_REVIEW`. `/codex:adversarial-review` chỉ được dùng khi OC yêu cầu rõ cho work item rủi ro cao, và vẫn do Owner invoke.
 - Cấm trong workflow mặc định: `/codex:rescue`, `/codex:transfer`, Codex write mode và automatic review gate.
 - GitNexus là công cụ code graph và impact analysis hiện hành.
 - Chỉ cài/adapt skill đã được review và phù hợp dự án; không mặc định nhập toàn bộ một skill repository.
