@@ -45,7 +45,7 @@ There are two distinct activation contexts.
 - If the target diff is empty, the review reports that there is no reviewable diff; it does not report missing executor authorization.
 - Codex must remain read-only: no file edits, formatter writes, commits, pushes, PR changes or merges.
 - Codex findings are evidence for OC, not a governance verdict. OC decides `PASS`, `CORRECTION_REQUIRED` or `BLOCKED`; Owner alone decides Ready/merge/branch cleanup.
-- Only Owner invokes `/codex:review`. Claude never runs, triggers or requests execution of the review command itself.
+- Only Owner may invoke the review command. Claude must never run or trigger it. At the required handoff (see §13), Claude must explicitly instruct Owner to invoke the exact command from the Master Execution Prompt — announcing that required Owner action is permitted and is not equivalent to Claude invoking the command.
 
 ## 3. Fixed roles and write lock
 
@@ -193,14 +193,14 @@ When a work item has more than one internal phase, Claude reports at each checkp
 
 After the final phase of a work item, Claude stops all writes at a stable checkpoint and reports: `Status: PASS | BLOCKED`; work item; branch/base/HEAD; commits; authorized Draft PR URL; diff stat/files; acceptance; exact checks/outcomes; self-review; deviations; risks/`NOT RUN`; blockers when blocked; requested Owner/OC decision.
 
-Claude then prints exactly:
+Claude then prints, replacing `<CODEX_REVIEW_COMMAND>` verbatim with the `CODEX_REVIEW_COMMAND` supplied by the current Master Execution Prompt (no inferred or hardcoded default base or flags):
 
 ```
 READY_FOR_CODEX_REVIEW
 Owner must now invoke:
-/codex:review --base origin/develop
+<CODEX_REVIEW_COMMAND>
 ```
 
-using the exact review command from the Master Execution Prompt. Claude does not invoke the review command itself and makes no further repository mutations after printing this line.
+If the Master Execution Prompt does not supply `CODEX_REVIEW_COMMAND`, Claude returns `BLOCKED` instead of inventing one. Claude does not invoke the review command itself and makes no further repository mutations after printing this line.
 
 Send the report to Owner and stop. Owner invokes Codex review, then forwards the report — and, when Owner asks Claude to continue the report, the returned Codex result verbatim — to OC for review. Claude never silently fixes a Codex finding; a fix requires an OC correction prompt. Do not start the next task on your own.
