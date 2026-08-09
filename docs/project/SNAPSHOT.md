@@ -4,7 +4,7 @@
 >
 > Mục đích: phục hồi trạng thái hiện tại mà không cần nạp worklog lịch sử
 
-Lần cập nhật này thay đổi governance/tooling state. Repository SHA và PR state bên dưới được giữ từ lần xác minh gần nhất ngày 2026-07-31; phải revalidate `origin/develop` trước khi tạo feature branch tiếp theo.
+Lần cập nhật này thay đổi governance/tooling state. Repository SHA và PR state bên dưới đã được revalidate ngày 2026-08-09 theo baseline `AI-OPS-GOV-002` (`8b9d9ff1d7eda2b835280d3d9cc4031445ebea7c`); revalidate lại `origin/develop` trước khi tạo feature branch tiếp theo sau khi work item này merge.
 
 ## 1. Repository state
 
@@ -12,13 +12,13 @@ Lần cập nhật này thay đổi governance/tooling state. Repository SHA và
 |---|---|
 | Repository | `emLamHD/The_BHA_hotels_Booking` |
 | Base branch | `develop` |
-| `develop` HEAD | `a75d27bb3c6b47a9832f022616d94cefbe001d12` |
-| PR gần nhất | `#22` — merged |
-| Merge commit | `a75d27bb3c6b47a9832f022616d94cefbe001d12` |
-| Feature branch của PR #22 | đã xóa local và remote theo xác nhận của Owner |
-| Open execution PR | không có theo trạng thái bàn giao hiện tại |
+| `develop` HEAD | `8b9d9ff1d7eda2b835280d3d9cc4031445ebea7c` |
+| PR gần nhất | `#24` — merged 2026-08-09 |
+| Merge commit | `8b9d9ff1d7eda2b835280d3d9cc4031445ebea7c` |
+| Feature branch của PR #24 | trạng thái xóa local/remote chưa được Owner xác nhận trong phiên này |
+| Open execution PR | `docs/ai-ops-gov-002-review-contract-alignment` — Draft PR mở trong work item này |
 
-PR #22 chỉ thêm một design document: `1 file`, `1737 additions`, `0 deletions`; CI hoàn tất với kết quả `success`.
+PR #24 sửa root `AGENTS.md`/`CLAUDE.md` để ghi Claude là sole implementer, Codex là read-only reviewer; CI hoàn tất với kết quả `success`. PR #23 trước đó hợp nhất kiến trúc quản trị `docs_1` vào `docs/`.
 
 ## 2. Work item state
 
@@ -74,9 +74,9 @@ Nếu số test thay đổi trong task sau, completion report phải giải thí
 
 - Operating invariant: `Claude writes. Codex reviews. OC decides. Owner merges.`
 - Một work item dùng một feature branch và một writable worktree; chỉ Claude có write lock.
-- Sau implementation/correction và mandatory checks, Claude dừng ghi rồi gọi một lượt `/codex:review --base origin/develop`.
+- Sau implementation/correction và mandatory checks, Claude dừng ghi tại checkpoint ổn định và công bố `READY_FOR_CODEX_REVIEW` kèm đúng command; chỉ Owner mới invoke một lượt `/codex:review --base origin/develop`.
 - Codex đọc cùng Git state/diff trong sandbox read-only; không có worktree hoặc phase implementation riêng.
-- Codex findings được đưa vào completion report; OC mới kết luận pass/correction/blocker.
+- Codex findings được Owner chuyển về, Claude đưa vào completion report; OC mới kết luận pass/correction/blocker.
 - Không dùng rescue, transfer, Codex write mode, automatic review gate, parallel agent hoặc nested implementation orchestration.
 - Mỗi Master Execution Prompt cho Claude kết thúc bằng câu: “Codex sẽ xem lại kết quả đầu ra của bạn sau khi bạn hoàn thành.”
 
@@ -92,29 +92,38 @@ Quyết định hiện tại:
 - `diagnosing-bugs` được phê duyệt theo điều kiện, không phải mandatory step cho mọi task; exact installed version/hash cần được ghi khi chạy pilot đầu tiên.
 - Khi dùng skill, mọi command/output/artifact chia sẻ phải redact secret, token, cookie, dữ liệu cá nhân và auth header.
 
-Chưa coi tooling migration là hoàn tất cho đến khi đủ các gate:
+### AI-OPS-DRYRUN-001 (2026-08-09)
 
-1. Owner áp dụng và xác nhận bộ Markdown mới cùng root `AGENTS.md`/`CLAUDE.md` adapter.
+- Plugin install, auth, round-trip và read-only behavior: `PASS`.
+- Real branch-diff review: `NOT TESTED`.
+- Kết quả tổng thể: `BLOCKED` — root `AGENTS.md`/`CLAUDE.md` khi đó vẫn ở mô hình peer-executor cũ (yêu cầu `ACTIVE_EXECUTOR`, `SINGLE_AGENT`/`SEQUENTIAL_DUAL_AGENT`), và `develop` không có diff khả dụng để review.
+- Hành động khắc phục: work item `AI-OPS-GOV-002` căn chỉnh lại root adapters và Codex review contract (invariant cố định, Owner là người duy nhất invoke `/codex:review`).
+
+**Tooling migration chưa hoàn tất.** Chưa coi tooling migration là hoàn tất cho đến khi đủ các gate:
+
+1. Owner áp dụng và xác nhận bộ Markdown mới cùng root `AGENTS.md`/`CLAUDE.md` adapter — draft căn chỉnh hoàn tất trong `AI-OPS-GOV-002`, chờ Owner xác nhận.
 2. Cài/config `openai/codex-plugin-cc` ở review-only mode với explicit base `origin/develop`.
 3. Xác nhận GitNexus vẫn hoạt động trong Claude workflow.
 4. Kiểm tra `diagnosing-bugs` đã cài, ghi version/hash hoặc source revision và xác nhận redaction guardrail.
-5. Chạy dry run Codex review không đổi product behavior.
-6. Chạy pilot đầu tiên với một work item nhỏ, giới hạn một review invocation mỗi completion/correction.
+5. Chạy real branch-diff Codex review (Owner-invoked) không đổi product behavior, thay thế dry run trước đó vốn không có diff để review.
+6. Chạy pilot đầu tiên (`AI-OPS-PILOT-001`) với một work item nhỏ, giới hạn một review invocation mỗi completion/correction, Owner-invoked.
 7. OC review bằng chứng pilot; Owner quyết định pass/fail trước khi mở `FE-002.1`.
+
+`AI-OPS-PILOT-001` và `FE-002.1` vẫn bị khóa cho đến khi correction này được Owner xác nhận và một lượt real branch-diff review pass.
 
 ## 7. Current objective
 
-Hoàn tất migration tài liệu quản trị cho mô hình Claude-write/Codex-review, sau đó chạy `install/config → review-only dry run → pilot`.
+Hoàn tất `AI-OPS-GOV-002` (căn chỉnh root adapters và Codex review contract cho mô hình Claude-write/Codex-review cố định, Owner-invoked), sau đó chạy một lượt real branch-diff Codex review, rồi mới tiếp tục `install/config → pilot`.
 
 Không code `FE-002.1` hoặc `DATA-001.2` trong giai đoạn cập nhật tài liệu và cài đặt công cụ.
 
 ## 8. Execution order hiện tại
 
-1. Chuẩn hóa `RULES.md`, `WORKFLOW.md`, `PROJECT_BIBLE.md`, `SNAPSHOT.md`, plan/worklog, root `AGENTS.md` và `CLAUDE.md`.
-2. Owner áp dụng các file vào đúng vị trí trong repo và xác nhận.
-3. Cài/config `openai/codex-plugin-cc` review-only và xác minh `diagnosing-bugs` đã cài.
-4. Chạy dry run `/codex:review --base origin/develop` trên một checkpoint không đổi product behavior.
-5. Chạy task pilot `AI-OPS-PILOT-001` với Claude là writer duy nhất và Codex là reviewer duy nhất.
+1. `AI-OPS-GOV-002`: căn chỉnh root `AGENTS.md`/`CLAUDE.md` với `RULES.md`/`WORKFLOW.md` — loại bỏ mô hình peer-executor cũ, cố định Claude writes/Codex reviews, Owner là người duy nhất invoke `/codex:review`.
+2. Owner áp dụng các file vào đúng vị trí trong repo và xác nhận correction này.
+3. Chạy một lượt real branch-diff Codex review (Owner-invoked, `/codex:review --wait --base origin/develop`) trên checkpoint ổn định của `AI-OPS-GOV-002`.
+4. Cài/config `openai/codex-plugin-cc` review-only và xác minh `diagnosing-bugs` đã cài.
+5. Chạy task pilot `AI-OPS-PILOT-001` với Claude là writer duy nhất và Codex là reviewer duy nhất, Owner-invoked.
 6. OC review bằng chứng pilot; Owner quyết định pass/fail.
 7. Chỉ sau khi pilot pass, Control Tower mới phát lệnh cấp cao để OC lập workflow cho `FE-002.1`.
 
@@ -133,4 +142,4 @@ Không code `FE-002.1` hoặc `DATA-001.2` trong giai đoạn cập nhật tài 
 
 ## 10. First action
 
-Owner áp dụng `RULES.md`, `WORKFLOW.md`, `SNAPSHOT.md`, đồng bộ root `AGENTS.md`/`CLAUDE.md`, rồi revalidate `origin/develop`, branch và worktree clean trước khi config plugin review-only.
+Owner xác nhận Draft PR `AI-OPS-GOV-002` (căn chỉnh root `AGENTS.md`/`CLAUDE.md` với `RULES.md`/`WORKFLOW.md`/`SNAPSHOT.md`), sau đó invoke `/codex:review --wait --base origin/develop` để chạy real branch-diff review trước khi tiếp tục config plugin review-only.
