@@ -93,6 +93,22 @@ describe("validateContact", () => {
     const errors = validateContact({ ...VALID_CONTACT, phone: "1234567" });
     expect(errors?.phone).toBeUndefined();
   });
+
+  it("accepts a valid email at exactly the 256-character boundary", () => {
+    const email = `${"a".repeat(244)}@example.com`;
+    expect(email).toHaveLength(256);
+
+    const errors = validateContact({ ...VALID_CONTACT, email });
+    expect(errors?.email).toBeUndefined();
+  });
+
+  it("accepts a valid phone at exactly the 32-character boundary", () => {
+    const phone = "1".repeat(32);
+    expect(phone).toHaveLength(32);
+
+    const errors = validateContact({ ...VALID_CONTACT, phone });
+    expect(errors?.phone).toBeUndefined();
+  });
 });
 
 describe("buildBookingHoldRequest", () => {
