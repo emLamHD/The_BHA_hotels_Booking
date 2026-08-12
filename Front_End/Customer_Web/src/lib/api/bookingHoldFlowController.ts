@@ -1,12 +1,13 @@
 import {
   BookingHoldAttemptSnapshot,
+  BookingHoldConfirmationAttemptSnapshot,
   ContactInput,
   SelectedOfferSnapshot,
   buildBookingHoldRequest,
   validateContact,
 } from "./bookingHoldAttempt";
 import { BookingHoldFlowAction, BookingHoldFlowState } from "./bookingHoldFlow";
-import { createBookingHold } from "./bookingHoldService";
+import { confirmBookingHold, createBookingHold } from "./bookingHoldService";
 import { generateIdempotencyKey } from "./idempotencyKey";
 import { ApiConfigError, ApiHttpError, ApiNetworkError, ApiValidationError } from "./errors";
 import { isRequestCancelledError } from "./httpClient";
@@ -30,6 +31,15 @@ export interface BookingHoldFlowController {
   updateContact: (contact: ContactInput) => void;
   submit: () => void;
   retryExact: () => void;
+  /**
+   * Confirms the retained active Hold session (`active-session` only),
+   * reusing exactly `session.hold.holdId` and `session.guestAccessToken` —
+   * the latter, not `session.hold.guestAccessToken`, so a retained token
+   * from an earlier same-Hold replay-null is still used.
+   */
+  confirmHold: () => void;
+  /** Exact confirmation retry, reusing the identical retained attempt from `confirm-uncertain`/`confirm-known-error`. */
+  retryConfirmationExact: () => void;
   /**
    * The single authoritative, synchronous decision point for whether an
    * explicit Availability operation (a fresh search or "Retry last
@@ -97,14 +107,21 @@ export function createBookingHoldFlowController(
   // gap without depending on React's render/commit timing.
   let offerSelectionActive = false;
 
+  // Every phase from active-session onward (the Hold confirmation lifecycle
+  // and its terminal Reservation result) locks Availability exactly like
+  // submitting/uncertain — shared by the availability gate, `selectOffer`,
+  // and the confirmation entry points below so the set is never duplicated.
+  const CONFIRMATION_LOCKED_PHASES: ReadonlySet<BookingHoldFlowState["phase"]> = new Set<
+    BookingHoldFlowState["phase"]
+  >(["submitting", "uncertain", "active-session", "confirming", "confirm-known-error", "confirm-uncertain", "reservation-result"]);
+
   // The one lock predicate shared by both the read-only authorization check
   // and the committing gate below — never duplicated, never re-derived.
   function isFlowLockedForAvailability(): boolean {
     if (inFlight) {
       return true;
     }
-    const phase = getState().phase;
-    return phase === "submitting" || phase === "uncertain" || phase === "active-session";
+    return CONFIRMATION_LOCKED_PHASES.has(getState().phase);
   }
 
   function runAttempt(attempt: BookingHoldAttemptSnapshot, kind: "submit" | "retry"): void {
@@ -160,10 +177,68 @@ export function createBookingHoldFlowController(
       });
   }
 
+  function runConfirmationAttempt(
+    attempt: BookingHoldConfirmationAttemptSnapshot,
+    kind: "confirm" | "retry"
+  ): void {
+    const thisOperationId = ++operationId;
+    dispatch(
+      kind === "confirm"
+        ? { type: "confirmation-requested", attempt, operationId: thisOperationId }
+        : { type: "confirmation-retry-requested", operationId: thisOperationId }
+    );
+
+    const controller = new AbortController();
+    onAttemptStart?.(controller);
+
+    confirmBookingHold(attempt.holdId, attempt.guestAccessToken, { signal: controller.signal })
+      .then((result) => {
+        if (operationId !== thisOperationId) {
+          return; // superseded by a newer operation; ignore this stale success
+        }
+        dispatch({ type: "confirmation-succeeded", operationId: thisOperationId, result });
+      })
+      .catch((error) => {
+        if (operationId !== thisOperationId) {
+          return; // superseded by a newer operation; ignore this stale failure
+        }
+        if (isRequestCancelledError(error)) {
+          return;
+        }
+        if (error instanceof ApiNetworkError) {
+          dispatch({ type: "confirmation-uncertain", operationId: thisOperationId });
+          return;
+        }
+        if (
+          error instanceof ApiValidationError ||
+          error instanceof ApiHttpError ||
+          error instanceof ApiConfigError
+        ) {
+          dispatch({
+            type: "confirmation-known-error",
+            operationId: thisOperationId,
+            message: describeError(error),
+          });
+          return;
+        }
+        // Unclassified failure (including an ambiguous successful response
+        // with no usable Reservation body) — honestly ambiguous rather than
+        // falsely "known".
+        dispatch({ type: "confirmation-uncertain", operationId: thisOperationId });
+      })
+      .finally(() => {
+        // Only the operation that is still current releases the lock; a
+        // superseded operation's completion must not unlock a newer one.
+        if (operationId === thisOperationId) {
+          inFlight = false;
+        }
+      });
+  }
+
   return {
     selectOffer(offer, label) {
       const phase = getState().phase;
-      if (phase === "submitting" || phase === "uncertain" || phase === "active-session") {
+      if (CONFIRMATION_LOCKED_PHASES.has(phase)) {
         return;
       }
       offerSelectionActive = true;
@@ -218,6 +293,41 @@ export function createBookingHoldFlowController(
 
       inFlight = true;
       runAttempt(current.attempt, "retry");
+    },
+
+    confirmHold() {
+      if (inFlight) {
+        return;
+      }
+      const current = getState();
+      if (current.phase !== "active-session" || !current.session) {
+        return;
+      }
+
+      inFlight = true;
+      const attempt: BookingHoldConfirmationAttemptSnapshot = {
+        holdId: current.session.hold.holdId,
+        // The retained session-level token, not `session.hold.guestAccessToken`
+        // — a same-Hold replay-null must not lose an earlier-retained token.
+        guestAccessToken: current.session.guestAccessToken,
+      };
+      runConfirmationAttempt(attempt, "confirm");
+    },
+
+    retryConfirmationExact() {
+      if (inFlight) {
+        return;
+      }
+      const current = getState();
+      if (
+        (current.phase !== "confirm-uncertain" && current.phase !== "confirm-known-error") ||
+        !current.confirmationAttempt
+      ) {
+        return;
+      }
+
+      inFlight = true;
+      runConfirmationAttempt(current.confirmationAttempt, "retry");
     },
 
     tryBeginAvailabilitySearch() {

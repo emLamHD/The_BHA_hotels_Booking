@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { CreateBookingHoldRequest } from "../bookingHoldTypes";
+import { CreateBookingHoldRequest, ReservationDto } from "../bookingHoldTypes";
 
 const submitCsrfProtectedRequestMock = vi.fn();
 
@@ -148,5 +148,148 @@ describe("createBookingHold", () => {
     ]) {
       expect(Object.prototype.hasOwnProperty.call(body, forbidden)).toBe(false);
     }
+  });
+});
+
+const HOLD_ID = "aaaaaaaa-0000-0000-0000-000000000001";
+
+const RESERVATION_FIXTURE: ReservationDto = {
+  reservationId: "bbbbbbbb-0000-0000-0000-000000000001",
+  confirmationNumber: "BHA2QK7X9F3M8N1P5R7T2V4W6",
+  status: "Confirmed",
+  propertyId: REQUEST.propertyId,
+  roomTypeId: REQUEST.roomTypeId,
+  ratePlanId: REQUEST.ratePlanId,
+  fullName: REQUEST.fullName,
+  email: REQUEST.email,
+  phone: REQUEST.phone,
+  checkIn: REQUEST.checkIn,
+  checkOut: REQUEST.checkOut,
+  adults: REQUEST.adults,
+  children: REQUEST.children,
+  rooms: REQUEST.rooms,
+  currencyCode: "VND",
+  totalAmount: 3000000,
+  confirmedAtUtc: "2026-07-30T02:00:10.123Z",
+  cancelledAtUtc: null,
+  cancellationReason: null,
+  nights: [
+    { stayDate: "2026-08-01", rooms: 1, unitAmount: 1500000, nightTotal: 1500000 },
+    { stayDate: "2026-08-02", rooms: 1, unitAmount: 1500000, nightTotal: 1500000 },
+  ],
+};
+
+describe("confirmBookingHold", () => {
+  it("calls exactly the Booking Hold confirm route with POST", async () => {
+    const { confirmBookingHold } = await import("../bookingHoldService");
+    submitCsrfProtectedRequestMock.mockResolvedValueOnce({ status: 201, data: RESERVATION_FIXTURE });
+
+    await confirmBookingHold(HOLD_ID, "guest-token-value");
+
+    expect(submitCsrfProtectedRequestMock).toHaveBeenCalledWith(
+      `/api/v1/booking-holds/${HOLD_ID}/confirm`,
+      "POST",
+      undefined,
+      expect.any(Object)
+    );
+  });
+
+  it("sends no business request body", async () => {
+    const { confirmBookingHold } = await import("../bookingHoldService");
+    submitCsrfProtectedRequestMock.mockResolvedValueOnce({ status: 201, data: RESERVATION_FIXTURE });
+
+    await confirmBookingHold(HOLD_ID, "guest-token-value");
+
+    const [, , body] = submitCsrfProtectedRequestMock.mock.calls[0];
+    expect(body).toBeUndefined();
+  });
+
+  it("never sends an Idempotency-Key header", async () => {
+    const { confirmBookingHold } = await import("../bookingHoldService");
+    submitCsrfProtectedRequestMock.mockResolvedValueOnce({ status: 201, data: RESERVATION_FIXTURE });
+
+    await confirmBookingHold(HOLD_ID, "guest-token-value");
+
+    const [, , , options] = submitCsrfProtectedRequestMock.mock.calls[0];
+    expect(Object.prototype.hasOwnProperty.call(options.headers, "Idempotency-Key")).toBe(false);
+  });
+
+  it("sends a non-empty guest token exactly as X-Booking-Access-Token", async () => {
+    const { confirmBookingHold } = await import("../bookingHoldService");
+    submitCsrfProtectedRequestMock.mockResolvedValueOnce({ status: 201, data: RESERVATION_FIXTURE });
+
+    await confirmBookingHold(HOLD_ID, "guest-token-value");
+
+    const [, , , options] = submitCsrfProtectedRequestMock.mock.calls[0];
+    expect(options.headers).toEqual({ "X-Booking-Access-Token": "guest-token-value" });
+  });
+
+  it("omits X-Booking-Access-Token for a null guest token", async () => {
+    const { confirmBookingHold } = await import("../bookingHoldService");
+    submitCsrfProtectedRequestMock.mockResolvedValueOnce({ status: 201, data: RESERVATION_FIXTURE });
+
+    await confirmBookingHold(HOLD_ID, null);
+
+    const [, , , options] = submitCsrfProtectedRequestMock.mock.calls[0];
+    expect(Object.prototype.hasOwnProperty.call(options.headers, "X-Booking-Access-Token")).toBe(false);
+  });
+
+  it("omits X-Booking-Access-Token for an empty-string guest token", async () => {
+    const { confirmBookingHold } = await import("../bookingHoldService");
+    submitCsrfProtectedRequestMock.mockResolvedValueOnce({ status: 201, data: RESERVATION_FIXTURE });
+
+    await confirmBookingHold(HOLD_ID, "");
+
+    const [, , , options] = submitCsrfProtectedRequestMock.mock.calls[0];
+    expect(Object.prototype.hasOwnProperty.call(options.headers, "X-Booking-Access-Token")).toBe(false);
+  });
+
+  it("reports a 201 response as confirmed and preserves the Reservation response", async () => {
+    const { confirmBookingHold } = await import("../bookingHoldService");
+    submitCsrfProtectedRequestMock.mockResolvedValueOnce({ status: 201, data: RESERVATION_FIXTURE });
+
+    const result = await confirmBookingHold(HOLD_ID, "guest-token-value");
+
+    expect(result.outcome).toBe("confirmed");
+    expect(result.reservation).toEqual(RESERVATION_FIXTURE);
+  });
+
+  it("reports a 200 response as replayed and preserves the Reservation response", async () => {
+    const { confirmBookingHold } = await import("../bookingHoldService");
+    submitCsrfProtectedRequestMock.mockResolvedValueOnce({ status: 200, data: RESERVATION_FIXTURE });
+
+    const result = await confirmBookingHold(HOLD_ID, "guest-token-value");
+
+    expect(result.outcome).toBe("replayed");
+    expect(result.reservation).toEqual(RESERVATION_FIXTURE);
+  });
+
+  it("forwards an AbortSignal", async () => {
+    const { confirmBookingHold } = await import("../bookingHoldService");
+    submitCsrfProtectedRequestMock.mockResolvedValueOnce({ status: 201, data: RESERVATION_FIXTURE });
+    const controller = new AbortController();
+
+    await confirmBookingHold(HOLD_ID, "guest-token-value", { signal: controller.signal });
+
+    const [, , , options] = submitCsrfProtectedRequestMock.mock.calls[0];
+    expect(options.signal).toBe(controller.signal);
+  });
+
+  it("throws a clear error when the server returns no Reservation body", async () => {
+    const { confirmBookingHold } = await import("../bookingHoldService");
+    submitCsrfProtectedRequestMock.mockResolvedValueOnce({ status: 200, data: undefined });
+
+    await expect(confirmBookingHold(HOLD_ID, "guest-token-value")).rejects.toThrow(
+      "The server did not return a Reservation."
+    );
+  });
+
+  it("performs exactly one confirm request per invocation", async () => {
+    const { confirmBookingHold } = await import("../bookingHoldService");
+    submitCsrfProtectedRequestMock.mockResolvedValueOnce({ status: 201, data: RESERVATION_FIXTURE });
+
+    await confirmBookingHold(HOLD_ID, "guest-token-value");
+
+    expect(submitCsrfProtectedRequestMock).toHaveBeenCalledTimes(1);
   });
 });

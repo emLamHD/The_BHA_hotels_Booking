@@ -34,6 +34,12 @@ export interface ActiveHoldSession {
   outcome: "created" | "replayed";
 }
 
+/** An immutable confirmation-attempt snapshot: the exact Hold ID and guest credential used by one confirm operation. */
+export interface BookingHoldConfirmationAttemptSnapshot {
+  holdId: string;
+  guestAccessToken: string | null;
+}
+
 const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const PHONE_PATTERN = /^[0-9+(). -]{7,32}$/;
 

@@ -4,8 +4,9 @@ import {
   bookingHoldFlowReducer,
   initialBookingHoldFlowState,
 } from "../bookingHoldFlow";
-import { SelectedOfferSnapshot } from "../bookingHoldAttempt";
-import { BookingHoldDto } from "../bookingHoldTypes";
+import { BookingHoldConfirmationAttemptSnapshot, SelectedOfferSnapshot } from "../bookingHoldAttempt";
+import { BookingHoldDto, ReservationDto } from "../bookingHoldTypes";
+import { ConfirmBookingHoldResult } from "../bookingHoldService";
 
 const OFFER: SelectedOfferSnapshot = {
   propertyId: "10000000-0000-0000-0000-000000000001",
@@ -66,6 +67,85 @@ function selected(): BookingHoldFlowState {
     type: "offer-selected",
     offer: OFFER,
     label: "Deluxe King · Standard Rate at The BHA Hotel",
+  });
+}
+
+/** Reaches active-session with a retained guest token via the real submit/success path. */
+function activeSessionState(overrides: { guestAccessToken?: string | null } = {}): BookingHoldFlowState {
+  const guestAccessToken = overrides.guestAccessToken ?? "guest-token-value";
+  let state = bookingHoldFlowReducer(selected(), {
+    type: "submit-requested",
+    attempt: ATTEMPT,
+    operationId: 1,
+  });
+  state = bookingHoldFlowReducer(state, {
+    type: "attempt-succeeded",
+    operationId: 1,
+    result: { hold: holdFixture({ guestAccessToken }), outcome: "created" },
+  });
+  return state;
+}
+
+function matchingConfirmationAttempt(state: BookingHoldFlowState): BookingHoldConfirmationAttemptSnapshot {
+  return { holdId: state.session!.hold.holdId, guestAccessToken: state.session!.guestAccessToken };
+}
+
+function confirmingState(): BookingHoldFlowState {
+  const active = activeSessionState();
+  return bookingHoldFlowReducer(active, {
+    type: "confirmation-requested",
+    attempt: matchingConfirmationAttempt(active),
+    operationId: 2,
+  });
+}
+
+function confirmKnownErrorState(): BookingHoldFlowState {
+  return bookingHoldFlowReducer(confirmingState(), {
+    type: "confirmation-known-error",
+    operationId: 2,
+    message: "Booking Hold cannot be confirmed.",
+  });
+}
+
+function confirmUncertainState(): BookingHoldFlowState {
+  return bookingHoldFlowReducer(confirmingState(), { type: "confirmation-uncertain", operationId: 2 });
+}
+
+function reservationFixture(overrides: Partial<ReservationDto> = {}): ReservationDto {
+  return {
+    reservationId: "bbbbbbbb-0000-0000-0000-000000000001",
+    confirmationNumber: "BHA2QK7X9F3M8N1P5R7T2V4W6",
+    status: "Confirmed",
+    propertyId: OFFER.propertyId,
+    roomTypeId: OFFER.roomTypeId,
+    ratePlanId: OFFER.ratePlanId,
+    fullName: CONTACT.fullName,
+    email: CONTACT.email,
+    phone: CONTACT.phone,
+    checkIn: OFFER.checkIn,
+    checkOut: OFFER.checkOut,
+    adults: OFFER.adults,
+    children: OFFER.children,
+    rooms: OFFER.rooms,
+    currencyCode: "VND",
+    totalAmount: 3000000,
+    confirmedAtUtc: "2026-07-30T02:00:10.123Z",
+    cancelledAtUtc: null,
+    cancellationReason: null,
+    nights: [],
+    ...overrides,
+  };
+}
+
+function confirmationResult(outcome: "confirmed" | "replayed" = "confirmed"): ConfirmBookingHoldResult {
+  return { reservation: reservationFixture(), outcome };
+}
+
+function reservationResultState(): BookingHoldFlowState {
+  return bookingHoldFlowReducer(confirmingState(), {
+    type: "confirmation-succeeded",
+    operationId: 2,
+    result: confirmationResult(),
   });
 }
 
@@ -435,5 +515,253 @@ describe("bookingHoldFlowReducer — search-reset", () => {
       { type: "attempt-succeeded", operationId: 1, result: { hold: holdFixture(), outcome: "created" } }
     );
     expect(bookingHoldFlowReducer(active, { type: "search-reset" })).toBe(active);
+  });
+});
+
+describe("bookingHoldFlowReducer — confirmation lifecycle (P2)", () => {
+  it("active-session -> confirming stores the exact matching confirmation snapshot", () => {
+    const active = activeSessionState();
+    const attempt = matchingConfirmationAttempt(active);
+    const result = bookingHoldFlowReducer(active, {
+      type: "confirmation-requested",
+      attempt,
+      operationId: 2,
+    });
+
+    expect(result.phase).toBe("confirming");
+    expect(result.confirmationAttempt).toEqual(attempt);
+    expect(result.operationId).toBe(2);
+    expect(result.session).toEqual(active.session);
+  });
+
+  it("confirmation-requested is a no-op outside active-session", () => {
+    const state = selected();
+    const result = bookingHoldFlowReducer(state, {
+      type: "confirmation-requested",
+      attempt: { holdId: "some-hold-id", guestAccessToken: null },
+      operationId: 2,
+    });
+    expect(result).toBe(state);
+  });
+
+  it("confirmation-requested rejects a mismatched Hold ID", () => {
+    const active = activeSessionState();
+    const result = bookingHoldFlowReducer(active, {
+      type: "confirmation-requested",
+      attempt: { holdId: "mismatched-hold-id", guestAccessToken: active.session!.guestAccessToken },
+      operationId: 2,
+    });
+    expect(result).toBe(active);
+  });
+
+  it("confirmation-requested rejects a mismatched guest token", () => {
+    const active = activeSessionState();
+    const result = bookingHoldFlowReducer(active, {
+      type: "confirmation-requested",
+      attempt: { holdId: active.session!.hold.holdId, guestAccessToken: "wrong-token" },
+      operationId: 2,
+    });
+    expect(result).toBe(active);
+  });
+
+  it("confirmation-known-error retains the session, guest token, and exact attempt", () => {
+    const confirming = confirmingState();
+    const result = bookingHoldFlowReducer(confirming, {
+      type: "confirmation-known-error",
+      operationId: 2,
+      message: "Booking Hold cannot be confirmed.",
+    });
+
+    expect(result.phase).toBe("confirm-known-error");
+    expect(result.session).toEqual(confirming.session);
+    expect(result.session?.guestAccessToken).toBe(confirming.session!.guestAccessToken);
+    expect(result.confirmationAttempt).toEqual(confirming.confirmationAttempt);
+    expect(result.errorMessage).toBe("Booking Hold cannot be confirmed.");
+  });
+
+  it("confirmation-uncertain retains the session, guest token, and exact attempt", () => {
+    const confirming = confirmingState();
+    const result = bookingHoldFlowReducer(confirming, { type: "confirmation-uncertain", operationId: 2 });
+
+    expect(result.phase).toBe("confirm-uncertain");
+    expect(result.session).toEqual(confirming.session);
+    expect(result.session?.guestAccessToken).toBe(confirming.session!.guestAccessToken);
+    expect(result.confirmationAttempt).toEqual(confirming.confirmationAttempt);
+  });
+
+  it("exact retry from confirm-uncertain returns to confirming with the unchanged attempt", () => {
+    const uncertain = confirmUncertainState();
+    const result = bookingHoldFlowReducer(uncertain, {
+      type: "confirmation-retry-requested",
+      operationId: 3,
+    });
+
+    expect(result.phase).toBe("confirming");
+    expect(result.confirmationAttempt).toEqual(uncertain.confirmationAttempt);
+    expect(result.operationId).toBe(3);
+  });
+
+  it("exact retry from confirm-known-error returns to confirming with the unchanged attempt", () => {
+    const knownError = confirmKnownErrorState();
+    const result = bookingHoldFlowReducer(knownError, {
+      type: "confirmation-retry-requested",
+      operationId: 3,
+    });
+
+    expect(result.phase).toBe("confirming");
+    expect(result.confirmationAttempt).toEqual(knownError.confirmationAttempt);
+    expect(result.operationId).toBe(3);
+  });
+
+  it("confirmation-retry-requested is a no-op outside confirm-uncertain/confirm-known-error", () => {
+    const confirming = confirmingState();
+    const result = bookingHoldFlowReducer(confirming, {
+      type: "confirmation-retry-requested",
+      operationId: 3,
+    });
+    expect(result).toBe(confirming);
+  });
+
+  it("confirmation-succeeded stores the Reservation result and moves to reservation-result", () => {
+    const confirming = confirmingState();
+    const result = confirmationResult("confirmed");
+    const afterSuccess = bookingHoldFlowReducer(confirming, {
+      type: "confirmation-succeeded",
+      operationId: 2,
+      result,
+    });
+
+    expect(afterSuccess.phase).toBe("reservation-result");
+    expect(afterSuccess.reservationResult).toEqual(result);
+  });
+
+  it("confirmation-succeeded clears the active session, guest token, and confirmation attempt", () => {
+    const confirming = confirmingState();
+    const afterSuccess = bookingHoldFlowReducer(confirming, {
+      type: "confirmation-succeeded",
+      operationId: 2,
+      result: confirmationResult(),
+    });
+
+    expect(afterSuccess.session).toBeNull();
+    expect(afterSuccess.confirmationAttempt).toBeNull();
+    expect(afterSuccess.offer).toBeNull();
+    expect(afterSuccess.offerLabel).toBeNull();
+    expect(afterSuccess.attempt).toBeNull();
+    expect(afterSuccess.errorMessage).toBeNull();
+    expect(afterSuccess.contact).toEqual({ fullName: "", email: "", phone: "" });
+  });
+
+  it.each(["confirmed", "replayed"] as const)(
+    "preserves the %s confirmation outcome in the Reservation result",
+    (outcome) => {
+      const confirming = confirmingState();
+      const result = confirmationResult(outcome);
+      const afterSuccess = bookingHoldFlowReducer(confirming, {
+        type: "confirmation-succeeded",
+        operationId: 2,
+        result,
+      });
+      expect(afterSuccess.reservationResult?.outcome).toBe(outcome);
+      expect(afterSuccess.reservationResult?.reservation).toEqual(result.reservation);
+    }
+  );
+
+  it("ignores a stale confirmation success whose operationId no longer matches", () => {
+    let state = confirmingState();
+    // Operation 2 fails known-error (operationId stays 2, phase leaves "confirming").
+    state = bookingHoldFlowReducer(state, {
+      type: "confirmation-known-error",
+      operationId: 2,
+      message: "Booking Hold cannot be confirmed.",
+    });
+    expect(state.phase).toBe("confirm-known-error");
+
+    // A fresh retry starts operation 3.
+    state = bookingHoldFlowReducer(state, { type: "confirmation-retry-requested", operationId: 3 });
+    expect(state.phase).toBe("confirming");
+    expect(state.operationId).toBe(3);
+
+    // Operation 2's stale success arrives late and must be ignored.
+    const staleResult = confirmationResult("confirmed");
+    const afterStale = bookingHoldFlowReducer(state, {
+      type: "confirmation-succeeded",
+      operationId: 2,
+      result: staleResult,
+    });
+    expect(afterStale).toBe(state);
+    expect(afterStale.reservationResult).toBeNull();
+  });
+
+  it("ignores a stale confirmation known-error once the flow has reached reservation-result", () => {
+    const state = reservationResultState();
+    const afterStale = bookingHoldFlowReducer(state, {
+      type: "confirmation-known-error",
+      operationId: 2,
+      message: "should be ignored",
+    });
+    expect(afterStale).toBe(state);
+  });
+
+  it("ignores a stale confirmation-uncertain once the flow has reached reservation-result", () => {
+    const state = reservationResultState();
+    const afterStale = bookingHoldFlowReducer(state, { type: "confirmation-uncertain", operationId: 2 });
+    expect(afterStale).toBe(state);
+  });
+
+  it("offer-selected, contact-changed, search-reset, and submit-requested are no-ops during confirming", () => {
+    const state = confirmingState();
+    expect(
+      bookingHoldFlowReducer(state, { type: "offer-selected", offer: OTHER_OFFER, label: "other" })
+    ).toBe(state);
+    expect(
+      bookingHoldFlowReducer(state, { type: "contact-changed", contact: { ...CONTACT, fullName: "x" } })
+    ).toBe(state);
+    expect(bookingHoldFlowReducer(state, { type: "search-reset" })).toBe(state);
+    expect(
+      bookingHoldFlowReducer(state, { type: "submit-requested", attempt: ATTEMPT, operationId: 999 })
+    ).toBe(state);
+  });
+
+  it("offer-selected, contact-changed, search-reset, and submit-requested are no-ops during confirm-known-error", () => {
+    const state = confirmKnownErrorState();
+    expect(
+      bookingHoldFlowReducer(state, { type: "offer-selected", offer: OTHER_OFFER, label: "other" })
+    ).toBe(state);
+    expect(
+      bookingHoldFlowReducer(state, { type: "contact-changed", contact: { ...CONTACT, fullName: "x" } })
+    ).toBe(state);
+    expect(bookingHoldFlowReducer(state, { type: "search-reset" })).toBe(state);
+    expect(
+      bookingHoldFlowReducer(state, { type: "submit-requested", attempt: ATTEMPT, operationId: 999 })
+    ).toBe(state);
+  });
+
+  it("offer-selected, contact-changed, search-reset, and submit-requested are no-ops during confirm-uncertain", () => {
+    const state = confirmUncertainState();
+    expect(
+      bookingHoldFlowReducer(state, { type: "offer-selected", offer: OTHER_OFFER, label: "other" })
+    ).toBe(state);
+    expect(
+      bookingHoldFlowReducer(state, { type: "contact-changed", contact: { ...CONTACT, fullName: "x" } })
+    ).toBe(state);
+    expect(bookingHoldFlowReducer(state, { type: "search-reset" })).toBe(state);
+    expect(
+      bookingHoldFlowReducer(state, { type: "submit-requested", attempt: ATTEMPT, operationId: 999 })
+    ).toBe(state);
+  });
+
+  it("offer-selected, contact-changed, search-reset, and submit-requested are no-ops during reservation-result", () => {
+    const state = reservationResultState();
+    expect(
+      bookingHoldFlowReducer(state, { type: "offer-selected", offer: OTHER_OFFER, label: "other" })
+    ).toBe(state);
+    expect(
+      bookingHoldFlowReducer(state, { type: "contact-changed", contact: { ...CONTACT, fullName: "x" } })
+    ).toBe(state);
+    expect(bookingHoldFlowReducer(state, { type: "search-reset" })).toBe(state);
+    expect(
+      bookingHoldFlowReducer(state, { type: "submit-requested", attempt: ATTEMPT, operationId: 999 })
+    ).toBe(state);
   });
 });
