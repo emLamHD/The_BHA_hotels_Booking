@@ -7,11 +7,13 @@ import {
 } from "../bookingHoldFlow";
 import { SelectedOfferSnapshot } from "../bookingHoldAttempt";
 import { ApiNetworkError } from "../errors";
-import { BookingHoldDto } from "../bookingHoldTypes";
+import { BookingHoldDto, ReservationDto } from "../bookingHoldTypes";
 
 const createBookingHoldMock = vi.fn();
+const confirmBookingHoldMock = vi.fn();
 vi.mock("../bookingHoldService", () => ({
   createBookingHold: (...args: unknown[]) => createBookingHoldMock(...args),
+  confirmBookingHold: (...args: unknown[]) => confirmBookingHoldMock(...args),
 }));
 
 let keyCounter = 0;
@@ -56,8 +58,8 @@ function holdFixture(overrides: Partial<BookingHoldDto> = {}): BookingHoldDto {
 }
 
 /** A minimal real-reducer-backed harness — no React involved. */
-function createHarness() {
-  let state: BookingHoldFlowState = initialBookingHoldFlowState;
+function createHarness(initialState: BookingHoldFlowState = initialBookingHoldFlowState) {
+  let state: BookingHoldFlowState = initialState;
   const dispatched: BookingHoldFlowAction[] = [];
   const dispatch = (action: BookingHoldFlowAction) => {
     dispatched.push(action);
@@ -84,8 +86,62 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+function reservationFixture(overrides: Partial<ReservationDto> = {}): ReservationDto {
+  return {
+    reservationId: "bbbbbbbb-0000-0000-0000-000000000001",
+    confirmationNumber: "BHA2QK7X9F3M8N1P5R7T2V4W6",
+    status: "Confirmed",
+    propertyId: OFFER.propertyId,
+    roomTypeId: OFFER.roomTypeId,
+    ratePlanId: OFFER.ratePlanId,
+    fullName: CONTACT.fullName,
+    email: CONTACT.email,
+    phone: CONTACT.phone,
+    checkIn: OFFER.checkIn,
+    checkOut: OFFER.checkOut,
+    adults: OFFER.adults,
+    children: OFFER.children,
+    rooms: OFFER.rooms,
+    currencyCode: "VND",
+    totalAmount: 3000000,
+    confirmedAtUtc: "2026-07-30T02:00:10.123Z",
+    cancelledAtUtc: null,
+    cancellationReason: null,
+    nights: [],
+    ...overrides,
+  };
+}
+
+function confirmationResult(outcome: "confirmed" | "replayed" = "confirmed") {
+  return { reservation: reservationFixture(), outcome };
+}
+
+/** Drives the real controller through selectOffer/updateContact/submit to reach a real active-session. */
+async function activeSessionHarness(overrides: { guestAccessToken?: string | null } = {}) {
+  const { createBookingHoldFlowController } = await import("../bookingHoldFlowController");
+  const harness = createHarness();
+  const controller = createBookingHoldFlowController({
+    getState: harness.getState,
+    dispatch: harness.dispatch,
+    onAttemptStart: harness.onAttemptStart,
+  });
+
+  const guestAccessToken = overrides.guestAccessToken ?? "guest-token-value";
+  createBookingHoldMock.mockResolvedValueOnce({ hold: holdFixture({ guestAccessToken }), outcome: "created" });
+  controller.selectOffer(OFFER, "label");
+  controller.updateContact(CONTACT);
+  controller.submit();
+  await vi.waitFor(() => expect(harness.getState().phase).toBe("active-session"));
+
+  createBookingHoldMock.mockClear();
+  generateIdempotencyKeyMock.mockClear();
+
+  return { harness, controller };
+}
+
 beforeEach(() => {
   createBookingHoldMock.mockReset();
+  confirmBookingHoldMock.mockReset();
   generateIdempotencyKeyMock.mockClear();
   keyCounter = 0;
 });
@@ -567,5 +623,321 @@ describe("runIfAvailabilitySearchAllowed", () => {
 
     pending.resolve({ hold: holdFixture(), outcome: "created" });
     await pending.promise;
+  });
+});
+
+describe("createBookingHoldFlowController — confirmation lifecycle (P2)", () => {
+  it("confirmHold calls confirmBookingHold with the active session's exact Hold ID", async () => {
+    const { harness, controller } = await activeSessionHarness();
+    const holdId = harness.getState().session!.hold.holdId;
+    const pending = deferred<ReturnType<typeof confirmationResult>>();
+    confirmBookingHoldMock.mockReturnValueOnce(pending.promise);
+
+    controller.confirmHold();
+
+    expect(confirmBookingHoldMock).toHaveBeenCalledWith(holdId, "guest-token-value", expect.any(Object));
+    pending.resolve(confirmationResult());
+    await pending.promise;
+  });
+
+  it("passes the retained session.guestAccessToken even when session.hold.guestAccessToken is null", async () => {
+    const { createBookingHoldFlowController } = await import("../bookingHoldFlowController");
+    const harness = createHarness({
+      ...initialBookingHoldFlowState,
+      phase: "active-session",
+      session: {
+        hold: holdFixture({ guestAccessToken: null }),
+        guestAccessToken: "retained-token",
+        outcome: "replayed",
+      },
+      operationId: 1,
+    });
+    const controller = createBookingHoldFlowController({
+      getState: harness.getState,
+      dispatch: harness.dispatch,
+      onAttemptStart: harness.onAttemptStart,
+    });
+    const pending = deferred<ReturnType<typeof confirmationResult>>();
+    confirmBookingHoldMock.mockReturnValueOnce(pending.promise);
+
+    controller.confirmHold();
+
+    expect(confirmBookingHoldMock).toHaveBeenCalledWith(
+      "aaaaaaaa-0000-0000-0000-000000000001",
+      "retained-token",
+      expect.any(Object)
+    );
+    pending.resolve(confirmationResult());
+    await pending.promise;
+  });
+
+  it("passes null for an authenticated/tokenless session", async () => {
+    const { createBookingHoldFlowController } = await import("../bookingHoldFlowController");
+    const harness = createHarness({
+      ...initialBookingHoldFlowState,
+      phase: "active-session",
+      session: {
+        hold: holdFixture({ guestAccessToken: null }),
+        guestAccessToken: null,
+        outcome: "created",
+      },
+      operationId: 1,
+    });
+    const controller = createBookingHoldFlowController({
+      getState: harness.getState,
+      dispatch: harness.dispatch,
+      onAttemptStart: harness.onAttemptStart,
+    });
+    const pending = deferred<ReturnType<typeof confirmationResult>>();
+    confirmBookingHoldMock.mockReturnValueOnce(pending.promise);
+
+    controller.confirmHold();
+
+    expect(confirmBookingHoldMock).toHaveBeenCalledWith(
+      "aaaaaaaa-0000-0000-0000-000000000001",
+      null,
+      expect.any(Object)
+    );
+    pending.resolve(confirmationResult());
+    await pending.promise;
+  });
+
+  it("forwards an AbortSignal to confirmBookingHold", async () => {
+    const { harness, controller } = await activeSessionHarness();
+    const pending = deferred<ReturnType<typeof confirmationResult>>();
+    confirmBookingHoldMock.mockReturnValueOnce(pending.promise);
+
+    controller.confirmHold();
+
+    const [, , options] = confirmBookingHoldMock.mock.calls[0];
+    expect(options.signal).toBe(harness.attemptStarts[harness.attemptStarts.length - 1]?.signal);
+
+    pending.resolve(confirmationResult());
+    await pending.promise;
+  });
+
+  it("same-tick double confirmHold causes exactly one confirmation call", async () => {
+    const { controller } = await activeSessionHarness();
+    const pending = deferred<ReturnType<typeof confirmationResult>>();
+    confirmBookingHoldMock.mockReturnValueOnce(pending.promise);
+
+    controller.confirmHold();
+    controller.confirmHold();
+
+    expect(confirmBookingHoldMock).toHaveBeenCalledTimes(1);
+    pending.resolve(confirmationResult());
+    await pending.promise;
+  });
+
+  it("Enter-key-equivalent second synchronous confirmHold call does not duplicate the request", async () => {
+    const { controller } = await activeSessionHarness();
+    const pending = deferred<ReturnType<typeof confirmationResult>>();
+    confirmBookingHoldMock.mockReturnValueOnce(pending.promise);
+
+    controller.confirmHold(); // e.g. a click handler firing
+    controller.confirmHold(); // Enter key firing a second call in the same tick
+
+    expect(confirmBookingHoldMock).toHaveBeenCalledTimes(1);
+    pending.resolve(confirmationResult());
+    await pending.promise;
+  });
+
+  it("confirmHold never generates an idempotency key", async () => {
+    const { controller } = await activeSessionHarness();
+    const pending = deferred<ReturnType<typeof confirmationResult>>();
+    confirmBookingHoldMock.mockReturnValueOnce(pending.promise);
+
+    controller.confirmHold();
+
+    expect(generateIdempotencyKeyMock).not.toHaveBeenCalled();
+    pending.resolve(confirmationResult());
+    await pending.promise;
+  });
+
+  it("confirmHold never calls createBookingHold", async () => {
+    const { controller } = await activeSessionHarness();
+    const pending = deferred<ReturnType<typeof confirmationResult>>();
+    confirmBookingHoldMock.mockReturnValueOnce(pending.promise);
+
+    controller.confirmHold();
+
+    expect(createBookingHoldMock).not.toHaveBeenCalled();
+    pending.resolve(confirmationResult());
+    await pending.promise;
+  });
+
+  it("a network error enters confirm-uncertain", async () => {
+    const { harness, controller } = await activeSessionHarness();
+    confirmBookingHoldMock.mockRejectedValueOnce(new ApiNetworkError());
+
+    controller.confirmHold();
+
+    await vi.waitFor(() => expect(harness.getState().phase).toBe("confirm-uncertain"));
+  });
+
+  it("an unclassified error (e.g. an ambiguous response with no usable body) enters confirm-uncertain", async () => {
+    const { harness, controller } = await activeSessionHarness();
+    confirmBookingHoldMock.mockRejectedValueOnce(new Error("The server did not return a Reservation."));
+
+    controller.confirmHold();
+
+    await vi.waitFor(() => expect(harness.getState().phase).toBe("confirm-uncertain"));
+  });
+
+  it("a known HTTP error enters confirm-known-error with a customer-safe message", async () => {
+    const { ApiHttpError } = await import("../errors");
+    const { harness, controller } = await activeSessionHarness();
+    confirmBookingHoldMock.mockRejectedValueOnce(
+      new ApiHttpError(409, {
+        title: "Booking Hold cannot be confirmed",
+        status: 409,
+        detail: "The Hold has expired and cannot be confirmed.",
+      })
+    );
+
+    controller.confirmHold();
+
+    await vi.waitFor(() => expect(harness.getState().phase).toBe("confirm-known-error"));
+    expect(harness.getState().errorMessage).toBe("The Hold has expired and cannot be confirmed.");
+  });
+
+  it("retryConfirmationExact reuses the identical Hold ID and token", async () => {
+    const { harness, controller } = await activeSessionHarness();
+    confirmBookingHoldMock.mockRejectedValueOnce(new ApiNetworkError());
+    controller.confirmHold();
+    await vi.waitFor(() => expect(harness.getState().phase).toBe("confirm-uncertain"));
+
+    const firstCallArgs = confirmBookingHoldMock.mock.calls[0];
+    confirmBookingHoldMock.mockResolvedValueOnce(confirmationResult());
+    controller.retryConfirmationExact();
+    await vi.waitFor(() => expect(harness.getState().phase).toBe("reservation-result"));
+
+    const secondCallArgs = confirmBookingHoldMock.mock.calls[1];
+    expect(secondCallArgs[0]).toBe(firstCallArgs[0]);
+    expect(secondCallArgs[1]).toBe(firstCallArgs[1]);
+  });
+
+  it("same-tick double retryConfirmationExact causes exactly one additional confirmation call", async () => {
+    const { harness, controller } = await activeSessionHarness();
+    confirmBookingHoldMock.mockRejectedValueOnce(new ApiNetworkError());
+    controller.confirmHold();
+    await vi.waitFor(() => expect(harness.getState().phase).toBe("confirm-uncertain"));
+
+    const pending = deferred<ReturnType<typeof confirmationResult>>();
+    confirmBookingHoldMock.mockReturnValueOnce(pending.promise);
+
+    controller.retryConfirmationExact();
+    controller.retryConfirmationExact();
+
+    expect(confirmBookingHoldMock).toHaveBeenCalledTimes(2); // 1 original + 1 retry
+    pending.resolve(confirmationResult());
+    await pending.promise;
+  });
+
+  it("a successful first confirmation reaches reservation-result", async () => {
+    const { harness, controller } = await activeSessionHarness();
+    confirmBookingHoldMock.mockResolvedValueOnce(confirmationResult("confirmed"));
+
+    controller.confirmHold();
+
+    await vi.waitFor(() => expect(harness.getState().phase).toBe("reservation-result"));
+    expect(harness.getState().reservationResult?.outcome).toBe("confirmed");
+  });
+
+  it("a replayed confirmation reaches reservation-result preserving outcome replayed", async () => {
+    const { harness, controller } = await activeSessionHarness();
+    confirmBookingHoldMock.mockResolvedValueOnce(confirmationResult("replayed"));
+
+    controller.confirmHold();
+
+    await vi.waitFor(() => expect(harness.getState().phase).toBe("reservation-result"));
+    expect(harness.getState().reservationResult?.outcome).toBe("replayed");
+  });
+
+  it("confirmHold is a no-op without an active session", async () => {
+    const { createBookingHoldFlowController } = await import("../bookingHoldFlowController");
+    const harness = createHarness();
+    const controller = createBookingHoldFlowController({ getState: harness.getState, dispatch: harness.dispatch });
+
+    controller.confirmHold();
+
+    expect(confirmBookingHoldMock).not.toHaveBeenCalled();
+    expect(harness.getState().phase).toBe("idle");
+  });
+
+  it("retryConfirmationExact is a no-op outside confirm-uncertain/confirm-known-error", async () => {
+    const { controller } = await activeSessionHarness();
+
+    controller.retryConfirmationExact();
+
+    expect(confirmBookingHoldMock).not.toHaveBeenCalled();
+  });
+
+  it("creating the controller and reading state never calls confirmBookingHold", async () => {
+    const { createBookingHoldFlowController } = await import("../bookingHoldFlowController");
+    const harness = createHarness();
+    createBookingHoldFlowController({ getState: harness.getState, dispatch: harness.dispatch });
+
+    // Simulate "remount": construct a second controller against the same state.
+    createBookingHoldFlowController({ getState: harness.getState, dispatch: harness.dispatch });
+
+    expect(confirmBookingHoldMock).not.toHaveBeenCalled();
+    expect(harness.getState().phase).toBe("idle");
+  });
+
+  it("blocks Availability search and offer switching while confirming", async () => {
+    const { harness, controller } = await activeSessionHarness();
+    const pending = deferred<ReturnType<typeof confirmationResult>>();
+    confirmBookingHoldMock.mockReturnValueOnce(pending.promise);
+
+    controller.confirmHold();
+    expect(harness.getState().phase).toBe("confirming");
+
+    expect(controller.tryBeginAvailabilitySearch()).toBe(false);
+    controller.selectOffer(OTHER_OFFER, "other");
+    expect(harness.getState().offer).toBeNull();
+    expect(harness.getState().phase).toBe("confirming");
+
+    pending.resolve(confirmationResult());
+    await pending.promise;
+  });
+
+  it("blocks Availability search and offer switching while confirm-uncertain", async () => {
+    const { harness, controller } = await activeSessionHarness();
+    confirmBookingHoldMock.mockRejectedValueOnce(new ApiNetworkError());
+    controller.confirmHold();
+    await vi.waitFor(() => expect(harness.getState().phase).toBe("confirm-uncertain"));
+
+    expect(controller.tryBeginAvailabilitySearch()).toBe(false);
+    controller.selectOffer(OTHER_OFFER, "other");
+    expect(harness.getState().offer).toBeNull();
+    expect(harness.getState().phase).toBe("confirm-uncertain");
+  });
+
+  it("blocks Availability search and offer switching while confirm-known-error", async () => {
+    const { ApiHttpError } = await import("../errors");
+    const { harness, controller } = await activeSessionHarness();
+    confirmBookingHoldMock.mockRejectedValueOnce(
+      new ApiHttpError(409, { title: "Booking Hold cannot be confirmed", status: 409, detail: "expired" })
+    );
+    controller.confirmHold();
+    await vi.waitFor(() => expect(harness.getState().phase).toBe("confirm-known-error"));
+
+    expect(controller.tryBeginAvailabilitySearch()).toBe(false);
+    controller.selectOffer(OTHER_OFFER, "other");
+    expect(harness.getState().offer).toBeNull();
+    expect(harness.getState().phase).toBe("confirm-known-error");
+  });
+
+  it("blocks Availability search and offer switching while reservation-result", async () => {
+    const { harness, controller } = await activeSessionHarness();
+    confirmBookingHoldMock.mockResolvedValueOnce(confirmationResult());
+    controller.confirmHold();
+    await vi.waitFor(() => expect(harness.getState().phase).toBe("reservation-result"));
+
+    expect(controller.tryBeginAvailabilitySearch()).toBe(false);
+    controller.selectOffer(OTHER_OFFER, "other");
+    expect(harness.getState().offer).toBeNull();
+    expect(harness.getState().phase).toBe("reservation-result");
   });
 });

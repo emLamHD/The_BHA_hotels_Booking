@@ -1,19 +1,21 @@
 import {
   ActiveHoldSession,
   BookingHoldAttemptSnapshot,
+  BookingHoldConfirmationAttemptSnapshot,
   ContactFieldErrors,
   ContactInput,
   SelectedOfferSnapshot,
   mergeHoldSession,
 } from "./bookingHoldAttempt";
-import { CreateBookingHoldResult } from "./bookingHoldService";
+import { ConfirmBookingHoldResult, CreateBookingHoldResult } from "./bookingHoldService";
 
 /**
  * The authoritative Booking Hold mutation phases. Equivalent to
- * idle/selected, submitting, known-error, uncertain, and active-session —
- * enforced here in the reducer, not only by disabled button styling, so a
- * stale render or a bypassed UI control can never move the flow through an
- * invalid transition.
+ * idle/selected, submitting, known-error, uncertain, and active-session, plus
+ * the confirmation-lifecycle phases confirming/confirm-known-error/
+ * confirm-uncertain/reservation-result — enforced here in the reducer, not
+ * only by disabled button styling, so a stale render or a bypassed UI
+ * control can never move the flow through an invalid transition.
  */
 export type BookingHoldFlowPhase =
   | "idle"
@@ -21,7 +23,11 @@ export type BookingHoldFlowPhase =
   | "submitting"
   | "known-error"
   | "uncertain"
-  | "active-session";
+  | "active-session"
+  | "confirming"
+  | "confirm-known-error"
+  | "confirm-uncertain"
+  | "reservation-result";
 
 export interface BookingHoldFlowState {
   phase: BookingHoldFlowPhase;
@@ -35,6 +41,9 @@ export interface BookingHoldFlowState {
   session: ActiveHoldSession | null;
   /** Monotonic identity of the current/most-recent operation; rejects stale completions. */
   operationId: number;
+  /** The immutable in-flight/retryable confirmation attempt: exact Hold ID plus exact guest credential. */
+  confirmationAttempt: BookingHoldConfirmationAttemptSnapshot | null;
+  reservationResult: ConfirmBookingHoldResult | null;
 }
 
 export const initialContact: ContactInput = { fullName: "", email: "", phone: "" };
@@ -49,6 +58,8 @@ export const initialBookingHoldFlowState: BookingHoldFlowState = {
   errorMessage: null,
   session: null,
   operationId: 0,
+  confirmationAttempt: null,
+  reservationResult: null,
 };
 
 export type BookingHoldFlowAction =
@@ -60,7 +71,16 @@ export type BookingHoldFlowAction =
   | { type: "attempt-succeeded"; operationId: number; result: CreateBookingHoldResult }
   | { type: "attempt-known-error"; operationId: number; message: string }
   | { type: "attempt-uncertain"; operationId: number }
-  | { type: "search-reset" };
+  | { type: "search-reset" }
+  | {
+      type: "confirmation-requested";
+      attempt: BookingHoldConfirmationAttemptSnapshot;
+      operationId: number;
+    }
+  | { type: "confirmation-retry-requested"; operationId: number }
+  | { type: "confirmation-succeeded"; operationId: number; result: ConfirmBookingHoldResult }
+  | { type: "confirmation-known-error"; operationId: number; message: string }
+  | { type: "confirmation-uncertain"; operationId: number };
 
 /** Contact is editable and a fresh, newly keyed submit is allowed. */
 const EDITABLE_PHASES: ReadonlySet<BookingHoldFlowPhase> = new Set<BookingHoldFlowPhase>([
@@ -73,6 +93,10 @@ const LOCKED_PHASES: ReadonlySet<BookingHoldFlowPhase> = new Set<BookingHoldFlow
   "submitting",
   "uncertain",
   "active-session",
+  "confirming",
+  "confirm-known-error",
+  "confirm-uncertain",
+  "reservation-result",
 ]);
 
 export function bookingHoldFlowReducer(
@@ -152,6 +176,8 @@ export function bookingHoldFlowReducer(
         // retained token from an earlier operation.
         session: mergeHoldSession(state.session, action.result),
         operationId: state.operationId,
+        confirmationAttempt: null,
+        reservationResult: null,
       };
     }
 
@@ -185,6 +211,75 @@ export function bookingHoldFlowReducer(
         fieldErrors: null,
         errorMessage: null,
       };
+    }
+
+    case "confirmation-requested": {
+      if (state.phase !== "active-session" || !state.session) {
+        return state;
+      }
+      // The accepted attempt must exactly match the current session's Hold
+      // ID and retained guest token — a stale/mismatched snapshot (e.g. from
+      // a superseded session) is rejected as a no-op rather than confirming
+      // the wrong Hold or credential.
+      if (
+        action.attempt.holdId !== state.session.hold.holdId ||
+        action.attempt.guestAccessToken !== state.session.guestAccessToken
+      ) {
+        return state;
+      }
+      return {
+        ...state,
+        phase: "confirming",
+        confirmationAttempt: action.attempt,
+        operationId: action.operationId,
+        errorMessage: null,
+      };
+    }
+
+    case "confirmation-retry-requested": {
+      if (
+        (state.phase !== "confirm-uncertain" && state.phase !== "confirm-known-error") ||
+        !state.confirmationAttempt
+      ) {
+        return state;
+      }
+      return { ...state, phase: "confirming", operationId: action.operationId, errorMessage: null };
+    }
+
+    case "confirmation-succeeded": {
+      if (state.phase !== "confirming" || action.operationId !== state.operationId) {
+        return state;
+      }
+      // Definitive success: scrub the now-superseded active session, guest
+      // token, and confirmation attempt, and clear any leftover
+      // offer/contact/error state, retaining only the Reservation result.
+      return {
+        phase: "reservation-result",
+        offer: null,
+        offerLabel: null,
+        contact: initialContact,
+        fieldErrors: null,
+        attempt: null,
+        errorMessage: null,
+        session: null,
+        operationId: state.operationId,
+        confirmationAttempt: null,
+        reservationResult: action.result,
+      };
+    }
+
+    case "confirmation-known-error": {
+      if (state.phase !== "confirming" || action.operationId !== state.operationId) {
+        return state;
+      }
+      return { ...state, phase: "confirm-known-error", errorMessage: action.message };
+    }
+
+    case "confirmation-uncertain": {
+      if (state.phase !== "confirming" || action.operationId !== state.operationId) {
+        return state;
+      }
+      return { ...state, phase: "confirm-uncertain", errorMessage: null };
     }
 
     default:

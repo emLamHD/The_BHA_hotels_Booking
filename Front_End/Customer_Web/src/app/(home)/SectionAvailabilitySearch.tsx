@@ -90,12 +90,16 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
   const holdPhase = holdFlowState.phase;
   // Search, retry-search, every Availability input, and offer switching are
   // all blocked while a Hold attempt is in flight, its outcome is
-  // unresolved, or it has already succeeded (no second Hold). This shared
-  // predicate only drives *display*/accessibility; the actual behavioral
-  // authority is the synchronous `tryBeginAvailabilitySearch()` gate below,
-  // which a stale render of this boolean can never bypass.
-  const flowLocked =
-    holdPhase === "submitting" || holdPhase === "uncertain" || holdPhase === "active-session";
+  // unresolved, it has already succeeded, or the confirmation lifecycle
+  // (confirming/confirm-known-error/confirm-uncertain/reservation-result)
+  // is underway or resolved (no second Hold, ever). Read directly from the
+  // authoritative controller predicate — the same one `tryBeginAvailabilitySearch()`
+  // uses internally — so this display/accessibility value can never drift
+  // from the phase list the reducer/controller actually enforce. This value
+  // only drives *display*; the actual behavioral authority remains the
+  // synchronous `tryBeginAvailabilitySearch()` gate below, which a stale
+  // render of this boolean can never bypass.
+  const flowLocked = isAvailabilitySearchLocked();
 
   const activeRequest = useRef<AbortController | null>(null);
   const latestRequestId = useRef(0);
