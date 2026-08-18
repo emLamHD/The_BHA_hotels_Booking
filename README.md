@@ -26,7 +26,7 @@ The BHA Hotels Booking is organized as a monorepo for the customer experience, a
 ## Applications
 
 - `Front_End/Customer_Web` contains the existing Next.js customer template. Its source, dependency lockfile, theme attribution, and license-related notices are preserved in place. See its README for the original author attribution.
-- `Front_End/Admin_Web` is reserved for the future administration application.
+- `Front_End/Admin_Web` contains the imported TailAdmin Next.js template baseline for the future administration application. It is template-only and not yet integrated with backend/PMS business behavior. See its README for upstream attribution and license.
 - `Back_End` contains an ASP.NET Core 8 Web API organized around Clean Architecture boundaries.
 
 ## Local development
