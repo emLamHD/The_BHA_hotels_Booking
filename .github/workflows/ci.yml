@@ -47,6 +47,32 @@ jobs:
       - name: Build
         run: npm run build
 
+  admin:
+    name: Admin
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Front_End/Admin_Web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: Front_End/Admin_Web/.nvmrc
+          cache: npm
+          cache-dependency-path: Front_End/Admin_Web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
   backend:
     name: Backend
     runs-on: ubuntu-latest
