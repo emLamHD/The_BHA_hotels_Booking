@@ -37,24 +37,46 @@ into one writable surface.
 ## Decision
 
 1. **Decompose the Hold and Reservation aggregates into items/units plus
-   nightly rows.** `InventoryHold → InventoryHoldItems →
-   InventoryHoldItemNights` replaces the single-RoomType `BookingHold`/
-   `BookingHoldNight` shape; `Reservation → ReservationUnits →
-   ReservationUnitNights` replaces the single-RoomType `Reservation`/
-   `ReservationNight` shape. Each item/unit carries one RoomType-quantity
-   commitment; each nightly row carries the existing per-night discipline
-   (uniqueness, contiguity, exact coverage, decimal money, nightly
-   multiplication, UTC-instant creation) at the item/unit level instead of
-   the aggregate level.
-2. **Map a source `InventoryHoldItem` 1:1 to a `ReservationUnit`** when
+   nightly rows, where each item/unit is exactly one room.** `InventoryHold
+   → InventoryHoldItems → InventoryHoldItemNights` replaces the
+   single-RoomType `BookingHold`/`BookingHoldNight` shape; `Reservation →
+   ReservationUnits → ReservationUnitNights` replaces the single-RoomType
+   `Reservation`/`ReservationNight` shape. A persisted `InventoryHoldItem`
+   (and, symmetrically, a `ReservationUnit`) represents **exactly one held
+   or sold room** of one RoomType — implicit quantity `1`, never a
+   compressed line carrying `Quantity > 1`. A request/UI room-type line may
+   carry a convenience `quantity = Q`; the Hold-creation transaction
+   atomically normalizes it into exactly `Q` independent, persisted
+   `InventoryHoldItems` before any confirmation or persistence semantics
+   apply — normalization happens once, at creation, never as a later
+   reconciliation step. Each nightly row carries the existing per-night
+   discipline (uniqueness, contiguity, exact coverage, decimal money,
+   nightly multiplication, UTC-instant creation) at the item/unit level
+   instead of the aggregate level; item-night/unit-night prices are per
+   room, per night, and Hold/Reservation totals are the sum of all
+   persisted nightly rows.
+2. **Map each `InventoryHoldItem` 1:1 to a `ReservationUnit`, and each
+   `InventoryHoldItemNight` 1:1 to a `ReservationUnitNight`,** when
    confirmation originated from a hold — the existing one-to-one
    Hold→Reservation confirmation discipline (`BE-003.4`, enforced today by a
    unique `SourceHoldId` index) extends unchanged to the item/unit level.
+   Full confirmation is atomic: one `Reservation` and every item-derived
+   `ReservationUnit` are created together in one transaction, with no
+   partial confirmation, no duplicate unit for the same item, and no later
+   append. Hold-creation request idempotency/fingerprinting includes the
+   request-level `quantity` for each RoomType line, so a replay of an
+   already-succeeded request returns the same normalized items and never
+   appends more.
 3. **Allow Admin, walk-in, and OTA `ReservationUnits` without a mandatory
-   hold.** A `ReservationUnit` may have a null source-hold-item reference.
-   Where present, that reference remains unique. Every such unit still
-   enters the same commercial commitment authority and nightly-snapshot
-   integrity rules as a hold-confirmed unit.
+   hold.** A `ReservationUnit` may have a null `SourceInventoryHoldItemId`.
+   Where present, that reference remains unique, preserving direct
+   one-item-to-one-unit lineage rather than any quantity-to-generated-unit
+   reconciliation mechanism. Every such unit still enters the same
+   commercial commitment authority and nightly-snapshot integrity rules as
+   a hold-confirmed unit. Items/units normalized from the same original
+   request line are independent business rows from persistence onward — they
+   may diverge in occupancy, guest assignment, nightly price, or
+   physical-room assignment without any split or reconciliation operation.
 4. **Separate commercial commitment from physical allocation entirely.** A
    `ReservationUnit`'s existence and its `ReservationUnitNight` rows are the
    complete, enforceable record of the sale. PhysicalRoom-level allocation
@@ -111,6 +133,18 @@ into one writable surface.
   commitment and physical allocation into one aggregate, recreating exactly
   the problem this decision exists to avoid, and would force every
   price-sensitive operation to also reason about room-schedule state.
+- **Model `InventoryHoldItem` as a compressed cart line carrying
+  `Quantity > 1`, mapped `1:Q` to `Q` generated `ReservationUnits` on
+  confirmation.** Rejected — this would require a reconciliation mechanism
+  (e.g. a generated ordinal) between the persisted item's quantity and the
+  units it must expand into at confirmation time, weakens direct lineage
+  between a held room and its sold room, complicates confirmation
+  idempotency/replay, and prevents two rooms from the same original request
+  line from diverging (occupancy, price, physical assignment) before they
+  are ever split apart. No current requirement mandates a compressed
+  group-booking row; normalizing to one-room items at Hold-creation time
+  achieves the same customer-facing "book 3 rooms at once" outcome without
+  any of that complexity.
 - **Let `RoomTypeDailyInventory` be directly editable by operators.**
   Rejected — this would create a second, manually mutable source of truth
   competing with the actual commitment rows (`ReservationUnitNight`,

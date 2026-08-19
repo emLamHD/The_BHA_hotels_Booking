@@ -91,7 +91,9 @@ Organization
        ├─ RoomType (one or more)
        │    └─ PhysicalRoom (one or more)
        ├─ InventoryHold
-       │    └─ InventoryHoldItem (references a RoomType)
+       │    └─ InventoryHoldItem (references a RoomType; represents
+       │         exactly one held room — a multi-room request is
+       │         normalized into multiple items, §6 item 2)
        │         └─ InventoryHoldItemNight (per stay date)
        ├─ Reservation
        │    └─ ReservationUnit (references a RoomType; optionally a
@@ -116,7 +118,7 @@ availability-reaction boundary and remain DEFERRED (§14).
 | Concept | CURRENT | TARGET |
 | --- | --- | --- |
 | Tenant/property scope | Single implicit Property, no Organization | `Organization → Property` |
-| Commercial hold | `BookingHold`/`BookingHoldNight`, one RoomType per Hold | `InventoryHold → InventoryHoldItems → InventoryHoldItemNights`, multiple RoomTypes per Hold |
+| Commercial hold | `BookingHold`/`BookingHoldNight`, one RoomType per Hold | `InventoryHold → InventoryHoldItems → InventoryHoldItemNights`; each item is one held room, so multiple rooms and multiple RoomTypes per Hold |
 | Commercial reservation | `Reservation`/`ReservationNight`, one RoomType per Reservation | `Reservation → ReservationUnits → ReservationUnitNights` |
 | Physical schedule | None — no PhysicalRoom-level schedule exists | `RoomOccupancySegments`, authoritative PhysicalRoom schedule |
 | Rate attachment | `RatePlanId` on the Hold/Reservation aggregate | `RatePlanId` at UnitNight level |
@@ -127,42 +129,80 @@ availability-reaction boundary and remain DEFERRED (§14).
 1. A customer booking supports multiple RoomTypes in one hold or reservation
    (TARGET — CURRENT is exactly one RoomType per Hold/Reservation).
 2. TARGET hold aggregate: `InventoryHold → InventoryHoldItems →
-   InventoryHoldItemNights`. Each `InventoryHoldItem` represents one
-   RoomType-quantity commitment within the Hold; each
-   `InventoryHoldItemNight` is the per-stay-date nightly row under that item,
-   mirroring today's per-night snapshot discipline (uniqueness, contiguity,
-   exact coverage, decimal money, nightly multiplication, UTC-instant
-   creation) at the item level instead of the Hold level.
-3. TARGET reservation aggregate: `Reservation → ReservationUnits →
-   ReservationUnitNights`. Each `ReservationUnit` is one commercially sold
-   RoomType-unit within the Reservation; each `ReservationUnitNight` is its
-   per-stay-date nightly row, carrying `RatePlanId` (§8).
-4. Confirmation maps each `InventoryHoldItem` to exactly one
-   `ReservationUnit` — the existing one-to-one Hold→Reservation confirmation
-   discipline (`BE-003.4`) extends unchanged to the item/unit level.
-5. A `ReservationUnit` may have no source hold — Admin, walk-in, or OTA
-   reservation creation may bypass a source hold entirely. Where a source
-   hold-item reference is present, it is unique, mirroring the existing
-   unique `SourceHoldId` constraint at the aggregate level today.
-6. Existing half-open stay semantics remain unchanged at the night level:
+   InventoryHoldItemNights`. A persisted `InventoryHoldItem` represents
+   **exactly one held room** of one RoomType — its business cardinality is
+   implicit quantity `1`. It is never modeled as a compressed cart line
+   carrying a `Quantity > 1`. A room-type line at the request/UI boundary
+   may carry a convenience `quantity = Q` (`Q >= 1`); in the same
+   Hold-creation transaction that request line is atomically normalized
+   into exactly `Q` independent, persisted `InventoryHoldItems` before any
+   confirmation or persistence semantics apply — normalization is not a
+   later reconciliation step. Each `InventoryHoldItemNight` is the
+   per-stay-date nightly row under one item, mirroring today's per-night
+   snapshot discipline (uniqueness, contiguity, exact coverage, decimal
+   money, nightly multiplication, UTC-instant creation) at the item level
+   instead of the Hold level. For a stay of `N` nights, one item owns
+   exactly `N` nights; a `Q`-room, `N`-night request line therefore
+   produces `Q × N` item-night rows (see the worked example in §15.1).
+3. Hold-creation request idempotency/fingerprinting (`BE-003.3`'s existing
+   discipline, extended) includes the canonical request-level `quantity`
+   for each RoomType line. A replay of an already-succeeded idempotent
+   request returns the same, already-normalized set of `InventoryHoldItems`
+   — it never appends additional items on top of a prior successful
+   normalization.
+4. TARGET reservation aggregate: `Reservation → ReservationUnits →
+   ReservationUnitNights`. A `ReservationUnit` represents exactly one
+   commercially sold room; each `ReservationUnitNight` is its per-stay-date
+   nightly row, carrying `RatePlanId` (§8).
+5. Confirmation maps each `InventoryHoldItem` to exactly one
+   `ReservationUnit`, and each `InventoryHoldItemNight` to exactly one
+   corresponding `ReservationUnitNight` for the same stay date — the
+   existing one-to-one Hold→Reservation confirmation discipline (`BE-003.4`)
+   extends unchanged to the item/unit level. Full Hold confirmation creates
+   one `Reservation` and every item-derived `ReservationUnit` atomically, in
+   one transaction: there is no partial confirmation, no missing unit for an
+   existing item, no duplicate unit for the same item, and no later append
+   of a unit onto an already-confirmed Reservation from the same Hold.
+6. A `ReservationUnit` may have no source hold — Admin, walk-in, or OTA
+   reservation creation may bypass a source hold entirely, leaving its
+   `SourceInventoryHoldItemId` null. Where present, that reference is
+   unique, mirroring the existing unique `SourceHoldId` constraint at the
+   aggregate level today, and it preserves direct one-item-to-one-unit
+   lineage rather than any quantity-to-generated-unit reconciliation.
+7. Existing half-open stay semantics remain unchanged at the night level:
    `[checkIn, checkOut)`. Checkout is never priced and never consumes a
    room-night (ADR 0003, unchanged).
-7. Existing nightly uniqueness/contiguity/exact-coverage, decimal-money,
+8. Existing nightly uniqueness/contiguity/exact-coverage, decimal-money,
    nightly multiplication, UTC-instant creation, and immutable-snapshot
    rules remain foundational at the new Item/Unit-Night level exactly as
-   they operate at today's Hold/Reservation-Night level.
-8. Active-hold expiry correctness must not depend on the expiry worker
+   they operate at today's Hold/Reservation-Night level. Price snapshots on
+   `InventoryHoldItemNight` and `ReservationUnitNight` are per room, per
+   night — unambiguously so, since one item/unit is always exactly one
+   room. Hold and Reservation totals are the sum of all persisted
+   item-night/unit-night rows; there is no separate per-unit-versus-
+   aggregate price representation to reconcile.
+9. Active-hold expiry correctness must not depend on the expiry worker
    running on time (unchanged principle from `BE-003.3`/`BE-003.5`).
-   Authoritative queries and transitions exclude expired holds at the exact
-   `ExpiresAtUtc` boundary; a background cleanup process remains operational
-   hygiene only, never a correctness dependency.
-9. Stay extension adds explicitly priced extension nights onto a
-   `ReservationUnit`. It never silently copies, averages, or recalculates
-   previously accepted `ReservationUnitNight` rows.
-10. Admin, walk-in, and OTA reservation creation may bypass a source hold,
+   `ExpiresAtUtc` belongs to the `InventoryHold` aggregate, not to an
+   individual `InventoryHoldItem` — every item under a Hold expires together
+   with that Hold. Authoritative queries and transitions exclude the items
+   of an expired Hold at the exact `ExpiresAtUtc` boundary; a background
+   cleanup process remains operational hygiene only, never a correctness
+   dependency.
+10. Stay extension adds explicitly priced extension nights onto a
+    `ReservationUnit`. It never silently copies, averages, or recalculates
+    previously accepted `ReservationUnitNight` rows.
+11. Admin, walk-in, and OTA reservation creation may bypass a source hold,
     but every such `ReservationUnit` still enters the same commercial
     commitment authority, nightly-snapshot discipline, and integrity rules
     as a hold-confirmed unit — there is no separate, weaker write path.
+12. Items/units normalized from the same original request line are
+    independent business rows from the moment they are persisted. They may
+    diverge — in occupancy, guest assignment, special requests, nightly
+    price, stay-extension history, cancellation, or physical-room
+    assignment (ADR 0006) — without any split or reconciliation operation,
+    because they were never compressed into one multi-room row to begin
+    with.
 
 ## 7. Inventory/availability authority and hold-expiry correctness
 
@@ -176,9 +216,12 @@ The expiry-boundary correctness rule already proven today (`BE-003.3`,
 `BE-003.5`) — `Active Holds where ExpiresAtUtc > utcNow` counted, expired
 Holds excluded at the exact instant, no persisted `Expired` status required
 for correctness — extends unchanged to the new `InventoryHoldItem`/
-`InventoryHoldItemNight` shape. An expired-but-uncleaned Hold item remains
-logically harmless before any operational cleanup runs, exactly as an
-expired-but-uncleaned Hold is harmless today.
+`InventoryHoldItemNight` shape, with `ExpiresAtUtc` remaining a property of
+the `InventoryHold` aggregate (§6 item 9), not of an individual item — every
+item under a Hold shares its parent Hold's single expiry instant. An
+expired-but-uncleaned Hold and its items remain logically harmless before
+any operational cleanup runs, exactly as an expired-but-uncleaned Hold is
+harmless today.
 
 ## 8. Commercial commitment versus physical allocation
 
@@ -340,12 +383,43 @@ API, command, migration, or UI implementation is specified.
 ### 15.1 Customer multi-RoomType hold and confirmation
 
 A customer requests two RoomTypes for overlapping dates in one booking
-attempt. One `InventoryHold` is created with two `InventoryHoldItems` (one
-per RoomType), each with its own `InventoryHoldItemNight` rows. On
-confirmation, each `InventoryHoldItem` maps 1:1 to a new `ReservationUnit`
-under one `Reservation`, copying its nightly snapshots exactly as
+attempt, one room of each RoomType. At the request/UI boundary this is two
+RoomType lines, each with `quantity = 1`; the Hold-creation transaction
+normalizes each line into one persisted `InventoryHoldItem` (§6 item 2),
+producing one `InventoryHold` with two `InventoryHoldItems` (one per
+RoomType), each with its own `InventoryHoldItemNight` rows. On confirmation,
+each `InventoryHoldItem` maps 1:1 to a new `ReservationUnit` under one
+`Reservation`, copying its nightly snapshots exactly as
 `BookingHold.Confirm(...)` copies today's single-item snapshot — no re-read
 of current rates, stop-sell, or sellable limits occurs at confirmation time.
+
+A request line may instead carry a `quantity` greater than one for a single
+RoomType. For example, a request for 3 Deluxe rooms across 5 nights is
+normalized, atomically within the same Hold-creation transaction, into 3
+independent, persisted `InventoryHoldItems` (§6 item 2) — never one item
+carrying a `Quantity = 3` field:
+
+```text
+Request: 3 Deluxe rooms for 5 nights
+
+Persisted Hold:
+- 1 InventoryHold
+- 3 InventoryHoldItems, each representing one Deluxe room
+- 15 InventoryHoldItemNights
+
+Confirmed result:
+- 1 Reservation
+- 3 ReservationUnits, each sourced 1:1 from one Hold item
+- 15 ReservationUnitNights
+```
+
+Each of the 3 items/units is an independent business row from the moment it
+is persisted — they may later diverge in occupancy, guest assignment,
+nightly price, or physical-room assignment without any split or
+reconciliation operation, because they were never compressed into one
+multi-room row to begin with (§6 item 12). A replay of the same idempotent
+3-room request returns the same 3 already-normalized items; it never
+appends a further 3 (§6 item 3).
 
 ### 15.2 Admin/walk-in reservation without a source hold
 
@@ -406,12 +480,13 @@ nights occurs (§6 item 9).
 
 ### 15.8 Expired hold remaining logically harmless before cleanup
 
-An `InventoryHoldItem`'s `ExpiresAtUtc` passes while no cleanup worker has
-run yet. A concurrent availability read or a new hold attempt for the same
-RoomType/night correctly excludes the expired item's demand at the exact
-boundary instant, exactly as `BE-003.3`/`BE-003.5` already guarantee at the
-Hold level today (§7). No overbooking or stale-demand risk exists merely
-because cleanup has not yet executed.
+An `InventoryHold`'s `ExpiresAtUtc` passes while no cleanup worker has run
+yet — every `InventoryHoldItem` under that Hold expires together with it
+(§6 item 9). A concurrent availability read or a new hold attempt for the
+same RoomType/night correctly excludes all of the expired Hold's items'
+demand at the exact boundary instant, exactly as `BE-003.3`/`BE-003.5`
+already guarantee at the Hold level today (§7). No overbooking or
+stale-demand risk exists merely because cleanup has not yet executed.
 
 ### 15.9 Future OTA inbound reservation and outbound availability reaction
 
