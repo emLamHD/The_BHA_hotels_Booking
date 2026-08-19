@@ -182,9 +182,11 @@ diff.
   review of the report/diff/Codex result, then Owner-only Ready/merge/branch
   cleanup decision. **No product implementation work starts automatically**
   from this work item's completion — see §2's locked decision.
-- Draft PR: created during this work item's Phase 4; see the work item's
-  completion report for the exact URL, or `DRAFT_PR_PENDING_CREATION` if not
-  yet available at the time this Snapshot section was last edited.
+- Draft PR: [#31](https://github.com/emLamHD/The_BHA_hotels_Booking/pull/31),
+  state at this Snapshot checkpoint: `OPEN` and `DRAFT`; head branch
+  `docs/pms-data-001-core-database-blueprint-v2`. It is not Ready or merged;
+  Ready/merge/branch cleanup remain Owner-only and are not authorized by this
+  Snapshot.
 
 ## 8. Tooling migration state
 
