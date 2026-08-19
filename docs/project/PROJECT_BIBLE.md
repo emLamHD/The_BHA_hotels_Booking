@@ -225,6 +225,20 @@ Xem [ADR 0003](../ADR/0003-model-hotel-stays-with-half-open-date-ranges.md).
   một `RoomBlock` không bao giờ span nhiều Property; cross-RoomType
   assignment chỉ hợp lệ trong cùng một Property — xem blueprint §9/§11/§12
   và ADR 0006 Decision item 3.
+- TARGET, chưa implement: `ReservationUnit.CommitmentStatus = Committed |
+  Cancelled` là lifecycle chính thức của unit. Chỉ night thuộc unit
+  `Committed` mới tính demand; `Cancelled` giữ nguyên toàn bộ row/snapshot
+  làm bằng chứng lịch sử, không xóa, không tạo fallback demand ở bucket
+  khác. Hủy unit tự động hủy mọi `Effective` assignment của nó trong cùng
+  transaction; hủy unit `Committed` cuối cùng của một Reservation tự động
+  hủy cả Reservation — xem blueprint §6 item 13, §7 và ADR 0005 Decision
+  item 7.
+- TARGET, chưa implement: cross-RoomType assignment mang tính operationally
+  binding, không tự động reversible — unassign hoặc reassign chỉ thành công
+  khi capacity đích/fallback đủ ở final state; mutation không đủ capacity
+  bị reject nguyên transaction, giữ nguyên assignment cũ. Không có hidden
+  rollback reserve, không double-bucket, không overbooking override — xem
+  blueprint §7 rules 20–26, §12 và ADR 0006 Decision item 5.
 
 Xem [ADR 0004](../ADR/0004-compute-effective-inventory-with-daily-controls.md).
 

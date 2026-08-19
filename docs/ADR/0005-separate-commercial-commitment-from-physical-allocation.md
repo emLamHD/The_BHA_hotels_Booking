@@ -134,8 +134,10 @@ into one writable surface.
    date (ADR 0006 Decision item 10) to yield usable physical capacity;
    `SellableLimit`/`IsStopSell` daily controls (ADR 0004) are applied to
    that already-reduced capacity, never independently of it; and
-   operational demand is subtracted last. That demand is itself attributed
-   to exactly one RoomType bucket per committed room-night, never zero and
+   operational demand is subtracted last. Only nights of `Committed`
+   `ReservationUnits` (item 7) participate; a `Cancelled` unit's nights
+   contribute zero demand to any bucket. That demand is itself attributed
+   to exactly one RoomType bucket per `Committed` room-night, never zero and
    never two: an unassigned Hold or Reservation night counts against its
    sold RoomType; a night covered by an `Effective ReservationAssignment`
    counts instead against the assigned PhysicalRoom's actual RoomType, and
@@ -157,6 +159,33 @@ into one writable surface.
    reservations, units, unit nights, occupancy segments, and room blocks —
    it is never a competing aggregate (e.g. a `CalendarEvents` table) with
    its own write authority.
+7. **Authoritative `ReservationUnit` commitment lifecycle:
+   `CommitmentStatus = Committed | Cancelled`.** Every successfully created
+   unit — hold-confirmed (item 2) or direct (item 3), regardless of origin
+   — starts `Committed`. `Cancelled` is terminal within this decision;
+   reinstatement/recommit requires a separately approved lifecycle and
+   remains DEFERRED. Sibling units under the same Reservation may
+   independently transition to `Cancelled` without affecting other
+   `Committed` siblings, extending item 3's independence to the commitment
+   lifecycle itself. If a unit's cancellation leaves its parent Reservation
+   with no remaining `Committed` unit, the parent Reservation atomically
+   transitions to `Cancelled` in the same transaction; a `Cancelled`
+   Reservation can have no `Committed` unit and no `Effective
+   ReservationAssignment` under it (ADR 0006 Decision item 3). Cancellation
+   is a **demand-removal** operation, never a deletion: it never deletes or
+   rewrites the unit, its `ReservationUnitNight` rows, prices, RatePlan
+   lineage (item 1), guests, or source Hold lineage — all remain immutable
+   historical evidence. Item 5's one-bucket operational attribution formula
+   counts demand only from `Committed` units; a `Cancelled` unit contributes
+   zero demand to any bucket, and its cancellation removes demand from
+   whichever bucket supplied it — it never creates fallback demand
+   elsewhere, and it never requires destination-capacity validation the way
+   a cross-RoomType reassignment does (full mutation policy in
+   [PMS-DATA-001-core-database-blueprint-v2](../design/PMS-DATA-001-core-database-blueprint-v2.md)
+   §7 rules 17–26). `CommitmentStatus` is a commercial-demand lifecycle
+   only — it is never reused for `RoomOccupancySegment.Status`, guest
+   check-in/out state, housekeeping state, payment/refund state, or OTA
+   synchronization state.
 
 ## Consequences
 
@@ -227,6 +256,23 @@ into one writable surface.
   write to directly.** Rejected — a writable Calendar aggregate would
   invite exactly the kind of desynchronization from the real commercial/
   physical state that a pure projection avoids by construction.
+- **Treat cancellation as row deletion (deleting the `ReservationUnit` or
+  its `ReservationUnitNight` rows) instead of a `CommitmentStatus`
+  transition.** Rejected — deletion destroys the immutable commercial
+  evidence (price, RatePlan lineage, guest, source Hold) this ADR requires
+  to survive cancellation, and gives a future implementation no way to
+  distinguish "never existed" from "was committed, then cancelled."
+- **Treat `ReservationUnitNight` row existence alone as committed demand,
+  with no `CommitmentStatus` filter.** Rejected — without an explicit
+  status filter, a cancelled unit's nights would keep counting as demand
+  forever, permanently understating availability and never releasing the
+  capacity a cancellation is supposed to free.
+- **Allow a `Cancelled` `ReservationUnit` to silently resume creating
+  demand (implicit reinstatement) without a new approved policy.**
+  Rejected — `Cancelled` is terminal within this decision precisely so a
+  future reinstatement/recommit policy can be designed deliberately, with
+  its own capacity-validation rules, rather than falling out accidentally
+  from an unspecified status transition.
 
 ## Current-versus-target boundary
 
