@@ -56,17 +56,34 @@ closes this gap.
    `InHouse`, `Blocked`, or `Held` are part of this model — those describe
    reservation/arrival/hold/operational business state, not the occupancy-
    segment type/status model itself.
-3. **Type/reference consistency invariant.** A `ReservationAssignment`
-   segment references a `ReservationUnit` and no `RoomBlock`. An
-   `OperationalBlock` segment references a `RoomBlock` header and no
-   `ReservationUnit`. A segment's type determines exactly one populated
-   reference field; the other is always absent. This invariant must hold at
+3. **Type/reference consistency and same-Property consistency invariants.**
+   A `ReservationAssignment` segment references a `ReservationUnit` and no
+   `RoomBlock`. An `OperationalBlock` segment references a `RoomBlock`
+   header and no `ReservationUnit`. A segment's type determines exactly one
+   populated reference field; the other is always absent. Separately, every
+   `RoomOccupancySegment` is scoped to exactly one Property, and every
+   reference it populates must resolve inside that same Property: the
+   referenced PhysicalRoom always belongs to the segment's Property; for a
+   `ReservationAssignment`, the referenced `ReservationUnit`'s parent
+   Reservation always belongs to that same Property as the PhysicalRoom and
+   segment; for an `OperationalBlock`, the referenced `RoomBlock` header
+   always belongs to that same Property as every PhysicalRoom segment under
+   it. Intentional cross-RoomType assignment (Decision item 8) never
+   authorizes cross-Property assignment — not even between two Properties
+   under the same Organization, sharing a RoomType code, or both accessible
+   to the operator; a cross-Property guest transfer is a distinct business
+   operation, not designed or authorized here. Both invariants must hold at
    the database level in the eventual implementation, not only in
-   application code.
-4. **Multi-room `RoomBlock` header-to-segment relationship.** One
-   `RoomBlock` header relates to one or more `OperationalBlock`-type
+   application code — same-Property consistency does not replace
+   tenant/property-scoped authorization, and authorization does not replace
+   it either; they are separate, complementary checks.
+4. **Multi-room `RoomBlock` header-to-segment relationship, single-Property.**
+   One `RoomBlock` header relates to one or more `OperationalBlock`-type
    occupancy segments, supporting a single maintenance/operational event
-   that spans multiple PhysicalRooms.
+   that spans multiple PhysicalRooms and, optionally, multiple RoomTypes —
+   but always within one Property. A `RoomBlock` can never span Properties;
+   every PhysicalRoom a header's segments reference must belong to the same
+   Property as the header (Decision item 3).
 5. **Split/move/cancel operations with optimistic concurrency and
    append-only audit.** Segments are operationally mutable through
    controlled actions only. A split or move supersedes existing segment rows
@@ -121,12 +138,30 @@ closes this gap.
      names, SQLSTATE mapping, EF model, lock key, API, and domain-error
      contract remain implementation details for a separately authorized
      work item and are not invented here.
-8. **Intentional cross-RoomType assignment, with guardrails.** Authorized
-   front-desk staff may assign a `ReservationUnit` to a PhysicalRoom whose
-   RoomType differs from the commercially booked RoomType. This requires
-   authorization, a recorded reason, and audit evidence. It never implicitly
-   reprices `ReservationUnitNights`, reservation totals, or ADR — the
-   commercial RoomType and price stay exactly what was sold; only the
+   - Decision item 3's same-Property consistency for a segment's PhysicalRoom
+     and its populated `ReservationUnit`/`RoomBlock` reference is a further
+     distinct requirement: the future implementation must use
+     property-scoped composite foreign keys/alternate keys where the schema
+     already exposes `PropertyId` on the relevant nodes (mirroring the
+     existing `(PropertyId, RoomTypeId)`-style composite keys used by
+     `BookingHold`/`Reservation` today), or an equivalently rigorous
+     database-enforced cross-table mechanism where it does not. An
+     application-only precheck is insufficient as the sole correctness
+     mechanism under concurrent writers, exactly as for the other invariants
+     in this item. Exact column duplication, alternate-key names, constraint
+     names, SQLSTATE mapping, trigger code, EF configuration, or migration
+     order remain implementation details for a separately authorized work
+     item and are not invented here.
+8. **Intentional cross-RoomType assignment, with guardrails — always within
+   one Property.** Authorized front-desk staff may assign a
+   `ReservationUnit` to a PhysicalRoom whose RoomType differs from the
+   commercially booked RoomType, but only within the same Property as the
+   sold Reservation (Decision item 3) — never across Properties, even under
+   the same Organization or a shared RoomType code; a cross-Property guest
+   transfer is a distinct business operation, not authorized here. This
+   requires authorization, a recorded reason, and audit evidence. It never
+   implicitly reprices `ReservationUnitNights`, reservation totals, or ADR —
+   the commercial RoomType and price stay exactly what was sold; only the
    physical PhysicalRoom reference on the segment changes. Cross-RoomType
    flexibility never grants date flexibility: the assignment's dates must
    still satisfy Decision item 9's booked-night coverage invariant against
@@ -194,7 +229,13 @@ closes this gap.
     PhysicalRoom schedule exclusion (Decision item 6) — it also removes its
     referenced PhysicalRoom from `RoomTypeDailyInventory`'s usable physical
     capacity for its RoomType, on every date `[StartDate, EndDate)` it
-    covers. The exact daily formula, block-counting rules, and required
+    covers. Every availability computation and lock key in this formula is
+    scoped to one verified Property, exactly as Decision item 3's
+    same-Property consistency requires for the underlying segment
+    references — an invalid cross-Property row can never move demand or
+    block capacity between two Properties' inventories, because no segment
+    reference is permitted to exist across Properties in the first place.
+    The exact daily formula, block-counting rules, and required
     atomic-locking discipline are recorded in
     [PMS-DATA-001-core-database-blueprint-v2](../design/PMS-DATA-001-core-database-blueprint-v2.md)
     §7 — this ADR states the invariant, the blueprint states the arithmetic,
@@ -299,6 +340,12 @@ closes this gap.
   correctly released — availability reflects true physical occupancy in
   either direction without ever double-counting or ever leaving a room
   invisibly oversellable.
+- Decision item 3's same-Property consistency guarantees that a multi-
+  property database can never assign a Property A Reservation to a Property
+  B PhysicalRoom, or attach a Property A `RoomBlock` header to Property B
+  rooms — the physical schedule and per-property availability projection
+  stay correctly isolated per Property even as the platform scales to more
+  properties (blueprint §3 item 5).
 
 ### Cost
 
@@ -327,6 +374,12 @@ closes this gap.
   coordinating that many write paths under one lock ordering is meaningfully
   more implementation and
   test surface than a single-writer availability read.
+- Decision item 3's same-Property consistency requires property-scoped
+  composite foreign keys/alternate keys (or an equivalent cross-table
+  mechanism) on every occupancy-segment reference, plus PostgreSQL
+  integration test coverage proving cross-Property references are rejected
+  — additional schema and verification surface beyond a same-Property-naive
+  design.
 
 ### Rejected alternatives
 
@@ -381,6 +434,22 @@ closes this gap.
   assignment — it does not reduce availability shown to a *new* customer
   browsing the assigned RoomType. The accepted model requires the
   attribution to follow the assignment to the actual RoomType.
+- **Relying on application/UI-only authorization checks, with no
+  database-enforced same-Property invariant, to keep occupancy segment
+  references inside one Property.** Rejected — application-only checks
+  cannot prevent a concurrent writer, a bug, or an unreviewed code path
+  from committing a cross-Property reference; only a database-enforced
+  constraint on the segment/`ReservationUnit`/`RoomBlock` relationship makes
+  cross-Property corruption structurally impossible rather than merely
+  discouraged.
+- **Permitting cross-Property assignment when the two Properties share an
+  Organization, a RoomType code, or an operator's access grant.** Rejected
+  — shared ownership, naming, or access does not make two Properties'
+  physical inventories the same inventory; allowing this would silently
+  corrupt both Properties' physical schedules and per-property availability
+  projections. A genuine cross-Property guest transfer, if ever needed, is
+  a separate business operation requiring its own future authorization —
+  not an exception folded into cross-RoomType assignment.
 
 ## Current-versus-target boundary
 

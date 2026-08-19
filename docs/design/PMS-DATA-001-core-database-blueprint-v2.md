@@ -115,7 +115,7 @@ Organization
        │    └─ InventoryHoldItem (references a RoomType; represents
        │         exactly one held room — a multi-room request is
        │         normalized into multiple items, §6 item 2)
-       │         └─ InventoryHoldItemNight (per stay date)
+       │         └─ InventoryHoldItemNight (per stay date; carries RatePlanId)
        ├─ Reservation
        │    └─ ReservationUnit (references a RoomType; optionally a
        │         source InventoryHoldItem)
@@ -142,7 +142,7 @@ availability-reaction boundary and remain DEFERRED (§17).
 | Commercial hold | `BookingHold`/`BookingHoldNight`, one RoomType per Hold | `InventoryHold → InventoryHoldItems → InventoryHoldItemNights`; each item is one held room, so multiple rooms and multiple RoomTypes per Hold |
 | Commercial reservation | `Reservation`/`ReservationNight`, one RoomType per Reservation | `Reservation → ReservationUnits → ReservationUnitNights` |
 | Physical schedule | None — no PhysicalRoom-level schedule exists | `RoomOccupancySegments`, authoritative PhysicalRoom schedule |
-| Rate attachment | `RatePlanId` on the Hold/Reservation aggregate | `RatePlanId` at UnitNight level |
+| Rate attachment | `RatePlanId` on the Hold/Reservation aggregate | `RatePlanId` on both `InventoryHoldItemNight` and `ReservationUnitNight`, copied exactly 1:1 on confirmation |
 | Calendar | None | Projection over reservations/units/nights/segments/blocks |
 
 ## 6. Commercial commitment model
@@ -162,9 +162,14 @@ availability-reaction boundary and remain DEFERRED (§17).
    per-stay-date nightly row under one item, mirroring today's per-night
    snapshot discipline (uniqueness, contiguity, exact coverage, decimal
    money, nightly multiplication, UTC-instant creation) at the item level
-   instead of the Hold level. For a stay of `N` nights, one item owns
-   exactly `N` nights; a `Q`-room, `N`-night request line therefore
-   produces `Q × N` item-night rows (see the worked example in §15.1).
+   instead of the Hold level, and additionally persists the exact
+   `RatePlanId` selected and priced for that night. RatePlan lineage is
+   never inferred from price alone at any later point — two RatePlans may
+   quote the same amount for the same RoomType/night, and the amount cannot
+   distinguish them; only the persisted `RatePlanId` can. For a stay of `N`
+   nights, one item owns exactly `N` nights; a `Q`-room, `N`-night request
+   line therefore produces `Q × N` item-night rows, each with its own
+   `RatePlanId` (see the worked example in §15.1).
 3. Hold-creation request idempotency/fingerprinting (`BE-003.3`'s existing
    discipline, extended) includes the canonical request-level `quantity`
    for each RoomType line. A replay of an already-succeeded idempotent
@@ -174,7 +179,11 @@ availability-reaction boundary and remain DEFERRED (§17).
 4. TARGET reservation aggregate: `Reservation → ReservationUnits →
    ReservationUnitNights`. A `ReservationUnit` represents exactly one
    commercially sold room; each `ReservationUnitNight` is its per-stay-date
-   nightly row, carrying `RatePlanId` (§5).
+   nightly row, carrying `RatePlanId` (§5). A `ReservationUnit` created
+   directly (Admin, walk-in, or OTA, item 11) without a source Hold persists
+   its own selected `RatePlanId` on every `ReservationUnitNight` it creates
+   — the same nightly lineage rule applies regardless of origin; there is
+   no weaker rate-lineage path for direct creation.
 5. Confirmation maps each `InventoryHoldItem` to exactly one
    `ReservationUnit`, and each `InventoryHoldItemNight` to exactly one
    corresponding `ReservationUnitNight` for the same stay date — the
@@ -184,6 +193,13 @@ availability-reaction boundary and remain DEFERRED (§17).
    one transaction: there is no partial confirmation, no missing unit for an
    existing item, no duplicate unit for the same item, and no later append
    of a unit onto an already-confirmed Reservation from the same Hold.
+   Confirmation copies each `InventoryHoldItemNight`'s persisted
+   `RatePlanId` exactly to its corresponding `ReservationUnitNight` — it
+   never infers RatePlan from the accepted amount, RoomType, or a
+   current-rate re-read, and it never reprices. This holds even if the
+   selected RatePlan's current rate has changed since Hold creation: the
+   Hold's persisted `RatePlanId` and accepted money snapshot are copied
+   as-is (see §15.1 for a worked example).
 6. A `ReservationUnit` may have no source hold — Admin, walk-in, or OTA
    reservation creation may bypass a source hold entirely, leaving its
    `SourceInventoryHoldItemId` null. Where present, that reference is
@@ -199,9 +215,12 @@ availability-reaction boundary and remain DEFERRED (§17).
    they operate at today's Hold/Reservation-Night level. Price snapshots on
    `InventoryHoldItemNight` and `ReservationUnitNight` are per room, per
    night — unambiguously so, since one item/unit is always exactly one
-   room. Hold and Reservation totals are the sum of all persisted
-   item-night/unit-night rows; there is no separate per-unit-versus-
-   aggregate price representation to reconcile.
+   room. Each nightly row's immutable snapshot includes both its accepted
+   money amount and its `RatePlanId`; the two are persisted and copied
+   together and neither is ever derived from the other. Hold and
+   Reservation totals are the sum of all persisted item-night/unit-night
+   rows; there is no separate per-unit-versus-aggregate price representation
+   to reconcile.
 9. Active-hold expiry correctness must not depend on the expiry worker
    running on time (unchanged principle from `BE-003.3`/`BE-003.5`).
    `ExpiresAtUtc` belongs to the `InventoryHold` aggregate, not to an
@@ -211,12 +230,18 @@ availability-reaction boundary and remain DEFERRED (§17).
    cleanup process remains operational hygiene only, never a correctness
    dependency.
 10. Stay extension adds explicitly priced extension nights onto a
-    `ReservationUnit`. It never silently copies, averages, or recalculates
-    previously accepted `ReservationUnitNight` rows.
+    `ReservationUnit`, each with its own explicitly selected `RatePlanId`
+    persisted on its new `ReservationUnitNight`. It never silently copies,
+    averages, or recalculates previously accepted `ReservationUnitNight`
+    rows, including their existing `RatePlanId` values — extension nights
+    may select a different RatePlan than the original nights without
+    altering any already-accepted night.
 11. Admin, walk-in, and OTA reservation creation may bypass a source hold,
     but every such `ReservationUnit` still enters the same commercial
     commitment authority, nightly-snapshot discipline, and integrity rules
-    as a hold-confirmed unit — there is no separate, weaker write path.
+    as a hold-confirmed unit, including persisting its own selected
+    `RatePlanId` on every night it creates (item 4) — there is no separate,
+    weaker write path.
 12. Items/units normalized from the same original request line are
     independent business rows from the moment they are persisted. They may
     diverge — in occupancy, guest assignment, special requests, nightly
@@ -556,8 +581,19 @@ Summary for this blueprint:
   `OperationalBlock` segment references the appropriate `RoomBlock` header.
   Type/reference consistency is an invariant: a segment's type determines
   which reference field is populated, and the other reference is absent.
+- Every `RoomOccupancySegment` belongs to exactly one Property, and every
+  reference it populates must resolve inside that same Property: the
+  referenced PhysicalRoom is always in the segment's Property; a
+  `ReservationAssignment`'s referenced `ReservationUnit`/Reservation is
+  always in that same Property; an `OperationalBlock`'s referenced
+  `RoomBlock` header is always in that same Property. This same-Property
+  consistency is database-enforced (TARGET), not merely an authorization or
+  UI check — see [ADR 0006](../ADR/0006-schedule-physical-rooms-with-occupancy-segments.md)
+  Decision item 3 for the full invariant and its enforcement boundary.
 - Multi-room operational blocks use one `RoomBlock` header related to one or
-  more occupancy segments.
+  more occupancy segments, and that header's PhysicalRooms are always in one
+  Property — a `RoomBlock` can never span Properties (ADR 0006 Decision
+  item 4).
 - Segments are operationally mutable through controlled split/move/cancel
   actions, using optimistic concurrency and append-only audit evidence.
   Mutation must never erase history — a split or move creates new segment
@@ -662,11 +698,35 @@ SQLSTATE mapping, and error contract remain implementation details for a
 separately authorized work item; none is created by this documentation
 work item.
 
+**A separate structural invariant — same-Property reference consistency —
+also applies to every `RoomOccupancySegment`, independent of the exclusion
+invariants and the booked-night coverage rule above:** a segment's
+PhysicalRoom and its populated `ReservationUnit`/`RoomBlock` reference must
+always belong to the same Property (§9; full detail in
+[ADR 0006](../ADR/0006-schedule-physical-rooms-with-occupancy-segments.md)
+Decision item 3). This is a reference-consistency requirement, not an
+overlap/exclusion rule and not a temporal-coverage rule — it does not
+replace, and is not replaced by, tenant/property-scoped authorization checks
+made above the database. Its future implementation boundary requires
+property-scoped composite foreign keys/alternate keys where the schema
+already exposes `PropertyId` on the relevant nodes, or an equivalently
+rigorous database-enforced mechanism where it does not; an application-only
+precheck alone is insufficient under concurrent writers, exactly as for the
+other invariants in this section. No exact column, constraint name, or
+migration is created by this documentation work item.
+
 ## 12. Intentional cross-RoomType assignment
 
 1. Authorized front-desk staff may deliberately assign a `ReservationUnit`
    to a PhysicalRoom whose RoomType differs from the commercially booked
    RoomType — supporting intentional upgrades and downgrades (TARGET).
+   Cross-RoomType assignment is valid only **within the same Property** as
+   the sold `ReservationUnit`'s Reservation (§9, ADR 0006 Decision item 3)
+   — it never authorizes cross-Property assignment, even between two
+   Properties under the same `Organization`, sharing a RoomType code, or
+   both accessible to the operator. A cross-Property guest transfer is a
+   different business operation and is not designed or authorized by this
+   work item.
 2. Cross-RoomType assignment requires authorization, a recorded reason, and
    audit evidence — it is never a silent or anonymous action.
 3. The commercial/sold RoomType remains the booked RoomType for pricing,
@@ -757,6 +817,18 @@ multi-room row to begin with (§6 item 12). A replay of the same idempotent
 3-room request returns the same 3 already-normalized items; it never
 appends a further 3 (§6 item 3).
 
+**RatePlan lineage example** (§6 items 2, 5, 8): two RatePlans, `STANDARD`
+and `PROMO-STANDARD`, both quote the same Deluxe night at the same amount.
+A Hold is created selecting `PROMO-STANDARD`; each of its
+`InventoryHoldItemNight` rows persists `RatePlanId = PROMO-STANDARD` next to
+its accepted money snapshot — the amount alone could not later distinguish
+`PROMO-STANDARD` from `STANDARD`, only the persisted `RatePlanId` can. If
+`PROMO-STANDARD`'s current rate changes before the Hold is confirmed,
+confirmation still copies the Hold's persisted `RatePlanId`
+(`PROMO-STANDARD`) and its originally accepted money snapshot exactly to the
+new `ReservationUnitNight` rows — it performs no current-rate re-read and
+never reprices or silently switches to `STANDARD`.
+
 ### 15.2 Admin/walk-in reservation without a source hold
 
 Front-desk staff create a `Reservation` directly for a walk-in guest. Its
@@ -846,10 +918,12 @@ the two remaining blocked rooms' worth of capacity.
 
 A guest already checked in for a `ReservationUnit` covering 3 nights wants
 to extend by 2 more nights. Two new `ReservationUnitNight` rows are added
-with their own explicitly priced `UnitAmount`, appended to the existing
-contiguous, half-open date range. The original 3 nights' snapshots are
-untouched — no averaging, copying, or recalculation of already-accepted
-nights occurs (§6 item 10). If an existing `Effective`
+with their own explicitly priced `UnitAmount` and their own explicitly
+selected `RatePlanId` — which may differ from the original 3 nights' RatePlan
+— appended to the existing contiguous, half-open date range. The original 3
+nights' snapshots, including their `RatePlanId` values, are untouched — no
+averaging, copying, or recalculation of already-accepted nights occurs (§6
+item 10). If an existing `Effective`
 `ReservationAssignment` segment is being extended to cover the 2 new
 nights, that extension is only valid once the 2 priced
 `ReservationUnitNight` rows exist — before or atomically with the segment

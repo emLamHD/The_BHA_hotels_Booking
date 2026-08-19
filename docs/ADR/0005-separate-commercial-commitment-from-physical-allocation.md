@@ -57,7 +57,17 @@ into one writable surface.
    nightly multiplication, UTC-instant creation) at the item/unit level
    instead of the aggregate level; item-night/unit-night prices are per
    room, per night, and Hold/Reservation totals are the sum of all
-   persisted nightly rows.
+   persisted nightly rows. Each nightly row also persists the exact
+   `RatePlanId` selected and priced for it, on both
+   `InventoryHoldItemNight` and `ReservationUnitNight` — RatePlan lineage is
+   never inferred from the accepted amount alone, since two RatePlans may
+   quote the same amount for the same RoomType/night. The referenced
+   RatePlan must belong to the same Property as the Hold/Reservation and be
+   valid for the nightly RoomType relationship, mirroring the existing
+   `(PropertyId, RatePlanId)`-style composite-key discipline CURRENT already
+   uses (§2 of the blueprint) — the future implementation must preserve this
+   with database-enforced property-scoped relationships, not only an
+   application precheck.
 2. **Map each `InventoryHoldItem` 1:1 to a `ReservationUnit`, and each
    `InventoryHoldItemNight` 1:1 to a `ReservationUnitNight`,** when
    confirmation originated from a hold — the existing one-to-one
@@ -66,20 +76,28 @@ into one writable surface.
    Full confirmation is atomic: one `Reservation` and every item-derived
    `ReservationUnit` are created together in one transaction, with no
    partial confirmation, no duplicate unit for the same item, and no later
-   append. Hold-creation request idempotency/fingerprinting includes the
-   request-level `quantity` for each RoomType line, so a replay of an
-   already-succeeded request returns the same normalized items and never
-   appends more.
+   append. Confirmation copies each `InventoryHoldItemNight`'s persisted
+   `RatePlanId` exactly to its corresponding `ReservationUnitNight`, along
+   with its money snapshot and other accepted nightly fields — it performs
+   no current-rate re-read, no repricing, and no inference of RatePlan from
+   amount, RoomType, or any other mutable lookup; this holds even if the
+   selected RatePlan's current rate changed after Hold creation. Hold-creation
+   request idempotency/fingerprinting includes the request-level `quantity`
+   for each RoomType line, so a replay of an already-succeeded request
+   returns the same normalized items and never appends more.
 3. **Allow Admin, walk-in, and OTA `ReservationUnits` without a mandatory
    hold.** A `ReservationUnit` may have a null `SourceInventoryHoldItemId`.
    Where present, that reference remains unique, preserving direct
    one-item-to-one-unit lineage rather than any quantity-to-generated-unit
    reconciliation mechanism. Every such unit still enters the same
    commercial commitment authority and nightly-snapshot integrity rules as
-   a hold-confirmed unit. Items/units normalized from the same original
-   request line are independent business rows from persistence onward — they
-   may diverge in occupancy, guest assignment, nightly price, or
-   physical-room assignment without any split or reconciliation operation.
+   a hold-confirmed unit, including persisting its own selected `RatePlanId`
+   directly on every `ReservationUnitNight` it creates — direct creation
+   never uses a weaker rate-lineage rule than hold-confirmed creation.
+   Items/units normalized from the same original request line are
+   independent business rows from persistence onward — they may diverge in
+   occupancy, guest assignment, nightly price, or physical-room assignment
+   without any split or reconciliation operation.
 4. **Separate the commercial record from physical allocation, within the
    commercial date boundary — and separately, from operational capacity
    attribution.** A `ReservationUnit`'s existence and its
@@ -196,6 +214,15 @@ into one writable surface.
   competing with the actual commitment rows (`ReservationUnitNight`,
   occupancy segments), reintroducing the "manually editable derived data"
   failure mode ADR 0004 already avoided for the base availability formula.
+- **Infer a confirmed Reservation night's RatePlan from its accepted amount,
+  RoomType, or a current-rate re-read at confirmation time, instead of
+  persisting `RatePlanId` on the Hold night and copying it.** Rejected —
+  two RatePlans can quote the same amount for the same RoomType/night,
+  making amount-based inference ambiguous, and current rates can change
+  after Hold creation, making a re-read produce a different (and wrong)
+  answer than what was actually sold. Persisting and copying `RatePlanId`
+  exactly is the only mechanism that is unambiguous and immune to
+  post-Hold rate changes.
 - **Make the Calendar/Reservation Board its own aggregate that operators
   write to directly.** Rejected — a writable Calendar aggregate would
   invite exactly the kind of desynchronization from the real commercial/

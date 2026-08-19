@@ -214,6 +214,17 @@ Xem [ADR 0003](../ADR/0003-model-hotel-stays-with-half-open-date-ranges.md).
   ghi đè commercial record (RoomType/giá đã bán không đổi). Công thức chính
   xác và quy tắc atomic locking nằm trong blueprint §7 và ADR 0006 Decision
   item 10.
+- TARGET, chưa implement: `RatePlanId` được lưu ở cấp nightly trên cả
+  `InventoryHoldItemNight` và `ReservationUnitNight`, không chỉ ở cấp
+  aggregate; Hold confirmation copy đúng `RatePlanId` này 1:1, không suy
+  diễn từ giá (hai RatePlan có thể cùng giá) và không re-read rate hiện tại
+  — xem blueprint §6 và ADR 0005 Decision item 1-2.
+- TARGET, chưa implement: mỗi `RoomOccupancySegment` và mọi reference nó
+  populate (PhysicalRoom, ReservationUnit, RoomBlock) phải cùng một
+  Property, được database-enforced chứ không chỉ authorization/UI check;
+  một `RoomBlock` không bao giờ span nhiều Property; cross-RoomType
+  assignment chỉ hợp lệ trong cùng một Property — xem blueprint §9/§11/§12
+  và ADR 0006 Decision item 3.
 
 Xem [ADR 0004](../ADR/0004-compute-effective-inventory-with-daily-controls.md).
 
