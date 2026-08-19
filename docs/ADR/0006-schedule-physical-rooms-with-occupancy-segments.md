@@ -184,6 +184,48 @@ closes this gap.
      distinct temporal-integrity rule — not a third exclusion constraint —
      that additionally prevents an `Effective ReservationAssignment` from
      occupying dates that were never sold.
+10. **`Effective OperationalBlock` sellable-inventory invariant.** An
+    `Effective OperationalBlock` segment does not only participate in the
+    PhysicalRoom schedule exclusion (Decision item 6) — it also removes its
+    referenced PhysicalRoom from `RoomTypeDailyInventory`'s usable physical
+    capacity for its RoomType, on every date `[StartDate, EndDate)` it
+    covers. The exact daily formula, block-counting rules, and required
+    atomic-locking discipline are recorded in
+    [PMS-DATA-001-core-database-blueprint-v2](../design/PMS-DATA-001-core-database-blueprint-v2.md)
+    §7 — this ADR states the invariant, the blueprint states the arithmetic,
+    so the two must never be edited to disagree. In summary:
+    - `BaseInventory` (ADR 0004) is reduced by the count of distinct active
+      PhysicalRooms carrying an `Effective OperationalBlock` for that date,
+      before any `SellableLimit`/`IsStopSell` daily control (ADR 0004) is
+      applied, and before `CommittedDemand` (Hold/Reservation item/unit-night
+      demand, ADR 0005) is subtracted. This fixed order is required — a
+      block is never applied after or independently of the daily-control
+      cap, because that ordering can offer sellable capacity that no longer
+      physically exists.
+    - Each distinct blocked PhysicalRoom is deducted at most once per date,
+      regardless of how many `OperationalBlock` segments or which
+      multi-room `RoomBlock` header cover it; a PhysicalRoom already
+      excluded from `BaseInventory` (`Inactive`/`OutOfService`) is not
+      deducted again.
+    - `Cancelled` blocks never reduce current or future availability; only
+      `Effective` rows participate.
+    - An `Effective ReservationAssignment` segment is never counted as an
+      operational block for this purpose — its sold room already
+      contributes exactly once through its `ReservationUnitNight` demand;
+      counting the assignment segment too would double-subtract the same
+      sold room.
+    - Every future write path capable of changing capacity or demand for
+      the same `(PropertyId, RoomTypeId, StayDate)` key — Hold/reservation
+      creation, `OperationalBlock` activation/split/move/cancellation, and
+      capacity-affecting PhysicalRoom/`DailyInventoryControl` changes —
+      participates in one shared atomic locking discipline over that key,
+      extending the existing `BE-003.3`–`BE-003.5` advisory-lock pattern, so
+      a concurrent Hold creation and block change for the same key can never
+      both commit against the same stale pre-change capacity.
+    - Exact storage columns, refresh mechanism, advisory-lock hash, SQL
+      function, API contract, EF mapping, DDL, or error payload remain
+      implementation details for a separately authorized work item and are
+      not invented here.
 
 ## Consequences
 
@@ -208,6 +250,11 @@ closes this gap.
   authoritative physical occupancy can never exceed the guest's sold stay —
   the physical schedule and the Calendar/Reservation Board projection built
   on it stay trustworthy even as segments are split, moved, or extended.
+- The `Effective OperationalBlock` sellable-inventory invariant (Decision
+  item 10) guarantees that rooms taken out of service for maintenance or
+  another operational reason cannot be oversold — physical blocking and
+  commercial availability stay a single, consistent source of truth instead
+  of two systems that can silently disagree.
 
 ### Cost
 
@@ -226,6 +273,13 @@ closes this gap.
   stay-coverage writes, plus dedicated PostgreSQL integration test coverage
   — nontrivial implementation and verification work beyond the two
   exclusion constraints alone.
+- The `Effective OperationalBlock` sellable-inventory invariant (Decision
+  item 10) requires every future capacity- or demand-changing write path —
+  Hold/reservation creation, block mutation, and operational-status/daily-
+  control changes — to share one atomic locking discipline over the same
+  `(PropertyId, RoomTypeId, StayDate)` keys; coordinating that many write
+  paths under one lock ordering is meaningfully more implementation and
+  test surface than a single-writer availability read.
 
 ### Rejected alternatives
 
@@ -256,6 +310,18 @@ closes this gap.
   would hide, rather than prevent, corruption in the authoritative
   PhysicalRoom schedule; neither can be the correctness mechanism for
   Decision item 9.
+- **Treating `OperationalBlock` segments as Calendar-only display data with
+  no effect on `RoomTypeDailyInventory`/availability.** Rejected — this is
+  exactly the gap the post-C5 review identified: blocked rooms would remain
+  sellable, allowing new holds/reservations to oversell capacity that is
+  physically unavailable. Availability must reflect operational blocks, not
+  merely display them.
+- **Counting an `Effective ReservationAssignment` segment as an operational
+  block in addition to its `ReservationUnitNight` committed demand.**
+  Rejected — this double-subtracts the same sold, physically assigned room
+  from `RoomTypeDailyInventory`, understating true availability for no
+  correctness benefit; the room's demand is already fully accounted for by
+  its commercial `ReservationUnitNight` row.
 
 ## Current-versus-target boundary
 

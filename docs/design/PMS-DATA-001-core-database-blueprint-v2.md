@@ -231,7 +231,148 @@ availability-reaction boundary and remain DEFERRED (§17).
 historical snapshot — never a manually editable source of truth (TARGET).
 Its role mirrors today's `AvailabilityDataSource` committed-demand read
 (`BE-003.3`): a derived view over authoritative rows, never itself an
-authority a caller can write to directly.
+authority a caller can write to directly. The exact daily formula it
+computes is defined below.
+
+### Operational-block-adjusted daily availability formula (TARGET)
+
+For one Property `p`, RoomType `r`, and StayDate `d`:
+
+```text
+BaseInventory(p, r, d)
+  = count of PhysicalRooms for p/r with OperationalStatus = Active
+    (ADR 0004, unchanged)
+
+OperationalBlockedRooms(p, r, d)
+  = count of distinct PhysicalRoomId, among the PhysicalRooms already
+    counted in BaseInventory(p, r, d), that carry an Effective
+    OperationalBlock segment covering d under the half-open
+    [StartDate, EndDate) rule
+
+UsablePhysicalCapacity(p, r, d)
+  = max(0, BaseInventory(p, r, d) - OperationalBlockedRooms(p, r, d))
+
+ControlledCapacity(p, r, d)
+  = 0                                                  if IsStopSell = true
+  = min(UsablePhysicalCapacity(p, r, d), SellableLimit) if SellableLimit is present
+  = UsablePhysicalCapacity(p, r, d)                     otherwise
+
+CommittedDemand(p, r, d)
+  = active, unexpired InventoryHoldItemNight demand
+    + committed ReservationUnitNight demand,
+    for RoomType r on date d, counted exactly once
+    (extends BE-003.3's committed-demand read, §6, to the item/unit-night
+    level)
+
+AvailableToSell(p, r, d)
+  = max(0, ControlledCapacity(p, r, d) - CommittedDemand(p, r, d))
+```
+
+Exact block-counting and ordering rules:
+
+1. An `OperationalBlock` covers date `d` under the existing half-open rule
+   `StartDate <= d < EndDate`; the block's end date is not itself blocked,
+   consistent with ADR 0003.
+2. Only `Type == OperationalBlock` and `Status == Effective` segments
+   participate. `Cancelled` block history never reduces current or future
+   availability.
+3. Each distinct blocked PhysicalRoom is counted at most once per date. One
+   multi-room `RoomBlock` (§9) therefore contributes one deduction per
+   distinct affected PhysicalRoom — never one deduction for the header row,
+   and never an arbitrary aggregate quantity.
+4. A block's Property and RoomType are derived from its referenced
+   PhysicalRoom; it reduces the capacity of that PhysicalRoom's actual
+   RoomType.
+5. `OperationalBlockedRooms` only ever counts rooms already included in
+   `BaseInventory`. A PhysicalRoom already excluded from `BaseInventory`
+   because it is `Inactive` or `OutOfService` is never subtracted a second
+   time merely because an `Effective` block row also exists for it.
+6. Base physical capacity is reduced by blocks **before** `SellableLimit` is
+   applied. `SellableLimit` remains an absolute cap on the already-reduced
+   `UsablePhysicalCapacity`, never an independent quantity subtracted a
+   second time alongside blocked rooms — the incorrect ordering
+   `min(BaseInventory, SellableLimit) - OperationalBlockedRooms` is not
+   used, because it can leave `SellableLimit` capacity that physically no
+   longer exists. `IsStopSell` remains dominant and always yields zero
+   controlled capacity regardless of blocks or limits.
+7. `CommittedDemand` is subtracted only after operational capacity and
+   daily controls are resolved into `ControlledCapacity`. Hold expiry still
+   uses one server-side `utcNow` and the exact `ExpiresAtUtc > utcNow`
+   boundary already established (below, and `BE-003.3`/`BE-003.5`).
+8. `ReservationAssignment` segments are never counted in
+   `OperationalBlockedRooms`. A sold, physically assigned room already
+   contributes its demand exactly once through its `ReservationUnitNight`
+   row in `CommittedDemand`; also counting its `ReservationAssignment`
+   segment as a block would double-subtract the same sold room. Intentional
+   cross-RoomType physical assignment (§12) remains governed by the
+   existing commercial-versus-physical separation (§8): it does not
+   reprice, reclassify, or silently transfer the sold RoomType's committed
+   demand for this formula.
+9. Stay-level sellability is the minimum `AvailableToSell` across every
+   requested stay date; a request for `Q` rooms may succeed only when every
+   requested date has `AvailableToSell >= Q`.
+10. `RoomTypeDailyInventory` for a future date is the current derived
+    projection above, recomputed as underlying rows change. A closed
+    historical snapshot for a past date retains the block-adjusted values
+    that were closed for that date; later cancellation, audit correction,
+    or block history must never rewrite an already-closed past snapshot.
+    No storage column, refresh mechanism, or snapshot schema is designed by
+    this documentation work item.
+
+**Worked example** (extends §15.6): 10 active PhysicalRooms for a RoomType,
+3 of them under an `Effective OperationalBlock` for the date in question,
+and a `SellableLimit` of 8:
+
+```text
+BaseInventory                              10
+Effective OperationalBlock rooms            3
+UsablePhysicalCapacity = 10 - 3              7
+SellableLimit                                8
+ControlledCapacity = min(7, 8)               7   (not min(10, 8) - 3 = 5)
+CommittedDemand (active Holds + Reservations) 4
+AvailableToSell = max(0, 7 - 4)              3
+```
+
+A new request for 4 rooms on this date is rejected; a request for up to 3
+rooms may proceed, subject to the same result holding on every requested
+stay date and to the atomic concurrency check below. The naive ordering
+`min(BaseInventory, SellableLimit) - OperationalBlockedRooms =
+min(10, 8) - 3 = 5` is not used because it would offer 2 more rooms than
+physically exist after blocking (rule 6).
+
+**Atomicity and locking (TARGET).** The formula above is not a read-only
+afterthought layered on independent writers. Every future write path capable
+of changing capacity or demand for the same `(PropertyId, RoomTypeId,
+StayDate)` key participates in one shared atomic availability/locking
+discipline, extending the existing `BE-003.3`–`BE-003.5` advisory-lock
+pattern to at least:
+
+- Hold creation and any direct (Admin/walk-in/OTA) reservation path that
+  creates new committed demand (§6 item 11);
+- activation, creation, split, move, cancellation, or date/room change of an
+  `OperationalBlock` segment;
+- capacity-affecting PhysicalRoom operational-status changes and
+  `DailyInventoryControl` changes, once those TARGET write paths are
+  separately designed.
+
+For a multi-room or multi-date block mutation, every affected old and new
+`(PropertyId, RoomTypeId, StayDate)` key is derived, de-duplicated, and
+locked in deterministic order within one explicit transaction — mirroring
+`BookingAdvisoryLockKeys.ForInventory`'s existing ascending-order discipline.
+Under that lock, the transaction recomputes base rooms, `Effective`
+operational blocks, daily controls, expiry-aware Hold demand, and committed
+Reservation demand before accepting new demand or committing the
+capacity-changing operation, so a concurrent Hold-creation and block-change
+for the same key can never both commit against the same stale pre-change
+capacity. Whether an emergency block that would drive existing committed
+demand above the newly reduced controlled capacity is rejected outright or
+accepted with a recorded operational deficit is a business policy this
+correction does not decide; at minimum, the projection must clamp
+`AvailableToSell` to zero and refuse additional new demand while capacity is
+insufficient — it must not silently choose a broader conflict-resolution or
+relocation workflow. Exact advisory-lock hash construction, SQL function,
+API contract, EF mapping, DDL, or error payload remain implementation
+details for a separately authorized work item and are not invented here.
 
 The expiry-boundary correctness rule already proven today (`BE-003.3`,
 `BE-003.5`) — `Active Holds where ExpiresAtUtc > utcNow` counted, expired
@@ -539,6 +680,18 @@ related to three `OperationalBlock`-type `RoomOccupancySegment` rows (one
 per PhysicalRoom), all `Effective`. None references a `ReservationUnit`; the
 PhysicalRoom schedule exclusion invariant (§11 item 1) still applies to each
 segment individually.
+
+The three blocked PhysicalRooms are not merely excluded from the physical
+schedule — they also reduce `RoomTypeDailyInventory`'s
+`UsablePhysicalCapacity` for their RoomType on every date the block covers
+(§7's operational-block-adjusted formula). Against 10 active PhysicalRooms
+of that RoomType, a `SellableLimit` of 8, and 4 rooms of existing committed
+demand, the worked example in §7 shows `AvailableToSell` dropping from what
+a naive `min(10, 8) - 4 = 4` calculation would suggest to the correct
+`max(0, min(7, 8) - 4) = 3`: the block reduces usable physical capacity
+before the sellable limit and committed demand are applied, so new holds or
+reservations cannot oversell the two remaining blocked rooms' worth of
+capacity.
 
 ### 15.7 Stay extension with new priced nights
 

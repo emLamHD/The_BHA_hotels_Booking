@@ -102,6 +102,21 @@ into one writable surface.
    as a future operational projection and closed historical snapshot; no
    caller writes to it directly, mirroring how today's `AvailabilityDataSource`
    committed-demand read is itself a derived view, never a writable counter.
+   The projection's daily capacity is computed in a fixed order: active
+   `BaseInventory` (ADR 0004) is first reduced by every distinct PhysicalRoom
+   carrying an `Effective OperationalBlock` segment for that date (ADR 0006
+   Decision item 10) to yield usable physical capacity; `SellableLimit`/
+   `IsStopSell` daily controls (ADR 0004) are applied to that already-reduced
+   capacity, never independently of it; and `CommittedDemand` (Hold/
+   Reservation item/unit-night demand) is subtracted last. A sold, physically
+   assigned `ReservationAssignment` is never separately counted as a block —
+   it already contributes its demand exactly once through its
+   `ReservationUnitNight` row, so counting the assignment segment too would
+   double-subtract the same sold room. Full formula, exact rules, and the
+   required atomic-locking discipline are in
+   [PMS-DATA-001-core-database-blueprint-v2](../design/PMS-DATA-001-core-database-blueprint-v2.md)
+   §7 and [ADR 0006](0006-schedule-physical-rooms-with-occupancy-segments.md)
+   Decision item 10.
 6. **Keep the Calendar/Reservation Board a projection.** It is composed from
    reservations, units, unit nights, occupancy segments, and room blocks —
    it is never a competing aggregate (e.g. a `CalendarEvents` table) with

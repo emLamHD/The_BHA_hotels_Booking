@@ -201,6 +201,12 @@ Xem [ADR 0003](../ADR/0003-model-hotel-stays-with-half-open-date-ranges.md).
   [ADR 0005](../ADR/0005-separate-commercial-commitment-from-physical-allocation.md)
   và
   [ADR 0006](../ADR/0006-schedule-physical-rooms-with-occupancy-segments.md).
+- TARGET, chưa implement: `Effective OperationalBlock` (§9, ADR 0006) làm
+  giảm usable physical capacity của `RoomTypeDailyInventory` trước khi daily
+  control (`SellableLimit`/`IsStopSell`, ADR 0004) và committed demand được
+  áp dụng — phòng bị block để bảo trì không còn được coi là sellable, tránh
+  oversell trên capacity không còn tồn tại thật. Công thức chính xác và quy
+  tắc atomic locking nằm trong blueprint §7 và ADR 0006 Decision item 10.
 
 Xem [ADR 0004](../ADR/0004-compute-effective-inventory-with-daily-controls.md).
 
