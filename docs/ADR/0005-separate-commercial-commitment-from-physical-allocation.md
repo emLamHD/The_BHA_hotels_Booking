@@ -3,9 +3,12 @@
 - **Status:** Accepted target architecture, implementation pending.
 - **Date:** 2026-08-19.
 
-This decision is TARGET / APPROVED, not CURRENT / AS-BUILT. No table,
-column, constraint, entity, or migration named below exists in the current
-schema. See
+This decision is TARGET / APPROVED, not CURRENT / AS-BUILT. The new
+item/unit decomposition and commercial-versus-physical separation described
+below are not implemented. Existing CURRENT `BookingHold`/`BookingHoldNight`
+and `Reservation`/`ReservationNight` capabilities described in Context
+remain implemented exactly as they are today; this ADR introduces no schema
+or product change. See
 [PMS-DATA-001-core-database-blueprint-v2](../design/PMS-DATA-001-core-database-blueprint-v2.md)
 for full detail and scenario walkthroughs.
 

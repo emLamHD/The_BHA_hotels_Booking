@@ -1,8 +1,10 @@
 # PMS-DATA-001 — Core Database Blueprint v2
 
-- **Status:** Approved TARGET architecture. Not implemented. No table, column,
-  constraint, migration, entity, query, worker, endpoint, UI, or adapter
-  described below exists in the current schema or codebase.
+- **Status:** Approved TARGET architecture. The newly proposed TARGET
+  entities, relationships, constraints, and changes described below are not
+  implemented. Existing CURRENT entities and capabilities remain implemented
+  exactly as recorded in §2; this docs-only work item creates no schema or
+  product behavior.
 - **Date:** 2026-08-19.
 - **Scope:** the locked, Owner-approved PMS core database design that Customer
   Web and a future Admin PMS will share. This document is the authoritative

@@ -3,9 +3,13 @@
 - **Status:** Accepted target architecture, implementation pending.
 - **Date:** 2026-08-19.
 
-This decision is TARGET / APPROVED, not CURRENT / AS-BUILT. No table,
-column, constraint, entity, migration, extension, or test named below
-exists in the current schema or codebase. See
+This decision is TARGET / APPROVED, not CURRENT / AS-BUILT. The TARGET
+occupancy-segment schedule, `RoomBlock`, exclusion constraints, and related
+future implementation work described below are not implemented. Existing
+CURRENT entities referenced for context, including `PhysicalRoom` and
+`Reservation`, are not negated by this statement — they remain implemented
+exactly as they are today. This ADR introduces no schema, extension,
+migration, test, or product change. See
 [PMS-DATA-001-core-database-blueprint-v2](../design/PMS-DATA-001-core-database-blueprint-v2.md)
 for full detail and scenario walkthroughs.
 
