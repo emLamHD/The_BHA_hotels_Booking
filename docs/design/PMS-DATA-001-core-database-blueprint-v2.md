@@ -33,11 +33,23 @@ firm decision — firmness of the decision is not evidence of construction.
 
 ## 2. Current as-built baseline
 
-- The BHA Hotels Booking currently implements a **single-Property,
-  single-RoomType** Hold/Reservation aggregate (`BE-003.1`–`BE-003.5`):
-  `BookingHold`/`BookingHoldNight` and `Reservation`/`ReservationNight`, each
-  capturing exactly one Property, RoomType, and RatePlan per booking, with
-  immutable nightly snapshots.
+- The BHA Hotels Booking currently implements an explicit `Property`
+  aggregate and a **multi-property-capable, property-scoped** schema:
+  `RoomType`, `PhysicalRoom`, `RatePlan`, rates, inventory controls,
+  `BookingHold`, and `Reservation` all carry `PropertyId` with
+  property-consistency foreign keys (e.g. `(PropertyId, RoomTypeId) →
+  RoomTypes(PropertyId, Id)`), property-scoped indexes, and
+  `(Property, RoomType, stay date)` advisory-lock identities. This is a data
+  model capable of storing multiple Property rows today — it is not an
+  implicit single-Property design, and the current single-row development
+  seed is seed content, not a schema restriction. Within that schema, each
+  current `BookingHold`/`BookingHoldNight` and `Reservation`/
+  `ReservationNight` (`BE-003.1`–`BE-003.5`) still captures exactly **one
+  Property, one RoomType, and one RatePlan per booking**, with immutable
+  nightly snapshots — CURRENT remains single-RoomType-per-booking, and no
+  booking spans more than one Property. What is genuinely absent is an
+  `Organization`/tenant ownership and authorization boundary above
+  `Property` (§3).
 - Exactly six PostgreSQL migrations exist, ending at
   `20260723105404_AddBookingHoldReservationFoundation`:
   1. `20260721175848_InitialPropertyRoomInventory`
@@ -71,10 +83,17 @@ firm decision — firmness of the decision is not evidence of construction.
    CURRENT hierarchy stops at `Property → RoomType → PhysicalRoom`; no
    `Organization` entity exists.
 3. Authorization and operational reads/writes are organization/property
-   scoped (TARGET). Tenant isolation must be enforced at application/domain
-   boundaries and by PostgreSQL integrity where practical — this is a design
-   requirement for the eventual implementation, not a claim that any such
-   enforcement exists today beyond the current single-Property model.
+   scoped (TARGET). CURRENT already has database-level `Property` identity
+   and property-consistency integrity (§2) — every RoomType, RatePlan,
+   Hold, and Reservation is bound to its owning `PropertyId` by foreign key,
+   and `GET /api/v1/properties/{propertyId}/availability` is already
+   property-addressed. What CURRENT does not have is `Organization`
+   ownership of a Property, tenant membership, or organization-scoped
+   authorization/isolation above that existing property boundary. Tenant
+   isolation must be enforced at application/domain boundaries and by
+   PostgreSQL integrity where practical — this is a design requirement for
+   the eventual `Organization` boundary, not a claim that Property-level
+   scoping itself is new.
 4. Current onboarding scope is exactly two approved properties, both TARGET
    (neither is a claim that both rows exist in the current seed/schema):
    - The BHA House — 79 Mộc Sơn 5, Đà Nẵng.
@@ -119,7 +138,7 @@ availability-reaction boundary and remain DEFERRED (§17).
 
 | Concept | CURRENT | TARGET |
 | --- | --- | --- |
-| Tenant/property scope | Single implicit Property, no Organization | `Organization → Property` |
+| Tenant/property scope | Explicit `Property` aggregate; multi-property-capable, property-scoped schema/FKs/indexes; no `Organization`/tenant boundary above it | `Organization → Property` with tenant ownership/authorization layered above the existing Property scope |
 | Commercial hold | `BookingHold`/`BookingHoldNight`, one RoomType per Hold | `InventoryHold → InventoryHoldItems → InventoryHoldItemNights`; each item is one held room, so multiple rooms and multiple RoomTypes per Hold |
 | Commercial reservation | `Reservation`/`ReservationNight`, one RoomType per Reservation | `Reservation → ReservationUnits → ReservationUnitNights` |
 | Physical schedule | None — no PhysicalRoom-level schedule exists | `RoomOccupancySegments`, authoritative PhysicalRoom schedule |
