@@ -173,9 +173,10 @@ diff.
 - Master Execution Prompt: `IMPLEMENTER: CLAUDE`, `REVIEWER: CODEX_READ_ONLY`,
   baseline `f97c3529fb94c08fafad0da059ec1cf2b839b0d0`, feature branch
   `docs/pms-data-001-core-database-blueprint-v2`.
-- Scope: docs-only, exactly eight allowed paths (this file among them). No
-  product source, schema, migration, API, UI, dependency, or governance file
-  is touched.
+- Scope: docs-only, exactly nine allowed paths (this file among them). No
+  product source, schema, migration, API, UI, dependency, or file under
+  `docs/governance/**` is touched. Root `AGENTS.md` is the sole Owner-approved
+  project-identity exception added by C9.
 - Next action after Claude's completion report: Owner-invoked
   `/codex:review --base origin/develop` (exactly one invocation), then OC
   review of the report/diff/Codex result, then Owner-only Ready/merge/branch
@@ -234,10 +235,6 @@ gồm bất kỳ phần nào của PMS blueprint TARGET) từ Snapshot này.
 - Claude mutate worktree trong lúc Codex đang review.
 - Review base bị suy ra thành `main` thay vì explicit `origin/develop`.
 - Quyền template assets bị hiểu nhầm là đã được cấp phép production.
-- Root `AGENTS.md` vẫn còn wording "Admin Web reserved placeholder" cũ, đã
-  lỗi thời so với PR #30 — ghi nhận là known out-of-scope drift, không sửa
-  trong work item này (root adapters bị cấm sửa theo Master Execution
-  Prompt); không suy ra rằng điều này phủ nhận trạng thái PR #30 đã verify.
 
 ## 12. First action
 
