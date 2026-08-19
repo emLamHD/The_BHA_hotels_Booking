@@ -111,7 +111,7 @@ Organization
 `RoomTypeDailyInventory` and the Calendar/Reservation Board are projections
 over the above graph, not additional aggregates competing for authority
 (§7, §10). OTA adapter/inbox/outbox entities attach at the Reservation and
-availability-reaction boundary and remain DEFERRED (§14).
+availability-reaction boundary and remain DEFERRED (§17).
 
 ## 5. Current-versus-target vocabulary map
 
@@ -153,7 +153,7 @@ availability-reaction boundary and remain DEFERRED (§14).
 4. TARGET reservation aggregate: `Reservation → ReservationUnits →
    ReservationUnitNights`. A `ReservationUnit` represents exactly one
    commercially sold room; each `ReservationUnitNight` is its per-stay-date
-   nightly row, carrying `RatePlanId` (§8).
+   nightly row, carrying `RatePlanId` (§5).
 5. Confirmation maps each `InventoryHoldItem` to exactly one
    `ReservationUnit`, and each `InventoryHoldItemNight` to exactly one
    corresponding `ReservationUnitNight` for the same stay date — the
@@ -363,7 +363,7 @@ work item.
   idempotency, inbox/outbox reliability, replay handling, and source
   attribution (TARGET boundary statement only).
 - Adapter-specific OTA schema and behavior remain DEFERRED. No OTA adapter
-  is designed or implemented by this work item (§14).
+  is designed or implemented by this work item (§17).
 
 ## 14. Realtime UX versus correctness
 
@@ -426,7 +426,7 @@ appends a further 3 (§6 item 3).
 Front-desk staff create a `Reservation` directly for a walk-in guest. Its
 `ReservationUnit`(s) have no source `InventoryHoldItem` reference at all.
 The same commercial commitment authority and nightly-snapshot integrity
-rules apply as if it had originated from a hold (§6 item 10) — there is no
+rules apply as if it had originated from a hold (§6 item 11) — there is no
 separate, lighter-weight walk-in write path.
 
 ### 15.3 Initially unassigned or partially assigned reservation
@@ -476,7 +476,7 @@ to extend by 2 more nights. Two new `ReservationUnitNight` rows are added
 with their own explicitly priced `UnitAmount`, appended to the existing
 contiguous, half-open date range. The original 3 nights' snapshots are
 untouched — no averaging, copying, or recalculation of already-accepted
-nights occurs (§6 item 9).
+nights occurs (§6 item 10).
 
 ### 15.8 Expired hold remaining logically harmless before cleanup
 
@@ -494,11 +494,11 @@ An OTA channel sends an inbound reservation notification through its
 adapter boundary. The adapter maps the external identity, applies
 idempotency/replay handling, and — once accepted — the reservation enters
 the same `Reservation`/`ReservationUnit`/`ReservationUnitNight` commercial
-authority as any other channel (§6 item 10), after which the platform
+authority as any other channel (§6 item 11), after which the platform
 reacts by pushing an outbound availability update back through the same
 adapter boundary. This scenario is named to show where the OTA boundary
 attaches to the commercial model; the adapter itself remains entirely
-DEFERRED (§14, §13) and is not designed here.
+DEFERRED (§13, §17) and is not designed here.
 
 ## 16. Approximate table-count estimate
 
@@ -539,7 +539,7 @@ Related decisions:
 
 - [ADR 0003 — Model hotel stays with half-open date ranges](../ADR/0003-model-hotel-stays-with-half-open-date-ranges.md)
   — half-open `[checkIn, checkOut)` semantics, extended unchanged to
-  `InventoryHoldItemNight`/`ReservationUnitNight` (§6 item 6).
+  `InventoryHoldItemNight`/`ReservationUnitNight` (§6 item 7).
 - [ADR 0004 — Compute effective inventory with daily controls](../ADR/0004-compute-effective-inventory-with-daily-controls.md)
   — base/effective-inventory formula that `RoomTypeDailyInventory` (§7)
   extends as a projection, not a rewrite.

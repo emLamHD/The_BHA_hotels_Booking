@@ -110,9 +110,9 @@ PostgreSQL level, not only in application code.
 - Database-enforced exclusion constraints make double-booking a physical
   room, or double-occupying a sold unit, structurally impossible rather
   than dependent on every code path remembering to check first.
-- Split/move operations that preserve commercial pricing (ADR 0005 §6 item
-  9 in the blueprint) let front-desk operations happen freely without any
-  risk of silently changing what a guest is contractually owed.
+- Split/move operations that preserve commercial pricing (ADR 0005;
+  blueprint §9) let front-desk operations happen freely without any risk of
+  silently changing what a guest is contractually owed.
 - Cross-RoomType assignment with mandatory authorization/reason/audit
   supports real front-desk upgrade/downgrade practice without weakening the
   commercial record.
