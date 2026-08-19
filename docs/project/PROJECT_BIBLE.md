@@ -8,21 +8,46 @@ task/PR hiện tại nằm trong `docs/project/SNAPSHOT.md`.
 
 ## 1. Tầm nhìn kinh doanh
 
-The BHA Hotels Booking là website chính thức và nền tảng đặt phòng trực tiếp
-cho The BHA Hotel.
+The BHA Hotels Booking đang mở rộng từ một website đặt phòng trực tiếp thành
+một nền tảng hospitality dùng chung cho nhiều cơ sở: Customer Web (đặt phòng
+trực tiếp cho khách) và Admin PMS (vận hành nội bộ), cùng chia sẻ một backend
+ASP.NET Core và một PostgreSQL source of truth (TARGET — xem
+[PMS-DATA-001-core-database-blueprint-v2](../design/PMS-DATA-001-core-database-blueprint-v2.md)).
+Admin Web hiện tại (PR #30) mới là template baseline; PMS/Admin behavior thật
+vẫn TARGET, chưa implement.
+
+Phạm vi onboarding hiện tại — TARGET, hai property đã được Owner duyệt, không
+phải khẳng định rằng cả hai đã tồn tại trong seed/schema hiện tại:
+
+- The BHA House — 79 Mộc Sơn 5, Đà Nẵng.
+- The BHA Riverside — 162 Nghiêm Xuân Yêm, Đà Nẵng.
+
+Nền tảng phải mở rộng được cho nhiều property hơn mà không cần backend/
+database riêng cho từng property (TARGET).
 
 Mục tiêu:
 
-- Xây dựng bộ mặt trực tuyến chính thức của khách sạn.
+- Xây dựng bộ mặt trực tuyến chính thức của khách sạn và một nền tảng vận
+  hành PMS nội bộ dùng chung dữ liệu.
 - Cho phép khách tìm phòng và đặt trực tiếp.
 - Giảm phụ thuộc và chi phí hoa hồng từ OTA.
-- Tạo nền tảng có thể mở rộng cho quản lý giá, tồn phòng, booking và tích hợp
-  vận hành trong tương lai.
+- Tạo nền tảng có thể mở rộng cho quản lý giá, tồn phòng, booking, physical-
+  room allocation và tích hợp vận hành trong tương lai.
 - Cải thiện khả năng xuất hiện khi khách tìm kiếm thương hiệu The BHA Hotel.
+
+Mọi TARGET/APPROVED architecture chi tiết (Organization/Property scoping,
+multi-RoomType Hold/Reservation, physical allocation, occupancy segment,
+Calendar projection, OTA boundary) được ghi đầy đủ trong
+[PMS-DATA-001-core-database-blueprint-v2](../design/PMS-DATA-001-core-database-blueprint-v2.md),
+[ADR 0005](../ADR/0005-separate-commercial-commitment-from-physical-allocation.md)
+và
+[ADR 0006](../ADR/0006-schedule-physical-rooms-with-occupancy-segments.md).
+Không có bảng/entity/schema TARGET nào trong các tài liệu đó đã được
+implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
 
 ## 2. Phạm vi sản phẩm
 
-### Năng lực cốt lõi của MVP
+### Năng lực cốt lõi của MVP hiện tại (CURRENT)
 
 - Public property/room catalog.
 - Room type và physical room inventory foundation.
@@ -30,21 +55,44 @@ Mục tiêu:
 - Giá theo từng đêm.
 - Daily sellable limit và stop-sell.
 - Availability search và stay pricing.
-- Booking commitment/hold/reservation là capability riêng, không được trộn vào
-  lớp availability chỉ đọc.
+- Booking commitment/hold/reservation: `BE-003.1`–`BE-003.5` đã cung cấp
+  atomic Hold/Reservation concurrency và expiry-aware committed demand cho
+  schema single-RoomType-per-booking hiện tại (CURRENT); đây là capability
+  riêng, không trộn vào lớp availability chỉ đọc.
 
-### Ngoài phạm vi nền tảng hiện tại hoặc phải có Epic riêng
+### Target/approved, chưa implement (TARGET)
 
-- OTA/channel manager.
+- Multi-RoomType Hold/Reservation
+  (`InventoryHold → InventoryHoldItems → InventoryHoldItemNights`,
+  `Reservation → ReservationUnits → ReservationUnitNights`) — xem ADR 0005.
+- Physical-room allocation độc lập với commercial commitment, qua
+  `RoomOccupancySegments` (segment type `ReservationAssignment`/
+  `OperationalBlock`, status `Effective`/`Cancelled`) và hai PostgreSQL
+  exclusion invariant — xem ADR 0006.
+- Intentional cross-RoomType upgrade/downgrade có authorization/reason/
+  audit, không reprice commercial record.
+- Calendar/Reservation Board là projection, không phải aggregate riêng.
+- `FolioEntries` là financial posting authority riêng biệt với booking
+  snapshot; Guest identity document và Stay Declaration là hai concept có
+  lifecycle riêng.
+- Admin PMS/Calendar UI thật (Admin Web hiện chỉ là template baseline).
+
+Mixed-RoomType allocation không còn nằm trong danh sách "ngoài phạm vi" bên
+dưới — nó là TARGET/APPROVED, chưa implement, theo đúng nghĩa ở trên.
+
+### Ngoài phạm vi nền tảng hiện tại hoặc phải có Epic riêng (DEFERRED)
+
+- OTA/channel manager (adapter-specific schema/behavior deferred; boundary
+  nguyên tắc đã ghi trong blueprint §13).
 - Payment và refund.
 - Promotion/coupon/discount.
 - Tax và service charge phức tạp.
 - Meal plan.
 - Multi-currency conversion.
-- Mixed RoomType allocation.
 - Guest profile nâng cao.
-- Check-in/check-out, housekeeping và maintenance scheduling.
-- Admin Web đầy đủ.
+- Check-in/check-out, housekeeping và maintenance scheduling đầy đủ (ngoài
+  `RoomBlock`/`OperationalBlock` boundary đã nêu trong ADR 0006).
+- `DATA-001.2` (dormant/deferred, không liên quan work item này).
 
 Các capability này không được triển khai “tiện tay” trong Epic khác.
 
@@ -142,9 +190,17 @@ Xem [ADR 0003](../ADR/0003-model-hotel-stays-with-half-open-date-ranges.md).
 - Nếu stop-sell, effective inventory bằng 0.
 - Nếu có sellable limit, effective inventory không vượt base inventory.
 - Tồn của cả kỳ nghỉ là giá trị nhỏ nhất của các đêm.
-- Availability là snapshot tại thời điểm truy vấn, chưa phải cam kết giữ phòng.
-- Hold/reservation và concurrency protection phải được bổ sung ở capability
-  riêng trước khi hệ thống có thể bảo đảm chống overbooking.
+- Availability là snapshot tại thời điểm truy vấn.
+- `BE-003.1`–`BE-003.5` đã cung cấp Hold/Reservation với atomic PostgreSQL
+  advisory-lock concurrency protection và expiry-aware committed demand cho
+  schema single-RoomType-per-booking hiện tại (CURRENT) — chống overbooking
+  đã hoạt động cho model hiện tại, không còn là việc "phải bổ sung".
+  Multi-RoomType Hold/Reservation và physical-room allocation độc lập là
+  TARGET, chưa implement — xem
+  [PMS-DATA-001-core-database-blueprint-v2](../design/PMS-DATA-001-core-database-blueprint-v2.md),
+  [ADR 0005](../ADR/0005-separate-commercial-commitment-from-physical-allocation.md)
+  và
+  [ADR 0006](../ADR/0006-schedule-physical-rooms-with-occupancy-segments.md).
 
 Xem [ADR 0004](../ADR/0004-compute-effective-inventory-with-daily-controls.md).
 
@@ -155,8 +211,12 @@ Xem [ADR 0004](../ADR/0004-compute-effective-inventory-with-daily-controls.md).
 - Người lớn và trẻ em đều tính là một người khi kiểm tra `MaxOccupancy`.
 - Điều kiện:
   `adults + children <= MaxOccupancy × rooms`.
-- Một offer chỉ gồm các phòng cùng một RoomType.
-- Chưa có child pricing, surcharge hoặc mixed RoomType allocation.
+- Một offer chỉ gồm các phòng cùng một RoomType (CURRENT — availability/
+  offer computation hiện tại).
+- Chưa có child pricing hoặc surcharge.
+- Mixed-RoomType allocation trong một Hold/Reservation là TARGET/APPROVED,
+  chưa implement — xem §1 và
+  [PMS-DATA-001-core-database-blueprint-v2](../design/PMS-DATA-001-core-database-blueprint-v2.md).
 
 ## 10. Quy ước public API
 
