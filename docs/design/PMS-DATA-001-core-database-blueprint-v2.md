@@ -236,7 +236,16 @@ computes is defined below.
 
 ### Operational-block-adjusted daily availability formula (TARGET)
 
-For one Property `p`, RoomType `r`, and StayDate `d`:
+The formula distinguishes two different questions. **Commercial record**
+(what RoomType and price were sold) lives on `ReservationUnit`/
+`ReservationUnitNight` and never changes because of physical assignment
+(§8, §12). **Operational capacity attribution** (which RoomType pool
+currently supplies a given physical room-night, for availability purposes
+only) is a derived, per-date projection rule below — it is never a
+persisted `EffectiveRoomTypeId`, counter, or commercial rewrite.
+
+For one Property `p`, RoomType `r`, StayDate `d`, and server instant
+`utcNow`:
 
 ```text
 BaseInventory(p, r, d)
@@ -257,88 +266,166 @@ ControlledCapacity(p, r, d)
   = min(UsablePhysicalCapacity(p, r, d), SellableLimit) if SellableLimit is present
   = UsablePhysicalCapacity(p, r, d)                     otherwise
 
-CommittedDemand(p, r, d)
-  = active, unexpired InventoryHoldItemNight demand
-    + committed ReservationUnitNight demand,
-    for RoomType r on date d, counted exactly once
-    (extends BE-003.3's committed-demand read, §6, to the item/unit-night
-    level)
+ActiveHoldDemand(p, r, d, utcNow)
+  = InventoryHoldItemNight demand for held RoomType r whose parent Hold is
+    Active and has ExpiresAtUtc > utcNow (a Hold has no ReservationAssignment
+    path, so it always attributes to the held/sold RoomType)
 
-AvailableToSell(p, r, d)
-  = max(0, ControlledCapacity(p, r, d) - CommittedDemand(p, r, d))
+UnassignedReservationDemand(p, r, d)
+  = committed ReservationUnitNight demand whose sold RoomType is r and for
+    whose ReservationUnit no Effective ReservationAssignment covers d
+
+AssignedReservationDemand(p, r, d)
+  = Effective ReservationAssignment room-nights covering d whose referenced
+    PhysicalRoom's actual RoomType is r
+
+OperationalCapacityDemand(p, r, d, utcNow)
+  = ActiveHoldDemand(p, r, d, utcNow)
+    + UnassignedReservationDemand(p, r, d)
+    + AssignedReservationDemand(p, r, d)
+
+AvailableToSell(p, r, d, utcNow)
+  = max(0, ControlledCapacity(p, r, d) - OperationalCapacityDemand(p, r, d, utcNow))
 ```
 
-Exact block-counting and ordering rules:
+**Operational capacity attribution rules — exactly one bucket per
+reservation room-night, never zero and never two:**
 
-1. An `OperationalBlock` covers date `d` under the existing half-open rule
-   `StartDate <= d < EndDate`; the block's end date is not itself blocked,
-   consistent with ADR 0003.
-2. Only `Type == OperationalBlock` and `Status == Effective` segments
-   participate. `Cancelled` block history never reduces current or future
-   availability.
-3. Each distinct blocked PhysicalRoom is counted at most once per date. One
-   multi-room `RoomBlock` (§9) therefore contributes one deduction per
-   distinct affected PhysicalRoom — never one deduction for the header row,
-   and never an arbitrary aggregate quantity.
-4. A block's Property and RoomType are derived from its referenced
-   PhysicalRoom; it reduces the capacity of that PhysicalRoom's actual
-   RoomType.
-5. `OperationalBlockedRooms` only ever counts rooms already included in
-   `BaseInventory`. A PhysicalRoom already excluded from `BaseInventory`
-   because it is `Inactive` or `OutOfService` is never subtracted a second
-   time merely because an `Effective` block row also exists for it.
-6. Base physical capacity is reduced by blocks **before** `SellableLimit` is
-   applied. `SellableLimit` remains an absolute cap on the already-reduced
-   `UsablePhysicalCapacity`, never an independent quantity subtracted a
-   second time alongside blocked rooms — the incorrect ordering
-   `min(BaseInventory, SellableLimit) - OperationalBlockedRooms` is not
-   used, because it can leave `SellableLimit` capacity that physically no
-   longer exists. `IsStopSell` remains dominant and always yields zero
-   controlled capacity regardless of blocks or limits.
-7. `CommittedDemand` is subtracted only after operational capacity and
-   daily controls are resolved into `ControlledCapacity`. Hold expiry still
-   uses one server-side `utcNow` and the exact `ExpiresAtUtc > utcNow`
-   boundary already established (below, and `BE-003.3`/`BE-003.5`).
-8. `ReservationAssignment` segments are never counted in
-   `OperationalBlockedRooms`. A sold, physically assigned room already
-   contributes its demand exactly once through its `ReservationUnitNight`
-   row in `CommittedDemand`; also counting its `ReservationAssignment`
-   segment as a block would double-subtract the same sold room. Intentional
-   cross-RoomType physical assignment (§12) remains governed by the
-   existing commercial-versus-physical separation (§8): it does not
-   reprice, reclassify, or silently transfer the sold RoomType's committed
-   demand for this formula.
-9. Stay-level sellability is the minimum `AvailableToSell` across every
-   requested stay date; a request for `Q` rooms may succeed only when every
-   requested date has `AvailableToSell >= Q`.
-10. `RoomTypeDailyInventory` for a future date is the current derived
-    projection above, recomputed as underlying rows change. A closed
-    historical snapshot for a past date retains the block-adjusted values
-    that were closed for that date; later cancellation, audit correction,
-    or block history must never rewrite an already-closed past snapshot.
-    No storage column, refresh mechanism, or snapshot schema is designed by
-    this documentation work item.
+1. If no `Effective ReservationAssignment` covers a committed unit/date, its
+   demand counts against its commercially booked (sold) RoomType
+   (`UnassignedReservationDemand`, or `ActiveHoldDemand` for Holds, which
+   never have an assignment path).
+2. If one `Effective ReservationAssignment` covers a unit/date, its demand
+   counts against the assigned PhysicalRoom's actual RoomType
+   (`AssignedReservationDemand`) and is **not** also counted against the
+   sold RoomType for operational availability that date.
+3. A same-RoomType assignment therefore remains exactly one unit in the
+   same bucket — assignment never doubles a room's counted demand.
+4. A cross-RoomType assignment moves only the operational capacity
+   attribution for its covered dates: sold-type capacity is released and
+   actual-type capacity is consumed. It never mutates or reclassifies the
+   commercial RoomType, price, ADR, revenue reporting, source lineage, or
+   historical commercial inventory (§8, §12) — this attribution rule and
+   commercial immutability are not in tension; they answer different
+   questions.
+5. Attribution is nightly: a partially assigned or split unit may consume
+   its sold RoomType on unassigned dates and the assigned PhysicalRoom's
+   actual RoomType on assigned dates, changing by date exactly as the
+   underlying `Effective` segment coverage changes.
+6. A `Cancelled` assignment supplies no actual-room attribution. If the
+   reservation night still counts as committed demand, it falls back to the
+   sold RoomType the instant no `Effective` assignment covers that date.
+7. The ReservationUnit allocation exclusion invariant (§11 item 2) and the
+   PhysicalRoom schedule exclusion invariant (§11 item 1) together guarantee
+   at most one `Effective` assignment per unit/date and at most one
+   `Effective` segment per PhysicalRoom/date — making the one-bucket
+   classification above unambiguous and preventing an assignment from ever
+   being counted twice.
+8. `OperationalBlock` remains a capacity-side deduction applied before
+   controls (rules 9–13 below); a `ReservationAssignment` is never
+   re-labelled as a block. An `Effective OperationalBlock` and an
+   `Effective ReservationAssignment` can never cover the same
+   PhysicalRoom/date, because the existing PhysicalRoom schedule exclusion
+   invariant already forbids that overlap.
+9. If an assigned PhysicalRoom later becomes non-`Active`, it drops out of
+   `BaseInventory`, but its still-`Effective` assignment remains visible in
+   `AssignedReservationDemand` — availability must clamp to zero/surface
+   insufficient capacity rather than make the occupancy silently disappear.
+   No relocation workflow is designed here.
+
+**Block-counting and capacity-ordering rules:**
+
+10. An `OperationalBlock` covers date `d` under the existing half-open rule
+    `StartDate <= d < EndDate`; the block's end date is not itself blocked,
+    consistent with ADR 0003.
+11. Only `Type == OperationalBlock` and `Status == Effective` segments
+    participate in `OperationalBlockedRooms`. `Cancelled` block history
+    never reduces current or future availability.
+12. Each distinct blocked PhysicalRoom is counted at most once per date. One
+    multi-room `RoomBlock` (§9) therefore contributes one deduction per
+    distinct affected PhysicalRoom — never one deduction for the header row,
+    and never an arbitrary aggregate quantity. A PhysicalRoom already
+    excluded from `BaseInventory` (`Inactive`/`OutOfService`) is never
+    subtracted a second time merely because an `Effective` block row also
+    exists for it.
+13. Base physical capacity is reduced by blocks **before** `SellableLimit`
+    is applied: `UsablePhysicalCapacity = BaseInventory -
+    OperationalBlockedRooms`, then `ControlledCapacity =
+    min(UsablePhysicalCapacity, SellableLimit)`. `SellableLimit` is an
+    absolute cap on that already-reduced usable capacity, never an
+    independent quantity subtracted a second time alongside blocked rooms.
+    `IsStopSell` remains dominant and always yields zero controlled
+    capacity regardless of blocks or limits. The general relationship
+    (clamping to non-negative understood) is:
+    `min(BaseInventory, SellableLimit) - OperationalBlockedRooms <=
+    min(BaseInventory - OperationalBlockedRooms, SellableLimit)` — the
+    selected order is correct because a block changes usable physical
+    capacity first and `SellableLimit` is then a sales cap on that usable
+    capacity, not because the alternative order can over-offer (see the
+    worked example below for the exact, corrected failure modes of each
+    alternative).
+14. `OperationalCapacityDemand` is subtracted only after operational
+    capacity and daily controls are resolved into `ControlledCapacity`.
+    Hold expiry still uses one server-side `utcNow` and the exact
+    `ExpiresAtUtc > utcNow` boundary already established (below, and
+    `BE-003.3`/`BE-003.5`).
+15. Stay-level sellability is the minimum `AvailableToSell` across every
+    requested stay date; a request for `Q` rooms may succeed only when
+    every requested date has `AvailableToSell >= Q`.
+16. `RoomTypeDailyInventory` for a future date is the current derived
+    projection above, recomputed as `Effective` assignments, blocks, and
+    demand change. A closed historical snapshot for a past date retains the
+    block-adjusted and attribution-adjusted values that were closed for
+    that date; later cancellation, audit correction, or block/assignment
+    history must never rewrite an already-closed past snapshot. No storage
+    column, refresh mechanism, or snapshot schema is designed by this
+    documentation work item.
 
 **Worked example** (extends §15.6): 10 active PhysicalRooms for a RoomType,
-3 of them under an `Effective OperationalBlock` for the date in question,
-and a `SellableLimit` of 8:
+3 of them under an `Effective OperationalBlock` for the date in question, a
+`SellableLimit` of 8, and 4 rooms of `OperationalCapacityDemand`:
 
 ```text
-BaseInventory                              10
-Effective OperationalBlock rooms            3
-UsablePhysicalCapacity = 10 - 3              7
-SellableLimit                                8
-ControlledCapacity = min(7, 8)               7   (not min(10, 8) - 3 = 5)
-CommittedDemand (active Holds + Reservations) 4
-AvailableToSell = max(0, 7 - 4)              3
+BaseInventory                                     10
+Effective OperationalBlock rooms                   3
+UsablePhysicalCapacity = 10 - 3                     7
+SellableLimit                                       8
+ControlledCapacity = min(7, 8)                      7
+OperationalCapacityDemand                           4
+AvailableToSell = max(0, 7 - 4)                     3   <- correct result
 ```
 
 A new request for 4 rooms on this date is rejected; a request for up to 3
-rooms may proceed, subject to the same result holding on every requested
-stay date and to the atomic concurrency check below. The naive ordering
-`min(BaseInventory, SellableLimit) - OperationalBlockedRooms =
-min(10, 8) - 3 = 5` is not used because it would offer 2 more rooms than
-physically exist after blocking (rule 6).
+may proceed, subject to the same result holding on every requested stay
+date and to the atomic concurrency check below. The two alternative
+orderings have different, and different-natured, failure modes — neither is
+used, and for different reasons:
+
+```text
+Omitting the block entirely:
+  min(BaseInventory, SellableLimit) - demand = min(10, 8) - 4 = 4
+  -> over-offers by 1 relative to the correct 3, because only 7 rooms are
+     physically usable and 4 are already consumed (7 - 4 = 3, not 4).
+
+Subtracting the block after an already-binding limit:
+  min(BaseInventory, SellableLimit) - block - demand = min(10, 8) - 3 - 4 = 1
+  -> under-sells by 2 relative to the correct 3; this ordering caps at the
+     limit (8) before the block is applied, so the block then removes
+     capacity that was never actually offered up to 7, not capacity that
+     "no longer exists" — it does not over-offer.
+```
+
+The selected order (`ControlledCapacity = min(BaseInventory -
+OperationalBlockedRooms, SellableLimit)`, rule 13) is the one that produces
+the physically and commercially correct result of 3 in both directions.
+
+**Cross-RoomType attribution example** (full detail in §15.5): a unit
+commercially sold as `DLX-KING` and `Effective`-assigned to a `FAMILY`
+PhysicalRoom counts once in `AssignedReservationDemand(FAMILY)` for its
+assigned dates and zero times in `UnassignedReservationDemand(DLX-KING)` for
+those same dates — the sold RoomType's operational capacity is released and
+the actual RoomType's operational capacity is consumed, while the unit's
+commercial RoomType/price/reporting remain `DLX-KING` throughout (rule 4).
 
 **Atomicity and locking (TARGET).** The formula above is not a read-only
 afterthought layered on independent writers. Every future write path capable
@@ -349,30 +436,59 @@ pattern to at least:
 
 - Hold creation and any direct (Admin/walk-in/OTA) reservation path that
   creates new committed demand (§6 item 11);
+- `ReservationAssignment` create, activate, split, move, cancel, or
+  supersede (§9), which shifts operational capacity attribution between the
+  sold RoomType and an actual RoomType;
 - activation, creation, split, move, cancellation, or date/room change of an
   `OperationalBlock` segment;
 - capacity-affecting PhysicalRoom operational-status changes and
   `DailyInventoryControl` changes, once those TARGET write paths are
   separately designed.
 
-For a multi-room or multi-date block mutation, every affected old and new
-`(PropertyId, RoomTypeId, StayDate)` key is derived, de-duplicated, and
-locked in deterministic order within one explicit transaction — mirroring
-`BookingAdvisoryLockKeys.ForInventory`'s existing ascending-order discipline.
-Under that lock, the transaction recomputes base rooms, `Effective`
-operational blocks, daily controls, expiry-aware Hold demand, and committed
-Reservation demand before accepting new demand or committing the
-capacity-changing operation, so a concurrent Hold-creation and block-change
-for the same key can never both commit against the same stale pre-change
-capacity. Whether an emergency block that would drive existing committed
-demand above the newly reduced controlled capacity is rejected outright or
-accepted with a recorded operational deficit is a business policy this
-correction does not decide; at minimum, the projection must clamp
-`AvailableToSell` to zero and refuse additional new demand while capacity is
-insufficient — it must not silently choose a broader conflict-resolution or
-relocation workflow. Exact advisory-lock hash construction, SQL function,
-API contract, EF mapping, DDL, or error payload remain implementation
-details for a separately authorized work item and are not invented here.
+For a multi-room, multi-date, or assignment-mutation operation, every
+affected `(PropertyId, RoomTypeId, StayDate)` key is derived, de-duplicated,
+and locked in deterministic order within one explicit transaction —
+mirroring `BookingAdvisoryLockKeys.ForInventory`'s existing ascending-order
+discipline. For a `ReservationAssignment` mutation specifically, the
+affected keys include the commercially sold RoomType key, the old assigned
+PhysicalRoom's actual RoomType key when present, and the new assigned
+PhysicalRoom's actual RoomType key when present. Under the locks, the
+transaction evaluates the final post-operation nightly attribution once —
+never a transient intermediate delete-then-insert state — so a legitimate
+atomic swap or move is not rejected merely because of how it is represented
+mid-transaction:
+
+- unassigned → same-type assigned: demand remains one unit in the same
+  bucket;
+- unassigned sold DLX → assigned FAMILY: demand leaves DLX operational
+  capacity and enters FAMILY capacity;
+- assigned FAMILY → unassigned: demand leaves FAMILY and returns to sold DLX
+  if the unit-night remains committed;
+- assigned FAMILY → assigned SUITE: demand moves from FAMILY to SUITE;
+- move between two PhysicalRooms of the same actual RoomType: no RoomType
+  pool delta, while the physical schedule exclusion invariant still applies.
+
+The operation must not commit a final state that overcommits usable
+physical capacity for an affected destination or fallback RoomType/date
+unless a future, separately approved overbooking/override policy explicitly
+permits it — no such override is authorized here. `SellableLimit` and
+`IsStopSell` govern new sellability, not whether an existing guest may be
+physically moved to an otherwise usable free room: new Hold/direct-
+reservation demand is accepted against `AvailableToSell`/`ControlledCapacity`
+as documented, while assignment mutation protects actual usable physical
+capacity and all already-committed/unassigned demand without treating
+stop-sell alone as a prohibition on a front-desk room move; after any
+mutation, `AvailableToSell` is recomputed with daily controls and clamps to
+zero when controlled headroom is exhausted. Whether an emergency block that
+would drive existing demand above newly reduced controlled capacity is
+rejected outright or accepted with a recorded operational deficit is a
+business policy this correction does not decide; at minimum, the projection
+must clamp `AvailableToSell` to zero and refuse additional new demand while
+capacity is insufficient — it must not silently choose a broader
+conflict-resolution or relocation workflow. Exact advisory-lock hash
+construction, SQL function, API contract, EF mapping, DDL, or error payload
+remain implementation details for a separately authorized work item and are
+not invented here.
 
 The expiry-boundary correctness rule already proven today (`BE-003.3`,
 `BE-003.5`) — `Active Holds where ExpiresAtUtc > utcNow` counted, expired
@@ -402,7 +518,15 @@ harmless today.
    means physical allocation can never rewrite commercial nights and can
    never create occupancy outside them.
 3. `RoomTypeDailyInventory` is a projection/closed snapshot (§7), never a
-   competing writable authority.
+   competing writable authority. "Independent inventory layers" (item 1)
+   means physical allocation never rewrites a `ReservationUnitNight` row or
+   the commercial RoomType it records — it does not mean physical allocation
+   is invisible to availability. `RoomTypeDailyInventory`'s operational
+   capacity attribution (§7) deliberately follows an `Effective
+   ReservationAssignment` to the assigned PhysicalRoom's actual RoomType for
+   availability purposes on that date, precisely so an occupied room cannot
+   also be sold; this is a derived projection effect, not a mutation of any
+   commercial row.
 4. The Calendar/Reservation Board is a projection over reservations, units,
    unit nights, occupancy segments, room blocks, and related operational
    state (§10) — it is not a competing aggregate such as a `CalendarEvents`
@@ -547,7 +671,11 @@ work item.
    audit evidence — it is never a silent or anonymous action.
 3. The commercial/sold RoomType remains the booked RoomType for pricing,
    reporting, and the customer's original commitment. Physical occupancy
-   follows the assigned PhysicalRoom's actual RoomType.
+   follows the assigned PhysicalRoom's actual RoomType — and so does that
+   room-night's operational capacity attribution in `RoomTypeDailyInventory`
+   for as long as the assignment stays `Effective` (§7, §8 item 3): the
+   assigned-type room becomes unsellable and the sold-type capacity is
+   released, without any change to the commercial record.
 4. Assignment must never implicitly rewrite price, `ReservationUnitNights`,
    reservation totals, ADR, historical commercial inventory, or the
    original promise made to the guest. A cross-RoomType assignment is a
@@ -672,6 +800,26 @@ rows stay `DLX-KING` and unchanged; only the physical occupancy — the
 `RoomOccupancySegment`'s PhysicalRoom reference — reflects the `FAMILY` room
 (§12).
 
+This same assignment has an operational-availability effect distinct from
+the commercial record above (§7's attribution rules). Consider `FAMILY` with
+exactly one active, usable PhysicalRoom and no other demand: once the
+`DLX-KING`-sold unit is `Effective`-assigned to that room, the assigned
+date's demand counts once in `AssignedReservationDemand(FAMILY)` and zero
+times in `UnassignedReservationDemand(DLX-KING)` — `FAMILY`'s
+`AvailableToSell` for that date becomes zero, correctly preventing the
+system from also selling that now-occupied room, while `DLX-KING`'s
+operational capacity for that date is simultaneously released back for sale.
+The unit's commercial RoomType, price, and reporting remain `DLX-KING`
+throughout; only the operational capacity pool that the room-night draws
+from has moved.
+
+By contrast, a `DLX-KING` unit `Effective`-assigned to a `DLX-KING`
+PhysicalRoom (a same-RoomType assignment) counts exactly once in
+`AssignedReservationDemand(DLX-KING)` — never once as unassigned sold demand
+plus once again as assigned demand. An unassigned night on the same unit (no
+`Effective` assignment covering it) reverts to counting under its sold
+RoomType, `UnassignedReservationDemand(DLX-KING)`, for that date only.
+
 ### 15.6 Multi-room operational block
 
 Housekeeping needs three PhysicalRooms taken out of sellable service for
@@ -685,13 +833,14 @@ The three blocked PhysicalRooms are not merely excluded from the physical
 schedule — they also reduce `RoomTypeDailyInventory`'s
 `UsablePhysicalCapacity` for their RoomType on every date the block covers
 (§7's operational-block-adjusted formula). Against 10 active PhysicalRooms
-of that RoomType, a `SellableLimit` of 8, and 4 rooms of existing committed
-demand, the worked example in §7 shows `AvailableToSell` dropping from what
-a naive `min(10, 8) - 4 = 4` calculation would suggest to the correct
-`max(0, min(7, 8) - 4) = 3`: the block reduces usable physical capacity
-before the sellable limit and committed demand are applied, so new holds or
-reservations cannot oversell the two remaining blocked rooms' worth of
-capacity.
+of that RoomType, a `SellableLimit` of 8, and 4 rooms of existing
+`OperationalCapacityDemand`, §7's worked example shows `AvailableToSell`
+correctly landing at `max(0, min(7, 8) - 4) = 3` — not the `4` that omitting
+the block entirely would incorrectly offer, and not the `1` that subtracting
+the block after an already-binding limit would incorrectly withhold. The
+block reduces usable physical capacity before the sellable limit and
+operational demand are applied, so new holds or reservations cannot oversell
+the two remaining blocked rooms' worth of capacity.
 
 ### 15.7 Stay extension with new priced nights
 

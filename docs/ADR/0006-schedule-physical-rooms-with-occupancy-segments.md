@@ -130,7 +130,12 @@ closes this gap.
    physical PhysicalRoom reference on the segment changes. Cross-RoomType
    flexibility never grants date flexibility: the assignment's dates must
    still satisfy Decision item 9's booked-night coverage invariant against
-   the sold unit's nights.
+   the sold unit's nights. While the commercial record never changes,
+   `RoomTypeDailyInventory`'s operational capacity attribution (Decision
+   item 10) does follow the assignment to the actual PhysicalRoom's
+   RoomType for its covered dates — the assigned-type room becomes
+   unsellable and the sold-type capacity is released for that date, so a
+   physically occupied room can never also be commercially oversold.
 9. **`Effective ReservationAssignment` booked-night coverage invariant.**
    Let `AssignedDates(s) = { d | s.StartDate <= d < s.EndDate }` for a
    segment `s`, and `BookedDates(u) = { n.StayDate | n is a persisted
@@ -195,13 +200,20 @@ closes this gap.
     §7 — this ADR states the invariant, the blueprint states the arithmetic,
     so the two must never be edited to disagree. In summary:
     - `BaseInventory` (ADR 0004) is reduced by the count of distinct active
-      PhysicalRooms carrying an `Effective OperationalBlock` for that date,
-      before any `SellableLimit`/`IsStopSell` daily control (ADR 0004) is
-      applied, and before `CommittedDemand` (Hold/Reservation item/unit-night
-      demand, ADR 0005) is subtracted. This fixed order is required — a
-      block is never applied after or independently of the daily-control
-      cap, because that ordering can offer sellable capacity that no longer
-      physically exists.
+      PhysicalRooms carrying an `Effective OperationalBlock` for that date to
+      yield usable physical capacity, **before** any `SellableLimit`/
+      `IsStopSell` daily control (ADR 0004) is applied to that already-reduced
+      capacity, and before operational demand is subtracted. This fixed order
+      is required: applying `SellableLimit` to the un-reduced `BaseInventory`
+      and only then subtracting blocks (`min(BaseInventory, SellableLimit) -
+      blocks`) under-counts relative to the correct
+      `min(BaseInventory - blocks, SellableLimit)` — it does not over-offer;
+      omitting the block entirely is what over-offers, by continuing to
+      count physically unusable rooms as sellable. The selected order is
+      correct because a block changes usable physical capacity first and
+      `SellableLimit` is then a sales cap on that usable capacity — see the
+      blueprint §7 worked example for the exact, non-reversed arithmetic of
+      both incorrect alternatives.
     - Each distinct blocked PhysicalRoom is deducted at most once per date,
       regardless of how many `OperationalBlock` segments or which
       multi-room `RoomBlock` header cover it; a PhysicalRoom already
@@ -209,19 +221,45 @@ closes this gap.
       deducted again.
     - `Cancelled` blocks never reduce current or future availability; only
       `Effective` rows participate.
-    - An `Effective ReservationAssignment` segment is never counted as an
-      operational block for this purpose — its sold room already
-      contributes exactly once through its `ReservationUnitNight` demand;
-      counting the assignment segment too would double-subtract the same
-      sold room.
+    - Operational demand is attributed to exactly one RoomType bucket per
+      committed room-night — never zero, never two. An unassigned Hold or
+      Reservation night counts against its sold RoomType. A night covered by
+      an `Effective ReservationAssignment` counts instead against the
+      assigned PhysicalRoom's actual RoomType and is not also counted
+      against the sold RoomType — a same-RoomType assignment therefore
+      remains one unit in the same bucket, while a cross-RoomType assignment
+      moves the attribution from the sold RoomType's pool to the actual
+      RoomType's pool for its covered dates, releasing the sold-type
+      capacity and consuming the actual-type capacity, without reclassifying
+      the commercial sale (Decision item 8). An `Effective
+      ReservationAssignment` is never counted as an `OperationalBlock` for
+      this purpose — the two are separate capacity effects that can never
+      cover the same PhysicalRoom/date, because the PhysicalRoom schedule
+      exclusion (Decision item 6) already forbids that overlap. The
+      ReservationUnit allocation exclusion and PhysicalRoom schedule
+      exclusion (Decision item 6) together guarantee at most one `Effective`
+      assignment per unit/date and at most one `Effective` segment per
+      PhysicalRoom/date, making this one-bucket attribution unambiguous.
     - Every future write path capable of changing capacity or demand for
       the same `(PropertyId, RoomTypeId, StayDate)` key — Hold/reservation
-      creation, `OperationalBlock` activation/split/move/cancellation, and
+      creation, `ReservationAssignment` create/activate/split/move/cancel/
+      supersede (which shifts attribution between the sold and an actual
+      RoomType), `OperationalBlock` activation/split/move/cancellation, and
       capacity-affecting PhysicalRoom/`DailyInventoryControl` changes —
       participates in one shared atomic locking discipline over that key,
-      extending the existing `BE-003.3`–`BE-003.5` advisory-lock pattern, so
-      a concurrent Hold creation and block change for the same key can never
-      both commit against the same stale pre-change capacity.
+      extending the existing `BE-003.3`–`BE-003.5` advisory-lock pattern.
+      For an assignment mutation, the locked keys include the commercially
+      sold RoomType key, the old assigned PhysicalRoom's actual RoomType key
+      when present, and the new assigned PhysicalRoom's actual RoomType key
+      when present; the transaction evaluates the final post-operation
+      attribution once, never a transient intermediate state, so a
+      concurrent Hold creation, block change, or assignment mutation for the
+      same key can never both commit against the same stale pre-change
+      capacity, and a legitimate atomic assignment swap/move is not rejected
+      merely because of how it is represented mid-transaction.
+      `SellableLimit`/`IsStopSell` govern new sellability, not whether an
+      existing guest may be physically moved to an otherwise usable free
+      room.
     - Exact storage columns, refresh mechanism, advisory-lock hash, SQL
       function, API contract, EF mapping, DDL, or error payload remain
       implementation details for a separately authorized work item and are
@@ -255,6 +293,12 @@ closes this gap.
   another operational reason cannot be oversold — physical blocking and
   commercial availability stay a single, consistent source of truth instead
   of two systems that can silently disagree.
+- Decision item 10's one-bucket operational attribution rule guarantees that
+  a cross-RoomType assignment cannot leave the assigned RoomType's occupied
+  room commercially sellable while the sold RoomType's capacity is
+  correctly released — availability reflects true physical occupancy in
+  either direction without ever double-counting or ever leaving a room
+  invisibly oversellable.
 
 ### Cost
 
@@ -273,12 +317,15 @@ closes this gap.
   stay-coverage writes, plus dedicated PostgreSQL integration test coverage
   — nontrivial implementation and verification work beyond the two
   exclusion constraints alone.
-- The `Effective OperationalBlock` sellable-inventory invariant (Decision
-  item 10) requires every future capacity- or demand-changing write path —
-  Hold/reservation creation, block mutation, and operational-status/daily-
-  control changes — to share one atomic locking discipline over the same
-  `(PropertyId, RoomTypeId, StayDate)` keys; coordinating that many write
-  paths under one lock ordering is meaningfully more implementation and
+- The `Effective OperationalBlock` sellable-inventory invariant and the
+  one-bucket operational attribution rule (Decision item 10) require every
+  future capacity- or demand-changing write path — Hold/reservation
+  creation, `ReservationAssignment` mutation across up to three RoomType
+  keys (sold, old-actual, new-actual), block mutation, and
+  operational-status/daily-control changes — to share one atomic locking
+  discipline over the same `(PropertyId, RoomTypeId, StayDate)` keys;
+  coordinating that many write paths under one lock ordering is meaningfully
+  more implementation and
   test surface than a single-writer availability read.
 
 ### Rejected alternatives
@@ -317,11 +364,23 @@ closes this gap.
   physically unavailable. Availability must reflect operational blocks, not
   merely display them.
 - **Counting an `Effective ReservationAssignment` segment as an operational
-  block in addition to its `ReservationUnitNight` committed demand.**
-  Rejected — this double-subtracts the same sold, physically assigned room
-  from `RoomTypeDailyInventory`, understating true availability for no
-  correctness benefit; the room's demand is already fully accounted for by
-  its commercial `ReservationUnitNight` row.
+  block in addition to its `ReservationUnitNight` demand under the sold
+  RoomType.** Rejected — this additively double-counts the same sold,
+  physically assigned room, understating true availability for no
+  correctness benefit. The accepted model is mutually exclusive
+  reattribution, not addition: the room-night's demand moves from the sold
+  RoomType's bucket to the assigned PhysicalRoom's actual RoomType bucket,
+  counted exactly once, never in both.
+- **Leaving a cross-RoomType `Effective ReservationAssignment`'s demand
+  attributed only to its sold RoomType, with no capacity adjustment for the
+  assigned room's actual RoomType.** Rejected — this is exactly the gap the
+  post-C6 review identified: an assigned room's actual RoomType would stay
+  fully sellable even though it is physically occupied, allowing commercial
+  oversale that the PhysicalRoom schedule exclusion (Decision item 6) does
+  not prevent, since that exclusion only stops a *later* conflicting
+  assignment — it does not reduce availability shown to a *new* customer
+  browsing the assigned RoomType. The accepted model requires the
+  attribution to follow the assignment to the actual RoomType.
 
 ## Current-versus-target boundary
 

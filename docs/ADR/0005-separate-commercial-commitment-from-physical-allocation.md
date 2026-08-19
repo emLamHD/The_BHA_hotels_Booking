@@ -80,13 +80,14 @@ into one writable surface.
    request line are independent business rows from persistence onward — they
    may diverge in occupancy, guest assignment, nightly price, or
    physical-room assignment without any split or reconciliation operation.
-4. **Separate commercial commitment from physical allocation, within the
-   commercial date boundary.** A `ReservationUnit`'s existence and its
-   `ReservationUnitNight` rows are the complete, enforceable record of the
-   sale — including which dates were actually sold. PhysicalRoom-level
-   allocation (`RoomOccupancySegment`, ADR 0006) is a distinct,
-   independently mutable layer that references a `ReservationUnit` but
-   never the reverse — a reservation can be sold with zero, partial, or
+4. **Separate the commercial record from physical allocation, within the
+   commercial date boundary — and separately, from operational capacity
+   attribution.** A `ReservationUnit`'s existence and its
+   `ReservationUnitNight` rows are the complete, enforceable **commercial**
+   record of the sale — its RoomType, price, dates, ADR, and reporting.
+   PhysicalRoom-level allocation (`RoomOccupancySegment`, ADR 0006) is a
+   distinct, independently mutable layer that references a `ReservationUnit`
+   but never the reverse — a reservation can be sold with zero, partial, or
    full PhysicalRoom assignment without any change to its commercial rows.
    Independence is bounded, not unlimited: every `Effective`
    `ReservationAssignment` segment must be fully covered by that unit's
@@ -96,24 +97,41 @@ into one writable surface.
    commercially booked for. Stay-extension nights become assignable only
    after, or atomically with, the creation of their explicitly priced
    `ReservationUnitNight` rows (§6 item 10 of the blueprint) — a physical
-   assignment may never anticipate a future commercial extension.
+   assignment may never anticipate a future commercial extension. Separately
+   from this immutable commercial record, `RoomTypeDailyInventory`'s
+   **operational capacity attribution** (item 5) is a derived, per-date
+   projection that follows an `Effective` assignment to the assigned
+   PhysicalRoom's actual RoomType for availability purposes — this never
+   rewrites the commercial record above; it answers "which RoomType pool
+   currently supplies this room-night," not "what was sold."
 5. **Keep `RoomTypeDailyInventory` a projection/closed snapshot, never an
-   editable authority.** It extends ADR 0004's effective-inventory formula
-   as a future operational projection and closed historical snapshot; no
-   caller writes to it directly, mirroring how today's `AvailabilityDataSource`
-   committed-demand read is itself a derived view, never a writable counter.
-   The projection's daily capacity is computed in a fixed order: active
-   `BaseInventory` (ADR 0004) is first reduced by every distinct PhysicalRoom
-   carrying an `Effective OperationalBlock` segment for that date (ADR 0006
-   Decision item 10) to yield usable physical capacity; `SellableLimit`/
-   `IsStopSell` daily controls (ADR 0004) are applied to that already-reduced
-   capacity, never independently of it; and `CommittedDemand` (Hold/
-   Reservation item/unit-night demand) is subtracted last. A sold, physically
-   assigned `ReservationAssignment` is never separately counted as a block —
-   it already contributes its demand exactly once through its
-   `ReservationUnitNight` row, so counting the assignment segment too would
-   double-subtract the same sold room. Full formula, exact rules, and the
-   required atomic-locking discipline are in
+   editable authority — attributed to exactly one RoomType per committed
+   room-night.** It extends ADR 0004's effective-inventory formula as a
+   future operational projection and closed historical snapshot; no caller
+   writes to it directly, mirroring how today's `AvailabilityDataSource`
+   committed-demand read is itself a derived view, never a writable
+   counter. The projection's daily capacity is computed in a fixed order:
+   active `BaseInventory` (ADR 0004) is first reduced by every distinct
+   PhysicalRoom carrying an `Effective OperationalBlock` segment for that
+   date (ADR 0006 Decision item 10) to yield usable physical capacity;
+   `SellableLimit`/`IsStopSell` daily controls (ADR 0004) are applied to
+   that already-reduced capacity, never independently of it; and
+   operational demand is subtracted last. That demand is itself attributed
+   to exactly one RoomType bucket per committed room-night, never zero and
+   never two: an unassigned Hold or Reservation night counts against its
+   sold RoomType; a night covered by an `Effective ReservationAssignment`
+   counts instead against the assigned PhysicalRoom's actual RoomType, and
+   is not also counted against the sold RoomType. A same-RoomType
+   assignment therefore remains one unit in the same bucket; a
+   cross-RoomType assignment moves the attribution from the sold RoomType's
+   pool to the actual RoomType's pool for its covered dates, without ever
+   reclassifying the commercial sale (item 4). A sold, physically assigned
+   `ReservationAssignment` is never separately counted as an
+   `OperationalBlock` — blocks and assignments are two different capacity
+   effects, evaluated together but never additively double-counting the
+   same room. Full formula, the complete attribution rule set, and the
+   required atomic-locking discipline (including for assignment mutation)
+   are in
    [PMS-DATA-001-core-database-blueprint-v2](../design/PMS-DATA-001-core-database-blueprint-v2.md)
    §7 and [ADR 0006](0006-schedule-physical-rooms-with-occupancy-segments.md)
    Decision item 10.
