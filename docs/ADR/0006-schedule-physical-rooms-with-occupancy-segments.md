@@ -35,6 +35,15 @@ supports intentional cross-RoomType upgrades/downgrades, and prevents
 double-booking a physical room or double-occupying a sold unit at the
 PostgreSQL level, not only in application code.
 
+The two exclusion invariants in Decision item 6 prevent segments from
+overlapping each other, but neither one, by itself, ties an
+`Effective ReservationAssignment` segment's date range back to the
+`ReservationUnit`'s actual sold `ReservationUnitNight` dates. Without an
+additional rule, a non-overlapping assignment could still be created for
+dates the guest never booked — occupying and blocking a PhysicalRoom on
+unsold nights while satisfying both exclusion constraints. Decision item 9
+closes this gap.
+
 ## Decision
 
 1. **`RoomOccupancySegments` are the authoritative PhysicalRoom schedule.**
@@ -93,13 +102,88 @@ PostgreSQL level, not only in application code.
    - Real PostgreSQL integration tests for both exclusion constraints —
      never EF InMemory or SQLite, consistent with `docs/DATABASE.md`'s
      existing testing policy.
+   - The booked-night coverage invariant in Decision item 9 is a distinct,
+     additional requirement: PostgreSQL has no ordinary cross-table `CHECK`
+     assertion capable of expressing it. The future implementation must use
+     a database-enforced cross-table mechanism that validates the final
+     committed transaction state — such as a deferrable constraint trigger,
+     or another separately reviewed design offering equivalent database
+     guarantees — evaluated at commit time so it observes both a segment
+     write and any concurrent change to the unit's `ReservationUnitNight`
+     coverage. An application-only precheck may improve error messages but
+     is never sufficient as the sole correctness mechanism under concurrent
+     writers. Operations touching assignment coverage or booked-night
+     coverage must use one explicit transaction and the same per-unit
+     concurrency/locking discipline already established for Hold/Reservation
+     mutation, so a concurrent assignment and stay-change command cannot
+     jointly commit an invalid combination. Real PostgreSQL integration
+     tests are mandatory for this invariant; exact DDL, trigger/constraint
+     names, SQLSTATE mapping, EF model, lock key, API, and domain-error
+     contract remain implementation details for a separately authorized
+     work item and are not invented here.
 8. **Intentional cross-RoomType assignment, with guardrails.** Authorized
    front-desk staff may assign a `ReservationUnit` to a PhysicalRoom whose
    RoomType differs from the commercially booked RoomType. This requires
    authorization, a recorded reason, and audit evidence. It never implicitly
    reprices `ReservationUnitNights`, reservation totals, or ADR — the
    commercial RoomType and price stay exactly what was sold; only the
-   physical PhysicalRoom reference on the segment changes.
+   physical PhysicalRoom reference on the segment changes. Cross-RoomType
+   flexibility never grants date flexibility: the assignment's dates must
+   still satisfy Decision item 9's booked-night coverage invariant against
+   the sold unit's nights.
+9. **`Effective ReservationAssignment` booked-night coverage invariant.**
+   Let `AssignedDates(s) = { d | s.StartDate <= d < s.EndDate }` for a
+   segment `s`, and `BookedDates(u) = { n.StayDate | n is a persisted
+   ReservationUnitNight for unit u }`. For every `RoomOccupancySegment s`
+   where `s.Type == ReservationAssignment`, `s.Status == Effective`, and
+   `s.ReservationUnitId == u`: `AssignedDates(s)` must be a subset of
+   `BookedDates(u)`. This is an exact nightly-row coverage rule, not a
+   comparison against only the minimum and maximum booked dates — existing
+   uniqueness/contiguity rules normally make those equivalent, but the
+   architecture must reject any segment containing even one date with no
+   corresponding `ReservationUnitNight` row.
+   - A full assignment may cover all booked nights; a partial assignment
+     may cover any proper subset. Full coverage is never required —
+     unassigned nights remain valid and visible (§8 item 2 of the
+     blueprint).
+   - Several `Effective` assignment segments for the same unit may together
+     cover different booked-night subsets, subject to the existing
+     non-overlap exclusions (Decision item 6); their union must still be a
+     subset of `BookedDates(u)`.
+   - An assignment beginning before the first booked night or ending after
+     checkout is invalid. Half-open `[start, end)` semantics remain in
+     force; checkout is never an occupied or priced night.
+   - `Cancelled` segments preserve history and are not required to remain
+     covered after a later commercial-stay change — only `Effective
+     ReservationAssignment` rows participate in this invariant.
+     `OperationalBlock` segments are not backed by a `ReservationUnit` and
+     are entirely outside this coverage rule; their PhysicalRoom overlap
+     protection (Decision item 6) is unaffected.
+   - Stay extension must persist the new, explicitly priced, contiguous
+     `ReservationUnitNight` rows before or in the same transaction as any
+     assignment activation/extension covering those dates — a physical
+     assignment may never anticipate a future commercial extension.
+   - Any future stay-shortening or commercial-coverage-removal operation
+     must cancel, split, or otherwise bring every affected `Effective
+     ReservationAssignment` segment back within the remaining booked nights
+     in the same transaction; the transaction's committed state must
+     satisfy this invariant.
+   - If operations need to protect a PhysicalRoom before a commercial night
+     is sold, they must use the approved `OperationalBlock` path (Decision
+     item 4), never a commercially unsupported `ReservationAssignment`.
+   - The Calendar/Reservation Board projection must reflect valid source
+     rows; it must never silently clip or normalize an out-of-coverage
+     assignment, because doing so would hide corruption in the
+     authoritative PhysicalRoom schedule rather than surfacing it.
+   - This invariant complements, and is never a substitute for, either
+     exclusion invariant in Decision item 6: the PhysicalRoom schedule
+     exclusion still separately prevents two `Effective` segments from
+     overlapping on one PhysicalRoom, and the ReservationUnit allocation
+     exclusion still separately prevents one `ReservationUnit` from
+     overlapping across two PhysicalRooms. Booked-night coverage is a third,
+     distinct temporal-integrity rule — not a third exclusion constraint —
+     that additionally prevents an `Effective ReservationAssignment` from
+     occupying dates that were never sold.
 
 ## Consequences
 
@@ -120,6 +204,10 @@ PostgreSQL level, not only in application code.
 - Cross-RoomType assignment with mandatory authorization/reason/audit
   supports real front-desk upgrade/downgrade practice without weakening the
   commercial record.
+- The booked-night coverage invariant (Decision item 9) guarantees that
+  authoritative physical occupancy can never exceed the guest's sold stay —
+  the physical schedule and the Calendar/Reservation Board projection built
+  on it stay trustworthy even as segments are split, moved, or extended.
 
 ### Cost
 
@@ -131,6 +219,13 @@ PostgreSQL level, not only in application code.
   creation) must carry optimistic concurrency and audit logging from day
   one of implementation — retrofitting audit history after the fact would
   be far more costly than building it in from the start.
+- The booked-night coverage invariant (Decision item 9) requires a
+  cross-table, commit-time enforcement mechanism (e.g. a deferrable
+  constraint trigger) beyond an ordinary `CHECK` constraint, plus the same
+  coordinated transaction/locking discipline across assignment and
+  stay-coverage writes, plus dedicated PostgreSQL integration test coverage
+  — nontrivial implementation and verification work beyond the two
+  exclusion constraints alone.
 
 ### Rejected alternatives
 
@@ -153,6 +248,14 @@ PostgreSQL level, not only in application code.
   different physical RoomType while preserving the original commercial
   terms; forbidding this outright does not match approved operational
   practice.
+- **Relying on application/UI-only validation, or on the Calendar
+  projection silently clipping an out-of-coverage assignment to booked
+  dates, instead of a database-enforced booked-night coverage invariant.**
+  Rejected — application-only checks cannot prevent a concurrent writer
+  from committing an unsupported assignment, and Calendar-side clipping
+  would hide, rather than prevent, corruption in the authoritative
+  PhysicalRoom schedule; neither can be the correctness mechanism for
+  Decision item 9.
 
 ## Current-versus-target boundary
 

@@ -234,7 +234,13 @@ harmless today.
    entirely unassigned to PhysicalRooms without losing its booked
    RoomType/nights — the sale is complete and enforceable the moment
    `ReservationUnitNight` rows exist; physical assignment is a separate,
-   later operational act.
+   later operational act. Independence is bounded, not unlimited: any zero,
+   partial, or full physical assignment is only ever valid within the
+   referenced unit's sold nightly coverage — every `Effective`
+   `ReservationAssignment` segment must be fully covered by that unit's
+   `ReservationUnitNight` dates (§9, ADR 0006 Decision item 9). Separation
+   means physical allocation can never rewrite commercial nights and can
+   never create occupancy outside them.
 3. `RoomTypeDailyInventory` is a projection/closed snapshot (§7), never a
    competing writable authority.
 4. The Calendar/Reservation Board is a projection over reservations, units,
@@ -279,6 +285,17 @@ Summary for this blueprint:
   an allocation-segment-length change, never confused with the reservation's
   contractual stay length or ALOS (average length of stay) reporting, which
   are derived from `ReservationUnitNight`, not from occupancy segments.
+- For every `Effective` `ReservationAssignment` segment `s` referencing unit
+  `u`, `AssignedDates(s)` (the segment's `[StartDate, EndDate)` dates) must
+  be a subset of `BookedDates(u)` (the exact set of dates with a persisted
+  `ReservationUnitNight` for `u`) — an exact nightly-row coverage rule, not
+  only a comparison against the unit's earliest and latest booked dates.
+  Full coverage is never required; partial and unassigned coverage remain
+  valid. `Cancelled` segments and `OperationalBlock` segments (which are not
+  backed by a `ReservationUnit`) are outside this rule. Full detail,
+  including stay-extension and stay-shortening handling, is in
+  [ADR 0006](../ADR/0006-schedule-physical-rooms-with-occupancy-segments.md)
+  Decision item 9.
 
 ## 10. Calendar/Reservation Board projection
 
@@ -301,6 +318,13 @@ extends §8 item 4).
 - Realtime delivery to an open Calendar view is a UX improvement layered on
   top of this projection; it never becomes the correctness mechanism (§8
   item 5).
+- The Calendar/Reservation Board assumes and requires valid source rows. It
+  must never silently clip or normalize an `Effective ReservationAssignment`
+  segment whose dates fall outside its unit's booked coverage (§9, ADR 0006
+  Decision item 9) — doing so would hide corruption in the authoritative
+  PhysicalRoom schedule instead of surfacing it. An out-of-coverage segment
+  is an architecture-level defect, not a display detail for the projection
+  to paper over.
 
 ## 11. PostgreSQL non-overlap protection
 
@@ -317,7 +341,8 @@ prechecks alone are insufficient (TARGET, detailed further in
    the same dates.
 
 Both invariants use half-open date ranges, consistent with ADR 0003's
-existing `[checkIn, checkOut)` stay model.
+existing `[checkIn, checkOut)` stay model. Both remain exactly two exclusion
+invariants — no third exclusion constraint is added.
 
 The future EF/Npgsql implementation boundary (named here, not built):
 `btree_gist` PostgreSQL extension; a raw-SQL migration for the exclusion
@@ -330,6 +355,27 @@ two-`SaveChanges` ordering where relationship materialization requires it
 `BE-003.5`); and real PostgreSQL integration tests, never EF InMemory or
 SQLite, consistent with `docs/DATABASE.md`'s existing testing policy. No DDL,
 migration code, constraint name, or test is created by this documentation
+work item.
+
+**A separate, third temporal-integrity rule — not a third exclusion
+invariant — additionally applies:** every `Effective` `ReservationAssignment`
+segment's dates must be a subset of its `ReservationUnit`'s persisted
+`ReservationUnitNight` dates (§9; full detail in
+[ADR 0006](../ADR/0006-schedule-physical-rooms-with-occupancy-segments.md)
+Decision item 9). The two exclusion invariants above prevent segments from
+overlapping each other; this coverage rule separately prevents an
+`Effective ReservationAssignment` from occupying dates that were never
+commercially sold, closing a gap the exclusion invariants alone do not
+cover. Its future implementation boundary requires a database-enforced
+cross-table mechanism that validates the final committed transaction state
+(e.g. a deferrable constraint trigger, or an equivalently rigorous design)
+— an ordinary `CHECK` constraint cannot express a cross-table rule, and an
+application-only precheck is not sufficient as the sole correctness
+mechanism under concurrent writers. It requires the same explicit
+transaction and per-unit locking discipline as the exclusion invariants,
+plus real PostgreSQL integration tests. Exact trigger/constraint design,
+SQLSTATE mapping, and error contract remain implementation details for a
+separately authorized work item; none is created by this documentation
 work item.
 
 ## 12. Intentional cross-RoomType assignment
@@ -438,9 +484,13 @@ time, no `RoomOccupancySegment` exists for either unit — the sale is
 already commercially complete and enforceable via `ReservationUnitNight`
 alone. Later, front-desk staff assign one unit to a specific PhysicalRoom
 for its first three nights only, creating `Effective`
-`ReservationAssignment` segments covering only those nights; the remaining
-nights of that unit, and the entire second unit, stay unassigned. The
-Calendar projection (§10) reflects exactly this partial coverage.
+`ReservationAssignment` segments covering only those nights — the assigned
+first three nights are exactly three existing `ReservationUnitNight` dates
+already booked for that unit, demonstrating that a partial-subset
+assignment (a proper subset of `BookedDates(u)`, §9, ADR 0006 Decision item
+9) is valid without requiring full coverage; the remaining nights of that
+unit, and the entire second unit, stay unassigned. The Calendar projection
+(§10) reflects exactly this partial coverage.
 
 ### 15.4 Front-desk room move requiring segment split
 
@@ -478,7 +528,14 @@ to extend by 2 more nights. Two new `ReservationUnitNight` rows are added
 with their own explicitly priced `UnitAmount`, appended to the existing
 contiguous, half-open date range. The original 3 nights' snapshots are
 untouched — no averaging, copying, or recalculation of already-accepted
-nights occurs (§6 item 10).
+nights occurs (§6 item 10). If an existing `Effective`
+`ReservationAssignment` segment is being extended to cover the 2 new
+nights, that extension is only valid once the 2 priced
+`ReservationUnitNight` rows exist — before or atomically with the segment
+change, in the same transaction. An assignment covering the extension
+dates without their corresponding `ReservationUnitNight` rows is invalid
+(§9, ADR 0006 Decision item 9): physical assignment may never anticipate a
+future commercial extension.
 
 ### 15.8 Expired hold remaining logically harmless before cleanup
 

@@ -80,13 +80,23 @@ into one writable surface.
    request line are independent business rows from persistence onward — they
    may diverge in occupancy, guest assignment, nightly price, or
    physical-room assignment without any split or reconciliation operation.
-4. **Separate commercial commitment from physical allocation entirely.** A
-   `ReservationUnit`'s existence and its `ReservationUnitNight` rows are the
-   complete, enforceable record of the sale. PhysicalRoom-level allocation
-   (`RoomOccupancySegment`, ADR 0006) is a distinct, independently mutable
-   layer that references a `ReservationUnit` but never the reverse — a
-   reservation can be sold with zero, partial, or full PhysicalRoom
-   assignment without any change to its commercial rows.
+4. **Separate commercial commitment from physical allocation, within the
+   commercial date boundary.** A `ReservationUnit`'s existence and its
+   `ReservationUnitNight` rows are the complete, enforceable record of the
+   sale — including which dates were actually sold. PhysicalRoom-level
+   allocation (`RoomOccupancySegment`, ADR 0006) is a distinct,
+   independently mutable layer that references a `ReservationUnit` but
+   never the reverse — a reservation can be sold with zero, partial, or
+   full PhysicalRoom assignment without any change to its commercial rows.
+   Independence is bounded, not unlimited: every `Effective`
+   `ReservationAssignment` segment must be fully covered by that unit's
+   persisted `ReservationUnitNight` dates (ADR 0006 Decision item 9).
+   Physical allocation can freely move, split, or reassign within the sold
+   stay, but it can never manufacture occupancy on a date the unit was not
+   commercially booked for. Stay-extension nights become assignable only
+   after, or atomically with, the creation of their explicitly priced
+   `ReservationUnitNight` rows (§6 item 10 of the blueprint) — a physical
+   assignment may never anticipate a future commercial extension.
 5. **Keep `RoomTypeDailyInventory` a projection/closed snapshot, never an
    editable authority.** It extends ADR 0004's effective-inventory formula
    as a future operational projection and closed historical snapshot; no
