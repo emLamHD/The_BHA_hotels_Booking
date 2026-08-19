@@ -2,7 +2,7 @@
 
 ## Overview
 
-The repository separates deployable applications under `Front_End` and `Back_End`. The customer-facing Next.js application remains independent from the ASP.NET Core API, while `Admin_Web` is intentionally only a placeholder.
+The repository separates deployable applications under `Front_End` and `Back_End`. `Admin_Web` (`Front_End/Admin_Web`) is a merged, template-only baseline — the imported TailAdmin 2.3.0 template on Next.js 16.1.6, React/React DOM 19.2.1, and TypeScript 5.9.3 (PR #30) — with no backend integration, Admin authentication, PMS, Reservation Board, Calendar, or OTA behavior yet. Customer Web and Admin Web are, and remain, separate clients of the shared ASP.NET Core backend and shared PostgreSQL database as a TARGET architecture; current Admin integration/PMS behavior is absent. See [`docs/design/PMS-DATA-001-core-database-blueprint-v2.md`](design/PMS-DATA-001-core-database-blueprint-v2.md), [ADR 0005](ADR/0005-separate-commercial-commitment-from-physical-allocation.md), and [ADR 0006](ADR/0006-schedule-physical-rooms-with-occupancy-segments.md) for the full target PMS design; this document does not duplicate it.
 
 The backend targets .NET 8 and uses Clean Architecture project boundaries. The
 Domain contains catalog, pricing/inventory-control, and transactional
