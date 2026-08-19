@@ -100,13 +100,23 @@ into one writable surface.
    without any split or reconciliation operation.
 4. **Separate the commercial record from physical allocation, within the
    commercial date boundary — and separately, from operational capacity
-   attribution.** A `ReservationUnit`'s existence and its
-   `ReservationUnitNight` rows are the complete, enforceable **commercial**
-   record of the sale — its RoomType, price, dates, ADR, and reporting.
-   PhysicalRoom-level allocation (`RoomOccupancySegment`, ADR 0006) is a
-   distinct, independently mutable layer that references a `ReservationUnit`
-   but never the reverse — a reservation can be sold with zero, partial, or
-   full PhysicalRoom assignment without any change to its commercial rows.
+   attribution.** The authoritative commercial record of a sale is
+   `ReservationUnit` + its `ReservationUnitNight` rows + its
+   `CommitmentStatus` (item 7) together — **never** `ReservationUnit`/
+   `ReservationUnitNight` row existence alone. The unit and its nightly rows
+   preserve the sold RoomType, price, dates, `RatePlanId`, guests, and
+   source lineage as immutable evidence regardless of `CommitmentStatus`;
+   `CommitmentStatus` separately determines whether that preserved record
+   currently creates committed demand. Only a unit whose `CommitmentStatus
+   == Committed` creates live commercial commitment/current demand; a
+   `Cancelled` unit retains its full record as historical evidence but
+   creates none (item 7). Row existence alone is never the demand
+   predicate. PhysicalRoom-level allocation (`RoomOccupancySegment`,
+   ADR 0006) is a distinct, independently mutable layer that references a
+   `ReservationUnit` but never the reverse, and may reference only a
+   `Committed` unit (ADR 0006 Decision item 3) — a reservation can be sold
+   with zero, partial, or full PhysicalRoom assignment without any change
+   to its commercial rows.
    Independence is bounded, not unlimited: every `Effective`
    `ReservationAssignment` segment must be fully covered by that unit's
    persisted `ReservationUnitNight` dates (ADR 0006 Decision item 9).

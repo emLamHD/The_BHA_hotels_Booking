@@ -459,15 +459,21 @@ reservation room-night, never zero and never two:**
     hidden sold-type rollback reserve, no reservation of a second room, and
     no persisted `EffectiveRoomTypeId`/transfer counter created merely to
     guarantee unconditional rollback (§8 item 3).
-21. **Cross-type assigned → unassigned** succeeds only when the sold
-    RoomType has enough usable operational capacity
-    (`AvailableToSell`-equivalent headroom, computed against the final
-    post-operation state) for the unit's demand on every affected date.
+21. **Cross-type assigned → unassigned** is an existing-committed-demand
+    allocation transfer for an already-`Committed` unit (rule 35), never new
+    commercial demand. It succeeds only when the sold RoomType's final-state
+    `OperationalCapacityDemand` — including the unit's demand returning to
+    it — does not exceed `UsablePhysicalCapacity` for every affected date,
+    evaluated against the final post-operation state. `ControlledCapacity`,
+    `AvailableToSell`, `IsStopSell`, and `SellableLimit` govern acceptance of
+    genuinely new demand (rule 25) and never themselves gate this transfer.
 22. **Cross-type assigned → a different PhysicalRoom** atomically supersedes
-    the current assignment with the replacement. It succeeds only when the
-    destination PhysicalRoom is usable and the destination RoomType has
-    enough usable operational capacity in the final state for every
-    affected date.
+    the current assignment with the replacement. Like rule 21, this is an
+    existing-committed-demand allocation transfer, never new commercial
+    demand. It succeeds only when the destination PhysicalRoom is usable
+    (rule 36) and the destination RoomType's final-state
+    `OperationalCapacityDemand` does not exceed `UsablePhysicalCapacity` for
+    every affected date.
 23. **Failure preserves the existing assignment.** If any destination or
     fallback date lacks capacity, the entire mutation transaction is
     rejected: the existing `Effective` assignment and its demand
@@ -538,6 +544,50 @@ reservation room-night, never zero and never two:**
     `Cancelled` assignment rows remain historical and create no current
     physical-room attribution; `Cancelled` units remain historical and
     create no current committed demand (rule 17).
+
+**New demand versus existing committed-demand allocation transfer
+(TARGET):**
+
+35. Hold creation, and any direct (Admin/walk-in/OTA) reservation creation
+    that adds new committed room-night demand (§6 item 11), are new
+    commercial demand: they are validated against `ControlledCapacity`,
+    `AvailableToSell`, `IsStopSell`, and `SellableLimit` (rule 25) under
+    ordinary daily sales controls and the existing atomic
+    concurrency/locking discipline. By contrast, an assignment mutation for
+    an already-`Committed` unit — create/activate, unassigned → assigned,
+    assigned → unassigned, assigned → a different PhysicalRoom, or a
+    split/move/supersede that changes RoomType attribution — transfers the
+    unit's one existing demand bucket; it creates no additional committed
+    room-night and is never validated as a new sale. Such a transfer
+    succeeds only when the final post-operation `OperationalCapacityDemand`
+    does not exceed `UsablePhysicalCapacity` for every affected
+    `(PropertyId, RoomTypeId, StayDate)` key (rules 20–24) — it is never
+    gated by `ControlledCapacity`/`AvailableToSell`, which govern acceptance
+    of new demand only. `IsStopSell`/`SellableLimit` alone never prohibit
+    moving an already-`Committed` guest to a usable PhysicalRoom (rule 25);
+    after a successful transfer, `AvailableToSell` is recomputed under
+    ordinary daily controls and clamps to zero when there is no remaining
+    controlled headroom for new demand.
+36. **Destination PhysicalRoom usability (assignment create, activate,
+    move, or supersede — same-RoomType or cross-RoomType).** For every such
+    mutation with a destination PhysicalRoom, that destination must:
+    have `OperationalStatus == Active`; carry no overlapping `Effective
+    ReservationAssignment`; carry no overlapping `Effective
+    OperationalBlock`; belong to the same Property as the occupancy segment
+    and the referenced `ReservationUnit` (§9, ADR 0006 Decision item 3);
+    satisfy the booked-night coverage invariant for the referenced unit (§9,
+    ADR 0006 Decision item 9); and reference a unit whose `CommitmentStatus
+    == Committed` (rule 18). A same-RoomType move creates no RoomType-bucket
+    delta (rule 24) and therefore requires no RoomType headroom validation —
+    but "no headroom validation" never means "no destination validation": a
+    same-RoomType destination must still satisfy every condition above. If a
+    validly assigned PhysicalRoom later becomes non-`Active`, the existing
+    `Effective` assignment does not disappear automatically (rule 9) — this
+    rule governs destination selection at mutation time, not an automatic
+    relocation workflow, which remains undesigned (§17). For assigned →
+    unassigned there is no destination PhysicalRoom; any cross-type fallback
+    to the sold RoomType instead remains subject to rule 21's final-state
+    capacity check.
 
 **Worked example** (extends §15.6): 10 active PhysicalRooms for a RoomType,
 3 of them under an `Effective OperationalBlock` for the date in question, a
@@ -622,11 +672,14 @@ mid-transaction:
 
 - unassigned → same-type assigned: demand remains one unit in the same
   bucket (rule 24);
-- unassigned sold DLX → assigned FAMILY: demand leaves DLX operational
-  capacity and enters FAMILY capacity, subject to FAMILY having final-state
-  usable capacity (rule 22 governs the reverse direction's capacity check;
-  a fresh unassigned-to-assigned move is bounded by ordinary
-  `AvailableToSell` the same as any new demand);
+- unassigned sold DLX → assigned FAMILY: this is an existing-committed-demand
+  allocation transfer for an already-`Committed` unit (rule 35), never new
+  commercial demand — demand leaves DLX operational capacity and enters
+  FAMILY capacity, subject to FAMILY's final-state `OperationalCapacityDemand`
+  not exceeding `UsablePhysicalCapacity` (rule 22 governs the reverse
+  direction's capacity check); it is never gated by `AvailableToSell`/
+  `ControlledCapacity`, which govern acceptance of genuinely new demand
+  (rule 25, rule 35);
 - assigned FAMILY → unassigned: demand leaves FAMILY and returns to sold DLX
   **only when** the unit-night remains `Committed` (rule 17) **and** DLX has
   final-state usable capacity for it (rule 21) — otherwise the mutation is
@@ -684,9 +737,12 @@ harmless today.
    (`RoomOccupancySegment`) are independent inventory layers (TARGET).
 2. A commercial reservation can be fully assigned, partially assigned, or
    entirely unassigned to PhysicalRooms without losing its booked
-   RoomType/nights — the sale is complete and enforceable the moment
-   `ReservationUnitNight` rows exist; physical assignment is a separate,
-   later operational act. Independence is bounded, not unlimited: any zero,
+   RoomType/nights — the authoritative commercial record is the unit's
+   `ReservationUnitNight` rows together with its `CommitmentStatus` (§6 item
+   13; ADR 0005 Decision item 4), never row existence alone: a `Committed`
+   unit's sale is complete and enforceable regardless of physical assignment
+   state; physical assignment is a separate, later operational act.
+   Independence is bounded, not unlimited: any zero,
    partial, or full physical assignment is only ever valid within the
    referenced unit's sold nightly coverage — every `Effective`
    `ReservationAssignment` segment must be fully covered by that unit's
@@ -1025,9 +1081,11 @@ separate, lighter-weight walk-in write path.
 ### 15.3 Initially unassigned or partially assigned reservation
 
 A `Reservation` is confirmed with two `ReservationUnits`. At confirmation
-time, no `RoomOccupancySegment` exists for either unit — the sale is
-already commercially complete and enforceable via `ReservationUnitNight`
-alone. Later, front-desk staff assign one unit to a specific PhysicalRoom
+time, no `RoomOccupancySegment` exists for either unit — both units start
+`Committed` (§6 item 13), and the sale is already commercially complete and
+enforceable via their `ReservationUnitNight` rows together with that
+`CommitmentStatus` (ADR 0005 Decision item 4), not via row existence alone.
+Later, front-desk staff assign one unit to a specific PhysicalRoom
 for its first three nights only, creating `Effective`
 `ReservationAssignment` segments covering only those nights — the assigned
 first three nights are exactly three existing `ReservationUnitNight` dates
@@ -1169,28 +1227,29 @@ DEFERRED (§13, §17) and is not designed here.
 
 ### 15.10 Unit and Reservation cancellation (§6 item 13, §7 rules 17–19, 27–30)
 
-A `Reservation` is confirmed with three `ReservationUnits`; each starts
-`Committed` and its nights create demand under its sold RoomType.
+A `Reservation` is confirmed with exactly two `ReservationUnits`; each
+starts `Committed` and its nights create demand under its sold RoomType.
 
-1. Immediately after creation, all three units are `Committed` and their
-   nights count as demand.
-2. Front-desk cancels one of the three units. Only that unit's demand is
-   removed; the other two siblings remain `Committed` and unaffected; the
-   parent `Reservation` remains non-cancelled because two `Committed` units
-   remain.
-3. If the cancelled unit had been `Effective`-assigned to a FAMILY
-   PhysicalRoom, cancellation atomically cancels/supersedes that assignment
+1. Immediately after creation, both units are `Committed` and their nights
+   count as demand.
+2. Front-desk cancels the first of the two units. Only that unit's demand
+   is removed; the remaining sibling stays `Committed` and unaffected; the
+   parent `Reservation` remains non-cancelled because one `Committed` unit
+   remains.
+3. The cancelled first unit had been `Effective`-assigned to a FAMILY
+   PhysicalRoom: cancellation atomically cancels/supersedes that assignment
    and releases FAMILY demand in the same transaction — no fallback demand
    is created under the sold RoomType, because the unit's demand is
    removed, not transferred (rule 19).
-4. Later, front-desk cancels the second of the three units. Because this
-   was the final remaining `Committed` unit, the parent `Reservation`
-   atomically transitions to `Cancelled` in the same transaction (rule 28).
-5. Equivalently, an operator may cancel the whole `Reservation` directly:
-   every remaining `Committed` unit transitions to `Cancelled`, every
-   remaining `Effective` assignment is cancelled/superseded, and all
-   corresponding current demand is removed — atomically, in one transaction
-   (rule 30).
+4. Later, front-desk cancels the remaining (second) unit. Because this is
+   now the cancellation of the final `Committed` unit, the parent
+   `Reservation` atomically transitions to `Cancelled` in the same
+   transaction (rule 28).
+5. Equivalently, an operator may cancel the whole `Reservation` directly
+   instead of the two sequential unit cancellations above: every remaining
+   `Committed` unit transitions to `Cancelled`, every remaining `Effective`
+   assignment is cancelled/superseded, and all corresponding current demand
+   is removed — atomically, in one transaction (rule 30).
 6. An attempt to create or activate a `ReservationAssignment` against
    the already-`Cancelled` first unit is rejected (§9, rule 18).
 7. The `Cancelled` units' `ReservationUnitNight` snapshots (prices, RatePlan

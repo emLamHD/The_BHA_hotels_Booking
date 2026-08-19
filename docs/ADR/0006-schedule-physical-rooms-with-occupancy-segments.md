@@ -19,9 +19,13 @@ This decision depends on [ADR 0003](0003-model-hotel-stays-with-half-open-date-r
 (half-open date ranges) and
 [ADR 0005](0005-separate-commercial-commitment-from-physical-allocation.md)
 (separation of commercial commitment from physical allocation). ADR 0005
-establishes that a `ReservationUnit`'s existence is the complete record of a
-sale; this ADR defines the independent layer that tracks where a guest, or
-an operational block, actually occupies a PhysicalRoom.
+establishes that a `ReservationUnit`, its `ReservationUnitNight` rows, and
+its `CommitmentStatus` together are the authoritative commercial record of
+a sale — row existence alone is never sufficient, and only a `Committed`
+unit currently creates commercial demand (ADR 0005 Decision item 4); this
+ADR defines the independent layer that tracks where a guest, or an
+operational block, actually occupies a PhysicalRoom, and may reference only
+a `Committed` unit (Decision item 3).
 
 ## Context
 
@@ -119,6 +123,21 @@ closes this gap.
      never changes which RoomType bucket the unit's demand occupies; it
      remains subject to the ordinary schedule-exclusion, audit, and
      concurrency rules, but requires no destination-capacity validation.
+   - **Destination PhysicalRoom usability.** For every assignment create,
+     activate, move, or supersede — same-RoomType or cross-RoomType — with a
+     destination PhysicalRoom, that destination must have `OperationalStatus
+     == Active`; carry no overlapping `Effective ReservationAssignment`;
+     carry no overlapping `Effective OperationalBlock`; belong to the same
+     Property as the segment and its referenced `ReservationUnit` (Decision
+     item 3); satisfy the booked-night coverage invariant for the referenced
+     unit (Decision item 9); and reference a unit whose `CommitmentStatus`
+     is `Committed` (Decision item 3). A same-RoomType move needs no
+     RoomType-pool headroom check (no bucket delta above), but "no headroom
+     check" never means "no destination validation" — a same-RoomType
+     destination must still satisfy every condition in this bullet. For
+     assigned → unassigned there is no destination PhysicalRoom; any
+     cross-type fallback to the sold RoomType instead remains subject to
+     this item's final-state usable-capacity check above.
    - **Unit cancellation is a distinct, unconditional cleanup path.**
      Cancelling a `ReservationUnit` (ADR 0005 Decision item 7) atomically
      cancels/supersedes every `Effective` assignment referencing it in the
