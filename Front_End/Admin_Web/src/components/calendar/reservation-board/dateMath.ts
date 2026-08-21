@@ -153,3 +153,18 @@ export function clipToVisibleRange(
 export function isIsoDateWithinRange(iso: IsoDate, range: VisibleRange): boolean {
   return compareIsoDate(iso, range.start) >= 0 && compareIsoDate(iso, range.endExclusive) < 0;
 }
+
+/**
+ * Half-open stay overlap: a.startDate < b.endDate && b.startDate < a.endDate.
+ * A checkout and another check-in on the same date do not conflict; a
+ * shared occupied night does. Shared by all reservation-move conflict
+ * validation so the rule is defined exactly once.
+ */
+export function isoRangesOverlap(
+  aStart: IsoDate,
+  aEnd: IsoDate,
+  bStart: IsoDate,
+  bEnd: IsoDate
+): boolean {
+  return compareIsoDate(aStart, bEnd) < 0 && compareIsoDate(bStart, aEnd) < 0;
+}

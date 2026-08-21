@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   clipToVisibleRange,
   formatDisplayDate,
@@ -14,9 +14,11 @@ import type {
   IsoDate,
   OperationalBlockItem,
   PhysicalRoom,
+  PhysicalRoomId,
   RoomType,
   RoomTypeId,
   TimelineItem,
+  ReservationMoveValidation,
   UnassignedReservationItem,
 } from "./types";
 
@@ -31,6 +33,15 @@ interface ReservationTimelineProps {
   physicalRooms: PhysicalRoom[];
   items: TimelineItem[];
   bookingSources: BookingSource[];
+  draggedReservationId: string | null;
+  onDragStart: (reservationId: string) => void;
+  onDragEnd: () => void;
+  onProposeMove: (reservationId: string, targetRoomId: PhysicalRoomId) => void;
+  getMoveValidation: (
+    reservationId: string,
+    targetRoomId: PhysicalRoomId
+  ) => ReservationMoveValidation;
+  onDragFeedback: (message: string | null) => void;
 }
 
 function sourceLabelFor(bookingSources: BookingSource[], sourceId: string): string {
@@ -60,6 +71,21 @@ function bodyCellClassName(isToday: boolean, isWeekend: boolean): string {
   return base;
 }
 
+function dropZoneClassName(state: "valid" | "invalid" | null): string {
+  if (state === "valid") {
+    return "outline outline-2 -outline-offset-2 outline-success-400 bg-success-50/60 dark:bg-success-500/10";
+  }
+  if (state === "invalid") {
+    return "outline outline-2 -outline-offset-2 outline-error-400 bg-error-50/60 dark:bg-error-500/10";
+  }
+  return "";
+}
+
+interface MoveTargetGroup {
+  roomType: RoomType;
+  rooms: PhysicalRoom[];
+}
+
 interface TimelineBarProps {
   clip: ClippedSpan;
   title: string;
@@ -67,6 +93,13 @@ interface TimelineBarProps {
   secondaryLabel: string;
   detailLabel?: string;
   variant: "assigned" | "unassigned" | "block";
+  reservationId?: string;
+  currentRoomId?: PhysicalRoomId;
+  isDragged?: boolean;
+  moveTargetGroups?: MoveTargetGroup[];
+  onDragStart?: (reservationId: string) => void;
+  onDragEnd?: () => void;
+  onProposeMove?: (reservationId: string, targetRoomId: PhysicalRoomId) => void;
 }
 
 const TimelineBar: React.FC<TimelineBarProps> = ({
@@ -76,9 +109,17 @@ const TimelineBar: React.FC<TimelineBarProps> = ({
   secondaryLabel,
   detailLabel,
   variant,
+  reservationId,
+  currentRoomId,
+  isDragged,
+  moveTargetGroups,
+  onDragStart,
+  onDragEnd,
+  onProposeMove,
 }) => {
   const widthPx = clip.span * DATE_COLUMN_WIDTH_PX - 6;
   const showDetail = widthPx >= WIDE_BAR_THRESHOLD_PX && Boolean(detailLabel);
+  const isMovable = variant === "assigned" && Boolean(reservationId && onProposeMove);
 
   const variantClassName =
     variant === "assigned"
@@ -91,9 +132,24 @@ const TimelineBar: React.FC<TimelineBarProps> = ({
     <div
       title={title}
       aria-label={title}
-      className={`absolute top-1.5 bottom-1.5 flex flex-col justify-center overflow-hidden rounded-md px-2 py-1 text-xs leading-tight ${variantClassName} ${
+      draggable={isMovable}
+      onDragStart={
+        isMovable
+          ? (event) => {
+              event.dataTransfer.setData("text/plain", reservationId as string);
+              event.dataTransfer.effectAllowed = "move";
+              onDragStart?.(reservationId as string);
+            }
+          : undefined
+      }
+      onDragEnd={isMovable ? () => onDragEnd?.() : undefined}
+      className={`group absolute top-1.5 bottom-1.5 flex flex-col justify-center overflow-hidden rounded-md px-2 py-1 text-xs leading-tight outline-none transition-shadow ${variantClassName} ${
         clip.clippedStart ? "rounded-l-none border-l-4" : ""
-      } ${clip.clippedEnd ? "rounded-r-none border-r-4" : ""}`}
+      } ${clip.clippedEnd ? "rounded-r-none border-r-4" : ""} ${
+        isMovable
+          ? "cursor-grab hover:shadow-theme-xs hover:ring-1 hover:ring-brand-400/70 focus-within:ring-2 focus-within:ring-brand-500/50 active:cursor-grabbing"
+          : ""
+      } ${isDragged ? "opacity-40" : ""}`}
       style={{
         left: clip.startCol * DATE_COLUMN_WIDTH_PX + 3,
         width: Math.max(widthPx, DATE_COLUMN_WIDTH_PX - 6),
@@ -106,6 +162,36 @@ const TimelineBar: React.FC<TimelineBarProps> = ({
       {showDetail ? (
         <span className="truncate text-[10px] opacity-70">{detailLabel}</span>
       ) : null}
+
+      {isMovable && moveTargetGroups ? (
+        <select
+          aria-label={`Move ${primaryLabel}'s reservation to another room`}
+          value=""
+          draggable={false}
+          onMouseDown={(event) => event.stopPropagation()}
+          onDragStart={(event) => event.stopPropagation()}
+          onChange={(event) => {
+            const targetRoomId = event.target.value;
+            if (targetRoomId && reservationId) {
+              onProposeMove?.(reservationId, targetRoomId);
+            }
+          }}
+          className="absolute right-1 top-1 z-10 h-5 max-w-[70px] rounded border border-brand-300 bg-white/95 px-0.5 text-[9px] leading-none text-brand-700 opacity-0 shadow-theme-xs focus:opacity-100 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-500/50 group-hover:opacity-100 group-focus-within:opacity-100 dark:border-brand-500/50 dark:bg-gray-900/95 dark:text-brand-200"
+        >
+          <option value="">Move…</option>
+          {moveTargetGroups.map((group) => (
+            <optgroup key={group.roomType.id} label={group.roomType.name}>
+              {group.rooms
+                .filter((room) => room.id !== currentRoomId)
+                .map((room) => (
+                  <option key={room.id} value={room.id}>
+                    Room {room.code}
+                  </option>
+                ))}
+            </optgroup>
+          ))}
+        </select>
+      ) : null}
     </div>
   );
 };
@@ -117,7 +203,16 @@ const ReservationTimeline: React.FC<ReservationTimelineProps> = ({
   physicalRooms,
   items,
   bookingSources,
+  draggedReservationId,
+  onDragStart,
+  onDragEnd,
+  onProposeMove,
+  getMoveValidation,
+  onDragFeedback,
 }) => {
+  const [hoveredRoomId, setHoveredRoomId] = useState<PhysicalRoomId | null>(null);
+  const [hoveredValidity, setHoveredValidity] = useState<"valid" | "invalid" | null>(null);
+
   const dates: IsoDate[] = generateRangeDates(range);
 
   const roomsByRoomType = new Map<RoomTypeId, PhysicalRoom[]>();
@@ -126,6 +221,11 @@ const ReservationTimeline: React.FC<ReservationTimelineProps> = ({
     bucket.push(room);
     roomsByRoomType.set(room.roomTypeId, bucket);
   });
+
+  const moveTargetGroups: MoveTargetGroup[] = roomTypes.map((roomType) => ({
+    roomType,
+    rooms: roomsByRoomType.get(roomType.id) ?? [],
+  }));
 
   const itemsByRoomId = new Map<string, (AssignedReservationItem | OperationalBlockItem)[]>();
   const unassignedByRoomType = new Map<RoomTypeId, UnassignedReservationItem[]>();
@@ -147,6 +247,65 @@ const ReservationTimeline: React.FC<ReservationTimelineProps> = ({
   const roomTypesWithUnassigned = roomTypes.filter(
     (roomType) => (unassignedByRoomType.get(roomType.id) ?? []).length > 0
   );
+
+  const handleBarDragStart = (reservationId: string) => {
+    onDragStart(reservationId);
+  };
+
+  const handleBarDragEnd = () => {
+    setHoveredRoomId(null);
+    setHoveredValidity(null);
+    onDragEnd();
+  };
+
+  const handleRoomDragOver = (
+    event: React.DragEvent<HTMLDivElement>,
+    roomId: PhysicalRoomId
+  ) => {
+    if (!draggedReservationId) return;
+    event.preventDefault();
+
+    const validation = getMoveValidation(draggedReservationId, roomId);
+    if (validation.status === "same-room") {
+      event.dataTransfer.dropEffect = "none";
+      setHoveredRoomId(null);
+      setHoveredValidity(null);
+      onDragFeedback(null);
+      return;
+    }
+    if (validation.status === "conflict") {
+      event.dataTransfer.dropEffect = "none";
+      setHoveredRoomId(roomId);
+      setHoveredValidity("invalid");
+      onDragFeedback(validation.conflict.message);
+      return;
+    }
+    event.dataTransfer.dropEffect = "move";
+    setHoveredRoomId(roomId);
+    setHoveredValidity("valid");
+    onDragFeedback(null);
+  };
+
+  const handleRoomDragLeave = (
+    event: React.DragEvent<HTMLDivElement>,
+    roomId: PhysicalRoomId
+  ) => {
+    const related = event.relatedTarget as Node | null;
+    if (related && event.currentTarget.contains(related)) return;
+    if (hoveredRoomId === roomId) {
+      setHoveredRoomId(null);
+      setHoveredValidity(null);
+      onDragFeedback(null);
+    }
+  };
+
+  const handleRoomDrop = (event: React.DragEvent<HTMLDivElement>, roomId: PhysicalRoomId) => {
+    event.preventDefault();
+    setHoveredRoomId(null);
+    setHoveredValidity(null);
+    if (!draggedReservationId) return;
+    onProposeMove(draggedReservationId, roomId);
+  };
 
   return (
     <div className="rounded-b-2xl">
@@ -206,12 +365,20 @@ const ReservationTimeline: React.FC<ReservationTimelineProps> = ({
               {(roomsByRoomType.get(roomType.id) ?? []).map((room) => {
                 const roomItems = itemsByRoomId.get(room.id) ?? [];
                 return (
-                  <div key={room.id} className="flex">
+                  <div
+                    key={room.id}
+                    className="flex"
+                    onDragOver={(event) => handleRoomDragOver(event, room.id)}
+                    onDragLeave={(event) => handleRoomDragLeave(event, room.id)}
+                    onDrop={(event) => handleRoomDrop(event, room.id)}
+                  >
                     <div className="sticky left-0 z-10 flex h-14 w-[208px] shrink-0 items-center border-b border-r border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200">
                       {room.code}
                     </div>
                     <div
-                      className="relative h-14 border-b border-gray-200 dark:border-gray-800"
+                      className={`relative h-14 border-b border-gray-200 dark:border-gray-800 ${dropZoneClassName(
+                        hoveredRoomId === room.id ? hoveredValidity : null
+                      )}`}
                       style={{ width: dateAreaWidthPx }}
                     >
                       <div className="absolute inset-0 flex">
@@ -251,6 +418,13 @@ const ReservationTimeline: React.FC<ReservationTimelineProps> = ({
                             key={item.id}
                             clip={clip}
                             variant="assigned"
+                            reservationId={item.id}
+                            currentRoomId={item.roomId}
+                            isDragged={draggedReservationId === item.id}
+                            moveTargetGroups={moveTargetGroups}
+                            onDragStart={handleBarDragStart}
+                            onDragEnd={handleBarDragEnd}
+                            onProposeMove={onProposeMove}
                             primaryLabel={item.guestName}
                             secondaryLabel={`${sourceLabelFor(bookingSources, item.sourceId)} · Assigned`}
                             detailLabel={`${formatDisplayDate(item.startDate)} – ${formatDisplayDate(

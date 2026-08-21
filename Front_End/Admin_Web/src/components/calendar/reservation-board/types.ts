@@ -72,3 +72,47 @@ export interface ReservationBoardFilters {
   showUnassigned: boolean;
   showOperationalBlocks: boolean;
 }
+
+/**
+ * Demo-only, in-memory description of a proposed room reassignment for an
+ * assigned reservation, pending Owner confirmation in
+ * ReservationMoveConfirmDialog. Never persisted — see ADMIN-002.1-C1.
+ */
+export interface ReservationMoveIntent {
+  reservationId: string;
+  propertyId: PropertyId;
+  guestName: string;
+  sourceId: BookingSourceId;
+  sourceLabel: string;
+  startDate: IsoDate;
+  endDate: IsoDate;
+  fromRoomId: PhysicalRoomId;
+  fromRoomCode: string;
+  fromRoomTypeId: RoomTypeId;
+  fromRoomTypeName: string;
+  toRoomId: PhysicalRoomId;
+  toRoomCode: string;
+  toRoomTypeId: RoomTypeId;
+  toRoomTypeName: string;
+  crossesRoomType: boolean;
+}
+
+/** A rejected move target and the accessible reason it was rejected. */
+export interface ReservationMoveConflict {
+  targetRoomId: PhysicalRoomId;
+  message: string;
+}
+
+/** Outcome of validating a proposed reservationId -> targetRoomId move. */
+export type ReservationMoveValidation =
+  | { status: "valid" }
+  | { status: "same-room" }
+  | { status: "conflict"; conflict: ReservationMoveConflict };
+
+/** Summary of a locally-applied move, used to build the demo-only status announcement. */
+export interface ReservationMoveResult {
+  reservationId: string;
+  guestName: string;
+  fromRoomCode: string;
+  toRoomCode: string;
+}
