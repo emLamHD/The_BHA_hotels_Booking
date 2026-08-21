@@ -28,9 +28,33 @@ export interface PhysicalRoom {
   code: string;
 }
 
+/** A compact, in-app text/brand mark for a booking source — never a third-party logo asset. */
 export interface BookingSource {
   id: BookingSourceId;
   label: string;
+  markLabel: string;
+  markClassName: string;
+}
+
+/** Fictional guest nationality shown in the reservation hover card. */
+export interface GuestNationality {
+  code: string;
+  label: string;
+  flag: string;
+}
+
+export type PaymentCollectionStatus = "unpaid" | "deposit" | "paid";
+
+/** Presentation-only mock payment status. No payment behavior, mutation, or API. */
+export interface ReservationPaymentDisplay {
+  status: PaymentCollectionStatus;
+  amountDue: number;
+  currency: "VND";
+}
+
+export interface ReservationOccupancy {
+  adults: number;
+  children: number;
 }
 
 interface TimelineItemBase {
@@ -40,18 +64,28 @@ interface TimelineItemBase {
   endDate: IsoDate; // check-out, exclusive grid line
 }
 
-export interface AssignedReservationItem extends TimelineItemBase {
-  kind: "assigned-reservation";
-  roomId: PhysicalRoomId;
+/**
+ * Fields shared by assigned and unassigned reservations. `soldRoomTypeId` is
+ * the RoomType the guest booked and is preserved independently of whichever
+ * PhysicalRoom the reservation is currently assigned to — it must never be
+ * overwritten by a PhysicalRoom move.
+ */
+interface ReservationTimelineItemBase extends TimelineItemBase {
+  soldRoomTypeId: RoomTypeId;
   guestName: string;
+  nationality: GuestNationality;
   sourceId: BookingSourceId;
+  occupancy: ReservationOccupancy;
+  paymentDisplay: ReservationPaymentDisplay;
 }
 
-export interface UnassignedReservationItem extends TimelineItemBase {
+export interface AssignedReservationItem extends ReservationTimelineItemBase {
+  kind: "assigned-reservation";
+  roomId: PhysicalRoomId;
+}
+
+export interface UnassignedReservationItem extends ReservationTimelineItemBase {
   kind: "unassigned-reservation";
-  roomTypeId: RoomTypeId;
-  guestName: string;
-  sourceId: BookingSourceId;
 }
 
 export interface OperationalBlockItem extends TimelineItemBase {
@@ -73,29 +107,71 @@ export interface ReservationBoardFilters {
   showOperationalBlocks: boolean;
 }
 
-/**
- * Demo-only, in-memory description of a proposed room reassignment for an
- * assigned reservation, pending Owner confirmation in
- * ReservationMoveConfirmDialog. Never persisted — see ADMIN-002.1-C1.
- */
-export interface ReservationMoveIntent {
-  reservationId: string;
+/** A PhysicalRoom move/assignment destination choice, grouped by RoomType, for the confirmation dialog. */
+export interface ReservationMoveTargetGroup {
+  roomType: RoomType;
+  rooms: PhysicalRoom[];
+}
+
+export type ReservationMoveOperation =
+  | "assigned-move"
+  | "unassigned-assign"
+  | "block-move";
+
+interface ReservationMoveIntentBase {
   propertyId: PropertyId;
-  guestName: string;
-  sourceId: BookingSourceId;
-  sourceLabel: string;
   startDate: IsoDate;
   endDate: IsoDate;
-  fromRoomId: PhysicalRoomId;
-  fromRoomCode: string;
-  fromRoomTypeId: RoomTypeId;
-  fromRoomTypeName: string;
   toRoomId: PhysicalRoomId;
   toRoomCode: string;
   toRoomTypeId: RoomTypeId;
   toRoomTypeName: string;
+}
+
+/** Demo-only, in-memory description of a proposed PhysicalRoom move for an assigned reservation. */
+export interface AssignedMoveIntent extends ReservationMoveIntentBase {
+  operation: "assigned-move";
+  reservationId: string;
+  guestName: string;
+  sourceId: BookingSourceId;
+  sourceLabel: string;
+  soldRoomTypeId: RoomTypeId;
+  soldRoomTypeName: string;
+  fromRoomId: PhysicalRoomId;
+  fromRoomCode: string;
+  fromRoomTypeId: RoomTypeId;
+  fromRoomTypeName: string;
   crossesRoomType: boolean;
 }
+
+/** Demo-only, in-memory description of a proposed first-time PhysicalRoom assignment for an unassigned reservation. */
+export interface UnassignedAssignIntent extends ReservationMoveIntentBase {
+  operation: "unassigned-assign";
+  reservationId: string;
+  guestName: string;
+  sourceId: BookingSourceId;
+  sourceLabel: string;
+  soldRoomTypeId: RoomTypeId;
+  soldRoomTypeName: string;
+  crossesRoomType: boolean;
+}
+
+/** Demo-only, in-memory description of a proposed PhysicalRoom move for an operational block. */
+export interface BlockMoveIntent extends ReservationMoveIntentBase {
+  operation: "block-move";
+  blockId: string;
+  reason: string;
+  fromRoomId: PhysicalRoomId;
+  fromRoomCode: string;
+  fromRoomTypeId: RoomTypeId;
+  fromRoomTypeName: string;
+}
+
+/** Never persisted — pending Owner confirmation in ReservationMoveConfirmDialog. See ADMIN-002.1-C1/C2. */
+export type ReservationMoveIntent =
+  | AssignedMoveIntent
+  | UnassignedAssignIntent
+  | BlockMoveIntent;
 
 /** A rejected move target and the accessible reason it was rejected. */
 export interface ReservationMoveConflict {
@@ -103,16 +179,8 @@ export interface ReservationMoveConflict {
   message: string;
 }
 
-/** Outcome of validating a proposed reservationId -> targetRoomId move. */
+/** Outcome of validating a proposed timeline-item-id -> targetRoomId move. */
 export type ReservationMoveValidation =
   | { status: "valid" }
   | { status: "same-room" }
   | { status: "conflict"; conflict: ReservationMoveConflict };
-
-/** Summary of a locally-applied move, used to build the demo-only status announcement. */
-export interface ReservationMoveResult {
-  reservationId: string;
-  guestName: string;
-  fromRoomCode: string;
-  toRoomCode: string;
-}

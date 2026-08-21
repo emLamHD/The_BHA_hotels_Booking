@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   clipToVisibleRange,
   formatDisplayDate,
@@ -8,6 +8,7 @@ import {
   type ClippedSpan,
   type VisibleRange,
 } from "./dateMath";
+import ReservationHoverCard from "./ReservationHoverCard";
 import type {
   AssignedReservationItem,
   BookingSource,
@@ -26,6 +27,8 @@ const ROOM_COLUMN_WIDTH_PX = 208;
 const DATE_COLUMN_WIDTH_PX = 112;
 const WIDE_BAR_THRESHOLD_PX = 3 * DATE_COLUMN_WIDTH_PX;
 
+type ReservationItem = AssignedReservationItem | UnassignedReservationItem;
+
 interface ReservationTimelineProps {
   range: VisibleRange;
   todayIso: IsoDate;
@@ -33,12 +36,13 @@ interface ReservationTimelineProps {
   physicalRooms: PhysicalRoom[];
   items: TimelineItem[];
   bookingSources: BookingSource[];
-  draggedReservationId: string | null;
-  onDragStart: (reservationId: string) => void;
+  draggedItemId: string | null;
+  onDragStart: (itemId: string) => void;
   onDragEnd: () => void;
-  onProposeMove: (reservationId: string, targetRoomId: PhysicalRoomId) => void;
+  onProposeMove: (itemId: string, targetRoomId: PhysicalRoomId) => void;
+  onRequestMove: (itemId: string) => void;
   getMoveValidation: (
-    reservationId: string,
+    itemId: string,
     targetRoomId: PhysicalRoomId
   ) => ReservationMoveValidation;
   onDragFeedback: (message: string | null) => void;
@@ -46,6 +50,29 @@ interface ReservationTimelineProps {
 
 function sourceLabelFor(bookingSources: BookingSource[], sourceId: string): string {
   return bookingSources.find((source) => source.id === sourceId)?.label ?? sourceId;
+}
+
+function isReservationItem(item: TimelineItem): item is ReservationItem {
+  return item.kind !== "operational-block";
+}
+
+function resolveHoverContext(
+  item: ReservationItem,
+  physicalRooms: PhysicalRoom[],
+  roomTypes: RoomType[]
+): { physicalRoom: PhysicalRoom | null; roomType: RoomType | null } {
+  if (item.kind === "assigned-reservation") {
+    const physicalRoom = physicalRooms.find((room) => room.id === item.roomId) ?? null;
+    const roomType =
+      (physicalRoom && roomTypes.find((rt) => rt.id === physicalRoom.roomTypeId)) ??
+      roomTypes.find((rt) => rt.id === item.soldRoomTypeId) ??
+      null;
+    return { physicalRoom, roomType };
+  }
+  return {
+    physicalRoom: null,
+    roomType: roomTypes.find((rt) => rt.id === item.soldRoomTypeId) ?? null,
+  };
 }
 
 function headerCellClassName(isToday: boolean, isWeekend: boolean): string {
@@ -81,45 +108,39 @@ function dropZoneClassName(state: "valid" | "invalid" | null): string {
   return "";
 }
 
-interface MoveTargetGroup {
-  roomType: RoomType;
-  rooms: PhysicalRoom[];
-}
-
 interface TimelineBarProps {
+  item: TimelineItem;
   clip: ClippedSpan;
-  title: string;
   primaryLabel: string;
   secondaryLabel: string;
   detailLabel?: string;
-  variant: "assigned" | "unassigned" | "block";
-  reservationId?: string;
-  currentRoomId?: PhysicalRoomId;
-  isDragged?: boolean;
-  moveTargetGroups?: MoveTargetGroup[];
-  onDragStart?: (reservationId: string) => void;
-  onDragEnd?: () => void;
-  onProposeMove?: (reservationId: string, targetRoomId: PhysicalRoomId) => void;
+  ariaLabel: string;
+  isDragged: boolean;
+  onDragStart: (itemId: string) => void;
+  onDragEnd: () => void;
+  onRequestMove: (itemId: string) => void;
+  onHoverStart: (item: ReservationItem, anchorEl: HTMLElement) => void;
+  onHoverEnd: () => void;
 }
 
 const TimelineBar: React.FC<TimelineBarProps> = ({
+  item,
   clip,
-  title,
   primaryLabel,
   secondaryLabel,
   detailLabel,
-  variant,
-  reservationId,
-  currentRoomId,
+  ariaLabel,
   isDragged,
-  moveTargetGroups,
   onDragStart,
   onDragEnd,
-  onProposeMove,
+  onRequestMove,
+  onHoverStart,
+  onHoverEnd,
 }) => {
   const widthPx = clip.span * DATE_COLUMN_WIDTH_PX - 6;
   const showDetail = widthPx >= WIDE_BAR_THRESHOLD_PX && Boolean(detailLabel);
-  const isMovable = variant === "assigned" && Boolean(reservationId && onProposeMove);
+  const variant = item.kind === "assigned-reservation" ? "assigned" : item.kind === "unassigned-reservation" ? "unassigned" : "block";
+  const showsHoverCard = isReservationItem(item);
 
   const variantClassName =
     variant === "assigned"
@@ -130,26 +151,33 @@ const TimelineBar: React.FC<TimelineBarProps> = ({
 
   return (
     <div
-      title={title}
-      aria-label={title}
-      draggable={isMovable}
-      onDragStart={
-        isMovable
-          ? (event) => {
-              event.dataTransfer.setData("text/plain", reservationId as string);
-              event.dataTransfer.effectAllowed = "move";
-              onDragStart?.(reservationId as string);
-            }
-          : undefined
+      title={variant === "block" ? ariaLabel : undefined}
+      aria-label={ariaLabel}
+      data-timeline-item-id={item.id}
+      tabIndex={0}
+      draggable
+      onDragStart={(event) => {
+        event.dataTransfer.setData("text/plain", item.id);
+        event.dataTransfer.effectAllowed = "move";
+        onDragStart(item.id);
+      }}
+      onDragEnd={() => onDragEnd()}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onHoverEnd();
+          onRequestMove(item.id);
+        }
+      }}
+      onMouseEnter={
+        showsHoverCard ? (event) => onHoverStart(item, event.currentTarget) : undefined
       }
-      onDragEnd={isMovable ? () => onDragEnd?.() : undefined}
-      className={`group absolute top-1.5 bottom-1.5 flex flex-col justify-center overflow-hidden rounded-md px-2 py-1 text-xs leading-tight outline-none transition-shadow ${variantClassName} ${
+      onMouseLeave={showsHoverCard ? () => onHoverEnd() : undefined}
+      onFocus={showsHoverCard ? (event) => onHoverStart(item, event.currentTarget) : undefined}
+      onBlur={showsHoverCard ? () => onHoverEnd() : undefined}
+      className={`group absolute top-1.5 bottom-1.5 flex cursor-grab flex-col justify-center overflow-hidden rounded-md px-2 py-1 text-xs leading-tight outline-none transition-shadow hover:shadow-theme-xs hover:ring-1 hover:ring-brand-400/70 focus-visible:ring-2 focus-visible:ring-brand-500/50 active:cursor-grabbing ${variantClassName} ${
         clip.clippedStart ? "rounded-l-none border-l-4" : ""
-      } ${clip.clippedEnd ? "rounded-r-none border-r-4" : ""} ${
-        isMovable
-          ? "cursor-grab hover:shadow-theme-xs hover:ring-1 hover:ring-brand-400/70 focus-within:ring-2 focus-within:ring-brand-500/50 active:cursor-grabbing"
-          : ""
-      } ${isDragged ? "opacity-40" : ""}`}
+      } ${clip.clippedEnd ? "rounded-r-none border-r-4" : ""} ${isDragged ? "opacity-40" : ""}`}
       style={{
         left: clip.startCol * DATE_COLUMN_WIDTH_PX + 3,
         width: Math.max(widthPx, DATE_COLUMN_WIDTH_PX - 6),
@@ -162,36 +190,6 @@ const TimelineBar: React.FC<TimelineBarProps> = ({
       {showDetail ? (
         <span className="truncate text-[10px] opacity-70">{detailLabel}</span>
       ) : null}
-
-      {isMovable && moveTargetGroups ? (
-        <select
-          aria-label={`Move ${primaryLabel}'s reservation to another room`}
-          value=""
-          draggable={false}
-          onMouseDown={(event) => event.stopPropagation()}
-          onDragStart={(event) => event.stopPropagation()}
-          onChange={(event) => {
-            const targetRoomId = event.target.value;
-            if (targetRoomId && reservationId) {
-              onProposeMove?.(reservationId, targetRoomId);
-            }
-          }}
-          className="absolute right-1 top-1 z-10 h-5 max-w-[70px] rounded border border-brand-300 bg-white/95 px-0.5 text-[9px] leading-none text-brand-700 opacity-0 shadow-theme-xs focus:opacity-100 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-500/50 group-hover:opacity-100 group-focus-within:opacity-100 dark:border-brand-500/50 dark:bg-gray-900/95 dark:text-brand-200"
-        >
-          <option value="">Move…</option>
-          {moveTargetGroups.map((group) => (
-            <optgroup key={group.roomType.id} label={group.roomType.name}>
-              {group.rooms
-                .filter((room) => room.id !== currentRoomId)
-                .map((room) => (
-                  <option key={room.id} value={room.id}>
-                    Room {room.code}
-                  </option>
-                ))}
-            </optgroup>
-          ))}
-        </select>
-      ) : null}
     </div>
   );
 };
@@ -203,15 +201,46 @@ const ReservationTimeline: React.FC<ReservationTimelineProps> = ({
   physicalRooms,
   items,
   bookingSources,
-  draggedReservationId,
+  draggedItemId,
   onDragStart,
   onDragEnd,
   onProposeMove,
+  onRequestMove,
   getMoveValidation,
   onDragFeedback,
 }) => {
   const [hoveredRoomId, setHoveredRoomId] = useState<PhysicalRoomId | null>(null);
   const [hoveredValidity, setHoveredValidity] = useState<"valid" | "invalid" | null>(null);
+  const [hoverCardItem, setHoverCardItem] = useState<ReservationItem | null>(null);
+  const [hoverCardAnchor, setHoverCardAnchor] = useState<HTMLElement | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+
+  const closeHoverCard = useCallback(() => {
+    setHoverCardItem(null);
+    setHoverCardAnchor(null);
+  }, []);
+
+  useEffect(() => {
+    if (!hoverCardItem) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeHoverCard();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [hoverCardItem, closeHoverCard]);
+
+  useEffect(() => {
+    if (!hoverCardItem) return;
+    const scrollContainer = scrollContainerRef.current;
+    window.addEventListener("resize", closeHoverCard);
+    window.addEventListener("scroll", closeHoverCard, { passive: true, capture: true });
+    scrollContainer?.addEventListener("scroll", closeHoverCard, { passive: true });
+    return () => {
+      window.removeEventListener("resize", closeHoverCard);
+      window.removeEventListener("scroll", closeHoverCard, true);
+      scrollContainer?.removeEventListener("scroll", closeHoverCard);
+    };
+  }, [hoverCardItem, closeHoverCard]);
 
   const dates: IsoDate[] = generateRangeDates(range);
 
@@ -222,18 +251,13 @@ const ReservationTimeline: React.FC<ReservationTimelineProps> = ({
     roomsByRoomType.set(room.roomTypeId, bucket);
   });
 
-  const moveTargetGroups: MoveTargetGroup[] = roomTypes.map((roomType) => ({
-    roomType,
-    rooms: roomsByRoomType.get(roomType.id) ?? [],
-  }));
-
   const itemsByRoomId = new Map<string, (AssignedReservationItem | OperationalBlockItem)[]>();
   const unassignedByRoomType = new Map<RoomTypeId, UnassignedReservationItem[]>();
   items.forEach((item) => {
     if (item.kind === "unassigned-reservation") {
-      const bucket = unassignedByRoomType.get(item.roomTypeId) ?? [];
+      const bucket = unassignedByRoomType.get(item.soldRoomTypeId) ?? [];
       bucket.push(item);
-      unassignedByRoomType.set(item.roomTypeId, bucket);
+      unassignedByRoomType.set(item.soldRoomTypeId, bucket);
       return;
     }
     const bucket = itemsByRoomId.get(item.roomId) ?? [];
@@ -248,8 +272,9 @@ const ReservationTimeline: React.FC<ReservationTimelineProps> = ({
     (roomType) => (unassignedByRoomType.get(roomType.id) ?? []).length > 0
   );
 
-  const handleBarDragStart = (reservationId: string) => {
-    onDragStart(reservationId);
+  const handleBarDragStart = (itemId: string) => {
+    closeHoverCard();
+    onDragStart(itemId);
   };
 
   const handleBarDragEnd = () => {
@@ -258,14 +283,19 @@ const ReservationTimeline: React.FC<ReservationTimelineProps> = ({
     onDragEnd();
   };
 
+  const handleBarHoverStart = (item: ReservationItem, anchorEl: HTMLElement) => {
+    setHoverCardItem(item);
+    setHoverCardAnchor(anchorEl);
+  };
+
   const handleRoomDragOver = (
     event: React.DragEvent<HTMLDivElement>,
     roomId: PhysicalRoomId
   ) => {
-    if (!draggedReservationId) return;
+    if (!draggedItemId) return;
     event.preventDefault();
 
-    const validation = getMoveValidation(draggedReservationId, roomId);
+    const validation = getMoveValidation(draggedItemId, roomId);
     if (validation.status === "same-room") {
       event.dataTransfer.dropEffect = "none";
       setHoveredRoomId(null);
@@ -303,13 +333,21 @@ const ReservationTimeline: React.FC<ReservationTimelineProps> = ({
     event.preventDefault();
     setHoveredRoomId(null);
     setHoveredValidity(null);
-    if (!draggedReservationId) return;
-    onProposeMove(draggedReservationId, roomId);
+    if (!draggedItemId) return;
+    onProposeMove(draggedItemId, roomId);
   };
+
+  const hoverContext = hoverCardItem
+    ? resolveHoverContext(hoverCardItem, physicalRooms, roomTypes)
+    : null;
 
   return (
     <div className="rounded-b-2xl">
-      <div className="max-h-[560px] overflow-auto" style={{ minWidth: "100%" }}>
+      <div
+        ref={scrollContainerRef}
+        className="max-h-[560px] overflow-auto"
+        style={{ minWidth: "100%" }}
+      >
         <div style={{ minWidth: totalWidthPx }}>
           <div className="sticky top-0 z-20 flex bg-gray-50 dark:bg-gray-900">
             <div className="sticky left-0 z-30 flex h-16 w-[208px] shrink-0 items-center border-b border-r border-gray-200 bg-gray-50 px-4 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400">
@@ -400,14 +438,20 @@ const ReservationTimeline: React.FC<ReservationTimelineProps> = ({
                           return (
                             <TimelineBar
                               key={item.id}
+                              item={item}
                               clip={clip}
-                              variant="block"
+                              isDragged={draggedItemId === item.id}
+                              onDragStart={handleBarDragStart}
+                              onDragEnd={handleBarDragEnd}
+                              onRequestMove={onRequestMove}
+                              onHoverStart={handleBarHoverStart}
+                              onHoverEnd={closeHoverCard}
                               primaryLabel="Block"
                               secondaryLabel={item.reason}
                               detailLabel={`${formatDisplayDate(item.startDate)} – ${formatDisplayDate(
                                 item.endDate
                               )}`}
-                              title={`Operational block: ${item.reason} · ${formatDisplayDate(
+                              ariaLabel={`Operational block: ${item.reason} · ${formatDisplayDate(
                                 item.startDate
                               )} – ${formatDisplayDate(item.endDate)}`}
                             />
@@ -416,21 +460,20 @@ const ReservationTimeline: React.FC<ReservationTimelineProps> = ({
                         return (
                           <TimelineBar
                             key={item.id}
+                            item={item}
                             clip={clip}
-                            variant="assigned"
-                            reservationId={item.id}
-                            currentRoomId={item.roomId}
-                            isDragged={draggedReservationId === item.id}
-                            moveTargetGroups={moveTargetGroups}
+                            isDragged={draggedItemId === item.id}
                             onDragStart={handleBarDragStart}
                             onDragEnd={handleBarDragEnd}
-                            onProposeMove={onProposeMove}
+                            onRequestMove={onRequestMove}
+                            onHoverStart={handleBarHoverStart}
+                            onHoverEnd={closeHoverCard}
                             primaryLabel={item.guestName}
                             secondaryLabel={`${sourceLabelFor(bookingSources, item.sourceId)} · Assigned`}
                             detailLabel={`${formatDisplayDate(item.startDate)} – ${formatDisplayDate(
                               item.endDate
                             )}`}
-                            title={`${item.guestName} · ${sourceLabelFor(
+                            ariaLabel={`${item.guestName} · ${sourceLabelFor(
                               bookingSources,
                               item.sourceId
                             )} · Assigned · ${formatDisplayDate(item.startDate)} – ${formatDisplayDate(
@@ -486,14 +529,20 @@ const ReservationTimeline: React.FC<ReservationTimelineProps> = ({
                         return (
                           <TimelineBar
                             key={item.id}
+                            item={item}
                             clip={clip}
-                            variant="unassigned"
+                            isDragged={draggedItemId === item.id}
+                            onDragStart={handleBarDragStart}
+                            onDragEnd={handleBarDragEnd}
+                            onRequestMove={onRequestMove}
+                            onHoverStart={handleBarHoverStart}
+                            onHoverEnd={closeHoverCard}
                             primaryLabel={item.guestName}
                             secondaryLabel={`${sourceLabelFor(bookingSources, item.sourceId)} · Unassigned`}
                             detailLabel={`${formatDisplayDate(item.startDate)} – ${formatDisplayDate(
                               item.endDate
                             )}`}
-                            title={`${item.guestName} · ${sourceLabelFor(
+                            ariaLabel={`${item.guestName} · ${sourceLabelFor(
                               bookingSources,
                               item.sourceId
                             )} · Unassigned · ${formatDisplayDate(
@@ -510,6 +559,16 @@ const ReservationTimeline: React.FC<ReservationTimelineProps> = ({
           ) : null}
         </div>
       </div>
+
+      {hoverCardItem && hoverCardAnchor && hoverContext?.roomType ? (
+        <ReservationHoverCard
+          item={hoverCardItem}
+          anchorEl={hoverCardAnchor}
+          bookingSources={bookingSources}
+          physicalRoom={hoverContext.physicalRoom}
+          roomType={hoverContext.roomType}
+        />
+      ) : null}
     </div>
   );
 };
