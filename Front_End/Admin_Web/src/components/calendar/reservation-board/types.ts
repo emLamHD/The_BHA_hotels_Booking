@@ -118,17 +118,31 @@ export type ReservationMoveOperation =
   | "unassigned-assign"
   | "block-move";
 
+/**
+ * A proposed PhysicalRoom + half-open date span for a timeline item, derived
+ * from a drag gesture or the keyboard/date-input path. `targetEndDate` is
+ * always `targetStartDate` shifted by the item's preserved duration — C3
+ * never allows independent check-in/check-out resizing.
+ */
+export interface ReservationMoveTarget {
+  targetRoomId: PhysicalRoomId;
+  targetStartDate: IsoDate;
+  targetEndDate: IsoDate;
+}
+
 interface ReservationMoveIntentBase {
   propertyId: PropertyId;
-  startDate: IsoDate;
-  endDate: IsoDate;
   toRoomId: PhysicalRoomId;
   toRoomCode: string;
   toRoomTypeId: RoomTypeId;
   toRoomTypeName: string;
+  toStartDate: IsoDate;
+  toEndDate: IsoDate;
+  /** Preserved night count — identical for the from/to span; whole-bar moves never change duration. */
+  durationNights: number;
 }
 
-/** Demo-only, in-memory description of a proposed PhysicalRoom move for an assigned reservation. */
+/** Demo-only, in-memory description of a proposed PhysicalRoom/date move for an assigned reservation. */
 export interface AssignedMoveIntent extends ReservationMoveIntentBase {
   operation: "assigned-move";
   reservationId: string;
@@ -141,10 +155,12 @@ export interface AssignedMoveIntent extends ReservationMoveIntentBase {
   fromRoomCode: string;
   fromRoomTypeId: RoomTypeId;
   fromRoomTypeName: string;
+  fromStartDate: IsoDate;
+  fromEndDate: IsoDate;
   crossesRoomType: boolean;
 }
 
-/** Demo-only, in-memory description of a proposed first-time PhysicalRoom assignment for an unassigned reservation. */
+/** Demo-only, in-memory description of a proposed first-time PhysicalRoom/date assignment for an unassigned reservation. */
 export interface UnassignedAssignIntent extends ReservationMoveIntentBase {
   operation: "unassigned-assign";
   reservationId: string;
@@ -153,10 +169,13 @@ export interface UnassignedAssignIntent extends ReservationMoveIntentBase {
   sourceLabel: string;
   soldRoomTypeId: RoomTypeId;
   soldRoomTypeName: string;
+  /** Original (pre-assignment) listing dates, shown alongside the proposed dates. */
+  fromStartDate: IsoDate;
+  fromEndDate: IsoDate;
   crossesRoomType: boolean;
 }
 
-/** Demo-only, in-memory description of a proposed PhysicalRoom move for an operational block. */
+/** Demo-only, in-memory description of a proposed PhysicalRoom/date move for an operational block. */
 export interface BlockMoveIntent extends ReservationMoveIntentBase {
   operation: "block-move";
   blockId: string;
@@ -165,9 +184,11 @@ export interface BlockMoveIntent extends ReservationMoveIntentBase {
   fromRoomCode: string;
   fromRoomTypeId: RoomTypeId;
   fromRoomTypeName: string;
+  fromStartDate: IsoDate;
+  fromEndDate: IsoDate;
 }
 
-/** Never persisted — pending Owner confirmation in ReservationMoveConfirmDialog. See ADMIN-002.1-C1/C2. */
+/** Never persisted — pending Owner confirmation in ReservationMoveConfirmDialog. See ADMIN-002.1-C1/C2/C3. */
 export type ReservationMoveIntent =
   | AssignedMoveIntent
   | UnassignedAssignIntent
@@ -179,8 +200,13 @@ export interface ReservationMoveConflict {
   message: string;
 }
 
-/** Outcome of validating a proposed timeline-item-id -> targetRoomId move. */
+/**
+ * Outcome of validating a proposed `ReservationMoveTarget` for a timeline
+ * item. `no-op` means the proposal changes neither room nor dates from the
+ * item's current state (unassigned items, having no current room, can never
+ * be a no-op — any room selection is a genuine first-time assignment).
+ */
 export type ReservationMoveValidation =
   | { status: "valid" }
-  | { status: "same-room" }
+  | { status: "no-op" }
   | { status: "conflict"; conflict: ReservationMoveConflict };

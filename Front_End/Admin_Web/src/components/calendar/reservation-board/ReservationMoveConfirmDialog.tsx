@@ -2,11 +2,13 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { ArrowRightIcon, InfoIcon } from "@/icons";
-import { formatDisplayDate } from "./dateMath";
+import { addDaysIso, diffDaysIso, formatDisplayDate } from "./dateMath";
 import { MOCK_BOOKING_SOURCES, MOCK_PHYSICAL_ROOMS, MOCK_ROOM_TYPES } from "./mockData";
 import type {
+  IsoDate,
   PhysicalRoomId,
   ReservationMoveIntent,
+  ReservationMoveTarget,
   ReservationMoveTargetGroup,
   ReservationMoveValidation,
   TimelineItem,
@@ -14,11 +16,11 @@ import type {
 
 interface ReservationMoveConfirmDialogProps {
   item: TimelineItem;
-  /** Pre-resolved destination from a completed drag-drop, or null for the keyboard/select-in-dialog path. */
-  initialTargetRoomId: PhysicalRoomId | null;
+  /** Pre-resolved room + dates from a completed drag-drop, or null for the keyboard/edit-selection path. */
+  initialTarget: ReservationMoveTarget | null;
   moveTargetGroups: ReservationMoveTargetGroup[];
-  getMoveValidation: (itemId: string, targetRoomId: PhysicalRoomId) => ReservationMoveValidation;
-  buildMoveIntent: (itemId: string, targetRoomId: PhysicalRoomId) => ReservationMoveIntent | null;
+  getMoveValidation: (itemId: string, target: ReservationMoveTarget) => ReservationMoveValidation;
+  buildMoveIntent: (itemId: string, target: ReservationMoveTarget) => ReservationMoveIntent | null;
   onConfirm: (intent: ReservationMoveIntent) => void;
   onCancel: () => void;
 }
@@ -26,12 +28,17 @@ interface ReservationMoveConfirmDialogProps {
 const TITLE_ID = "reservation-move-confirm-title";
 const DESCRIPTION_ID = "reservation-move-confirm-description";
 const DESTINATION_SELECT_ID = "reservation-move-destination-select";
+const START_DATE_INPUT_ID = "reservation-move-start-date-input";
 
 const DIALOG_TITLE: Record<TimelineItem["kind"], string> = {
   "assigned-reservation": "Confirm room move",
   "unassigned-reservation": "Confirm room assignment",
   "operational-block": "Confirm operational block move",
 };
+
+function nightsLabel(nights: number): string {
+  return `${nights} night${nights === 1 ? "" : "s"}`;
+}
 
 function describeItem(item: TimelineItem): { subjectLabel: string; sourceLabel: string | null } {
   if (item.kind === "operational-block") {
@@ -46,28 +53,40 @@ function describeItem(item: TimelineItem): { subjectLabel: string; sourceLabel: 
 
 const ReservationMoveConfirmDialog: React.FC<ReservationMoveConfirmDialogProps> = ({
   item,
-  initialTargetRoomId,
+  initialTarget,
   moveTargetGroups,
   getMoveValidation,
   buildMoveIntent,
   onConfirm,
   onCancel,
 }) => {
+  const isEditable = initialTarget === null;
+  const defaultRoomId: PhysicalRoomId | null =
+    item.kind === "unassigned-reservation" ? null : item.roomId;
+
   const [selectedRoomId, setSelectedRoomId] = useState<PhysicalRoomId | null>(
-    initialTargetRoomId
+    initialTarget ? initialTarget.targetRoomId : defaultRoomId
+  );
+  const [selectedStartDate, setSelectedStartDate] = useState<IsoDate>(
+    initialTarget ? initialTarget.targetStartDate : item.startDate
   );
   const panelRef = useRef<HTMLDivElement | null>(null);
   const cancelButtonRef = useRef<HTMLButtonElement | null>(null);
-  const showDestinationSelect = initialTargetRoomId === null;
 
   useEffect(() => {
     cancelButtonRef.current?.focus();
   }, []);
 
-  const validation = selectedRoomId ? getMoveValidation(item.id, selectedRoomId) : null;
+  const durationDays = diffDaysIso(item.startDate, item.endDate);
+  const selectedEndDate = addDaysIso(selectedStartDate, durationDays);
+
+  const currentTarget: ReservationMoveTarget | null = selectedRoomId
+    ? { targetRoomId: selectedRoomId, targetStartDate: selectedStartDate, targetEndDate: selectedEndDate }
+    : null;
+  const validation = currentTarget ? getMoveValidation(item.id, currentTarget) : null;
   const intent =
-    selectedRoomId && validation?.status === "valid"
-      ? buildMoveIntent(item.id, selectedRoomId)
+    currentTarget && validation?.status === "valid"
+      ? buildMoveIntent(item.id, currentTarget)
       : null;
   const canConfirm = intent !== null;
 
@@ -112,8 +131,11 @@ const ReservationMoveConfirmDialog: React.FC<ReservationMoveConfirmDialogProps> 
       : null;
 
   const { subjectLabel, sourceLabel } = describeItem(item);
-  const stayDatesLabel = `${formatDisplayDate(item.startDate)} – ${formatDisplayDate(item.endDate)}`;
-  const actionVerb = item.kind === "unassigned-reservation" ? "Assign" : "Move";
+  const fromDatesLabel = `${formatDisplayDate(item.startDate)} – ${formatDisplayDate(item.endDate)}`;
+  const description =
+    item.kind === "unassigned-reservation"
+      ? `Assign ${subjectLabel}${sourceLabel ? `, ${sourceLabel}` : ""} to a room and stay date?`
+      : `Move ${subjectLabel}${sourceLabel ? `, ${sourceLabel}` : ""} to a new room and/or date?`;
 
   return (
     <div
@@ -135,9 +157,7 @@ const ReservationMoveConfirmDialog: React.FC<ReservationMoveConfirmDialogProps> 
           {DIALOG_TITLE[item.kind]}
         </h3>
         <p id={DESCRIPTION_ID} className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          {actionVerb} {subjectLabel} ({stayDatesLabel}
-          {sourceLabel ? `, ${sourceLabel}` : ""}) to a{" "}
-          {item.kind === "unassigned-reservation" ? "" : "different "}room?
+          {description}
         </p>
 
         <div className="mt-4 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
@@ -164,6 +184,9 @@ const ReservationMoveConfirmDialog: React.FC<ReservationMoveConfirmDialogProps> 
                 </span>
               </>
             )}
+            <span className="mt-1.5 block text-xs text-gray-500 dark:text-gray-400">
+              {fromDatesLabel}
+            </span>
           </div>
 
           <ArrowRightIcon
@@ -183,56 +206,81 @@ const ReservationMoveConfirmDialog: React.FC<ReservationMoveConfirmDialogProps> 
                 <span className="block text-xs text-gray-600 dark:text-gray-300">
                   {intent.toRoomTypeName}
                 </span>
+                <span className="mt-1.5 block text-xs text-gray-600 dark:text-gray-300">
+                  {formatDisplayDate(intent.toStartDate)} – {formatDisplayDate(intent.toEndDate)}
+                </span>
               </>
             ) : (
               <span className="mt-1 block text-sm text-gray-400 dark:text-gray-500">
-                Select a room
+                Select a room and date
               </span>
             )}
           </div>
         </div>
 
-        {showDestinationSelect ? (
-          <div className="mt-3">
-            <label
-              htmlFor={DESTINATION_SELECT_ID}
-              className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300"
-            >
-              Destination room
-            </label>
-            <select
-              id={DESTINATION_SELECT_ID}
-              value={selectedRoomId ?? ""}
-              onChange={(event) => setSelectedRoomId(event.target.value || null)}
-              className="h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-700 shadow-theme-xs focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
-            >
-              <option value="">Select a room…</option>
-              {moveTargetGroups.map((group) => (
-                <optgroup key={group.roomType.id} label={group.roomType.name}>
-                  {group.rooms
-                    .filter((room) => room.id !== sourceRoomId)
-                    .map((room) => (
+        <p className="mt-2 text-center text-xs font-medium text-gray-500 dark:text-gray-400">
+          {nightsLabel(durationDays)} preserved
+        </p>
+
+        {isEditable ? (
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <div>
+              <label
+                htmlFor={DESTINATION_SELECT_ID}
+                className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300"
+              >
+                Destination room
+              </label>
+              <select
+                id={DESTINATION_SELECT_ID}
+                value={selectedRoomId ?? ""}
+                onChange={(event) => setSelectedRoomId(event.target.value || null)}
+                className="h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-700 shadow-theme-xs focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+              >
+                <option value="">Select a room…</option>
+                {moveTargetGroups.map((group) => (
+                  <optgroup key={group.roomType.id} label={group.roomType.name}>
+                    {group.rooms.map((room) => (
                       <option key={room.id} value={room.id}>
                         Room {room.code}
                       </option>
                     ))}
-                </optgroup>
-              ))}
-            </select>
-            {validation?.status === "conflict" ? (
-              <p
-                role="alert"
-                className="mt-2 rounded-lg border border-error-200 bg-error-50 px-3 py-2 text-xs text-error-600 dark:border-error-500/30 dark:bg-error-500/10 dark:text-error-400"
+                  </optgroup>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label
+                htmlFor={START_DATE_INPUT_ID}
+                className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300"
               >
-                {validation.conflict.message}
-              </p>
-            ) : null}
-            {validation?.status === "same-room" ? (
-              <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                That is the current room — choose a different one to continue.
-              </p>
-            ) : null}
+                Check-in date
+              </label>
+              <input
+                id={START_DATE_INPUT_ID}
+                type="date"
+                value={selectedStartDate}
+                onChange={(event) => {
+                  if (event.target.value) setSelectedStartDate(event.target.value);
+                }}
+                className="h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-700 shadow-theme-xs focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+              />
+            </div>
           </div>
+        ) : null}
+
+        {isEditable && validation?.status === "conflict" ? (
+          <p
+            role="alert"
+            className="mt-2 rounded-lg border border-error-200 bg-error-50 px-3 py-2 text-xs text-error-600 dark:border-error-500/30 dark:bg-error-500/10 dark:text-error-400"
+          >
+            {validation.conflict.message}
+          </p>
+        ) : null}
+        {isEditable && validation?.status === "no-op" ? (
+          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            No change — choose a different room or date to continue.
+          </p>
         ) : null}
 
         {intent && intent.operation === "assigned-move" && intent.crossesRoomType ? (

@@ -5,7 +5,14 @@ import ReservationBoardToolbar from "./ReservationBoardToolbar";
 import ReservationTimeline from "./ReservationTimeline";
 import ReservationMoveConfirmDialog from "./ReservationMoveConfirmDialog";
 import { CloseLineIcon } from "@/icons";
-import { addDaysIso, buildVisibleRange, formatRangeLabel, isoRangesOverlap } from "./dateMath";
+import {
+  addDaysIso,
+  buildVisibleRange,
+  diffDaysIso,
+  formatDisplayDate,
+  formatRangeLabel,
+  isoRangesOverlap,
+} from "./dateMath";
 import {
   DEMO_TODAY_ISO,
   MOCK_BOOKING_SOURCES,
@@ -16,11 +23,11 @@ import {
 } from "./mockData";
 import type {
   AssignedReservationItem,
-  PhysicalRoomId,
   PropertyId,
   ReservationBoardFilters,
   ReservationBoardRangeLength,
   ReservationMoveIntent,
+  ReservationMoveTarget,
   ReservationMoveTargetGroup,
   ReservationMoveValidation,
   TimelineItem,
@@ -31,6 +38,32 @@ const INITIAL_RANGE_LENGTH: ReservationBoardRangeLength = 14;
 interface ActionFeedback {
   kind: "success" | "error";
   message: string;
+}
+
+/** Builds the demo-only status banner text for a confirmed move, naming whichever of room/dates actually changed. */
+function formatMoveSuccessMessage(intent: ReservationMoveIntent): string {
+  const roomChanged =
+    intent.operation === "unassigned-assign" ? true : intent.fromRoomId !== intent.toRoomId;
+  const datesChanged =
+    intent.fromStartDate !== intent.toStartDate || intent.fromEndDate !== intent.toEndDate;
+
+  const toRoomLabel = `Room ${intent.toRoomCode}`;
+  const toDatesLabel = `${formatDisplayDate(intent.toStartDate)} – ${formatDisplayDate(intent.toEndDate)}`;
+
+  const changeLabel =
+    roomChanged && datesChanged
+      ? `${toRoomLabel}, ${toDatesLabel}`
+      : roomChanged
+      ? toRoomLabel
+      : toDatesLabel;
+
+  if (intent.operation === "unassigned-assign") {
+    return `Demo assignment applied locally: ${intent.guestName} → ${changeLabel}. Not saved to backend.`;
+  }
+  if (intent.operation === "block-move") {
+    return `Demo block move applied locally: ${changeLabel}. Not saved to backend.`;
+  }
+  return `Demo move applied locally: ${changeLabel}. Not saved to backend.`;
 }
 
 const ReservationBoard: React.FC = () => {
@@ -55,8 +88,8 @@ const ReservationBoard: React.FC = () => {
   ]);
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
   const [pendingSourceItemId, setPendingSourceItemId] = useState<string | null>(null);
-  const [pendingInitialTargetRoomId, setPendingInitialTargetRoomId] =
-    useState<PhysicalRoomId | null>(null);
+  const [pendingInitialTarget, setPendingInitialTarget] =
+    useState<ReservationMoveTarget | null>(null);
 
   // Codex P2 correction (ADMIN-002.1-C1): transient drag-hover feedback and
   // persistent post-action feedback are deliberately separate state. A
@@ -137,7 +170,7 @@ const ReservationBoard: React.FC = () => {
     setPersistentActionFeedback(null);
     setTransientDragFeedback(null);
     setPendingSourceItemId(null);
-    setPendingInitialTargetRoomId(null);
+    setPendingInitialTarget(null);
     setDraggedItemId(null);
   }, []);
 
@@ -145,26 +178,36 @@ const ReservationBoard: React.FC = () => {
   // dataset for the item's property — never only the currently
   // visible/filtered items — so hidden Assigned/Operational items still
   // block an invalid move. Works uniformly for assigned reservations,
-  // unassigned reservations (no current room, so "same-room" never
-  // applies), and operational blocks.
+  // unassigned reservations (no current room, so a "no-op" can never apply —
+  // any room selection is a genuine first-time assignment), and operational
+  // blocks. A proposal is a no-op only when neither the room nor the dates
+  // actually change from the item's current state.
   const getMoveValidation = useCallback(
-    (itemId: string, targetRoomId: PhysicalRoomId): ReservationMoveValidation => {
+    (itemId: string, target: ReservationMoveTarget): ReservationMoveValidation => {
       const item = timelineItems.find((candidate) => candidate.id === itemId);
       if (!item) {
         return {
           status: "conflict",
-          conflict: { targetRoomId, message: "Item not found." },
+          conflict: { targetRoomId: target.targetRoomId, message: "Item not found." },
         };
       }
-      if (item.kind !== "unassigned-reservation" && item.roomId === targetRoomId) {
-        return { status: "same-room" };
+
+      const roomUnchanged =
+        item.kind !== "unassigned-reservation" && item.roomId === target.targetRoomId;
+      const datesUnchanged =
+        item.startDate === target.targetStartDate && item.endDate === target.targetEndDate;
+      if (roomUnchanged && datesUnchanged) {
+        return { status: "no-op" };
       }
 
-      const targetRoom = MOCK_PHYSICAL_ROOMS.find((room) => room.id === targetRoomId);
+      const targetRoom = MOCK_PHYSICAL_ROOMS.find((room) => room.id === target.targetRoomId);
       if (!targetRoom || !roomTypeIdsForProperty.has(targetRoom.roomTypeId)) {
         return {
           status: "conflict",
-          conflict: { targetRoomId, message: "Target room is not in the selected property." },
+          conflict: {
+            targetRoomId: target.targetRoomId,
+            message: "Target room is not in the selected property.",
+          },
         };
       }
 
@@ -174,15 +217,20 @@ const ReservationBoard: React.FC = () => {
         if (other.kind !== "assigned-reservation" && other.kind !== "operational-block") {
           return false;
         }
-        if (other.roomId !== targetRoomId) return false;
-        return isoRangesOverlap(item.startDate, item.endDate, other.startDate, other.endDate);
+        if (other.roomId !== target.targetRoomId) return false;
+        return isoRangesOverlap(
+          target.targetStartDate,
+          target.targetEndDate,
+          other.startDate,
+          other.endDate
+        );
       });
 
       if (blockingItem) {
         return {
           status: "conflict",
           conflict: {
-            targetRoomId,
+            targetRoomId: target.targetRoomId,
             message: `Cannot move to Room ${targetRoom.code}: reservation dates overlap ${
               blockingItem.kind === "operational-block"
                 ? "an operational block"
@@ -198,12 +246,13 @@ const ReservationBoard: React.FC = () => {
   );
 
   const buildMoveIntent = useCallback(
-    (itemId: string, targetRoomId: PhysicalRoomId): ReservationMoveIntent | null => {
+    (itemId: string, target: ReservationMoveTarget): ReservationMoveIntent | null => {
       const item = timelineItems.find((candidate) => candidate.id === itemId);
-      const toRoom = MOCK_PHYSICAL_ROOMS.find((room) => room.id === targetRoomId);
+      const toRoom = MOCK_PHYSICAL_ROOMS.find((room) => room.id === target.targetRoomId);
       if (!item || !toRoom) return null;
       const toRoomType = MOCK_ROOM_TYPES.find((roomType) => roomType.id === toRoom.roomTypeId);
       if (!toRoomType) return null;
+      const durationNights = diffDaysIso(target.targetStartDate, target.targetEndDate);
 
       if (item.kind === "operational-block") {
         const fromRoom = MOCK_PHYSICAL_ROOMS.find((room) => room.id === item.roomId);
@@ -216,16 +265,19 @@ const ReservationBoard: React.FC = () => {
           propertyId: item.propertyId,
           blockId: item.id,
           reason: item.reason,
-          startDate: item.startDate,
-          endDate: item.endDate,
           fromRoomId: fromRoom.id,
           fromRoomCode: fromRoom.code,
           fromRoomTypeId: fromRoomType.id,
           fromRoomTypeName: fromRoomType.name,
+          fromStartDate: item.startDate,
+          fromEndDate: item.endDate,
           toRoomId: toRoom.id,
           toRoomCode: toRoom.code,
           toRoomTypeId: toRoomType.id,
           toRoomTypeName: toRoomType.name,
+          toStartDate: target.targetStartDate,
+          toEndDate: target.targetEndDate,
+          durationNights,
         };
       }
 
@@ -250,16 +302,19 @@ const ReservationBoard: React.FC = () => {
           sourceLabel: source?.label ?? item.sourceId,
           soldRoomTypeId: soldRoomType.id,
           soldRoomTypeName: soldRoomType.name,
-          startDate: item.startDate,
-          endDate: item.endDate,
           fromRoomId: fromRoom.id,
           fromRoomCode: fromRoom.code,
           fromRoomTypeId: fromRoomType.id,
           fromRoomTypeName: fromRoomType.name,
+          fromStartDate: item.startDate,
+          fromEndDate: item.endDate,
           toRoomId: toRoom.id,
           toRoomCode: toRoom.code,
           toRoomTypeId: toRoomType.id,
           toRoomTypeName: toRoomType.name,
+          toStartDate: target.targetStartDate,
+          toEndDate: target.targetEndDate,
+          durationNights,
           crossesRoomType: fromRoomType.id !== toRoomType.id,
         };
       }
@@ -273,12 +328,15 @@ const ReservationBoard: React.FC = () => {
         sourceLabel: source?.label ?? item.sourceId,
         soldRoomTypeId: soldRoomType.id,
         soldRoomTypeName: soldRoomType.name,
-        startDate: item.startDate,
-        endDate: item.endDate,
+        fromStartDate: item.startDate,
+        fromEndDate: item.endDate,
         toRoomId: toRoom.id,
         toRoomCode: toRoom.code,
         toRoomTypeId: toRoomType.id,
         toRoomTypeName: toRoomType.name,
+        toStartDate: target.targetStartDate,
+        toEndDate: target.targetEndDate,
+        durationNights,
         crossesRoomType: soldRoomType.id !== toRoomType.id,
       };
     },
@@ -286,21 +344,21 @@ const ReservationBoard: React.FC = () => {
   );
 
   const openDialogFor = useCallback(
-    (itemId: string, initialTargetRoomId: PhysicalRoomId | null) => {
+    (itemId: string, initialTarget: ReservationMoveTarget | null) => {
       focusReturnItemIdRef.current = itemId;
       setPersistentActionFeedback(null);
       setPendingSourceItemId(itemId);
-      setPendingInitialTargetRoomId(initialTargetRoomId);
+      setPendingInitialTarget(initialTarget);
     },
     []
   );
 
-  // Drag-and-drop drop path: destination is already known.
+  // Drag-and-drop drop path: destination room + dates are already known.
   const handleProposeMove = useCallback(
-    (itemId: string, targetRoomId: PhysicalRoomId) => {
-      const validation = getMoveValidation(itemId, targetRoomId);
+    (itemId: string, target: ReservationMoveTarget) => {
+      const validation = getMoveValidation(itemId, target);
 
-      if (validation.status === "same-room") {
+      if (validation.status === "no-op") {
         return;
       }
 
@@ -309,13 +367,13 @@ const ReservationBoard: React.FC = () => {
         return;
       }
 
-      openDialogFor(itemId, targetRoomId);
+      openDialogFor(itemId, target);
     },
     [getMoveValidation, openDialogFor]
   );
 
   // Keyboard/accessible path: Enter or Space opens the dialog in
-  // destination-selection mode (no target chosen yet).
+  // edit-selection mode (room and/or start date still to be chosen).
   const handleRequestMove = useCallback(
     (itemId: string) => {
       openDialogFor(itemId, null);
@@ -351,14 +409,24 @@ const ReservationBoard: React.FC = () => {
           item.kind === "operational-block" &&
           item.id === intent.blockId
         ) {
-          return { ...item, roomId: intent.toRoomId };
+          return {
+            ...item,
+            roomId: intent.toRoomId,
+            startDate: intent.toStartDate,
+            endDate: intent.toEndDate,
+          };
         }
         if (
           intent.operation === "assigned-move" &&
           item.kind === "assigned-reservation" &&
           item.id === intent.reservationId
         ) {
-          return { ...item, roomId: intent.toRoomId };
+          return {
+            ...item,
+            roomId: intent.toRoomId,
+            startDate: intent.toStartDate,
+            endDate: intent.toEndDate,
+          };
         }
         if (
           intent.operation === "unassigned-assign" &&
@@ -369,8 +437,8 @@ const ReservationBoard: React.FC = () => {
             kind: "assigned-reservation",
             id: item.id,
             propertyId: item.propertyId,
-            startDate: item.startDate,
-            endDate: item.endDate,
+            startDate: intent.toStartDate,
+            endDate: intent.toEndDate,
             soldRoomTypeId: item.soldRoomTypeId,
             guestName: item.guestName,
             nationality: item.nationality,
@@ -385,22 +453,15 @@ const ReservationBoard: React.FC = () => {
       })
     );
 
-    const message =
-      intent.operation === "assigned-move"
-        ? `Demo move applied locally: Room ${intent.fromRoomCode} → Room ${intent.toRoomCode}. Not saved to backend.`
-        : intent.operation === "unassigned-assign"
-        ? `Demo assignment applied locally: ${intent.guestName} → Room ${intent.toRoomCode}. Not saved to backend.`
-        : `Demo block move applied locally: Room ${intent.fromRoomCode} → Room ${intent.toRoomCode}. Not saved to backend.`;
-
     setTransientDragFeedback(null);
-    setPersistentActionFeedback({ kind: "success", message });
+    setPersistentActionFeedback({ kind: "success", message: formatMoveSuccessMessage(intent) });
     setPendingSourceItemId(null);
-    setPendingInitialTargetRoomId(null);
+    setPendingInitialTarget(null);
   }, []);
 
   const handleCancelMove = useCallback(() => {
     setPendingSourceItemId(null);
-    setPendingInitialTargetRoomId(null);
+    setPendingInitialTarget(null);
   }, []);
 
   const handleDismissFeedback = useCallback(() => {
@@ -473,7 +534,7 @@ const ReservationBoard: React.FC = () => {
       {pendingItem ? (
         <ReservationMoveConfirmDialog
           item={pendingItem}
-          initialTargetRoomId={pendingInitialTargetRoomId}
+          initialTarget={pendingInitialTarget}
           moveTargetGroups={moveTargetGroups}
           getMoveValidation={getMoveValidation}
           buildMoveIntent={buildMoveIntent}

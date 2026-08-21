@@ -90,6 +90,16 @@ export function formatDisplayDate(iso: IsoDate): string {
   return `${MONTH_LABELS[month - 1]} ${day}, ${year}`;
 }
 
+/**
+ * Abbreviated month + day only (no year), e.g. "Aug 31". Used for compact
+ * date-column headers where a cross-month visible range would otherwise
+ * render ambiguous day-only labels like "31" next to "1".
+ */
+export function formatMonthDay(iso: IsoDate): string {
+  const { month, day } = parseIsoDate(iso);
+  return `${MONTH_LABELS[month - 1]} ${day}`;
+}
+
 export interface VisibleRange {
   start: IsoDate;
   endExclusive: IsoDate;

@@ -1,7 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
+  addDaysIso,
   clipToVisibleRange,
+  diffDaysIso,
   formatDisplayDate,
+  formatMonthDay,
   generateRangeDates,
   getWeekdayLabel,
   isWeekendIso,
@@ -19,6 +22,7 @@ import type {
   RoomType,
   RoomTypeId,
   TimelineItem,
+  ReservationMoveTarget,
   ReservationMoveValidation,
   UnassignedReservationItem,
 } from "./types";
@@ -28,6 +32,10 @@ const DATE_COLUMN_WIDTH_PX = 112;
 const WIDE_BAR_THRESHOLD_PX = 3 * DATE_COLUMN_WIDTH_PX;
 
 type ReservationItem = AssignedReservationItem | UnassignedReservationItem;
+
+interface DragPreview extends ReservationMoveTarget {
+  status: "valid" | "invalid";
+}
 
 interface ReservationTimelineProps {
   range: VisibleRange;
@@ -39,13 +47,25 @@ interface ReservationTimelineProps {
   draggedItemId: string | null;
   onDragStart: (itemId: string) => void;
   onDragEnd: () => void;
-  onProposeMove: (itemId: string, targetRoomId: PhysicalRoomId) => void;
+  onProposeMove: (itemId: string, target: ReservationMoveTarget) => void;
   onRequestMove: (itemId: string) => void;
   getMoveValidation: (
     itemId: string,
-    targetRoomId: PhysicalRoomId
+    target: ReservationMoveTarget
   ) => ReservationMoveValidation;
   onDragFeedback: (message: string | null) => void;
+}
+
+/**
+ * Resolves the 0-based date-column index (relative to `range.start`) that a
+ * viewport `clientX` falls over, using the shared scroll container's own
+ * bounding rect and current `scrollLeft` — every row shares one horizontal
+ * scroll position, so this is accurate for any row without per-row lookups.
+ */
+function resolvePointerDateColumn(clientX: number, scrollContainer: HTMLElement): number {
+  const rect = scrollContainer.getBoundingClientRect();
+  const dateAreaLeft = rect.left + ROOM_COLUMN_WIDTH_PX - scrollContainer.scrollLeft;
+  return Math.floor((clientX - dateAreaLeft) / DATE_COLUMN_WIDTH_PX);
 }
 
 function sourceLabelFor(bookingSources: BookingSource[], sourceId: string): string {
@@ -98,16 +118,6 @@ function bodyCellClassName(isToday: boolean, isWeekend: boolean): string {
   return base;
 }
 
-function dropZoneClassName(state: "valid" | "invalid" | null): string {
-  if (state === "valid") {
-    return "outline outline-2 -outline-offset-2 outline-success-400 bg-success-50/60 dark:bg-success-500/10";
-  }
-  if (state === "invalid") {
-    return "outline outline-2 -outline-offset-2 outline-error-400 bg-error-50/60 dark:bg-error-500/10";
-  }
-  return "";
-}
-
 interface TimelineBarProps {
   item: TimelineItem;
   clip: ClippedSpan;
@@ -116,7 +126,7 @@ interface TimelineBarProps {
   detailLabel?: string;
   ariaLabel: string;
   isDragged: boolean;
-  onDragStart: (itemId: string) => void;
+  onDragStart: (itemId: string, clientX: number) => void;
   onDragEnd: () => void;
   onRequestMove: (itemId: string) => void;
   onHoverStart: (item: ReservationItem, anchorEl: HTMLElement) => void;
@@ -159,7 +169,7 @@ const TimelineBar: React.FC<TimelineBarProps> = ({
       onDragStart={(event) => {
         event.dataTransfer.setData("text/plain", item.id);
         event.dataTransfer.effectAllowed = "move";
-        onDragStart(item.id);
+        onDragStart(item.id, event.clientX);
       }}
       onDragEnd={() => onDragEnd()}
       onKeyDown={(event) => {
@@ -209,8 +219,18 @@ const ReservationTimeline: React.FC<ReservationTimelineProps> = ({
   getMoveValidation,
   onDragFeedback,
 }) => {
-  const [hoveredRoomId, setHoveredRoomId] = useState<PhysicalRoomId | null>(null);
-  const [hoveredValidity, setHoveredValidity] = useState<"valid" | "invalid" | null>(null);
+  // Days between the pointer's date column and the dragged item's real
+  // startDate, captured once at dragstart so the grabbed night's relative
+  // position within the bar never jumps under the pointer while dragging.
+  const [dragGrabOffsetDays, setDragGrabOffsetDays] = useState<number | null>(null);
+  // Latest resolved drag candidate (room + snapped date span); used both to
+  // render the preview and, per the drag-to-date spec, as the exact value
+  // applied on drop rather than recomputing from the drop event.
+  const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
+  // Suppressed once the drag itself ends (native dragend, or the parent
+  // clearing draggedItemId for any other reason, e.g. a property switch) —
+  // derived at render time rather than cleared via an effect.
+  const effectiveDragPreview = draggedItemId ? dragPreview : null;
   const [hoverCardItem, setHoverCardItem] = useState<ReservationItem | null>(null);
   const [hoverCardAnchor, setHoverCardAnchor] = useState<HTMLElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
@@ -272,14 +292,22 @@ const ReservationTimeline: React.FC<ReservationTimelineProps> = ({
     (roomType) => (unassignedByRoomType.get(roomType.id) ?? []).length > 0
   );
 
-  const handleBarDragStart = (itemId: string) => {
+  const handleBarDragStart = (itemId: string, clientX: number) => {
     closeHoverCard();
+    const item = items.find((candidate) => candidate.id === itemId);
+    if (item && scrollContainerRef.current) {
+      const pointerColumn = resolvePointerDateColumn(clientX, scrollContainerRef.current);
+      const realStartColumn = diffDaysIso(range.start, item.startDate);
+      setDragGrabOffsetDays(pointerColumn - realStartColumn);
+    } else {
+      setDragGrabOffsetDays(0);
+    }
     onDragStart(itemId);
   };
 
   const handleBarDragEnd = () => {
-    setHoveredRoomId(null);
-    setHoveredValidity(null);
+    setDragPreview(null);
+    setDragGrabOffsetDays(null);
     onDragEnd();
   };
 
@@ -288,31 +316,46 @@ const ReservationTimeline: React.FC<ReservationTimelineProps> = ({
     setHoverCardAnchor(anchorEl);
   };
 
+  const resolveDragTarget = (
+    event: React.DragEvent<HTMLDivElement>,
+    roomId: PhysicalRoomId
+  ): ReservationMoveTarget | null => {
+    if (dragGrabOffsetDays === null || !draggedItemId) return null;
+    const draggedItem = items.find((candidate) => candidate.id === draggedItemId);
+    const scrollContainer = scrollContainerRef.current;
+    if (!draggedItem || !scrollContainer) return null;
+
+    const durationDays = diffDaysIso(draggedItem.startDate, draggedItem.endDate);
+    const pointerColumn = resolvePointerDateColumn(event.clientX, scrollContainer);
+    const targetStartDate = addDaysIso(range.start, pointerColumn - dragGrabOffsetDays);
+    const targetEndDate = addDaysIso(targetStartDate, durationDays);
+    return { targetRoomId: roomId, targetStartDate, targetEndDate };
+  };
+
   const handleRoomDragOver = (
     event: React.DragEvent<HTMLDivElement>,
     roomId: PhysicalRoomId
   ) => {
     if (!draggedItemId) return;
+    const target = resolveDragTarget(event, roomId);
+    if (!target) return;
     event.preventDefault();
 
-    const validation = getMoveValidation(draggedItemId, roomId);
-    if (validation.status === "same-room") {
+    const validation = getMoveValidation(draggedItemId, target);
+    if (validation.status === "no-op") {
       event.dataTransfer.dropEffect = "none";
-      setHoveredRoomId(null);
-      setHoveredValidity(null);
+      setDragPreview(null);
       onDragFeedback(null);
       return;
     }
     if (validation.status === "conflict") {
       event.dataTransfer.dropEffect = "none";
-      setHoveredRoomId(roomId);
-      setHoveredValidity("invalid");
+      setDragPreview({ ...target, status: "invalid" });
       onDragFeedback(validation.conflict.message);
       return;
     }
     event.dataTransfer.dropEffect = "move";
-    setHoveredRoomId(roomId);
-    setHoveredValidity("valid");
+    setDragPreview({ ...target, status: "valid" });
     onDragFeedback(null);
   };
 
@@ -322,19 +365,34 @@ const ReservationTimeline: React.FC<ReservationTimelineProps> = ({
   ) => {
     const related = event.relatedTarget as Node | null;
     if (related && event.currentTarget.contains(related)) return;
-    if (hoveredRoomId === roomId) {
-      setHoveredRoomId(null);
-      setHoveredValidity(null);
+    if (dragPreview?.targetRoomId === roomId) {
+      setDragPreview(null);
       onDragFeedback(null);
     }
   };
 
   const handleRoomDrop = (event: React.DragEvent<HTMLDivElement>, roomId: PhysicalRoomId) => {
     event.preventDefault();
-    setHoveredRoomId(null);
-    setHoveredValidity(null);
+    const preview = dragPreview;
+    setDragPreview(null);
     if (!draggedItemId) return;
-    onProposeMove(draggedItemId, roomId);
+
+    if (preview && preview.targetRoomId === roomId) {
+      onProposeMove(draggedItemId, {
+        targetRoomId: roomId,
+        targetStartDate: preview.targetStartDate,
+        targetEndDate: preview.targetEndDate,
+      });
+      return;
+    }
+
+    // Fallback: no matching preview was captured for this exact row (e.g.
+    // `drop` fired without a preceding `dragover` on it) — resolve directly
+    // from the drop event rather than silently doing nothing.
+    const fallbackTarget = resolveDragTarget(event, roomId);
+    if (fallbackTarget) {
+      onProposeMove(draggedItemId, fallbackTarget);
+    }
   };
 
   const hoverContext = hoverCardItem
@@ -376,7 +434,7 @@ const ReservationTimeline: React.FC<ReservationTimelineProps> = ({
                         : "text-gray-700 dark:text-gray-200"
                     }`}
                   >
-                    {formatDisplayDate(date).split(" ").slice(1).join(" ")}
+                    {formatMonthDay(date)}
                   </span>
                   {isToday ? (
                     <span
@@ -414,9 +472,7 @@ const ReservationTimeline: React.FC<ReservationTimelineProps> = ({
                       {room.code}
                     </div>
                     <div
-                      className={`relative h-14 border-b border-gray-200 dark:border-gray-800 ${dropZoneClassName(
-                        hoveredRoomId === room.id ? hoveredValidity : null
-                      )}`}
+                      className="relative h-14 border-b border-gray-200 dark:border-gray-800"
                       style={{ width: dateAreaWidthPx }}
                     >
                       <div className="absolute inset-0 flex">
@@ -482,6 +538,31 @@ const ReservationTimeline: React.FC<ReservationTimelineProps> = ({
                           />
                         );
                       })}
+                      {effectiveDragPreview && effectiveDragPreview.targetRoomId === room.id
+                        ? (() => {
+                            const previewClip = clipToVisibleRange(
+                              effectiveDragPreview.targetStartDate,
+                              effectiveDragPreview.targetEndDate,
+                              range
+                            );
+                            if (!previewClip) return null;
+                            const previewWidthPx = previewClip.span * DATE_COLUMN_WIDTH_PX - 6;
+                            return (
+                              <div
+                                aria-hidden="true"
+                                className={`pointer-events-none absolute top-1.5 bottom-1.5 rounded-md border-2 ${
+                                  effectiveDragPreview.status === "valid"
+                                    ? "border-success-500 bg-success-500/15"
+                                    : "border-error-500 bg-error-500/15"
+                                }`}
+                                style={{
+                                  left: previewClip.startCol * DATE_COLUMN_WIDTH_PX + 3,
+                                  width: Math.max(previewWidthPx, DATE_COLUMN_WIDTH_PX - 6),
+                                }}
+                              />
+                            );
+                          })()
+                        : null}
                     </div>
                   </div>
                 );
