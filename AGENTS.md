@@ -177,7 +177,14 @@ Use targeted checks first, then broader/CI-parity checks required by prompt and 
   - **Missing or invalid `GRAPHIFY_POLICY`**: treat as "do not invoke," equivalent to `NOT_APPLICABLE` — never as `ALLOWED_IF_RELEVANT`. Do not infer permission from the task description, an installed skill, an existing graph, or a prior work item's adoption. If the task cannot proceed without Graphify, return `BLOCKED_PENDING_SCOPE_CLARIFICATION`.
 
 - Graph results are advisory and must be checked against source/tests, never treated as a substitute for reading the actual code or running tests.
-- Before relying on the graph, compare its recorded build commit/state with current `HEAD`. If the graph is stale, do not rebuild unless the current prompt explicitly authorizes it; report the stale state and fall back to source/tests instead.
+- Before relying on the graph, apply this **input-aware freshness rule** — raw `built_at_commit != HEAD` inequality alone does not make a code-only graph stale:
+  1. If `built_at_commit` equals current `HEAD`, freshness passes trivially.
+  2. If they differ, compare the set of files changed since `built_at_commit` (committed, staged, and unstaged) against the graph's recorded build-input set (its build profile/manifest — for a code-only graph, the indexed code-file scope, not every tracked path).
+  3. The graph is sufficiently current only if: no previously-indexed/eligible input file changed or was deleted; no newly added file would fall inside the same build profile; the Graphify version/build profile itself hasn't changed; and no uncommitted eligible-input change exists.
+  4. Documentation-only commits (or any other change outside the graph's input set) since `built_at_commit` do **not** make that graph stale.
+  5. If an eligible input changed, was added/deleted, or freshness cannot be confidently established from available evidence, treat the graph as stale.
+  6. Staleness never by itself authorizes install/update/rebuild — follow the current prompt's declared `GRAPHIFY_UNAVAILABLE_OR_STALE` action; report the stale state and fall back to source/tests instead if none is declared.
+  7. Even when fresh, graph results remain advisory and must still be checked against source/tests.
 - Prohibited unless a later Owner-authorized tooling work item changes policy: Graphify's full semantic pipeline, Graphify subagents, strict mode, PreToolUse hooks, watch mode, MCP, and automatic rebuild.
 - The fixed invariant is unchanged by Graphify adoption: Claude writes, Codex reviews, OC decides, Owner merges.
 - GitNexus policy is unchanged; Graphify adoption does not imply GitNexus removal.

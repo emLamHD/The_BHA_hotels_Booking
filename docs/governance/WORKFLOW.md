@@ -373,10 +373,28 @@ Graphify — quyền đó luôn cần một work item tooling riêng của Owner
 
 - Bằng chứng từ graph không bao giờ thay thế việc đọc trực tiếp source hoặc
   chạy test; graph là advisory.
-- Graph có thể trở nên stale so với `HEAD` hiện tại. Việc graph stale không
-  tự động cho phép update/rebuild — executor chỉ được `graphify update`/rebuild
-  khi Master Execution Prompt hiện hành cho phép rõ ràng; nếu không, báo
-  trạng thái stale và quay lại đọc source/test trực tiếp.
+- **Quy tắc freshness input-aware** — raw `built_at_commit != HEAD` một
+  mình **không** đủ để coi graph code-only là stale:
+  1. Nếu `built_at_commit` bằng đúng `HEAD` hiện tại, freshness pass ngay.
+  2. Nếu khác nhau, so sánh tập file thay đổi kể từ `built_at_commit`
+     (committed, staged, và unstaged) với tập input mà graph đã index
+     (build profile/manifest của graph — với graph code-only là phạm vi
+     code file được index, không phải mọi path tracked).
+  3. Graph chỉ đủ mới khi: không có input đã-index/eligible nào bị đổi
+     hay xoá; không có file mới nào được thêm mà cùng build profile sẽ
+     index; version/build profile của Graphify không đổi; và không có
+     thay đổi chưa commit nào trên input eligible.
+  4. Commit chỉ sửa tài liệu (hoặc bất kỳ thay đổi nào ngoài tập input
+     của graph) kể từ `built_at_commit` **không** làm graph đó stale.
+  5. Nếu một input eligible đã đổi, được thêm/xoá, hoặc không thể xác
+     định freshness một cách chắc chắn từ bằng chứng sẵn có, coi graph là
+     stale.
+  6. Stale không bao giờ tự cấp quyền install/update/rebuild — executor
+     chỉ được `graphify update`/rebuild khi Master Execution Prompt hiện
+     hành cho phép rõ ràng qua `GRAPHIFY_UNAVAILABLE_OR_STALE`; nếu không,
+     báo trạng thái stale và quay lại đọc source/test trực tiếp.
+  7. Dù graph fresh, kết quả vẫn chỉ là advisory và luôn phải kiểm chứng
+     lại với source/test.
 
 ## 13. Shutdown checklist
 

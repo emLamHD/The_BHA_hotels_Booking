@@ -105,15 +105,23 @@ up and isolating Owner's Layer A artifacts outside the repository
 
 - `graphify-out/` (graph JSON, HTML viz, report) is local to this
   workspace, excluded from Git via `.git/info/exclude`, and not committed.
-- `.claude/skills/graphify/SKILL.md` (and its `.graphify_version` sidecar)
-  is a **workspace-local, project-scoped** skill file — "project-scoped"
-  describes where Claude Code discovers and applies it in the current
-  workspace, not that it is repository-tracked. `git ls-files` returns no
-  match for `.claude/skills/graphify/**`; the path is excluded locally via
-  `.git/info/exclude`, so it is not committed and carries no product source
-  either way. A fresh clone, another worktree, or another developer machine
-  will **not** automatically contain this skill or the graph — availability
-  must be independently verified in each workspace before relying on it.
+- `.claude/skills/graphify/` (the full directory — `SKILL.md`, the
+  `.graphify_version` sidecar, and the entire `references/**` tree) is
+  **workspace-local, project-scoped** — "project-scoped" describes where
+  Claude Code discovers and applies it in the current workspace, not that
+  it is repository-tracked. `git ls-files` returns no match for
+  `.claude/skills/graphify/**`; the whole path is excluded locally via
+  `.git/info/exclude`, so none of it is committed and none of it carries
+  product source either way. A fresh clone, another worktree, or another
+  developer machine will **not** automatically contain this skill or the
+  graph — availability must be independently verified in each workspace
+  before relying on it.
+- Root `.graphifyignore` also exists in this workspace, created for this
+  Graphify adoption (currently just `.git/`, `.gitnexus/`, `graphify-out/`
+  — no sensitive content). Like the skill and graph, it is excluded from
+  Git via `.git/info/exclude` and is not tracked. It is part of the local
+  Graphify surface and is covered by the rollback procedure (§9) — it is
+  not hidden from that inventory.
 - No API key or LLM backend is configured for Graphify. No secret, token,
   cookie or credential is present in any Graphify config or output file
   reviewed for this report, including the C4 replay's backup manifest and
@@ -260,10 +268,21 @@ Owner-authorized tooling work item changes policy:
   API key was configured, so community naming, if used later, would need a
   separate step.
 - The graph can become **stale** relative to `HEAD` as source changes;
-  nothing in this pilot/replay keeps it automatically in sync. Every
-  future user of the graph must compare its `built_at_commit` against
-  current `HEAD` before trusting it (`AGENTS.md` §10,
-  `docs/governance/WORKFLOW.md` §12).
+  nothing in this pilot/replay keeps it automatically in sync. Freshness
+  is **not** simply raw `built_at_commit != HEAD` inequality — the full
+  input-aware rule in `AGENTS.md` §10 / `docs/governance/WORKFLOW.md` §12
+  applies: compare files changed since `built_at_commit` against the
+  graph's actual build-input set (its code-only build profile), not every
+  tracked path. Concretely for this replay: the retained graph's
+  `built_at_commit` is `62f2f82d67fb1f80f3204c58ef3351d6e8f6fe8d`, while
+  the tracked commits that followed it (recording this very report, and
+  correction C5's alignment pass) only touched the six allowed
+  documentation files — none of which fall inside the code-only graph's
+  input set. Under the input-aware rule, that does **not** stale the
+  graph; a future user must still re-check the rule (not assume permanent
+  freshness) against whatever `HEAD` is current when they rely on it.
+  Graph metadata was not regenerated to chase this — the rule is applied,
+  not the timestamp forced to match.
 - Community-detection counts are not exactly reproducible run-to-run on an
   otherwise-unchanged graph (§4, Layer B) — treat exact community counts
   as approximate, not as an exact-match integrity check; node and edge
@@ -280,17 +299,59 @@ Owner-authorized tooling work item changes policy:
 
 ## 9. Rollback
 
-If Graphify adoption needs to be reversed:
+This is a **documented procedure only** — it has not been executed as part
+of this report or correction C5. If Graphify adoption needs to be
+reversed, remove or restore the **complete** local Graphify surface, not
+just the top-level skill file:
 
-1. Remove the local project skill: delete
-   `.claude/skills/graphify/SKILL.md` and its `.graphify_version` sidecar.
-2. Remove the local graph output: delete the `graphify-out/` directory.
-3. Uninstall the `uv` tool: `uv tool uninstall graphifyy` (or the
-   equivalent `pip uninstall graphifyy` if installed via pip instead of
-   `uv`).
-4. Restore any local ignore configuration: confirm `.git/info/exclude` (or
-   `.gitignore`, if later moved there) no longer needs its `graphify-out/`
-   entry once the directory is removed.
+1. Remove the complete project skill directory: delete
+   `.claude/skills/graphify/` in full — this includes, without limiting
+   cleanup to, `SKILL.md`, the `.graphify_version` sidecar, and the entire
+   `references/**` tree (`extraction-spec.md`, `exports.md`, `update.md`,
+   `add-watch.md`, `github-and-merge.md`, `query.md`, `hooks.md`,
+   `transcribe.md` as of this replay — plus any other installer-created
+   file later added under that directory). Deleting only `SKILL.md` and
+   `.graphify_version` leaves the installer-created `references/` tree
+   behind and does not constitute a complete rollback.
+2. Remove the complete local graph output: delete the `graphify-out/`
+   directory in full (graph JSON/HTML, `GRAPH_REPORT.md`, manifest, cache,
+   and any other generated file under it).
+3. Handle root `.graphifyignore`: this file exists in the current
+   workspace (created for this Graphify adoption, currently containing
+   only standard exclude patterns — `.git/`, `.gitnexus/`, `graphify-out/`
+   — no sensitive content). Remove it if it was created solely for this
+   Graphify installation, as it was here; if a workspace instead had a
+   pre-existing `.graphifyignore` before adoption, restore that prior
+   version from backup instead of deleting it — never blindly delete
+   unrelated user-authored ignore rules.
+4. Handle `.claude/settings.json` and root `CLAUDE.md` safely: remove any
+   Graphify-created `.claude/settings.json` (the installer's `PreToolUse`
+   hook block) if present; restore any pre-existing settings from backup
+   rather than deleting unrelated configuration if the file predates
+   Graphify. Ensure tracked root `CLAUDE.md` contains no Graphify
+   installer section (compare against `git show HEAD:CLAUDE.md`).
+5. Remove only the exact Graphify-specific entries from
+   `.git/info/exclude` (`.claude/skills/graphify/`, `.claudeignore`,
+   `.graphifyignore`, `graphify-out/`, and the `.claude/CLAUDE.md` line if
+   it was added for Graphify) — or restore the pre-install snapshot of
+   that file — while preserving any unrelated local exclusions already in
+   it.
+6. Remove Graphify-specific hooks, strict-mode configuration, watch
+   processes, and MCP configuration if any were later enabled by a
+   separately authorized tooling work item (none are enabled as of this
+   report — §7).
+7. Uninstall the exact CLI package through the recorded installation
+   mechanism when full tool removal is intended: `uv tool uninstall
+   graphifyy` (or the equivalent `pip uninstall graphifyy` if installed
+   via `pip` instead of `uv`).
+8. Verify rollback completion: the full `.claude/skills/graphify/`
+   directory is absent; `graphify-out/` is absent; `.graphifyignore` is
+   absent or restored to its pre-adoption state; `.claude/settings.json`
+   is absent or restored; no unnecessary Graphify-specific
+   `.git/info/exclude` entry remains; `git ls-files`/`git status` show no
+   Graphify artifact/config tracked or staged; and unrelated local
+   configuration (e.g. `.claude/settings.local.json`, any pre-existing
+   `.graphifyignore` content) remains intact.
 
 No product source, schema, migration, API, UI or dependency change is
 involved in this rollback — it only removes local tooling. The C4 backup

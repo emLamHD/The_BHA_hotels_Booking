@@ -108,12 +108,25 @@ khi tạo feature branch mới.
     community detection on an unchanged graph, not data loss: a
     `cluster-only` rerun on the *same* C4 graph independently produced yet
     a third count, 183→184, with node/edge counts unchanged both times).
-    Graph's `built_at_commit` equals the C4 replay HEAD. No token-saving
-    percentage claim accepted or verified in either run.
-  - **Local state (post-C4):** the skill
-    (`.claude/skills/graphify/SKILL.md` + sidecars) and `graphify-out/`
-    remain **workspace-local, project-scoped, untracked** — `git ls-files`
-    returns no match for either path, excluded via `.git/info/exclude`.
+    Graph's `built_at_commit` equals `62f2f82d67fb1f80f3204c58ef3351d6e8f6fe8d`
+    (HEAD at the moment of the C4 replay, before Phase 4's tracked
+    documentation commit). The subsequent tracked commit that recorded
+    this evidence (`e03642008559bd1930127cc9e679a04cc48dcc29`, and
+    correction C5's own commit after it) touched only the six allowed
+    documentation files — none of which fall inside the code-only graph's
+    input set — so under the input-aware freshness rule (§8, `AGENTS.md`
+    §10) the graph remains fresh despite `built_at_commit` no longer
+    equaling raw current `HEAD`; a documentation-only commit does not by
+    itself stale a code-only graph. No token-saving percentage claim
+    accepted or verified in either run.
+  - **Local state (post-C4):** the full skill directory
+    (`.claude/skills/graphify/` — `SKILL.md`, `.graphify_version`,
+    `references/**`), `graphify-out/`, and root `.graphifyignore` (created
+    for this adoption) all remain **workspace-local, project-scoped,
+    untracked** — `git ls-files` returns no match for any of these paths,
+    all excluded via `.git/info/exclude`. Full rollback surface, including
+    `.graphifyignore`, is documented in
+    `docs/reports/TOOL-GRAPHIFY-001-completion.md` §9.
     Root `CLAUDE.md` exactly matches tracked `HEAD` content;
     `.claude/settings.json` is absent; no strict mode, PreToolUse hook,
     watch mode or MCP is enabled. A fresh clone, a different worktree, or
@@ -428,9 +441,13 @@ hoàn tất tooling-adoption gate riêng của nó:
   coi như `NOT_APPLICABLE`** (không bao giờ ngầm hiểu là `ALLOWED_IF_RELEVANT`
   hay là tùy chọn mặc định cho phép). Không giá trị policy nào tự cấp
   quyền cài đặt/rebuild. Graph luôn là advisory, luôn kiểm chứng lại với
-  source/test; so sánh `built_at_commit` với `HEAD` hiện tại trước khi tin
-  graph; graph stale không tự động cho phép rebuild — xem
-  `docs/governance/WORKFLOW.md` §12 và `AGENTS.md` §10 cho ánh xạ đầy đủ.
+  source/test; freshness được xác định theo **quy tắc input-aware**, không
+  phải raw `built_at_commit != HEAD` — một commit chỉ sửa tài liệu, nằm
+  ngoài tập input của graph code-only, không tự làm graph đó stale; chỉ
+  coi là stale khi một input eligible (theo build profile của graph) đã
+  đổi/thêm/xoá, hoặc freshness không thể xác định chắc chắn. Graph stale
+  không tự động cho phép rebuild — xem `docs/governance/WORKFLOW.md` §12
+  và `AGENTS.md` §10 cho ánh xạ đầy đủ.
   Cấm: full semantic pipeline, Graphify subagents, strict mode, PreToolUse
   hooks, watch mode, MCP, automatic rebuild — trừ khi một tooling work item
   sau này của Owner đổi chính sách.
