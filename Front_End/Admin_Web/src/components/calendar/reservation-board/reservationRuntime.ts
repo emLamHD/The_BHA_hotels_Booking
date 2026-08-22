@@ -808,6 +808,11 @@ export function reservationRuntimeReducer(
         if (!canRecordRefund(item, summary).allowed) return null;
         const { amount, method, reference, reason } = action.input;
         if (!isValidFolioAmount(amount)) return null;
+        // Authoritative accounting invariant (§3, ADMIN-002.1-C8): a refund
+        // can never exceed the latest derived `totalCollected` — the
+        // reducer stays the final frontend authority even if the UI is
+        // stale or its disabled attribute is bypassed.
+        if (amount > summary.totalCollected) return null;
         const trimmedReason = reason.trim();
         if (!trimmedReason) return null;
         const entry: ReservationFolioEntry = {

@@ -1723,8 +1723,16 @@ const RecordRefundPanel: React.FC<{
           </button>
           <button
             type="button"
-            disabled={!amountValid || !trimmedReason}
-            onClick={() => onSave({ amount: Number(amount), method, reference, reason })}
+            disabled={!amountValid || wouldOverdraw || !trimmedReason}
+            onClick={() => {
+              // Defense in depth alongside `disabled` — never dispatch a
+              // refund exceeding collected funds even if this handler is
+              // somehow reached while the button should be disabled
+              // (§4/§6, ADMIN-002.1-C8). The reducer independently enforces
+              // the same invariant as the final authority.
+              if (!amountValid || wouldOverdraw || !trimmedReason) return;
+              onSave({ amount: Number(amount), method, reference, reason });
+            }}
             className={dangerButtonClassName}
           >
             Confirm refund
@@ -1745,9 +1753,20 @@ const RecordRefundPanel: React.FC<{
             value={amount}
             onChange={(event) => setAmount(event.target.value)}
             placeholder="e.g. 500000"
-            className={`${inputClassName} ${!amountValid ? invalidInputClassName : ""}`}
+            aria-invalid={!amountValid || wouldOverdraw}
+            className={`${inputClassName} ${!amountValid || wouldOverdraw ? invalidInputClassName : ""}`}
           />
-          {!amountValid ? <p className={errorTextClassName}>Enter a whole VND amount greater than 0.</p> : null}
+          {!amountValid ? (
+            <p className={errorTextClassName}>Enter a whole VND amount greater than 0.</p>
+          ) : wouldOverdraw ? (
+            <p role="alert" className={errorTextClassName}>
+              Refund cannot exceed {formatVnd(maxAmount)} currently collected.
+            </p>
+          ) : (
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              Up to {formatVnd(maxAmount)} available to refund.
+            </p>
+          )}
         </div>
         <div>
           <label className={labelClassName}>Method</label>
@@ -1782,12 +1801,6 @@ const RecordRefundPanel: React.FC<{
           />
         </div>
       </div>
-      {wouldOverdraw ? (
-        <p className={noticeClassName}>
-          <InfoIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-          This exceeds the {formatVnd(maxAmount)} collected — the reservation would show as overpaid in reverse.
-        </p>
-      ) : null}
     </PanelShell>
   );
 };
