@@ -23,8 +23,8 @@ revalidate lại `origin/develop` trước khi tạo feature branch mới.
 | PR #31 | merged — `docs(pms): record core database blueprint v2`, merge commit `bfb3377b701e9309d3cbbea22bb18159bc37a2e0`, merged `2026-08-19T10:56:01Z`. Persists PMS blueprint documentation foundation (`docs/design/PMS-DATA-001-core-database-blueprint-v2.md`, ADR 0005, ADR 0006). |
 | PR #32 | merged — `feat(admin): add PMS reservation board UI baseline`, merge commit `17e929d7c1f82941599223344b5f4cdc3aa34307`, merged `2026-08-22T14:42:31Z`. Feature branch `feature/admin-002-1-reservation-board-ui-baseline`, feature head `e1ab378d3222dc555dc33d9408ea7ee57cdfc8db`. Closes `ADMIN-002.1`. |
 | PR #33 | merged — `docs(project): close ADMIN-002.1 and record next sequence`, merge commit `2c38face7cf51d7271c361e6d684adea466edcf9`, merged `2026-08-22T15:38:25Z`. Feature branch `docs/admin-002-1-closeout` deleted remotely (verified: `git ls-remote --heads origin docs/admin-002-1-closeout` returns no ref). Closes `ADMIN-002.1-DOCS-CLOSEOUT`. |
-| PR/branch của work item hiện tại | chưa tồn tại tại thời điểm Phase 1 (tài liệu) của `TOOL-GRAPHIFY-001-DOCS-CLOSEOUT`; feature branch `docs/tool-graphify-001-closeout` được tạo từ baseline `2c38face7cf51d7271c361e6d684adea466edcf9`. Draft PR URL/state/head branch thật sẽ được ghi ở Phase 2, sau khi push và tạo PR — không suy đoán trước. |
-| Open execution PR khác | không có, theo `gh pr list --state open` tại thời điểm cập nhật Snapshot này (ngoài Draft PR sẽ được tạo bởi work item hiện tại ở cuối Phase 1). |
+| PR/branch của work item hiện tại | [`#34`](https://github.com/emLamHD/The_BHA_hotels_Booking/pull/34) — `OPEN`, `DRAFT`; head branch `docs/tool-graphify-001-closeout`; base `develop`. `TOOL-GRAPHIFY-001-DOCS-CLOSEOUT` (docs-only). Not Ready or merged; Ready/merge/branch cleanup remain Owner-only. |
+| Open execution PR khác | không có, theo `gh pr list --state open` tại thời điểm cập nhật Snapshot này (ngoài PR #34 ở trên). |
 
 ## 2. Work item state
 
@@ -286,10 +286,11 @@ installer section; `.claude/settings.json` does not exist; `git status
   review of the report/diff/Codex result, then Owner-only Ready/merge/branch
   cleanup decision. **No product implementation work starts automatically**
   from this work item's completion — see §2's active decision.
-- Draft PR: to be recorded in Phase 2 of this work item, after the branch is
-  pushed and the PR is created — not invented in Phase 1. Not Ready or
-  merged at time of writing; Ready/merge/branch cleanup remain Owner-only
-  and are not authorized by this Snapshot.
+- Draft PR: [#34](https://github.com/emLamHD/The_BHA_hotels_Booking/pull/34),
+  state at this Snapshot checkpoint: `OPEN` and `DRAFT`; head branch
+  `docs/tool-graphify-001-closeout`; base `develop`. It is not Ready or
+  merged; Ready/merge/branch cleanup remain Owner-only and are not
+  authorized by this Snapshot.
 
 ## 8. Tooling migration state
 
