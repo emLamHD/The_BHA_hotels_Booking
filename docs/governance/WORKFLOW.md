@@ -281,10 +281,16 @@ Không gọi skill này cho toàn bộ task. Đây là quy trình chẩn đoán 
 ### Graphify — pilot đã accepted
 
 `TOOL-GRAPHIFY-001-DOCS-CLOSEOUT` đã hoàn tất bốn bước của tooling adoption
-gate cho Graphify:
+gate cho Graphify **trong workspace local đã được Owner verify**; evidence
+này chỉ áp dụng cho workspace đó, không phải cho mọi checkout của
+repository:
 
-1. `install`: `graphifyy==0.9.48`, cài local, project-scoped, ngoài product
-   source (`.claude/skills/graphify/SKILL.md`).
+1. `install`: `graphifyy==0.9.48`, cài workspace-local, project-scoped,
+   ngoài product source (`.claude/skills/graphify/SKILL.md`). "Project-
+   scoped" ở đây chỉ phạm vi discovery của Claude Code trong workspace đó,
+   không phải phạm vi phân phối qua Git — path này và `.graphify_version`
+   sidecar của nó **không được track**; `git ls-files` không trả về path
+   nào khớp.
 2. `config`: giữ nguyên chế độ một writable worktree, Claude-only write và
    Codex-only review; không bật PreToolUse hook, strict mode, watch mode
    hay MCP.
@@ -296,9 +302,12 @@ gate cho Graphify:
 Trạng thái hiện tại:
 
 - Chỉ graph code-only được build; docs/images không được index ngữ nghĩa.
-- Không commit artifact hay config nào của Graphify vào Git — `graphify-out/`
-  và output cục bộ chỉ tồn tại trên workspace, loại khỏi Git qua
-  `.git/info/exclude`.
+- Không commit artifact hay config nào của Graphify vào Git — cả skill
+  (`.claude/skills/graphify/SKILL.md`) lẫn `graphify-out/` và output cục bộ
+  chỉ tồn tại trên workspace, loại khỏi Git qua `.git/info/exclude`. Một
+  fresh clone, một worktree khác, hay một máy khác **sẽ không** tự động có
+  Graphify — phải verify sự tồn tại độc lập trước khi coi Graphify là khả
+  dụng ở đó.
 - Các side effect always-on của installer gốc (root `CLAUDE.md` bị sửa,
   `.claude/settings.json` được tạo) đã bị phát hiện và dọn sạch; không giữ
   lại trong trạng thái hiện tại.
@@ -311,11 +320,16 @@ GRAPHIFY_TRIGGER_OR_REASON:
 ```
 
 - Auto-invocation của skill Graphify là do model tự chọn khi mô tả task
-  khớp (architecture/dependency/relationship/impact-analysis), không phải
-  điều được đảm bảo cho mọi task.
+  khớp (architecture/dependency/relationship/impact-analysis) **và** skill
+  thật sự khả dụng trong workspace hiện tại, không phải điều được đảm bảo
+  cho mọi task hay mọi workspace.
 - Việc bắt buộc dùng Graphify phải được OC khai báo rõ trong Master
   Execution Prompt hiện hành (`GRAPHIFY_POLICY: REQUIRED_FOR_PREFLIGHT_IMPACT_ANALYSIS`);
-  nếu không khai báo, Graphify chỉ là công cụ tùy chọn.
+  nếu không khai báo, Graphify chỉ là công cụ tùy chọn. Khai báo này **không
+  tự cấp quyền cài đặt hay rebuild** Graphify nếu nó vắng mặt trong
+  workspace — nếu một capability Graphify bắt buộc bị thiếu, executor theo
+  đúng stop/fallback policy của prompt hiện hành (báo cáo vắng mặt chính
+  xác, dùng source/test trực tiếp), không tự ý cài đặt.
 - Bằng chứng từ graph không bao giờ thay thế việc đọc trực tiếp source hoặc
   chạy test; graph là advisory.
 - Graph có thể trở nên stale so với `HEAD` hiện tại. Việc graph stale không

@@ -161,8 +161,9 @@ Use targeted checks first, then broader/CI-parity checks required by prompt and 
 ## 10. GitNexus, Graphify, Orca and skills
 
 - Use GitNexus for code graph/impact analysis when it improves confidence; verify conclusions against source/tests.
-- Graphify (`graphifyy==0.9.48`) has completed a local, project-scoped, code-only tooling-adoption pilot (`TOOL-GRAPHIFY-001-DOCS-CLOSEOUT`): install, config, dry run and pilot query all passed. It is a project skill at `.claude/skills/graphify/SKILL.md`; its graph outputs (`graphify-out/`) are local-only and excluded from Git.
-- Claude may automatically invoke the Graphify project skill when a task's description matches architecture, dependency, relationship or impact-analysis work. Graphify is not mandatory for every task.
+- Graphify (`graphifyy==0.9.48`) has completed a **workspace-local, project-scoped**, code-only tooling-adoption pilot (`TOOL-GRAPHIFY-001-DOCS-CLOSEOUT`) in the Owner's verified workspace: install, config, dry run and pilot query all passed. "Project-scoped" describes where Claude Code discovers and applies the skill in that workspace — it does **not** mean repository-tracked. The skill (`.claude/skills/graphify/SKILL.md` and its version sidecar) and its graph outputs (`graphify-out/`) are excluded from Git via `.git/info/exclude`; `git ls-files` returns no match for either path. A fresh clone, a different worktree, or another machine will **not** automatically have Graphify installed.
+- Before applying any `GRAPHIFY_POLICY` below, Claude must verify Graphify's actual availability in the current workspace (e.g. `git ls-files` for the skill/graph paths returning nothing is not evidence of absence by itself — check local existence, such as `.claude/skills/graphify/SKILL.md`, directly). If absent, report the absence accurately and do not install or rebuild it without a Master Execution Prompt explicitly granting that authority.
+- Claude may automatically invoke the Graphify project skill, when available in the current workspace, if a task's description matches architecture, dependency, relationship or impact-analysis work. Graphify is not mandatory for every task.
 - A Master Execution Prompt may declare:
 
   ```text

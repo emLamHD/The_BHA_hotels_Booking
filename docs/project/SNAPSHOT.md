@@ -64,9 +64,12 @@ revalidate lại `origin/develop` trước khi tạo feature branch mới.
   remotely.
 - `TOOL-GRAPHIFY-001` (Graphify tooling-adoption pilot): `PASS — CLOSED`.
   Completed locally 2026-08-22 by Owner, verified read-only by Claude in
-  `TOOL-GRAPHIFY-001-DOCS-CLOSEOUT`. Evidence: `graphifyy==0.9.48` /
-  `graphify 0.9.48` CLI; project-scoped skill at
-  `.claude/skills/graphify/SKILL.md`; code-only build (`--code-only`),
+  `TOOL-GRAPHIFY-001-DOCS-CLOSEOUT`. This `PASS — CLOSED` applies to the
+  Owner's verified local workspace adoption, not to repository-distributed
+  tooling. Evidence: `graphifyy==0.9.48` / `graphify 0.9.48` CLI;
+  **workspace-local, project-scoped** skill at
+  `.claude/skills/graphify/SKILL.md` (untracked — `git ls-files` returns no
+  match for this path); code-only build (`--code-only`),
   625 code files indexed, 370 non-code files intentionally skipped (52
   docs, 2 papers, 316 images); resulting graph — 3,848 nodes, 9,607 edges,
   186 communities — independently re-verified against
@@ -82,10 +85,12 @@ revalidate lại `origin/develop` trước khi tạo feature branch mới.
   `CLAUDE.md` modification, `.claude/settings.json` creation) were detected
   and cleaned up by Owner; independently confirmed absent in this session
   (root `CLAUDE.md` carries no Graphify installer section;
-  `.claude/settings.json` does not exist). Graphify artifacts/config are
-  local-only and excluded from Git via `.git/info/exclude`; nothing
-  Graphify-related is tracked. GitNexus was not removed or modified. Full
-  detail in `docs/reports/TOOL-GRAPHIFY-001-completion.md` and
+  `.claude/settings.json` does not exist). Graphify artifacts/config,
+  including the skill itself, are workspace-local and excluded from Git
+  via `.git/info/exclude`; nothing Graphify-related is tracked, and a
+  fresh clone or a different worktree/machine will not automatically have
+  the skill or graph. GitNexus was not removed or modified. Full detail in
+  `docs/reports/TOOL-GRAPHIFY-001-completion.md` and
   `docs/daily/2026-08/2026-08-22-worklog.md`.
 
 ### Quyết định đang hiệu lực
@@ -190,7 +195,9 @@ docs/admin-002-1-closeout` (no ref — remote branch deleted).
 (installation, config, dry run, pilot) independently re-verified read-only
 by Claude in `TOOL-GRAPHIFY-001-DOCS-CLOSEOUT` preflight — `graphify
 --version` returns `0.9.48`; `.claude/skills/graphify/SKILL.md` and
-`graphify-out/graph.json`/`GRAPH_REPORT.md` exist; parsed
+`graphify-out/graph.json`/`GRAPH_REPORT.md` exist locally in this workspace
+(local existence, not Git-tracking evidence — `git ls-files` for these
+paths returns no match, confirming they are untracked); parsed
 `graphify-out/graph.json` independently shows exactly 3,848 nodes, 9,607
 edges (`links`), 186 distinct `community` values and `built_at_commit`
 equal to the current baseline HEAD; root `CLAUDE.md` contains no Graphify
@@ -303,10 +310,16 @@ hoàn tất tooling-adoption gate riêng của nó:
 - GitNexus: `UNAVAILABLE — RECORDED_NON_BLOCKING_TOOLING_GAP`, chấp nhận là
   gap không blocking. Graphify adoption không kéo theo việc gỡ GitNexus.
 - Graphify: **đã hoàn tất bốn bước tooling-adoption gate** (install, config,
-  dry run, pilot) local vào 2026-08-22, ghi nhận là `TOOL-GRAPHIFY-001` ở
-  §2/§4. Chỉ graph code-only (`--code-only`) được build; không LLM
-  backend/API key; không artifact/config nào của Graphify được commit vào
-  Git. Chính sách sử dụng cho các work item sau: khai báo
+  dry run, pilot) trong workspace local đã được Owner verify vào
+  2026-08-22, ghi nhận là `TOOL-GRAPHIFY-001` ở §2/§4. Chỉ graph code-only
+  (`--code-only`) được build; không LLM backend/API key; skill
+  (`.claude/skills/graphify/SKILL.md`) và toàn bộ artifact/config của
+  Graphify đều không được commit vào Git — `git ls-files` xác nhận không
+  match path nào. Evidence `PASS — CLOSED` chỉ áp dụng cho workspace đã
+  verify này; một fresh clone, worktree khác, hay máy khác sẽ không tự
+  động có Graphify — phải tự verify tồn tại trước khi coi là khả dụng, và
+  không được tự ý cài đặt nếu vắng mặt trừ khi có Master Execution Prompt
+  cho phép rõ ràng. Chính sách sử dụng cho các work item sau: khai báo
   `GRAPHIFY_POLICY: REQUIRED_FOR_PREFLIGHT_IMPACT_ANALYSIS | ALLOWED_IF_RELEVANT | NOT_APPLICABLE`
   trong Master Execution Prompt; graph là advisory, luôn kiểm chứng lại với
   source/test; so sánh `built_at_commit` với `HEAD` hiện tại trước khi tin

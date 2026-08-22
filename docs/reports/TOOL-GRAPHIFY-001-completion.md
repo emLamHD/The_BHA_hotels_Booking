@@ -40,8 +40,14 @@ performed to obtain this evidence.
 - `graphify-out/` (graph JSON, HTML viz, report) is local to this
   workspace, excluded from Git via `.git/info/exclude`, and not committed.
 - `.claude/skills/graphify/SKILL.md` (and its `.graphify_version` sidecar)
-  is a tracked project-scoped skill file, not product source; it does not
-  affect `Back_End/**` or `Front_End/**` build/runtime behavior.
+  is a **workspace-local, project-scoped** skill file — "project-scoped"
+  describes where Claude Code discovers and applies it in the current
+  workspace, not that it is repository-tracked. `git ls-files` returns no
+  match for `.claude/skills/graphify/**`; the path is excluded locally via
+  `.git/info/exclude`, so it is not committed and carries no product source
+  either way. A fresh clone, another worktree, or another developer machine
+  will **not** automatically contain this skill or the graph — availability
+  must be independently verified in each workspace before relying on it.
 - No API key or LLM backend is configured for Graphify. No secret, token,
   cookie or credential is present in any Graphify config or output file
   reviewed for this report.
