@@ -155,9 +155,14 @@ observable from this worktree.
   (PR #30): room/date timeline, multi-property demo switching,
   assigned/unassigned reservations, operational blocks, và front-desk
   reservation-creation/operations workspace, tất cả chạy trên **local
-  deterministic mock state** qua một centralized reducer
-  (`reservationRuntime.ts`) — không có backend call, không có persistence,
-  mỗi lần reload quay về đúng mock baseline ban đầu. Admin Web **vẫn chưa**
+  deterministic mock state**, chia thành ba lớp state riêng biệt: durable
+  runtime mutation (lifecycle/folio/move) của reservation-board tập trung
+  tại `reservationRuntimeReducer` trong `reservationRuntime.ts`; reservation
+  creation workflow dùng `formReducer` riêng trong `CreateReservationForm.tsx`;
+  và presentation/view state (selection, range, filter, drag) là
+  component-local `useState` trong `ReservationBoard.tsx`. Không có backend
+  call, không có persistence, mỗi lần reload quay về đúng mock baseline ban
+  đầu. Admin Web **vẫn chưa**
   tích hợp `Back_End/`: chưa có database, chưa có Admin authentication/RBAC
   thật, chưa có OTA behavior thật.
 - `PROJECT_BIBLE.md`, `docs/design/PMS-DATA-001-core-database-blueprint-v2.md`,

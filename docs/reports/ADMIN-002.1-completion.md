@@ -42,10 +42,18 @@
 - A front-desk lifecycle/folio/notes/activity operations workspace: derived
   payment status from a folio ledger, guarded no-op-edit detection, and a
   refund flow capped at collected funds.
-- All state is held in a centralized reducer (`reservationRuntime.ts`) over
-  the fixture data in `mockData.ts`; there is no network call, no
-  persistence layer, and no server round-trip anywhere in this surface —
-  a full page reload returns to the same fixed mock baseline.
+- State is split across three layers, none of them backend-authoritative:
+  reservation-board durable/runtime mutations (lifecycle transitions, folio
+  entries, moves) are centralized in the `reservationRuntimeReducer` in
+  `reservationRuntime.ts`; the reservation-creation workflow has its own
+  `formReducer` plus component-local `useState` in
+  `CreateReservationForm.tsx`; and board presentation/view state (selected
+  property, range length, anchor date, filters, drag state, selected
+  details item) is component-local `useState` in `ReservationBoard.tsx`.
+  All three layers sit over the fixture data in `mockData.ts`; there is no
+  network call, no persistence layer, and no server round-trip anywhere in
+  this surface — a full page reload returns to the same fixed mock
+  baseline.
 
 ## Correction/iteration summary (C5–C8)
 
