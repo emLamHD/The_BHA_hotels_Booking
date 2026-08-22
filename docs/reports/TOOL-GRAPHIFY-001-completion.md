@@ -128,8 +128,12 @@ tooling work item changes policy:
 - No token-saving percentage claim for using Graphify versus direct
   source/grep search has been validated in this pilot; none should be
   assumed from this report.
-- Graph availability is local to this workspace only — another Claude Code
-  session or machine has no access to it without repeating the build.
+- Graph availability is local to this workspace. A new Claude Code session
+  opened in the same workspace can reuse the existing local skill and graph
+  after verifying their existence and freshness; it must not rebuild merely
+  because the session is new. A fresh clone, separate worktree, different
+  repository path or another machine will not automatically contain these
+  workspace-local artifacts.
 
 ## 8. Rollback
 
