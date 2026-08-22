@@ -281,58 +281,25 @@ Khi skill được gọi, Claude phải:
 
 Không gọi skill này cho toàn bộ task. Đây là quy trình chẩn đoán nặng, chỉ có lợi khi đang đuổi theo một failure cụ thể.
 
-### Graphify — pilot đã accepted qua Claude-run governance replay
+### Graphify — chính sách canonical
 
-Bốn bước tooling adoption gate cho Graphify đã hoàn tất, nhưng qua đúng
-trình tự sau — không phải một lần Owner tự thực hiện là đủ:
+Graphify đã được adopt thành công như một công cụ code-navigation
+workspace-local, **tùy chọn**, qua một replay quản trị do Claude thực hiện
+với vai trò writable implementer duy nhất (`TOOL-GRAPHIFY-001-DOCS-CLOSEOUT-C4`),
+sau một pilot sơ bộ Owner tự chạy trên máy Owner (không đủ để tự đóng gate
+theo single-writer invariant). `docs/governance/RULES.md` không đổi trong
+quá trình này. Chi tiết lịch sử: `docs/daily/2026-08/2026-08-22-worklog.md`,
+`docs/reports/TOOL-GRAPHIFY-001-completion.md`.
 
-1. Owner tự thực hiện một pilot local sơ bộ ban đầu (install/config/
-   dry-run/pilot query) trên máy của Owner — kết quả kỹ thuật đúng, nhưng
-   do chính Owner (không phải Claude) thực hiện các thao tác ghi filesystem.
-2. Codex, trong lượt review PR #34, chỉ ra defect quản trị: gate không thể
-   đóng dựa trên một pilot writable do Owner thực hiện trong khi
-   `docs/governance/RULES.md` quy định Claude là writable implementer duy
-   nhất (single-writer invariant).
-3. Owner chấp nhận finding và chọn **Option A**: không thêm ngoại lệ hồi tố
-   vào `RULES.md`; thay vào đó ủy quyền Claude replay lại toàn bộ pilot.
-4. Claude thực hiện replay quản trị hợp lệ (`TOOL-GRAPHIFY-001-DOCS-CLOSEOUT-C4`)
-   với vai trò writable implementer duy nhất: backup/cô lập artifact cũ,
-   verify đúng CLI version `0.9.48`, chạy `graphify install --project`
-   (project-scoped, ngoài product source), tự dọn sạch side effect của
-   installer, tái tạo graph code-only (`--code-only`, không LLM backend,
-   không API key) và chạy clustering, chạy lại pilot query và verify độc
-   lập với source, và xác nhận một Claude Code session mới, read-only có
-   thể tái sử dụng graph mà không cần rebuild.
-5. Gate chỉ được đóng (`TOOL-GRAPHIFY-001: PASS — CLOSED`) dựa trên bằng
-   chứng replay C4 này — pilot ban đầu của Owner chỉ được giữ lại như bằng
-   chứng kỹ thuật sơ bộ/lịch sử, không phải căn cứ đóng gate.
+Skill và graph là workspace-local, project-scoped, loại khỏi Git qua
+`.git/info/exclude` — không tự động có ở fresh clone, worktree khác, hay
+máy khác.
 
-`docs/governance/RULES.md` không đổi trong toàn bộ quá trình này — không có
-ngoại lệ hồi tố nào được thêm vào.
+**Đây là nguồn canonical duy nhất cho chính sách invoke Graphify** — các
+file khác (`AGENTS.md`, `SNAPSHOT.md`, report) chỉ tóm tắt ngắn và trỏ về
+đây, không lặp lại chi tiết.
 
-Trạng thái hiện tại:
-
-- Chỉ graph code-only được build; docs/images không được index ngữ nghĩa.
-- Không commit artifact hay config nào của Graphify vào Git — cả skill
-  (`.claude/skills/graphify/SKILL.md`) lẫn `graphify-out/` và output cục bộ
-  chỉ tồn tại trên workspace, loại khỏi Git qua `.git/info/exclude`. Một
-  fresh clone, một worktree khác, hay một máy khác **sẽ không** tự động có
-  Graphify — phải verify sự tồn tại độc lập trước khi coi Graphify là khả
-  dụng ở đó.
-- Các side effect always-on của installer gốc (root `CLAUDE.md` bị sửa,
-  `.claude/settings.json` được tạo) đã xuất hiện lại đúng như dự kiến khi
-  Claude tự chạy installer trong C4, và đã được chính Claude phát hiện,
-  dọn sạch trong cùng replay; không giữ lại trong trạng thái hiện tại.
-
-Việc invoke Graphify luôn cần **cả hai** điều kiện: (1) Graphify khả dụng
-và đủ mới trong workspace hiện tại, **và** (2) Master Execution Prompt hiện
-hành cấp quyền tường minh qua một `GRAPHIFY_POLICY` hợp lệ. Khả dụng, độ
-liên quan của task, hay việc model tự thấy task "giống" architecture/
-dependency/relationship/impact-analysis **không** tự cấp quyền — chỉ skill
-được prompt liệt kê/approve mới được dùng (quy tắc chung ở §12 "Đối với
-repository skill bên ngoài"), Graphify không phải ngoại lệ.
-
-Cho các Master Execution Prompt sau này, OC bắt buộc khai báo trường:
+Mỗi Master Execution Prompt bắt buộc khai báo:
 
 ```text
 GRAPHIFY_POLICY: REQUIRED_FOR_PREFLIGHT_IMPACT_ANALYSIS | ALLOWED_IF_RELEVANT | NOT_APPLICABLE
@@ -340,61 +307,49 @@ GRAPHIFY_TRIGGER_OR_REASON:
 GRAPHIFY_UNAVAILABLE_OR_STALE: BLOCK | FALL_BACK_TO_SOURCE_TESTS
 ```
 
-Ánh xạ chính sách:
+Ánh xạ:
 
-- **`REQUIRED_FOR_PREFLIGHT_IMPACT_ANALYSIS`**: Claude bắt buộc dùng
-  Graphify cho preflight impact analysis mà prompt yêu cầu. Claude verify
-  khả dụng và độ mới của graph trước (không dùng `git ls-files` trả về
-  rỗng làm bằng chứng vắng mặt — phải check tồn tại local trực tiếp, ví dụ
-  `.claude/skills/graphify/SKILL.md`). Nếu Graphify vắng mặt hoặc quá
-  stale và không có quyền cài đặt/rebuild riêng, Claude theo đúng
-  `GRAPHIFY_UNAVAILABLE_OR_STALE` đã khai báo; nếu prompt không khai báo
-  trường này, Claude trả `BLOCKED` thay vì tự ý cài đặt, rebuild, hay bỏ
-  qua một capability bắt buộc.
-- **`ALLOWED_IF_RELEVANT`**: Graphify được cấp quyền nhưng tùy chọn.
-  Claude chỉ được auto-invoke skill do model tự chọn **dưới chính giá trị
-  policy này** — đây là giá trị **duy nhất** cho phép auto-invocation kiểu
-  model-selected — và chỉ khi Graphify khả dụng trong workspace hiện tại,
-  graph đủ mới cho câu hỏi, và task thuộc phạm vi architecture/dependency/
-  relationship/impact-analysis. Nếu vắng mặt hoặc stale, Claude tiếp tục
-  bằng source/test và báo cáo giới hạn, trừ khi prompt nói khác. Cài
-  đặt/rebuild vẫn cần quyền riêng.
-- **`NOT_APPLICABLE`**: Claude không được invoke Graphify — không inspect,
-  query, install, update hay rebuild cho work item đó.
-- **Thiếu hoặc `GRAPHIFY_POLICY` không hợp lệ**: coi như "không được
-  invoke", tương đương `NOT_APPLICABLE` — **không bao giờ** coi như
-  `ALLOWED_IF_RELEVANT`. Không được suy ra quyền từ mô tả task, từ việc
-  skill đã cài, từ graph đã có sẵn, hay từ việc một work item trước đã
-  accept pilot. Nếu task không thể hoàn thành thiếu Graphify, trả
-  `BLOCKED_PENDING_SCOPE_CLARIFICATION`.
+- **`REQUIRED_FOR_PREFLIGHT_IMPACT_ANALYSIS`**: bắt buộc dùng cho preflight
+  impact analysis. Nếu Graphify vắng mặt/stale: theo đúng
+  `GRAPHIFY_UNAVAILABLE_OR_STALE` đã khai báo (`BLOCK` → `BLOCKED`;
+  `FALL_BACK_TO_SOURCE_TESTS` → dùng source/test trực tiếp, phải report
+  rõ). **Nếu trường `GRAPHIFY_UNAVAILABLE_OR_STALE` thiếu hoặc không hợp
+  lệ → luôn `BLOCKED`**, không bao giờ tự fallback sang source/test —
+  không có generic rule nào được ghi đè hành vi này.
+- **`ALLOWED_IF_RELEVANT`**: tùy chọn. Claude **tự quyết định** invoke,
+  không cần xin phép thêm, khi Graphify khả dụng/đủ mới và việc đó thực sự
+  giúp task — ví dụ tra ownership qua nhiều module, kiến trúc/dependency,
+  impact/blast-radius, trace call/data-flow xuyên file, vùng code chưa
+  quen, hay chọn file nào cần đọc trực tiếp. Bỏ qua Graphify khi thay đổi
+  đã cô lập/file đã biết rõ, task chỉ là docs/planning, hoặc graph không
+  giảm được sự không chắc chắn. Đây là giá trị **duy nhất** cho phép
+  auto-invocation kiểu model-selected. Nếu vắng mặt/stale: tiếp tục bằng
+  source/test, báo giới hạn, trừ khi prompt nói khác.
+- **`NOT_APPLICABLE`**: cấm invoke — không inspect, query, install, update
+  hay rebuild.
+- **Thiếu hoặc không hợp lệ**: coi như `NOT_APPLICABLE`, không bao giờ như
+  `ALLOWED_IF_RELEVANT`. Không suy ra quyền từ mô tả task, skill đã cài,
+  graph đã có sẵn, hay việc một work item trước đã accept pilot.
 
-Không giá trị `GRAPHIFY_POLICY` nào tự cấp quyền cài đặt hay rebuild
-Graphify — quyền đó luôn cần một work item tooling riêng của Owner.
+Mặc định đề xuất cho Master Execution Prompt sản phẩm sau này:
+`ALLOWED_IF_RELEVANT`. Ngoại lệ: `REQUIRED_FOR_PREFLIGHT_IMPACT_ANALYSIS`
+khi task đòi hỏi rõ ràng phân tích dependency/kiến trúc/impact trước khi
+sửa; `NOT_APPLICABLE` cho task docs-only, planning, hay thay đổi nhỏ cô
+lập không cần graph.
 
-- Bằng chứng từ graph không bao giờ thay thế việc đọc trực tiếp source hoặc
-  chạy test; graph là advisory.
-- **Quy tắc freshness input-aware** — raw `built_at_commit != HEAD` một
-  mình **không** đủ để coi graph code-only là stale:
-  1. Nếu `built_at_commit` bằng đúng `HEAD` hiện tại, freshness pass ngay.
-  2. Nếu khác nhau, so sánh tập file thay đổi kể từ `built_at_commit`
-     (committed, staged, và unstaged) với tập input mà graph đã index
-     (build profile/manifest của graph — với graph code-only là phạm vi
-     code file được index, không phải mọi path tracked).
-  3. Graph chỉ đủ mới khi: không có input đã-index/eligible nào bị đổi
-     hay xoá; không có file mới nào được thêm mà cùng build profile sẽ
-     index; version/build profile của Graphify không đổi; và không có
-     thay đổi chưa commit nào trên input eligible.
-  4. Commit chỉ sửa tài liệu (hoặc bất kỳ thay đổi nào ngoài tập input
-     của graph) kể từ `built_at_commit` **không** làm graph đó stale.
-  5. Nếu một input eligible đã đổi, được thêm/xoá, hoặc không thể xác
-     định freshness một cách chắc chắn từ bằng chứng sẵn có, coi graph là
-     stale.
-  6. Stale không bao giờ tự cấp quyền install/update/rebuild — executor
-     chỉ được `graphify update`/rebuild khi Master Execution Prompt hiện
-     hành cho phép rõ ràng qua `GRAPHIFY_UNAVAILABLE_OR_STALE`; nếu không,
-     báo trạng thái stale và quay lại đọc source/test trực tiếp.
-  7. Dù graph fresh, kết quả vẫn chỉ là advisory và luôn phải kiểm chứng
-     lại với source/test.
+Không giá trị policy nào tự cấp quyền cài đặt/rebuild/hook/strict
+mode/watch mode/MCP/semantic-LLM — luôn cần một work item tooling riêng
+của Owner. Graphify không thay thế Master Execution Prompt, `READ_NOW` bắt
+buộc, việc đọc trực tiếp source sẽ sửa, hay source/test verification —
+kết quả graph luôn chỉ là advisory.
+
+**Freshness**: `built_at_commit == HEAD` → fresh ngay. Khác nhau → chỉ
+stale nếu có file trong phạm vi input của graph (với graph code-only là
+các code file được index) bị đổi/thêm/xoá kể từ `built_at_commit`
+(committed/staged/unstaged), hoặc build profile/version của Graphify đổi.
+Thay đổi chỉ ở tài liệu, ngoài phạm vi input đó, không làm graph stale.
+Không xác định được chắc chắn → coi là stale. Stale không bao giờ tự cấp
+quyền install/update/rebuild.
 
 ## 13. Shutdown checklist
 
