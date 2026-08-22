@@ -77,9 +77,11 @@ const GuestDetailsSection: React.FC<GuestDetailsSectionProps> = ({
               onChange={(event) => onPropertyChange(event.target.value as PropertyId)}
               aria-invalid={Boolean(property.message)}
               aria-describedby={property.ariaDescribedBy}
-              className={`${inputClassName} ${property.message ? invalidInputClassName : ""}`}
+              className={`${inputClassName} ${!state.propertyId ? "text-gray-400 dark:text-gray-500" : ""} ${property.message ? invalidInputClassName : ""}`}
             >
-              <option value="">Select a property…</option>
+              <option value="" disabled hidden>
+                Select a property…
+              </option>
               {MOCK_PROPERTIES.map((option: Property) => (
                 <option key={option.id} value={option.id}>
                   {option.name}
@@ -103,9 +105,11 @@ const GuestDetailsSection: React.FC<GuestDetailsSectionProps> = ({
               onChange={(event) => onSourceChange(event.target.value as BookingSourceId)}
               aria-invalid={Boolean(source.message)}
               aria-describedby={source.ariaDescribedBy}
-              className={`${inputClassName} ${source.message ? invalidInputClassName : ""}`}
+              className={`${inputClassName} ${!state.sourceId ? "text-gray-400 dark:text-gray-500" : ""} ${source.message ? invalidInputClassName : ""}`}
             >
-              <option value="">Select a source…</option>
+              <option value="" disabled hidden>
+                Select a source…
+              </option>
               {MOCK_BOOKING_SOURCES.map((option) => (
                 <option key={option.id} value={option.id}>
                   {option.label}

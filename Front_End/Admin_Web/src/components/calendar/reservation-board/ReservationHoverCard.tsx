@@ -8,6 +8,7 @@ import type {
   BookingSource,
   PaymentCollectionStatus,
   PhysicalRoom,
+  ReservationStayStatus,
   RoomType,
   UnassignedReservationItem,
 } from "./types";
@@ -35,6 +36,18 @@ const PAYMENT_STATUS_CLASSNAME: Record<PaymentCollectionStatus, string> = {
   unpaid: "bg-error-50 text-error-600 dark:bg-error-500/10 dark:text-error-400",
   deposit: "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300",
   paid: "bg-success-50 text-success-600 dark:bg-success-500/10 dark:text-success-400",
+};
+
+const STAY_STATUS_LABEL: Record<ReservationStayStatus, string> = {
+  confirmed: "Not checked in",
+  "checked-in": "Checked in",
+  "checked-out": "Checked out",
+};
+
+const STAY_STATUS_CLASSNAME: Record<ReservationStayStatus, string> = {
+  confirmed: "bg-gray-100 text-gray-600 dark:bg-white/[0.06] dark:text-gray-300",
+  "checked-in": "bg-brand-50 text-brand-700 dark:bg-brand-500/10 dark:text-brand-300",
+  "checked-out": "bg-gray-100 text-gray-500 dark:bg-white/[0.04] dark:text-gray-400",
 };
 
 const AMOUNT_FORMATTER = new Intl.NumberFormat("vi-VN", {
@@ -113,6 +126,12 @@ const ReservationHoverCard: React.FC<ReservationHoverCardProps> = ({
       <p className="mt-1.5 truncate text-[11px] text-gray-500 dark:text-gray-400">
         {locationLabel}
       </p>
+
+      <span
+        className={`mt-1.5 inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${STAY_STATUS_CLASSNAME[item.stayStatus]}`}
+      >
+        {STAY_STATUS_LABEL[item.stayStatus]}
+      </span>
 
       <div className="mt-2 flex items-center gap-1.5">
         <span

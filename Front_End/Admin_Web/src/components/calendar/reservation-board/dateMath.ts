@@ -113,6 +113,21 @@ export function buildVisibleRange(
   return { start, endExclusive: addDaysIso(start, length), length };
 }
 
+/**
+ * Resolves the visible-range start date from an anchor date (typically
+ * "today") so the anchor lands inside a centered window — e.g. length 14
+ * yields 7 days before the anchor, the anchor itself, and 6 days after.
+ * Anchor-relative navigation (ADMIN-002.1-C5) replaces the previous
+ * start-date-oriented range state so Previous/Next can reach dates before
+ * the anchor while Today always re-centers on it.
+ */
+export function computeVisibleStartFromAnchor(
+  anchorDate: IsoDate,
+  length: ReservationBoardRangeLength
+): IsoDate {
+  return addDaysIso(anchorDate, -Math.floor(length / 2));
+}
+
 export function generateRangeDates(range: VisibleRange): IsoDate[] {
   const dates: IsoDate[] = [];
   for (let i = 0; i < range.length; i += 1) {

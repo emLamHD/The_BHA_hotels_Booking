@@ -89,6 +89,20 @@ const ReservationSummary: React.FC<ReservationSummaryProps> = ({ data, onReview 
             <p className="text-gray-600 dark:text-gray-300">
               Rate: {unit.ratePlanName ?? "— Select rate plan —"}
             </p>
+            {unit.hasPriceOverride &&
+            unit.ratePlanNightlyAmount !== null &&
+            unit.effectiveNightlyAmount !== null ? (
+              <p className="text-gray-600 dark:text-gray-300">
+                Rate Plan price:{" "}
+                <span className="line-through">
+                  {AMOUNT_FORMATTER.format(unit.ratePlanNightlyAmount)}
+                </span>{" "}
+                · Actual price:{" "}
+                <span className="font-medium text-gray-800 dark:text-white/90">
+                  {AMOUNT_FORMATTER.format(unit.effectiveNightlyAmount)}
+                </span>
+              </p>
+            ) : null}
             {unit.subtotal !== null ? (
               <p className="mt-1 text-right font-medium text-gray-800 dark:text-white/90">
                 {AMOUNT_FORMATTER.format(unit.subtotal)}{" "}

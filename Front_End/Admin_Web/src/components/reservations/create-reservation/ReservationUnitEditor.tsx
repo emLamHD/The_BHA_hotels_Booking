@@ -14,7 +14,14 @@ import type {
   RoomTypeId,
 } from "@/components/calendar/reservation-board/types";
 import { MOCK_RATE_PLANS, ratePlansForRoomType } from "./mockData";
-import { findFieldError } from "./types";
+import ReservationDateField from "./ReservationDateField";
+import {
+  findFieldError,
+  isValidReservationIsoDate,
+  MAX_RESERVATION_DATE,
+  MIN_RESERVATION_DATE,
+  parseActualNightlyAmount,
+} from "./types";
 import type { FieldError, ReservationUnitDraft } from "./types";
 
 const AMOUNT_FORMATTER = new Intl.NumberFormat("vi-VN", {
@@ -100,7 +107,15 @@ const ReservationUnitEditor: React.FC<ReservationUnitEditorProps> = ({
   const selectedRatePlan = unit.ratePlanId
     ? MOCK_RATE_PLANS.find((plan) => plan.id === unit.ratePlanId) ?? null
     : null;
-  const subtotal = selectedRatePlan && nights > 0 ? selectedRatePlan.nightlyAmount * nights : null;
+  const priceResult = parseActualNightlyAmount(unit.actualNightlyAmount);
+  const hasPriceOverride = priceResult.isValid && !priceResult.isBlank;
+  const effectiveNightlyAmount = !priceResult.isValid
+    ? null
+    : hasPriceOverride
+    ? priceResult.amount
+    : selectedRatePlan?.nightlyAmount ?? null;
+  const subtotal =
+    effectiveNightlyAmount !== null && nights > 0 ? effectiveNightlyAmount * nights : null;
 
   const soldRoomTypeError = fieldMessage(errors, showErrors, path("soldRoomTypeId"));
   const ratePlanError = fieldMessage(errors, showErrors, path("ratePlanId"));
@@ -109,6 +124,10 @@ const ReservationUnitEditor: React.FC<ReservationUnitEditorProps> = ({
   const checkOutError = fieldMessage(errors, showErrors, path("checkOut"));
   const adultsError = fieldMessage(errors, showErrors, path("adults"));
   const childrenError = fieldMessage(errors, showErrors, path("children"));
+  const actualNightlyAmountError = fieldMessage(errors, showErrors, path("actualNightlyAmount"));
+  const checkInMin = MIN_RESERVATION_DATE;
+  const checkOutMin =
+    unit.checkIn && isValidReservationIsoDate(unit.checkIn) ? unit.checkIn : MIN_RESERVATION_DATE;
 
   return (
     <fieldset className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] sm:p-6">
@@ -141,9 +160,9 @@ const ReservationUnitEditor: React.FC<ReservationUnitEditorProps> = ({
             disabled={!propertyId}
             aria-invalid={Boolean(soldRoomTypeError)}
             aria-describedby={soldRoomTypeError ? `${unit.id}-sold-room-type-error` : undefined}
-            className={`${inputClassName} ${soldRoomTypeError ? invalidInputClassName : ""} disabled:cursor-not-allowed disabled:bg-gray-50 dark:disabled:bg-white/[0.02]`}
+            className={`${inputClassName} ${!unit.soldRoomTypeId ? "text-gray-400 dark:text-gray-500" : ""} ${soldRoomTypeError ? invalidInputClassName : ""} disabled:cursor-not-allowed disabled:bg-gray-50 dark:disabled:bg-white/[0.02]`}
           >
-            <option value="">
+            <option value="" disabled hidden>
               {propertyId ? "Select a room type…" : "Select a property first"}
             </option>
             {roomTypesForProperty.map((roomType) => (
@@ -170,9 +189,9 @@ const ReservationUnitEditor: React.FC<ReservationUnitEditorProps> = ({
             disabled={!unit.soldRoomTypeId}
             aria-invalid={Boolean(ratePlanError)}
             aria-describedby={ratePlanError ? `${unit.id}-rate-plan-error` : undefined}
-            className={`${inputClassName} ${ratePlanError ? invalidInputClassName : ""} disabled:cursor-not-allowed disabled:bg-gray-50 dark:disabled:bg-white/[0.02]`}
+            className={`${inputClassName} ${!unit.ratePlanId ? "text-gray-400 dark:text-gray-500" : ""} ${ratePlanError ? invalidInputClassName : ""} disabled:cursor-not-allowed disabled:bg-gray-50 dark:disabled:bg-white/[0.02]`}
           >
-            <option value="">
+            <option value="" disabled hidden>
               {unit.soldRoomTypeId ? "Select a rate plan…" : "Select a sold room type first"}
             </option>
             {ratePlanOptions.map((plan) => (
@@ -187,6 +206,57 @@ const ReservationUnitEditor: React.FC<ReservationUnitEditorProps> = ({
             </p>
           ) : null}
         </div>
+
+        {selectedRatePlan ? (
+          <div className="sm:col-span-2">
+            <label htmlFor={`${unit.id}-actual-nightly-amount`} className={labelClassName}>
+              Actual nightly price{" "}
+              <span className="text-gray-400 dark:text-gray-500">(optional)</span>
+            </label>
+            <div className="flex flex-wrap items-center gap-3">
+              <input
+                id={`${unit.id}-actual-nightly-amount`}
+                type="text"
+                inputMode="numeric"
+                value={unit.actualNightlyAmount}
+                onChange={(event) =>
+                  onFieldChange(unit.id, "actualNightlyAmount", event.target.value)
+                }
+                placeholder="e.g. 820000"
+                aria-invalid={Boolean(actualNightlyAmountError)}
+                aria-describedby={
+                  actualNightlyAmountError
+                    ? `${unit.id}-actual-nightly-amount-error`
+                    : `${unit.id}-actual-nightly-amount-hint`
+                }
+                className={`${inputClassName} max-w-[220px] ${actualNightlyAmountError ? invalidInputClassName : ""}`}
+              />
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                Rate Plan price:{" "}
+                <span className="font-medium text-gray-700 dark:text-gray-200">
+                  {AMOUNT_FORMATTER.format(selectedRatePlan.nightlyAmount)}
+                </span>
+                /night
+              </span>
+            </div>
+            {actualNightlyAmountError ? (
+              <p
+                id={`${unit.id}-actual-nightly-amount-error`}
+                role="alert"
+                className={errorTextClassName}
+              >
+                {actualNightlyAmountError}
+              </p>
+            ) : (
+              <p
+                id={`${unit.id}-actual-nightly-amount-hint`}
+                className="mt-1.5 text-xs text-gray-500 dark:text-gray-400"
+              >
+                Leave blank to use the Rate Plan price.
+              </p>
+            )}
+          </div>
+        ) : null}
 
         <div className="sm:col-span-2">
           <label htmlFor={`${unit.id}-physical-room`} className={labelClassName}>
@@ -227,49 +297,33 @@ const ReservationUnitEditor: React.FC<ReservationUnitEditorProps> = ({
           ) : null}
         </div>
 
-        <div>
-          <label htmlFor={`${unit.id}-check-in`} className={labelClassName}>
-            Check-in date <span className="text-error-500">*</span>
-          </label>
-          <input
-            id={`${unit.id}-check-in`}
-            type="date"
-            value={unit.checkIn}
-            onChange={(event) => onFieldChange(unit.id, "checkIn", event.target.value)}
-            aria-invalid={Boolean(checkInError)}
-            aria-describedby={checkInError ? `${unit.id}-check-in-error` : undefined}
-            className={`${inputClassName} ${checkInError ? invalidInputClassName : ""}`}
-          />
-          {checkInError ? (
-            <p id={`${unit.id}-check-in-error`} className={errorTextClassName}>
-              {checkInError}
-            </p>
-          ) : null}
-        </div>
+        <ReservationDateField
+          id={`${unit.id}-check-in`}
+          label="Check-in date"
+          required
+          value={unit.checkIn}
+          onChange={(value) => onFieldChange(unit.id, "checkIn", value)}
+          min={checkInMin}
+          max={MAX_RESERVATION_DATE}
+          error={checkInError}
+        />
 
         <div>
-          <label htmlFor={`${unit.id}-check-out`} className={labelClassName}>
-            Checkout date <span className="text-error-500">*</span>
-          </label>
-          <input
+          <ReservationDateField
             id={`${unit.id}-check-out`}
-            type="date"
+            label="Checkout date"
+            required
             value={unit.checkOut}
-            min={unit.checkIn || undefined}
-            onChange={(event) => onFieldChange(unit.id, "checkOut", event.target.value)}
-            aria-invalid={Boolean(checkOutError)}
-            aria-describedby={checkOutError ? `${unit.id}-check-out-error` : undefined}
-            className={`${inputClassName} ${checkOutError ? invalidInputClassName : ""}`}
+            onChange={(value) => onFieldChange(unit.id, "checkOut", value)}
+            min={checkOutMin}
+            max={MAX_RESERVATION_DATE}
+            error={checkOutError}
           />
-          {checkOutError ? (
-            <p id={`${unit.id}-check-out-error`} className={errorTextClassName}>
-              {checkOutError}
-            </p>
-          ) : (
+          {!checkOutError ? (
             <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
               {nights > 0 ? `${nights} night${nights === 1 ? "" : "s"}` : "Select both dates"}
             </p>
-          )}
+          ) : null}
         </div>
 
         <div>
@@ -330,15 +384,31 @@ const ReservationUnitEditor: React.FC<ReservationUnitEditorProps> = ({
         </div>
       </div>
 
-      {selectedRatePlan && subtotal !== null ? (
-        <p className="mt-4 text-right text-sm text-gray-600 dark:text-gray-300">
-          {nights} night{nights === 1 ? "" : "s"} × {AMOUNT_FORMATTER.format(selectedRatePlan.nightlyAmount)}{" "}
-          ={" "}
-          <span className="font-semibold text-gray-800 dark:text-white/90">
-            {AMOUNT_FORMATTER.format(subtotal)}
-          </span>{" "}
-          <span className="text-xs text-gray-400 dark:text-gray-500">(demo estimate)</span>
-        </p>
+      {selectedRatePlan ? (
+        <div className="mt-4 space-y-1 text-right text-sm text-gray-600 dark:text-gray-300">
+          {hasPriceOverride && effectiveNightlyAmount !== null ? (
+            <p>
+              Rate Plan price:{" "}
+              <span className="text-gray-400 line-through dark:text-gray-500">
+                {AMOUNT_FORMATTER.format(selectedRatePlan.nightlyAmount)}
+              </span>{" "}
+              · Actual price:{" "}
+              <span className="font-medium text-gray-800 dark:text-white/90">
+                {AMOUNT_FORMATTER.format(effectiveNightlyAmount)}
+              </span>
+            </p>
+          ) : null}
+          {subtotal !== null && effectiveNightlyAmount !== null ? (
+            <p>
+              {nights} night{nights === 1 ? "" : "s"} ×{" "}
+              {AMOUNT_FORMATTER.format(effectiveNightlyAmount)} ={" "}
+              <span className="font-semibold text-gray-800 dark:text-white/90">
+                {AMOUNT_FORMATTER.format(subtotal)}
+              </span>{" "}
+              <span className="text-xs text-gray-400 dark:text-gray-500">(demo estimate)</span>
+            </p>
+          ) : null}
+        </div>
       ) : null}
     </fieldset>
   );

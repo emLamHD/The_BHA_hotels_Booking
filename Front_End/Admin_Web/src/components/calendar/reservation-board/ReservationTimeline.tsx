@@ -48,7 +48,8 @@ interface ReservationTimelineProps {
   onDragStart: (itemId: string) => void;
   onDragEnd: () => void;
   onProposeMove: (itemId: string, target: ReservationMoveTarget) => void;
-  onRequestMove: (itemId: string) => void;
+  /** Primary activation (click or Enter/Space) — opens the reservation/block details dialog. */
+  onActivateItem: (itemId: string) => void;
   getMoveValidation: (
     itemId: string,
     target: ReservationMoveTarget
@@ -128,7 +129,7 @@ interface TimelineBarProps {
   isDragged: boolean;
   onDragStart: (itemId: string, clientX: number) => void;
   onDragEnd: () => void;
-  onRequestMove: (itemId: string) => void;
+  onActivate: (itemId: string) => void;
   onHoverStart: (item: ReservationItem, anchorEl: HTMLElement) => void;
   onHoverEnd: () => void;
 }
@@ -143,7 +144,7 @@ const TimelineBar: React.FC<TimelineBarProps> = ({
   isDragged,
   onDragStart,
   onDragEnd,
-  onRequestMove,
+  onActivate,
   onHoverStart,
   onHoverEnd,
 }) => {
@@ -172,11 +173,12 @@ const TimelineBar: React.FC<TimelineBarProps> = ({
         onDragStart(item.id, event.clientX);
       }}
       onDragEnd={() => onDragEnd()}
+      onClick={() => onActivate(item.id)}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
           onHoverEnd();
-          onRequestMove(item.id);
+          onActivate(item.id);
         }
       }}
       onMouseEnter={
@@ -215,7 +217,7 @@ const ReservationTimeline: React.FC<ReservationTimelineProps> = ({
   onDragStart,
   onDragEnd,
   onProposeMove,
-  onRequestMove,
+  onActivateItem,
   getMoveValidation,
   onDragFeedback,
 }) => {
@@ -223,6 +225,10 @@ const ReservationTimeline: React.FC<ReservationTimelineProps> = ({
   // startDate, captured once at dragstart so the grabbed night's relative
   // position within the bar never jumps under the pointer while dragging.
   const [dragGrabOffsetDays, setDragGrabOffsetDays] = useState<number | null>(null);
+  // Set on `dragstart`, cleared shortly after `dragend` — guards against a
+  // browser firing `click` right after a completed drag gesture so a drop
+  // never accidentally opens the details dialog (ADMIN-002.1-C5 §6.1).
+  const dragStartedRef = useRef(false);
   // Latest resolved drag candidate (room + snapped date span); used both to
   // render the preview and, per the drag-to-date spec, as the exact value
   // applied on drop rather than recomputing from the drop event.
@@ -293,6 +299,7 @@ const ReservationTimeline: React.FC<ReservationTimelineProps> = ({
   );
 
   const handleBarDragStart = (itemId: string, clientX: number) => {
+    dragStartedRef.current = true;
     closeHoverCard();
     const item = items.find((candidate) => candidate.id === itemId);
     if (item && scrollContainerRef.current) {
@@ -309,6 +316,16 @@ const ReservationTimeline: React.FC<ReservationTimelineProps> = ({
     setDragPreview(null);
     setDragGrabOffsetDays(null);
     onDragEnd();
+    // Deferred so a `click` firing synchronously right after `dragend` (seen
+    // on some browsers for a completed drop) still observes the flag as set.
+    window.setTimeout(() => {
+      dragStartedRef.current = false;
+    }, 0);
+  };
+
+  const handleBarActivate = (itemId: string) => {
+    if (dragStartedRef.current) return;
+    onActivateItem(itemId);
   };
 
   const handleBarHoverStart = (item: ReservationItem, anchorEl: HTMLElement) => {
@@ -499,7 +516,7 @@ const ReservationTimeline: React.FC<ReservationTimelineProps> = ({
                               isDragged={draggedItemId === item.id}
                               onDragStart={handleBarDragStart}
                               onDragEnd={handleBarDragEnd}
-                              onRequestMove={onRequestMove}
+                              onActivate={handleBarActivate}
                               onHoverStart={handleBarHoverStart}
                               onHoverEnd={closeHoverCard}
                               primaryLabel="Block"
@@ -521,7 +538,7 @@ const ReservationTimeline: React.FC<ReservationTimelineProps> = ({
                             isDragged={draggedItemId === item.id}
                             onDragStart={handleBarDragStart}
                             onDragEnd={handleBarDragEnd}
-                            onRequestMove={onRequestMove}
+                            onActivate={handleBarActivate}
                             onHoverStart={handleBarHoverStart}
                             onHoverEnd={closeHoverCard}
                             primaryLabel={item.guestName}
@@ -615,7 +632,7 @@ const ReservationTimeline: React.FC<ReservationTimelineProps> = ({
                             isDragged={draggedItemId === item.id}
                             onDragStart={handleBarDragStart}
                             onDragEnd={handleBarDragEnd}
-                            onRequestMove={onRequestMove}
+                            onActivate={handleBarActivate}
                             onHoverStart={handleBarHoverStart}
                             onHoverEnd={closeHoverCard}
                             primaryLabel={item.guestName}

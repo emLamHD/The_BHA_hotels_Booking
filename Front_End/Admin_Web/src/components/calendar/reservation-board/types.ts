@@ -52,6 +52,14 @@ export interface ReservationPaymentDisplay {
   currency: "VND";
 }
 
+/**
+ * Explicit, deterministically-assigned demo stay status (ADMIN-002.1-C5).
+ * Never derived from `DEMO_TODAY_ISO`/today's date at render time — set once
+ * per mock item so the Reservation Details dialog and hover card always
+ * agree, independent of whichever calendar range is currently visible.
+ */
+export type ReservationStayStatus = "confirmed" | "checked-in" | "checked-out";
+
 export interface ReservationOccupancy {
   adults: number;
   children: number;
@@ -72,11 +80,18 @@ interface TimelineItemBase {
  */
 interface ReservationTimelineItemBase extends TimelineItemBase {
   soldRoomTypeId: RoomTypeId;
+  /** Human-facing booking reference shown in the Reservation Details dialog. */
+  reservationCode: string;
   guestName: string;
+  guestPhone: string;
   nationality: GuestNationality;
   sourceId: BookingSourceId;
   occupancy: ReservationOccupancy;
   paymentDisplay: ReservationPaymentDisplay;
+  stayStatus: ReservationStayStatus;
+  /** Property check-in/checkout times, e.g. "14:00" — display-only demo data. */
+  checkInTime: string;
+  checkOutTime: string;
 }
 
 export interface AssignedReservationItem extends ReservationTimelineItemBase {
@@ -99,7 +114,7 @@ export type TimelineItem =
   | UnassignedReservationItem
   | OperationalBlockItem;
 
-export type ReservationBoardRangeLength = 7 | 14 | 21;
+export type ReservationBoardRangeLength = 7 | 14 | 21 | 31;
 
 export interface ReservationBoardFilters {
   showAssigned: boolean;

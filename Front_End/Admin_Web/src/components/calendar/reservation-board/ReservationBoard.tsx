@@ -4,10 +4,12 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import ReservationBoardToolbar from "./ReservationBoardToolbar";
 import ReservationTimeline from "./ReservationTimeline";
 import ReservationMoveConfirmDialog from "./ReservationMoveConfirmDialog";
+import TimelineItemDetailsDialog from "./TimelineItemDetailsDialog";
 import { CloseLineIcon } from "@/icons";
 import {
   addDaysIso,
   buildVisibleRange,
+  computeVisibleStartFromAnchor,
   diffDaysIso,
   formatDisplayDate,
   formatRangeLabel,
@@ -73,7 +75,12 @@ const ReservationBoard: React.FC = () => {
   const [rangeLength, setRangeLength] = useState<ReservationBoardRangeLength>(
     INITIAL_RANGE_LENGTH
   );
-  const [rangeStart, setRangeStart] = useState(DEMO_TODAY_ISO);
+  // Anchor-centered range model (ADMIN-002.1-C5 §7): the visible window is
+  // always centered on `anchorDate` rather than starting at it, so past
+  // dates are visible immediately and Previous/Next can reach further back
+  // than the demo "today". Today re-centers by resetting the anchor.
+  const [anchorDate, setAnchorDate] = useState<string>(DEMO_TODAY_ISO);
+  const rangeStart = computeVisibleStartFromAnchor(anchorDate, rangeLength);
   const [filters, setFilters] = useState<ReservationBoardFilters>({
     showAssigned: true,
     showUnassigned: true,
@@ -90,6 +97,10 @@ const ReservationBoard: React.FC = () => {
   const [pendingSourceItemId, setPendingSourceItemId] = useState<string | null>(null);
   const [pendingInitialTarget, setPendingInitialTarget] =
     useState<ReservationMoveTarget | null>(null);
+  // Stores the selected item's ID, never a copied item object, so the
+  // dialog always resolves the latest `timelineItems` state on render and
+  // reflects a room/date move made while it was previously open (ADMIN-002.1-C5 §6.3).
+  const [selectedDetailsItemId, setSelectedDetailsItemId] = useState<string | null>(null);
 
   // Codex P2 correction (ADMIN-002.1-C1): transient drag-hover feedback and
   // persistent post-action feedback are deliberately separate state. A
@@ -109,7 +120,10 @@ const ReservationBoard: React.FC = () => {
   const focusReturnItemIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (pendingSourceItemId) return;
+    // Wait until both the move dialog and the details dialog are closed —
+    // a details→move transition closes the former and opens the latter in
+    // the same batch, and must not refocus the bar in between.
+    if (pendingSourceItemId || selectedDetailsItemId) return;
     const itemId = focusReturnItemIdRef.current;
     if (!itemId) return;
     focusReturnItemIdRef.current = null;
@@ -117,7 +131,7 @@ const ReservationBoard: React.FC = () => {
       `[data-timeline-item-id="${CSS.escape(itemId)}"]`
     );
     target?.focus();
-  }, [pendingSourceItemId]);
+  }, [pendingSourceItemId, selectedDetailsItemId]);
 
   const range = buildVisibleRange(rangeStart, rangeLength);
   const rangeLabel = formatRangeLabel(range);
@@ -159,6 +173,10 @@ const ReservationBoard: React.FC = () => {
     ? timelineItems.find((item) => item.id === pendingSourceItemId) ?? null
     : null;
 
+  const selectedDetailsItem = selectedDetailsItemId
+    ? timelineItems.find((item) => item.id === selectedDetailsItemId) ?? null
+    : null;
+
   const handleToggleFilter = (key: keyof ReservationBoardFilters) => {
     setFilters((previous) => ({ ...previous, [key]: !previous[key] }));
   };
@@ -172,7 +190,15 @@ const ReservationBoard: React.FC = () => {
     setPendingSourceItemId(null);
     setPendingInitialTarget(null);
     setDraggedItemId(null);
-  }, []);
+    setSelectedDetailsItemId(null);
+  }, [
+    setPersistentActionFeedback,
+    setTransientDragFeedback,
+    setPendingSourceItemId,
+    setPendingInitialTarget,
+    setDraggedItemId,
+    setSelectedDetailsItemId,
+  ]);
 
   // Conflict validation always runs against the complete local timeline
   // dataset for the item's property — never only the currently
@@ -350,7 +376,7 @@ const ReservationBoard: React.FC = () => {
       setPendingSourceItemId(itemId);
       setPendingInitialTarget(initialTarget);
     },
-    []
+    [setPersistentActionFeedback, setPendingSourceItemId, setPendingInitialTarget]
   );
 
   // Drag-and-drop drop path: destination room + dates are already known.
@@ -369,28 +395,53 @@ const ReservationBoard: React.FC = () => {
 
       openDialogFor(itemId, target);
     },
-    [getMoveValidation, openDialogFor]
+    [getMoveValidation, openDialogFor, setPersistentActionFeedback]
   );
 
-  // Keyboard/accessible path: Enter or Space opens the dialog in
-  // edit-selection mode (room and/or start date still to be chosen).
+  // Reached from the Details dialog's "Move / adjust stay" / "Move block"
+  // action — closes Details and opens the move dialog in edit-selection mode
+  // (room and/or start date still to be chosen). Reuses the same
+  // getMoveValidation/buildMoveIntent logic as the drag-drop path rather
+  // than a second move implementation (ADMIN-002.1-C5 §6.2).
   const handleRequestMove = useCallback(
     (itemId: string) => {
+      setSelectedDetailsItemId(null);
       openDialogFor(itemId, null);
     },
-    [openDialogFor]
+    [openDialogFor, setSelectedDetailsItemId]
   );
 
-  const handleDragFeedback = useCallback((message: string | null) => {
-    setTransientDragFeedback(message);
-  }, []);
+  // Primary activation (click, guarded against a just-completed drag; or
+  // Enter/Space) — opens the reservation/block details dialog.
+  const handleOpenDetails = useCallback(
+    (itemId: string) => {
+      focusReturnItemIdRef.current = itemId;
+      setPersistentActionFeedback(null);
+      setSelectedDetailsItemId(itemId);
+    },
+    [setPersistentActionFeedback, setSelectedDetailsItemId]
+  );
 
-  const handleDragStart = useCallback((itemId: string) => {
-    setDraggedItemId(itemId);
-    // Beginning a new drag is a deliberate interaction allowed to clear a
-    // stale persistent conflict/success message (Codex P2 correction).
-    setPersistentActionFeedback(null);
-  }, []);
+  const handleCloseDetails = useCallback(() => {
+    setSelectedDetailsItemId(null);
+  }, [setSelectedDetailsItemId]);
+
+  const handleDragFeedback = useCallback(
+    (message: string | null) => {
+      setTransientDragFeedback(message);
+    },
+    [setTransientDragFeedback]
+  );
+
+  const handleDragStart = useCallback(
+    (itemId: string) => {
+      setDraggedItemId(itemId);
+      // Beginning a new drag is a deliberate interaction allowed to clear a
+      // stale persistent conflict/success message (Codex P2 correction).
+      setPersistentActionFeedback(null);
+    },
+    [setDraggedItemId, setPersistentActionFeedback]
+  );
 
   const handleDragEnd = useCallback(() => {
     setDraggedItemId(null);
@@ -399,7 +450,7 @@ const ReservationBoard: React.FC = () => {
     // The browser fires `dragend` right after every drop — including a
     // rejected one — and clearing the persistent message here would erase
     // the conflict reason the instant the drop completes.
-  }, []);
+  }, [setDraggedItemId, setTransientDragFeedback]);
 
   const handleConfirmMove = useCallback((intent: ReservationMoveIntent) => {
     setTimelineItems((previous) =>
@@ -440,11 +491,16 @@ const ReservationBoard: React.FC = () => {
             startDate: intent.toStartDate,
             endDate: intent.toEndDate,
             soldRoomTypeId: item.soldRoomTypeId,
+            reservationCode: item.reservationCode,
             guestName: item.guestName,
+            guestPhone: item.guestPhone,
             nationality: item.nationality,
             sourceId: item.sourceId,
             occupancy: item.occupancy,
             paymentDisplay: item.paymentDisplay,
+            stayStatus: item.stayStatus,
+            checkInTime: item.checkInTime,
+            checkOutTime: item.checkOutTime,
             roomId: intent.toRoomId,
           };
           return assigned;
@@ -457,16 +513,22 @@ const ReservationBoard: React.FC = () => {
     setPersistentActionFeedback({ kind: "success", message: formatMoveSuccessMessage(intent) });
     setPendingSourceItemId(null);
     setPendingInitialTarget(null);
-  }, []);
+  }, [
+    setTimelineItems,
+    setTransientDragFeedback,
+    setPersistentActionFeedback,
+    setPendingSourceItemId,
+    setPendingInitialTarget,
+  ]);
 
   const handleCancelMove = useCallback(() => {
     setPendingSourceItemId(null);
     setPendingInitialTarget(null);
-  }, []);
+  }, [setPendingSourceItemId, setPendingInitialTarget]);
 
   const handleDismissFeedback = useCallback(() => {
     setPersistentActionFeedback(null);
-  }, []);
+  }, [setPersistentActionFeedback]);
 
   const bannerMessage = transientDragFeedback ?? persistentActionFeedback?.message ?? null;
   const bannerTone: "error" | "success" = transientDragFeedback
@@ -483,9 +545,9 @@ const ReservationBoard: React.FC = () => {
         rangeLength={rangeLength}
         onSelectRangeLength={setRangeLength}
         rangeLabel={rangeLabel}
-        onPrev={() => setRangeStart((previous) => addDaysIso(previous, -rangeLength))}
-        onNext={() => setRangeStart((previous) => addDaysIso(previous, rangeLength))}
-        onToday={() => setRangeStart(DEMO_TODAY_ISO)}
+        onPrev={() => setAnchorDate((previous) => addDaysIso(previous, -rangeLength))}
+        onNext={() => setAnchorDate((previous) => addDaysIso(previous, rangeLength))}
+        onToday={() => setAnchorDate(DEMO_TODAY_ISO)}
         filters={filters}
         onToggleFilter={handleToggleFilter}
       />
@@ -526,10 +588,21 @@ const ReservationBoard: React.FC = () => {
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
         onProposeMove={handleProposeMove}
-        onRequestMove={handleRequestMove}
+        onActivateItem={handleOpenDetails}
         getMoveValidation={getMoveValidation}
         onDragFeedback={handleDragFeedback}
       />
+
+      {selectedDetailsItem ? (
+        <TimelineItemDetailsDialog
+          item={selectedDetailsItem}
+          physicalRooms={physicalRoomsForProperty}
+          roomTypes={roomTypesForProperty}
+          bookingSources={MOCK_BOOKING_SOURCES}
+          onClose={handleCloseDetails}
+          onRequestMove={handleRequestMove}
+        />
+      ) : null}
 
       {pendingItem ? (
         <ReservationMoveConfirmDialog

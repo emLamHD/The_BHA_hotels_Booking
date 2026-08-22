@@ -15,7 +15,17 @@ import type {
   ReservationBoardRangeLength,
 } from "./types";
 
-const RANGE_LENGTH_OPTIONS: ReservationBoardRangeLength[] = [7, 14, 21];
+interface RangeLengthOption {
+  value: ReservationBoardRangeLength;
+  label: string;
+}
+
+const RANGE_LENGTH_OPTIONS: RangeLengthOption[] = [
+  { value: 7, label: "7 days" },
+  { value: 14, label: "14 days" },
+  { value: 21, label: "21 days" },
+  { value: 31, label: "1 month" },
+];
 
 interface FilterOption {
   key: keyof ReservationBoardFilters;
@@ -140,21 +150,21 @@ const ReservationBoardToolbar: React.FC<ReservationBoardToolbarProps> = ({
           {rangeLabel}
         </span>
 
-        <fieldset className="ml-auto flex items-center gap-1 rounded-lg border border-gray-200 p-1 dark:border-gray-800">
+        <fieldset className="ml-auto flex flex-wrap items-center gap-1 rounded-lg border border-gray-200 p-1 dark:border-gray-800">
           <legend className="sr-only">Visible date range length</legend>
           {RANGE_LENGTH_OPTIONS.map((option) => (
             <button
-              key={option}
+              key={option.value}
               type="button"
-              aria-pressed={rangeLength === option}
-              onClick={() => onSelectRangeLength(option)}
-              className={`h-8 rounded-md px-3 text-sm font-medium focus:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-500/40 ${
-                rangeLength === option
+              aria-pressed={rangeLength === option.value}
+              onClick={() => onSelectRangeLength(option.value)}
+              className={`h-8 whitespace-nowrap rounded-md px-3 text-sm font-medium focus:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-500/40 ${
+                rangeLength === option.value
                   ? "bg-white text-gray-900 shadow-theme-xs dark:bg-gray-800 dark:text-white"
                   : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
               }`}
             >
-              {option}d
+              {option.label}
             </button>
           ))}
         </fieldset>

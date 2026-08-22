@@ -21,6 +21,13 @@ import ReservationUnitEditor from "./ReservationUnitEditor";
 import ReservationSummary from "./ReservationSummary";
 import ReservationReviewDialog from "./ReservationReviewDialog";
 import { MOCK_NATIONALITIES, MOCK_RATE_PLANS } from "./mockData";
+import {
+  isValidReservationIsoDate,
+  MAX_ACTUAL_NIGHTLY_AMOUNT,
+  MAX_RESERVATION_DATE,
+  MIN_RESERVATION_DATE,
+  parseActualNightlyAmount,
+} from "./types";
 import type {
   CreateReservationFormState,
   CreateReservationGuestDetails,
@@ -40,6 +47,7 @@ function createEmptyUnit(id: string): ReservationUnitDraft {
     adults: 1,
     children: 0,
     specialRequest: "",
+    actualNightlyAmount: "",
   };
 }
 
@@ -113,8 +121,17 @@ function formReducer(
           if (unit.id !== action.unitId) return unit;
           const updated = { ...unit, [action.field]: action.value };
           // Rate plans are scoped per sold RoomType — a stale plan from a
-          // different RoomType would no longer be a valid choice.
-          if (action.field === "soldRoomTypeId") updated.ratePlanId = "";
+          // different RoomType would no longer be a valid choice. A
+          // negotiated price override is scoped to the Rate Plan it was
+          // negotiated against — changing either the sold RoomType or the
+          // Rate Plan clears it so it never silently carries over to a
+          // different plan's price (ADMIN-002.1-C5 §3.3).
+          if (action.field === "soldRoomTypeId") {
+            updated.ratePlanId = "";
+            updated.actualNightlyAmount = "";
+          } else if (action.field === "ratePlanId") {
+            updated.actualNightlyAmount = "";
+          }
           return updated;
         }),
       };
@@ -224,14 +241,33 @@ function validateForm(state: CreateReservationFormState): FieldError[] {
       errors.push({ path: unitPath("ratePlanId"), message: `${label}: select a rate plan.` });
     }
 
+    const checkInValid = Boolean(unit.checkIn) && isValidReservationIsoDate(unit.checkIn);
+    const checkOutValid = Boolean(unit.checkOut) && isValidReservationIsoDate(unit.checkOut);
     if (!unit.checkIn) {
       errors.push({ path: unitPath("checkIn"), message: `${label}: enter a check-in date.` });
+    } else if (!checkInValid) {
+      errors.push({
+        path: unitPath("checkIn"),
+        message: `${label}: check-in date must be a real date between ${MIN_RESERVATION_DATE} and ${MAX_RESERVATION_DATE}.`,
+      });
     }
     if (!unit.checkOut) {
       errors.push({ path: unitPath("checkOut"), message: `${label}: enter a checkout date.` });
-    }
-    if (unit.checkIn && unit.checkOut && compareIsoDate(unit.checkOut, unit.checkIn) <= 0) {
+    } else if (!checkOutValid) {
+      errors.push({
+        path: unitPath("checkOut"),
+        message: `${label}: checkout date must be a real date between ${MIN_RESERVATION_DATE} and ${MAX_RESERVATION_DATE}.`,
+      });
+    } else if (checkInValid && compareIsoDate(unit.checkOut, unit.checkIn) <= 0) {
       errors.push({ path: unitPath("checkOut"), message: `${label}: checkout must be after check-in.` });
+    }
+
+    const priceResult = parseActualNightlyAmount(unit.actualNightlyAmount);
+    if (!priceResult.isValid) {
+      errors.push({
+        path: unitPath("actualNightlyAmount"),
+        message: `${label}: enter a whole number between 0 and ${MAX_ACTUAL_NIGHTLY_AMOUNT.toLocaleString("vi-VN")} VND, or leave blank.`,
+      });
     }
 
     if (unit.adults < 1) {
@@ -287,7 +323,15 @@ function buildReviewData(state: CreateReservationFormState): ReservationReviewDa
     const ratePlan = unit.ratePlanId
       ? MOCK_RATE_PLANS.find((candidate) => candidate.id === unit.ratePlanId) ?? null
       : null;
-    const subtotal = ratePlan && nights > 0 ? ratePlan.nightlyAmount * nights : null;
+    const priceResult = parseActualNightlyAmount(unit.actualNightlyAmount);
+    const hasPriceOverride = priceResult.isValid && !priceResult.isBlank;
+    const effectiveNightlyAmount = !priceResult.isValid
+      ? null
+      : hasPriceOverride
+      ? priceResult.amount
+      : ratePlan?.nightlyAmount ?? null;
+    const subtotal =
+      effectiveNightlyAmount !== null && nights > 0 ? effectiveNightlyAmount * nights : null;
 
     return {
       unitId: unit.id,
@@ -301,7 +345,9 @@ function buildReviewData(state: CreateReservationFormState): ReservationReviewDa
       adults: unit.adults,
       children: unit.children,
       ratePlanName: ratePlan?.name ?? null,
-      nightlyAmount: ratePlan?.nightlyAmount ?? null,
+      ratePlanNightlyAmount: ratePlan?.nightlyAmount ?? null,
+      effectiveNightlyAmount,
+      hasPriceOverride,
       subtotal,
     };
   });
