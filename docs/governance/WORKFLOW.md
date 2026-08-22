@@ -89,6 +89,9 @@ PHASES:
 SKILL_POLICY:
   diagnosing-bugs: REQUIRED | ALLOWED_IF_TRIGGERED | NOT_APPLICABLE
   TRIGGER_OR_REASON:
+  GRAPHIFY_POLICY: REQUIRED_FOR_PREFLIGHT_IMPACT_ANALYSIS | ALLOWED_IF_RELEVANT | NOT_APPLICABLE
+  GRAPHIFY_TRIGGER_OR_REASON:
+  GRAPHIFY_UNAVAILABLE_OR_STALE: BLOCK | FALL_BACK_TO_SOURCE_TESTS
 
 READ_NOW:
 ALLOWED_FILES:
@@ -312,24 +315,53 @@ Trạng thái hiện tại:
   `.claude/settings.json` được tạo) đã bị phát hiện và dọn sạch; không giữ
   lại trong trạng thái hiện tại.
 
-Cho các Master Execution Prompt sau này, OC khai báo trường:
+Việc invoke Graphify luôn cần **cả hai** điều kiện: (1) Graphify khả dụng
+và đủ mới trong workspace hiện tại, **và** (2) Master Execution Prompt hiện
+hành cấp quyền tường minh qua một `GRAPHIFY_POLICY` hợp lệ. Khả dụng, độ
+liên quan của task, hay việc model tự thấy task "giống" architecture/
+dependency/relationship/impact-analysis **không** tự cấp quyền — chỉ skill
+được prompt liệt kê/approve mới được dùng (quy tắc chung ở §12 "Đối với
+repository skill bên ngoài"), Graphify không phải ngoại lệ.
+
+Cho các Master Execution Prompt sau này, OC bắt buộc khai báo trường:
 
 ```text
 GRAPHIFY_POLICY: REQUIRED_FOR_PREFLIGHT_IMPACT_ANALYSIS | ALLOWED_IF_RELEVANT | NOT_APPLICABLE
 GRAPHIFY_TRIGGER_OR_REASON:
+GRAPHIFY_UNAVAILABLE_OR_STALE: BLOCK | FALL_BACK_TO_SOURCE_TESTS
 ```
 
-- Auto-invocation của skill Graphify là do model tự chọn khi mô tả task
-  khớp (architecture/dependency/relationship/impact-analysis) **và** skill
-  thật sự khả dụng trong workspace hiện tại, không phải điều được đảm bảo
-  cho mọi task hay mọi workspace.
-- Việc bắt buộc dùng Graphify phải được OC khai báo rõ trong Master
-  Execution Prompt hiện hành (`GRAPHIFY_POLICY: REQUIRED_FOR_PREFLIGHT_IMPACT_ANALYSIS`);
-  nếu không khai báo, Graphify chỉ là công cụ tùy chọn. Khai báo này **không
-  tự cấp quyền cài đặt hay rebuild** Graphify nếu nó vắng mặt trong
-  workspace — nếu một capability Graphify bắt buộc bị thiếu, executor theo
-  đúng stop/fallback policy của prompt hiện hành (báo cáo vắng mặt chính
-  xác, dùng source/test trực tiếp), không tự ý cài đặt.
+Ánh xạ chính sách:
+
+- **`REQUIRED_FOR_PREFLIGHT_IMPACT_ANALYSIS`**: Claude bắt buộc dùng
+  Graphify cho preflight impact analysis mà prompt yêu cầu. Claude verify
+  khả dụng và độ mới của graph trước (không dùng `git ls-files` trả về
+  rỗng làm bằng chứng vắng mặt — phải check tồn tại local trực tiếp, ví dụ
+  `.claude/skills/graphify/SKILL.md`). Nếu Graphify vắng mặt hoặc quá
+  stale và không có quyền cài đặt/rebuild riêng, Claude theo đúng
+  `GRAPHIFY_UNAVAILABLE_OR_STALE` đã khai báo; nếu prompt không khai báo
+  trường này, Claude trả `BLOCKED` thay vì tự ý cài đặt, rebuild, hay bỏ
+  qua một capability bắt buộc.
+- **`ALLOWED_IF_RELEVANT`**: Graphify được cấp quyền nhưng tùy chọn.
+  Claude chỉ được auto-invoke skill do model tự chọn **dưới chính giá trị
+  policy này** — đây là giá trị **duy nhất** cho phép auto-invocation kiểu
+  model-selected — và chỉ khi Graphify khả dụng trong workspace hiện tại,
+  graph đủ mới cho câu hỏi, và task thuộc phạm vi architecture/dependency/
+  relationship/impact-analysis. Nếu vắng mặt hoặc stale, Claude tiếp tục
+  bằng source/test và báo cáo giới hạn, trừ khi prompt nói khác. Cài
+  đặt/rebuild vẫn cần quyền riêng.
+- **`NOT_APPLICABLE`**: Claude không được invoke Graphify — không inspect,
+  query, install, update hay rebuild cho work item đó.
+- **Thiếu hoặc `GRAPHIFY_POLICY` không hợp lệ**: coi như "không được
+  invoke", tương đương `NOT_APPLICABLE` — **không bao giờ** coi như
+  `ALLOWED_IF_RELEVANT`. Không được suy ra quyền từ mô tả task, từ việc
+  skill đã cài, từ graph đã có sẵn, hay từ việc một work item trước đã
+  accept pilot. Nếu task không thể hoàn thành thiếu Graphify, trả
+  `BLOCKED_PENDING_SCOPE_CLARIFICATION`.
+
+Không giá trị `GRAPHIFY_POLICY` nào tự cấp quyền cài đặt hay rebuild
+Graphify — quyền đó luôn cần một work item tooling riêng của Owner.
+
 - Bằng chứng từ graph không bao giờ thay thế việc đọc trực tiếp source hoặc
   chạy test; graph là advisory.
 - Graph có thể trở nên stale so với `HEAD` hiện tại. Việc graph stale không

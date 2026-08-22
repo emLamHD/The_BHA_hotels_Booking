@@ -319,15 +319,24 @@ hoàn tất tooling-adoption gate riêng của nó:
   verify này; một fresh clone, worktree khác, hay máy khác sẽ không tự
   động có Graphify — phải tự verify tồn tại trước khi coi là khả dụng, và
   không được tự ý cài đặt nếu vắng mặt trừ khi có Master Execution Prompt
-  cho phép rõ ràng. Chính sách sử dụng cho các work item sau: khai báo
-  `GRAPHIFY_POLICY: REQUIRED_FOR_PREFLIGHT_IMPACT_ANALYSIS | ALLOWED_IF_RELEVANT | NOT_APPLICABLE`
-  trong Master Execution Prompt; graph là advisory, luôn kiểm chứng lại với
+  cho phép rõ ràng. Invoke Graphify luôn cần **cả hai**: khả dụng trong
+  workspace **và** một `GRAPHIFY_POLICY` hợp lệ do OC khai báo tường minh
+  trong Master Execution Prompt hiện hành — khả dụng cục bộ hay task "có
+  vẻ" liên quan không tự cấp quyền. Ánh xạ: `REQUIRED_FOR_PREFLIGHT_IMPACT_ANALYSIS`
+  bắt buộc dùng, theo đúng `GRAPHIFY_UNAVAILABLE_OR_STALE` đã khai báo nếu
+  vắng mặt/stale, hoặc `BLOCKED` nếu prompt không khai báo hành vi đó;
+  `ALLOWED_IF_RELEVANT` là **giá trị duy nhất** cho phép auto-invocation do
+  model tự chọn, và chỉ khi Graphify thật sự khả dụng/đủ mới; `NOT_APPLICABLE`
+  cấm invoke hoàn toàn; **thiếu hoặc `GRAPHIFY_POLICY` không hợp lệ được
+  coi như `NOT_APPLICABLE`** (không bao giờ ngầm hiểu là `ALLOWED_IF_RELEVANT`
+  hay là tùy chọn mặc định cho phép). Không giá trị policy nào tự cấp
+  quyền cài đặt/rebuild. Graph luôn là advisory, luôn kiểm chứng lại với
   source/test; so sánh `built_at_commit` với `HEAD` hiện tại trước khi tin
   graph; graph stale không tự động cho phép rebuild — xem
-  `docs/governance/WORKFLOW.md` §12 và `AGENTS.md` §10. Cấm: full semantic
-  pipeline, Graphify subagents, strict mode, PreToolUse hooks, watch mode,
-  MCP, automatic rebuild — trừ khi một tooling work item sau này của Owner
-  đổi chính sách.
+  `docs/governance/WORKFLOW.md` §12 và `AGENTS.md` §10 cho ánh xạ đầy đủ.
+  Cấm: full semantic pipeline, Graphify subagents, strict mode, PreToolUse
+  hooks, watch mode, MCP, automatic rebuild — trừ khi một tooling work item
+  sau này của Owner đổi chính sách.
 - `diagnosing-bugs` (`mattpocock/skills`): cài global, điều kiện, không phải
   bước bắt buộc mỗi task. `TOOL-GRAPHIFY-001-DOCS-CLOSEOUT` không invoke
   skill này (`NOT_APPLICABLE`).
