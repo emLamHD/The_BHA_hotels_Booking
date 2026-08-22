@@ -278,6 +278,51 @@ Khi skill được gọi, Claude phải:
 
 Không gọi skill này cho toàn bộ task. Đây là quy trình chẩn đoán nặng, chỉ có lợi khi đang đuổi theo một failure cụ thể.
 
+### Graphify — pilot đã accepted
+
+`TOOL-GRAPHIFY-001-DOCS-CLOSEOUT` đã hoàn tất bốn bước của tooling adoption
+gate cho Graphify:
+
+1. `install`: `graphifyy==0.9.48`, cài local, project-scoped, ngoài product
+   source (`.claude/skills/graphify/SKILL.md`).
+2. `config`: giữ nguyên chế độ một writable worktree, Claude-only write và
+   Codex-only review; không bật PreToolUse hook, strict mode, watch mode
+   hay MCP.
+3. `dry run`: chỉ build graph code-only (`--code-only`), không LLM backend,
+   không API key.
+4. `pilot`: một truy vấn pilot xác định đúng ba node sở hữu reservation
+   runtime mutation/creation-form state/board view state.
+
+Trạng thái hiện tại:
+
+- Chỉ graph code-only được build; docs/images không được index ngữ nghĩa.
+- Không commit artifact hay config nào của Graphify vào Git — `graphify-out/`
+  và output cục bộ chỉ tồn tại trên workspace, loại khỏi Git qua
+  `.git/info/exclude`.
+- Các side effect always-on của installer gốc (root `CLAUDE.md` bị sửa,
+  `.claude/settings.json` được tạo) đã bị phát hiện và dọn sạch; không giữ
+  lại trong trạng thái hiện tại.
+
+Cho các Master Execution Prompt sau này, OC khai báo trường:
+
+```text
+GRAPHIFY_POLICY: REQUIRED_FOR_PREFLIGHT_IMPACT_ANALYSIS | ALLOWED_IF_RELEVANT | NOT_APPLICABLE
+GRAPHIFY_TRIGGER_OR_REASON:
+```
+
+- Auto-invocation của skill Graphify là do model tự chọn khi mô tả task
+  khớp (architecture/dependency/relationship/impact-analysis), không phải
+  điều được đảm bảo cho mọi task.
+- Việc bắt buộc dùng Graphify phải được OC khai báo rõ trong Master
+  Execution Prompt hiện hành (`GRAPHIFY_POLICY: REQUIRED_FOR_PREFLIGHT_IMPACT_ANALYSIS`);
+  nếu không khai báo, Graphify chỉ là công cụ tùy chọn.
+- Bằng chứng từ graph không bao giờ thay thế việc đọc trực tiếp source hoặc
+  chạy test; graph là advisory.
+- Graph có thể trở nên stale so với `HEAD` hiện tại. Việc graph stale không
+  tự động cho phép update/rebuild — executor chỉ được `graphify update`/rebuild
+  khi Master Execution Prompt hiện hành cho phép rõ ràng; nếu không, báo
+  trạng thái stale và quay lại đọc source/test trực tiếp.
+
 ## 13. Shutdown checklist
 
 Trước khi đóng phiên execution:
