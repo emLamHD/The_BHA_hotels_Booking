@@ -3,6 +3,7 @@ import { ThemeToggleButton } from "@/components/common/ThemeToggleButton";
 import NotificationDropdown from "@/components/header/NotificationDropdown";
 import UserDropdown from "@/components/header/UserDropdown";
 import { useSidebar } from "@/context/SidebarContext";
+import { PlusIcon } from "@/icons";
 import Image from "next/image";
 import Link from "next/link";
 import React, { useState ,useEffect,useRef} from "react";
@@ -161,6 +162,18 @@ const AppHeader: React.FC = () => {
           } items-center justify-between w-full gap-4 px-5 py-4 lg:flex shadow-theme-md lg:justify-end lg:px-0 lg:shadow-none`}
         >
           <div className="flex items-center gap-2 2xsm:gap-3">
+            {/* <!-- Add action --> */}
+            <Link
+              href="/reservations/new"
+              onClick={() => setApplicationMenuOpen(false)}
+              aria-label="Create reservation"
+              className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg bg-brand-500 px-3 text-sm font-medium text-white shadow-theme-xs hover:bg-brand-600 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-500/40 lg:h-11 lg:px-4"
+            >
+              <PlusIcon className="size-4 shrink-0" aria-hidden="true" />
+              <span className="hidden sm:inline">Add</span>
+            </Link>
+            {/* <!-- Add action --> */}
+
             {/* <!-- Dark Mode Toggler --> */}
             <ThemeToggleButton />
             {/* <!-- Dark Mode Toggler --> */}
