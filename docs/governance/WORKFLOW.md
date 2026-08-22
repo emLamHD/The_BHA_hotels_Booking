@@ -316,26 +316,41 @@ GRAPHIFY_UNAVAILABLE_OR_STALE: BLOCK | FALL_BACK_TO_SOURCE_TESTS
   rõ). **Nếu trường `GRAPHIFY_UNAVAILABLE_OR_STALE` thiếu hoặc không hợp
   lệ → luôn `BLOCKED`**, không bao giờ tự fallback sang source/test —
   không có generic rule nào được ghi đè hành vi này.
-- **`ALLOWED_IF_RELEVANT`**: tùy chọn. Claude **tự quyết định** invoke,
-  không cần xin phép thêm, khi Graphify khả dụng/đủ mới và việc đó thực sự
-  giúp task — ví dụ tra ownership qua nhiều module, kiến trúc/dependency,
-  impact/blast-radius, trace call/data-flow xuyên file, vùng code chưa
-  quen, hay chọn file nào cần đọc trực tiếp. Bỏ qua Graphify khi thay đổi
-  đã cô lập/file đã biết rõ, task chỉ là docs/planning, hoặc graph không
-  giảm được sự không chắc chắn. Đây là giá trị **duy nhất** cho phép
-  auto-invocation kiểu model-selected. Nếu vắng mặt/stale: tiếp tục bằng
-  source/test, báo giới hạn, trừ khi prompt nói khác.
+- **`ALLOWED_IF_RELEVANT`**: tùy chọn. `GRAPHIFY_UNAVAILABLE_OR_STALE` vẫn
+  là trường bắt buộc dưới policy này — nếu thiếu hoặc giá trị không hợp
+  lệ, preflight trả `BLOCKED`. Claude tự đánh giá Graphify có thực sự
+  liên quan tới task hay không trước khi gọi (ví dụ liên quan: tra
+  ownership qua nhiều module, kiến trúc/dependency, impact/blast-radius,
+  trace call/data-flow xuyên file, vùng code chưa quen, hay chọn file nào
+  cần đọc trực tiếp; không liên quan: thay đổi đã cô lập/file đã biết rõ,
+  task chỉ là docs/planning, hoặc graph không giảm được sự không chắc
+  chắn):
+  - **Không liên quan**: không gọi Graphify, tiếp tục task bình thường,
+    không block chỉ vì graph vắng mặt/stale.
+  - **Liên quan và graph khả dụng/đủ mới**: Claude được tự động query —
+    không cần xin thêm xác nhận của Owner. Đây là giá trị **duy nhất**
+    cho phép auto-invocation kiểu model-selected.
+  - **Liên quan nhưng graph vắng mặt/stale**: theo đúng
+    `GRAPHIFY_UNAVAILABLE_OR_STALE` đã khai báo — `BLOCK` → `BLOCKED`;
+    `FALL_BACK_TO_SOURCE_TESTS` → tiếp tục bằng source/test, phải báo rõ
+    giới hạn. Không có generic fallback nào được phép ghi đè giá trị
+    `BLOCK`.
 - **`NOT_APPLICABLE`**: cấm invoke — không inspect, query, install, update
   hay rebuild.
 - **Thiếu hoặc không hợp lệ**: coi như `NOT_APPLICABLE`, không bao giờ như
   `ALLOWED_IF_RELEVANT`. Không suy ra quyền từ mô tả task, skill đã cài,
   graph đã có sẵn, hay việc một work item trước đã accept pilot.
 
-Mặc định đề xuất cho Master Execution Prompt sản phẩm sau này:
-`ALLOWED_IF_RELEVANT`. Ngoại lệ: `REQUIRED_FOR_PREFLIGHT_IMPACT_ANALYSIS`
-khi task đòi hỏi rõ ràng phân tích dependency/kiến trúc/impact trước khi
-sửa; `NOT_APPLICABLE` cho task docs-only, planning, hay thay đổi nhỏ cô
-lập không cần graph.
+Mặc định đề xuất cho Master Execution Prompt sản phẩm thông thường:
+
+```text
+GRAPHIFY_POLICY: ALLOWED_IF_RELEVANT
+GRAPHIFY_UNAVAILABLE_OR_STALE: FALL_BACK_TO_SOURCE_TESTS
+```
+
+Ngoại lệ: `REQUIRED_FOR_PREFLIGHT_IMPACT_ANALYSIS` khi task đòi hỏi rõ ràng
+phân tích dependency/kiến trúc/impact trước khi sửa; `NOT_APPLICABLE` cho
+task docs-only, planning, hay thay đổi nhỏ cô lập không cần graph.
 
 Không giá trị policy nào tự cấp quyền cài đặt/rebuild/hook/strict
 mode/watch mode/MCP/semantic-LLM — luôn cần một work item tooling riêng
