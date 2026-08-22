@@ -5,13 +5,17 @@
 > Mục đích: phục hồi trạng thái hiện tại mà không cần nạp worklog lịch sử
 
 Lần cập nhật này đồng bộ Snapshot với trạng thái thực tế sau khi PR #33
-(`ADMIN-002.1-DOCS-CLOSEOUT`) đã merge, và sau khi Owner hoàn thành cài đặt/
-cấu hình/dry-run/pilot Graphify local (`TOOL-GRAPHIFY-001`), rồi work item
-`TOOL-GRAPHIFY-001-DOCS-CLOSEOUT` (docs-only) đồng bộ lại các nguồn sự thật
-khác để ghi nhận việc đó. Repository SHA và PR state bên dưới là baseline đã
-được xác minh cho lần cập nhật tài liệu này, không phải cam kết rằng SHA này
-sẽ còn là `develop` HEAD sau các commit tài liệu hoặc merge tiếp theo;
-revalidate lại `origin/develop` trước khi tạo feature branch mới.
+(`ADMIN-002.1-DOCS-CLOSEOUT`) đã merge, sau khi Owner hoàn thành một pilot
+Graphify local sơ bộ (`TOOL-GRAPHIFY-001`), và sau khi Codex chỉ ra rằng
+pilot writable do Owner trực tiếp thực hiện không đủ để đóng gate theo
+single-writer invariant — dẫn tới việc Claude replay lại toàn bộ pilot với
+vai trò writable implementer duy nhất (correction `C4`) trong work item
+`TOOL-GRAPHIFY-001-DOCS-CLOSEOUT` để gate thật sự đóng hợp lệ, đồng thời
+đồng bộ lại các nguồn sự thật khác để ghi nhận toàn bộ trình tự đó. Repository
+SHA và PR state bên dưới là baseline đã được xác minh cho lần cập nhật tài
+liệu này, không phải cam kết rằng SHA này sẽ còn là `develop` HEAD sau các
+commit tài liệu hoặc merge tiếp theo; revalidate lại `origin/develop` trước
+khi tạo feature branch mới.
 
 ## 1. Repository state
 
@@ -62,36 +66,64 @@ revalidate lại `origin/develop` trước khi tạo feature branch mới.
   synchronization of source-of-truth files after PR #32 merge; no product
   source touched. Feature branch `docs/admin-002-1-closeout` deleted
   remotely.
-- `TOOL-GRAPHIFY-001` (Graphify tooling-adoption pilot): `PASS — CLOSED`.
-  Completed locally 2026-08-22 by Owner, verified read-only by Claude in
-  `TOOL-GRAPHIFY-001-DOCS-CLOSEOUT`. This `PASS — CLOSED` applies to the
-  Owner's verified local workspace adoption, not to repository-distributed
-  tooling. Evidence: `graphifyy==0.9.48` / `graphify 0.9.48` CLI;
-  **workspace-local, project-scoped** skill at
-  `.claude/skills/graphify/SKILL.md` (untracked — `git ls-files` returns no
-  match for this path); code-only build (`--code-only`),
-  625 code files indexed, 370 non-code files intentionally skipped (52
-  docs, 2 papers, 316 images); resulting graph — 3,848 nodes, 9,607 edges,
-  186 communities — independently re-verified against
-  `graphify-out/graph.json` in this session and matches exactly; graph's
-  recorded `built_at_commit` equals current baseline HEAD (not stale); no
-  LLM backend or API key configured; pilot query correctly identified
-  `reservationRuntime.ts` (runtime/domain-like mutations),
-  `CreateReservationForm.tsx` (creation-form reducer/local state) and
-  `ReservationBoard.tsx` (board presentation/view state) as the three
-  ownership nodes (truncated at query budget, but the required nodes and
-  synthesized result were correct); no token-saving percentage claim
-  accepted or verified. Unwanted stock-installer side effects (root
-  `CLAUDE.md` modification, `.claude/settings.json` creation) were detected
-  and cleaned up by Owner; independently confirmed absent in this session
-  (root `CLAUDE.md` carries no Graphify installer section;
-  `.claude/settings.json` does not exist). Graphify artifacts/config,
-  including the skill itself, are workspace-local and excluded from Git
-  via `.git/info/exclude`; nothing Graphify-related is tracked, and a
-  fresh clone or a different worktree/machine will not automatically have
-  the skill or graph. GitNexus was not removed or modified. Full detail in
-  `docs/reports/TOOL-GRAPHIFY-001-completion.md` and
-  `docs/daily/2026-08/2026-08-22-worklog.md`.
+- `TOOL-GRAPHIFY-001` (Graphify tooling-adoption pilot): `PASS — CLOSED`,
+  gate-closed on the basis of a **Claude-run governance replay**
+  (`TOOL-GRAPHIFY-001-DOCS-CLOSEOUT-C4`), not on the original Owner-run
+  pilot alone. Two distinct evidence layers exist and must not be
+  conflated:
+  - **Historical preliminary evidence (Owner-run, 2026-08-22):** Owner
+    personally performed install/config/dry-run/pilot locally. Technically
+    correct at the time, but insufficient by itself to close the adoption
+    gate under the single-writer invariant (`docs/governance/RULES.md`
+    §2.4, §3) — Owner, not Claude, performed the filesystem writes. Codex
+    flagged this as a P1 governance defect on PR #34; Owner accepted the
+    finding and selected **Option A** (no retrospective exception added to
+    `RULES.md`; replay instead).
+  - **Governance-valid gate-closing evidence (Claude-run replay, C4):**
+    Claude, as sole writable implementer, isolated and backed up the prior
+    Owner-created artifacts outside the repository, verified the exact CLI
+    version (`graphifyy==0.9.48` / `graphify 0.9.48`, already installed —
+    verified, not reinstalled), ran `graphify install --project`
+    (project-scoped, outside product source), self-detected and cleaned up
+    the installer's known side effects (root `CLAUDE.md` mutation,
+    `.claude/settings.json` creation — both reproduced exactly as
+    documented, then restored/removed by Claude in the same replay),
+    recreated the code-only graph (`graphify extract . --code-only`, no
+    LLM backend, no API key) and ran clustering (`graphify cluster-only`),
+    ran the pilot query and independently confirmed its answer against
+    source with direct file reads and `rg` (not the graph output alone),
+    and confirmed graph reuse — without rebuild — from a second, separate,
+    tool-restricted read-only `claude -p` session in the same workspace
+    (its own attempt to run anything outside the allowlisted `graphify
+    query` command was denied by the CLI's own permission system, and
+    `graph.json`/`SKILL.md` hashes were identical before and after).
+  - **Actual C4 replay statistics:** 624 code files indexed, 371 non-code
+    files intentionally skipped (53 docs, 2 papers, 316 images — one more
+    doc than the Owner pilot's 52, accounted for by
+    `docs/reports/TOOL-GRAPHIFY-001-completion.md` being added between the
+    two runs); graph — 3,848 nodes, 9,607 edges (identical to the Owner
+    pilot's node/edge counts, confirming the underlying corpus/graph
+    content is equivalent), 184 communities (vs. the Owner pilot's 186 —
+    attributable to expected run-to-run non-determinism in Louvain-style
+    community detection on an unchanged graph, not data loss: a
+    `cluster-only` rerun on the *same* C4 graph independently produced yet
+    a third count, 183→184, with node/edge counts unchanged both times).
+    Graph's `built_at_commit` equals the C4 replay HEAD. No token-saving
+    percentage claim accepted or verified in either run.
+  - **Local state (post-C4):** the skill
+    (`.claude/skills/graphify/SKILL.md` + sidecars) and `graphify-out/`
+    remain **workspace-local, project-scoped, untracked** — `git ls-files`
+    returns no match for either path, excluded via `.git/info/exclude`.
+    Root `CLAUDE.md` exactly matches tracked `HEAD` content;
+    `.claude/settings.json` is absent; no strict mode, PreToolUse hook,
+    watch mode or MCP is enabled. A fresh clone, a different worktree, or
+    another machine will **not** automatically have Graphify — a new
+    Claude Code session in the *same* workspace, however, can and did
+    reuse the existing skill/graph without rebuild.
+  - `docs/governance/RULES.md` was not modified anywhere in this sequence.
+  Full detail in `docs/reports/TOOL-GRAPHIFY-001-completion.md` and
+  `docs/daily/2026-08/2026-08-22-worklog.md` (original pilot record, §9,
+  plus the C4 replay record appended later the same day).
 
 ### Quyết định đang hiệu lực
 
@@ -191,19 +223,67 @@ independently confirmed via `gh pr view 33` (`state: MERGED`, matching
 merge commit and timestamp) and `git ls-remote --heads origin
 docs/admin-002-1-closeout` (no ref — remote branch deleted).
 
-`TOOL-GRAPHIFY-001` verification: Owner-provided local evidence
-(installation, config, dry run, pilot) independently re-verified read-only
-by Claude in `TOOL-GRAPHIFY-001-DOCS-CLOSEOUT` preflight — `graphify
---version` returns `0.9.48`; `.claude/skills/graphify/SKILL.md` and
-`graphify-out/graph.json`/`GRAPH_REPORT.md` exist locally in this workspace
-(local existence, not Git-tracking evidence — `git ls-files` for these
-paths returns no match, confirming they are untracked); parsed
-`graphify-out/graph.json` independently shows exactly 3,848 nodes, 9,607
-edges (`links`), 186 distinct `community` values and `built_at_commit`
-equal to the current baseline HEAD; root `CLAUDE.md` contains no Graphify
-installer section; `.claude/settings.json` does not exist; `git status
---short --untracked-files=all` is clean before any edit. No rebuild or
-`/graphify .` invocation was performed to obtain this evidence.
+`TOOL-GRAPHIFY-001` verification — two layers:
+
+1. **Preliminary (Owner-run) evidence, re-verified read-only by Claude
+   (C1–C3 preflight):** Owner-provided local evidence (installation,
+   config, dry run, pilot) — `graphify --version` returned `0.9.48`;
+   `.claude/skills/graphify/SKILL.md` and
+   `graphify-out/graph.json`/`GRAPH_REPORT.md` existed locally (local
+   existence, not Git-tracking evidence — `git ls-files` returned no
+   match, confirming they were untracked); parsed `graphify-out/graph.json`
+   independently showed exactly 3,848 nodes, 9,607 edges (`links`), 186
+   distinct `community` values and `built_at_commit` equal to the then-
+   current baseline HEAD; root `CLAUDE.md` contained no Graphify installer
+   section; `.claude/settings.json` did not exist. No rebuild or
+   `/graphify .` invocation was performed to obtain this layer of
+   evidence — it was read-only re-verification of Owner's own writes, and
+   Codex correctly identified that read-only re-verification of an
+   Owner-performed write does not satisfy the single-writer invariant.
+2. **Governance-valid (Claude-run) replay evidence (`C4`):** Claude backed
+   up the prior artifacts outside the repository (sanitized manifest with
+   path/size/sha256 for every file, retained through Owner review), then
+   itself ran `graphify install --project` (project-scoped installer,
+   `graphify 0.9.48` verified not reinstalled), `graphify extract .
+   --code-only` (624 code files, 371 non-code skipped, 3,848 nodes, 9,607
+   edges, 183 communities), and `graphify cluster-only .` (re-clustered
+   the same graph to 184 communities, node/edge counts unchanged — the
+   community-count drift between runs on an identical graph is consistent
+   with expected Louvain-style non-determinism, independently confirmed
+   by the fact that a same-graph re-cluster also shifted the count without
+   any change to nodes/edges). Claude independently re-parsed
+   `graphify-out/graph.json` after each step (not trusting the CLI's own
+   printed summary alone): 3,848 nodes, 9,607 links, 184 communities,
+   `built_at_commit` equal to the C4 replay HEAD. Claude then self-detected
+   and cleaned the installer's side effects (`git diff CLAUDE.md` showed
+   the exact known "graphify section" insertion, reverted with `git
+   checkout -- CLAUDE.md`; `.claude/settings.json` was created with a
+   `PreToolUse` hook block, then removed) and confirmed, post-cleanup, that
+   root `CLAUDE.md` hashed identically to tracked `HEAD` and
+   `.claude/settings.json` was absent. The pilot query was re-run and its
+   result was independently checked against source via direct `rg` on
+   `reservationRuntime.ts` (`export function reservationRuntimeReducer`),
+   `CreateReservationForm.tsx` (`function formReducer`, `function
+   validateForm`, `useReducer(formReducer, ...)`) and `ReservationBoard.tsx`
+   (`useReducer(reservationRuntimeReducer, ...)` alongside its own
+   `useState` presentation/view-state calls) — the graph's answer agreed
+   with source in full. A second, separate `claude -p` process (tool-
+   restricted to only `Bash(graphify query *)`, with Edit/Write/git/Agent/
+   other Graphify subcommands explicitly disallowed) was launched in the
+   same workspace: its first attempt correctly self-blocked citing the
+   `GRAPHIFY_POLICY` gate this same work item's correction C3 had just
+   added to `AGENTS.md` (proof the new session read live governance text,
+   not cached assumptions); its second attempt, given an explicit
+   `GRAPHIFY_POLICY: ALLOWED_IF_RELEVANT` authorization matching C4's
+   `OWNER_AUTHORIZED_TOOL_UNDER_TEST_ACTIONS` carve-out, ran the query
+   successfully and returned the three required ownership nodes in
+   substance — its own attempt to run an unauthorized `ls`/`git status`
+   check outside the allowlisted command was denied by the CLI's own
+   permission system (`permission_denials` in the session's JSON output),
+   and `graph.json`/`SKILL.md` sha256 hashes were identical before and
+   after the probe, confirming no rebuild occurred. `git status --short
+   --untracked-files=all` was clean immediately before C4's first edit and
+   remained clean through Phase 3.
 
 ## 5. Product/architecture state liên quan
 
@@ -282,12 +362,27 @@ installer section; `.claude/settings.json` does not exist; `git status
 - Master Execution Prompt: `IMPLEMENTER: CLAUDE`, `REVIEWER: CODEX_READ_ONLY`,
   baseline `2c38face7cf51d7271c361e6d684adea466edcf9`, feature branch
   `docs/tool-graphify-001-closeout`.
-- Scope: docs-only, exactly six allowed paths (this file among them, in
-  Phase 2). No product source, schema, migration, API, UI, dependency, or
-  file under `docs/governance/RULES.md`, `docs/ADR/**`, `docs/design/**`,
-  `Back_End/**`, `Front_End/**`, `.github/**`, or `.claude/**` is touched. No
-  Graphify install/upgrade/uninstall/rebuild, no PreToolUse hook/strict
-  mode/watch mode/MCP, no API key configuration, no backend implementation.
+- Scope (tracked files): docs-only, exactly six allowed paths (this file
+  among them). No product source, schema, migration, API, UI, dependency,
+  or file under `docs/governance/RULES.md`, `docs/ADR/**`,
+  `docs/design/**`, `Back_End/**`, `Front_End/**`, `.github/**`, or
+  `.claude/**` is tracked/committed. No backend implementation.
+- Corrections C1–C3 were pure documentation clarifications and performed no
+  Graphify action. **Correction C4** is different in kind: it is a
+  narrowly Owner-authorized `OWNER_AUTHORIZED_TOOL_UNDER_TEST_ACTIONS`
+  replay — Claude, as sole writable implementer, verified the CLI version,
+  ran `graphify install --project`, recreated the code-only graph and
+  clustering, ran the pilot query, and probed reuse from a second read-only
+  session, all against Graphify as the *tool under test* for this specific
+  governance-replay work item, per an explicit Owner/OC Master Correction
+  Prompt. This is not a general license to invoke Graphify in other work
+  items — outside C4, invocation still always requires an explicit
+  `GRAPHIFY_POLICY` in the current prompt (`AGENTS.md` §10,
+  `docs/governance/WORKFLOW.md` §12) — and C4 explicitly did not use
+  Graphify to plan, analyze, or self-certify its own correctness
+  (`GRAPHIFY_POLICY: NOT_APPLICABLE` for that purpose). No PreToolUse
+  hook/strict mode/watch mode/MCP/API key remains enabled after C4; see
+  §2's `TOOL-GRAPHIFY-001` entry for full replay evidence.
 - Next action after Claude's completion report: Owner-invoked
   `/codex:review --base origin/develop` (exactly one invocation), then OC
   review of the report/diff/Codex result, then Owner-only Ready/merge/branch
@@ -310,8 +405,10 @@ hoàn tất tooling-adoption gate riêng của nó:
 - GitNexus: `UNAVAILABLE — RECORDED_NON_BLOCKING_TOOLING_GAP`, chấp nhận là
   gap không blocking. Graphify adoption không kéo theo việc gỡ GitNexus.
 - Graphify: **đã hoàn tất bốn bước tooling-adoption gate** (install, config,
-  dry run, pilot) trong workspace local đã được Owner verify vào
-  2026-08-22, ghi nhận là `TOOL-GRAPHIFY-001` ở §2/§4. Chỉ graph code-only
+  dry run, pilot) — Owner thực hiện một pilot sơ bộ local ngày 2026-08-22,
+  sau đó Claude replay lại toàn bộ với vai trò writable implementer duy
+  nhất trong correction C4 để gate thật sự đóng hợp lệ theo single-writer
+  invariant; ghi nhận đầy đủ là `TOOL-GRAPHIFY-001` ở §2/§4. Chỉ graph code-only
   (`--code-only`) được build; không LLM backend/API key; skill
   (`.claude/skills/graphify/SKILL.md`) và toàn bộ artifact/config của
   Graphify đều không được commit vào Git — `git ls-files` xác nhận không

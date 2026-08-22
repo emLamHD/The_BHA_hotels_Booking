@@ -281,26 +281,34 @@ Khi skill được gọi, Claude phải:
 
 Không gọi skill này cho toàn bộ task. Đây là quy trình chẩn đoán nặng, chỉ có lợi khi đang đuổi theo một failure cụ thể.
 
-### Graphify — pilot đã accepted
+### Graphify — pilot đã accepted qua Claude-run governance replay
 
-`TOOL-GRAPHIFY-001-DOCS-CLOSEOUT` đã hoàn tất bốn bước của tooling adoption
-gate cho Graphify **trong workspace local đã được Owner verify**; evidence
-này chỉ áp dụng cho workspace đó, không phải cho mọi checkout của
-repository:
+Bốn bước tooling adoption gate cho Graphify đã hoàn tất, nhưng qua đúng
+trình tự sau — không phải một lần Owner tự thực hiện là đủ:
 
-1. `install`: `graphifyy==0.9.48`, cài workspace-local, project-scoped,
-   ngoài product source (`.claude/skills/graphify/SKILL.md`). "Project-
-   scoped" ở đây chỉ phạm vi discovery của Claude Code trong workspace đó,
-   không phải phạm vi phân phối qua Git — path này và `.graphify_version`
-   sidecar của nó **không được track**; `git ls-files` không trả về path
-   nào khớp.
-2. `config`: giữ nguyên chế độ một writable worktree, Claude-only write và
-   Codex-only review; không bật PreToolUse hook, strict mode, watch mode
-   hay MCP.
-3. `dry run`: chỉ build graph code-only (`--code-only`), không LLM backend,
-   không API key.
-4. `pilot`: một truy vấn pilot xác định đúng ba node sở hữu reservation
-   runtime mutation/creation-form state/board view state.
+1. Owner tự thực hiện một pilot local sơ bộ ban đầu (install/config/
+   dry-run/pilot query) trên máy của Owner — kết quả kỹ thuật đúng, nhưng
+   do chính Owner (không phải Claude) thực hiện các thao tác ghi filesystem.
+2. Codex, trong lượt review PR #34, chỉ ra defect quản trị: gate không thể
+   đóng dựa trên một pilot writable do Owner thực hiện trong khi
+   `docs/governance/RULES.md` quy định Claude là writable implementer duy
+   nhất (single-writer invariant).
+3. Owner chấp nhận finding và chọn **Option A**: không thêm ngoại lệ hồi tố
+   vào `RULES.md`; thay vào đó ủy quyền Claude replay lại toàn bộ pilot.
+4. Claude thực hiện replay quản trị hợp lệ (`TOOL-GRAPHIFY-001-DOCS-CLOSEOUT-C4`)
+   với vai trò writable implementer duy nhất: backup/cô lập artifact cũ,
+   verify đúng CLI version `0.9.48`, chạy `graphify install --project`
+   (project-scoped, ngoài product source), tự dọn sạch side effect của
+   installer, tái tạo graph code-only (`--code-only`, không LLM backend,
+   không API key) và chạy clustering, chạy lại pilot query và verify độc
+   lập với source, và xác nhận một Claude Code session mới, read-only có
+   thể tái sử dụng graph mà không cần rebuild.
+5. Gate chỉ được đóng (`TOOL-GRAPHIFY-001: PASS — CLOSED`) dựa trên bằng
+   chứng replay C4 này — pilot ban đầu của Owner chỉ được giữ lại như bằng
+   chứng kỹ thuật sơ bộ/lịch sử, không phải căn cứ đóng gate.
+
+`docs/governance/RULES.md` không đổi trong toàn bộ quá trình này — không có
+ngoại lệ hồi tố nào được thêm vào.
 
 Trạng thái hiện tại:
 
@@ -312,8 +320,9 @@ Trạng thái hiện tại:
   Graphify — phải verify sự tồn tại độc lập trước khi coi Graphify là khả
   dụng ở đó.
 - Các side effect always-on của installer gốc (root `CLAUDE.md` bị sửa,
-  `.claude/settings.json` được tạo) đã bị phát hiện và dọn sạch; không giữ
-  lại trong trạng thái hiện tại.
+  `.claude/settings.json` được tạo) đã xuất hiện lại đúng như dự kiến khi
+  Claude tự chạy installer trong C4, và đã được chính Claude phát hiện,
+  dọn sạch trong cùng replay; không giữ lại trong trạng thái hiện tại.
 
 Việc invoke Graphify luôn cần **cả hai** điều kiện: (1) Graphify khả dụng
 và đủ mới trong workspace hiện tại, **và** (2) Master Execution Prompt hiện
