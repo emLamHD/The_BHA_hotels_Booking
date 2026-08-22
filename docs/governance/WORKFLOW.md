@@ -89,6 +89,9 @@ PHASES:
 SKILL_POLICY:
   diagnosing-bugs: REQUIRED | ALLOWED_IF_TRIGGERED | NOT_APPLICABLE
   TRIGGER_OR_REASON:
+  GRAPHIFY_POLICY: REQUIRED_FOR_PREFLIGHT_IMPACT_ANALYSIS | ALLOWED_IF_RELEVANT | NOT_APPLICABLE
+  GRAPHIFY_TRIGGER_OR_REASON:
+  GRAPHIFY_UNAVAILABLE_OR_STALE: BLOCK | FALL_BACK_TO_SOURCE_TESTS
 
 READ_NOW:
 ALLOWED_FILES:
@@ -277,6 +280,91 @@ Khi skill được gọi, Claude phải:
 6. ghi skill invocation và loop command trong completion report.
 
 Không gọi skill này cho toàn bộ task. Đây là quy trình chẩn đoán nặng, chỉ có lợi khi đang đuổi theo một failure cụ thể.
+
+### Graphify — chính sách canonical
+
+Graphify đã được adopt thành công như một công cụ code-navigation
+workspace-local, **tùy chọn**, qua một replay quản trị do Claude thực hiện
+với vai trò writable implementer duy nhất (`TOOL-GRAPHIFY-001-DOCS-CLOSEOUT-C4`),
+sau một pilot sơ bộ Owner tự chạy trên máy Owner (không đủ để tự đóng gate
+theo single-writer invariant). `docs/governance/RULES.md` không đổi trong
+quá trình này. Chi tiết lịch sử: `docs/daily/2026-08/2026-08-22-worklog.md`,
+`docs/reports/TOOL-GRAPHIFY-001-completion.md`.
+
+Skill và graph là workspace-local, project-scoped, loại khỏi Git qua
+`.git/info/exclude` — không tự động có ở fresh clone, worktree khác, hay
+máy khác.
+
+**Đây là nguồn canonical duy nhất cho chính sách invoke Graphify** — các
+file khác (`AGENTS.md`, `SNAPSHOT.md`, report) chỉ tóm tắt ngắn và trỏ về
+đây, không lặp lại chi tiết.
+
+Mỗi Master Execution Prompt bắt buộc khai báo:
+
+```text
+GRAPHIFY_POLICY: REQUIRED_FOR_PREFLIGHT_IMPACT_ANALYSIS | ALLOWED_IF_RELEVANT | NOT_APPLICABLE
+GRAPHIFY_TRIGGER_OR_REASON:
+GRAPHIFY_UNAVAILABLE_OR_STALE: BLOCK | FALL_BACK_TO_SOURCE_TESTS
+```
+
+Ánh xạ:
+
+- **`REQUIRED_FOR_PREFLIGHT_IMPACT_ANALYSIS`**: bắt buộc dùng cho preflight
+  impact analysis. Nếu Graphify vắng mặt/stale: theo đúng
+  `GRAPHIFY_UNAVAILABLE_OR_STALE` đã khai báo (`BLOCK` → `BLOCKED`;
+  `FALL_BACK_TO_SOURCE_TESTS` → dùng source/test trực tiếp, phải report
+  rõ). **Nếu trường `GRAPHIFY_UNAVAILABLE_OR_STALE` thiếu hoặc không hợp
+  lệ → luôn `BLOCKED`**, không bao giờ tự fallback sang source/test —
+  không có generic rule nào được ghi đè hành vi này.
+- **`ALLOWED_IF_RELEVANT`**: tùy chọn. `GRAPHIFY_UNAVAILABLE_OR_STALE` vẫn
+  là trường bắt buộc dưới policy này — nếu thiếu hoặc giá trị không hợp
+  lệ, preflight trả `BLOCKED`. Claude tự đánh giá Graphify có thực sự
+  liên quan tới task hay không trước khi gọi (ví dụ liên quan: tra
+  ownership qua nhiều module, kiến trúc/dependency, impact/blast-radius,
+  trace call/data-flow xuyên file, vùng code chưa quen, hay chọn file nào
+  cần đọc trực tiếp; không liên quan: thay đổi đã cô lập/file đã biết rõ,
+  task chỉ là docs/planning, hoặc graph không giảm được sự không chắc
+  chắn):
+  - **Không liên quan**: không gọi Graphify, tiếp tục task bình thường,
+    không block chỉ vì graph vắng mặt/stale.
+  - **Liên quan và graph khả dụng/đủ mới**: Claude được tự động query —
+    không cần xin thêm xác nhận của Owner. Đây là giá trị **duy nhất**
+    cho phép auto-invocation kiểu model-selected.
+  - **Liên quan nhưng graph vắng mặt/stale**: theo đúng
+    `GRAPHIFY_UNAVAILABLE_OR_STALE` đã khai báo — `BLOCK` → `BLOCKED`;
+    `FALL_BACK_TO_SOURCE_TESTS` → tiếp tục bằng source/test, phải báo rõ
+    giới hạn. Không có generic fallback nào được phép ghi đè giá trị
+    `BLOCK`.
+- **`NOT_APPLICABLE`**: cấm invoke — không inspect, query, install, update
+  hay rebuild.
+- **Thiếu hoặc không hợp lệ**: coi như `NOT_APPLICABLE`, không bao giờ như
+  `ALLOWED_IF_RELEVANT`. Không suy ra quyền từ mô tả task, skill đã cài,
+  graph đã có sẵn, hay việc một work item trước đã accept pilot.
+
+Mặc định đề xuất cho Master Execution Prompt sản phẩm thông thường:
+
+```text
+GRAPHIFY_POLICY: ALLOWED_IF_RELEVANT
+GRAPHIFY_UNAVAILABLE_OR_STALE: FALL_BACK_TO_SOURCE_TESTS
+```
+
+Ngoại lệ: `REQUIRED_FOR_PREFLIGHT_IMPACT_ANALYSIS` khi task đòi hỏi rõ ràng
+phân tích dependency/kiến trúc/impact trước khi sửa; `NOT_APPLICABLE` cho
+task docs-only, planning, hay thay đổi nhỏ cô lập không cần graph.
+
+Không giá trị policy nào tự cấp quyền cài đặt/rebuild/hook/strict
+mode/watch mode/MCP/semantic-LLM — luôn cần một work item tooling riêng
+của Owner. Graphify không thay thế Master Execution Prompt, `READ_NOW` bắt
+buộc, việc đọc trực tiếp source sẽ sửa, hay source/test verification —
+kết quả graph luôn chỉ là advisory.
+
+**Freshness**: `built_at_commit == HEAD` → fresh ngay. Khác nhau → chỉ
+stale nếu có file trong phạm vi input của graph (với graph code-only là
+các code file được index) bị đổi/thêm/xoá kể từ `built_at_commit`
+(committed/staged/unstaged), hoặc build profile/version của Graphify đổi.
+Thay đổi chỉ ở tài liệu, ngoài phạm vi input đó, không làm graph stale.
+Không xác định được chắc chắn → coi là stale. Stale không bao giờ tự cấp
+quyền install/update/rebuild.
 
 ## 13. Shutdown checklist
 

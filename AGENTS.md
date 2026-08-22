@@ -158,9 +158,14 @@ npm run build
 
 Use targeted checks first, then broader/CI-parity checks required by prompt and risk. Never claim a check passed unless it ran in the current phase/session.
 
-## 10. GitNexus, Orca and skills
+## 10. GitNexus, Graphify, Orca and skills
 
 - Use GitNexus for code graph/impact analysis when it improves confidence; verify conclusions against source/tests.
+- Graphify is adopted as an **optional, workspace-local** code-navigation tool (Claude-run governance replay `TOOL-GRAPHIFY-001-DOCS-CLOSEOUT-C4`; history in `docs/reports/TOOL-GRAPHIFY-001-completion.md`). The skill and graph are project-scoped to Claude Code discovery, **not** repository-tracked (`.git/info/exclude`); a fresh clone or different worktree/machine will not automatically have them.
+- `docs/governance/WORKFLOW.md` §12 is the **canonical** source for Graphify invocation policy — `GRAPHIFY_POLICY` values, unavailable/stale behavior, freshness rule, and install/rebuild boundaries. Read it there; this file does not duplicate it.
+- In short: every Master Execution Prompt must declare `GRAPHIFY_POLICY`; under `ALLOWED_IF_RELEVANT` Claude may decide on its own to query an existing, sufficiently fresh graph when it would materially help (ownership/architecture/dependency/impact-analysis/unfamiliar code) — no extra confirmation needed; missing/invalid policy means do not invoke; no policy value authorizes installing or rebuilding Graphify. Graphify is **not mandatory for every task** — most `NOT_APPLICABLE` cases need no graph at all. Graph results are always advisory and never replace reading the source Claude will change, required `READ_NOW` documents, or source/test verification.
+- The fixed invariant is unchanged by Graphify adoption: Claude writes, Codex reviews, OC decides, Owner merges.
+- GitNexus policy is unchanged; Graphify adoption does not imply GitNexus removal.
 - Orca is not part of the active workflow (discontinued 2026-08-07 per `docs/project/SNAPSHOT.md`). Do not enable Orca orchestration, parallel worktrees, auto-routing, nested execution or autonomous merge.
 - Use only skills listed/approved by the prompt and repository policy.
 - A skill never overrides RULES, scope, the fixed Claude-write/Codex-review roles or test requirements.
