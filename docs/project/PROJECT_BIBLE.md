@@ -13,8 +13,14 @@ một nền tảng hospitality dùng chung cho nhiều cơ sở: Customer Web (�
 trực tiếp cho khách) và Admin PMS (vận hành nội bộ), cùng chia sẻ một backend
 ASP.NET Core và một PostgreSQL source of truth (TARGET — xem
 [PMS-DATA-001-core-database-blueprint-v2](../design/PMS-DATA-001-core-database-blueprint-v2.md)).
-Admin Web hiện tại (PR #30) mới là template baseline; PMS/Admin behavior thật
-vẫn TARGET, chưa implement.
+Admin Web hiện có một Reservation Board frontend prototype tương tác
+(`ADMIN-002.1`, PR #32, trên nền template baseline PR #30): room/date
+timeline, chuyển đổi demo giữa nhiều property, reservation đã/chưa gán
+phòng, operational block, và front-desk reservation workspace với lifecycle/
+folio/move demonstration — toàn bộ chạy trên local deterministic mock state,
+không phải server authority. Admin Web vẫn chưa tích hợp `Back_End/`: chưa có
+database persistence, chưa có Admin authentication/RBAC thật, chưa có OTA
+behavior thật; PMS/Admin backend behavior thật vẫn TARGET, chưa implement.
 
 Phạm vi onboarding hiện tại — TARGET, hai property đã được Owner duyệt, không
 phải khẳng định rằng cả hai đã tồn tại trong seed/schema hiện tại:
@@ -75,7 +81,10 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
 - `FolioEntries` là financial posting authority riêng biệt với booking
   snapshot; Guest identity document và Stay Declaration là hai concept có
   lifecycle riêng.
-- Admin PMS/Calendar UI thật (Admin Web hiện chỉ là template baseline).
+- Admin PMS/Calendar UI thật, tức backend-integrated, server-authoritative
+  (Admin Web hiện có một interactive Reservation Board frontend prototype từ
+  `ADMIN-002.1`/PR #32, nhưng chạy hoàn toàn trên local mock state — chưa
+  tích hợp backend/database thật).
 
 Mixed-RoomType allocation không còn nằm trong danh sách "ngoài phạm vi" bên
 dưới — nó là TARGET/APPROVED, chưa implement, theo đúng nghĩa ở trên.

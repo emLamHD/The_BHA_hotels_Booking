@@ -11,7 +11,7 @@ The BHA Hotels Booking is a monorepo:
 - `Back_End/` — ASP.NET Core 8 Web API using Clean Architecture:
   `TheBha.Domain → TheBha.Application → TheBha.Infrastructure → TheBha.Api`.
 - `Front_End/Customer_Web/` — Next.js customer application.
-- `Front_End/Admin_Web/` — imported TailAdmin template-only baseline. It is not integrated with `Back_End/` and does not implement Admin authentication, PMS/Reservation Board/Calendar business behavior, or OTA behavior. The locked target architecture is one shared `Back_End/` solution serving both `Front_End/Customer_Web/` and `Front_End/Admin_Web/`; C9 synchronizes project identity only and does not implement Admin backend integration.
+- `Front_End/Admin_Web/` — imported TailAdmin template baseline (PR #30), plus an interactive PMS Reservation Board frontend prototype and a front-desk reservation-creation workspace added by `ADMIN-002.1` (PR #32): room/date timeline, multi-property demo switching, assigned/unassigned reservations, operational blocks, and reservation lifecycle/folio/move demonstrations, all driven by deterministic local mock state. It is still not integrated with `Back_End/` — no database persistence, no Admin authentication/RBAC, and no real OTA behavior exist. The locked target architecture remains one shared `Back_End/` solution serving both `Front_End/Customer_Web/` and `Front_End/Admin_Web/`; this frontend prototype does not implement Admin backend integration.
 - PostgreSQL 17 via EF Core 8/Npgsql, owned by `TheBha.Infrastructure`.
 - Integration branch: `develop`; production branch: `main`.
 - CI: `.github/workflows/ci.yml`.
