@@ -17,6 +17,9 @@ import {
   DERIVED_PAYMENT_STATUS_LABEL,
   findBlockingItem,
   formatVnd,
+  hasBlockReasonChanges,
+  hasGuestChanges,
+  hasStayChanges,
   PAYMENT_METHOD_LABEL,
 } from "./reservationRuntime";
 import type { EditGuestInput, EditStayInput, RecordPaymentInput, RecordRefundInput } from "./reservationRuntime";
@@ -1301,6 +1304,12 @@ const EditGuestPanel: React.FC<{
   const adultsValid = isValidOccupancyCount(adults, 1, MAX_ADULTS_PER_UNIT);
   const childrenValid = isValidOccupancyCount(children, 0, MAX_CHILDREN_PER_UNIT);
   const formValid = nameValid && phoneValid && emailValid && adultsValid && childrenValid;
+  const nationality = nationalities.find((candidate) => candidate.code === nationalityCode) ?? item.nationality;
+  const draft: EditGuestInput = { guestName, guestPhone, guestEmail, nationality, adults, children };
+  // Save must stay disabled on valid-but-unchanged data — a no-op dispatch
+  // would be silently rejected by the reducer, but the panel would still
+  // close and announce a success that never happened (Codex, ADMIN-002.1-C7).
+  const changed = formValid ? hasGuestChanges(item, draft) : false;
 
   return (
     <PanelShell
@@ -1313,10 +1322,10 @@ const EditGuestPanel: React.FC<{
           </button>
           <button
             type="button"
-            disabled={!formValid}
+            disabled={!formValid || !changed}
             onClick={() => {
-              const nationality = nationalities.find((candidate) => candidate.code === nationalityCode) ?? item.nationality;
-              onSave({ guestName, guestPhone, guestEmail, nationality, adults, children });
+              if (!changed) return;
+              onSave(draft);
             }}
             className={primaryButtonClassName}
           >
@@ -1401,6 +1410,9 @@ const EditGuestPanel: React.FC<{
           ) : null}
         </div>
       </div>
+      {formValid && !changed ? (
+        <p className="text-xs text-gray-500 dark:text-gray-400">Make at least one change to save.</p>
+      ) : null}
     </PanelShell>
   );
 };
@@ -1433,6 +1445,19 @@ const EditStayPanel: React.FC<{
     : null;
 
   const formValid = checkInValid && checkOutValid && orderValid && priceResult.isValid && !blockingItem;
+  const draft: EditStayInput = {
+    sourceId,
+    soldRoomTypeId,
+    physicalRoomId,
+    checkIn,
+    checkOut,
+    checkInTime,
+    checkOutTime,
+    actualNightlyAmount,
+  };
+  // See EditGuestPanel — a no-op Save must stay disabled rather than close
+  // the panel and announce a success the reducer silently rejected.
+  const changed = formValid ? hasStayChanges(item, draft) : false;
 
   return (
     <PanelShell
@@ -1445,19 +1470,11 @@ const EditStayPanel: React.FC<{
           </button>
           <button
             type="button"
-            disabled={!formValid}
-            onClick={() =>
-              onSave({
-                sourceId,
-                soldRoomTypeId,
-                physicalRoomId,
-                checkIn,
-                checkOut,
-                checkInTime,
-                checkOutTime,
-                actualNightlyAmount,
-              })
-            }
+            disabled={!formValid || !changed}
+            onClick={() => {
+              if (!changed) return;
+              onSave(draft);
+            }}
             className={primaryButtonClassName}
           >
             Save
@@ -1582,6 +1599,9 @@ const EditStayPanel: React.FC<{
           Room {physicalRooms.find((room) => room.id === physicalRoomId)?.code}: dates overlap{" "}
           {blockingItem.kind === "operational-block" ? "an operational block" : "an existing stay"}.
         </p>
+      ) : null}
+      {formValid && !changed ? (
+        <p className="text-xs text-gray-500 dark:text-gray-400">Make at least one change to save.</p>
       ) : null}
     </PanelShell>
   );
@@ -1831,6 +1851,9 @@ const BlockEditReasonPanel: React.FC<{
 }> = ({ initialReason, onCancel, onSave }) => {
   const [reason, setReason] = useState(initialReason);
   const trimmed = reason.trim();
+  // See EditGuestPanel — a no-op Save must stay disabled rather than close
+  // the panel and announce a success the reducer silently rejected.
+  const changed = hasBlockReasonChanges(initialReason, reason);
 
   return (
     <PanelShell
@@ -1843,8 +1866,11 @@ const BlockEditReasonPanel: React.FC<{
           </button>
           <button
             type="button"
-            disabled={!trimmed}
-            onClick={() => onSave(reason)}
+            disabled={!trimmed || !changed}
+            onClick={() => {
+              if (!changed) return;
+              onSave(reason);
+            }}
             className={primaryButtonClassName}
           >
             Save
@@ -1861,6 +1887,9 @@ const BlockEditReasonPanel: React.FC<{
           className={`${inputClassName} h-auto resize-none py-2`}
         />
       </div>
+      {trimmed && !changed ? (
+        <p className="text-xs text-gray-500 dark:text-gray-400">Make at least one change to save.</p>
+      ) : null}
     </PanelShell>
   );
 };

@@ -398,6 +398,91 @@ export interface RecordRefundInput {
   reason: string;
 }
 
+/**
+ * Canonical normalization for the negotiated-price draft string, matching
+ * exactly what `EDIT_STAY` commits (§3.4, ADMIN-002.1-C7) — blank and any
+ * valid numeric string always normalize to the same representation the
+ * reducer stores, so a UI comparison against the committed item never
+ * drifts from what actually gets saved.
+ */
+export function normalizeActualNightlyAmount(raw: string): string {
+  const parsed = parseActualNightlyAmount(raw);
+  if (parsed.isBlank) return "";
+  if (parsed.isValid && parsed.amount !== null) return String(parsed.amount);
+  return raw.trim();
+}
+
+/**
+ * Field-by-field diff between a committed reservation and an Edit Guest
+ * draft, using the exact same trim/compare-by-code rules the `EDIT_GUEST`
+ * reducer case applies before committing. Shared by the reducer (to build
+ * both the no-op check and the activity description) and by
+ * `EditGuestPanel` (to gate Save) so the two can never drift apart.
+ */
+export function describeGuestChanges(
+  item: AssignedReservationItem | UnassignedReservationItem,
+  guest: EditGuestInput
+): string[] {
+  const trimmedName = guest.guestName.trim();
+  const trimmedPhone = guest.guestPhone.trim();
+  const trimmedEmail = guest.guestEmail.trim();
+  const changed: string[] = [];
+  if (trimmedName !== item.guestName) changed.push("name");
+  if (trimmedPhone !== item.guestPhone) changed.push("phone");
+  if (trimmedEmail !== item.guestEmail) changed.push("email");
+  if (guest.nationality.code !== item.nationality.code) changed.push("nationality");
+  if (guest.adults !== item.occupancy.adults || guest.children !== item.occupancy.children) {
+    changed.push("occupancy");
+  }
+  return changed;
+}
+
+export function hasGuestChanges(
+  item: AssignedReservationItem | UnassignedReservationItem,
+  guest: EditGuestInput
+): boolean {
+  return describeGuestChanges(item, guest).length > 0;
+}
+
+/**
+ * Field-by-field diff between a committed reservation and an Edit Stay
+ * draft, using the exact same rules (including the sold-RoomType-change
+ * negotiated-price reset) the `EDIT_STAY` reducer case applies. Shared by
+ * the reducer and `EditStayPanel` for the same reason as
+ * `describeGuestChanges` above.
+ */
+export function describeStayChanges(
+  item: AssignedReservationItem | UnassignedReservationItem,
+  stay: EditStayInput
+): string[] {
+  const soldRoomTypeChanged = stay.soldRoomTypeId !== item.soldRoomTypeId;
+  const normalizedAmount = normalizeActualNightlyAmount(soldRoomTypeChanged ? "" : stay.actualNightlyAmount);
+  const currentRoomId = item.kind === "assigned-reservation" ? item.roomId : "";
+  const changed: string[] = [];
+  if (stay.sourceId !== item.sourceId) changed.push("source");
+  if (soldRoomTypeChanged) changed.push("sold room type");
+  if (stay.physicalRoomId !== currentRoomId) changed.push("assigned room");
+  if (stay.checkIn !== item.startDate || stay.checkOut !== item.endDate) changed.push("dates");
+  if (stay.checkInTime !== item.checkInTime || stay.checkOutTime !== item.checkOutTime) {
+    changed.push("scheduled times");
+  }
+  if (normalizedAmount !== item.actualNightlyAmount) changed.push("negotiated price");
+  return changed;
+}
+
+export function hasStayChanges(
+  item: AssignedReservationItem | UnassignedReservationItem,
+  stay: EditStayInput
+): boolean {
+  return describeStayChanges(item, stay).length > 0;
+}
+
+/** Trimmed comparison against the committed block reason — same rule the `EDIT_BLOCK_REASON` reducer case already enforced. */
+export function hasBlockReasonChanges(committedReason: string, draftReason: string): boolean {
+  const trimmed = draftReason.trim();
+  return trimmed.length > 0 && trimmed !== committedReason;
+}
+
 export type ReservationRuntimeAction =
   | { type: "CONFIRM_MOVE"; intent: ReservationMoveIntent }
   | { type: "CONFIRM_RESERVATION"; itemId: string }
@@ -612,12 +697,7 @@ export function reservationRuntimeReducer(
         if (!isValidOccupancyCount(children, 0, MAX_CHILDREN_PER_UNIT)) return null;
 
         const trimmedEmail = guestEmail.trim();
-        const changed: string[] = [];
-        if (trimmedName !== item.guestName) changed.push("name");
-        if (trimmedPhone !== item.guestPhone) changed.push("phone");
-        if (trimmedEmail !== item.guestEmail) changed.push("email");
-        if (nationality.code !== item.nationality.code) changed.push("nationality");
-        if (adults !== item.occupancy.adults || children !== item.occupancy.children) changed.push("occupancy");
+        const changed = describeGuestChanges(item, action.guest);
         if (changed.length === 0) return null;
 
         return {
@@ -661,16 +741,9 @@ export function reservationRuntimeReducer(
         }
 
         const soldRoomTypeChanged = s.soldRoomTypeId !== item.soldRoomTypeId;
-        const finalActualNightlyAmount = soldRoomTypeChanged ? "" : s.actualNightlyAmount;
-        const currentRoomId = item.kind === "assigned-reservation" ? item.roomId : "";
+        const finalActualNightlyAmount = normalizeActualNightlyAmount(soldRoomTypeChanged ? "" : s.actualNightlyAmount);
 
-        const changed: string[] = [];
-        if (s.sourceId !== item.sourceId) changed.push("source");
-        if (soldRoomTypeChanged) changed.push("sold room type");
-        if (s.physicalRoomId !== currentRoomId) changed.push("assigned room");
-        if (s.checkIn !== item.startDate || s.checkOut !== item.endDate) changed.push("dates");
-        if (s.checkInTime !== item.checkInTime || s.checkOutTime !== item.checkOutTime) changed.push("scheduled times");
-        if (finalActualNightlyAmount !== item.actualNightlyAmount) changed.push("negotiated price");
+        const changed = describeStayChanges(item, s);
         if (changed.length === 0) return null;
 
         const base: ReservationTimelineItemBase = {
