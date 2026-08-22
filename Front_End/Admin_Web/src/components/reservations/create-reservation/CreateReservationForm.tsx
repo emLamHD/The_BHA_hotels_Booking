@@ -12,6 +12,12 @@ import {
   MOCK_ROOM_TYPES,
   MOCK_TIMELINE_ITEMS,
 } from "@/components/calendar/reservation-board/mockData";
+import {
+  isValidOccupancyCount,
+  isValidOptionalEmail,
+  MAX_ADULTS_PER_UNIT,
+  MAX_CHILDREN_PER_UNIT,
+} from "@/components/calendar/reservation-board/types";
 import type {
   BookingSourceId,
   PropertyId,
@@ -213,8 +219,8 @@ function validateForm(state: CreateReservationFormState): FieldError[] {
   } else if (trimmedPhone.length > 32) {
     errors.push({ path: "guest.phone", message: "Phone number must be 32 characters or fewer." });
   }
-  if (state.guest.email.trim().length > 256) {
-    errors.push({ path: "guest.email", message: "Email must be 256 characters or fewer." });
+  if (!isValidOptionalEmail(state.guest.email)) {
+    errors.push({ path: "guest.email", message: "Enter a valid email address (max 256 characters), or leave blank." });
   }
 
   if (state.units.length === 0) {
@@ -270,11 +276,17 @@ function validateForm(state: CreateReservationFormState): FieldError[] {
       });
     }
 
-    if (unit.adults < 1) {
-      errors.push({ path: unitPath("adults"), message: `${label}: at least 1 adult is required.` });
+    if (!isValidOccupancyCount(unit.adults, 1, MAX_ADULTS_PER_UNIT)) {
+      errors.push({
+        path: unitPath("adults"),
+        message: `${label}: adults must be a whole number between 1 and ${MAX_ADULTS_PER_UNIT}.`,
+      });
     }
-    if (unit.children < 0) {
-      errors.push({ path: unitPath("children"), message: `${label}: children cannot be negative.` });
+    if (!isValidOccupancyCount(unit.children, 0, MAX_CHILDREN_PER_UNIT)) {
+      errors.push({
+        path: unitPath("children"),
+        message: `${label}: children must be a whole number between 0 and ${MAX_CHILDREN_PER_UNIT}.`,
+      });
     }
 
     if (unit.physicalRoomId && state.propertyId) {

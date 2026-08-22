@@ -100,6 +100,24 @@ export function formatMonthDay(iso: IsoDate): string {
   return `${MONTH_LABELS[month - 1]} ${day}`;
 }
 
+/**
+ * Formats a deterministic "demo clock" minute count (minutes elapsed since
+ * `anchorDate` 00:00 — see `reservationRuntime.ts`) as a display string, e.g.
+ * "Aug 19, 2026 · 09:05". Never wall-clock `Date.now()`/`toLocaleString()`:
+ * activity/folio timestamps must stay deterministic and hydration-safe,
+ * consistent with every other date computation in this module.
+ */
+export function formatDemoTimestamp(anchorDate: IsoDate, clockMinutes: number): string {
+  const MINUTES_PER_DAY = 24 * 60;
+  const dayOffset = Math.floor(clockMinutes / MINUTES_PER_DAY);
+  const minutesOfDay = ((clockMinutes % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
+  const hours = Math.floor(minutesOfDay / 60);
+  const minutes = minutesOfDay % 60;
+  const date = addDaysIso(anchorDate, dayOffset);
+  const timeLabel = `${pad2(hours)}:${pad2(minutes)}`;
+  return `${formatDisplayDate(date)} · ${timeLabel}`;
+}
+
 export interface VisibleRange {
   start: IsoDate;
   endExclusive: IsoDate;

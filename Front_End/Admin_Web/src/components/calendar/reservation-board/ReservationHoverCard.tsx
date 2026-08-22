@@ -3,12 +3,13 @@
 import React, { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { formatDisplayDate } from "./dateMath";
+import { computeFolioSummary } from "./reservationRuntime";
+import { LIFECYCLE_STATUS_LABEL } from "./types";
 import type {
   AssignedReservationItem,
   BookingSource,
-  PaymentCollectionStatus,
+  DerivedPaymentStatus,
   PhysicalRoom,
-  ReservationStayStatus,
   RoomType,
   UnassignedReservationItem,
 } from "./types";
@@ -26,28 +27,27 @@ const VIEWPORT_MARGIN_PX = 8;
 const ANCHOR_GAP_PX = 8;
 const FALLBACK_CARD_HEIGHT_PX = 240;
 
-const PAYMENT_STATUS_LABEL: Record<PaymentCollectionStatus, string> = {
+const PAYMENT_STATUS_LABEL: Record<DerivedPaymentStatus, string> = {
   unpaid: "Chưa thu",
-  deposit: "Đã đặt cọc",
+  partial: "Đã đặt cọc",
   paid: "Đã thu đủ",
+  overpaid: "Thu vượt",
 };
 
-const PAYMENT_STATUS_CLASSNAME: Record<PaymentCollectionStatus, string> = {
+const PAYMENT_STATUS_CLASSNAME: Record<DerivedPaymentStatus, string> = {
   unpaid: "bg-error-50 text-error-600 dark:bg-error-500/10 dark:text-error-400",
-  deposit: "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300",
+  partial: "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300",
   paid: "bg-success-50 text-success-600 dark:bg-success-500/10 dark:text-success-400",
+  overpaid: "bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300",
 };
 
-const STAY_STATUS_LABEL: Record<ReservationStayStatus, string> = {
-  confirmed: "Not checked in",
-  "checked-in": "Checked in",
-  "checked-out": "Checked out",
-};
-
-const STAY_STATUS_CLASSNAME: Record<ReservationStayStatus, string> = {
+const LIFECYCLE_STATUS_CLASSNAME: Record<string, string> = {
+  pending: "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300",
   confirmed: "bg-gray-100 text-gray-600 dark:bg-white/[0.06] dark:text-gray-300",
   "checked-in": "bg-brand-50 text-brand-700 dark:bg-brand-500/10 dark:text-brand-300",
   "checked-out": "bg-gray-100 text-gray-500 dark:bg-white/[0.04] dark:text-gray-400",
+  cancelled: "bg-error-50 text-error-600 dark:bg-error-500/10 dark:text-error-400",
+  "no-show": "bg-error-50 text-error-600 dark:bg-error-500/10 dark:text-error-400",
 };
 
 const AMOUNT_FORMATTER = new Intl.NumberFormat("vi-VN", {
@@ -104,7 +104,7 @@ const ReservationHoverCard: React.FC<ReservationHoverCardProps> = ({
   }, [anchorEl, item.id]);
 
   const source = bookingSources.find((candidate) => candidate.id === item.sourceId);
-  const paymentStatus = item.paymentDisplay.status;
+  const folioSummary = computeFolioSummary(item);
   const locationLabel = physicalRoom
     ? `${roomType.name} · Room ${physicalRoom.code}`
     : `${roomType.name} · Unassigned`;
@@ -128,9 +128,9 @@ const ReservationHoverCard: React.FC<ReservationHoverCardProps> = ({
       </p>
 
       <span
-        className={`mt-1.5 inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${STAY_STATUS_CLASSNAME[item.stayStatus]}`}
+        className={`mt-1.5 inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${LIFECYCLE_STATUS_CLASSNAME[item.lifecycleStatus]}`}
       >
-        {STAY_STATUS_LABEL[item.stayStatus]}
+        {LIFECYCLE_STATUS_LABEL[item.lifecycleStatus]}
       </span>
 
       <div className="mt-2 flex items-center gap-1.5">
@@ -172,14 +172,14 @@ const ReservationHoverCard: React.FC<ReservationHoverCardProps> = ({
 
       <div className="mt-2.5 border-t border-gray-100 pt-2.5 dark:border-gray-800">
         <span
-          className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${PAYMENT_STATUS_CLASSNAME[paymentStatus]}`}
+          className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${PAYMENT_STATUS_CLASSNAME[folioSummary.status]}`}
         >
-          {PAYMENT_STATUS_LABEL[paymentStatus]}
+          {PAYMENT_STATUS_LABEL[folioSummary.status]}
         </span>
         <div className="mt-1.5 flex items-baseline justify-between gap-2">
           <span className="text-[11px] text-gray-500 dark:text-gray-400">Số tiền phải thu</span>
           <span className="whitespace-nowrap text-sm font-semibold text-gray-800 dark:text-white/90">
-            {AMOUNT_FORMATTER.format(item.paymentDisplay.amountDue)}
+            {AMOUNT_FORMATTER.format(Math.max(folioSummary.balanceDue, 0))}
           </span>
         </div>
       </div>

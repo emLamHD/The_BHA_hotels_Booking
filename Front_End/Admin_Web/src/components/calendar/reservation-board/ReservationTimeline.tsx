@@ -7,11 +7,14 @@ import {
   formatMonthDay,
   generateRangeDates,
   getWeekdayLabel,
+  isIsoDateWithinRange,
   isWeekendIso,
   type ClippedSpan,
   type VisibleRange,
 } from "./dateMath";
 import ReservationHoverCard from "./ReservationHoverCard";
+import { canMove } from "./reservationRuntime";
+import { isInactiveLifecycleStatus, LIFECYCLE_STATUS_LABEL } from "./types";
 import type {
   AssignedReservationItem,
   BookingSource,
@@ -152,13 +155,19 @@ const TimelineBar: React.FC<TimelineBarProps> = ({
   const showDetail = widthPx >= WIDE_BAR_THRESHOLD_PX && Boolean(detailLabel);
   const variant = item.kind === "assigned-reservation" ? "assigned" : item.kind === "unassigned-reservation" ? "unassigned" : "block";
   const showsHoverCard = isReservationItem(item);
+  const isInactive = item.kind !== "operational-block" && isInactiveLifecycleStatus(item.lifecycleStatus);
+  // Checked-in/checked-out/cancelled/no-show reservations and a removed
+  // block can never be dragged or sent through the move dialog (§13) — this
+  // is the single source of truth, also used by getMoveValidation.
+  const isLocked = !canMove(item).allowed;
 
-  const variantClassName =
-    variant === "assigned"
-      ? "border border-brand-300 bg-brand-50 text-brand-700 dark:border-brand-500/50 dark:bg-brand-500/15 dark:text-brand-200"
-      : variant === "unassigned"
-      ? "border-2 border-dashed border-purple-400 bg-purple-50 text-purple-700 dark:border-purple-400/60 dark:bg-purple-500/10 dark:text-purple-200"
-      : "border border-dashed border-amber-500 bg-[repeating-linear-gradient(45deg,#fef3c7_0,#fef3c7_6px,#fffbeb_6px,#fffbeb_12px)] text-amber-800 dark:border-amber-400/60 dark:bg-[repeating-linear-gradient(45deg,rgba(245,158,11,0.18)_0,rgba(245,158,11,0.18)_6px,rgba(245,158,11,0.06)_6px,rgba(245,158,11,0.06)_12px)] dark:text-amber-200";
+  const variantClassName = isInactive
+    ? "border border-dashed border-gray-300 bg-gray-100 text-gray-500 dark:border-gray-700 dark:bg-white/[0.03] dark:text-gray-400"
+    : variant === "assigned"
+    ? "border border-brand-300 bg-brand-50 text-brand-700 dark:border-brand-500/50 dark:bg-brand-500/15 dark:text-brand-200"
+    : variant === "unassigned"
+    ? "border-2 border-dashed border-purple-400 bg-purple-50 text-purple-700 dark:border-purple-400/60 dark:bg-purple-500/10 dark:text-purple-200"
+    : "border border-dashed border-amber-500 bg-[repeating-linear-gradient(45deg,#fef3c7_0,#fef3c7_6px,#fffbeb_6px,#fffbeb_12px)] text-amber-800 dark:border-amber-400/60 dark:bg-[repeating-linear-gradient(45deg,rgba(245,158,11,0.18)_0,rgba(245,158,11,0.18)_6px,rgba(245,158,11,0.06)_6px,rgba(245,158,11,0.06)_12px)] dark:text-amber-200";
 
   return (
     <div
@@ -166,7 +175,7 @@ const TimelineBar: React.FC<TimelineBarProps> = ({
       aria-label={ariaLabel}
       data-timeline-item-id={item.id}
       tabIndex={0}
-      draggable
+      draggable={!isLocked}
       onDragStart={(event) => {
         event.dataTransfer.setData("text/plain", item.id);
         event.dataTransfer.effectAllowed = "move";
@@ -187,9 +196,9 @@ const TimelineBar: React.FC<TimelineBarProps> = ({
       onMouseLeave={showsHoverCard ? () => onHoverEnd() : undefined}
       onFocus={showsHoverCard ? (event) => onHoverStart(item, event.currentTarget) : undefined}
       onBlur={showsHoverCard ? () => onHoverEnd() : undefined}
-      className={`group absolute top-1.5 bottom-1.5 flex cursor-grab flex-col justify-center overflow-hidden rounded-md px-2 py-1 text-xs leading-tight outline-none transition-shadow hover:shadow-theme-xs hover:ring-1 hover:ring-brand-400/70 focus-visible:ring-2 focus-visible:ring-brand-500/50 active:cursor-grabbing ${variantClassName} ${
+      className={`group absolute top-1.5 bottom-1.5 flex ${isLocked ? "cursor-default" : "cursor-grab active:cursor-grabbing"} flex-col justify-center overflow-hidden rounded-md px-2 py-1 text-xs leading-tight outline-none transition-shadow hover:shadow-theme-xs hover:ring-1 hover:ring-brand-400/70 focus-visible:ring-2 focus-visible:ring-brand-500/50 ${variantClassName} ${
         clip.clippedStart ? "rounded-l-none border-l-4" : ""
-      } ${clip.clippedEnd ? "rounded-r-none border-r-4" : ""} ${isDragged ? "opacity-40" : ""}`}
+      } ${clip.clippedEnd ? "rounded-r-none border-r-4" : ""} ${isDragged ? "opacity-40" : ""} ${isInactive ? "opacity-70" : ""}`}
       style={{
         left: clip.startCol * DATE_COLUMN_WIDTH_PX + 3,
         width: Math.max(widthPx, DATE_COLUMN_WIDTH_PX - 6),
@@ -423,7 +432,7 @@ const ReservationTimeline: React.FC<ReservationTimelineProps> = ({
         className="max-h-[560px] overflow-auto"
         style={{ minWidth: "100%" }}
       >
-        <div style={{ minWidth: totalWidthPx }}>
+        <div className="relative" style={{ minWidth: totalWidthPx }}>
           <div className="sticky top-0 z-20 flex bg-gray-50 dark:bg-gray-900">
             <div className="sticky left-0 z-30 flex h-16 w-[208px] shrink-0 items-center border-b border-r border-gray-200 bg-gray-50 px-4 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400">
               Room / Room Type
@@ -542,14 +551,14 @@ const ReservationTimeline: React.FC<ReservationTimelineProps> = ({
                             onHoverStart={handleBarHoverStart}
                             onHoverEnd={closeHoverCard}
                             primaryLabel={item.guestName}
-                            secondaryLabel={`${sourceLabelFor(bookingSources, item.sourceId)} · Assigned`}
+                            secondaryLabel={`${sourceLabelFor(bookingSources, item.sourceId)} · ${LIFECYCLE_STATUS_LABEL[item.lifecycleStatus]}`}
                             detailLabel={`${formatDisplayDate(item.startDate)} – ${formatDisplayDate(
                               item.endDate
                             )}`}
                             ariaLabel={`${item.guestName} · ${sourceLabelFor(
                               bookingSources,
                               item.sourceId
-                            )} · Assigned · ${formatDisplayDate(item.startDate)} – ${formatDisplayDate(
+                            )} · ${LIFECYCLE_STATUS_LABEL[item.lifecycleStatus]} · ${formatDisplayDate(item.startDate)} – ${formatDisplayDate(
                               item.endDate
                             )}`}
                           />
@@ -636,14 +645,14 @@ const ReservationTimeline: React.FC<ReservationTimelineProps> = ({
                             onHoverStart={handleBarHoverStart}
                             onHoverEnd={closeHoverCard}
                             primaryLabel={item.guestName}
-                            secondaryLabel={`${sourceLabelFor(bookingSources, item.sourceId)} · Unassigned`}
+                            secondaryLabel={`${sourceLabelFor(bookingSources, item.sourceId)} · ${LIFECYCLE_STATUS_LABEL[item.lifecycleStatus]}`}
                             detailLabel={`${formatDisplayDate(item.startDate)} – ${formatDisplayDate(
                               item.endDate
                             )}`}
                             ariaLabel={`${item.guestName} · ${sourceLabelFor(
                               bookingSources,
                               item.sourceId
-                            )} · Unassigned · ${formatDisplayDate(
+                            )} · Unassigned · ${LIFECYCLE_STATUS_LABEL[item.lifecycleStatus]} · ${formatDisplayDate(
                               item.startDate
                             )} – ${formatDisplayDate(item.endDate)}`}
                           />
@@ -654,6 +663,19 @@ const ReservationTimeline: React.FC<ReservationTimelineProps> = ({
                 );
               })}
             </>
+          ) : null}
+
+          {isIsoDateWithinRange(todayIso, range) ? (
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute top-0 bottom-0 z-[25] w-px bg-brand-500/70 dark:bg-brand-400/60"
+              style={{
+                left:
+                  ROOM_COLUMN_WIDTH_PX +
+                  diffDaysIso(range.start, todayIso) * DATE_COLUMN_WIDTH_PX +
+                  DATE_COLUMN_WIDTH_PX / 2,
+              }}
+            />
           ) : null}
         </div>
       </div>
