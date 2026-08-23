@@ -36,9 +36,9 @@ public sealed class ReservationReplayCoherenceTests
             "BHA-COHERENT-0002",
             confirmingHold.ExpiresAtUtc.AddTicks(-1));
         var claimingActiveHold = CreateMutatedReservation(
-            hold: activeHold,
-            id: reservation.Id,
-            confirmationNumber: reservation.ConfirmationNumber,
+            activeHold,
+            reservation.Id,
+            reservation.ConfirmationNumber,
             sourceHoldId: activeHold.Id,
             customerAccountId: activeHold.CustomerAccountId,
             guestAccessTokenHash: activeHold.GuestAccessTokenHash);
@@ -112,8 +112,6 @@ public sealed class ReservationReplayCoherenceTests
 
     [Theory]
     [InlineData("propertyId")]
-    [InlineData("roomTypeId")]
-    [InlineData("ratePlanId")]
     [InlineData("fullName")]
     [InlineData("email")]
     [InlineData("phone")]
@@ -122,10 +120,11 @@ public sealed class ReservationReplayCoherenceTests
     [InlineData("currency")]
     public void Mismatched_business_field_is_incoherent(string field)
     {
-        // checkIn/checkOut and totalAmount are cross-validated against the night
-        // list by Reservation's own constructor, so an incoherent value there can
-        // only be reached by a self-consistent-but-wrong Reservation (see the
-        // dedicated stay-period and night-amount tests below), not a bare field swap.
+        // checkIn/checkOut, unit RoomTypeId/RatePlanId/UnitAmount, and unit count are
+        // cross-validated by Reservation's/ReservationUnit's own constructors against
+        // the Item graph, so an incoherent value there can only be reached by a
+        // self-consistent-but-wrong Reservation — see the dedicated Unit/night/stay
+        // tests below, not a bare header field swap.
         var hold = CreateGuestHold();
         var reservation = hold.Confirm(Guid.NewGuid(), "BHA-COHERENT-0007", hold.ExpiresAtUtc.AddTicks(-1));
 
@@ -136,56 +135,64 @@ public sealed class ReservationReplayCoherenceTests
             sourceHoldId: hold.Id,
             customerAccountId: hold.CustomerAccountId,
             guestAccessTokenHash: hold.GuestAccessTokenHash,
-            propertyId: field == "propertyId" ? Guid.NewGuid() : hold.PropertyId,
-            roomTypeId: field == "roomTypeId" ? Guid.NewGuid() : hold.RoomTypeId,
-            ratePlanId: field == "ratePlanId" ? Guid.NewGuid() : hold.RatePlanId,
-            fullName: field == "fullName" ? "Someone Else" : hold.FullName,
-            email: field == "email" ? "someone-else@example.com" : hold.Email,
-            phone: field == "phone" ? "+84 000 000 000" : hold.Phone,
-            adults: field == "adults" ? hold.Adults + 1 : hold.Adults,
-            children: field == "children" ? hold.Children + 1 : hold.Children,
-            currencyCode: field == "currency" ? "USD" : hold.CurrencyCode);
+            propertyId: field == "propertyId" ? Guid.NewGuid() : null,
+            fullName: field == "fullName" ? "Someone Else" : null,
+            email: field == "email" ? "someone-else@example.com" : null,
+            phone: field == "phone" ? "+84 000 000 000" : null,
+            adults: field == "adults" ? hold.Adults + 1 : null,
+            children: field == "children" ? hold.Children + 1 : null,
+            currencyCode: field == "currency" ? "USD" : null);
 
         Assert.False(hold.IsCoherentReservation(mutated));
     }
 
     [Fact]
-    public void Mismatched_rooms_and_matching_night_rooms_is_incoherent()
+    public void Mismatched_unit_room_type_is_incoherent()
     {
         var hold = CreateGuestHold();
         var reservation = hold.Confirm(Guid.NewGuid(), "BHA-COHERENT-0010", hold.ExpiresAtUtc.AddTicks(-1));
-        var inflatedRooms = hold.Rooms + 1;
-        var nights = hold.Nights
-            .OrderBy(night => night.StayDate)
-            .Select(night => new BookingNightSnapshot(
-                night.StayDate,
-                inflatedRooms,
-                night.UnitAmount,
-                night.UnitAmount * inflatedRooms));
-        var mutated = new Reservation(
+        var mutated = CreateMutatedReservation(
+            hold,
             reservation.Id,
             reservation.ConfirmationNumber,
-            hold.Id,
-            hold.PropertyId,
-            hold.RoomTypeId,
-            hold.RatePlanId,
-            hold.CustomerAccountId,
-            hold.FullName,
-            hold.Email,
-            hold.Phone,
-            hold.CheckIn,
-            hold.CheckOut,
-            hold.Adults,
-            hold.Children,
-            inflatedRooms,
-            hold.CurrencyCode,
-            nights.Sum(night => night.NightTotal),
-            ReservationStatus.Confirmed,
-            reservation.ConfirmedAtUtc,
-            null,
-            null,
-            hold.GuestAccessTokenHash,
-            nights);
+            sourceHoldId: hold.Id,
+            customerAccountId: hold.CustomerAccountId,
+            guestAccessTokenHash: hold.GuestAccessTokenHash,
+            unitRoomTypeIdOverride: Guid.NewGuid());
+
+        Assert.False(hold.IsCoherentReservation(mutated));
+    }
+
+    [Fact]
+    public void Missing_unit_for_an_item_is_incoherent()
+    {
+        var hold = CreateGuestHold();
+        var reservation = hold.Confirm(Guid.NewGuid(), "BHA-COHERENT-0011", hold.ExpiresAtUtc.AddTicks(-1));
+        var mutated = CreateMutatedReservation(
+            hold,
+            reservation.Id,
+            reservation.ConfirmationNumber,
+            sourceHoldId: hold.Id,
+            customerAccountId: hold.CustomerAccountId,
+            guestAccessTokenHash: hold.GuestAccessTokenHash,
+            itemCountOverride: 1);
+
+        Assert.False(hold.IsCoherentReservation(mutated));
+    }
+
+    [Fact]
+    public void Unit_sourced_from_a_foreign_item_id_is_incoherent()
+    {
+        var hold = CreateGuestHold();
+        var reservation = hold.Confirm(Guid.NewGuid(), "BHA-COHERENT-0012", hold.ExpiresAtUtc.AddTicks(-1));
+        var mutated = CreateMutatedReservation(
+            hold,
+            reservation.Id,
+            reservation.ConfirmationNumber,
+            sourceHoldId: hold.Id,
+            customerAccountId: hold.CustomerAccountId,
+            guestAccessTokenHash: hold.GuestAccessTokenHash,
+            foreignSourceItemId: Guid.NewGuid());
 
         Assert.False(hold.IsCoherentReservation(mutated));
     }
@@ -199,83 +206,38 @@ public sealed class ReservationReplayCoherenceTests
         // period than the one its source Hold actually holds.
         var hold = CreateGuestHold();
         var reservation = hold.Confirm(Guid.NewGuid(), "BHA-COHERENT-0008", hold.ExpiresAtUtc.AddTicks(-1));
-        var shiftedCheckIn = hold.CheckIn.AddDays(1);
-        var shiftedCheckOut = hold.CheckOut.AddDays(1);
-        var shiftedNights = hold.Nights
-            .OrderBy(night => night.StayDate)
-            .Select(night => new BookingNightSnapshot(
-                night.StayDate.AddDays(1),
-                night.Rooms,
-                night.UnitAmount,
-                night.NightTotal));
-        var mutated = new Reservation(
+        var mutated = CreateMutatedReservation(
+            hold,
             reservation.Id,
             reservation.ConfirmationNumber,
-            hold.Id,
-            hold.PropertyId,
-            hold.RoomTypeId,
-            hold.RatePlanId,
-            hold.CustomerAccountId,
-            hold.FullName,
-            hold.Email,
-            hold.Phone,
-            shiftedCheckIn,
-            shiftedCheckOut,
-            hold.Adults,
-            hold.Children,
-            hold.Rooms,
-            hold.CurrencyCode,
-            hold.TotalAmount,
-            ReservationStatus.Confirmed,
-            reservation.ConfirmedAtUtc,
-            null,
-            null,
-            hold.GuestAccessTokenHash,
-            shiftedNights);
+            sourceHoldId: hold.Id,
+            customerAccountId: hold.CustomerAccountId,
+            guestAccessTokenHash: hold.GuestAccessTokenHash,
+            checkInOverride: hold.CheckIn.AddDays(1),
+            checkOutOverride: hold.CheckOut.AddDays(1),
+            stayShiftDays: 1);
 
         Assert.False(hold.IsCoherentReservation(mutated));
     }
 
     [Fact]
-    public void Self_consistent_but_wrong_total_amount_is_incoherent()
+    public void Mismatched_night_rateplan_is_incoherent()
     {
-        // totalAmount must equal the sum of the night snapshots for Reservation's
-        // own constructor to accept it, so a coordinated, self-consistent overprice
-        // is the only reachable way to prove this incoherence.
+        // RatePlanId must be a valid, present guid for ReservationUnit's own
+        // constructor to accept a night, so the incoherence proven here is a
+        // self-consistent Reservation naming a different (but still valid) RatePlan
+        // than the one its source Item actually priced (two RatePlans may quote the
+        // same amount, ADR 0005 item 1 — only RatePlanId distinguishes them).
         var hold = CreateGuestHold();
-        var reservation = hold.Confirm(Guid.NewGuid(), "BHA-COHERENT-0011", hold.ExpiresAtUtc.AddTicks(-1));
-        var inflatedUnitAmount = hold.Nights.First().UnitAmount + 1m;
-        var inflatedNights = hold.Nights
-            .OrderBy(night => night.StayDate)
-            .Select(night => new BookingNightSnapshot(
-                night.StayDate,
-                night.Rooms,
-                inflatedUnitAmount,
-                inflatedUnitAmount * night.Rooms));
-        var mutated = new Reservation(
+        var reservation = hold.Confirm(Guid.NewGuid(), "BHA-COHERENT-0013", hold.ExpiresAtUtc.AddTicks(-1));
+        var mutated = CreateMutatedReservation(
+            hold,
             reservation.Id,
             reservation.ConfirmationNumber,
-            hold.Id,
-            hold.PropertyId,
-            hold.RoomTypeId,
-            hold.RatePlanId,
-            hold.CustomerAccountId,
-            hold.FullName,
-            hold.Email,
-            hold.Phone,
-            hold.CheckIn,
-            hold.CheckOut,
-            hold.Adults,
-            hold.Children,
-            hold.Rooms,
-            hold.CurrencyCode,
-            inflatedNights.Sum(night => night.NightTotal),
-            ReservationStatus.Confirmed,
-            reservation.ConfirmedAtUtc,
-            null,
-            null,
-            hold.GuestAccessTokenHash,
-            inflatedNights);
+            sourceHoldId: hold.Id,
+            customerAccountId: hold.CustomerAccountId,
+            guestAccessTokenHash: hold.GuestAccessTokenHash,
+            firstNightRatePlanOverride: Guid.NewGuid());
 
         Assert.False(hold.IsCoherentReservation(mutated));
     }
@@ -285,44 +247,24 @@ public sealed class ReservationReplayCoherenceTests
     {
         var hold = CreateGuestHold();
         var reservation = hold.Confirm(Guid.NewGuid(), "BHA-COHERENT-0009", hold.ExpiresAtUtc.AddTicks(-1));
-        var orderedHoldNights = hold.Nights.OrderBy(night => night.StayDate).ToArray();
-        var inflatedNights = orderedHoldNights.Select((night, index) => index == 0
-            ? new BookingNightSnapshot(night.StayDate, night.Rooms, night.UnitAmount + 1m, night.NightTotal + night.Rooms)
-            : new BookingNightSnapshot(night.StayDate, night.Rooms, night.UnitAmount, night.NightTotal));
-        var mutated = new Reservation(
+        var mutated = CreateMutatedReservation(
+            hold,
             reservation.Id,
             reservation.ConfirmationNumber,
-            hold.Id,
-            hold.PropertyId,
-            hold.RoomTypeId,
-            hold.RatePlanId,
-            hold.CustomerAccountId,
-            hold.FullName,
-            hold.Email,
-            hold.Phone,
-            hold.CheckIn,
-            hold.CheckOut,
-            hold.Adults,
-            hold.Children,
-            hold.Rooms,
-            hold.CurrencyCode,
-            hold.TotalAmount + hold.Rooms,
-            ReservationStatus.Confirmed,
-            reservation.ConfirmedAtUtc,
-            null,
-            null,
-            hold.GuestAccessTokenHash,
-            inflatedNights);
+            sourceHoldId: hold.Id,
+            customerAccountId: hold.CustomerAccountId,
+            guestAccessTokenHash: hold.GuestAccessTokenHash,
+            firstNightAmountOverride: hold.Items[0].Nights[0].UnitAmount + 1m);
 
         Assert.False(hold.IsCoherentReservation(mutated));
     }
 
-    private static BookingHold CreateGuestHold() =>
+    private static InventoryHold CreateGuestHold(int quantity = 2) =>
         new(
             Guid.NewGuid(),
             PropertyId,
             RoomTypeId,
-            RatePlanId,
+            quantity,
             null,
             "Guest Customer",
             "guest@example.com",
@@ -331,21 +273,19 @@ public sealed class ReservationReplayCoherenceTests
             CheckOut,
             2,
             1,
-            2,
             "VND",
-            401.00m,
             CreatedAt,
             IdempotencyHash,
             Fingerprint,
             GuestHash,
-            ValidNights());
+            ValidNightPlan());
 
-    private static BookingHold CreateAuthenticatedHold() =>
+    private static InventoryHold CreateAuthenticatedHold() =>
         new(
             Guid.NewGuid(),
             PropertyId,
             RoomTypeId,
-            RatePlanId,
+            2,
             CustomerId,
             "Customer Owner",
             "owner@example.com",
@@ -354,69 +294,81 @@ public sealed class ReservationReplayCoherenceTests
             CheckOut,
             2,
             1,
-            2,
             "VND",
-            401.00m,
             CreatedAt,
             IdempotencyHash,
             Fingerprint,
             null,
-            ValidNights());
+            ValidNightPlan());
 
     private static Reservation CreateMutatedReservation(
-        BookingHold hold,
+        InventoryHold hold,
         Guid id,
         string confirmationNumber,
         Guid sourceHoldId,
         Guid? customerAccountId,
         string? guestAccessTokenHash,
         Guid? propertyId = null,
-        Guid? roomTypeId = null,
-        Guid? ratePlanId = null,
         string? fullName = null,
         string? email = null,
         string? phone = null,
         int? adults = null,
         int? children = null,
-        string? currencyCode = null)
+        string? currencyCode = null,
+        DateOnly? checkInOverride = null,
+        DateOnly? checkOutOverride = null,
+        int stayShiftDays = 0,
+        Guid? unitRoomTypeIdOverride = null,
+        int? itemCountOverride = null,
+        Guid? foreignSourceItemId = null,
+        Guid? firstNightRatePlanOverride = null,
+        decimal? firstNightAmountOverride = null)
     {
-        var nights = hold.Nights
-            .OrderBy(night => night.StayDate)
-            .Select(night => new BookingNightSnapshot(
-                night.StayDate,
-                night.Rooms,
-                night.UnitAmount,
-                night.NightTotal));
+        var items = itemCountOverride is { } count
+            ? hold.Items.Take(count).ToArray()
+            : hold.Items.ToArray();
+        var checkIn = checkInOverride ?? hold.CheckIn;
+        var checkOut = checkOutOverride ?? hold.CheckOut;
+
+        var unitPlans = items.Select((item, itemIndex) => new ReservationUnitPlan(
+            foreignSourceItemId is { } foreignId && itemIndex == 0 ? foreignId : item.Id,
+            unitRoomTypeIdOverride ?? item.RoomTypeId,
+            item.Nights
+                .OrderBy(night => night.StayDate)
+                .Select((night, nightIndex) => new NightlyCommitmentSnapshot(
+                    night.StayDate.AddDays(stayShiftDays),
+                    firstNightRatePlanOverride is { } ratePlan && itemIndex == 0 && nightIndex == 0
+                        ? ratePlan
+                        : night.RatePlanId,
+                    firstNightAmountOverride is { } amount && itemIndex == 0 && nightIndex == 0
+                        ? amount
+                        : night.UnitAmount))));
 
         return new Reservation(
             id,
             confirmationNumber,
             sourceHoldId,
             propertyId ?? hold.PropertyId,
-            roomTypeId ?? hold.RoomTypeId,
-            ratePlanId ?? hold.RatePlanId,
             customerAccountId,
             fullName ?? hold.FullName,
             email ?? hold.Email,
             phone ?? hold.Phone,
-            hold.CheckIn,
-            hold.CheckOut,
+            checkIn,
+            checkOut,
             adults ?? hold.Adults,
             children ?? hold.Children,
-            hold.Rooms,
             currencyCode ?? hold.CurrencyCode,
-            hold.TotalAmount,
             ReservationStatus.Confirmed,
             hold.ExpiresAtUtc.AddTicks(-1),
             null,
             null,
             guestAccessTokenHash,
-            nights);
+            unitPlans);
     }
 
-    private static List<BookingNightSnapshot> ValidNights() =>
+    private static NightlyCommitmentSnapshot[] ValidNightPlan() =>
     [
-        new(CheckIn, 2, 100.25m, 200.50m),
-        new(CheckIn.AddDays(1), 2, 100.25m, 200.50m)
+        new(CheckIn, RatePlanId, 100.25m),
+        new(CheckIn.AddDays(1), RatePlanId, 100.25m)
     ];
 }

@@ -68,14 +68,15 @@ public sealed class BookingHoldConfirmationApiTests(PostgreSqlWebApplicationFact
 
         await using var context = factory.CreateDbContext();
         var reservation = await context.Reservations
-            .Include(item => item.Nights)
+            .Include(item => item.Units)
+            .ThenInclude(unit => unit.Nights)
             .SingleAsync();
         Assert.Equal(holdId, reservation.SourceHoldId);
         Assert.Null(reservation.CustomerAccountId);
         Assert.Equal(
             BookingHoldRequestSecurity.Sha256Hex(guestToken),
             reservation.GuestAccessTokenHash);
-        var hold = await context.BookingHolds.SingleAsync(item => item.Id == holdId);
+        var hold = await context.InventoryHolds.SingleAsync(item => item.Id == holdId);
         Assert.Equal(BookingHoldStatus.Confirmed, hold.Status);
     }
 
@@ -121,7 +122,7 @@ public sealed class BookingHoldConfirmationApiTests(PostgreSqlWebApplicationFact
 
         await using var context = factory.CreateDbContext();
         Assert.Equal(1, await context.Reservations.CountAsync());
-        Assert.Equal(1, await context.ReservationNights.CountAsync());
+        Assert.Equal(1, await context.ReservationUnitNights.CountAsync());
     }
 
     [Fact]
@@ -202,9 +203,11 @@ public sealed class BookingHoldConfirmationApiTests(PostgreSqlWebApplicationFact
         {
             await context.Database.ExecuteSqlInterpolatedAsync(
                 $"""
-                 UPDATE "ReservationNights"
-                 SET "UnitAmount" = 999999, "NightTotal" = 999999
-                 WHERE "ReservationId" = {reservationId}
+                 UPDATE "ReservationUnitNights"
+                 SET "UnitAmount" = 999999
+                 WHERE "ReservationUnitId" IN (
+                     SELECT "Id" FROM "ReservationUnits" WHERE "ReservationId" = {reservationId}
+                 )
                  """);
         }
 
@@ -213,7 +216,10 @@ public sealed class BookingHoldConfirmationApiTests(PostgreSqlWebApplicationFact
         await using var verify = factory.CreateDbContext();
         Assert.Equal(1, await verify.Reservations.CountAsync());
         Assert.All(
-            await verify.ReservationNights.Where(n => n.ReservationId == reservationId).ToListAsync(),
+            await verify.ReservationUnits
+                .Where(unit => unit.ReservationId == reservationId)
+                .SelectMany(unit => unit.Nights)
+                .ToListAsync(),
             night => Assert.Equal(999999m, night.UnitAmount));
     }
 
@@ -253,7 +259,7 @@ public sealed class BookingHoldConfirmationApiTests(PostgreSqlWebApplicationFact
 
         await using var context = factory.CreateDbContext();
         Assert.Empty(await context.Reservations.ToListAsync());
-        var hold = await context.BookingHolds.SingleAsync();
+        var hold = await context.InventoryHolds.SingleAsync();
         Assert.Equal(BookingHoldStatus.Active, hold.Status);
     }
 
@@ -318,7 +324,7 @@ public sealed class BookingHoldConfirmationApiTests(PostgreSqlWebApplicationFact
         await using (var context = factory.CreateDbContext())
         {
             await context.Database.ExecuteSqlInterpolatedAsync(
-                $"UPDATE \"BookingHolds\" SET \"Status\" = 'Cancelled' WHERE \"Id\" = {holdId}");
+                $"UPDATE \"InventoryHolds\" SET \"Status\" = 'Cancelled' WHERE \"Id\" = {holdId}");
         }
 
         AssertProblem(await ConfirmAsync(client, holdId, guestToken), HttpStatusCode.Conflict);
@@ -374,7 +380,7 @@ public sealed class BookingHoldConfirmationApiTests(PostgreSqlWebApplicationFact
 
         await using var context = factory.CreateDbContext();
         Assert.Empty(await context.Reservations.ToListAsync());
-        var hold = await context.BookingHolds.SingleAsync();
+        var hold = await context.InventoryHolds.SingleAsync();
         Assert.Equal(BookingHoldStatus.Active, hold.Status);
     }
 
@@ -537,10 +543,13 @@ public sealed class BookingHoldConfirmationApiTests(PostgreSqlWebApplicationFact
         Assert.Equal(originalNights, confirmedNightAmounts);
 
         await using var verify = factory.CreateDbContext();
-        var reservation = await verify.Reservations.Include(item => item.Nights).SingleAsync();
+        var reservation = await verify.Reservations
+            .Include(item => item.Units)
+            .ThenInclude(unit => unit.Nights)
+            .SingleAsync();
         Assert.Equal(originalTotal, reservation.TotalAmount);
         Assert.All(
-            reservation.Nights,
+            reservation.Units.SelectMany(unit => unit.Nights),
             night => Assert.Contains(night.UnitAmount, originalNights));
     }
 
@@ -572,7 +581,7 @@ public sealed class BookingHoldConfirmationApiTests(PostgreSqlWebApplicationFact
 
         await using var context = factory.CreateDbContext();
         Assert.Equal(1, await context.Reservations.CountAsync());
-        Assert.Equal(1, await context.ReservationNights.CountAsync());
+        Assert.Equal(1, await context.ReservationUnitNights.CountAsync());
     }
 
     [Fact]
@@ -627,11 +636,14 @@ public sealed class BookingHoldConfirmationApiTests(PostgreSqlWebApplicationFact
         Assert.Equal(
             1,
             await context.Reservations.CountAsync(reservation => reservation.SourceHoldId == lateHoldId));
-        Assert.Equal(3, await context.ReservationNights.CountAsync(
-            night => context.Reservations
-                .Where(reservation => reservation.SourceHoldId == earlyHoldId)
-                .Select(reservation => reservation.Id)
-                .Contains(night.ReservationId)));
+        Assert.Equal(3, await context.ReservationUnitNights.CountAsync(
+            night => context.ReservationUnits
+                .Where(unit => context.Reservations
+                    .Where(reservation => reservation.SourceHoldId == earlyHoldId)
+                    .Select(reservation => reservation.Id)
+                    .Contains(unit.ReservationId))
+                .Select(unit => unit.Id)
+                .Contains(night.ReservationUnitId)));
     }
 
     [Fact]
@@ -664,10 +676,10 @@ public sealed class BookingHoldConfirmationApiTests(PostgreSqlWebApplicationFact
         Assert.Equal(0, await GetAvailableRoomsAsync(setupClient, "FAMILY"));
         await using var context = factory.CreateDbContext();
         Assert.Equal(1, await context.Reservations.CountAsync());
-        Assert.Equal(1, await context.BookingHolds.CountAsync());
+        Assert.Equal(1, await context.InventoryHolds.CountAsync());
         Assert.Equal(
             0,
-            await context.BookingHolds.CountAsync(hold => hold.Status == BookingHoldStatus.Active));
+            await context.InventoryHolds.CountAsync(hold => hold.Status == BookingHoldStatus.Active));
     }
 
     [Fact]
@@ -756,8 +768,8 @@ public sealed class BookingHoldConfirmationApiTests(PostgreSqlWebApplicationFact
 
             await using var context = factory.CreateDbContext();
             Assert.Empty(await context.Reservations.ToListAsync());
-            Assert.Empty(await context.ReservationNights.ToListAsync());
-            var hold = await context.BookingHolds.SingleAsync();
+            Assert.Empty(await context.ReservationUnitNights.ToListAsync());
+            var hold = await context.InventoryHolds.SingleAsync();
             Assert.Equal(BookingHoldStatus.Active, hold.Status);
         }
         finally
@@ -799,8 +811,8 @@ public sealed class BookingHoldConfirmationApiTests(PostgreSqlWebApplicationFact
 
         await using var context = factory.CreateDbContext();
         Assert.Empty(await context.Reservations.ToListAsync());
-        Assert.Empty(await context.ReservationNights.ToListAsync());
-        var hold = await context.BookingHolds.SingleAsync();
+        Assert.Empty(await context.ReservationUnitNights.ToListAsync());
+        var hold = await context.InventoryHolds.SingleAsync();
         Assert.Equal(BookingHoldStatus.Active, hold.Status);
 
         Assert.True(await CanAcquireAdvisoryLockAsync(transitionLock));

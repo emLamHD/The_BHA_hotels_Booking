@@ -89,7 +89,7 @@ public sealed class BookingHoldReadApiTests(PostgreSqlWebApplicationFactory fact
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         await using var context = factory.CreateDbContext();
-        var hold = await context.BookingHolds.SingleAsync(item => item.Id == holdId);
+        var hold = await context.InventoryHolds.SingleAsync(item => item.Id == holdId);
         Assert.Null(hold.CustomerAccountId);
         Assert.NotNull(hold.GuestAccessTokenHash);
     }
@@ -196,7 +196,7 @@ public sealed class BookingHoldReadApiTests(PostgreSqlWebApplicationFactory fact
         await GetAsync(client, holdId, guestToken);
 
         await using var context = factory.CreateDbContext();
-        var hold = await context.BookingHolds.SingleAsync(item => item.Id == holdId);
+        var hold = await context.InventoryHolds.SingleAsync(item => item.Id == holdId);
         Assert.Equal(FixedUtc, hold.CreatedAtUtc);
         Assert.Equal(FixedUtc.AddMinutes(15), hold.ExpiresAtUtc);
         Assert.Equal(

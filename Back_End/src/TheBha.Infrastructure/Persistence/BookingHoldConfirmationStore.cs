@@ -25,8 +25,9 @@ internal sealed class BookingHoldConfirmationStore(
                 BookingAdvisoryLockKeys.ForHoldTransition(holdId),
                 cancellationToken);
 
-            var hold = await dbContext.BookingHolds
-                .Include(item => item.Nights)
+            var hold = await dbContext.InventoryHolds
+                .Include(item => item.Items)
+                .ThenInclude(item => item.Nights)
                 .SingleOrDefaultAsync(item => item.Id == holdId, cancellationToken);
             if (hold is null ||
                 !IsOwner(
@@ -44,7 +45,8 @@ internal sealed class BookingHoldConfirmationStore(
 
             var existingReservation = await dbContext.Reservations
                 .AsNoTracking()
-                .Include(item => item.Nights)
+                .Include(item => item.Units)
+                .ThenInclude(unit => unit.Nights)
                 .SingleOrDefaultAsync(
                     item => item.SourceHoldId == holdId,
                     cancellationToken);
@@ -73,14 +75,17 @@ internal sealed class BookingHoldConfirmationStore(
                     cancellationToken);
             }
 
-            foreach (var stayDate in hold.Nights
+            var roomTypeId = hold.Items[0].RoomTypeId;
+            foreach (var stayDate in hold.Items
+                         .SelectMany(item => item.Nights)
                          .Select(night => night.StayDate)
+                         .Distinct()
                          .OrderBy(date => date))
             {
                 await AcquireLockAsync(
                     BookingAdvisoryLockKeys.ForInventory(
                         hold.PropertyId,
-                        hold.RoomTypeId,
+                        roomTypeId,
                         stayDate),
                     cancellationToken);
             }
@@ -113,13 +118,15 @@ internal sealed class BookingHoldConfirmationStore(
             await transaction.RollbackAsync(cancellationToken);
             dbContext.ChangeTracker.Clear();
 
-            var reloadedHold = await dbContext.BookingHolds
+            var reloadedHold = await dbContext.InventoryHolds
                 .AsNoTracking()
-                .Include(item => item.Nights)
+                .Include(item => item.Items)
+                .ThenInclude(item => item.Nights)
                 .SingleOrDefaultAsync(item => item.Id == holdId, cancellationToken);
             var existing = await dbContext.Reservations
                 .AsNoTracking()
-                .Include(item => item.Nights)
+                .Include(item => item.Units)
+                .ThenInclude(unit => unit.Nights)
                 .SingleOrDefaultAsync(item => item.SourceHoldId == holdId, cancellationToken);
             if (reloadedHold is null || existing is null)
             {
@@ -163,14 +170,36 @@ internal sealed class BookingHoldConfirmationStore(
         return result;
     }
 
-    internal static ReservationDto Map(Reservation reservation) =>
-        new(
+    /// <summary>
+    /// Projects the normalized Unit/UnitNight authority into the unchanged public
+    /// ReservationDto shape. Every Unit under one Reservation shares the same
+    /// RoomTypeId and identical per-night RatePlanId/UnitAmount, for the same reason
+    /// documented on <see cref="BookingHoldCreationStore.Map"/>.
+    /// </summary>
+    internal static ReservationDto Map(Reservation reservation)
+    {
+        var roomTypeId = reservation.Units[0].RoomTypeId;
+        var ratePlanId = reservation.Units[0].Nights[0].RatePlanId;
+        var roomCount = reservation.Units.Count;
+        var nights = reservation.Units
+            .SelectMany(unit => unit.Nights)
+            .GroupBy(night => night.StayDate)
+            .OrderBy(group => group.Key)
+            .Select(group =>
+            {
+                var unitAmount = group.First().UnitAmount;
+                var rooms = group.Count();
+                return new ReservationNightDto(group.Key, rooms, unitAmount, unitAmount * rooms);
+            })
+            .ToList();
+
+        return new(
             reservation.Id,
             reservation.ConfirmationNumber,
             reservation.Status,
             reservation.PropertyId,
-            reservation.RoomTypeId,
-            reservation.RatePlanId,
+            roomTypeId,
+            ratePlanId,
             reservation.FullName,
             reservation.Email,
             reservation.Phone,
@@ -178,20 +207,14 @@ internal sealed class BookingHoldConfirmationStore(
             reservation.CheckOut,
             reservation.Adults,
             reservation.Children,
-            reservation.Rooms,
+            roomCount,
             reservation.CurrencyCode,
             reservation.TotalAmount,
             reservation.ConfirmedAtUtc,
             reservation.CancelledAtUtc,
             reservation.CancellationReason,
-            reservation.Nights
-                .OrderBy(night => night.StayDate)
-                .Select(night => new ReservationNightDto(
-                    night.StayDate,
-                    night.Rooms,
-                    night.UnitAmount,
-                    night.NightTotal))
-                .ToList());
+            nights);
+    }
 
     private static bool IsSourceHoldUniqueViolation(DbUpdateException exception) =>
         exception.InnerException is PostgresException

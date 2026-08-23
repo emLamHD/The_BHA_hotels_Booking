@@ -17,8 +17,6 @@ internal sealed class ReservationConfiguration : IEntityTypeConfiguration<Reserv
                 "\"Id\" <> '00000000-0000-0000-0000-000000000000'::uuid AND " +
                 "\"SourceHoldId\" <> '00000000-0000-0000-0000-000000000000'::uuid AND " +
                 "\"PropertyId\" <> '00000000-0000-0000-0000-000000000000'::uuid AND " +
-                "\"RoomTypeId\" <> '00000000-0000-0000-0000-000000000000'::uuid AND " +
-                "\"RatePlanId\" <> '00000000-0000-0000-0000-000000000000'::uuid AND " +
                 "(\"CustomerAccountId\" IS NULL OR \"CustomerAccountId\" <> " +
                 "'00000000-0000-0000-0000-000000000000'::uuid)");
             table.HasCheckConstraint(
@@ -32,7 +30,7 @@ internal sealed class ReservationConfiguration : IEntityTypeConfiguration<Reserv
                 "\"CheckIn\" < \"CheckOut\"");
             table.HasCheckConstraint(
                 "CK_Reservations_Occupancy",
-                "\"Adults\" >= 1 AND \"Children\" >= 0 AND \"Rooms\" >= 1");
+                "\"Adults\" >= 1 AND \"Children\" >= 0");
             table.HasCheckConstraint(
                 "CK_Reservations_Currency",
                 "\"CurrencyCode\" ~ '^[A-Z]{3}$'");
@@ -60,6 +58,7 @@ internal sealed class ReservationConfiguration : IEntityTypeConfiguration<Reserv
         });
 
         builder.HasKey(reservation => reservation.Id);
+        builder.HasAlternateKey(reservation => new { reservation.PropertyId, reservation.Id });
         builder.Property(reservation => reservation.ConfirmationNumber)
             .HasMaxLength(BookingFieldLimits.ConfirmationNumber)
             .IsRequired();
@@ -94,48 +93,31 @@ internal sealed class ReservationConfiguration : IEntityTypeConfiguration<Reserv
 
         builder.HasIndex(reservation => reservation.SourceHoldId).IsUnique();
         builder.HasIndex(reservation => reservation.ConfirmationNumber).IsUnique();
-        builder.HasIndex(reservation => new
-        {
-            reservation.PropertyId,
-            reservation.RoomTypeId,
-            reservation.Status
-        });
+        builder.HasIndex(reservation => reservation.CustomerAccountId);
 
-        builder.HasOne<BookingHold>()
+        builder.HasOne<InventoryHold>()
             .WithOne()
-            .HasForeignKey<Reservation>(reservation => reservation.SourceHoldId)
+            .HasForeignKey<Reservation>(reservation => new
+            {
+                reservation.PropertyId,
+                reservation.SourceHoldId
+            })
+            .HasPrincipalKey<InventoryHold>(hold => new { hold.PropertyId, hold.Id })
             .OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<Property>()
             .WithMany()
             .HasForeignKey(reservation => reservation.PropertyId)
             .OnDelete(DeleteBehavior.Restrict);
-        builder.HasOne<RoomType>()
-            .WithMany()
-            .HasForeignKey(reservation => new
-            {
-                reservation.PropertyId,
-                reservation.RoomTypeId
-            })
-            .HasPrincipalKey(roomType => new { roomType.PropertyId, roomType.Id })
-            .OnDelete(DeleteBehavior.Restrict);
-        builder.HasOne<RatePlan>()
-            .WithMany()
-            .HasForeignKey(reservation => new
-            {
-                reservation.PropertyId,
-                reservation.RatePlanId
-            })
-            .HasPrincipalKey(ratePlan => new { ratePlan.PropertyId, ratePlan.Id })
-            .OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<CustomerAccount>()
             .WithMany()
             .HasForeignKey(reservation => reservation.CustomerAccountId)
             .OnDelete(DeleteBehavior.Restrict);
-        builder.HasMany(reservation => reservation.Nights)
+        builder.HasMany(reservation => reservation.Units)
             .WithOne()
-            .HasForeignKey(night => night.ReservationId)
+            .HasPrincipalKey(reservation => new { reservation.PropertyId, reservation.Id })
+            .HasForeignKey(unit => new { unit.PropertyId, unit.ReservationId })
             .OnDelete(DeleteBehavior.Cascade);
-        builder.Navigation(reservation => reservation.Nights)
+        builder.Navigation(reservation => reservation.Units)
             .UsePropertyAccessMode(PropertyAccessMode.Field);
     }
 }

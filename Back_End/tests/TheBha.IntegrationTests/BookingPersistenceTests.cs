@@ -29,12 +29,13 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
             references,
             '2',
             references.Customer!.Id);
-        context.BookingHolds.AddRange(guest, authenticated);
+        context.InventoryHolds.AddRange(guest, authenticated);
         await context.SaveChangesAsync();
         context.ChangeTracker.Clear();
 
-        var saved = await context.BookingHolds
-            .Include(hold => hold.Nights)
+        var saved = await context.InventoryHolds
+            .Include(hold => hold.Items)
+            .ThenInclude(item => item.Nights)
             .OrderBy(hold => hold.IdempotencyKeyHash)
             .ToListAsync();
 
@@ -47,8 +48,18 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
         {
             Assert.Equal(BookingHoldStatus.Active, hold.Status);
             Assert.Equal(Now.AddMinutes(15), hold.ExpiresAtUtc);
-            Assert.Equal([CheckIn, CheckIn.AddDays(1)], hold.Nights.Select(night => night.StayDate));
-            Assert.Equal([200.50m, 200.50m], hold.Nights.Select(night => night.NightTotal));
+            Assert.Equal(2, hold.Items.Count);
+            Assert.Equal(2, hold.Items.Select(item => item.Id).Distinct().Count());
+            Assert.All(hold.Items, item =>
+            {
+                Assert.Equal(references.RoomType.Id, item.RoomTypeId);
+                Assert.Equal(
+                    [CheckIn, CheckIn.AddDays(1)],
+                    item.Nights.OrderBy(night => night.StayDate).Select(night => night.StayDate));
+                Assert.Equal(
+                    [100.25m, 100.25m],
+                    item.Nights.Select(night => night.UnitAmount));
+            });
             Assert.Equal(401.00m, hold.TotalAmount);
         });
     }
@@ -64,7 +75,7 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
             references,
             '4',
             references.Customer!.Id);
-        context.BookingHolds.AddRange(guestHold, authenticatedHold);
+        context.InventoryHolds.AddRange(guestHold, authenticatedHold);
         await context.SaveChangesAsync();
 
         var guest = CreateReservation(
@@ -81,7 +92,8 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
         context.ChangeTracker.Clear();
 
         var saved = await context.Reservations
-            .Include(reservation => reservation.Nights)
+            .Include(reservation => reservation.Units)
+            .ThenInclude(unit => unit.Nights)
             .OrderBy(reservation => reservation.ConfirmationNumber)
             .ToListAsync();
 
@@ -96,7 +108,16 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
             Assert.Equal("Booking Guest", reservation.FullName);
             Assert.Equal("booking@example.com", reservation.Email);
             Assert.Equal("+84 912 345 678", reservation.Phone);
-            Assert.Equal([CheckIn, CheckIn.AddDays(1)], reservation.Nights.Select(night => night.StayDate));
+            Assert.Equal(2, reservation.Units.Count);
+            Assert.All(
+                reservation.Units,
+                unit =>
+                {
+                    Assert.Equal(CommitmentStatus.Committed, unit.CommitmentStatus);
+                    Assert.Equal(
+                        [CheckIn, CheckIn.AddDays(1)],
+                        unit.Nights.OrderBy(night => night.StayDate).Select(night => night.StayDate));
+                });
             Assert.Equal(401.00m, reservation.TotalAmount);
         });
     }
@@ -116,7 +137,7 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
             '5',
             roomTypeId: invalidPart == "room" ? second.RoomType.Id : first.RoomType.Id,
             ratePlanId: invalidPart == "rate" ? second.RatePlan.Id : first.RatePlan.Id);
-        context.BookingHolds.Add(hold);
+        context.InventoryHolds.Add(hold);
 
         await AssertDatabaseErrorAsync(
             () => context.SaveChangesAsync(),
@@ -130,7 +151,7 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
         await using var context = factory.CreateDbContext();
         var references = AddReferences(context, includeCustomer: true);
         var hold = CreateHold(references, '6', references.Customer!.Id);
-        context.BookingHolds.Add(hold);
+        context.InventoryHolds.Add(hold);
         await context.SaveChangesAsync();
 
         await AssertPostgresErrorAsync(
@@ -159,24 +180,25 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
         await context.SaveChangesAsync();
         await AssertPostgresErrorAsync(
             () => context.Database.ExecuteSqlInterpolatedAsync(
-                $"DELETE FROM \"BookingHolds\" WHERE \"Id\" = {hold.Id}"),
+                $"DELETE FROM \"InventoryHolds\" WHERE \"Id\" = {hold.Id}"),
             PostgresErrorCodes.ForeignKeyViolation);
     }
 
     [Fact]
-    public async Task Aggregate_deletion_cascades_only_to_its_nights()
+    public async Task Aggregate_deletion_cascades_only_to_its_items_and_nights()
     {
         await factory.ResetDatabaseAsync();
         await using var context = factory.CreateDbContext();
         var references = AddReferences(context, includeCustomer: false);
         var hold = CreateHold(references, '7');
-        context.BookingHolds.Add(hold);
+        context.InventoryHolds.Add(hold);
         await context.SaveChangesAsync();
 
-        context.BookingHolds.Remove(hold);
+        context.InventoryHolds.Remove(hold);
         await context.SaveChangesAsync();
 
-        Assert.Empty(await context.BookingHoldNights.ToListAsync());
+        Assert.Empty(await context.InventoryHoldItems.ToListAsync());
+        Assert.Empty(await context.InventoryHoldItemNights.ToListAsync());
         Assert.Equal(1, await context.Properties.CountAsync());
         Assert.Equal(1, await context.RoomTypes.CountAsync());
         Assert.Equal(1, await context.RatePlans.CountAsync());
@@ -187,14 +209,14 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
     {
         await factory.ResetDatabaseAsync();
         ReferenceData references;
-        BookingHold firstHold;
-        BookingHold secondHold;
+        InventoryHold firstHold;
+        InventoryHold secondHold;
         await using (var setup = factory.CreateDbContext())
         {
             references = AddReferences(setup, includeCustomer: false);
             firstHold = CreateHold(references, '8');
             secondHold = CreateHold(references, '9');
-            setup.BookingHolds.AddRange(firstHold, secondHold);
+            setup.InventoryHolds.AddRange(firstHold, secondHold);
             await setup.SaveChangesAsync();
             setup.Reservations.Add(CreateReservation(
                 references,
@@ -205,7 +227,7 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
 
         await using (var duplicateIdempotency = factory.CreateDbContext())
         {
-            duplicateIdempotency.BookingHolds.Add(
+            duplicateIdempotency.InventoryHolds.Add(
                 CreateHold(references, '8', fingerprintCharacter: 'e'));
             await AssertDatabaseErrorAsync(
                 () => duplicateIdempotency.SaveChangesAsync(),
@@ -235,24 +257,52 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
         }
 
         await using var raw = factory.CreateDbContext();
+        var firstItem = await raw.InventoryHoldItems
+            .Where(item => item.InventoryHoldId == firstHold.Id)
+            .Select(item => new { item.Id, item.PropertyId })
+            .FirstAsync();
         await AssertPostgresErrorAsync(
             () => raw.Database.ExecuteSqlInterpolatedAsync(
                 $"""
-                INSERT INTO "BookingHoldNights"
-                    ("BookingHoldId", "StayDate", "Rooms", "UnitAmount", "NightTotal")
-                VALUES ({firstHold.Id}, {CheckIn}, 2, 100.25, 200.50)
+                INSERT INTO "InventoryHoldItemNights"
+                    ("InventoryHoldItemId", "PropertyId", "StayDate", "RatePlanId", "UnitAmount")
+                VALUES ({firstItem.Id}, {firstItem.PropertyId}, {CheckIn}, {references.RatePlan.Id}, 100.25)
                 """),
             PostgresErrorCodes.UniqueViolation);
-        var reservationId = await raw.Reservations
-            .Where(reservation => reservation.SourceHoldId == firstHold.Id)
-            .Select(reservation => reservation.Id)
-            .SingleAsync();
+
+        var firstUnit = await raw.ReservationUnits
+            .Where(unit => unit.ReservationId ==
+                raw.Reservations.Where(r => r.SourceHoldId == firstHold.Id).Select(r => r.Id).First())
+            .Select(unit => new { unit.Id, unit.PropertyId, unit.SourceInventoryHoldItemId })
+            .FirstAsync();
         await AssertPostgresErrorAsync(
             () => raw.Database.ExecuteSqlInterpolatedAsync(
                 $"""
-                INSERT INTO "ReservationNights"
-                    ("ReservationId", "StayDate", "Rooms", "UnitAmount", "NightTotal")
-                VALUES ({reservationId}, {CheckIn}, 2, 100.25, 200.50)
+                INSERT INTO "ReservationUnitNights"
+                    ("ReservationUnitId", "PropertyId", "StayDate", "RatePlanId", "UnitAmount")
+                VALUES ({firstUnit.Id}, {firstUnit.PropertyId}, {CheckIn}, {references.RatePlan.Id}, 100.25)
+                """),
+            PostgresErrorCodes.UniqueViolation);
+
+        // Invariant #9 (ADR 0005): each source Item creates at most one Unit. Link one
+        // real Unit to firstItem, then attempt a second Unit claiming the same source.
+        var reservationForUnitTest = await raw.Reservations.Select(r => r.Id).FirstAsync();
+        await raw.Database.ExecuteSqlInterpolatedAsync(
+            $"""
+            INSERT INTO "ReservationUnits"
+                ("Id", "ReservationId", "PropertyId", "RoomTypeId", "SourceInventoryHoldItemId",
+                 "CommitmentStatus")
+            VALUES ({Guid.NewGuid()}, {reservationForUnitTest}, {firstItem.PropertyId},
+                    {references.RoomType.Id}, {firstItem.Id}, 'Committed')
+            """);
+        await AssertPostgresErrorAsync(
+            () => raw.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                INSERT INTO "ReservationUnits"
+                    ("Id", "ReservationId", "PropertyId", "RoomTypeId", "SourceInventoryHoldItemId",
+                     "CommitmentStatus")
+                VALUES ({Guid.NewGuid()}, {reservationForUnitTest}, {firstItem.PropertyId},
+                        {references.RoomType.Id}, {firstItem.Id}, 'Committed')
                 """),
             PostgresErrorCodes.UniqueViolation);
     }
@@ -269,7 +319,7 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
         var first = AddReferences(context, includeCustomer: true, suffix: "reservation-first");
         var second = AddReferences(context, includeCustomer: false, suffix: "reservation-second");
         var hold = CreateHold(first, 'a', first.Customer!.Id);
-        context.BookingHolds.Add(hold);
+        context.InventoryHolds.Add(hold);
         await context.SaveChangesAsync();
         var reservation = CreateReservation(
             first,
@@ -287,17 +337,16 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
 
     public static IEnumerable<object[]> InvalidHoldUpdates()
     {
-        yield return ["UPDATE \"BookingHolds\" SET \"Adults\" = 0"];
-        yield return ["UPDATE \"BookingHolds\" SET \"Children\" = -1"];
-        yield return ["UPDATE \"BookingHolds\" SET \"Rooms\" = 0"];
-        yield return ["UPDATE \"BookingHolds\" SET \"CheckOut\" = \"CheckIn\""];
-        yield return ["UPDATE \"BookingHolds\" SET \"CurrencyCode\" = 'VN1'"];
-        yield return ["UPDATE \"BookingHolds\" SET \"TotalAmount\" = 0"];
-        yield return ["UPDATE \"BookingHolds\" SET \"Status\" = 'Unknown'"];
-        yield return ["UPDATE \"BookingHolds\" SET \"ExpiresAtUtc\" = \"CreatedAtUtc\" + INTERVAL '16 minutes'"];
-        yield return ["UPDATE \"BookingHolds\" SET \"IdempotencyKeyHash\" = 'short'"];
-        yield return ["UPDATE \"BookingHolds\" SET \"GuestAccessTokenHash\" = NULL"];
-        yield return ["UPDATE \"BookingHolds\" SET \"FullName\" = '  '"];
+        yield return ["UPDATE \"InventoryHolds\" SET \"Adults\" = 0"];
+        yield return ["UPDATE \"InventoryHolds\" SET \"Children\" = -1"];
+        yield return ["UPDATE \"InventoryHolds\" SET \"CheckOut\" = \"CheckIn\""];
+        yield return ["UPDATE \"InventoryHolds\" SET \"CurrencyCode\" = 'VN1'"];
+        yield return ["UPDATE \"InventoryHolds\" SET \"TotalAmount\" = 0"];
+        yield return ["UPDATE \"InventoryHolds\" SET \"Status\" = 'Unknown'"];
+        yield return ["UPDATE \"InventoryHolds\" SET \"ExpiresAtUtc\" = \"CreatedAtUtc\" + INTERVAL '16 minutes'"];
+        yield return ["UPDATE \"InventoryHolds\" SET \"IdempotencyKeyHash\" = 'short'"];
+        yield return ["UPDATE \"InventoryHolds\" SET \"GuestAccessTokenHash\" = NULL"];
+        yield return ["UPDATE \"InventoryHolds\" SET \"FullName\" = '  '"];
     }
 
     [Theory]
@@ -307,7 +356,7 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
         await factory.ResetDatabaseAsync();
         await using var context = factory.CreateDbContext();
         var references = AddReferences(context, includeCustomer: false);
-        context.BookingHolds.Add(CreateHold(references, 'b'));
+        context.InventoryHolds.Add(CreateHold(references, 'b'));
         await context.SaveChangesAsync();
 
         await AssertPostgresErrorAsync(
@@ -336,7 +385,7 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
         await using var context = factory.CreateDbContext();
         var references = AddReferences(context, includeCustomer: false);
         var hold = CreateHold(references, 'c');
-        context.BookingHolds.Add(hold);
+        context.InventoryHolds.Add(hold);
         await context.SaveChangesAsync();
         context.Reservations.Add(CreateReservation(
             references,
@@ -349,10 +398,34 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
             PostgresErrorCodes.CheckViolation);
     }
 
+    public static IEnumerable<object[]> InvalidReservationUnitUpdates()
+    {
+        yield return ["UPDATE \"ReservationUnits\" SET \"CommitmentStatus\" = 'Unknown'"];
+    }
+
     [Theory]
-    [InlineData("hold-rooms")]
+    [MemberData(nameof(InvalidReservationUnitUpdates))]
+    public async Task PostgreSql_rejects_invalid_reservation_unit_rows(string updateSql)
+    {
+        await factory.ResetDatabaseAsync();
+        await using var context = factory.CreateDbContext();
+        var references = AddReferences(context, includeCustomer: false);
+        var hold = CreateHold(references, '6');
+        context.InventoryHolds.Add(hold);
+        await context.SaveChangesAsync();
+        context.Reservations.Add(CreateReservation(
+            references,
+            hold.Id,
+            "BHA-UNIT-CHECK-0001"));
+        await context.SaveChangesAsync();
+
+        await AssertPostgresErrorAsync(
+            () => context.Database.ExecuteSqlRawAsync(updateSql),
+            PostgresErrorCodes.CheckViolation);
+    }
+
+    [Theory]
     [InlineData("hold-amount")]
-    [InlineData("reservation-rooms")]
     [InlineData("reservation-amount")]
     public async Task PostgreSql_rejects_invalid_night_rows(string invalidPart)
     {
@@ -360,7 +433,7 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
         await using var context = factory.CreateDbContext();
         var references = AddReferences(context, includeCustomer: false);
         var hold = CreateHold(references, 'd');
-        context.BookingHolds.Add(hold);
+        context.InventoryHolds.Add(hold);
         await context.SaveChangesAsync();
         var reservation = CreateReservation(
             references,
@@ -369,17 +442,9 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
         context.Reservations.Add(reservation);
         await context.SaveChangesAsync();
 
-        var sql = invalidPart switch
-        {
-            "hold-rooms" =>
-                "UPDATE \"BookingHoldNights\" SET \"Rooms\" = 0",
-            "hold-amount" =>
-                "UPDATE \"BookingHoldNights\" SET \"NightTotal\" = \"UnitAmount\"",
-            "reservation-rooms" =>
-                "UPDATE \"ReservationNights\" SET \"Rooms\" = 0",
-            _ =>
-                "UPDATE \"ReservationNights\" SET \"NightTotal\" = \"UnitAmount\""
-        };
+        var sql = invalidPart == "hold-amount"
+            ? "UPDATE \"InventoryHoldItemNights\" SET \"UnitAmount\" = 0"
+            : "UPDATE \"ReservationUnitNights\" SET \"UnitAmount\" = 0";
         await AssertPostgresErrorAsync(
             () => context.Database.ExecuteSqlRawAsync(sql),
             PostgresErrorCodes.CheckViolation);
@@ -399,12 +464,13 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
             FROM information_schema.columns
             WHERE table_schema = 'public'
               AND table_name IN
-                  ('BookingHolds', 'BookingHoldNights', 'Reservations', 'ReservationNights')
+                  ('InventoryHolds', 'InventoryHoldItems', 'InventoryHoldItemNights',
+                   'Reservations', 'ReservationUnits', 'ReservationUnitNights')
               AND column_name IN
                   ('CheckIn', 'CheckOut', 'StayDate', 'TotalAmount', 'UnitAmount',
-                   'NightTotal', 'CreatedAtUtc', 'ExpiresAtUtc', 'ConfirmedAtUtc',
+                   'CreatedAtUtc', 'ExpiresAtUtc', 'ConfirmedAtUtc',
                    'CancelledAtUtc', 'IdempotencyKeyHash', 'RequestFingerprint',
-                   'GuestAccessTokenHash')
+                   'GuestAccessTokenHash', 'CommitmentStatus')
             ORDER BY table_name, column_name;
             """,
             connection))
@@ -422,26 +488,27 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
             }
         }
 
-        Assert.Equal("date", columns["BookingHolds.CheckIn"].DataType);
-        Assert.Equal("date", columns["BookingHoldNights.StayDate"].DataType);
+        Assert.Equal("date", columns["InventoryHolds.CheckIn"].DataType);
+        Assert.Equal("date", columns["InventoryHoldItemNights.StayDate"].DataType);
         Assert.Equal(
             new ColumnMetadata("numeric", 18, 2, null),
-            columns["BookingHolds.TotalAmount"]);
+            columns["InventoryHolds.TotalAmount"]);
         Assert.Equal(
             new ColumnMetadata("numeric", 18, 2, null),
-            columns["ReservationNights.NightTotal"]);
+            columns["ReservationUnitNights.UnitAmount"]);
         Assert.Equal(
             "timestamp with time zone",
-            columns["BookingHolds.CreatedAtUtc"].DataType);
+            columns["InventoryHolds.CreatedAtUtc"].DataType);
         Assert.Equal(
             "timestamp with time zone",
             columns["Reservations.CancelledAtUtc"].DataType);
         Assert.Equal(
             new ColumnMetadata("character", null, null, 64),
-            columns["BookingHolds.IdempotencyKeyHash"]);
+            columns["InventoryHolds.IdempotencyKeyHash"]);
         Assert.Equal(
             new ColumnMetadata("character", null, null, 64),
             columns["Reservations.GuestAccessTokenHash"]);
+        Assert.Equal("character varying", columns["ReservationUnits.CommitmentStatus"].DataType);
 
         var foreignKeys = await ReadNameCodeMapAsync(
             connection,
@@ -450,17 +517,30 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
             FROM pg_constraint
             WHERE contype = 'f'
               AND conrelid IN
-                  ('"BookingHolds"'::regclass, '"BookingHoldNights"'::regclass,
-                   '"Reservations"'::regclass, '"ReservationNights"'::regclass)
+                  ('"InventoryHolds"'::regclass, '"InventoryHoldItems"'::regclass,
+                   '"InventoryHoldItemNights"'::regclass, '"Reservations"'::regclass,
+                   '"ReservationUnits"'::regclass, '"ReservationUnitNights"'::regclass)
             ORDER BY conname;
             """);
-        Assert.Equal("r", foreignKeys["FK_BookingHolds_AspNetUsers_CustomerAccountId"]);
-        Assert.Equal("r", foreignKeys["FK_BookingHolds_RoomTypes_PropertyId_RoomTypeId"]);
-        Assert.Equal("r", foreignKeys["FK_BookingHolds_RatePlans_PropertyId_RatePlanId"]);
-        Assert.Equal("r", foreignKeys["FK_Reservations_BookingHolds_SourceHoldId"]);
+        Assert.Equal("r", foreignKeys["FK_InventoryHolds_AspNetUsers_CustomerAccountId"]);
+        Assert.Equal("r", foreignKeys["FK_InventoryHoldItems_RoomTypes_PropertyId_RoomTypeId"]);
+        Assert.Equal("r", foreignKeys["FK_InventoryHoldItemNights_RatePlans_PropertyId_RatePlanId"]);
+        Assert.Equal("r", foreignKeys["FK_ReservationUnits_RoomTypes_PropertyId_RoomTypeId"]);
+        Assert.Equal("r", foreignKeys["FK_ReservationUnitNights_RatePlans_PropertyId_RatePlanId"]);
         Assert.Equal("r", foreignKeys["FK_Reservations_AspNetUsers_CustomerAccountId"]);
-        Assert.Equal("c", foreignKeys["FK_BookingHoldNights_BookingHolds_BookingHoldId"]);
-        Assert.Equal("c", foreignKeys["FK_ReservationNights_Reservations_ReservationId"]);
+        Assert.Equal("c", foreignKeys["FK_InventoryHoldItems_InventoryHolds_PropertyId_InventoryHoldId"]);
+        // PostgreSQL truncates identifiers over 63 bytes; EF appends "~" to the
+        // truncated name (verified against the scaffolded migration).
+        Assert.Equal(
+            "c",
+            foreignKeys["FK_InventoryHoldItemNights_InventoryHoldItems_PropertyId_Inven~"]);
+        Assert.Equal("c", foreignKeys["FK_ReservationUnits_Reservations_PropertyId_ReservationId"]);
+        Assert.Equal(
+            "c",
+            foreignKeys["FK_ReservationUnitNights_ReservationUnits_PropertyId_Reservati~"]);
+        Assert.Equal(
+            "r",
+            foreignKeys["FK_ReservationUnits_InventoryHoldItems_PropertyId_SourceInvent~"]);
 
         var indexes = await ReadNamesAsync(
             connection,
@@ -469,19 +549,15 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
             FROM pg_indexes
             WHERE schemaname = 'public'
               AND tablename IN
-                  ('BookingHolds', 'BookingHoldNights', 'Reservations', 'ReservationNights');
+                  ('InventoryHolds', 'InventoryHoldItems', 'InventoryHoldItemNights',
+                   'Reservations', 'ReservationUnits', 'ReservationUnitNights');
             """);
-        Assert.Contains("IX_BookingHolds_IdempotencyKeyHash", indexes);
-        Assert.Contains(
-            "IX_BookingHolds_PropertyId_RoomTypeId_Status_ExpiresAtUtc",
-            indexes);
-        Assert.Contains("PK_BookingHoldNights", indexes);
-        Assert.Contains("IX_BookingHoldNights_StayDate_BookingHoldId", indexes);
+        Assert.Contains("IX_InventoryHolds_IdempotencyKeyHash", indexes);
+        Assert.Contains("IX_InventoryHoldItemNights_StayDate_InventoryHoldItemId", indexes);
         Assert.Contains("IX_Reservations_SourceHoldId", indexes);
         Assert.Contains("IX_Reservations_ConfirmationNumber", indexes);
-        Assert.Contains("IX_Reservations_PropertyId_RoomTypeId_Status", indexes);
-        Assert.Contains("PK_ReservationNights", indexes);
-        Assert.Contains("IX_ReservationNights_StayDate_ReservationId", indexes);
+        Assert.Contains("IX_ReservationUnits_SourceInventoryHoldItemId", indexes);
+        Assert.Contains("IX_ReservationUnitNights_StayDate_ReservationUnitId", indexes);
 
         var checks = await ReadNamesAsync(
             connection,
@@ -490,16 +566,18 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
             FROM pg_constraint
             WHERE contype = 'c'
               AND conrelid IN
-                  ('"BookingHolds"'::regclass, '"BookingHoldNights"'::regclass,
-                   '"Reservations"'::regclass, '"ReservationNights"'::regclass);
+                  ('"InventoryHolds"'::regclass, '"InventoryHoldItems"'::regclass,
+                   '"InventoryHoldItemNights"'::regclass, '"Reservations"'::regclass,
+                   '"ReservationUnits"'::regclass, '"ReservationUnitNights"'::regclass);
             """);
-        Assert.Contains("CK_BookingHolds_FixedLifetime", checks);
-        Assert.Contains("CK_BookingHolds_Ownership", checks);
-        Assert.Contains("CK_BookingHolds_Hashes", checks);
-        Assert.Contains("CK_BookingHoldNights_Amounts", checks);
+        Assert.Contains("CK_InventoryHolds_FixedLifetime", checks);
+        Assert.Contains("CK_InventoryHolds_Ownership", checks);
+        Assert.Contains("CK_InventoryHolds_Hashes", checks);
+        Assert.Contains("CK_InventoryHoldItemNights_Amount", checks);
         Assert.Contains("CK_Reservations_Cancellation", checks);
         Assert.Contains("CK_Reservations_Ownership", checks);
-        Assert.Contains("CK_ReservationNights_Amounts", checks);
+        Assert.Contains("CK_ReservationUnitNights_Amount", checks);
+        Assert.Contains("CK_ReservationUnits_CommitmentStatus", checks);
     }
 
     [Fact]
@@ -512,10 +590,12 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
         await seeder.SeedAsync(CancellationToken.None);
 
         await using var context = factory.CreateDbContext();
-        Assert.Equal(0, await context.BookingHolds.CountAsync());
-        Assert.Equal(0, await context.BookingHoldNights.CountAsync());
+        Assert.Equal(0, await context.InventoryHolds.CountAsync());
+        Assert.Equal(0, await context.InventoryHoldItems.CountAsync());
+        Assert.Equal(0, await context.InventoryHoldItemNights.CountAsync());
         Assert.Equal(0, await context.Reservations.CountAsync());
-        Assert.Equal(0, await context.ReservationNights.CountAsync());
+        Assert.Equal(0, await context.ReservationUnits.CountAsync());
+        Assert.Equal(0, await context.ReservationUnitNights.CountAsync());
     }
 
     [Fact]
@@ -623,7 +703,7 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
         return new ReferenceData(property, roomType, ratePlan, customer);
     }
 
-    private static BookingHold CreateHold(
+    private static InventoryHold CreateHold(
         ReferenceData references,
         char hashCharacter,
         Guid? customerAccountId = null,
@@ -631,11 +711,11 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
         Guid? ratePlanId = null,
         char fingerprintCharacter = 'f')
     {
-        return new BookingHold(
+        return new InventoryHold(
             Guid.NewGuid(),
             references.Property.Id,
             roomTypeId ?? references.RoomType.Id,
-            ratePlanId ?? references.RatePlan.Id,
+            2,
             customerAccountId,
             "Booking Guest",
             "booking@example.com",
@@ -644,14 +724,12 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
             CheckOut,
             2,
             1,
-            2,
             "VND",
-            401.00m,
             Now,
             Hash(hashCharacter),
             Hash(fingerprintCharacter),
             customerAccountId.HasValue ? null : Hash('a'),
-            ValidNights());
+            ValidNightPlan(ratePlanId ?? references.RatePlan.Id));
     }
 
     private static Reservation CreateReservation(
@@ -662,13 +740,22 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
         Guid? roomTypeId = null,
         Guid? ratePlanId = null)
     {
+        var nights = ValidNightPlan(ratePlanId ?? references.RatePlan.Id);
+        var resolvedRoomTypeId = roomTypeId ?? references.RoomType.Id;
+        // No source InventoryHoldItem is created by these persistence-focused
+        // fixtures, so SourceInventoryHoldItemId stays null (the FK is nullable
+        // precisely for this — ADR 0005 item 3 — and MATCH SIMPLE bypasses the
+        // composite FK check when null).
+        var unitPlans = new[]
+        {
+            new ReservationUnitPlan(null, resolvedRoomTypeId, nights),
+            new ReservationUnitPlan(null, resolvedRoomTypeId, nights)
+        };
         return new Reservation(
             Guid.NewGuid(),
             confirmationNumber,
             sourceHoldId,
             references.Property.Id,
-            roomTypeId ?? references.RoomType.Id,
-            ratePlanId ?? references.RatePlan.Id,
             customerAccountId,
             "Booking Guest",
             "booking@example.com",
@@ -677,21 +764,19 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
             CheckOut,
             2,
             1,
-            2,
             "VND",
-            401.00m,
             ReservationStatus.Confirmed,
             Now.AddMinutes(5),
             null,
             null,
             customerAccountId.HasValue ? null : Hash('a'),
-            ValidNights());
+            unitPlans);
     }
 
-    private static BookingNightSnapshot[] ValidNights() =>
+    private static NightlyCommitmentSnapshot[] ValidNightPlan(Guid ratePlanId) =>
     [
-        new(CheckIn, 2, 100.25m, 200.50m),
-        new(CheckIn.AddDays(1), 2, 100.25m, 200.50m)
+        new(CheckIn, ratePlanId, 100.25m),
+        new(CheckIn.AddDays(1), ratePlanId, 100.25m)
     ];
 
     private static string Hash(char character) =>

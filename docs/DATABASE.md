@@ -99,6 +99,33 @@ The current migration chain is:
 4. `20260722121010_AddDailyInventoryControls`
 5. `20260723085814_CustomerBookingIdentity`
 6. `20260723105404_AddBookingHoldReservationFoundation`
+7. `20260823084717_CommercialCommitmentV2Foundation`
+
+`PMS-BE-001.1` (migration 7) replaces the single-RoomType `BookingHold`/
+`BookingHoldNight` and `Reservation`/`ReservationNight` commercial authority
+with the normalized `InventoryHold → InventoryHoldItem →
+InventoryHoldItemNight` and `Reservation → ReservationUnit →
+ReservationUnitNight` authority (ADR 0005): every persisted Item/Unit
+represents exactly one room, and every nightly row carries its own
+`RatePlanId` and accepted money. The public `/api/v1` contract is unchanged
+— a request still carries one `RoomTypeId`, one `RatePlanId`, and
+`rooms = Q`; the Hold-creation transaction normalizes it atomically into `Q`
+independent Items, and `BookingHoldDto`/`ReservationDto` are projected from
+the normalized rows. Multi-RoomType public requests, `RoomOccupancySegment`
+physical allocation, and OTA remain TARGET/unimplemented — see
+`docs/design/PMS-DATA-001-core-database-blueprint-v2.md` and
+`docs/ADR/0005-separate-commercial-commitment-from-physical-allocation.md`.
+The migration performs a single-transaction expand → transform → contract
+cutover: legacy `BookingHolds`/`BookingHoldNights`/`ReservationNights` data
+is deterministically backfilled into the normalized tables (Item/Unit ids
+derived from `(source aggregate id, 1-based room ordinal)`), fail-fast
+validated (counts, totals, source Item→Unit mapping, Property consistency),
+and only then are the legacy tables/columns dropped — no dual-write and no
+dormant table exist after this migration. `Down()` is a guarded reverse
+transform: it only succeeds while every Hold/Reservation's Items/Units share
+one RoomType and one RatePlan per stay date (the only shape this work item's
+single-RoomType-per-request creation path ever produces), and fails before
+dropping any normalized data otherwise.
 
 BE-003.3 adds no migration. Atomic Hold creation reuses the sixth migration's
 unique idempotency-hash safeguard and booking demand indexes. It acquires

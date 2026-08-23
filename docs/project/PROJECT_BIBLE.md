@@ -62,15 +62,25 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
 - Daily sellable limit và stop-sell.
 - Availability search và stay pricing.
 - Booking commitment/hold/reservation: `BE-003.1`–`BE-003.5` đã cung cấp
-  atomic Hold/Reservation concurrency và expiry-aware committed demand cho
-  schema single-RoomType-per-booking hiện tại (CURRENT); đây là capability
-  riêng, không trộn vào lớp availability chỉ đọc.
+  atomic Hold/Reservation concurrency và expiry-aware committed demand; đây
+  là capability riêng, không trộn vào lớp availability chỉ đọc.
+- `PMS-BE-001.1` (migration 7, `CommercialCommitmentV2Foundation`) đã thay
+  commercial authority bằng schema normalized theo ADR 0005:
+  `InventoryHold → InventoryHoldItem → InventoryHoldItemNight`,
+  `Reservation → ReservationUnit → ReservationUnitNight` — mỗi Item/Unit
+  persisted đại diện đúng một phòng, mỗi night row mang `RatePlanId` riêng.
+  Public `/api/v1` contract KHÔNG đổi: request vẫn chỉ nhận một
+  `RoomTypeId`, một `RatePlanId` và `rooms = Q`; transaction tạo Hold normalize
+  atomically thành `Q` Item độc lập, và `BookingHoldDto`/`ReservationDto`
+  được project từ các row normalized đó (CURRENT).
 
 ### Target/approved, chưa implement (TARGET)
 
-- Multi-RoomType Hold/Reservation
-  (`InventoryHold → InventoryHoldItems → InventoryHoldItemNights`,
-  `Reservation → ReservationUnits → ReservationUnitNights`) — xem ADR 0005.
+- Multi-RoomType public Hold/Reservation request (một Hold/Reservation chứa
+  nhiều RoomType khác nhau trong cùng một request) — nền tảng normalized
+  Item/Unit cho việc này đã CURRENT (`PMS-BE-001.1` ở trên), nhưng public API
+  vẫn giới hạn đúng một RoomType/RatePlan mỗi request; mở rộng lên
+  multi-RoomType request là TARGET riêng, chưa implement — xem ADR 0005.
 - Physical-room allocation độc lập với commercial commitment, qua
   `RoomOccupancySegments` (segment type `ReservationAssignment`/
   `OperationalBlock`, status `Effective`/`Cancelled`) và hai PostgreSQL
@@ -201,11 +211,16 @@ Xem [ADR 0003](../ADR/0003-model-hotel-stays-with-half-open-date-ranges.md).
 - Tồn của cả kỳ nghỉ là giá trị nhỏ nhất của các đêm.
 - Availability là snapshot tại thời điểm truy vấn.
 - `BE-003.1`–`BE-003.5` đã cung cấp Hold/Reservation với atomic PostgreSQL
-  advisory-lock concurrency protection và expiry-aware committed demand cho
-  schema single-RoomType-per-booking hiện tại (CURRENT) — chống overbooking
-  đã hoạt động cho model hiện tại, không còn là việc "phải bổ sung".
-  Multi-RoomType Hold/Reservation và physical-room allocation độc lập là
-  TARGET, chưa implement — xem
+  advisory-lock concurrency protection và expiry-aware committed demand —
+  chống overbooking đã hoạt động, không còn là việc "phải bổ sung".
+  `PMS-BE-001.1` (CURRENT) đã chuyển commercial authority sang schema
+  normalized theo ADR 0005 (`InventoryHold → InventoryHoldItem →
+  InventoryHoldItemNight`, `Reservation → ReservationUnit →
+  ReservationUnitNight`); committed demand đếm mỗi `InventoryHoldItemNight`
+  của Hold `Active`/chưa hết hạn và mỗi `ReservationUnitNight` của Unit
+  `Committed`, đúng một lần. Public request vẫn chỉ nhận một RoomType/
+  RatePlan; multi-RoomType public request và physical-room allocation độc
+  lập vẫn TARGET, chưa implement — xem
   [PMS-DATA-001-core-database-blueprint-v2](../design/PMS-DATA-001-core-database-blueprint-v2.md),
   [ADR 0005](../ADR/0005-separate-commercial-commitment-from-physical-allocation.md)
   và
@@ -223,7 +238,7 @@ Xem [ADR 0003](../ADR/0003-model-hotel-stays-with-half-open-date-ranges.md).
   ghi đè commercial record (RoomType/giá đã bán không đổi). Công thức chính
   xác và quy tắc atomic locking nằm trong blueprint §7 và ADR 0006 Decision
   item 10.
-- TARGET, chưa implement: `RatePlanId` được lưu ở cấp nightly trên cả
+- CURRENT (`PMS-BE-001.1`): `RatePlanId` được lưu ở cấp nightly trên cả
   `InventoryHoldItemNight` và `ReservationUnitNight`, không chỉ ở cấp
   aggregate; Hold confirmation copy đúng `RatePlanId` này 1:1, không suy
   diễn từ giá (hai RatePlan có thể cùng giá) và không re-read rate hiện tại
@@ -234,14 +249,16 @@ Xem [ADR 0003](../ADR/0003-model-hotel-stays-with-half-open-date-ranges.md).
   một `RoomBlock` không bao giờ span nhiều Property; cross-RoomType
   assignment chỉ hợp lệ trong cùng một Property — xem blueprint §9/§11/§12
   và ADR 0006 Decision item 3.
-- TARGET, chưa implement: `ReservationUnit.CommitmentStatus = Committed |
+- CURRENT (`PMS-BE-001.1`): `ReservationUnit.CommitmentStatus = Committed |
   Cancelled` là lifecycle chính thức của unit. Chỉ night thuộc unit
   `Committed` mới tính demand; `Cancelled` giữ nguyên toàn bộ row/snapshot
   làm bằng chứng lịch sử, không xóa, không tạo fallback demand ở bucket
-  khác. Hủy unit tự động hủy mọi `Effective` assignment của nó trong cùng
-  transaction; hủy unit `Committed` cuối cùng của một Reservation tự động
-  hủy cả Reservation — xem blueprint §6 item 13, §7 và ADR 0005 Decision
-  item 7.
+  khác. Work item này chỉ cung cấp whole-Reservation cancellation (không có
+  endpoint hủy từng Unit riêng lẻ): hủy Reservation chuyển atomically mọi
+  Unit còn `Committed` sang `Cancelled` trong cùng transaction. TARGET, chưa
+  implement: hủy unit tự động hủy mọi `Effective` `RoomOccupancySegment`
+  assignment của nó (chưa tồn tại — ADR 0006) — xem blueprint §6 item 13, §7
+  và ADR 0005 Decision item 7.
 - TARGET, chưa implement: cross-RoomType assignment mang tính operationally
   binding, không tự động reversible — unassign hoặc reassign chỉ thành công
   khi capacity đích/fallback đủ ở final state; mutation không đủ capacity

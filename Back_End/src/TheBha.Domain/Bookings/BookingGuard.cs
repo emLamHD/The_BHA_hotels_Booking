@@ -5,23 +5,45 @@ namespace TheBha.Domain.Bookings;
 
 internal static partial class BookingGuard
 {
-    public static void ValidateHeader(
+    public static void ValidateHoldHeader(
         Guid id,
         Guid propertyId,
         Guid roomTypeId,
-        Guid ratePlanId,
         DateOnly checkIn,
         DateOnly checkOut,
         int adults,
         int children,
-        int rooms,
-        decimal totalAmount)
+        int quantity)
     {
         DomainGuard.RequiredId(id, nameof(id));
         DomainGuard.RequiredId(propertyId, nameof(propertyId));
         DomainGuard.RequiredId(roomTypeId, nameof(roomTypeId));
-        DomainGuard.RequiredId(ratePlanId, nameof(ratePlanId));
+        ValidateStayAndOccupancy(checkIn, checkOut, adults, children, quantity);
+    }
 
+    public static void ValidateReservationHeader(
+        Guid id,
+        Guid propertyId,
+        DateOnly checkIn,
+        DateOnly checkOut,
+        int adults,
+        int children)
+    {
+        DomainGuard.RequiredId(id, nameof(id));
+        DomainGuard.RequiredId(propertyId, nameof(propertyId));
+        // A Reservation's Unit count is validated by the caller (at least one Unit,
+        // Reservation.cs) rather than here — unlike a Hold's requested quantity, it is
+        // not an independent header input.
+        ValidateStayAndOccupancy(checkIn, checkOut, adults, children, quantity: 1);
+    }
+
+    private static void ValidateStayAndOccupancy(
+        DateOnly checkIn,
+        DateOnly checkOut,
+        int adults,
+        int children,
+        int quantity)
+    {
         if (checkIn >= checkOut)
         {
             throw new DomainException("checkIn must be earlier than checkOut.");
@@ -37,12 +59,10 @@ internal static partial class BookingGuard
             throw new DomainException("children cannot be negative.");
         }
 
-        if (rooms < 1)
+        if (quantity < 1)
         {
-            throw new DomainException("rooms must be at least one.");
+            throw new DomainException("quantity must be at least one.");
         }
-
-        ValidateMoney(totalAmount, nameof(totalAmount));
     }
 
     public static (string FullName, string Email, string Phone) NormalizeContact(
@@ -142,12 +162,16 @@ internal static partial class BookingGuard
         return value;
     }
 
-    public static IReadOnlyList<BookingNightSnapshot> ValidateNights(
+    /// <summary>
+    /// Validates one Item's or Unit's nightly plan: exact, unique, contiguous coverage
+    /// of <c>[checkIn, checkOut)</c>, with a valid RatePlanId and accepted money on every
+    /// night. Quantity is always implicit 1 at this level — there is no Rooms/NightTotal
+    /// multiplier to cross-check (ADR 0005 item 1).
+    /// </summary>
+    public static IReadOnlyList<NightlyCommitmentSnapshot> ValidateNightlySnapshots(
         DateOnly checkIn,
         DateOnly checkOut,
-        int rooms,
-        decimal totalAmount,
-        IEnumerable<BookingNightSnapshot> nights)
+        IEnumerable<NightlyCommitmentSnapshot> nights)
     {
         ArgumentNullException.ThrowIfNull(nights);
         var ordered = nights.OrderBy(night => night.StayDate).ToArray();
@@ -163,7 +187,6 @@ internal static partial class BookingGuard
             throw new DomainException("Night snapshot stay dates must be unique.");
         }
 
-        decimal calculatedTotal = 0;
         for (var index = 0; index < ordered.Length; index++)
         {
             var night = ordered[index];
@@ -174,37 +197,8 @@ internal static partial class BookingGuard
                     "Night snapshots must be contiguous and exactly cover the stay.");
             }
 
-            if (night.Rooms != rooms)
-            {
-                throw new DomainException(
-                    "Every night snapshot must use the aggregate room quantity.");
-            }
-
+            DomainGuard.RequiredId(night.RatePlanId, nameof(night.RatePlanId));
             ValidateMoney(night.UnitAmount, nameof(night.UnitAmount));
-            ValidateMoney(night.NightTotal, nameof(night.NightTotal));
-
-            decimal expectedNightTotal;
-            try
-            {
-                expectedNightTotal = night.UnitAmount * rooms;
-                calculatedTotal += night.NightTotal;
-            }
-            catch (OverflowException)
-            {
-                throw new DomainException("Night snapshot amounts exceed supported precision.");
-            }
-
-            if (night.NightTotal != expectedNightTotal)
-            {
-                throw new DomainException(
-                    "nightTotal must equal unitAmount multiplied by rooms.");
-            }
-        }
-
-        if (calculatedTotal != totalAmount)
-        {
-            throw new DomainException(
-                "totalAmount must equal the sum of all nightly totals.");
         }
 
         return ordered;

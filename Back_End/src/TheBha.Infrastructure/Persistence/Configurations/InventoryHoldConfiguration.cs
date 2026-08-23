@@ -6,54 +6,53 @@ using TheBha.Infrastructure.Identity;
 
 namespace TheBha.Infrastructure.Persistence.Configurations;
 
-internal sealed class BookingHoldConfiguration : IEntityTypeConfiguration<BookingHold>
+internal sealed class InventoryHoldConfiguration : IEntityTypeConfiguration<InventoryHold>
 {
-    public void Configure(EntityTypeBuilder<BookingHold> builder)
+    public void Configure(EntityTypeBuilder<InventoryHold> builder)
     {
-        builder.ToTable("BookingHolds", table =>
+        builder.ToTable("InventoryHolds", table =>
         {
             table.HasCheckConstraint(
-                "CK_BookingHolds_Ids",
+                "CK_InventoryHolds_Ids",
                 "\"Id\" <> '00000000-0000-0000-0000-000000000000'::uuid AND " +
                 "\"PropertyId\" <> '00000000-0000-0000-0000-000000000000'::uuid AND " +
-                "\"RoomTypeId\" <> '00000000-0000-0000-0000-000000000000'::uuid AND " +
-                "\"RatePlanId\" <> '00000000-0000-0000-0000-000000000000'::uuid AND " +
                 "(\"CustomerAccountId\" IS NULL OR \"CustomerAccountId\" <> " +
                 "'00000000-0000-0000-0000-000000000000'::uuid)");
             table.HasCheckConstraint(
-                "CK_BookingHolds_Contact",
+                "CK_InventoryHolds_Contact",
                 "btrim(\"FullName\") <> '' AND btrim(\"Email\") <> '' AND btrim(\"Phone\") <> ''");
             table.HasCheckConstraint(
-                "CK_BookingHolds_Stay",
+                "CK_InventoryHolds_Stay",
                 "\"CheckIn\" < \"CheckOut\"");
             table.HasCheckConstraint(
-                "CK_BookingHolds_Occupancy",
-                "\"Adults\" >= 1 AND \"Children\" >= 0 AND \"Rooms\" >= 1");
+                "CK_InventoryHolds_Occupancy",
+                "\"Adults\" >= 1 AND \"Children\" >= 0");
             table.HasCheckConstraint(
-                "CK_BookingHolds_Currency",
+                "CK_InventoryHolds_Currency",
                 "\"CurrencyCode\" ~ '^[A-Z]{3}$'");
             table.HasCheckConstraint(
-                "CK_BookingHolds_TotalAmount",
+                "CK_InventoryHolds_TotalAmount",
                 "\"TotalAmount\" > 0");
             table.HasCheckConstraint(
-                "CK_BookingHolds_Status",
+                "CK_InventoryHolds_Status",
                 "\"Status\" IN ('Active', 'Confirmed', 'Cancelled')");
             table.HasCheckConstraint(
-                "CK_BookingHolds_FixedLifetime",
+                "CK_InventoryHolds_FixedLifetime",
                 "\"ExpiresAtUtc\" = \"CreatedAtUtc\" + INTERVAL '15 minutes'");
             table.HasCheckConstraint(
-                "CK_BookingHolds_Hashes",
+                "CK_InventoryHolds_Hashes",
                 "\"IdempotencyKeyHash\" ~ '^[0-9a-f]{64}$' AND " +
                 "\"RequestFingerprint\" ~ '^[0-9a-f]{64}$' AND " +
                 "(\"GuestAccessTokenHash\" IS NULL OR " +
                 "\"GuestAccessTokenHash\" ~ '^[0-9a-f]{64}$')");
             table.HasCheckConstraint(
-                "CK_BookingHolds_Ownership",
+                "CK_InventoryHolds_Ownership",
                 "(\"CustomerAccountId\" IS NOT NULL AND \"GuestAccessTokenHash\" IS NULL) OR " +
                 "(\"CustomerAccountId\" IS NULL AND \"GuestAccessTokenHash\" IS NOT NULL)");
         });
 
         builder.HasKey(hold => hold.Id);
+        builder.HasAlternateKey(hold => new { hold.PropertyId, hold.Id });
         builder.Property(hold => hold.FullName)
             .HasMaxLength(BookingFieldLimits.FullName)
             .IsRequired();
@@ -88,37 +87,22 @@ internal sealed class BookingHoldConfiguration : IEntityTypeConfiguration<Bookin
             .IsFixedLength();
 
         builder.HasIndex(hold => hold.IdempotencyKeyHash).IsUnique();
-        builder.HasIndex(hold => new
-        {
-            hold.PropertyId,
-            hold.RoomTypeId,
-            hold.Status,
-            hold.ExpiresAtUtc
-        });
+        builder.HasIndex(hold => new { hold.Status, hold.ExpiresAtUtc });
 
         builder.HasOne<Property>()
             .WithMany()
             .HasForeignKey(hold => hold.PropertyId)
             .OnDelete(DeleteBehavior.Restrict);
-        builder.HasOne<RoomType>()
-            .WithMany()
-            .HasForeignKey(hold => new { hold.PropertyId, hold.RoomTypeId })
-            .HasPrincipalKey(roomType => new { roomType.PropertyId, roomType.Id })
-            .OnDelete(DeleteBehavior.Restrict);
-        builder.HasOne<RatePlan>()
-            .WithMany()
-            .HasForeignKey(hold => new { hold.PropertyId, hold.RatePlanId })
-            .HasPrincipalKey(ratePlan => new { ratePlan.PropertyId, ratePlan.Id })
-            .OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<CustomerAccount>()
             .WithMany()
             .HasForeignKey(hold => hold.CustomerAccountId)
             .OnDelete(DeleteBehavior.Restrict);
-        builder.HasMany(hold => hold.Nights)
+        builder.HasMany(hold => hold.Items)
             .WithOne()
-            .HasForeignKey(night => night.BookingHoldId)
+            .HasPrincipalKey(hold => new { hold.PropertyId, hold.Id })
+            .HasForeignKey(item => new { item.PropertyId, item.InventoryHoldId })
             .OnDelete(DeleteBehavior.Cascade);
-        builder.Navigation(hold => hold.Nights)
+        builder.Navigation(hold => hold.Items)
             .UsePropertyAccessMode(PropertyAccessMode.Field);
     }
 }

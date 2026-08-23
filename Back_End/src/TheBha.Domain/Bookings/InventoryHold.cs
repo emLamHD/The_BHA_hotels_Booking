@@ -2,20 +2,28 @@ using TheBha.Domain.Common;
 
 namespace TheBha.Domain.Bookings;
 
-public sealed class BookingHold
+/// <summary>
+/// Commercial hold aggregate root (ADR 0005). Owns identity, lifecycle,
+/// ownership, and expiry; every held room is a persisted
+/// <see cref="InventoryHoldItem"/> — the aggregate itself carries no
+/// RoomTypeId/RatePlanId/Rooms, since this work item's public request still
+/// accepts exactly one RoomType/RatePlan line, normalized atomically into
+/// <c>quantity</c> independent items at construction time.
+/// </summary>
+public sealed class InventoryHold
 {
     public static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(15);
-    private readonly List<BookingHoldNight> _nights = [];
+    private readonly List<InventoryHoldItem> _items = [];
 
-    private BookingHold()
+    private InventoryHold()
     {
     }
 
-    public BookingHold(
+    public InventoryHold(
         Guid id,
         Guid propertyId,
         Guid roomTypeId,
-        Guid ratePlanId,
+        int quantity,
         Guid? customerAccountId,
         string fullName,
         string email,
@@ -24,38 +32,27 @@ public sealed class BookingHold
         DateOnly checkOut,
         int adults,
         int children,
-        int rooms,
         string currencyCode,
-        decimal totalAmount,
         DateTimeOffset createdAtUtc,
         string idempotencyKeyHash,
         string requestFingerprint,
         string? guestAccessTokenHash,
-        IEnumerable<BookingNightSnapshot> nights)
+        IEnumerable<NightlyCommitmentSnapshot> itemNightPlan)
     {
-        BookingGuard.ValidateHeader(
+        BookingGuard.ValidateHoldHeader(
             id,
             propertyId,
             roomTypeId,
-            ratePlanId,
             checkIn,
             checkOut,
             adults,
             children,
-            rooms,
-            totalAmount);
+            quantity);
         var contact = BookingGuard.NormalizeContact(fullName, email, phone);
-        var orderedNights = BookingGuard.ValidateNights(
-            checkIn,
-            checkOut,
-            rooms,
-            totalAmount,
-            nights);
+        var orderedPlan = BookingGuard.ValidateNightlySnapshots(checkIn, checkOut, itemNightPlan);
 
         Id = id;
         PropertyId = propertyId;
-        RoomTypeId = roomTypeId;
-        RatePlanId = ratePlanId;
         CustomerAccountId = customerAccountId;
         FullName = contact.FullName;
         Email = contact.Email;
@@ -64,9 +61,7 @@ public sealed class BookingHold
         CheckOut = checkOut;
         Adults = adults;
         Children = children;
-        Rooms = rooms;
         CurrencyCode = BookingGuard.NormalizeCurrency(currencyCode);
-        TotalAmount = totalAmount;
         Status = BookingHoldStatus.Active;
         CreatedAtUtc = BookingGuard.RequireUtc(createdAtUtc, nameof(createdAtUtc));
         try
@@ -87,13 +82,28 @@ public sealed class BookingHold
         GuestAccessTokenHash = BookingGuard.ValidateOwnership(
             customerAccountId,
             guestAccessTokenHash);
-        _nights.AddRange(orderedNights.Select(snapshot => new BookingHoldNight(Id, snapshot)));
+
+        for (var ordinal = 0; ordinal < quantity; ordinal++)
+        {
+            _items.Add(new InventoryHoldItem(
+                Guid.NewGuid(),
+                Id,
+                propertyId,
+                roomTypeId,
+                checkIn,
+                checkOut,
+                orderedPlan));
+        }
+
+        TotalAmount = _items.SelectMany(item => item.Nights).Sum(night => night.UnitAmount);
+        if (TotalAmount <= 0)
+        {
+            throw new DomainException("totalAmount must be greater than zero.");
+        }
     }
 
     public Guid Id { get; private set; }
     public Guid PropertyId { get; private set; }
-    public Guid RoomTypeId { get; private set; }
-    public Guid RatePlanId { get; private set; }
     public Guid? CustomerAccountId { get; private set; }
     public string FullName { get; private set; } = string.Empty;
     public string Email { get; private set; } = string.Empty;
@@ -102,7 +112,6 @@ public sealed class BookingHold
     public DateOnly CheckOut { get; private set; }
     public int Adults { get; private set; }
     public int Children { get; private set; }
-    public int Rooms { get; private set; }
     public string CurrencyCode { get; private set; } = string.Empty;
     public decimal TotalAmount { get; private set; }
     public BookingHoldStatus Status { get; private set; }
@@ -111,7 +120,7 @@ public sealed class BookingHold
     public string IdempotencyKeyHash { get; private set; } = string.Empty;
     public string RequestFingerprint { get; private set; } = string.Empty;
     public string? GuestAccessTokenHash { get; private set; }
-    public IReadOnlyList<BookingHoldNight> Nights => _nights.AsReadOnly();
+    public IReadOnlyList<InventoryHoldItem> Items => _items.AsReadOnly();
 
     public bool IsExpiredAt(DateTimeOffset utcNow)
     {
@@ -122,9 +131,10 @@ public sealed class BookingHold
     /// <summary>
     /// Atomically validates the confirmation transition, transitions this Hold to
     /// <see cref="BookingHoldStatus.Confirmed"/>, and returns the immutable Reservation
-    /// snapshot copy. Throws <see cref="DomainException"/> for any invalid transition
-    /// (not Active, or expired at <paramref name="utcNow"/>); callers must not have
-    /// already found an existing Reservation for this Hold before calling this method.
+    /// aggregate with one <see cref="ReservationUnit"/> per Item, mapped 1:1 (ADR 0005
+    /// item 2). Throws <see cref="DomainException"/> for any invalid transition (not
+    /// Active, or expired at <paramref name="utcNow"/>); callers must not have already
+    /// found an existing Reservation for this Hold before calling this method.
     /// </summary>
     public Reservation Confirm(
         Guid reservationId,
@@ -147,8 +157,6 @@ public sealed class BookingHold
             confirmationNumber,
             Id,
             PropertyId,
-            RoomTypeId,
-            RatePlanId,
             CustomerAccountId,
             FullName,
             Email,
@@ -157,19 +165,19 @@ public sealed class BookingHold
             CheckOut,
             Adults,
             Children,
-            Rooms,
             CurrencyCode,
-            TotalAmount,
             ReservationStatus.Confirmed,
             utcNow,
             null,
             null,
             GuestAccessTokenHash,
-            Nights.Select(night => new BookingNightSnapshot(
-                night.StayDate,
-                night.Rooms,
-                night.UnitAmount,
-                night.NightTotal)));
+            Items.Select(item => new ReservationUnitPlan(
+                item.Id,
+                item.RoomTypeId,
+                item.Nights.Select(night => new NightlyCommitmentSnapshot(
+                    night.StayDate,
+                    night.RatePlanId,
+                    night.UnitAmount)))));
 
         Status = BookingHoldStatus.Confirmed;
         return reservation;
@@ -200,11 +208,12 @@ public sealed class BookingHold
     }
 
     /// <summary>
-    /// True only if <paramref name="reservation"/> is exactly the immutable snapshot
-    /// copy this Hold's own <see cref="Confirm"/> call would have produced: same
-    /// source, same Confirmed-terminal Hold state, same ownership, same business
-    /// fields, and the same ordered nights. Confirmation replay must never disclose
-    /// an existing Reservation to a caller without first proving this.
+    /// True only if <paramref name="reservation"/> is exactly the immutable Item→Unit,
+    /// ItemNight→UnitNight snapshot copy this Hold's own <see cref="Confirm"/> call would
+    /// have produced: same source, same Confirmed-terminal Hold state, same ownership,
+    /// same business fields, and every Item mapped to exactly one Unit with matching
+    /// nights. Confirmation replay must never disclose an existing Reservation to a
+    /// caller without first proving this.
     /// </summary>
     public bool IsCoherentReservation(Reservation reservation)
     {
@@ -222,8 +231,6 @@ public sealed class BookingHold
         }
 
         if (reservation.PropertyId != PropertyId ||
-            reservation.RoomTypeId != RoomTypeId ||
-            reservation.RatePlanId != RatePlanId ||
             reservation.CheckIn != CheckIn ||
             reservation.CheckOut != CheckOut)
         {
@@ -237,9 +244,7 @@ public sealed class BookingHold
             return false;
         }
 
-        if (reservation.Adults != Adults ||
-            reservation.Children != Children ||
-            reservation.Rooms != Rooms)
+        if (reservation.Adults != Adults || reservation.Children != Children)
         {
             return false;
         }
@@ -250,14 +255,45 @@ public sealed class BookingHold
             return false;
         }
 
-        var expectedNights = Nights
-            .OrderBy(night => night.StayDate)
-            .Select(night => (night.StayDate, night.Rooms, night.UnitAmount, night.NightTotal))
-            .ToArray();
-        var actualNights = reservation.Nights
-            .OrderBy(night => night.StayDate)
-            .Select(night => (night.StayDate, night.Rooms, night.UnitAmount, night.NightTotal))
-            .ToArray();
-        return expectedNights.SequenceEqual(actualNights);
+        if (reservation.Units.Count != Items.Count)
+        {
+            return false;
+        }
+
+        var unitsBySourceItem = reservation.Units
+            .Where(unit => unit.SourceInventoryHoldItemId.HasValue)
+            .ToDictionary(unit => unit.SourceInventoryHoldItemId!.Value);
+        if (unitsBySourceItem.Count != Items.Count)
+        {
+            return false;
+        }
+
+        foreach (var item in Items)
+        {
+            if (!unitsBySourceItem.TryGetValue(item.Id, out var unit))
+            {
+                return false;
+            }
+
+            if (unit.RoomTypeId != item.RoomTypeId)
+            {
+                return false;
+            }
+
+            var expectedNights = item.Nights
+                .OrderBy(night => night.StayDate)
+                .Select(night => (night.StayDate, night.RatePlanId, night.UnitAmount))
+                .ToArray();
+            var actualNights = unit.Nights
+                .OrderBy(night => night.StayDate)
+                .Select(night => (night.StayDate, night.RatePlanId, night.UnitAmount))
+                .ToArray();
+            if (!expectedNights.SequenceEqual(actualNights))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

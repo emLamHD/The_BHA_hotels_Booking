@@ -419,18 +419,19 @@ public sealed class ReservationCancellationApiTests(PostgreSqlWebApplicationFact
             newHoldResponse.StatusCode is HttpStatusCode.Created or HttpStatusCode.Conflict);
 
         await using var context = factory.CreateDbContext();
-        var confirmedDemand = await context.Reservations
-            .Where(r => r.PropertyId == PropertyId && r.RoomTypeId == FamilyRoomTypeId &&
-                        r.Status == ReservationStatus.Confirmed)
-            .SelectMany(r => r.Nights)
+        var confirmedDemand = await context.ReservationUnits
+            .Where(unit => unit.PropertyId == PropertyId && unit.RoomTypeId == FamilyRoomTypeId &&
+                        unit.CommitmentStatus == CommitmentStatus.Committed)
+            .SelectMany(unit => unit.Nights)
             .Where(n => n.StayDate == DefaultCheckIn)
-            .SumAsync(n => n.Rooms);
-        var activeHoldDemand = await context.BookingHolds
-            .Where(h => h.PropertyId == PropertyId && h.RoomTypeId == FamilyRoomTypeId &&
-                        h.Status == BookingHoldStatus.Active)
-            .SelectMany(h => h.Nights)
+            .CountAsync();
+        var activeHoldDemand = await context.InventoryHolds
+            .Where(h => h.PropertyId == PropertyId && h.Status == BookingHoldStatus.Active)
+            .SelectMany(h => h.Items)
+            .Where(item => item.RoomTypeId == FamilyRoomTypeId)
+            .SelectMany(item => item.Nights)
             .Where(n => n.StayDate == DefaultCheckIn)
-            .SumAsync(n => n.Rooms);
+            .CountAsync();
         Assert.True(confirmedDemand + activeHoldDemand <= 1);
     }
 
