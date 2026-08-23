@@ -631,12 +631,13 @@ namespace TheBha.Infrastructure.Persistence.Migrations
         /// <summary>
         /// Guarded reverse transform: only succeeds while every InventoryHold's Items
         /// share one RoomType, every Reservation's Units share one RoomType, and every
-        /// Item/Unit under one Hold/Reservation shares one RatePlanId per stay date —
-        /// exactly the shape the legacy single-RoomType schema can represent. This
-        /// work item's only creation path (Hold confirmation, one RoomType/RatePlan
-        /// per public request) always produces data in that shape, but the guard
-        /// fails loudly instead of silently truncating, averaging, or picking an
-        /// arbitrary RoomType/RatePlan if that assumption is ever violated.
+        /// InventoryHold/Reservation shares one RatePlanId across its entire aggregate
+        /// (every Item/Unit, every stay date) — exactly the shape the legacy
+        /// single-RoomType schema can represent. This work item's only creation path
+        /// (Hold confirmation, one RoomType/RatePlan per public request) always
+        /// produces data in that shape, but the guard fails loudly instead of silently
+        /// truncating, averaging, or picking an arbitrary RoomType/RatePlan if that
+        /// assumption is ever violated.
         /// </summary>
         protected override void Down(MigrationBuilder migrationBuilder)
         {
@@ -660,15 +661,15 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                     END IF;
 
                     SELECT COUNT(*) INTO non_uniform_hold_rateplans FROM (
-                        SELECT ihi."InventoryHoldId", ihn."StayDate"
+                        SELECT ihi."InventoryHoldId"
                         FROM "InventoryHoldItemNights" ihn
                         JOIN "InventoryHoldItems" ihi ON ihi."Id" = ihn."InventoryHoldItemId"
-                        GROUP BY ihi."InventoryHoldId", ihn."StayDate"
+                        GROUP BY ihi."InventoryHoldId"
                         HAVING COUNT(DISTINCT ihn."RatePlanId") > 1
                     ) d;
                     IF non_uniform_hold_rateplans > 0 THEN
                         RAISE EXCEPTION
-                            'CommercialCommitmentV2Foundation downgrade: % InventoryHold nights span more than one RatePlan on the same stay date and cannot be represented by the legacy schema',
+                            'CommercialCommitmentV2Foundation downgrade: % InventoryHolds span more than one RatePlan across their Items/nights and cannot be represented by the legacy schema',
                             non_uniform_hold_rateplans;
                     END IF;
 
@@ -683,15 +684,15 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                     END IF;
 
                     SELECT COUNT(*) INTO non_uniform_reservation_rateplans FROM (
-                        SELECT ru."ReservationId", run."StayDate"
+                        SELECT ru."ReservationId"
                         FROM "ReservationUnitNights" run
                         JOIN "ReservationUnits" ru ON ru."Id" = run."ReservationUnitId"
-                        GROUP BY ru."ReservationId", run."StayDate"
+                        GROUP BY ru."ReservationId"
                         HAVING COUNT(DISTINCT run."RatePlanId") > 1
                     ) d;
                     IF non_uniform_reservation_rateplans > 0 THEN
                         RAISE EXCEPTION
-                            'CommercialCommitmentV2Foundation downgrade: % Reservation nights span more than one RatePlan on the same stay date and cannot be represented by the legacy schema',
+                            'CommercialCommitmentV2Foundation downgrade: % Reservations span more than one RatePlan across their Units/nights and cannot be represented by the legacy schema',
                             non_uniform_reservation_rateplans;
                     END IF;
                 END $$;

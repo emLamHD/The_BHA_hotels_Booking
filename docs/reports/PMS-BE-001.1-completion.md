@@ -255,6 +255,106 @@ Admin backend integration, or any other TARGET item named in
 docs/project/PROJECT_BIBLE.md and the PMS blueprint).
 ```
 
+## Correction PMS-BE-001.1-C1 (2026-08-24)
+
+```text
+CORRECTION_ID: PMS-BE-001.1-C1
+TRIGGER: Codex read-only review of PR #35 (origin/develop...HEAD, commit
+  7326825) found [P1] Reject cross-night rate-plan changes during downgrade
+  — Back_End/src/TheBha.Infrastructure/Persistence/Migrations/
+  20260823084717_CommercialCommitmentV2Foundation.cs:655-659.
+
+ROOT_CAUSE: The Down() RatePlan guard grouped by (InventoryHoldId, StayDate)
+  / (ReservationId, StayDate) instead of by InventoryHoldId / ReservationId
+  alone. A Hold/Reservation whose Items/Units carry a uniform RatePlan on
+  each individual stay date, but a different RatePlan across different
+  stay dates, passed the per-night check even though the legacy schema has
+  only one aggregate-level RatePlanId. The subsequent backfill then
+  selected one RatePlanId via `LIMIT 1`, silently discarding the RatePlan
+  lineage of the other stay dates.
+
+FIX: Both guards now GROUP BY InventoryHoldId / ReservationId only
+  (dropping StayDate from the GROUP BY), so COUNT(DISTINCT RatePlanId) is
+  evaluated across the entire Hold/Reservation aggregate before the lossy
+  backfill runs. No new (eighth) migration was created; the existing
+  seventh migration's guarded Down() was edited in place. Up() was not
+  touched, and neither were migrations 1-6.
+
+FILES_CHANGED:
+- Back_End/src/TheBha.Infrastructure/Persistence/Migrations/
+  20260823084717_CommercialCommitmentV2Foundation.cs (guard fix + doc
+  comment correction)
+- Back_End/tests/TheBha.IntegrationTests/CommercialCommitmentV2MigrationTests.cs
+  (2 new tests + 2 new assertions on an existing test)
+
+POSTGRESQL_EVIDENCE (all against real PostgreSQL, no InMemory/SQLite):
+- InventoryHold cross-night RatePlan mismatch: PASS —
+  Downgrade_fails_and_preserves_all_normalized_data_when_a_hold_spans_more_than_one_rate_plan_across_stay_dates
+  raises P0001 "span more than one RatePlan across their Items/nights",
+  rolls back, and leaves all 3 Items / 6 ItemNights and both per-stay-date
+  RatePlan values unchanged.
+- Reservation cross-night RatePlan mismatch: PASS —
+  Downgrade_fails_and_preserves_all_normalized_data_when_a_reservation_spans_more_than_one_rate_plan_across_stay_dates
+  raises P0001 "span more than one RatePlan across their Units/nights",
+  rolls back, and leaves both ReservationUnits and both per-stay-date
+  RatePlan values unchanged.
+- Rollback/data preservation: PASS — both new tests assert migration 7
+  remains the applied tip and the normalized rows/values are unaffected
+  after the raised exception.
+- Representable Hold downgrade (uniform RatePlan across all nights): PASS
+  — existing Downgrade_from_v7_to_v6_reconstructs_the_legacy_shape_exactly,
+  now also asserting BookingHolds.RatePlanId equals the seeded RatePlanId.
+- Representable Reservation downgrade (uniform RatePlan across all
+  nights): PASS — same test, now also asserting Reservations.RatePlanId
+  equals the seeded RatePlanId.
+- Existing RoomType downgrade guard: PASS, unaffected —
+  Downgrade_fails_and_preserves_all_normalized_data_when_a_hold_spans_more_than_one_room_type
+  still PASS unmodified.
+
+CHECKS:
+- restore: PASS (`dotnet restore Back_End/TheBha.Booking.sln`).
+- Release build: PASS, 0 warnings, 0 errors.
+- targeted PostgreSQL migration tests: PASS, 6/6
+  (CommercialCommitmentV2MigrationTests — was 4, now 6).
+- full backend unit tests: PASS, 243/243 (TheBha.UnitTests.dll, unchanged).
+- full backend PostgreSQL integration tests: PASS, 257/257
+  (TheBha.IntegrationTests.dll — was 255, +2 new tests).
+- EF migrations list: 7 migrations; CommercialCommitmentV2Foundation is
+  still the seventh and last; no eighth migration created.
+- EF pending-model changes: PASS — "No changes have been made to the
+  model since the last migration."
+- git diff --check: PASS, clean.
+
+TRUTH_ALIGNMENT:
+- PR #35 body corrected: "one RatePlan per stay date" -> "one RatePlan
+  across the entire Hold/Reservation aggregate" (Down() guard
+  description).
+- The migration-evidence section above (pre-C1) predates this correction
+  and describes only the RoomType-guard scenario, which was already
+  correct; it is left unmodified as historical record of the original
+  submission. This C1 section is the authoritative description of the
+  RatePlan guard's actual behavior as of the PMS-BE-001.1-C1 correction
+  commit on this branch.
+
+SELF_REVIEW:
+- Confirmed by direct read of Down() that the fixed guards now group only
+  by InventoryHoldId / ReservationId (no StayDate in the GROUP BY) before
+  computing COUNT(DISTINCT RatePlanId).
+- Confirmed Up() and migrations 1-6 were not touched
+  (`git diff --name-status 7326825...HEAD` shows exactly 2 files changed).
+- Confirmed no public API, domain behavior, Customer Web, or Admin Web
+  file was touched.
+
+KNOWN_RISKS: None new. The known risks recorded in this report's original
+  section above still apply unchanged.
+
+NOT_RUN: None.
+
+DEVIATIONS: None from Correction PMS-BE-001.1-C1's authorized scope.
+
+BLOCKERS: None.
+```
+
 READY_FOR_CODEX_REVIEW
 Owner must now invoke:
 `/codex:review --base origin/develop`

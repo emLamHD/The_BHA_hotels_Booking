@@ -25,6 +25,7 @@ public sealed class CommercialCommitmentV2MigrationTests : IAsyncLifetime
     private static readonly Guid PropertyId = Guid.Parse("70000000-0000-0000-0000-000000000001");
     private static readonly Guid RoomTypeId = Guid.Parse("70000000-0000-0000-0000-000000000002");
     private static readonly Guid RatePlanId = Guid.Parse("70000000-0000-0000-0000-000000000003");
+    private static readonly Guid OtherRatePlanId = Guid.Parse("70000000-0000-0000-0000-000000000004");
     private static readonly Guid ActiveMultiRoomHoldId = Guid.Parse("70000000-0000-0000-0000-000000000010");
     private static readonly Guid ConfirmedHoldId = Guid.Parse("70000000-0000-0000-0000-000000000011");
     private static readonly Guid CancelledSourceHoldId = Guid.Parse("70000000-0000-0000-0000-000000000012");
@@ -204,6 +205,10 @@ public sealed class CommercialCommitmentV2MigrationTests : IAsyncLifetime
             connection,
             "SELECT \"RoomTypeId\" FROM \"BookingHolds\" WHERE \"Id\" = @id",
             ("id", ActiveMultiRoomHoldId)));
+        Assert.Equal(RatePlanId, await ScalarAsync<Guid>(
+            connection,
+            "SELECT \"RatePlanId\" FROM \"BookingHolds\" WHERE \"Id\" = @id",
+            ("id", ActiveMultiRoomHoldId)));
         Assert.Equal(3003.00m, await ScalarAsync<decimal>(
             connection,
             "SELECT \"TotalAmount\" FROM \"BookingHolds\" WHERE \"Id\" = @id",
@@ -211,6 +216,10 @@ public sealed class CommercialCommitmentV2MigrationTests : IAsyncLifetime
         Assert.Equal(2, await ScalarAsync<int>(
             connection,
             "SELECT \"Rooms\" FROM \"Reservations\" WHERE \"Id\" = @id",
+            ("id", ConfirmedReservationId)));
+        Assert.Equal(RatePlanId, await ScalarAsync<Guid>(
+            connection,
+            "SELECT \"RatePlanId\" FROM \"Reservations\" WHERE \"Id\" = @id",
             ("id", ConfirmedReservationId)));
         Assert.Equal("Cancelled", await ScalarAsync<string>(
             connection,
@@ -271,6 +280,158 @@ public sealed class CommercialCommitmentV2MigrationTests : IAsyncLifetime
             verify,
             "SELECT COUNT(*) FROM \"InventoryHoldItems\" WHERE \"InventoryHoldId\" = @id",
             ("id", ActiveMultiRoomHoldId)));
+    }
+
+    [Fact]
+    public async Task Downgrade_fails_and_preserves_all_normalized_data_when_a_hold_spans_more_than_one_rate_plan_across_stay_dates()
+    {
+        await using var context = CreateContext();
+        await GetMigrator(context).MigrateAsync(V6Migration);
+        await SeedRepresentativeLegacyDataAsync();
+        await GetMigrator(context).MigrateAsync(V7Migration);
+
+        await using (var connection = new NpgsqlConnection(_connectionString))
+        {
+            await connection.OpenAsync();
+            await using var insertOtherRatePlan = connection.CreateCommand();
+            insertOtherRatePlan.CommandText =
+                """
+                INSERT INTO "RatePlans" ("Id","PropertyId","Code","Name","Description","CurrencyCode","IsActive","CreatedAt","UpdatedAt")
+                VALUES (@otherRatePlanId, @propertyId, 'OTHERRP','Other Rate Plan',NULL,'VND',true,'2026-07-23T10:00:00Z','2026-07-23T10:00:00Z')
+                """;
+            insertOtherRatePlan.Parameters.AddWithValue("otherRatePlanId", OtherRatePlanId);
+            insertOtherRatePlan.Parameters.AddWithValue("propertyId", PropertyId);
+            await insertOtherRatePlan.ExecuteNonQueryAsync();
+
+            // Every Item keeps the same RoomType (RoomType guard still passes) and
+            // every Item on the second stay date shares the same new RatePlan (the
+            // old per-(Hold, StayDate) guard would see uniformity within each night
+            // and miss this entirely). Only the aggregate-wide check catches it.
+            await using var corrupt = connection.CreateCommand();
+            corrupt.CommandText =
+                """
+                UPDATE "InventoryHoldItemNights" SET "RatePlanId" = @otherRatePlanId
+                WHERE "InventoryHoldItemId" IN (
+                    SELECT "Id" FROM "InventoryHoldItems" WHERE "InventoryHoldId" = @holdId
+                )
+                AND "StayDate" = '2026-08-11'
+                """;
+            corrupt.Parameters.AddWithValue("otherRatePlanId", OtherRatePlanId);
+            corrupt.Parameters.AddWithValue("holdId", ActiveMultiRoomHoldId);
+            await corrupt.ExecuteNonQueryAsync();
+        }
+
+        var exception = await Assert.ThrowsAsync<PostgresException>(
+            () => GetMigrator(context).MigrateAsync(V6Migration));
+        Assert.Equal("P0001", exception.SqlState);
+        Assert.Contains(
+            "span more than one RatePlan across their Items/nights",
+            exception.MessageText,
+            StringComparison.Ordinal);
+
+        var applied = await context.Database.GetAppliedMigrationsAsync();
+        Assert.Contains(applied, migration => migration.EndsWith("_CommercialCommitmentV2Foundation"));
+
+        await using var verify = new NpgsqlConnection(_connectionString);
+        await verify.OpenAsync();
+        Assert.Equal(3, await ScalarAsync<long>(
+            verify,
+            "SELECT COUNT(*) FROM \"InventoryHoldItems\" WHERE \"InventoryHoldId\" = @id",
+            ("id", ActiveMultiRoomHoldId)));
+        Assert.Equal(6, await ScalarAsync<long>(
+            verify,
+            """
+            SELECT COUNT(*) FROM "InventoryHoldItemNights" ihn
+            JOIN "InventoryHoldItems" ihi ON ihi."Id" = ihn."InventoryHoldItemId"
+            WHERE ihi."InventoryHoldId" = @id
+            """,
+            ("id", ActiveMultiRoomHoldId)));
+        Assert.Equal(RatePlanId, await ScalarAsync<Guid>(
+            verify,
+            """
+            SELECT DISTINCT ihn."RatePlanId" FROM "InventoryHoldItemNights" ihn
+            JOIN "InventoryHoldItems" ihi ON ihi."Id" = ihn."InventoryHoldItemId"
+            WHERE ihi."InventoryHoldId" = @id AND ihn."StayDate" = '2026-08-10'
+            """,
+            ("id", ActiveMultiRoomHoldId)));
+        Assert.Equal(OtherRatePlanId, await ScalarAsync<Guid>(
+            verify,
+            """
+            SELECT DISTINCT ihn."RatePlanId" FROM "InventoryHoldItemNights" ihn
+            JOIN "InventoryHoldItems" ihi ON ihi."Id" = ihn."InventoryHoldItemId"
+            WHERE ihi."InventoryHoldId" = @id AND ihn."StayDate" = '2026-08-11'
+            """,
+            ("id", ActiveMultiRoomHoldId)));
+    }
+
+    [Fact]
+    public async Task Downgrade_fails_and_preserves_all_normalized_data_when_a_reservation_spans_more_than_one_rate_plan_across_stay_dates()
+    {
+        await using var context = CreateContext();
+        await GetMigrator(context).MigrateAsync(V6Migration);
+        await SeedRepresentativeLegacyDataAsync();
+        await GetMigrator(context).MigrateAsync(V7Migration);
+
+        await using (var connection = new NpgsqlConnection(_connectionString))
+        {
+            await connection.OpenAsync();
+            await using var insertOtherRatePlan = connection.CreateCommand();
+            insertOtherRatePlan.CommandText =
+                """
+                INSERT INTO "RatePlans" ("Id","PropertyId","Code","Name","Description","CurrencyCode","IsActive","CreatedAt","UpdatedAt")
+                VALUES (@otherRatePlanId, @propertyId, 'OTHERRP2','Other Rate Plan 2',NULL,'VND',true,'2026-07-23T10:00:00Z','2026-07-23T10:00:00Z')
+                """;
+            insertOtherRatePlan.Parameters.AddWithValue("otherRatePlanId", OtherRatePlanId);
+            insertOtherRatePlan.Parameters.AddWithValue("propertyId", PropertyId);
+            await insertOtherRatePlan.ExecuteNonQueryAsync();
+
+            await using var corrupt = connection.CreateCommand();
+            corrupt.CommandText =
+                """
+                UPDATE "ReservationUnitNights" SET "RatePlanId" = @otherRatePlanId
+                WHERE "ReservationUnitId" IN (
+                    SELECT "Id" FROM "ReservationUnits" WHERE "ReservationId" = @reservationId
+                )
+                AND "StayDate" = '2026-08-16'
+                """;
+            corrupt.Parameters.AddWithValue("otherRatePlanId", OtherRatePlanId);
+            corrupt.Parameters.AddWithValue("reservationId", ConfirmedReservationId);
+            await corrupt.ExecuteNonQueryAsync();
+        }
+
+        var exception = await Assert.ThrowsAsync<PostgresException>(
+            () => GetMigrator(context).MigrateAsync(V6Migration));
+        Assert.Equal("P0001", exception.SqlState);
+        Assert.Contains(
+            "span more than one RatePlan across their Units/nights",
+            exception.MessageText,
+            StringComparison.Ordinal);
+
+        var applied = await context.Database.GetAppliedMigrationsAsync();
+        Assert.Contains(applied, migration => migration.EndsWith("_CommercialCommitmentV2Foundation"));
+
+        await using var verify = new NpgsqlConnection(_connectionString);
+        await verify.OpenAsync();
+        Assert.Equal(2, await ScalarAsync<long>(
+            verify,
+            "SELECT COUNT(*) FROM \"ReservationUnits\" WHERE \"ReservationId\" = @id",
+            ("id", ConfirmedReservationId)));
+        Assert.Equal(RatePlanId, await ScalarAsync<Guid>(
+            verify,
+            """
+            SELECT DISTINCT run."RatePlanId" FROM "ReservationUnitNights" run
+            JOIN "ReservationUnits" ru ON ru."Id" = run."ReservationUnitId"
+            WHERE ru."ReservationId" = @id AND run."StayDate" = '2026-08-15'
+            """,
+            ("id", ConfirmedReservationId)));
+        Assert.Equal(OtherRatePlanId, await ScalarAsync<Guid>(
+            verify,
+            """
+            SELECT DISTINCT run."RatePlanId" FROM "ReservationUnitNights" run
+            JOIN "ReservationUnits" ru ON ru."Id" = run."ReservationUnitId"
+            WHERE ru."ReservationId" = @id AND run."StayDate" = '2026-08-16'
+            """,
+            ("id", ConfirmedReservationId)));
     }
 
     private TheBhaDbContext CreateContext()
