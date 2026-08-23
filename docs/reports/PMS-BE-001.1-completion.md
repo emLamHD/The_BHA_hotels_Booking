@@ -9,7 +9,10 @@ IMPLEMENTER: CLAUDE
 REVIEWER: CODEX_READ_ONLY
 
 START_BASELINE: 7db8844dfde5ccc0651949f83ddfff76a3a977b9
-FINAL_HEAD: 97a570561a5dff3cb9d7705a5d4a53cb894a9008
+FINAL_HEAD: 407678537c73aaf3eadc9861934ffef3adbd6eac (this report's own
+  commit is necessarily one commit behind this hash, since a commit's hash
+  cannot describe itself before it exists; see git log on the branch for the
+  exact tip after this file is committed and pushed).
 BRANCH: feature/pms-be-001-1-commercial-commitment-v2-foundation
 WORKTREE: /home/admin1/The_BHA_hotels_Booking-pms-be-001-1
 WRITE_LOCK_RELEASED: Yes — Claude stopped all writes after this checkpoint.
@@ -17,12 +20,19 @@ WRITE_LOCK_RELEASED: Yes — Claude stopped all writes after this checkpoint.
 COMMITS:
 - 97a5705 feat(booking): normalize commercial commitments (PMS-BE-001.1)
   (49 files changed, 4518 insertions(+), 1058 deletions(-))
+- 4076785 docs(pms-be-001.1): record completion report and CI evidence
+  (this file's own prior version, 1 file changed, 250 insertions(+))
 DRAFT_PR: https://github.com/emLamHD/The_BHA_hotels_Booking/pull/35
 DRAFT_STATE: OPEN / DRAFT (not Ready, not merged)
 PR_BASE: develop
-PR_HEAD_MATCH: Yes — PR headRefOid 97a570561a5dff3cb9d7705a5d4a53cb894a9008 matches local HEAD exactly.
-CI_STATUS: All three jobs PASS — Admin (54s), Backend (1m55s), Frontend (1m35s).
-  Run: https://github.com/emLamHD/The_BHA_hotels_Booking/actions/runs/32630676851
+PR_HEAD_MATCH: Yes as of each push — PR headRefOid tracked 97a5705 then
+  4076785 exactly; a third, docs-only commit adds only this reconciliation
+  edit.
+CI_STATUS: All three jobs PASS on both pushed commits.
+  - Commit 97a5705: Admin (54s), Backend (1m55s), Frontend (1m35s).
+    Run: https://github.com/emLamHD/The_BHA_hotels_Booking/actions/runs/32630676851
+  - Commit 4076785: Admin (48s), Backend (2m6s), Frontend (1m37s).
+    Run: https://github.com/emLamHD/The_BHA_hotels_Booking/actions/runs/32630830420
 
 FILES_CHANGED: 49 (see commit 97a5705 for the full list)
 DELETED_LEGACY_AUTHORITY:
