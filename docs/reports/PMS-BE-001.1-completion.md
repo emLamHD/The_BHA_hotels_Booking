@@ -21,9 +21,13 @@ ADR 0005 normalized model:
 - `InventoryHold → InventoryHoldItem → InventoryHoldItemNight`
 - `Reservation → ReservationUnit → ReservationUnitNight`
 
-Every persisted Item/Unit represents exactly one physical room (no
-`Quantity`/`Rooms` field anywhere on Item/Unit/Night). Every nightly row
-carries its own `RatePlanId` and accepted money independently.
+Every persisted `InventoryHoldItem` represents exactly one commercially
+*held* room, and every `ReservationUnit` represents exactly one
+commercially *sold/committed* room (no `Quantity`/`Rooms` field anywhere on
+Item/Unit/Night). Neither represents a specific `PhysicalRoom` — physical-
+room assignment/allocation is a separate, still-TARGET layer this work item
+does not implement (see §7). Every nightly row carries its own
+`RatePlanId` and accepted money independently.
 `ReservationUnit.CommitmentStatus = Committed | Cancelled` is the sole
 committed-demand predicate. Cancellation is whole-Reservation only:
 cancelling atomically transitions every still-`Committed` Unit to
