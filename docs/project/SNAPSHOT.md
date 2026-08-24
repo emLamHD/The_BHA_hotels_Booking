@@ -124,11 +124,16 @@ lại `origin/develop` trước khi tạo feature branch mới.
 
 - Migration chain is now **seven** migrations, ending at
   `20260823084717_CommercialCommitmentV2Foundation` (`PMS-BE-001.1`, merged
-  via PR #35). No migration was modified; the seventh migration is
-  additive/replacing via a single-transaction expand → transform → contract
-  cutover. No other PMS migration exists (Organization,
-  `RoomOccupancySegment`, `RoomBlock`, `FolioEntries`, OTA inbox/outbox
-  remain unimplemented — see below).
+  via PR #35). Migrations 1–6 (pre-existing before `PMS-BE-001.1`) were not
+  modified. The seventh migration was added by `PMS-BE-001.1` as an
+  additive/replacing single-transaction expand → transform → contract
+  cutover; its guarded `Down()` was itself edited in place, before merge,
+  by Correction `PMS-BE-001.1-C1` to fix a cross-night RatePlan-guard gap
+  (see `docs/reports/PMS-BE-001.1-completion.md`) — no eighth migration was
+  created for that fix. `PMS-BE-001.1-DOCS-CLOSEOUT` (this docs-only
+  closeout, PR #36) does not modify any migration file. No other PMS
+  migration exists (Organization, `RoomOccupancySegment`, `RoomBlock`,
+  `FolioEntries`, OTA inbox/outbox remain unimplemented — see below).
 - CURRENT commercial commitment authority (`BE-003.1`–`BE-003.5`,
   `PMS-BE-001.1`) is the ADR 0005 normalized model:
   `InventoryHold → InventoryHoldItem → InventoryHoldItemNight` and
