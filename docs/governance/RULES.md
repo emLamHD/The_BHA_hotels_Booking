@@ -51,7 +51,7 @@ OC không được merge, không tự chuyển PR sang Ready và không tự m�
 
 ### 2.4 Claude Code và Codex
 
-Claude Code là `IMPLEMENTER` duy nhất và là coding agent duy nhất được quyền ghi trong writable worktree của work item. Claude chịu trách nhiệm implementation, correction, test, checkpoint, commit/push/Draft PR khi Master Execution Prompt cho phép và completion report.
+Claude Code là `IMPLEMENTER` duy nhất và là coding agent duy nhất được quyền ghi trong checkout đang dùng của work item. Claude chịu trách nhiệm implementation, correction, test, checkpoint, commit/push/Draft PR khi Master Execution Prompt cho phép và completion report.
 
 Codex là `READ_ONLY_REVIEWER`. Codex chỉ được đọc source, Git state, diff, test evidence và tài liệu liên quan để trả findings. Codex không được sửa file, chạy formatter có ghi file, tạo commit, push, mở hoặc sửa PR, merge, xóa branch hay tiếp quản implementation.
 
@@ -59,11 +59,11 @@ Codex findings là bằng chứng review, không phải verdict quản trị. OC
 
 ## 3. Invariant một writable implementer
 
-Tại mọi thời điểm chỉ Claude được phép có quyền ghi vào worktree của work item.
+Tại mọi thời điểm chỉ Claude được phép có quyền ghi vào checkout đang dùng của work item.
 
 - Không tạo worktree thứ hai cho Codex để cùng giải một work item.
 - Codex review cùng Git state/diff mà Claude vừa hoàn tất, nhưng chỉ trong sandbox read-only.
-- Trước khi Owner gọi Codex review, Claude phải dừng mọi thao tác ghi và giữ worktree ở một checkpoint ổn định trong suốt lượt review.
+- Trước khi Owner gọi Codex review, Claude phải dừng mọi thao tác ghi và giữ working tree ở một checkpoint ổn định trong suốt lượt review.
 - Chỉ Owner được phép gọi Codex, và chỉ qua review command đã duyệt (`/codex:review`). Claude không tự thực thi review command này; không dùng Codex để rescue, transfer, implement, sửa findings hoặc tự phân chia task.
 - Không bật automatic review gate hoặc vòng lặp Claude–Codex tự động. Mỗi lượt review phải là một invocation hữu hạn, có chủ đích và được ghi trong report.
 - Không tạo nested-agent/fan-out ngoài review invocation đã duyệt.
@@ -73,12 +73,13 @@ Tại mọi thời điểm chỉ Claude được phép có quyền ghi vào work
 
 ## 4. Master Execution Prompt
 
-Mỗi work item phải có đúng một Master Execution Prompt chứa tối thiểu:
+Mỗi work item phải có đúng một Master Execution Prompt chứa tối thiểu các
+trường **bắt buộc** sau:
 
 - work item ID và objective;
 - `IMPLEMENTER: CLAUDE`;
 - `REVIEWER: CODEX_READ_ONLY`;
-- branch/worktree dự kiến;
+- `REPOSITORY` và `FEATURE_BRANCH` dự kiến;
 - baseline SHA;
 - phase/checkpoint order của Claude;
 - Codex review base, mặc định `origin/develop`;
@@ -100,16 +101,53 @@ Master Execution Prompt là bắt buộc cho work item implementation của Clau
 
 Nếu prompt thiếu baseline, scope, acceptance, review base hoặc skill policy có ảnh hưởng đến cách triển khai, Claude phải trả `BLOCKED` thay vì tự đoán.
 
-## 5. Branch, worktree và ownership
+## 5. Active execution checkout và branch lifecycle
 
-- Một work item dùng một feature branch và một writable worktree.
-- Claude dùng cùng branch/worktree cho toàn bộ implementation và correction, trừ khi Owner phê duyệt ngoại lệ.
-- Chỉ Claude được sửa file trong worktree.
-- Codex không có review worktree riêng; review phải tham chiếu đúng branch, baseline và checkpoint của Claude.
+Mỗi work item chỉ được có đúng một **active execution checkout** — repository
+checkout được Master Execution Prompt chỉ định qua trường `REPOSITORY`
+(trên máy hiện tại: `/home/admin1/The_BHA_hotels_Booking`; nói chung,
+checkout chứa root `AGENTS.md` áp dụng cho phiên đó). Feature branch được
+checkout và thực thi trực tiếp tại chính checkout đó.
+
+- Một work item dùng một feature branch, checkout trực tiếp trong active
+  execution checkout bằng `git switch -c <branch>`.
+- Chỉ Claude được sửa file trong active execution checkout này.
+- Không được chạy `git worktree add`, tạo checkout thực thi bổ sung, chuyển
+  sang hoặc sử dụng linked worktree để thực thi work item. Không có
+  authorization field, exception contract hoặc policy matrix nào cho linked
+  worktree — không có ngoại lệ.
+- Linked worktree cũ, không hoạt động và không liên quan đến work item hiện
+  tại có thể vẫn tồn tại vật lý trên máy (ví dụ từ công cụ/thử nghiệm đã
+  ngưng dùng). Sự tồn tại vật lý của chúng **không** tự làm preflight thất
+  bại và không mâu thuẫn với invariant "một active execution checkout" ở
+  trên — invariant này nói về checkout đang dùng để thực thi, không phải số
+  lượng checkout tồn tại trên đĩa. Nếu phát hiện một checkout/worktree cũ
+  trong lúc preflight, chỉ ghi nhận (audit) và để nguyên; không sử dụng,
+  không sửa, không xóa nếu chưa có chỉ thị riêng của Owner cho đúng
+  checkout đó.
 - Branch mới phải xuất phát từ baseline được ghi trong prompt.
-- Executor không được đổi base branch, rebase, force-push, merge hoặc xóa branch nếu prompt không trao quyền rõ ràng; quyền merge vẫn luôn thuộc Owner.
+- Executor không được đổi base branch, rebase, force-push, merge hoặc xóa
+  branch nếu prompt không trao quyền rõ ràng; quyền merge và branch cleanup
+  vẫn luôn thuộc Owner.
 - Không commit trực tiếp lên `main` hoặc `develop`.
-- Không sửa file ngoài scope chỉ để “dọn dẹp”.
+- Không sửa file ngoài scope chỉ để "dọn dẹp".
+
+Vòng đời branch chuẩn:
+
+```text
+develop
+→ verify baseline
+→ git switch -c feature branch
+→ work/commit/push/Draft PR
+→ Owner review và merge
+→ git switch develop
+→ fast-forward update
+→ Owner xóa feature branch
+```
+
+`Claude writes. Codex reviews. OC decides. Owner merges.` vẫn là phân công
+cố định (§2, §3) — mô hình một-checkout này không cấp quyền ghi cho Codex,
+subagent hay parallel implementation.
 
 ## 6. Checkpoint và review handoff
 
