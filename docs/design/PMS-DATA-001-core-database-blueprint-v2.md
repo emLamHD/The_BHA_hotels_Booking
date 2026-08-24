@@ -1301,11 +1301,26 @@ separate future authorization before design or implementation begins:
 ## 18. Implementation boundary and related decisions
 
 No table, column, constraint, entity, query, worker, endpoint, UI, or
-adapter described in this document is implemented by this work item. Current
-schema remains exactly the six migrations listed in §2. This document and
-its two companion ADRs record the Owner-approved TARGET architecture so a
-future, separately authorized implementation work item does not have to
-re-derive it from chat history.
+adapter described in this document was implemented by the docs-only work
+item that authored it (`PMS-DATA-DOCS-001`); current schema at that time
+remained exactly the six migrations listed in §2. This document and its two
+companion ADRs recorded the Owner-approved TARGET architecture so a future,
+separately authorized implementation work item would not have to re-derive
+it from chat history.
+
+That future work item, `PMS-BE-001.1` (migration 7,
+`CommercialCommitmentV2Foundation`), has since implemented the §6 commercial
+commitment Item/Unit decomposition (`InventoryHold → InventoryHoldItem →
+InventoryHoldItemNight`, `Reservation → ReservationUnit →
+ReservationUnitNight`) for the existing single-RoomType-per-request public
+contract — see ADR 0005's "Current-versus-target boundary" section for the
+exact item-by-item CURRENT/TARGET split. Every other table, constraint,
+worker, endpoint, UI, and adapter in this document — §7's
+`OperationalBlock`/assignment-attribution formula, §9–§12's
+`RoomOccupancySegment`/`RoomBlock`/cross-RoomType assignment (ADR 0006), the
+multi-RoomType **public request** shape, §10's Calendar/Reservation Board
+projection UI, and §13's OTA/FolioEntries/Stay Declaration boundaries —
+remains entirely TARGET, not implemented.
 
 Related decisions:
 

@@ -43,7 +43,8 @@ internal sealed class ReservationCancellationStore(
         // than trusting the pre-lock read: this both revalidates ownership and picks
         // up any Status a concurrent transaction committed while this request waited.
         var reservation = await dbContext.Reservations
-            .Include(item => item.Nights)
+            .Include(item => item.Units)
+            .ThenInclude(unit => unit.Nights)
             .Where(item => item.Id == reservationId)
             .Where(item =>
                 (customerAccountId != null && item.CustomerAccountId == customerAccountId) ||
@@ -64,14 +65,17 @@ internal sealed class ReservationCancellationStore(
                 BookingHoldConfirmationStore.Map(reservation));
         }
 
-        foreach (var stayDate in reservation.Nights
+        var roomTypeId = reservation.Units[0].RoomTypeId;
+        foreach (var stayDate in reservation.Units
+                     .SelectMany(unit => unit.Nights)
                      .Select(night => night.StayDate)
+                     .Distinct()
                      .OrderBy(date => date))
         {
             await AcquireLockAsync(
                 BookingAdvisoryLockKeys.ForInventory(
                     reservation.PropertyId,
-                    reservation.RoomTypeId,
+                    roomTypeId,
                     stayDate),
                 cancellationToken);
         }

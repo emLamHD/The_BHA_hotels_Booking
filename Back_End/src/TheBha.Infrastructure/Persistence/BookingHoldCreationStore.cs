@@ -221,17 +221,14 @@ internal sealed class BookingHoldCreationStore(
                 }
             }
 
-            BookingNightSnapshot[] snapshots;
-            decimal totalAmount;
+            NightlyCommitmentSnapshot[] itemNightPlan;
             try
             {
-                snapshots = rates.Select(rate => new BookingNightSnapshot(
+                itemNightPlan = rates.Select(rate => new NightlyCommitmentSnapshot(
                         rate.StayDate,
-                        request.Rooms,
-                        rate.Amount,
-                        rate.Amount * request.Rooms))
+                        request.RatePlanId,
+                        rate.Amount))
                     .ToArray();
-                totalAmount = snapshots.Sum(snapshot => snapshot.NightTotal);
             }
             catch (OverflowException)
             {
@@ -242,7 +239,7 @@ internal sealed class BookingHoldCreationStore(
                     cancellationToken);
             }
 
-            BookingHold hold;
+            InventoryHold hold;
             string? guestAccessToken = null;
             string? guestAccessTokenHash = null;
             if (request.CustomerAccountId is null)
@@ -254,11 +251,11 @@ internal sealed class BookingHoldCreationStore(
 
             try
             {
-                hold = new BookingHold(
+                hold = new InventoryHold(
                     Guid.NewGuid(),
                     request.PropertyId,
                     request.RoomTypeId,
-                    request.RatePlanId,
+                    request.Rooms,
                     request.CustomerAccountId,
                     request.FullName,
                     request.Email,
@@ -267,14 +264,12 @@ internal sealed class BookingHoldCreationStore(
                     request.CheckOut,
                     request.Adults,
                     request.Children,
-                    request.Rooms,
                     ratePlan.CurrencyCode,
-                    totalAmount,
                     utcNow,
                     request.IdempotencyKeyHash,
                     request.RequestFingerprint,
                     guestAccessTokenHash,
-                    snapshots);
+                    itemNightPlan);
             }
             catch (DomainException exception)
             {
@@ -285,7 +280,7 @@ internal sealed class BookingHoldCreationStore(
                     cancellationToken);
             }
 
-            dbContext.BookingHolds.Add(hold);
+            dbContext.InventoryHolds.Add(hold);
             await dbContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return BookingHoldCreationResult.Created(
@@ -318,40 +313,41 @@ internal sealed class BookingHoldCreationStore(
         DateTimeOffset utcNow,
         CancellationToken cancellationToken)
     {
-        var holdDemand = await dbContext.BookingHolds
+        var holdDemand = await dbContext.InventoryHolds
             .AsNoTracking()
             .Where(hold =>
-                hold.PropertyId == propertyId &&
-                hold.RoomTypeId == roomTypeId &&
                 hold.Status == BookingHoldStatus.Active &&
                 hold.ExpiresAtUtc > utcNow)
-            .SelectMany(hold => hold.Nights)
+            .SelectMany(hold => hold.Items)
+            .Where(item => item.PropertyId == propertyId && item.RoomTypeId == roomTypeId)
+            .SelectMany(item => item.Nights)
             .Where(night => night.StayDate >= checkIn && night.StayDate < checkOut)
             .GroupBy(night => night.StayDate)
-            .Select(group => new { StayDate = group.Key, Rooms = group.Sum(x => x.Rooms) })
+            .Select(group => new { StayDate = group.Key, Rooms = group.Count() })
             .ToListAsync(cancellationToken);
-        var reservationDemand = await dbContext.Reservations
+        var reservationDemand = await dbContext.ReservationUnits
             .AsNoTracking()
-            .Where(reservation =>
-                reservation.PropertyId == propertyId &&
-                reservation.RoomTypeId == roomTypeId &&
-                reservation.Status == ReservationStatus.Confirmed)
-            .SelectMany(reservation => reservation.Nights)
+            .Where(unit =>
+                unit.PropertyId == propertyId &&
+                unit.RoomTypeId == roomTypeId &&
+                unit.CommitmentStatus == CommitmentStatus.Committed)
+            .SelectMany(unit => unit.Nights)
             .Where(night => night.StayDate >= checkIn && night.StayDate < checkOut)
             .GroupBy(night => night.StayDate)
-            .Select(group => new { StayDate = group.Key, Rooms = group.Sum(x => x.Rooms) })
+            .Select(group => new { StayDate = group.Key, Rooms = group.Count() })
             .ToListAsync(cancellationToken);
         return holdDemand.Concat(reservationDemand)
             .GroupBy(row => row.StayDate)
             .ToDictionary(group => group.Key, group => group.Sum(row => row.Rooms));
     }
 
-    private Task<BookingHold?> FindExistingAsync(
+    private Task<InventoryHold?> FindExistingAsync(
         string idempotencyKeyHash,
         CancellationToken cancellationToken) =>
-        dbContext.BookingHolds
+        dbContext.InventoryHolds
             .AsNoTracking()
-            .Include(hold => hold.Nights)
+            .Include(hold => hold.Items)
+            .ThenInclude(item => item.Nights)
             .SingleOrDefaultAsync(
                 hold => hold.IdempotencyKeyHash == idempotencyKeyHash,
                 cancellationToken);
@@ -365,7 +361,7 @@ internal sealed class BookingHoldCreationStore(
 
     private static async Task<BookingHoldCreationResult> CompleteReplayAsync(
         Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction transaction,
-        BookingHold existing,
+        InventoryHold existing,
         string requestFingerprint,
         CancellationToken cancellationToken)
     {
@@ -386,37 +382,55 @@ internal sealed class BookingHoldCreationStore(
         return result;
     }
 
-    internal static BookingHoldDto Map(BookingHold hold, string? guestAccessToken) =>
-        new(
+    /// <summary>
+    /// Projects the normalized Item/ItemNight authority into the unchanged public
+    /// BookingHoldDto shape. Every Item under one Hold shares the same RoomTypeId and
+    /// identical per-night RatePlanId/UnitAmount, because this work item's public
+    /// request still accepts exactly one RoomType/RatePlan line, normalized atomically
+    /// into <c>rooms</c> independent items at creation (§3 compatibility contract) —
+    /// so the first Item's/night's values are representative of the whole Hold.
+    /// </summary>
+    internal static BookingHoldDto Map(InventoryHold hold, string? guestAccessToken)
+    {
+        var roomTypeId = hold.Items[0].RoomTypeId;
+        var ratePlanId = hold.Items[0].Nights[0].RatePlanId;
+        var roomCount = hold.Items.Count;
+        var nights = hold.Items
+            .SelectMany(item => item.Nights)
+            .GroupBy(night => night.StayDate)
+            .OrderBy(group => group.Key)
+            .Select(group =>
+            {
+                var unitAmount = group.First().UnitAmount;
+                var rooms = group.Count();
+                return new BookingHoldNightDto(group.Key, rooms, unitAmount, unitAmount * rooms);
+            })
+            .ToList();
+
+        return new(
             hold.Id,
             hold.Status,
             hold.PropertyId,
-            hold.RoomTypeId,
-            hold.RatePlanId,
+            roomTypeId,
+            ratePlanId,
             hold.CheckIn,
             hold.CheckOut,
             hold.Adults,
             hold.Children,
-            hold.Rooms,
+            roomCount,
             hold.CurrencyCode,
             hold.TotalAmount,
             hold.CreatedAtUtc,
             hold.ExpiresAtUtc,
-            hold.Nights
-                .OrderBy(night => night.StayDate)
-                .Select(night => new BookingHoldNightDto(
-                    night.StayDate,
-                    night.Rooms,
-                    night.UnitAmount,
-                    night.NightTotal))
-                .ToList(),
+            nights,
             guestAccessToken);
+    }
 
     private static bool IsIdempotencyUniqueViolation(DbUpdateException exception) =>
         exception.InnerException is PostgresException
         {
             SqlState: PostgresErrorCodes.UniqueViolation,
-            ConstraintName: "IX_BookingHolds_IdempotencyKeyHash"
+            ConstraintName: "IX_InventoryHolds_IdempotencyKeyHash"
         };
 }
 

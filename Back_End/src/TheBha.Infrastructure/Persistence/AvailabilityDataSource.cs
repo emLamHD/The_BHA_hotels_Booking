@@ -34,40 +34,39 @@ internal sealed class AvailabilityDataSource(TheBhaDbContext dbContext) : IAvail
             .GroupBy(x => x.RoomTypeId).Select(group => new { RoomTypeId = group.Key, Count = group.Count() }).ToDictionaryAsync(x => x.RoomTypeId, x => x.Count, cancellationToken);
         var controls = await dbContext.DailyInventoryControls.AsNoTracking().Where(x => x.PropertyId == propertyId && x.StayDate >= checkIn && x.StayDate < checkOut)
             .Select(x => new AvailabilityInventoryControlData(x.RoomTypeId, x.StayDate, x.SellableLimit, x.IsStopSell)).ToListAsync(cancellationToken);
-        var holdDemand = await dbContext.BookingHolds.AsNoTracking()
+        var holdDemand = await dbContext.InventoryHolds.AsNoTracking()
             .Where(hold =>
                 hold.PropertyId == propertyId &&
                 hold.Status == BookingHoldStatus.Active &&
                 hold.ExpiresAtUtc > utcNow)
-            .SelectMany(hold => hold.Nights, (hold, night) => new
+            .SelectMany(hold => hold.Items)
+            .SelectMany(item => item.Nights, (item, night) => new
             {
-                hold.RoomTypeId,
-                night.StayDate,
-                night.Rooms
+                item.RoomTypeId,
+                night.StayDate
             })
             .Where(row => row.StayDate >= checkIn && row.StayDate < checkOut)
             .GroupBy(row => new { row.RoomTypeId, row.StayDate })
             .Select(group => new AvailabilityCommittedDemandData(
                 group.Key.RoomTypeId,
                 group.Key.StayDate,
-                group.Sum(row => row.Rooms)))
+                group.Count()))
             .ToListAsync(cancellationToken);
-        var reservationDemand = await dbContext.Reservations.AsNoTracking()
-            .Where(reservation =>
-                reservation.PropertyId == propertyId &&
-                reservation.Status == ReservationStatus.Confirmed)
-            .SelectMany(reservation => reservation.Nights, (reservation, night) => new
+        var reservationDemand = await dbContext.ReservationUnits.AsNoTracking()
+            .Where(unit =>
+                unit.PropertyId == propertyId &&
+                unit.CommitmentStatus == CommitmentStatus.Committed)
+            .SelectMany(unit => unit.Nights, (unit, night) => new
             {
-                reservation.RoomTypeId,
-                night.StayDate,
-                night.Rooms
+                unit.RoomTypeId,
+                night.StayDate
             })
             .Where(row => row.StayDate >= checkIn && row.StayDate < checkOut)
             .GroupBy(row => new { row.RoomTypeId, row.StayDate })
             .Select(group => new AvailabilityCommittedDemandData(
                 group.Key.RoomTypeId,
                 group.Key.StayDate,
-                group.Sum(row => row.Rooms)))
+                group.Count()))
             .ToListAsync(cancellationToken);
         var demand = holdDemand.Concat(reservationDemand)
             .GroupBy(row => new { row.RoomTypeId, row.StayDate })

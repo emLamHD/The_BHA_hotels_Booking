@@ -11,9 +11,10 @@ internal sealed class BookingHoldReadStore(TheBhaDbContext dbContext) : IBooking
         string? guestAccessTokenHash,
         CancellationToken cancellationToken)
     {
-        var hold = await dbContext.BookingHolds
+        var hold = await dbContext.InventoryHolds
             .AsNoTracking()
-            .Include(item => item.Nights)
+            .Include(item => item.Items)
+            .ThenInclude(item => item.Nights)
             .Where(item => item.Id == holdId)
             .Where(item =>
                 (customerAccountId != null && item.CustomerAccountId == customerAccountId) ||

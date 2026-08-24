@@ -49,7 +49,7 @@ public sealed class BookingHoldCancellationApiTests(PostgreSqlWebApplicationFact
         Assert.Equal(JsonValueKind.Null, body.GetProperty("guestAccessToken").ValueKind);
 
         await using var context = factory.CreateDbContext();
-        var hold = await context.BookingHolds.SingleAsync(item => item.Id == holdId);
+        var hold = await context.InventoryHolds.SingleAsync(item => item.Id == holdId);
         Assert.Equal(BookingHoldStatus.Cancelled, hold.Status);
     }
 
@@ -106,7 +106,7 @@ public sealed class BookingHoldCancellationApiTests(PostgreSqlWebApplicationFact
         AssertProblem(await CancelAsync(client, holdId, guestToken), HttpStatusCode.Conflict);
 
         await using var context = factory.CreateDbContext();
-        var hold = await context.BookingHolds.SingleAsync(item => item.Id == holdId);
+        var hold = await context.InventoryHolds.SingleAsync(item => item.Id == holdId);
         Assert.Equal(BookingHoldStatus.Confirmed, hold.Status);
     }
 
@@ -131,7 +131,7 @@ public sealed class BookingHoldCancellationApiTests(PostgreSqlWebApplicationFact
         Assert.Equal(afterExpiryAvailability, afterCancelAvailability);
 
         await using var context = factory.CreateDbContext();
-        var hold = await context.BookingHolds.SingleAsync(item => item.Id == holdId);
+        var hold = await context.InventoryHolds.SingleAsync(item => item.Id == holdId);
         Assert.Equal(BookingHoldStatus.Cancelled, hold.Status);
     }
 
@@ -184,7 +184,7 @@ public sealed class BookingHoldCancellationApiTests(PostgreSqlWebApplicationFact
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         await using var context = factory.CreateDbContext();
-        var hold = await context.BookingHolds.SingleAsync(item => item.Id == holdId);
+        var hold = await context.InventoryHolds.SingleAsync(item => item.Id == holdId);
         Assert.Equal(BookingHoldStatus.Cancelled, hold.Status);
         Assert.Null(hold.CustomerAccountId);
         Assert.NotNull(hold.GuestAccessTokenHash);
@@ -212,7 +212,7 @@ public sealed class BookingHoldCancellationApiTests(PostgreSqlWebApplicationFact
             HttpStatusCode.NotFound);
 
         await using var context = factory.CreateDbContext();
-        var hold = await context.BookingHolds.SingleAsync(item => item.Id == holdId);
+        var hold = await context.InventoryHolds.SingleAsync(item => item.Id == holdId);
         Assert.Equal(BookingHoldStatus.Active, hold.Status);
     }
 
@@ -233,7 +233,7 @@ public sealed class BookingHoldCancellationApiTests(PostgreSqlWebApplicationFact
         AssertProblem(await CancelAsync(client, holdIdA, tokenB), HttpStatusCode.NotFound);
 
         await using var context = factory.CreateDbContext();
-        var holdA = await context.BookingHolds.SingleAsync(item => item.Id == holdIdA);
+        var holdA = await context.InventoryHolds.SingleAsync(item => item.Id == holdIdA);
         Assert.Equal(BookingHoldStatus.Active, holdA.Status);
     }
 
@@ -260,7 +260,7 @@ public sealed class BookingHoldCancellationApiTests(PostgreSqlWebApplicationFact
             HttpStatusCode.NotFound);
 
         await using var context = factory.CreateDbContext();
-        var hold = await context.BookingHolds.SingleAsync(item => item.Id == holdId);
+        var hold = await context.InventoryHolds.SingleAsync(item => item.Id == holdId);
         Assert.Equal(BookingHoldStatus.Active, hold.Status);
     }
 
@@ -293,7 +293,7 @@ public sealed class BookingHoldCancellationApiTests(PostgreSqlWebApplicationFact
 
         AssertProblem(response, HttpStatusCode.BadRequest);
         await using var context = factory.CreateDbContext();
-        var hold = await context.BookingHolds.SingleAsync(item => item.Id == holdId);
+        var hold = await context.InventoryHolds.SingleAsync(item => item.Id == holdId);
         Assert.Equal(BookingHoldStatus.Active, hold.Status);
     }
 
@@ -316,7 +316,7 @@ public sealed class BookingHoldCancellationApiTests(PostgreSqlWebApplicationFact
         Assert.All(responses, response => Assert.Equal(HttpStatusCode.OK, response.StatusCode));
 
         await using var context = factory.CreateDbContext();
-        var hold = await context.BookingHolds.SingleAsync(item => item.Id == holdId);
+        var hold = await context.InventoryHolds.SingleAsync(item => item.Id == holdId);
         Assert.Equal(BookingHoldStatus.Cancelled, hold.Status);
     }
 
@@ -352,7 +352,7 @@ public sealed class BookingHoldCancellationApiTests(PostgreSqlWebApplicationFact
             $"Unexpected pairing: cancel={cancelResponse.StatusCode}, confirm={confirmResponse.StatusCode}");
 
         await using var context = factory.CreateDbContext();
-        var hold = await context.BookingHolds.SingleAsync(item => item.Id == holdId);
+        var hold = await context.InventoryHolds.SingleAsync(item => item.Id == holdId);
         var reservationCount = await context.Reservations.CountAsync(r => r.SourceHoldId == holdId);
         if (hold.Status == BookingHoldStatus.Cancelled)
         {
@@ -450,7 +450,7 @@ public sealed class BookingHoldCancellationApiTests(PostgreSqlWebApplicationFact
             Assert.False(await CanAcquireAdvisoryLockAsync(inventoryLock));
 
             await using var context = factory.CreateDbContext();
-            var hold = await context.BookingHolds.SingleAsync(item => item.Id == holdId);
+            var hold = await context.InventoryHolds.SingleAsync(item => item.Id == holdId);
             Assert.Equal(BookingHoldStatus.Active, hold.Status);
         }
         finally
@@ -524,7 +524,7 @@ public sealed class BookingHoldCancellationApiTests(PostgreSqlWebApplicationFact
         Assert.True((int)response.StatusCode >= 500);
 
         await using var context = factory.CreateDbContext();
-        var hold = await context.BookingHolds.SingleAsync(item => item.Id == holdId);
+        var hold = await context.InventoryHolds.SingleAsync(item => item.Id == holdId);
         Assert.Equal(BookingHoldStatus.Active, hold.Status);
 
         Assert.True(await CanAcquireAdvisoryLockAsync(transitionLock));
@@ -836,11 +836,11 @@ public sealed class BookingHoldCancellationApiTests(PostgreSqlWebApplicationFact
         private static void ThrowIfTargetCommand(System.Data.Common.DbCommand command)
         {
             if (command.CommandText.Contains(
-                    "UPDATE \"BookingHolds\"",
+                    "UPDATE \"InventoryHolds\"",
                     StringComparison.Ordinal))
             {
                 throw new InvalidOperationException(
-                    "Forced test failure immediately before the BookingHold update.");
+                    "Forced test failure immediately before the InventoryHold update.");
             }
         }
     }

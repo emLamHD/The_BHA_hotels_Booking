@@ -20,8 +20,9 @@ internal sealed class BookingHoldCancellationStore(TheBhaDbContext dbContext)
             BookingAdvisoryLockKeys.ForHoldTransition(holdId),
             cancellationToken);
 
-        var hold = await dbContext.BookingHolds
-            .Include(item => item.Nights)
+        var hold = await dbContext.InventoryHolds
+            .Include(item => item.Items)
+            .ThenInclude(item => item.Nights)
             .Where(item => item.Id == holdId)
             .Where(item =>
                 (customerAccountId != null && item.CustomerAccountId == customerAccountId) ||
@@ -49,14 +50,17 @@ internal sealed class BookingHoldCancellationStore(TheBhaDbContext dbContext)
                 "The Hold is not in a cancellable state.");
         }
 
-        foreach (var stayDate in hold.Nights
+        var roomTypeId = hold.Items[0].RoomTypeId;
+        foreach (var stayDate in hold.Items
+                     .SelectMany(item => item.Nights)
                      .Select(night => night.StayDate)
+                     .Distinct()
                      .OrderBy(date => date))
         {
             await AcquireLockAsync(
                 BookingAdvisoryLockKeys.ForInventory(
                     hold.PropertyId,
-                    hold.RoomTypeId,
+                    roomTypeId,
                     stayDate),
                 cancellationToken);
         }

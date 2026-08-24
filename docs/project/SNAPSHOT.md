@@ -1,19 +1,18 @@
 # THE BHA — SNAPSHOT
 
-> Ngày cập nhật: 2026-08-22
+> Ngày cập nhật: 2026-08-23
 >
 > Mục đích: phục hồi trạng thái hiện tại mà không cần nạp worklog lịch sử
 
-Lần cập nhật này đồng bộ Snapshot với trạng thái thực tế sau khi PR #33
-(`ADMIN-002.1-DOCS-CLOSEOUT`) đã merge và sau khi Graphify được adopt qua
-work item `TOOL-GRAPHIFY-001-DOCS-CLOSEOUT` (Owner chạy pilot sơ bộ, Codex
-chỉ ra pilot đó không đủ để đóng gate theo single-writer invariant, Claude
-replay lại toàn bộ với vai trò writable implementer duy nhất — chi tiết ở
-§2 và `docs/reports/TOOL-GRAPHIFY-001-completion.md`). Repository SHA và PR
-state bên dưới là baseline đã được xác minh cho lần cập nhật tài liệu này,
-không phải cam kết rằng SHA này sẽ còn là `develop` HEAD sau các commit tài
-liệu hoặc merge tiếp theo; revalidate lại `origin/develop` trước khi tạo
-feature branch mới.
+Lần cập nhật này đồng bộ Snapshot với trạng thái thực tế sau khi PR #34
+(`TOOL-GRAPHIFY-001-DOCS-CLOSEOUT`) đã merge và sau khi Claude hoàn tất
+implementation cho `PMS-BE-001.1` (Commercial Commitment V2 Foundation,
+migration 7) theo Master Execution Prompt đầu tiên cho backend PMS — chi
+tiết ở §2, §3, §7 và `docs/reports/PMS-BE-001.1-completion.md`. Repository
+SHA và PR state bên dưới là baseline đã được xác minh cho lần cập nhật tài
+liệu này, không phải cam kết rằng SHA này sẽ còn là `develop` HEAD sau các
+commit tài liệu hoặc merge tiếp theo; revalidate lại `origin/develop` trước
+khi tạo feature branch mới.
 
 ## 1. Repository state
 
@@ -21,12 +20,13 @@ feature branch mới.
 |---|---|
 | Repository | `emLamHD/The_BHA_hotels_Booking` |
 | Base branch | `develop` |
-| `develop` HEAD | `2c38face7cf51d7271c361e6d684adea466edcf9` |
+| `develop` HEAD | `7db8844dfde5ccc0651949f83ddfff76a3a977b9` |
 | PR #31 | merged — `docs(pms): record core database blueprint v2`, merge commit `bfb3377b701e9309d3cbbea22bb18159bc37a2e0`, merged `2026-08-19T10:56:01Z`. Persists PMS blueprint documentation foundation (`docs/design/PMS-DATA-001-core-database-blueprint-v2.md`, ADR 0005, ADR 0006). |
 | PR #32 | merged — `feat(admin): add PMS reservation board UI baseline`, merge commit `17e929d7c1f82941599223344b5f4cdc3aa34307`, merged `2026-08-22T14:42:31Z`. Closes `ADMIN-002.1`. |
 | PR #33 | merged — `docs(project): close ADMIN-002.1 and record next sequence`, merge commit `2c38face7cf51d7271c361e6d684adea466edcf9`, merged `2026-08-22T15:38:25Z`. Closes `ADMIN-002.1-DOCS-CLOSEOUT`. |
-| PR/branch của work item hiện tại | [`#34`](https://github.com/emLamHD/The_BHA_hotels_Booking/pull/34) — `OPEN`, `DRAFT`; head branch `docs/tool-graphify-001-closeout`; base `develop`. `TOOL-GRAPHIFY-001-DOCS-CLOSEOUT` (docs-only). Not Ready or merged; Ready/merge/branch cleanup remain Owner-only. |
-| Open execution PR khác | không có, theo `gh pr list --state open` tại thời điểm cập nhật Snapshot này (ngoài PR #34 ở trên). |
+| PR #34 | merged — `docs(project): record Graphify tooling adoption`, merge commit `7db8844dfde5ccc0651949f83ddfff76a3a977b9`. Closes `TOOL-GRAPHIFY-001-DOCS-CLOSEOUT`; remote branch `docs/tool-graphify-001-closeout` deleted. |
+| PR/branch của work item hiện tại | `PMS-BE-001.1` (Commercial Commitment V2 Foundation) — feature branch `feature/pms-be-001-1-commercial-commitment-v2-foundation`, worktree `/home/admin1/The_BHA_hotels_Booking-pms-be-001-1`, baseline `7db8844dfde5ccc0651949f83ddfff76a3a977b9`. Implementation checkpoint complete, Draft PR to be opened by Claude per the Master Execution Prompt; not Ready or merged — Ready/merge/branch cleanup remain Owner-only. See `docs/reports/PMS-BE-001.1-completion.md`. |
+| Open execution PR khác | không có, theo `gh pr list --state open` tại thời điểm cập nhật Snapshot này. |
 
 ## 2. Work item state
 
@@ -74,22 +74,39 @@ feature branch mới.
   evidence in `docs/reports/TOOL-GRAPHIFY-001-completion.md`;
   `docs/governance/WORKFLOW.md` §12 is the canonical invocation policy.
   `docs/governance/RULES.md` was not modified.
+- `TOOL-GRAPHIFY-001-DOCS-CLOSEOUT`: `PASS — CLOSED`. PR #34 merged as above.
+  Docs-only diff; no product source touched.
+
+### Đang thực thi
+
+- `PMS-BE-001.1` — Commercial Commitment V2 Foundation: implementation
+  checkpoint complete by Claude under a Master Execution Prompt
+  (`IMPLEMENTER: CLAUDE`, `REVIEWER: CODEX_READ_ONLY`, baseline
+  `7db8844dfde5ccc0651949f83ddfff76a3a977b9`). Replaces the single-RoomType
+  `BookingHold`/`BookingHoldNight`/`Reservation`/`ReservationNight`
+  commercial authority with the normalized ADR 0005 Item/Unit authority
+  (migration 7, `CommercialCommitmentV2Foundation`) while preserving the
+  public `/api/v1` contract unchanged. Full detail in §3, §7, and
+  `docs/reports/PMS-BE-001.1-completion.md`. Awaiting Owner-invoked Codex
+  review, then OC review, then Owner Ready/merge decision — not yet merged.
 
 ### Quyết định đang hiệu lực
 
-`TOOL-GRAPHIFY-001-DOCS-CLOSEOUT_IS_THE_SOLE_AUTHORIZED_WORK_ITEM_UNTIL_OWNER_DECISION`
+`PMS-BE-001.1_AWAITS_OWNER_INVOKED_CODEX_REVIEW_AND_OC_DECISION`
 
 Ý nghĩa:
 
-- `TOOL-GRAPHIFY-001-DOCS-CLOSEOUT` (docs-only) là work item duy nhất đang
-  active kể từ Snapshot này, cho đến khi Owner đưa ra quyết định kế tiếp.
-- Việc đóng work item này không tự động mở bất kỳ product implementation
-  work item nào — không database migration, không backend Admin
-  Calendar/PMS, không OTA, không Customer Web change, không `DATA-001.2`.
-- Sau khi PR #34 merge, backend Calendar/PMS là phase sản phẩm kế tiếp
-  (`NEXT_PRODUCT_PHASE: BACKEND CALENDAR/PMS`, xem §9). Control Tower đã sở
-  hữu plan backend dựa trên PMS blueprint (PR #31); Snapshot này chỉ ghi
-  nhận handoff, không tự định nghĩa hay mở rộng phạm vi backend.
+- `PMS-BE-001.1` là work item đang active kể từ Snapshot này. Claude đã dừng
+  mọi thao tác ghi tại checkpoint ổn định và công bố `READY_FOR_CODEX_REVIEW`
+  trong completion report; chỉ Owner được invoke
+  `/codex:review --base origin/develop`.
+- Việc implementation hoàn tất không tự động cấp Ready/merge — chỉ Owner
+  quyết định sau khi OC review report/diff/Codex findings.
+- Multi-RoomType public request, physical-room allocation
+  (`RoomOccupancySegment`/`RoomBlock`, ADR 0006), OTA, `FolioEntries`, Admin
+  backend integration, và mọi TARGET khác chưa được `PMS-BE-001.1` bao phủ
+  vẫn **locked** — implementation cho chúng cần Master Execution Prompt
+  riêng, được Owner phê duyệt sau quyết định về work item này.
 - `DATA-001.2` tiếp tục dormant/deferred; không tự động kích hoạt lại.
 
 ### Tạm hoãn / locked
@@ -109,18 +126,32 @@ feature branch mới.
 
 ## 3. Current PostgreSQL schema and Hold/Reservation model
 
-- Migration chain unchanged, exactly six migrations, ending at
-  `20260723105404_AddBookingHoldReservationFoundation`. No PMS migration
-  exists.
-- CURRENT Hold/Reservation aggregate (`BE-003.1`–`BE-003.5`) remains
-  **single-RoomType-per-booking**: `BookingHold`/`BookingHoldNight` and
-  `Reservation`/`ReservationNight`, each capturing exactly one Property,
-  RoomType, and RatePlan, with atomic PostgreSQL advisory-lock concurrency
-  protection and expiry-aware committed demand. This is proven, working
-  CURRENT behavior — it is not the PMS blueprint's multi-item/unit TARGET
-  model (`InventoryHold → InventoryHoldItems → InventoryHoldItemNights`,
-  `Reservation → ReservationUnits → ReservationUnitNights`, ADR 0005). The
-  two models must never be conflated.
+- Migration chain is now **seven** migrations, ending at
+  `20260823084717_CommercialCommitmentV2Foundation` (`PMS-BE-001.1`). No
+  migration was modified; the seventh migration is additive/replacing via a
+  single-transaction expand → transform → contract cutover. No other PMS
+  migration exists (Organization, `RoomOccupancySegment`, `RoomBlock`,
+  `FolioEntries`, OTA inbox/outbox remain unimplemented — see below).
+- CURRENT commercial commitment authority (`BE-003.1`–`BE-003.5`,
+  `PMS-BE-001.1`) is now the ADR 0005 normalized model:
+  `InventoryHold → InventoryHoldItem → InventoryHoldItemNight` and
+  `Reservation → ReservationUnit → ReservationUnitNight`. Every persisted
+  Item/Unit represents exactly one room (no `Quantity`/`Rooms` field exists
+  on Item/Unit/Night); every nightly row carries its own `RatePlanId` and
+  accepted money. `ReservationUnit.CommitmentStatus = Committed | Cancelled`
+  is the sole demand predicate — committed demand counts every
+  `InventoryHoldItemNight` of an `Active`, unexpired Hold and every
+  `ReservationUnitNight` of a `Committed` Unit, exactly once. This work item
+  exposes only whole-Reservation cancellation (no independent per-Unit
+  cancellation endpoint); cancelling a Reservation atomically transitions
+  every still-`Committed` Unit to `Cancelled` in the same transaction. The
+  public `/api/v1` contract, and the CURRENT limitation to exactly one
+  RoomType/RatePlan per public Hold/Reservation request, are both unchanged
+  — the request is atomically normalized into `Q` independent Items/Units
+  internally; multi-RoomType **request** shape remains TARGET. The legacy
+  `BookingHold`/`BookingHoldNight`/`ReservationNight` tables and the
+  `RoomTypeId`/`RatePlanId`/`Rooms` columns previously on `Reservations` no
+  longer exist — there is no dual-write and no dormant normalized table.
 - No `Organization` entity, no `RoomOccupancySegment`/`RoomBlock` table, no
   PostgreSQL exclusion constraint, and no `btree_gist` dependency exist
   anywhere in the current schema or codebase.
@@ -245,38 +276,38 @@ detail in `docs/reports/TOOL-GRAPHIFY-001-completion.md` and
 
 ## 9. Current objective
 
-Đóng `TOOL-GRAPHIFY-001-DOCS-CLOSEOUT`: hoàn tất Draft PR, chờ Owner-invoked
-Codex review, gửi report cho OC.
+Đóng `PMS-BE-001.1`: Claude đã hoàn tất implementation, tự review, và dừng
+mọi thao tác ghi tại checkpoint ổn định (`READY_FOR_CODEX_REVIEW` đã công
+bố trong completion report). Bước kế tiếp:
 
-Trình tự kế tiếp bị khóa theo đúng thứ tự sau — không được đảo hoặc gộp
-bước:
-
-1. Review/merge/branch cleanup cho Draft PR #34 (Owner-only).
-2. Sau khi bước 1 hoàn tất, Owner kích hoạt Control Tower's existing backend
-   plan (dựa trên PMS blueprint PR #31); OC chuyển plan đó thành Master
-   Execution Prompt backend đầu tiên — không được tự suy luận phạm vi
-   trước từ Snapshot này.
-3. Claude chỉ bắt đầu implementation backend sau khi Master Execution
-   Prompt đó tồn tại và Owner kích hoạt phiên tương ứng.
+1. Owner xem completion report (`docs/reports/PMS-BE-001.1-completion.md`),
+   invoke đúng một lượt `/codex:review --base origin/develop`.
+2. Owner chuyển kết quả Codex về; Claude chèn nguyên trạng vào completion
+   report và dừng.
+3. Owner chuyển report cho OC; OC kết luận `PASS`/`CORRECTION_REQUIRED`/
+   `BLOCKED`.
+4. Chỉ Owner quyết định Ready/merge/branch cleanup, và có mở task backend
+   kế tiếp (multi-RoomType public request, physical allocation, OTA,
+   Admin backend integration...) hay không.
 
 Không tự động mở `DATA-001.2` hoặc bất kỳ product/backend work item nào
 khác từ Snapshot này.
 
 ## 10. Main risks
 
-- Coi việc đóng `TOOL-GRAPHIFY-001-DOCS-CLOSEOUT` là authorization ngầm cho
-  bất kỳ work item backend nào.
+- Coi việc implementation `PMS-BE-001.1` hoàn tất là authorization ngầm cho
+  Ready/merge hoặc cho bất kỳ work item backend kế tiếp nào.
 - Nhầm frontend mock prototype (`ADMIN-002.1`) với backend PMS behavior
-  thật hoặc với TARGET architecture đã implement.
-- Nhầm local Graphify tooling state với tracked repository state hoặc
-  product/backend implementation state (§5).
-- Suy ra phạm vi backend Calendar work item trước khi Owner phê duyệt
-  Master Execution Prompt riêng cho nó.
+  thật.
+- Nhầm foundation normalized Item/Unit (`PMS-BE-001.1`, single-RoomType
+  public request) với multi-RoomType public request hoặc physical
+  allocation TARGET đã implement — chúng vẫn chưa implement.
 - Codex được cấp nhầm write mode hoặc dùng rescue/transfer.
 - Claude mutate worktree trong lúc Codex đang review.
 - Review base bị suy ra thành `main` thay vì explicit `origin/develop`.
 
 ## 11. First action
 
-Owner xác nhận trạng thái Draft PR #34; nếu review/decision chưa hoàn tất,
-đó là first action, theo đúng plan `docs/daily/2026-08/2026-08-23-plan.md`.
+Owner xem completion report của `PMS-BE-001.1` và invoke
+`/codex:review --base origin/develop`; đó là first action theo plan
+`docs/daily/2026-08/2026-08-23-plan.md`.

@@ -13,7 +13,8 @@ internal sealed class ReservationReadStore(TheBhaDbContext dbContext) : IReserva
     {
         var reservation = await dbContext.Reservations
             .AsNoTracking()
-            .Include(item => item.Nights)
+            .Include(item => item.Units)
+            .ThenInclude(unit => unit.Nights)
             .Where(item => item.Id == reservationId)
             .Where(item =>
                 (customerAccountId != null && item.CustomerAccountId == customerAccountId) ||

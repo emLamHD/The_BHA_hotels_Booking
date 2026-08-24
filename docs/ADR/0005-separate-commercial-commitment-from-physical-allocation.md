@@ -1,16 +1,26 @@
 # ADR 0005: Separate commercial commitment from physical allocation
 
-- **Status:** Accepted target architecture, implementation pending.
-- **Date:** 2026-08-19.
+- **Status:** Item 1–2, 4 (partial), 5–8 decomposition foundation implemented
+  (`PMS-BE-001.1`, migration 7); remaining decision items (multi-RoomType
+  public request, physical allocation integration, direct Admin/walk-in/OTA
+  unit creation) remain target architecture, implementation pending.
+- **Date:** 2026-08-19. Foundation implemented 2026-08-23.
 
-This decision is TARGET / APPROVED, not CURRENT / AS-BUILT. The new
-item/unit decomposition and commercial-versus-physical separation described
-below are not implemented. Existing CURRENT `BookingHold`/`BookingHoldNight`
-and `Reservation`/`ReservationNight` capabilities described in Context
-remain implemented exactly as they are today; this ADR introduces no schema
-or product change. See
+`PMS-BE-001.1` implemented the Hold/Reservation item/unit decomposition
+described in the Decision section below as CURRENT / AS-BUILT:
+`InventoryHold → InventoryHoldItem → InventoryHoldItemNight` and
+`Reservation → ReservationUnit → ReservationUnitNight` replaced the legacy
+`BookingHold`/`BookingHoldNight` and `Reservation`/`ReservationNight`
+authority entirely (migration 7, no dual-write, no legacy table remains).
+The public `/api/v1` contract is unchanged: a request still carries exactly
+one `RoomTypeId`/`RatePlanId`/`rooms = Q`, which the Hold-creation
+transaction still normalizes atomically into `Q` independent Items — the
+multi-RoomType **request** shape (item 1's forward-looking use case) remains
+TARGET, not implemented, along with physical-room allocation (ADR 0006) and
+direct Admin/walk-in/OTA unit creation without a source Hold (item 3). See
 [PMS-DATA-001-core-database-blueprint-v2](../design/PMS-DATA-001-core-database-blueprint-v2.md)
-for full detail and scenario walkthroughs.
+for full detail and scenario walkthroughs, and
+`docs/reports/PMS-BE-001.1-completion.md` for implementation evidence.
 
 ## Context
 
@@ -286,11 +296,24 @@ into one writable surface.
 
 ## Current-versus-target boundary
 
-Everything in the Decision section is TARGET / APPROVED. CURRENT / AS-BUILT
-remains exactly the single-RoomType `BookingHold`/`BookingHoldNight` and
-`Reservation`/`ReservationNight` model delivered by `BE-003.1`–`BE-003.5`,
-against the six existing PostgreSQL migrations. No migration, entity, or
-schema change is introduced by this ADR.
+`PMS-BE-001.1` (migration 7, `CommercialCommitmentV2Foundation`) implemented
+Decision items 1–2, 4 (commercial-record-versus-physical-allocation
+separation only — physical allocation itself remains unimplemented), 5
+(`RoomTypeDailyInventory`'s per-Committed-night-once counting, not the
+`OperationalBlock`/assignment-attribution formula in ADR 0006), 6 (Calendar
+remains a projection, not built), 7, and 8 (RatePlan lineage) as CURRENT /
+AS-BUILT: `InventoryHold → InventoryHoldItem → InventoryHoldItemNight` and
+`Reservation → ReservationUnit → ReservationUnitNight` replaced the legacy
+`BookingHold`/`BookingHoldNight`/`Reservation`/`ReservationNight` model
+entirely (no dual-write, no legacy table remains) against seven PostgreSQL
+migrations. Decision item 3 (direct Admin/walk-in/OTA unit creation without
+a source Hold) and the multi-RoomType **public request** shape remain
+TARGET, not implemented — the public `/api/v1` contract still accepts
+exactly one `RoomTypeId`/`RatePlanId`/`rooms = Q` per request. Items 9–13's
+lifecycle/uniqueness/cancellation rules are implemented for this
+single-RoomType-per-request scope. ADR 0006's `RoomOccupancySegment`,
+`RoomBlock`, PostgreSQL exclusion constraints, and cross-RoomType assignment
+remain entirely TARGET, unimplemented.
 
 ## Relationship to ADR 0003 and ADR 0004
 

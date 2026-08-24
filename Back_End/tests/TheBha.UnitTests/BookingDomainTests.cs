@@ -27,20 +27,25 @@ public sealed class BookingDomainTests
     private static readonly string Fingerprint = new('c', BookingFieldLimits.Sha256Hash);
 
     [Fact]
-    public void Valid_guest_hold_has_fixed_snapshot_and_stable_night_order()
+    public void Valid_guest_hold_has_fixed_snapshot_and_stable_item_and_night_shape()
     {
-        var input = ValidNights().AsEnumerable().Reverse().ToList();
+        var input = ValidNightPlan().AsEnumerable().Reverse().ToList();
 
-        var hold = CreateHold(nights: input);
+        var hold = CreateHold(nightPlan: input);
         input.Clear();
 
         Assert.Null(hold.CustomerAccountId);
         Assert.Equal(GuestHash, hold.GuestAccessTokenHash);
         Assert.Equal(BookingHoldStatus.Active, hold.Status);
         Assert.Equal(CreatedAt.AddMinutes(15), hold.ExpiresAtUtc);
-        Assert.Equal([CheckIn, CheckIn.AddDays(1)], hold.Nights.Select(night => night.StayDate));
+        Assert.Equal(2, hold.Items.Count);
+        Assert.All(hold.Items, item => Assert.Equal(RoomTypeId, item.RoomTypeId));
+        Assert.All(
+            hold.Items,
+            item => Assert.Equal(
+                [CheckIn, CheckIn.AddDays(1)],
+                item.Nights.Select(night => night.StayDate)));
         Assert.Equal(401.00m, hold.TotalAmount);
-        Assert.Equal(2, hold.Rooms);
         Assert.Equal("VND", hold.CurrencyCode);
         Assert.Equal("Guest Customer", hold.FullName);
         Assert.Equal("guest@example.com", hold.Email);
@@ -72,14 +77,12 @@ public sealed class BookingDomainTests
     [InlineData("id")]
     [InlineData("property")]
     [InlineData("room")]
-    [InlineData("rate")]
     public void Hold_rejects_empty_required_ids(string invalidPart)
     {
         Assert.Throws<DomainException>(() => CreateHold(
             id: invalidPart == "id" ? Guid.Empty : Guid.NewGuid(),
             propertyId: invalidPart == "property" ? Guid.Empty : PropertyId,
-            roomTypeId: invalidPart == "room" ? Guid.Empty : RoomTypeId,
-            ratePlanId: invalidPart == "rate" ? Guid.Empty : RatePlanId));
+            roomTypeId: invalidPart == "room" ? Guid.Empty : RoomTypeId));
     }
 
     [Fact]
@@ -95,10 +98,10 @@ public sealed class BookingDomainTests
     [InlineData(1, -1, 1)]
     [InlineData(1, 0, 0)]
     [InlineData(1, 0, -1)]
-    public void Hold_rejects_invalid_occupancy(int adults, int children, int rooms)
+    public void Hold_rejects_invalid_occupancy(int adults, int children, int quantity)
     {
         Assert.Throws<DomainException>(() =>
-            CreateHold(adults: adults, children: children, rooms: rooms));
+            CreateHold(adults: adults, children: children, quantity: quantity));
     }
 
     [Fact]
@@ -165,16 +168,16 @@ public sealed class BookingDomainTests
     [Fact]
     public void Hold_rejects_duplicate_missing_extra_and_non_contiguous_nights()
     {
-        Assert.Throws<DomainException>(() => CreateHold(nights:
+        Assert.Throws<DomainException>(() => CreateHold(nightPlan:
         [
             Night(CheckIn),
             Night(CheckIn)
         ]));
-        Assert.Throws<DomainException>(() => CreateHold(nights:
+        Assert.Throws<DomainException>(() => CreateHold(nightPlan:
         [
             Night(CheckIn)
         ]));
-        Assert.Throws<DomainException>(() => CreateHold(nights:
+        Assert.Throws<DomainException>(() => CreateHold(nightPlan:
         [
             Night(CheckIn),
             Night(CheckIn.AddDays(1)),
@@ -182,8 +185,7 @@ public sealed class BookingDomainTests
         ]));
         Assert.Throws<DomainException>(() => CreateHold(
             checkOut: CheckIn.AddDays(3),
-            totalAmount: 601.50m,
-            nights:
+            nightPlan:
             [
                 Night(CheckIn),
                 Night(CheckIn.AddDays(2)),
@@ -192,44 +194,62 @@ public sealed class BookingDomainTests
     }
 
     [Fact]
-    public void Hold_rejects_room_amount_and_total_mismatches()
+    public void Hold_rejects_empty_rateplan_in_night()
     {
-        Assert.Throws<DomainException>(() => CreateHold(nights:
+        Assert.Throws<DomainException>(() => CreateHold(nightPlan:
         [
-            Night(CheckIn, rooms: 1, unit: 100.25m, total: 100.25m),
-            Night(CheckIn.AddDays(1))
-        ]));
-        Assert.Throws<DomainException>(() => CreateHold(nights:
-        [
-            Night(CheckIn, unit: 100.25m, total: 199.00m),
-            Night(CheckIn.AddDays(1))
-        ]));
-        Assert.Throws<DomainException>(() => CreateHold(totalAmount: 400.99m));
-        Assert.Throws<DomainException>(() => CreateHold(nights:
-        [
-            Night(CheckIn, unit: 0m, total: 0m),
-            Night(CheckIn.AddDays(1))
-        ]));
-        Assert.Throws<DomainException>(() => CreateHold(nights:
-        [
-            Night(CheckIn, unit: 1.001m, total: 2.002m),
+            Night(CheckIn, ratePlanId: Guid.Empty),
             Night(CheckIn.AddDays(1))
         ]));
     }
 
     [Fact]
-    public void Night_and_aggregate_totals_use_exact_decimal_arithmetic()
+    public void Hold_rejects_invalid_night_amounts()
+    {
+        Assert.Throws<DomainException>(() => CreateHold(nightPlan:
+        [
+            Night(CheckIn, unit: 0m),
+            Night(CheckIn.AddDays(1))
+        ]));
+        Assert.Throws<DomainException>(() => CreateHold(nightPlan:
+        [
+            Night(CheckIn, unit: -1m),
+            Night(CheckIn.AddDays(1))
+        ]));
+        Assert.Throws<DomainException>(() => CreateHold(nightPlan:
+        [
+            Night(CheckIn, unit: 1.001m),
+            Night(CheckIn.AddDays(1))
+        ]));
+    }
+
+    [Fact]
+    public void Item_and_aggregate_totals_use_exact_decimal_arithmetic()
     {
         var hold = CreateHold(
-            totalAmount: 0.60m,
-            nights:
+            quantity: 2,
+            nightPlan:
             [
-                Night(CheckIn, unit: 0.10m, total: 0.20m),
-                Night(CheckIn.AddDays(1), unit: 0.20m, total: 0.40m)
+                Night(CheckIn, unit: 0.10m),
+                Night(CheckIn.AddDays(1), unit: 0.20m)
             ]);
 
+        // 2 items x (0.10 + 0.20) per item = 0.60 total.
         Assert.Equal(0.60m, hold.TotalAmount);
-        Assert.Equal([0.20m, 0.40m], hold.Nights.Select(night => night.NightTotal));
+        Assert.All(
+            hold.Items,
+            item => Assert.Equal([0.10m, 0.20m], item.Nights.Select(night => night.UnitAmount)));
+    }
+
+    [Fact]
+    public void Hold_normalizes_a_multi_room_request_into_independent_items()
+    {
+        var hold = CreateHold(quantity: 3);
+
+        Assert.Equal(3, hold.Items.Count);
+        Assert.Equal(3, hold.Items.Select(item => item.Id).Distinct().Count());
+        Assert.All(hold.Items, item => Assert.Equal(2, item.Nights.Count));
+        Assert.Equal(6, hold.Items.SelectMany(item => item.Nights).Count());
     }
 
     [Fact]
@@ -248,11 +268,13 @@ public sealed class BookingDomainTests
         Assert.Equal(CustomerId, authenticated.CustomerAccountId);
         Assert.Null(authenticated.GuestAccessTokenHash);
         Assert.Equal("BHA-AUTH-0001", authenticated.ConfirmationNumber);
-        Assert.Equal(guest.Nights.Select(night => night.StayDate), authenticated.Nights.Select(night => night.StayDate));
+        Assert.Equal(
+            guest.Units.SelectMany(unit => unit.Nights).Select(night => night.StayDate).Distinct().Order(),
+            authenticated.Units.SelectMany(unit => unit.Nights).Select(night => night.StayDate).Distinct().Order());
     }
 
     [Fact]
-    public void Valid_cancelled_reservation_requires_coherent_cancellation_snapshot()
+    public void Valid_cancelled_reservation_cancels_every_unit_and_requires_coherent_cancellation_snapshot()
     {
         var cancelledAt = CreatedAt.AddHours(2);
         var reservation = CreateReservation(
@@ -263,6 +285,9 @@ public sealed class BookingDomainTests
         Assert.Equal(ReservationStatus.Cancelled, reservation.Status);
         Assert.Equal(cancelledAt, reservation.CancelledAtUtc);
         Assert.Equal("Guest requested cancellation.", reservation.CancellationReason);
+        Assert.All(
+            reservation.Units,
+            unit => Assert.Equal(CommitmentStatus.Cancelled, unit.CommitmentStatus));
     }
 
     [Fact]
@@ -274,6 +299,12 @@ public sealed class BookingDomainTests
             CreateReservation(confirmationNumber: " "));
         Assert.Throws<DomainException>(() =>
             CreateReservation(confirmationNumber: "invalid/value"));
+    }
+
+    [Fact]
+    public void Reservation_rejects_empty_unit_list()
+    {
+        Assert.Throws<DomainException>(() => CreateReservation(unitPlans: []));
     }
 
     [Fact]
@@ -313,15 +344,10 @@ public sealed class BookingDomainTests
     [Fact]
     public void Reservation_reuses_strong_night_and_ownership_invariants()
     {
-        Assert.Throws<DomainException>(() => CreateReservation(nights:
+        Assert.Throws<DomainException>(() => CreateReservation(nightPlan:
         [
             Night(CheckIn),
             Night(CheckIn)
-        ]));
-        Assert.Throws<DomainException>(() => CreateReservation(nights:
-        [
-            Night(CheckIn, total: 199m),
-            Night(CheckIn.AddDays(1))
         ]));
         Assert.Throws<DomainException>(() => CreateReservation(
             customerAccountId: CustomerId,
@@ -344,8 +370,6 @@ public sealed class BookingDomainTests
         Assert.Equal("BHA-TEST-0001", reservation.ConfirmationNumber);
         Assert.Equal(hold.Id, reservation.SourceHoldId);
         Assert.Equal(hold.PropertyId, reservation.PropertyId);
-        Assert.Equal(hold.RoomTypeId, reservation.RoomTypeId);
-        Assert.Equal(hold.RatePlanId, reservation.RatePlanId);
         Assert.Equal(hold.CustomerAccountId, reservation.CustomerAccountId);
         Assert.Equal(hold.GuestAccessTokenHash, reservation.GuestAccessTokenHash);
         Assert.Equal(hold.FullName, reservation.FullName);
@@ -355,15 +379,25 @@ public sealed class BookingDomainTests
         Assert.Equal(hold.CheckOut, reservation.CheckOut);
         Assert.Equal(hold.Adults, reservation.Adults);
         Assert.Equal(hold.Children, reservation.Children);
-        Assert.Equal(hold.Rooms, reservation.Rooms);
+        Assert.Equal(hold.Items.Count, reservation.Units.Count);
         Assert.Equal(hold.CurrencyCode, reservation.CurrencyCode);
         Assert.Equal(hold.TotalAmount, reservation.TotalAmount);
-        Assert.Equal(
-            hold.Nights.Select(night => (night.StayDate, night.Rooms, night.UnitAmount, night.NightTotal)),
-            reservation.Nights.Select(night => (night.StayDate, night.Rooms, night.UnitAmount, night.NightTotal)));
         Assert.Equal(ReservationStatus.Confirmed, reservation.Status);
         Assert.Null(reservation.CancelledAtUtc);
         Assert.Null(reservation.CancellationReason);
+
+        var unitsBySourceItem = reservation.Units.ToDictionary(unit => unit.SourceInventoryHoldItemId!.Value);
+        foreach (var item in hold.Items)
+        {
+            Assert.True(unitsBySourceItem.TryGetValue(item.Id, out var unit));
+            Assert.Equal(item.RoomTypeId, unit!.RoomTypeId);
+            Assert.Equal(CommitmentStatus.Committed, unit.CommitmentStatus);
+            Assert.Equal(
+                item.Nights.OrderBy(night => night.StayDate)
+                    .Select(night => (night.StayDate, night.RatePlanId, night.UnitAmount)),
+                unit.Nights.OrderBy(night => night.StayDate)
+                    .Select(night => (night.StayDate, night.RatePlanId, night.UnitAmount)));
+        }
     }
 
     [Fact]
@@ -414,8 +448,8 @@ public sealed class BookingDomainTests
     public void Cancelled_hold_cannot_confirm()
     {
         var hold = CreateHold();
-        typeof(BookingHold)
-            .GetProperty(nameof(BookingHold.Status))!
+        typeof(InventoryHold)
+            .GetProperty(nameof(InventoryHold.Status))!
             .SetValue(hold, BookingHoldStatus.Cancelled);
 
         Assert.Throws<DomainException>(() =>
@@ -465,25 +499,26 @@ public sealed class BookingDomainTests
     }
 
     [Fact]
-    public void Hold_cancel_leaves_immutable_fields_and_nights_unchanged()
+    public void Hold_cancel_leaves_immutable_fields_and_items_unchanged()
     {
         var hold = CreateHold();
-        var originalNights = hold.Nights
-            .Select(night => (night.StayDate, night.Rooms, night.UnitAmount, night.NightTotal))
+        var originalItemIds = hold.Items.Select(item => item.Id).ToArray();
+        var originalNights = hold.Items
+            .SelectMany(item => item.Nights)
+            .Select(night => (night.InventoryHoldItemId, night.StayDate, night.RatePlanId, night.UnitAmount))
             .ToArray();
 
         hold.Cancel();
 
         Assert.Equal(PropertyId, hold.PropertyId);
-        Assert.Equal(RoomTypeId, hold.RoomTypeId);
-        Assert.Equal(RatePlanId, hold.RatePlanId);
         Assert.Equal(CreatedAt, hold.CreatedAtUtc);
         Assert.Equal(CreatedAt.AddMinutes(15), hold.ExpiresAtUtc);
         Assert.Equal(GuestHash, hold.GuestAccessTokenHash);
+        Assert.Equal(originalItemIds, hold.Items.Select(item => item.Id));
         Assert.Equal(
             originalNights,
-            hold.Nights.Select(night =>
-                (night.StayDate, night.Rooms, night.UnitAmount, night.NightTotal)));
+            hold.Items.SelectMany(item => item.Nights)
+                .Select(night => (night.InventoryHoldItemId, night.StayDate, night.RatePlanId, night.UnitAmount)));
     }
 
     [Fact]
@@ -498,6 +533,9 @@ public sealed class BookingDomainTests
         Assert.Equal(ReservationStatus.Cancelled, reservation.Status);
         Assert.Equal(utcNow, reservation.CancelledAtUtc);
         Assert.Equal("Guest requested cancellation.", reservation.CancellationReason);
+        Assert.All(
+            reservation.Units,
+            unit => Assert.Equal(CommitmentStatus.Cancelled, unit.CommitmentStatus));
     }
 
     [Fact]
@@ -521,6 +559,9 @@ public sealed class BookingDomainTests
         Assert.Throws<DomainException>(() =>
             reservation.Cancel(reason!, CreatedAt.AddHours(1), CheckIn.AddDays(-1)));
         Assert.Equal(ReservationStatus.Confirmed, reservation.Status);
+        Assert.All(
+            reservation.Units,
+            unit => Assert.Equal(CommitmentStatus.Committed, unit.CommitmentStatus));
     }
 
     [Fact]
@@ -604,59 +645,57 @@ public sealed class BookingDomainTests
     }
 
     [Fact]
-    public void Reservation_cancel_leaves_immutable_fields_and_nights_unchanged()
+    public void Reservation_cancel_leaves_immutable_fields_and_unit_nights_unchanged()
     {
         var reservation = CreateReservation();
-        var originalNights = reservation.Nights
-            .Select(night => (night.StayDate, night.Rooms, night.UnitAmount, night.NightTotal))
+        var originalNights = reservation.Units
+            .SelectMany(unit => unit.Nights)
+            .Select(night => (night.ReservationUnitId, night.StayDate, night.RatePlanId, night.UnitAmount))
             .ToArray();
 
         reservation.Cancel("Reason", CreatedAt.AddHours(1), CheckIn.AddDays(-1));
 
         Assert.Equal(PropertyId, reservation.PropertyId);
-        Assert.Equal(RoomTypeId, reservation.RoomTypeId);
-        Assert.Equal(RatePlanId, reservation.RatePlanId);
         Assert.Equal("BHA-GUEST-0001", reservation.ConfirmationNumber);
         Assert.Equal(GuestHash, reservation.GuestAccessTokenHash);
         Assert.Equal(CreatedAt, reservation.ConfirmedAtUtc);
         Assert.Equal(
             originalNights,
-            reservation.Nights.Select(night =>
-                (night.StayDate, night.Rooms, night.UnitAmount, night.NightTotal)));
+            reservation.Units.SelectMany(unit => unit.Nights)
+                .Select(night => (night.ReservationUnitId, night.StayDate, night.RatePlanId, night.UnitAmount)));
     }
 
     [Fact]
-    public void Aggregates_expose_no_mutable_nights_or_raw_material_properties()
+    public void Aggregates_expose_no_mutable_collections_or_raw_material_properties()
     {
         var hold = CreateHold();
         var reservation = CreateReservation();
 
-        Assert.IsType<ReadOnlyCollection<BookingHoldNight>>(hold.Nights);
-        Assert.IsType<ReadOnlyCollection<ReservationNight>>(reservation.Nights);
+        Assert.IsType<ReadOnlyCollection<InventoryHoldItem>>(hold.Items);
+        Assert.IsType<ReadOnlyCollection<ReservationUnit>>(reservation.Units);
         Assert.Throws<NotSupportedException>(() =>
-            ((IList<BookingHoldNight>)hold.Nights).Clear());
+            ((IList<InventoryHoldItem>)hold.Items).Clear());
         Assert.Throws<NotSupportedException>(() =>
-            ((IList<ReservationNight>)reservation.Nights).Clear());
+            ((IList<ReservationUnit>)reservation.Units).Clear());
 
         Assert.DoesNotContain(
-            typeof(BookingHold).GetProperties(BindingFlags.Instance | BindingFlags.Public),
+            typeof(InventoryHold).GetProperties(BindingFlags.Instance | BindingFlags.Public),
             property => property.Name is "GuestAccessToken" or "IdempotencyKey");
         Assert.DoesNotContain(
             typeof(Reservation).GetProperties(BindingFlags.Instance | BindingFlags.Public),
             property => property.Name == "GuestAccessToken");
         Assert.All(
-            typeof(BookingHold).GetProperties(),
+            typeof(InventoryHold).GetProperties(),
             property => Assert.False(property.SetMethod?.IsPublic == true));
         Assert.All(
             typeof(Reservation).GetProperties(),
             property => Assert.False(property.SetMethod?.IsPublic == true));
     }
 
-    private static BookingHold CreateHold(
+    private static InventoryHold CreateHold(
         Guid? id = null,
         Guid? propertyId = null,
         Guid? roomTypeId = null,
-        Guid? ratePlanId = null,
         Guid? customerAccountId = null,
         string? fullName = "Guest Customer",
         string? email = "guest@example.com",
@@ -665,20 +704,19 @@ public sealed class BookingDomainTests
         DateOnly? checkOut = null,
         int adults = 2,
         int children = 1,
-        int rooms = 2,
+        int quantity = 2,
         string? currencyCode = "VND",
-        decimal totalAmount = 401.00m,
         DateTimeOffset? createdAtUtc = null,
         string? idempotencyHash = null,
         string? fingerprint = null,
         string? guestHash = UseDefaultGuestHash,
-        IEnumerable<BookingNightSnapshot>? nights = null)
+        IEnumerable<NightlyCommitmentSnapshot>? nightPlan = null)
     {
-        return new BookingHold(
+        return new InventoryHold(
             id ?? Guid.NewGuid(),
             propertyId ?? PropertyId,
             roomTypeId ?? RoomTypeId,
-            ratePlanId ?? RatePlanId,
+            quantity,
             customerAccountId,
             fullName!,
             email!,
@@ -687,16 +725,14 @@ public sealed class BookingDomainTests
             checkOut ?? CheckOut,
             adults,
             children,
-            rooms,
             currencyCode!,
-            totalAmount,
             createdAtUtc ?? CreatedAt,
             idempotencyHash ?? IdempotencyHash,
             fingerprint ?? Fingerprint,
             guestHash == UseDefaultGuestHash
                 ? customerAccountId.HasValue ? null : GuestHash
                 : guestHash,
-            nights ?? ValidNights(rooms));
+            nightPlan ?? ValidNightPlan());
     }
 
     private static Reservation CreateReservation(
@@ -709,15 +745,15 @@ public sealed class BookingDomainTests
         DateTimeOffset? cancelledAtUtc = null,
         string? cancellationReason = null,
         string? guestHash = UseDefaultGuestHash,
-        IEnumerable<BookingNightSnapshot>? nights = null)
+        IEnumerable<NightlyCommitmentSnapshot>? nightPlan = null,
+        IEnumerable<ReservationUnitPlan>? unitPlans = null)
     {
+        var plans = unitPlans ?? DefaultUnitPlans(nightPlan ?? ValidNightPlan());
         return new Reservation(
             id ?? Guid.NewGuid(),
             confirmationNumber!,
             sourceHoldId ?? Guid.NewGuid(),
             PropertyId,
-            RoomTypeId,
-            RatePlanId,
             customerAccountId,
             "Guest Customer",
             "guest@example.com",
@@ -726,9 +762,7 @@ public sealed class BookingDomainTests
             CheckOut,
             2,
             1,
-            2,
             "VND",
-            401.00m,
             status,
             confirmedAtUtc ?? CreatedAt,
             cancelledAtUtc,
@@ -736,19 +770,29 @@ public sealed class BookingDomainTests
             guestHash == UseDefaultGuestHash
                 ? customerAccountId.HasValue ? null : GuestHash
                 : guestHash,
-            nights ?? ValidNights());
+            plans);
     }
 
-    private static List<BookingNightSnapshot> ValidNights(int rooms = 2) =>
+    private static List<ReservationUnitPlan> DefaultUnitPlans(
+        IEnumerable<NightlyCommitmentSnapshot> nightPlan)
+    {
+        var nights = nightPlan.ToArray();
+        return
+        [
+            new ReservationUnitPlan(Guid.NewGuid(), RoomTypeId, nights),
+            new ReservationUnitPlan(Guid.NewGuid(), RoomTypeId, nights)
+        ];
+    }
+
+    private static List<NightlyCommitmentSnapshot> ValidNightPlan() =>
     [
-        Night(CheckIn, rooms, 100.25m, 100.25m * rooms),
-        Night(CheckIn.AddDays(1), rooms, 100.25m, 100.25m * rooms)
+        Night(CheckIn),
+        Night(CheckIn.AddDays(1))
     ];
 
-    private static BookingNightSnapshot Night(
+    private static NightlyCommitmentSnapshot Night(
         DateOnly date,
-        int rooms = 2,
-        decimal unit = 100.25m,
-        decimal total = 200.50m) =>
-        new(date, rooms, unit, total);
+        Guid? ratePlanId = null,
+        decimal unit = 100.25m) =>
+        new(date, ratePlanId ?? RatePlanId, unit);
 }
