@@ -1,7 +1,18 @@
 # PMS-BE-001.1 — Commercial Commitment V2 Foundation — Completion Report
 
+> **Current status: `PASS — CLOSED`.** PR #35 merged into `develop` at
+> `265d10006b219e456c30ed92bbb6c153a946944d` on `2026-08-24T16:46:46Z`. See
+> the `FINAL CLOSURE` section at the end of this report for the
+> authoritative closure record. The `STATUS: PASS` block immediately below,
+> and the `Correction PMS-BE-001.1-C1` section after it, are the original
+> implementation-checkpoint and correction records exactly as submitted —
+> left unmodified as historical evidence of what was true when each was
+> written (both predate the merge and describe an open Draft PR, which was
+> correct at the time).
+
 ```text
-STATUS: PASS
+STATUS: PASS (original implementation checkpoint — see FINAL CLOSURE below
+  for current status)
 
 WORK_ITEM: PMS-BE-001.1
 TITLE: Commercial Commitment V2 Foundation
@@ -358,3 +369,109 @@ BLOCKERS: None.
 READY_FOR_CODEX_REVIEW
 Owner must now invoke:
 `/codex:review --base origin/develop`
+
+(The line above is the original, historical checkpoint announcement from
+the `PMS-BE-001.1-C1` correction session. It is superseded by the `FINAL
+CLOSURE` section below, added by `PMS-BE-001.1-DOCS-CLOSEOUT` after the
+review it requested actually ran and PR #35 merged.)
+
+## FINAL CLOSURE (2026-08-25, `PMS-BE-001.1-DOCS-CLOSEOUT`)
+
+```text
+STATUS: PASS — CLOSED
+
+WORK_ITEM: PMS-BE-001.1
+TITLE: Commercial Commitment V2 Foundation
+
+FEATURE_HEAD: 9e25f7cb6247420467957061a13c04801ce9b3c7
+MERGE_COMMIT: 265d10006b219e456c30ed92bbb6c153a946944d
+PR: https://github.com/emLamHD/The_BHA_hotels_Booking/pull/35
+PR_STATE: MERGED
+MERGED_AT: 2026-08-24T16:46:46Z
+BASE_BRANCH: develop
+
+FINAL_CI: PASS — Admin, Backend, Frontend all `pass` on PR #35
+  (`gh pr checks 35`, confirmed at this closeout's preflight).
+
+FINAL_CODEX_REVIEW: PASS — no discrete actionable correctness issue.
+  Sourced as Owner/OC-confirmed authoritative context in the Master
+  Execution Prompt for `PMS-BE-001.1-DOCS-CLOSEOUT`. Not independently
+  re-derivable from GitHub by this closeout — this repository's Codex
+  review results are relayed to Claude through Owner/OC rather than posted
+  as PR comments, and `gh pr view 35` shows no comment thread to quote
+  verbatim. The one Codex finding that *is* independently visible in Git
+  history is `[P1]` (cross-night RatePlan divergence on downgrade),
+  recorded and resolved as Correction `PMS-BE-001.1-C1` above, prior to the
+  final review that produced this PASS result.
+
+CORRECTION_C1: CLOSED. See "Correction PMS-BE-001.1-C1" section above for
+  root cause, fix, and PostgreSQL evidence (all still accurate, unmodified).
+
+TEST_EVIDENCE_AT_MERGED_HEAD:
+- UNIT_TESTS: 243/243 PASS
+- POSTGRESQL_INTEGRATION_TESTS: 257/257 PASS
+- MIGRATION_TESTS (CommercialCommitmentV2MigrationTests): 6/6 PASS
+- CUSTOMER_WEB_TESTS: 298/298 PASS
+- EF_PENDING_MODEL_CHANGES: clean
+- GITHUB_CI: PASS
+  The unit/integration/migration counts above were independently
+  reproduced by Claude in the `PMS-BE-001.1-DOCS-CLOSEOUT` session, built
+  directly from the merged commit's code, against real PostgreSQL 17 —
+  matching the counts already recorded in the `PMS-BE-001.1-C1` section
+  above. The Customer Web count is carried forward from that section
+  (source: `PMS-BE-001.1-C1`'s original session), not independently re-run
+  by this docs-only closeout.
+
+CORE_ACCEPTANCE: 30/30 architectural invariants, 21/21 mandatory PostgreSQL
+  evidence items, 51/51 core acceptance criteria, 92/92 raw Control Tower
+  checklist — all as recorded in the `ACCEPTANCE`, `PUBLIC_COMPATIBILITY`,
+  and `CONCURRENCY_AND_REPLAY` sections of the original checkpoint above,
+  carried forward unmodified into this closure; no acceptance criterion was
+  re-litigated by this docs-only closeout.
+
+MANUAL_ACCEPTANCE: PASS — Owner-requested manual UI/database acceptance
+  test performed in the `PMS-BE-001.1-DOCS-CLOSEOUT` Claude Code session
+  against the live merged commit, real PostgreSQL 17 (a disposable,
+  migration-7-applied database, isolated from `thebha_dev`), and the exact
+  API sequence `Front_End/Customer_Web` uses. 2-room × 2-night case:
+  - Availability search: `requestedRooms=2`, `availableRooms=2`,
+    `totalAmount=6,000,000 VND`.
+  - Hold creation: 1 `InventoryHold`, 2 `InventoryHoldItems`, 4
+    `InventoryHoldItemNights`; `SUM(UnitAmount)` = `InventoryHolds.TotalAmount`.
+  - Confirmation: 1 `Reservation`, 2 `ReservationUnits`, 4
+    `ReservationUnitNights`, 2 distinct `SourceInventoryHoldItemId` values,
+    all Units `Committed`, `SUM(UnitAmount)` = `Reservations.TotalAmount`.
+  - Availability after confirmation: raw committed-demand aggregation
+    (reconstructed directly in SQL, pre-clamp) = exactly 2 rooms/night, not
+    4 — no double-count between the now-`Confirmed` Hold and the
+    `Committed` Reservation Units.
+  - Cancellation: both Units → `Cancelled`; Night rows (`RatePlanId`,
+    `UnitAmount`, `StayDate`) byte-for-byte unchanged; availability search
+    afterward returns `availableRooms=2` again.
+  All 5/5 criteria PASS. Performed via direct API calls (CSRF token →
+  search → hold → confirm → cancel), not a Customer Web browser
+  click-through — the Claude-in-Chrome browser extension was not connected
+  in this session, so no UI-driven evidence was collected; the API-level
+  evidence above is the actual system Customer Web calls, not a mock.
+
+BRANCH_AND_WORKTREE_CLEANUP: Verified at this closeout's preflight —
+  `git ls-remote --heads origin feature/pms-be-001-1-commercial-commitment-v2-foundation`
+  returned empty (remote feature branch deleted); the linked worktree
+  `/home/admin1/The_BHA_hotels_Booking-pms-be-001-1` used for this work
+  item's implementation is absent from disk and not listed by
+  `git worktree list --porcelain` (linked-worktree cleanup confirmed).
+
+NEXT_PRODUCT_WORK_ITEM: None auto-authorized. Multi-RoomType public
+  request, physical-room allocation, Admin backend integration, OTA,
+  FolioEntries/payment, and all other PMS TARGET items remain
+  unimplemented and locked pending a separate, future Owner-approved Master
+  Execution Prompt (see `docs/project/SNAPSHOT.md` §2, §9).
+
+DEVIATIONS: None from `PMS-BE-001.1-DOCS-CLOSEOUT`'s authorized docs-only
+  scope. This closure section adds no product code, test, or migration
+  change; it only records already-true state (merge, CI, and prior test
+  evidence) plus this session's own independent re-verification and manual
+  acceptance run.
+
+BLOCKERS: None.
+```

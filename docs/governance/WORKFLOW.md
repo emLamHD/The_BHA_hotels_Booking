@@ -71,10 +71,14 @@ WORK_ITEM:
 OBJECTIVE:
 IMPLEMENTER: CLAUDE
 REVIEWER: CODEX_READ_ONLY
+REPOSITORY:
 BASE_BRANCH:
 BASELINE_SHA:
 FEATURE_BRANCH:
-WORKTREE:
+WORKING_TREE_MODE: PRIMARY_CHECKOUT_ONLY (mặc định nếu trường này vắng mặt)
+LINKED_WORKTREE: NOT_AUTHORIZED (chỉ AUTHORIZED khi ghi đủ path/lý do
+  isolation-parallel/branch ownership/review location/cleanup owner/
+  cleanup sequence — RULES.md §5.3)
 CODEX_REVIEW_COMMAND: /codex:review --base origin/develop
 CODEX_REVIEW_LIMIT: 1 invocation per implementation/correction completion
 CODEX_REVIEW_INVOKER: OWNER_ONLY
@@ -115,7 +119,8 @@ Trước khi sửa file, Claude phải:
 1. đọc root `AGENTS.md`; Claude cũng đọc `CLAUDE.md`;
 2. đọc Master Execution Prompt và các file trong `READ_NOW`;
 3. xác nhận `IMPLEMENTER: CLAUDE`, `REVIEWER: CODEX_READ_ONLY`, review command, `CODEX_REVIEW_INVOKER: OWNER_ONLY` và skill policy;
-4. kiểm tra repo root, branch, HEAD và worktree status;
+4. kiểm tra repo root, branch, HEAD và working-tree status (bao gồm audit
+   linked worktree hiện có nếu cần — chỉ audit, không mutate);
 5. xác nhận không có agent/process khác đang giữ write lock;
 6. kiểm tra tool bắt buộc trong prompt có sẵn;
 7. xuất preflight ngắn và bắt đầu first action.
@@ -152,28 +157,41 @@ OC không review trực tiếp trong lúc Claude đang sửa, trừ khi Owner y�
 - Nếu Codex có findings, Claude không tự mở rộng scope hoặc âm thầm sửa sau review; Claude dừng để OC phân loại và phát correction.
 - Nếu Codex không có finding, Claude ghi rõ `CODEX_REVIEW: PASS_WITH_NO_FINDINGS`; đây vẫn chưa phải verdict merge.
 - Nếu review fail, treo hoặc không khả dụng, Claude ghi `CODEX_REVIEW: NOT RUN` kèm evidence khi được Owner thông báo, và trả `BLOCKED`.
-- Codex không nhận write lock và không có review worktree riêng.
+- Codex không nhận write lock và không bao giờ cần review worktree/linked worktree riêng — luôn review đúng checkout (primary hoặc linked worktree đã cấp quyền) Claude đang dùng.
 
-## 8. Worktree và branch lifecycle
+## 8. Working tree, linked worktree và branch lifecycle
+
+`docs/governance/RULES.md` §5 là nguồn canonical cho terminology
+(`primary working tree` vs `linked worktree`), mặc định
+primary-checkout-only, ngoại lệ linked worktree (§5.3) và vòng đời branch
+chuẩn (§5.4). Mục này chỉ mô tả vận hành cụ thể trong một phiên; không lặp
+lại chi tiết exception contract.
 
 ### Tạo
 
-- Work item có một feature branch từ baseline do OC chỉ định.
-- Một writable worktree gắn với feature branch đó.
-- Worktree chỉ cấp quyền ghi cho Claude. Codex plugin chỉ đọc cùng Git state/diff để review.
+- Work item có một feature branch từ baseline do OC chỉ định, checkout trực
+  tiếp trong primary working tree (`git switch -c`) — trừ khi Master
+  Execution Prompt ghi rõ ngoại lệ linked worktree theo RULES.md §5.3.
+- Chỉ checkout đang active đó (primary, hoặc linked worktree đã được cấp
+  quyền) cấp quyền ghi cho Claude. Codex plugin chỉ đọc cùng Git state/diff
+  để review, không cần checkout riêng cho mình.
 
 ### Trong khi chạy
 
 - Chỉ Claude được ghi.
-- Control Tower/OC review bằng diff, report hoặc GitHub; không sửa worktree active.
-- Không đổi branch hoặc mutate worktree trong lúc Codex review.
+- Control Tower/OC review bằng diff, report hoặc GitHub; không sửa working
+  tree đang active.
+- Không đổi branch hoặc mutate working tree trong lúc Codex review.
 
 ### Kết thúc
 
 - Claude và Codex không merge hoặc xóa branch.
 - OC trả recommendation.
 - Owner quyết định Ready/merge.
-- Sau merge, Owner xác nhận merge SHA, `develop` HEAD mới và cleanup local/remote.
+- Sau merge: primary checkout quay lại `develop`, fast-forward update; Owner
+  xác nhận merge SHA, `develop` HEAD mới, xóa branch local/remote, và — nếu
+  work item dùng linked worktree đã được cấp quyền — cleanup linked worktree
+  đó theo đúng owner/sequence đã ghi trong Master Execution Prompt.
 - Snapshot chỉ ghi trạng thái mới sau khi bằng chứng này tồn tại.
 
 ## 9. Completion report và review
@@ -240,7 +258,7 @@ Trước khi kết thúc ngày, kiểm tra Snapshot có đủ để một Contro
 Mọi công cụ orchestration/skill mới đi qua bốn bước:
 
 1. `install`: cài ngoài product source khi có thể;
-2. `config`: khóa chế độ một writable worktree, Claude-only write và Codex-only review;
+2. `config`: khóa chế độ một writable checkout duy nhất (mặc định primary working tree), Claude-only write và Codex-only review;
 3. `dry run`: task không thay đổi product behavior;
 4. `pilot`: một work item nhỏ với acceptance và rollback rõ.
 

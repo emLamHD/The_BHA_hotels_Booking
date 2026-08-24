@@ -31,7 +31,7 @@ There are two distinct activation contexts.
 ### 2.A Claude implementation context
 
 - Claude is the only write-capable implementer for this repository.
-- Claude requires a valid Master Execution Prompt containing at minimum `IMPLEMENTER: CLAUDE`, `REVIEWER: CODEX_READ_ONLY`, branch/worktree, baseline, scope, acceptance, checks, skill policy and stop conditions before making any edit.
+- Claude requires a valid Master Execution Prompt containing at minimum `IMPLEMENTER: CLAUDE`, `REVIEWER: CODEX_READ_ONLY`, `REPOSITORY`, `FEATURE_BRANCH`, `WORKING_TREE_MODE` (defaults to `PRIMARY_CHECKOUT_ONLY` when the prompt omits it), `LINKED_WORKTREE` (defaults to `NOT_AUTHORIZED`; see §8 for the exception contract), baseline, scope, acceptance, checks, skill policy and stop conditions before making any edit.
 - Claude may implement, test, checkpoint, commit, push and open a Draft PR only when the Master Execution Prompt explicitly authorizes each of those actions.
 - Claude never grants Codex write access, never invokes Codex or any other coding agent, never creates nested agents and never runs an implementation in parallel with another agent.
 - If the Master Execution Prompt is missing, incomplete, or another coding agent may still have write access, Claude returns `BLOCKED`.
@@ -49,9 +49,9 @@ There are two distinct activation contexts.
 
 ## 3. Fixed roles and write lock
 
-- Claude is the only coding agent with write access to the worktree, for every work item, at every phase.
+- Claude is the only coding agent with write access to the active working tree (the primary working tree by default, or an explicitly authorized linked worktree per §8), for every work item, at every phase.
 - Claude never invokes Codex, creates nested agents, fans out work or runs an implementation in parallel with any other agent.
-- Before Owner invokes Codex review, Claude stops all writes and leaves the worktree at a stable, reviewable checkpoint for the duration of the review.
+- Before Owner invokes Codex review, Claude stops all writes and leaves the working tree at a stable, reviewable checkpoint for the duration of the review.
 - A correction cycle requires an OC correction prompt and Owner activation before Claude resumes writing.
 
 ## 4. Reading order and context
@@ -80,8 +80,8 @@ If sources conflict, report exact file/reference evidence. Do not silently choos
 
 ## 6. Preflight before editing
 
-1. Confirm `WORK_ITEM`, `IMPLEMENTER: CLAUDE`, `REVIEWER: CODEX_READ_ONLY`, branch/worktree, baseline, scope and acceptance from the Master Execution Prompt.
-2. Verify repository root, current branch and working-tree cleanliness.
+1. Confirm `WORK_ITEM`, `IMPLEMENTER: CLAUDE`, `REVIEWER: CODEX_READ_ONLY`, `REPOSITORY`, `FEATURE_BRANCH`, `WORKING_TREE_MODE`, `LINKED_WORKTREE`, baseline, scope and acceptance from the Master Execution Prompt.
+2. Verify repository root, current branch and working-tree cleanliness. Audit any existing linked worktree with `git worktree list` if relevant — audit only, never mutate a linked worktree this work item did not create.
 3. Run `git fetch --prune origin` when network access and prompt policy allow it.
 4. Verify HEAD/base against `BASELINE_SHA` and ahead/behind against the expected base.
 5. Confirm no other write session is active; when resuming a correction, inspect the previous checkpoint and report.
@@ -89,7 +89,7 @@ If sources conflict, report exact file/reference evidence. Do not silently choos
 7. Confirm allowed/forbidden files, acceptance, checks and stop conditions.
 8. Confirm required tools are available; optional tool absence is reported, not worked around by broad scope expansion.
 
-Preflight output must stay short: `Work item`, `Branch/HEAD`, `Worktree`, `Scope`, `First action`.
+Preflight output must stay short: `Work item`, `Repository/Branch/HEAD`, `Working tree mode`, `Scope`, `First action`.
 
 ## 7. Scope and architecture constraints
 
@@ -103,15 +103,37 @@ Preflight output must stay short: `Work item`, `Branch/HEAD`, `Worktree`, `Scope
 - Preserve upstream theme source/license attribution.
 - Template assets with no license/provenance evidence are development/reference only and not production-eligible.
 
-## 8. Git and worktree rules
+## 8. Git, working tree and linked-worktree rules
 
+`docs/governance/RULES.md` §5 is the canonical source for working-tree
+terminology, the primary-checkout default, the linked-worktree exception
+contract, and the standard branch lifecycle. Summary:
+
+- Default execution uses exactly one filesystem checkout — the primary
+  repository working tree. A feature branch is checked out directly there
+  (`git switch -c <branch>`); a linked worktree created by
+  `git worktree add` is not part of the default workflow.
+- `primary working tree` = the primary repository checkout. `linked
+  worktree` = an additional checkout registered via `git worktree add`. A
+  generic "working tree clean/status" statement never by itself authorizes
+  creating a linked worktree.
+- A linked worktree is permitted only when the current Master Execution
+  Prompt states `LINKED_WORKTREE: AUTHORIZED` with the exact path, the
+  isolation/parallel-execution reason, branch ownership, review invocation
+  location, cleanup owner and cleanup sequence (RULES.md §5.3). Without
+  every field, Claude must not run `git worktree add`. Claude never infers
+  this permission from the words "worktree", "working tree", "write lock"
+  or "feature branch" alone. A historical linked worktree this work item did
+  not create is audit-only — never delete, unlock, prune or otherwise mutate
+  it.
 - Never commit directly to `main` or `develop`.
 - Do not create a branch, commit, push or open/modify a PR unless the prompt authorizes that action.
 - Use small coherent commits at authorized checkpoints; do not squash them yourself.
 - Never run destructive Git commands, force-push or rewrite shared history.
 - Never merge, mark a PR ready, rebase shared history or delete a local/remote branch.
 - Do not change branches during an active phase unless the prompt explicitly says so.
-- Before handoff, leave the worktree clean or list every intentional uncommitted file.
+- Before handoff, leave the working tree clean or list every intentional uncommitted file.
+- This single-primary-checkout default does not grant Codex, a subagent, or a parallel implementation write access — the fixed roles in §2–§3 are unchanged.
 
 ## 9. Build, test, migration and validation
 
@@ -161,7 +183,7 @@ Use targeted checks first, then broader/CI-parity checks required by prompt and 
 ## 10. GitNexus, Graphify, Orca and skills
 
 - Use GitNexus for code graph/impact analysis when it improves confidence; verify conclusions against source/tests.
-- Graphify is adopted as an **optional, workspace-local** code-navigation tool (Claude-run governance replay `TOOL-GRAPHIFY-001-DOCS-CLOSEOUT-C4`; history in `docs/reports/TOOL-GRAPHIFY-001-completion.md`). The skill and graph are project-scoped to Claude Code discovery, **not** repository-tracked (`.git/info/exclude`); a fresh clone or different worktree/machine will not automatically have them.
+- Graphify is adopted as an **optional, workspace-local** code-navigation tool (Claude-run governance replay `TOOL-GRAPHIFY-001-DOCS-CLOSEOUT-C4`; history in `docs/reports/TOOL-GRAPHIFY-001-completion.md`). The skill and graph are project-scoped to Claude Code discovery, **not** repository-tracked (`.git/info/exclude`); a fresh clone or a different checkout/machine will not automatically have them.
 - `docs/governance/WORKFLOW.md` §12 is the **canonical** source for Graphify invocation policy — `GRAPHIFY_POLICY` values, unavailable/stale behavior, freshness rule, and install/rebuild boundaries. Read it there; this file does not duplicate it.
 - In short: every Master Execution Prompt must declare `GRAPHIFY_POLICY`; under `ALLOWED_IF_RELEVANT` Claude may decide on its own to query an existing, sufficiently fresh graph when it would materially help (ownership/architecture/dependency/impact-analysis/unfamiliar code) — no extra confirmation needed; missing/invalid policy means do not invoke; no policy value authorizes installing or rebuilding Graphify. Graphify is **not mandatory for every task** — most `NOT_APPLICABLE` cases need no graph at all. Graph results are always advisory and never replace reading the source Claude will change, required `READ_NOW` documents, or source/test verification.
 - The fixed invariant is unchanged by Graphify adoption: Claude writes, Codex reviews, OC decides, Owner merges.
@@ -175,7 +197,7 @@ Use targeted checks first, then broader/CI-parity checks required by prompt and 
 
 Stop with `BLOCKED` when:
 
-- branch, baseline or worktree does not match the prompt;
+- branch, baseline, repository or working-tree mode does not match the prompt;
 - unknown changes exist before your first edit;
 - another coding agent may still be active;
 - required business rule, acceptance or phase ownership is missing;
@@ -190,7 +212,7 @@ Do not repair unrelated baseline failures unless OC explicitly puts them in scop
 
 ## 12. Checkpoint report
 
-When a work item has more than one internal phase, Claude reports at each checkpoint: `Status: PASS | BLOCKED`; work item/phase; branch/base/HEAD; checkpoint commits; files changed; acceptance evidence for that phase; checks; worktree status; deviations/risks/blockers; and confirmation that Claude stopped writing without merge, Ready, rebase or branch deletion.
+When a work item has more than one internal phase, Claude reports at each checkpoint: `Status: PASS | BLOCKED`; work item/phase; branch/base/HEAD; checkpoint commits; files changed; acceptance evidence for that phase; checks; working-tree status; deviations/risks/blockers; and confirmation that Claude stopped writing without merge, Ready, rebase or branch deletion.
 
 `PASS` requires every phase acceptance criterion to be met. Anything incomplete or unverified is `BLOCKED`.
 
