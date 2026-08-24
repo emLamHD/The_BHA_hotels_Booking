@@ -109,8 +109,11 @@ Nếu prompt thiếu baseline, scope, acceptance, review base hoặc skill polic
 
 ### 5.1 Terminology
 
-- `primary working tree`: checkout chính của repository — mặc định
-  `/home/admin1/The_BHA_hotels_Booking`.
+- `primary working tree`: main/non-linked checkout của repository hiện tại
+  (checkout chứa root `AGENTS.md` áp dụng cho phiên đó). Đường dẫn filesystem
+  của nó là environment-specific — phải được resolve từ repository root
+  hiện tại hoặc trường `REPOSITORY` của Master Execution Prompt đang active;
+  governance không hard-code một đường dẫn cụ thể theo máy.
 - `linked worktree`: checkout bổ sung được tạo bằng `git worktree add`.
 - Một phát biểu kiểu "working tree sạch" hay "working-tree status" **không**
   tự động có nghĩa phải tồn tại hay phải tạo một linked worktree — nó luôn

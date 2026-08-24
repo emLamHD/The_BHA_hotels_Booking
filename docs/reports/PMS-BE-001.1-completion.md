@@ -544,3 +544,82 @@ DEVIATIONS: None from this correction's authorized two-file scope.
 
 BLOCKERS: None.
 ```
+
+## Correction PMS-BE-001.1-DOCS-CLOSEOUT-C2 (2026-08-25)
+
+```text
+CORRECTION_ID: PMS-BE-001.1-DOCS-CLOSEOUT-C2
+TRIGGER: Codex read-only review of PR #36 (origin/develop...HEAD, commit
+  692b1f7) found [P2] Define the primary working tree without a
+  machine-specific path — docs/governance/RULES.md §5.1.
+
+FINDING: RULES.md §5.1 defined `primary working tree` as the literal
+  absolute path `/home/admin1/The_BHA_hotels_Booking`. As a canonical
+  governance definition (the highest-authority file in this repository),
+  this made the rule invalid for a fresh clone, a different user, a CI
+  environment, or a relocated checkout — any of which would have a
+  different absolute path, potentially causing an implementation session
+  to misjudge a repository-root/branch mismatch or target the wrong
+  checkout. Codex correctly identified this as a portability defect.
+
+ROOT_CAUSE: `PMS-BE-001.1-DOCS-CLOSEOUT`'s original governance rewrite
+  (§5.1) illustrated the "primary working tree" concept with this specific
+  machine's actual path instead of defining it structurally, conflating a
+  concrete example with the canonical definition.
+
+RESOLUTION: `docs/governance/RULES.md` §5.1 now defines `primary working
+  tree` portably: the main/non-linked checkout of the current repository
+  (the checkout containing the applicable root `AGENTS.md`), with its
+  filesystem path resolved from the current repository root or the active
+  Master Execution Prompt's `REPOSITORY` field — never hard-coded.
+  `AGENTS.md`, `CLAUDE.md`, and `docs/governance/WORKFLOW.md` were audited
+  (`rg -n "/home/admin1/The_BHA_hotels_Booking"`) and confirmed to already
+  contain no canonical binding to this or any other absolute path — no
+  change was needed in those three files, matching this correction's scope
+  lock. `docs/project/SNAPSHOT.md` and this completion report's own
+  evidence sections retain their existing absolute-path references
+  unchanged, since those are truthful historical/current-state records of
+  where a specific execution actually ran, not canonical rule definitions.
+
+SCOPE_UNCHANGED: Execution still defaults to exactly one primary checkout;
+  the feature branch is still checked out directly there; `git worktree
+  add` remains unauthorized by default (§5.3 exception unchanged); the
+  fixed roles (Claude writes, Codex reviews read-only, OC decides, Owner
+  merges) are unchanged. This correction is a terminology-portability fix
+  only — no workflow redesign or expansion.
+
+FILES_CHANGED (this correction):
+- docs/governance/RULES.md (§5.1 definition of `primary working tree`
+  made portable)
+- docs/reports/PMS-BE-001.1-completion.md (this section added)
+- PR #36 body (correction note added)
+
+No other tracked file was modified. `AGENTS.md`, `CLAUDE.md`,
+`docs/governance/WORKFLOW.md`, `docs/project/SNAPSHOT.md`, and the worklog
+were not touched, per this correction's scope lock. No backend/frontend
+test rerun required — documentation-only.
+
+SELF_REVIEW:
+- Confirmed by `git diff --name-status` that exactly the two authorized
+  files changed relative to `START_HEAD` (692b1f7).
+- Confirmed via `rg -n "/home/admin1/The_BHA_hotels_Booking" AGENTS.md
+  CLAUDE.md docs/governance/RULES.md docs/governance/WORKFLOW.md` that no
+  match remains in any of the four canonical governance files.
+- Confirmed no repository-wide path replacement was performed — historical/
+  evidence path references elsewhere (SNAPSHOT.md, this report's own merge
+  evidence, worklogs) were left untouched as truthful point-in-time record.
+- Confirmed the portable definition preserves every substantive rule from
+  §5.2–§5.5 (primary-checkout default, linked-worktree exception contract,
+  standard branch lifecycle, fixed-role invariant) unchanged.
+
+CORRECTION_STATUS: PASS — RESOLVED
+
+KNOWN_RISKS: None new.
+
+NOT_RUN: Backend/frontend test suites — not required, documentation-only
+  correction.
+
+DEVIATIONS: None from this correction's authorized two-file scope.
+
+BLOCKERS: None.
+```
