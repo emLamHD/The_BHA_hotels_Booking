@@ -101,19 +101,30 @@ Master Execution Prompt là bắt buộc cho work item implementation của Clau
 
 Nếu prompt thiếu baseline, scope, acceptance, review base hoặc skill policy có ảnh hưởng đến cách triển khai, Claude phải trả `BLOCKED` thay vì tự đoán.
 
-## 5. Repository checkout và branch lifecycle
+## 5. Active execution checkout và branch lifecycle
 
-Dự án dùng đúng một checkout repository đang tồn tại (trên máy hiện tại:
-`/home/admin1/The_BHA_hotels_Booking`; nói chung, checkout chứa root
-`AGENTS.md` áp dụng cho phiên đó — đường dẫn chính xác resolve từ trường
-`REPOSITORY` của Master Execution Prompt, không hard-code theo máy).
+Mỗi work item chỉ được có đúng một **active execution checkout** — repository
+checkout được Master Execution Prompt chỉ định qua trường `REPOSITORY`
+(trên máy hiện tại: `/home/admin1/The_BHA_hotels_Booking`; nói chung,
+checkout chứa root `AGENTS.md` áp dụng cho phiên đó). Feature branch được
+checkout và thực thi trực tiếp tại chính checkout đó.
 
-- Một work item dùng một feature branch, checkout trực tiếp trong checkout
-  đó bằng `git switch -c <branch>`.
-- Chỉ Claude được sửa file trong checkout này.
-- `git worktree add` và bất kỳ checkout thực thi bổ sung nào khác đều bị
-  **cấm** — không có ngoại lệ, không có field ủy quyền, không có policy
-  matrix cho việc này.
+- Một work item dùng một feature branch, checkout trực tiếp trong active
+  execution checkout bằng `git switch -c <branch>`.
+- Chỉ Claude được sửa file trong active execution checkout này.
+- Không được chạy `git worktree add`, tạo checkout thực thi bổ sung, chuyển
+  sang hoặc sử dụng linked worktree để thực thi work item. Không có
+  authorization field, exception contract hoặc policy matrix nào cho linked
+  worktree — không có ngoại lệ.
+- Linked worktree cũ, không hoạt động và không liên quan đến work item hiện
+  tại có thể vẫn tồn tại vật lý trên máy (ví dụ từ công cụ/thử nghiệm đã
+  ngưng dùng). Sự tồn tại vật lý của chúng **không** tự làm preflight thất
+  bại và không mâu thuẫn với invariant "một active execution checkout" ở
+  trên — invariant này nói về checkout đang dùng để thực thi, không phải số
+  lượng checkout tồn tại trên đĩa. Nếu phát hiện một checkout/worktree cũ
+  trong lúc preflight, chỉ ghi nhận (audit) và để nguyên; không sử dụng,
+  không sửa, không xóa nếu chưa có chỉ thị riêng của Owner cho đúng
+  checkout đó.
 - Branch mới phải xuất phát từ baseline được ghi trong prompt.
 - Executor không được đổi base branch, rebase, force-push, merge hoặc xóa
   branch nếu prompt không trao quyền rõ ràng; quyền merge và branch cleanup
