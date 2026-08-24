@@ -75,8 +75,11 @@ REPOSITORY:
 BASE_BRANCH:
 BASELINE_SHA:
 FEATURE_BRANCH:
-WORKING_TREE_MODE: PRIMARY_CHECKOUT_ONLY (mặc định nếu trường này vắng mặt)
-LINKED_WORKTREE: NOT_AUTHORIZED (chỉ AUTHORIZED khi ghi đủ path/lý do
+WORKING_TREE_MODE: PRIMARY_CHECKOUT_ONLY | LINKED_WORKTREE (tùy chọn —
+  mặc định PRIMARY_CHECKOUT_ONLY nếu trường này vắng mặt)
+LINKED_WORKTREE: NOT_AUTHORIZED | AUTHORIZED (tùy chọn — mặc định
+  NOT_AUTHORIZED nếu vắng mặt; chỉ hợp lệ là AUTHORIZED khi
+  WORKING_TREE_MODE ở trên là LINKED_WORKTREE VÀ ghi đủ path/lý do
   isolation-parallel/branch ownership/review location/cleanup owner/
   cleanup sequence — RULES.md §5.3)
 CODEX_REVIEW_COMMAND: /codex:review --base origin/develop
@@ -109,6 +112,14 @@ Codex sẽ xem lại kết quả đầu ra của bạn sau khi bạn hoàn thàn
 ```
 
 OC phải ghi review base rõ ràng; mặc định luôn là `origin/develop`, không để plugin tự suy ra GitHub default branch. Câu cuối là reminder cho Claude, không thay thế các trường `REVIEWER`, `CODEX_REVIEW_COMMAND`, limit và stop conditions.
+
+`WORKING_TREE_MODE` và `LINKED_WORKTREE` là hai trường tùy chọn có mặc định
+an toàn (`docs/governance/RULES.md` §4) — vắng mặt một hoặc cả hai không
+khiến prompt bị coi là thiếu/incomplete và không tự nó gây `BLOCKED`. Linked
+worktree chỉ hợp lệ khi cả hai trường được ghi rõ và khớp nhau
+(`WORKING_TREE_MODE: LINKED_WORKTREE` + `LINKED_WORKTREE: AUTHORIZED`) cùng
+đủ mọi chi tiết ở RULES.md §5.3; chỉ một nửa cặp này, hoặc thiếu chi tiết,
+hoặc giá trị mâu thuẫn đều khiến Claude trả `BLOCKED`.
 
 Master Execution Prompt là bắt buộc cho work item implementation của Claude, nhưng không được lặp lại như executor-activation context bên trong native Codex review request: review command tường minh, diff/target mục tiêu và review-mode rule đã đủ thẩm quyền cho reviewer read-only. `CODEX_REVIEW_INVOKER: OWNER_ONLY` nghĩa là chỉ Owner được gọi command này; Claude chỉ dừng ghi và công bố `READY_FOR_CODEX_REVIEW`.
 

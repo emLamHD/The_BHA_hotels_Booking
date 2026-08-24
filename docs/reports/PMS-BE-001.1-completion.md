@@ -623,3 +623,119 @@ DEVIATIONS: None from this correction's authorized two-file scope.
 
 BLOCKERS: None.
 ```
+
+## Correction PMS-BE-001.1-DOCS-CLOSEOUT-C3 (2026-08-25)
+
+```text
+CORRECTION_ID: PMS-BE-001.1-DOCS-CLOSEOUT-C3
+TRIGGER: Codex read-only review of PR #36 (origin/develop...HEAD, commit
+  78b1a02) found [P2] Decide whether working-tree fields are optional —
+  docs/governance/RULES.md:82-86.
+
+FINDING: RULES.md §4 listed `WORKING_TREE_MODE` and `LINKED_WORKTREE`
+  inside the "chứa tối thiểu" (must contain at minimum) required-field
+  list, while the same bullets said each defaults when the prompt omits
+  it. `AGENTS.md` separately said an "incomplete" prompt returns `BLOCKED`.
+  This left Claude unable to determine, for a prompt omitting one or both
+  fields, whether to proceed with the stated defaults or stop as
+  incomplete — a genuine self-contradiction in the repository's highest
+  governance authority. Codex correctly identified this as an actionable
+  consistency defect.
+
+ROOT_CAUSE: `PMS-BE-001.1-DOCS-CLOSEOUT`'s original governance rewrite
+  added `WORKING_TREE_MODE`/`LINKED_WORKTREE` to the same bullet list as
+  the genuinely required fields (`IMPLEMENTER`, `REVIEWER`, `REPOSITORY`,
+  `FEATURE_BRANCH`, baseline, etc.), instead of carving them out as a
+  distinct optional-with-defaults category.
+
+OWNER_DECISION (policy): `WORKING_TREE_MODE` and `LINKED_WORKTREE` are
+  optional fields with safe defaults. If both are omitted:
+  `WORKING_TREE_MODE = PRIMARY_CHECKOUT_ONLY`,
+  `LINKED_WORKTREE = NOT_AUTHORIZED`. Omission of either field does not
+  make an otherwise valid Master Execution Prompt incomplete and must not
+  cause `BLOCKED`.
+
+POLICY_MATRIX (now recorded identically across all four governance
+  files — `RULES.md` §4 canonical, `AGENTS.md` §2.A/§8, `CLAUDE.md`,
+  `WORKFLOW.md` §4):
+
+| Prompt state | Effective behavior |
+|---|---|
+| Both fields omitted | Proceed with `PRIMARY_CHECKOUT_ONLY` / `NOT_AUTHORIZED` |
+| `PRIMARY_CHECKOUT_ONLY` + `NOT_AUTHORIZED` explicit | Proceed in primary checkout |
+| `WORKING_TREE_MODE: LINKED_WORKTREE` + `LINKED_WORKTREE: AUTHORIZED` + every §5.3 detail | Linked worktree permitted |
+| Only one half of the pair present | `BLOCKED` |
+| `AUTHORIZED` but any §5.3 detail missing | `BLOCKED` |
+| Invalid or contradictory values | `BLOCKED` |
+
+RESOLUTION:
+- `docs/governance/RULES.md` §4 now separates strictly-required Master
+  Execution Prompt fields from the two optional fields, states the safe
+  defaults, states that their omission alone is never a reason for
+  `BLOCKED`, and adds the policy matrix table above. §5.3 now requires
+  `WORKING_TREE_MODE: LINKED_WORKTREE` explicitly alongside
+  `LINKED_WORKTREE: AUTHORIZED` (previously only the latter was named),
+  closing the "only one half present" gap Codex implicitly raised.
+- `AGENTS.md` §2.A's required-field list no longer includes the two
+  optional fields; a new bullet states their defaults and non-blocking
+  omission; the "missing/incomplete → BLOCKED" sentence now scopes
+  explicitly to the required-field list. §6 preflight and §8 (the
+  canonical-pointer section) updated to match, including the
+  both-fields-must-pair requirement for the linked-worktree exception.
+- `CLAUDE.md` updated with the same required-versus-optional distinction
+  in one consolidated sentence.
+- `docs/governance/WORKFLOW.md` §4's prompt template marks both fields
+  "(tùy chọn — ...)" with their defaults, and a new paragraph after the
+  template states the same non-blocking-omission rule and the
+  must-pair-both-fields requirement for linked worktree.
+
+CROSS_FILE_AUDIT: `rg -n "WORKING_TREE_MODE|LINKED_WORKTREE|minimum|required|tối
+  thiểu|mặc định|omitted|vắng mặt|BLOCKED" AGENTS.md CLAUDE.md
+  docs/governance/RULES.md docs/governance/WORKFLOW.md` reviewed line by
+  line; all six matrix rows verified consistent across all four files —
+  no file states or implies that omitting `WORKING_TREE_MODE`/
+  `LINKED_WORKTREE` alone causes `BLOCKED`, and no file permits a linked
+  worktree from only one of the two paired fields.
+
+SCOPE_UNCHANGED: Execution still defaults to exactly one primary checkout;
+  `git worktree add` remains unauthorized without the full explicit
+  pairing; the fixed roles (Claude writes, Codex reviews read-only, OC
+  decides, Owner merges) are unchanged. This correction is a consistency
+  fix to activation logic only — no workflow redesign or expansion, no
+  product behavior changed.
+
+FILES_CHANGED (this correction):
+- AGENTS.md (§2.A, §6, §8 — required-vs-optional field split, BLOCKED
+  scoping, pairing requirement)
+- CLAUDE.md (same distinction, one sentence)
+- docs/governance/RULES.md (§4 required-field split + policy matrix; §5.3
+  pairing requirement)
+- docs/governance/WORKFLOW.md (§4 template annotations + new paragraph)
+- docs/reports/PMS-BE-001.1-completion.md (this section added)
+
+No other tracked file was modified. `docs/project/SNAPSHOT.md`, the daily
+worklogs, product code, tests, migrations, CI, and ADR/design documents
+were not touched, per this correction's scope lock. No backend/frontend
+test rerun required — documentation-only.
+
+SELF_REVIEW:
+- Confirmed by `git diff --name-status` that exactly the five authorized
+  files changed relative to `START_HEAD` (78b1a02).
+- Manually verified all six policy-matrix rows against the resulting text
+  in each of the four governance files (see CROSS_FILE_AUDIT).
+- Confirmed `RULES.md` §5.3 now names `WORKING_TREE_MODE: LINKED_WORKTREE`
+  as a required field of the exception contract, not only
+  `LINKED_WORKTREE: AUTHORIZED`, closing the half-pair gap.
+- Confirmed no product, SNAPSHOT, or worklog file was touched.
+
+CORRECTION_STATUS: PASS — RESOLVED
+
+KNOWN_RISKS: None new.
+
+NOT_RUN: Backend/frontend test suites — not required, documentation-only
+  correction.
+
+DEVIATIONS: None from this correction's authorized five-file scope.
+
+BLOCKERS: None.
+```

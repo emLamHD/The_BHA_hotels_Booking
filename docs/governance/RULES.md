@@ -73,17 +73,13 @@ Tại mọi thời điểm chỉ Claude được phép có quyền ghi vào work
 
 ## 4. Master Execution Prompt
 
-Mỗi work item phải có đúng một Master Execution Prompt chứa tối thiểu:
+Mỗi work item phải có đúng một Master Execution Prompt chứa tối thiểu các
+trường **bắt buộc** sau:
 
 - work item ID và objective;
 - `IMPLEMENTER: CLAUDE`;
 - `REVIEWER: CODEX_READ_ONLY`;
 - `REPOSITORY` và `FEATURE_BRANCH` dự kiến;
-- `WORKING_TREE_MODE` — mặc định `PRIMARY_CHECKOUT_ONLY` nếu prompt không
-  ghi trường này;
-- `LINKED_WORKTREE` — mặc định `NOT_AUTHORIZED`; chỉ được ghi `AUTHORIZED`
-  kèm đủ path/lý do/branch ownership/review location/cleanup owner/cleanup
-  sequence theo §5.3;
 - baseline SHA;
 - phase/checkpoint order của Claude;
 - Codex review base, mặc định `origin/develop`;
@@ -95,6 +91,25 @@ Mỗi work item phải có đúng một Master Execution Prompt chứa tối thi
 - format phase report/completion report;
 - yêu cầu PR, nếu có.
 
+Ngoài các trường bắt buộc trên, `WORKING_TREE_MODE` và `LINKED_WORKTREE` là
+hai trường **tùy chọn, có giá trị mặc định an toàn**. Vắng mặt một hoặc cả
+hai trường này **không** khiến prompt bị coi là thiếu/incomplete và không
+tự nó gây ra `BLOCKED`. Hiệu lực chính xác:
+
+| Trạng thái prompt | Hành vi |
+|---|---|
+| Cả hai trường đều vắng mặt | Thực thi với `WORKING_TREE_MODE = PRIMARY_CHECKOUT_ONLY` và `LINKED_WORKTREE = NOT_AUTHORIZED` |
+| Ghi rõ `WORKING_TREE_MODE: PRIMARY_CHECKOUT_ONLY` + `LINKED_WORKTREE: NOT_AUTHORIZED` | Thực thi trong primary working tree |
+| Ghi rõ `WORKING_TREE_MODE: LINKED_WORKTREE` + `LINKED_WORKTREE: AUTHORIZED` + đủ toàn bộ chi tiết ở §5.3 | Linked worktree được cho phép |
+| Chỉ một nửa cặp uỷ quyền có mặt (VD chỉ `LINKED_WORKTREE: AUTHORIZED` mà thiếu `WORKING_TREE_MODE: LINKED_WORKTREE`, hoặc ngược lại) | `BLOCKED` |
+| `AUTHORIZED` nhưng thiếu bất kỳ chi tiết nào ở §5.3 | `BLOCKED` |
+| Giá trị không hợp lệ hoặc mâu thuẫn | `BLOCKED` |
+
+Linked worktree do đó luôn đòi hỏi ghi rõ toàn bộ, không được ghi rời rạc:
+`WORKING_TREE_MODE: LINKED_WORKTREE`, `LINKED_WORKTREE: AUTHORIZED`, exact
+path, lý do isolation/parallel, branch ownership, review invocation
+location, cleanup owner, cleanup sequence (chi tiết đầy đủ ở §5.3).
+
 Mỗi Master Execution Prompt gửi cho Claude phải kết thúc bằng đúng câu nhắc:
 
 > Codex sẽ xem lại kết quả đầu ra của bạn sau khi bạn hoàn thành.
@@ -103,7 +118,7 @@ Câu nhắc này không thay thế review contract ở các mục 2, 3 và 7, c�
 
 Master Execution Prompt là bắt buộc cho work item implementation của Claude, nhưng không được lặp lại như executor-activation context bên trong native Codex review request. Native review chỉ cần review command tường minh, diff/target mục tiêu và review-mode rule ở mục 2 và 3; review không cần và không chờ `ACTIVE_EXECUTOR`, `PHASE_ID` hay `EXECUTION_MODE`.
 
-Nếu prompt thiếu baseline, scope, acceptance, review base hoặc skill policy có ảnh hưởng đến cách triển khai, Claude phải trả `BLOCKED` thay vì tự đoán.
+Nếu prompt thiếu baseline, scope, acceptance, review base hoặc skill policy có ảnh hưởng đến cách triển khai, Claude phải trả `BLOCKED` thay vì tự đoán. Vắng mặt riêng `WORKING_TREE_MODE`/`LINKED_WORKTREE` không nằm trong danh sách này — áp dụng bảng mặc định ở trên, không trả `BLOCKED` chỉ vì hai trường đó vắng mặt.
 
 ## 5. Working tree, linked worktree và branch lifecycle
 
@@ -149,6 +164,7 @@ khi §5.3 cho phép rõ ràng.
 Linked worktree chỉ được phép khi Master Execution Prompt hiện tại ghi rõ
 toàn bộ các trường sau:
 
+- `WORKING_TREE_MODE: LINKED_WORKTREE`;
 - `LINKED_WORKTREE: AUTHORIZED`;
 - exact path;
 - lý do cần isolation/parallel checkout cụ thể;
@@ -157,8 +173,10 @@ toàn bộ các trường sau:
 - ai chịu trách nhiệm cleanup;
 - cleanup sequence sau merge.
 
-Thiếu bất kỳ trường nào ở trên, Claude không được chạy `git worktree add`.
-Claude không được suy luận quyền tạo linked worktree chỉ từ các từ
+Thiếu bất kỳ trường nào ở trên — kể cả khi chỉ một trong hai trường
+`WORKING_TREE_MODE`/`LINKED_WORKTREE` được ghi còn trường kia vắng mặt hoặc
+mâu thuẫn — Claude không được chạy `git worktree add` và phải trả
+`BLOCKED`. Claude không được suy luận quyền tạo linked worktree chỉ từ các từ
 "worktree", "working tree", "write lock" hay "feature branch". Codex không
 bao giờ cần linked review worktree riêng — kể cả khi Claude đang dùng một
 linked worktree đã được cấp quyền, Codex vẫn chỉ review đúng branch/diff đó,

@@ -31,10 +31,11 @@ There are two distinct activation contexts.
 ### 2.A Claude implementation context
 
 - Claude is the only write-capable implementer for this repository.
-- Claude requires a valid Master Execution Prompt containing at minimum `IMPLEMENTER: CLAUDE`, `REVIEWER: CODEX_READ_ONLY`, `REPOSITORY`, `FEATURE_BRANCH`, `WORKING_TREE_MODE` (defaults to `PRIMARY_CHECKOUT_ONLY` when the prompt omits it), `LINKED_WORKTREE` (defaults to `NOT_AUTHORIZED`; see §8 for the exception contract), baseline, scope, acceptance, checks, skill policy and stop conditions before making any edit.
+- Claude requires a valid Master Execution Prompt containing at minimum `IMPLEMENTER: CLAUDE`, `REVIEWER: CODEX_READ_ONLY`, `REPOSITORY`, `FEATURE_BRANCH`, baseline, scope, acceptance, checks, skill policy and stop conditions before making any edit.
+- `WORKING_TREE_MODE` and `LINKED_WORKTREE` are optional fields with safe defaults (`PRIMARY_CHECKOUT_ONLY` / `NOT_AUTHORIZED` respectively) — omitting one or both does not make the prompt incomplete and never by itself causes `BLOCKED`. A linked worktree is permitted only when the prompt explicitly pairs `WORKING_TREE_MODE: LINKED_WORKTREE` with `LINKED_WORKTREE: AUTHORIZED` and every detail §8 requires; an incomplete or contradictory pairing (only one of the two fields present, or `AUTHORIZED` missing a required detail) returns `BLOCKED` — see `docs/governance/RULES.md` §4/§5.3 for the canonical matrix.
 - Claude may implement, test, checkpoint, commit, push and open a Draft PR only when the Master Execution Prompt explicitly authorizes each of those actions.
 - Claude never grants Codex write access, never invokes Codex or any other coding agent, never creates nested agents and never runs an implementation in parallel with another agent.
-- If the Master Execution Prompt is missing, incomplete, or another coding agent may still have write access, Claude returns `BLOCKED`.
+- If the Master Execution Prompt is missing a required field above, or another coding agent may still have write access, Claude returns `BLOCKED`. Omission of `WORKING_TREE_MODE`/`LINKED_WORKTREE` alone is not "incomplete" under this rule — see the bullet above.
 
 ### 2.B Dedicated Codex review context
 
@@ -80,7 +81,7 @@ If sources conflict, report exact file/reference evidence. Do not silently choos
 
 ## 6. Preflight before editing
 
-1. Confirm `WORK_ITEM`, `IMPLEMENTER: CLAUDE`, `REVIEWER: CODEX_READ_ONLY`, `REPOSITORY`, `FEATURE_BRANCH`, `WORKING_TREE_MODE`, `LINKED_WORKTREE`, baseline, scope and acceptance from the Master Execution Prompt.
+1. Confirm `WORK_ITEM`, `IMPLEMENTER: CLAUDE`, `REVIEWER: CODEX_READ_ONLY`, `REPOSITORY`, `FEATURE_BRANCH`, baseline, scope and acceptance from the Master Execution Prompt. Resolve `WORKING_TREE_MODE`/`LINKED_WORKTREE` to their effective values (explicit if present, otherwise the safe defaults) — their omission is not a preflight blocker by itself.
 2. Verify repository root, current branch and working-tree cleanliness. Audit any existing linked worktree with `git worktree list` if relevant — audit only, never mutate a linked worktree this work item did not create.
 3. Run `git fetch --prune origin` when network access and prompt policy allow it.
 4. Verify HEAD/base against `BASELINE_SHA` and ahead/behind against the expected base.
@@ -117,15 +118,20 @@ contract, and the standard branch lifecycle. Summary:
   worktree` = an additional checkout registered via `git worktree add`. A
   generic "working tree clean/status" statement never by itself authorizes
   creating a linked worktree.
-- A linked worktree is permitted only when the current Master Execution
-  Prompt states `LINKED_WORKTREE: AUTHORIZED` with the exact path, the
-  isolation/parallel-execution reason, branch ownership, review invocation
-  location, cleanup owner and cleanup sequence (RULES.md §5.3). Without
-  every field, Claude must not run `git worktree add`. Claude never infers
-  this permission from the words "worktree", "working tree", "write lock"
-  or "feature branch" alone. A historical linked worktree this work item did
-  not create is audit-only — never delete, unlock, prune or otherwise mutate
-  it.
+- `WORKING_TREE_MODE` and `LINKED_WORKTREE` are optional fields — omitting
+  either or both applies the safe defaults above and is never by itself a
+  reason to return `BLOCKED` (RULES.md §4). A linked worktree is permitted
+  only when the current Master Execution Prompt states **both**
+  `WORKING_TREE_MODE: LINKED_WORKTREE` **and** `LINKED_WORKTREE:
+  AUTHORIZED`, together with the exact path, the isolation/parallel-execution
+  reason, branch ownership, review invocation location, cleanup owner and
+  cleanup sequence (RULES.md §5.3). Without every one of those, or if only
+  one half of the `WORKING_TREE_MODE`/`LINKED_WORKTREE` pair is present,
+  Claude must not run `git worktree add` and returns `BLOCKED`. Claude
+  never infers this permission from the words "worktree", "working tree",
+  "write lock" or "feature branch" alone. A historical linked worktree this
+  work item did not create is audit-only — never delete, unlock, prune or
+  otherwise mutate it.
 - Never commit directly to `main` or `develop`.
 - Do not create a branch, commit, push or open/modify a PR unless the prompt authorizes that action.
 - Use small coherent commits at authorized checkpoints; do not squash them yourself.
