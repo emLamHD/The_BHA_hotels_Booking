@@ -32,10 +32,9 @@ There are two distinct activation contexts.
 
 - Claude is the only write-capable implementer for this repository.
 - Claude requires a valid Master Execution Prompt containing at minimum `IMPLEMENTER: CLAUDE`, `REVIEWER: CODEX_READ_ONLY`, `REPOSITORY`, `FEATURE_BRANCH`, baseline, scope, acceptance, checks, skill policy and stop conditions before making any edit.
-- `WORKING_TREE_MODE` and `LINKED_WORKTREE` are optional fields with safe defaults (`PRIMARY_CHECKOUT_ONLY` / `NOT_AUTHORIZED` respectively) — omitting one or both does not make the prompt incomplete and never by itself causes `BLOCKED`. A linked worktree is permitted only when the prompt explicitly pairs `WORKING_TREE_MODE: LINKED_WORKTREE` with `LINKED_WORKTREE: AUTHORIZED` and every detail §8 requires; an incomplete or contradictory pairing (only one of the two fields present, or `AUTHORIZED` missing a required detail) returns `BLOCKED` — see `docs/governance/RULES.md` §4/§5.3 for the canonical matrix.
 - Claude may implement, test, checkpoint, commit, push and open a Draft PR only when the Master Execution Prompt explicitly authorizes each of those actions.
 - Claude never grants Codex write access, never invokes Codex or any other coding agent, never creates nested agents and never runs an implementation in parallel with another agent.
-- If the Master Execution Prompt is missing a required field above, or another coding agent may still have write access, Claude returns `BLOCKED`. Omission of `WORKING_TREE_MODE`/`LINKED_WORKTREE` alone is not "incomplete" under this rule — see the bullet above.
+- If the Master Execution Prompt is missing a required field, or another coding agent may still have write access, Claude returns `BLOCKED`.
 
 ### 2.B Dedicated Codex review context
 
@@ -50,7 +49,7 @@ There are two distinct activation contexts.
 
 ## 3. Fixed roles and write lock
 
-- Claude is the only coding agent with write access to the active working tree (the primary working tree by default, or an explicitly authorized linked worktree per §8), for every work item, at every phase.
+- Claude is the only coding agent with write access to the repository checkout, for every work item, at every phase.
 - Claude never invokes Codex, creates nested agents, fans out work or runs an implementation in parallel with any other agent.
 - Before Owner invokes Codex review, Claude stops all writes and leaves the working tree at a stable, reviewable checkpoint for the duration of the review.
 - A correction cycle requires an OC correction prompt and Owner activation before Claude resumes writing.
@@ -81,8 +80,8 @@ If sources conflict, report exact file/reference evidence. Do not silently choos
 
 ## 6. Preflight before editing
 
-1. Confirm `WORK_ITEM`, `IMPLEMENTER: CLAUDE`, `REVIEWER: CODEX_READ_ONLY`, `REPOSITORY`, `FEATURE_BRANCH`, baseline, scope and acceptance from the Master Execution Prompt. Resolve `WORKING_TREE_MODE`/`LINKED_WORKTREE` to their effective values (explicit if present, otherwise the safe defaults) — their omission is not a preflight blocker by itself.
-2. Verify repository root, current branch and working-tree cleanliness. Audit any existing linked worktree with `git worktree list` if relevant — audit only, never mutate a linked worktree this work item did not create.
+1. Confirm `WORK_ITEM`, `IMPLEMENTER: CLAUDE`, `REVIEWER: CODEX_READ_ONLY`, `REPOSITORY`, `FEATURE_BRANCH`, baseline, scope and acceptance from the Master Execution Prompt.
+2. Verify repository root, current branch and working-tree cleanliness.
 3. Run `git fetch --prune origin` when network access and prompt policy allow it.
 4. Verify HEAD/base against `BASELINE_SHA` and ahead/behind against the expected base.
 5. Confirm no other write session is active; when resuming a correction, inspect the previous checkpoint and report.
@@ -90,7 +89,7 @@ If sources conflict, report exact file/reference evidence. Do not silently choos
 7. Confirm allowed/forbidden files, acceptance, checks and stop conditions.
 8. Confirm required tools are available; optional tool absence is reported, not worked around by broad scope expansion.
 
-Preflight output must stay short: `Work item`, `Repository/Branch/HEAD`, `Working tree mode`, `Scope`, `First action`.
+Preflight output must stay short: `Work item`, `Repository/Branch/HEAD`, `Scope`, `First action`.
 
 ## 7. Scope and architecture constraints
 
@@ -104,34 +103,15 @@ Preflight output must stay short: `Work item`, `Repository/Branch/HEAD`, `Workin
 - Preserve upstream theme source/license attribution.
 - Template assets with no license/provenance evidence are development/reference only and not production-eligible.
 
-## 8. Git, working tree and linked-worktree rules
+## 8. Git and branch rules
 
-`docs/governance/RULES.md` §5 is the canonical source for working-tree
-terminology, the primary-checkout default, the linked-worktree exception
-contract, and the standard branch lifecycle. Summary:
+`docs/governance/RULES.md` §5 is the canonical source for the repository
+checkout and branch lifecycle. Summary: the project uses exactly one
+existing repository checkout; a feature branch is checked out directly in
+it (`git switch -c <branch>`); `git worktree add` and any additional
+execution checkout are prohibited, with no exception, authorization field,
+or policy matrix for this. Other rules:
 
-- Default execution uses exactly one filesystem checkout — the primary
-  repository working tree. A feature branch is checked out directly there
-  (`git switch -c <branch>`); a linked worktree created by
-  `git worktree add` is not part of the default workflow.
-- `primary working tree` = the primary repository checkout. `linked
-  worktree` = an additional checkout registered via `git worktree add`. A
-  generic "working tree clean/status" statement never by itself authorizes
-  creating a linked worktree.
-- `WORKING_TREE_MODE` and `LINKED_WORKTREE` are optional fields — omitting
-  either or both applies the safe defaults above and is never by itself a
-  reason to return `BLOCKED` (RULES.md §4). A linked worktree is permitted
-  only when the current Master Execution Prompt states **both**
-  `WORKING_TREE_MODE: LINKED_WORKTREE` **and** `LINKED_WORKTREE:
-  AUTHORIZED`, together with the exact path, the isolation/parallel-execution
-  reason, branch ownership, review invocation location, cleanup owner and
-  cleanup sequence (RULES.md §5.3). Without every one of those, or if only
-  one half of the `WORKING_TREE_MODE`/`LINKED_WORKTREE` pair is present,
-  Claude must not run `git worktree add` and returns `BLOCKED`. Claude
-  never infers this permission from the words "worktree", "working tree",
-  "write lock" or "feature branch" alone. A historical linked worktree this
-  work item did not create is audit-only — never delete, unlock, prune or
-  otherwise mutate it.
 - Never commit directly to `main` or `develop`.
 - Do not create a branch, commit, push or open/modify a PR unless the prompt authorizes that action.
 - Use small coherent commits at authorized checkpoints; do not squash them yourself.
@@ -139,7 +119,7 @@ contract, and the standard branch lifecycle. Summary:
 - Never merge, mark a PR ready, rebase shared history or delete a local/remote branch.
 - Do not change branches during an active phase unless the prompt explicitly says so.
 - Before handoff, leave the working tree clean or list every intentional uncommitted file.
-- This single-primary-checkout default does not grant Codex, a subagent, or a parallel implementation write access — the fixed roles in §2–§3 are unchanged.
+- This single-checkout rule does not grant Codex, a subagent, or a parallel implementation write access — the fixed roles in §2–§3 are unchanged.
 
 ## 9. Build, test, migration and validation
 
@@ -203,7 +183,7 @@ Use targeted checks first, then broader/CI-parity checks required by prompt and 
 
 Stop with `BLOCKED` when:
 
-- branch, baseline, repository or working-tree mode does not match the prompt;
+- branch, baseline or repository does not match the prompt;
 - unknown changes exist before your first edit;
 - another coding agent may still be active;
 - required business rule, acceptance or phase ownership is missing;

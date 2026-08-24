@@ -5,7 +5,7 @@
 > Mục đích: phục hồi trạng thái hiện tại mà không cần nạp worklog lịch sử
 
 Lần cập nhật này đóng `PMS-BE-001.1` sau khi PR #35 đã merge vào `develop`
-và khôi phục workflow mặc định về đúng một primary working tree, theo
+và khôi phục workflow về đúng một checkout repository duy nhất, theo
 Master Execution Prompt `PMS-BE-001.1-DOCS-CLOSEOUT`
 (`docs/pms-be-001-1-closeout-single-checkout`, docs-only). Repository SHA và
 PR state bên dưới là baseline đã được xác minh trực tiếp qua
@@ -25,7 +25,7 @@ lại `origin/develop` trước khi tạo feature branch mới.
 | PR #33 | merged — `docs(project): close ADMIN-002.1 and record next sequence`, merge commit `2c38face7cf51d7271c361e6d684adea466edcf9`, merged `2026-08-22T15:38:25Z`. Closes `ADMIN-002.1-DOCS-CLOSEOUT`. |
 | PR #34 | merged — `docs(project): record Graphify tooling adoption`, merge commit `7db8844dfde5ccc0651949f83ddfff76a3a977b9`, merged `2026-08-22T19:08:04Z`. Closes `TOOL-GRAPHIFY-001-DOCS-CLOSEOUT`; remote branch `docs/tool-graphify-001-closeout` deleted. This row is the current-state truth, replacing a since-corrected stale reference that had lingered in this file's own §7 section. |
 | PR #35 | merged — `feat(booking): normalize commercial commitments`, feature branch `feature/pms-be-001-1-commercial-commitment-v2-foundation` (head `9e25f7cb6247420467957061a13c04801ce9b3c7`), merge commit `265d10006b219e456c30ed92bbb6c153a946944d`, merged `2026-08-24T16:46:46Z`. Closes `PMS-BE-001.1`. GitHub CI (Admin/Backend/Frontend) confirmed `pass` on this PR as of this Snapshot update (`gh pr checks 35`). Remote feature branch deleted (confirmed empty via `git ls-remote --heads origin feature/pms-be-001-1-commercial-commitment-v2-foundation`); the linked worktree `/home/admin1/The_BHA_hotels_Booking-pms-be-001-1` used for its implementation is confirmed removed (directory absent, not listed by `git worktree list --porcelain`) — see §4. |
-| PR/branch của work item hiện tại | `PMS-BE-001.1-DOCS-CLOSEOUT` (docs-only) — feature branch `docs/pms-be-001-1-closeout-single-checkout`, checked out directly in the primary working tree `/home/admin1/The_BHA_hotels_Booking` (no linked worktree — `LINKED_WORKTREE: NOT_AUTHORIZED` for this work item), baseline `265d10006b219e456c30ed92bbb6c153a946944d`. Claude stops writes at a stable checkpoint and reports `READY_FOR_CODEX_REVIEW`; Draft PR to be opened by Claude per the Master Execution Prompt before Owner invokes review — not Ready or merged. Ready/merge/branch cleanup remain Owner-only. |
+| PR/branch của work item hiện tại | `PMS-BE-001.1-DOCS-CLOSEOUT` (docs-only) — feature branch `docs/pms-be-001-1-closeout-single-checkout`, checked out directly in the one repository checkout at `/home/admin1/The_BHA_hotels_Booking` (no additional checkout used), baseline `265d10006b219e456c30ed92bbb6c153a946944d`. Claude stops writes at a stable checkpoint and reports `READY_FOR_CODEX_REVIEW`; Draft PR opened by Claude as PR #36 — not Ready or merged. Ready/merge/branch cleanup remain Owner-only. |
 | Open execution PR khác | không có, theo `gh pr list --state open` tại thời điểm cập nhật Snapshot này (ngoài PR của work item hiện tại ở trên, nếu đã được mở). |
 
 ## 2. Work item state
@@ -98,9 +98,9 @@ lại `origin/develop` trước khi tạo feature branch mới.
   multi-RoomType public request, không physical-room allocation
   (`RoomOccupancySegment`/`RoomBlock`), không OTA, không `FolioEntries`,
   không Admin backend integration, không `DATA-001.2`.
-- Governance mặc định quay về đúng một primary working tree cho execution
-  (`docs/governance/RULES.md` §5); linked worktree chỉ được phép khi một
-  Master Execution Prompt tương lai cấp quyền rõ ràng theo §5.3 của file đó.
+- Governance quay về đúng một checkout repository duy nhất cho execution
+  (`docs/governance/RULES.md` §5); `git worktree add` và mọi checkout thực
+  thi bổ sung đều bị cấm, không có ngoại lệ.
 - Chỉ Owner quyết định work item sản phẩm nào (nếu có) sẽ được authorize kế
   tiếp, và bằng Master Execution Prompt riêng.
 
@@ -285,17 +285,17 @@ independently verified for this Snapshot update via:
   merges.` — đã chứng minh hoạt động xuyên suốt `AI-OPS-PILOT-001`,
   `FE-002.1`, `ADMIN-001.1`, `PMS-DATA-DOCS-001`, `ADMIN-002.1`,
   `TOOL-GRAPHIFY-001-DOCS-CLOSEOUT`, và `PMS-BE-001.1`.
-- **Single-primary-checkout default (khôi phục từ `PMS-BE-001.1-DOCS-CLOSEOUT`):**
-  execution mặc định chỉ dùng đúng một filesystem checkout — primary
-  working tree của repository (`/home/admin1/The_BHA_hotels_Booking`). Một
-  work item dùng một feature branch, checkout trực tiếp trong primary
-  working tree đó; chỉ Claude có write lock. Linked worktree
-  (`git worktree add`) không thuộc workflow mặc định — chỉ được phép khi
-  một Master Execution Prompt tương lai ghi rõ `LINKED_WORKTREE:
-  AUTHORIZED` kèm path/lý do/branch ownership/review location/cleanup
-  owner/cleanup sequence (`docs/governance/RULES.md` §5.3). Chi tiết đầy đủ
-  và vòng đời branch chuẩn: `docs/governance/RULES.md` §5 (canonical),
-  `AGENTS.md` §8, `docs/governance/WORKFLOW.md` §8.
+- **Single-checkout workflow (khôi phục từ `PMS-BE-001.1-DOCS-CLOSEOUT`):**
+  dự án dùng đúng một checkout repository đang tồn tại
+  (`/home/admin1/The_BHA_hotels_Booking`). Một work item dùng một feature
+  branch, checkout trực tiếp trong đó; chỉ Claude có write lock.
+  `git worktree add` và mọi checkout thực thi bổ sung đều bị **cấm** —
+  không có ngoại lệ, không có field ủy quyền, không có policy matrix cho
+  việc này (PR #35 từng dùng và sau đó đã xóa một linked worktree trong
+  quá trình implementation của nó — xem §4 — đó là lịch sử đã kết thúc,
+  không phải cơ chế còn hiệu lực). Chi tiết và vòng đời branch chuẩn:
+  `docs/governance/RULES.md` §5 (canonical), `AGENTS.md` §8,
+  `docs/governance/WORKFLOW.md` §8.
 - Sau implementation/correction và mandatory checks, Claude dừng ghi tại
   checkpoint ổn định và công bố `READY_FOR_CODEX_REVIEW`; chỉ Owner mới
   invoke `/codex:review --base origin/develop` (hoặc base do prompt chỉ
@@ -357,8 +357,8 @@ merge, hay rằng Codex review cho PR #35 vẫn đang chờ — cả hai đã ho
 - Nhầm foundation normalized Item/Unit (`PMS-BE-001.1`, single-RoomType
   public request) với multi-RoomType public request hoặc physical
   allocation TARGET đã implement — chúng vẫn chưa implement.
-- Tạo linked worktree ngoài ngoại lệ đã được Owner cấp quyền rõ ràng
-  (`docs/governance/RULES.md` §5.3) — mặc định là cấm.
+- Tạo `git worktree add` hoặc bất kỳ checkout thực thi bổ sung nào — luôn
+  bị cấm, không có ngoại lệ (`docs/governance/RULES.md` §5).
 - Codex được cấp nhầm write mode hoặc dùng rescue/transfer.
 - Claude mutate working tree trong lúc Codex đang review.
 - Review base bị suy ra thành `main` thay vì explicit `origin/develop`.
