@@ -1,17 +1,39 @@
 # ADR 0006: Schedule physical rooms with occupancy segments
 
-- **Status:** Accepted target architecture, implementation pending.
-- **Date:** 2026-08-19.
+- **Status:** Database authority, availability formula, and internal
+  mutation boundary implemented (`PMS-BE-001.2`, migration 8); Admin
+  authentication/RBAC, Staff identity, and any HTTP/Admin/Calendar
+  integration of this authority remain target architecture, implementation
+  pending.
+- **Date:** 2026-08-19. Database authority and internal mutation boundary
+  implemented 2026-08-26.
 
-This decision is TARGET / APPROVED, not CURRENT / AS-BUILT. The TARGET
-occupancy-segment schedule, `RoomBlock`, exclusion constraints, and related
-future implementation work described below are not implemented. Existing
-CURRENT entities referenced for context, including `PhysicalRoom` and
-`Reservation`, are not negated by this statement — they remain implemented
-exactly as they are today. This ADR introduces no schema, extension,
-migration, test, or product change. See
+`PMS-BE-001.2` implemented the `RoomOccupancySegment`/`RoomBlock` schedule
+described in the Decision section below as CURRENT / AS-BUILT:
+`RoomOccupancySegment` (types exactly `ReservationAssignment` and
+`OperationalBlock`; statuses exactly `Effective` and `Cancelled`) is the
+sole PhysicalRoom schedule authority, backed by migration 8
+(`PhysicalRoomScheduleAvailabilityAuthority`) with the two PostgreSQL
+exclusion constraints and two deferred constraint triggers from Decision
+items 6 and 9 below, same-Property composite-FK enforcement, `xmin`-based
+optimistic concurrency, and append-only `RoomOccupancySegmentAudit` history.
+Availability (ADR 0004's formula) is now block-adjusted and
+assignment-attributed, and whole-Reservation cancellation atomically cancels
+any still-`Effective` assignment segments in the same transaction. Safe
+internal application/persistence mutation commands — assignment create,
+split, move, atomic batch move/swap, unassign, and OperationalBlock create/
+split/move/cancel — exist behind `IAssignmentMutationStore`/
+`IOperationalBlockMutationStore`, gated by a mandatory non-empty
+`ActorReference` and, for cross-RoomType assignment, a mandatory
+`AuthorizationEvidence`/`Reason` pair; this is an opaque authorization
+string, not implemented Staff identity or Admin RBAC (item 3 below remains
+partially TARGET). No HTTP/Admin/Calendar controller endpoint exposes any
+of this — that integration, along with Admin authentication/RBAC, Staff
+identity, check-in/check-out, and OTA behavior, remains TARGET, not
+implemented. See
 [PMS-DATA-001-core-database-blueprint-v2](../design/PMS-DATA-001-core-database-blueprint-v2.md)
-for full detail and scenario walkthroughs.
+for full detail and scenario walkthroughs, and
+`docs/reports/PMS-BE-001.2-completion.md` for implementation evidence.
 
 ## Dependency
 

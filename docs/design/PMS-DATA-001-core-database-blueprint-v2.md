@@ -1,11 +1,20 @@
 # PMS-DATA-001 — Core Database Blueprint v2
 
-- **Status:** Approved TARGET architecture. The newly proposed TARGET
-  entities, relationships, constraints, and changes described below are not
-  implemented. Existing CURRENT entities and capabilities remain implemented
-  exactly as recorded in §2; this docs-only work item creates no schema or
-  product behavior.
-- **Date:** 2026-08-19.
+- **Status:** Approved TARGET architecture, partially implemented. §6 items
+  1–2, 4 (partial), 5–8 (`PMS-BE-001.1`, migration 7) and §7–§9's database
+  authority, availability formula, and internal mutation boundary
+  (`PMS-BE-001.2`, migration 8) are now CURRENT / AS-BUILT — see ADR 0005,
+  ADR 0006, and their linked completion reports for the exact as-built
+  boundary of each; this document's per-item TARGET labels below were not
+  individually relabeled for either work item and must be cross-checked
+  against those ADRs/reports, not read as still-accurate on their own.
+  Multi-RoomType public request shape, `Organization`, direct Admin/walk-in/
+  OTA unit creation, and any HTTP/Admin/Calendar/RBAC exposure of the
+  physical-room schedule remain TARGET, not implemented. Existing CURRENT
+  entities and capabilities not superseded by the above remain implemented
+  exactly as recorded in §2.
+- **Date:** 2026-08-19. Partially implemented 2026-08-23 (`PMS-BE-001.1`)
+  and 2026-08-26 (`PMS-BE-001.2`).
 - **Scope:** the locked, Owner-approved PMS core database design that Customer
   Web and a future Admin PMS will share. This document is the authoritative
   detailed target source; `PROJECT_BIBLE.md`, `ARCHITECTURE.md`, and
@@ -42,37 +51,63 @@ firm decision — firmness of the decision is not evidence of construction.
   `(Property, RoomType, stay date)` advisory-lock identities. This is a data
   model capable of storing multiple Property rows today — it is not an
   implicit single-Property design, and the current single-row development
-  seed is seed content, not a schema restriction. Within that schema, each
-  current `BookingHold`/`BookingHoldNight` and `Reservation`/
-  `ReservationNight` (`BE-003.1`–`BE-003.5`) still captures exactly **one
-  Property, one RoomType, and one RatePlan per booking**, with immutable
-  nightly snapshots — CURRENT remains single-RoomType-per-booking, and no
-  booking spans more than one Property. What is genuinely absent is an
-  `Organization`/tenant ownership and authorization boundary above
-  `Property` (§3).
-- Exactly six PostgreSQL migrations exist, ending at
-  `20260723105404_AddBookingHoldReservationFoundation`:
+  seed is seed content, not a schema restriction. Within that schema, the
+  commercial commitment authority is now (`PMS-BE-001.1`, migration 7) the
+  normalized `InventoryHold → InventoryHoldItem → InventoryHoldItemNight`
+  and `Reservation → ReservationUnit → ReservationUnitNight` model (ADR
+  0005): every persisted Item/Unit represents exactly one room, with
+  immutable nightly snapshots. The legacy `BookingHold`/`BookingHoldNight`/
+  `ReservationNight` tables no longer exist — no dual-write, no dormant
+  table. The public `/api/v1` contract is unchanged: a request still
+  carries exactly one `RoomTypeId`, one `RatePlanId`, and `rooms = Q`,
+  normalized atomically into `Q` independent Items/Units — CURRENT remains
+  single-RoomType-**per-request**, and no booking spans more than one
+  Property; the multi-RoomType **request** shape remains TARGET. What is
+  genuinely absent is an `Organization`/tenant ownership and authorization
+  boundary above `Property` (§3).
+- Eight PostgreSQL migrations exist, ending at
+  `20260826035254_PhysicalRoomScheduleAvailabilityAuthority`:
   1. `20260721175848_InitialPropertyRoomInventory`
   2. `20260722102552_AddRatePlanFoundation`
   3. `20260722112304_AddDailyRoomRates`
   4. `20260722121010_AddDailyInventoryControls`
   5. `20260723085814_CustomerBookingIdentity`
   6. `20260723105404_AddBookingHoldReservationFoundation`
+  7. `20260823084717_CommercialCommitmentV2Foundation` (`PMS-BE-001.1`)
+  8. `20260826035254_PhysicalRoomScheduleAvailabilityAuthority`
+     (`PMS-BE-001.2`)
+- `RoomOccupancySegment`/`RoomBlock` (ADR 0006, migration 8) now exist as
+  the sole PhysicalRoom schedule authority: exactly two PostgreSQL exclusion
+  constraints (`EX_RoomOccupancySegments_EffectiveRoomOverlap`,
+  `EX_RoomOccupancySegments_EffectiveUnitOverlap`), two deferred constraint
+  triggers (`SQLSTATE XBHA1`/`XBHA2`), `xmin`-based optimistic concurrency,
+  and append-only `RoomOccupancySegmentAudit` history. Availability is
+  block-adjusted and assignment-attributed (§7's formula is now CURRENT).
+  Internal-only `IAssignmentMutationStore`/`IOperationalBlockMutationStore`
+  mutation commands exist behind the application/persistence boundary — no
+  HTTP/Admin/Calendar controller endpoint, no Staff identity, and no Admin
+  RBAC model exist. See ADR 0006 and
+  `docs/reports/PMS-BE-001.2-completion.md` for the exact as-built boundary.
 - Availability committed demand is already expiry-aware:
   `Active Holds where ExpiresAtUtc > utcNow` plus `Confirmed Reservations`,
   evaluated against one server UTC instant, with no persisted `Expired`
   status and no background expiry cleanup — an active Hold already stops
   counting at the exact expiry boundary (`BE-003.3`, `BE-003.5`).
-- Every Hold/Reservation mutation uses one explicit PostgreSQL transaction
-  and parameterized `pg_advisory_xact_lock` calls, in a fixed
-  lifecycle-transition-then-inventory lock order.
+- Every Hold/Reservation/assignment/block mutation uses one explicit
+  PostgreSQL transaction and parameterized `pg_advisory_xact_lock` calls,
+  now routed through a shared `AdvisoryLockCoordinator` with one fixed
+  class order (idempotency/transition lock, then `ReservationUnit` locks,
+  then `RoomType` inventory-scope locks, then daily inventory locks; see
+  `docs/ARCHITECTURE.md`).
 - Admin Web (`Front_End/Admin_Web`) is a merged, template-only baseline
   (TailAdmin 2.3.0, Next.js 16.1.6, React/React DOM 19.2.1, TypeScript 5.9.3,
-  PR #30). It has no backend integration, no Admin authentication, and no
-  PMS, Reservation Board, Calendar, or OTA behavior.
-- No `Organization` entity, no PMS physical-room occupancy schedule, no
-  `FolioEntries`, no Stay Declaration, no OTA inbox/outbox, and no PMS
-  migration exist anywhere in the current schema or codebase.
+  PR #30) plus the `ADMIN-002.1` frontend prototype (mock-state only, see
+  `docs/reports/ADMIN-002.1-completion.md`). It has no backend integration,
+  no Admin authentication, and no real PMS,
+  Reservation Board, Calendar, or OTA behavior — it does not call, and is
+  not proven against, the `RoomOccupancySegment` authority above.
+- No `Organization` entity, no `FolioEntries`, no Stay Declaration, and no
+  OTA inbox/outbox exist anywhere in the current schema or codebase.
 
 ## 3. Platform, tenant, and property boundary
 
@@ -149,8 +184,15 @@ availability-reaction boundary and remain DEFERRED (§17).
 
 ## 6. Commercial commitment model
 
+> Implementation note (`PMS-BE-001.1`, migration 7): items 2, 4 (partial),
+> 5–8 below are CURRENT / AS-BUILT — see ADR 0005 and
+> `docs/reports/PMS-BE-001.1-completion.md` for the exact boundary. Item 1
+> (multi-RoomType request shape) and item 3 (direct unit creation without a
+> source Hold) remain TARGET. Per-item TARGET labels below were not
+> individually relabeled; treat ADR 0005 as authoritative over this list.
+
 1. A customer booking supports multiple RoomTypes in one hold or reservation
-   (TARGET — CURRENT is exactly one RoomType per Hold/Reservation).
+   (TARGET — CURRENT is exactly one RoomType per Hold/Reservation request).
 2. TARGET hold aggregate: `InventoryHold → InventoryHoldItems →
    InventoryHoldItemNights`. A persisted `InventoryHoldItem` represents
    **exactly one held room** of one RoomType — its business cardinality is
@@ -269,6 +311,17 @@ availability-reaction boundary and remain DEFERRED (§17).
     state (ADR 0005 Decision item 7, ADR 0006 Decision item 3).
 
 ## 7. Inventory/availability authority and hold-expiry correctness
+
+> Implementation note (`PMS-BE-001.2`, migration 8): the block-adjusted,
+> assignment-attributed availability formula and the `RoomOccupancySegment`
+> database authority referenced throughout §7–§9, §11, and §12 are now
+> CURRENT / AS-BUILT — see ADR 0006 and
+> `docs/reports/PMS-BE-001.2-completion.md` for the exact boundary.
+> `RoomTypeDailyInventory` as a separate materialized projection table
+> remains TARGET, not implemented; `AvailabilityDataSource` computes the
+> formula on read, as it does today. Per-item TARGET labels in §7–§9, §11,
+> and §12 were not individually relabeled; treat ADR 0006 and the
+> completion report as authoritative over this list.
 
 `RoomTypeDailyInventory` is a future operational projection and a closed
 historical snapshot — never a manually editable source of truth (TARGET).

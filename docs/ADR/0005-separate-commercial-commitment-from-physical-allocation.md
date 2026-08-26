@@ -16,8 +16,12 @@ The public `/api/v1` contract is unchanged: a request still carries exactly
 one `RoomTypeId`/`RatePlanId`/`rooms = Q`, which the Hold-creation
 transaction still normalizes atomically into `Q` independent Items — the
 multi-RoomType **request** shape (item 1's forward-looking use case) remains
-TARGET, not implemented, along with physical-room allocation (ADR 0006) and
-direct Admin/walk-in/OTA unit creation without a source Hold (item 3). See
+TARGET, not implemented. Physical-room allocation (ADR 0006) now has its
+database authority, availability integration, and internal mutation
+boundary implemented (`PMS-BE-001.2`); direct Admin/walk-in/OTA unit
+creation without a source Hold (item 3), Admin authentication/RBAC, and any
+HTTP/Admin exposure of that allocation authority remain TARGET, not
+implemented. See
 [PMS-DATA-001-core-database-blueprint-v2](../design/PMS-DATA-001-core-database-blueprint-v2.md)
 for full detail and scenario walkthroughs, and
 `docs/reports/PMS-BE-001.1-completion.md` for implementation evidence.

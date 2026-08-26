@@ -6,9 +6,9 @@ The repository separates deployable applications under `Front_End` and `Back_End
 
 CURRENT frontend (PR #32): a room/date timeline with multi-property demo switching, assigned/unassigned reservations, operational blocks, reservation hover/detail views, drag-and-drop room moves, date shifting, negotiated pricing, a reservation-creation workspace, and a front-desk lifecycle/folio/notes/activity workspace, over deterministic local mock state (`mockData.ts`, a fixed demo-clock anchor). State is not owned by one reducer: reservation-board durable mutations (lifecycle, folio, moves) go through the `reservationRuntimeReducer` in `reservationRuntime.ts`; the reservation-creation workflow has its own `formReducer` in `CreateReservationForm.tsx`; and board presentation/view state (selection, range, filters, drag) is component-local `useState` in `ReservationBoard.tsx`. None of this reads or writes real data: there is no backend call, no persistence, and every reload resets to the same mock baseline.
 
-CURRENT backend: unchanged from BE-003 — the single-RoomType-per-booking `BookingHold`/`Reservation` model (§ below), exactly six PostgreSQL migrations, no PMS migration, no Admin authentication/RBAC, no OTA integration. The Admin frontend prototype is not connected to it.
+CURRENT backend (`PMS-BE-001.2`, migration 8): the normalized commercial-commitment authority from `PMS-BE-001.1` — `InventoryHold → InventoryHoldItem → InventoryHoldItemNight` and `Reservation → ReservationUnit → ReservationUnitNight` (ADR 0005), one `RoomTypeId`/`RatePlanId` per public request — plus a physical-room schedule authority added by `PMS-BE-001.2`: `RoomOccupancySegment`/`RoomBlock` (ADR 0006), the assignment-aware and block-adjusted availability formula, and internal-only assignment/block mutation commands. Eight PostgreSQL migrations exist in total; no Admin authentication/RBAC, no OTA integration, and no HTTP/Admin/Calendar endpoint expose any of this scheduling authority. The Admin frontend prototype is not connected to it. See "Physical-room schedule authority" below.
 
-TARGET architecture (unimplemented): Customer Web and Admin Web as separate clients of one shared ASP.NET Core backend and one shared PostgreSQL database, with the full multi-RoomType/physical-allocation PMS design, Admin authentication/RBAC, and OTA behavior. See [`docs/design/PMS-DATA-001-core-database-blueprint-v2.md`](design/PMS-DATA-001-core-database-blueprint-v2.md), [ADR 0005](ADR/0005-separate-commercial-commitment-from-physical-allocation.md), and [ADR 0006](ADR/0006-schedule-physical-rooms-with-occupancy-segments.md) for the full target PMS design; this document does not duplicate it, and the CURRENT frontend prototype described above is not authoritative persistence or concurrency evidence for that TARGET design.
+TARGET architecture (unimplemented): Customer Web and Admin Web as separate clients of one shared ASP.NET Core backend and one shared PostgreSQL database, with the full multi-RoomType public request shape, Admin authentication/RBAC, HTTP/Admin/Calendar integration of the physical-room schedule authority, and OTA behavior. See [`docs/design/PMS-DATA-001-core-database-blueprint-v2.md`](design/PMS-DATA-001-core-database-blueprint-v2.md), [ADR 0005](ADR/0005-separate-commercial-commitment-from-physical-allocation.md), and [ADR 0006](ADR/0006-schedule-physical-rooms-with-occupancy-segments.md) for the full target PMS design; this document does not duplicate it, and the CURRENT frontend prototype described above is not authoritative persistence or concurrency evidence for that TARGET design.
 
 The backend targets .NET 8 and uses Clean Architecture project boundaries. The
 Domain contains catalog, pricing/inventory-control, and transactional
@@ -52,10 +52,70 @@ Atomic Hold creation uses explicit transactions and parameterized
 no PostgreSQL dependency. BE-003.5 extends this same transaction/advisory-lock
 contract to Hold cancellation and Reservation cancellation, reusing the
 existing Hold-transition and per-night inventory lock keys in the same
-lifecycle-then-inventory order. The API does not
+lifecycle-then-inventory order. `PMS-BE-001.2` introduces a shared,
+deterministic `AdvisoryLockCoordinator` (`Infrastructure/Persistence/AdvisoryLockCoordinator.cs`)
+that every advisory-lock-taking writer now goes through: a fixed class order
+— (1) an operation-specific idempotency/aggregate-transition lock, (2)
+`ReservationUnit` locks, (3) `RoomType` inventory-scope locks, (4) daily
+`(RoomType, StayDate)` inventory locks, each class internally deduplicated
+and sorted before acquisition inside one explicit transaction — replacing
+each store's own ad hoc lock-key handling without changing prior lock
+semantics. The API does not
 apply migrations or seed data during normal startup.
 
 PostgreSQL 17 runs locally through Docker Compose with a named volume and is also used by the backend integration-test job in GitHub Actions. The API does not call `EnsureCreated()` or apply migrations during startup.
+
+## Physical-room schedule authority (`PMS-BE-001.2`)
+
+`TheBha.Domain/Scheduling` and `TheBha.Infrastructure/Persistence` add the
+sole PhysicalRoom schedule authority: `RoomOccupancySegment` (types exactly
+`ReservationAssignment`/`OperationalBlock`, statuses exactly
+`Effective`/`Cancelled`) and `RoomBlock`, persisted by migration 8
+(`PhysicalRoomScheduleAvailabilityAuthority`). PostgreSQL enforces two
+exclusion constraints (`EX_RoomOccupancySegments_EffectiveRoomOverlap`,
+`EX_RoomOccupancySegments_EffectiveUnitOverlap`, `btree_gist`-backed) plus
+two `DEFERRABLE INITIALLY DEFERRED` constraint triggers — booked-night
+coverage (`SQLSTATE XBHA1`) and unit-commitment consistency (`SQLSTATE
+XBHA2`) — so a transaction may pass through a transient intermediate state
+(a batch move/swap) as long as the final committed state satisfies every
+invariant. Same-Property consistency is enforced through composite
+alternate-key foreign keys, not application-level checks alone. Rows use
+`xmin`-based optimistic concurrency (EF Core `IsRowVersion()` on a shadow
+`uint`), and every mutation writes an append-only `RoomOccupancySegmentAudit`
+row grouped by a `MutationGroupId` — audits have no mutators and are never
+updated or deleted through normal persistence.
+
+`Application/Properties/PhysicalCapacityFormula.cs` extends ADR 0004's
+availability formula: `UsablePhysicalCapacity = max(0, BaseInventory -
+OperationalBlockedRooms)`, then the existing `ControlledCapacity`/
+`AvailableToSell` clamp against `SellableLimit`/`IsStopSell` as before.
+Nightly demand is attributed to exactly one RoomType bucket — the sold
+RoomType if a `ReservationUnit` night is unassigned, or the actual assigned
+`PhysicalRoom`'s RoomType if an `Effective ReservationAssignment` segment
+covers that night — so cross-RoomType assignment shifts attribution rather
+than double-counting. Assignment *mutation* is validated against raw
+`UsablePhysicalCapacity` only, never against `ControlledCapacity`/
+`SellableLimit`/`IsStopSell`, which govern acceptance of *new* commercial
+demand, not where already-committed demand physically sits.
+`IReservationCancellationStore` atomically cancels any still-`Effective`
+assignment segments in the same transaction as Reservation cancellation.
+
+`IAssignmentMutationStore` and `IOperationalBlockMutationStore`
+(`Infrastructure/Persistence/AssignmentMutationStore.cs`,
+`OperationalBlockMutationStore.cs`) are internal application/persistence
+boundary services only — **no HTTP controller or Admin/Calendar endpoint
+exposes them**, and no Staff identity or Admin RBAC model exists. Every
+mutation requires a non-empty `ActorReference`; cross-RoomType assignment
+additionally requires `AuthorizationEvidence` and `Reason` (an opaque
+authorization string recorded verbatim into the audit trail, not a real
+permission check). Supported operations: assignment create (same- or
+cross-RoomType), split, move/reassign, atomic batch move/swap (one combined
+final-state capacity evaluation per batch, never validated sequentially),
+and unassign/cancel; OperationalBlock multi-room creation, split, move, and
+cancel. `RoomOccupancySegmentMutationSupport` maps the two exclusion
+constraints' exact names and the two `XBHA1`/`XBHA2` SQLSTATEs (plus
+foreign-key violations) to safe, non-leaking `SegmentMutationResult` error
+messages — no raw PostgreSQL/Npgsql text is ever returned to a caller.
 
 ## Deliberately deferred decisions
 
