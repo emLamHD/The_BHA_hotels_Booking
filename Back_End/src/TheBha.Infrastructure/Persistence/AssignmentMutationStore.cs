@@ -96,6 +96,8 @@ internal sealed class AssignmentMutationStore(
             .WithInventory(command.PropertyId, room.RoomTypeId, destinationDates);
         await AdvisoryLockCoordinator.AcquireAsync(dbContext, lockPlanBuilder.Build(), cancellationToken);
 
+        var utcNow = timeProvider.GetUtcNow().ToUniversalTime();
+
         // Same-RoomType creation moves no demand between buckets (the night was
         // already counted under the sold type before this assignment existed) — only
         // a cross-RoomType creation needs a final-state capacity check.
@@ -107,6 +109,7 @@ internal sealed class AssignmentMutationStore(
                 command.PropertyId,
                 demandDeltas,
                 EmptyDeltas,
+                utcNow,
                 cancellationToken);
             if (capacityError is not null)
             {
@@ -115,7 +118,6 @@ internal sealed class AssignmentMutationStore(
             }
         }
 
-        var utcNow = timeProvider.GetUtcNow().ToUniversalTime();
         RoomOccupancySegment segment;
         try
         {
@@ -346,11 +348,13 @@ internal sealed class AssignmentMutationStore(
 
         await AdvisoryLockCoordinator.AcquireAsync(dbContext, lockPlanBuilder.Build(), cancellationToken);
 
+        var utcNow = timeProvider.GetUtcNow().ToUniversalTime();
         var capacityError = await RoomOccupancySegmentMutationSupport.ValidateFinalCapacityAsync(
             dbContext,
             command.PropertyId,
             demandDeltas,
             EmptyDeltas,
+            utcNow,
             cancellationToken);
         if (capacityError is not null)
         {
@@ -358,7 +362,6 @@ internal sealed class AssignmentMutationStore(
             return SegmentMutationResult.Conflict(capacityError);
         }
 
-        var utcNow = timeProvider.GetUtcNow().ToUniversalTime();
         var mutationGroupId = Guid.NewGuid();
         // xmin is only populated after SaveChanges, so DTOs are built from these
         // tracked entities after the commit succeeds below — never before.

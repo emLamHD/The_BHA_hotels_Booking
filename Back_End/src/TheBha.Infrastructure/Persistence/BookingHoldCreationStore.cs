@@ -320,18 +320,19 @@ internal sealed class BookingHoldCreationStore(
         DateTimeOffset utcNow,
         CancellationToken cancellationToken)
     {
-        var holdDemand = await dbContext.InventoryHolds
-            .AsNoTracking()
-            .Where(hold =>
-                hold.Status == BookingHoldStatus.Active &&
-                hold.ExpiresAtUtc > utcNow)
-            .SelectMany(hold => hold.Items)
-            .Where(item => item.PropertyId == propertyId && item.RoomTypeId == roomTypeId)
-            .SelectMany(item => item.Nights)
-            .Where(night => night.StayDate >= checkIn && night.StayDate < checkOut)
-            .GroupBy(night => night.StayDate)
-            .Select(group => new { StayDate = group.Key, Rooms = group.Count() })
-            .ToListAsync(cancellationToken);
+        // Active, unexpired Hold demand, via the one shared query design also used by
+        // the public availability projection and, in Phase 4, by assignment/block
+        // mutation final-state validation (PMS-BE-001.2-C1).
+        var activeHoldDemand = await PhysicalCapacityDataLoader.LoadActiveHoldDemandAsync(
+            dbContext,
+            propertyId,
+            checkIn,
+            checkOut,
+            utcNow,
+            cancellationToken);
+        var holdDemand = activeHoldDemand
+            .Where(entry => entry.Key.RoomTypeId == roomTypeId)
+            .Select(entry => new { StayDate = entry.Key.StayDate, Rooms = entry.Value });
 
         // Assignment-aware reservation demand (blueprint §7 rules 1-7), via the one
         // shared query design also used by the public availability projection — a

@@ -79,12 +79,14 @@ internal sealed class OperationalBlockMutationStore(
 
         await AdvisoryLockCoordinator.AcquireAsync(dbContext, lockPlanBuilder.Build(), cancellationToken);
 
+        var utcNow = timeProvider.GetUtcNow().ToUniversalTime();
         var blockedRoomDeltas = ComputeBlockedRoomDeltas(command.Segments, roomsById);
         var capacityError = await RoomOccupancySegmentMutationSupport.ValidateFinalCapacityAsync(
             dbContext,
             command.PropertyId,
             EmptyDeltas,
             blockedRoomDeltas,
+            utcNow,
             cancellationToken);
         if (capacityError is not null)
         {
@@ -92,7 +94,6 @@ internal sealed class OperationalBlockMutationStore(
             return CreateRoomBlockResult.Conflict(capacityError);
         }
 
-        var utcNow = timeProvider.GetUtcNow().ToUniversalTime();
         var mutationGroupId = Guid.NewGuid();
         RoomBlock block;
         var createdSegments = new List<RoomOccupancySegment>();
@@ -277,12 +278,14 @@ internal sealed class OperationalBlockMutationStore(
 
         await AdvisoryLockCoordinator.AcquireAsync(dbContext, lockPlanBuilder.Build(), cancellationToken);
 
+        var utcNow = timeProvider.GetUtcNow().ToUniversalTime();
         var blockedRoomDeltas = ComputeBlockedRoomDeltas(removedRoomDates, addedRoomDates, roomsById);
         var capacityError = await RoomOccupancySegmentMutationSupport.ValidateFinalCapacityAsync(
             dbContext,
             command.PropertyId,
             EmptyDeltas,
             blockedRoomDeltas,
+            utcNow,
             cancellationToken);
         if (capacityError is not null)
         {
@@ -290,7 +293,6 @@ internal sealed class OperationalBlockMutationStore(
             return SegmentMutationResult.Conflict(capacityError);
         }
 
-        var utcNow = timeProvider.GetUtcNow().ToUniversalTime();
         var mutationGroupId = Guid.NewGuid();
         var mutatedSegments = new List<RoomOccupancySegment>();
 

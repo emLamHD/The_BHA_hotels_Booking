@@ -111,15 +111,23 @@ internal static class RoomOccupancySegmentMutationSupport
     /// added demand); <paramref name="blockedRoomDeltas"/> models an
     /// OperationalBlock mutation's usable-capacity change (positive = capacity
     /// removed). A capacity/demand-mutating store only ever supplies one of the two
-    /// non-empty; both default to no change. Returns a safe error message for the
-    /// first violated bucket, or <c>null</c> when every affected bucket's final
-    /// demand stays within its final usable physical capacity.
+    /// non-empty; both default to no change. Final demand includes not only
+    /// committed/assignment-attributed Reservation demand but also active, unexpired
+    /// InventoryHold demand (PMS-BE-001.2-C1 — an omission in the original Phase 4
+    /// delivery: a Hold reserves physical capacity exactly as a committed Reservation
+    /// does, and this check must not let a block or cross-RoomType assignment commit
+    /// into capacity a live Hold is already holding). <paramref name="utcNow"/> is the
+    /// single UTC instant the whole evaluation — including Hold expiry — is judged
+    /// against. Returns a safe error message for the first violated bucket, or
+    /// <c>null</c> when every affected bucket's final demand stays within its final
+    /// usable physical capacity.
     /// </summary>
     public static async Task<string?> ValidateFinalCapacityAsync(
         TheBhaDbContext dbContext,
         Guid propertyId,
         IReadOnlyDictionary<(Guid RoomTypeId, DateOnly StayDate), int> demandDeltas,
         IReadOnlyDictionary<(Guid RoomTypeId, DateOnly StayDate), int> blockedRoomDeltas,
+        DateTimeOffset utcNow,
         CancellationToken cancellationToken)
     {
         var keys = demandDeltas.Keys.Concat(blockedRoomDeltas.Keys).Distinct().ToArray();
@@ -146,6 +154,8 @@ internal static class RoomOccupancySegmentMutationSupport
             dbContext, propertyId, minDate, maxDateExclusive, cancellationToken);
         var demand = await PhysicalCapacityDataLoader.LoadAttributedReservationDemandAsync(
             dbContext, propertyId, minDate, maxDateExclusive, cancellationToken);
+        var holdDemand = await PhysicalCapacityDataLoader.LoadActiveHoldDemandAsync(
+            dbContext, propertyId, minDate, maxDateExclusive, utcNow, cancellationToken);
 
         foreach (var key in keys)
         {
@@ -153,7 +163,9 @@ internal static class RoomOccupancySegmentMutationSupport
             var usablePhysicalCapacity = PhysicalCapacityFormula.UsablePhysicalCapacity(
                 activeRoomCounts.GetValueOrDefault(key.RoomTypeId),
                 finalBlockedRooms);
-            var finalDemand = demand.GetValueOrDefault(key) + demandDeltas.GetValueOrDefault(key);
+            var finalDemand = demand.GetValueOrDefault(key)
+                + holdDemand.GetValueOrDefault(key)
+                + demandDeltas.GetValueOrDefault(key);
             if (finalDemand > usablePhysicalCapacity)
             {
                 return $"Insufficient usable physical capacity for {key.StayDate:yyyy-MM-dd}.";

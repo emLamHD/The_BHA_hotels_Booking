@@ -83,9 +83,46 @@ internal static class PhysicalCapacityDataLoader
     /// RoomType when one does. Loaded property-wide (not pre-filtered to one RoomType)
     /// because a cross-RoomType assignment can move a night's attribution into or out
     /// of any RoomType. Does not include Hold demand, which has no assignment path and
-    /// always attributes to its held RoomType (loaded separately by each caller,
-    /// unchanged from existing behavior).
+    /// always attributes to its held RoomType — see <see cref="LoadActiveHoldDemandAsync"/>
+    /// for that shared query, which every caller of this method must also combine in.
     /// </summary>
+    /// <summary>
+    /// Active, unexpired <c>InventoryHold</c> demand for the half-open
+    /// <c>[checkIn, checkOut)</c> range, per (RoomTypeId, StayDate) — a Hold's nights
+    /// always attribute to their held RoomType (a Hold has no physical assignment
+    /// path). "Active, unexpired" means <c>Status == Active &amp;&amp;
+    /// ExpiresAtUtc &gt; utcNow</c>, evaluated against exactly one caller-supplied UTC
+    /// instant so a multi-night/multi-bucket evaluation is internally consistent. This
+    /// predicate previously existed independently in <see cref="AvailabilityDataSource"/>
+    /// and <see cref="BookingHoldCreationStore"/>; both now call this one shared query,
+    /// and PMS-BE-001.2-C1 added it to mutation final-capacity validation
+    /// (<see cref="RoomOccupancySegmentMutationSupport.ValidateFinalCapacityAsync"/>),
+    /// which previously omitted Hold demand entirely.
+    /// </summary>
+    public static async Task<IReadOnlyDictionary<(Guid RoomTypeId, DateOnly StayDate), int>> LoadActiveHoldDemandAsync(
+        TheBhaDbContext dbContext,
+        Guid propertyId,
+        DateOnly checkIn,
+        DateOnly checkOut,
+        DateTimeOffset utcNow,
+        CancellationToken cancellationToken)
+    {
+        var rows = await dbContext.InventoryHolds
+            .AsNoTracking()
+            .Where(hold =>
+                hold.PropertyId == propertyId &&
+                hold.Status == BookingHoldStatus.Active &&
+                hold.ExpiresAtUtc > utcNow)
+            .SelectMany(hold => hold.Items)
+            .SelectMany(item => item.Nights, (item, night) => new { item.RoomTypeId, night.StayDate })
+            .Where(row => row.StayDate >= checkIn && row.StayDate < checkOut)
+            .GroupBy(row => new { row.RoomTypeId, row.StayDate })
+            .Select(group => new { group.Key.RoomTypeId, group.Key.StayDate, Rooms = group.Count() })
+            .ToListAsync(cancellationToken);
+
+        return rows.ToDictionary(row => (row.RoomTypeId, row.StayDate), row => row.Rooms);
+    }
+
     public static async Task<IReadOnlyDictionary<(Guid RoomTypeId, DateOnly StayDate), int>> LoadAttributedReservationDemandAsync(
         TheBhaDbContext dbContext,
         Guid propertyId,

@@ -1,6 +1,5 @@
 using Microsoft.EntityFrameworkCore;
 using TheBha.Application.Properties;
-using TheBha.Domain.Bookings;
 using TheBha.Domain.Properties;
 
 namespace TheBha.Infrastructure.Persistence;
@@ -34,28 +33,17 @@ internal sealed class AvailabilityDataSource(TheBhaDbContext dbContext) : IAvail
             .GroupBy(x => x.RoomTypeId).Select(group => new { RoomTypeId = group.Key, Count = group.Count() }).ToDictionaryAsync(x => x.RoomTypeId, x => x.Count, cancellationToken);
         var controls = await dbContext.DailyInventoryControls.AsNoTracking().Where(x => x.PropertyId == propertyId && x.StayDate >= checkIn && x.StayDate < checkOut)
             .Select(x => new AvailabilityInventoryControlData(x.RoomTypeId, x.StayDate, x.SellableLimit, x.IsStopSell)).ToListAsync(cancellationToken);
-        var holdDemand = await dbContext.InventoryHolds.AsNoTracking()
-            .Where(hold =>
-                hold.PropertyId == propertyId &&
-                hold.Status == BookingHoldStatus.Active &&
-                hold.ExpiresAtUtc > utcNow)
-            .SelectMany(hold => hold.Items)
-            .SelectMany(item => item.Nights, (item, night) => new
-            {
-                item.RoomTypeId,
-                night.StayDate
-            })
-            .Where(row => row.StayDate >= checkIn && row.StayDate < checkOut)
-            .GroupBy(row => new { row.RoomTypeId, row.StayDate })
-            .Select(group => new AvailabilityCommittedDemandData(
-                group.Key.RoomTypeId,
-                group.Key.StayDate,
-                group.Count()))
-            .ToListAsync(cancellationToken);
-
-        // Assignment-aware reservation demand (blueprint §7 rules 1-7): loaded via the
-        // one shared query design also used by Hold creation and, in Phase 4, by
-        // assignment/block mutation final-state validation.
+        // Active, unexpired Hold demand and assignment-aware reservation demand
+        // (blueprint §7 rules 1-7), both loaded via the one shared query design also
+        // used by Hold creation and, in Phase 4, by assignment/block mutation
+        // final-state validation (PMS-BE-001.2-C1).
+        var holdDemand = await PhysicalCapacityDataLoader.LoadActiveHoldDemandAsync(
+            dbContext,
+            propertyId,
+            checkIn,
+            checkOut,
+            utcNow,
+            cancellationToken);
         var attributedReservationDemand = await PhysicalCapacityDataLoader.LoadAttributedReservationDemandAsync(
             dbContext,
             propertyId,
@@ -70,6 +58,7 @@ internal sealed class AvailabilityDataSource(TheBhaDbContext dbContext) : IAvail
             cancellationToken);
 
         var demand = holdDemand
+            .Select(entry => new AvailabilityCommittedDemandData(entry.Key.RoomTypeId, entry.Key.StayDate, entry.Value))
             .Concat(attributedReservationDemand.Select(entry => new AvailabilityCommittedDemandData(
                 entry.Key.RoomTypeId,
                 entry.Key.StayDate,

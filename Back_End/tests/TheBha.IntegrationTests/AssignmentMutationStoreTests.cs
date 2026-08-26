@@ -328,6 +328,103 @@ public sealed class AssignmentMutationStoreTests(PostgreSqlWebApplicationFactory
     }
 
     [Fact]
+    public async Task Active_unexpired_hold_causes_unsafe_cross_type_unassign_to_be_rejected_and_old_assignment_preserved()
+    {
+        // PMS-BE-001.2-C1: RoomTypeA has exactly one active room. An Active,
+        // unexpired InventoryHold — not a committed Reservation — occupies it,
+        // consuming the fallback headroom an unassign back to sold-type A would
+        // need. Before this correction, final-capacity validation omitted Hold
+        // demand entirely, so this unsafe unassign would have wrongly succeeded.
+        var data = await SeedAsync("hold-blocks-unassign", roomsAPerType: 1, unitsA: 1);
+        var store = CreateStore();
+        var created = await store.CreateAsync(
+            new CreateAssignmentCommand(
+                data.Property.Id, data.UnitsA[0].Id,
+                new AssignmentDestination(data.RoomsB[0].Id, CheckIn, CheckOut),
+                "actor:front-desk", "evidence:1", "upgrade"),
+            CancellationToken.None);
+        Assert.Equal(SegmentMutationStatus.Succeeded, created.Status);
+        var effective = created.Segments![0];
+
+        var fixedNow = Now.AddDays(60);
+        await PlaceActiveHoldAsync(data, data.RoomTypeA.Id, fixedNow.AddMinutes(-1));
+        factory.Clock.UtcNow = fixedNow;
+
+        var result = await store.SupersedeAsync(
+            new SupersedeAssignmentsCommand(
+                data.Property.Id,
+                [new AssignmentSupersession(effective.Id, effective.Version, [])],
+                "actor:front-desk", null, null),
+            CancellationToken.None);
+
+        Assert.Equal(SegmentMutationStatus.Conflict, result.Status);
+        await using var verify = factory.CreateDbContext();
+        var reloaded = await verify.RoomOccupancySegments.SingleAsync(s => s.Id == effective.Id);
+        Assert.Equal(RoomOccupancySegmentStatus.Effective, reloaded.Status);
+        Assert.Equal(data.RoomsB[0].Id, reloaded.PhysicalRoomId);
+        Assert.Equal(1, await verify.RoomOccupancySegmentAudits.CountAsync(a => a.SegmentId == effective.Id));
+    }
+
+    [Fact]
+    public async Task Expired_hold_does_not_block_a_safe_cross_type_unassign()
+    {
+        // Same setup as above, but the Hold's 15-minute lifetime has already
+        // elapsed relative to "now" — it must not count against RoomTypeA's
+        // capacity, so the unassign succeeds.
+        var data = await SeedAsync("expired-hold-safe-unassign", roomsAPerType: 1, unitsA: 1);
+        var store = CreateStore();
+        var created = await store.CreateAsync(
+            new CreateAssignmentCommand(
+                data.Property.Id, data.UnitsA[0].Id,
+                new AssignmentDestination(data.RoomsB[0].Id, CheckIn, CheckOut),
+                "actor:front-desk", "evidence:1", "upgrade"),
+            CancellationToken.None);
+        var effective = created.Segments![0];
+
+        var fixedNow = Now.AddDays(60);
+        await PlaceActiveHoldAsync(data, data.RoomTypeA.Id, fixedNow.AddMinutes(-30));
+        factory.Clock.UtcNow = fixedNow;
+
+        var result = await store.SupersedeAsync(
+            new SupersedeAssignmentsCommand(
+                data.Property.Id,
+                [new AssignmentSupersession(effective.Id, effective.Version, [])],
+                "actor:front-desk", null, null),
+            CancellationToken.None);
+
+        Assert.Equal(SegmentMutationStatus.Succeeded, result.Status);
+    }
+
+    [Fact]
+    public async Task Hold_expiring_at_exactly_utcNow_does_not_count_against_capacity()
+    {
+        var data = await SeedAsync("hold-expires-exactly-now", roomsAPerType: 1, unitsA: 1);
+        var store = CreateStore();
+        var created = await store.CreateAsync(
+            new CreateAssignmentCommand(
+                data.Property.Id, data.UnitsA[0].Id,
+                new AssignmentDestination(data.RoomsB[0].Id, CheckIn, CheckOut),
+                "actor:front-desk", "evidence:1", "upgrade"),
+            CancellationToken.None);
+        var effective = created.Segments![0];
+
+        var fixedNow = Now.AddDays(60);
+        // ExpiresAtUtc == fixedNow exactly: the store's utcNow > ExpiresAtUtc
+        // predicate is strict, so this Hold must not count.
+        await PlaceActiveHoldAsync(data, data.RoomTypeA.Id, fixedNow - InventoryHold.Lifetime);
+        factory.Clock.UtcNow = fixedNow;
+
+        var result = await store.SupersedeAsync(
+            new SupersedeAssignmentsCommand(
+                data.Property.Id,
+                [new AssignmentSupersession(effective.Id, effective.Version, [])],
+                "actor:front-desk", null, null),
+            CancellationToken.None);
+
+        Assert.Equal(SegmentMutationStatus.Succeeded, result.Status);
+    }
+
+    [Fact]
     public async Task Unsafe_cross_type_reassign_is_rejected_and_old_assignment_preserved()
     {
         var data = await SeedAsync("unsafe-reassign", roomsBPerType: 1, unitsA: 2);
@@ -699,6 +796,20 @@ public sealed class AssignmentMutationStoreTests(PostgreSqlWebApplicationFactory
                 "actor:front-desk", null, null),
             CancellationToken.None);
         Assert.Equal(SegmentMutationStatus.Succeeded, result.Status);
+    }
+
+    private async Task PlaceActiveHoldAsync(Fixture data, Guid roomTypeId, DateTimeOffset createdAtUtc, int quantity = 1)
+    {
+        await using var context = factory.CreateDbContext();
+        var nights = Enumerable.Range(0, CheckOut.DayNumber - CheckIn.DayNumber)
+            .Select(o => new NightlyCommitmentSnapshot(CheckIn.AddDays(o), data.RatePlan.Id, 100m))
+            .ToArray();
+        var hold = new InventoryHold(
+            Guid.NewGuid(), data.Property.Id, roomTypeId, quantity, null, "Hold Guest", "hold@example.com",
+            "+84 900 000 555", CheckIn, CheckOut, 1, 0, "VND", createdAtUtc,
+            HexHash("hold:idempotency"), HexHash("hold:fingerprint"), HexHash("hold:guest"), nights);
+        context.Add(hold);
+        await context.SaveChangesAsync();
     }
 
     private async Task<Fixture> SeedAsync(

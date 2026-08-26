@@ -142,6 +142,99 @@ public sealed class OperationalBlockMutationStoreTests(PostgreSqlWebApplicationF
     }
 
     [Fact]
+    public async Task Active_unexpired_hold_plus_existing_committed_demand_causes_block_creation_to_be_rejected()
+    {
+        // PMS-BE-001.2-C1: two rooms of one RoomType; one is already sold via a
+        // committed Reservation, the other is only held (Active, unexpired) — not
+        // yet committed. Before this correction, final-capacity validation omitted
+        // Hold demand entirely, so blocking the held room would have wrongly
+        // succeeded even though a live Hold already occupies it.
+        var data = await SeedAsync("hold-plus-committed-block", roomCount: 2);
+        await SellRoomTypeAsync(data);
+        var fixedNow = Now.AddDays(60);
+        await PlaceActiveHoldAsync(data, fixedNow.AddMinutes(-1));
+        factory.Clock.UtcNow = fixedNow;
+        var store = CreateStore();
+
+        var result = await store.CreateBlockAsync(
+            new CreateRoomBlockCommand(
+                data.Property.Id, "Maintenance", "actor:housekeeping",
+                [new BlockSegmentSpec(data.Rooms[1].Id, CheckIn, CheckOut)]),
+            CancellationToken.None);
+
+        Assert.Equal(SegmentMutationStatus.Conflict, result.Status);
+        await using var verify = factory.CreateDbContext();
+        Assert.Empty(await verify.RoomOccupancySegments.Where(s => s.PropertyId == data.Property.Id).ToListAsync());
+        Assert.Empty(await verify.RoomOccupancySegmentAudits.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Expired_hold_does_not_block_a_safe_block_creation()
+    {
+        // Same setup as above, but the Hold's 15-minute lifetime has already
+        // elapsed relative to "now" — it must not count against capacity, so the
+        // block (targeting the room that is only held, not committed) succeeds.
+        var data = await SeedAsync("expired-hold-safe-block", roomCount: 1);
+        var fixedNow = Now.AddDays(60);
+        await PlaceActiveHoldAsync(data, fixedNow.AddMinutes(-30));
+        factory.Clock.UtcNow = fixedNow;
+        var store = CreateStore();
+
+        var result = await store.CreateBlockAsync(
+            new CreateRoomBlockCommand(
+                data.Property.Id, "Maintenance", "actor:housekeeping",
+                [new BlockSegmentSpec(data.Rooms[0].Id, CheckIn, CheckOut)]),
+            CancellationToken.None);
+
+        Assert.Equal(SegmentMutationStatus.Succeeded, result.Status);
+    }
+
+    [Fact]
+    public async Task Hold_expiring_at_exactly_utcNow_does_not_count_against_capacity()
+    {
+        var data = await SeedAsync("hold-expires-exactly-now-block", roomCount: 1);
+        var fixedNow = Now.AddDays(60);
+        // ExpiresAtUtc == fixedNow exactly: the store's utcNow > ExpiresAtUtc
+        // predicate is strict, so this Hold must not count.
+        await PlaceActiveHoldAsync(data, fixedNow - TheBha.Domain.Bookings.InventoryHold.Lifetime);
+        factory.Clock.UtcNow = fixedNow;
+        var store = CreateStore();
+
+        var result = await store.CreateBlockAsync(
+            new CreateRoomBlockCommand(
+                data.Property.Id, "Maintenance", "actor:housekeeping",
+                [new BlockSegmentSpec(data.Rooms[0].Id, CheckIn, CheckOut)]),
+            CancellationToken.None);
+
+        Assert.Equal(SegmentMutationStatus.Succeeded, result.Status);
+    }
+
+    [Fact]
+    public async Task Multi_night_hold_demand_is_evaluated_against_one_shared_utc_instant()
+    {
+        // The Hold and the block both span the full 5-night CheckIn..CheckOut
+        // range. Final-capacity validation reads one utcNow instant for the whole
+        // multi-night evaluation, so the outcome is all-or-nothing across every
+        // affected night — never a partial per-night split from re-reading "now"
+        // mid-evaluation.
+        var data = await SeedAsync("hold-multi-night-one-instant", roomCount: 1);
+        var fixedNow = Now.AddDays(60);
+        await PlaceActiveHoldAsync(data, fixedNow.AddMinutes(-1));
+        factory.Clock.UtcNow = fixedNow;
+        var store = CreateStore();
+
+        var result = await store.CreateBlockAsync(
+            new CreateRoomBlockCommand(
+                data.Property.Id, "Maintenance", "actor:housekeeping",
+                [new BlockSegmentSpec(data.Rooms[0].Id, CheckIn, CheckOut)]),
+            CancellationToken.None);
+
+        Assert.Equal(SegmentMutationStatus.Conflict, result.Status);
+        await using var verify = factory.CreateDbContext();
+        Assert.Empty(await verify.RoomOccupancySegments.Where(s => s.PropertyId == data.Property.Id).ToListAsync());
+    }
+
+    [Fact]
     public async Task Concurrent_block_creation_and_hold_creation_cannot_oversell()
     {
         var data = await SeedAsync("block-vs-hold", roomCount: 1);
@@ -192,6 +285,20 @@ public sealed class OperationalBlockMutationStoreTests(PostgreSqlWebApplicationF
         context.Add(hold);
         var reservation = hold.Confirm(Guid.NewGuid(), $"BHA-{HexHash("sell")[..8].ToUpperInvariant()}", Now);
         context.Add(reservation);
+        await context.SaveChangesAsync();
+    }
+
+    private async Task PlaceActiveHoldAsync(Fixture data, DateTimeOffset createdAtUtc, int quantity = 1)
+    {
+        await using var context = factory.CreateDbContext();
+        var nights = Enumerable.Range(0, CheckOut.DayNumber - CheckIn.DayNumber)
+            .Select(o => new TheBha.Domain.Bookings.NightlyCommitmentSnapshot(CheckIn.AddDays(o), data.RatePlan.Id, 100m))
+            .ToArray();
+        var hold = new TheBha.Domain.Bookings.InventoryHold(
+            Guid.NewGuid(), data.Property.Id, data.RoomType.Id, quantity, null, "Hold Guest", "hold@example.com",
+            "+84 900 000 555", CheckIn, CheckOut, 1, 0, "VND", createdAtUtc,
+            HexHash("hold:idempotency"), HexHash("hold:fingerprint"), HexHash("hold:guest"), nights);
+        context.Add(hold);
         await context.SaveChangesAsync();
     }
 
