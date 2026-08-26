@@ -52,28 +52,36 @@ internal sealed class AvailabilityDataSource(TheBhaDbContext dbContext) : IAvail
                 group.Key.StayDate,
                 group.Count()))
             .ToListAsync(cancellationToken);
-        var reservationDemand = await dbContext.ReservationUnits.AsNoTracking()
-            .Where(unit =>
-                unit.PropertyId == propertyId &&
-                unit.CommitmentStatus == CommitmentStatus.Committed)
-            .SelectMany(unit => unit.Nights, (unit, night) => new
-            {
-                unit.RoomTypeId,
-                night.StayDate
-            })
-            .Where(row => row.StayDate >= checkIn && row.StayDate < checkOut)
-            .GroupBy(row => new { row.RoomTypeId, row.StayDate })
-            .Select(group => new AvailabilityCommittedDemandData(
-                group.Key.RoomTypeId,
-                group.Key.StayDate,
-                group.Count()))
-            .ToListAsync(cancellationToken);
-        var demand = holdDemand.Concat(reservationDemand)
+
+        // Assignment-aware reservation demand (blueprint §7 rules 1-7): loaded via the
+        // one shared query design also used by Hold creation and, in Phase 4, by
+        // assignment/block mutation final-state validation.
+        var attributedReservationDemand = await PhysicalCapacityDataLoader.LoadAttributedReservationDemandAsync(
+            dbContext,
+            propertyId,
+            checkIn,
+            checkOut,
+            cancellationToken);
+        var blockedRoomCounts = await PhysicalCapacityDataLoader.LoadBlockedRoomCountsAsync(
+            dbContext,
+            propertyId,
+            checkIn,
+            checkOut,
+            cancellationToken);
+
+        var demand = holdDemand
+            .Concat(attributedReservationDemand.Select(entry => new AvailabilityCommittedDemandData(
+                entry.Key.RoomTypeId,
+                entry.Key.StayDate,
+                entry.Value)))
             .GroupBy(row => new { row.RoomTypeId, row.StayDate })
             .Select(group => new AvailabilityCommittedDemandData(
                 group.Key.RoomTypeId,
                 group.Key.StayDate,
                 group.Sum(row => row.Rooms)))
+            .ToList();
+        var blockedRooms = blockedRoomCounts
+            .Select(entry => new AvailabilityBlockedRoomData(entry.Key.RoomTypeId, entry.Key.StayDate, entry.Value))
             .ToList();
         return new AvailabilityData(
             property,
@@ -82,6 +90,7 @@ internal sealed class AvailabilityDataSource(TheBhaDbContext dbContext) : IAvail
             rates,
             activeCounts,
             controls,
-            demand);
+            demand,
+            blockedRooms);
     }
 }

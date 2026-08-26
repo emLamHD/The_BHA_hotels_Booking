@@ -5,6 +5,7 @@ using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using TheBha.Application.Bookings;
+using TheBha.Application.Properties;
 using TheBha.Domain.Bookings;
 using TheBha.Domain.Common;
 using TheBha.Domain.Properties;
@@ -191,6 +192,12 @@ internal sealed class BookingHoldCreationStore(
                     control.IsStopSell
                 })
                 .ToDictionaryAsync(control => control.StayDate, cancellationToken);
+            var blockedRoomCounts = await PhysicalCapacityDataLoader.LoadBlockedRoomCountsAsync(
+                dbContext,
+                request.PropertyId,
+                request.CheckIn,
+                request.CheckOut,
+                cancellationToken);
             var committedDemand = await LoadCommittedDemandAsync(
                 request.PropertyId,
                 request.RoomTypeId,
@@ -202,9 +209,13 @@ internal sealed class BookingHoldCreationStore(
             foreach (var stayDate in stayDates)
             {
                 controls.TryGetValue(stayDate, out var control);
-                var controlledInventory = control?.IsStopSell == true
-                    ? 0
-                    : Math.Min(activeRooms, control?.SellableLimit ?? activeRooms);
+                var usablePhysicalCapacity = PhysicalCapacityFormula.UsablePhysicalCapacity(
+                    activeRooms,
+                    blockedRoomCounts.GetValueOrDefault((request.RoomTypeId, stayDate)));
+                var controlledInventory = PhysicalCapacityFormula.ControlledCapacity(
+                    usablePhysicalCapacity,
+                    control?.SellableLimit,
+                    control?.IsStopSell == true);
                 var remainingRooms = controlledInventory -
                     committedDemand.GetValueOrDefault(stayDate);
                 if (remainingRooms < request.Rooms)
@@ -321,17 +332,22 @@ internal sealed class BookingHoldCreationStore(
             .GroupBy(night => night.StayDate)
             .Select(group => new { StayDate = group.Key, Rooms = group.Count() })
             .ToListAsync(cancellationToken);
-        var reservationDemand = await dbContext.ReservationUnits
-            .AsNoTracking()
-            .Where(unit =>
-                unit.PropertyId == propertyId &&
-                unit.RoomTypeId == roomTypeId &&
-                unit.CommitmentStatus == CommitmentStatus.Committed)
-            .SelectMany(unit => unit.Nights)
-            .Where(night => night.StayDate >= checkIn && night.StayDate < checkOut)
-            .GroupBy(night => night.StayDate)
-            .Select(group => new { StayDate = group.Key, Rooms = group.Count() })
-            .ToListAsync(cancellationToken);
+
+        // Assignment-aware reservation demand (blueprint §7 rules 1-7), via the one
+        // shared query design also used by the public availability projection — a
+        // cross-RoomType assignment can move a night's attribution into this RoomType
+        // even though it was sold under a different one, or out of it even though it
+        // was sold under this one.
+        var attributedReservationDemand = await PhysicalCapacityDataLoader.LoadAttributedReservationDemandAsync(
+            dbContext,
+            propertyId,
+            checkIn,
+            checkOut,
+            cancellationToken);
+        var reservationDemand = attributedReservationDemand
+            .Where(entry => entry.Key.RoomTypeId == roomTypeId)
+            .Select(entry => new { StayDate = entry.Key.StayDate, Rooms = entry.Value });
+
         return holdDemand.Concat(reservationDemand)
             .GroupBy(row => row.StayDate)
             .ToDictionary(group => group.Key, group => group.Sum(row => row.Rooms));
