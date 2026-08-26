@@ -754,6 +754,14 @@ public sealed class BookingHoldApiTests(PostgreSqlWebApplicationFactory factory)
 
         await using (var context = factory.CreateDbContext())
         {
+            // CommitmentStatus, not Reservations.Status, is what drives committed
+            // demand (§14 of the blueprint) — a real Reservation.Cancel() call
+            // cascades to every Unit in the same transaction (ADR 0005 item 7), and
+            // PMS-BE-001.2's deferred unit-commitment-consistency trigger now
+            // database-enforces that a Cancelled Reservation has no Committed Unit at
+            // commit time — so both updates must land in the one explicit transaction
+            // below rather than as two separate autocommit statements.
+            await using var transaction = await context.Database.BeginTransactionAsync();
             await context.Database.ExecuteSqlInterpolatedAsync(
                 $"""
                  UPDATE "Reservations"
@@ -762,14 +770,12 @@ public sealed class BookingHoldApiTests(PostgreSqlWebApplicationFactory factory)
                      "CancellationReason" = 'Test cancellation'
                  WHERE "Id" = {reservationId}
                  """);
-            // CommitmentStatus, not Reservations.Status, is what drives committed
-            // demand (§14 of the blueprint) — a real Reservation.Cancel() call
-            // cascades to every Unit in the same transaction (ADR 0005 item 7).
             await context.Database.ExecuteSqlInterpolatedAsync(
                 $"""
                  UPDATE "ReservationUnits" SET "CommitmentStatus" = 'Cancelled'
                  WHERE "ReservationId" = {reservationId}
                  """);
+            await transaction.CommitAsync();
         }
 
         var cancelledOffers = await GetOffersAsync(client);

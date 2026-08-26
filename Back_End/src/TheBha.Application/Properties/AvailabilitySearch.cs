@@ -27,7 +27,19 @@ public sealed record AvailabilityRoomTypeData(Guid Id, Guid PropertyId, string C
 public sealed record AvailabilityRatePlanData(Guid Id, Guid PropertyId, string Code, string Name, string CurrencyCode);
 public sealed record AvailabilityDailyRateData(Guid RoomTypeId, Guid RatePlanId, DateOnly StayDate, decimal Amount);
 public sealed record AvailabilityInventoryControlData(Guid RoomTypeId, DateOnly StayDate, int? SellableLimit, bool IsStopSell);
+/// <summary>
+/// One RoomType/date's operational demand, already attributed per blueprint §7 rules
+/// 1-7: an unassigned Hold/Committed-unit night counts under its sold RoomType; a
+/// night covered by an Effective ReservationAssignment counts instead under the
+/// assigned PhysicalRoom's actual RoomType. Exactly one bucket per room-night.
+/// </summary>
 public sealed record AvailabilityCommittedDemandData(Guid RoomTypeId, DateOnly StayDate, int Rooms);
+/// <summary>
+/// Distinct Active PhysicalRooms of one RoomType carrying an Effective
+/// OperationalBlock on one date (blueprint §7 rules 10-12) — deducted from
+/// <see cref="AvailabilityData.ActiveRoomCounts"/> before daily controls are applied.
+/// </summary>
+public sealed record AvailabilityBlockedRoomData(Guid RoomTypeId, DateOnly StayDate, int Rooms);
 public sealed record AvailabilityData(
     AvailabilityPropertyData Property,
     IReadOnlyList<AvailabilityRoomTypeData> RoomTypes,
@@ -35,7 +47,8 @@ public sealed record AvailabilityData(
     IReadOnlyList<AvailabilityDailyRateData> DailyRates,
     IReadOnlyDictionary<Guid, int> ActiveRoomCounts,
     IReadOnlyList<AvailabilityInventoryControlData> InventoryControls,
-    IReadOnlyList<AvailabilityCommittedDemandData> CommittedDemand);
+    IReadOnlyList<AvailabilityCommittedDemandData> CommittedDemand,
+    IReadOnlyList<AvailabilityBlockedRoomData> BlockedRooms);
 
 public interface IAvailabilityDataSource
 {
@@ -74,6 +87,7 @@ public sealed class AvailabilitySearch(IAvailabilityDataSource dataSource, TimeP
         var people = (long)request.Adults + request.Children;
         var controls = data.InventoryControls.GroupBy(x => x.RoomTypeId).ToDictionary(group => group.Key, group => group.ToDictionary(x => x.StayDate));
         var demand = data.CommittedDemand.ToDictionary(x => (x.RoomTypeId, x.StayDate), x => x.Rooms);
+        var blockedRooms = data.BlockedRooms.ToDictionary(x => (x.RoomTypeId, x.StayDate), x => x.Rooms);
         var rates = data.DailyRates.GroupBy(x => (x.RoomTypeId, x.RatePlanId)).ToDictionary(group => group.Key, group => group.OrderBy(x => x.StayDate).ToList());
         var offers = new List<AvailabilityOfferDto>();
         foreach (var roomType in data.RoomTypes.Where(x => people <= (long)x.MaxOccupancy * request.Rooms))
@@ -83,12 +97,16 @@ public sealed class AvailabilitySearch(IAvailabilityDataSource dataSource, TimeP
             {
                 AvailabilityInventoryControlData? control = null;
                 if (controls.TryGetValue(roomType.Id, out var roomControls)) roomControls.TryGetValue(date, out control);
-                var controlledInventory = control?.IsStopSell == true
-                    ? 0
-                    : Math.Min(baseInventory, control?.SellableLimit ?? baseInventory);
-                return Math.Max(
-                    0,
-                    controlledInventory - demand.GetValueOrDefault((roomType.Id, date)));
+                var usablePhysicalCapacity = PhysicalCapacityFormula.UsablePhysicalCapacity(
+                    baseInventory,
+                    blockedRooms.GetValueOrDefault((roomType.Id, date)));
+                var controlledCapacity = PhysicalCapacityFormula.ControlledCapacity(
+                    usablePhysicalCapacity,
+                    control?.SellableLimit,
+                    control?.IsStopSell == true);
+                return PhysicalCapacityFormula.AvailableToSell(
+                    controlledCapacity,
+                    demand.GetValueOrDefault((roomType.Id, date)));
             }).Min();
             if (availableRooms < request.Rooms) continue;
             foreach (var plan in data.RatePlans)

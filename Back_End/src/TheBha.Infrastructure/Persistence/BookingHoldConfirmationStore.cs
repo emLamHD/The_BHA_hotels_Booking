@@ -76,19 +76,14 @@ internal sealed class BookingHoldConfirmationStore(
             }
 
             var roomTypeId = hold.Items[0].RoomTypeId;
-            foreach (var stayDate in hold.Items
-                         .SelectMany(item => item.Nights)
-                         .Select(night => night.StayDate)
-                         .Distinct()
-                         .OrderBy(date => date))
-            {
-                await AcquireLockAsync(
-                    BookingAdvisoryLockKeys.ForInventory(
-                        hold.PropertyId,
-                        roomTypeId,
-                        stayDate),
-                    cancellationToken);
-            }
+            var lockPlan = new LockPlanBuilder()
+                .WithRoomTypeScope(hold.PropertyId, roomTypeId)
+                .WithInventory(
+                    hold.PropertyId,
+                    roomTypeId,
+                    hold.Items.SelectMany(item => item.Nights).Select(night => night.StayDate).Distinct())
+                .Build();
+            await AdvisoryLockCoordinator.AcquireAsync(dbContext, lockPlan, cancellationToken);
 
             var utcNow = timeProvider.GetUtcNow().ToUniversalTime();
             var reservationId = reservationIdGenerator.Generate();
@@ -154,12 +149,8 @@ internal sealed class BookingHoldConfirmationStore(
         (guestAccessTokenHash is not null &&
          resourceGuestAccessTokenHash == guestAccessTokenHash);
 
-    private async Task AcquireLockAsync(long lockKey, CancellationToken cancellationToken)
-    {
-        await dbContext.Database.ExecuteSqlInterpolatedAsync(
-            $"SELECT pg_advisory_xact_lock({lockKey})",
-            cancellationToken);
-    }
+    private Task AcquireLockAsync(long lockKey, CancellationToken cancellationToken) =>
+        AdvisoryLockCoordinator.AcquireKeyAsync(dbContext, lockKey, cancellationToken);
 
     private static async Task<BookingHoldConfirmationResult> RollbackResultAsync(
         Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction transaction,

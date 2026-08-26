@@ -98,6 +98,28 @@ public sealed class AvailabilitySearchTests
     }
 
     [Fact]
+    public async Task Blocked_rooms_reduce_usable_capacity_before_the_sellable_limit_is_applied()
+    {
+        // 3 active rooms, 1 blocked on the second night -> usable 2, min(2, limit=2) = 2,
+        // matching the blueprint §7 worked example's non-reversed ordering.
+        var data = BuildData(limit: 2);
+        var roomTypeId = data.RoomTypes.Single().Id;
+        data = data with
+        {
+            BlockedRooms = [new AvailabilityBlockedRoomData(roomTypeId, LocalToday.AddDays(1), 1)]
+        };
+
+        var result = await Service(new DataSource { Data = data })
+            .SearchAsync(Request() with { Rooms = 2 }, CancellationToken.None);
+        Assert.Equal(AvailabilitySearchStatus.Success, result.Status);
+        Assert.Equal(2, result.Offers.Single().AvailableRooms);
+
+        var overBlocked = await Service(new DataSource { Data = data })
+            .SearchAsync(Request() with { Rooms = 3 }, CancellationToken.None);
+        Assert.Empty(overBlocked.Offers);
+    }
+
+    [Fact]
     public async Task Missing_or_inactive_property_maps_to_not_found_and_cancellation_propagates()
     {
         var missing = await Service(new DataSource { Data = null }).SearchAsync(Request(), CancellationToken.None);
@@ -124,6 +146,7 @@ public sealed class AvailabilitySearchTests
             [new AvailabilityRoomTypeData(roomId, propertyId, "DLX", "Deluxe", "Room", 2, [])], plans, rates,
             new Dictionary<Guid, int> { [roomId] = 3 },
             [new AvailabilityInventoryControlData(roomId, LocalToday.AddDays(1), limit, stopSell)],
+            [],
             []);
     }
 

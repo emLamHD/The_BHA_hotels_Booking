@@ -6,9 +6,9 @@ The repository separates deployable applications under `Front_End` and `Back_End
 
 CURRENT frontend (PR #32): a room/date timeline with multi-property demo switching, assigned/unassigned reservations, operational blocks, reservation hover/detail views, drag-and-drop room moves, date shifting, negotiated pricing, a reservation-creation workspace, and a front-desk lifecycle/folio/notes/activity workspace, over deterministic local mock state (`mockData.ts`, a fixed demo-clock anchor). State is not owned by one reducer: reservation-board durable mutations (lifecycle, folio, moves) go through the `reservationRuntimeReducer` in `reservationRuntime.ts`; the reservation-creation workflow has its own `formReducer` in `CreateReservationForm.tsx`; and board presentation/view state (selection, range, filters, drag) is component-local `useState` in `ReservationBoard.tsx`. None of this reads or writes real data: there is no backend call, no persistence, and every reload resets to the same mock baseline.
 
-CURRENT backend: unchanged from BE-003 — the single-RoomType-per-booking `BookingHold`/`Reservation` model (§ below), exactly six PostgreSQL migrations, no PMS migration, no Admin authentication/RBAC, no OTA integration. The Admin frontend prototype is not connected to it.
+CURRENT backend (`PMS-BE-001.2`, migration 8): the normalized commercial-commitment authority from `PMS-BE-001.1` — `InventoryHold → InventoryHoldItem → InventoryHoldItemNight` and `Reservation → ReservationUnit → ReservationUnitNight` (ADR 0005), one `RoomTypeId`/`RatePlanId` per public request — plus a physical-room schedule authority added by `PMS-BE-001.2`: `RoomOccupancySegment`/`RoomBlock` (ADR 0006), the assignment-aware and block-adjusted availability formula, and internal-only assignment/block mutation commands. Eight PostgreSQL migrations exist in total; no Admin authentication/RBAC, no OTA integration, and no HTTP/Admin/Calendar endpoint expose any of this scheduling authority. The Admin frontend prototype is not connected to it. See "Physical-room schedule authority" below.
 
-TARGET architecture (unimplemented): Customer Web and Admin Web as separate clients of one shared ASP.NET Core backend and one shared PostgreSQL database, with the full multi-RoomType/physical-allocation PMS design, Admin authentication/RBAC, and OTA behavior. See [`docs/design/PMS-DATA-001-core-database-blueprint-v2.md`](design/PMS-DATA-001-core-database-blueprint-v2.md), [ADR 0005](ADR/0005-separate-commercial-commitment-from-physical-allocation.md), and [ADR 0006](ADR/0006-schedule-physical-rooms-with-occupancy-segments.md) for the full target PMS design; this document does not duplicate it, and the CURRENT frontend prototype described above is not authoritative persistence or concurrency evidence for that TARGET design.
+TARGET architecture (unimplemented): Customer Web and Admin Web as separate clients of one shared ASP.NET Core backend and one shared PostgreSQL database, with the full multi-RoomType public request shape, Admin authentication/RBAC, HTTP/Admin/Calendar integration of the physical-room schedule authority, and OTA behavior. See [`docs/design/PMS-DATA-001-core-database-blueprint-v2.md`](design/PMS-DATA-001-core-database-blueprint-v2.md), [ADR 0005](ADR/0005-separate-commercial-commitment-from-physical-allocation.md), and [ADR 0006](ADR/0006-schedule-physical-rooms-with-occupancy-segments.md) for the full target PMS design; this document does not duplicate it, and the CURRENT frontend prototype described above is not authoritative persistence or concurrency evidence for that TARGET design.
 
 The backend targets .NET 8 and uses Clean Architecture project boundaries. The
 Domain contains catalog, pricing/inventory-control, and transactional
@@ -52,10 +52,33 @@ Atomic Hold creation uses explicit transactions and parameterized
 no PostgreSQL dependency. BE-003.5 extends this same transaction/advisory-lock
 contract to Hold cancellation and Reservation cancellation, reusing the
 existing Hold-transition and per-night inventory lock keys in the same
-lifecycle-then-inventory order. The API does not
+lifecycle-then-inventory order. `PMS-BE-001.2` introduces a shared,
+deterministic `AdvisoryLockCoordinator` (`Infrastructure/Persistence/AdvisoryLockCoordinator.cs`)
+that every advisory-lock-taking writer, old and new, now goes through
+instead of its own ad hoc lock-key handling, without changing prior lock
+semantics — exact lock-class order is recorded in
+`docs/reports/PMS-BE-001.2-completion.md`. The API does not
 apply migrations or seed data during normal startup.
 
 PostgreSQL 17 runs locally through Docker Compose with a named volume and is also used by the backend integration-test job in GitHub Actions. The API does not call `EnsureCreated()` or apply migrations during startup.
+
+## Physical-room schedule authority (`PMS-BE-001.2`)
+
+`TheBha.Domain/Scheduling` and `TheBha.Infrastructure/Persistence` add the
+sole PhysicalRoom schedule authority — `RoomOccupancySegment`/`RoomBlock`,
+persisted by migration 8 — with PostgreSQL-enforced overlap, booked-night-
+coverage, and same-Property invariants (ADR 0006). `Application/Properties/PhysicalCapacityFormula.cs`
+extends ADR 0004's availability formula to be block-adjusted and
+assignment-attributed; `IReservationCancellationStore` atomically cancels
+any still-`Effective` assignment segments alongside Reservation
+cancellation. `IAssignmentMutationStore` and `IOperationalBlockMutationStore`
+(`Infrastructure/Persistence/AssignmentMutationStore.cs`,
+`OperationalBlockMutationStore.cs`) are internal application/persistence
+boundary services only — **no HTTP controller or Admin/Calendar endpoint
+exposes them**, and no Staff identity or Admin RBAC model exists. Exact
+invariants, the availability formula, mutation semantics, and error mapping
+are recorded in ADR 0006 and `docs/reports/PMS-BE-001.2-completion.md`, not
+duplicated here.
 
 ## Deliberately deferred decisions
 

@@ -5,6 +5,7 @@ using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using TheBha.Application.Bookings;
+using TheBha.Application.Properties;
 using TheBha.Domain.Bookings;
 using TheBha.Domain.Common;
 using TheBha.Domain.Properties;
@@ -45,15 +46,11 @@ internal sealed class BookingHoldCreationStore(
                 .Select(request.CheckIn.AddDays)
                 .Order()
                 .ToArray();
-            foreach (var stayDate in stayDates)
-            {
-                await AcquireLockAsync(
-                    BookingAdvisoryLockKeys.ForInventory(
-                        request.PropertyId,
-                        request.RoomTypeId,
-                        stayDate),
-                    cancellationToken);
-            }
+            var lockPlan = new LockPlanBuilder()
+                .WithRoomTypeScope(request.PropertyId, request.RoomTypeId)
+                .WithInventory(request.PropertyId, request.RoomTypeId, stayDates)
+                .Build();
+            await AdvisoryLockCoordinator.AcquireAsync(dbContext, lockPlan, cancellationToken);
 
             existing = await FindExistingAsync(
                 request.IdempotencyKeyHash,
@@ -195,6 +192,12 @@ internal sealed class BookingHoldCreationStore(
                     control.IsStopSell
                 })
                 .ToDictionaryAsync(control => control.StayDate, cancellationToken);
+            var blockedRoomCounts = await PhysicalCapacityDataLoader.LoadBlockedRoomCountsAsync(
+                dbContext,
+                request.PropertyId,
+                request.CheckIn,
+                request.CheckOut,
+                cancellationToken);
             var committedDemand = await LoadCommittedDemandAsync(
                 request.PropertyId,
                 request.RoomTypeId,
@@ -206,9 +209,13 @@ internal sealed class BookingHoldCreationStore(
             foreach (var stayDate in stayDates)
             {
                 controls.TryGetValue(stayDate, out var control);
-                var controlledInventory = control?.IsStopSell == true
-                    ? 0
-                    : Math.Min(activeRooms, control?.SellableLimit ?? activeRooms);
+                var usablePhysicalCapacity = PhysicalCapacityFormula.UsablePhysicalCapacity(
+                    activeRooms,
+                    blockedRoomCounts.GetValueOrDefault((request.RoomTypeId, stayDate)));
+                var controlledInventory = PhysicalCapacityFormula.ControlledCapacity(
+                    usablePhysicalCapacity,
+                    control?.SellableLimit,
+                    control?.IsStopSell == true);
                 var remainingRooms = controlledInventory -
                     committedDemand.GetValueOrDefault(stayDate);
                 if (remainingRooms < request.Rooms)
@@ -313,29 +320,35 @@ internal sealed class BookingHoldCreationStore(
         DateTimeOffset utcNow,
         CancellationToken cancellationToken)
     {
-        var holdDemand = await dbContext.InventoryHolds
-            .AsNoTracking()
-            .Where(hold =>
-                hold.Status == BookingHoldStatus.Active &&
-                hold.ExpiresAtUtc > utcNow)
-            .SelectMany(hold => hold.Items)
-            .Where(item => item.PropertyId == propertyId && item.RoomTypeId == roomTypeId)
-            .SelectMany(item => item.Nights)
-            .Where(night => night.StayDate >= checkIn && night.StayDate < checkOut)
-            .GroupBy(night => night.StayDate)
-            .Select(group => new { StayDate = group.Key, Rooms = group.Count() })
-            .ToListAsync(cancellationToken);
-        var reservationDemand = await dbContext.ReservationUnits
-            .AsNoTracking()
-            .Where(unit =>
-                unit.PropertyId == propertyId &&
-                unit.RoomTypeId == roomTypeId &&
-                unit.CommitmentStatus == CommitmentStatus.Committed)
-            .SelectMany(unit => unit.Nights)
-            .Where(night => night.StayDate >= checkIn && night.StayDate < checkOut)
-            .GroupBy(night => night.StayDate)
-            .Select(group => new { StayDate = group.Key, Rooms = group.Count() })
-            .ToListAsync(cancellationToken);
+        // Active, unexpired Hold demand, via the one shared query design also used by
+        // the public availability projection and, in Phase 4, by assignment/block
+        // mutation final-state validation (PMS-BE-001.2-C1).
+        var activeHoldDemand = await PhysicalCapacityDataLoader.LoadActiveHoldDemandAsync(
+            dbContext,
+            propertyId,
+            checkIn,
+            checkOut,
+            utcNow,
+            cancellationToken);
+        var holdDemand = activeHoldDemand
+            .Where(entry => entry.Key.RoomTypeId == roomTypeId)
+            .Select(entry => new { StayDate = entry.Key.StayDate, Rooms = entry.Value });
+
+        // Assignment-aware reservation demand (blueprint §7 rules 1-7), via the one
+        // shared query design also used by the public availability projection — a
+        // cross-RoomType assignment can move a night's attribution into this RoomType
+        // even though it was sold under a different one, or out of it even though it
+        // was sold under this one.
+        var attributedReservationDemand = await PhysicalCapacityDataLoader.LoadAttributedReservationDemandAsync(
+            dbContext,
+            propertyId,
+            checkIn,
+            checkOut,
+            cancellationToken);
+        var reservationDemand = attributedReservationDemand
+            .Where(entry => entry.Key.RoomTypeId == roomTypeId)
+            .Select(entry => new { StayDate = entry.Key.StayDate, Rooms = entry.Value });
+
         return holdDemand.Concat(reservationDemand)
             .GroupBy(row => row.StayDate)
             .ToDictionary(group => group.Key, group => group.Sum(row => row.Rooms));
@@ -352,12 +365,8 @@ internal sealed class BookingHoldCreationStore(
                 hold => hold.IdempotencyKeyHash == idempotencyKeyHash,
                 cancellationToken);
 
-    private async Task AcquireLockAsync(long lockKey, CancellationToken cancellationToken)
-    {
-        await dbContext.Database.ExecuteSqlInterpolatedAsync(
-            $"SELECT pg_advisory_xact_lock({lockKey})",
-            cancellationToken);
-    }
+    private Task AcquireLockAsync(long lockKey, CancellationToken cancellationToken) =>
+        AdvisoryLockCoordinator.AcquireKeyAsync(dbContext, lockKey, cancellationToken);
 
     private static async Task<BookingHoldCreationResult> CompleteReplayAsync(
         Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction transaction,
@@ -439,6 +448,8 @@ public static class BookingAdvisoryLockKeys
     private const string IdempotencyNamespace = "thebha:booking:idempotency:v1:";
     private const string InventoryNamespace = "thebha:booking:inventory:v1:";
     private const string HoldTransitionNamespace = "thebha:booking:hold-transition:v1:";
+    private const string ReservationUnitNamespace = "thebha:pms:reservation-unit:v1:";
+    private const string RoomTypeInventoryScopeNamespace = "thebha:pms:roomtype-inventory-scope:v1:";
 
     public static long ForIdempotency(string idempotencyKeyHash) =>
         HashToInt64(IdempotencyNamespace + idempotencyKeyHash);
@@ -458,6 +469,28 @@ public static class BookingAdvisoryLockKeys
                 roomTypeId.ToString("D"),
                 ":",
                 stayDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));
+
+    /// <summary>
+    /// PMS-BE-001.2 §7.1 lock class 2: serializes concurrent mutations (assignment
+    /// create/activate/split/move/cancel) against the same ReservationUnit's
+    /// physical schedule.
+    /// </summary>
+    public static long ForReservationUnit(Guid reservationUnitId) =>
+        HashToInt64(ReservationUnitNamespace + reservationUnitId.ToString("D"));
+
+    /// <summary>
+    /// PMS-BE-001.2 §7.1 lock class 3: serializes PhysicalRoom-capacity changes
+    /// (block create/cancel, operational-status change) for one RoomType against
+    /// every date-specific demand writer for that RoomType, including dates not
+    /// yet present in any daily-inventory lock.
+    /// </summary>
+    public static long ForRoomTypeInventoryScope(Guid propertyId, Guid roomTypeId) =>
+        HashToInt64(
+            string.Concat(
+                RoomTypeInventoryScopeNamespace,
+                propertyId.ToString("D"),
+                ":",
+                roomTypeId.ToString("D")));
 
     private static long HashToInt64(string value)
     {

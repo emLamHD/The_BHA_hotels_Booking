@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using TheBha.Domain.Bookings;
 using TheBha.Infrastructure.Identity;
 using TheBha.Domain.Properties;
+using TheBha.Domain.Scheduling;
 
 namespace TheBha.Infrastructure.Persistence;
 
@@ -28,6 +29,9 @@ public sealed class TheBhaDbContext(DbContextOptions<TheBhaDbContext> options)
     public DbSet<RoomTypeAmenity> RoomTypeAmenities => Set<RoomTypeAmenity>();
     public DbSet<PropertyMedia> PropertyMedia => Set<PropertyMedia>();
     public DbSet<RoomTypeMedia> RoomTypeMedia => Set<RoomTypeMedia>();
+    public DbSet<RoomBlock> RoomBlocks => Set<RoomBlock>();
+    public DbSet<RoomOccupancySegment> RoomOccupancySegments => Set<RoomOccupancySegment>();
+    public DbSet<RoomOccupancySegmentAudit> RoomOccupancySegmentAudits => Set<RoomOccupancySegmentAudit>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

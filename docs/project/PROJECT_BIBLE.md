@@ -73,6 +73,15 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   `RoomTypeId`, một `RatePlanId` và `rooms = Q`; transaction tạo Hold normalize
   atomically thành `Q` Item độc lập, và `BookingHoldDto`/`ReservationDto`
   được project từ các row normalized đó (CURRENT).
+- `PMS-BE-001.2` (migration 8) đã implement database authority cho
+  physical-room allocation độc lập với commercial commitment
+  (`RoomOccupancySegments`/`RoomBlock`, database-enforced invariants — xem
+  ADR 0006). Availability đã block-adjusted và assignment-attributed; hủy
+  Reservation tự động hủy mọi assignment liên quan cùng transaction.
+  Internal-only mutation commands tồn tại ở application/persistence boundary
+  — **không có HTTP controller hay Admin/Calendar endpoint nào** expose
+  chúng, không có Staff identity, không có Admin RBAC model. Chi tiết đầy đủ
+  trong `docs/reports/PMS-BE-001.2-completion.md`.
 
 ### Target/approved, chưa implement (TARGET)
 
@@ -81,12 +90,14 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   Item/Unit cho việc này đã CURRENT (`PMS-BE-001.1` ở trên), nhưng public API
   vẫn giới hạn đúng một RoomType/RatePlan mỗi request; mở rộng lên
   multi-RoomType request là TARGET riêng, chưa implement — xem ADR 0005.
-- Physical-room allocation độc lập với commercial commitment, qua
-  `RoomOccupancySegments` (segment type `ReservationAssignment`/
-  `OperationalBlock`, status `Effective`/`Cancelled`) và hai PostgreSQL
-  exclusion invariant — xem ADR 0006.
-- Intentional cross-RoomType upgrade/downgrade có authorization/reason/
-  audit, không reprice commercial record.
+- HTTP/Admin/Calendar integration của physical-room schedule authority
+  (`RoomOccupancySegments`/`RoomBlock`, đã CURRENT ở trên) — bao gồm mọi
+  endpoint, Admin authentication/RBAC thật, và Staff identity thật để thay
+  cho `ActorReference`/`AuthorizationEvidence` opaque hiện tại.
+- Intentional cross-RoomType upgrade/downgrade **có authorization/reason/
+  audit thật qua Staff/RBAC** (opaque `AuthorizationEvidence`/`Reason` string
+  đã CURRENT ở mutation boundary trên, nhưng không phải permission check
+  thật), không reprice commercial record.
 - Calendar/Reservation Board là projection, không phải aggregate riêng.
 - `FolioEntries` là financial posting authority riêng biệt với booking
   snapshot; Guest identity document và Stay Declaration là hai concept có
@@ -219,52 +230,62 @@ Xem [ADR 0003](../ADR/0003-model-hotel-stays-with-half-open-date-ranges.md).
   ReservationUnitNight`); committed demand đếm mỗi `InventoryHoldItemNight`
   của Hold `Active`/chưa hết hạn và mỗi `ReservationUnitNight` của Unit
   `Committed`, đúng một lần. Public request vẫn chỉ nhận một RoomType/
-  RatePlan; multi-RoomType public request và physical-room allocation độc
-  lập vẫn TARGET, chưa implement — xem
+  RatePlan; multi-RoomType public request vẫn TARGET, chưa implement.
+  Physical-room allocation độc lập (`RoomOccupancySegments`/`RoomBlock`) đã
+  CURRENT ở database authority/availability/internal mutation boundary
+  (`PMS-BE-001.2`, migration 8) — HTTP/Admin/Calendar exposure và Staff/RBAC
+  thật vẫn TARGET, chưa implement — xem
   [PMS-DATA-001-core-database-blueprint-v2](../design/PMS-DATA-001-core-database-blueprint-v2.md),
   [ADR 0005](../ADR/0005-separate-commercial-commitment-from-physical-allocation.md)
   và
   [ADR 0006](../ADR/0006-schedule-physical-rooms-with-occupancy-segments.md).
-- TARGET, chưa implement: `Effective OperationalBlock` (§9, ADR 0006) làm
-  giảm usable physical capacity của `RoomTypeDailyInventory` trước khi daily
-  control (`SellableLimit`/`IsStopSell`, ADR 0004) và operational demand được
-  áp dụng — phòng bị block để bảo trì không còn được coi là sellable, tránh
-  oversell trên capacity không còn tồn tại thật.
-- TARGET, chưa implement: Hold và Reservation night chưa được assign vật lý
-  tính demand vào RoomType đã bán (sold); night có `Effective
+- CURRENT (`PMS-BE-001.2`): `Effective OperationalBlock` (§9, ADR 0006) làm
+  giảm usable physical capacity trước khi daily control
+  (`SellableLimit`/`IsStopSell`, ADR 0004) và operational demand được áp
+  dụng — phòng bị block để bảo trì không còn được coi là sellable, tránh
+  oversell trên capacity không còn tồn tại thật. `RoomTypeDailyInventory`
+  như một bảng materialized projection riêng vẫn TARGET, chưa implement;
+  công thức được tính on-read trong `AvailabilityDataSource`.
+- CURRENT (`PMS-BE-001.2`): Hold và Reservation night chưa được assign vật
+  lý tính demand vào RoomType đã bán (sold); night có `Effective
   ReservationAssignment` tính demand vào RoomType thật của PhysicalRoom được
   gán, đúng một lần, không tính cả hai — nhờ vậy một phòng vật lý đã bị
   occupy qua cross-RoomType assignment không thể tiếp tục bán được, mà không
-  ghi đè commercial record (RoomType/giá đã bán không đổi). Công thức chính
-  xác và quy tắc atomic locking nằm trong blueprint §7 và ADR 0006 Decision
-  item 10.
+  ghi đè commercial record (RoomType/giá đã bán không đổi). Assignment
+  *mutation* chỉ được validate với `UsablePhysicalCapacity` thô, không bao
+  giờ với `ControlledCapacity`/`SellableLimit`/`IsStopSell` (các quy tắc đó
+  chỉ chi phối demand thương mại *mới*). Công thức chính xác và quy tắc
+  atomic locking nằm trong blueprint §7 và ADR 0006 Decision item 10.
 - CURRENT (`PMS-BE-001.1`): `RatePlanId` được lưu ở cấp nightly trên cả
   `InventoryHoldItemNight` và `ReservationUnitNight`, không chỉ ở cấp
   aggregate; Hold confirmation copy đúng `RatePlanId` này 1:1, không suy
   diễn từ giá (hai RatePlan có thể cùng giá) và không re-read rate hiện tại
   — xem blueprint §6 và ADR 0005 Decision item 1-2.
-- TARGET, chưa implement: mỗi `RoomOccupancySegment` và mọi reference nó
+- CURRENT (`PMS-BE-001.2`): mỗi `RoomOccupancySegment` và mọi reference nó
   populate (PhysicalRoom, ReservationUnit, RoomBlock) phải cùng một
-  Property, được database-enforced chứ không chỉ authorization/UI check;
-  một `RoomBlock` không bao giờ span nhiều Property; cross-RoomType
-  assignment chỉ hợp lệ trong cùng một Property — xem blueprint §9/§11/§12
-  và ADR 0006 Decision item 3.
+  Property, database-enforced qua composite alternate-key foreign key chứ
+  không chỉ authorization/UI check; một `RoomBlock` không bao giờ span nhiều
+  Property; cross-RoomType assignment chỉ hợp lệ trong cùng một Property —
+  xem blueprint §9/§11/§12 và ADR 0006 Decision item 3.
 - CURRENT (`PMS-BE-001.1`): `ReservationUnit.CommitmentStatus = Committed |
   Cancelled` là lifecycle chính thức của unit. Chỉ night thuộc unit
   `Committed` mới tính demand; `Cancelled` giữ nguyên toàn bộ row/snapshot
   làm bằng chứng lịch sử, không xóa, không tạo fallback demand ở bucket
   khác. Work item này chỉ cung cấp whole-Reservation cancellation (không có
   endpoint hủy từng Unit riêng lẻ): hủy Reservation chuyển atomically mọi
-  Unit còn `Committed` sang `Cancelled` trong cùng transaction. TARGET, chưa
-  implement: hủy unit tự động hủy mọi `Effective` `RoomOccupancySegment`
-  assignment của nó (chưa tồn tại — ADR 0006) — xem blueprint §6 item 13, §7
-  và ADR 0005 Decision item 7.
-- TARGET, chưa implement: cross-RoomType assignment mang tính operationally
+  Unit còn `Committed` sang `Cancelled` trong cùng transaction. CURRENT
+  (`PMS-BE-001.2`): hủy Reservation tự động hủy mọi `Effective`
+  `RoomOccupancySegment` assignment của các Unit bị hủy, trong cùng
+  transaction — xem blueprint §6 item 13, §7 và ADR 0005 Decision item 7.
+  Independent per-Unit cancellation endpoint (tách rời hủy cả Reservation)
+  vẫn TARGET, chưa implement.
+- CURRENT (`PMS-BE-001.2`): cross-RoomType assignment mang tính operationally
   binding, không tự động reversible — unassign hoặc reassign chỉ thành công
-  khi capacity đích/fallback đủ ở final state; mutation không đủ capacity
-  bị reject nguyên transaction, giữ nguyên assignment cũ. Không có hidden
-  rollback reserve, không double-bucket, không overbooking override — xem
-  blueprint §7 rules 20–26, §12 và ADR 0006 Decision item 5.
+  khi capacity đích/fallback đủ ở final state (một lần evaluate final state,
+  không sequential-validate từng bước trong batch move/swap); mutation
+  không đủ capacity bị reject nguyên transaction, giữ nguyên assignment cũ.
+  Không có hidden rollback reserve, không double-bucket, không overbooking
+  override — xem blueprint §7 rules 20–26, §12 và ADR 0006 Decision item 5.
 
 Xem [ADR 0004](../ADR/0004-compute-effective-inventory-with-daily-controls.md).
 

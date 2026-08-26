@@ -75,6 +75,7 @@ public sealed class DailyInventoryControlCommandTests
         public Task<DailyInventoryControl?> FindAsync(Guid p, Guid r, DateOnly d, CancellationToken token) { LastToken = token; return Task.FromResult(Existing); }
         public Task SaveAsync(DailyInventoryControl control, CancellationToken token) { LastToken = token; Saved = true; Existing = control; return Task.CompletedTask; }
         public Task<bool> DeleteAsync(DailyInventoryControl control, CancellationToken token) { LastToken = token; Deleted = true; Existing = null; return Task.FromResult(true); }
+        public Task<TResult> ExecuteUnderLockAsync<TResult>(Guid propertyId, Guid roomTypeId, DateOnly stayDate, Func<CancellationToken, Task<TResult>> operation, CancellationToken token) => operation(token);
     }
     private sealed class FixedTimeProvider(DateTimeOffset value) : TimeProvider { public override DateTimeOffset GetUtcNow() => value; }
 }

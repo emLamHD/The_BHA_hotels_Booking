@@ -13,6 +13,20 @@ public interface IDailyInventoryControlStore
     Task<DailyInventoryControl?> FindAsync(Guid propertyId, Guid roomTypeId, DateOnly stayDate, CancellationToken cancellationToken);
     Task SaveAsync(DailyInventoryControl control, CancellationToken cancellationToken);
     Task<bool> DeleteAsync(DailyInventoryControl control, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Runs <paramref name="operation"/> inside one explicit transaction that has
+    /// already acquired this (PropertyId, RoomTypeId) RoomType-scope lock and this
+    /// (PropertyId, RoomTypeId, StayDate) daily-inventory lock, in that fixed order
+    /// (PMS-BE-001.2 §7.1), so a read-then-decide-then-save capacity mutation is
+    /// never racing a concurrent writer for the same key.
+    /// </summary>
+    Task<TResult> ExecuteUnderLockAsync<TResult>(
+        Guid propertyId,
+        Guid roomTypeId,
+        DateOnly stayDate,
+        Func<CancellationToken, Task<TResult>> operation,
+        CancellationToken cancellationToken);
 }
 
 public interface IDailyInventoryControlCommands
@@ -27,18 +41,34 @@ public sealed class DailyInventoryControlCommands(IDailyInventoryControlStore st
     {
         await ValidateOwnershipAsync(command.PropertyId, command.RoomTypeId, cancellationToken);
         var now = timeProvider.GetUtcNow();
-        var control = await store.FindAsync(command.PropertyId, command.RoomTypeId, command.StayDate, cancellationToken);
-        if (control is null) control = new DailyInventoryControl(Guid.NewGuid(), command.PropertyId, command.RoomTypeId, command.StayDate, command.SellableLimit, command.IsStopSell, now);
-        else control.Update(command.SellableLimit, command.IsStopSell, now);
-        await store.SaveAsync(control, cancellationToken);
-        return ToDto(control);
+        return await store.ExecuteUnderLockAsync(
+            command.PropertyId,
+            command.RoomTypeId,
+            command.StayDate,
+            async lockedToken =>
+            {
+                var control = await store.FindAsync(command.PropertyId, command.RoomTypeId, command.StayDate, lockedToken);
+                if (control is null) control = new DailyInventoryControl(Guid.NewGuid(), command.PropertyId, command.RoomTypeId, command.StayDate, command.SellableLimit, command.IsStopSell, now);
+                else control.Update(command.SellableLimit, command.IsStopSell, now);
+                await store.SaveAsync(control, lockedToken);
+                return ToDto(control);
+            },
+            cancellationToken);
     }
 
     public async Task<bool> DeleteAsync(DeleteDailyInventoryControlCommand command, CancellationToken cancellationToken)
     {
         await ValidateOwnershipAsync(command.PropertyId, command.RoomTypeId, cancellationToken);
-        var control = await store.FindAsync(command.PropertyId, command.RoomTypeId, command.StayDate, cancellationToken);
-        return control is not null && await store.DeleteAsync(control, cancellationToken);
+        return await store.ExecuteUnderLockAsync(
+            command.PropertyId,
+            command.RoomTypeId,
+            command.StayDate,
+            async lockedToken =>
+            {
+                var control = await store.FindAsync(command.PropertyId, command.RoomTypeId, command.StayDate, lockedToken);
+                return control is not null && await store.DeleteAsync(control, lockedToken);
+            },
+            cancellationToken);
     }
 
     private async Task ValidateOwnershipAsync(Guid propertyId, Guid roomTypeId, CancellationToken cancellationToken)

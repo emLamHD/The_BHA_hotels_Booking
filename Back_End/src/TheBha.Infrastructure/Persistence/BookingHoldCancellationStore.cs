@@ -51,19 +51,14 @@ internal sealed class BookingHoldCancellationStore(TheBhaDbContext dbContext)
         }
 
         var roomTypeId = hold.Items[0].RoomTypeId;
-        foreach (var stayDate in hold.Items
-                     .SelectMany(item => item.Nights)
-                     .Select(night => night.StayDate)
-                     .Distinct()
-                     .OrderBy(date => date))
-        {
-            await AcquireLockAsync(
-                BookingAdvisoryLockKeys.ForInventory(
-                    hold.PropertyId,
-                    roomTypeId,
-                    stayDate),
-                cancellationToken);
-        }
+        var lockPlan = new LockPlanBuilder()
+            .WithRoomTypeScope(hold.PropertyId, roomTypeId)
+            .WithInventory(
+                hold.PropertyId,
+                roomTypeId,
+                hold.Items.SelectMany(item => item.Nights).Select(night => night.StayDate).Distinct())
+            .Build();
+        await AdvisoryLockCoordinator.AcquireAsync(dbContext, lockPlan, cancellationToken);
 
         hold.Cancel();
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -71,10 +66,6 @@ internal sealed class BookingHoldCancellationStore(TheBhaDbContext dbContext)
         return BookingHoldCancellationResult.Cancelled(BookingHoldCreationStore.Map(hold, null));
     }
 
-    private async Task AcquireLockAsync(long lockKey, CancellationToken cancellationToken)
-    {
-        await dbContext.Database.ExecuteSqlInterpolatedAsync(
-            $"SELECT pg_advisory_xact_lock({lockKey})",
-            cancellationToken);
-    }
+    private Task AcquireLockAsync(long lockKey, CancellationToken cancellationToken) =>
+        AdvisoryLockCoordinator.AcquireKeyAsync(dbContext, lockKey, cancellationToken);
 }

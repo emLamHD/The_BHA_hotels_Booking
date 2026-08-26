@@ -1,11 +1,22 @@
 # PMS-DATA-001 — Core Database Blueprint v2
 
-- **Status:** Approved TARGET architecture. The newly proposed TARGET
-  entities, relationships, constraints, and changes described below are not
-  implemented. Existing CURRENT entities and capabilities remain implemented
-  exactly as recorded in §2; this docs-only work item creates no schema or
-  product behavior.
-- **Date:** 2026-08-19.
+- **Status:** Approved TARGET architecture, partially implemented and
+  relabeled inline. §6's commercial-commitment aggregate (`PMS-BE-001.1`,
+  migration 7) and §7–§12's physical-room schedule database authority,
+  availability formula, locking discipline, and internal mutation boundary
+  (`PMS-BE-001.2`, migration 8) are now CURRENT / AS-BUILT — see ADR 0005,
+  ADR 0006, and their linked completion reports for full evidence. Still
+  TARGET: the multi-RoomType public request shape (§6 item 1);
+  `Organization` (§3); direct Admin/walk-in/OTA unit creation without a
+  source Hold (§6 items 6, 11) and stay extension (§6 item 10); an
+  independent single-Unit cancellation entry point (§7);
+  `RoomTypeDailyInventory` as a stored/closed-snapshot table (§7 rules 16,
+  33–34); the Calendar/Reservation Board read projection (§10); real Staff
+  identity/Admin RBAC (§12); and any HTTP/Admin/Calendar endpoint exposing
+  this authority. Existing CURRENT entities and capabilities not superseded
+  by the above remain implemented exactly as recorded in §2.
+- **Date:** 2026-08-19. Partially implemented 2026-08-23 (`PMS-BE-001.1`)
+  and 2026-08-26 (`PMS-BE-001.2`).
 - **Scope:** the locked, Owner-approved PMS core database design that Customer
   Web and a future Admin PMS will share. This document is the authoritative
   detailed target source; `PROJECT_BIBLE.md`, `ARCHITECTURE.md`, and
@@ -42,37 +53,63 @@ firm decision — firmness of the decision is not evidence of construction.
   `(Property, RoomType, stay date)` advisory-lock identities. This is a data
   model capable of storing multiple Property rows today — it is not an
   implicit single-Property design, and the current single-row development
-  seed is seed content, not a schema restriction. Within that schema, each
-  current `BookingHold`/`BookingHoldNight` and `Reservation`/
-  `ReservationNight` (`BE-003.1`–`BE-003.5`) still captures exactly **one
-  Property, one RoomType, and one RatePlan per booking**, with immutable
-  nightly snapshots — CURRENT remains single-RoomType-per-booking, and no
-  booking spans more than one Property. What is genuinely absent is an
-  `Organization`/tenant ownership and authorization boundary above
-  `Property` (§3).
-- Exactly six PostgreSQL migrations exist, ending at
-  `20260723105404_AddBookingHoldReservationFoundation`:
+  seed is seed content, not a schema restriction. Within that schema, the
+  commercial commitment authority is now (`PMS-BE-001.1`, migration 7) the
+  normalized `InventoryHold → InventoryHoldItem → InventoryHoldItemNight`
+  and `Reservation → ReservationUnit → ReservationUnitNight` model (ADR
+  0005): every persisted Item/Unit represents exactly one room, with
+  immutable nightly snapshots. The legacy `BookingHold`/`BookingHoldNight`/
+  `ReservationNight` tables no longer exist — no dual-write, no dormant
+  table. The public `/api/v1` contract is unchanged: a request still
+  carries exactly one `RoomTypeId`, one `RatePlanId`, and `rooms = Q`,
+  normalized atomically into `Q` independent Items/Units — CURRENT remains
+  single-RoomType-**per-request**, and no booking spans more than one
+  Property; the multi-RoomType **request** shape remains TARGET. What is
+  genuinely absent is an `Organization`/tenant ownership and authorization
+  boundary above `Property` (§3).
+- Eight PostgreSQL migrations exist, ending at
+  `20260826035254_PhysicalRoomScheduleAvailabilityAuthority`:
   1. `20260721175848_InitialPropertyRoomInventory`
   2. `20260722102552_AddRatePlanFoundation`
   3. `20260722112304_AddDailyRoomRates`
   4. `20260722121010_AddDailyInventoryControls`
   5. `20260723085814_CustomerBookingIdentity`
   6. `20260723105404_AddBookingHoldReservationFoundation`
+  7. `20260823084717_CommercialCommitmentV2Foundation` (`PMS-BE-001.1`)
+  8. `20260826035254_PhysicalRoomScheduleAvailabilityAuthority`
+     (`PMS-BE-001.2`)
+- `RoomOccupancySegment`/`RoomBlock` (ADR 0006, migration 8) now exist as
+  the sole PhysicalRoom schedule authority: exactly two PostgreSQL exclusion
+  constraints (`EX_RoomOccupancySegments_EffectiveRoomOverlap`,
+  `EX_RoomOccupancySegments_EffectiveUnitOverlap`), two deferred constraint
+  triggers (`SQLSTATE XBHA1`/`XBHA2`), `xmin`-based optimistic concurrency,
+  and append-only `RoomOccupancySegmentAudit` history. Availability is
+  block-adjusted and assignment-attributed (§7's formula is now CURRENT).
+  Internal-only `IAssignmentMutationStore`/`IOperationalBlockMutationStore`
+  mutation commands exist behind the application/persistence boundary — no
+  HTTP/Admin/Calendar controller endpoint, no Staff identity, and no Admin
+  RBAC model exist. See ADR 0006 and
+  `docs/reports/PMS-BE-001.2-completion.md` for the exact as-built boundary.
 - Availability committed demand is already expiry-aware:
   `Active Holds where ExpiresAtUtc > utcNow` plus `Confirmed Reservations`,
   evaluated against one server UTC instant, with no persisted `Expired`
   status and no background expiry cleanup — an active Hold already stops
   counting at the exact expiry boundary (`BE-003.3`, `BE-003.5`).
-- Every Hold/Reservation mutation uses one explicit PostgreSQL transaction
-  and parameterized `pg_advisory_xact_lock` calls, in a fixed
-  lifecycle-transition-then-inventory lock order.
+- Every Hold/Reservation/assignment/block mutation uses one explicit
+  PostgreSQL transaction and parameterized `pg_advisory_xact_lock` calls,
+  now routed through a shared `AdvisoryLockCoordinator` with one fixed
+  class order (idempotency/transition lock, then `ReservationUnit` locks,
+  then `RoomType` inventory-scope locks, then daily inventory locks; see
+  `docs/ARCHITECTURE.md`).
 - Admin Web (`Front_End/Admin_Web`) is a merged, template-only baseline
   (TailAdmin 2.3.0, Next.js 16.1.6, React/React DOM 19.2.1, TypeScript 5.9.3,
-  PR #30). It has no backend integration, no Admin authentication, and no
-  PMS, Reservation Board, Calendar, or OTA behavior.
-- No `Organization` entity, no PMS physical-room occupancy schedule, no
-  `FolioEntries`, no Stay Declaration, no OTA inbox/outbox, and no PMS
-  migration exist anywhere in the current schema or codebase.
+  PR #30) plus the `ADMIN-002.1` frontend prototype (mock-state only, see
+  `docs/reports/ADMIN-002.1-completion.md`). It has no backend integration,
+  no Admin authentication, and no real PMS,
+  Reservation Board, Calendar, or OTA behavior — it does not call, and is
+  not proven against, the `RoomOccupancySegment` authority above.
+- No `Organization` entity, no `FolioEntries`, no Stay Declaration, and no
+  OTA inbox/outbox exist anywhere in the current schema or codebase.
 
 ## 3. Platform, tenant, and property boundary
 
@@ -149,9 +186,16 @@ availability-reaction boundary and remain DEFERRED (§17).
 
 ## 6. Commercial commitment model
 
+> Implementation status (`PMS-BE-001.1`, migration 7): items 2, 3, 5, 7–9,
+> and 12–13 below are CURRENT / AS-BUILT. Item 4's aggregate shape is
+> CURRENT; its direct-creation clause is not. Items 1 (multi-RoomType
+> request), 6 and 11 (direct Admin/walk-in/OTA unit creation without a
+> source Hold), and 10 (stay extension) remain TARGET. See ADR 0005 and
+> `docs/reports/PMS-BE-001.1-completion.md` for full evidence.
+
 1. A customer booking supports multiple RoomTypes in one hold or reservation
-   (TARGET — CURRENT is exactly one RoomType per Hold/Reservation).
-2. TARGET hold aggregate: `InventoryHold → InventoryHoldItems →
+   (TARGET — CURRENT is exactly one RoomType per Hold/Reservation request).
+2. CURRENT (`PMS-BE-001.1`) hold aggregate: `InventoryHold → InventoryHoldItems →
    InventoryHoldItemNights`. A persisted `InventoryHoldItem` represents
    **exactly one held room** of one RoomType — its business cardinality is
    implicit quantity `1`. It is never modeled as a compressed cart line
@@ -178,11 +222,13 @@ availability-reaction boundary and remain DEFERRED (§17).
    request returns the same, already-normalized set of `InventoryHoldItems`
    — it never appends additional items on top of a prior successful
    normalization.
-4. TARGET reservation aggregate: `Reservation → ReservationUnits →
-   ReservationUnitNights`. A `ReservationUnit` represents exactly one
-   commercially sold room; each `ReservationUnitNight` is its per-stay-date
-   nightly row, carrying `RatePlanId` (§5). A `ReservationUnit` created
-   directly (Admin, walk-in, or OTA, item 11) without a source Hold persists
+4. CURRENT (`PMS-BE-001.1`) reservation aggregate shape:
+   `Reservation → ReservationUnits → ReservationUnitNights`. A
+   `ReservationUnit` represents exactly one commercially sold room; each
+   `ReservationUnitNight` is its per-stay-date nightly row, carrying
+   `RatePlanId` (§5). The following sentence is TARGET, not implemented: a
+   `ReservationUnit` created directly (Admin, walk-in, or OTA, item 11)
+   without a source Hold persists
    its own selected `RatePlanId` on every `ReservationUnitNight` it creates
    — the same nightly lineage rule applies regardless of origin; there is
    no weaker rate-lineage path for direct creation.
@@ -251,8 +297,8 @@ availability-reaction boundary and remain DEFERRED (§17).
     assignment (ADR 0006) — without any split or reconciliation operation,
     because they were never compressed into one multi-room row to begin
     with.
-13. Every `ReservationUnit` has an authoritative TARGET commitment
-    lifecycle: `CommitmentStatus = Committed | Cancelled`. Every
+13. Every `ReservationUnit` has an authoritative CURRENT (`PMS-BE-001.1`)
+    commitment lifecycle: `CommitmentStatus = Committed | Cancelled`. Every
     successfully created unit — hold-confirmed, Admin, walk-in, or
     OTA-originated (item 11) — starts `Committed`. `Cancelled` is terminal
     within this decision; reinstatement/recommit requires a separately
@@ -270,6 +316,19 @@ availability-reaction boundary and remain DEFERRED (§17).
 
 ## 7. Inventory/availability authority and hold-expiry correctness
 
+> Implementation status (`PMS-BE-001.2`, migration 8): the block-adjusted,
+> assignment-attributed availability formula, its shared locking discipline,
+> the `RoomOccupancySegment`/`RoomBlock` database authority, the two
+> PostgreSQL exclusion constraints and two deferred consistency triggers
+> (§11 and the fourth invariant below), and internal assignment/block
+> mutation are CURRENT / AS-BUILT, relabeled inline through §12. Still
+> TARGET: `RoomTypeDailyInventory` as a separate materialized/closed-snapshot
+> table (rules 16, 33–34 — the formula is computed on read, not stored or
+> closed); the Calendar/Reservation Board read projection itself (§10); real
+> Staff identity/Admin RBAC behind `ActorReference`/`AuthorizationEvidence`
+> (§12); and any HTTP/Admin endpoint exposing this authority. See ADR 0006
+> and `docs/reports/PMS-BE-001.2-completion.md` for full evidence.
+
 `RoomTypeDailyInventory` is a future operational projection and a closed
 historical snapshot — never a manually editable source of truth (TARGET).
 Its role mirrors today's `AvailabilityDataSource` committed-demand read
@@ -277,7 +336,7 @@ Its role mirrors today's `AvailabilityDataSource` committed-demand read
 authority a caller can write to directly. The exact daily formula it
 computes is defined below.
 
-### Operational-block-adjusted daily availability formula (TARGET)
+### Operational-block-adjusted daily availability formula (CURRENT — `PMS-BE-001.2`)
 
 The formula distinguishes two different questions. **Commercial record**
 (what RoomType and price were sold) lives on `ReservationUnit`/
@@ -427,7 +486,9 @@ reservation room-night, never zero and never two:**
     column, refresh mechanism, or snapshot schema is designed by this
     documentation work item.
 
-**Unit cancellation and demand removal (TARGET):**
+**Unit cancellation and demand removal (CURRENT — `PMS-BE-001.2`, only as a
+cascade of whole-Reservation cancellation — an independent single-Unit
+cancellation entry point remains TARGET):**
 
 17. `ReservationUnit.CommitmentStatus` (§6 item 13) gates every demand term
     above: `UnassignedReservationDemand` and `AssignedReservationDemand` —
@@ -499,7 +560,7 @@ reservation room-night, never zero and never two:**
     (and potentially reselling) the sold-type capacity, not an implicit
     promise that rollback is always available.
 
-**Reservation aggregate cancellation (TARGET):**
+**Reservation aggregate cancellation (CURRENT — `PMS-BE-001.2`):**
 
 27. Cancelling one unit atomically, in one transaction: transitions that
     unit from `Committed` to `Cancelled`; cancels/supersedes every
@@ -546,7 +607,7 @@ reservation room-night, never zero and never two:**
     create no current committed demand (rule 17).
 
 **New demand versus existing committed-demand allocation transfer
-(TARGET):**
+(CURRENT — `PMS-BE-001.2`):**
 
 35. Hold creation, and any direct (Admin/walk-in/OTA) reservation creation
     that adds new committed room-night demand (§6 item 11), are new
@@ -635,7 +696,9 @@ those same dates — the sold RoomType's operational capacity is released and
 the actual RoomType's operational capacity is consumed, while the unit's
 commercial RoomType/price/reporting remain `DLX-KING` throughout (rule 4).
 
-**Atomicity and locking (TARGET).** The formula above is not a read-only
+**Atomicity and locking (CURRENT — `PMS-BE-001.2`, via the shared
+`AdvisoryLockCoordinator`; the PhysicalRoom-operational-status/
+`DailyInventoryControl` bullet below remains TARGET).** The formula above is not a read-only
 afterthought layered on independent writers. Every future write path capable
 of changing capacity or demand for the same `(PropertyId, RoomTypeId,
 StayDate)` key participates in one shared atomic availability/locking
@@ -734,7 +797,8 @@ harmless today.
 
 1. Commercial commitment (`Reservation`/`ReservationUnit`/
    `ReservationUnitNight`) and PhysicalRoom allocation
-   (`RoomOccupancySegment`) are independent inventory layers (TARGET).
+   (`RoomOccupancySegment`) are independent inventory layers
+   (CURRENT — `PMS-BE-001.2`).
 2. A commercial reservation can be fully assigned, partially assigned, or
    entirely unassigned to PhysicalRooms without losing its booked
    RoomType/nights — the authoritative commercial record is the unit's
@@ -780,7 +844,7 @@ in [ADR 0006](../ADR/0006-schedule-physical-rooms-with-occupancy-segments.md).
 Summary for this blueprint:
 
 - `RoomOccupancySegments` (not `RoomAssignments`) are the authoritative
-  PhysicalRoom schedule (TARGET).
+  PhysicalRoom schedule (CURRENT — `PMS-BE-001.2`).
 - Segment types are exactly `ReservationAssignment` and `OperationalBlock`.
   No other segment type exists.
 - Segment statuses are exactly `Effective` and `Cancelled`, independent of
@@ -803,7 +867,8 @@ Summary for this blueprint:
   `ReservationAssignment`'s referenced `ReservationUnit`/Reservation is
   always in that same Property; an `OperationalBlock`'s referenced
   `RoomBlock` header is always in that same Property. This same-Property
-  consistency is database-enforced (TARGET), not merely an authorization or
+  consistency is database-enforced (CURRENT — `PMS-BE-001.2`, via composite
+  alternate-key foreign keys), not merely an authorization or
   UI check — see [ADR 0006](../ADR/0006-schedule-physical-rooms-with-occupancy-segments.md)
   Decision item 3 for the full invariant and its enforcement boundary.
 - Multi-room operational blocks use one `RoomBlock` header related to one or
@@ -864,96 +929,87 @@ extends §8 item 4).
 
 ## 11. PostgreSQL non-overlap protection
 
-PostgreSQL must enforce both exclusion invariants below; application-level
-prechecks alone are insufficient (TARGET, detailed further in
+**CURRENT — `PMS-BE-001.2`, migration 8.** PostgreSQL enforces both
+exclusion invariants below; application-level prechecks alone are not the
+sole mechanism (full detail in
 [ADR 0006](../ADR/0006-schedule-physical-rooms-with-occupancy-segments.md)):
 
-1. **PhysicalRoom schedule exclusion** — two `Effective` occupancy segments
-   can never overlap on the same PhysicalRoom, regardless of segment type
-   (`ReservationAssignment` vs. `OperationalBlock`).
-2. **ReservationUnit allocation exclusion** — two `Effective`
+1. **PhysicalRoom schedule exclusion**
+   (`EX_RoomOccupancySegments_EffectiveRoomOverlap`) — two `Effective`
+   occupancy segments can never overlap on the same PhysicalRoom, regardless
+   of segment type (`ReservationAssignment` vs. `OperationalBlock`).
+2. **ReservationUnit allocation exclusion**
+   (`EX_RoomOccupancySegments_EffectiveUnitOverlap`) — two `Effective`
    `ReservationAssignment` segments can never overlap for the same
    `ReservationUnit`, preventing one sold unit from occupying two rooms over
    the same dates.
 
 Both invariants use half-open date ranges, consistent with ADR 0003's
 existing `[checkIn, checkOut)` stay model. Both remain exactly two exclusion
-invariants — no third exclusion constraint is added.
-
-The future EF/Npgsql implementation boundary (named here, not built):
+invariants — no third exclusion constraint exists. The implementation:
 `btree_gist` PostgreSQL extension; a raw-SQL migration for the exclusion
 constraints (EF Core does not generate `EXCLUDE` constraints natively);
-mapping the PostgreSQL exclusion-violation SQLSTATE `23P01` to safe,
-specific domain/application errors by exact constraint name (never a raw
-database error surfacing to a caller); an explicit transaction with
-two-`SaveChanges` ordering where relationship materialization requires it
-(mirroring the existing explicit-transaction discipline in `BE-003.3`–
-`BE-003.5`); and real PostgreSQL integration tests, never EF InMemory or
-SQLite, consistent with `docs/DATABASE.md`'s existing testing policy. No DDL,
-migration code, constraint name, or test is created by this documentation
-work item.
+`23P01` mapped to safe, specific application errors by exact constraint name
+only — never a raw database error surfacing to a caller; and real PostgreSQL
+integration tests, never EF InMemory or SQLite, consistent with
+`docs/DATABASE.md`'s testing policy.
 
 **A separate, third temporal-integrity rule — not a third exclusion
-invariant — additionally applies:** every `Effective` `ReservationAssignment`
-segment's dates must be a subset of its `ReservationUnit`'s persisted
-`ReservationUnitNight` dates (§9; full detail in
-[ADR 0006](../ADR/0006-schedule-physical-rooms-with-occupancy-segments.md)
+invariant — additionally applies (CURRENT):** every `Effective`
+`ReservationAssignment` segment's dates must be a subset of its
+`ReservationUnit`'s persisted `ReservationUnitNight` dates (§9; full detail
+in [ADR 0006](../ADR/0006-schedule-physical-rooms-with-occupancy-segments.md)
 Decision item 9). The two exclusion invariants above prevent segments from
 overlapping each other; this coverage rule separately prevents an
 `Effective ReservationAssignment` from occupying dates that were never
-commercially sold, closing a gap the exclusion invariants alone do not
-cover. Its future implementation boundary requires a database-enforced
-cross-table mechanism that validates the final committed transaction state
-(e.g. a deferrable constraint trigger, or an equivalently rigorous design)
-— an ordinary `CHECK` constraint cannot express a cross-table rule, and an
-application-only precheck is not sufficient as the sole correctness
-mechanism under concurrent writers. It requires the same explicit
-transaction and per-unit locking discipline as the exclusion invariants,
-plus real PostgreSQL integration tests. Exact trigger/constraint design,
-SQLSTATE mapping, and error contract remain implementation details for a
-separately authorized work item; none is created by this documentation
-work item.
+commercially sold. It is enforced by a `DEFERRABLE INITIALLY DEFERRED`
+constraint trigger (`thebha_check_booked_night_coverage`, `SQLSTATE
+XBHA1`) that validates the final committed transaction state — an ordinary
+`CHECK` constraint cannot express a cross-table rule — so a transaction may
+pass through a transient intermediate state as long as the final state at
+`COMMIT` satisfies it.
 
 **A separate structural invariant — same-Property reference consistency —
-also applies to every `RoomOccupancySegment`, independent of the exclusion
-invariants and the booked-night coverage rule above:** a segment's
-PhysicalRoom and its populated `ReservationUnit`/`RoomBlock` reference must
-always belong to the same Property (§9; full detail in
+also applies to every `RoomOccupancySegment` (CURRENT), independent of the
+exclusion invariants and the booked-night coverage rule above:** a
+segment's PhysicalRoom and its populated `ReservationUnit`/`RoomBlock`
+reference must always belong to the same Property (§9; full detail in
 [ADR 0006](../ADR/0006-schedule-physical-rooms-with-occupancy-segments.md)
 Decision item 3). This is a reference-consistency requirement, not an
 overlap/exclusion rule and not a temporal-coverage rule — it does not
 replace, and is not replaced by, tenant/property-scoped authorization checks
-made above the database. Its future implementation boundary requires
-property-scoped composite foreign keys/alternate keys where the schema
-already exposes `PropertyId` on the relevant nodes, or an equivalently
-rigorous database-enforced mechanism where it does not; an application-only
-precheck alone is insufficient under concurrent writers, exactly as for the
-other invariants in this section. No exact column, constraint name, or
-migration is created by this documentation work item.
+made above the database. It is enforced through composite foreign
+keys/alternate keys on `PropertyId` (`PhysicalRoom` gained a
+`(PropertyId, Id)` alternate key for this in migration 8), not an
+application-only precheck.
 
 **A fourth, separate invariant class — unit-commitment consistency —
 governs the relationship between `ReservationUnit.CommitmentStatus`,
 parent `Reservation` status, and `Effective ReservationAssignment` rows
-(§6 item 13, §7 rules 17–19 and 27–30; full detail in
+(CURRENT; §6 item 13, §7 rules 17–19 and 27–30; full detail in
 [ADR 0006](../ADR/0006-schedule-physical-rooms-with-occupancy-segments.md)
 Decision items 3 and 5):** an `Effective` assignment may reference only a
 `Committed` unit; cancelling a unit atomically cancels its assignments and
 removes its demand; and a `Cancelled` Reservation can have no `Committed`
 unit or `Effective` assignment under it. This is a lifecycle-consistency
 requirement, distinct from the exclusion, booked-night-coverage, and
-same-Property invariants above. Its future implementation boundary requires
-a database-enforced final-state check across unit status, Reservation
-status, and assignment rows under concurrent writers — an application-only
-precheck is insufficient, exactly as for the other invariants in this
-section; exact DDL, trigger/constraint design, and SQLSTATE mapping remain
-implementation details for a separately authorized work item.
+same-Property invariants above. It is enforced by a second `DEFERRABLE
+INITIALLY DEFERRED` constraint trigger
+(`thebha_check_unit_commitment_consistency`, `SQLSTATE XBHA2`) that
+validates the final committed state across unit status, Reservation status,
+and assignment rows under concurrent writers, exactly as for the other
+invariants in this section.
 
 ## 12. Intentional cross-RoomType assignment
 
-1. Authorized front-desk staff may deliberately assign a `ReservationUnit`
-   to a PhysicalRoom whose RoomType differs from the commercially booked
-   RoomType — supporting intentional upgrades and downgrades (TARGET).
-   Cross-RoomType assignment is valid only **within the same Property** as
+1. A `ReservationUnit` may deliberately be assigned to a PhysicalRoom whose
+   RoomType differs from the commercially booked RoomType — supporting
+   intentional upgrades and downgrades (CURRENT — `PMS-BE-001.2`, the
+   mutation mechanics and capacity/audit rules below; gated by a mandatory
+   `AuthorizationEvidence`/`Reason` pair, which is an opaque authorization
+   string recorded into the audit trail, not real Staff identity or Admin
+   RBAC — those remain TARGET). Cross-RoomType assignment is valid only
+   **within the same Property** as
    the sold `ReservationUnit`'s Reservation (§9, ADR 0006 Decision item 3)
    — it never authorizes cross-Property assignment, even between two
    Properties under the same `Organization`, sharing a RoomType code, or

@@ -14,6 +14,7 @@ internal sealed class PhysicalRoomConfiguration : IEntityTypeConfiguration<Physi
                 "CK_PhysicalRooms_OperationalStatus",
                 "\"OperationalStatus\" IN ('Active', 'Inactive', 'OutOfService')"));
         builder.HasKey(room => room.Id);
+        builder.HasAlternateKey(room => new { room.PropertyId, room.Id });
         builder.Property(room => room.RoomNumber).HasMaxLength(50).IsRequired();
         builder.Property(room => room.OperationalStatus).HasConversion<string>().HasMaxLength(30);
         builder.Property(room => room.CreatedAt).HasColumnType("timestamp with time zone");

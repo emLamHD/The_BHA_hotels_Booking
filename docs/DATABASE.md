@@ -100,6 +100,7 @@ The current migration chain is:
 5. `20260723085814_CustomerBookingIdentity`
 6. `20260723105404_AddBookingHoldReservationFoundation`
 7. `20260823084717_CommercialCommitmentV2Foundation`
+8. `20260826035254_PhysicalRoomScheduleAvailabilityAuthority`
 
 `PMS-BE-001.1` (migration 7) replaces the single-RoomType `BookingHold`/
 `BookingHoldNight` and `Reservation`/`ReservationNight` commercial authority
@@ -142,6 +143,24 @@ inventory advisory-lock keys to the two cancellation workflows in the same
 lifecycle-then-inventory lock order already used by confirmation. See
 `docs/BE-003-5-CANCELLATION-LIFECYCLE-HARDENING.md` for the complete
 contract.
+
+`PMS-BE-001.2` (migration 8, `PhysicalRoomScheduleAvailabilityAuthority`)
+adds the `RoomOccupancySegments`, `RoomBlocks`, and
+`RoomOccupancySegmentAudits` tables (ADR 0006): exactly two PostgreSQL
+exclusion constraints (`EX_RoomOccupancySegments_EffectiveRoomOverlap`,
+`EX_RoomOccupancySegments_EffectiveUnitOverlap`) backed by the `btree_gist`
+extension, and two `DEFERRABLE INITIALLY DEFERRED` constraint triggers
+enforcing booked-night coverage (`SQLSTATE XBHA1`) and unit-commitment
+consistency (`SQLSTATE XBHA2`). `Up()` also adds a `PhysicalRooms`
+alternate key on `(PropertyId, Id)` so `RoomOccupancySegments` can enforce
+same-Property consistency through composite foreign keys rather than
+application-level checks alone. `Down()` is guarded: it only succeeds while
+`RoomOccupancySegments`/`RoomBlocks`/`RoomOccupancySegmentAudits` are all
+empty, and fails atomically otherwise, before dropping any data. No
+Organization table, no HTTP/Admin endpoint, and no Admin
+authentication/RBAC model are introduced by this migration. See
+`docs/reports/PMS-BE-001.2-completion.md` for the complete contract and
+test evidence.
 
 Run the update command before the development seed. The API never calls
 `EnsureCreated()` and never applies a migration during startup.
