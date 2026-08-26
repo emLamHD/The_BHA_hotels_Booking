@@ -403,12 +403,17 @@ evidence independently verified for this closeout via:
    checkpoint ổn định, và công bố `READY_FOR_CODEX_REVIEW`.
 2. Owner xem completion report, mở Draft PR (nếu Claude chưa mở) và invoke
    đúng một lượt `/codex:review --base origin/develop`.
-3. Owner chuyển kết quả Codex về; Claude chèn nguyên trạng vào completion
-   report và dừng — không tự sửa bất kỳ Codex finding nào.
-4. Owner chuyển report cho OC; OC kết luận `PASS`/`CORRECTION_REQUIRED`/
-   `BLOCKED`.
-5. Chỉ Owner quyết định Ready/merge/branch cleanup cho closeout này.
-6. Sau khi closeout này merge, OC soạn Master Execution Prompt riêng cho
+3. Owner chuyển trực tiếp cho OC cả completion report đã có sẵn (giữ
+   nguyên, không sửa) lẫn kết quả Codex verbatim. Claude vẫn ở trạng thái
+   dừng ghi sau handoff — không được reactivate chỉ để chèn kết quả Codex
+   vào report hay thực hiện bất kỳ repository mutation nào khác
+   (`AGENTS.md` §13).
+4. Nếu OC yêu cầu correction, OC phát hành một correction prompt mới và
+   Owner activate Claude trước khi Claude ghi thêm bất kỳ điều gì.
+5. OC đánh giá report hiện có cùng với kết quả Codex và kết luận
+   `PASS`/`CORRECTION_REQUIRED`/`BLOCKED`.
+6. Chỉ Owner quyết định Ready/merge/branch cleanup cho closeout này.
+7. Sau khi closeout này merge, OC soạn Master Execution Prompt riêng cho
    `PMS-CAL-001.1` planning/decomposition, dùng `origin/develop` baseline
    mới.
 
