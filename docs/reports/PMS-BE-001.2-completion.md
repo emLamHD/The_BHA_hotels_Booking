@@ -1,16 +1,18 @@
 # PMS-BE-001.2 — Physical Room Schedule & Availability Authority — Completion Report
 
 ```text
-STATUS: PASS — IMPLEMENTATION_COMPLETE_AWAITING_CODEX_REVIEW
+STATUS: PASS — CLOSED
 
 WORK_ITEM: PMS-BE-001.2
 TITLE: Physical Room Schedule & Availability Authority
 BASELINE_SHA: 298b7fd53c47824550e955b98c2bed370b38a646
 FEATURE_BRANCH: feature/pms-be-001-2-physical-room-schedule-availability
 START_HEAD: f58aa1e38344f85e6539f419d4c07454347b9d60
-PHASE_5_CHECKPOINT_HEAD: b3e07076e77c852eac1d3cd4b39ebe0a40293d74 (docs), dec5c97 (C1 fix), 6ce7ba1 (C1 docs), 5fbabbd (C2 fix)
+PR: https://github.com/emLamHD/The_BHA_hotels_Booking/pull/37 (MERGED)
+FEATURE_HEAD: 4b2de0ab50fa1703f0b125a043d2461cc0309417
+MERGE_COMMIT: 0a818f7a8ebb8ee72f45605e5a0ce37fed2a5442
+MERGED_AT: 2026-08-26T10:33:13Z
 BASE_BRANCH: develop
-DRAFT_PR: https://github.com/emLamHD/The_BHA_hotels_Booking/pull/37 (OPEN, isDraft=true — see the PR itself or Claude's completion-report chat message for the exact current headRefOid, not restated here to avoid a self-referential claim)
 ```
 
 ## 1. What was delivered
@@ -176,7 +178,8 @@ in `RoomOccupancySegmentInvariantTests` (§11, `PMS-BE-001.2-C2`).
 
 ### GitHub CI
 
-Recorded once available on `FINAL_HEAD` after push (see §9).
+Passed on the merged head (Backend/Frontend/Admin all `success`, run
+`32957454881`) — see §9 for full evidence.
 
 ## 7. Migration Up/Down evidence
 
@@ -193,8 +196,9 @@ Recorded once available on `FINAL_HEAD` after push (see §9).
   trigger, dropped with its table, is gone) and disables `btree_gist`
   where it was newly enabled by this migration.
 - `PMS-BE-001.2-C2` edited `thebha_check_booked_night_coverage()` in place
-  within this same still-unmerged migration (no rename, no migration 9):
-  the function now rejects any `UPDATE` on `ReservationUnitNights` that
+  within this same migration, while the feature branch was still unmerged
+  (no rename, no migration 9): the function now rejects any `UPDATE` on
+  `ReservationUnitNights` that
   changes `ReservationUnitId`, before its existing coverage check runs.
 
 ## 8. Exclusions / remaining TARGET boundary
@@ -220,33 +224,45 @@ Not implemented by this work item:
 - Direct Admin/walk-in/OTA `ReservationUnit` creation without a source
   Hold.
 
-## 9. Push, Draft PR, and GitHub CI
+## 9. Push, Draft PR, merge, and GitHub CI
 
-Feature branch pushed to `origin`. One Draft PR opened against `develop`:
-[`#37`](https://github.com/emLamHD/The_BHA_hotels_Booking/pull/37) —
-`state=OPEN`, `isDraft=true`, `baseRefName=develop`,
-`headRefName=feature/pms-be-001-2-physical-room-schedule-availability`.
-No Ready/merge/auto-merge action has been taken at any point. Backend,
-Frontend, and Admin GitHub CI have passed on every head pushed to this PR
-through Corrections C1 and C2 (§11); the exact current `headRefOid` and its
-CI result are on the PR itself and in the corresponding completion-report
-chat message, not restated here as a tracked-file claim that would go stale
-on the next push.
+Feature branch pushed to `origin`; one Draft PR opened against `develop`
+([`#37`](https://github.com/emLamHD/The_BHA_hotels_Booking/pull/37)) and
+carried through Corrections C1 and C2 (§11), each with its own passing
+Backend/Frontend/Admin GitHub Actions run on that head. Owner merged PR #37
+into `develop`:
+
+- `gh pr view 37`: `state=MERGED`, `headRefOid=4b2de0ab50fa1703f0b125a043d2461cc0309417`,
+  `mergeCommit=0a818f7a8ebb8ee72f45605e5a0ce37fed2a5442`,
+  `mergedAt=2026-08-26T10:33:13Z`.
+- `gh run view 32957454881`: `conclusion=success` — Backend, Frontend, and
+  Admin all `success` on the exact merged head.
+- Remote feature branch `feature/pms-be-001-2-physical-room-schedule-availability`
+  confirmed deleted (`git ls-remote --heads origin ...` empty) — Owner
+  branch cleanup, not performed by Claude.
+
+Claude did not mark the PR Ready, did not merge, and did not delete any
+branch — all Ready/merge/cleanup actions above were Owner-only.
 
 ## 10. Known risks
 
-- The intermediate Codex review already run in this conversation covered
-  only Phases 1–3, read-only, foreground (a disclosed, `NON_BLOCKING`
-  process deviation from the selected background mode; no product impact).
-  It is not a substitute for the final full-diff review this handoff
-  requests — that review has not yet run over the complete
-  `origin/develop...HEAD` diff, including Phase 4 and this Phase 5
-  documentation commit.
-- `Front_End/Admin_Web`'s first build attempt failing on a Google Fonts
-  timeout (§6) is an environment/network characteristic of the execution
-  sandbox, not a defect; if GitHub Actions' network egress to
-  `fonts.gstatic.com` is ever unavailable, the same transient failure could
-  recur in CI and would need a retry, not a code change.
+- The very first intermediate Codex review in this work item's history
+  covered only Phases 1–3, read-only, foreground (a disclosed,
+  `NON_BLOCKING` process deviation from the selected background mode; no
+  product impact). It was superseded by the full-diff reviews recorded in
+  §11 and does not affect the final merged state.
+- `Front_End/Admin_Web`'s first local build attempt during Phase 5 failed
+  on a Google Fonts timeout — an environment/network characteristic of the
+  execution sandbox, not a defect; a clean retry succeeded, and GitHub
+  Actions' own Admin job passed on every pushed head. If GitHub Actions'
+  network egress to `fonts.gstatic.com` is ever unavailable in the future,
+  the same transient failure could recur in CI and would need a retry, not
+  a code change.
+- No independent HTTP/Admin caller exercises the physical-room schedule
+  authority yet (§8) — the stricter capacity/immutability checks added by
+  Corrections C1/C2 have not been exercised outside this work item's own
+  tests and will need real coverage once `PMS-CAL-001.1` or another
+  work item integrates against them.
 
 ## 11. Corrections (post-checkpoint, pre-merge)
 
@@ -266,15 +282,24 @@ on the next push.
   `ReservationUnitNight.ReservationUnitId` is immutable commercial evidence
   (it participates in the row's primary key; the domain exposes no
   ownership mutator); the trigger now rejects any such transfer outright,
-  in place in the still-unmerged migration 8, rather than validating both
-  Units. 2 new regression tests; full migration matrix and test suite
-  re-run.
+  edited in place in migration 8 while the feature branch was still
+  unmerged, rather than validating both Units. 2 new regression tests; full
+  migration matrix and test suite re-run.
+
+Final full-diff Codex review, run after Correction C2, over the complete
+`origin/develop...HEAD` diff: PASS — Owner/OC-confirmed; not independently
+re-derivable from GitHub because review results are relayed through the
+Owner/OC workflow rather than posted as PR comments. No further correction
+was required before merge.
 
 ## 12. Governance note
 
-`STATUS: PASS — IMPLEMENTATION_COMPLETE_AWAITING_CODEX_REVIEW` is not
-`PASS — CLOSED`. It is not merged, not production-deployed, not
-Owner-accepted, and the final full-diff Codex review has not yet run. Only
-Owner may invoke `/codex:review --base origin/develop`; only Owner decides
-Ready/merge/branch cleanup. Claude did not invoke Codex, did not merge, did
-not mark the Draft PR Ready, and did not start the next work item.
+`STATUS: PASS — CLOSED`. PR #37 is merged into `develop` (merge commit
+`0a818f7a8ebb8ee72f45605e5a0ce37fed2a5442`, `2026-08-26T10:33:13Z`);
+Backend/Frontend/Admin GitHub Actions passed on the merged head; the
+remote feature branch is deleted. Claude did not invoke Codex, did not
+merge, did not mark any PR Ready, and did not perform branch cleanup — all
+of those actions were Owner-only, consistent with the fixed invariant
+`Claude writes. Codex reviews. OC decides. Owner merges.` This closure does
+not itself authorize implementation of any next product work item; see
+`docs/project/SNAPSHOT.md` §2 for the current decision on `PMS-CAL-001.1`.
