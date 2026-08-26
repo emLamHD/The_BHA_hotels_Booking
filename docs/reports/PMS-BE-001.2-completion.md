@@ -8,9 +8,9 @@ TITLE: Physical Room Schedule & Availability Authority
 BASELINE_SHA: 298b7fd53c47824550e955b98c2bed370b38a646
 FEATURE_BRANCH: feature/pms-be-001-2-physical-room-schedule-availability
 START_HEAD: f58aa1e38344f85e6539f419d4c07454347b9d60
-FINAL_HEAD: b3e07076e77c852eac1d3cd4b39ebe0a40293d74
+PHASE_5_CHECKPOINT_HEAD: b3e07076e77c852eac1d3cd4b39ebe0a40293d74 (docs), dec5c97 (C1 fix), 6ce7ba1 (C1 docs), 5fbabbd (C2 fix)
 BASE_BRANCH: develop
-DRAFT_PR: https://github.com/emLamHD/The_BHA_hotels_Booking/pull/37 (OPEN, isDraft=true, headRefOid=b3e07076e77c852eac1d3cd4b39ebe0a40293d74)
+DRAFT_PR: https://github.com/emLamHD/The_BHA_hotels_Booking/pull/37 (OPEN, isDraft=true — see the PR itself or Claude's completion-report chat message for the exact current headRefOid, not restated here to avoid a self-referential claim)
 ```
 
 ## 1. What was delivered
@@ -131,15 +131,15 @@ file under `Back_End/src/TheBha.Api`.
 
 ## 6. Test evidence
 
-Reproduced in this Phase 5 session against real PostgreSQL 17
-(`thebha_dev`):
+Reproduced against real PostgreSQL 17 (`thebha_dev`), most recently after
+Correction C2:
 
 - `dotnet build --configuration Release`: 0 warnings, 0 errors.
 - Filtered `PhysicalRoomScheduleAvailabilityAuthorityMigrationTests`: 5/5
   PASS (clean 7→8 apply with catalog-data preservation, empty-state 8→7
   downgrade, guarded non-empty downgrade rejection preserving data, 7
-  reapplied after a safe downgrade).
-- Full suite: **244/244** unit tests, **317/317** PostgreSQL integration
+  reapplied after a safe downgrade) — rerun after C2 changed migration 8.
+- Full suite: **244/244** unit tests, **326/326** PostgreSQL integration
   tests — all PASS.
 - Concurrency-sensitive subset (`FullyQualifiedName~Concurrent`, 10 tests:
   assignment-vs-Hold-creation, assignment-vs-cancellation, block-vs-Hold-
@@ -148,14 +148,17 @@ Reproduced in this Phase 5 session against real PostgreSQL 17
 - `dotnet ef migrations has-pending-model-changes`: clean.
 - `git diff --check origin/develop...HEAD`: clean.
 - Migrations 1–7 confirmed byte-identical to `origin/develop`; no
-  migration 9 exists.
+  migration 9 exists; migration 8 not renamed.
 
 New test coverage by phase: 7 `AdvisoryLockPlanTests` (Phase 1); 14
 `RoomOccupancySegmentInvariantTests`, 5 migration tests (Phase 2); 8
 `AssignmentAwareAvailabilityTests`, 1 `AvailabilitySearchTests` case
 (Phase 3); 21 `AssignmentMutationStoreTests`, 5
 `OperationalBlockMutationStoreTests` covering the full mandatory 29-item
-Phase 4 matrix (Phase 4).
+Phase 4 matrix (Phase 4); 7 active-Hold-capacity regression tests across
+`AssignmentMutationStoreTests`/`OperationalBlockMutationStoreTests` (§11,
+`PMS-BE-001.2-C1`); 2 `ReservationUnitNight` ownership-immutability tests
+in `RoomOccupancySegmentInvariantTests` (§11, `PMS-BE-001.2-C2`).
 
 ### Frontend CI parity
 
@@ -189,6 +192,10 @@ Recorded once available on `FINAL_HEAD` after push (see §9).
   trigger functions last (they must survive until every referencing
   trigger, dropped with its table, is gone) and disables `btree_gist`
   where it was newly enabled by this migration.
+- `PMS-BE-001.2-C2` edited `thebha_check_booked_night_coverage()` in place
+  within this same still-unmerged migration (no rename, no migration 9):
+  the function now rejects any `UPDATE` on `ReservationUnitNights` that
+  changes `ReservationUnitId`, before its existing coverage check runs.
 
 ## 8. Exclusions / remaining TARGET boundary
 
@@ -215,21 +222,16 @@ Not implemented by this work item:
 
 ## 9. Push, Draft PR, and GitHub CI
 
-Feature branch pushed to `origin`. Draft PR opened against `develop`:
-[`#37`](https://github.com/emLamHD/The_BHA_hotels_Booking/pull/37),
-confirmed via `gh pr view 37` at open time — `state=OPEN`, `isDraft=true`,
-`baseRefName=develop`,
-`headRefName=feature/pms-be-001-2-physical-room-schedule-availability`,
-`headRefOid=b3e07076e77c852eac1d3cd4b39ebe0a40293d74` (the `FINAL_HEAD`
-recorded above — the documentation/finalization commit that this file was
-first committed in). This one small follow-up commit — adding the PR
-URL/head to this report and to `docs/project/SNAPSHOT.md` after the PR
-became available to reference — advances the branch head one commit past
-`FINAL_HEAD` above; the completion Owner report for this checkpoint states
-the actual final `HEAD` after that follow-up commit. No Ready/merge/
-auto-merge action was taken at any point. GitHub CI (Backend/Frontend/
-Admin) result is recorded once available on that final head — see a
-further follow-up note if this section is not yet updated with it.
+Feature branch pushed to `origin`. One Draft PR opened against `develop`:
+[`#37`](https://github.com/emLamHD/The_BHA_hotels_Booking/pull/37) —
+`state=OPEN`, `isDraft=true`, `baseRefName=develop`,
+`headRefName=feature/pms-be-001-2-physical-room-schedule-availability`.
+No Ready/merge/auto-merge action has been taken at any point. Backend,
+Frontend, and Admin GitHub CI have passed on every head pushed to this PR
+through Corrections C1 and C2 (§11); the exact current `headRefOid` and its
+CI result are on the PR itself and in the corresponding completion-report
+chat message, not restated here as a tracked-file claim that would go stale
+on the next push.
 
 ## 10. Known risks
 
@@ -240,20 +242,35 @@ further follow-up note if this section is not yet updated with it.
   requests — that review has not yet run over the complete
   `origin/develop...HEAD` diff, including Phase 4 and this Phase 5
   documentation commit.
-- `docs/design/PMS-DATA-001-core-database-blueprint-v2.md` §6–§9, §11, §12
-  retain their original per-item `TARGET`/`CURRENT` labels from before
-  `PMS-BE-001.1`/`PMS-BE-001.2`; this Phase 5 update added status-header and
-  section-level implementation-note pointers rather than relabeling every
-  individual item, to avoid introducing a transcription error across ~700
-  lines under time pressure. ADR 0005/0006 and this report are authoritative
-  over that document's per-item labels where they disagree.
 - `Front_End/Admin_Web`'s first build attempt failing on a Google Fonts
   timeout (§6) is an environment/network characteristic of the execution
   sandbox, not a defect; if GitHub Actions' network egress to
   `fonts.gstatic.com` is ever unavailable, the same transient failure could
   recur in CI and would need a retry, not a code change.
 
-## 11. Governance note
+## 11. Corrections (post-checkpoint, pre-merge)
+
+- **`PMS-BE-001.2-C1`** (Codex `[P1]`): `RoomOccupancySegmentMutationSupport.ValidateFinalCapacityAsync`
+  omitted active/unexpired `InventoryHold` demand from final-capacity
+  validation. Fixed via a shared `PhysicalCapacityDataLoader.LoadActiveHoldDemandAsync`
+  query (also adopted by `AvailabilityDataSource`/`BookingHoldCreationStore`,
+  removing their prior duplication); one `TimeProvider` UTC instant now
+  governs each mutation's whole evaluation. 7 new regression tests. Also
+  consolidated Phase 5 documentation to its ownership boundaries and made
+  the PMS-DATA-001 blueprint's per-item `TARGET`/`CURRENT` labels accurate
+  instead of carrying a self-referential "may be inaccurate" disclaimer.
+- **`PMS-BE-001.2-C2`** (Codex `[P2]`): migration 8's booked-night coverage
+  trigger validated only the *new* `ReservationUnit` on an `UPDATE` that
+  moves a `ReservationUnitNight` to a different Unit, so the *old* Unit's
+  now-uncovered `Effective` assignment escaped the check.
+  `ReservationUnitNight.ReservationUnitId` is immutable commercial evidence
+  (it participates in the row's primary key; the domain exposes no
+  ownership mutator); the trigger now rejects any such transfer outright,
+  in place in the still-unmerged migration 8, rather than validating both
+  Units. 2 new regression tests; full migration matrix and test suite
+  re-run.
+
+## 12. Governance note
 
 `STATUS: PASS — IMPLEMENTATION_COMPLETE_AWAITING_CODEX_REVIEW` is not
 `PASS — CLOSED`. It is not merged, not production-deployed, not
