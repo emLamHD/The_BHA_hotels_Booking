@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using TheBha.Application.Bookings;
 using TheBha.Application.Properties;
+using TheBha.Application.Scheduling;
 
 namespace TheBha.Infrastructure.Persistence;
 
@@ -56,6 +57,8 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<IReservationCancellationStore, ReservationCancellationStore>();
         services.AddScoped<IReservationCancellation, ReservationCancellation>();
         services.AddSingleton<IGuestAccessTokenGenerator, CryptographicGuestAccessTokenGenerator>();
+        services.AddScoped<IAssignmentMutationStore, AssignmentMutationStore>();
+        services.AddScoped<IOperationalBlockMutationStore, OperationalBlockMutationStore>();
         services.AddScoped<DevelopmentDataSeeder>();
 
         services
