@@ -54,13 +54,10 @@ contract to Hold cancellation and Reservation cancellation, reusing the
 existing Hold-transition and per-night inventory lock keys in the same
 lifecycle-then-inventory order. `PMS-BE-001.2` introduces a shared,
 deterministic `AdvisoryLockCoordinator` (`Infrastructure/Persistence/AdvisoryLockCoordinator.cs`)
-that every advisory-lock-taking writer now goes through: a fixed class order
-— (1) an operation-specific idempotency/aggregate-transition lock, (2)
-`ReservationUnit` locks, (3) `RoomType` inventory-scope locks, (4) daily
-`(RoomType, StayDate)` inventory locks, each class internally deduplicated
-and sorted before acquisition inside one explicit transaction — replacing
-each store's own ad hoc lock-key handling without changing prior lock
-semantics. The API does not
+that every advisory-lock-taking writer, old and new, now goes through
+instead of its own ad hoc lock-key handling, without changing prior lock
+semantics — exact lock-class order is recorded in
+`docs/reports/PMS-BE-001.2-completion.md`. The API does not
 apply migrations or seed data during normal startup.
 
 PostgreSQL 17 runs locally through Docker Compose with a named volume and is also used by the backend integration-test job in GitHub Actions. The API does not call `EnsureCreated()` or apply migrations during startup.
@@ -68,54 +65,20 @@ PostgreSQL 17 runs locally through Docker Compose with a named volume and is als
 ## Physical-room schedule authority (`PMS-BE-001.2`)
 
 `TheBha.Domain/Scheduling` and `TheBha.Infrastructure/Persistence` add the
-sole PhysicalRoom schedule authority: `RoomOccupancySegment` (types exactly
-`ReservationAssignment`/`OperationalBlock`, statuses exactly
-`Effective`/`Cancelled`) and `RoomBlock`, persisted by migration 8
-(`PhysicalRoomScheduleAvailabilityAuthority`). PostgreSQL enforces two
-exclusion constraints (`EX_RoomOccupancySegments_EffectiveRoomOverlap`,
-`EX_RoomOccupancySegments_EffectiveUnitOverlap`, `btree_gist`-backed) plus
-two `DEFERRABLE INITIALLY DEFERRED` constraint triggers — booked-night
-coverage (`SQLSTATE XBHA1`) and unit-commitment consistency (`SQLSTATE
-XBHA2`) — so a transaction may pass through a transient intermediate state
-(a batch move/swap) as long as the final committed state satisfies every
-invariant. Same-Property consistency is enforced through composite
-alternate-key foreign keys, not application-level checks alone. Rows use
-`xmin`-based optimistic concurrency (EF Core `IsRowVersion()` on a shadow
-`uint`), and every mutation writes an append-only `RoomOccupancySegmentAudit`
-row grouped by a `MutationGroupId` — audits have no mutators and are never
-updated or deleted through normal persistence.
-
-`Application/Properties/PhysicalCapacityFormula.cs` extends ADR 0004's
-availability formula: `UsablePhysicalCapacity = max(0, BaseInventory -
-OperationalBlockedRooms)`, then the existing `ControlledCapacity`/
-`AvailableToSell` clamp against `SellableLimit`/`IsStopSell` as before.
-Nightly demand is attributed to exactly one RoomType bucket — the sold
-RoomType if a `ReservationUnit` night is unassigned, or the actual assigned
-`PhysicalRoom`'s RoomType if an `Effective ReservationAssignment` segment
-covers that night — so cross-RoomType assignment shifts attribution rather
-than double-counting. Assignment *mutation* is validated against raw
-`UsablePhysicalCapacity` only, never against `ControlledCapacity`/
-`SellableLimit`/`IsStopSell`, which govern acceptance of *new* commercial
-demand, not where already-committed demand physically sits.
-`IReservationCancellationStore` atomically cancels any still-`Effective`
-assignment segments in the same transaction as Reservation cancellation.
-
-`IAssignmentMutationStore` and `IOperationalBlockMutationStore`
+sole PhysicalRoom schedule authority — `RoomOccupancySegment`/`RoomBlock`,
+persisted by migration 8 — with PostgreSQL-enforced overlap, booked-night-
+coverage, and same-Property invariants (ADR 0006). `Application/Properties/PhysicalCapacityFormula.cs`
+extends ADR 0004's availability formula to be block-adjusted and
+assignment-attributed; `IReservationCancellationStore` atomically cancels
+any still-`Effective` assignment segments alongside Reservation
+cancellation. `IAssignmentMutationStore` and `IOperationalBlockMutationStore`
 (`Infrastructure/Persistence/AssignmentMutationStore.cs`,
 `OperationalBlockMutationStore.cs`) are internal application/persistence
 boundary services only — **no HTTP controller or Admin/Calendar endpoint
-exposes them**, and no Staff identity or Admin RBAC model exists. Every
-mutation requires a non-empty `ActorReference`; cross-RoomType assignment
-additionally requires `AuthorizationEvidence` and `Reason` (an opaque
-authorization string recorded verbatim into the audit trail, not a real
-permission check). Supported operations: assignment create (same- or
-cross-RoomType), split, move/reassign, atomic batch move/swap (one combined
-final-state capacity evaluation per batch, never validated sequentially),
-and unassign/cancel; OperationalBlock multi-room creation, split, move, and
-cancel. `RoomOccupancySegmentMutationSupport` maps the two exclusion
-constraints' exact names and the two `XBHA1`/`XBHA2` SQLSTATEs (plus
-foreign-key violations) to safe, non-leaking `SegmentMutationResult` error
-messages — no raw PostgreSQL/Npgsql text is ever returned to a caller.
+exposes them**, and no Staff identity or Admin RBAC model exists. Exact
+invariants, the availability formula, mutation semantics, and error mapping
+are recorded in ADR 0006 and `docs/reports/PMS-BE-001.2-completion.md`, not
+duplicated here.
 
 ## Deliberately deferred decisions
 

@@ -73,22 +73,15 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   `RoomTypeId`, một `RatePlanId` và `rooms = Q`; transaction tạo Hold normalize
   atomically thành `Q` Item độc lập, và `BookingHoldDto`/`ReservationDto`
   được project từ các row normalized đó (CURRENT).
-- `PMS-BE-001.2` (migration 8, `PhysicalRoomScheduleAvailabilityAuthority`)
-  đã implement database authority cho physical-room allocation độc lập với
-  commercial commitment, qua `RoomOccupancySegments`/`RoomBlock` (segment
-  type đúng `ReservationAssignment`/`OperationalBlock`, status đúng
-  `Effective`/`Cancelled`), đúng hai PostgreSQL exclusion constraint
-  (`EX_RoomOccupancySegments_EffectiveRoomOverlap`,
-  `EX_RoomOccupancySegments_EffectiveUnitOverlap`) và hai deferred
-  constraint trigger (`SQLSTATE XBHA1`/`XBHA2`) — xem ADR 0006. Availability
-  đã block-adjusted và assignment-attributed; hủy Reservation tự động hủy
-  mọi `Effective` assignment segment cùng transaction. Internal-only mutation
-  commands (`IAssignmentMutationStore`/`IOperationalBlockMutationStore`:
-  create/split/move/atomic batch move-swap/unassign cho assignment,
-  create/split/move/cancel cho block) tồn tại ở application/persistence
-  boundary — **không có HTTP controller hay Admin/Calendar endpoint nào**
-  expose chúng, không có Staff identity, không có Admin RBAC model. Xem
-  `docs/reports/PMS-BE-001.2-completion.md`.
+- `PMS-BE-001.2` (migration 8) đã implement database authority cho
+  physical-room allocation độc lập với commercial commitment
+  (`RoomOccupancySegments`/`RoomBlock`, database-enforced invariants — xem
+  ADR 0006). Availability đã block-adjusted và assignment-attributed; hủy
+  Reservation tự động hủy mọi assignment liên quan cùng transaction.
+  Internal-only mutation commands tồn tại ở application/persistence boundary
+  — **không có HTTP controller hay Admin/Calendar endpoint nào** expose
+  chúng, không có Staff identity, không có Admin RBAC model. Chi tiết đầy đủ
+  trong `docs/reports/PMS-BE-001.2-completion.md`.
 
 ### Target/approved, chưa implement (TARGET)
 

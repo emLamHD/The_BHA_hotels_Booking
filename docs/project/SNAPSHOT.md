@@ -5,17 +5,15 @@
 > Mục đích: phục hồi trạng thái hiện tại mà không cần nạp worklog lịch sử
 
 Lần cập nhật này ghi nhận việc implement `PMS-BE-001.2` — Physical Room
-Schedule & Availability Authority — qua 5 phase nội bộ trên một feature
-branch/một Draft PR duy nhất (Phase 0 preflight; Phase 1 shared advisory-lock
-coordinator; Phase 2 `RoomOccupancySegment`/`RoomBlock` schema + migration 8;
-Phase 3 assignment-aware/block-adjusted availability + cancellation cleanup;
-Phase 4 safe internal assignment/block mutation commands; Phase 5 docs +
-final verification + Draft PR, tài liệu này). Baseline là `develop` HEAD sau
-khi PR #36 (`PMS-BE-001.1-DOCS-CLOSEOUT`) đã merge. Repository SHA và PR
-state bên dưới là baseline đã được xác minh trực tiếp qua `git`/`gh pr view`
-tại thời điểm cập nhật tài liệu này, không phải cam kết rằng SHA này sẽ còn
-là `develop` HEAD sau các commit tiếp theo; revalidate lại `origin/develop`
-trước khi tạo feature branch mới.
+Schedule & Availability Authority — trên một feature branch/một Draft PR
+duy nhất, baseline là `develop` HEAD sau khi PR #36
+(`PMS-BE-001.1-DOCS-CLOSEOUT`) đã merge. Phase-by-phase chronology nằm trong
+`docs/daily/2026-08/2026-08-26-worklog.md`; delivered-state evidence đầy đủ
+nằm trong `docs/reports/PMS-BE-001.2-completion.md` — không lặp lại ở đây.
+Repository SHA và PR state bên dưới là baseline đã được xác minh trực tiếp
+qua `git`/`gh pr view` tại thời điểm cập nhật tài liệu này, không phải cam
+kết rằng SHA này sẽ còn là `develop` HEAD sau các commit tiếp theo;
+revalidate lại `origin/develop` trước khi tạo feature branch mới.
 
 ## 1. Repository state
 
@@ -30,8 +28,8 @@ trước khi tạo feature branch mới.
 | PR #34 | merged — `docs(project): record Graphify tooling adoption`, merge commit `7db8844dfde5ccc0651949f83ddfff76a3a977b9`, merged `2026-08-22T19:08:04Z`. Closes `TOOL-GRAPHIFY-001-DOCS-CLOSEOUT`; remote branch `docs/tool-graphify-001-closeout` deleted. This row is the current-state truth, replacing a since-corrected stale reference that had lingered in this file's own §7 section. |
 | PR #35 | merged — `feat(booking): normalize commercial commitments`, feature branch `feature/pms-be-001-1-commercial-commitment-v2-foundation` (head `9e25f7cb6247420467957061a13c04801ce9b3c7`), merge commit `265d10006b219e456c30ed92bbb6c153a946944d`, merged `2026-08-24T16:46:46Z`. Closes `PMS-BE-001.1`. GitHub CI (Admin/Backend/Frontend) confirmed `pass` on this PR as of this Snapshot update (`gh pr checks 35`). Remote feature branch deleted (confirmed empty via `git ls-remote --heads origin feature/pms-be-001-1-commercial-commitment-v2-foundation`); the linked worktree `/home/admin1/The_BHA_hotels_Booking-pms-be-001-1` used for its implementation is confirmed removed (directory absent, not listed by `git worktree list --porcelain`) — see §4. |
 | PR #36 | merged — `docs(project): close PMS-BE-001.1 and restore single-checkout workflow`, feature branch `docs/pms-be-001-1-closeout-single-checkout` (head `c8938c731dd5647868a07f0c3654d919e5d60e9a`), merge commit `298b7fd53c47824550e955b98c2bed370b38a646`, merged `2026-08-24T19:17:44Z`. Closes `PMS-BE-001.1-DOCS-CLOSEOUT`. |
-| PR #37 | OPEN, `isDraft=true` — `feat(pms): add physical room schedule and availability authority`, feature branch `feature/pms-be-001-2-physical-room-schedule-availability`, base `develop`, opened by Claude. `headRefOid` at open: `b3e07076e77c852eac1d3cd4b39ebe0a40293d74`; a small follow-up commit recording this PR reference into this Snapshot and the completion report advances the head one commit past that — see `docs/reports/PMS-BE-001.2-completion.md` for the actual final head. Not Ready, not merged. Implements `PMS-BE-001.2`. |
-| PR/branch của work item hiện tại | `PMS-BE-001.2` — Physical Room Schedule & Availability Authority — feature branch `feature/pms-be-001-2-physical-room-schedule-availability`, checked out directly in the one repository checkout at `/home/admin1/The_BHA_hotels_Booking` (no additional checkout, no `git worktree add` used), baseline `298b7fd53c47824550e955b98c2bed370b38a646`. Implemented across Phase 1–4 commits `9d198a0`/`cf0ce60`/`490f65c`/`f58aa1e`, a Phase 5 documentation/finalization commit, and this PR-reference follow-up commit (PR #37 above). Claude stops writes at a stable checkpoint and reports `READY_FOR_CODEX_REVIEW`; Owner alone invokes the final full-diff Codex review, and Ready/merge/branch cleanup remain Owner-only. See §2 and §4 for full evidence. |
+| PR #37 | OPEN, `isDraft=true` — `feat(pms): add physical room schedule and availability authority`, feature branch `feature/pms-be-001-2-physical-room-schedule-availability`, base `develop`, opened by Claude. Not Ready, not merged. Implements `PMS-BE-001.2`; exact `FINAL_HEAD` in `docs/reports/PMS-BE-001.2-completion.md`. |
+| PR/branch của work item hiện tại | `PMS-BE-001.2` — feature branch `feature/pms-be-001-2-physical-room-schedule-availability`, checked out directly in the one repository checkout (no `git worktree add`), baseline `298b7fd53c47824550e955b98c2bed370b38a646`. Claude stops writes at a stable checkpoint and reports `READY_FOR_CODEX_REVIEW`; Owner alone invokes the final full-diff Codex review, and Ready/merge/branch cleanup remain Owner-only. Full commit list in the completion report. |
 | Open execution PR khác | không có, theo `gh pr list --state open` tại thời điểm cập nhật Snapshot này (ngoài PR của work item hiện tại ở trên, nếu đã được mở). |
 
 ## 2. Work item state
@@ -91,28 +89,19 @@ trước khi tạo feature branch mới.
 
 ### Đang thực thi
 
-- `PMS-BE-001.2` — Physical Room Schedule & Availability Authority. Claude
-  implementing under a Master Execution Prompt continuation series (Phase 0
-  preflight through Phase 5 docs/final verification/Draft PR); see the
-  "PR/branch của work item hiện tại" row in §1 and full evidence in §2's
-  "Kiến trúc delivered" note below and §4. `STATUS:
+- `PMS-BE-001.2` — Physical Room Schedule & Availability Authority. `STATUS:
   IMPLEMENTATION_COMPLETE — AWAITING_CODEX_REVIEW` as of this Snapshot
   update — implementation, documentation, and full local verification
   complete; final full-diff Codex review and Owner Ready/merge decision
-  still pending. Delivers, as CURRENT / AS-BUILT: `RoomOccupancySegment`/
-  `RoomBlock` (ADR 0006, migration 8) as the sole PhysicalRoom schedule
-  authority, exactly two PostgreSQL exclusion constraints plus two deferred
-  constraint triggers (`SQLSTATE XBHA1`/`XBHA2`), same-Property
-  database-enforced consistency, `xmin` optimistic concurrency, append-only
-  audit; block-adjusted and assignment-attributed availability; atomic
-  whole-Reservation-cancellation assignment cleanup; internal-only
-  assignment/OperationalBlock mutation commands
-  (`IAssignmentMutationStore`/`IOperationalBlockMutationStore`) with no
-  HTTP/Admin/Calendar endpoint and no Staff/RBAC model; a shared
-  deterministic `AdvisoryLockCoordinator` used by every advisory-lock-taking
-  writer. Does **not** implement: multi-RoomType public request shape,
-  `Organization`, Admin authentication/RBAC, Staff identity, any HTTP
-  exposure of the schedule authority, OTA, `FolioEntries`, or `DATA-001.2`.
+  still pending. Delivers the PhysicalRoom schedule database authority,
+  block-adjusted/assignment-attributed availability, whole-Reservation
+  cancellation cleanup, and an internal-only assignment/block mutation
+  boundary with no HTTP/Admin exposure and no Staff/RBAC model — full
+  as-built detail in ADR 0006 and `docs/reports/PMS-BE-001.2-completion.md`,
+  not repeated here. Does **not** implement: multi-RoomType public request
+  shape, `Organization`, Admin authentication/RBAC, Staff identity, any
+  HTTP exposure of the schedule authority, OTA, `FolioEntries`, or
+  `DATA-001.2`.
 
 ### Quyết định đang hiệu lực
 
@@ -179,52 +168,20 @@ trước khi tạo feature branch mới.
   longer exist — there is no dual-write and no dormant normalized table.
 - CURRENT physical-room schedule authority (`PMS-BE-001.2`, ADR 0006,
   migration 8): `RoomOccupancySegment` is the sole PhysicalRoom schedule —
-  no separate `RoomAssignments` dual-write model. Segment types are exactly
-  `ReservationAssignment`/`OperationalBlock`; statuses are exactly
-  `Effective`/`Cancelled`. Two PostgreSQL exclusion constraints
-  (`EX_RoomOccupancySegments_EffectiveRoomOverlap`,
-  `EX_RoomOccupancySegments_EffectiveUnitOverlap`, `btree_gist`-backed)
-  prevent double-occupying a PhysicalRoom or double-assigning a
-  `ReservationUnit` among `Effective` segments; two `DEFERRABLE INITIALLY
-  DEFERRED` constraint triggers enforce booked-night coverage (`SQLSTATE
-  XBHA1`) and unit-commitment consistency (`SQLSTATE XBHA2`) at `COMMIT`,
-  allowing a transaction to pass through a transient intermediate state
-  (batch move/swap) as long as the final committed state satisfies both.
-  `PhysicalRoom` gained a `(PropertyId, Id)` alternate key so
-  `RoomOccupancySegment`'s composite FKs enforce same-Property consistency
-  in the database, not only in application code. Rows use `xmin`-based
-  optimistic concurrency; every mutation writes an append-only
-  `RoomOccupancySegmentAudit` row grouped by `MutationGroupId` (no
-  mutators, never updated/deleted through normal persistence). Availability
-  (`AvailabilityDataSource`, `PhysicalCapacityFormula`) is now block-adjusted
-  (`UsablePhysicalCapacity = max(0, BaseInventory - OperationalBlockedRooms)`
-  before the existing `ControlledCapacity`/`SellableLimit`/`IsStopSell`
-  clamp) and assignment-attributed (nightly demand attributed to the sold
-  RoomType if unassigned, or the actually-assigned PhysicalRoom's RoomType
-  if an `Effective ReservationAssignment` covers that night — never both).
-  Whole-Reservation cancellation (`IReservationCancellationStore`) now
-  atomically cancels any still-`Effective` assignment segments of the
-  cancelled Units in the same transaction, writing audit evidence tagged
-  `system:reservation-cancellation`. Internal-only mutation commands —
-  `IAssignmentMutationStore` (create same/cross-RoomType, split,
-  move/reassign, atomic batch move/swap with one combined final-state
-  capacity evaluation, unassign) and `IOperationalBlockMutationStore`
-  (multi-room block create, split, move, cancel) — exist behind the
-  application/persistence boundary only: **no HTTP controller and no
+  no separate `RoomAssignments` dual-write model — with PostgreSQL-enforced
+  exclusion, booked-night-coverage, unit-commitment-consistency, and
+  same-Property invariants, `xmin` optimistic concurrency, and append-only
+  audit. Availability is block-adjusted and assignment-attributed.
+  Whole-Reservation cancellation atomically cancels its assignment segments.
+  Internal-only assignment/OperationalBlock mutation commands exist behind
+  the application/persistence boundary only — **no HTTP controller and no
   Admin/Calendar endpoint expose them**, and no Staff identity or Admin RBAC
-  model exists. Every mutation requires a non-empty `ActorReference`;
-  cross-RoomType assignment additionally requires
-  `AuthorizationEvidence`/`Reason` — an opaque authorization string recorded
-  into the audit trail, not a real permission check. A shared
-  `AdvisoryLockCoordinator` (fixed class order: idempotency/transition lock,
-  then `ReservationUnit` locks, then `RoomType` inventory-scope locks, then
-  daily inventory locks, each deduplicated/sorted) is now used by every
-  advisory-lock-taking writer, replacing each store's prior ad hoc lock-key
-  handling without changing lock semantics. `23P01` exclusion violations and
-  the two custom SQLSTATEs are mapped only by exact constraint
-  name/SQLSTATE to safe `SegmentMutationResult` messages — no raw
-  PostgreSQL/Npgsql error text is ever exposed to a caller. Full evidence in
-  `docs/reports/PMS-BE-001.2-completion.md`.
+  model exists; cross-RoomType assignment requires an opaque
+  `AuthorizationEvidence`/`Reason` pair, not a real permission check. A
+  shared `AdvisoryLockCoordinator` is now used by every advisory-lock-taking
+  writer. Exact constraint names, SQLSTATEs, lock order, and error mapping
+  are recorded in ADR 0006 and `docs/reports/PMS-BE-001.2-completion.md`,
+  not duplicated here.
 - No `Organization` entity, no `FolioEntries` table, and no OTA
   inbox/outbox exist anywhere in the current schema or codebase.
 - The `ADMIN-002.1` frontend prototype (§2, §5) reads and writes only
@@ -320,44 +277,11 @@ independently verified for this Snapshot update via:
     real PostgreSQL, not a mock or unit-test double.
 
 `PMS-BE-001.2` (implementation-complete, PR pending — see §1/§2): full
-Phase 1–5 checkpoint history in `docs/reports/PMS-BE-001.2-completion.md`
-and `docs/daily/2026-08/2026-08-26-worklog.md`. Phase 5 local verification
-evidence, reproduced in this Snapshot-update session against real
-PostgreSQL 17 (`thebha_dev`):
-
-- Preflight: HEAD `f58aa1e` confirmed before any Phase 5 edit; working tree
-  clean; migrations 1–7 byte-identical to `origin/develop` (`git diff
-  origin/develop -- <each file>` empty); no migration 9; 4 commits ahead / 0
-  behind `origin/develop`.
-- Full-diff self-review (`origin/develop...HEAD`, 47 files, +6,775/-124):
-  no `RoomAssignments`/`CalendarEvents` model, no Api-layer/controller
-  change, no `.csproj`/dependency change, no `Front_End` change, exactly the
-  two approved exclusion-constraint names, exact `XBHA1`/`XBHA2` mappings,
-  no secret pattern found — no scoped defect found, no correction commit
-  required.
-- `dotnet build … --configuration Release`: 0 warnings, 0 errors.
-- Filtered migration tests
-  (`PhysicalRoomScheduleAvailabilityAuthorityMigrationTests`): **5/5 PASS**.
-- Full suite: **244/244** unit tests, **317/317** PostgreSQL integration
-  tests, all PASS.
-- Concurrency-sensitive subset (`FullyQualifiedName~Concurrent`, 10 tests):
-  re-run 3× consecutively, 10/10 PASS every run, no flakiness.
-- `dotnet ef migrations has-pending-model-changes`: clean ("No changes have
-  been made to the model since the last migration").
-- `git diff --check origin/develop...HEAD`: clean.
-- `Front_End/Customer_Web` CI parity: `npm ci`, `npm run lint` (no
-  warnings/errors), `npm test` (**298/298** PASS), `npm run build`
-  (succeeded).
-- `Front_End/Admin_Web` CI parity: `npm ci`, `npm run lint` (clean),
-  `npm run build`. First attempt failed on a transient Google Fonts
-  (`fonts.gstatic.com`) fetch timeout unrelated to this branch's diff (which
-  touches no `Front_End/Admin_Web` file); a clean retry after `rm -rf .next`
-  succeeded, confirming the environment, not the code, was the cause — no
-  frontend file was modified to force this check to pass.
-- Forbidden-file check: no diff against `origin/develop` in `AGENTS.md`,
-  `CLAUDE.md`, or `docs/governance/`. Changed-file allowlist: every changed
-  path is under `Back_End/src` or `Back_End/tests`, except this Phase 5
-  documentation/finalization commit.
+checkpoint history, self-review, and local/CI verification evidence
+(build, full unit/integration/migration/concurrency test counts, EF
+pending-model check, frontend CI parity, forbidden-file review) recorded in
+`docs/reports/PMS-BE-001.2-completion.md` and
+`docs/daily/2026-08/2026-08-26-worklog.md` — not duplicated here.
 
 ## 5. Product/architecture state liên quan
 
