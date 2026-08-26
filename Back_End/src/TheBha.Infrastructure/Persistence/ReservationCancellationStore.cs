@@ -66,19 +66,15 @@ internal sealed class ReservationCancellationStore(
         }
 
         var roomTypeId = reservation.Units[0].RoomTypeId;
-        foreach (var stayDate in reservation.Units
-                     .SelectMany(unit => unit.Nights)
-                     .Select(night => night.StayDate)
-                     .Distinct()
-                     .OrderBy(date => date))
-        {
-            await AcquireLockAsync(
-                BookingAdvisoryLockKeys.ForInventory(
-                    reservation.PropertyId,
-                    roomTypeId,
-                    stayDate),
-                cancellationToken);
-        }
+        var lockPlan = new LockPlanBuilder()
+            .WithReservationUnits(reservation.Units.Select(unit => unit.Id))
+            .WithRoomTypeScope(reservation.PropertyId, roomTypeId)
+            .WithInventory(
+                reservation.PropertyId,
+                roomTypeId,
+                reservation.Units.SelectMany(unit => unit.Nights).Select(night => night.StayDate).Distinct())
+            .Build();
+        await AdvisoryLockCoordinator.AcquireAsync(dbContext, lockPlan, cancellationToken);
 
         var utcNow = timeProvider.GetUtcNow().ToUniversalTime();
         var timeZoneId = await dbContext.Properties
@@ -107,10 +103,6 @@ internal sealed class ReservationCancellationStore(
             BookingHoldConfirmationStore.Map(reservation));
     }
 
-    private async Task AcquireLockAsync(long lockKey, CancellationToken cancellationToken)
-    {
-        await dbContext.Database.ExecuteSqlInterpolatedAsync(
-            $"SELECT pg_advisory_xact_lock({lockKey})",
-            cancellationToken);
-    }
+    private Task AcquireLockAsync(long lockKey, CancellationToken cancellationToken) =>
+        AdvisoryLockCoordinator.AcquireKeyAsync(dbContext, lockKey, cancellationToken);
 }

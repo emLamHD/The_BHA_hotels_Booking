@@ -45,15 +45,11 @@ internal sealed class BookingHoldCreationStore(
                 .Select(request.CheckIn.AddDays)
                 .Order()
                 .ToArray();
-            foreach (var stayDate in stayDates)
-            {
-                await AcquireLockAsync(
-                    BookingAdvisoryLockKeys.ForInventory(
-                        request.PropertyId,
-                        request.RoomTypeId,
-                        stayDate),
-                    cancellationToken);
-            }
+            var lockPlan = new LockPlanBuilder()
+                .WithRoomTypeScope(request.PropertyId, request.RoomTypeId)
+                .WithInventory(request.PropertyId, request.RoomTypeId, stayDates)
+                .Build();
+            await AdvisoryLockCoordinator.AcquireAsync(dbContext, lockPlan, cancellationToken);
 
             existing = await FindExistingAsync(
                 request.IdempotencyKeyHash,
@@ -352,12 +348,8 @@ internal sealed class BookingHoldCreationStore(
                 hold => hold.IdempotencyKeyHash == idempotencyKeyHash,
                 cancellationToken);
 
-    private async Task AcquireLockAsync(long lockKey, CancellationToken cancellationToken)
-    {
-        await dbContext.Database.ExecuteSqlInterpolatedAsync(
-            $"SELECT pg_advisory_xact_lock({lockKey})",
-            cancellationToken);
-    }
+    private Task AcquireLockAsync(long lockKey, CancellationToken cancellationToken) =>
+        AdvisoryLockCoordinator.AcquireKeyAsync(dbContext, lockKey, cancellationToken);
 
     private static async Task<BookingHoldCreationResult> CompleteReplayAsync(
         Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction transaction,
@@ -439,6 +431,8 @@ public static class BookingAdvisoryLockKeys
     private const string IdempotencyNamespace = "thebha:booking:idempotency:v1:";
     private const string InventoryNamespace = "thebha:booking:inventory:v1:";
     private const string HoldTransitionNamespace = "thebha:booking:hold-transition:v1:";
+    private const string ReservationUnitNamespace = "thebha:pms:reservation-unit:v1:";
+    private const string RoomTypeInventoryScopeNamespace = "thebha:pms:roomtype-inventory-scope:v1:";
 
     public static long ForIdempotency(string idempotencyKeyHash) =>
         HashToInt64(IdempotencyNamespace + idempotencyKeyHash);
@@ -458,6 +452,28 @@ public static class BookingAdvisoryLockKeys
                 roomTypeId.ToString("D"),
                 ":",
                 stayDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));
+
+    /// <summary>
+    /// PMS-BE-001.2 §7.1 lock class 2: serializes concurrent mutations (assignment
+    /// create/activate/split/move/cancel) against the same ReservationUnit's
+    /// physical schedule.
+    /// </summary>
+    public static long ForReservationUnit(Guid reservationUnitId) =>
+        HashToInt64(ReservationUnitNamespace + reservationUnitId.ToString("D"));
+
+    /// <summary>
+    /// PMS-BE-001.2 §7.1 lock class 3: serializes PhysicalRoom-capacity changes
+    /// (block create/cancel, operational-status change) for one RoomType against
+    /// every date-specific demand writer for that RoomType, including dates not
+    /// yet present in any daily-inventory lock.
+    /// </summary>
+    public static long ForRoomTypeInventoryScope(Guid propertyId, Guid roomTypeId) =>
+        HashToInt64(
+            string.Concat(
+                RoomTypeInventoryScopeNamespace,
+                propertyId.ToString("D"),
+                ":",
+                roomTypeId.ToString("D")));
 
     private static long HashToInt64(string value)
     {

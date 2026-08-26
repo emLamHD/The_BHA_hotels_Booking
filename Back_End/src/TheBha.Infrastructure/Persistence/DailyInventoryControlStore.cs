@@ -11,4 +11,23 @@ internal sealed class DailyInventoryControlStore(TheBhaDbContext dbContext) : ID
     public Task<DailyInventoryControl?> FindAsync(Guid propertyId, Guid roomTypeId, DateOnly date, CancellationToken ct) => dbContext.DailyInventoryControls.SingleOrDefaultAsync(x => x.PropertyId == propertyId && x.RoomTypeId == roomTypeId && x.StayDate == date, ct);
     public async Task SaveAsync(DailyInventoryControl control, CancellationToken ct) { if (dbContext.Entry(control).State == EntityState.Detached) dbContext.DailyInventoryControls.Add(control); await dbContext.SaveChangesAsync(ct); }
     public async Task<bool> DeleteAsync(DailyInventoryControl control, CancellationToken ct) { dbContext.DailyInventoryControls.Remove(control); return await dbContext.SaveChangesAsync(ct) > 0; }
+
+    public async Task<TResult> ExecuteUnderLockAsync<TResult>(
+        Guid propertyId,
+        Guid roomTypeId,
+        DateOnly stayDate,
+        Func<CancellationToken, Task<TResult>> operation,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        var lockPlan = new LockPlanBuilder()
+            .WithRoomTypeScope(propertyId, roomTypeId)
+            .WithInventory(propertyId, roomTypeId, stayDate)
+            .Build();
+        await AdvisoryLockCoordinator.AcquireAsync(dbContext, lockPlan, cancellationToken);
+        var result = await operation(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return result;
+    }
 }
