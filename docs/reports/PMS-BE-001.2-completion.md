@@ -8,9 +8,9 @@ TITLE: Physical Room Schedule & Availability Authority
 BASELINE_SHA: 298b7fd53c47824550e955b98c2bed370b38a646
 FEATURE_BRANCH: feature/pms-be-001-2-physical-room-schedule-availability
 START_HEAD: f58aa1e38344f85e6539f419d4c07454347b9d60
-FINAL_HEAD: (recorded after the documentation/finalization commit — see push/PR record below)
+FINAL_HEAD: b3e07076e77c852eac1d3cd4b39ebe0a40293d74
 BASE_BRANCH: develop
-DRAFT_PR: (recorded once opened — see push/PR record below)
+DRAFT_PR: https://github.com/emLamHD/The_BHA_hotels_Booking/pull/37 (OPEN, isDraft=true, headRefOid=b3e07076e77c852eac1d3cd4b39ebe0a40293d74)
 ```
 
 ## 1. What was delivered
@@ -215,10 +215,21 @@ Not implemented by this work item:
 
 ## 9. Push, Draft PR, and GitHub CI
 
-Recorded after the documentation/finalization commit is pushed and the
-Draft PR is opened — see the follow-up commit to this report and to
-`docs/project/SNAPSHOT.md` for the exact PR URL, `FINAL_HEAD`, and CI
-result on that head.
+Feature branch pushed to `origin`. Draft PR opened against `develop`:
+[`#37`](https://github.com/emLamHD/The_BHA_hotels_Booking/pull/37),
+confirmed via `gh pr view 37` at open time — `state=OPEN`, `isDraft=true`,
+`baseRefName=develop`,
+`headRefName=feature/pms-be-001-2-physical-room-schedule-availability`,
+`headRefOid=b3e07076e77c852eac1d3cd4b39ebe0a40293d74` (the `FINAL_HEAD`
+recorded above — the documentation/finalization commit that this file was
+first committed in). This one small follow-up commit — adding the PR
+URL/head to this report and to `docs/project/SNAPSHOT.md` after the PR
+became available to reference — advances the branch head one commit past
+`FINAL_HEAD` above; the completion Owner report for this checkpoint states
+the actual final `HEAD` after that follow-up commit. No Ready/merge/
+auto-merge action was taken at any point. GitHub CI (Backend/Frontend/
+Admin) result is recorded once available on that final head — see a
+further follow-up note if this section is not yet updated with it.
 
 ## 10. Known risks
 
