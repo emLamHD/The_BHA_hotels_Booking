@@ -28,7 +28,8 @@ public sealed class PropertyInventoryPersistenceTests(PostgreSqlWebApplicationFa
         Assert.Contains(applied, migration => migration.EndsWith("_CustomerBookingIdentity"));
         Assert.Contains(applied, migration => migration.EndsWith("_AddBookingHoldReservationFoundation"));
         Assert.Contains(applied, migration => migration.EndsWith("_CommercialCommitmentV2Foundation"));
-        Assert.Equal(7, applied.Count());
+        Assert.Contains(applied, migration => migration.EndsWith("_PhysicalRoomScheduleAvailabilityAuthority"));
+        Assert.Equal(8, applied.Count());
         Assert.Empty(pending);
         Assert.StartsWith("17.", version, StringComparison.Ordinal);
     }
