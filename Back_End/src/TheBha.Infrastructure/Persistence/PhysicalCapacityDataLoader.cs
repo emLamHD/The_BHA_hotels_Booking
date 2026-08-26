@@ -76,17 +76,6 @@ internal static class PhysicalCapacityDataLoader
     }
 
     /// <summary>
-    /// Every Committed ReservationUnit's nightly demand for the half-open
-    /// <c>[checkIn, checkOut)</c> range, attributed to exactly one RoomType per
-    /// room-night (blueprint §7 rules 1-7): the sold RoomType when no Effective
-    /// ReservationAssignment covers that night, or the assigned PhysicalRoom's actual
-    /// RoomType when one does. Loaded property-wide (not pre-filtered to one RoomType)
-    /// because a cross-RoomType assignment can move a night's attribution into or out
-    /// of any RoomType. Does not include Hold demand, which has no assignment path and
-    /// always attributes to its held RoomType — see <see cref="LoadActiveHoldDemandAsync"/>
-    /// for that shared query, which every caller of this method must also combine in.
-    /// </summary>
-    /// <summary>
     /// Active, unexpired <c>InventoryHold</c> demand for the half-open
     /// <c>[checkIn, checkOut)</c> range, per (RoomTypeId, StayDate) — a Hold's nights
     /// always attribute to their held RoomType (a Hold has no physical assignment
@@ -123,6 +112,17 @@ internal static class PhysicalCapacityDataLoader
         return rows.ToDictionary(row => (row.RoomTypeId, row.StayDate), row => row.Rooms);
     }
 
+    /// <summary>
+    /// Every Committed ReservationUnit's nightly demand for the half-open
+    /// <c>[checkIn, checkOut)</c> range, attributed to exactly one RoomType per
+    /// room-night (blueprint §7 rules 1-7): the sold RoomType when no Effective
+    /// ReservationAssignment covers that night, or the assigned PhysicalRoom's actual
+    /// RoomType when one does. Loaded property-wide (not pre-filtered to one RoomType)
+    /// because a cross-RoomType assignment can move a night's attribution into or out
+    /// of any RoomType. Does not include Hold demand, which has no assignment path and
+    /// always attributes to its held RoomType — see <see cref="LoadActiveHoldDemandAsync"/>
+    /// for that shared query, which every caller of this method must also combine in.
+    /// </summary>
     public static async Task<IReadOnlyDictionary<(Guid RoomTypeId, DateOnly StayDate), int>> LoadAttributedReservationDemandAsync(
         TheBhaDbContext dbContext,
         Guid propertyId,

@@ -211,6 +211,71 @@ public sealed class RoomOccupancySegmentInvariantTests(PostgreSqlWebApplicationF
     }
 
     [Fact]
+    public async Task Reservation_unit_night_ownership_transfer_is_rejected_and_original_state_preserved()
+    {
+        // PMS-BE-001.2-C2: ReservationUnitNight.ReservationUnitId is immutable
+        // commercial evidence — no approved operation transfers a booked night
+        // between ReservationUnits. Before this correction, an UPDATE moving a
+        // night to another Unit only re-validated the *new* Unit's coverage
+        // (COALESCE picked NEW.ReservationUnitId only), so the *old* Unit's
+        // now-uncovered Effective assignment silently escaped the trigger.
+        //
+        // The destination Unit belongs to a second Reservation on a
+        // non-overlapping date window in the same Property, so the transferred
+        // night has no pre-existing (ReservationUnitId, StayDate) row there —
+        // isolating the ownership-immutability rejection from an incidental
+        // primary-key collision.
+        await factory.ResetDatabaseAsync();
+        await using var context = factory.CreateDbContext();
+        var data = await CreateFixtureAsync(context, "night-owner-xfer", roomCount: 1, unitCount: 1);
+        var oldUnit = data.Units[0];
+        var newUnit = await CreateSecondUnitAsync(context, data, "night-owner-xfer-2", CheckIn.AddDays(30));
+
+        var assignment = Assignment(data, data.Rooms[0], oldUnit, CheckIn, CheckIn.AddDays(1));
+        context.Add(assignment);
+        await context.SaveChangesAsync();
+
+        await AssertDatabaseErrorAsync(
+            () => context.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                UPDATE "ReservationUnitNights" SET "ReservationUnitId" = {newUnit.Id}
+                WHERE "ReservationUnitId" = {oldUnit.Id} AND "StayDate" = {CheckIn}
+                """),
+            "XBHA1");
+
+        await using var verify = factory.CreateDbContext();
+        var night = await verify.ReservationUnitNights.SingleAsync(
+            n => n.ReservationUnitId == oldUnit.Id && n.StayDate == CheckIn);
+        Assert.Equal(oldUnit.Id, night.ReservationUnitId);
+        Assert.Empty(await verify.ReservationUnitNights
+            .Where(n => n.ReservationUnitId == newUnit.Id && n.StayDate == CheckIn)
+            .ToListAsync());
+        var reloadedAssignment = await verify.RoomOccupancySegments.SingleAsync(s => s.Id == assignment.Id);
+        Assert.Equal(RoomOccupancySegmentStatus.Effective, reloadedAssignment.Status);
+        Assert.Equal(oldUnit.Id, reloadedAssignment.ReservationUnitId);
+    }
+
+    [Fact]
+    public async Task Reservation_unit_night_update_that_preserves_ownership_is_not_rejected()
+    {
+        await factory.ResetDatabaseAsync();
+        await using var context = factory.CreateDbContext();
+        var data = await CreateFixtureAsync(context, "night-owner-safe", roomCount: 1, unitCount: 1);
+        var unit = data.Units[0];
+
+        await context.Database.ExecuteSqlInterpolatedAsync(
+            $"""
+            UPDATE "ReservationUnitNights" SET "UnitAmount" = 999.00
+            WHERE "ReservationUnitId" = {unit.Id} AND "StayDate" = {CheckIn}
+            """);
+
+        await using var verify = factory.CreateDbContext();
+        var night = await verify.ReservationUnitNights.SingleAsync(
+            n => n.ReservationUnitId == unit.Id && n.StayDate == CheckIn);
+        Assert.Equal(999.00m, night.UnitAmount);
+    }
+
+    [Fact]
     public async Task Assignment_into_a_cancelled_unit_is_rejected()
     {
         await factory.ResetDatabaseAsync();
@@ -391,6 +456,41 @@ public sealed class RoomOccupancySegmentInvariantTests(PostgreSqlWebApplicationF
 
         await context.SaveChangesAsync();
         return new Fixture(property, roomType, rooms, reservation!, units);
+    }
+
+    /// <summary>
+    /// A second, independent Reservation/Unit in <paramref name="data"/>'s Property, on
+    /// a 4-night window starting at <paramref name="checkIn"/> (own RatePlan, own Hold)
+    /// — used only to obtain a ReservationUnit whose ReservationUnitNight rows do not
+    /// collide on the primary key with <paramref name="data"/>'s own Unit's nights.
+    /// </summary>
+    private static async Task<ReservationUnit> CreateSecondUnitAsync(
+        TheBhaDbContext context,
+        Fixture data,
+        string slug,
+        DateOnly checkIn)
+    {
+        var checkOut = checkIn.AddDays(4);
+        var ratePlan = new RatePlan(
+            Guid.NewGuid(), data.Property.Id, slug.ToUpperInvariant(), slug, null, "VND", true, Now);
+        context.Add(ratePlan);
+
+        var nights = Enumerable.Range(0, checkOut.DayNumber - checkIn.DayNumber)
+            .Select(offset => new NightlyCommitmentSnapshot(checkIn.AddDays(offset), ratePlan.Id, 100m))
+            .ToArray();
+        var hold = new InventoryHold(
+            Guid.NewGuid(), data.Property.Id, data.RoomType.Id, 1, null, "Second Guest",
+            "second@example.com", "+84 900 000 001", checkIn, checkOut, 2, 0, "VND", Now,
+            HexHash(slug + ":idempotency"), HexHash(slug + ":fingerprint"), HexHash(slug + ":guest"), nights);
+        context.Add(hold);
+        var reservation = new Reservation(
+            Guid.NewGuid(), $"BHA-{slug.ToUpperInvariant()}", hold.Id, data.Property.Id, null,
+            "Second Guest", "second@example.com", "+84 900 000 001", checkIn, checkOut, 2, 0, "VND",
+            ReservationStatus.Confirmed, Now, null, null, HexHash(slug + ":guest"),
+            hold.Items.Select(item => new ReservationUnitPlan(item.Id, data.RoomType.Id, nights)));
+        context.Add(reservation);
+        await context.SaveChangesAsync();
+        return reservation.Units.Single();
     }
 
     private static RoomOccupancySegment Assignment(

@@ -29,6 +29,17 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                 IF TG_TABLE_NAME = 'RoomOccupancySegments' THEN
                     affected_unit_id := COALESCE(NEW."ReservationUnitId", OLD."ReservationUnitId");
                 ELSIF TG_TABLE_NAME = 'ReservationUnitNights' THEN
+                    -- ReservationUnitNight.ReservationUnitId is immutable commercial
+                    -- evidence (it participates in the row's primary key together with
+                    -- StayDate): no approved operation transfers a booked night between
+                    -- ReservationUnits. Reject the transfer outright rather than
+                    -- re-validating coverage for only one of the two affected Units.
+                    IF TG_OP = 'UPDATE' AND OLD."ReservationUnitId" IS DISTINCT FROM NEW."ReservationUnitId" THEN
+                        RAISE EXCEPTION
+                            'thebha_booked_night_coverage_violation: ReservationUnitNight (%, %) cannot change ReservationUnitId from % to % — ownership is immutable',
+                            OLD."ReservationUnitId", OLD."StayDate", OLD."ReservationUnitId", NEW."ReservationUnitId"
+                            USING ERRCODE = 'XBHA1';
+                    END IF;
                     affected_unit_id := COALESCE(NEW."ReservationUnitId", OLD."ReservationUnitId");
                 END IF;
 
