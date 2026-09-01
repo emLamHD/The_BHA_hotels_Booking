@@ -1,664 +1,251 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+/**
+ * PMS-CAL-001.1: the Admin Reservation Board, now backed by the real
+ * Admin API (HTTPS, read-only) instead of `mockData.ts`/`reservationRuntime.ts`.
+ * `mockData.ts`, `reservationRuntime.ts`, `ReservationTimeline.tsx`, and
+ * `TimelineItemDetailsDialog.tsx` intentionally remain unused by this
+ * component — they stay in the tree for tests and the next mutation slice
+ * (FRONTEND INTEGRATION CONTRACT item 2 of the Master Execution Prompt),
+ * but no longer drive what this component renders.
+ */
+
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReservationBoardToolbar from "./ReservationBoardToolbar";
-import ReservationTimeline from "./ReservationTimeline";
-import ReservationMoveConfirmDialog from "./ReservationMoveConfirmDialog";
-import TimelineItemDetailsDialog from "./TimelineItemDetailsDialog";
-import { CloseLineIcon } from "@/icons";
+import ReservationBoardServerTimeline, {
+  type BlockSelection,
+  type StaySelection,
+} from "./ReservationBoardServerTimeline";
+import ReservationBoardStayPopover from "./ReservationBoardStayPopover";
+import { AlertIcon } from "@/icons";
 import {
-  addDaysIso,
   buildVisibleRange,
   computeVisibleStartFromAnchor,
-  diffDaysIso,
-  formatDisplayDate,
+  addDaysIso,
   formatRangeLabel,
 } from "./dateMath";
-import {
-  DEMO_TODAY_ISO,
-  MOCK_BOOKING_SOURCES,
-  MOCK_NATIONALITIES,
-  MOCK_PHYSICAL_ROOMS,
-  MOCK_PROPERTIES,
-  MOCK_ROOM_TYPES,
-} from "./mockData";
-import {
-  canMove,
-  createInitialRuntimeState,
-  findBlockingItem,
-  reservationRuntimeReducer,
-} from "./reservationRuntime";
-import type {
-  EditGuestInput,
-  EditStayInput,
-  RecordPaymentInput,
-  RecordRefundInput,
-} from "./reservationRuntime";
-import { isInactiveLifecycleStatus } from "./types";
-import type {
-  PropertyId,
-  ReservationBoardFilters,
-  ReservationBoardRangeLength,
-  ReservationMoveIntent,
-  ReservationMoveTarget,
-  ReservationMoveTargetGroup,
-  ReservationMoveValidation,
-} from "./types";
+import type { IsoDate, ReservationBoardFilters, ReservationBoardRangeLength } from "./types";
+import { fetchActiveProperties, fetchReservationBoard, type ApiError } from "@/lib/api/client";
+import type { ApiProperty, ReservationBoardResponse } from "@/lib/api/types";
 
 const INITIAL_RANGE_LENGTH: ReservationBoardRangeLength = 14;
 
-interface ActionFeedback {
-  kind: "success" | "error";
-  message: string;
-}
+type PropertiesState =
+  | { status: "loading" }
+  | { status: "loaded"; properties: ApiProperty[] }
+  | { status: "error"; error: ApiError };
 
-/** Builds the demo-only status banner text for a confirmed move, naming whichever of room/dates actually changed. */
-function formatMoveSuccessMessage(intent: ReservationMoveIntent): string {
-  const roomChanged =
-    intent.operation === "unassigned-assign" ? true : intent.fromRoomId !== intent.toRoomId;
-  const datesChanged =
-    intent.fromStartDate !== intent.toStartDate || intent.fromEndDate !== intent.toEndDate;
+type BoardState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "loaded"; board: ReservationBoardResponse }
+  | { status: "error"; error: ApiError };
 
-  const toRoomLabel = `Room ${intent.toRoomCode}`;
-  const toDatesLabel = `${formatDisplayDate(intent.toStartDate)} – ${formatDisplayDate(intent.toEndDate)}`;
-
-  const changeLabel =
-    roomChanged && datesChanged
-      ? `${toRoomLabel}, ${toDatesLabel}`
-      : roomChanged
-      ? toRoomLabel
-      : toDatesLabel;
-
-  if (intent.operation === "unassigned-assign") {
-    return `Demo assignment applied locally: ${intent.guestName} → ${changeLabel}. Not saved to backend.`;
+/** Client-side "today" in an IANA zone, used only to pick the very first visible range — see dateMath.ts header comment for why this module never otherwise uses browser-local dates. */
+function todayInTimeZone(timeZone: string): IsoDate {
+  try {
+    return new Intl.DateTimeFormat("en-CA", { timeZone }).format(new Date());
+  } catch {
+    return new Date().toISOString().slice(0, 10);
   }
-  if (intent.operation === "block-move") {
-    return `Demo block move applied locally: ${changeLabel}. Not saved to backend.`;
-  }
-  return `Demo move applied locally: ${changeLabel}. Not saved to backend.`;
 }
 
 const ReservationBoard: React.FC = () => {
-  const [selectedPropertyId, setSelectedPropertyIdState] = useState<PropertyId>(
-    MOCK_PROPERTIES[0].id
-  );
-  const [rangeLength, setRangeLength] = useState<ReservationBoardRangeLength>(
-    INITIAL_RANGE_LENGTH
-  );
-  // Anchor-centered range model (ADMIN-002.1-C5 §7): the visible window is
-  // always centered on `anchorDate` rather than starting at it, so past
-  // dates are visible immediately and Previous/Next can reach further back
-  // than the demo "today". Today re-centers by resetting the anchor.
-  const [anchorDate, setAnchorDate] = useState<string>(DEMO_TODAY_ISO);
-  const rangeStart = computeVisibleStartFromAnchor(anchorDate, rangeLength);
+  const [propertiesState, setPropertiesState] = useState<PropertiesState>({ status: "loading" });
+  const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
+  const [rangeLength, setRangeLength] = useState<ReservationBoardRangeLength>(INITIAL_RANGE_LENGTH);
+  const [anchorDate, setAnchorDate] = useState<IsoDate | null>(null);
+  const [boardState, setBoardState] = useState<BoardState>({ status: "idle" });
+  const [retryToken, setRetryToken] = useState(0);
   const [filters, setFilters] = useState<ReservationBoardFilters>({
     showAssigned: true,
     showUnassigned: true,
     showOperationalBlocks: true,
     showInactive: false,
   });
+  const [selection, setSelection] = useState<
+    { kind: "stay"; value: StaySelection } | { kind: "block"; value: BlockSelection } | null
+  >(null);
 
-  // ADMIN-002.1-C6 §16: every durable mutation (lifecycle, folio, notes,
-  // activity, room/date) goes through the centralized reducer in
-  // reservationRuntime.ts. This component keeps only view-only UI state
-  // (open item, drag preview, feedback banners, toolbar filters).
-  const [runtimeState, dispatch] = useReducer(reservationRuntimeReducer, undefined, createInitialRuntimeState);
-  const timelineItems = runtimeState.items;
+  const requestSeqRef = useRef(0);
 
-  const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
-  const [pendingSourceItemId, setPendingSourceItemId] = useState<string | null>(null);
-  const [pendingInitialTarget, setPendingInitialTarget] =
-    useState<ReservationMoveTarget | null>(null);
-  // Stores the selected item's ID, never a copied item object, so the
-  // dialog always resolves the latest `timelineItems` state on render and
-  // reflects a room/date move made while it was previously open (ADMIN-002.1-C5 §6.3).
-  const [selectedDetailsItemId, setSelectedDetailsItemId] = useState<string | null>(null);
-
-  // Codex P2 correction (ADMIN-002.1-C1): transient drag-hover feedback and
-  // persistent post-action feedback are deliberately separate state. A
-  // `dragend` that follows a completed invalid drop must clear only the
-  // transient hover reason, never the persistent conflict/success message —
-  // otherwise the rejection reason disappears the instant the drop finishes.
-  const [transientDragFeedback, setTransientDragFeedback] = useState<string | null>(null);
-  const [persistentActionFeedback, setPersistentActionFeedback] =
-    useState<ActionFeedback | null>(null);
-
-  // Tracks which timeline item's bar should reclaim focus once the dialog
-  // closes. A DOM node reference is deliberately not used here: a confirmed
-  // move re-parents the item's bar to a different PhysicalRoom row (or out
-  // of Unassigned), so React unmounts the original node. Refocusing by
-  // querying `data-timeline-item-id` after the state update commits always
-  // finds the bar's current location, whether or not it moved.
-  const focusReturnItemIdRef = useRef<string | null>(null);
-
+  // Initial load: real active Properties, then deterministically select the
+  // first and derive the initial anchor from its own time zone.
   useEffect(() => {
-    // Wait until both the move dialog and the details dialog are closed —
-    // a details→move transition closes the former and opens the latter in
-    // the same batch, and must not refocus the bar in between.
-    if (pendingSourceItemId || selectedDetailsItemId) return;
-    const itemId = focusReturnItemIdRef.current;
-    if (!itemId) return;
-    focusReturnItemIdRef.current = null;
-    const target = document.querySelector<HTMLElement>(
-      `[data-timeline-item-id="${CSS.escape(itemId)}"]`
-    );
-    target?.focus();
-  }, [pendingSourceItemId, selectedDetailsItemId]);
-
-  const range = buildVisibleRange(rangeStart, rangeLength);
-  const rangeLabel = formatRangeLabel(range);
-
-  const roomTypesForProperty = useMemo(
-    () => MOCK_ROOM_TYPES.filter((roomType) => roomType.propertyId === selectedPropertyId),
-    [selectedPropertyId]
-  );
-  const roomTypeIdsForProperty = useMemo(
-    () => new Set(roomTypesForProperty.map((roomType) => roomType.id)),
-    [roomTypesForProperty]
-  );
-  const physicalRoomsForProperty = useMemo(
-    () => MOCK_PHYSICAL_ROOMS.filter((room) => roomTypeIdsForProperty.has(room.roomTypeId)),
-    [roomTypeIdsForProperty]
-  );
-
-  const moveTargetGroups = useMemo<ReservationMoveTargetGroup[]>(() => {
-    const roomsByRoomType = new Map<string, typeof physicalRoomsForProperty>();
-    physicalRoomsForProperty.forEach((room) => {
-      const bucket = roomsByRoomType.get(room.roomTypeId) ?? [];
-      bucket.push(room);
-      roomsByRoomType.set(room.roomTypeId, bucket);
+    const controller = new AbortController();
+    setPropertiesState({ status: "loading" });
+    fetchActiveProperties(controller.signal).then((result) => {
+      if (controller.signal.aborted) return;
+      if (!result.ok) {
+        if (result.error.kind === "aborted") return;
+        setPropertiesState({ status: "error", error: result.error });
+        return;
+      }
+      setPropertiesState({ status: "loaded", properties: result.data });
+      if (result.data.length > 0) {
+        const first = result.data[0];
+        setSelectedPropertyId(first.id);
+        setAnchorDate(todayInTimeZone(first.timeZone));
+      }
     });
-    return roomTypesForProperty.map((roomType) => ({
-      roomType,
-      rooms: roomsByRoomType.get(roomType.id) ?? [],
-    }));
-  }, [roomTypesForProperty, physicalRoomsForProperty]);
+    return () => controller.abort();
+  }, []);
 
-  const visibleItems = timelineItems.filter((item) => {
-    if (item.propertyId !== selectedPropertyId) return false;
-    if (item.kind === "operational-block") {
-      if (item.removed) return false;
-      return filters.showOperationalBlocks;
+  const rangeStart = anchorDate ? computeVisibleStartFromAnchor(anchorDate, rangeLength) : null;
+  const range = rangeStart ? buildVisibleRange(rangeStart, rangeLength) : null;
+
+  // Refetch whenever Property, visible range, or Retry changes. Stale-response
+  // protection: an AbortController per request, plus a monotonic sequence
+  // number checked before committing results (belt-and-suspenders in case a
+  // fetch polyfill/environment does not fully honor abort).
+  useEffect(() => {
+    if (!selectedPropertyId || !range) return;
+    const thisSeq = requestSeqRef.current + 1;
+    requestSeqRef.current = thisSeq;
+    const controller = new AbortController();
+    setBoardState({ status: "loading" });
+    fetchReservationBoard(selectedPropertyId, range.start, range.endExclusive, controller.signal).then((result) => {
+      if (requestSeqRef.current !== thisSeq) return; // superseded by a newer request
+      if (controller.signal.aborted) return;
+      if (!result.ok) {
+        if (result.error.kind === "aborted") return;
+        setBoardState({ status: "error", error: result.error });
+        return;
+      }
+      setBoardState({ status: "loaded", board: result.data });
+    });
+    return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPropertyId, range?.start, range?.endExclusive, retryToken]);
+
+  const handleSelectProperty = useCallback(
+    (propertyId: string) => {
+      setSelectedPropertyId(propertyId);
+      setSelection(null);
+      if (propertiesState.status === "loaded") {
+        const property = propertiesState.properties.find((candidate) => candidate.id === propertyId);
+        if (property) {
+          setAnchorDate(todayInTimeZone(property.timeZone));
+        }
+      }
+    },
+    [propertiesState]
+  );
+
+  const handlePrev = useCallback(() => {
+    if (!anchorDate) return;
+    setAnchorDate(addDaysIso(anchorDate, -rangeLength));
+  }, [anchorDate, rangeLength]);
+
+  const handleNext = useCallback(() => {
+    if (!anchorDate) return;
+    setAnchorDate(addDaysIso(anchorDate, rangeLength));
+  }, [anchorDate, rangeLength]);
+
+  const handleToday = useCallback(() => {
+    if (propertiesState.status !== "loaded" || !selectedPropertyId) return;
+    const property = propertiesState.properties.find((candidate) => candidate.id === selectedPropertyId);
+    if (property) {
+      setAnchorDate(todayInTimeZone(property.timeZone));
     }
-    if (isInactiveLifecycleStatus(item.lifecycleStatus) && !filters.showInactive) return false;
-    if (item.kind === "assigned-reservation") return filters.showAssigned;
-    return filters.showUnassigned;
-  });
+  }, [propertiesState, selectedPropertyId]);
 
-  const pendingItem = pendingSourceItemId
-    ? timelineItems.find((item) => item.id === pendingSourceItemId) ?? null
-    : null;
-
-  const selectedDetailsItem = selectedDetailsItemId
-    ? timelineItems.find((item) => item.id === selectedDetailsItemId) ?? null
-    : null;
-
-  const handleToggleFilter = (key: keyof ReservationBoardFilters) => {
+  const handleToggleFilter = useCallback((key: keyof ReservationBoardFilters) => {
     setFilters((previous) => ({ ...previous, [key]: !previous[key] }));
-  };
+  }, []);
 
-  // Selecting another property is one of the deliberate later interactions
-  // allowed to clear a stale conflict/success message (Codex P2 correction).
-  const handleSelectProperty = useCallback((propertyId: PropertyId) => {
-    setSelectedPropertyIdState(propertyId);
-    setPersistentActionFeedback(null);
-    setTransientDragFeedback(null);
-    setPendingSourceItemId(null);
-    setPendingInitialTarget(null);
-    setDraggedItemId(null);
-    setSelectedDetailsItemId(null);
-  }, [
-    setPersistentActionFeedback,
-    setTransientDragFeedback,
-    setPendingSourceItemId,
-    setPendingInitialTarget,
-    setDraggedItemId,
-    setSelectedDetailsItemId,
-  ]);
+  const handleRetry = useCallback(() => setRetryToken((token) => token + 1), []);
 
-  // Conflict validation always runs against the complete local timeline
-  // dataset for the item's property — never only the currently
-  // visible/filtered items — so hidden Assigned/Operational items still
-  // block an invalid move. Works uniformly for assigned reservations,
-  // unassigned reservations (no current room, so a "no-op" can never apply —
-  // any room selection is a genuine first-time assignment), and operational
-  // blocks. A proposal is a no-op only when neither the room nor the dates
-  // actually change from the item's current state. Locked lifecycle states
-  // (checked-in/checked-out/cancelled/no-show, removed blocks) are rejected
-  // up front via the same `canMove` used to gate the UI (ADMIN-002.1-C6 §13).
-  const getMoveValidation = useCallback(
-    (itemId: string, target: ReservationMoveTarget): ReservationMoveValidation => {
-      const item = timelineItems.find((candidate) => candidate.id === itemId);
-      if (!item) {
-        return {
-          status: "conflict",
-          conflict: { targetRoomId: target.targetRoomId, message: "Item not found." },
-        };
-      }
+  const rangeLabel = range ? formatRangeLabel(range) : "";
 
-      const moveEligibility = canMove(item);
-      if (!moveEligibility.allowed) {
-        return {
-          status: "conflict",
-          conflict: {
-            targetRoomId: target.targetRoomId,
-            message: moveEligibility.reason ?? "This item cannot be moved.",
-          },
-        };
-      }
-
-      const roomUnchanged =
-        item.kind !== "unassigned-reservation" && item.roomId === target.targetRoomId;
-      const datesUnchanged =
-        item.startDate === target.targetStartDate && item.endDate === target.targetEndDate;
-      if (roomUnchanged && datesUnchanged) {
-        return { status: "no-op" };
-      }
-
-      const targetRoom = MOCK_PHYSICAL_ROOMS.find((room) => room.id === target.targetRoomId);
-      if (!targetRoom || !roomTypeIdsForProperty.has(targetRoom.roomTypeId)) {
-        return {
-          status: "conflict",
-          conflict: {
-            targetRoomId: target.targetRoomId,
-            message: "Target room is not in the selected property.",
-          },
-        };
-      }
-
-      const blockingItem = findBlockingItem(
-        timelineItems,
-        item.id,
-        item.propertyId,
-        target.targetRoomId,
-        target.targetStartDate,
-        target.targetEndDate
+  const body = useMemo(() => {
+    if (propertiesState.status === "loading") {
+      return <CenteredMessage>Loading properties…</CenteredMessage>;
+    }
+    if (propertiesState.status === "error") {
+      return (
+        <ErrorMessage message={propertiesState.error.message} onRetry={() => window.location.reload()} />
       );
+    }
+    if (propertiesState.properties.length === 0) {
+      return <CenteredMessage>No active properties are available.</CenteredMessage>;
+    }
+    if (boardState.status === "loading" || boardState.status === "idle") {
+      return <CenteredMessage>Loading Reservation Board…</CenteredMessage>;
+    }
+    if (boardState.status === "error") {
+      return <ErrorMessage message={boardState.error.message} onRetry={handleRetry} />;
+    }
+    if (!range) {
+      return null;
+    }
+    const board = boardState.board;
+    if (
+      board.roomTypes.length === 0 &&
+      board.physicalRooms.length === 0 &&
+      board.stays.length === 0 &&
+      board.operationalBlocks.length === 0
+    ) {
+      return <CenteredMessage>No rooms or stays for this Property and date range.</CenteredMessage>;
+    }
+    return (
+      <ReservationBoardServerTimeline
+        range={range}
+        todayIso={board.property.localToday}
+        roomTypes={board.roomTypes}
+        physicalRooms={board.physicalRooms}
+        stays={board.stays}
+        operationalBlocks={board.operationalBlocks}
+        showAssigned={filters.showAssigned}
+        showUnassigned={filters.showUnassigned}
+        showOperationalBlocks={filters.showOperationalBlocks}
+        onSelectStay={(value) => setSelection({ kind: "stay", value })}
+        onSelectBlock={(value) => setSelection({ kind: "block", value })}
+      />
+    );
+  }, [propertiesState, boardState, range, filters, handleRetry]);
 
-      if (blockingItem) {
-        return {
-          status: "conflict",
-          conflict: {
-            targetRoomId: target.targetRoomId,
-            message: `Cannot move to Room ${targetRoom.code}: reservation dates overlap ${
-              blockingItem.kind === "operational-block"
-                ? "an operational block"
-                : "an existing stay"
-            }.`,
-          },
-        };
-      }
-
-      return { status: "valid" };
-    },
-    [timelineItems, roomTypeIdsForProperty]
-  );
-
-  const buildMoveIntent = useCallback(
-    (itemId: string, target: ReservationMoveTarget): ReservationMoveIntent | null => {
-      const item = timelineItems.find((candidate) => candidate.id === itemId);
-      const toRoom = MOCK_PHYSICAL_ROOMS.find((room) => room.id === target.targetRoomId);
-      if (!item || !toRoom) return null;
-      const toRoomType = MOCK_ROOM_TYPES.find((roomType) => roomType.id === toRoom.roomTypeId);
-      if (!toRoomType) return null;
-      const durationNights = diffDaysIso(target.targetStartDate, target.targetEndDate);
-
-      if (item.kind === "operational-block") {
-        const fromRoom = MOCK_PHYSICAL_ROOMS.find((room) => room.id === item.roomId);
-        const fromRoomType = fromRoom
-          ? MOCK_ROOM_TYPES.find((roomType) => roomType.id === fromRoom.roomTypeId)
-          : undefined;
-        if (!fromRoom || !fromRoomType) return null;
-        return {
-          operation: "block-move",
-          propertyId: item.propertyId,
-          blockId: item.id,
-          reason: item.reason,
-          fromRoomId: fromRoom.id,
-          fromRoomCode: fromRoom.code,
-          fromRoomTypeId: fromRoomType.id,
-          fromRoomTypeName: fromRoomType.name,
-          fromStartDate: item.startDate,
-          fromEndDate: item.endDate,
-          toRoomId: toRoom.id,
-          toRoomCode: toRoom.code,
-          toRoomTypeId: toRoomType.id,
-          toRoomTypeName: toRoomType.name,
-          toStartDate: target.targetStartDate,
-          toEndDate: target.targetEndDate,
-          durationNights,
-        };
-      }
-
-      const soldRoomType = MOCK_ROOM_TYPES.find(
-        (roomType) => roomType.id === item.soldRoomTypeId
-      );
-      if (!soldRoomType) return null;
-      const source = MOCK_BOOKING_SOURCES.find((candidate) => candidate.id === item.sourceId);
-
-      if (item.kind === "assigned-reservation") {
-        const fromRoom = MOCK_PHYSICAL_ROOMS.find((room) => room.id === item.roomId);
-        const fromRoomType = fromRoom
-          ? MOCK_ROOM_TYPES.find((roomType) => roomType.id === fromRoom.roomTypeId)
-          : undefined;
-        if (!fromRoom || !fromRoomType) return null;
-        return {
-          operation: "assigned-move",
-          propertyId: item.propertyId,
-          reservationId: item.id,
-          guestName: item.guestName,
-          sourceId: item.sourceId,
-          sourceLabel: source?.label ?? item.sourceId,
-          soldRoomTypeId: soldRoomType.id,
-          soldRoomTypeName: soldRoomType.name,
-          fromRoomId: fromRoom.id,
-          fromRoomCode: fromRoom.code,
-          fromRoomTypeId: fromRoomType.id,
-          fromRoomTypeName: fromRoomType.name,
-          fromStartDate: item.startDate,
-          fromEndDate: item.endDate,
-          toRoomId: toRoom.id,
-          toRoomCode: toRoom.code,
-          toRoomTypeId: toRoomType.id,
-          toRoomTypeName: toRoomType.name,
-          toStartDate: target.targetStartDate,
-          toEndDate: target.targetEndDate,
-          durationNights,
-          crossesRoomType: fromRoomType.id !== toRoomType.id,
-        };
-      }
-
-      return {
-        operation: "unassigned-assign",
-        propertyId: item.propertyId,
-        reservationId: item.id,
-        guestName: item.guestName,
-        sourceId: item.sourceId,
-        sourceLabel: source?.label ?? item.sourceId,
-        soldRoomTypeId: soldRoomType.id,
-        soldRoomTypeName: soldRoomType.name,
-        fromStartDate: item.startDate,
-        fromEndDate: item.endDate,
-        toRoomId: toRoom.id,
-        toRoomCode: toRoom.code,
-        toRoomTypeId: toRoomType.id,
-        toRoomTypeName: toRoomType.name,
-        toStartDate: target.targetStartDate,
-        toEndDate: target.targetEndDate,
-        durationNights,
-        crossesRoomType: soldRoomType.id !== toRoomType.id,
-      };
-    },
-    [timelineItems]
-  );
-
-  const openDialogFor = useCallback(
-    (itemId: string, initialTarget: ReservationMoveTarget | null) => {
-      focusReturnItemIdRef.current = itemId;
-      setPersistentActionFeedback(null);
-      setPendingSourceItemId(itemId);
-      setPendingInitialTarget(initialTarget);
-    },
-    [setPersistentActionFeedback, setPendingSourceItemId, setPendingInitialTarget]
-  );
-
-  // Drag-and-drop drop path: destination room + dates are already known.
-  const handleProposeMove = useCallback(
-    (itemId: string, target: ReservationMoveTarget) => {
-      const validation = getMoveValidation(itemId, target);
-
-      if (validation.status === "no-op") {
-        return;
-      }
-
-      if (validation.status === "conflict") {
-        setPersistentActionFeedback({ kind: "error", message: validation.conflict.message });
-        return;
-      }
-
-      openDialogFor(itemId, target);
-    },
-    [getMoveValidation, openDialogFor, setPersistentActionFeedback]
-  );
-
-  // Reached from the Details dialog's "Move / adjust stay" / "Move block"
-  // action — closes Details and opens the move dialog in edit-selection mode
-  // (room and/or start date still to be chosen). Reuses the same
-  // getMoveValidation/buildMoveIntent logic as the drag-drop path rather
-  // than a second move implementation (ADMIN-002.1-C5 §6.2).
-  const handleRequestMove = useCallback(
-    (itemId: string) => {
-      setSelectedDetailsItemId(null);
-      openDialogFor(itemId, null);
-    },
-    [openDialogFor, setSelectedDetailsItemId]
-  );
-
-  // Primary activation (click, guarded against a just-completed drag; or
-  // Enter/Space) — opens the reservation/block details dialog.
-  const handleOpenDetails = useCallback(
-    (itemId: string) => {
-      focusReturnItemIdRef.current = itemId;
-      setPersistentActionFeedback(null);
-      setSelectedDetailsItemId(itemId);
-    },
-    [setPersistentActionFeedback, setSelectedDetailsItemId]
-  );
-
-  const handleCloseDetails = useCallback(() => {
-    setSelectedDetailsItemId(null);
-  }, [setSelectedDetailsItemId]);
-
-  const handleDragFeedback = useCallback(
-    (message: string | null) => {
-      setTransientDragFeedback(message);
-    },
-    [setTransientDragFeedback]
-  );
-
-  const handleDragStart = useCallback(
-    (itemId: string) => {
-      setDraggedItemId(itemId);
-      // Beginning a new drag is a deliberate interaction allowed to clear a
-      // stale persistent conflict/success message (Codex P2 correction).
-      setPersistentActionFeedback(null);
-    },
-    [setDraggedItemId, setPersistentActionFeedback]
-  );
-
-  const handleDragEnd = useCallback(() => {
-    setDraggedItemId(null);
-    setTransientDragFeedback(null);
-    // Codex P2: deliberately do NOT clear persistentActionFeedback here.
-    // The browser fires `dragend` right after every drop — including a
-    // rejected one — and clearing the persistent message here would erase
-    // the conflict reason the instant the drop completes.
-  }, [setDraggedItemId, setTransientDragFeedback]);
-
-  const handleConfirmMove = useCallback(
-    (intent: ReservationMoveIntent) => {
-      dispatch({ type: "CONFIRM_MOVE", intent });
-      setTransientDragFeedback(null);
-      setPersistentActionFeedback({ kind: "success", message: formatMoveSuccessMessage(intent) });
-      setPendingSourceItemId(null);
-      setPendingInitialTarget(null);
-    },
-    [dispatch, setTransientDragFeedback, setPersistentActionFeedback, setPendingSourceItemId, setPendingInitialTarget]
-  );
-
-  const handleCancelMove = useCallback(() => {
-    setPendingSourceItemId(null);
-    setPendingInitialTarget(null);
-  }, [setPendingSourceItemId, setPendingInitialTarget]);
-
-  const handleDismissFeedback = useCallback(() => {
-    setPersistentActionFeedback(null);
-  }, [setPersistentActionFeedback]);
-
-  // Front-desk operations workspace handlers — each simply dispatches to the
-  // centralized reducer (ADMIN-002.1-C6 §16); the dialog itself owns its
-  // internal panel state (which action panel is open) and pre-dispatch
-  // validation/eligibility display.
-  const handleConfirmReservation = useCallback(
-    (itemId: string) => dispatch({ type: "CONFIRM_RESERVATION", itemId }),
-    [dispatch]
-  );
-  const handleCheckIn = useCallback(
-    (itemId: string, note: string) =>
-      dispatch({
-        type: "CHECK_IN",
-        itemId,
-        note,
-        propertyPhysicalRoomIds: physicalRoomsForProperty.map((room) => room.id),
-      }),
-    [dispatch, physicalRoomsForProperty]
-  );
-  const handleCheckOut = useCallback(
-    (itemId: string, note: string, overrideReason: string) =>
-      dispatch({ type: "CHECK_OUT", itemId, note, overrideReason }),
-    [dispatch]
-  );
-  const handleCancelReservation = useCallback(
-    (itemId: string, reason: string) => dispatch({ type: "CANCEL_RESERVATION", itemId, reason }),
-    [dispatch]
-  );
-  const handleMarkNoShow = useCallback(
-    (itemId: string, reason: string, feeAmount: number | null) =>
-      dispatch({ type: "MARK_NO_SHOW", itemId, reason, feeAmount }),
-    [dispatch]
-  );
-  const handleEditGuest = useCallback(
-    (itemId: string, guest: EditGuestInput) => dispatch({ type: "EDIT_GUEST", itemId, guest }),
-    [dispatch]
-  );
-  const handleEditStay = useCallback(
-    (itemId: string, stay: EditStayInput) => dispatch({ type: "EDIT_STAY", itemId, stay }),
-    [dispatch]
-  );
-  const handleRecordPayment = useCallback(
-    (itemId: string, input: RecordPaymentInput) =>
-      dispatch({ type: "RECORD_PAYMENT", itemId, input }),
-    [dispatch]
-  );
-  const handleRecordRefund = useCallback(
-    (itemId: string, input: RecordRefundInput) =>
-      dispatch({ type: "RECORD_REFUND", itemId, input }),
-    [dispatch]
-  );
-  const handleAddNote = useCallback(
-    (itemId: string, content: string) => dispatch({ type: "ADD_NOTE", itemId, content }),
-    [dispatch]
-  );
-  const handleRemoveBlock = useCallback(
-    (blockId: string, reason: string) => dispatch({ type: "REMOVE_BLOCK", blockId, reason }),
-    [dispatch]
-  );
-  const handleEditBlockReason = useCallback(
-    (blockId: string, reason: string) => dispatch({ type: "EDIT_BLOCK_REASON", blockId, reason }),
-    [dispatch]
-  );
-
-  const bannerMessage = transientDragFeedback ?? persistentActionFeedback?.message ?? null;
-  const bannerTone: "error" | "success" = transientDragFeedback
-    ? "error"
-    : persistentActionFeedback?.kind ?? "success";
-  const showDismiss = !transientDragFeedback && persistentActionFeedback !== null;
+  const toolbarProperties = propertiesState.status === "loaded" ? propertiesState.properties : [];
 
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+    <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
       <ReservationBoardToolbar
-        properties={MOCK_PROPERTIES}
-        selectedPropertyId={selectedPropertyId}
+        properties={toolbarProperties}
+        selectedPropertyId={selectedPropertyId ?? ""}
         onSelectProperty={handleSelectProperty}
         rangeLength={rangeLength}
         onSelectRangeLength={setRangeLength}
         rangeLabel={rangeLabel}
-        onPrev={() => setAnchorDate((previous) => addDaysIso(previous, -rangeLength))}
-        onNext={() => setAnchorDate((previous) => addDaysIso(previous, rangeLength))}
-        onToday={() => setAnchorDate(DEMO_TODAY_ISO)}
+        onPrev={handlePrev}
+        onNext={handleNext}
+        onToday={handleToday}
         filters={filters}
         onToggleFilter={handleToggleFilter}
       />
-
-      <div
-        aria-live="polite"
-        className={`flex items-center justify-between gap-3 px-5 text-sm sm:px-6 ${
-          bannerMessage
-            ? "border-b border-gray-200 py-2 dark:border-gray-800"
-            : "h-0 overflow-hidden py-0"
-        } ${
-          bannerTone === "error"
-            ? "text-error-600 dark:text-error-400"
-            : "text-success-600 dark:text-success-400"
-        }`}
-      >
-        <span>{bannerMessage ?? ""}</span>
-        {showDismiss ? (
-          <button
-            type="button"
-            onClick={handleDismissFeedback}
-            aria-label="Dismiss message"
-            className="shrink-0 rounded p-0.5 text-current/70 hover:text-current focus:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-500/40"
-          >
-            <CloseLineIcon className="size-3.5" aria-hidden="true" />
-          </button>
-        ) : null}
-      </div>
-
-      <ReservationTimeline
-        range={range}
-        todayIso={DEMO_TODAY_ISO}
-        roomTypes={roomTypesForProperty}
-        physicalRooms={physicalRoomsForProperty}
-        items={visibleItems}
-        bookingSources={MOCK_BOOKING_SOURCES}
-        draggedItemId={draggedItemId}
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
-        onProposeMove={handleProposeMove}
-        onActivateItem={handleOpenDetails}
-        getMoveValidation={getMoveValidation}
-        onDragFeedback={handleDragFeedback}
-      />
-
-      {selectedDetailsItem ? (
-        <TimelineItemDetailsDialog
-          item={selectedDetailsItem}
-          items={timelineItems}
-          physicalRooms={physicalRoomsForProperty}
-          roomTypes={roomTypesForProperty}
-          bookingSources={MOCK_BOOKING_SOURCES}
-          nationalities={MOCK_NATIONALITIES}
-          onClose={handleCloseDetails}
-          onRequestMove={handleRequestMove}
-          onConfirmReservation={handleConfirmReservation}
-          onCheckIn={handleCheckIn}
-          onCheckOut={handleCheckOut}
-          onCancelReservation={handleCancelReservation}
-          onMarkNoShow={handleMarkNoShow}
-          onEditGuest={handleEditGuest}
-          onEditStay={handleEditStay}
-          onRecordPayment={handleRecordPayment}
-          onRecordRefund={handleRecordRefund}
-          onAddNote={handleAddNote}
-          onRemoveBlock={handleRemoveBlock}
-          onEditBlockReason={handleEditBlockReason}
-        />
-      ) : null}
-
-      {pendingItem ? (
-        <ReservationMoveConfirmDialog
-          item={pendingItem}
-          initialTarget={pendingInitialTarget}
-          moveTargetGroups={moveTargetGroups}
-          getMoveValidation={getMoveValidation}
-          buildMoveIntent={buildMoveIntent}
-          onConfirm={handleConfirmMove}
-          onCancel={handleCancelMove}
-        />
-      ) : null}
+      <div className="p-2 sm:p-4">{body}</div>
+      {selection && <ReservationBoardStayPopover selection={selection} onClose={() => setSelection(null)} />}
     </div>
   );
 };
+
+const CenteredMessage: React.FC<React.PropsWithChildren> = ({ children }) => (
+  <div className="flex min-h-40 items-center justify-center px-4 py-10 text-sm text-gray-500 dark:text-gray-400">
+    {children}
+  </div>
+);
+
+const ErrorMessage: React.FC<{ message: string; onRetry: () => void }> = ({ message, onRetry }) => (
+  <div className="flex min-h-40 flex-col items-center justify-center gap-3 px-4 py-10 text-center">
+    <AlertIcon className="size-6 text-error-500" aria-hidden="true" />
+    <p className="max-w-sm text-sm text-gray-600 dark:text-gray-300">{message}</p>
+    <button
+      type="button"
+      onClick={onRetry}
+      className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-white/5"
+    >
+      Retry
+    </button>
+  </div>
+);
 
 export default ReservationBoard;

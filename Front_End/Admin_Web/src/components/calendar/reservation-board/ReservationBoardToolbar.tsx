@@ -94,7 +94,7 @@ const ReservationBoardToolbar: React.FC<ReservationBoardToolbarProps> = ({
         </div>
         <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600 dark:bg-white/[0.05] dark:text-gray-300">
           <InfoIcon className="size-3.5" aria-hidden="true" />
-          Demo data — not connected to backend
+          Live data — read-only (no assignment, block, or lifecycle actions yet)
         </span>
       </div>
 
