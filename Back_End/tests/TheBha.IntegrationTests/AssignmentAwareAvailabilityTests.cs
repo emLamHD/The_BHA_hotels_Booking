@@ -142,6 +142,11 @@ public sealed class AssignmentAwareAvailabilityTests(PostgreSqlWebApplicationFac
     public async Task Reservation_cancellation_atomically_cancels_effective_assignments_and_removes_demand()
     {
         await factory.ResetDatabaseAsync();
+        // ReservationCancellationStore resolves TimeProvider from DI to enforce the
+        // check-in cutoff (Reservation.Cancel), so the factory clock must be pinned
+        // before CheckIn — otherwise this test starts failing for real once wall-clock
+        // time reaches the fixture's hardcoded CheckIn date.
+        factory.Clock.UtcNow = Now;
         await using var context = factory.CreateDbContext();
         var data = await CreateTwoRoomTypeFixtureAsync(context, "cancel-cleanup");
 
