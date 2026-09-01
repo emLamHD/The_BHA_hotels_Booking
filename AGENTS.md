@@ -221,6 +221,6 @@ Owner must now invoke:
 
 or, for `REVIEWER: CLAUDE_READ_ONLY`, instructs Owner to open a separate read-only Claude review session for this diff.
 
-If the Master Execution Prompt does not supply the required review command for the selected reviewer, `ACTIVE_EXECUTOR` returns `BLOCKED` instead of inventing one. `ACTIVE_EXECUTOR` does not invoke the review itself and makes no further repository mutations after printing this line.
+If `REVIEWER: CODEX_READ_ONLY` and the Master Execution Prompt does not supply `CODEX_REVIEW_COMMAND`, `ACTIVE_EXECUTOR` returns `BLOCKED` instead of inventing one. If `REVIEWER: CLAUDE_READ_ONLY`, no Codex command is required — `ACTIVE_EXECUTOR` uses the canonical read-only-session instruction above; it does not invent a command or new metadata for this path. `ACTIVE_EXECUTOR` does not invoke the review itself and makes no further repository mutations after printing this line.
 
 Send the report to Owner and stop. Owner invokes the review, then forwards the report — and, when Owner asks `ACTIVE_EXECUTOR` to continue the report, the returned review result verbatim — to OC for review. `ACTIVE_EXECUTOR` never silently fixes a reviewer finding; a fix requires an OC correction prompt. Do not start the next task on your own.

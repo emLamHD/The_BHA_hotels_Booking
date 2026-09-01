@@ -75,9 +75,9 @@ REPOSITORY:
 BASE_BRANCH:
 BASELINE_SHA:
 FEATURE_BRANCH:
-CODEX_REVIEW_COMMAND: /codex:review --base origin/develop
-CODEX_REVIEW_LIMIT: 1 invocation per implementation/correction completion
-CODEX_REVIEW_INVOKER: OWNER_ONLY
+CODEX_REVIEW_COMMAND: /codex:review --base origin/develop   # chỉ bắt buộc khi REVIEWER: CODEX_READ_ONLY
+CODEX_REVIEW_LIMIT: 1 invocation per implementation/correction completion   # chỉ bắt buộc khi REVIEWER: CODEX_READ_ONLY
+CODEX_REVIEW_INVOKER: OWNER_ONLY   # chỉ bắt buộc khi REVIEWER: CODEX_READ_ONLY
 
 PHASES:
   - PHASE_ID:
@@ -104,7 +104,7 @@ PR_REQUIREMENT:
 <Câu nhắc ngắn nêu tên reviewer đã chọn, ví dụ "Codex sẽ xem lại kết quả đầu ra của bạn sau khi bạn hoàn thành.">
 ```
 
-`IMPLEMENTER`/`REVIEWER` phải là đúng một giá trị cụ thể theo bảng ở `RULES.md` §2.4, không phải danh sách hay giá trị kết hợp. `CODEX_REVIEW_COMMAND`/`CODEX_REVIEW_LIMIT` áp dụng khi reviewer là Codex. OC phải ghi review base rõ ràng; mặc định luôn là `origin/develop`, không để plugin tự suy ra GitHub default branch. Câu cuối là reminder cho `ACTIVE_EXECUTOR`, không thay thế các trường `REVIEWER`, review command, limit và stop conditions.
+`IMPLEMENTER`/`REVIEWER` phải là đúng một giá trị cụ thể theo bảng ở `RULES.md` §2.4, không phải danh sách hay giá trị kết hợp. `CODEX_REVIEW_COMMAND`, `CODEX_REVIEW_LIMIT` và `CODEX_REVIEW_INVOKER` chỉ bắt buộc khi `REVIEWER: CODEX_READ_ONLY`; thiếu các trường này khi reviewer là Codex khiến preflight trả `BLOCKED`. Khi `REVIEWER: CLAUDE_READ_ONLY`, các trường `CODEX_REVIEW_*` không áp dụng và không được yêu cầu — cơ chế đủ dùng là Owner mở một phiên Claude read-only riêng để review đúng diff theo review base đã khai báo; không cần phát minh command hay field mới cho nhánh này. OC phải ghi review base rõ ràng; mặc định luôn là `origin/develop`, không để plugin tự suy ra GitHub default branch. Câu cuối là reminder cho `ACTIVE_EXECUTOR`, không thay thế các trường `REVIEWER`, review command (khi áp dụng), limit và stop conditions.
 
 Dự án dùng đúng một checkout repository đang tồn tại (`docs/governance/RULES.md`
 §5) — `git worktree add` và mọi checkout thực thi bổ sung đều bị cấm, không

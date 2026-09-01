@@ -43,7 +43,7 @@ OC:
 - phân rã lệnh cấp cao thành work item, phase và checkpoint;
 - chọn execution mode;
 - viết một `Master Execution Prompt` dùng chung cho work item;
-- gán rõ agent phụ trách từng phase trước khi execution bắt đầu;
+- chọn một role pair cho toàn bộ work item trước khi execution bắt đầu; việc phân rã phase/checkpoint không được thay đổi implementer;
 - nhận report do Owner chuyển lại, review code/PR trong chính phiên chat OC khi có PR;
 - yêu cầu correction, kết luận pass/fail và đề xuất hành động tiếp theo cho Owner.
 
