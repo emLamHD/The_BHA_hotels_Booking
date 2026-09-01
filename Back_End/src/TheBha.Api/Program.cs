@@ -195,6 +195,21 @@ builder.Services.AddCors(options =>
                 .WithMethods("GET");
         }
     });
+    // PMS-CAL-001.1: GET /api/v1/properties is public catalog data read by
+    // both Customer_Web (customer-web policy) and, for the Reservation
+    // Board's Property selector, Admin_Web — so it alone also needs the
+    // Admin origin, uncredentialed (no cookies), without widening the
+    // credentialed customer-web policy or any other Customer-facing route.
+    var propertiesReadOrigins = cors.AllowedOrigins.Concat(cors.AdminOrigins).ToArray();
+    options.AddPolicy("properties-catalog-read", policy =>
+    {
+        if (propertiesReadOrigins.Length > 0)
+        {
+            policy.WithOrigins(propertiesReadOrigins)
+                .AllowAnyHeader()
+                .WithMethods("GET");
+        }
+    });
 });
 builder.Services.AddRateLimiter(options =>
 {
