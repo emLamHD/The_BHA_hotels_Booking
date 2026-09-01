@@ -2,7 +2,7 @@
 
 > Trạng thái: quy tắc quản trị bắt buộc
 >
-> Cập nhật: 2026-08-09
+> Cập nhật: 2026-09-01
 >
 > Phạm vi: mọi phiên Control Tower, Operations Coordinator, Claude Code và Codex
 
@@ -43,33 +43,40 @@ OC:
 - phân rã lệnh cấp cao thành work item, phase và checkpoint;
 - chọn execution mode;
 - viết một `Master Execution Prompt` dùng chung cho work item;
-- gán rõ agent phụ trách từng phase trước khi execution bắt đầu;
+- chọn một role pair cho toàn bộ work item trước khi execution bắt đầu; việc phân rã phase/checkpoint không được thay đổi implementer;
 - nhận report do Owner chuyển lại, review code/PR trong chính phiên chat OC khi có PR;
 - yêu cầu correction, kết luận pass/fail và đề xuất hành động tiếp theo cho Owner.
 
 OC không được merge, không tự chuyển PR sang Ready và không tự mở khóa task kế tiếp.
 
-### 2.4 Claude Code và Codex
+### 2.4 Implementer và Reviewer
 
-Claude Code là `IMPLEMENTER` duy nhất và là coding agent duy nhất được quyền ghi trong checkout đang dùng của work item. Claude chịu trách nhiệm implementation, correction, test, checkpoint, commit/push/Draft PR khi Master Execution Prompt cho phép và completion report.
+Mỗi Master Execution Prompt chọn đúng một trong hai role pair sau:
 
-Codex là `READ_ONLY_REVIEWER`. Codex chỉ được đọc source, Git state, diff, test evidence và tài liệu liên quan để trả findings. Codex không được sửa file, chạy formatter có ghi file, tạo commit, push, mở hoặc sửa PR, merge, xóa branch hay tiếp quản implementation.
+| `IMPLEMENTER` | `REVIEWER` |
+| --- | --- |
+| `CLAUDE` | `CODEX_READ_ONLY` |
+| `CODEX` | `CLAUDE_READ_ONLY` |
 
-Codex findings là bằng chứng review, không phải verdict quản trị. OC giữ quyền kết luận `PASS`, `CORRECTION_REQUIRED` hoặc `BLOCKED`; Owner giữ độc quyền Ready/merge/delete branch và mở task tiếp theo.
+Giá trị kết hợp (ví dụ `CLAUDE/CODEX`) không hợp lệ. Implementer được chọn là `ACTIVE_EXECUTOR` — coding agent duy nhất được quyền ghi trong checkout đang dùng của work item. `ACTIVE_EXECUTOR` chịu trách nhiệm implementation, correction, test, checkpoint, commit/push/Draft PR khi Master Execution Prompt cho phép và completion report.
+
+Reviewer ghép cặp chỉ được đọc source, Git state, diff, test evidence và tài liệu liên quan để trả findings. Reviewer không được sửa file, chạy formatter có ghi file, tạo commit, push, mở hoặc sửa PR, merge, xóa branch hay tiếp quản implementation. Implementer không tự review độc lập công việc của chính mình. Role pair không đổi trong suốt work item và mọi correction của work item đó — đổi implementer đòi hỏi một work item mới, được authorize riêng.
+
+Reviewer findings là bằng chứng review, không phải verdict quản trị. OC giữ quyền kết luận `PASS`, `CORRECTION_REQUIRED` hoặc `BLOCKED`; Owner giữ độc quyền Ready/merge/delete branch và mở task tiếp theo.
 
 ## 3. Invariant một writable implementer
 
-Tại mọi thời điểm chỉ Claude được phép có quyền ghi vào checkout đang dùng của work item.
+Tại mọi thời điểm chỉ `ACTIVE_EXECUTOR` (implementer được chọn) được phép có quyền ghi vào checkout đang dùng của work item.
 
-- Không tạo worktree thứ hai cho Codex để cùng giải một work item.
-- Codex review cùng Git state/diff mà Claude vừa hoàn tất, nhưng chỉ trong sandbox read-only.
-- Trước khi Owner gọi Codex review, Claude phải dừng mọi thao tác ghi và giữ working tree ở một checkpoint ổn định trong suốt lượt review.
-- Chỉ Owner được phép gọi Codex, và chỉ qua review command đã duyệt (`/codex:review`). Claude không tự thực thi review command này; không dùng Codex để rescue, transfer, implement, sửa findings hoặc tự phân chia task.
-- Không bật automatic review gate hoặc vòng lặp Claude–Codex tự động. Mỗi lượt review phải là một invocation hữu hạn, có chủ đích và được ghi trong report.
+- Không tạo worktree thứ hai cho reviewer để cùng giải một work item.
+- Reviewer review cùng Git state/diff mà `ACTIVE_EXECUTOR` vừa hoàn tất, nhưng chỉ trong sandbox/phiên read-only.
+- Trước khi Owner gọi reviewer, `ACTIVE_EXECUTOR` phải dừng mọi thao tác ghi và giữ working tree ở một checkpoint ổn định trong suốt lượt review.
+- Chỉ Owner được phép gọi reviewer, và chỉ qua cơ chế đã duyệt (`/codex:review` khi reviewer là Codex; một phiên Claude read-only riêng khi reviewer là Claude). `ACTIVE_EXECUTOR` không tự thực thi việc gọi reviewer; không dùng reviewer để rescue, transfer, implement, sửa findings hoặc tự phân chia task.
+- Không bật automatic review gate hoặc vòng lặp implementer–reviewer tự động. Mỗi lượt review phải là một invocation hữu hạn, có chủ đích và được ghi trong report.
 - Không tạo nested-agent/fan-out ngoài review invocation đã duyệt.
-- Control Tower hoặc OC có thể tư vấn/review nhưng không được sửa worktree do Claude nắm giữ.
+- Control Tower hoặc OC có thể tư vấn/review nhưng không được sửa worktree do `ACTIVE_EXECUTOR` nắm giữ.
 
-`Claude writes. Codex reviews. OC decides. Owner merges.` Đây là phân công cố định, không phải lựa chọn theo từng work item.
+`Implementer được chọn ghi. Reviewer ghép cặp review độc lập, read-only. OC quyết định. Owner merge.` Role pair cố định trong suốt work item, không đổi giữa chừng hoặc qua correction.
 
 ## 4. Master Execution Prompt
 
@@ -77,12 +84,11 @@ Mỗi work item phải có đúng một Master Execution Prompt chứa tối thi
 trường **bắt buộc** sau:
 
 - work item ID và objective;
-- `IMPLEMENTER: CLAUDE`;
-- `REVIEWER: CODEX_READ_ONLY`;
+- `IMPLEMENTER` và `REVIEWER` — đúng một trong hai role pair ở §2.4;
 - `REPOSITORY` và `FEATURE_BRANCH` dự kiến;
 - baseline SHA;
-- phase/checkpoint order của Claude;
-- Codex review base, mặc định `origin/develop`;
+- phase/checkpoint order của `ACTIVE_EXECUTOR`;
+- review base, mặc định `origin/develop`;
 - skill policy, gồm `diagnosing-bugs: REQUIRED | ALLOWED_IF_TRIGGERED | NOT_APPLICABLE`;
 - files/scope được phép và bị cấm;
 - acceptance criteria;
@@ -91,15 +97,15 @@ trường **bắt buộc** sau:
 - format phase report/completion report;
 - yêu cầu PR, nếu có.
 
-Mỗi Master Execution Prompt gửi cho Claude phải kết thúc bằng đúng câu nhắc:
+Mỗi Master Execution Prompt gửi cho `ACTIVE_EXECUTOR` phải kết thúc bằng đúng câu nhắc nêu tên reviewer đã chọn, ví dụ:
 
 > Codex sẽ xem lại kết quả đầu ra của bạn sau khi bạn hoàn thành.
 
-Câu nhắc này không thay thế review contract ở các mục 2, 3 và 7, cũng không trao cho Codex quyền ghi.
+Câu nhắc này không thay thế review contract ở các mục 2, 3 và 7, cũng không trao cho reviewer quyền ghi.
 
-Master Execution Prompt là bắt buộc cho work item implementation của Claude, nhưng không được lặp lại như executor-activation context bên trong native Codex review request. Native review chỉ cần review command tường minh, diff/target mục tiêu và review-mode rule ở mục 2 và 3; review không cần và không chờ `ACTIVE_EXECUTOR`, `PHASE_ID` hay `EXECUTION_MODE`.
+Master Execution Prompt là bắt buộc cho work item implementation của `ACTIVE_EXECUTOR`, nhưng không được lặp lại như executor-activation context bên trong native review request. Native review chỉ cần review command/instruction tường minh, diff/target mục tiêu và review-mode rule ở mục 2 và 3; review không cần và không chờ `ACTIVE_EXECUTOR`, `PHASE_ID` hay `EXECUTION_MODE`.
 
-Nếu prompt thiếu baseline, scope, acceptance, review base hoặc skill policy có ảnh hưởng đến cách triển khai, Claude phải trả `BLOCKED` thay vì tự đoán.
+Nếu prompt thiếu baseline, scope, acceptance, review base hoặc skill policy có ảnh hưởng đến cách triển khai, `ACTIVE_EXECUTOR` phải trả `BLOCKED` thay vì tự đoán.
 
 ## 5. Active execution checkout và branch lifecycle
 
@@ -111,7 +117,7 @@ checkout và thực thi trực tiếp tại chính checkout đó.
 
 - Một work item dùng một feature branch, checkout trực tiếp trong active
   execution checkout bằng `git switch -c <branch>`.
-- Chỉ Claude được sửa file trong active execution checkout này.
+- Chỉ `ACTIVE_EXECUTOR` được sửa file trong active execution checkout này.
 - Không được chạy `git worktree add`, tạo checkout thực thi bổ sung, chuyển
   sang hoặc sử dụng linked worktree để thực thi work item. Không có
   authorization field, exception contract hoặc policy matrix nào cho linked
@@ -145,13 +151,11 @@ develop
 → Owner xóa feature branch
 ```
 
-`Claude writes. Codex reviews. OC decides. Owner merges.` vẫn là phân công
-cố định (§2, §3) — mô hình một-checkout này không cấp quyền ghi cho Codex,
-subagent hay parallel implementation.
+`Implementer được chọn ghi. Reviewer ghép cặp review độc lập, read-only. OC quyết định. Owner merge.` vẫn là bất biến cố định (§2, §3) — mô hình một-checkout này không cấp quyền ghi cho reviewer, subagent hay parallel implementation.
 
 ## 6. Checkpoint và review handoff
 
-Trước khi chuyển từ implementation sang Codex review, Claude phải:
+Trước khi chuyển từ implementation sang review, `ACTIVE_EXECUTOR` phải:
 
 1. hoàn tất acceptance của phase/work item hoặc nêu rõ blocker;
 2. chạy các check được giao;
@@ -159,26 +163,26 @@ Trước khi chuyển từ implementation sang Codex review, Claude phải:
 4. tạo commit/checkpoint nếu prompt yêu cầu;
 5. chuẩn bị provisional completion report với branch, baseline, HEAD, diff scope, checks và rủi ro;
 6. dừng mọi thao tác ghi;
-7. công bố `READY_FOR_CODEX_REVIEW` kèm đúng review command Owner cần chạy; Claude không tự gọi command đó.
+7. công bố `READY_FOR_<REVIEWER>_REVIEW` kèm đúng review command/instruction Owner cần dùng; `ACTIVE_EXECUTOR` không tự gọi command đó.
 
-Chỉ Owner được gọi review command này. Codex chỉ trả findings hoặc xác nhận không có finding trong phạm vi đã review. Sau khi Owner chuyển kết quả về, Claude đưa nguyên trạng kết quả review vào completion report và dừng. Codex không nhận write lock ở bất kỳ thời điểm nào.
+Chỉ Owner được invoke command hoặc mở reviewer session này. Reviewer chỉ trả findings hoặc xác nhận không có finding trong phạm vi đã review. Sau khi Owner chuyển kết quả về, `ACTIVE_EXECUTOR` đưa nguyên trạng kết quả review vào completion report và dừng. Reviewer không nhận write lock ở bất kỳ thời điểm nào.
 
 ## 7. Review và quyền merge
 
 Luồng mặc định sau execution:
 
-1. Claude hoàn tất implementation/correction và mandatory checks.
-2. Claude dừng mọi thao tác ghi tại một checkpoint ổn định, công bố `READY_FOR_CODEX_REVIEW` và in đúng command Owner cần chạy (mặc định `/codex:review --base origin/develop`, trừ khi Master Execution Prompt chỉ định review base khác).
-3. Owner gọi `/codex:review` (hoặc command được chỉ định). Đây là invocation duy nhất cho lượt review này; Claude không tự chạy command này.
-4. Codex thực hiện native read-only review trên đúng diff/target được yêu cầu và trả findings; không được sửa code.
-5. Owner chuyển kết quả Codex về cho Claude; Claude chèn nguyên trạng review result, review base và trạng thái `RUN`/`NOT RUN` vào completion report rồi gửi Owner và dừng.
+1. `ACTIVE_EXECUTOR` hoàn tất implementation/correction và mandatory checks.
+2. `ACTIVE_EXECUTOR` dừng mọi thao tác ghi tại một checkpoint ổn định, công bố `READY_FOR_<REVIEWER>_REVIEW` và in đúng command/instruction Owner cần dùng (Codex: mặc định `/codex:review --base origin/develop`, trừ khi Master Execution Prompt chỉ định review base khác; Claude: Owner mở một phiên Claude read-only riêng).
+3. Owner gọi reviewer đã chỉ định. Đây là invocation duy nhất cho lượt review này; `ACTIVE_EXECUTOR` không tự chạy command này.
+4. Reviewer thực hiện review read-only trên đúng diff/target được yêu cầu và trả findings; không được sửa code.
+5. Owner chuyển kết quả review về cho `ACTIVE_EXECUTOR`; `ACTIVE_EXECUTOR` chèn nguyên trạng review result, review base và trạng thái `RUN`/`NOT RUN` vào completion report rồi gửi Owner và dừng.
 6. Owner chuyển report cho OC.
-7. OC kiểm tra Codex findings cùng report, diff, test và PR nếu có.
-8. Nếu cần correction, OC phát correction prompt cho Claude; sau correction, Claude lặp lại bước 1–6 cho đúng phần thay đổi.
+7. OC kiểm tra reviewer findings cùng report, diff, test và PR nếu có.
+8. Nếu cần correction, OC phát correction prompt cho đúng `ACTIVE_EXECUTOR` ban đầu; sau correction, `ACTIVE_EXECUTOR` lặp lại bước 1–6 cho đúng phần thay đổi.
 9. Khi pass, OC trả recommendation cho Owner.
 10. Owner quyết định Ready/merge/delete branch và có mở task tiếp theo hay không.
 
-Codex review là mandatory gate mặc định. Chỉ Owner được invoke `/codex:review`; Claude không tự gọi command này. Nếu Owner không thể invoke được review (command không khả dụng, treo hoặc không tạo được kết quả đáng tin cậy), Claude ghi `CODEX_REVIEW: NOT RUN` kèm evidence khi được Owner thông báo, và trả `BLOCKED`; không tự thay bằng rescue, transfer hay self-review.
+Review là mandatory gate mặc định. Chỉ Owner được invoke reviewer; `ACTIVE_EXECUTOR` không tự gọi command này. Nếu Owner không thể invoke được review (review mechanism không khả dụng, treo hoặc không tạo được kết quả đáng tin cậy), `ACTIVE_EXECUTOR` ghi `REVIEW: NOT RUN` kèm evidence khi được Owner thông báo, và trả `BLOCKED`; không tự thay bằng rescue, transfer hay self-review.
 
 Chỉ escalation lên Control Tower khi vấn đề chạm business scope, kiến trúc, dependency cấp dự án hoặc vượt quyền OC.
 
@@ -226,16 +230,16 @@ Không dùng chat history làm nguồn sự thật lâu dài.
 
 ## 11. Công cụ và skill
 
-- `openai/codex-plugin-cc` chỉ được dùng làm cầu review giữa Claude Code và Codex.
-- Review mặc định dùng `/codex:review --base origin/develop`, do Owner invoke sau khi Claude công bố `READY_FOR_CODEX_REVIEW`. `/codex:adversarial-review` chỉ được dùng khi OC yêu cầu rõ cho work item rủi ro cao, và vẫn do Owner invoke.
-- Cấm trong workflow mặc định: `/codex:rescue`, `/codex:transfer`, Codex write mode và automatic review gate.
+- `openai/codex-plugin-cc` chỉ được dùng làm cầu review khi reviewer của work item là Codex.
+- Review mặc định dùng `/codex:review --base origin/develop`, do Owner invoke sau khi `ACTIVE_EXECUTOR` công bố `READY_FOR_<REVIEWER>_REVIEW`. `/codex:adversarial-review` chỉ được dùng khi OC yêu cầu rõ cho work item rủi ro cao, và vẫn do Owner invoke.
+- Cấm trong workflow mặc định: `/codex:rescue`, `/codex:transfer`, automatic review gate, và Codex write mode khi Codex là reviewer. Codex chỉ được ghi khi được chọn làm `IMPLEMENTER` bởi một Master Execution Prompt.
 - GitNexus là công cụ code graph và impact analysis hiện hành.
 - Chỉ cài/adapt skill đã được review và phù hợp dự án; không mặc định nhập toàn bộ một skill repository.
-- `diagnosing-bugs` của `mattpocock/skills` là skill có điều kiện dành cho Claude, không phải bước bắt buộc của mọi task.
-- Bắt buộc hoặc cho phép gọi `diagnosing-bugs` khi có một defect/performance regression cụ thể, lỗi flaky/intermittent, test/CI fail chưa rõ nguyên nhân, hoặc Codex finding mô tả behavior sai nhưng root cause chưa rõ.
+- `diagnosing-bugs` của `mattpocock/skills` là skill có điều kiện dành cho `ACTIVE_EXECUTOR`, không phải bước bắt buộc của mọi task.
+- Bắt buộc hoặc cho phép gọi `diagnosing-bugs` khi có một defect/performance regression cụ thể, lỗi flaky/intermittent, test/CI fail chưa rõ nguyên nhân, hoặc finding của reviewer mô tả behavior sai nhưng root cause chưa rõ.
 - Không gọi `diagnosing-bugs` chỉ vì task có code, chỉ vì đến review gate, hoặc cho feature/docs/design/refactor không có symptom lỗi cụ thể. Lỗi cú pháp/format hiển nhiên có feedback loop trực tiếp không cần quy trình chẩn đoán nặng nếu OC không yêu cầu.
-- Chỉ Claude được thực thi `diagnosing-bugs`. Codex có thể đề xuất nhưng không được tự chạy skill để sửa code.
-- Khi dùng `diagnosing-bugs`, Claude phải tạo feedback loop red/green có thể chạy lại, ghi lý do kích hoạt và regression evidence trong report, đồng thời redact secret, token, cookie, dữ liệu cá nhân và auth header khỏi mọi output/artifact chia sẻ.
+- Chỉ `ACTIVE_EXECUTOR` được thực thi `diagnosing-bugs`. Reviewer có thể đề xuất nhưng không được tự chạy skill để sửa code.
+- Khi dùng `diagnosing-bugs`, `ACTIVE_EXECUTOR` phải tạo feedback loop red/green có thể chạy lại, ghi lý do kích hoạt và regression evidence trong report, đồng thời redact secret, token, cookie, dữ liệu cá nhân và auth header khỏi mọi output/artifact chia sẻ.
 - Skill/prompt/tool không được thay đổi quyền hạn trong file này.
 - Trong giai đoạn pilot, ưu tiên capability tối thiểu, có thể tắt và quan sát được.
 
@@ -245,9 +249,9 @@ Executor phải dừng và báo `BLOCKED` khi:
 
 - baseline SHA hoặc branch không khớp prompt;
 - worktree có thay đổi không rõ chủ sở hữu;
-- bất kỳ agent/process nào ngoài Claude đang có hoặc yêu cầu quyền ghi;
-- Codex review yêu cầu write access, rescue, transfer hoặc task implementation;
-- mandatory Codex review không chạy được hoặc không trả kết quả đáng tin cậy;
+- bất kỳ agent/process nào ngoài `ACTIVE_EXECUTOR` đang có hoặc yêu cầu quyền ghi;
+- reviewer yêu cầu write access, rescue, transfer hoặc task implementation;
+- mandatory review không chạy được hoặc không trả kết quả đáng tin cậy;
 - scope/acceptance mâu thuẫn hoặc thiếu quyết định cần thiết;
 - cần secret, destructive action hoặc quyền bên ngoài chưa được cấp;
 - test failure cho thấy phải mở rộng scope;
@@ -261,4 +265,4 @@ Executor phải dừng và báo `BLOCKED` khi:
 - Kế hoạch/thực thi trong ngày: cập nhật plan và worklog.
 - Completion report không thay thế SNAPSHOT.
 - Khi workflow thay đổi, phải kiểm tra đồng thời `RULES.md`, `WORKFLOW.md`, root `AGENTS.md` và adapter như `CLAUDE.md` để tránh drift.
-- Root `AGENTS.md` và `CLAUDE.md` phải phản ánh đúng invariant `Claude writes. Codex reviews`; câu nhắc ngắn ở mục 4 không được dùng thay cho các giới hạn quyền đầy đủ.
+- Root `AGENTS.md` và `CLAUDE.md` phải phản ánh đúng invariant ở §2.4/§3 (implementer được chọn ghi, reviewer ghép cặp review độc lập); câu nhắc ngắn ở mục 4 không được dùng thay cho các giới hạn quyền đầy đủ.

@@ -1,6 +1,6 @@
 # AGENTS.md — The BHA Hotels Booking
 
-> Shared contract: Claude implements, Codex reviews read-only.
+> Shared contract: the implementer selected by the Master Execution Prompt writes, the paired reviewer reviews read-only.
 >
 > `docs/governance/RULES.md` remains the highest repository-level authority.
 
@@ -20,39 +20,44 @@ The BHA Hotels Booking is a monorepo:
 
 The operating chain is:
 
-`Owner + Control Tower → Operations Coordinator → Claude (implementer) → Owner → OC review → Owner decision`
+`Owner + Control Tower → Operations Coordinator → ACTIVE_EXECUTOR (implementer) → Owner → OC review → Owner decision`
 
 Owner Hồ Đình Lâm alone decides Ready/merge, branch cleanup and whether the next task starts.
 
-Fixed invariant: **Claude writes. Codex reviews. OC decides. Owner merges.** This is a permanent role assignment, not a per-work-item choice. Claude does not infer it might be replaced as implementer, and Codex is never assigned as an alternate `ACTIVE_EXECUTOR`.
+Each Master Execution Prompt selects exactly one of two valid role pairs (`docs/governance/RULES.md` §2.4):
+
+- `IMPLEMENTER: CLAUDE` + `REVIEWER: CODEX_READ_ONLY`
+- `IMPLEMENTER: CODEX` + `REVIEWER: CLAUDE_READ_ONLY`
+
+Combined values (e.g. `CLAUDE/CODEX`) are never valid. The selected implementer is the sole writable `ACTIVE_EXECUTOR` for that work item; the paired reviewer is read-only. The pair does not change during the work item or any of its corrections.
 
 There are two distinct activation contexts.
 
-### 2.A Claude implementation context
+### 2.A Implementation context
 
-- Claude is the only write-capable implementer for this repository.
-- Claude requires a valid Master Execution Prompt containing at minimum `IMPLEMENTER: CLAUDE`, `REVIEWER: CODEX_READ_ONLY`, `REPOSITORY`, `FEATURE_BRANCH`, baseline, scope, acceptance, checks, skill policy and stop conditions before making any edit.
-- Claude may implement, test, checkpoint, commit, push and open a Draft PR only when the Master Execution Prompt explicitly authorizes each of those actions.
-- Claude never grants Codex write access, never invokes Codex or any other coding agent, never creates nested agents and never runs an implementation in parallel with another agent.
-- If the Master Execution Prompt is missing a required field, or another coding agent may still have write access, Claude returns `BLOCKED`.
+- `ACTIVE_EXECUTOR` — the agent `IMPLEMENTER` names in the current Master Execution Prompt — is the only write-capable implementer for this repository, for that work item.
+- `ACTIVE_EXECUTOR` requires a valid Master Execution Prompt containing at minimum `IMPLEMENTER`, `REVIEWER`, `REPOSITORY`, `FEATURE_BRANCH`, baseline, scope, acceptance, checks, skill policy and stop conditions before making any edit.
+- `ACTIVE_EXECUTOR` may implement, test, checkpoint, commit, push and open a Draft PR only when the Master Execution Prompt explicitly authorizes each of those actions.
+- `ACTIVE_EXECUTOR` never grants the reviewer write access, never invokes the reviewer or any other coding agent, never creates nested agents and never runs an implementation in parallel with another agent.
+- If the Master Execution Prompt is missing a required field, or another coding agent may still have write access, `ACTIVE_EXECUTOR` returns `BLOCKED`.
 
-### 2.B Dedicated Codex review context
+### 2.B Dedicated review context
 
-- A native dedicated Codex review launched through the approved `/codex:review` command is already authorized as a read-only review invocation.
-- Codex review does not require `ACTIVE_EXECUTOR`, `PHASE_ID`, `EXECUTION_MODE`, or a repeated full Master Execution Prompt inside the native review request.
-- Codex reviews the explicit Git target/diff supplied in the review command and the applicable repository review rules.
+- A native dedicated review launched through the approved mechanism for the selected reviewer (`/codex:review` when the reviewer is Codex; a separate read-only Claude session when the reviewer is Claude) is already authorized as a read-only review invocation.
+- Review does not require `ACTIVE_EXECUTOR`, `PHASE_ID`, `EXECUTION_MODE`, or a repeated full Master Execution Prompt inside the native review request.
+- The reviewer reviews the explicit Git target/diff identified by the applicable review command or read-only-session instruction, and the applicable repository review rules.
 - Absence of executor-activation fields in native review context is not a blocker.
 - If the target diff is empty, the review reports that there is no reviewable diff; it does not report missing executor authorization.
-- Codex must remain read-only: no file edits, formatter writes, commits, pushes, PR changes or merges.
-- Codex findings are evidence for OC, not a governance verdict. OC decides `PASS`, `CORRECTION_REQUIRED` or `BLOCKED`; Owner alone decides Ready/merge/branch cleanup.
-- Only Owner may invoke the review command. Claude must never run or trigger it. At the required handoff (see §13), Claude must explicitly instruct Owner to invoke the exact command from the Master Execution Prompt — announcing that required Owner action is permitted and is not equivalent to Claude invoking the command.
+- The reviewer must remain read-only: no file edits, formatter writes, commits, pushes, PR changes or merges.
+- Reviewer findings are evidence for OC, not a governance verdict. OC decides `PASS`, `CORRECTION_REQUIRED` or `BLOCKED`; Owner alone decides Ready/merge/branch cleanup.
+- Only Owner may invoke the review. `ACTIVE_EXECUTOR` must never run or trigger it. At the required handoff (see §13), `ACTIVE_EXECUTOR` must explicitly instruct Owner to invoke the review — announcing that required Owner action is permitted and is not equivalent to `ACTIVE_EXECUTOR` invoking it.
 
-## 3. Fixed roles and write lock
+## 3. Write lock
 
-- Claude is the only coding agent with write access to the repository checkout, for every work item, at every phase.
-- Claude never invokes Codex, creates nested agents, fans out work or runs an implementation in parallel with any other agent.
-- Before Owner invokes Codex review, Claude stops all writes and leaves the working tree at a stable, reviewable checkpoint for the duration of the review.
-- A correction cycle requires an OC correction prompt and Owner activation before Claude resumes writing.
+- `ACTIVE_EXECUTOR` is the only coding agent with write access to the repository checkout, for every work item, at every phase.
+- `ACTIVE_EXECUTOR` never invokes the reviewer, creates nested agents, fans out work or runs an implementation in parallel with any other agent.
+- Before Owner invokes review, `ACTIVE_EXECUTOR` stops all writes and leaves the working tree at a stable, reviewable checkpoint for the duration of the review.
+- A correction cycle requires an OC correction prompt and Owner activation before `ACTIVE_EXECUTOR` resumes writing; the role pair does not change.
 
 ## 4. Reading order and context
 
@@ -80,7 +85,7 @@ If sources conflict, report exact file/reference evidence. Do not silently choos
 
 ## 6. Preflight before editing
 
-1. Confirm `WORK_ITEM`, `IMPLEMENTER: CLAUDE`, `REVIEWER: CODEX_READ_ONLY`, `REPOSITORY`, `FEATURE_BRANCH`, baseline, scope and acceptance from the Master Execution Prompt.
+1. Confirm `WORK_ITEM`, `IMPLEMENTER`, `REVIEWER`, `REPOSITORY`, `FEATURE_BRANCH`, baseline, scope and acceptance from the Master Execution Prompt.
 2. Verify repository root, current branch and working-tree cleanliness.
 3. Run `git fetch --prune origin` when network access and prompt policy allow it.
 4. Verify HEAD/base against `BASELINE_SHA` and ahead/behind against the expected base.
@@ -119,7 +124,7 @@ or policy matrix for this. Other rules:
 - Never merge, mark a PR ready, rebase shared history or delete a local/remote branch.
 - Do not change branches during an active phase unless the prompt explicitly says so.
 - Before handoff, leave the working tree clean or list every intentional uncommitted file.
-- This single-checkout rule does not grant Codex, a subagent, or a parallel implementation write access — the fixed roles in §2–§3 are unchanged.
+- This single-checkout rule does not grant the reviewer, a subagent, or a parallel implementation write access — the roles in §2–§3 are unchanged.
 
 ## 9. Build, test, migration and validation
 
@@ -171,12 +176,12 @@ Use targeted checks first, then broader/CI-parity checks required by prompt and 
 - Use GitNexus for code graph/impact analysis when it improves confidence; verify conclusions against source/tests.
 - Graphify is adopted as an **optional, workspace-local** code-navigation tool (Claude-run governance replay `TOOL-GRAPHIFY-001-DOCS-CLOSEOUT-C4`; history in `docs/reports/TOOL-GRAPHIFY-001-completion.md`). The skill and graph are project-scoped to Claude Code discovery, **not** repository-tracked (`.git/info/exclude`); a fresh clone or a different checkout/machine will not automatically have them.
 - `docs/governance/WORKFLOW.md` §12 is the **canonical** source for Graphify invocation policy — `GRAPHIFY_POLICY` values, unavailable/stale behavior, freshness rule, and install/rebuild boundaries. Read it there; this file does not duplicate it.
-- In short: every Master Execution Prompt must declare `GRAPHIFY_POLICY`; under `ALLOWED_IF_RELEVANT` Claude may decide on its own to query an existing, sufficiently fresh graph when it would materially help (ownership/architecture/dependency/impact-analysis/unfamiliar code) — no extra confirmation needed; missing/invalid policy means do not invoke; no policy value authorizes installing or rebuilding Graphify. Graphify is **not mandatory for every task** — most `NOT_APPLICABLE` cases need no graph at all. Graph results are always advisory and never replace reading the source Claude will change, required `READ_NOW` documents, or source/test verification.
-- The fixed invariant is unchanged by Graphify adoption: Claude writes, Codex reviews, OC decides, Owner merges.
+- In short: every Master Execution Prompt must declare `GRAPHIFY_POLICY`; under `ALLOWED_IF_RELEVANT` Claude may decide on its own to query an existing, sufficiently fresh graph when it would materially help (ownership/architecture/dependency/impact-analysis/unfamiliar code) — no extra confirmation needed; missing/invalid policy means do not invoke; no policy value authorizes installing or rebuilding Graphify. Graphify is **not mandatory for every task** — most `NOT_APPLICABLE` cases need no graph at all. Graph results are always advisory and never replace reading the source the implementer will change, required `READ_NOW` documents, or source/test verification.
+- The invariant is unchanged by Graphify adoption: the selected implementer writes, the paired reviewer reviews, OC decides, Owner merges.
 - GitNexus policy is unchanged; Graphify adoption does not imply GitNexus removal.
 - Orca is not part of the active workflow (discontinued 2026-08-07 per `docs/project/SNAPSHOT.md`). Do not enable Orca orchestration, parallel worktrees, auto-routing, nested execution or autonomous merge.
 - Use only skills listed/approved by the prompt and repository policy.
-- A skill never overrides RULES, scope, the fixed Claude-write/Codex-review roles or test requirements.
+- A skill never overrides RULES, scope, the selected implementer/reviewer roles or test requirements.
 - If a skill/tool is unavailable, report it accurately; do not install or modify global configuration unless the prompt explicitly authorizes setup.
 
 ## 11. Stop and escalation conditions
@@ -198,15 +203,15 @@ Do not repair unrelated baseline failures unless OC explicitly puts them in scop
 
 ## 12. Checkpoint report
 
-When a work item has more than one internal phase, Claude reports at each checkpoint: `Status: PASS | BLOCKED`; work item/phase; branch/base/HEAD; checkpoint commits; files changed; acceptance evidence for that phase; checks; working-tree status; deviations/risks/blockers; and confirmation that Claude stopped writing without merge, Ready, rebase or branch deletion.
+When a work item has more than one internal phase, `ACTIVE_EXECUTOR` reports at each checkpoint: `Status: PASS | BLOCKED`; work item/phase; branch/base/HEAD; checkpoint commits; files changed; acceptance evidence for that phase; checks; working-tree status; deviations/risks/blockers; and confirmation that `ACTIVE_EXECUTOR` stopped writing without merge, Ready, rebase or branch deletion.
 
 `PASS` requires every phase acceptance criterion to be met. Anything incomplete or unverified is `BLOCKED`.
 
-## 13. Completion report and Codex review handoff
+## 13. Completion report and review handoff
 
-After the final phase of a work item, Claude stops all writes at a stable checkpoint and reports: `Status: PASS | BLOCKED`; work item; branch/base/HEAD; commits; authorized Draft PR URL; diff stat/files; acceptance; exact checks/outcomes; self-review; deviations; risks/`NOT RUN`; blockers when blocked; requested Owner/OC decision.
+After the final phase of a work item, `ACTIVE_EXECUTOR` stops all writes at a stable checkpoint and reports: `Status: PASS | BLOCKED`; work item; branch/base/HEAD; commits; authorized Draft PR URL; diff stat/files; acceptance; exact checks/outcomes; self-review; deviations; risks/`NOT RUN`; blockers when blocked; requested Owner/OC decision.
 
-Claude then prints, replacing `<CODEX_REVIEW_COMMAND>` verbatim with the `CODEX_REVIEW_COMMAND` supplied by the current Master Execution Prompt (no inferred or hardcoded default base or flags):
+`ACTIVE_EXECUTOR` then prints, for `REVIEWER: CODEX_READ_ONLY`, replacing `<CODEX_REVIEW_COMMAND>` verbatim with the `CODEX_REVIEW_COMMAND` supplied by the current Master Execution Prompt (no inferred or hardcoded default base or flags):
 
 ```
 READY_FOR_CODEX_REVIEW
@@ -214,6 +219,8 @@ Owner must now invoke:
 <CODEX_REVIEW_COMMAND>
 ```
 
-If the Master Execution Prompt does not supply `CODEX_REVIEW_COMMAND`, Claude returns `BLOCKED` instead of inventing one. Claude does not invoke the review command itself and makes no further repository mutations after printing this line.
+or, for `REVIEWER: CLAUDE_READ_ONLY`, instructs Owner to open a separate read-only Claude review session for this diff.
 
-Send the report to Owner and stop. Owner invokes Codex review, then forwards the report — and, when Owner asks Claude to continue the report, the returned Codex result verbatim — to OC for review. Claude never silently fixes a Codex finding; a fix requires an OC correction prompt. Do not start the next task on your own.
+If `REVIEWER: CODEX_READ_ONLY` and the Master Execution Prompt does not supply `CODEX_REVIEW_COMMAND`, `ACTIVE_EXECUTOR` returns `BLOCKED` instead of inventing one. If `REVIEWER: CLAUDE_READ_ONLY`, no Codex command is required — `ACTIVE_EXECUTOR` uses the canonical read-only-session instruction above; it does not invent a command or new metadata for this path. `ACTIVE_EXECUTOR` does not invoke the review itself and makes no further repository mutations after printing this line.
+
+Send the report to Owner and stop. Owner invokes the review, then forwards the report — and, when Owner asks `ACTIVE_EXECUTOR` to continue the report, the returned review result verbatim — to OC for review. `ACTIVE_EXECUTOR` never silently fixes a reviewer finding; a fix requires an OC correction prompt. Do not start the next task on your own.

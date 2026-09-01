@@ -1,24 +1,24 @@
 # THE BHA — SNAPSHOT
 
-> Ngày cập nhật: 2026-08-26
+> Ngày cập nhật: 2026-09-01
 >
 > Mục đích: phục hồi trạng thái hiện tại mà không cần nạp worklog lịch sử
 
-Lần cập nhật này đóng `PMS-BE-001.2` — Physical Room Schedule &
-Availability Authority — sau khi PR #37 đã merge vào `develop`, GitHub
-Actions (Backend/Frontend/Admin) đã pass trên final head, và Owner đã dọn
-remote feature branch. Đây là docs-only closeout
-(`PMS-BE-001.2-DOCS-CLOSEOUT`), baseline là `develop` HEAD sau merge #37.
-Phase-by-phase implementation chronology nằm trong
-`docs/daily/2026-08/2026-08-26-worklog.md`; delivered-state evidence đầy đủ
-nằm trong `docs/reports/PMS-BE-001.2-completion.md` — không lặp lại ở đây.
-Control Tower đã chọn `PMS-CAL-001.1` — Reservation Board Read Projection &
-Frontend Integration — là product work item kế tiếp, nhưng chỉ được
-authorize cho OC planning bởi bản cập nhật này, **chưa** cho implementation
-(§2, §8). Repository SHA và PR state bên dưới là baseline đã được xác minh
-trực tiếp qua `git`/`gh pr view` tại thời điểm cập nhật tài liệu này, không
-phải cam kết rằng SHA này sẽ còn là `develop` HEAD sau các commit tiếp
-theo; revalidate lại `origin/develop` trước khi tạo feature branch mới.
+Lần cập nhật này ghi nhận `PMS-BE-001.2-DOCS-CLOSEOUT` đã đóng sau khi PR
+#38 (`docs(project): close PMS-BE-001.2 and record calendar handoff`) merge
+vào `develop`, và mở work item quản trị `AI-OPS-GOV-003` — thay phân công
+cố định Claude-implement/Codex-review bằng một trong hai role pair có thể
+chọn trong Master Execution Prompt (`IMPLEMENTER: CLAUDE`/`REVIEWER:
+CODEX_READ_ONLY`, hoặc `IMPLEMENTER: CODEX`/`REVIEWER: CLAUDE_READ_ONLY` —
+`docs/governance/RULES.md` §2.4), vẫn giữ nguyên one-writer, independent
+review, OC authority và Owner-only merge. Control Tower đã chọn
+`PMS-CAL-001.1` — Reservation Board Read Projection & Frontend Integration
+— là product work item kế tiếp, nhưng vẫn chỉ được authorize cho OC
+planning, **chưa** cho implementation (§2, §8). Repository SHA và PR state
+bên dưới là baseline đã được xác minh trực tiếp qua `git`/`gh pr view` tại
+thời điểm cập nhật tài liệu này, không phải cam kết rằng SHA này sẽ còn là
+`develop` HEAD sau các commit tiếp theo; revalidate lại `origin/develop`
+trước khi tạo feature branch mới.
 
 ## 1. Repository state
 
@@ -26,7 +26,7 @@ theo; revalidate lại `origin/develop` trước khi tạo feature branch mới.
 |---|---|
 | Repository | `emLamHD/The_BHA_hotels_Booking` |
 | Base branch | `develop` |
-| `develop` HEAD | `0a818f7a8ebb8ee72f45605e5a0ce37fed2a5442` |
+| `develop` HEAD | `f0eef23c59608d2aba1e43063c38074ea863edef` |
 | PR #31 | merged — `docs(pms): record core database blueprint v2`, merge commit `bfb3377b701e9309d3cbbea22bb18159bc37a2e0`, merged `2026-08-19T10:56:01Z`. Persists PMS blueprint documentation foundation (`docs/design/PMS-DATA-001-core-database-blueprint-v2.md`, ADR 0005, ADR 0006). |
 | PR #32 | merged — `feat(admin): add PMS reservation board UI baseline`, merge commit `17e929d7c1f82941599223344b5f4cdc3aa34307`, merged `2026-08-22T14:42:31Z`. Closes `ADMIN-002.1`. |
 | PR #33 | merged — `docs(project): close ADMIN-002.1 and record next sequence`, merge commit `2c38face7cf51d7271c361e6d684adea466edcf9`, merged `2026-08-22T15:38:25Z`. Closes `ADMIN-002.1-DOCS-CLOSEOUT`. |
@@ -34,8 +34,9 @@ theo; revalidate lại `origin/develop` trước khi tạo feature branch mới.
 | PR #35 | merged — `feat(booking): normalize commercial commitments`, feature branch `feature/pms-be-001-1-commercial-commitment-v2-foundation` (head `9e25f7cb6247420467957061a13c04801ce9b3c7`), merge commit `265d10006b219e456c30ed92bbb6c153a946944d`, merged `2026-08-24T16:46:46Z`. Closes `PMS-BE-001.1`. GitHub CI (Admin/Backend/Frontend) confirmed `pass` on this PR as of this Snapshot update (`gh pr checks 35`). Remote feature branch deleted (confirmed empty via `git ls-remote --heads origin feature/pms-be-001-1-commercial-commitment-v2-foundation`); the linked worktree `/home/admin1/The_BHA_hotels_Booking-pms-be-001-1` used for its implementation is confirmed removed (directory absent, not listed by `git worktree list --porcelain`) — see §4. |
 | PR #36 | merged — `docs(project): close PMS-BE-001.1 and restore single-checkout workflow`, feature branch `docs/pms-be-001-1-closeout-single-checkout` (head `c8938c731dd5647868a07f0c3654d919e5d60e9a`), merge commit `298b7fd53c47824550e955b98c2bed370b38a646`, merged `2026-08-24T19:17:44Z`. Closes `PMS-BE-001.1-DOCS-CLOSEOUT`. |
 | PR #37 | merged — `feat(pms): add physical room schedule and availability authority`, feature branch `feature/pms-be-001-2-physical-room-schedule-availability` (head `4b2de0ab50fa1703f0b125a043d2461cc0309417`), merge commit `0a818f7a8ebb8ee72f45605e5a0ce37fed2a5442`, merged `2026-08-26T10:33:13Z`. Closes `PMS-BE-001.2`. GitHub Actions (Backend/Frontend/Admin) confirmed `success` on this head (run `32957454881`). Remote feature branch confirmed deleted (`git ls-remote --heads origin feature/pms-be-001-2-physical-room-schedule-availability` empty). |
-| PR/branch của work item hiện tại | `PMS-BE-001.2-DOCS-CLOSEOUT` (docs-only) — feature branch `docs/pms-be-001-2-closeout`, checked out directly in the one repository checkout (no `git worktree add`), baseline `0a818f7a8ebb8ee72f45605e5a0ce37fed2a5442`. Claude stops writes at a stable checkpoint and reports `READY_FOR_CODEX_REVIEW`; Draft PR opened by Claude — not Ready or merged. Ready/merge/branch cleanup remain Owner-only. |
-| Open execution PR khác | không có, theo `gh pr list --state open` tại thời điểm cập nhật Snapshot này (ngoài PR của work item hiện tại ở trên, nếu đã được mở). |
+| PR #38 | merged — `docs(project): close PMS-BE-001.2 and record calendar handoff`, feature branch `docs/pms-be-001-2-closeout` (head `9b627fb29ce4b5b955e6e5640a465aa03953304f`), merge commit `f0eef23c59608d2aba1e43063c38074ea863edef`, merged `2026-08-26T12:01:07Z`. Closes `PMS-BE-001.2-DOCS-CLOSEOUT`. |
+| PR/branch của work item hiện tại | `AI-OPS-GOV-003` (docs/governance-only) — feature branch `docs/ai-ops-gov-003-prompt-selected-role-pairs`, checked out directly in the one repository checkout (no `git worktree add`), baseline `f0eef23c59608d2aba1e43063c38074ea863edef`. Claude completed its docs-only corrections, self-reviewed, and stopped; per a current Owner one-time decision, no Codex review is required for this PR — Owner reviews the diff directly. Draft PR opened by Claude — not Ready or merged. Ready/merge/branch cleanup remain Owner-only. |
+| Open execution PR khác | không có, theo `gh pr list --state open` tại thời điểm preflight của `AI-OPS-GOV-003` (ngoài PR của work item hiện tại ở trên, nếu đã được mở). |
 
 ## 2. Work item state
 
@@ -105,15 +106,27 @@ theo; revalidate lại `origin/develop` trước khi tạo feature branch mới.
   implement: multi-RoomType public request shape, `Organization`, Admin
   authentication/RBAC, Staff identity, any HTTP exposure of the schedule
   authority, OTA, `FolioEntries`, or `DATA-001.2`.
+- `PMS-BE-001.2-DOCS-CLOSEOUT`: `PASS — CLOSED`. PR #38 merged as above
+  (§1). Docs-only closeout of `PMS-BE-001.2` after PR #37 merged; records
+  `PMS-CAL-001.1` as the next Control-Tower-selected product work item,
+  authorized for OC planning only, not implementation.
 
 ### Đang thực thi
 
-- `PMS-BE-001.2-DOCS-CLOSEOUT` — docs/governance closeout of `PMS-BE-001.2`
-  after PR #37 merged, and recording `PMS-CAL-001.1` as the next
-  Control-Tower-selected product work item (planning-gated, not yet
-  authorized for implementation). Claude implementing under this Snapshot's
-  own Master Execution Prompt; see the "PR/branch của work item hiện tại"
-  row in §1. Not yet reviewed or merged.
+- `AI-OPS-GOV-003` — Prompt-Selected Single Implementer and Independent
+  Reviewer: governance-only work item replacing the repository's fixed
+  Claude-implements/Codex-reviews assignment with a prompt-selected role
+  pair (`docs/governance/RULES.md` §2.4: `IMPLEMENTER: CLAUDE`/`REVIEWER:
+  CODEX_READ_ONLY`, or `IMPLEMENTER: CODEX`/`REVIEWER: CLAUDE_READ_ONLY`),
+  while preserving one writer, independent read-only review, OC authority
+  and Owner-only merge. Edits exactly five files: `AGENTS.md`, `CLAUDE.md`,
+  `docs/governance/RULES.md`, `docs/governance/WORKFLOW.md`,
+  `docs/project/SNAPSHOT.md` (this file). Claude implementing under this
+  work item's own Master Execution Prompt; see the "PR/branch của work item
+  hiện tại" row in §1. Per a current Owner one-time decision, no Codex
+  review is required for this PR; this exception applies only to
+  `AI-OPS-GOV-003` and does not change review policy for other work items.
+  Not yet merged.
 
 ### Quyết định đang hiệu lực
 
@@ -347,17 +360,20 @@ evidence independently verified for this closeout via:
 - Owner Hồ Đình Lâm: quyết định cuối, Ready/merge, branch cleanup và mở task
   tiếp theo. Control Tower: objective/execution order cấp cao và
   escalation. OC: phân rã work item/checkpoint, viết Master Execution
-  Prompt, review report/diff/PR. Claude Code: implementer duy nhất có
-  quyền ghi code/working tree. Codex: reviewer read-only.
-- Operating invariant: `Claude writes. Codex reviews. OC decides. Owner
-  merges.` — đã chứng minh hoạt động xuyên suốt `AI-OPS-PILOT-001`,
-  `FE-002.1`, `ADMIN-001.1`, `PMS-DATA-DOCS-001`, `ADMIN-002.1`,
-  `TOOL-GRAPHIFY-001-DOCS-CLOSEOUT`, `PMS-BE-001.1`, và `PMS-BE-001.2`
-  (bao gồm hai correction cycle `C1`/`C2` trước khi merge).
+  Prompt, review report/diff/PR. Implementer được Master Execution Prompt
+  chọn (Claude hoặc Codex): duy nhất có quyền ghi code/working tree.
+  Reviewer ghép cặp: read-only (`docs/governance/RULES.md` §2.4).
+- Mô hình lịch sử trước `AI-OPS-GOV-003` (không còn là policy hiện tại,
+  xem §2.4 `docs/governance/RULES.md`): `Claude writes. Codex reviews. OC
+  decides. Owner merges.` — đã chứng minh hoạt động xuyên suốt
+  `AI-OPS-PILOT-001`, `FE-002.1`, `ADMIN-001.1`, `PMS-DATA-DOCS-001`,
+  `ADMIN-002.1`, `TOOL-GRAPHIFY-001-DOCS-CLOSEOUT`, `PMS-BE-001.1`, và
+  `PMS-BE-001.2` (bao gồm hai correction cycle `C1`/`C2` trước khi merge).
 - **Single-checkout workflow (khôi phục từ `PMS-BE-001.1-DOCS-CLOSEOUT`):**
   dự án dùng đúng một checkout repository đang tồn tại
   (`/home/admin1/The_BHA_hotels_Booking`). Một work item dùng một feature
-  branch, checkout trực tiếp trong đó; chỉ Claude có write lock.
+  branch, checkout trực tiếp trong đó; chỉ `ACTIVE_EXECUTOR` được Master
+  Execution Prompt chọn có write lock.
   `git worktree add` và mọi checkout thực thi bổ sung đều bị **cấm** —
   không có ngoại lệ, không có field ủy quyền, không có policy matrix cho
   việc này (PR #35 từng dùng và sau đó đã xóa một linked worktree trong
@@ -365,11 +381,13 @@ evidence independently verified for this closeout via:
   không phải cơ chế còn hiệu lực). Chi tiết và vòng đời branch chuẩn:
   `docs/governance/RULES.md` §5 (canonical), `AGENTS.md` §8,
   `docs/governance/WORKFLOW.md` §8.
-- Sau implementation/correction và mandatory checks, Claude dừng ghi tại
-  checkpoint ổn định và công bố `READY_FOR_CODEX_REVIEW`; chỉ Owner mới
-  invoke `/codex:review --base origin/develop` (hoặc base do prompt chỉ
-  định). Không dùng rescue, transfer, Codex write mode, automatic review
-  gate, parallel agent hoặc nested implementation orchestration — mô hình
+- Sau implementation/correction và mandatory checks, `ACTIVE_EXECUTOR`
+  dừng ghi tại checkpoint ổn định và công bố `READY_FOR_<REVIEWER>_REVIEW`;
+  chỉ Owner mới invoke reviewer đã chọn (`/codex:review --base
+  origin/develop`, hoặc base do prompt chỉ định, khi reviewer là Codex;
+  một phiên Claude read-only riêng khi reviewer là Claude). Không dùng
+  rescue, transfer, Codex write mode, automatic review gate, parallel
+  agent hoặc nested implementation orchestration — mô hình
   single-primary-checkout không thay đổi bất biến này.
 
 ## 7. Tooling migration state
@@ -394,28 +412,28 @@ evidence independently verified for this closeout via:
 
 ## 8. Current objective
 
-`PMS-BE-001.1`, `PMS-BE-001.1-DOCS-CLOSEOUT`, và `PMS-BE-001.2` đã đóng
-(`PASS — CLOSED`, PR #35/#36/#37 merged). Objective hiện tại là hoàn tất
-`PMS-BE-001.2-DOCS-CLOSEOUT`:
+`PMS-BE-001.1`, `PMS-BE-001.1-DOCS-CLOSEOUT`, `PMS-BE-001.2`, và
+`PMS-BE-001.2-DOCS-CLOSEOUT` đã đóng (`PASS — CLOSED`, PR
+#35/#36/#37/#38 merged). Objective hiện tại là hoàn tất `AI-OPS-GOV-003` —
+thay phân công cố định Claude-implement/Codex-review bằng mô hình
+prompt-selected role pair, giữ nguyên one-writer, independent review, OC
+authority và Owner-only merge:
 
-1. Claude hoàn tất docs-only closeout (file này và 2 file còn lại trong
-   allowlist của Master Execution Prompt), dừng mọi thao tác ghi tại
-   checkpoint ổn định, và công bố `READY_FOR_CODEX_REVIEW`.
-2. Owner xem completion report, mở Draft PR (nếu Claude chưa mở) và invoke
-   đúng một lượt `/codex:review --base origin/develop`.
-3. Owner chuyển trực tiếp cho OC cả completion report đã có sẵn (giữ
-   nguyên, không sửa) lẫn kết quả Codex verbatim. Claude vẫn ở trạng thái
-   dừng ghi sau handoff — không được reactivate chỉ để chèn kết quả Codex
-   vào report hay thực hiện bất kỳ repository mutation nào khác
-   (`AGENTS.md` §13).
-4. Nếu OC yêu cầu correction, OC phát hành một correction prompt mới và
-   Owner activate Claude trước khi Claude ghi thêm bất kỳ điều gì.
-5. OC đánh giá report hiện có cùng với kết quả Codex và kết luận
-   `PASS`/`CORRECTION_REQUIRED`/`BLOCKED`.
-6. Chỉ Owner quyết định Ready/merge/branch cleanup cho closeout này.
-7. Sau khi closeout này merge, OC soạn Master Execution Prompt riêng cho
-   `PMS-CAL-001.1` planning/decomposition, dùng `origin/develop` baseline
-   mới.
+1. Claude hoàn tất đúng năm file governance/state trong allowlist của
+   Master Execution Prompt (`AGENTS.md`, `CLAUDE.md`,
+   `docs/governance/RULES.md`, `docs/governance/WORKFLOW.md`,
+   `docs/project/SNAPSHOT.md` — file này), tự kiểm tra, dừng mọi thao tác
+   ghi tại checkpoint ổn định, và giao lại cho Owner.
+2. Theo một quyết định one-time hiện tại của Owner, PR này không yêu cầu
+   Codex review; Owner tự xem diff và quyết định Ready/merge trực tiếp.
+   Ngoại lệ này chỉ áp dụng cho `AI-OPS-GOV-003`, không phải policy chung
+   cho các product work item.
+3. Nếu Owner (đóng vai OC) yêu cầu correction, OC phát hành một correction
+   prompt mới cho Claude và Owner activate Claude trước khi Claude ghi
+   thêm bất kỳ điều gì.
+4. Chỉ Owner quyết định Ready/merge/branch cleanup cho `AI-OPS-GOV-003`.
+5. Sau khi merge, OC soạn Master Execution Prompt riêng cho `PMS-CAL-001.1`
+   planning/decomposition, dùng `origin/develop` baseline mới.
 
 Không tự động mở `DATA-001.2`, không tự động bắt đầu implementation cho
 `PMS-CAL-001.1`, và không tự động mở bất kỳ product/backend work item nào
@@ -437,9 +455,8 @@ khác từ Snapshot này.
 - Nhầm foundation normalized Item/Unit (`PMS-BE-001.1`, single-RoomType
   public request) với multi-RoomType public request TARGET đã implement —
   vẫn chưa implement.
-- Coi `PMS-BE-001.2-DOCS-CLOSEOUT` (docs-only, chưa merge) là tương đương
-  đã merge — không đúng cho đến khi Owner xác nhận merge SHA của chính
-  closeout này.
+- Coi `AI-OPS-GOV-003` (docs-only, chưa merge) là tương đương đã merge —
+  không đúng cho đến khi Owner xác nhận merge SHA của chính work item này.
 - Tạo `git worktree add` hoặc bất kỳ checkout thực thi bổ sung nào — luôn
   bị cấm, không có ngoại lệ (`docs/governance/RULES.md` §5).
 - Codex được cấp nhầm write mode hoặc dùng rescue/transfer.
@@ -448,9 +465,8 @@ khác từ Snapshot này.
 
 ## 10. First action
 
-Owner xem completion report của `PMS-BE-001.2-DOCS-CLOSEOUT`, xác nhận
-Draft PR (nếu đã mở bởi Claude) và invoke `/codex:review --base
-origin/develop` đúng một lượt cho work item đó — đó là first action theo
-Master Execution Prompt hiện tại. Sau khi Owner xác nhận merge SHA và
-checkout sạch, OC soạn Master Execution Prompt riêng cho `PMS-CAL-001.1`
-planning, dùng baseline `origin/develop` mới.
+Owner xem completion report của `AI-OPS-GOV-003` và diff của Draft PR #39
+trực tiếp — không cần invoke Codex review cho PR này theo quyết định
+one-time hiện tại của Owner — rồi quyết định Ready/merge. Sau khi Owner
+xác nhận merge SHA và checkout sạch, OC soạn Master Execution Prompt riêng
+cho `PMS-CAL-001.1` planning, dùng baseline `origin/develop` mới.
