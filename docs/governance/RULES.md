@@ -42,10 +42,11 @@ OC:
 
 - phân rã lệnh cấp cao thành work item, phase và checkpoint;
 - chọn execution mode;
-- viết một `Master Execution Prompt` dùng chung cho work item;
-- gán rõ agent phụ trách từng phase trước khi execution bắt đầu;
+- viết một `Master Execution Prompt` dùng chung cho work item, chọn đúng một role pair hợp lệ (`IMPLEMENTER`/`REVIEWER` — §2.4) cho toàn bộ work item trước khi execution bắt đầu;
 - nhận report do Owner chuyển lại, review code/PR trong chính phiên chat OC khi có PR;
 - yêu cầu correction, kết luận pass/fail và đề xuất hành động tiếp theo cho Owner.
+
+`ACTIVE_EXECUTOR` đã chọn giữ vai trò implementer cho mọi phase và mọi correction của work item đó; phân rã phase không bao giờ đổi role pair. Đổi implementer đòi hỏi work item hiện tại dừng lại và một work item mới được authorize riêng (§3.1).
 
 OC không được merge, không tự chuyển PR sang Ready và không tự mở khóa task kế tiếp.
 
@@ -103,12 +104,13 @@ Tuy nhiên, self-review của `ACTIVE_EXECUTOR` không bao giờ thay thế đư
 Trước khi independent review bắt đầu:
 
 1. `ACTIVE_EXECUTOR` hoàn tất self-review và các check bắt buộc.
-2. `ACTIVE_EXECUTOR` ghi lại `REVIEW_BASE_SHA` đã resolve và `FINAL_HEAD` chính xác tại thời điểm handoff.
+2. `ACTIVE_EXECUTOR` ghi lại `REVIEW_BASE` (tên symbolic, ví dụ `origin/develop`), `REVIEW_BASE_SHA` đã resolve từ tên đó, và `FINAL_HEAD` chính xác tại thời điểm handoff — cả ba đều xuất hiện trong `READY_FOR_<REVIEWER>_REVIEW`.
 3. `ACTIVE_EXECUTOR` dừng mọi thao tác ghi vào checkout.
 4. Owner khởi động reviewer trong một phiên review tách biệt.
-5. Reviewer chỉ xem đúng diff `REVIEW_BASE_SHA...FINAL_HEAD` đã công bố.
+5. Ngay trước khi review chạy, `REVIEW_BASE` symbolic phải resolve lại đúng `REVIEW_BASE_SHA` đã công bố (`git rev-parse <REVIEW_BASE> == REVIEW_BASE_SHA`); reviewer phải tự xác nhận cùng SHA đã resolve đó trước khi coi diff là hợp lệ.
+6. Reviewer chỉ xem đúng diff `REVIEW_BASE_SHA...FINAL_HEAD` đã công bố.
 
-Bất kỳ commit mới hay working-tree mutation nào sau handoff làm vô hiệu kết quả review trước đó. Sau một correction được authorize, cần một independent review mới nhằm đúng `FINAL_HEAD` mới.
+Bất kỳ commit mới hay working-tree mutation nào sau handoff làm vô hiệu kết quả review trước đó. Nếu `REVIEW_BASE` symbolic đã di chuyển khỏi `REVIEW_BASE_SHA` đã công bố (ví dụ `origin/develop` có commit mới), review phải dừng ở `BLOCKED` — không tự động review theo base mới, không rebase branch, không tự suy ra SHA thay thế. Dùng một `REVIEW_BASE_SHA` mới đòi hỏi một quyết định OC/Owner mới và một checkpoint được authorize lại. Sau một correction được authorize, cần một independent review mới nhằm đúng `FINAL_HEAD` mới (và, nếu `REVIEW_BASE` đã di chuyển hợp lệ, một `REVIEW_BASE_SHA` mới được xác nhận).
 
 ### 3.5 Reviewer invocation
 
@@ -148,7 +150,7 @@ trường **bắt buộc** sau:
 - `REPOSITORY` và `FEATURE_BRANCH` dự kiến;
 - baseline SHA;
 - phase/checkpoint order của `ACTIVE_EXECUTOR`;
-- review base tường minh, mặc định `origin/develop` (§3.5);
+- hợp đồng independent-review đầy đủ (§3.5): `INDEPENDENT_REVIEW_INVOKER: OWNER_ONLY`, `INDEPENDENT_REVIEW_METHOD`, `REVIEW_BASE` (tường minh, mặc định `origin/develop`), `REVIEW_BASE_SHA`, `REVIEW_TARGET: REVIEW_BASE_SHA...FINAL_HEAD_AT_HANDOFF` — cộng `CODEX_REVIEW_COMMAND` và invocation limit khi `REVIEWER: CODEX_READ_ONLY`, hoặc contract phiên read-only riêng tường minh khi `REVIEWER: CLAUDE_READ_ONLY`;
 - skill policy, gồm `diagnosing-bugs: REQUIRED | ALLOWED_IF_TRIGGERED | NOT_APPLICABLE`, chỉ áp dụng cho `ACTIVE_EXECUTOR` khi skill đó khả dụng với agent được chọn;
 - files/scope được phép và bị cấm;
 - acceptance criteria;
@@ -167,7 +169,7 @@ khi `REVIEWER: CODEX_READ_ONLY`, hoặc câu tương đương nêu tên reviewer
 
 Master Execution Prompt là bắt buộc cho work item implementation của `ACTIVE_EXECUTOR`, nhưng không được lặp lại như executor-activation context bên trong native reviewer invocation. Native review (Codex hoặc phiên Claude read-only riêng) chỉ cần review command/contract tường minh, diff/target mục tiêu và review-mode rule ở mục 2 và 3; review không cần và không chờ `ACTIVE_EXECUTOR` của phiên implementer, `PHASE_ID` hay `EXECUTION_MODE`.
 
-Nếu prompt thiếu `IMPLEMENTER`/`REVIEWER` hợp lệ, baseline, scope, acceptance, review base hoặc skill policy có ảnh hưởng đến cách triển khai, `ACTIVE_EXECUTOR` phải trả `BLOCKED` thay vì tự đoán.
+Nếu prompt thiếu `IMPLEMENTER`/`REVIEWER` hợp lệ, baseline, scope, acceptance, bất kỳ trường nào trong hợp đồng independent-review đầy đủ ở trên, hoặc skill policy có ảnh hưởng đến cách triển khai, `ACTIVE_EXECUTOR` phải trả `BLOCKED` ngay tại preflight — trước khi sửa bất kỳ file nào — thay vì tự đoán hoặc chỉ phát hiện thiếu sót sau khi đã implement.
 
 ## 5. Active execution checkout và branch lifecycle
 
@@ -229,26 +231,25 @@ Trước khi chuyển từ implementation sang independent review, `ACTIVE_EXECU
 4. tạo commit/checkpoint nếu prompt yêu cầu;
 5. chuẩn bị provisional completion report với branch, baseline, `REVIEW_BASE_SHA`, `FINAL_HEAD`, diff scope, checks và rủi ro;
 6. dừng mọi thao tác ghi;
-7. công bố `READY_FOR_<REVIEWER>_REVIEW` (`READY_FOR_CODEX_REVIEW` khi reviewer là Codex; tương đương khi reviewer là `CLAUDE_READ_ONLY`) kèm đúng review command/contract Owner cần chạy; `ACTIVE_EXECUTOR` không tự gọi command/mở phiên đó.
+7. công bố `READY_FOR_<REVIEWER>_REVIEW` (`READY_FOR_CODEX_REVIEW` khi reviewer là Codex; tương đương khi reviewer là `CLAUDE_READ_ONLY`) kèm `REVIEW_BASE`, `REVIEW_BASE_SHA` đã resolve, `FINAL_HEAD`, và đúng review command/contract Owner cần chạy; `ACTIVE_EXECUTOR` không tự gọi command/mở phiên đó.
 
-Chỉ Owner được gọi reviewer. Reviewer chỉ trả findings hoặc xác nhận không có finding trong phạm vi đã review. Sau khi Owner chuyển kết quả về, `ACTIVE_EXECUTOR` đưa nguyên trạng kết quả review vào completion report và dừng. Reviewer không nhận write lock ở bất kỳ thời điểm nào, bất kể reviewer là Codex hay Claude.
+Chỉ Owner được gọi reviewer. Reviewer chỉ trả findings hoặc xác nhận không có finding trong phạm vi đã review. Owner sau đó chuyển trực tiếp cho OC completion report sẵn có của `ACTIVE_EXECUTOR` cùng kết quả review verbatim — hai tài liệu riêng biệt; `ACTIVE_EXECUTOR` vẫn ở trạng thái dừng ghi, không được gọi lại chỉ để chèn kết quả vào report (§3.6). Reviewer không nhận write lock ở bất kỳ thời điểm nào, bất kể reviewer là Codex hay Claude.
 
 ## 7. Review và quyền merge
 
 Luồng mặc định sau execution:
 
 1. `ACTIVE_EXECUTOR` hoàn tất implementation/correction và mandatory checks.
-2. `ACTIVE_EXECUTOR` dừng mọi thao tác ghi tại một checkpoint ổn định, công bố `READY_FOR_<REVIEWER>_REVIEW` và in đúng command/contract Owner cần chạy (Codex: mặc định `/codex:review --base origin/develop`, trừ khi Master Execution Prompt chỉ định review base khác; Claude read-only: `REVIEW_BASE_SHA`/`FINAL_HEAD` tường minh cho phiên review riêng — §3.5).
-3. Owner gọi reviewer đã chỉ định (`/codex:review` hoặc command được chỉ định, hoặc mở phiên Claude read-only riêng). Đây là invocation duy nhất cho lượt review này; `ACTIVE_EXECUTOR` không tự gọi.
+2. `ACTIVE_EXECUTOR` dừng mọi thao tác ghi tại một checkpoint ổn định, công bố `READY_FOR_<REVIEWER>_REVIEW` kèm `REVIEW_BASE`, `REVIEW_BASE_SHA` đã resolve và `FINAL_HEAD` tường minh, và in đúng command/contract Owner cần chạy (Codex: mặc định `/codex:review --base origin/develop`, trừ khi Master Execution Prompt chỉ định review base khác; Claude read-only: phiên review riêng — §3.5).
+3. Owner gọi reviewer đã chỉ định (`/codex:review` hoặc command được chỉ định, hoặc mở phiên Claude read-only riêng), sau khi xác nhận `REVIEW_BASE` vẫn resolve đúng `REVIEW_BASE_SHA` đã công bố (§3.4). Đây là invocation duy nhất cho lượt review này; `ACTIVE_EXECUTOR` không tự gọi. Nếu base đã di chuyển, dừng ở `BLOCKED` thay vì review theo base mới.
 4. Reviewer thực hiện review read-only trên đúng diff/target được yêu cầu và trả findings; không được sửa code.
-5. Owner chuyển kết quả review về cho `ACTIVE_EXECUTOR`; `ACTIVE_EXECUTOR` chèn nguyên trạng review result, review base và trạng thái `RUN`/`NOT RUN` vào completion report rồi gửi Owner và dừng.
-6. Owner chuyển report cho OC.
-7. OC kiểm tra reviewer findings cùng report, diff, test và PR nếu có.
-8. Nếu cần correction, OC phát correction prompt cho đúng `ACTIVE_EXECUTOR` ban đầu (§3.1); sau correction, `ACTIVE_EXECUTOR` lặp lại bước 1–6 cho đúng phần thay đổi, nhằm `FINAL_HEAD` mới.
-9. Khi pass, OC trả recommendation cho Owner.
-10. Owner quyết định Ready/merge/delete branch và có mở task tiếp theo hay không.
+5. Owner chuyển trực tiếp cho OC completion report sẵn có của `ACTIVE_EXECUTOR` cùng kết quả review verbatim và trạng thái `RUN`/`NOT RUN` — hai tài liệu riêng biệt; không yêu cầu `ACTIVE_EXECUTOR` (đang dừng ghi) mutate report chỉ để chèn kết quả (§3.6).
+6. OC kiểm tra reviewer findings cùng report, diff, test và PR nếu có.
+7. Nếu cần correction, OC phát correction prompt cho đúng `ACTIVE_EXECUTOR` ban đầu (§3.1); sau correction, `ACTIVE_EXECUTOR` lặp lại bước 1–5 cho đúng phần thay đổi, nhằm `FINAL_HEAD` mới.
+8. Khi pass, OC trả recommendation cho Owner.
+9. Owner quyết định Ready/merge/delete branch và có mở task tiếp theo hay không.
 
-Independent review là mandatory gate mặc định, bất kể reviewer là Codex hay Claude. Chỉ Owner được invoke reviewer; `ACTIVE_EXECUTOR` không tự gọi. Nếu Owner không thể invoke được review (command/phiên không khả dụng, treo hoặc không tạo được kết quả đáng tin cậy — kể cả khi không thiết lập được read-only đáng tin cậy cho phiên Claude reviewer), `ACTIVE_EXECUTOR` ghi `REVIEW: NOT RUN` kèm evidence khi được Owner thông báo, và trả `BLOCKED`; không tự thay bằng rescue, transfer hay self-review.
+Independent review là mandatory gate mặc định, bất kể reviewer là Codex hay Claude. Chỉ Owner được invoke reviewer; `ACTIVE_EXECUTOR` không tự gọi. Nếu Owner không thể invoke được review (command/phiên không khả dụng, treo, base đã di chuyển khỏi `REVIEW_BASE_SHA` đã công bố, hoặc không tạo được kết quả đáng tin cậy — kể cả khi không thiết lập được read-only đáng tin cậy cho phiên Claude reviewer), Owner ghi nhận `REVIEW: NOT RUN` kèm evidence và chuyển trực tiếp cho OC cùng completion report sẵn có; work item ở trạng thái `BLOCKED` cho đến khi có correction prompt mới — không tự thay bằng rescue, transfer hay self-review, và không yêu cầu `ACTIVE_EXECUTOR` (đang dừng ghi) tự ghi trạng thái này vào report.
 
 Chỉ escalation lên Control Tower khi vấn đề chạm business scope, kiến trúc, dependency cấp dự án hoặc vượt quyền OC.
 

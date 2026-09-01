@@ -20,7 +20,7 @@ The BHA Hotels Booking is a monorepo:
 
 The operating chain is:
 
-`Owner + Control Tower → Operations Coordinator → prompt-selected implementer (ACTIVE_EXECUTOR) → Owner → OC review → Owner decision`
+`Owner + Control Tower → Operations Coordinator → ACTIVE_EXECUTOR → Owner-invoked independent reviewer → OC decision → Owner decision`
 
 Owner Hồ Đình Lâm alone decides Ready/merge, branch cleanup and whether the next task starts.
 
@@ -38,7 +38,7 @@ There are two distinct activation contexts.
 ### 2.A Implementation context
 
 - `ACTIVE_EXECUTOR` — the agent `IMPLEMENTER` names in the current Master Execution Prompt — is the only write-capable implementer for that work item's repository checkout.
-- `ACTIVE_EXECUTOR` requires a valid Master Execution Prompt containing at minimum `IMPLEMENTER`, `REVIEWER` (one of the two allowed pairs above), `REPOSITORY`, `FEATURE_BRANCH`, baseline, scope, acceptance, checks, skill policy and stop conditions before making any edit.
+- `ACTIVE_EXECUTOR` requires a valid Master Execution Prompt containing at minimum `IMPLEMENTER`, `REVIEWER` (one of the two allowed pairs above), `REPOSITORY`, `FEATURE_BRANCH`, baseline, scope, acceptance, checks, skill policy, the full independent-review contract (`INDEPENDENT_REVIEW_INVOKER: OWNER_ONLY`, `REVIEW_BASE`/`REVIEW_BASE_SHA`/`REVIEW_TARGET`, and the provider-specific command/contract per `docs/governance/RULES.md` §3.5/§4) and stop conditions before making any edit — a missing or invalid field is `BLOCKED` at preflight, not discovered only after implementation.
 - `ACTIVE_EXECUTOR` may implement, test, checkpoint, commit, push and open a Draft PR only when the Master Execution Prompt explicitly authorizes each of those actions.
 - `ACTIVE_EXECUTOR` never grants the reviewer write access, never invokes the reviewer or any other coding agent, never creates nested agents and never runs an implementation in parallel with another agent.
 - If the Master Execution Prompt is missing a required field, names an invalid role-pair value, or another coding agent may still have write access, `ACTIVE_EXECUTOR` returns `BLOCKED`.
@@ -87,7 +87,7 @@ If sources conflict, report exact file/reference evidence. Do not silently choos
 
 ## 6. Preflight before editing
 
-1. Confirm `WORK_ITEM`, `IMPLEMENTER`, `REVIEWER` (one of the two allowed role pairs — `docs/governance/RULES.md` §2.4), `REPOSITORY`, `FEATURE_BRANCH`, baseline, scope and acceptance from the Master Execution Prompt.
+1. Confirm `WORK_ITEM`, `IMPLEMENTER`, `REVIEWER` (one of the two allowed role pairs — `docs/governance/RULES.md` §2.4), `REPOSITORY`, `FEATURE_BRANCH`, baseline, scope, acceptance and the full independent-review contract (§2.A) from the Master Execution Prompt.
 2. Verify repository root, current branch and working-tree cleanliness.
 3. Run `git fetch --prune origin` when network access and prompt policy allow it.
 4. Verify HEAD/base against `BASELINE_SHA` and ahead/behind against the expected base.
@@ -214,18 +214,22 @@ When a work item has more than one internal phase, `ACTIVE_EXECUTOR` reports at 
 
 After the final phase of a work item, `ACTIVE_EXECUTOR` stops all writes at a stable checkpoint and reports: `Status: PASS | BLOCKED`; work item; branch/base/HEAD; commits; authorized Draft PR URL; diff stat/files; acceptance; exact checks/outcomes; self-review; deviations; risks/`NOT RUN`; blockers when blocked; requested Owner/OC decision.
 
-`ACTIVE_EXECUTOR` then prints the ready line for the selected reviewer:
+`ACTIVE_EXECUTOR` then prints the ready line for the selected reviewer, always stating the resolved `REVIEW_BASE_SHA` and exact `FINAL_HEAD`:
 
 - when `REVIEWER: CODEX_READ_ONLY`, replacing `<CODEX_REVIEW_COMMAND>` verbatim with the `CODEX_REVIEW_COMMAND` supplied by the current Master Execution Prompt (no inferred or hardcoded default base or flags):
 
   ```
   READY_FOR_CODEX_REVIEW
+  REVIEW_BASE_SHA: <resolved SHA>
+  FINAL_HEAD: <exact HEAD>
   Owner must now invoke:
   <CODEX_REVIEW_COMMAND>
   ```
 
 - when `REVIEWER: CLAUDE_READ_ONLY`, stating the resolved `REVIEW_BASE_SHA` and `FINAL_HEAD` and instructing Owner to open a separate read-only Claude review session with that exact repository, base SHA and head SHA (`docs/governance/RULES.md` §3.5).
 
+Immediately before Owner invokes either reviewer, the symbolic `REVIEW_BASE` must still resolve to the declared `REVIEW_BASE_SHA`; if it has moved, review stops as `BLOCKED` rather than silently reviewing against the new base (`docs/governance/RULES.md` §3.4).
+
 If the Master Execution Prompt does not supply the required review command/contract for the selected reviewer, `ACTIVE_EXECUTOR` returns `BLOCKED` instead of inventing one. `ACTIVE_EXECUTOR` does not invoke the review itself and makes no further repository mutations after printing this line.
 
-Send the report to Owner and stop. Owner invokes the independent review, then forwards the report — and, when Owner asks `ACTIVE_EXECUTOR` to continue the report, the returned review result verbatim — to OC for review. `ACTIVE_EXECUTOR` never silently fixes a reviewer finding; a fix requires an OC correction prompt, and any correction returns write authority to the same `ACTIVE_EXECUTOR` (`docs/governance/RULES.md` §3.1). Do not start the next task on your own.
+Send the report to Owner and stop. Owner invokes the independent review, then forwards `ACTIVE_EXECUTOR`'s already-submitted completion report and the review result — including a `NOT RUN` outcome, if review could not be completed — directly to OC as two separate items (`docs/governance/RULES.md` §3.6). `ACTIVE_EXECUTOR` stays stopped throughout and is never recalled merely to insert the review result into its report. `ACTIVE_EXECUTOR` never silently fixes a reviewer finding; a fix requires an OC correction prompt, and any correction returns write authority to the same `ACTIVE_EXECUTOR` (`docs/governance/RULES.md` §3.1). Do not start the next task on your own.
