@@ -82,6 +82,15 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   — **không có HTTP controller hay Admin/Calendar endpoint nào** expose
   chúng, không có Staff identity, không có Admin RBAC model. Chi tiết đầy đủ
   trong `docs/reports/PMS-BE-001.2-completion.md`.
+- `PMS-CAL-001.1` (không có migration mới) đã thêm HTTP **read-only**
+  projection đầu tiên của authority trên: `GET
+  /api/admin/v1/properties/{propertyId}/reservation-board`, gated sau
+  `AdminCalendar:EnableUnauthenticatedRead` (mặc định `false`, không thể
+  bật ở Production), HTTPS-only/non-wildcard `Cors:AdminOrigins`. Admin
+  Reservation Board frontend (`Front_End/Admin_Web`) đọc endpoint này thay
+  vì mock data. Vẫn **không có** mutation endpoint HTTP nào, không có Admin
+  authentication/RBAC, không có Staff identity thật. Chi tiết đầy đủ trong
+  `docs/reports/PMS-CAL-001.1-completion.md`.
 
 ### Target/approved, chưa implement (TARGET)
 
@@ -90,10 +99,12 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   Item/Unit cho việc này đã CURRENT (`PMS-BE-001.1` ở trên), nhưng public API
   vẫn giới hạn đúng một RoomType/RatePlan mỗi request; mở rộng lên
   multi-RoomType request là TARGET riêng, chưa implement — xem ADR 0005.
-- HTTP/Admin/Calendar integration của physical-room schedule authority
-  (`RoomOccupancySegments`/`RoomBlock`, đã CURRENT ở trên) — bao gồm mọi
-  endpoint, Admin authentication/RBAC thật, và Staff identity thật để thay
-  cho `ActorReference`/`AuthorizationEvidence` opaque hiện tại.
+- HTTP/Admin/Calendar **mutation** integration của physical-room schedule
+  authority (`RoomOccupancySegments`/`RoomBlock`, đã CURRENT ở trên; read
+  projection cũng đã CURRENT từ `PMS-CAL-001.1`) — assignment/block
+  create/split/move/cancel qua HTTP, Admin authentication/RBAC thật, và
+  Staff identity thật để thay cho `ActorReference`/`AuthorizationEvidence`
+  opaque hiện tại, vẫn TARGET, chưa implement.
 - Intentional cross-RoomType upgrade/downgrade **có authorization/reason/
   audit thật qua Staff/RBAC** (opaque `AuthorizationEvidence`/`Reason` string
   đã CURRENT ở mutation boundary trên, nhưng không phải permission check
@@ -103,9 +114,11 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   snapshot; Guest identity document và Stay Declaration là hai concept có
   lifecycle riêng.
 - Admin PMS/Calendar UI thật, tức backend-integrated, server-authoritative
-  (Admin Web hiện có một interactive Reservation Board frontend prototype từ
-  `ADMIN-002.1`/PR #32, nhưng chạy hoàn toàn trên local mock state — chưa
-  tích hợp backend/database thật).
+  **cho mutation** (Admin Web hiện có một interactive Reservation Board
+  frontend từ `ADMIN-002.1`/PR #32; phần đọc chính đã backend-integrated,
+  read-only, qua HTTPS từ `PMS-CAL-001.1`, nhưng front-desk creation
+  workspace và lifecycle/folio/move demonstrations vẫn chạy hoàn toàn trên
+  local mock state — chưa có mutation/persistence/auth thật).
 
 Mixed-RoomType allocation không còn nằm trong danh sách "ngoài phạm vi" bên
 dưới — nó là TARGET/APPROVED, chưa implement, theo đúng nghĩa ở trên.
