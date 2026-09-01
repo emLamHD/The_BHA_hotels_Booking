@@ -50,7 +50,7 @@ Nguyên tắc: tài liệu lịch sử được lưu để truy xuất, không p
 2. Control Tower phát lệnh cho OC.
 3. OC phân rã work item, phase, checkpoint, skill policy và viết Master Execution Prompt, chọn đúng một role pair hợp lệ (`RULES.md` §2.4).
 4. Owner mở phiên cho agent được chọn làm `IMPLEMENTER`; agent đó là `ACTIVE_EXECUTOR` duy nhất có quyền ghi cho work item này.
-5. `ACTIVE_EXECUTOR` thực hiện, test, tạo checkpoint ổn định, dừng ghi rồi công bố `READY_FOR_<REVIEWER>_REVIEW` kèm đúng review command.
+5. `ACTIVE_EXECUTOR` thực hiện, test, tạo checkpoint ổn định, dừng ghi rồi công bố `READY_FOR_<REVIEWER>_REVIEW` kèm đúng review command/instruction.
 6. Owner invoke reviewer đã chọn read-only đúng một lượt theo review contract (`/codex:review --base origin/develop` hoặc base do prompt chỉ định khi reviewer là Codex; phiên Claude read-only riêng khi reviewer là Claude); `ACTIVE_EXECUTOR` không tự chạy command này.
 7. Owner chuyển kết quả review về cho `ACTIVE_EXECUTOR`; `ACTIVE_EXECUTOR` đưa kết quả vào completion report, gửi Owner và dừng.
 8. Owner chuyển report cho OC.
@@ -110,7 +110,7 @@ Dự án dùng đúng một checkout repository đang tồn tại (`docs/governa
 §5) — `git worktree add` và mọi checkout thực thi bổ sung đều bị cấm, không
 có ngoại lệ hay field ủy quyền cho việc này.
 
-Master Execution Prompt là bắt buộc cho work item implementation của `ACTIVE_EXECUTOR`, nhưng không được lặp lại như executor-activation context bên trong native review request: review command tường minh, diff/target mục tiêu và review-mode rule đã đủ thẩm quyền cho reviewer read-only. `CODEX_REVIEW_INVOKER: OWNER_ONLY` nghĩa là chỉ Owner được gọi command này; `ACTIVE_EXECUTOR` chỉ dừng ghi và công bố `READY_FOR_<REVIEWER>_REVIEW`.
+Master Execution Prompt là bắt buộc cho work item implementation của `ACTIVE_EXECUTOR`, nhưng không được lặp lại như executor-activation context bên trong native review request: review command/instruction tường minh, diff/target mục tiêu và review-mode rule đã đủ thẩm quyền cho reviewer read-only. `CODEX_REVIEW_INVOKER: OWNER_ONLY` nghĩa là chỉ Owner được gọi command này; `ACTIVE_EXECUTOR` chỉ dừng ghi và công bố `READY_FOR_<REVIEWER>_REVIEW`.
 
 ## 5. Preflight của `ACTIVE_EXECUTOR`
 
@@ -118,7 +118,7 @@ Trước khi sửa file, `ACTIVE_EXECUTOR` phải:
 
 1. đọc root `AGENTS.md`; nếu là Claude, cũng đọc `CLAUDE.md`;
 2. đọc Master Execution Prompt và các file trong `READ_NOW`;
-3. xác nhận `IMPLEMENTER`, `REVIEWER` (đúng cặp hợp lệ theo `RULES.md` §2.4), review command và skill policy;
+3. xác nhận `IMPLEMENTER`, `REVIEWER` (đúng cặp hợp lệ theo `RULES.md` §2.4), review mechanism tương ứng (`CODEX_REVIEW_COMMAND` khi `REVIEWER: CODEX_READ_ONLY`; canonical read-only Claude-session instruction khi `REVIEWER: CLAUDE_READ_ONLY`) và skill policy;
 4. kiểm tra repo root, branch, HEAD và working-tree status;
 5. xác nhận không có agent/process khác đang giữ write lock;
 6. kiểm tra tool bắt buộc trong prompt có sẵn;
@@ -135,7 +135,7 @@ Không recap toàn bộ project. Nếu baseline hoặc ownership không khớp, 
 5. `ACTIVE_EXECUTOR` cập nhật tài liệu trong scope nếu acceptance yêu cầu.
 6. `ACTIVE_EXECUTOR` tạo commit/push/Draft PR nếu prompt trao quyền.
 7. `ACTIVE_EXECUTOR` chuẩn bị provisional completion report và checkpoint ổn định.
-8. `ACTIVE_EXECUTOR` dừng mọi thao tác ghi tại checkpoint ổn định và công bố `READY_FOR_<REVIEWER>_REVIEW` kèm đúng command cho Owner; `ACTIVE_EXECUTOR` không tự mở review gate.
+8. `ACTIVE_EXECUTOR` dừng mọi thao tác ghi tại checkpoint ổn định và công bố `READY_FOR_<REVIEWER>_REVIEW` kèm đúng command/instruction cho Owner; `ACTIVE_EXECUTOR` không tự mở review gate.
 
 OC không review trực tiếp trong lúc `ACTIVE_EXECUTOR` đang sửa, trừ khi Owner yêu cầu một checkpoint tư vấn không ghi file.
 
@@ -143,8 +143,8 @@ OC không review trực tiếp trong lúc `ACTIVE_EXECUTOR` đang sửa, trừ k
 
 ### Review invocation
 
-1. `ACTIVE_EXECUTOR` xác nhận branch, baseline, HEAD và worktree status ở checkpoint ổn định, dừng ghi, rồi công bố `READY_FOR_<REVIEWER>_REVIEW` kèm đúng command (`/codex:review --base origin/develop` khi reviewer là Codex, trừ khi prompt ghi base khác; phiên Claude read-only riêng khi reviewer là Claude).
-2. Chỉ Owner được gọi command đó (`CODEX_REVIEW_INVOKER: OWNER_ONLY`). `ACTIVE_EXECUTOR` không tự chạy `/codex:review` hay tự mở phiên Claude reviewer.
+1. `ACTIVE_EXECUTOR` xác nhận branch, baseline, HEAD và worktree status ở checkpoint ổn định, dừng ghi, rồi công bố `READY_FOR_<REVIEWER>_REVIEW` kèm đúng command/instruction (`/codex:review --base origin/develop` khi reviewer là Codex, trừ khi prompt ghi base khác; phiên Claude read-only riêng khi reviewer là Claude).
+2. Chỉ Owner được invoke command đó hoặc mở phiên đó (`CODEX_REVIEW_INVOKER: OWNER_ONLY` khi reviewer là Codex). `ACTIVE_EXECUTOR` không tự chạy `/codex:review` hay tự mở phiên Claude reviewer.
 3. Reviewer chạy native read-only review trên đúng diff/target được yêu cầu và chỉ trả findings có evidence, severity và vị trí phù hợp; native review không cần lặp lại executor-activation field nào của Master Execution Prompt.
 4. `ACTIVE_EXECUTOR` không yêu cầu reviewer sửa code và không bật write mode.
 5. `ACTIVE_EXECUTOR` không tự chạy `/codex:rescue`, `/codex:transfer` hoặc automatic review gate.
@@ -152,7 +152,7 @@ OC không review trực tiếp trong lúc `ACTIVE_EXECUTOR` đang sửa, trừ k
 
 ### Sau review
 
-- Owner chuyển kết quả review về cho `ACTIVE_EXECUTOR`; `ACTIVE_EXECUTOR` đưa nguyên trạng review command/base/result vào completion report.
+- Owner chuyển kết quả review về cho `ACTIVE_EXECUTOR`; `ACTIVE_EXECUTOR` đưa nguyên trạng review command/instruction, base và result vào completion report.
 - Nếu reviewer có findings, `ACTIVE_EXECUTOR` không tự mở rộng scope hoặc âm thầm sửa sau review; `ACTIVE_EXECUTOR` dừng để OC phân loại và phát correction.
 - Nếu reviewer không có finding, `ACTIVE_EXECUTOR` ghi rõ `REVIEW: PASS_WITH_NO_FINDINGS`; đây vẫn chưa phải verdict merge.
 - Nếu review fail, treo hoặc không khả dụng, `ACTIVE_EXECUTOR` ghi `REVIEW: NOT RUN` kèm evidence khi được Owner thông báo, và trả `BLOCKED`.
@@ -201,7 +201,7 @@ Files changed:
 Acceptance results:
 Checks run and results:
 Skill policy / skills invoked / trigger evidence:
-Review command, base and result:
+Review command/instruction, base and result:
 Known risks / NOT RUN:
 PR / branch status:
 Requested decision:
@@ -385,7 +385,7 @@ Trước khi đóng phiên execution:
 - `ACTIVE_EXECUTOR` đã dừng và nhả write lock;
 - branch/HEAD/worktree status đã được ghi;
 - check đã chạy và `NOT RUN` đã khai báo;
-- `READY_FOR_<REVIEWER>_REVIEW` cùng đúng review command đã được công bố trước khi Owner invoke review;
+- `READY_FOR_<REVIEWER>_REVIEW` cùng đúng review command/instruction đã được công bố trước khi Owner invoke review;
 - review result đã được ghi hoặc phiên trả `BLOCKED` nếu review không chạy được;
 - skill invocation và trigger evidence đã được ghi nếu có;
 - report đã gửi Owner;

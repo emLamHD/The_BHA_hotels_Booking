@@ -45,7 +45,7 @@ There are two distinct activation contexts.
 
 - A native dedicated review launched through the approved mechanism for the selected reviewer (`/codex:review` when the reviewer is Codex; a separate read-only Claude session when the reviewer is Claude) is already authorized as a read-only review invocation.
 - Review does not require `ACTIVE_EXECUTOR`, `PHASE_ID`, `EXECUTION_MODE`, or a repeated full Master Execution Prompt inside the native review request.
-- The reviewer reviews the explicit Git target/diff supplied in the review command and the applicable repository review rules.
+- The reviewer reviews the explicit Git target/diff identified by the applicable review command or read-only-session instruction, and the applicable repository review rules.
 - Absence of executor-activation fields in native review context is not a blocker.
 - If the target diff is empty, the review reports that there is no reviewable diff; it does not report missing executor authorization.
 - The reviewer must remain read-only: no file edits, formatter writes, commits, pushes, PR changes or merges.

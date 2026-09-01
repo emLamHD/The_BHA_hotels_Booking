@@ -103,7 +103,7 @@ Mỗi Master Execution Prompt gửi cho `ACTIVE_EXECUTOR` phải kết thúc b�
 
 Câu nhắc này không thay thế review contract ở các mục 2, 3 và 7, cũng không trao cho reviewer quyền ghi.
 
-Master Execution Prompt là bắt buộc cho work item implementation của `ACTIVE_EXECUTOR`, nhưng không được lặp lại như executor-activation context bên trong native review request. Native review chỉ cần review command tường minh, diff/target mục tiêu và review-mode rule ở mục 2 và 3; review không cần và không chờ `ACTIVE_EXECUTOR`, `PHASE_ID` hay `EXECUTION_MODE`.
+Master Execution Prompt là bắt buộc cho work item implementation của `ACTIVE_EXECUTOR`, nhưng không được lặp lại như executor-activation context bên trong native review request. Native review chỉ cần review command/instruction tường minh, diff/target mục tiêu và review-mode rule ở mục 2 và 3; review không cần và không chờ `ACTIVE_EXECUTOR`, `PHASE_ID` hay `EXECUTION_MODE`.
 
 Nếu prompt thiếu baseline, scope, acceptance, review base hoặc skill policy có ảnh hưởng đến cách triển khai, `ACTIVE_EXECUTOR` phải trả `BLOCKED` thay vì tự đoán.
 
@@ -163,16 +163,16 @@ Trước khi chuyển từ implementation sang review, `ACTIVE_EXECUTOR` phải:
 4. tạo commit/checkpoint nếu prompt yêu cầu;
 5. chuẩn bị provisional completion report với branch, baseline, HEAD, diff scope, checks và rủi ro;
 6. dừng mọi thao tác ghi;
-7. công bố `READY_FOR_<REVIEWER>_REVIEW` kèm đúng review command Owner cần chạy; `ACTIVE_EXECUTOR` không tự gọi command đó.
+7. công bố `READY_FOR_<REVIEWER>_REVIEW` kèm đúng review command/instruction Owner cần dùng; `ACTIVE_EXECUTOR` không tự gọi command đó.
 
-Chỉ Owner được gọi review command này. Reviewer chỉ trả findings hoặc xác nhận không có finding trong phạm vi đã review. Sau khi Owner chuyển kết quả về, `ACTIVE_EXECUTOR` đưa nguyên trạng kết quả review vào completion report và dừng. Reviewer không nhận write lock ở bất kỳ thời điểm nào.
+Chỉ Owner được invoke command hoặc mở reviewer session này. Reviewer chỉ trả findings hoặc xác nhận không có finding trong phạm vi đã review. Sau khi Owner chuyển kết quả về, `ACTIVE_EXECUTOR` đưa nguyên trạng kết quả review vào completion report và dừng. Reviewer không nhận write lock ở bất kỳ thời điểm nào.
 
 ## 7. Review và quyền merge
 
 Luồng mặc định sau execution:
 
 1. `ACTIVE_EXECUTOR` hoàn tất implementation/correction và mandatory checks.
-2. `ACTIVE_EXECUTOR` dừng mọi thao tác ghi tại một checkpoint ổn định, công bố `READY_FOR_<REVIEWER>_REVIEW` và in đúng command Owner cần chạy (Codex: mặc định `/codex:review --base origin/develop`, trừ khi Master Execution Prompt chỉ định review base khác; Claude: Owner mở một phiên Claude read-only riêng).
+2. `ACTIVE_EXECUTOR` dừng mọi thao tác ghi tại một checkpoint ổn định, công bố `READY_FOR_<REVIEWER>_REVIEW` và in đúng command/instruction Owner cần dùng (Codex: mặc định `/codex:review --base origin/develop`, trừ khi Master Execution Prompt chỉ định review base khác; Claude: Owner mở một phiên Claude read-only riêng).
 3. Owner gọi reviewer đã chỉ định. Đây là invocation duy nhất cho lượt review này; `ACTIVE_EXECUTOR` không tự chạy command này.
 4. Reviewer thực hiện review read-only trên đúng diff/target được yêu cầu và trả findings; không được sửa code.
 5. Owner chuyển kết quả review về cho `ACTIVE_EXECUTOR`; `ACTIVE_EXECUTOR` chèn nguyên trạng review result, review base và trạng thái `RUN`/`NOT RUN` vào completion report rồi gửi Owner và dừng.
@@ -182,7 +182,7 @@ Luồng mặc định sau execution:
 9. Khi pass, OC trả recommendation cho Owner.
 10. Owner quyết định Ready/merge/delete branch và có mở task tiếp theo hay không.
 
-Review là mandatory gate mặc định. Chỉ Owner được invoke reviewer; `ACTIVE_EXECUTOR` không tự gọi command này. Nếu Owner không thể invoke được review (command không khả dụng, treo hoặc không tạo được kết quả đáng tin cậy), `ACTIVE_EXECUTOR` ghi `REVIEW: NOT RUN` kèm evidence khi được Owner thông báo, và trả `BLOCKED`; không tự thay bằng rescue, transfer hay self-review.
+Review là mandatory gate mặc định. Chỉ Owner được invoke reviewer; `ACTIVE_EXECUTOR` không tự gọi command này. Nếu Owner không thể invoke được review (review mechanism không khả dụng, treo hoặc không tạo được kết quả đáng tin cậy), `ACTIVE_EXECUTOR` ghi `REVIEW: NOT RUN` kèm evidence khi được Owner thông báo, và trả `BLOCKED`; không tự thay bằng rescue, transfer hay self-review.
 
 Chỉ escalation lên Control Tower khi vấn đề chạm business scope, kiến trúc, dependency cấp dự án hoặc vượt quyền OC.
 
