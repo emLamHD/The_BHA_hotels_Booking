@@ -6,25 +6,19 @@
 
 Lần cập nhật này ghi nhận `PMS-BE-001.2-DOCS-CLOSEOUT` đã đóng sau khi PR
 #38 (`docs(project): close PMS-BE-001.2 and record calendar handoff`) merge
-vào `develop`, và mở work item quản trị `AI-OPS-GOV-003` — đề xuất thay
-phân công cố định Claude-implement/Codex-review bằng một mô hình
-prompt-selected role pair (`IMPLEMENTER: CLAUDE`/`REVIEWER:
+vào `develop`, và mở work item quản trị `AI-OPS-GOV-003` — thay phân công
+cố định Claude-implement/Codex-review bằng một trong hai role pair có thể
+chọn trong Master Execution Prompt (`IMPLEMENTER: CLAUDE`/`REVIEWER:
 CODEX_READ_ONLY`, hoặc `IMPLEMENTER: CODEX`/`REVIEWER: CLAUDE_READ_ONLY` —
 `docs/governance/RULES.md` §2.4), vẫn giữ nguyên one-writer, independent
-review, OC authority và Owner-only merge. Mô hình mới này là
-`PROPOSED/PENDING_MERGE` — **chưa active** cho bất kỳ work item nào. Bản
-thân `AI-OPS-GOV-003` vẫn thực thi dưới bootstrap pair cố định
-`IMPLEMENTER: CLAUDE` / `REVIEWER: CODEX_READ_ONLY` trong suốt vòng đời
-work item này, kể cả qua mọi correction — việc work item này sửa các file
-governance không hồi tố đổi role pair của chính nó (§2 "Quyết định đang
-hiệu lực"). Control Tower đã chọn `PMS-CAL-001.1` — Reservation Board Read
-Projection & Frontend Integration — là product work item kế tiếp, nhưng
-vẫn chỉ được authorize cho OC planning, **chưa** cho implementation (§2,
-§8) — trạng thái này không đổi bởi `AI-OPS-GOV-003`. Repository SHA và PR
-state bên dưới là baseline đã được xác minh trực tiếp qua `git`/`gh pr
-view` tại thời điểm cập nhật tài liệu này, không phải cam kết rằng SHA này
-sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
-`origin/develop` trước khi tạo feature branch mới.
+review, OC authority và Owner-only merge. Control Tower đã chọn
+`PMS-CAL-001.1` — Reservation Board Read Projection & Frontend Integration
+— là product work item kế tiếp, nhưng vẫn chỉ được authorize cho OC
+planning, **chưa** cho implementation (§2, §8). Repository SHA và PR state
+bên dưới là baseline đã được xác minh trực tiếp qua `git`/`gh pr view` tại
+thời điểm cập nhật tài liệu này, không phải cam kết rằng SHA này sẽ còn là
+`develop` HEAD sau các commit tiếp theo; revalidate lại `origin/develop`
+trước khi tạo feature branch mới.
 
 ## 1. Repository state
 
@@ -41,7 +35,7 @@ sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
 | PR #36 | merged — `docs(project): close PMS-BE-001.1 and restore single-checkout workflow`, feature branch `docs/pms-be-001-1-closeout-single-checkout` (head `c8938c731dd5647868a07f0c3654d919e5d60e9a`), merge commit `298b7fd53c47824550e955b98c2bed370b38a646`, merged `2026-08-24T19:17:44Z`. Closes `PMS-BE-001.1-DOCS-CLOSEOUT`. |
 | PR #37 | merged — `feat(pms): add physical room schedule and availability authority`, feature branch `feature/pms-be-001-2-physical-room-schedule-availability` (head `4b2de0ab50fa1703f0b125a043d2461cc0309417`), merge commit `0a818f7a8ebb8ee72f45605e5a0ce37fed2a5442`, merged `2026-08-26T10:33:13Z`. Closes `PMS-BE-001.2`. GitHub Actions (Backend/Frontend/Admin) confirmed `success` on this head (run `32957454881`). Remote feature branch confirmed deleted (`git ls-remote --heads origin feature/pms-be-001-2-physical-room-schedule-availability` empty). |
 | PR #38 | merged — `docs(project): close PMS-BE-001.2 and record calendar handoff`, feature branch `docs/pms-be-001-2-closeout` (head `9b627fb29ce4b5b955e6e5640a465aa03953304f`), merge commit `f0eef23c59608d2aba1e43063c38074ea863edef`, merged `2026-08-26T12:01:07Z`. Closes `PMS-BE-001.2-DOCS-CLOSEOUT`. |
-| PR/branch của work item hiện tại | `AI-OPS-GOV-003` (docs/governance-only) — feature branch `docs/ai-ops-gov-003-prompt-selected-role-pairs`, checked out directly in the one repository checkout (no `git worktree add`), baseline `f0eef23c59608d2aba1e43063c38074ea863edef`. Bootstrap role pair for this work item itself is fixed `IMPLEMENTER: CLAUDE` / `REVIEWER: CODEX_READ_ONLY` for its entire lifetime, including any correction. Claude stops writes at a stable checkpoint and reports `READY_FOR_CODEX_REVIEW`; Draft PR opened by Claude — not Ready or merged. Ready/merge/branch cleanup remain Owner-only. |
+| PR/branch của work item hiện tại | `AI-OPS-GOV-003` (docs/governance-only) — feature branch `docs/ai-ops-gov-003-prompt-selected-role-pairs`, checked out directly in the one repository checkout (no `git worktree add`), baseline `f0eef23c59608d2aba1e43063c38074ea863edef`. Claude stops writes at a stable checkpoint and reports `READY_FOR_CODEX_REVIEW`; Draft PR opened by Claude — not Ready or merged. Ready/merge/branch cleanup remain Owner-only. |
 | Open execution PR khác | không có, theo `gh pr list --state open` tại thời điểm preflight của `AI-OPS-GOV-003` (ngoài PR của work item hiện tại ở trên, nếu đã được mở). |
 
 ## 2. Work item state
@@ -128,10 +122,8 @@ sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
   and Owner-only merge. Edits exactly five files: `AGENTS.md`, `CLAUDE.md`,
   `docs/governance/RULES.md`, `docs/governance/WORKFLOW.md`,
   `docs/project/SNAPSHOT.md` (this file). Claude implementing under this
-  work item's own Master Execution Prompt, bootstrap pair fixed
-  `IMPLEMENTER: CLAUDE` / `REVIEWER: CODEX_READ_ONLY` for its entire
-  lifetime; see the "PR/branch của work item hiện tại" row in §1. Not yet
-  reviewed or merged.
+  work item's own Master Execution Prompt; see the "PR/branch của work item
+  hiện tại" row in §1. Not yet reviewed or merged.
 
 ### Quyết định đang hiệu lực
 
@@ -153,27 +145,6 @@ sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
   (`docs/governance/RULES.md` §5); `git worktree add` và mọi checkout thực
   thi bổ sung đều bị cấm, không có ngoại lệ.
 - Chỉ Owner quyết định Ready/merge/branch cleanup cho closeout này.
-
-`AI_OPS_GOV_003_PROMPT_SELECTED_ROLES_PROPOSED_PENDING_MERGE`
-
-Ý nghĩa:
-
-- `AI-OPS-GOV-003` đề xuất thay phân công cố định Claude-implement/Codex-
-  review bằng mô hình prompt-selected role pair (`RULES.md` §2.4), giữ
-  nguyên one-writer, independent review, OC authority và Owner-only merge.
-- Mô hình mới này là `PROPOSED/PENDING_MERGE` — **chưa active** cho bất kỳ
-  work item nào cho đến khi Owner merge PR của `AI-OPS-GOV-003` vào
-  `develop`. Cho đến lúc đó, phân công cố định Claude-implement/Codex-
-  review hiện có vẫn là binding governance cho mọi work item khác đang
-  chạy trên `develop`.
-- Bản thân `AI-OPS-GOV-003` thực thi dưới bootstrap pair cố định
-  `IMPLEMENTER: CLAUDE` / `REVIEWER: CODEX_READ_ONLY` trong suốt vòng đời
-  work item này, kể cả qua mọi correction — việc work item này sửa các file
-  governance không hồi tố đổi role pair của chính nó (`RULES.md` §3.1).
-- Không coi việc soạn thảo mô hình mới là authorization ngầm để bất kỳ work
-  item nào chọn `IMPLEMENTER: CODEX` hay `REVIEWER: CLAUDE_READ_ONLY` trước
-  khi PR này merge.
-- Chỉ Owner quyết định Ready/merge/branch cleanup cho `AI-OPS-GOV-003`.
 
 ### Tạm hoãn / locked
 
@@ -386,8 +357,9 @@ evidence independently verified for this closeout via:
 - Owner Hồ Đình Lâm: quyết định cuối, Ready/merge, branch cleanup và mở task
   tiếp theo. Control Tower: objective/execution order cấp cao và
   escalation. OC: phân rã work item/checkpoint, viết Master Execution
-  Prompt, review report/diff/PR. Claude Code: implementer duy nhất có
-  quyền ghi code/working tree. Codex: reviewer read-only.
+  Prompt, review report/diff/PR. Implementer được Master Execution Prompt
+  chọn (Claude hoặc Codex): duy nhất có quyền ghi code/working tree.
+  Reviewer ghép cặp: read-only (`docs/governance/RULES.md` §2.4).
 - Operating invariant: `Claude writes. Codex reviews. OC decides. Owner
   merges.` — đã chứng minh hoạt động xuyên suốt `AI-OPS-PILOT-001`,
   `FE-002.1`, `ADMIN-001.1`, `PMS-DATA-DOCS-001`, `ADMIN-002.1`,
@@ -410,11 +382,6 @@ evidence independently verified for this closeout via:
   định). Không dùng rescue, transfer, Codex write mode, automatic review
   gate, parallel agent hoặc nested implementation orchestration — mô hình
   single-primary-checkout không thay đổi bất biến này.
-- `AI-OPS-GOV-003` (§2, §8) đề xuất thay mô hình cố định Claude-implement/
-  Codex-review ở trên bằng một mô hình prompt-selected role pair
-  (`docs/governance/RULES.md` §2.4). Đề xuất này **chưa active** — mô hình
-  cố định mô tả ở mục này vẫn là operating model đang binding cho đến khi
-  Owner merge PR của `AI-OPS-GOV-003` vào `develop`.
 
 ## 7. Tooling migration state
 
@@ -452,27 +419,19 @@ authority và Owner-only merge:
    checkpoint ổn định, và công bố `READY_FOR_CODEX_REVIEW`.
 2. Owner xem completion report, mở Draft PR (nếu Claude chưa mở) và invoke
    đúng một lượt `/codex:review --base origin/develop`.
-3. Owner chuyển trực tiếp cho OC cả completion report đã có sẵn (giữ
-   nguyên, không sửa) lẫn kết quả Codex verbatim. Claude vẫn ở trạng thái
-   dừng ghi sau handoff — không được reactivate chỉ để chèn kết quả Codex
-   vào report hay thực hiện bất kỳ repository mutation nào khác
-   (`AGENTS.md` §13).
+3. Owner chuyển report và kết quả Codex cho OC.
 4. Nếu OC yêu cầu correction, OC phát hành một correction prompt mới cho
-   đúng Claude (implementer ban đầu, không đổi — `RULES.md` §3.1) và Owner
-   activate Claude trước khi Claude ghi thêm bất kỳ điều gì.
+   Claude và Owner activate Claude trước khi Claude ghi thêm bất kỳ điều
+   gì.
 5. OC đánh giá report hiện có cùng với kết quả Codex và kết luận
    `PASS`/`CORRECTION_REQUIRED`/`BLOCKED`.
 6. Chỉ Owner quyết định Ready/merge/branch cleanup cho `AI-OPS-GOV-003`.
-7. Sau khi PR của `AI-OPS-GOV-003` merge, mô hình prompt-selected role pair
-   trở thành active cho Master Execution Prompt mới soạn từ `develop`; OC
-   soạn Master Execution Prompt riêng cho `PMS-CAL-001.1`
-   planning/decomposition, dùng `origin/develop` baseline mới và chọn role
-   pair theo mô hình mới đó.
+7. Sau khi merge, OC soạn Master Execution Prompt riêng cho `PMS-CAL-001.1`
+   planning/decomposition, dùng `origin/develop` baseline mới.
 
 Không tự động mở `DATA-001.2`, không tự động bắt đầu implementation cho
-`PMS-CAL-001.1`, không tự động kích hoạt mô hình prompt-selected role pair
-cho bất kỳ work item nào trước khi PR của `AI-OPS-GOV-003` merge, và không
-tự động mở bất kỳ product/backend work item nào khác từ Snapshot này.
+`PMS-CAL-001.1`, và không tự động mở bất kỳ product/backend work item nào
+khác từ Snapshot này.
 
 ## 9. Main risks
 
@@ -490,16 +449,8 @@ tự động mở bất kỳ product/backend work item nào khác từ Snapshot 
 - Nhầm foundation normalized Item/Unit (`PMS-BE-001.1`, single-RoomType
   public request) với multi-RoomType public request TARGET đã implement —
   vẫn chưa implement.
-- Coi `AI-OPS-GOV-003` (docs-only, chưa merge) là tương đương đã merge,
-  hoặc coi mô hình prompt-selected role pair là active trước khi Owner xác
-  nhận merge SHA của chính PR này — không đúng.
-- Coi việc `AI-OPS-GOV-003` sửa các file governance là hồi tố cấp quyền
-  `IMPLEMENTER: CODEX` hay `REVIEWER: CLAUDE_READ_ONLY` cho chính work item
-  này, hoặc cho bất kỳ work item nào khác trước khi PR merge — không đúng;
-  bootstrap pair của `AI-OPS-GOV-003` vẫn cố định `CLAUDE`/
-  `CODEX_READ_ONLY` (`RULES.md` §3.1).
-- Coi một correction của `AI-OPS-GOV-003` là cơ hội đổi implementer sang
-  Codex — luôn bị cấm; correction luôn quay lại đúng Claude.
+- Coi `AI-OPS-GOV-003` (docs-only, chưa merge) là tương đương đã merge —
+  không đúng cho đến khi Owner xác nhận merge SHA của chính work item này.
 - Tạo `git worktree add` hoặc bất kỳ checkout thực thi bổ sung nào — luôn
   bị cấm, không có ngoại lệ (`docs/governance/RULES.md` §5).
 - Codex được cấp nhầm write mode hoặc dùng rescue/transfer.
@@ -511,7 +462,6 @@ tự động mở bất kỳ product/backend work item nào khác từ Snapshot 
 Owner xem completion report của `AI-OPS-GOV-003`, xác nhận Draft PR (nếu đã
 mở bởi Claude) và invoke `/codex:review --base origin/develop` đúng một
 lượt cho work item đó — đó là first action theo Master Execution Prompt
-hiện tại. Sau khi Owner xác nhận merge SHA và checkout sạch, mô hình
-prompt-selected role pair trở thành active cho Master Execution Prompt
-mới; OC soạn Master Execution Prompt riêng cho `PMS-CAL-001.1` planning,
-dùng baseline `origin/develop` mới và chọn role pair theo mô hình mới đó.
+hiện tại. Sau khi Owner xác nhận merge SHA và checkout sạch, OC soạn Master
+Execution Prompt riêng cho `PMS-CAL-001.1` planning, dùng baseline
+`origin/develop` mới.
