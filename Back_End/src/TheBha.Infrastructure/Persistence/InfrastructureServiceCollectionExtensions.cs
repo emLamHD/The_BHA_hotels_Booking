@@ -59,6 +59,8 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddSingleton<IGuestAccessTokenGenerator, CryptographicGuestAccessTokenGenerator>();
         services.AddScoped<IAssignmentMutationStore, AssignmentMutationStore>();
         services.AddScoped<IOperationalBlockMutationStore, OperationalBlockMutationStore>();
+        services.AddScoped<IReservationBoardDataSource, ReservationBoardDataLoader>();
+        services.AddScoped<IReservationBoardQuery, ReservationBoardQuery>();
         services.AddScoped<DevelopmentDataSeeder>();
 
         services

@@ -622,6 +622,7 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
         Assert.Equal(
             new[]
             {
+                "/api/admin/v1/properties/{propertyId}/reservation-board",
                 "/api/v1/booking-holds/{holdId}",
                 "/api/v1/booking-holds/{holdId}/cancel",
                 "/api/v1/booking-holds/{holdId}/confirm",
@@ -629,6 +630,10 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
                 "/api/v1/reservations/{reservationId}/cancel"
             }.Order(),
             reservationRelatedPaths);
+        Assert.True(paths.GetProperty("/api/admin/v1/properties/{propertyId}/reservation-board")
+            .TryGetProperty("get", out _));
+        Assert.False(paths.GetProperty("/api/admin/v1/properties/{propertyId}/reservation-board")
+            .TryGetProperty("post", out _));
         Assert.True(paths.GetProperty("/api/v1/booking-holds/{holdId}")
             .TryGetProperty("get", out _));
         Assert.True(paths.GetProperty("/api/v1/booking-holds/{holdId}/cancel")

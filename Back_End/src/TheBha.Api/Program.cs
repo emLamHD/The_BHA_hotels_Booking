@@ -8,6 +8,7 @@ using Microsoft.OpenApi.Models;
 using System.Security.Claims;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
+using TheBha.Api;
 using TheBha.Api.Authentication;
 using TheBha.Api.Bookings;
 using TheBha.Application.Customers;
@@ -45,6 +46,28 @@ if (cors.AllowedOrigins.Any(origin =>
     throw new InvalidOperationException(
         "Cors:AllowedOrigins must contain explicit origins and cannot contain wildcards.");
 }
+
+if (cors.AdminOrigins.Any(origin =>
+        string.IsNullOrWhiteSpace(origin) ||
+        origin.Contains('*', StringComparison.Ordinal) ||
+        !origin.StartsWith("https://", StringComparison.Ordinal)))
+{
+    throw new InvalidOperationException(
+        "Cors:AdminOrigins must contain explicit HTTPS origins and cannot contain wildcards.");
+}
+
+var adminCalendarOptions = builder.Configuration
+    .GetSection(AdminCalendarOptions.SectionName)
+    .Get<AdminCalendarOptions>() ?? new AdminCalendarOptions();
+if (builder.Environment.IsProduction() && adminCalendarOptions.EnableUnauthenticatedRead)
+{
+    throw new InvalidOperationException(
+        "AdminCalendar:EnableUnauthenticatedRead must never be true in Production — the " +
+        "Admin Reservation Board read endpoint has no authentication/RBAC yet (PMS-CAL-001.1).");
+}
+
+builder.Services.Configure<AdminCalendarOptions>(
+    builder.Configuration.GetSection(AdminCalendarOptions.SectionName));
 
 var dataProtectionKeysPath = builder.Configuration["DataProtection:KeysPath"];
 if (builder.Environment.IsProduction() && string.IsNullOrWhiteSpace(dataProtectionKeysPath))
@@ -149,6 +172,7 @@ builder.Services.AddAntiforgery(options =>
     options.Cookie.Path = "/";
 });
 builder.Services.AddCors(options =>
+{
     options.AddPolicy("customer-web", policy =>
     {
         if (cors.AllowedOrigins.Length > 0)
@@ -158,7 +182,20 @@ builder.Services.AddCors(options =>
                 .AllowAnyMethod()
                 .AllowCredentials();
         }
-    }));
+    });
+    // PMS-CAL-001.1: separate, uncredentialed policy for the unauthenticated
+    // Admin Reservation Board read endpoint — never merged with the
+    // customer-web policy's credentialed-cookie access.
+    options.AddPolicy("admin-calendar", policy =>
+    {
+        if (cors.AdminOrigins.Length > 0)
+        {
+            policy.WithOrigins(cors.AdminOrigins)
+                .AllowAnyHeader()
+                .WithMethods("GET");
+        }
+    });
+});
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -205,6 +242,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseExceptionHandler();
+app.UseHttpsRedirection();
 app.UseCors("customer-web");
 app.UseRateLimiter();
 app.UseAuthentication();
