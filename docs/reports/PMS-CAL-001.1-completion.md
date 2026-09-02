@@ -14,7 +14,9 @@ Commits on this branch:
 3. `c59c9e2` — `feat(admin): connect the Reservation Board to the live Admin API` (Phase 2, frontend).
 4. `2a99176` — `docs(pms-cal-001.1): record completion report, worklog, and doc updates`.
 5. `b4cef33` — `fix(pms-cal-001.1): correction C1 — restore credentialed customer CORS, remove dead inactive filter` (see §10).
-6. `4dc07a2` — `docs(pms-cal-001.1): record Correction Cycle C1 evidence` (this documentation commit).
+6. `4dc07a2` — `docs(pms-cal-001.1): record Correction Cycle C1 evidence`.
+7. `ec21b0f` — `docs(pms-cal-001.1): fix stale HEAD/CI references after C1 docs push` — see §10's process-deviation note: this commit's *content* is a factually accurate, docs-only fix, but it was produced and pushed by an unauthorized nested-agent action and is retained per explicit Control Tower disposition, not evidence of routine practice.
+8. `8dd4963` — `fix(pms-cal-001.1): correction C2 — keep no-active-room unassigned stays visible, gate the board before model binding` (see §11).
 
 ## 1. What was delivered
 
@@ -453,3 +455,178 @@ the still-intentionally-present `ReservationTimeline.tsx`) are untouched.
 - `ACTIVE_EXECUTOR` (Claude) stopped all writes at this checkpoint. Codex
   has not been re-invoked by Claude; only Owner may invoke
   `/codex:review --base origin/develop` again.
+
+## 11. Correction Cycle C2
+
+Owner invoked `/codex:review --base origin/develop` again against PR #41,
+this time at HEAD `ec21b0faf7115bc9d8684b1771c61399613c5747`. Codex
+returned two new findings, relayed verbatim to Owner, then routed back as
+an OC correction prompt (`PMS-CAL-001.1-C2`) with an explicit governance
+disposition for `ec21b0f` (see below) and an unconditional restriction
+that this cycle use no subagents, nested agents, or concurrent writers.
+
+### Process-deviation disposition (carried forward from C1)
+
+Commit `ec21b0f` was produced and pushed by an unauthorized nested-agent
+action during Correction Cycle C1 — a genuine violation of the
+single-executor write lock, disclosed to Owner at the time. Control Tower
+independently verified that commit's content (docs-only, factually
+accurate, zero code/test/migration/config change, CI-green) and
+explicitly directed that it be retained as the C2 correction baseline
+rather than reverted or rewritten, since erasing it would not undo the
+process violation and rewriting shared history carries its own risk. Its
+retention is not precedent for nested-agent work: Correction Cycle C2 was
+performed entirely by the single `ACTIVE_EXECUTOR` in the primary
+checkout, with no subagent, background task, or concurrent writer
+touching the repository at any point — confirmed by preflight (`git
+worktree list --porcelain` showed only unrelated, pre-existing Orca
+dry-run worktrees on different branches) and reconfirmed at this
+checkpoint.
+
+### Finding 1 (P2) — root cause and fix
+
+**Root cause:** `ReservationBoardServerTimeline.tsx`'s row construction
+filtered the rendered RoomType set down to `roomTypes.filter(roomType =>
+activeRoomTypeIds.has(roomType.id))` — types with at least one active
+PhysicalRoom. A committed stay sold under a RoomType with zero active
+PhysicalRooms (never configured, or since deactivated) therefore got no
+group header and no unassigned-lane row. The later
+`rowIndexByUnassignedRoomType.get(stay.soldRoomTypeId)` lookup returned
+`undefined`, and the unassigned-bar renderer silently returned `null` —
+the backend's authoritative `unassignedRanges` for that stay had nowhere
+to render and vanished from the board with no error.
+
+**Fix:** the rendered RoomType set is now the union of (a) RoomTypes with
+an active PhysicalRoom and (b) — only when the Unassigned filter is on —
+RoomTypes referenced as `soldRoomTypeId` by a stay with at least one
+`unassignedRange`. No PhysicalRoom is fabricated (only a group header +
+unassigned lane appear, never a room row), no stay is attached to an
+unrelated room, the backend contract is unchanged, and RoomTypes
+referenced by neither an active room nor a visible unassigned stay are
+still omitted (no stray empty groups).
+
+**New regression tests** in `ReservationBoardServerTimeline.test.tsx`
+(`describe("unassigned stays whose sold RoomType has no active
+PhysicalRoom")`) prove: a fully unassigned stay stays visible on the
+correct sold-RoomType lane/dates; a stay sold under an *inactive*
+(deactivated) RoomType is still displayed; a partially assigned stay
+renders both its actual-PhysicalRoom assignment bar and its sold-type
+unassigned-range bar together under this condition; and the Unassigned
+filter still hides/restores these rows. Confirmed red-before (all 4 new
+tests failed against the pre-fix code, for exactly the row-lookup reason
+above, via a temporary `git stash` of the fix) and green-after.
+
+### Finding 2 (P2) — root cause and fix
+
+**Root cause:** `AdminReservationBoardController.GetBoard` checked
+`AdminCalendarOptions.EnableUnauthenticatedRead` as the first statement
+inside the action body. With `[ApiController]`, automatic model
+binding/validation for the required `[BindRequired] DateOnly from/to`
+parameters runs *before* the action executes. With the gate disabled: a
+request with valid `from`/`to` reached the action and returned the
+intended 404; a request with missing or malformed `from`/`to` failed
+automatic validation first and returned 400 — never reaching the gate
+check at all. The "unavailable" endpoint was therefore distinguishable
+from a genuinely absent route purely by which status code a given query
+produced.
+
+**Fix:** a new `AdminReservationBoardReadGateFilter`
+(`IResourceFilter`, `Back_End/src/TheBha.Api/Controllers/`) reads
+`IOptions<AdminCalendarOptions>` and, when the gate is disabled,
+short-circuits with a plain `NotFoundResult` in `OnResourceExecuting` —
+which runs before model binding, so it applies uniformly regardless of
+query validity. Registered in DI (`AddScoped`) and applied only to
+`AdminReservationBoardController` via `[ServiceFilter(typeof(...))]` —
+never globally — so no other route is affected. The now-redundant
+in-action check and its `IOptions<AdminCalendarOptions>` constructor
+dependency were removed from the controller.
+
+**New regression test**
+(`Endpoint_returns_an_identically_shaped_404_when_the_gate_is_disabled_regardless_of_query_validity`)
+proves all 9 required cases (valid; missing `from`; missing `to`; missing
+both; malformed `from`; malformed `to`; equal dates; reversed dates;
+over-31-nights) return the same 404 status, with the same `type`/`title`/
+`status` body fields as the valid case, and none containing an `errors`
+key that would leak which parameter failed. A second new test
+(`Disabling_the_gate_does_not_affect_an_unrelated_route`) proves
+`GET /api/v1/properties` is unaffected by the gate. Confirmed
+red-before (`missing-from` returned `BadRequest` instead of `NotFound`
+against the pre-fix code, via the same stash technique) and green-after.
+
+Note: even the pre-fix "valid" case's 404 was already wrapped in an
+RFC 9110 ProblemDetails body by `[ApiController]`'s automatic
+`IClientErrorActionResult` conversion — that wrapping is unavoidable,
+unrelated framework behavior applying uniformly to any bare status-code
+result from an `[ApiController]` action, not something introduced by
+this fix or the original defect. The actual defect, and the actual fix,
+is that every case now produces the *same* status/shape; the tests assert
+that equivalence rather than an unconditionally empty body.
+
+### Fresh validation evidence (all rerun from corrected HEAD, not reused)
+
+- Static: `git diff --check` clean; changed files
+  (`AdminReservationBoardController.cs`,
+  `AdminReservationBoardReadGateFilter.cs` (new), `Program.cs`,
+  `AdminReservationBoardApiTests.cs`,
+  `ReservationBoardServerTimeline.tsx`,
+  `ReservationBoardServerTimeline.test.tsx`) all within the C2 allowlist;
+  migration count unchanged at 8; zero diff in the Migrations directory
+  vs. `origin/develop`; `dotnet ef migrations has-pending-model-changes`
+  → "No changes have been made to the model since the last migration."
+- Backend: `dotnet build` 0 warnings/0 errors; full suite —
+  **244/244** unit + **350/350** integration (was 349, +1 net: one test
+  replaced by a single, more thorough 9-case test plus one new
+  unrelated-route test), against real PostgreSQL.
+- Admin Web: `npm run lint` clean; full `npm test` — **52/52** (was 48,
+  +4); `npm run build` succeeds; the static
+  `reservation-board-integration.static.test.ts` (no server-backed mock
+  fallback) still passes.
+- Customer Web (full gate, per policy): `npm run lint` clean; `npm test`
+  — **298/298** (unchanged — C2 touches no Customer-facing file);
+  `npm run build` succeeds.
+- Real browser acceptance: a fresh disposable PostgreSQL database
+  (`thebha_pmscal001_c2_e2e`, migrated, seeded via `--seed-development`
+  plus a throwaway, uncommitted, deleted-after-use EF fixture adding one
+  new "Penthouse" RoomType with **zero** PhysicalRooms) fed a real HTTPS
+  backend (`:7145`, the same Phase-3 `mkcert` certificate) and Admin Web
+  (`npm run dev:https`, `:3001`). In real Chrome:
+  1. The Reservation Board rendered a "Penthouse" group with its
+     unassigned lane, showing a fully unassigned stay ("Tran Thi B") and
+     a partially assigned stay ("Pham Thi D") with *both* its
+     actual-room assignment bar (on room 101, cross-RoomType) and its
+     sold-type unassigned bar — exactly the previously-dropped case.
+  2. An ordinary assigned stay ("Nguyen Van A") and an operational block
+     ("Maintenance — HVAC service") rendered normally, proving those
+     filters are unaffected.
+  3. Toggling the Unassigned filter off hid the entire Penthouse group
+     and both unassigned bars (while leaving Pham Thi D's assignment bar
+     visible); toggling it back on restored them exactly — a live
+     screenshot pair confirms this.
+  4. Zero browser console errors throughout.
+  5. The backend was then restarted with
+     `AdminCalendar:EnableUnauthenticatedRead=false`; a real
+     `fetch(..., {credentials:"omit"})` issued from the Admin page's own
+     JS context against `https://localhost:7145` for valid, missing, and
+     malformed `from`/`to` all returned status 404 with byte-identical
+     `type`/`title`/`status` JSON bodies (only the `traceId` differed) —
+     proving the fix live over HTTPS, not just in the integration tests.
+  6. `psql` against the disposable database after the full session
+     confirmed row counts exactly matched the seed (3 Reservations, 3
+     RoomOccupancySegments, 1 RoomBlock) — the interactive session
+     mutated nothing.
+  Disposable database dropped afterward; `thebha_dev` untouched
+  throughout this cycle.
+
+### Final corrected state
+
+- Code/test correction commit: `8dd496317d46287ff511c5525ed861810d2a793c`
+  — GitHub Actions on that exact SHA (run `33628900729`): Admin `pass`
+  (43s), Frontend `pass` (1m40s), Backend `pass` (2m20s) — all three
+  green.
+- This documentation commit is docs-only, on top of `8dd4963`. PR #41
+  HEAD after push and the exact GitHub Actions result for that HEAD are
+  recorded in the terminal handoff for this cycle (not duplicated here,
+  per the C2 correction prompt's commit-discipline instruction).
+- `ACTIVE_EXECUTOR` (Claude) stopped all writes at this checkpoint. Codex
+  has not been invoked by Claude at any point in this cycle; only Owner
+  may invoke `/codex:review --base origin/develop` again.
