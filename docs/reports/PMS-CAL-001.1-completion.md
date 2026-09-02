@@ -1298,3 +1298,170 @@ returning 200) and a fresh navigation loaded normally.
   not invoked by Claude at any point. No subagent, nested agent, background
   writer or concurrent writer was used in Correction Cycle C6, and neither
   pre-existing Orca dry-run worktree was touched.
+
+## 16. Correction Cycle C7
+
+Owner invoked `/codex:review --base origin/develop` a seventh time against
+PR #41, at HEAD `e7aef0fbfb41309d4f9b2b80775d4388b0fb8f97`. Codex returned one
+[P2] finding, against `Back_End/src/TheBha.Api/Program.cs:276`.
+
+### Root cause
+
+**Codex's finding:** `app.UseHttpsRedirection()` does not by itself guarantee
+that cleartext is refused. The middleware needs a discoverable HTTPS port; when
+the API is started on the repository's existing `http` launch profile — or on
+any HTTP-only Kestrel configuration — it finds none, logs a warning and
+**passes the request through**. It fails open, not closed.
+
+That matters here specifically because the same environment that has no HTTPS
+listener, Development, is also the only environment in which the
+unauthenticated Reservation Board read is enabled (correction C5). The two
+conditions coincide, so a direct HTTP client could read guest display names,
+confirmation numbers and stay dates in the clear. CORS does not help: it
+constrains browsers only, never `curl`, a script or a server-to-server caller.
+
+Confirmed before changing anything, on a real host started with
+`dotnet run --launch-profile http`:
+
+```
+Now listening on: http://localhost:5145
+Hosting environment: Development
+https listener lines: 0
+```
+
+and a plain `http://` board request returning `200 OK` with the full board
+payload — guest names included.
+
+### The fix
+
+Enforced in `AdminReservationBoardReadGateFilter`, the controller-scoped
+resource filter that C2 already established as the gate boundary because it
+runs **before** model binding and `[ApiController]`'s automatic validation. The
+condition is now transport-first:
+
+```csharp
+if (!context.HttpContext.Request.IsHttps ||
+    !hostEnvironment.IsDevelopment() ||
+    !adminCalendarOptions.Value.EnableUnauthenticatedRead)
+{
+    context.Result = new NotFoundResult();
+}
+```
+
+Ordering is deliberate, and each position is load-bearing:
+
+- `||` short-circuits, so **cleartext is refused without consulting anything
+  else** — no configuration, no options materialization, no query.
+- The C5 property is preserved unchanged: outside Development the reloadable
+  `IOptions` value is still never materialized, so nothing it could later bind
+  can open the endpoint.
+- `Request.IsHttps` is the **server's own view of the connection**, not a
+  client-supplied claim. A spoofed `Origin` or a hand-written
+  `X-Forwarded-Proto: https` cannot satisfy it. C7 deliberately adds **no**
+  Forwarded Headers handling — introducing one would convert a request header
+  into a trust decision, which is exactly the weakness being closed.
+- Blocked requests reuse the existing indistinguishable `404` +
+  `Cache-Control: no-store`. The filter issues no redirect (which would
+  advertise the endpoint's existence and its HTTPS address) and introduces no
+  new error shape.
+
+Both middleware paths are now safe. With a discoverable HTTPS endpoint the
+HTTP request is redirected before MVC is reached (verified: `307`). With no
+HTTPS port at all the filter returns `404` before model binding or query
+execution. `Program.cs`, launch profiles, ports, CORS, cookies, antiforgery
+and Forwarded Headers are untouched.
+
+### Tests
+
+`Back_End/tests/TheBha.IntegrationTests/AdminReservationBoardApiTests.cs`:
+
+- Every board test in the file now issues **HTTPS explicitly**, through one
+  local `CreateHttpsClient` helper (TestServer derives `Request.IsHttps` from
+  the request URI). `AllowAutoRedirect = false` throughout, so a redirect can
+  never be mistaken for a result. Unrelated Customer-route test files were
+  deliberately left alone. 29 call sites converted; zero plain `CreateClient()`
+  remain in this file.
+- `Cleartext_http_requests_are_uniformly_unavailable_and_never_reach_the_board_query`
+  — 8 query variants (valid, missing both, missing `from`, malformed `from`,
+  equal dates, reversed dates, …) over an `http://localhost` client. Asserts
+  `404`; `no-store`; no `Origin` header echoed; no `guestDisplayName`,
+  `confirmationNumber`, `stays`, `physicalRooms`, `roomTypes`,
+  `operationalBlocks` or `"errors"` in any body; a **single** distinct
+  `(type, title, status)` shape across all 8, so the valid request is
+  indistinguishable from the malformed ones; and a recording query stand-in
+  observing **zero** invocations.
+- `Spoofed_origin_or_forwarded_proto_headers_do_not_satisfy_the_transport_gate`
+  — `Origin`, `X-Forwarded-Proto: https` and `X-Forwarded-Scheme: https` sent
+  over HTTP: still `404`, still `no-store`, still zero invocations.
+- `Https_requests_still_reach_the_board_query_and_keep_their_validation_contract`
+  — HTTPS valid → `200` with the expected stay; HTTPS malformed → `400` +
+  `no-store`. The gate hardens the transport without altering the contract.
+
+The recording stand-in is the one added in C5, which returns sentinel values
+(`LEAKED-GUEST-NAME`, `LEAKED-CONFIRMATION`) if it is ever invoked, so a
+regression surfaces as leaked data rather than only as a count.
+
+**Red before / green after.** With only the transport condition removed, the
+suite failed with `case 'valid' expected 404 over cleartext, got OK` and the
+spoofed-header test failed alongside it. With the condition restored, both
+pass and the query is never invoked. The temporary probe was fully reverted
+(0 probe lines remain).
+
+### Checks
+
+| Check | Result |
+| --- | --- |
+| `AdminReservationBoardApiTests` | `32/32` (29 + 3 new) |
+| Backend build (Release) | 0 warnings, 0 errors |
+| Backend unit tests | `244/244` |
+| Backend integration tests (real PostgreSQL) | `360/360` (+3) |
+| EF model vs migrations | "No changes have been made to the model since the last migration"; migrations still 8, zero diff |
+| Admin Web (untouched) | lint clean; `68/68`; production build succeeds |
+| Customer Web (untouched) | lint clean; `314/314`; production build succeeds |
+| `git diff --check` | clean |
+
+### Real-host acceptance
+
+**HTTP-only host** (`dotnet run --launch-profile http`; log confirmed
+`http://localhost:5145`, `Hosting environment: Development`, zero https
+listener lines): all six query variants returned `status=404`,
+`cache-control=no-store`, `data-leak=0`, 162 bytes, with
+`distinct (type,title,status) shapes: 1`. Redirects were not followed.
+Database counts unchanged (`0/0/0`).
+
+**HTTPS host** (dual listener, `https://localhost:7145`): valid → `HTTP/2 200`
++ `no-store` with the full board keys; malformed → `HTTP/2 400` + `no-store`;
+the same host's HTTP listener → `307 Temporary Redirect` with `data-leak: 0`;
+gate disabled → `HTTP/2 404` + `no-store`.
+
+**Admin Web**: `https://localhost:3001/calendar` rendered the live board with
+zero browser console errors.
+
+**Customer Web (C6 topology re-verified through the real UI)** at
+`https://localhost:3000/home-2`: availability `GET` `200`,
+`GET /api/v1/auth/csrf` `200`, `OPTIONS /api/v1/booking-holds` `204`,
+`POST /api/v1/booking-holds` **`201`**; zero console errors; all traffic to
+`https://localhost:7145` and none to `:5145`. Database afterwards:
+`holds=1, reservations=0, segments=0` — only that one intentional UI-created
+hold.
+
+The disposable end-to-end database was dropped afterwards; `thebha_dev` was
+left untouched (verified: 1 property, 7 reservations).
+
+### Final corrected state
+
+- Code/test correction commit: `8a6958f81d020ba7e1bd6bcd759c7f01f2fe6362` —
+  2 files changed, 231 insertions, 31 deletions. GitHub Actions on that exact
+  SHA: Backend `success`, Frontend `success`, Admin `success`.
+- This documentation commit is docs-only, on top of `8a6958f`; the final PR
+  HEAD and its Actions result are recorded in the terminal handoff.
+- No production file outside `AdminReservationBoardReadGateFilter.cs` was
+  modified. `Program.cs`, `launchSettings.json`, Customer Web, Admin Web, CORS
+  configuration, cookies, authentication, ports, Forwarded Headers, migrations,
+  package manifests and the CI workflow are all unchanged in C7.
+- No cookie value, CSRF token value, private key, certificate content or guest
+  contact datum appears in any C7 evidence.
+- `ACTIVE_EXECUTOR` (Claude) stopped all writes at this checkpoint. Codex was
+  not invoked by Claude at any point. No subagent, nested agent, background
+  writer or concurrent writer was used in Correction Cycle C7, and neither
+  pre-existing Orca dry-run worktree was touched.
