@@ -334,4 +334,264 @@ describe("ReservationBoardServerTimeline", () => {
       expect(screen.getByTitle("Vo Thi E — unassigned — CNF-006")).toBeInTheDocument();
     });
   });
+
+  // PMS-CAL-001.1 correction C4 — unassigned demand is not mutually exclusive.
+  // Every bar used to land on its sold RoomType's single unassigned row, so
+  // overlapping bars painted over one another and the covered stay became
+  // invisible and unclickable. They are now packed into as few lanes as the
+  // intervals allow.
+  describe("overlapping unassigned stays are packed into distinct lanes", () => {
+    const roomTypesWithNoActiveRoom: ReservationBoardRoomType[] = [
+      ...roomTypes,
+      { id: "type-penthouse", code: "PENT", name: "Penthouse", isActive: true },
+    ];
+
+    /** One fully unassigned stay; extra disjoint ranges may be appended for the same Unit. */
+    function unassignedStay(
+      id: string,
+      soldRoomTypeId: string,
+      startDate: string,
+      endDate: string,
+      extraRanges: { startDate: string; endDate: string }[] = []
+    ): ReservationBoardStay {
+      return {
+        reservationId: `res-${id}`,
+        reservationUnitId: `unit-${id}`,
+        confirmationNumber: `CNF-${id}`,
+        guestDisplayName: `Guest ${id}`,
+        soldRoomTypeId,
+        checkIn: startDate,
+        checkOut: endDate,
+        coverageStatus: "FullyUnassigned",
+        assignments: [],
+        unassignedRanges: [{ startDate, endDate }, ...extraRanges],
+      };
+    }
+
+    const barFor = (id: string) => screen.getByTitle(`Guest ${id} — unassigned — CNF-${id}`);
+    const rowOf = (id: string) => barFor(id).style.gridRow;
+
+    it("gives two overlapping stays different rows, both rendered and independently selectable", async () => {
+      const user = userEvent.setup();
+      const onSelectStay = vi.fn();
+      const first = unassignedStay("A", "type-standard", "2026-09-01", "2026-09-04");
+      const second = unassignedStay("B", "type-standard", "2026-09-02", "2026-09-05");
+
+      render(
+        <ReservationBoardServerTimeline
+          {...baseProps()}
+          stays={[first, second]}
+          onSelectStay={onSelectStay}
+        />
+      );
+
+      expect(barFor("A")).toBeInTheDocument();
+      expect(barFor("B")).toBeInTheDocument();
+      expect(rowOf("A")).not.toBe(rowOf("B"));
+      expect(screen.getByText("Unassigned 2")).toBeInTheDocument();
+
+      await user.click(barFor("A"));
+      expect(onSelectStay).toHaveBeenLastCalledWith({ stay: first, roomTypeName: "Standard" });
+      await user.click(barFor("B"));
+      expect(onSelectStay).toHaveBeenLastCalledWith({ stay: second, roomTypeName: "Standard" });
+    });
+
+    it("allocates three lanes for three mutually overlapping stays", () => {
+      render(
+        <ReservationBoardServerTimeline
+          {...baseProps()}
+          stays={[
+            unassignedStay("A", "type-standard", "2026-09-01", "2026-09-05"),
+            unassignedStay("B", "type-standard", "2026-09-02", "2026-09-06"),
+            unassignedStay("C", "type-standard", "2026-09-03", "2026-09-07"),
+          ]}
+        />
+      );
+
+      const lanes = new Set([rowOf("A"), rowOf("B"), rowOf("C")]);
+      expect(lanes.size).toBe(3);
+      expect(screen.getByText("Unassigned 2")).toBeInTheDocument();
+      expect(screen.getByText("Unassigned 3")).toBeInTheDocument();
+    });
+
+    it("reuses one lane for stays that do not overlap", () => {
+      render(
+        <ReservationBoardServerTimeline
+          {...baseProps()}
+          stays={[
+            unassignedStay("A", "type-standard", "2026-09-01", "2026-09-03"),
+            unassignedStay("B", "type-standard", "2026-09-04", "2026-09-06"),
+          ]}
+        />
+      );
+
+      expect(rowOf("A")).toBe(rowOf("B"));
+      expect(screen.queryByText("Unassigned 2")).not.toBeInTheDocument();
+    });
+
+    it("reuses one lane for half-open ranges that only touch at the boundary", () => {
+      render(
+        <ReservationBoardServerTimeline
+          {...baseProps()}
+          stays={[
+            unassignedStay("A", "type-standard", "2026-09-01", "2026-09-03"),
+            unassignedStay("B", "type-standard", "2026-09-03", "2026-09-05"),
+          ]}
+        />
+      );
+
+      expect(rowOf("A")).toBe(rowOf("B"));
+      expect(screen.queryByText("Unassigned 2")).not.toBeInTheDocument();
+    });
+
+    it("uses the minimum safe lane count for a transitive overlap chain, hiding nothing", () => {
+      // A overlaps B, B overlaps C, but A and C are disjoint — two lanes suffice.
+      render(
+        <ReservationBoardServerTimeline
+          {...baseProps()}
+          stays={[
+            unassignedStay("A", "type-standard", "2026-09-01", "2026-09-03"),
+            unassignedStay("B", "type-standard", "2026-09-02", "2026-09-05"),
+            unassignedStay("C", "type-standard", "2026-09-04", "2026-09-06"),
+          ]}
+        />
+      );
+
+      expect(rowOf("A")).toBe(rowOf("C"));
+      expect(rowOf("B")).not.toBe(rowOf("A"));
+      expect(screen.getByText("Unassigned 2")).toBeInTheDocument();
+      expect(screen.queryByText("Unassigned 3")).not.toBeInTheDocument();
+    });
+
+    it("allocates the same lanes regardless of the order the API returned the stays in", () => {
+      const a = unassignedStay("A", "type-standard", "2026-09-01", "2026-09-04");
+      const b = unassignedStay("B", "type-standard", "2026-09-02", "2026-09-05");
+      const c = unassignedStay("C", "type-standard", "2026-09-03", "2026-09-06");
+
+      const { unmount } = render(
+        <ReservationBoardServerTimeline {...baseProps()} stays={[a, b, c]} />
+      );
+      const inOrder = { a: rowOf("A"), b: rowOf("B"), c: rowOf("C") };
+      unmount();
+
+      render(<ReservationBoardServerTimeline {...baseProps()} stays={[c, a, b]} />);
+      expect({ a: rowOf("A"), b: rowOf("B"), c: rowOf("C") }).toEqual(inOrder);
+    });
+
+    it("keeps both bars of a single Unit's two disjoint unassigned ranges, sharing one lane", async () => {
+      const user = userEvent.setup();
+      const onSelectStay = vi.fn();
+      const split = unassignedStay("A", "type-standard", "2026-09-01", "2026-09-03", [
+        { startDate: "2026-09-05", endDate: "2026-09-07" },
+      ]);
+
+      render(
+        <ReservationBoardServerTimeline
+          {...baseProps()}
+          stays={[split]}
+          onSelectStay={onSelectStay}
+        />
+      );
+
+      const bars = screen.getAllByTitle("Guest A — unassigned — CNF-A");
+      expect(bars).toHaveLength(2);
+      expect(bars[0].style.gridRow).toBe(bars[1].style.gridRow);
+      expect(screen.queryByText("Unassigned 2")).not.toBeInTheDocument();
+
+      await user.click(bars[1]);
+      expect(onSelectStay).toHaveBeenCalledWith({ stay: split, roomTypeName: "Standard" });
+    });
+
+    it("packs each sold RoomType independently", () => {
+      render(
+        <ReservationBoardServerTimeline
+          {...baseProps()}
+          stays={[
+            unassignedStay("A", "type-standard", "2026-09-01", "2026-09-04"),
+            unassignedStay("B", "type-standard", "2026-09-02", "2026-09-05"),
+            unassignedStay("C", "type-deluxe", "2026-09-01", "2026-09-04"),
+            unassignedStay("D", "type-deluxe", "2026-09-02", "2026-09-05"),
+          ]}
+        />
+      );
+
+      expect(rowOf("A")).not.toBe(rowOf("B"));
+      expect(rowOf("C")).not.toBe(rowOf("D"));
+      // Each RoomType gets its own second lane, and the two groups never share rows.
+      expect(screen.getAllByText("Unassigned 2")).toHaveLength(2);
+      expect(new Set([rowOf("A"), rowOf("B"), rowOf("C"), rowOf("D")]).size).toBe(4);
+    });
+
+    it("still packs lanes for a sold RoomType that has no active PhysicalRoom", () => {
+      render(
+        <ReservationBoardServerTimeline
+          {...baseProps()}
+          roomTypes={roomTypesWithNoActiveRoom}
+          stays={[
+            unassignedStay("A", "type-penthouse", "2026-09-01", "2026-09-04"),
+            unassignedStay("B", "type-penthouse", "2026-09-02", "2026-09-05"),
+          ]}
+        />
+      );
+
+      expect(screen.getByText("Penthouse")).toBeInTheDocument();
+      expect(rowOf("A")).not.toBe(rowOf("B"));
+      expect(screen.getByText("Unassigned 2")).toBeInTheDocument();
+    });
+
+    it("removes every dynamically allocated lane when the Unassigned filter is off, leaving assigned and block rows intact", () => {
+      const assigned: ReservationBoardStay = {
+        reservationId: "res-assigned",
+        reservationUnitId: "unit-assigned",
+        confirmationNumber: "CNF-ASSIGNED",
+        guestDisplayName: "Assigned Guest",
+        soldRoomTypeId: "type-standard",
+        checkIn: "2026-09-02",
+        checkOut: "2026-09-04",
+        coverageStatus: "FullyAssigned",
+        assignments: [
+          {
+            segmentId: "seg-assigned",
+            segmentVersion: 1,
+            physicalRoomId: "room-101",
+            actualRoomTypeId: "type-standard",
+            startDate: "2026-09-02",
+            endDate: "2026-09-04",
+          },
+        ],
+        unassignedRanges: [],
+      };
+      const block: ReservationBoardOperationalBlock = {
+        roomBlockId: "block-1",
+        segmentId: "seg-block-1",
+        segmentVersion: 1,
+        physicalRoomId: "room-101",
+        startDate: "2026-09-05",
+        endDate: "2026-09-06",
+        reason: "Maintenance",
+      };
+
+      render(
+        <ReservationBoardServerTimeline
+          {...baseProps()}
+          roomTypes={roomTypesWithNoActiveRoom}
+          stays={[
+            assigned,
+            unassignedStay("A", "type-penthouse", "2026-09-01", "2026-09-04"),
+            unassignedStay("B", "type-penthouse", "2026-09-02", "2026-09-05"),
+          ]}
+          operationalBlocks={[block]}
+          showUnassigned={false}
+        />
+      );
+
+      expect(screen.queryByText("Unassigned")).not.toBeInTheDocument();
+      expect(screen.queryByText("Unassigned 2")).not.toBeInTheDocument();
+      expect(screen.queryByTitle("Guest A — unassigned — CNF-A")).not.toBeInTheDocument();
+      expect(screen.queryByTitle("Guest B — unassigned — CNF-B")).not.toBeInTheDocument();
+      expect(screen.queryByText("Penthouse")).not.toBeInTheDocument();
+      expect(screen.getByTitle("Assigned Guest — CNF-ASSIGNED")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Maintenance" })).toBeInTheDocument();
+    });
+  });
 });

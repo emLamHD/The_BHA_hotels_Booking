@@ -4,7 +4,9 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using TheBha.Api;
 using TheBha.Application.Bookings;
 using TheBha.Domain.Bookings;
@@ -650,6 +652,115 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
                 Assert.Equal(baseline.Status, currentStatus);
             }
         }
+    }
+
+    // ---------------------------------------------------------------
+    // Consistent-snapshot projection (correction C4)
+    // ---------------------------------------------------------------
+
+    /// <summary>
+    /// Mirrors <c>ReservationBoardDataLoader.CandidateUnitsQueryTag</c> (internal to
+    /// TheBha.Infrastructure). The loader's comment records that this test depends on it.
+    /// </summary>
+    private const string CandidateUnitsQueryTag = "pms-cal-001.1-reservation-board-candidate-units";
+
+    /// <summary>Failure guard only — never used to create the interleaving, which is barrier-driven.</summary>
+    private static readonly TimeSpan BarrierTimeout = TimeSpan.FromSeconds(60);
+
+    // PMS-CAL-001.1 correction C4: the projection issues several queries. Under
+    // READ COMMITTED each took its own snapshot, so a Reservation cancellation
+    // committing between the candidate-Unit query and the assignment query made
+    // the board report a cancelled stay as FullyUnassigned — a state that never
+    // existed. This forces exactly that interleaving with a command-interceptor
+    // barrier (no sleeps, no retry loops) and asserts the read stays coherent.
+    [Fact]
+    public async Task Board_read_stays_on_one_snapshot_when_a_cancellation_commits_mid_projection()
+    {
+        await factory.ResetDatabaseAsync();
+        // ReservationCancellationStore enforces Reservation.Cancel's check-in cutoff
+        // against the DI clock, so this must stay pinned before the fixture's check-in.
+        factory.Clock.UtcNow = Now;
+        await using var context = factory.CreateDbContext();
+        var fixture = await CreatePropertyAsync(context, "snapshot-race");
+        var from = new DateOnly(2026, 9, 1);
+        var to = new DateOnly(2026, 9, 4);
+        var (reservation, units) = await CreateReservationAsync(
+            context, fixture, fixture.Standard.Id, from, to, "snapshot-race");
+        context.Add(Assignment(fixture, fixture.StandardRooms[0], units[0], from, to));
+        await context.SaveChangesAsync();
+
+        // Re-register the same Npgsql context the API uses, adding only the barrier
+        // interceptor — the production registration is otherwise untouched, and this
+        // exists solely inside this test-scoped factory.
+        var barrier = new ReservationBoardSnapshotBarrierInterceptor(CandidateUnitsQueryTag);
+        await using var barrierFactory = factory.WithWebHostBuilder(builder =>
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<DbContextOptions<TheBhaDbContext>>();
+                services.RemoveAll<DbContextOptions>();
+                services.AddDbContext<TheBhaDbContext>(options => options
+                    .UseNpgsql(
+                        factory.ConnectionString,
+                        npgsql => npgsql.MigrationsAssembly("TheBha.Infrastructure"))
+                    .AddInterceptors(barrier));
+            }));
+        using var client = barrierFactory.CreateClient();
+
+        // 1-3. Start the board read and let it pause immediately after the
+        // candidate-Unit query, before the Unit/night/assignment queries.
+        var boardRequest = client.GetAsync(BoardUrl(fixture.Property.Id, from, to));
+        await barrier.Reached.WaitAsync(BarrierTimeout);
+
+        // 4-5. Atomically cancel the Reservation and its Effective assignment
+        // segments on a separate connection, through the real cancellation
+        // boundary, and commit while the board read is still paused.
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var cancellationStore = scope.ServiceProvider.GetRequiredService<IReservationCancellationStore>();
+            var cancellation = await cancellationStore.CancelAsync(
+                reservation.Id,
+                null,
+                reservation.GuestAccessTokenHash,
+                "Snapshot-race regression",
+                CancellationToken.None);
+            Assert.Equal(ReservationCancellationStatus.Cancelled, cancellation.Status);
+        }
+
+        // 6-7. Resume the read and inspect what that single request observed.
+        barrier.Release();
+        var response = await boardRequest.WaitAsync(BarrierTimeout);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var board = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var stays = board.GetProperty("stays").EnumerateArray().ToArray();
+
+        // The in-flight read must return one coherent pre-cancellation snapshot:
+        // the stay is present *with* its Effective assignment, never fabricated as
+        // a current fully-unassigned stay for an already-cancelled commitment.
+        var stay = Assert.Single(stays);
+        Assert.Equal(units[0].Id, stay.GetProperty("reservationUnitId").GetGuid());
+        Assert.Equal("FullyAssigned", stay.GetProperty("coverageStatus").GetString());
+        Assert.NotEqual("FullyUnassigned", stay.GetProperty("coverageStatus").GetString());
+        Assert.Single(stay.GetProperty("assignments").EnumerateArray());
+        Assert.Empty(stay.GetProperty("unassignedRanges").EnumerateArray());
+
+        // 8. A fresh request after the cancellation commit sees it gone entirely.
+        var afterResponse = await client.GetAsync(BoardUrl(fixture.Property.Id, from, to));
+        Assert.Equal(HttpStatusCode.OK, afterResponse.StatusCode);
+        var afterBoard = await afterResponse.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Empty(afterBoard.GetProperty("stays").EnumerateArray());
+
+        // The read itself mutated nothing: the cancellation above is the only
+        // state change, and it came from the cancellation boundary, not the board.
+        await using var verify = factory.CreateDbContext();
+        Assert.Equal(
+            CommitmentStatus.Cancelled,
+            await verify.ReservationUnits.Where(unit => unit.Id == units[0].Id)
+                .Select(unit => unit.CommitmentStatus).SingleAsync());
+        Assert.Equal(
+            1,
+            await verify.RoomOccupancySegments.CountAsync(segment =>
+                segment.ReservationUnitId == units[0].Id &&
+                segment.Status == RoomOccupancySegmentStatus.Cancelled));
     }
 
     [Fact]

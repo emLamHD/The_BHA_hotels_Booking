@@ -1,3 +1,4 @@
+using System.Data;
 using Microsoft.EntityFrameworkCore;
 using TheBha.Application.Scheduling;
 using TheBha.Domain.Bookings;
@@ -15,10 +16,61 @@ namespace TheBha.Infrastructure.Persistence;
 /// exactly (contract detail 10) — this remains bounded because it only loads
 /// data for the specific Units that already have a night in the requested
 /// window, never the Property's entire booking history.
+///
+/// <para>
+/// Correction C4: the whole projection runs inside one explicit
+/// <see cref="IsolationLevel.RepeatableRead"/> transaction. Under PostgreSQL's
+/// default <c>READ COMMITTED</c> each statement takes its own snapshot, so a
+/// Reservation cancellation committing part-way through this multi-query load
+/// could be observed by some queries but not others — e.g. the candidate-Unit
+/// query captures a still-<c>Committed</c> Unit, then the assignment query
+/// (running after the commit) sees its segments as <c>Cancelled</c>, and the
+/// board reports a cancelled stay as <c>FullyUnassigned</c>: a state that
+/// never existed as one committed database state. RepeatableRead pins the
+/// snapshot at the first statement below, so every query here observes the
+/// same one. This is a read-only transaction — it takes no row or table locks
+/// and never blocks a concurrent cancellation.
+/// </para>
 /// </summary>
 internal sealed class ReservationBoardDataLoader(TheBhaDbContext dbContext) : IReservationBoardDataSource
 {
+    /// <summary>
+    /// Stable EF query tag on the candidate-Unit query. Deliberately public-ish
+    /// surface for one deterministic concurrency regression test
+    /// (<c>AdminReservationBoardApiTests</c>), which intercepts this exact
+    /// command to force a cancellation to commit mid-projection. Renaming it
+    /// requires updating that test.
+    /// </summary>
+    internal const string CandidateUnitsQueryTag = "pms-cal-001.1-reservation-board-candidate-units";
+
     public async Task<ReservationBoardRawData?> LoadAsync(
+        Guid propertyId,
+        DateOnly from,
+        DateOnly to,
+        CancellationToken cancellationToken)
+    {
+        // A caller-owned ambient transaction already provides one snapshot for
+        // everything below; opening another here would be an unsupported nested
+        // transaction. Nothing in the current read path does this, but reusing
+        // rather than assuming keeps the loader safe if that ever changes.
+        if (dbContext.Database.CurrentTransaction is not null)
+        {
+            return await LoadFromCurrentSnapshotAsync(propertyId, from, to, cancellationToken);
+        }
+
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(
+            IsolationLevel.RepeatableRead,
+            cancellationToken);
+
+        // Any throw or cancellation below disposes the transaction (rolling the
+        // read back) without committing; the Property-not-found path still
+        // commits so the snapshot is released promptly.
+        var data = await LoadFromCurrentSnapshotAsync(propertyId, from, to, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return data;
+    }
+
+    private async Task<ReservationBoardRawData?> LoadFromCurrentSnapshotAsync(
         Guid propertyId,
         DateOnly from,
         DateOnly to,
@@ -44,6 +96,7 @@ internal sealed class ReservationBoardDataLoader(TheBhaDbContext dbContext) : IR
         // booked night in the requested window. Bounds every subsequent query.
         var candidateUnitIds = await dbContext.ReservationUnits
             .AsNoTracking()
+            .TagWith(CandidateUnitsQueryTag)
             .Where(unit =>
                 unit.PropertyId == propertyId &&
                 unit.CommitmentStatus == CommitmentStatus.Committed &&
