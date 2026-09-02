@@ -45,6 +45,23 @@ namespace TheBha.Api.Controllers;
 /// change to open this endpoint in Production or any other non-Development
 /// host. The startup guard remains, as defense in depth.
 /// </para>
+///
+/// <para>
+/// Correction C7: the gate is also <em>transport-first</em>. <c>Program.cs</c>'s
+/// <c>app.UseHttpsRedirection()</c> does not by itself guarantee that cleartext
+/// is refused — when the API runs on the HTTP-only launch profile (or any
+/// HTTP-only Kestrel configuration) that middleware cannot discover an HTTPS
+/// port, so it logs a warning and passes the request through. Development also
+/// enables the unauthenticated read, so a direct HTTP client could read guest
+/// names, confirmation numbers and stay dates in the clear; CORS protects
+/// browsers only, never curl or a server-to-server caller. Checking
+/// <see cref="HttpRequest.IsHttps"/> here closes that hole at the one boundary
+/// that already runs before model binding, without touching the global
+/// middleware, ports, or Forwarded Headers configuration. <c>IsHttps</c> is the
+/// server's own view of the connection, so a spoofed <c>Origin</c> or
+/// hand-written <c>X-Forwarded-Proto</c> cannot satisfy it unless trusted
+/// forwarded-header infrastructure has legitimately established it.
+/// </para>
 /// </summary>
 public sealed class AdminReservationBoardReadGateFilter(
     IHostEnvironment hostEnvironment,
@@ -54,9 +71,12 @@ public sealed class AdminReservationBoardReadGateFilter(
     {
         context.HttpContext.Response.Headers.CacheControl = "no-store";
 
-        // `||` short-circuits: outside Development the reloadable option is
-        // never even materialized, so nothing it could later bind matters.
-        if (!hostEnvironment.IsDevelopment() ||
+        // `||` short-circuits, so the order is deliberate: cleartext is refused
+        // without consulting anything else, and outside Development the
+        // reloadable option is never even materialized — nothing it could later
+        // bind matters. Only an HTTPS Development request reads the option.
+        if (!context.HttpContext.Request.IsHttps ||
+            !hostEnvironment.IsDevelopment() ||
             !adminCalendarOptions.Value.EnableUnauthenticatedRead)
         {
             context.Result = new NotFoundResult();

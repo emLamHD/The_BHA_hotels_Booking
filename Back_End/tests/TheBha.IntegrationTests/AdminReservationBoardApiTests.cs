@@ -33,6 +33,21 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
     private static string BoardUrl(Guid propertyId, DateOnly from, DateOnly to) =>
         $"/api/admin/v1/properties/{propertyId}/reservation-board?from={from:yyyy-MM-dd}&to={to:yyyy-MM-dd}";
 
+    /// <summary>
+    /// PMS-CAL-001.1 correction C7: the board gate refuses cleartext, so every
+    /// board test must speak HTTPS explicitly. TestServer derives
+    /// <c>Request.IsHttps</c> from the request URI, so an https BaseAddress is
+    /// what makes these requests represent a real TLS connection. Redirects are
+    /// never followed, so a redirect can never be mistaken for a real result.
+    /// Unrelated Customer-route test clients are deliberately left alone.
+    /// </summary>
+    private static HttpClient CreateHttpsClient(WebApplicationFactory<Program> target) =>
+        target.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost"),
+            AllowAutoRedirect = false,
+        });
+
     // ---------------------------------------------------------------
     // Validation (items 3-10)
     // ---------------------------------------------------------------
@@ -43,7 +58,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         await factory.ResetDatabaseAsync();
         factory.Clock.UtcNow = Now;
         var propertyId = Guid.NewGuid();
-        using var client = factory.CreateClient();
+        using var client = CreateHttpsClient(factory);
 
         var missingFrom = await client.GetAsync(
             $"/api/admin/v1/properties/{propertyId}/reservation-board?to=2026-09-05");
@@ -60,7 +75,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         await factory.ResetDatabaseAsync();
         factory.Clock.UtcNow = Now;
         var propertyId = Guid.NewGuid();
-        using var client = factory.CreateClient();
+        using var client = CreateHttpsClient(factory);
 
         var response = await client.GetAsync(
             $"/api/admin/v1/properties/{propertyId}/reservation-board?from=not-a-date&to=2026-09-05");
@@ -76,7 +91,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         await factory.ResetDatabaseAsync();
         factory.Clock.UtcNow = Now;
         var propertyId = Guid.NewGuid();
-        using var client = factory.CreateClient();
+        using var client = CreateHttpsClient(factory);
 
         var response = await client.GetAsync(
             $"/api/admin/v1/properties/{propertyId}/reservation-board?from={from}&to={to}");
@@ -91,7 +106,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         factory.Clock.UtcNow = Now;
         await using var context = factory.CreateDbContext();
         var fixture = await CreatePropertyAsync(context, "range-limits");
-        using var client = factory.CreateClient();
+        using var client = CreateHttpsClient(factory);
 
         var oneNight = await client.GetAsync(BoardUrl(
             fixture.Property.Id, new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 2)));
@@ -118,7 +133,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         var property = await context.Properties.SingleAsync(p => p.Id == fixture.Property.Id);
         property.Deactivate(Now);
         await context.SaveChangesAsync();
-        using var client = factory.CreateClient();
+        using var client = CreateHttpsClient(factory);
 
         var nonExistent = await client.GetAsync(
             BoardUrl(Guid.NewGuid(), new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 3)));
@@ -157,7 +172,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         context.Add(Assignment(fixture, fixture.StandardRooms[1], unitsBefore[0], from.AddDays(-4), from));
 
         await context.SaveChangesAsync();
-        using var client = factory.CreateClient();
+        using var client = CreateHttpsClient(factory);
 
         var response = await client.GetAsync(BoardUrl(fixture.Property.Id, from, to));
         var board = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -191,7 +206,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         await context.SaveChangesAsync();
         cancelledSegment.Cancel();
         await context.SaveChangesAsync();
-        using var client = factory.CreateClient();
+        using var client = CreateHttpsClient(factory);
 
         var response = await client.GetAsync(BoardUrl(fixture.Property.Id, from, to));
         var board = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -224,7 +239,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         await context.SaveChangesAsync();
         cancelledBlockSegment.Cancel();
         await context.SaveChangesAsync();
-        using var client = factory.CreateClient();
+        using var client = CreateHttpsClient(factory);
 
         var response = await client.GetAsync(BoardUrl(fixture.Property.Id, from, to));
         var board = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -254,7 +269,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         var (_, units) = await CreateReservationAsync(context, fixture, fixture.Standard.Id, from, from.AddDays(3), "full");
         context.Add(Assignment(fixture, fixture.StandardRooms[0], units[0], from, from.AddDays(3)));
         await context.SaveChangesAsync();
-        using var client = factory.CreateClient();
+        using var client = CreateHttpsClient(factory);
 
         var board = await client.GetFromJsonAsync<JsonElement>(BoardUrl(fixture.Property.Id, from, to));
         var stay = board.GetProperty("stays").EnumerateArray().Single();
@@ -274,7 +289,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         var to = new DateOnly(2026, 9, 5);
         await CreateReservationAsync(context, fixture, fixture.Standard.Id, from, from.AddDays(3), "unassigned");
         await context.SaveChangesAsync();
-        using var client = factory.CreateClient();
+        using var client = CreateHttpsClient(factory);
 
         var board = await client.GetFromJsonAsync<JsonElement>(BoardUrl(fixture.Property.Id, from, to));
         var stay = board.GetProperty("stays").EnumerateArray().Single();
@@ -300,7 +315,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         var (_, units) = await CreateReservationAsync(context, fixture, fixture.Standard.Id, from, from.AddDays(6), "partial");
         context.Add(Assignment(fixture, fixture.StandardRooms[0], units[0], from.AddDays(2), from.AddDays(4)));
         await context.SaveChangesAsync();
-        using var client = factory.CreateClient();
+        using var client = CreateHttpsClient(factory);
 
         var board = await client.GetFromJsonAsync<JsonElement>(BoardUrl(fixture.Property.Id, from, to));
         var stay = board.GetProperty("stays").EnumerateArray().Single();
@@ -331,7 +346,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         var (_, units) = await CreateReservationAsync(context, fixture, fixture.Standard.Id, from, from.AddDays(2), "cross");
         context.Add(Assignment(fixture, fixture.DeluxeRooms[0], units[0], from, from.AddDays(2)));
         await context.SaveChangesAsync();
-        using var client = factory.CreateClient();
+        using var client = CreateHttpsClient(factory);
 
         var board = await client.GetFromJsonAsync<JsonElement>(BoardUrl(fixture.Property.Id, from, to));
         var stay = board.GetProperty("stays").EnumerateArray().Single();
@@ -364,7 +379,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         var cancelResult = await cancellationStore.CancelAsync(
             reservationEntity.Id, null, reservationEntity.GuestAccessTokenHash, "test cleanup", CancellationToken.None);
         Assert.Equal(ReservationCancellationStatus.Cancelled, cancelResult.Status);
-        using var client = factory.CreateClient();
+        using var client = CreateHttpsClient(factory);
 
         var board = await client.GetFromJsonAsync<JsonElement>(BoardUrl(fixture.Property.Id, from, to));
 
@@ -391,7 +406,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         context.Add(blockA);
         context.Add(Block(propertyA, propertyA.DeluxeRooms[0], blockA, from, from.AddDays(1)));
         await context.SaveChangesAsync();
-        using var client = factory.CreateClient();
+        using var client = CreateHttpsClient(factory);
 
         var boardB = await client.GetFromJsonAsync<JsonElement>(BoardUrl(propertyB.Property.Id, from, to));
 
@@ -421,7 +436,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         context.Add(Assignment(fixture, fixture.StandardRooms[1], unitsZ[0], from.AddDays(3), from.AddDays(5)));
         context.Add(Assignment(fixture, fixture.StandardRooms[0], unitsA[0], from, from.AddDays(2)));
         await context.SaveChangesAsync();
-        using var client = factory.CreateClient();
+        using var client = CreateHttpsClient(factory);
 
         var board = await client.GetFromJsonAsync<JsonElement>(BoardUrl(fixture.Property.Id, from, to));
         var roomTypeNames = board.GetProperty("roomTypes").EnumerateArray()
@@ -452,7 +467,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         factory.Clock.UtcNow = DateTimeOffset.Parse("2026-09-01T17:30:00Z");
         await using var context = factory.CreateDbContext();
         var fixture = await CreatePropertyAsync(context, "local-today");
-        using var client = factory.CreateClient();
+        using var client = CreateHttpsClient(factory);
 
         var board = await client.GetFromJsonAsync<JsonElement>(
             BoardUrl(fixture.Property.Id, new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 3)));
@@ -475,7 +490,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         var to = new DateOnly(2026, 9, 5);
         await CreateReservationAsync(context, fixture, fixture.Standard.Id, from, from.AddDays(2), "pii");
         await context.SaveChangesAsync();
-        using var client = factory.CreateClient();
+        using var client = CreateHttpsClient(factory);
 
         var response = await client.GetAsync(BoardUrl(fixture.Property.Id, from, to));
         var payload = await response.Content.ReadAsStringAsync();
@@ -498,7 +513,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
     {
         await factory.ResetDatabaseAsync();
         factory.Clock.UtcNow = Now;
-        using var client = factory.CreateClient();
+        using var client = CreateHttpsClient(factory);
 
         var notFound = await client.GetAsync(
             BoardUrl(Guid.NewGuid(), new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 3)));
@@ -519,11 +534,11 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         factory.Clock.UtcNow = Now;
         await using var context = factory.CreateDbContext();
         var fixture = await CreatePropertyAsync(context, "no-store");
-        using var enabledClient = factory.CreateClient();
+        using var enabledClient = CreateHttpsClient(factory);
         await using var gatedFactory = factory.WithWebHostBuilder(builder =>
             builder.ConfigureServices(services =>
                 services.Configure<AdminCalendarOptions>(options => options.EnableUnauthenticatedRead = false)));
-        using var disabledClient = gatedFactory.CreateClient();
+        using var disabledClient = CreateHttpsClient(gatedFactory);
 
         var propertyId = fixture.Property.Id;
         var validUrl = BoardUrl(propertyId, new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 3));
@@ -564,7 +579,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         factory.Clock.UtcNow = Now;
         await using var context = factory.CreateDbContext();
         var fixture = await CreatePropertyAsync(context, "cors");
-        using var client = factory.CreateClient();
+        using var client = CreateHttpsClient(factory);
         var from = new DateOnly(2026, 9, 1);
         var to = new DateOnly(2026, 9, 3);
 
@@ -603,7 +618,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         await using var gatedFactory = factory.WithWebHostBuilder(builder =>
             builder.ConfigureServices(services =>
                 services.Configure<AdminCalendarOptions>(options => options.EnableUnauthenticatedRead = false)));
-        using var client = gatedFactory.CreateClient();
+        using var client = CreateHttpsClient(gatedFactory);
 
         var cases = new (string Name, string? From, string? To)[]
         {
@@ -708,7 +723,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
                         npgsql => npgsql.MigrationsAssembly("TheBha.Infrastructure"))
                     .AddInterceptors(barrier));
             }));
-        using var client = barrierFactory.CreateClient();
+        using var client = CreateHttpsClient(barrierFactory);
 
         // 1-3. Start the board read and let it pause immediately after the
         // candidate-Unit query, before the Unit/night/assignment queries.
@@ -777,12 +792,177 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         await using var gatedFactory = factory.WithWebHostBuilder(builder =>
             builder.ConfigureServices(services =>
                 services.Configure<AdminCalendarOptions>(options => options.EnableUnauthenticatedRead = false)));
-        using var client = gatedFactory.CreateClient();
+        using var client = CreateHttpsClient(gatedFactory);
 
         var response = await client.GetAsync("/api/v1/properties");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.NotEqual("no-store", response.Headers.CacheControl?.ToString());
+    }
+
+    // ---------------------------------------------------------------
+    // Transport fail-closed gate (correction C7)
+    // ---------------------------------------------------------------
+
+    // PMS-CAL-001.1 correction C7: app.UseHttpsRedirection() does not by itself
+    // refuse cleartext. On an HTTP-only host it cannot discover an HTTPS port,
+    // logs a warning and passes the request through — which is exactly the
+    // situation TestServer reproduces, since it exposes no server addresses. In
+    // Development the unauthenticated read is enabled, so without a transport
+    // check a direct HTTP client could read guest names, confirmation numbers
+    // and stay dates in the clear. Every cleartext request must therefore get
+    // the same unavailable 404, whatever its query looks like.
+    [Fact]
+    public async Task Cleartext_http_requests_are_uniformly_unavailable_and_never_reach_the_board_query()
+    {
+        await factory.ResetDatabaseAsync();
+        factory.Clock.UtcNow = Now;
+        await using var context = factory.CreateDbContext();
+        var fixture = await CreatePropertyAsync(context, "http-transport");
+        var from = new DateOnly(2026, 9, 1);
+        var to = new DateOnly(2026, 9, 3);
+        var (_, units) = await CreateReservationAsync(
+            context, fixture, fixture.Standard.Id, from, to, "http-transport");
+        context.Add(Assignment(fixture, fixture.StandardRooms[0], units[0], from, to));
+        await context.SaveChangesAsync();
+
+        var spy = new RecordingReservationBoardQuery();
+        await using var spyFactory = factory.WithWebHostBuilder(builder =>
+            builder.ConfigureServices(services => services.AddScoped<IReservationBoardQuery>(_ => spy)));
+
+        // Default BaseAddress is http://localhost — a genuine cleartext request
+        // on a host with no HTTPS listener. Redirects are never followed, so a
+        // redirect could never be mistaken for a successful read.
+        using var httpClient = spyFactory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            AllowAutoRedirect = false,
+        });
+        Assert.Equal("http", httpClient.BaseAddress!.Scheme);
+
+        var baseUrl = $"/api/admin/v1/properties/{fixture.Property.Id}/reservation-board";
+        var cases = new (string Name, string Url)[]
+        {
+            ("valid", $"{baseUrl}?from=2026-09-01&to=2026-09-03"),
+            ("missing-from", $"{baseUrl}?to=2026-09-03"),
+            ("missing-to", $"{baseUrl}?from=2026-09-01"),
+            ("missing-both", baseUrl),
+            ("malformed-from", $"{baseUrl}?from=not-a-date&to=2026-09-03"),
+            ("malformed-to", $"{baseUrl}?from=2026-09-01&to=not-a-date"),
+            ("equal-dates", $"{baseUrl}?from=2026-09-01&to=2026-09-01"),
+            ("reversed-dates", $"{baseUrl}?from=2026-09-05&to=2026-09-01"),
+        };
+
+        (string? Type, string? Title, string? Status) baseline = default;
+        foreach (var (name, url) in cases)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            Assert.False(request.Headers.Contains("Origin")); // CORS protects browsers only
+            var response = await httpClient.SendAsync(request);
+            var body = await response.Content.ReadAsStringAsync();
+
+            Assert.True(
+                HttpStatusCode.NotFound == response.StatusCode,
+                $"case '{name}' expected 404 over cleartext, got {response.StatusCode}");
+            Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
+
+            // No board shape, no guest data, and no model-validation detail that
+            // would distinguish a valid request from a malformed one.
+            foreach (var leak in new[]
+                     {
+                         "guestDisplayName", "confirmationNumber", "stays", "physicalRooms",
+                         "roomTypes", "operationalBlocks", "\"errors\""
+                     })
+            {
+                Assert.DoesNotContain(leak, body, StringComparison.OrdinalIgnoreCase);
+            }
+
+            string? type = null, title = null, status = null;
+            if (!string.IsNullOrEmpty(body))
+            {
+                using var document = JsonDocument.Parse(body);
+                var root = document.RootElement;
+                type = root.TryGetProperty("type", out var t) ? t.ToString() : null;
+                title = root.TryGetProperty("title", out var ti) ? ti.ToString() : null;
+                status = root.TryGetProperty("status", out var st) ? st.ToString() : null;
+            }
+
+            if (name == "valid")
+            {
+                baseline = (type, title, status);
+            }
+            else
+            {
+                Assert.Equal(baseline.Type, type);
+                Assert.Equal(baseline.Title, title);
+                Assert.Equal(baseline.Status, status);
+            }
+        }
+
+        // The action, the query and therefore persistence were never reached.
+        Assert.Equal(0, spy.Invocations);
+    }
+
+    // Headers a caller can write themselves must never stand in for a real TLS
+    // connection. Request.IsHttps reflects the server's own view of the
+    // connection, and C7 deliberately adds no forwarded-header handling.
+    [Fact]
+    public async Task Spoofed_origin_or_forwarded_proto_headers_do_not_satisfy_the_transport_gate()
+    {
+        await factory.ResetDatabaseAsync();
+        factory.Clock.UtcNow = Now;
+        await using var context = factory.CreateDbContext();
+        var fixture = await CreatePropertyAsync(context, "http-spoof");
+
+        var spy = new RecordingReservationBoardQuery();
+        await using var spyFactory = factory.WithWebHostBuilder(builder =>
+            builder.ConfigureServices(services => services.AddScoped<IReservationBoardQuery>(_ => spy)));
+        using var httpClient = spyFactory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            AllowAutoRedirect = false,
+        });
+
+        using var spoofed = new HttpRequestMessage(
+            HttpMethod.Get,
+            BoardUrl(fixture.Property.Id, new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 3)));
+        spoofed.Headers.Add("Origin", "https://localhost:3001");
+        spoofed.Headers.Add("X-Forwarded-Proto", "https");
+        spoofed.Headers.Add("X-Forwarded-Scheme", "https");
+        var response = await httpClient.SendAsync(spoofed);
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
+        Assert.DoesNotContain("guestDisplayName", body, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, spy.Invocations);
+    }
+
+    // The counterpart: over HTTPS the gate is open exactly as before, so the
+    // transport check cannot be passing the suite by blocking everything.
+    [Fact]
+    public async Task Https_requests_still_reach_the_board_query_and_keep_their_validation_contract()
+    {
+        await factory.ResetDatabaseAsync();
+        factory.Clock.UtcNow = Now;
+        await using var context = factory.CreateDbContext();
+        var fixture = await CreatePropertyAsync(context, "https-transport");
+        var from = new DateOnly(2026, 9, 1);
+        var to = new DateOnly(2026, 9, 3);
+        var (_, units) = await CreateReservationAsync(
+            context, fixture, fixture.Standard.Id, from, to, "https-transport");
+        context.Add(Assignment(fixture, fixture.StandardRooms[0], units[0], from, to));
+        await context.SaveChangesAsync();
+        using var client = CreateHttpsClient(factory);
+
+        var ok = await client.GetAsync(BoardUrl(fixture.Property.Id, from, to));
+        var board = await ok.Content.ReadFromJsonAsync<JsonElement>();
+        var invalid = await client.GetAsync(
+            $"/api/admin/v1/properties/{fixture.Property.Id}/reservation-board?from=2026-09-01&to=not-a-date");
+
+        Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
+        Assert.Equal("no-store", ok.Headers.CacheControl?.ToString());
+        Assert.Single(board.GetProperty("stays").EnumerateArray());
+        Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+        Assert.Equal("no-store", invalid.Headers.CacheControl?.ToString());
     }
 
     // ---------------------------------------------------------------
@@ -899,7 +1079,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
 
             // 4. A direct client with no Origin header — CORS restricts browsers,
             //    never curl or a server-to-server caller.
-            using var client = productionFactory.CreateClient();
+            using var client = CreateHttpsClient(productionFactory);
             using var request = new HttpRequestMessage(HttpMethod.Get, BoardUrl(fixture.Property.Id, from, to));
             Assert.False(request.Headers.Contains("Origin"));
             var response = await client.SendAsync(request);
@@ -941,7 +1121,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
                 stagingFactory.Services.GetRequiredService<IHostEnvironment>().EnvironmentName);
             Assert.True(stagingFactory.Services.GetRequiredService<IOptions<AdminCalendarOptions>>()
                 .Value.EnableUnauthenticatedRead);
-            using var client = stagingFactory.CreateClient();
+            using var client = CreateHttpsClient(stagingFactory);
 
             var response = await client.GetAsync(
                 BoardUrl(fixture.Property.Id, new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 3)));
@@ -975,7 +1155,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
             Assert.Equal(
                 "Production",
                 productionFactory.Services.GetRequiredService<IHostEnvironment>().EnvironmentName);
-            using var client = productionFactory.CreateClient();
+            using var client = CreateHttpsClient(productionFactory);
             var baseUrl = $"/api/admin/v1/properties/{propertyId}/reservation-board";
 
             var urls = new (string Name, string Url)[]
@@ -1015,7 +1195,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         await using var context = factory.CreateDbContext();
         var fixture = await CreatePropertyAsync(context, "dev-gate-on");
         Assert.Equal("Development", factory.Services.GetRequiredService<IHostEnvironment>().EnvironmentName);
-        using var client = factory.CreateClient();
+        using var client = CreateHttpsClient(factory);
 
         var response = await client.GetAsync(
             BoardUrl(fixture.Property.Id, new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 3)));
