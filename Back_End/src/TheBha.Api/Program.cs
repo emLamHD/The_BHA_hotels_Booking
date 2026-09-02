@@ -57,6 +57,11 @@ if (cors.AdminOrigins.Any(origin =>
         "Cors:AdminOrigins must contain explicit HTTPS origins and cannot contain wildcards.");
 }
 
+// Startup guard: refuses to boot a misconfigured Production host at all. It
+// binds one configuration snapshot, so it cannot see a value a reloadable
+// source supplies later — AdminReservationBoardReadGateFilter (correction C5)
+// is what actually keeps every non-Development host closed at request time.
+// Both are kept: this one fails loudly and early, that one fails closed.
 var adminCalendarOptions = builder.Configuration
     .GetSection(AdminCalendarOptions.SectionName)
     .Get<AdminCalendarOptions>() ?? new AdminCalendarOptions();

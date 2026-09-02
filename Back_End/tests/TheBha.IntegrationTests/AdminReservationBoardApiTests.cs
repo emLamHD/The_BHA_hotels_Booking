@@ -5,10 +5,14 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 using TheBha.Api;
 using TheBha.Application.Bookings;
+using TheBha.Application.Scheduling;
 using TheBha.Domain.Bookings;
 using TheBha.Domain.Properties;
 using TheBha.Domain.Scheduling;
@@ -779,6 +783,246 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.NotEqual("no-store", response.Headers.CacheControl?.ToString());
+    }
+
+    // ---------------------------------------------------------------
+    // Environment fail-closed gate (correction C5)
+    // ---------------------------------------------------------------
+
+    /// <summary>
+    /// Stands in for the real board query so a blocked request can be proven to
+    /// never reach the Application/persistence layer at all. If the gate ever
+    /// leaked, this returns unmistakable sentinel guest data instead of a real
+    /// board, so the failure is loud rather than subtle.
+    /// </summary>
+    private sealed class RecordingReservationBoardQuery : IReservationBoardQuery
+    {
+        public const string SentinelGuest = "LEAKED-GUEST-NAME";
+        public const string SentinelConfirmation = "LEAKED-CONFIRMATION";
+
+        private int _invocations;
+        public int Invocations => Volatile.Read(ref _invocations);
+
+        public Task<ReservationBoardResult> GetBoardAsync(
+            Guid propertyId, DateOnly from, DateOnly to, CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _invocations);
+            return Task.FromResult(ReservationBoardResult.Success(new ReservationBoardDto(
+                new ReservationBoardPropertyDto(
+                    propertyId, "LEAKED PROPERTY", "Asia/Ho_Chi_Minh", from, new TimeOnly(14, 0), new TimeOnly(12, 0)),
+                from,
+                to,
+                Array.Empty<ReservationBoardRoomTypeDto>(),
+                Array.Empty<ReservationBoardPhysicalRoomDto>(),
+                new[]
+                {
+                    new ReservationBoardStayDto(
+                        Guid.NewGuid(), Guid.NewGuid(), SentinelConfirmation, SentinelGuest, Guid.NewGuid(),
+                        from, to, StayCoverageStatus.FullyUnassigned,
+                        Array.Empty<ReservationBoardAssignmentDto>(),
+                        Array.Empty<ReservationBoardUnassignedRangeDto>())
+                },
+                Array.Empty<ReservationBoardOperationalBlockDto>())));
+        }
+    }
+
+    /// <summary>
+    /// A real host for a non-Development environment, still pointed at the real
+    /// test database, with the board query replaced by a recording spy.
+    /// Production additionally requires a DataProtection key path to boot.
+    /// </summary>
+    private WebApplicationFactory<Program> CreateNonDevelopmentFactory(
+        string environment,
+        RecordingReservationBoardQuery spy,
+        string dataProtectionKeysPath,
+        bool enableGateAtStartup = false) =>
+        factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseEnvironment(environment);
+            builder.UseSetting("DataProtection:KeysPath", dataProtectionKeysPath);
+            if (enableGateAtStartup)
+            {
+                builder.UseSetting("AdminCalendar:EnableUnauthenticatedRead", "true");
+            }
+
+            builder.ConfigureServices(services =>
+                services.AddScoped<IReservationBoardQuery>(_ => spy));
+        });
+
+    private static string CreateDataProtectionKeysPath()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "thebha-c5-keys", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(path);
+        return path;
+    }
+
+    // PMS-CAL-001.1 correction C5 — the exact Codex P1 exploit. Program.cs's
+    // startup guard binds one configuration snapshot, but IOptions<T> is
+    // materialized lazily, on the first Reservation Board request. A reloadable
+    // configuration source could therefore be flipped to true *after* that
+    // guard had already passed, and the pre-C5 filter would have honoured the
+    // late value and served guest data from a Production host. The gate is now
+    // environment-first, so the late value cannot matter.
+    [Fact]
+    public async Task Production_gate_enabled_after_startup_still_returns_the_unavailable_404_without_reaching_the_board_query()
+    {
+        await factory.ResetDatabaseAsync();
+        factory.Clock.UtcNow = Now;
+        await using var context = factory.CreateDbContext();
+        var fixture = await CreatePropertyAsync(context, "prod-late-enable");
+        var from = new DateOnly(2026, 9, 1);
+        var to = new DateOnly(2026, 9, 3);
+
+        var spy = new RecordingReservationBoardQuery();
+        var keysPath = CreateDataProtectionKeysPath();
+        try
+        {
+            await using var productionFactory = CreateNonDevelopmentFactory("Production", spy, keysPath);
+
+            // 1-2. Boot a real Production host while the flag is still false, so
+            //      the startup guard passes on the snapshot it binds.
+            var services = productionFactory.Services;
+            // Guard the guard: prove this host really is Production, so a later
+            // change to how the environment is applied can never quietly turn
+            // this into a Development test that passes for the wrong reason.
+            Assert.Equal("Production", services.GetRequiredService<IHostEnvironment>().EnvironmentName);
+            var configuration = services.GetRequiredService<IConfiguration>();
+            Assert.Equal("False", configuration["AdminCalendar:EnableUnauthenticatedRead"], ignoreCase: true);
+
+            // 3. Deterministically supply the later value, before the filter's
+            //    IOptions<T>.Value has ever been materialized, and prove the
+            //    option really does bind true — this is exactly what the pre-C5
+            //    filter read and acted on.
+            configuration["AdminCalendar:EnableUnauthenticatedRead"] = "true";
+            Assert.True(services.GetRequiredService<IOptions<AdminCalendarOptions>>()
+                .Value.EnableUnauthenticatedRead);
+
+            // 4. A direct client with no Origin header — CORS restricts browsers,
+            //    never curl or a server-to-server caller.
+            using var client = productionFactory.CreateClient();
+            using var request = new HttpRequestMessage(HttpMethod.Get, BoardUrl(fixture.Property.Id, from, to));
+            Assert.False(request.Headers.Contains("Origin"));
+            var response = await client.SendAsync(request);
+            var body = await response.Content.ReadAsStringAsync();
+
+            // 5. Unavailable, non-cacheable, and the query/action never ran.
+            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+            Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
+            Assert.Equal(0, spy.Invocations);
+            Assert.DoesNotContain(RecordingReservationBoardQuery.SentinelGuest, body, StringComparison.Ordinal);
+            Assert.DoesNotContain(RecordingReservationBoardQuery.SentinelConfirmation, body, StringComparison.Ordinal);
+            Assert.DoesNotContain("guestDisplayName", body, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(keysPath, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task A_non_production_non_development_environment_with_the_gate_enabled_still_returns_the_unavailable_404()
+    {
+        await factory.ResetDatabaseAsync();
+        factory.Clock.UtcNow = Now;
+        await using var context = factory.CreateDbContext();
+        var fixture = await CreatePropertyAsync(context, "staging-gate");
+
+        var spy = new RecordingReservationBoardQuery();
+        var keysPath = CreateDataProtectionKeysPath();
+        try
+        {
+            // Staging is not Production, so the startup guard deliberately does
+            // not fire — the host boots with the flag already true, and only the
+            // request-time environment check keeps it closed.
+            await using var stagingFactory = CreateNonDevelopmentFactory(
+                "Staging", spy, keysPath, enableGateAtStartup: true);
+            Assert.Equal(
+                "Staging",
+                stagingFactory.Services.GetRequiredService<IHostEnvironment>().EnvironmentName);
+            Assert.True(stagingFactory.Services.GetRequiredService<IOptions<AdminCalendarOptions>>()
+                .Value.EnableUnauthenticatedRead);
+            using var client = stagingFactory.CreateClient();
+
+            var response = await client.GetAsync(
+                BoardUrl(fixture.Property.Id, new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 3)));
+            var body = await response.Content.ReadAsStringAsync();
+
+            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+            Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
+            Assert.Equal(0, spy.Invocations);
+            Assert.DoesNotContain(RecordingReservationBoardQuery.SentinelGuest, body, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(keysPath, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Production_with_the_gate_off_is_uniformly_unavailable_and_leaves_an_unrelated_route_alone()
+    {
+        await factory.ResetDatabaseAsync();
+        factory.Clock.UtcNow = Now;
+        await using var context = factory.CreateDbContext();
+        await new DevelopmentDataSeeder(context).SeedAsync(CancellationToken.None);
+        var propertyId = await context.Properties.Select(property => property.Id).FirstAsync();
+
+        var spy = new RecordingReservationBoardQuery();
+        var keysPath = CreateDataProtectionKeysPath();
+        try
+        {
+            await using var productionFactory = CreateNonDevelopmentFactory("Production", spy, keysPath);
+            Assert.Equal(
+                "Production",
+                productionFactory.Services.GetRequiredService<IHostEnvironment>().EnvironmentName);
+            using var client = productionFactory.CreateClient();
+            var baseUrl = $"/api/admin/v1/properties/{propertyId}/reservation-board";
+
+            var urls = new (string Name, string Url)[]
+            {
+                ("valid", $"{baseUrl}?from=2026-09-01&to=2026-09-03"),
+                ("missing-both", baseUrl),
+                ("malformed-from", $"{baseUrl}?from=not-a-date&to=2026-09-03"),
+            };
+
+            foreach (var (name, url) in urls)
+            {
+                var response = await client.GetAsync(url);
+                Assert.True(
+                    HttpStatusCode.NotFound == response.StatusCode,
+                    $"case '{name}' expected 404, got {response.StatusCode}");
+                Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
+            }
+
+            Assert.Equal(0, spy.Invocations);
+
+            // The gate is scoped to this controller only.
+            var unrelated = await client.GetAsync("/api/v1/properties");
+            Assert.Equal(HttpStatusCode.OK, unrelated.StatusCode);
+            Assert.NotEqual("no-store", unrelated.Headers.CacheControl?.ToString());
+        }
+        finally
+        {
+            Directory.Delete(keysPath, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Development_with_the_gate_enabled_still_serves_the_board()
+    {
+        await factory.ResetDatabaseAsync();
+        factory.Clock.UtcNow = Now;
+        await using var context = factory.CreateDbContext();
+        var fixture = await CreatePropertyAsync(context, "dev-gate-on");
+        Assert.Equal("Development", factory.Services.GetRequiredService<IHostEnvironment>().EnvironmentName);
+        using var client = factory.CreateClient();
+
+        var response = await client.GetAsync(
+            BoardUrl(fixture.Property.Id, new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 3)));
+        var board = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(fixture.Property.Id, board.GetProperty("property").GetProperty("id").GetGuid());
     }
 
     [Fact]
