@@ -17,6 +17,8 @@ Commits on this branch:
 6. `4dc07a2` — `docs(pms-cal-001.1): record Correction Cycle C1 evidence`.
 7. `ec21b0f` — `docs(pms-cal-001.1): fix stale HEAD/CI references after C1 docs push` — see §10's process-deviation note: this commit's *content* is a factually accurate, docs-only fix, but it was produced and pushed by an unauthorized nested-agent action and is retained per explicit Control Tower disposition, not evidence of routine practice.
 8. `8dd4963` — `fix(pms-cal-001.1): correction C2 — keep no-active-room unassigned stays visible, gate the board before model binding` (see §11).
+9. `1102f23` — `docs(pms-cal-001.1): record Correction Cycle C2 evidence`.
+10. `5095055` — `fix(pms-cal-001.1): correction C3 — no-store on validation errors, locale-safe ISO dates, enforce Admin tests in CI` (see §12).
 
 ## 1. What was delivered
 
@@ -630,3 +632,165 @@ that equivalence rather than an unconditionally empty body.
 - `ACTIVE_EXECUTOR` (Claude) stopped all writes at this checkpoint. Codex
   has not been invoked by Claude at any point in this cycle; only Owner
   may invoke `/codex:review --base origin/develop` again.
+
+## 12. Correction Cycle C3
+
+Owner invoked `/codex:review --base origin/develop` a third time against
+PR #41, at HEAD `1102f23ca0388b2f38ac4678e479826a8eed7847`. Codex returned
+three new [P2] findings, relayed verbatim to Owner, then routed back as an
+OC correction prompt (`PMS-CAL-001.1-C3`) reiterating the unconditional
+no-subagent/no-concurrent-writer restriction and — narrowly, for this
+cycle only — authorizing exactly one line of change to
+`.github/workflows/ci.yml`.
+
+### Finding 1 (P2) — root cause and fix
+
+**Root cause:** `AdminReservationBoardReadGateFilter.OnResourceExecuting`
+only set `Cache-Control: no-store` inside the `if (!EnableUnauthenticatedRead)`
+branch. When the gate was enabled and the resource filter returned early
+without setting the header, a request whose `from`/`to` then failed
+`[ApiController]`'s automatic model validation never reached
+`GetBoard`'s own `Response.Headers.CacheControl` line — that validation
+response was the one path missing the header.
+
+**Fix:** the header assignment moved to the very first statement in
+`OnResourceExecuting`, unconditionally, before the gate check (and
+therefore before model binding can short-circuit the request). The
+action's own `no-store` assignment was kept as harmless defense-in-depth
+per the correction prompt's explicit allowance.
+
+**New regression test**
+(`Response_always_sets_cache_control_no_store_regardless_of_gate_or_validation_outcome`)
+covers all 9 required combinations (gate disabled × valid/missing;
+gate enabled × success/missing-from/missing-to/malformed-from/
+malformed-to/equal-dates-400/property-not-found-404) — every one gets
+`no-store`. A second assertion added to the existing unrelated-route test
+confirms `/api/v1/properties` does *not* inherit the policy. Confirmed
+red-before (`gate-enabled-missing-from` returned an empty `Cache-Control`
+against the pre-fix code, via the same `git stash` technique used in C1/
+C2) and green-after.
+
+### Finding 2 (P2) — root cause and fix
+
+**Root cause:** `todayInTimeZone` built the initial visible-range anchor
+from `new Intl.DateTimeFormat("en-CA", { timeZone }).format(new Date())`,
+trusting that "en-CA" always renders `YYYY-MM-DD`. That is a
+locale/ICU-implementation convention, not a language contract — some
+browser/ICU builds render it differently (e.g. `M/D/YYYY`), which would
+feed an unparseable string straight into this module's ISO date
+arithmetic.
+
+**Fix:** `todayInTimeZone` now calls
+`Intl.DateTimeFormat("en-US", { timeZone, calendar: "gregory",
+numberingSystem: "latn", year: "numeric", month: "2-digit", day: "2-digit"
+}).formatToParts(now)`, reads the `year`/`month`/`day` parts explicitly,
+and builds the result via the existing `dateMath.ts` `formatIsoDate()`
+helper (reused rather than duplicated) — never touching `.format()`'s
+string output. `calendar`/`numberingSystem` are pinned to rule out a
+non-Gregorian calendar or non-Latin digits. The function gained an
+injectable `now: Date = new Date()` parameter (default preserves prior
+behavior) purely so tests can supply a fixed instant, and is now exported
+for direct unit testing.
+
+**New regression tests** (`describe("todayInTimeZone")` in
+`ReservationBoard.test.tsx`) prove: strict `YYYY-MM-DD` output; correct
+zero-padding; that a mocked `Intl.DateTimeFormat` whose `.format()`
+deliberately returns `"3/5/2026"` still yields the correct
+`"2026-03-05"` (proving the fix reads parts, not the format string); that
+the same UTC instant produces different, correct local dates on opposite
+sides of a timezone boundary (`Asia/Tokyo` vs. `America/Los_Angeles`
+around a UTC midnight crossing); and a safe ISO fallback for an invalid
+timezone. A supporting integration-level test confirms the initial board
+request's `from`/`to` match `^\d{4}-\d{2}-\d{2}$`. Confirmed red-before:
+stashing the fix made the 5 new unit tests fail with `todayInTimeZone is
+not a function` (the pre-fix function wasn't exported) while the 12
+pre-existing tests kept passing — the direct unit tests are the
+authoritative regression evidence per the correction prompt, since this
+Node/Vitest environment's own ICU build happens to already render
+`en-CA` as ISO and would not otherwise exercise the defect.
+
+### Finding 3 (P2) — root cause and fix
+
+**Root cause:** Phase 2 (commit `c59c9e2`) introduced
+`Front_End/Admin_Web`'s first `npm test`/Vitest suite, but
+`.github/workflows/ci.yml`'s `admin` job was never updated beyond
+install/lint/build — so the Admin test suite could regress with CI
+remaining green.
+
+**Fix (narrowly authorized, single-line CI change):** added a `Test`
+step (`run: npm test`) to the existing `admin` job, positioned identically
+to the equivalent step in the `frontend` (Customer) job — after `Lint`,
+before `Build`. No other job, trigger, permission, runner, Node version,
+caching, or dependency changed; `git diff -- .github/workflows/ci.yml`
+contains exactly this one 3-line addition.
+
+**Evidence the step actually executes:** on the final PR HEAD's Admin
+CI job (run `33636453609`, job `100268429340`), the step list is
+`Set up job → Checkout → Setup Node.js → Install dependencies → Lint →
+Test → Build → …`, and the `Test` step's own log shows Vitest running all
+6 test files / 58 tests to completion (`Test Files 6 passed (6)`, `Tests
+58 passed (58)`) before the `Build` step starts — not a skipped or
+no-op step.
+
+### Fresh validation evidence (all rerun from corrected HEAD, not reused)
+
+- Static: `git diff --check` clean; changed files
+  (`AdminReservationBoardReadGateFilter.cs`,
+  `AdminReservationBoardApiTests.cs`, `ReservationBoard.tsx`,
+  `ReservationBoard.test.tsx`, `.github/workflows/ci.yml`) all within the
+  C3 allowlist; migration count unchanged at 8; zero diff in the
+  Migrations directory vs. `origin/develop`; `dotnet ef
+  migrations has-pending-model-changes` → "No changes have been made to
+  the model since the last migration."
+- Backend: `dotnet build` 0 warnings/0 errors; full suite —
+  **244/244** unit + **351/351** integration (was 350, +1: the new
+  cache-header test), against real PostgreSQL.
+- Admin Web: `npm run lint` clean; full `npm test` — **58/58** (was 52,
+  +6: the `todayInTimeZone` suite); `npm run build` succeeds; the static
+  no-mock-fallback test still passes.
+- Customer Web (full gate, unchanged): `npm run lint` clean; `npm test`
+  — **298/298**; `npm run build` succeeds. No Customer-facing file
+  touched by this cycle.
+- Real browser acceptance: a fresh disposable PostgreSQL database
+  (`thebha_pmscal001_c3_e2e`, migrated and seeded via
+  `--seed-development`, no throwaway scenario fixture needed for this
+  narrower cache/date-format scope) fed a real HTTPS backend (`:7145`,
+  Phase-3 `mkcert` certificate) and Admin Web (`:3001`, `dev:https`). In
+  real Chrome:
+  1. The Reservation Board loaded successfully; the captured network
+     request showed the initial request as
+     `GET .../reservation-board?from=2026-08-26&to=2026-09-09` — strict
+     ISO, correctly centered on "today" in the seeded Property's
+     `Asia/Ho_Chi_Minh` time zone.
+  2. A `fetch` from the page's own JS context confirmed: the successful
+     (200) response carried `Cache-Control: no-store`; a missing-query
+     and a malformed-`from` request (gate enabled) both returned 400,
+     each also carrying `Cache-Control: no-store`.
+  3. The backend was restarted with
+     `AdminCalendar:EnableUnauthenticatedRead=false`; the same three
+     query variants (valid/missing/malformed) all returned 404 with
+     `Cache-Control: no-store`.
+  4. Zero browser console errors throughout.
+  5. `psql` against the disposable database after the session confirmed
+     0 Reservations / 0 RoomOccupancySegments / 0 RoomBlocks — exactly
+     the `--seed-development` baseline; the interactive session mutated
+     nothing.
+  Disposable database dropped afterward; `thebha_dev` untouched
+  throughout this cycle.
+
+### Final corrected state
+
+- Code/test/workflow correction commit:
+  `50950556501ce4e2285af24424ba0cfe8fb2e6bf` — GitHub Actions on that
+  exact SHA (run `33636453609`): Admin `pass` (1m1s, `Test` step verified
+  executing the full 58-test suite — see Finding 3 above), Frontend
+  `pass` (1m31s), Backend `pass` (2m23s) — all three green.
+- This documentation commit is docs-only, on top of `5095055`. PR #41
+  HEAD after push and the exact GitHub Actions result for that HEAD are
+  recorded in the terminal handoff for this cycle, per the established
+  commit-discipline instruction (no commit made solely to record its own
+  SHA).
+- `ACTIVE_EXECUTOR` (Claude) stopped all writes at this checkpoint. Codex
+  has not been invoked by Claude at any point in this cycle; only Owner
+  may invoke `/codex:review --base origin/develop` again. No subagent,
+  nested agent, or concurrent writer was used in Correction Cycle C3.
