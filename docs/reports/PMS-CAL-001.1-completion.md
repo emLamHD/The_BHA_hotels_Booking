@@ -19,6 +19,8 @@ Commits on this branch:
 8. `8dd4963` — `fix(pms-cal-001.1): correction C2 — keep no-active-room unassigned stays visible, gate the board before model binding` (see §11).
 9. `1102f23` — `docs(pms-cal-001.1): record Correction Cycle C2 evidence`.
 10. `5095055` — `fix(pms-cal-001.1): correction C3 — no-store on validation errors, locale-safe ISO dates, enforce Admin tests in CI` (see §12).
+11. `aa07d63` — `docs(pms-cal-001.1): record Correction Cycle C3 evidence`.
+12. `bf32ecb` — `fix(pms-cal-001.1): correction C4 — one snapshot per board projection, lanes for overlapping unassigned stays` (see §13).
 
 ## 1. What was delivered
 
@@ -794,3 +796,174 @@ no-op step.
   has not been invoked by Claude at any point in this cycle; only Owner
   may invoke `/codex:review --base origin/develop` again. No subagent,
   nested agent, or concurrent writer was used in Correction Cycle C3.
+
+## 13. Correction Cycle C4
+
+Owner invoked `/codex:review --base origin/develop` a fourth time against
+PR #41, at HEAD `aa07d634fc6ad37a3fd5dd2515a7389ab3a42b77`. Codex returned
+two [P2] findings — both genuine reservation-board correctness defects
+rather than style points — relayed verbatim to Owner and routed back as an
+OC correction prompt (`PMS-CAL-001.1-C4`).
+
+### Finding 1 (P2) — mixed-snapshot projection
+
+**Root cause:** `ReservationBoardDataLoader.LoadAsync` issues eight
+queries (Property, active PhysicalRooms, candidate committed Unit ids,
+Units/Reservations, Unit nights, Effective assignments, Effective
+operational blocks, referenced RoomTypes). Under PostgreSQL's default
+`READ COMMITTED`, *each statement* takes its own snapshot. A Reservation
+cancellation committing after the candidate-Unit query but before the
+later queries was therefore visible to some and not others: the captured
+Unit id still returned the stay and its booked nights (the Unit query
+filters only by the captured ids, with no `CommitmentStatus` recheck),
+while the assignment query — now running past the commit — saw the Unit's
+segments as `Cancelled` and returned none. The board then reported an
+already-cancelled stay as `FullyUnassigned`: a combination that never
+existed as one committed database state, and the exact opposite of the
+contract's cancelled-Unit exclusion.
+
+**Fix:** the whole projection now runs inside one explicit
+`IsolationLevel.RepeatableRead` transaction, so PostgreSQL pins the
+snapshot at its first statement and every query observes the same one. The
+loader's query set, `AsNoTracking` projections, property/range bounds,
+deterministic ordering, bounded query-group count, and cancellation-token
+propagation are all unchanged — no schema, projection table, lock, or
+migration was added. It is a *read-only* transaction: it takes no row or
+table locks, so a concurrent cancellation is never blocked. A caller-owned
+ambient transaction is reused rather than nested (nothing in the current
+read path does this, but the loader no longer assumes it), and every
+throw, cancellation, and Property-not-found path closes the transaction
+safely via `await using` + an explicit commit on success.
+
+Deliberately *not* fixed by rechecking `CommitmentStatus` in the later
+Unit query: that suppresses this one symptom while leaving the multi-query
+projection exposed to every other mixed-snapshot combination.
+
+**Deterministic concurrency regression**
+(`Board_read_stays_on_one_snapshot_when_a_cancellation_commits_mid_projection`):
+a test-only `DbCommandInterceptor`
+(`ReservationBoardSnapshotBarrierInterceptor`) matches a stable EF
+`TagWith` tag on the candidate-Unit query and pauses the in-flight HTTP
+board read the instant that query returns. While it is paused, the test
+commits a real atomic cancellation on a *separate* connection through the
+production `IReservationCancellationStore` (cancelling the Reservation,
+its Units, and its Effective assignment segments together), then releases
+the barrier. No `Task.Delay`, sleep, retry-until-observed loop, or timing
+guess is involved — the timeouts present are failure guards only. The test
+asserts the in-flight read returned one coherent pre-cancellation snapshot
+(stay present, its Effective assignment present, `FullyAssigned`, no
+fabricated unassigned range), that a fresh request after the commit
+returns no stay at all, and that the board request itself mutated nothing.
+Confirmed red-before by removing only the transaction (keeping the tag):
+`Expected: "FullyAssigned"` / `Actual: "FullyUnassigned"` — the exact
+impossible state Codex described — then green after restoring it.
+
+### Finding 2 (P2) — overlapping unassigned stays painted over each other
+
+**Root cause:** `ReservationBoardServerTimeline.tsx` created exactly one
+unassigned row per sold RoomType and mapped every bar through
+`rowIndexByUnassignedRoomType`, so all of that RoomType's unassigned bars
+received the same `gridRow` and the same z-index. Unassigned demand is not
+mutually exclusive — two committed Units of the same sold RoomType can
+legitimately want a room on the same nights — so overlapping bars stacked
+on one row and the later DOM element painted over the earlier one. The
+covered reservation was invisible and could not be clicked.
+
+**Fix:** deterministic greedy interval lane-packing, per sold RoomType,
+over the *visible clipped* ranges (so data scrolled out of the window
+never creates an empty lane). Each interval takes the lowest-numbered lane
+whose previous interval already ended; a new lane is created only when
+every existing lane still overlaps. Intervals are half-open in visible
+column space `[startCol, endCol)`, so `[a, b)` and `[b, c)` share a lane
+while genuine overlaps never do. Sorting is by clipped start, then clipped
+end, then confirmation number, reservation-unit id, and range index —
+compared *ordinally*, not by locale — so allocation is identical
+regardless of the order the API returned the stays in. Extra lanes are
+labelled `Unassigned 2`, `Unassigned 3`, …; a RoomType needing only one
+lane keeps the original `Unassigned` presentation. No z-index, opacity,
+pointer-events, bar-shrinking, or offset trick is used: overlapping bars
+genuinely occupy different grid rows, and the grid's row template grows
+with them. The C2 behaviour (a sold RoomType with zero active
+PhysicalRooms, including an inactive one, still gets its group and
+lane(s)) is preserved, as are assigned bars, cross-RoomType attribution,
+operational blocks, the three filters, read-only inertness, popovers, and
+stable React keys.
+
+**New regression tests** (10, in
+`describe("overlapping unassigned stays are packed into distinct lanes")`)
+cover: two overlapping stays rendering on different rows and each opening
+its own correct authoritative stay; three mutually overlapping stays
+producing three lanes; non-overlapping stays reusing one lane;
+boundary-touching half-open ranges reusing one lane; a transitive overlap
+chain using the minimum safe two lanes while hiding nothing; identical
+allocation under shuffled input order; a single Unit's two disjoint ranges
+keeping both bars and sharing a lane; independent packing per sold
+RoomType; packing for a RoomType with no active PhysicalRoom; and the
+Unassigned filter removing every dynamic lane while assigned and block
+rows stay correct. Confirmed red-before: against the pre-C4 component the
+primary overlap test failed with `expected '4' not to be '4'` — both bars
+on the same row — along with four other new cases.
+
+### Fresh validation evidence (all rerun from the corrected HEAD)
+
+- Static: `git diff --check` clean; changed files
+  (`ReservationBoardDataLoader.cs`, `AdminReservationBoardApiTests.cs`,
+  `ReservationBoardSnapshotBarrierInterceptor.cs` (new, test-only),
+  `ReservationBoardServerTimeline.tsx`,
+  `ReservationBoardServerTimeline.test.tsx`) all within the C4 allowlist;
+  migration count unchanged at 8; zero diff in the Migrations directory vs.
+  `origin/develop`; `dotnet ef migrations has-pending-model-changes` → "No
+  changes have been made to the model since the last migration."
+- Backend: `dotnet build` 0 warnings/0 errors; full suite — **244/244**
+  unit + **352/352** integration (was 351, +1 for the concurrency
+  regression) against real PostgreSQL; targeted
+  `AdminReservationBoardApiTests` 25/25; cancellation-sensitive group
+  (`*Cancellation*` + `AssignmentAwareAvailabilityTests`) 61/61.
+- Admin Web: `npm run lint` clean; full `npm test` — **68/68** (was 58,
+  +10); `npm run build` succeeds; the static no-mock-fallback test still
+  passes.
+- Customer Web (full parity gate, source untouched): lint clean;
+  **298/298**; build succeeds.
+- Real browser acceptance: a fresh disposable PostgreSQL database
+  (`thebha_pmscal001_c4_e2e`, migrated, seeded via `--seed-development`
+  plus a throwaway, uncommitted, deleted-after-use EF fixture) fed a real
+  HTTPS backend (`:7145`, the Phase-3 `mkcert` certificate) and Admin Web
+  (`:3001`, `dev:https`). In real Chrome:
+  1. Two overlapping same-RoomType unassigned stays ("Overlap One"
+     Aug 28–31 and "Overlap Two" Aug 29–Sep 1) rendered simultaneously on
+     two separate rows — `Unassigned` and `Unassigned 2`.
+  2. Each opened its own correct read-only popover: "Overlap One" /
+     `BHA-C4-OVERLAP-ONE` / Aug 28–31 and "Overlap Two" /
+     `BHA-C4-OVERLAP-TWO` / Aug 29–Sep 1, both Deluxe King, both "Fully
+     unassigned" — the previously-hidden bar is now independently
+     selectable.
+  3. A later non-overlapping stay ("Later Guest", Sep 3–5) reused the
+     first lane, so the board stayed compact rather than growing a lane
+     per stay.
+  4. Toggling the Unassigned filter off removed both lanes and all three
+     bars, leaving the assigned stay (room 102) and the operational block
+     (room 201) correct; toggling it back on restored them exactly.
+  5. Zero browser console errors throughout.
+  6. `psql` after the session confirmed 4 Reservations / 4 still-Committed
+     Units / 2 RoomOccupancySegments / 1 RoomBlock / 0 segment audits —
+     exactly the seeded state; the interactive session mutated nothing.
+  Disposable database dropped afterward; `thebha_dev` untouched.
+
+### Final corrected state
+
+- Code/test correction commit: `bf32ecb840e978d27490debe68b9b752b418df00`
+  — GitHub Actions on that exact SHA (run `33640882508`): Admin `pass`
+  (1m1s), Frontend `pass` (1m31s), Backend `pass` (2m26s) — all three
+  green. The Admin job's `Test` step (added in C3) executed the expanded
+  suite: `Test Files 6 passed (6)`, `Tests 68 passed (68)`.
+- This documentation commit is docs-only, on top of `bf32ecb`. PR #41 HEAD
+  after push and the GitHub Actions result for that HEAD are recorded in
+  the terminal handoff and the PR description, per the established
+  commit-discipline instruction (no commit made solely to record its own
+  SHA).
+- `ACTIVE_EXECUTOR` (Claude) stopped all writes at this checkpoint. Codex
+  has not been invoked by Claude at any point in this cycle; only Owner
+  may invoke `/codex:review --base origin/develop` again. No subagent,
+  nested agent, background writer, or concurrent writer was used in
+  Correction Cycle C4, and neither pre-existing Orca dry-run worktree was
+  touched.
