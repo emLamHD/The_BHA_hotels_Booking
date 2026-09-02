@@ -11,6 +11,7 @@ using System.Threading.RateLimiting;
 using TheBha.Api;
 using TheBha.Api.Authentication;
 using TheBha.Api.Bookings;
+using TheBha.Api.Controllers;
 using TheBha.Application.Customers;
 using TheBha.Infrastructure.Identity;
 using TheBha.Infrastructure.Persistence;
@@ -68,6 +69,7 @@ if (builder.Environment.IsProduction() && adminCalendarOptions.EnableUnauthentic
 
 builder.Services.Configure<AdminCalendarOptions>(
     builder.Configuration.GetSection(AdminCalendarOptions.SectionName));
+builder.Services.AddScoped<AdminReservationBoardReadGateFilter>();
 
 var dataProtectionKeysPath = builder.Configuration["DataProtection:KeysPath"];
 if (builder.Environment.IsProduction() && string.IsNullOrWhiteSpace(dataProtectionKeysPath))

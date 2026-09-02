@@ -85,7 +85,22 @@ const ReservationBoardServerTimeline: React.FC<ReservationBoardServerTimelinePro
   }, [physicalRooms]);
 
   const activeRoomTypeIds = new Set(physicalRooms.map((room) => room.roomTypeId));
-  const orderedRoomTypes = roomTypes.filter((roomType) => activeRoomTypeIds.has(roomType.id));
+  // A sold RoomType with zero active PhysicalRooms still needs its group
+  // header + unassigned lane whenever a visible stay has uncovered nights
+  // sold under it — otherwise the backend's authoritative unassignedRanges
+  // for that stay would have nowhere to render and be silently dropped
+  // below. Gated by showUnassigned so hiding that filter still hides these
+  // rows, same as the always-active room types.
+  const unassignedRoomTypeIds = showUnassigned
+    ? new Set(
+        stays
+          .filter((stay) => stay.unassignedRanges.length > 0)
+          .map((stay) => stay.soldRoomTypeId)
+      )
+    : new Set<string>();
+  const orderedRoomTypes = roomTypes.filter(
+    (roomType) => activeRoomTypeIds.has(roomType.id) || unassignedRoomTypeIds.has(roomType.id)
+  );
 
   const rows: RowSpec[] = [];
   for (const roomType of orderedRoomTypes) {

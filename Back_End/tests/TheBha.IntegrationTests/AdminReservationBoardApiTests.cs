@@ -530,22 +530,92 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
     // Unauthenticated-read gate (items 34-35)
     // ---------------------------------------------------------------
 
+    // PMS-CAL-001.1 correction C2: with the gate disabled, every request
+    // matching this action — valid, missing, malformed, or otherwise
+    // rejectable by the query's own validation — must return the exact same
+    // unavailable 404 shape (status/title/type identical, no field-level
+    // "errors" leaking which of from/to failed), proving the gate now runs
+    // before model binding/automatic [ApiController] validation rather than
+    // inside the action (where a malformed request reached automatic
+    // validation first and returned a distinguishable 400).
     [Fact]
-    public async Task Endpoint_is_unavailable_when_the_development_gate_is_disabled()
+    public async Task Endpoint_returns_an_identically_shaped_404_when_the_gate_is_disabled_regardless_of_query_validity()
     {
         await factory.ResetDatabaseAsync();
         factory.Clock.UtcNow = Now;
-        await using var context = factory.CreateDbContext();
-        var fixture = await CreatePropertyAsync(context, "gate-disabled");
         await using var gatedFactory = factory.WithWebHostBuilder(builder =>
             builder.ConfigureServices(services =>
                 services.Configure<AdminCalendarOptions>(options => options.EnableUnauthenticatedRead = false)));
         using var client = gatedFactory.CreateClient();
 
-        var response = await client.GetAsync(
-            BoardUrl(fixture.Property.Id, new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 3)));
+        var cases = new (string Name, string? From, string? To)[]
+        {
+            ("valid", "2026-09-01", "2026-09-03"),
+            ("missing-from", null, "2026-09-03"),
+            ("missing-to", "2026-09-01", null),
+            ("missing-both", null, null),
+            ("malformed-from", "not-a-date", "2026-09-03"),
+            ("malformed-to", "2026-09-01", "not-a-date"),
+            ("equal-dates", "2026-09-01", "2026-09-01"),
+            ("reversed-dates", "2026-09-05", "2026-09-01"),
+            ("over-31-nights", "2026-09-01", "2026-10-15"),
+        };
 
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        (string? Type, string? Title, string? Status) baseline = default;
+        foreach (var (name, from, to) in cases)
+        {
+            var query = new List<string>();
+            if (from is not null) query.Add($"from={from}");
+            if (to is not null) query.Add($"to={to}");
+            var url = $"/api/admin/v1/properties/{Guid.NewGuid()}/reservation-board"
+                + (query.Count > 0 ? "?" + string.Join('&', query) : string.Empty);
+
+            var response = await client.GetAsync(url);
+            var body = await response.Content.ReadAsStringAsync();
+
+            Assert.True(HttpStatusCode.NotFound == response.StatusCode, $"case '{name}' expected 404, got {response.StatusCode}");
+            Assert.DoesNotContain("\"errors\"", body, StringComparison.Ordinal);
+
+            string? currentType = null;
+            string? currentTitle = null;
+            string? currentStatus = null;
+            if (!string.IsNullOrEmpty(body))
+            {
+                using var document = JsonDocument.Parse(body);
+                var root = document.RootElement;
+                currentType = root.TryGetProperty("type", out var type) ? type.ToString() : null;
+                currentTitle = root.TryGetProperty("title", out var title) ? title.ToString() : null;
+                currentStatus = root.TryGetProperty("status", out var status) ? status.ToString() : null;
+            }
+
+            if (name == "valid")
+            {
+                baseline = (currentType, currentTitle, currentStatus);
+            }
+            else
+            {
+                Assert.Equal(baseline.Type, currentType);
+                Assert.Equal(baseline.Title, currentTitle);
+                Assert.Equal(baseline.Status, currentStatus);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task Disabling_the_gate_does_not_affect_an_unrelated_route()
+    {
+        await factory.ResetDatabaseAsync();
+        factory.Clock.UtcNow = Now;
+        await using var context = factory.CreateDbContext();
+        await new DevelopmentDataSeeder(context).SeedAsync(CancellationToken.None);
+        await using var gatedFactory = factory.WithWebHostBuilder(builder =>
+            builder.ConfigureServices(services =>
+                services.Configure<AdminCalendarOptions>(options => options.EnableUnauthenticatedRead = false)));
+        using var client = gatedFactory.CreateClient();
+
+        var response = await client.GetAsync("/api/v1/properties");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     [Fact]

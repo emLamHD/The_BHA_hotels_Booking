@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
-using Microsoft.Extensions.Options;
 using TheBha.Application.Scheduling;
 
 namespace TheBha.Api.Controllers;
@@ -10,16 +9,18 @@ namespace TheBha.Api.Controllers;
 /// PMS-CAL-001.1: the read-only Admin Reservation Board projection. Gated by
 /// <see cref="AdminCalendarOptions.EnableUnauthenticatedRead"/> (default
 /// <c>false</c>, Production startup-fatal if enabled — see <c>Program.cs</c>)
-/// because Admin authentication/RBAC is explicitly deferred. Never mutates
-/// anything; the internal assignment/OperationalBlock mutation boundary
-/// (<c>PMS-BE-001.2</c>) remains unexposed by this or any other controller.
+/// because Admin authentication/RBAC is explicitly deferred — enforced by
+/// <see cref="AdminReservationBoardReadGateFilter"/> (correction C2), which
+/// runs before model binding so a disabled deployment returns the same 404
+/// regardless of query validity. Never mutates anything; the internal
+/// assignment/OperationalBlock mutation boundary (<c>PMS-BE-001.2</c>)
+/// remains unexposed by this or any other controller.
 /// </summary>
 [ApiController]
 [Route("api/admin/v1/properties/{propertyId:guid}/reservation-board")]
 [EnableCors("admin-calendar")]
-public sealed class AdminReservationBoardController(
-    IReservationBoardQuery query,
-    IOptions<AdminCalendarOptions> adminCalendarOptions) : ControllerBase
+[ServiceFilter(typeof(AdminReservationBoardReadGateFilter))]
+public sealed class AdminReservationBoardController(IReservationBoardQuery query) : ControllerBase
 {
     [HttpGet]
     [ProducesResponseType(typeof(ReservationBoardDto), StatusCodes.Status200OK)]
@@ -32,11 +33,6 @@ public sealed class AdminReservationBoardController(
         CancellationToken cancellationToken)
     {
         Response.Headers.CacheControl = "no-store";
-
-        if (!adminCalendarOptions.Value.EnableUnauthenticatedRead)
-        {
-            return NotFound();
-        }
 
         var result = await query.GetBoardAsync(propertyId, from, to, cancellationToken);
         return result.Status switch
