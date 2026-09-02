@@ -14,6 +14,7 @@ Commits on this branch:
 3. `c59c9e2` — `feat(admin): connect the Reservation Board to the live Admin API` (Phase 2, frontend).
 4. `2a99176` — `docs(pms-cal-001.1): record completion report, worklog, and doc updates`.
 5. `b4cef33` — `fix(pms-cal-001.1): correction C1 — restore credentialed customer CORS, remove dead inactive filter` (see §10).
+6. `4dc07a2` — `docs(pms-cal-001.1): record Correction Cycle C1 evidence` (this documentation commit).
 
 ## 1. What was delivered
 
@@ -292,9 +293,10 @@ mutation slice, but no longer drive the Reservation Board.
 
 ## 7. Push, Draft PR, and GitHub CI
 
-Not yet performed as of this checkpoint — see the completion report's
-requested-decision line at the end of this document / the accompanying
-chat message for current status.
+Branch pushed, Draft PR #41 opened against `develop`
+(https://github.com/emLamHD/The_BHA_hotels_Booking/pull/41). Superseded by
+Correction Cycle C1 (§10) — see §10's "Final corrected state" for the
+current PR HEAD and CI result.
 
 ## 8. Known risks
 
@@ -435,11 +437,16 @@ the still-intentionally-present `ReservationTimeline.tsx`) are untouched.
 
 ### Final corrected state
 
-- Corrected commit: `b4cef33867f6326b57ddb199a1081c33a6d97ddd`.
-- PR #41 HEAD after push: `b4cef33867f6326b57ddb199a1081c33a6d97ddd`
-  (confirmed via `gh pr view 41`); PR left as Draft, not merged.
-- GitHub Actions on that exact SHA (run `33619047212`): Admin `pass`
+- Code/test correction commit: `b4cef33867f6326b57ddb199a1081c33a6d97ddd`
+  — GitHub Actions on that exact SHA (run `33619047212`): Admin `pass`
   (54s), Frontend `pass` (1m16s), Backend `pass` (2m22s) — all three green.
+- This documentation commit (`docs(pms-cal-001.1): record Correction Cycle
+  C1 evidence`) is docs-only, on top of `b4cef33`. PR #41 HEAD after push:
+  `4dc07a2bba050ec6daa9505a7a274fed9071faf7` (confirmed via
+  `gh pr view 41 --json headRefOid`); PR left as Draft, not merged.
+  GitHub Actions on this exact SHA (run `33619451259`, watched to
+  completion via `gh run watch`): Frontend `pass` (1m36s), Backend `pass`
+  (2m2s), Admin `pass` (51s) — all three green.
 - No statement elsewhere in this report claiming the prior HEAD
   (`2a991765618bc005a70e8debcc48d4f3226bd093`) is production-ready still
   applies; the corrected HEAD above is the current state of the PR.
