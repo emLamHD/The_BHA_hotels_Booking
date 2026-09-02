@@ -119,6 +119,86 @@ public sealed class PropertyCatalogApiTests(PostgreSqlWebApplicationFactory fact
         Assert.True(invalidProblem.TryGetProperty("errors", out _));
     }
 
+    /// <summary>
+    /// PMS-CAL-001.1 correction C1: <c>GET /api/v1/properties</c> is the one
+    /// Customer-facing action carrying the "properties-catalog-read" CORS
+    /// policy (Program.cs) instead of the controller's default credentialed
+    /// "customer-web" policy, because Admin_Web's Reservation Board also
+    /// reads it. That policy must still be credentialed for the configured
+    /// Customer origin (Customer_Web's shared httpClient sends
+    /// withCredentials:true on every request), must also allow the
+    /// configured Admin origin, must reject any other origin, must never
+    /// emit a wildcard, and must not leak the Admin origin into any other
+    /// Customer-facing route.
+    /// </summary>
+    [Fact]
+    public async Task Property_catalog_read_stays_credentialed_for_customer_and_also_allows_admin_without_widening_other_customer_routes()
+    {
+        await SeedFreshDatabaseAsync();
+        using var client = factory.CreateClient();
+        const string customerOrigin = "http://localhost:3000";
+        const string adminOrigin = "https://localhost:3001";
+        const string unapprovedOrigin = "https://evil.example";
+
+        using var customerGet = new HttpRequestMessage(HttpMethod.Get, "/api/v1/properties");
+        customerGet.Headers.Add("Origin", customerOrigin);
+        var customerResponse = await client.SendAsync(customerGet);
+
+        using var adminGet = new HttpRequestMessage(HttpMethod.Get, "/api/v1/properties");
+        adminGet.Headers.Add("Origin", adminOrigin);
+        var adminResponse = await client.SendAsync(adminGet);
+
+        using var unapprovedGet = new HttpRequestMessage(HttpMethod.Get, "/api/v1/properties");
+        unapprovedGet.Headers.Add("Origin", unapprovedOrigin);
+        var unapprovedResponse = await client.SendAsync(unapprovedGet);
+
+        using var customerPreflight = new HttpRequestMessage(HttpMethod.Options, "/api/v1/properties");
+        customerPreflight.Headers.Add("Origin", customerOrigin);
+        customerPreflight.Headers.Add("Access-Control-Request-Method", "GET");
+        var customerPreflightResponse = await client.SendAsync(customerPreflight);
+
+        using var adminPreflight = new HttpRequestMessage(HttpMethod.Options, "/api/v1/properties");
+        adminPreflight.Headers.Add("Origin", adminOrigin);
+        adminPreflight.Headers.Add("Access-Control-Request-Method", "GET");
+        var adminPreflightResponse = await client.SendAsync(adminPreflight);
+
+        Assert.Equal(HttpStatusCode.OK, customerResponse.StatusCode);
+        Assert.Equal(
+            customerOrigin,
+            Assert.Single(customerResponse.Headers.GetValues("Access-Control-Allow-Origin")));
+        Assert.Equal(
+            "true",
+            Assert.Single(customerResponse.Headers.GetValues("Access-Control-Allow-Credentials")));
+
+        Assert.Equal(HttpStatusCode.OK, adminResponse.StatusCode);
+        Assert.Equal(
+            adminOrigin,
+            Assert.Single(adminResponse.Headers.GetValues("Access-Control-Allow-Origin")));
+
+        Assert.False(unapprovedResponse.Headers.Contains("Access-Control-Allow-Origin"));
+
+        Assert.Equal(
+            customerOrigin,
+            Assert.Single(customerPreflightResponse.Headers.GetValues("Access-Control-Allow-Origin")));
+        Assert.Equal(
+            "true",
+            Assert.Single(customerPreflightResponse.Headers.GetValues("Access-Control-Allow-Credentials")));
+        Assert.Equal(
+            adminOrigin,
+            Assert.Single(adminPreflightResponse.Headers.GetValues("Access-Control-Allow-Origin")));
+
+        Assert.DoesNotContain("*", customerResponse.Headers.GetValues("Access-Control-Allow-Origin"));
+        Assert.DoesNotContain("*", adminResponse.Headers.GetValues("Access-Control-Allow-Origin"));
+
+        using var adminOnUnrelatedRoute = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"/api/v1/properties/{PropertyId}");
+        adminOnUnrelatedRoute.Headers.Add("Origin", adminOrigin);
+        var adminOnUnrelatedRouteResponse = await client.SendAsync(adminOnUnrelatedRoute);
+
+        Assert.False(adminOnUnrelatedRouteResponse.Headers.Contains("Access-Control-Allow-Origin"));
+    }
+
     [Fact]
     public async Task Swagger_describes_all_customer_catalog_endpoints_and_responses()
     {

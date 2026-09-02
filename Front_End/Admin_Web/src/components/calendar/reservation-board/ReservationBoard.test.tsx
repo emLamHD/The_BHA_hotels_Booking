@@ -252,4 +252,97 @@ describe("ReservationBoard", () => {
     await user.click(screen.getByRole("button", { name: "Close" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
+
+  it("exposes only the Assigned/Unassigned/Operational Blocks filters — the non-functional Inactive filter is not rendered", async () => {
+    mockedFetchActiveProperties.mockResolvedValue({ ok: true, data: [propertyA] });
+    mockedFetchReservationBoard.mockImplementation((propertyId, from, to) =>
+      Promise.resolve({ ok: true, data: populatedBoard(propertyId, from, to) })
+    );
+
+    render(<ReservationBoard />);
+    await waitFor(() => expect(screen.getByText("101")).toBeInTheDocument());
+
+    expect(screen.getByRole("checkbox", { name: "Assigned" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Unassigned" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Operational Blocks" })).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: /Inactive/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/cancelled\/no-show/i)).not.toBeInTheDocument();
+  });
+
+  it("still lets the three remaining filters hide/show their own bars on the server-backed timeline", async () => {
+    mockedFetchActiveProperties.mockResolvedValue({ ok: true, data: [propertyA] });
+    mockedFetchReservationBoard.mockImplementation((propertyId, from, to) => {
+      const board = populatedBoard(propertyId, from, to);
+      board.stays = [
+        {
+          reservationId: "res-1",
+          reservationUnitId: "unit-1",
+          confirmationNumber: "CNF-001",
+          guestDisplayName: "Assigned Guest",
+          soldRoomTypeId: "type-standard",
+          checkIn: from,
+          checkOut: to,
+          coverageStatus: "FullyAssigned",
+          assignments: [
+            {
+              segmentId: "seg-1",
+              segmentVersion: 1,
+              physicalRoomId: "room-101",
+              actualRoomTypeId: "type-standard",
+              startDate: from,
+              endDate: to,
+            },
+          ],
+          unassignedRanges: [],
+        },
+        {
+          reservationId: "res-2",
+          reservationUnitId: "unit-2",
+          confirmationNumber: "CNF-002",
+          guestDisplayName: "Unassigned Guest",
+          soldRoomTypeId: "type-standard",
+          checkIn: from,
+          checkOut: to,
+          coverageStatus: "FullyUnassigned",
+          assignments: [],
+          unassignedRanges: [{ startDate: from, endDate: to }],
+        },
+      ];
+      board.operationalBlocks = [
+        {
+          roomBlockId: "roomblock-1",
+          segmentId: "block-1",
+          segmentVersion: 1,
+          physicalRoomId: "room-101",
+          reason: "Maintenance",
+          startDate: from,
+          endDate: to,
+        },
+      ];
+      return Promise.resolve({ ok: true, data: board });
+    });
+
+    render(<ReservationBoard />);
+    await waitFor(() => expect(screen.getByTitle(/Assigned Guest — CNF-001/)).toBeInTheDocument());
+    expect(screen.getByTitle(/Unassigned Guest — unassigned — CNF-002/)).toBeInTheDocument();
+    expect(screen.getByTitle("Maintenance")).toBeInTheDocument();
+
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("checkbox", { name: "Assigned" }));
+    await waitFor(() =>
+      expect(screen.queryByTitle(/Assigned Guest — CNF-001/)).not.toBeInTheDocument()
+    );
+    expect(screen.getByTitle(/Unassigned Guest — unassigned — CNF-002/)).toBeInTheDocument();
+    expect(screen.getByTitle("Maintenance")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("checkbox", { name: "Unassigned" }));
+    await waitFor(() =>
+      expect(screen.queryByTitle(/Unassigned Guest — unassigned — CNF-002/)).not.toBeInTheDocument()
+    );
+    expect(screen.getByTitle("Maintenance")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("checkbox", { name: "Operational Blocks" }));
+    await waitFor(() => expect(screen.queryByTitle("Maintenance")).not.toBeInTheDocument());
+  });
 });

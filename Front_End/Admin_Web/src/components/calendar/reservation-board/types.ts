@@ -334,8 +334,6 @@ export interface ReservationBoardFilters {
   showAssigned: boolean;
   showUnassigned: boolean;
   showOperationalBlocks: boolean;
-  /** Reveals cancelled/no-show reservations as faded, non-draggable, audit-only bars (§6.1). Off by default. */
-  showInactive: boolean;
 }
 
 /** A PhysicalRoom move/assignment destination choice, grouped by RoomType, for the confirmation dialog. */

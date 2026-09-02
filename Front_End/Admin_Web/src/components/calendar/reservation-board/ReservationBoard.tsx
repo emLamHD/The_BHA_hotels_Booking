@@ -61,7 +61,6 @@ const ReservationBoard: React.FC = () => {
     showAssigned: true,
     showUnassigned: true,
     showOperationalBlocks: true,
-    showInactive: false,
   });
   const [selection, setSelection] = useState<
     { kind: "stay"; value: StaySelection } | { kind: "block"; value: BlockSelection } | null
