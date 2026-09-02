@@ -23,6 +23,8 @@ Commits on this branch:
 12. `bf32ecb` — `fix(pms-cal-001.1): correction C4 — one snapshot per board projection, lanes for overlapping unassigned stays` (see §13).
 13. `2c7bcea` — `docs(pms-cal-001.1): record Correction Cycle C4 evidence`.
 14. `17e4899` — `fix(pms-cal-001.1): correction C5 — fail the Admin board gate closed outside Development` (see §14).
+15. `cf6f188` — `docs(pms-cal-001.1): record Correction Cycle C5 evidence`.
+16. `27924ec` — `fix(pms-cal-001.1): correction C6 — serve Customer Web over HTTPS so credentialed CSRF survives` (see §15).
 
 ## 1. What was delivered
 
@@ -1134,3 +1136,165 @@ invoked.
   nested agent, background writer, or concurrent writer was used in
   Correction Cycle C5, and neither pre-existing Orca dry-run worktree was
   touched.
+
+
+## 15. Correction Cycle C6 (including scope amendment C6-A1)
+
+Owner invoked `/codex:review --base origin/develop` a sixth time against
+PR #41, at HEAD `cf6f1882237fe17110e85f67d65a53a0ace3ffae`. Codex returned one
+[P1] finding about Customer Web's API transport.
+
+### Root cause, and why the obvious fix was not sufficient
+
+**Codex's finding:** the API applies `UseHttpsRedirection()` globally, while
+Customer Web still documented `http://localhost:5145` as its API base. Every
+credentialed/JSON request's CORS preflight would be sent to the HTTP listener
+and answered with a cross-origin redirect to HTTPS, which browsers do not
+reliably follow for preflight — so booking and authentication would fail
+before the real request was ever sent.
+
+Repointing Customer Web at `https://localhost:7145` removes that redirect.
+The real browser then showed a **second, independent failure**: with the page
+still served from `http://localhost:3000`, the API's `Secure; SameSite=Lax`
+antiforgery cookie was never returned on the mutation, because *schemeful
+same-site* treats `http://localhost` and `https://localhost` as different
+sites. Observed, controlled comparison — identical endpoint, payload, CSRF
+token and header:
+
+| Client | Antiforgery cookie attached | Result |
+| --- | --- | --- |
+| Chrome, page on `http://localhost:3000` | no | `400 "Invalid antiforgery token"` |
+| curl with a cookie jar | yes | `201 Created` |
+
+That isolated the cause to the browser cookie policy rather than CORS, the
+redirect, or the token. This cycle was therefore reported `STATUS: BLOCKED`
+with that evidence, and Control Tower issued **scope amendment C6-A1**
+authorizing the security-preserving resolution: serve Customer Web over
+HTTPS so both origins are same-site (still cross-origin by port).
+
+### Correction
+
+1. **Customer API base is HTTPS-only** (`src/lib/api/env.ts`). Validation is
+   real URL parsing rather than a regex alone: every `http://` base is
+   rejected (including `http://localhost`, `127.0.0.1` and `[::1]`), the
+   value is never rewritten from http to https, there is no fallback URL,
+   embedded credentials/query strings/fragments are rejected, error messages
+   redact credential-bearing values, and only a validated value is cached.
+   `.env.local.example` and the API-client suites move to
+   `https://localhost:7145`.
+2. **Customer Web is served over HTTPS** at `https://localhost:3000` by a new
+   development-only launcher, `scripts/dev-https.mjs`. Next.js is pinned to
+   13.4.3, whose `next dev` CLI has no HTTPS option, so the launcher wraps the
+   same public programmatic API the CLI uses (`getRequestHandler` /
+   `getUpgradeHandler`) in a `node:https` server. It uses only Node standard
+   library plus the installed `next` — no proxy, no reverse proxy, no new
+   dependency, no `next/dist/**` internals, and `package-lock.json` is
+   unchanged. It binds loopback only (never `0.0.0.0`), refuses to fall back
+   to another port, fails closed with a non-zero exit when the certificate or
+   key is missing or unreadable, never prints key material, forwards
+   development HMR/upgrade traffic, and shuts down cleanly on `SIGINT`/
+   `SIGTERM`. `npm run build` and `npm run start` remain the standard Next
+   commands. `npm run dev` (alias `npm run dev:https`) starts the launcher.
+3. **Development Customer CORS origin** moves to `https://localhost:3000` in
+   `appsettings.Development.json` — still explicit, still credentialed, no
+   wildcard, HTTP origin not retained as a fallback, Admin origin untouched,
+   Production still carries no development origins.
+4. **Certificates** live in a git-ignored `.certs/`, generated with `mkcert`
+   for `localhost`, `127.0.0.1` and `::1`. No certificate or private key is
+   committed, and none appears in any report, log or diff.
+5. **README** documents the supported local topology (Customer
+   `https://localhost:3000`, Admin `https://localhost:3001`, API
+   `https://localhost:7145`), the certificate setup, `npm ci`, the HTTPS dev
+   command, `.env.local.example` usage, and *why* both sides must be HTTPS
+   for the `Secure; SameSite=Lax` antiforgery cookie — including that a
+   certificate warning must not be clicked through, because it covers page
+   navigation only and not the background `fetch`/XHR the client uses.
+
+Nothing security-relevant was weakened: `SameSite=Lax`, `Secure`, antiforgery
+validation, `UseHttpsRedirection()`, the Admin origin and Admin CORS
+isolation are all unchanged. No dependency, migration, schema, Admin source
+or CI workflow change.
+
+### Red-before / green-after
+
+- Against the pre-C6 `env.ts`, the new HTTPS-only suite fails 9 tests,
+  including "rejects the previously documented http localhost base" — http
+  was accepted. All pass after.
+- The Chrome `400 "Invalid antiforgery token"` captured from
+  `http://localhost:3000` is the red evidence for the scheme boundary; the
+  green evidence below comes from the corrected HTTPS Customer origin with
+  the antiforgery controls unchanged.
+- The launcher's fail-closed path is covered by a test that runs it with no
+  `.certs/` present and asserts a non-zero exit, the certificate-path message,
+  and that no key material appears in stderr.
+
+### Fresh validation from the corrected tree
+
+- Backend: build 0 warnings/0 errors; **244/244** unit + **357/357**
+  integration (+1: the credentialed mutation-preflight CORS test); EF reports
+  no pending model changes; migrations still 8 with a zero-line diff.
+- Customer Web: `npm ci`; **314/314** (was 306, +8 launcher tests); lint
+  clean; production build succeeds against the HTTPS base.
+- Admin Web (untouched): `npm ci`; **68/68**; lint clean; build succeeds.
+- Launcher smoke: serves `https://localhost:3000` (200 on `/`, on a real
+  route, and on a Next static asset), and plain HTTP to that port is not
+  served at all.
+
+### Real-browser acceptance (through the app's own UI and shared client)
+
+Disposable PostgreSQL, API at `https://localhost:7145`, Customer Web at
+`https://localhost:3000`, Admin Web at `https://localhost:3001`, trusted
+`mkcert` certificates, real Chrome. The mutation was performed by clicking
+through the actual UI — never curl, never an injected cookie:
+
+1. `window.location.origin` is exactly `https://localhost:3000`;
+   `window.isSecureContext` is `true`.
+2. Every API request goes to `https://localhost:7145`; no request to
+   `http://localhost:5145`; no response `redirected`.
+3. Credentialed property and room-type reads return 200.
+4. The CSRF request returns 200 with a token; the antiforgery cookie is
+   `HttpOnly` (not visible to script) — recorded as attributes only, never
+   values.
+5. Availability search over HTTPS returned real offers; "Hold this room" →
+   `OPTIONS /api/v1/booking-holds` **204** then `POST` **201**, and the UI
+   rendered "Hold created · Status Active" with a hold id. The browser
+   attached the antiforgery cookie automatically — the same flow that
+   returned 400 from the HTTP origin.
+6. CORS returned exactly `https://localhost:3000` with
+   `Access-Control-Allow-Credentials: true`; the superseded
+   `http://localhost:3000` origin is denied.
+7. Zero console errors — no mixed content, CORS, TLS, CSRF or HMR errors.
+8. The Admin Reservation Board still returns 200 with `no-store` for its own
+   HTTPS origin, and `POST` to that route is still `405` — no Admin mutation
+   surface appeared.
+9. The disposable database changed only by that one intentional hold
+   (1 InventoryHold, 0 Reservations, 0 segments), and was dropped afterwards;
+   `thebha_dev` was untouched.
+
+One operational note worth recording: the first Chrome navigation to
+`https://localhost:3000` hit a stale TLS state from the port having just
+served plain HTTP, and showed an interstitial. That was not worked around by
+clicking through — the certificate chain was verified independently
+(`openssl s_client` → `Verify return code: 0 (ok)`, and curl without `-k`
+returning 200) and a fresh navigation loaded normally.
+
+### Final corrected state
+
+- Code/config/test correction commit:
+  `27924ec13904af903c96101122ff33e43cfe31c7` — GitHub Actions on that exact
+  SHA (run `33657051835`): Admin `pass` (53s), Frontend `pass` (1m31s),
+  Backend `pass` (2m24s). The Frontend job's test step ran the expanded
+  Customer suite (`Test Files 19 passed`, `Tests 314 passed`) and the Admin
+  job's step ran `Tests 68 passed`.
+- This documentation commit is docs-only, on top of `27924ec`; the final PR
+  HEAD and its Actions result are recorded in the terminal handoff and PR
+  description.
+- Sensitive-data handling: only the transport line of `.env.local.example`
+  was modified; unrelated credential-shaped values in that file were neither
+  printed, reproduced, rotated nor rewritten as part of this correction, and
+  no cookie value, CSRF token, private key or certificate content appears in
+  any evidence.
+- `ACTIVE_EXECUTOR` (Claude) stopped all writes at this checkpoint. Codex was
+  not invoked by Claude at any point. No subagent, nested agent, background
+  writer or concurrent writer was used in Correction Cycle C6, and neither
+  pre-existing Orca dry-run worktree was touched.
