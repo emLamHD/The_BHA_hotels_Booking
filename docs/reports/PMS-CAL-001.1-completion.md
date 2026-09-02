@@ -12,6 +12,8 @@ Commits on this branch:
 1. `77225ea` — `feat(pms): add Admin Reservation Board read projection over HTTPS` (Phase 1, backend).
 2. `fbdea50` — `fix(api): allow the Admin origin to read the Property catalog over CORS` (Phase 3 correctness fix — see §5).
 3. `c59c9e2` — `feat(admin): connect the Reservation Board to the live Admin API` (Phase 2, frontend).
+4. `2a99176` — `docs(pms-cal-001.1): record completion report, worklog, and doc updates`.
+5. `b4cef33` — `fix(pms-cal-001.1): correction C1 — restore credentialed customer CORS, remove dead inactive filter` (see §10).
 
 ## 1. What was delivered
 
@@ -313,3 +315,134 @@ chat message for current status.
 this report describes without an explicit Owner/OC instruction to continue.
 The reviewer (`CODEX_READ_ONLY`) has not yet been invoked — only Owner may
 invoke it, per `AGENTS.md` §2.B/§13.
+
+## 10. Correction Cycle C1
+
+Owner invoked `/codex:review --base origin/develop` against PR #41 at HEAD
+`2a991765618bc005a70e8debcc48d4f3226bd093`. Codex returned two findings,
+relayed verbatim to Owner, then routed back as an OC correction prompt
+(`PMS-CAL-001.1-C1`) that returned write authority to Claude as the same
+implementer of this work item.
+
+### Finding 1 (P1) — root cause and fix
+
+**Root cause:** `Program.cs`'s `properties-catalog-read` CORS policy (added
+in the Phase 3 fix, commit `fbdea50`) unioned the configured Customer and
+Admin origins onto `GET /api/v1/properties`, but never called
+`AllowCredentials()`. `Front_End/Customer_Web/src/lib/api/httpClient.ts`
+sends every request — including this one, via
+`src/app/(home)/SectionGridFeatureProperty.tsx`'s client-side
+`getProperties()` call — with `withCredentials: true`. A browser rejects a
+credentialed request whose response lacks
+`Access-Control-Allow-Credentials: true`, so any cross-origin Customer_Web
+deployment would have silently lost its property catalog.
+
+**Fix:** `properties-catalog-read` now deduplicates the union of
+`Cors:AllowedOrigins` and `Cors:AdminOrigins` and adds `AllowCredentials()`
+back, while staying explicit-origin (no wildcard), `GET`-only, and scoped to
+this one controller action — `customer-web` and `admin-calendar` are
+unchanged, and no other Customer-facing action gained the Admin origin.
+`PropertiesController.cs`'s comment on `GetProperties` was corrected to
+describe the policy as still credentialed.
+
+**New regression test:**
+`PropertyCatalogApiTests.Property_catalog_read_stays_credentialed_for_customer_and_also_allows_admin_without_widening_other_customer_routes`
+— against real PostgreSQL, proves: the configured Customer origin gets
+`Access-Control-Allow-Origin`+`Access-Control-Allow-Credentials: true` on
+both a plain `GET` and an `OPTIONS` preflight; the configured Admin origin
+gets `Access-Control-Allow-Origin` on both; an unapproved origin gets
+neither; no response ever contains a wildcard origin; and the Admin origin
+is denied on the unrelated `GET /api/v1/properties/{propertyId}` route.
+
+### Finding 2 (P2) — root cause and fix
+
+**Root cause:** `ReservationBoardToolbar.tsx`'s `FILTER_OPTIONS` still
+listed an "Inactive (cancelled/no-show)" checkbox (inherited from
+`ADMIN-002.1`'s mock-driven toolbar) toggling `filters.showInactive` in
+`ReservationBoard.tsx`'s state, but `ReservationBoardServerTimeline.tsx`
+never received or read that prop, and the read API contract has no
+lifecycle-status field to filter on (cancelled/no-show units are excluded
+server-side by design — see `docs/ARCHITECTURE.md`). The checkbox rendered,
+looked interactive, and did nothing: a regressed, dead control.
+
+**Fix (OC product decision — do not expand the backend contract in this
+correction):** removed the `showInactive` filter end to end — the
+`FILTER_OPTIONS` entry in `ReservationBoardToolbar.tsx`, the field on
+`ReservationBoardFilters` in `types.ts`, and the initial state in
+`ReservationBoard.tsx`. A repository-wide search confirms no other
+`showInactive` reference remains anywhere in `Front_End/Admin_Web`. The
+three real filters (`showAssigned`/`showUnassigned`/`showOperationalBlocks`)
+and the mock-driven prototype's own, unrelated inactive-lifecycle rendering
+(`isInactiveLifecycleStatus`/`LIFECYCLE_STATUS_LABEL` in `types.ts`, used by
+the still-intentionally-present `ReservationTimeline.tsx`) are untouched.
+
+**New/updated regression tests** in `ReservationBoard.test.tsx`:
+- confirms the toolbar renders exactly the Assigned/Unassigned/Operational
+  Blocks filter checkboxes and no Inactive control;
+- seeds one assigned stay, one unassigned stay, and one operational block,
+  then toggles each of the three remaining filters and asserts the
+  corresponding bar disappears from the server-backed timeline while the
+  others remain — proving they still drive real rendering.
+
+### Fresh validation evidence (all rerun from corrected HEAD, not reused)
+
+- Static: repository-wide `showInactive` search returned no remaining
+  reference; `git diff --check` clean; migration count unchanged at 8
+  (`Back_End/src/TheBha.Infrastructure/Persistence/Migrations`);
+  `dotnet ef migrations has-pending-model-changes` → "No changes have been
+  made to the model since the last migration."
+- Backend: `dotnet build` 0 warnings/0 errors; targeted
+  `PropertyCatalogApiTests` filter — 6/6 (including the new CORS test);
+  full suite — **244/244** unit + **349/349** integration (was 348, +1 for
+  the new CORS test), against real PostgreSQL.
+- Admin Web: `npm run lint` clean; targeted `ReservationBoard.test.tsx` —
+  11/11; full `npm test` — **48/48** (was 46, +2); `npm run build`
+  succeeds.
+- Customer Web (full gate, since P1 is a Customer-facing regression):
+  `npm run lint` clean; `npm test` — **298/298**; `npm run build` succeeds.
+- Real browser acceptance: a disposable PostgreSQL database
+  (`thebha_pmscal001_c1_e2e`, migrated and seeded via the existing
+  `--seed-development` `DevelopmentDataSeeder` path, dropped afterward) fed
+  two backend processes against the same database — an HTTP-only instance
+  on `:5145` (matching the documented Customer dev profile, avoiding
+  `UseHttpsRedirection`'s https-port-detection confound when both an HTTP
+  and HTTPS endpoint are bound on one process) and an HTTPS-only instance
+  on `:7145` using the same `mkcert`-issued certificate trusted into
+  Chrome's system store during Phase 3 (`Front_End/Admin_Web/certificates`)
+  — alongside Customer Web (`npm run dev`, port 3000) and Admin Web
+  (`npm run dev:https`, port 3001). In real Chrome:
+  1. Customer Web's `/home-2` page loaded "The BHA Hotel" from a genuine
+     client-side, credentialed, cross-origin `GET /api/v1/properties` —
+     200, zero console errors — proving the P1 fix live, not just in curl.
+  2. Admin Web's Reservation Board opened against the same origin-gated
+     endpoint, Property selector showing "The BHA Hotel".
+  3. The toolbar showed exactly three filter chips (Assigned/Unassigned/
+     Operational Blocks) — no Inactive chip, confirmed by a zoomed
+     screenshot.
+  4. Toggling the Unassigned filter live-removed the board's "Unassigned"
+     lane rows; all three checkboxes toggled without error.
+  5. A live `fetch("https://localhost:7145/api/v1/properties/{propertyId}",
+     {credentials:"include"})` issued from the Admin origin's own page
+     context was blocked by the browser itself
+     (`TypeError: Failed to fetch`) — proving the Admin origin gained no
+     access to an unrelated Customer route, not just that curl saw no
+     header.
+  6. Zero CORS-related (or any) browser console errors throughout.
+  7. `psql` against the disposable database after the session confirmed 0
+     `Reservations`, 0 `RoomOccupancySegments`, 0 `RoomBlocks` — the
+     interactive session never mutated reservation/assignment/block state
+     (structurally impossible anyway: no HTTP mutation endpoint exists).
+
+### Final corrected state
+
+- Corrected commit: `b4cef33867f6326b57ddb199a1081c33a6d97ddd`.
+- PR #41 HEAD after push: `b4cef33867f6326b57ddb199a1081c33a6d97ddd`
+  (confirmed via `gh pr view 41`); PR left as Draft, not merged.
+- GitHub Actions on that exact SHA (run `33619047212`): Admin `pass`
+  (54s), Frontend `pass` (1m16s), Backend `pass` (2m22s) — all three green.
+- No statement elsewhere in this report claiming the prior HEAD
+  (`2a991765618bc005a70e8debcc48d4f3226bd093`) is production-ready still
+  applies; the corrected HEAD above is the current state of the PR.
+- `ACTIVE_EXECUTOR` (Claude) stopped all writes at this checkpoint. Codex
+  has not been re-invoked by Claude; only Owner may invoke
+  `/codex:review --base origin/develop` again.
