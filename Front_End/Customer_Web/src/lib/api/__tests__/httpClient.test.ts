@@ -20,7 +20,7 @@ function mockAxiosInstance(
 }
 
 beforeEach(() => {
-  process.env[ENV_VAR_NAME] = "http://localhost:5145";
+  process.env[ENV_VAR_NAME] = "https://localhost:7145";
   resetApiBaseUrlCacheForTests();
   resetApiClientForTests();
 });
@@ -35,7 +35,7 @@ describe("apiGet", () => {
     await apiGet("/api/v1/properties");
 
     expect(axios.create).toHaveBeenCalledWith(
-      expect.objectContaining({ baseURL: "http://localhost:5145" })
+      expect.objectContaining({ baseURL: "https://localhost:7145" })
     );
     expect(request).toHaveBeenCalledTimes(1);
   });

@@ -17,6 +17,73 @@ Welcome to **Chisfis**, a responsive Nextjs template theme tailored for Online b
 - **Interactive Components**: Over 8 listing cards, modal gallery, checkout pages, and more.
 - **Built-in React Packages**: A collection of essential packages for a smooth development experience.
 
+## 🔌 Local development: The BHA Hotels API (project-specific)
+
+Supported local topology — **every origin is HTTPS**:
+
+| Component    | Origin                    |
+| ------------ | ------------------------- |
+| Customer Web | `https://localhost:3000`  |
+| Admin Web    | `https://localhost:3001`  |
+| API          | `https://localhost:7145`  |
+
+Both Customer Web and the API must be HTTPS. The API issues its antiforgery
+cookie as `Secure; SameSite=Lax`, and under the browser's schemeful same-site
+rules `http://localhost` and `https://localhost` are *different sites* — so a
+Customer page served over HTTP never gets that cookie back on a credentialed
+request. CORS and the CSRF token both succeed and the mutation still fails
+antiforgery with HTTP 400. Serving both over HTTPS on the same host makes them
+same-site (still cross-origin by port) without weakening `SameSite`, `Secure`,
+or antiforgery validation. The API also applies `UseHttpsRedirection()`
+globally, so `src/lib/api/env.ts` rejects any `http://` API base outright
+rather than relying on a redirect a preflight would not follow.
+
+### Setup
+
+1. **Generate a trusted localhost certificate** (once). Using
+   [`mkcert`](https://github.com/FiloSottile/mkcert):
+
+   ```bash
+   mkcert -install                       # trust the local CA (once per machine)
+   mkdir -p .certs
+   mkcert -key-file .certs/localhost-key.pem \
+          -cert-file .certs/localhost.pem \
+          localhost 127.0.0.1 ::1
+   ```
+
+   `.certs/` is git-ignored — never commit a certificate or private key.
+
+2. **Install dependencies**:
+
+   ```bash
+   npm ci
+   ```
+
+3. **Configure the API base**: copy `.env.local.example` to `.env.local` and keep
+
+   ```
+   NEXT_PUBLIC_API_BASE_URL=https://localhost:7145
+   ```
+
+   It must be `https://`; `http://` (including `http://localhost`) is rejected.
+
+4. **Run the API** on its `https` launch profile (`Back_End/src/TheBha.Api`),
+   listening on `https://localhost:7145`.
+
+5. **Start Customer Web over HTTPS**:
+
+   ```bash
+   npm run dev        # serves https://localhost:3000 (alias: npm run dev:https)
+   ```
+
+The certificate must be genuinely trusted: a browser certificate warning
+covers page navigation only, not the background `fetch`/XHR the API client
+uses, so an untrusted certificate fails silently. Do not click through
+certificate errors when verifying behaviour.
+
+`npm run build` and `npm run start` are unchanged and use the standard Next
+commands.
+
 ## 📦 In The Box
 
 - Full source code of the theme.

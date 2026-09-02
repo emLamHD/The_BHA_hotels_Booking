@@ -236,15 +236,26 @@ public sealed class CustomerAuthenticationTests
             }
         }
 
+        // PMS-CAL-001.1 correction C6: the Customer dev origin is https://localhost:3000.
+        // Both origins must be HTTPS for the Secure; SameSite=Lax antiforgery cookie to
+        // survive the browser's schemeful same-site rules, so the old HTTP origin is
+        // deliberately no longer allowed.
         using var developmentClient = _factory.CreateClient();
         using var preflight = new HttpRequestMessage(HttpMethod.Options, "/api/v1/auth/login");
-        preflight.Headers.Add("Origin", "http://localhost:3000");
+        preflight.Headers.Add("Origin", "https://localhost:3000");
         preflight.Headers.Add("Access-Control-Request-Method", "POST");
         var cors = await developmentClient.SendAsync(preflight);
         Assert.Equal("true", Assert.Single(cors.Headers.GetValues("Access-Control-Allow-Credentials")));
         Assert.Equal(
-            "http://localhost:3000",
+            "https://localhost:3000",
             Assert.Single(cors.Headers.GetValues("Access-Control-Allow-Origin")));
+        Assert.DoesNotContain("*", cors.Headers.GetValues("Access-Control-Allow-Origin"));
+
+        using var httpPreflight = new HttpRequestMessage(HttpMethod.Options, "/api/v1/auth/login");
+        httpPreflight.Headers.Add("Origin", "http://localhost:3000");
+        httpPreflight.Headers.Add("Access-Control-Request-Method", "POST");
+        var httpCors = await developmentClient.SendAsync(httpPreflight);
+        Assert.False(httpCors.Headers.Contains("Access-Control-Allow-Origin"));
     }
 
     [Fact]

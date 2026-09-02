@@ -136,7 +136,7 @@ public sealed class PropertyCatalogApiTests(PostgreSqlWebApplicationFactory fact
     {
         await SeedFreshDatabaseAsync();
         using var client = factory.CreateClient();
-        const string customerOrigin = "http://localhost:3000";
+        const string customerOrigin = "https://localhost:3000"; // correction C6: Customer dev origin is HTTPS
         const string adminOrigin = "https://localhost:3001";
         const string unapprovedOrigin = "https://evil.example";
 
@@ -213,6 +213,58 @@ public sealed class PropertyCatalogApiTests(PostgreSqlWebApplicationFactory fact
         Assert.True(paths.TryGetProperty("/api/v1/properties/{propertyId}/room-types", out _));
         Assert.True(paths.TryGetProperty("/api/v1/room-types/{roomTypeId}", out _));
         Assert.True(propertyPath.GetProperty("get").GetProperty("responses").TryGetProperty("404", out _));
+    }
+
+    /// <summary>
+    /// PMS-CAL-001.1 correction C6: Customer Web's development origin moved to
+    /// https://localhost:3000 so that it is same-site with the HTTPS API and the
+    /// unchanged <c>Secure; SameSite=Lax</c> antiforgery cookie survives a
+    /// credentialed mutation. This proves the credentialed mutation preflight
+    /// succeeds for that exact HTTPS origin, that the superseded HTTP origin is
+    /// no longer allowed, that an unapproved origin is still denied, and that no
+    /// wildcard is ever emitted.
+    /// </summary>
+    [Fact]
+    public async Task Customer_mutation_preflight_succeeds_for_the_https_origin_and_the_superseded_http_origin_is_denied()
+    {
+        await SeedFreshDatabaseAsync();
+        using var client = factory.CreateClient();
+        const string customerOrigin = "https://localhost:3000";
+
+        using var preflight = new HttpRequestMessage(HttpMethod.Options, "/api/v1/booking-holds");
+        preflight.Headers.Add("Origin", customerOrigin);
+        preflight.Headers.Add("Access-Control-Request-Method", "POST");
+        preflight.Headers.Add("Access-Control-Request-Headers", "content-type,x-csrf-token,idempotency-key");
+        var allowed = await client.SendAsync(preflight);
+
+        using var httpPreflight = new HttpRequestMessage(HttpMethod.Options, "/api/v1/booking-holds");
+        httpPreflight.Headers.Add("Origin", "http://localhost:3000");
+        httpPreflight.Headers.Add("Access-Control-Request-Method", "POST");
+        var httpRejected = await client.SendAsync(httpPreflight);
+
+        using var unapproved = new HttpRequestMessage(HttpMethod.Options, "/api/v1/booking-holds");
+        unapproved.Headers.Add("Origin", "https://evil.example");
+        unapproved.Headers.Add("Access-Control-Request-Method", "POST");
+        var unapprovedRejected = await client.SendAsync(unapproved);
+
+        Assert.Equal(
+            customerOrigin,
+            Assert.Single(allowed.Headers.GetValues("Access-Control-Allow-Origin")));
+        Assert.Equal(
+            "true",
+            Assert.Single(allowed.Headers.GetValues("Access-Control-Allow-Credentials")));
+        Assert.DoesNotContain("*", allowed.Headers.GetValues("Access-Control-Allow-Origin"));
+
+        Assert.False(httpRejected.Headers.Contains("Access-Control-Allow-Origin"));
+        Assert.False(unapprovedRejected.Headers.Contains("Access-Control-Allow-Origin"));
+
+        // Admin isolation is unchanged: the Admin origin still has no access to
+        // this Customer mutation route.
+        using var adminOnMutation = new HttpRequestMessage(HttpMethod.Options, "/api/v1/booking-holds");
+        adminOnMutation.Headers.Add("Origin", "https://localhost:3001");
+        adminOnMutation.Headers.Add("Access-Control-Request-Method", "POST");
+        var adminRejected = await client.SendAsync(adminOnMutation);
+        Assert.False(adminRejected.Headers.Contains("Access-Control-Allow-Origin"));
     }
 
     private async Task SeedFreshDatabaseAsync()

@@ -7,7 +7,8 @@
     "npm": "10.x"
   },
   "scripts": {
-    "dev": "next dev",
+    "dev": "node scripts/dev-https.mjs",
+    "dev:https": "node scripts/dev-https.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",

@@ -1,20 +1,58 @@
 const ENV_VAR_NAME = "NEXT_PUBLIC_API_BASE_URL";
 
+/**
+ * Keeps a rejected value out of the error message when it carries URL
+ * credentials, so a misconfigured `https://user:secret@host` never reaches a
+ * log or a browser console.
+ */
+function describeValue(rawValue: string): string {
+  return rawValue.includes("@") ? "<redacted>" : `"${rawValue}"`;
+}
+
+/**
+ * PMS-CAL-001.1 correction C6: the API base must be an absolute `https://`
+ * URL.
+ *
+ * The API applies `UseHttpsRedirection()` globally, so an `http://` base makes
+ * the browser send every credentialed/JSON request's CORS preflight to the
+ * HTTP listener and receive a cross-origin redirect to HTTPS. Browsers do not
+ * reliably follow redirects for preflight requests, so booking and
+ * authentication would fail before the real request was ever sent — and fail
+ * in a way that looks like an intermittent CORS problem rather than a
+ * configuration mistake. Rejecting `http://` here turns that into an
+ * immediate, explicit configuration error instead.
+ *
+ * The value is deliberately never rewritten from `http://` to `https://` on
+ * the caller's behalf: a wrong base URL is a deployment mistake to fix, not
+ * something to silently paper over. Well-formedness is decided by real URL
+ * parsing, not by a regex.
+ */
 function normalizeBaseUrl(rawValue: string): string {
   const trimmed = rawValue.trim();
 
-  if (!/^https?:\/\/.+/i.test(trimmed)) {
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
     throw new Error(
-      `${ENV_VAR_NAME} must be an absolute http or https URL, received: "${rawValue}"`
+      `${ENV_VAR_NAME} must be an absolute https URL, received: ${describeValue(rawValue)}`
     );
   }
 
-  try {
-    // eslint-disable-next-line no-new -- validates well-formedness only
-    new URL(trimmed);
-  } catch {
+  if (parsed.protocol !== "https:") {
     throw new Error(
-      `${ENV_VAR_NAME} must be a valid URL, received: "${rawValue}"`
+      `${ENV_VAR_NAME} must use https:// — the API redirects http to https, which breaks ` +
+        `credentialed CORS preflight. Received: ${describeValue(rawValue)}`
+    );
+  }
+
+  if (parsed.username !== "" || parsed.password !== "") {
+    throw new Error(`${ENV_VAR_NAME} must not embed URL credentials.`);
+  }
+
+  if (parsed.search !== "" || parsed.hash !== "") {
+    throw new Error(
+      `${ENV_VAR_NAME} must not contain a query string or fragment, received: ${describeValue(rawValue)}`
     );
   }
 
@@ -25,7 +63,8 @@ let cachedBaseUrl: string | undefined;
 
 /**
  * Reads and validates NEXT_PUBLIC_API_BASE_URL on first use. Throws rather
- * than falling back to another URL when the value is absent or malformed.
+ * than falling back to another URL when the value is absent or malformed, and
+ * caches only a value that has passed validation.
  */
 export function getApiBaseUrl(): string {
   if (cachedBaseUrl !== undefined) {
