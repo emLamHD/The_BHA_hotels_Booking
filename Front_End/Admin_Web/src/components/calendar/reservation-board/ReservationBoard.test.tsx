@@ -2,7 +2,7 @@ import React from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import ReservationBoard from "./ReservationBoard";
+import ReservationBoard, { todayInTimeZone } from "./ReservationBoard";
 import type { ApiProperty, ReservationBoardResponse } from "@/lib/api/types";
 
 vi.mock("@/lib/api/client", () => ({
@@ -344,5 +344,67 @@ describe("ReservationBoard", () => {
 
     await user.click(screen.getByRole("checkbox", { name: "Operational Blocks" }));
     await waitFor(() => expect(screen.queryByTitle("Maintenance")).not.toBeInTheDocument());
+  });
+
+  it("requests the board with a strict ISO from/to derived from the selected Property's time zone", async () => {
+    mockedFetchActiveProperties.mockResolvedValue({ ok: true, data: [propertyA] });
+    mockedFetchReservationBoard.mockImplementation((propertyId, from, to) =>
+      Promise.resolve({ ok: true, data: populatedBoard(propertyId, from, to) })
+    );
+
+    render(<ReservationBoard />);
+    await waitFor(() => expect(mockedFetchReservationBoard).toHaveBeenCalledTimes(1));
+
+    const [, from, to] = mockedFetchReservationBoard.mock.calls[0];
+    expect(from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(to).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+});
+
+// PMS-CAL-001.1 correction C3: Intl.DateTimeFormat(...).format() is not
+// contractually guaranteed to return "YYYY-MM-DD" for any locale/ICU build
+// — todayInTimeZone must derive its result from formatToParts() instead, or
+// a browser whose "en-US" formatter renders a different shape (e.g.
+// "M/D/YYYY") would feed a malformed date straight into ISO arithmetic.
+describe("todayInTimeZone", () => {
+  it("returns a strict YYYY-MM-DD ISO date", () => {
+    const result = todayInTimeZone("Asia/Ho_Chi_Minh", new Date("2026-03-05T10:00:00Z"));
+    expect(result).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it("zero-pads a single-digit month and day", () => {
+    expect(todayInTimeZone("UTC", new Date("2026-01-05T00:00:00Z"))).toBe("2026-01-05");
+  });
+
+  it("derives the result from Intl.DateTimeFormat parts, not from .format()'s string shape", () => {
+    const RealDateTimeFormat = Intl.DateTimeFormat;
+    const spy = vi.spyOn(Intl, "DateTimeFormat").mockImplementation(
+      (...args: ConstructorParameters<typeof Intl.DateTimeFormat>) => {
+        const real = new RealDateTimeFormat(...args);
+        return {
+          // Deliberately non-ISO — a browser/ICU build that renders "en-US" this way
+          // must not corrupt the result, since the fix never reads this value.
+          format: () => "3/5/2026",
+          formatToParts: (date?: Date) => real.formatToParts(date),
+        } as Intl.DateTimeFormat;
+      }
+    );
+
+    try {
+      expect(todayInTimeZone("UTC", new Date("2026-03-05T00:00:00Z"))).toBe("2026-03-05");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("produces different, correct local dates on opposite sides of midnight for the same UTC instant", () => {
+    const instant = new Date("2026-01-01T23:30:00Z");
+    expect(todayInTimeZone("Asia/Tokyo", instant)).toBe("2026-01-02"); // UTC+9: already the next day
+    expect(todayInTimeZone("America/Los_Angeles", instant)).toBe("2026-01-01"); // UTC-8: still the same day
+  });
+
+  it("falls back to a valid ISO date if the time zone is invalid, without throwing", () => {
+    const result = todayInTimeZone("Not/A_Real_Zone", new Date("2026-03-05T00:00:00Z"));
+    expect(result).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 });

@@ -22,6 +22,7 @@ import {
   buildVisibleRange,
   computeVisibleStartFromAnchor,
   addDaysIso,
+  formatIsoDate,
   formatRangeLabel,
 } from "./dateMath";
 import type { IsoDate, ReservationBoardFilters, ReservationBoardRangeLength } from "./types";
@@ -41,12 +42,42 @@ type BoardState =
   | { status: "loaded"; board: ReservationBoardResponse }
   | { status: "error"; error: ApiError };
 
-/** Client-side "today" in an IANA zone, used only to pick the very first visible range — see dateMath.ts header comment for why this module never otherwise uses browser-local dates. */
-function todayInTimeZone(timeZone: string): IsoDate {
+/**
+ * Client-side "today" in an IANA zone, used only to pick the very first
+ * visible range — see dateMath.ts header comment for why this module never
+ * otherwise uses browser-local dates.
+ *
+ * PMS-CAL-001.1 correction C3: reads year/month/day from
+ * `formatToParts()` rather than trusting `.format()`'s string shape.
+ * `Intl.DateTimeFormat(...).format()` is not contractually guaranteed to
+ * return `YYYY-MM-DD` for any given locale/ICU build — even "en-CA", which
+ * conventionally does, is an implementation detail some environments don't
+ * honor (e.g. returning `M/D/YYYY` instead). An unchecked mismatch here
+ * would feed a malformed date straight into ISO date arithmetic. `calendar:
+ * "gregory"`/`numberingSystem: "latn"` additionally rule out a
+ * locale/environment defaulting to a non-Gregorian calendar or non-Latin
+ * digits. `now` is an injectable parameter (default `new Date()`) purely
+ * for deterministic unit testing.
+ */
+export function todayInTimeZone(timeZone: string, now: Date = new Date()): IsoDate {
   try {
-    return new Intl.DateTimeFormat("en-CA", { timeZone }).format(new Date());
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      calendar: "gregory",
+      numberingSystem: "latn",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(now);
+    const year = Number(parts.find((part) => part.type === "year")?.value);
+    const month = Number(parts.find((part) => part.type === "month")?.value);
+    const day = Number(parts.find((part) => part.type === "day")?.value);
+    if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+      throw new Error("Intl.DateTimeFormat did not return numeric year/month/day parts.");
+    }
+    return formatIsoDate(year, month, day);
   } catch {
-    return new Date().toISOString().slice(0, 10);
+    return now.toISOString().slice(0, 10);
   }
 }
 

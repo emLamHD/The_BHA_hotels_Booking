@@ -500,6 +500,57 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         Assert.Equal("no-store", notFound.Headers.CacheControl?.ToString());
     }
 
+    // PMS-CAL-001.1 correction C3: Cache-Control: no-store must be set as the
+    // very first thing the resource filter does, before the gate check, so it
+    // also covers an automatic [ApiController] validation response (missing/
+    // malformed from or to) — which short-circuits before the action's own
+    // Response.Headers.CacheControl line ever runs. Covers every combination
+    // of gate state and outcome the correction prompt requires.
+    [Fact]
+    public async Task Response_always_sets_cache_control_no_store_regardless_of_gate_or_validation_outcome()
+    {
+        await factory.ResetDatabaseAsync();
+        factory.Clock.UtcNow = Now;
+        await using var context = factory.CreateDbContext();
+        var fixture = await CreatePropertyAsync(context, "no-store");
+        using var enabledClient = factory.CreateClient();
+        await using var gatedFactory = factory.WithWebHostBuilder(builder =>
+            builder.ConfigureServices(services =>
+                services.Configure<AdminCalendarOptions>(options => options.EnableUnauthenticatedRead = false)));
+        using var disabledClient = gatedFactory.CreateClient();
+
+        var propertyId = fixture.Property.Id;
+        var validUrl = BoardUrl(propertyId, new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 3));
+        var missingBothUrl = $"/api/admin/v1/properties/{propertyId}/reservation-board";
+        var missingFromUrl = $"/api/admin/v1/properties/{propertyId}/reservation-board?to=2026-09-03";
+        var missingToUrl = $"/api/admin/v1/properties/{propertyId}/reservation-board?from=2026-09-01";
+        var malformedFromUrl = $"/api/admin/v1/properties/{propertyId}/reservation-board?from=not-a-date&to=2026-09-03";
+        var malformedToUrl = $"/api/admin/v1/properties/{propertyId}/reservation-board?from=2026-09-01&to=not-a-date";
+        var equalDatesUrl = BoardUrl(propertyId, new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 1));
+        var propertyNotFoundUrl = BoardUrl(Guid.NewGuid(), new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 3));
+
+        var cases = new (string Name, HttpClient Client, string Url)[]
+        {
+            ("gate-disabled-valid", disabledClient, validUrl),
+            ("gate-disabled-missing-both", disabledClient, missingBothUrl),
+            ("gate-enabled-success", enabledClient, validUrl),
+            ("gate-enabled-missing-from", enabledClient, missingFromUrl),
+            ("gate-enabled-missing-to", enabledClient, missingToUrl),
+            ("gate-enabled-malformed-from", enabledClient, malformedFromUrl),
+            ("gate-enabled-malformed-to", enabledClient, malformedToUrl),
+            ("gate-enabled-equal-dates-app-400", enabledClient, equalDatesUrl),
+            ("gate-enabled-property-not-found-404", enabledClient, propertyNotFoundUrl),
+        };
+
+        foreach (var (name, client, url) in cases)
+        {
+            var response = await client.GetAsync(url);
+            Assert.True(
+                "no-store" == response.Headers.CacheControl?.ToString(),
+                $"case '{name}' expected Cache-Control: no-store, got '{response.Headers.CacheControl}'");
+        }
+    }
+
     [Fact]
     public async Task Explicit_https_admin_origin_is_allowed_and_unapproved_origin_is_not()
     {
@@ -616,6 +667,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         var response = await client.GetAsync("/api/v1/properties");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.NotEqual("no-store", response.Headers.CacheControl?.ToString());
     }
 
     [Fact]
