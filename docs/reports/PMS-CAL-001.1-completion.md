@@ -21,6 +21,8 @@ Commits on this branch:
 10. `5095055` — `fix(pms-cal-001.1): correction C3 — no-store on validation errors, locale-safe ISO dates, enforce Admin tests in CI` (see §12).
 11. `aa07d63` — `docs(pms-cal-001.1): record Correction Cycle C3 evidence`.
 12. `bf32ecb` — `fix(pms-cal-001.1): correction C4 — one snapshot per board projection, lanes for overlapping unassigned stays` (see §13).
+13. `2c7bcea` — `docs(pms-cal-001.1): record Correction Cycle C4 evidence`.
+14. `17e4899` — `fix(pms-cal-001.1): correction C5 — fail the Admin board gate closed outside Development` (see §14).
 
 ## 1. What was delivered
 
@@ -966,4 +968,169 @@ on the same row — along with four other new cases.
   may invoke `/codex:review --base origin/develop` again. No subagent,
   nested agent, background writer, or concurrent writer was used in
   Correction Cycle C4, and neither pre-existing Orca dry-run worktree was
+  touched.
+
+
+## 14. Correction Cycle C5
+
+Owner invoked `/codex:review --base origin/develop` a fifth time against
+PR #41, at HEAD `2c7bceae01cc788f4901e0602d192af18462e8a8`. Codex returned
+one [P1] finding — a real exposure boundary on the unauthenticated read
+gate — relayed verbatim to Owner and routed back as an OC correction
+prompt (`PMS-CAL-001.1-C5`).
+
+### Root cause
+
+`Program.cs`'s startup guard binds *one configuration snapshot*
+(`builder.Configuration.GetSection(...).Get<AdminCalendarOptions>()`) and
+refuses to boot a Production host whose
+`AdminCalendar:EnableUnauthenticatedRead` is already `true`. The request
+gate, however, injected `IOptions<AdminCalendarOptions>`, and
+`IOptions<T>.Value` is materialized *lazily* — for this filter, on the
+first Reservation Board request. That leaves a window:
+
+1. Production starts while the flag is `false`; the startup guard passes.
+2. A reloadable configuration source (for example `appsettings.json` with
+   `reloadOnChange`) supplies `true`.
+3. The first board request materializes `IOptions<T>.Value` — binding the
+   *later* value.
+4. The pre-C5 filter saw `true` and let the request through.
+
+The response carries guest display names, confirmation numbers and stay
+dates, and CORS constrains browsers only — never `curl` or a
+server-to-server caller — so this was a genuine exposure path, not a
+theoretical one.
+
+### Correction
+
+The gate is now **environment-first and fails closed**: a request proceeds
+only when the host is Development *and* the flag is set.
+
+```csharp
+context.HttpContext.Response.Headers.CacheControl = "no-store";
+
+if (!hostEnvironment.IsDevelopment() ||
+    !adminCalendarOptions.Value.EnableUnauthenticatedRead)
+{
+    context.Result = new NotFoundResult();
+}
+```
+
+The hosting environment is fixed for the life of the process, and `||`
+short-circuits, so outside Development the reloadable option is never even
+read — no configuration change, at any time, can open this endpoint in
+Production, Staging, or any other non-Development host. `no-store` is
+still set before every outcome, the filter stays scoped to
+`AdminReservationBoardController` alone via `[ServiceFilter]`, and the
+unavailable response remains indistinguishable across valid, missing and
+malformed queries. No CORS, authentication, authorization, or public
+endpoint was added, and nothing guest-related is logged.
+
+The Production startup guard is deliberately **kept** as defense in depth:
+it fails loudly and early on initial misconfiguration, while the filter
+fails closed at request time. Comments in `Program.cs` and
+`AdminCalendarOptions.cs` now state that division of responsibility
+accurately.
+
+### Regression coverage (all through the real MVC pipeline on a real host)
+
+- **The exact exploit**
+  (`Production_gate_enabled_after_startup_still_returns_the_unavailable_404_without_reaching_the_board_query`):
+  boots a genuine Production host with the flag `false` so the startup
+  guard passes, then deterministically sets the configuration value to
+  `true` *before* `IOptions<T>.Value` has ever been materialized — and
+  asserts the option really does bind `true`, so the test provably
+  recreates the exploit's precondition. A direct request with **no Origin
+  header** then still receives the unavailable 404 with
+  `Cache-Control: no-store`. A recording `IReservationBoardQuery`
+  stand-in, which would return unmistakable sentinel guest data if ever
+  called, proves the action and persistence were never reached, and the
+  body is asserted to contain neither the sentinel guest name, the
+  sentinel confirmation number, nor a `guestDisplayName` field.
+- **Staging with the flag enabled from startup** — the startup guard
+  deliberately covers Production only, so this host boots with the flag
+  `true` and only the request-time environment check keeps it closed;
+  unavailable 404, `no-store`, query never invoked.
+- **Production with the flag off** — valid, missing and malformed queries
+  all return the identical unavailable 404 with `no-store`, the query is
+  never invoked, and the unrelated `/api/v1/properties` route is
+  unaffected (still 200, and not given this cache policy).
+- **Development with the gate enabled** — still serves the board.
+- Every environment-sensitive test asserts the resolved
+  `IHostEnvironment.EnvironmentName`, so none of them can silently
+  degrade into a Development test that passes for the wrong reason.
+- The pre-existing `Production_startup_rejects_the_unauthenticated_read_gate`
+  test still proves the startup-fatal path.
+
+**Red-before/green-after:** with only the request-time environment check
+temporarily removed (via a controlled copy-aside, nothing left behind),
+the Production late-enable request returned **`200 OK` with board data**
+and the Staging request likewise — the exploit reproduced exactly. With
+the check restored, both return the unavailable 404 and the query is never
+invoked.
+
+### Fresh validation evidence (rerun from the corrected HEAD)
+
+- Static: `git diff --check` clean; changed files
+  (`AdminReservationBoardReadGateFilter.cs`, `Program.cs` (comment only,
+  startup check untouched), `AdminCalendarOptions.cs` (comment only),
+  `AdminReservationBoardApiTests.cs`) all within the C5 allowlist;
+  migration count unchanged at 8; zero diff in the Migrations directory
+  vs. `origin/develop`; `dotnet ef migrations has-pending-model-changes`
+  → "No changes have been made to the model since the last migration."
+- Backend: `dotnet build` 0 warnings/0 errors; full suite — **244/244**
+  unit + **356/356** integration (was 352, +4) against real PostgreSQL;
+  `AdminReservationBoardApiTests` 29/29; cancellation/snapshot-sensitive
+  group 61/61.
+- Admin Web (source untouched): lint clean; **68/68**; build succeeds.
+- Customer Web (source untouched): lint clean; **298/298**; build
+  succeeds.
+- Real HTTPS security acceptance, against a disposable PostgreSQL database
+  (`thebha_pmscal001_c5_e2e`) seeded with one named stay, over the
+  Phase-3 `mkcert` certificate on `https://localhost:7145`:
+  1. **Development + gate on** — the board returns 200 with `no-store`,
+     and the Admin Web board rendered the seeded stay in real Chrome with
+     **zero console errors**.
+  2. **Development + gate off** — 404 with `no-store`, no guest data.
+  3. **Production + gate off** — a direct `curl` with **no Origin
+     header** against a host verified as `Hosting environment: Production`
+     returned 404 with `no-store`; the body contained neither the guest
+     name nor the confirmation number.
+  4. **Production + gate on at startup** — the host refused to boot
+     (non-zero exit, no "Now listening on" line) with the guard's exact
+     message.
+  5. `psql` afterwards showed 1 Reservation / 1 Committed Unit / 1
+     RoomOccupancySegment / 0 audits — exactly the seeded state, so all
+     of the above traffic mutated nothing. Disposable database dropped;
+     `thebha_dev` untouched.
+
+  Note: the deterministic host-level test above — not filesystem
+  watcher timing — is the authoritative evidence for the
+  late-reload/lazy-materialization exploit. An earlier attempt at this
+  matrix using `dotnet run` without `--no-launch-profile` was discarded
+  once the logs showed the `http` launch profile forcing
+  `ASPNETCORE_ENVIRONMENT=Development`; the results above are from runs
+  verified as genuinely Production, and the tests now assert the resolved
+  environment for the same reason.
+
+### Final corrected state
+
+- Code/test correction commit: `17e489927061e77c74b447d952234087485b4549`
+  — GitHub Actions on that exact SHA (run `33647214916`): Admin `pass`
+  (1m0s), Frontend `pass` (1m5s), Backend `pass` (2m45s) — all three
+  green, with the Admin job's `Test` step running the full Vitest suite.
+- This documentation commit is docs-only, on top of `17e4899`. PR #41 HEAD
+  after push and its GitHub Actions result are recorded in the terminal
+  handoff and the PR description, per the established commit-discipline
+  instruction.
+- Scope of the endpoint is unchanged and is **not** a claim of public
+  production readiness: it remains an unauthenticated, Development-only
+  read with no Admin authentication/RBAC. C5 narrows *how* that
+  restriction is enforced, from "startup snapshot only" to "startup
+  snapshot **and** request-time environment".
+- `ACTIVE_EXECUTOR` (Claude) stopped all writes at this checkpoint. Codex
+  has not been invoked by Claude at any point in this cycle; only Owner
+  may invoke `/codex:review --base origin/develop` again. No subagent,
+  nested agent, background writer, or concurrent writer was used in
+  Correction Cycle C5, and neither pre-existing Orca dry-run worktree was
   touched.
