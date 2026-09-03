@@ -33,10 +33,21 @@ The API base URL must be `https://`; plain `http://` (including
    ```
 
 3. Run the backend on its `https` launch profile (`Back_End/src/TheBha.Api`),
-   which listens on `https://localhost:7145`, with
-   `AdminCalendar:EnableUnauthenticatedRead` enabled (already set in
-   `appsettings.Development.json`) and `Cors:AdminOrigins` including
+   which listens on `https://localhost:7145` and is the **only** supported way
+   to enable the Reservation Board read: that profile sets
+   `AdminCalendar__EnableUnauthenticatedRead=true`. `appsettings.Development.json`
+   leaves it `false`, so setting `ASPNETCORE_ENVIRONMENT=Development` by itself
+   does not expose the board. `Cors:AdminOrigins` must include
    `https://localhost:3001`.
+
+   > **Same-machine development only.** The board read has no authentication or
+   > RBAC yet, so the API refuses it unless *all* of the following hold, checked
+   > per request: the environment is Development, the request is HTTPS, **and
+   > both ends of the connection are loopback**, and the launch-profile opt-in is
+   > present. It must never be reached through a LAN or public listener, or
+   > through an external-facing proxy — a request arriving over one gets the same
+   > `404` as a route that does not exist. This is not production readiness;
+   > Admin authentication/RBAC remains deferred.
 
 4. Run the Admin Web dev server over HTTPS on port 3001:
 

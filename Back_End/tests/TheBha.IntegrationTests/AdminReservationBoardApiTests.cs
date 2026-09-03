@@ -1235,6 +1235,366 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
     }
 
     // ---------------------------------------------------------------
+    // Loopback fail-closed gate (correction C9)
+    // ---------------------------------------------------------------
+
+    // PMS-CAL-001.1 correction C9: "Development" is a configuration value, not
+    // a location. A process started with ASPNETCORE_ENVIRONMENT=Development on
+    // a remote host, listening on a LAN/container/wildcard address, previously
+    // satisfied every condition the gate had — so any HTTPS client that could
+    // reach the socket could read guest names, confirmation numbers and stay
+    // dates. CORS restricts browsers only, never curl or a server-to-server
+    // caller. The connection's own addresses are the boundary that actually
+    // means "same machine", so both ends must be loopback.
+    //
+    // Reserved documentation/test-net ranges are used for every synthetic
+    // non-local address (RFC 5737 198.51.100.0/24, RFC 3849 2001:db8::/32) plus
+    // the private and container ranges a real deployment would actually bind.
+
+    private static readonly IPAddress PrivateLan = IPAddress.Parse("192.168.10.20");
+    private static readonly IPAddress ContainerBridge = IPAddress.Parse("172.17.0.1");
+    private static readonly IPAddress PublicTestNet = IPAddress.Parse("198.51.100.7");
+    private static readonly IPAddress PublicTestNetV6 = IPAddress.Parse("2001:db8::1");
+    private static readonly IPAddress AnyV4 = IPAddress.Parse("0.0.0.0");
+    private static readonly IPAddress AnyV6 = IPAddress.Parse("::");
+    private static readonly IPAddress LoopbackV4Alternate = IPAddress.Parse("127.0.0.53");
+    private static readonly IPAddress LoopbackV4MappedToV6 = IPAddress.Parse("::ffff:127.0.0.1");
+
+    /// <summary>
+    /// A Development host whose connection presents the given addresses, with
+    /// the board query replaced by the recording spy so "never reached" is
+    /// provable rather than inferred.
+    /// </summary>
+    private WebApplicationFactory<Program> CreateConnectionFactory(
+        IPAddress? localAddress,
+        IPAddress? remoteAddress,
+        RecordingReservationBoardQuery spy) =>
+        factory.WithWebHostBuilder(builder =>
+            builder.ConfigureServices(services =>
+            {
+                services.AddSingleton(new TestConnectionAddresses
+                {
+                    LocalIpAddress = localAddress,
+                    RemoteIpAddress = remoteAddress,
+                });
+                services.AddScoped<IReservationBoardQuery>(_ => spy);
+            }));
+
+    public static TheoryData<string, string?, string?> LoopbackMatrix() => new()
+    {
+        // description,                local,                 remote
+        { "loopback v4 / private LAN", "127.0.0.1", "192.168.10.20" },
+        { "private LAN / loopback v4", "192.168.10.20", "127.0.0.1" },
+        { "private LAN / private LAN", "192.168.10.20", "192.168.10.20" },
+        { "container bridge / loopback", "172.17.0.1", "127.0.0.1" },
+        { "loopback / public test-net", "127.0.0.1", "198.51.100.7" },
+        { "public test-net / loopback", "198.51.100.7", "127.0.0.1" },
+        { "loopback v6 / public v6", "::1", "2001:db8::1" },
+        { "wildcard 0.0.0.0 / loopback", "0.0.0.0", "127.0.0.1" },
+        { "wildcard :: / loopback", "::", "127.0.0.1" },
+        { "null local / loopback", null, "127.0.0.1" },
+        { "loopback / null remote", "127.0.0.1", null },
+        { "null / null (TestServer default)", null, null },
+    };
+
+    [Theory]
+    [MemberData(nameof(LoopbackMatrix))]
+    public async Task A_non_loopback_connection_is_unavailable_and_never_reaches_the_board_query(
+        string description, string? localAddress, string? remoteAddress)
+    {
+        await factory.ResetDatabaseAsync();
+        factory.Clock.UtcNow = Now;
+        await using var context = factory.CreateDbContext();
+        var fixture = await CreatePropertyAsync(context, $"c9-{Guid.NewGuid():N}"[..24]);
+
+        var spy = new RecordingReservationBoardQuery();
+        await using var remoteFactory = CreateConnectionFactory(
+            localAddress is null ? null : IPAddress.Parse(localAddress),
+            remoteAddress is null ? null : IPAddress.Parse(remoteAddress),
+            spy);
+
+        // The environment and the flag are both satisfied: only the connection
+        // differs, so a pass here cannot come from some other condition.
+        Assert.Equal(
+            "Development",
+            remoteFactory.Services.GetRequiredService<IHostEnvironment>().EnvironmentName);
+        Assert.True(
+            remoteFactory.Services.GetRequiredService<IOptions<AdminCalendarOptions>>()
+                .Value.EnableUnauthenticatedRead);
+
+        using var client = CreateHttpsClient(remoteFactory);
+        var response = await client.GetAsync(
+            BoardUrl(fixture.Property.Id, new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 3)));
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.True(
+            response.StatusCode == HttpStatusCode.NotFound,
+            $"{description}: expected 404, got {(int)response.StatusCode}");
+        Assert.True(
+            response.Headers.CacheControl?.ToString() == "no-store",
+            $"{description}: expected no-store, got {response.Headers.CacheControl?.ToString() ?? "<none>"}");
+        Assert.True(
+            spy.Invocations == 0,
+            $"{description}: the board query ran {spy.Invocations} time(s) for a blocked request");
+        foreach (var leak in new[]
+                 {
+                     RecordingReservationBoardQuery.SentinelGuest,
+                     RecordingReservationBoardQuery.SentinelConfirmation,
+                     "guestDisplayName", "confirmationNumber", "stays", "physicalRooms",
+                     "roomTypes", "operationalBlocks",
+                 })
+        {
+            Assert.True(
+                !body.Contains(leak, StringComparison.Ordinal),
+                $"{description}: response leaked '{leak}'");
+        }
+    }
+
+    [Fact]
+    public async Task A_non_loopback_connection_is_uniformly_unavailable_whatever_the_query_looks_like()
+    {
+        await factory.ResetDatabaseAsync();
+        factory.Clock.UtcNow = Now;
+        await using var context = factory.CreateDbContext();
+        var fixture = await CreatePropertyAsync(context, "c9-uniform");
+
+        var spy = new RecordingReservationBoardQuery();
+        await using var remoteFactory = CreateConnectionFactory(PrivateLan, PrivateLan, spy);
+        using var client = CreateHttpsClient(remoteFactory);
+
+        var shapes = new List<string>();
+        foreach (var (name, url) in new (string, string)[]
+                 {
+                     ("valid", BoardUrl(fixture.Property.Id, new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 3))),
+                     ("missing both", $"/api/admin/v1/properties/{fixture.Property.Id}/reservation-board"),
+                     ("missing to", $"/api/admin/v1/properties/{fixture.Property.Id}/reservation-board?from=2026-09-01"),
+                     ("malformed from", $"/api/admin/v1/properties/{fixture.Property.Id}/reservation-board?from=nonsense&to=2026-09-03"),
+                     ("equal dates", BoardUrl(fixture.Property.Id, new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 1))),
+                     ("reversed dates", BoardUrl(fixture.Property.Id, new DateOnly(2026, 9, 3), new DateOnly(2026, 9, 1))),
+                 })
+        {
+            var response = await client.GetAsync(url);
+            var body = await response.Content.ReadAsStringAsync();
+
+            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+            Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
+            // Model binding must not have run: a malformed date would otherwise
+            // produce a 400 with a validation "errors" object, which would tell
+            // a prober that the endpoint exists.
+            Assert.DoesNotContain("\"errors\"", body, StringComparison.Ordinal);
+            Assert.DoesNotContain("guestDisplayName", body, StringComparison.Ordinal);
+
+            using var document = JsonDocument.Parse(body);
+            var root = document.RootElement;
+            shapes.Add(string.Join(
+                '|',
+                Read(root, "type"), Read(root, "title"), Read(root, "status")));
+            _ = name;
+        }
+
+        // Every rejection is byte-identical apart from traceId, so the valid
+        // request is indistinguishable from the malformed ones.
+        Assert.Single(shapes.Distinct());
+        Assert.Equal(0, spy.Invocations);
+
+        static string Read(JsonElement element, string name) =>
+            element.TryGetProperty(name, out var value) ? value.ToString() : "<absent>";
+    }
+
+    [Fact]
+    public async Task Spoofed_local_headers_do_not_make_a_remote_connection_look_loopback()
+    {
+        await factory.ResetDatabaseAsync();
+        factory.Clock.UtcNow = Now;
+        await using var context = factory.CreateDbContext();
+        var fixture = await CreatePropertyAsync(context, "c9-spoof");
+
+        var spy = new RecordingReservationBoardQuery();
+        await using var remoteFactory = CreateConnectionFactory(PublicTestNet, PublicTestNet, spy);
+        using var client = CreateHttpsClient(remoteFactory);
+
+        var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            BoardUrl(fixture.Property.Id, new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 3)));
+        // Everything below is caller-controlled text. None of it may stand in
+        // for the socket the server actually accepted.
+        request.Headers.Host = "localhost";
+        request.Headers.TryAddWithoutValidation("Origin", "https://localhost:3001");
+        request.Headers.TryAddWithoutValidation("Referer", "https://localhost:3001/calendar");
+        request.Headers.TryAddWithoutValidation("X-Forwarded-For", "127.0.0.1");
+        request.Headers.TryAddWithoutValidation("X-Forwarded-Proto", "https");
+        request.Headers.TryAddWithoutValidation("X-Forwarded-Host", "localhost");
+        request.Headers.TryAddWithoutValidation("X-Real-IP", "127.0.0.1");
+        request.Headers.TryAddWithoutValidation("Forwarded", "for=127.0.0.1;host=localhost;proto=https");
+
+        var response = await client.SendAsync(request);
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
+        Assert.Equal(0, spy.Invocations);
+        Assert.DoesNotContain(RecordingReservationBoardQuery.SentinelGuest, body, StringComparison.Ordinal);
+    }
+
+    public static TheoryData<string, string> PermittedLoopbackPairs() => new()
+    {
+        { "127.0.0.1", "127.0.0.1" },
+        { "::1", "::1" },
+        { "127.0.0.53", "127.0.0.1" },          // anywhere in 127.0.0.0/8
+        { "::ffff:127.0.0.1", "::ffff:127.0.0.1" }, // IPv4-mapped IPv6 loopback
+        { "::1", "127.0.0.1" },                  // dual-stack listener, v4 client
+    };
+
+    [Theory]
+    [MemberData(nameof(PermittedLoopbackPairs))]
+    public async Task Every_loopback_representation_still_reaches_the_board(
+        string localAddress, string remoteAddress)
+    {
+        await factory.ResetDatabaseAsync();
+        factory.Clock.UtcNow = Now;
+        await using var context = factory.CreateDbContext();
+        var fixture = await CreatePropertyAsync(context, $"c9ok-{Guid.NewGuid():N}"[..24]);
+
+        await using var localFactory = factory.WithWebHostBuilder(builder =>
+            builder.ConfigureServices(services => services.AddSingleton(new TestConnectionAddresses
+            {
+                LocalIpAddress = IPAddress.Parse(localAddress),
+                RemoteIpAddress = IPAddress.Parse(remoteAddress),
+            })));
+        using var client = CreateHttpsClient(localFactory);
+
+        var response = await client.GetAsync(
+            BoardUrl(fixture.Property.Id, new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 3)));
+        var board = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
+        Assert.Equal(fixture.Property.Id, board.GetProperty("property").GetProperty("id").GetGuid());
+    }
+
+    [Fact]
+    public async Task A_loopback_connection_keeps_its_validation_contract()
+    {
+        await factory.ResetDatabaseAsync();
+        factory.Clock.UtcNow = Now;
+        await using var context = factory.CreateDbContext();
+        var fixture = await CreatePropertyAsync(context, "c9-validation");
+        using var client = CreateHttpsClient(factory);
+
+        // A malformed range on a permitted connection must still be a 400 with
+        // no-store — the loopback rule tightens who may ask, not what the
+        // endpoint answers.
+        var response = await client.GetAsync(
+            $"/api/admin/v1/properties/{fixture.Property.Id}/reservation-board?from=nonsense&to=2026-09-03");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
+    }
+
+    [Fact]
+    public async Task A_late_configuration_flip_cannot_open_a_non_loopback_connection()
+    {
+        // The C5 property, restated for the connection boundary: IOptions is
+        // materialized lazily, so a reloadable source could turn the flag on
+        // after startup. The connection is checked before the flag is ever
+        // read, so a late flip changes nothing for a remote caller.
+        await factory.ResetDatabaseAsync();
+        factory.Clock.UtcNow = Now;
+        await using var context = factory.CreateDbContext();
+        var fixture = await CreatePropertyAsync(context, "c9-late-flip");
+
+        var spy = new RecordingReservationBoardQuery();
+        await using var remoteFactory = factory.WithWebHostBuilder(builder =>
+            builder.ConfigureServices(services =>
+            {
+                services.AddSingleton(new TestConnectionAddresses
+                {
+                    LocalIpAddress = ContainerBridge,
+                    RemoteIpAddress = PublicTestNetV6,
+                });
+                services.AddScoped<IReservationBoardQuery>(_ => spy);
+                services.Configure<AdminCalendarOptions>(options =>
+                    options.EnableUnauthenticatedRead = true);
+            }));
+        using var client = CreateHttpsClient(remoteFactory);
+
+        var response = await client.GetAsync(
+            BoardUrl(fixture.Property.Id, new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 3)));
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
+        Assert.Equal(0, spy.Invocations);
+    }
+
+    // ---------------------------------------------------------------
+    // Default-closed configuration (correction C9)
+    // ---------------------------------------------------------------
+
+    [Fact]
+    public void Development_configuration_does_not_enable_the_board_on_its_own()
+    {
+        // The checked-in Development configuration used to turn the
+        // unauthenticated read on, so ASPNETCORE_ENVIRONMENT=Development was by
+        // itself enough to expose it. It must now be closed by default, with
+        // the local launch profile as the only supported opt-in.
+        var configuration = new ConfigurationBuilder()
+            .SetBasePath(ApiContentRoot())
+            .AddJsonFile("appsettings.json", optional: false)
+            .AddJsonFile("appsettings.Development.json", optional: false)
+            .Build();
+
+        Assert.False(
+            configuration.GetSection(AdminCalendarOptions.SectionName)
+                .Get<AdminCalendarOptions>()?.EnableUnauthenticatedRead ?? false);
+    }
+
+    [Fact]
+    public void Only_the_local_https_launch_profile_opts_into_the_unauthenticated_board()
+    {
+        using var document = JsonDocument.Parse(
+            File.ReadAllText(Path.Combine(ApiContentRoot(), "Properties", "launchSettings.json")));
+        var profiles = document.RootElement.GetProperty("profiles");
+
+        const string OptInKey = "AdminCalendar__EnableUnauthenticatedRead";
+
+        var https = profiles.GetProperty("https");
+        Assert.Equal(
+            "true",
+            https.GetProperty("environmentVariables").GetProperty(OptInKey).GetString());
+
+        // …and it must stay bound to localhost. A wildcard or external binding
+        // would put the opt-in on a reachable interface, which is exactly the
+        // shape this correction exists to prevent.
+        var applicationUrl = https.GetProperty("applicationUrl").GetString() ?? string.Empty;
+        Assert.NotEmpty(applicationUrl);
+        foreach (var url in applicationUrl.Split(';', StringSplitOptions.RemoveEmptyEntries))
+        {
+            Assert.Equal("localhost", new Uri(url).Host);
+        }
+
+        // No other profile opts in — notably not the HTTP-only one.
+        foreach (var profile in profiles.EnumerateObject().Where(entry => entry.Name != "https"))
+        {
+            if (profile.Value.TryGetProperty("environmentVariables", out var variables))
+            {
+                Assert.False(variables.TryGetProperty(OptInKey, out _), profile.Name);
+            }
+        }
+    }
+
+    private static string ApiContentRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null && directory.GetDirectories("Back_End").Length == 0)
+        {
+            directory = directory.Parent;
+        }
+
+        Assert.NotNull(directory);
+        return Path.Combine(directory!.FullName, "Back_End", "src", "TheBha.Api");
+    }
+
+    // ---------------------------------------------------------------
     // Fixture helpers
     // ---------------------------------------------------------------
 

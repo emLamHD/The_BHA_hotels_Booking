@@ -1,3 +1,5 @@
+using System.Net;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.Extensions.Hosting;
@@ -62,6 +64,30 @@ namespace TheBha.Api.Controllers;
 /// hand-written <c>X-Forwarded-Proto</c> cannot satisfy it unless trusted
 /// forwarded-header infrastructure has legitimately established it.
 /// </para>
+///
+/// <para>
+/// Correction C9: the gate is also <em>loopback-only</em>. "Development" is a
+/// configuration value, not a location — a process started with
+/// <c>ASPNETCORE_ENVIRONMENT=Development</c> on a remote host, listening on a
+/// LAN, container or wildcard address, satisfied every condition above, so any
+/// HTTPS client able to reach the socket could read guest names, confirmation
+/// numbers and stay dates without authenticating. CORS restricts browsers
+/// only, never <c>curl</c> or a server-to-server caller. The connection's own
+/// addresses are what actually mean "same machine", so both ends must be
+/// loopback, and a missing address fails closed rather than being assumed
+/// local.
+/// </para>
+///
+/// <para>
+/// These come from <see cref="ConnectionInfo"/>, which the server fills in
+/// from the accepted socket — not from <c>Host</c>, <c>Origin</c>,
+/// <c>Referer</c> or any <c>X-Forwarded-*</c>/<c>Forwarded</c> header, all of
+/// which the caller writes. C9 deliberately adds no forwarded-header trust:
+/// that would turn a request header back into a location claim, which is the
+/// weakness being closed. This is defense in depth, not the whole defense —
+/// the Development configuration no longer enables the flag at all, and the
+/// local HTTPS launch profile is the only supported opt-in.
+/// </para>
 /// </summary>
 public sealed class AdminReservationBoardReadGateFilter(
     IHostEnvironment hostEnvironment,
@@ -72,15 +98,42 @@ public sealed class AdminReservationBoardReadGateFilter(
         context.HttpContext.Response.Headers.CacheControl = "no-store";
 
         // `||` short-circuits, so the order is deliberate: cleartext is refused
-        // without consulting anything else, and outside Development the
-        // reloadable option is never even materialized — nothing it could later
-        // bind matters. Only an HTTPS Development request reads the option.
+        // without consulting anything else, outside Development nothing further
+        // is examined, and a non-local connection is refused before the
+        // reloadable option is ever materialized — so nothing it could later
+        // bind matters. Only an HTTPS, Development, loopback-to-loopback
+        // request reads the option, and only then may the action run.
+        var connection = context.HttpContext.Connection;
         if (!context.HttpContext.Request.IsHttps ||
             !hostEnvironment.IsDevelopment() ||
+            !IsLoopback(connection.LocalIpAddress) ||
+            !IsLoopback(connection.RemoteIpAddress) ||
             !adminCalendarOptions.Value.EnableUnauthenticatedRead)
         {
             context.Result = new NotFoundResult();
         }
+    }
+
+    /// <summary>
+    /// A null address fails closed: it means the server could not tell us where
+    /// the connection came from, which is never a reason to assume it is local.
+    /// IPv4-mapped IPv6 (<c>::ffff:127.0.0.1</c>, how a dual-stack listener can
+    /// report an IPv4 peer) is unwrapped first so it is judged on the address
+    /// it actually carries. <c>0.0.0.0</c> and <c>::</c> are not loopback.
+    /// </summary>
+    private static bool IsLoopback(IPAddress? address)
+    {
+        if (address is null)
+        {
+            return false;
+        }
+
+        if (address.IsIPv4MappedToIPv6)
+        {
+            address = address.MapToIPv4();
+        }
+
+        return IPAddress.IsLoopback(address);
     }
 
     public void OnResourceExecuted(ResourceExecutedContext context)
