@@ -13,7 +13,7 @@ function mockAxiosInstance(requestImpl: (config: Record<string, unknown>) => unk
 }
 
 beforeEach(() => {
-  process.env[ENV_VAR_NAME] = "http://localhost:5145";
+  process.env[ENV_VAR_NAME] = "https://localhost:7145";
   resetApiBaseUrlCacheForTests();
   resetApiClientForTests();
 });
@@ -29,7 +29,7 @@ describe("apiUnsafeRequest", () => {
     await apiUnsafeRequest("/api/v1/booking-holds", "POST", { a: 1 });
 
     expect(axios.create).toHaveBeenCalledWith(
-      expect.objectContaining({ baseURL: "http://localhost:5145", withCredentials: true })
+      expect.objectContaining({ baseURL: "https://localhost:7145", withCredentials: true })
     );
     expect(request).toHaveBeenCalledWith(
       expect.objectContaining({ withCredentials: true, method: "POST", url: "/api/v1/booking-holds" })

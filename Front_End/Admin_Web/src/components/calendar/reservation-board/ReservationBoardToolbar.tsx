@@ -49,11 +49,6 @@ const FILTER_OPTIONS: FilterOption[] = [
     label: "Operational Blocks",
     swatchClassName: "border border-amber-500 bg-[repeating-linear-gradient(45deg,#fcd34d_0,#fcd34d_2px,transparent_2px,transparent_6px)] dark:bg-[repeating-linear-gradient(45deg,#b45309_0,#b45309_2px,transparent_2px,transparent_6px)]",
   },
-  {
-    key: "showInactive",
-    label: "Inactive (cancelled/no-show)",
-    swatchClassName: "border border-gray-400 bg-gray-200 dark:border-gray-600 dark:bg-gray-700",
-  },
 ];
 
 interface ReservationBoardToolbarProps {
@@ -94,7 +89,7 @@ const ReservationBoardToolbar: React.FC<ReservationBoardToolbarProps> = ({
         </div>
         <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600 dark:bg-white/[0.05] dark:text-gray-300">
           <InfoIcon className="size-3.5" aria-hidden="true" />
-          Demo data — not connected to backend
+          Live data — read-only (no assignment, block, or lifecycle actions yet)
         </span>
       </div>
 

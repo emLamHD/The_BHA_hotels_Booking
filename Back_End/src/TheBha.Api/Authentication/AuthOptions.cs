@@ -18,4 +18,12 @@ public sealed class CorsOptions
 {
     public const string SectionName = "Cors";
     public string[] AllowedOrigins { get; init; } = [];
+
+    /// <summary>
+    /// PMS-CAL-001.1: explicit HTTPS origin(s) for the Admin Reservation Board's
+    /// unauthenticated read endpoint (see <see cref="TheBha.Api.AdminCalendarOptions"/>).
+    /// Kept separate from <see cref="AllowedOrigins"/> so the Admin origin is
+    /// never silently granted the customer-web policy's credentialed access.
+    /// </summary>
+    public string[] AdminOrigins { get; init; } = [];
 }

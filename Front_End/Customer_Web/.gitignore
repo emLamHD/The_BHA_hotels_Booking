@@ -41,3 +41,6 @@ yarn-error.log*
 .cache/
 dist/
 *.gz
+
+# local development TLS certificates (never commit keys)
+.certs/

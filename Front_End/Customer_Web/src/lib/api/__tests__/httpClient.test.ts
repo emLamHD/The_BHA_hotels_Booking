@@ -20,7 +20,7 @@ function mockAxiosInstance(
 }
 
 beforeEach(() => {
-  process.env[ENV_VAR_NAME] = "http://localhost:5145";
+  process.env[ENV_VAR_NAME] = "https://localhost:7145";
   resetApiBaseUrlCacheForTests();
   resetApiClientForTests();
 });
@@ -35,7 +35,7 @@ describe("apiGet", () => {
     await apiGet("/api/v1/properties");
 
     expect(axios.create).toHaveBeenCalledWith(
-      expect.objectContaining({ baseURL: "http://localhost:5145" })
+      expect.objectContaining({ baseURL: "https://localhost:7145" })
     );
     expect(request).toHaveBeenCalledTimes(1);
   });
@@ -162,6 +162,28 @@ describe("apiGet", () => {
 
     const error = await apiGet("/api/v1/properties").catch((e) => e);
     expect(error).toBeInstanceOf(ApiConfigError);
+    expect(createSpy).not.toHaveBeenCalled();
+  });
+
+  // PMS-CAL-001.1 correction C8: getClient() copies the validation message
+  // verbatim into ApiConfigError, and that error is what a configuration-error
+  // UI state renders. So the redaction has to hold at this boundary too, not
+  // only inside env.ts — otherwise a token pasted into the API base would
+  // surface in the browser through the client instead of through the thrower.
+  it("does not carry a rejected base URL into the ApiConfigError it surfaces", async () => {
+    const rejected = "https://api.example.test?token=C8_CLIENT_SENTINEL";
+    process.env[ENV_VAR_NAME] = rejected;
+    resetApiBaseUrlCacheForTests();
+    resetApiClientForTests();
+    const createSpy = vi.spyOn(axios, "create");
+
+    const error = await apiGet("/api/v1/properties").catch((e) => e);
+
+    expect(error).toBeInstanceOf(ApiConfigError);
+    expect((error as ApiConfigError).message).toMatch(/query string or fragment/i);
+    expect((error as ApiConfigError).message).not.toContain("C8_CLIENT_SENTINEL");
+    expect((error as ApiConfigError).message).not.toContain(rejected);
+    // The rejected base must never be dialled, so nothing can leak over the wire either.
     expect(createSpy).not.toHaveBeenCalled();
   });
 

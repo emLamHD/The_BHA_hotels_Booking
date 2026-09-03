@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using TheBha.Application.Properties;
@@ -8,7 +9,15 @@ namespace TheBha.Api.Controllers;
 [Route("api/v1/properties")]
 public sealed class PropertiesController(IPropertyCatalogQueries queries, IAvailabilitySearch availabilitySearch) : ControllerBase
 {
+    // PMS-CAL-001.1 (correction C1): the Admin Reservation Board's Property
+    // selector reuses this Customer-facing catalog read rather than
+    // duplicating it, so this one action needs a policy covering both the
+    // configured customer-web and Admin origins — still credentialed, since
+    // Customer_Web's shared httpClient sends withCredentials:true on every
+    // request. Every other action here stays on the controller's default
+    // customer-web policy unchanged.
     [HttpGet]
+    [EnableCors("properties-catalog-read")]
     [ProducesResponseType(typeof(IReadOnlyList<PropertyDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<IReadOnlyList<PropertyDto>>> GetProperties(
         CancellationToken cancellationToken)

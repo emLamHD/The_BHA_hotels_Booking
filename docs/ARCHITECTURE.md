@@ -4,9 +4,9 @@
 
 The repository separates deployable applications under `Front_End` and `Back_End`. `Admin_Web` (`Front_End/Admin_Web`) is the imported TailAdmin 2.3.0 template on Next.js 16.1.6, React/React DOM 19.2.1, and TypeScript 5.9.3 (PR #30), on top of which `ADMIN-002.1` (PR #32) added an interactive PMS Reservation Board frontend prototype and a front-desk reservation-creation workspace on the `/calendar` page.
 
-CURRENT frontend (PR #32): a room/date timeline with multi-property demo switching, assigned/unassigned reservations, operational blocks, reservation hover/detail views, drag-and-drop room moves, date shifting, negotiated pricing, a reservation-creation workspace, and a front-desk lifecycle/folio/notes/activity workspace, over deterministic local mock state (`mockData.ts`, a fixed demo-clock anchor). State is not owned by one reducer: reservation-board durable mutations (lifecycle, folio, moves) go through the `reservationRuntimeReducer` in `reservationRuntime.ts`; the reservation-creation workflow has its own `formReducer` in `CreateReservationForm.tsx`; and board presentation/view state (selection, range, filters, drag) is component-local `useState` in `ReservationBoard.tsx`. None of this reads or writes real data: there is no backend call, no persistence, and every reload resets to the same mock baseline.
+CURRENT frontend (PR #32, updated by `PMS-CAL-001.1`): a room/date timeline with multi-property switching, assigned/unassigned reservations, operational blocks, reservation hover/detail views, a reservation-creation workspace, and a front-desk lifecycle/folio/notes/activity workspace. `PMS-CAL-001.1` reconnected the timeline's main read path (`ReservationBoard.tsx`/`ReservationBoardServerTimeline.tsx`/`ReservationBoardStayPopover.tsx`) to the real, read-only Admin Calendar API (below) — it no longer reads `mockData.ts`. Everything else — drag-and-drop room moves, date shifting, negotiated pricing, the reservation-creation workspace, and the front-desk lifecycle/folio/notes/activity workspace — remains on deterministic local mock state (`mockData.ts`, a fixed demo-clock anchor): reservation-board durable mutations (lifecycle, folio, moves) still go through the `reservationRuntimeReducer` in `reservationRuntime.ts`; the reservation-creation workflow still has its own `formReducer` in `CreateReservationForm.tsx`. None of that mock-driven part reads or writes real data — no backend call, no persistence, every reload resets to the same mock baseline.
 
-CURRENT backend (`PMS-BE-001.2`, migration 8): the normalized commercial-commitment authority from `PMS-BE-001.1` — `InventoryHold → InventoryHoldItem → InventoryHoldItemNight` and `Reservation → ReservationUnit → ReservationUnitNight` (ADR 0005), one `RoomTypeId`/`RatePlanId` per public request — plus a physical-room schedule authority added by `PMS-BE-001.2`: `RoomOccupancySegment`/`RoomBlock` (ADR 0006), the assignment-aware and block-adjusted availability formula, and internal-only assignment/block mutation commands. Eight PostgreSQL migrations exist in total; no Admin authentication/RBAC, no OTA integration, and no HTTP/Admin/Calendar endpoint expose any of this scheduling authority. The Admin frontend prototype is not connected to it. See "Physical-room schedule authority" below.
+CURRENT backend (`PMS-BE-001.2` + `PMS-CAL-001.1`, migration 8 — no new migration): the normalized commercial-commitment authority from `PMS-BE-001.1` — `InventoryHold → InventoryHoldItem → InventoryHoldItemNight` and `Reservation → ReservationUnit → ReservationUnitNight` (ADR 0005), one `RoomTypeId`/`RatePlanId` per public request — plus the physical-room schedule authority added by `PMS-BE-001.2`: `RoomOccupancySegment`/`RoomBlock` (ADR 0006), the assignment-aware and block-adjusted availability formula, and internal-only assignment/block mutation commands. `PMS-CAL-001.1` adds the first HTTP read exposure of that schedule authority — see "Admin Calendar read API" below — but still no Admin authentication/RBAC, no OTA integration, and no HTTP mutation endpoint of any kind for it.
 
 TARGET architecture (unimplemented): Customer Web and Admin Web as separate clients of one shared ASP.NET Core backend and one shared PostgreSQL database, with the full multi-RoomType public request shape, Admin authentication/RBAC, HTTP/Admin/Calendar integration of the physical-room schedule authority, and OTA behavior. See [`docs/design/PMS-DATA-001-core-database-blueprint-v2.md`](design/PMS-DATA-001-core-database-blueprint-v2.md), [ADR 0005](ADR/0005-separate-commercial-commitment-from-physical-allocation.md), and [ADR 0006](ADR/0006-schedule-physical-rooms-with-occupancy-segments.md) for the full target PMS design; this document does not duplicate it, and the CURRENT frontend prototype described above is not authoritative persistence or concurrency evidence for that TARGET design.
 
@@ -79,6 +79,30 @@ exposes them**, and no Staff identity or Admin RBAC model exists. Exact
 invariants, the availability formula, mutation semantics, and error mapping
 are recorded in ADR 0006 and `docs/reports/PMS-BE-001.2-completion.md`, not
 duplicated here.
+
+## Admin Calendar read API (`PMS-CAL-001.1`)
+
+`TheBha.Application/Scheduling/ReservationBoard.cs` and
+`TheBha.Infrastructure/Persistence/ReservationBoardDataLoader.cs` project the
+physical-room schedule authority above into one frozen, read-only JSON
+contract, served by `AdminReservationBoardController` at `GET
+/api/admin/v1/properties/{propertyId}/reservation-board?from=&to=`
+(half-open date range, max 31 nights). The endpoint is gated behind
+`AdminCalendar:EnableUnauthenticatedRead` (default `false`; a Production
+startup guard makes it impossible to enable there), served over a
+CORS-restricted, HTTPS-only, non-wildcard `Cors:AdminOrigins` origin list
+separate from the customer-facing credentialed CORS policy, and returns
+`Cache-Control: no-store`. No HTTP mutation endpoint exists for
+assignments or blocks — those remain the internal-only
+`IAssignmentMutationStore`/`IOperationalBlockMutationStore` boundary from
+`PMS-BE-001.2`. `Front_End/Admin_Web/src/lib/api/{env,types,client}.ts` is
+the frontend's typed, HTTPS-only client for this endpoint and the shared
+`GET /api/v1/properties` catalog read (which required adding a second,
+uncredentialed, `GET`-only CORS policy — `properties-catalog-read` — to
+that one Customer-facing controller action, alongside its unchanged
+Customer_Web policy). Exact contract shape, coverage-classification
+semantics, and acceptance evidence:
+`docs/reports/PMS-CAL-001.1-completion.md`.
 
 ## Deliberately deferred decisions
 

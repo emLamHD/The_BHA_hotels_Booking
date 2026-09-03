@@ -8,8 +8,10 @@ using Microsoft.OpenApi.Models;
 using System.Security.Claims;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
+using TheBha.Api;
 using TheBha.Api.Authentication;
 using TheBha.Api.Bookings;
+using TheBha.Api.Controllers;
 using TheBha.Application.Customers;
 using TheBha.Infrastructure.Identity;
 using TheBha.Infrastructure.Persistence;
@@ -45,6 +47,34 @@ if (cors.AllowedOrigins.Any(origin =>
     throw new InvalidOperationException(
         "Cors:AllowedOrigins must contain explicit origins and cannot contain wildcards.");
 }
+
+if (cors.AdminOrigins.Any(origin =>
+        string.IsNullOrWhiteSpace(origin) ||
+        origin.Contains('*', StringComparison.Ordinal) ||
+        !origin.StartsWith("https://", StringComparison.Ordinal)))
+{
+    throw new InvalidOperationException(
+        "Cors:AdminOrigins must contain explicit HTTPS origins and cannot contain wildcards.");
+}
+
+// Startup guard: refuses to boot a misconfigured Production host at all. It
+// binds one configuration snapshot, so it cannot see a value a reloadable
+// source supplies later — AdminReservationBoardReadGateFilter (correction C5)
+// is what actually keeps every non-Development host closed at request time.
+// Both are kept: this one fails loudly and early, that one fails closed.
+var adminCalendarOptions = builder.Configuration
+    .GetSection(AdminCalendarOptions.SectionName)
+    .Get<AdminCalendarOptions>() ?? new AdminCalendarOptions();
+if (builder.Environment.IsProduction() && adminCalendarOptions.EnableUnauthenticatedRead)
+{
+    throw new InvalidOperationException(
+        "AdminCalendar:EnableUnauthenticatedRead must never be true in Production — the " +
+        "Admin Reservation Board read endpoint has no authentication/RBAC yet (PMS-CAL-001.1).");
+}
+
+builder.Services.Configure<AdminCalendarOptions>(
+    builder.Configuration.GetSection(AdminCalendarOptions.SectionName));
+builder.Services.AddScoped<AdminReservationBoardReadGateFilter>();
 
 var dataProtectionKeysPath = builder.Configuration["DataProtection:KeysPath"];
 if (builder.Environment.IsProduction() && string.IsNullOrWhiteSpace(dataProtectionKeysPath))
@@ -149,6 +179,7 @@ builder.Services.AddAntiforgery(options =>
     options.Cookie.Path = "/";
 });
 builder.Services.AddCors(options =>
+{
     options.AddPolicy("customer-web", policy =>
     {
         if (cors.AllowedOrigins.Length > 0)
@@ -158,7 +189,44 @@ builder.Services.AddCors(options =>
                 .AllowAnyMethod()
                 .AllowCredentials();
         }
-    }));
+    });
+    // PMS-CAL-001.1: separate, uncredentialed policy for the unauthenticated
+    // Admin Reservation Board read endpoint — never merged with the
+    // customer-web policy's credentialed-cookie access.
+    options.AddPolicy("admin-calendar", policy =>
+    {
+        if (cors.AdminOrigins.Length > 0)
+        {
+            policy.WithOrigins(cors.AdminOrigins)
+                .AllowAnyHeader()
+                .WithMethods("GET");
+        }
+    });
+    // PMS-CAL-001.1 (correction C1): GET /api/v1/properties is public
+    // catalog data read by both Customer_Web (via its shared, credentialed
+    // httpClient, which sends withCredentials:true on every request — so
+    // this policy must keep AllowCredentials() for the configured Customer
+    // origins, or the browser rejects the response) and, for the
+    // Reservation Board's Property selector, Admin_Web. It is an explicit
+    // union of the two configured origin lists, GET-only, and credentialed
+    // — scoped to just this one action, so it never widens the global
+    // customer-web policy or grants the Admin origin access to any other
+    // Customer-facing route.
+    var propertiesReadOrigins = cors.AllowedOrigins
+        .Concat(cors.AdminOrigins)
+        .Distinct(StringComparer.Ordinal)
+        .ToArray();
+    options.AddPolicy("properties-catalog-read", policy =>
+    {
+        if (propertiesReadOrigins.Length > 0)
+        {
+            policy.WithOrigins(propertiesReadOrigins)
+                .AllowAnyHeader()
+                .WithMethods("GET")
+                .AllowCredentials();
+        }
+    });
+});
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -205,6 +273,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseExceptionHandler();
+app.UseHttpsRedirection();
 app.UseCors("customer-web");
 app.UseRateLimiter();
 app.UseAuthentication();

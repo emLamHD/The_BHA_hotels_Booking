@@ -12,6 +12,57 @@ TailAdmin utilizes the powerful features of **Next.js 16** and common features o
 
 This directory is the imported TailAdmin Next.js baseline for The BHA Hotels Booking Admin Web application. It is currently template-only: it is not yet integrated with the backend API, authentication, or any PMS/reservation business behavior. Integration work is tracked as separate future work items.
 
+## PMS-CAL-001.1: Reservation Board HTTPS dev setup
+
+The Reservation Board (`/calendar`) reads from the real Admin API
+(`GET /api/admin/v1/properties/{propertyId}/reservation-board`) over HTTPS.
+The API base URL must be `https://`; plain `http://` (including
+`http://localhost`) is rejected by `src/lib/api/env.ts`.
+
+1. Copy the example env file and adjust if your backend port differs:
+
+   ```bash
+   cp .env.local.example .env.local
+   ```
+
+2. Trust the local ASP.NET Core HTTPS development certificate once (from the
+   repository root or anywhere `dotnet` is on PATH):
+
+   ```bash
+   dotnet dev-certs https --trust
+   ```
+
+3. Run the backend on its `https` launch profile (`Back_End/src/TheBha.Api`),
+   which listens on `https://localhost:7145` and is the **only** supported way
+   to enable the Reservation Board read: that profile sets
+   `AdminCalendar__EnableUnauthenticatedRead=true`. `appsettings.Development.json`
+   leaves it `false`, so setting `ASPNETCORE_ENVIRONMENT=Development` by itself
+   does not expose the board. `Cors:AdminOrigins` must include
+   `https://localhost:3001`.
+
+   > **Same-machine development only.** The board read has no authentication or
+   > RBAC yet, so the API refuses it unless *all* of the following hold, checked
+   > per request: the environment is Development, the request is HTTPS, **and
+   > both ends of the connection are loopback**, and the launch-profile opt-in is
+   > present. It must never be reached through a LAN or public listener, or
+   > through an external-facing proxy — a request arriving over one gets the same
+   > `404` as a route that does not exist. This is not production readiness;
+   > Admin authentication/RBAC remains deferred.
+
+4. Run the Admin Web dev server over HTTPS on port 3001:
+
+   ```bash
+   npm run dev:https
+   ```
+
+   Accept the browser's self-signed-certificate warning for
+   `https://localhost:3001` on first load (Next.js `--experimental-https`
+   generates its own local certificate for the frontend origin, separate
+   from the backend's `dotnet dev-certs` certificate).
+
+This read path has no Admin authentication/RBAC yet; the backend gate is
+disabled by default and cannot be enabled in a Production environment.
+
 ## Overview
 
 TailAdmin provides essential UI components and layouts for building feature-rich, data-driven admin dashboards and control panels. It's built on:
