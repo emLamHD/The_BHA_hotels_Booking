@@ -1465,3 +1465,162 @@ left untouched (verified: 1 property, 7 reservations).
   not invoked by Claude at any point. No subagent, nested agent, background
   writer or concurrent writer was used in Correction Cycle C7, and neither
   pre-existing Orca dry-run worktree was touched.
+
+## 17. Correction Cycle C8
+
+Owner invoked `/codex:review --base origin/develop` an eighth time against
+PR #41, at HEAD `5d0edb945ca37efdc3c08f61a37f4be1f538ac52`. Codex returned one
+[P2] finding, against `Front_End/Customer_Web/src/lib/api/env.ts:53-56`.
+
+### Root cause
+
+The C6 validator redacted a rejected `NEXT_PUBLIC_API_BASE_URL` only when it
+contained `@`:
+
+```ts
+return rawValue.includes("@") ? "<redacted>" : `"${rawValue}"`;
+```
+
+That covers `https://user:secret@host` and nothing else. A token pasted into
+the query or the fragment — `?token=…`, `#access_token=…`, the two places a
+credential most often ends up — has no `@`, so the whole value went verbatim
+into `Error.message`. And `httpClient.getClient()` copies that message
+straight into `ApiConfigError`, so the value was reachable from the browser
+console and from any log that records the failure.
+
+The heuristic was not merely incomplete; it was the wrong shape. Whether a
+string is secret is not a property this module can detect — a bare internal
+hostname can be as confidential as a token — so every variant of it (a
+parameter-name allowlist, a partial mask, a "sanitized origin") leaks
+precisely what it failed to anticipate.
+
+### The fix
+
+`describeValue` is deleted and **no rejected value is disclosed at all** —
+not raw, not trimmed, not re-serialized from the parsed `URL`, and not by way
+of the parser's own exception, which is discarded rather than chained
+(`cause` would travel with the error to the same places). There is no
+detection step left to get wrong.
+
+Each message still names the variable, states the violated rule, and points
+at `.env.local`:
+
+```
+NEXT_PUBLIC_API_BASE_URL must be an absolute https URL, for example https://api.example.com. Fix …
+NEXT_PUBLIC_API_BASE_URL must use https:// — the API redirects http to https, which breaks credentialed CORS preflight. Fix …
+NEXT_PUBLIC_API_BASE_URL must not embed URL credentials. Fix …
+NEXT_PUBLIC_API_BASE_URL must not contain a query string or fragment — it is a base URL, not a request. Fix …
+```
+
+That is enough to act on: the operator can already read the value they set.
+
+Every C6 behaviour is preserved — valid absolute HTTPS accepted, trailing
+slashes normalized, `http` rejected (loopback included), relative/malformed/
+non-HTTP(S) rejected, embedded credentials rejected, query and fragment
+rejected, invalid values never cached, no `http`→`https` rewriting. Only
+disclosure changed.
+
+### Tests
+
+`src/lib/api/__tests__/env.test.ts` — six synthetic-sentinel cases (query
+secret, fragment secret, URL password, `http` carrying a query secret, a
+rejected path, a malformed value). Each asserts the message still matches the
+correct constraint **and** contains the variable name, that neither the
+sentinel nor the whole rejected value appears, and that the value was not
+cached — a subsequent valid HTTPS value must succeed. Two further cases: a
+repeated call proves a rejection never begins leaking on a second attempt,
+and a source guard proves no branch interpolates `rawValue`/`trimmed`/
+`parsed`/`value`, that `describeValue` is gone, and that nothing writes to
+`console`.
+
+`src/lib/api/__tests__/httpClient.test.ts` — one case proving the redaction
+holds across the `ApiConfigError` boundary the UI actually consumes, and that
+the rejected base is never dialled.
+
+**Red before / green after.** Against the unmodified C7 `env.ts`: **7
+failures** across the two files, each showing the sentinel inside the
+message. After the change: **38/38** in the two targeted files. Notably the
+credential and malformed cases passed *before* the fix too — both happen to
+contain `@` — which is exactly the accidental coverage the old heuristic
+provided and the reason it could not be trusted.
+
+### Checks
+
+| Check | Result |
+| --- | --- |
+| Targeted `env.test.ts` + `httpClient.test.ts` | `38/38` |
+| Customer Web full suite | `323/323` (was `314/314`) |
+| Customer Web lint | clean |
+| Customer Web production build | succeeds |
+| `package.json` / `package-lock.json` | unchanged |
+| Backend Release build (untouched) | 0 warnings, 0 errors |
+| Backend unit / integration (untouched) | `244/244` / `360/360` |
+| EF pending-model check | "No changes have been made to the model since the last migration" |
+| Migrations | 8, zero diff |
+| Admin Web (untouched) | lint clean, `68/68`, build succeeds |
+| `git diff --check` | clean |
+
+Static sweep of `Front_End/Customer_Web`: `describeValue` — 1 occurrence, in
+the test's forbidden-token list; `rawValue` outside `env.ts` — 1, same list;
+inside `env.ts` it names only the parameter and the `process.env` read, never
+a message. Zero value interpolations, zero `console.*` in `env.ts` and
+`httpClient.ts`.
+
+### Browser acceptance
+
+**Negative.** Customer Web was started with a synthetic invalid base
+(`https://api.example.test?token=<sentinel>`) supplied at launch — no
+`.env.local` or `.env.local.example` file was touched. The app failed safely:
+the visible text read *"The property service is not configured correctly."*,
+console showed **zero errors** (only Next's React DevTools notice), the
+sentinel appeared **0 times** in the console and **0 times** in the
+dev-server log, and network capture — verified live by the 16 same-origin
+requests it did record — contained **no request to the rejected host**.
+
+**Positive.** Restored to the valid configuration: the page loaded at
+`https://localhost:3000`, the API base stayed `https://localhost:7145`,
+credentialed catalogue reads returned `200`, and the CSRF-backed mutation
+completed `GET /api/v1/auth/csrf` `200` → `OPTIONS /api/v1/booking-holds`
+`204` → `POST /api/v1/booking-holds` **`201`**, with the UI showing "Hold
+created". Zero requests to `:5145`, zero redirects, zero console errors. The
+API's certificate chain was verified independently (`Verify return code: 0
+(ok)`, issuer `mkcert development CA`); no certificate interstitial was
+clicked through.
+
+Run against a disposable seeded database (`thebha_pmscal001_c8_e2e`, dropped
+afterwards) which finished with exactly the one intentional hold
+(`holds=1, reservations=0`). `thebha_dev` was untouched throughout
+(`1 property, 7 holds, 7 reservations` before and after).
+
+### Known limitation (reported, not fixed here)
+
+A `NEXT_PUBLIC_*` value is inlined into the client bundle by Next.js — valid
+or invalid, and regardless of these messages. The rejected sentinel was
+confirmed present in the compiled chunk for that reason alone. This is
+inherent to the `NEXT_PUBLIC_` prefix, is out of C8's scope, and is what the
+new README warning addresses: such a variable must never carry a credential
+in the first place. C8's subject is the *error path*, where disclosure is now
+zero.
+
+### Final corrected state
+
+- Code/test/docs correction commit: `cdfbb812d2e0afdc64bf80760b1f3f9e78dee3ea`
+  — 4 files changed, 189 insertions, 10 deletions. GitHub Actions on that
+  exact SHA: Backend `success`, Frontend `success`, Admin `success`. The
+  Frontend job's own log records the expanded suite (`Test Files 19 passed`,
+  `Tests 323 passed`) and the Admin job `Tests 68 passed`, so the new tests
+  demonstrably ran in CI rather than only locally.
+- This documentation commit is docs-only, on top of `cdfbb81`; the final PR
+  HEAD and its Actions result are recorded in the terminal handoff.
+- Files touched: `src/lib/api/env.ts`, its two test files, and `README.md` —
+  all within the authorized set. Backend source, Admin Web, the HTTPS
+  launcher, `.env.local.example`, CORS, cookies, antiforgery, authentication,
+  the Reservation Board projection, `package.json`, `package-lock.json`,
+  GitHub Actions, migrations and governance files are all unchanged.
+- No rejected value is logged anywhere; only synthetic sentinels appear in
+  any evidence, and no cookie value, CSRF token, private key, certificate
+  content or real environment value is recorded.
+- `ACTIVE_EXECUTOR` (Claude) stopped all writes at this checkpoint. Codex was
+  not invoked by Claude at any point. No subagent, nested agent, background
+  writer or concurrent writer was used in Correction Cycle C8, and neither
+  pre-existing Orca dry-run worktree was touched.
