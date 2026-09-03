@@ -1,19 +1,23 @@
 # THE BHA — SNAPSHOT
 
-> Ngày cập nhật: 2026-09-02 (phiên làm việc bắt đầu 2026-09-01)
+> Ngày cập nhật: 2026-09-03 (phiên làm việc bắt đầu 2026-09-01)
 >
 > Mục đích: phục hồi trạng thái hiện tại mà không cần nạp worklog lịch sử
 
 Lần cập nhật này ghi nhận `AI-OPS-GOV-003` đã đóng (PR #39 merge), một CI
-fix ngoài kế hoạch trên `develop` (PR #40), và việc thực thi
+fix ngoài kế hoạch trên `develop` (PR #40), và trạng thái pre-merge của
 `PMS-CAL-001.1` — Reservation Board Read Projection & Frontend Integration
-— trên feature branch `feature/pms-cal-001-1-board-read-integration` (Phase
-1 backend, Phase 2 frontend, Phase 3 xác minh HTTPS+PostgreSQL+browser thật
-— xem §2, §4, `docs/reports/PMS-CAL-001.1-completion.md`). Repository SHA
-và PR state bên dưới là baseline đã được xác minh trực tiếp qua `git`/`gh
-pr view` tại thời điểm cập nhật tài liệu này, không phải cam kết rằng SHA
-này sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
-`origin/develop` trước khi tạo feature branch mới.
+— trên feature branch `feature/pms-cal-001-1-board-read-integration`:
+implementation cộng correction cycles `C1`–`C9` đã hoàn tất, đã push, mở
+**Draft PR #41** (OPEN, base `develop`) tại head
+`63d9b6019e4af37e146d943a1b8c1c13ac096469`, CI xanh trên đúng head đó, và
+Codex review cuối không có actionable correctness finding — **chưa merge**
+(xem §1, §2, §8; evidence canonical ở
+`docs/reports/PMS-CAL-001.1-completion.md`). Repository SHA và PR state
+bên dưới đã được xác minh trực tiếp qua `git`/`gh` tại thời điểm cập nhật
+tài liệu này, không phải cam kết rằng SHA này sẽ còn là `develop` HEAD sau
+các commit tiếp theo; revalidate lại `origin/develop` trước khi tạo feature
+branch mới.
 
 ## 1. Repository state
 
@@ -32,8 +36,8 @@ này sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
 | PR #38 | merged — `docs(project): close PMS-BE-001.2 and record calendar handoff`, feature branch `docs/pms-be-001-2-closeout` (head `9b627fb29ce4b5b955e6e5640a465aa03953304f`), merge commit `f0eef23c59608d2aba1e43063c38074ea863edef`, merged `2026-08-26T12:01:07Z`. Closes `PMS-BE-001.2-DOCS-CLOSEOUT`. |
 | PR #39 | merged — `docs(governance): allow prompt-selected single implementer`, merge commit `89b631cc58cb4d21e99d6054d2a9094338283fc7`, merged `2026-09-01T15:44:40Z`. Closes `AI-OPS-GOV-003`. |
 | PR #40 | merged — `test(backend): pin clock in reservation-cancellation integration test`, feature branch `fix/pin-clock-reservation-cancellation-test`, merge commit `ff9d5b0c8d58efe64b562c631ecb36d488887df8`, merged `2026-09-01T15:57:51Z`. Unplanned CI fix: `AssignmentAwareAvailabilityTests.Reservation_cancellation_atomically_cancels_effective_assignments_and_removes_demand` never pinned `factory.Clock.UtcNow`, so it silently depended on real wall-clock time staying before its hardcoded `2026-09-01` check-in date. GitHub Actions (Admin/Backend/Frontend) confirmed `pass` on this head. Remote feature branch confirmed deleted. |
-| PR/branch của work item hiện tại | `PMS-CAL-001.1` (Reservation Board Read Projection & Frontend Integration) — feature branch `feature/pms-cal-001-1-board-read-integration`, checked out directly in the one repository checkout (no `git worktree add`), baseline `ff9d5b0c8d58efe64b562c631ecb36d488887df8` (PR #40). Three commits: `77225ea` (Phase 1 backend), `fbdea50` (Phase 3 CORS correctness fix), `c59c9e2` (Phase 2 frontend) — full detail in `docs/reports/PMS-CAL-001.1-completion.md`. Claude completed implementation and real HTTPS+PostgreSQL+browser acceptance, self-reviewed, and stopped at a checkpoint pending Owner's push/Draft-PR/review decision — see §2, §8. |
-| Open execution PR khác | không có, theo `gh pr list --state open` tại thời điểm preflight của `PMS-CAL-001.1` (ngoài PR của work item hiện tại ở trên, nếu đã được mở). |
+| PR #41 (work item hiện tại) | **Draft, OPEN**, base `develop` — `PMS-CAL-001.1` (Reservation Board Read Projection & Frontend Integration), feature branch `feature/pms-cal-001-1-board-read-integration`, checked out directly in the one repository checkout (no `git worktree add`), baseline `ff9d5b0c8d58efe64b562c631ecb36d488887df8` (PR #40). Reviewed head `63d9b6019e4af37e146d943a1b8c1c13ac096469`; local, remote và PR head khớp nhau tại checkpoint C9. GitHub Actions run `33707673146` `success` (Backend/Frontend/Admin) trên đúng SHA đó; `mergeable=MERGEABLE`. Implementation cộng correction cycles C1–C9 đã hoàn tất; Codex review cuối do Owner invoke trả về không có actionable correctness finding. **Chưa merge, chưa đóng.** Danh sách commit đầy đủ và toàn bộ evidence: `docs/reports/PMS-CAL-001.1-completion.md` (không liệt kê lại ở đây). |
+| Open execution PR khác | không có ngoài PR #41 ở trên. |
 
 ## 2. Work item state
 
@@ -124,38 +128,40 @@ này sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
 ### Đang thực thi
 
 - `PMS-CAL-001.1` — Reservation Board Read Projection & Frontend
-  Integration: implementation complete on feature branch
-  `feature/pms-cal-001-1-board-read-integration`, three commits — `77225ea`
-  (Phase 1: backend read projection, HTTPS Admin API, 22 new integration
-  tests), `fbdea50` (Phase 3: a real correctness fix — the Admin Property
-  selector's shared `GET /api/v1/properties` call was missing CORS for the
-  Admin origin, found only by a real-browser acceptance pass, not by
-  `curl`/Vitest), `c59c9e2` (Phase 2: frontend now reads the live Admin API
-  instead of `mockData.ts`/`reservationRuntime.ts`, 46 new frontend tests).
-  Real HTTPS + disposable-PostgreSQL + Chrome-browser acceptance performed
-  and passed (§4). No schema/migration change (still migration 8), no
-  mutation API, no Admin authentication/RBAC, no Customer Web change. Full
-  detail: `docs/reports/PMS-CAL-001.1-completion.md`,
-  `docs/daily/2026-09/2026-09-01-worklog.md`. Claude stopped all writes at
-  this checkpoint; push/Draft PR/review are still pending an explicit Owner
-  decision — see §8.
+  Integration: implementation và các correction cycle `C1`–`C9` đã hoàn tất
+  trên feature branch `feature/pms-cal-001-1-board-read-integration`
+  (baseline `ff9d5b0c8d58efe64b562c631ecb36d488887df8`), đã push, và mở
+  **Draft PR #41** (OPEN, base `develop`). Reviewed head
+  `63d9b6019e4af37e146d943a1b8c1c13ac096469`; GitHub Actions run
+  `33707673146` `success` trên đúng SHA đó. Codex review cuối do Owner
+  invoke trả về không có actionable correctness finding. Real
+  HTTPS + disposable-PostgreSQL + Chrome-browser acceptance performed và
+  passed (§4). No schema/migration change (vẫn migration 8, không có
+  migration 9), no mutation API, no Admin authentication/RBAC. Toàn bộ lịch
+  sử correction và evidence — **canonical** — nằm ở
+  `docs/reports/PMS-CAL-001.1-completion.md`; không liệt kê lại ở đây.
+  **Chưa merge, chưa đóng**: bước còn lại duy nhất là Owner mark Ready,
+  squash-merge và branch cleanup — xem §8.
 
 ### Quyết định đang hiệu lực
 
-`PMS_CAL_001_1_IMPLEMENTATION_COMPLETE_AWAITING_OWNER_PUSH_DECISION`
+`PMS_CAL_001_1_CODEX_PASS_AWAITING_OWNER_MERGE`
 
 Ý nghĩa:
 
-- `AI-OPS-GOV-003` là `PASS — CLOSED` (PR #39). `PMS-CAL-001.1`
-  implementation (Phase 1–3) đã hoàn tất và tự kiểm thử trên feature branch,
-  nhưng **chưa** được push lên remote, **chưa** có Draft PR, và **chưa**
-  qua Codex review — những bước này chỉ tiếp tục theo chỉ dẫn rõ ràng tiếp
-  theo của Owner/OC.
+- `PMS-CAL-001.1` implementation đã hoàn tất; Draft PR #41 tồn tại (OPEN,
+  base `develop`); CI xanh trên reviewed head
+  `63d9b6019e4af37e146d943a1b8c1c13ac096469` (run `33707673146`,
+  Backend/Frontend/Admin đều `success`); Codex review cuối không tìm thấy
+  actionable correctness defect.
+- Chỉ Owner được mark Ready, merge và branch cleanup. Claude không merge,
+  không mark Ready, không xóa branch, và không tự invoke Codex.
+- Work item **vẫn mở** cho tới khi merge SHA được xác nhận; chưa được ghi
+  là `PASS — CLOSED` hay `merged`.
 - Governance vẫn dùng đúng một checkout repository duy nhất cho execution
   (`docs/governance/RULES.md` §5); `git worktree add` và mọi checkout thực
   thi bổ sung đều bị cấm, không có ngoại lệ.
-- Chỉ Owner quyết định Ready/merge/branch cleanup, và chỉ Owner mới invoke
-  Codex review.
+- `PMS-CAL-001.2` chưa bắt đầu.
 
 ### Tạm hoãn / locked
 
@@ -224,10 +230,19 @@ này sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
   `/api/admin/v1/properties/{propertyId}/reservation-board`, projects the
   existing `RoomOccupancySegment`/`RoomBlock` authority (above) into a
   frozen read-only JSON contract for the Admin Reservation Board frontend.
-  Gated behind `AdminCalendar:EnableUnauthenticatedRead` (default `false`,
-  impossible to enable in Production); no mutation endpoint of any kind
-  exists over HTTP. Exact contract/coverage-classification detail:
-  `docs/reports/PMS-CAL-001.1-completion.md`.
+  **Read-only**; no mutation endpoint of any kind exists over HTTP. Mỗi
+  request chỉ được phục vụ khi **tất cả** điều kiện sau đúng, kiểm tra
+  trước model binding: HTTPS; host environment là Development; địa chỉ
+  local **và** remote của connection đều là loopback; và
+  `AdminCalendar:EnableUnauthenticatedRead` là `true` — mà cờ này mặc định
+  `false` **kể cả trong Development**, chỉ được bật bởi supported local
+  HTTPS launch profile (`AdminCalendar__EnableUnauthenticatedRead=true`,
+  bind duy nhất vào `localhost`), và không thể bật ở Production
+  (startup-fatal). Mọi request không thỏa mãn nhận `404` + `no-store`,
+  không phân biệt được với route không tồn tại. Đây là endpoint
+  **same-machine development only** — không public production-ready, và
+  Admin authentication/RBAC vẫn deferred. Exact contract/coverage-
+  classification detail: `docs/reports/PMS-CAL-001.1-completion.md`.
 - The `ADMIN-002.1` frontend's Reservation Board (§5) now reads this real
   endpoint instead of browser-memory mock state (`PMS-CAL-001.1`, §2); the
   rest of that prototype (front-desk creation workspace, lifecycle/folio/
@@ -436,32 +451,32 @@ evidence independently verified for this closeout via:
 
 `AI-OPS-GOV-003` đã đóng (`PASS — CLOSED`, PR #39 merged); một CI fix
 ngoài kế hoạch đã đóng (PR #40 merged). `PMS-CAL-001.1` — Reservation Board
-Read Projection & Frontend Integration — đã **hoàn tất implementation**
-(Phase 1 backend, Phase 2 frontend, Phase 3 real HTTPS+PostgreSQL+browser
-acceptance — §2, §4, `docs/reports/PMS-CAL-001.1-completion.md`) trên
-feature branch `feature/pms-cal-001-1-board-read-integration`, nhưng
-**chưa được push lên remote và chưa có Draft PR**. Objective hiện tại:
+Read Projection & Frontend Integration — đã hoàn tất implementation và các
+correction cycle `C1`–`C9` (§2, §4,
+`docs/reports/PMS-CAL-001.1-completion.md`), đã push lên
+`feature/pms-cal-001-1-board-read-integration`, và mở **Draft PR #41**
+(OPEN, base `develop`) tại reviewed head
+`63d9b6019e4af37e146d943a1b8c1c13ac096469`, CI xanh trên đúng SHA đó (run
+`33707673146`), Codex review cuối không có actionable correctness finding.
+Objective hiện tại:
 
-1. Chờ Owner/OC xác nhận nội dung completion report và quyết định bước kế
-   tiếp: push feature branch, mở đúng một Draft PR against `develop`, và
-   xác nhận GitHub Actions (Admin/Backend/Frontend) trên head đó.
-2. Sau khi Owner xác nhận Draft PR head, Claude in đúng khối
-   `READY_FOR_CODEX_REVIEW` với `CODEX_REVIEW_COMMAND` do Master Execution
-   Prompt cung cấp; chỉ Owner mới invoke Codex review — Claude không tự
-   invoke.
-3. Nếu Owner (đóng vai OC) yêu cầu correction, OC phát hành một correction
-   prompt mới cho Claude và Owner activate Claude trước khi Claude ghi
+1. Owner quyết định mark PR #41 Ready, squash-merge vào `develop`, và
+   branch cleanup. Đây là bước còn lại **duy nhất** của work item này.
+2. Sau khi merge, xác nhận merge SHA và chỉ khi đó mới ghi
+   `PMS-CAL-001.1` là `PASS — CLOSED`, kèm docs closeout riêng nếu OC yêu
+   cầu.
+3. Nếu Owner (đóng vai OC) yêu cầu correction thay vì merge, OC phát hành
+   một correction prompt mới và Owner activate Claude trước khi Claude ghi
    thêm bất kỳ điều gì.
-4. Chỉ Owner quyết định Ready/merge/branch cleanup cho `PMS-CAL-001.1`.
 
 Không tự động mở `DATA-001.2`, không tự động bắt đầu `PMS-CAL-001.2` hay
 bất kỳ product/backend work item nào khác từ Snapshot này.
 
 ## 9. Main risks
 
-- Coi `PMS-CAL-001.1` implementation-complete-on-branch là tương đương đã
-  push/PR/merge — không đúng cho đến khi Owner xác nhận push, Draft PR
-  head, và (sau đó) merge SHA của chính work item này.
+- Coi `PMS-CAL-001.1` "Codex PASS + CI xanh trên Draft PR #41" là tương
+  đương đã merge/đóng — không đúng: PR #41 vẫn là Draft/OPEN, và work item
+  chỉ đóng khi Owner merge và merge SHA được xác nhận.
 - Nhầm phần Reservation Board **đọc** dữ liệu thật qua HTTPS
   (`PMS-CAL-001.1`) với một Admin Calendar đã có mutation/CRUD thật — không
   đúng: không có mutation endpoint nào được expose qua HTTP; assignment/
@@ -470,10 +485,14 @@ bất kỳ product/backend work item nào khác từ Snapshot này.
 - Nhầm phần còn lại của frontend mock prototype (`ADMIN-002.1`: front-desk
   creation workspace, lifecycle/folio/move demonstrations) — vẫn hoàn toàn
   mock-only — với backend PMS behavior thật.
-- Coi `AdminCalendar:EnableUnauthenticatedRead` (Development-only, luôn tắt
-  ở Production) là bằng chứng sẵn sàng public-Internet production — không
-  đúng; "commercial-quality" trong `PMS-CAL-001.1` nghĩa là robust/verified/
-  merge-ready, không phải public production-ready.
+- Coi `AdminCalendar:EnableUnauthenticatedRead` là bằng chứng sẵn sàng
+  public-Internet production — không đúng; "commercial-quality" trong
+  `PMS-CAL-001.1` nghĩa là robust/verified/merge-ready, không phải public
+  production-ready. Board read là **same-machine development only**: mặc
+  định tắt kể cả ở Development, chỉ bật qua supported local HTTPS launch
+  profile, và chỉ phục vụ request HTTPS loopback-to-loopback (§3). Nó
+  không được để lộ qua LAN/public listener hay external-facing proxy;
+  Admin authentication/RBAC vẫn deferred.
 - Nhầm database authority/internal mutation boundary của `RoomOccupancySegment`/
   `RoomBlock` (`PMS-BE-001.2`, đã CURRENT) với HTTP/Admin/Calendar
   integration, Staff identity, hoặc Admin RBAC thật — những thứ này vẫn
@@ -496,9 +515,10 @@ bất kỳ product/backend work item nào khác từ Snapshot này.
 
 ## 10. First action
 
-Owner xem `docs/reports/PMS-CAL-001.1-completion.md` và local diff
-(`ff9d5b0...HEAD`, 3 commits, chưa push) trực tiếp, rồi quyết định có push
-feature branch và mở Draft PR against `develop` hay không. Sau khi Owner
-xác nhận, Claude push, mở đúng một Draft PR, xác nhận GitHub Actions trên
-đúng head đó, rồi in khối `READY_FOR_CODEX_REVIEW` cho Owner invoke Codex
-review — Claude không tự invoke.
+Owner xem PR #41 (Draft, OPEN, base `develop`, head
+`63d9b6019e4af37e146d943a1b8c1c13ac096469`) cùng
+`docs/reports/PMS-CAL-001.1-completion.md`, rồi quyết định mark Ready,
+squash-merge và branch cleanup. CI đã xanh trên đúng head đó (run
+`33707673146`) và Codex review cuối không có actionable correctness
+finding, nên không còn bước thực thi nào của Claude trước merge. Sau khi
+merge, xác nhận merge SHA trước khi ghi work item là đóng.
