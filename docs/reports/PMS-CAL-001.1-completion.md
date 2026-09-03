@@ -34,8 +34,11 @@ Admin Reservation Board frontend, reading real data instead of
 `mockData.ts`/`reservationRuntime.ts`. No schema/migration change (still
 migration 8, confirmed clean via `dotnet ef migrations
 has-pending-model-changes` at the final checkpoint). No mutation API, no
-Admin authentication/RBAC, no Customer Web change, no create-reservation
-integration.
+Admin authentication/RBAC, no create-reservation integration.
+
+Customer Web is touched, but only at its HTTPS/transport boundary — see
+§3 for the exact scope. No new Customer booking behaviour or business
+feature was introduced by this work item.
 
 ### Backend (Phase 1)
 
@@ -147,12 +150,47 @@ show "sold as X, assigned into Y" without fabricating either.
 
 No mutation endpoint of any kind (no assignment/block create, split, move,
 cancel exposed over HTTP — those remain internal-only per `PMS-BE-001.2`).
-No Admin authentication/RBAC, no Staff identity. No Customer Web change. No
-create-reservation integration. No schema/migration change. The
+No Admin authentication/RBAC, no Staff identity. No create-reservation
+integration. No schema/migration change. The
 `AdminCalendar:EnableUnauthenticatedRead` gate exists specifically because
-of this — it is a development/internal-deployment convenience, not a claim
-of public-Internet production-readiness, and Production startup makes it
-impossible to enable.
+of this — it is a same-machine development convenience, not a claim of
+public-Internet production-readiness (see §14/§18 for the exact conditions
+under which it serves a request, and why Production cannot enable it).
+
+### Customer Web: what changed, and what did not
+
+This report previously said "No Customer Web change". That was true through
+C5 and became **false at C6**, which had to move Customer Web's transport to
+keep it working once the API refused cleartext. Recorded here accurately, so
+a later reader is not misled about the real change surface:
+
+**Changed** (10 files — transport/development boundary only):
+
+- `src/lib/api/env.ts` — the API base is now validated as **HTTPS-only**,
+  by real URL parsing, and a rejected value is never echoed back (C8).
+- `scripts/dev-https.mjs` (new) — local development is served over
+  **loopback HTTPS** at `https://localhost:3000`, wrapping Next's public
+  `getRequestHandler`/`getUpgradeHandler`. No proxy, no new dependency.
+- `package.json` — `dev` and `dev:https` point at that launcher.
+  `package-lock.json` is **unchanged**; `build`/`start` still use the
+  standard Next CLI.
+- `.env.local.example`, `README.md`, `.gitignore` — the HTTPS API base, the
+  certificate directory, and the `NEXT_PUBLIC_*` browser-visibility warning.
+- `src/lib/api/__tests__/` — `env`, `httpClient`, `httpClientUnsafe`, plus a
+  new `devHttpsLauncher` suite covering the launcher's fail-closed contract.
+
+**Why**: the API applies `UseHttpsRedirection()`, so an `http://` API base
+would have had every credentialed preflight answered with a cross-origin
+redirect; and with the page still on `http://localhost:3000`, schemeful
+same-site would have withheld the `Secure; SameSite=Lax` antiforgery cookie.
+Both were observed in a real browser, not theorised — see §15.
+
+**Not changed**: no new Customer booking behaviour or business feature; no
+weakening of antiforgery, `SameSite` or `Secure`; no HTTP fallback and no
+`http`→`https` rewriting; no authentication/RBAC; no Admin Board
+functionality on the Customer side; no backend request/response contract.
+The credentialed CORS + CSRF flow is preserved exactly, and is re-verified
+end to end in every later cycle (§15–§18).
 
 ## 4. Test evidence
 
