@@ -1,13 +1,10 @@
 const ENV_VAR_NAME = "NEXT_PUBLIC_API_BASE_URL";
 
 /**
- * Keeps a rejected value out of the error message when it carries URL
- * credentials, so a misconfigured `https://user:secret@host` never reaches a
- * log or a browser console.
+ * Where to look, appended to every rejection so the message stays actionable
+ * without quoting anything the operator configured.
  */
-function describeValue(rawValue: string): string {
-  return rawValue.includes("@") ? "<redacted>" : `"${rawValue}"`;
-}
+const WHERE_TO_FIX = `Fix ${ENV_VAR_NAME} in .env.local (see .env.local.example). The configured value is not repeated here.`;
 
 /**
  * PMS-CAL-001.1 correction C6: the API base must be an absolute `https://`
@@ -26,6 +23,24 @@ function describeValue(rawValue: string): string {
  * the caller's behalf: a wrong base URL is a deployment mistake to fix, not
  * something to silently paper over. Well-formedness is decided by real URL
  * parsing, not by a regex.
+ *
+ * Correction C8: a rejected value is never quoted back — not raw, not trimmed,
+ * not re-serialized from the parsed URL, and not by way of the parser's own
+ * exception. The previous implementation redacted only values containing `@`,
+ * which covered `https://user:secret@host` but echoed everything else; a token
+ * pasted into the query or fragment (`?token=…`, `#access_token=…`) — the two
+ * places one most often ends up — went verbatim into `Error.message`, and from
+ * there into the browser console, a configuration-error screen and deployment
+ * logs. `httpClient` copies this message into `ApiConfigError`, so it is
+ * browser-reachable.
+ *
+ * The replacement is not a better heuristic but the absence of one: nothing
+ * about the value is disclosed, so nothing depends on guessing which values
+ * are secret. Secrecy is not a property this module can detect — a bare
+ * hostname can be as confidential as a token — and any parameter-name
+ * allowlist, partial mask or "sanitized origin" would leak whatever it failed
+ * to anticipate. Naming the variable and the violated rule is enough to fix
+ * the configuration; the operator can already read the value they set.
  */
 function normalizeBaseUrl(rawValue: string): string {
   const trimmed = rawValue.trim();
@@ -34,25 +49,28 @@ function normalizeBaseUrl(rawValue: string): string {
   try {
     parsed = new URL(trimmed);
   } catch {
+    // The parser's message embeds the input, so it is discarded rather than
+    // chained — `cause` would travel with the error and reach the same places.
     throw new Error(
-      `${ENV_VAR_NAME} must be an absolute https URL, received: ${describeValue(rawValue)}`
+      `${ENV_VAR_NAME} must be an absolute https URL, for example https://api.example.com. ${WHERE_TO_FIX}`
     );
   }
 
   if (parsed.protocol !== "https:") {
     throw new Error(
       `${ENV_VAR_NAME} must use https:// — the API redirects http to https, which breaks ` +
-        `credentialed CORS preflight. Received: ${describeValue(rawValue)}`
+        `credentialed CORS preflight. ${WHERE_TO_FIX}`
     );
   }
 
   if (parsed.username !== "" || parsed.password !== "") {
-    throw new Error(`${ENV_VAR_NAME} must not embed URL credentials.`);
+    throw new Error(`${ENV_VAR_NAME} must not embed URL credentials. ${WHERE_TO_FIX}`);
   }
 
   if (parsed.search !== "" || parsed.hash !== "") {
     throw new Error(
-      `${ENV_VAR_NAME} must not contain a query string or fragment, received: ${describeValue(rawValue)}`
+      `${ENV_VAR_NAME} must not contain a query string or fragment — it is a base URL, ` +
+        `not a request. ${WHERE_TO_FIX}`
     );
   }
 

@@ -66,6 +66,15 @@ rather than relying on a redirect a preflight would not follow.
    ```
 
    It must be `https://`; `http://` (including `http://localhost`) is rejected.
+   It must also be a bare origin — URL credentials, a query string and a
+   fragment are all rejected.
+
+   > **Every `NEXT_PUBLIC_*` value is compiled into the browser bundle and is
+   > readable by anyone who loads the site.** Never put a token, key, password
+   > or any other credential in one. A rejected API base is therefore never
+   > quoted back in the resulting configuration error — the message names the
+   > variable and the violated rule only, so a mistakenly pasted secret does
+   > not travel on into a console or a deployment log.
 
 4. **Run the API** on its `https` launch profile (`Back_End/src/TheBha.Api`),
    listening on `https://localhost:7145`.
