@@ -1624,3 +1624,194 @@ zero.
   not invoked by Claude at any point. No subagent, nested agent, background
   writer or concurrent writer was used in Correction Cycle C8, and neither
   pre-existing Orca dry-run worktree was touched.
+
+## 18. Correction Cycle C9
+
+Owner invoked `/codex:review --base origin/develop` a ninth time against
+PR #41, at HEAD `e6b7289fcdf7f93d008ccd6074c597b54df5e536`. Codex returned one
+**[P1]** finding, against `AdminReservationBoardReadGateFilter.cs:78-80`.
+
+### Root cause
+
+The gate required HTTPS, `IsDevelopment()`, and the enable flag. None of those
+is a *location*. `Development` is a configuration value that any process can
+set, `appsettings.Development.json` turned the flag on by default, and Kestrel
+can listen on a LAN, container or wildcard address. So a Development-labelled
+process hosted anywhere reachable served guest names, confirmation numbers and
+stay dates to any HTTPS client that could open the socket. CORS constrains
+browsers only — never `curl` or a server-to-server caller.
+
+Confirmed on a real host before changing anything: with Kestrel bound to
+`https://0.0.0.0:7145` in Development and the flag on, a request whose socket
+genuinely landed on the LAN address — `192.168.1.63 → 192.168.1.63`, verified
+with curl's own `%{local_ip}`/`%{remote_ip}`, not a `Host`-header trick —
+returned **`200` with the full board payload**.
+
+### The fix — three independent boundaries
+
+1. **Default closed.** `appsettings.Development.json` now sets
+   `EnableUnauthenticatedRead: false`. `ASPNETCORE_ENVIRONMENT=Development`
+   alone exposes nothing.
+2. **Explicit local opt-in.** The `https` launch profile — bound only to
+   `localhost` — sets `AdminCalendar__EnableUnauthenticatedRead=true`. The
+   HTTP-only profile does not.
+3. **Request-time loopback enforcement.** The existing pre-model-binding
+   resource filter now also requires both connection endpoints to be loopback:
+
+```csharp
+if (!context.HttpContext.Request.IsHttps ||
+    !hostEnvironment.IsDevelopment() ||
+    !IsLoopback(connection.LocalIpAddress) ||
+    !IsLoopback(connection.RemoteIpAddress) ||
+    !adminCalendarOptions.Value.EnableUnauthenticatedRead)
+```
+
+Ordering remains load-bearing. `||` short-circuits, so cleartext is refused
+first, then non-Development, then a non-local connection — all **before** the
+reloadable option is materialized, which extends C5's late-flip defense to the
+connection boundary. The addresses come from `ConnectionInfo`, which the
+server fills in from the accepted socket, so `Host`, `Origin`, `Referer`,
+`X-Forwarded-*` and `Forwarded` cannot influence the decision; C9 deliberately
+adds **no** forwarded-header trust, because that would turn a request header
+back into a location claim — the very weakness being closed. A null address
+fails closed rather than being read as local. IPv4-mapped IPv6 is unwrapped
+first, so `::ffff:127.0.0.1` is judged on the address it carries, while
+`0.0.0.0` and `::` are not loopback. Blocked requests reuse the existing
+indistinguishable `404` with `Cache-Control: no-store`.
+
+### Tests
+
+- **Rejection matrix**, 12 rows: private LAN, container bridge, RFC 5737
+  (`198.51.100.0/24`) and RFC 3849 (`2001:db8::/32`) documentation addresses,
+  `0.0.0.0`, `::`, and all three null combinations. Each asserts `404`,
+  `no-store`, **zero** query invocations, and no `guestDisplayName`,
+  `confirmationNumber`, `stays`, `physicalRooms`, `roomTypes` or
+  `operationalBlocks` — with the environment and flag asserted true first, so
+  a pass cannot come from some other condition.
+- **Permitted matrix**, 5 rows: `127.0.0.1`, another `127.0.0.0/8` address,
+  `::1`, IPv4-mapped loopback, and a dual-stack `::1`/`127.0.0.1` pairing.
+- **Uniformity**: valid/missing/malformed/equal/reversed queries over a remote
+  connection all return one identical `(type,title,status)` shape with no
+  validation `errors` object — proving model binding never ran.
+- **Spoofing**: `Host: localhost`, local `Origin`, `Referer`,
+  `X-Forwarded-For/Proto/Host`, `X-Real-IP` and `Forwarded` together do not
+  satisfy the gate.
+- **Late configuration flip** cannot open a remote connection.
+- **Configuration**: Development is closed by default, and only the
+  localhost-bound `https` profile opts in — asserted by parsing the shipped
+  `launchSettings.json`, including that every URL in its `applicationUrl` has
+  host `localhost` and that no other profile carries the opt-in.
+
+**Test-host integrity.** TestServer never populates connection addresses, so
+production was *not* weakened to accept null. Instead the test factory models
+a real loopback connection through a startup filter that lives entirely in the
+test assembly; boundary tests replace it with explicit non-loopback addresses.
+The factory's opt-in is applied as real configuration and only when the host
+really is Development, so non-Development factories still start from the
+shipped default and `Program.cs`'s Production startup guard is untouched.
+
+**Red before / green after.** 19 failures before the fix — all 12 rejection
+rows, the uniformity, spoofing and late-flip cases, and both configuration
+tests. All green after. The temporary real-host probe (loopback conditions
+removed) reproduced the `200`-with-board-data leak over the LAN and was fully
+reverted.
+
+### Checks
+
+| Check | Result |
+| --- | --- |
+| `AdminReservationBoardApiTests` | `55/55` (was 32) |
+| Backend Release build | 0 warnings, 0 errors |
+| Backend unit / integration | `244/244` / `383/383` (was 360) |
+| EF pending-model check | "No changes have been made to the model since the last migration" |
+| Migrations | 8, no migration 9, zero directory diff |
+| Customer Web (untouched) | lint clean, `323/323`, build succeeds |
+| Admin Web (source untouched) | lint clean, `68/68`, build succeeds |
+| `git diff --check` | clean |
+
+### Real-host acceptance
+
+**Scenario A — supported local launch.** `https` profile, Development,
+listeners bound to `127.0.0.1:7145` and `[::1]:7145` only (no wildcard).
+Board `200` + `no-store` with all seven contract keys; malformed query `400` +
+`no-store`. Admin Web at `https://localhost:3001/calendar` rendered the live
+board — room types, rooms `101`/`102`/`201`, unassigned lanes — with **zero**
+console errors, over `https://localhost:7145`.
+
+**Scenario B — Development without the opt-in.** Same environment and
+transport, no `AdminCalendar__EnableUnauthenticatedRead`: valid, missing and
+malformed board requests all `404` + `no-store`, 162 bytes, zero data;
+`/api/v1/properties` still `200`; database unchanged.
+
+**Scenario C — non-loopback listener.** Kestrel on `https://0.0.0.0:7145`,
+Development, flag explicitly `true`. Over a genuine LAN connection
+(`192.168.1.63 → 192.168.1.63`), all four query variants returned `404` +
+`no-store`, 162 bytes, no board data and no validation `errors`, with redirect
+following disabled. The full spoofed-header set was likewise refused. On the
+**same** wildcard host a loopback connection still returned `200` with the
+board — so the rejection is the connection boundary doing its job, not a
+blanket block.
+
+**C6/C7 smoke regression.** Customer Web served at `https://localhost:3000`
+(`200`); credentialed catalogue read `200` with
+`access-control-allow-credentials: true` and origin `https://localhost:3000`;
+CSRF `200` → `OPTIONS` `204` → `POST /api/v1/booking-holds` **`201`**, hold
+`Active`. HTTP board request on the supported host still `307` with zero data
+leaked, and the HTTPS board still `200`.
+
+Run against a disposable seeded database (`thebha_pmscal001_c9_e2e`, dropped
+afterwards) which finished with exactly the one intentional hold
+(`holds=1, reservations=0`). `thebha_dev` was untouched (`1 property, 7 holds,
+7 reservations` before and after).
+
+### Supported model, stated exactly
+
+```text
+Development environment
+AND HTTPS
+AND loopback local connection
+AND loopback remote connection
+AND explicit local launch-profile opt-in
+```
+
+The unauthenticated board is for **same-machine development only**. It must
+never be exposed through a LAN or public listener, or through an
+external-facing proxy. Admin authentication/RBAC remains deferred; this is not
+public production readiness.
+
+### Known limitation
+
+A deployment that terminates TLS at a reverse proxy on the same host would
+present a loopback connection to the application, so the loopback rule alone
+would not distinguish it from a genuine local caller. C9 deliberately does not
+add forwarded-header trust to cover that case — doing so would reintroduce a
+caller-controlled location claim. The protection there is boundary 1 and 2:
+the flag is off unless the local launch profile sets it. A deployment that
+needs the board behind a proxy requires authentication/RBAC, which is a
+separate work item.
+
+### Final corrected state
+
+- Code/config/test correction commit: `d78e5ccab4d8c844ff3368d3e23baf2f69d3af97`
+  — 7 files changed, 532 insertions, 15 deletions. GitHub Actions on that
+  exact SHA: Backend `success`, Frontend `success`, Admin `success`. The job
+  logs record the expanded totals — Backend `244` unit and **`383`**
+  integration, Frontend `323`, Admin `68` — so the new tests demonstrably ran
+  in CI rather than only locally.
+- This documentation commit is docs-only, on top of `d78e5cc`; the final PR
+  HEAD and its Actions result are recorded in the terminal handoff.
+- Files touched: the gate filter, `AdminCalendarOptions` (comments),
+  `appsettings.Development.json`, `launchSettings.json`, the board tests, the
+  test factory, and `Front_End/Admin_Web/README.md` — all within the
+  authorized set. `Program.cs` logic, Customer Web, Admin Web application
+  source, CORS, cookies, antiforgery, authentication, the board projection,
+  schema, migrations, package manifests, lock files, GitHub Actions, Forwarded
+  Headers and governance files are unchanged.
+- Only synthetic guest data and reserved documentation address ranges appear
+  in evidence; no cookie value, CSRF token value, private key or certificate
+  content is recorded, and the one real interface address used for Scenario C
+  is a private LAN address on the development machine.
+- `ACTIVE_EXECUTOR` (Claude) stopped all writes at this checkpoint. Codex was
+  not invoked by Claude at any point. No subagent, nested agent, background
+  writer or concurrent writer was used in Correction Cycle C9, and neither
+  pre-existing Orca dry-run worktree was touched.
