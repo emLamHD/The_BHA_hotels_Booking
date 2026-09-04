@@ -19,6 +19,22 @@ Control Tower đọc đúng thứ tự mặc định:
 3. `docs/project/SNAPSHOT.md`
 4. `docs/daily/YYYY-MM/YYYY-MM-DD-plan.md` của ngày hiện tại
 
+### Bắt buộc: `bha-sync` trước khi dùng Snapshot làm baseline
+
+`SNAPSHOT.md` được duy trì thủ công nên có thể tụt lại sau GitHub. Nó chỉ
+được dùng làm planning baseline sau khi `tools/bha-sync/bha-sync.sh` trả về
+`SYNCHRONIZED`. GitHub live state là nguồn sự thật cho trạng thái Pull
+Request; Snapshot chỉ là claim.
+
+- `DRIFT_DETECTED` hoặc `SYNC_UNVERIFIED`: dừng. Không planning và không
+  implementation trên baseline đó. Báo chính xác field nào drift kèm giá trị
+  snapshot và giá trị GitHub, rồi yêu cầu canonical correction qua feature
+  branch + PR — không đẩy thẳng vào `develop` hay `main`.
+- Không đọc được GitHub thì không sửa Snapshot bằng suy luận, và không lấy
+  tên branch local làm bằng chứng cho trạng thái remote PR.
+
+Hợp đồng đầy đủ: `docs/governance/BHA_SYNC.md`.
+
 Sau đó chỉ xuất xác nhận ngắn:
 
 ```text
@@ -394,6 +410,9 @@ Trước khi đóng phiên execution:
 Trước khi đóng phiên Control Tower:
 
 - Snapshot phản ánh quyết định đã được Owner xác nhận;
+- sau khi Owner merge, `bha-sync` đã chạy lại trong post-merge closeout và
+  trả `SYNCHRONIZED`; nếu closeout chưa chạy được, phiên kế tiếp phải chạy
+  `bha-sync` trước khi dùng Snapshot làm baseline (§2);
 - plan ngày kế tiếp có objective và first action;
 - chi tiết lịch sử chỉ nằm trong worklog/report;
 - không để một quyết định quan trọng chỉ tồn tại trong chat.
