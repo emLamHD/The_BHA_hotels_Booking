@@ -396,8 +396,11 @@ log ""
 # which silently reclassified unmerged PRs as merged.
 # ---------------------------------------------------------------------------
 
-readonly GH_JQ='[.state, .isDraft, .mergedAt, (.mergeCommit.oid // null), .baseRefName, .url]
-  | map(if . == null then "@@NULL@@" else tostring end) | .[]'
+# Interpolates NULL_SENTINEL rather than repeating the literal, so the value the
+# query emits and the value the validator compares against cannot drift apart.
+readonly GH_JQ="[.state, .isDraft, .mergedAt, (.mergeCommit.oid // null), .baseRefName, .url]
+  | map(if . == null then \"${NULL_SENTINEL}\" else tostring end)
+  | .[]"
 
 LIVE_STATE=""; LIVE_DRAFT=""; LIVE_MERGED_AT=""
 LIVE_MERGE_SHA=""; LIVE_BASE=""; LIVE_URL=""; LIVE_LIFECYCLE=""
