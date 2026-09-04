@@ -88,9 +88,22 @@ checkpoint đã ghi, checkpoint vẫn là ancestor của nó, và `bha-sync` v�
 <!-- BHA-SYNC:END -->
 ```
 
+Khối được đọc bằng một state machine `BEFORE → INSIDE → AFTER` có ràng buộc
+section, không phải bằng cách đếm marker. Đếm marker từng chấp nhận một `END`
+đứng trước `BEGIN`, một khối không bao giờ đóng, và — nghiêm trọng nhất — một
+khối đúng dạng nằm trong section lịch sử, khiến prose có thể thỏa mãn canonical
+contract.
+
 Quy tắc cấu trúc — vi phạm bất kỳ điều nào → `SYNC_UNVERIFIED`:
 
-- đúng **một** cặp marker `BEGIN`/`END`;
+- đúng **một** heading `### 1.1 Canonical record`;
+- mọi marker `BHA-SYNC` phải nằm **trong** section đó; marker ở §9 hay bất kỳ
+  section lịch sử nào đều bị từ chối;
+- `BEGIN` chỉ hợp lệ từ trạng thái `BEFORE`; `END` chỉ hợp lệ từ `INSIDE`;
+  chuỗi chuyển trạng thái phải đúng `BEFORE → INSIDE → AFTER`;
+- `END` trước `BEGIN`, `BEGIN` lồng nhau, `BEGIN`/`END` lặp lại, khối không
+  đóng khi hết file, hoặc không có `BEGIN` nào — đều bị từ chối;
+- marker `BHA-SYNC` không nhận dạng được → từ chối;
 - đúng **một** dòng `repository`, **một** `base-branch`, **một**
   `develop-checkpoint`;
 - mỗi dòng PR đúng **5** trường; số PR phải **duy nhất** — dòng trùng bị từ
@@ -138,20 +151,28 @@ Mapping lifecycle:
 |---|---|
 | `OPEN` + `isDraft=true` + merge fields null | `DRAFT` |
 | `OPEN` + `isDraft=false` + merge fields null | `OPEN` |
-| `CLOSED` + merge fields null | `CLOSED` |
-| `MERGED` + `mergedAt` hợp lệ + merge commit hợp lệ | `MERGED` |
+| `CLOSED` + merge fields null | `CLOSED` (giữ nguyên dù `isDraft` là gì) |
+| `MERGED` + `isDraft=false` + `mergedAt` hợp lệ + merge commit hợp lệ | `MERGED` |
 
 Dữ liệu mâu thuẫn **không được đoán** — tất cả đều trả `SYNC_UNVERIFIED`:
 `OPEN` mà có merge commit; `MERGED` mà thiếu `mergedAt`; `MERGED` mà thiếu
-merge commit; state enum lạ; thiếu `isDraft`.
+merge commit; **`MERGED` mà `isDraft=true`** (GitHub không merge một draft, nên
+thấy cả hai nghĩa là response không đáng tin); state enum lạ; thiếu `isDraft`.
 
 ## 6. Xác thực base branch
 
+Cả canonical `base-branch` lẫn `baseRefName` sống đều được **kiểm tra cú pháp
+trước khi so sánh** hoặc trước khi được dùng như một revision. Dữ liệu API sai
+định dạng là lỗi xác minh, **không** phải bất đồng thực tế, nên nó không bao giờ
+bị xếp thành drift. Guard chạy trong bash trước (từ chối giá trị rỗng, giá trị
+bắt đầu bằng `-` để không bao giờ trở thành option của git, và cú pháp revision
+`@{...}` mà `git check-ref-format` vẫn chấp nhận), rồi mới tới
+`git check-ref-format --branch`.
+
 Với mỗi PR được theo dõi:
 
-- `baseRefName` sống được so với canonical `base-branch`;
-- thiếu hoặc sai định dạng → `SYNC_UNVERIFIED`;
-- hợp lệ nhưng khác → `DRIFT_DETECTED`;
+- thiếu hoặc sai định dạng (canonical hoặc live) → `SYNC_UNVERIFIED`;
+- hợp lệ nhưng khác canonical `base-branch` → `DRIFT_DETECTED`;
 - ancestry của merge commit chỉ được kiểm tra **sau khi** base đã khớp, và
   kiểm tra trên đúng base ref đã xác minh (`origin/<base-branch>`, hoặc
   `--base-ref`). Không kiểm tra ancestry trên một ref do caller cung cấp
@@ -178,9 +199,12 @@ exit code tình cờ của shell. Lỗi môi trường/dependency luôn trả `4
 ## 8. Yêu cầu môi trường
 
 Production path chỉ dùng: **bash >= 4.0** (`mapfile`, `${var,,}`), **`git`**,
-và **`gh`** đã authenticate với quyền đọc repository. Không có external
-command nào khác. Cả ba đều được kiểm tra tường minh khi khởi động; thiếu bất
-kỳ cái nào → `SYNC_UNVERIFIED` (`4`).
+và **`gh`** đã authenticate với quyền đọc repository. Không có external command
+nào khác — kể cả `cat`: `usage()` in bằng `printf` builtin, vì một heredoc `cat`
+sẽ là một binary ngoài không nằm trong hợp đồng này. Cả ba dependency đều được
+kiểm tra tường minh khi khởi động; thiếu bất kỳ cái nào → `SYNC_UNVERIFIED`
+(`4`). Regression harness chạy `--help` và một usage error với PATH không có
+`cat` để giữ điều này đúng.
 
 ## 9. Nghĩa vụ của agent
 

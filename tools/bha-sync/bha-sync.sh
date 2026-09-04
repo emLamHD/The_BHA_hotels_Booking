@@ -81,25 +81,28 @@ canon_pr_merge_commit=()
 canon_pr_merged_at=()
 
 usage() {
-  cat <<'USAGE'
-Usage: bha-sync.sh [options]
-
-Verifies the canonical record in docs/project/SNAPSHOT.md §1 against GitHub
-live state. Read-only: never writes a tracked file, never mutates a remote.
-
-Options:
-  --snapshot PATH   Snapshot file (default: docs/project/SNAPSHOT.md at repo root)
-  --repo SLUG       owner/name (default: the canonical `repository` record)
-  --base-ref REF    Git ref the checkpoint and merge commits must be contained
-                    by (default: origin/<canonical base-branch>)
-  --json            Emit a machine-readable result object
-  -h, --help        Show this help
-
-Exit codes:
-  0 SYNCHRONIZED   2 USAGE_ERROR   3 DRIFT_DETECTED   4 SYNC_UNVERIFIED
-
-Requires bash >= 4.0, git, and an authenticated gh.
-USAGE
+  # printf, not a `cat` heredoc: `cat` is an external binary and the dependency
+  # contract for this script is bash + git + gh only.
+  printf '%s\n' \
+    'Usage: bha-sync.sh [options]' \
+    '' \
+    'Verifies the canonical record in docs/project/SNAPSHOT.md 1.1 against' \
+    'GitHub live state. Read-only: never writes a tracked file, never mutates' \
+    'a remote.' \
+    '' \
+    'Options:' \
+    '  --snapshot PATH   Snapshot file (default: docs/project/SNAPSHOT.md at repo root)' \
+    '  --repo SLUG       owner/name (default: the canonical `repository` record)' \
+    '  --base-ref REF    Git ref the checkpoint and merge commits must be contained' \
+    '                    by (default: origin/<canonical base-branch>)' \
+    '  --json            Emit a machine-readable result object' \
+    '  -h, --help        Show this help' \
+    '' \
+    'Exit codes:' \
+    '  0 SYNCHRONIZED   2 USAGE_ERROR   3 DRIFT_DETECTED   4 SYNC_UNVERIFIED' \
+    '' \
+    'Requires bash >= 4.0, git, and an authenticated gh. No other external' \
+    'command is used.'
 }
 
 usage_error() {
@@ -125,6 +128,21 @@ unquote() {
   s="${s#\`}"
   s="${s%\`}"
   printf '%s' "$s"
+}
+
+# Syntactic validation of a branch name, before it is ever compared or handed
+# to git as a revision. Malformed API data is a verification failure, not a
+# factual disagreement, so callers map a false return to SYNC_UNVERIFIED — never
+# to drift. The bash guards run first so a value can never arrive at git as an
+# option or as a revision expression: `git check-ref-format` accepts `@{-1}`,
+# which is a revision, not a branch name.
+is_valid_branch_name() {
+  local name="$1"
+  [[ -n "$name" ]]                  || return 1
+  [[ "$name" != -* ]]               || return 1   # never let a value become an option
+  [[ "$name" != *"@{"* ]]           || return 1   # revision syntax, not a name
+  [[ "$name" != *[[:space:]]* ]]    || return 1
+  git check-ref-format --branch "$name" >/dev/null 2>&1
 }
 
 # Splits a Markdown table row into ROW_FIELDS. IFS='|' is a non-whitespace
@@ -282,23 +300,57 @@ fi
 # so could be satisfied by narrative text that was never meant as state.
 # ---------------------------------------------------------------------------
 
+# Deterministic BEFORE -> INSIDE -> AFTER scan, scoped to the canonical section.
+#
+# Counting markers and toggling a flag was not enough: it accepted an END that
+# preceded its BEGIN, a block that never closed, and — worst — a well-formed
+# block sitting in a historical section, which let narrative text satisfy the
+# canonical contract. Section membership and legal transitions are now both
+# enforced, and every violation is a verification failure, never a silent pass.
 parse_canonical_block() {
-  local line trimmed key value pr seen_begin=0 seen_end=0 inside=0
+  local line trimmed key value pr
+  local state="BEFORE" in_canonical_section=0 canonical_heading_count=0
   local meta_repo_count=0 meta_base_count=0 meta_checkpoint_count=0
   local seen_pr_numbers=" "
 
   while IFS= read -r line || [[ -n "$line" ]]; do
-    if [[ "$line" == *"$MARKER_BEGIN"* ]]; then
-      seen_begin=$((seen_begin + 1))
-      inside=1
+    # Headings define section membership. Any heading closes the previous
+    # section, so a marker can only ever belong to the section it follows.
+    if [[ "$line" =~ ^\#{1,6}[[:space:]] ]]; then
+      if [[ "$line" =~ ^###[[:space:]]+1\.1[[:space:]]+Canonical\ record[[:space:]]*$ ]]; then
+        canonical_heading_count=$((canonical_heading_count + 1))
+        in_canonical_section=1
+      else
+        in_canonical_section=0
+      fi
       continue
     fi
-    if [[ "$line" == *"$MARKER_END"* ]]; then
-      seen_end=$((seen_end + 1))
-      inside=0
+
+    if [[ "$line" == *"BHA-SYNC:"* ]]; then
+      if [[ $in_canonical_section -ne 1 ]]; then
+        unverified "BHA-SYNC marker outside the canonical section 1.1: ${line:0:60}"
+        return 1
+      fi
+      if [[ "$line" == *"$MARKER_BEGIN"* ]]; then
+        if [[ "$state" != "BEFORE" ]]; then
+          unverified "BHA-SYNC:BEGIN is only legal once, before any END (state was $state)"
+          return 1
+        fi
+        state="INSIDE"
+      elif [[ "$line" == *"$MARKER_END"* ]]; then
+        if [[ "$state" != "INSIDE" ]]; then
+          unverified "BHA-SYNC:END is only legal while inside an open block (state was $state)"
+          return 1
+        fi
+        state="AFTER"
+      else
+        unverified "unrecognized BHA-SYNC marker: ${line:0:60}"
+        return 1
+      fi
       continue
     fi
-    [[ $inside -eq 1 ]] || continue
+
+    [[ "$state" == "INSIDE" ]] || continue
 
     trimmed="$(trim "$line")"
     [[ -n "$trimmed" ]] || continue
@@ -347,8 +399,12 @@ parse_canonical_block() {
     esac
   done < "$snapshot_path"
 
-  if [[ $seen_begin -ne 1 || $seen_end -ne 1 ]]; then
-    unverified "expected exactly one BHA-SYNC:BEGIN/END marker pair (found $seen_begin/$seen_end)"
+  case "$state" in
+    BEFORE) unverified "no BHA-SYNC:BEGIN marker found inside the canonical section 1.1"; return 1 ;;
+    INSIDE) unverified "canonical block was never closed — reached end of file inside it"; return 1 ;;
+  esac
+  if [[ $canonical_heading_count -ne 1 ]]; then
+    unverified "expected exactly one '### 1.1 Canonical record' heading (found $canonical_heading_count)"
     return 1
   fi
   if [[ $meta_repo_count -ne 1 || $meta_base_count -ne 1 || $meta_checkpoint_count -ne 1 ]]; then
@@ -372,6 +428,10 @@ if [[ ! "$canon_checkpoint" =~ $SHA_RE ]]; then
 fi
 if [[ -z "$canon_base_branch" || -z "$canon_repository" ]]; then
   unverified "canonical repository/base-branch record is empty"
+  emit_and_exit "SYNC_UNVERIFIED" "$EXIT_UNVERIFIED"
+fi
+if ! is_valid_branch_name "$canon_base_branch"; then
+  unverified "canonical base-branch '$canon_base_branch' is not a valid branch name"
   emit_and_exit "SYNC_UNVERIFIED" "$EXIT_UNVERIFIED"
 fi
 
@@ -441,6 +501,10 @@ fetch_live_pr() {
     unverified "PR #$pr: baseRefName is missing"
     return 1
   fi
+  if ! is_valid_branch_name "$LIVE_BASE"; then
+    unverified "PR #$pr: baseRefName '$LIVE_BASE' is not a valid branch name"
+    return 1
+  fi
 
   if [[ "$LIVE_URL" == "$NULL_SENTINEL" || -z "$LIVE_URL" ]]; then
     unverified "PR #$pr: url is missing"
@@ -453,6 +517,13 @@ fetch_live_pr() {
 
   # Merge fields must agree with the state they belong to.
   if [[ "$LIVE_STATE" == "MERGED" ]]; then
+    # A merged PR cannot still be a draft; GitHub refuses to merge one. Seeing
+    # both means the response is untrustworthy, so it is a verification
+    # failure rather than something to resolve in favour of either field.
+    if [[ "$LIVE_DRAFT" != "false" ]]; then
+      unverified "PR #$pr: MERGED but isDraft=$LIVE_DRAFT — contradictory state"
+      return 1
+    fi
     if [[ ! "$LIVE_MERGED_AT" =~ $ISO8601_RE ]]; then
       unverified "PR #$pr: MERGED but mergedAt is missing or malformed ('$LIVE_MERGED_AT')"
       return 1
@@ -513,6 +584,10 @@ for i in "${!canon_pr_numbers[@]}"; do
 
   # Base first: ancestry against a caller-supplied ref is meaningless if the PR
   # did not actually target the branch the canonical record says it did.
+  if ! is_valid_branch_name "$c_base"; then
+    unverified "PR #$pr: canonical base '$c_base' is not a valid branch name"
+    continue
+  fi
   if [[ "$c_base" != "$canon_base_branch" ]]; then
     unverified "PR #$pr: canonical base '$c_base' is not the canonical base branch '$canon_base_branch'"
     continue
