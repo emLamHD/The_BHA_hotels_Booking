@@ -32,6 +32,11 @@ Request; Snapshot chỉ là claim.
   branch + PR — không đẩy thẳng vào `develop` hay `main`.
 - Không đọc được GitHub thì không sửa Snapshot bằng suy luận, và không lấy
   tên branch local làm bằng chứng cho trạng thái remote PR.
+- Live `develop` HEAD dùng để lập kế hoạch luôn lấy từ Git sau khi fetch,
+  không lấy từ Snapshot. Snapshot chỉ ghi `develop-checkpoint` — checkpoint
+  đã reconcile lần cuối — và bất biến là checkpoint phải là **ancestor** của
+  live HEAD, không phải bằng nó. Live HEAD đi trước checkpoint không phải là
+  drift, nên một PR reconcile sau khi merge không kéo theo PR reconcile tiếp.
 
 Hợp đồng đầy đủ: `docs/governance/BHA_SYNC.md`.
 
@@ -412,7 +417,9 @@ Trước khi đóng phiên Control Tower:
 - Snapshot phản ánh quyết định đã được Owner xác nhận;
 - sau khi Owner merge, `bha-sync` đã chạy lại trong post-merge closeout và
   trả `SYNCHRONIZED`; nếu closeout chưa chạy được, phiên kế tiếp phải chạy
-  `bha-sync` trước khi dùng Snapshot làm baseline (§2);
+  `bha-sync` trước khi dùng Snapshot làm baseline (§2). Merge một PR reconcile
+  làm `develop` HEAD đi trước `develop-checkpoint` đã ghi — đó là trạng thái
+  hợp lệ và không cần correction bổ sung;
 - plan ngày kế tiếp có objective và first action;
 - chi tiết lịch sử chỉ nằm trong worklog/report;
 - không để một quyết định quan trọng chỉ tồn tại trong chat.

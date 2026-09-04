@@ -2,23 +2,24 @@
 #
 # Regression harness for tools/bha-sync/bha-sync.sh.
 #
-# Deliberately plain bash + a stubbed `gh` on PATH: this project's existing
-# harnesses are dotnet test (Back_End) and vitest (Front_End), neither of
-# which is an appropriate or available home for a governance shell script.
-# Adding a third framework to cover one script would cost more than it
-# verifies, so this stays a self-contained script with no dependencies
-# beyond git and bash — the two things bha-sync itself already requires.
+# Plain bash plus a stubbed `gh`: this repository's harnesses are dotnet test
+# (Back_End) and vitest (Front_End), neither of which is a home for a
+# governance shell script, and adding a third framework to cover one script
+# would cost more than it verifies. Dependencies are exactly the ones bha-sync
+# itself already requires — bash >= 4 and git.
 #
-# Each scenario runs against a real throwaway git repository, so the merge
-# commit containment check exercises real git rather than a mock.
+# Every scenario runs against a real throwaway git repository, so checkpoint
+# ancestry and the post-merge simulation exercise a real commit graph rather
+# than a mock of one.
 #
-# Stub scope: the stub emits the post-`--jq` TSV that `gh pr view` would
-# produce, not raw JSON, which keeps the harness free of a jq dependency.
-# What is under test is bha-sync's claim parsing, lifecycle mapping,
-# comparison and fail-closed behavior — not gh's own JSON serialization.
+# The `gh` stub validates the argument shape production code actually sends and
+# exits 99 if it is wrong, so a regression in the query itself surfaces as a
+# failure here instead of being silently absorbed. Fixtures are field-per-line
+# with an explicit @@NULL@@ sentinel, exactly what the production `--jq` emits,
+# including the null merge fields that every Open/Draft/Closed PR carries.
 #
-# Usage: tools/bha-sync/tests/run-tests.sh
-# Exit code: 0 all scenarios passed, 1 otherwise.
+# Usage:  tools/bha-sync/tests/run-tests.sh
+# Exit:   0 = every scenario passed, 1 = otherwise.
 
 set -uo pipefail
 export LC_ALL=C
@@ -26,44 +27,46 @@ export LC_ALL=C
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BHA_SYNC="$SCRIPT_DIR/../bha-sync.sh"
 
-pass_count=0
-fail_count=0
+readonly EXPECTED_JSON_FIELDS="state,isDraft,mergedAt,mergeCommit,baseRefName,url"
 
-ok()   { printf '  ok   — %s\n' "$1"; pass_count=$((pass_count + 1)); }
-fail() { printf '  FAIL — %s\n' "$1"; fail_count=$((fail_count + 1)); }
+scenario_count=0
+assert_pass=0
+assert_fail=0
+failed_scenarios=()
+current_scenario=""
+
+scenario() {
+  current_scenario="$1"
+  scenario_count=$((scenario_count + 1))
+  printf '\n[%02d] %s\n' "$scenario_count" "$1"
+}
+
+ok()   { printf '  ok   — %s\n' "$1"; assert_pass=$((assert_pass + 1)); }
+fail() {
+  printf '  FAIL — %s\n' "$1"
+  assert_fail=$((assert_fail + 1))
+  failed_scenarios+=("$current_scenario: $1")
+}
 
 check_eq() {
-  local what="$1" expected="$2" actual="$3"
-  if [[ "$expected" == "$actual" ]]; then
-    ok "$what (= $expected)"
-  else
-    fail "$what: expected '$expected', got '$actual'"
-  fi
+  if [[ "$2" == "$3" ]]; then ok "$1 (= $2)"; else fail "$1: expected '$2', got '$3'"; fi
 }
-
 check_contains() {
-  local what="$1" needle="$2" haystack="$3"
-  if [[ "$haystack" == *"$needle"* ]]; then
-    ok "$what"
-  else
-    fail "$what: output did not contain '$needle'"
-    printf '%s\n' "$haystack" | sed 's/^/         | /'
+  if [[ "$3" == *"$2"* ]]; then ok "$1"; else
+    fail "$1: output lacked '$2'"
+    printf '%s\n' "$3" | sed 's/^/         | /'
   fi
 }
-
 check_not_contains() {
-  local what="$1" needle="$2" haystack="$3"
-  if [[ "$haystack" != *"$needle"* ]]; then
-    ok "$what"
-  else
-    fail "$what: output unexpectedly contained '$needle'"
-  fi
+  if [[ "$3" != *"$2"* ]]; then ok "$1"; else fail "$1: output unexpectedly contained '$2'"; fi
 }
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-# --- throwaway repository -------------------------------------------------
+# ---------------------------------------------------------------------------
+# Throwaway repository with a real commit graph
+# ---------------------------------------------------------------------------
 REPO="$WORK/repo"
 mkdir -p "$REPO"
 git -C "$REPO" init --quiet
@@ -73,174 +76,386 @@ git -C "$REPO" checkout -q -b develop
 
 printf 'base\n' > "$REPO/file.txt"
 git -C "$REPO" add file.txt
-git -C "$REPO" commit -q -m "base"
-BASE_SHA="$(git -C "$REPO" rev-parse HEAD)"
+git -C "$REPO" commit -q -m "A: recorded checkpoint"
+SHA_A="$(git -C "$REPO" rev-parse HEAD)"
 
 printf 'merged\n' > "$REPO/file.txt"
-git -C "$REPO" commit -q -am "feat: something (#41)"
-MERGE_SHA="$(git -C "$REPO" rev-parse HEAD)"
+git -C "$REPO" commit -q -am "merge of PR 41"
+SHA_MERGE41="$(git -C "$REPO" rev-parse HEAD)"
 
-# A commit that exists but is deliberately NOT on develop.
-git -C "$REPO" checkout -q -b sidetrack "$BASE_SHA"
+# bha-sync resolves the base ref as origin/<canonical base-branch>, so the
+# throwaway repo needs a real remote-tracking ref, exactly as a fetched clone
+# would have. sync_origin() is re-called whenever develop moves.
+sync_origin() { git -C "$REPO" update-ref refs/remotes/origin/develop "$(git -C "$REPO" rev-parse develop)"; }
+sync_origin
+
+# A real commit that is deliberately NOT on develop.
+git -C "$REPO" checkout -q -b sidetrack "$SHA_A"
 printf 'side\n' > "$REPO/file.txt"
 git -C "$REPO" commit -q -am "side"
-SIDE_SHA="$(git -C "$REPO" rev-parse HEAD)"
+SHA_SIDE="$(git -C "$REPO" rev-parse HEAD)"
 git -C "$REPO" checkout -q develop
 
-# --- stub gh --------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# gh stub
+# ---------------------------------------------------------------------------
 STUB_BIN="$WORK/bin"
 mkdir -p "$STUB_BIN"
 cat > "$STUB_BIN/gh" <<'STUB_EOF'
 #!/usr/bin/env bash
-# Stubbed GitHub CLI. Behavior is selected by BHA_TEST_GH_MODE.
+# Stubbed GitHub CLI. Asserts the production argument shape, then replays a
+# fixture. Exits 99 on an unexpected invocation so a query regression fails
+# loudly rather than being absorbed as a generic lookup failure.
 set -uo pipefail
+printf '%s\n' "$*" >> "${GH_CALL_LOG:-/dev/null}"
+
+die() { printf 'gh stub: %s\n' "$1" >&2; exit 99; }
+
 case "${1:-}" in
   auth)
-    [[ "${BHA_TEST_GH_MODE:-}" == "auth-fail" ]] && exit 1
+    [[ "${2:-}" == "status" ]] || die "unexpected auth subcommand: ${2:-}"
+    [[ "${BHA_TEST_GH_MODE:-ok}" == "auth-fail" ]] && exit 1
     exit 0 ;;
-  repo) printf 'owner/repo\n'; exit 0 ;;
   pr)
-    [[ "${BHA_TEST_GH_MODE:-}" == "api-fail" ]] && exit 1
-    # Emit the post---jq TSV: state, isDraft, mergedAt, mergeCommit, base, url
-    printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
-      "MERGED" "false" "2026-09-03T03:11:21Z" \
-      "${BHA_TEST_MERGE_SHA:-}" "develop" "https://example.invalid/pull/41"
+    [[ "${2:-}" == "view" ]] || die "unexpected pr subcommand: ${2:-}"
+    pr_number="${3:-}"
+    [[ "$pr_number" =~ ^[0-9]+$ ]] || die "PR number not passed positionally: ${3:-}"
+    shift 3
+    repo=""; json_fields=""; saw_jq=0
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --repo) [[ $# -ge 2 ]] || die "--repo without value"; repo="$2"; shift 2 ;;
+        --json) [[ $# -ge 2 ]] || die "--json without value"; json_fields="$2"; shift 2 ;;
+        --jq)   [[ $# -ge 2 ]] || die "--jq without value"; saw_jq=1; shift 2 ;;
+        *) die "unexpected flag: $1" ;;
+      esac
+    done
+    [[ -n "$repo" ]] || die "missing --repo"
+    [[ $saw_jq -eq 1 ]] || die "missing --jq"
+    [[ "$json_fields" == "${BHA_TEST_EXPECTED_JSON:?}" ]] || die "unexpected --json list: $json_fields"
+    [[ "${BHA_TEST_GH_MODE:-ok}" == "api-fail" ]] && exit 1
+    fixture="${BHA_TEST_FIXTURES:?}/pr-$pr_number.txt"
+    [[ -f "$fixture" ]] || exit 1      # absent PR: gh exits nonzero
+    cat "$fixture"
     exit 0 ;;
 esac
-exit 0
+die "unexpected gh invocation: $*"
 STUB_EOF
 chmod +x "$STUB_BIN/gh"
 
-# --- fixture ---------------------------------------------------------------
-# Mirrors the real §1 table shape: the PR rows and the `develop` HEAD row are
-# the only things bha-sync reads claims from.
-write_snapshot() {
-  local dest="$1" pr41_row="$2" head_sha="$3"
-  cat > "$dest" <<FIXTURE_EOF
-# THE BHA — SNAPSHOT (fixture)
+FIXTURES="$WORK/fixtures"
+GH_LOG="$WORK/gh-calls.log"
 
-## 1. Repository state
+reset_fixtures() { rm -rf "$FIXTURES"; mkdir -p "$FIXTURES"; : > "$GH_LOG"; }
 
-| Thuộc tính | Giá trị |
-|---|---|
-| Repository | \`owner/repo\` |
-| Base branch | \`develop\` |
-| \`develop\` HEAD | \`$head_sha\` |
-$pr41_row
-| Open execution PR khác | không có. |
-FIXTURE_EOF
+# fixture <pr> <state> <isDraft> <mergedAt> <mergeCommit> <base> [url]
+fixture() {
+  local pr="$1" url="${7:-https://github.com/owner/repo/pull/$1}"
+  printf '%s\n%s\n%s\n%s\n%s\n%s\n' "$2" "$3" "$4" "$5" "$6" "$url" > "$FIXTURES/pr-$pr.txt"
 }
+readonly N='@@NULL@@'
 
-STALE_ROW="| PR #41 (work item hiện tại) | **Draft, OPEN**, base \`develop\` — baseline \`$BASE_SHA\`. **Chưa merge, chưa đóng.** |"
-FIXED_ROW="| PR #41 | merged — \`feat: something\`, merge commit \`$MERGE_SHA\`, merged \`2026-09-03T03:11:21Z\`. |"
-WRONG_SHA_ROW="| PR #41 | merged — \`feat: something\`, merge commit \`$BASE_SHA\`, merged \`2026-09-03T03:11:21Z\`. |"
-NOT_CONTAINED_ROW="| PR #41 | merged — \`feat: something\`, merge commit \`$SIDE_SHA\`, merged \`2026-09-03T03:11:21Z\`. |"
-
-run_sync() {
-  local snapshot="$1"
-  ( cd "$REPO" \
-    && PATH="$STUB_BIN:$PATH" "$BHA_SYNC" \
-         --snapshot "$snapshot" --repo owner/repo --base-ref develop 2>&1 )
-}
-
+# ---------------------------------------------------------------------------
+# Snapshot fixtures
+# ---------------------------------------------------------------------------
 SNAP="$REPO/snapshot.md"
 
-# --- 1. drift: snapshot says Draft/OPEN, GitHub says Merged ---------------
-printf '\n[1] Open/Draft snapshot vs merged PR is reported as drift\n'
-export BHA_TEST_GH_MODE="ok" BHA_TEST_MERGE_SHA="$MERGE_SHA"
-write_snapshot "$SNAP" "$STALE_ROW" "$BASE_SHA"
-out="$(run_sync "$SNAP")"; code=$?
-check_eq "exit code is DRIFT_DETECTED(3)" "3" "$code"
-check_contains "reports the drifted lifecycle field" "PR #41: lifecycle" "$out"
-check_contains "names the snapshot's stale value" "snapshot: DRAFT" "$out"
-check_contains "names the live value" "github:   MERGED" "$out"
-check_contains "also catches the stale develop HEAD" "develop HEAD: sha" "$out"
-check_contains "refuses the baseline" "Baseline is NOT synchronized" "$out"
+# write_snapshot <checkpoint> <pr-rows...>   (one "num|base|lifecycle|sha|at" each)
+write_snapshot() {
+  local checkpoint="$1"; shift
+  local row num base life sha at
+  {
+    printf '# Fixture snapshot\n\n## 1. Repository state\n\n### 1.1 Canonical record\n\n'
+    printf '<!-- BHA-SYNC:BEGIN -->\n\n'
+    printf '| Canonical field | Giá trị |\n|---|---|\n'
+    printf '| repository | `owner/repo` |\n'
+    printf '| base-branch | `develop` |\n'
+    [[ "$checkpoint" == "OMIT" ]] || printf '| develop-checkpoint | `%s` |\n' "$checkpoint"
+    printf '\n| PR | Base | Lifecycle | Merge commit | Merged at |\n|---|---|---|---|---|\n'
+    for row in "$@"; do
+      IFS='|' read -r num base life sha at <<<"$row"
+      printf '| %s | `%s` | `%s` | `%s` | `%s` |\n' "$num" "$base" "$life" "$sha" "$at"
+    done
+    printf '\n<!-- BHA-SYNC:END -->\n'
+  } > "$SNAP"
+}
 
-# --- 2. corrected snapshot reconciles ------------------------------------
-printf '\n[2] Corrected snapshot is accepted\n'
-write_snapshot "$SNAP" "$FIXED_ROW" "$MERGE_SHA"
-out="$(run_sync "$SNAP")"; code=$?
-check_eq "exit code is SYNCHRONIZED(0)" "0" "$code"
-check_contains "confirms merged lifecycle" "snapshot=MERGED github=MERGED" "$out"
-check_contains "clears the baseline for planning" "Baseline may be used for planning" "$out"
+append_historical() { printf '\n%s\n' "$1" >> "$SNAP"; }
 
-# --- 3. idempotency -------------------------------------------------------
-printf '\n[3] A second run changes nothing\n'
-before="$(cksum < "$SNAP")"
-out2="$(run_sync "$SNAP")"; code2=$?
-after="$(cksum < "$SNAP")"
-check_eq "second run has the same exit code" "0" "$code2"
-check_eq "second run has byte-identical output" "$out" "$out2"
-check_eq "snapshot file is untouched" "$before" "$after"
+run_sync() {
+  ( cd "$REPO" \
+    && BHA_TEST_FIXTURES="$FIXTURES" GH_CALL_LOG="$GH_LOG" \
+       BHA_TEST_EXPECTED_JSON="$EXPECTED_JSON_FIELDS" \
+       PATH="$STUB_BIN:$PATH" "$BHA_SYNC" --snapshot "$SNAP" "$@" 2>&1 )
+}
 
-# --- 4. GitHub lookup failure fails closed -------------------------------
-printf '\n[4] GitHub lookup failure fails closed and infers nothing\n'
-write_snapshot "$SNAP" "$STALE_ROW" "$BASE_SHA"
-before="$(cksum < "$SNAP")"
-export BHA_TEST_GH_MODE="api-fail"
-out="$(run_sync "$SNAP")"; code=$?
-after="$(cksum < "$SNAP")"
-check_eq "exit code is SYNC_UNVERIFIED(4)" "4" "$code"
-check_contains "says it could not verify" "GitHub lookup failed" "$out"
-check_not_contains "does not claim the PR is merged" "github:   MERGED" "$out"
-check_not_contains "does not report SYNCHRONIZED" "bha-sync: SYNCHRONIZED" "$out"
-check_eq "snapshot file is untouched" "$before" "$after"
+# Full worktree fingerprint: tracked status plus every file's content hash.
+worktree_state() {
+  ( cd "$REPO" && git status --porcelain --untracked-files=all
+    find "$REPO" -path "$REPO/.git" -prune -o -type f -print0 \
+      | sort -z | xargs -0 cksum 2>/dev/null )
+}
 
-printf '\n[4b] Unauthenticated gh fails closed\n'
-export BHA_TEST_GH_MODE="auth-fail"
-out="$(run_sync "$SNAP")"; code=$?
-check_eq "exit code is SYNC_UNVERIFIED(4)" "4" "$code"
-check_contains "names the auth failure" "not authenticated" "$out"
+MERGED_ROW_41="41|develop|MERGED|$SHA_MERGE41|2026-09-03T03:11:21Z"
 
-printf '\n[4c] Missing gh binary fails closed\n'
-# A PATH that still has everything bha-sync legitimately needs, but no gh —
-# emptying PATH entirely would only prove that bash itself went missing.
-NOGH_BIN="$WORK/nogh"
-mkdir -p "$NOGH_BIN"
-for tool in bash git grep sort tr sed cat; do
+# ===========================================================================
+
+scenario "Merged PR is synchronized"
+reset_fixtures
+export BHA_TEST_GH_MODE=ok
+fixture 41 MERGED false 2026-09-03T03:11:21Z "$SHA_MERGE41" develop
+write_snapshot "$SHA_A" "$MERGED_ROW_41"
+out="$(run_sync)"; code=$?
+check_eq "exit SYNCHRONIZED(0)" 0 "$code"
+check_contains "reports merged lifecycle" "snapshot=MERGED github=MERGED" "$out"
+check_contains "stub saw the exact --json list" "--json $EXPECTED_JSON_FIELDS" "$(cat "$GH_LOG")"
+
+scenario "Draft PR is synchronized (null merge fields preserved)"
+reset_fixtures
+fixture 50 OPEN true "$N" "$N" develop
+write_snapshot "$SHA_A" "50|develop|DRAFT|—|—"
+out="$(run_sync)"; code=$?
+check_eq "exit SYNCHRONIZED(0)" 0 "$code"
+check_contains "classified as DRAFT" "snapshot=DRAFT github=DRAFT" "$out"
+check_not_contains "never misread as merged" "github=MERGED" "$out"
+
+scenario "Open non-draft PR is synchronized"
+reset_fixtures
+fixture 51 OPEN false "$N" "$N" develop
+write_snapshot "$SHA_A" "51|develop|OPEN|—|—"
+out="$(run_sync)"; code=$?
+check_eq "exit SYNCHRONIZED(0)" 0 "$code"
+check_contains "classified as OPEN" "snapshot=OPEN github=OPEN" "$out"
+check_not_contains "never misread as merged" "github=MERGED" "$out"
+
+scenario "Closed-unmerged PR is synchronized"
+reset_fixtures
+fixture 52 CLOSED false "$N" "$N" develop
+write_snapshot "$SHA_A" "52|develop|CLOSED|—|—"
+out="$(run_sync)"; code=$?
+check_eq "exit SYNCHRONIZED(0)" 0 "$code"
+check_contains "classified as CLOSED" "snapshot=CLOSED github=CLOSED" "$out"
+check_not_contains "never misread as merged" "github=MERGED" "$out"
+
+scenario "Snapshot says Draft while GitHub says Merged → drift"
+reset_fixtures
+fixture 41 MERGED false 2026-09-03T03:11:21Z "$SHA_MERGE41" develop
+write_snapshot "$SHA_A" "41|develop|DRAFT|—|—"
+out="$(run_sync)"; code=$?
+check_eq "exit DRIFT_DETECTED(3)" 3 "$code"
+check_contains "names the lifecycle field" "PR #41: lifecycle" "$out"
+check_contains "shows the snapshot value" "snapshot: DRAFT" "$out"
+check_contains "shows the live value" "github:   MERGED" "$out"
+check_not_contains "never reports synchronized" "bha-sync: SYNCHRONIZED" "$out"
+
+scenario "GitHub base branch mismatch → drift even when merge fields match"
+reset_fixtures
+fixture 41 MERGED false 2026-09-03T03:11:21Z "$SHA_MERGE41" main
+write_snapshot "$SHA_A" "$MERGED_ROW_41"
+out="$(run_sync)"; code=$?
+check_eq "exit DRIFT_DETECTED(3)" 3 "$code"
+check_contains "names baseRefName" "PR #41: baseRefName" "$out"
+check_contains "shows the live base" "github:   main" "$out"
+check_not_contains "never reports synchronized" "bha-sync: SYNCHRONIZED" "$out"
+
+scenario "Absent PR / gh nonzero → unverified"
+reset_fixtures
+write_snapshot "$SHA_A" "$MERGED_ROW_41"   # no fixture written
+out="$(run_sync)"; code=$?
+check_eq "exit SYNC_UNVERIFIED(4)" 4 "$code"
+check_contains "says the lookup failed" "GitHub lookup failed" "$out"
+check_not_contains "never reports synchronized" "bha-sync: SYNCHRONIZED" "$out"
+
+scenario "Missing field in the GitHub response → unverified"
+reset_fixtures
+printf 'MERGED\nfalse\n2026-09-03T03:11:21Z\n%s\ndevelop\n' "$SHA_MERGE41" > "$FIXTURES/pr-41.txt"
+write_snapshot "$SHA_A" "$MERGED_ROW_41"
+out="$(run_sync)"; code=$?
+check_eq "exit SYNC_UNVERIFIED(4)" 4 "$code"
+check_contains "reports the field count" "expected 6 fields" "$out"
+
+scenario "Malformed isDraft → unverified"
+reset_fixtures
+fixture 51 OPEN "maybe" "$N" "$N" develop
+write_snapshot "$SHA_A" "51|develop|OPEN|—|—"
+out="$(run_sync)"; code=$?
+check_eq "exit SYNC_UNVERIFIED(4)" 4 "$code"
+check_contains "names isDraft" "isDraft is not a boolean" "$out"
+
+scenario "Contradictory lifecycle data → unverified, never guessed"
+reset_fixtures
+fixture 60 OPEN false "$N" "$SHA_MERGE41" develop          # open, yet merged
+fixture 61 MERGED false "$N" "$SHA_MERGE41" develop        # merged, no mergedAt
+fixture 62 MERGED false 2026-09-03T03:11:21Z "$N" develop  # merged, no commit
+fixture 63 SUPERPOSED false "$N" "$N" develop              # unknown enum
+for pr in 60 61 62 63; do
+  write_snapshot "$SHA_A" "$pr|develop|OPEN|—|—"
+  out="$(run_sync)"; code=$?
+  check_eq "PR #$pr exits SYNC_UNVERIFIED(4)" 4 "$code"
+  check_not_contains "PR #$pr never reports synchronized" "bha-sync: SYNCHRONIZED" "$out"
+done
+
+scenario "Duplicate canonical PR row → unverified"
+reset_fixtures
+fixture 41 MERGED false 2026-09-03T03:11:21Z "$SHA_MERGE41" develop
+write_snapshot "$SHA_A" "$MERGED_ROW_41" "41|develop|DRAFT|—|—"
+out="$(run_sync)"; code=$?
+check_eq "exit SYNC_UNVERIFIED(4)" 4 "$code"
+check_contains "names the duplicate" "lists PR #41 more than once" "$out"
+
+scenario "Missing canonical checkpoint row → unverified"
+reset_fixtures
+fixture 41 MERGED false 2026-09-03T03:11:21Z "$SHA_MERGE41" develop
+write_snapshot OMIT "$MERGED_ROW_41"
+out="$(run_sync)"; code=$?
+check_eq "exit SYNC_UNVERIFIED(4)" 4 "$code"
+check_contains "names the missing record" "exactly one repository, base-branch and develop-checkpoint" "$out"
+
+scenario "Historical row outside the canonical block cannot satisfy canonical state"
+reset_fixtures
+fixture 41 MERGED false 2026-09-03T03:11:21Z "$SHA_MERGE41" develop
+write_snapshot "$SHA_A" "41|develop|DRAFT|—|—"
+append_historical "## 9. History
+
+| PR #41 | merged — merge commit \`$SHA_MERGE41\`, merged \`2026-09-03T03:11:21Z\`. |"
+out="$(run_sync)"; code=$?
+check_eq "history cannot rescue a stale canonical row" 3 "$code"
+check_contains "still reports the canonical drift" "PR #41: lifecycle" "$out"
+check_not_contains "never reports synchronized" "bha-sync: SYNCHRONIZED" "$out"
+
+scenario "Multiple independently tracked PRs"
+reset_fixtures
+fixture 41 MERGED false 2026-09-03T03:11:21Z "$SHA_MERGE41" develop
+fixture 50 OPEN true "$N" "$N" develop
+fixture 52 CLOSED false "$N" "$N" develop
+write_snapshot "$SHA_A" "$MERGED_ROW_41" "50|develop|DRAFT|—|—" "52|develop|CLOSED|—|—"
+out="$(run_sync)"; code=$?
+check_eq "exit SYNCHRONIZED(0)" 0 "$code"
+check_contains "counts every PR plus the checkpoint" "4 subject(s) checked" "$out"
+fixture 50 OPEN false "$N" "$N" develop     # one of the three drifts
+out="$(run_sync)"; code=$?
+check_eq "one drifted PR fails the whole run" 3 "$code"
+check_contains "isolates the drifted PR" "PR #50: lifecycle" "$out"
+check_not_contains "does not implicate a correct PR" "PR #41: lifecycle" "$out"
+
+scenario "Unfetchable base ref → unverified"
+reset_fixtures
+fixture 41 MERGED false 2026-09-03T03:11:21Z "$SHA_MERGE41" develop
+write_snapshot "$SHA_A" "$MERGED_ROW_41"
+out="$(run_sync --base-ref origin/does-not-exist)"; code=$?
+check_eq "exit SYNC_UNVERIFIED(4)" 4 "$code"
+check_contains "tells the operator to fetch" "cannot resolve origin/does-not-exist" "$out"
+
+scenario "Checkpoint not an ancestor of live head → drift"
+reset_fixtures
+fixture 41 MERGED false 2026-09-03T03:11:21Z "$SHA_MERGE41" develop
+write_snapshot "$SHA_SIDE" "$MERGED_ROW_41"
+out="$(run_sync)"; code=$?
+check_eq "exit DRIFT_DETECTED(3)" 3 "$code"
+check_contains "names the checkpoint" "develop checkpoint: ancestor of" "$out"
+
+scenario "Live head strictly ahead of the checkpoint is still synchronized"
+reset_fixtures
+fixture 41 MERGED false 2026-09-03T03:11:21Z "$SHA_MERGE41" develop
+write_snapshot "$SHA_A" "$MERGED_ROW_41"   # develop is at SHA_MERGE41, ahead of A
+out="$(run_sync)"; code=$?
+check_eq "a descendant live head is not drift" 0 "$code"
+check_contains "states the ancestor relationship" "is an ancestor of" "$out"
+
+scenario "Post-merge correction simulation — no follow-up PR required"
+# Commit A is the recorded checkpoint. A correction branched from A is merged,
+# producing live commit B. The merged content still records A. That must be
+# SYNCHRONIZED, otherwise every reconciliation would demand another one.
+reset_fixtures
+git -C "$REPO" checkout -q -b correction "$SHA_A"
+printf 'correction\n' > "$REPO/correction.txt"
+git -C "$REPO" add correction.txt
+git -C "$REPO" commit -q -m "correction prepared from A"
+git -C "$REPO" checkout -q develop
+git -C "$REPO" merge -q --no-ff -m "merge correction" correction
+SHA_B="$(git -C "$REPO" rev-parse HEAD)"
+sync_origin
+fixture 41 MERGED false 2026-09-03T03:11:21Z "$SHA_MERGE41" develop
+write_snapshot "$SHA_A" "$MERGED_ROW_41"   # merged content still records A
+out="$(run_sync)"; code=$?
+check_eq "A is still an ancestor of B" 0 "$(git -C "$REPO" merge-base --is-ancestor "$SHA_A" "$SHA_B"; echo $?)"
+check_eq "live head advanced past the checkpoint" "different" \
+  "$([[ "$SHA_A" != "$SHA_B" ]] && echo different || echo same)"
+check_eq "exit SYNCHRONIZED(0)" 0 "$code"
+check_not_contains "no drift is reported" "DRIFT_DETECTED" "$out"
+git -C "$REPO" reset -q --hard "$SHA_MERGE41"
+git -C "$REPO" branch -q -D correction
+sync_origin
+
+scenario "Missing gh binary → unverified"
+reset_fixtures
+fixture 41 MERGED false 2026-09-03T03:11:21Z "$SHA_MERGE41" develop
+write_snapshot "$SHA_A" "$MERGED_ROW_41"
+NOGH_BIN="$WORK/nogh"; mkdir -p "$NOGH_BIN"
+for tool in bash git; do
   tool_path="$(command -v "$tool")" && ln -sf "$tool_path" "$NOGH_BIN/$tool"
 done
-out="$( cd "$REPO" && PATH="$NOGH_BIN" "$BHA_SYNC" \
-        --snapshot "$SNAP" --repo owner/repo --base-ref develop 2>&1 )"
-code=$?
 check_not_contains "gh really is absent from that PATH" "gh" "$(ls "$NOGH_BIN")"
-check_eq "exit code is SYNC_UNVERIFIED(4)" "4" "$code"
-check_contains "names the missing dependency" "not installed" "$out"
+out="$( cd "$REPO" && PATH="$NOGH_BIN" "$BHA_SYNC" --snapshot "$SNAP" 2>&1 )"; code=$?
+check_eq "exit SYNC_UNVERIFIED(4)" 4 "$code"
+check_contains "names the dependency" "required dependency not installed: gh" "$out"
 
-# --- 5. merge-commit evidence is checked, not just lifecycle -------------
-printf '\n[5] A merged claim carrying the wrong merge commit is drift\n'
-export BHA_TEST_GH_MODE="ok" BHA_TEST_MERGE_SHA="$MERGE_SHA"
-write_snapshot "$SNAP" "$WRONG_SHA_ROW" "$MERGE_SHA"
-out="$(run_sync "$SNAP")"; code=$?
-check_eq "exit code is DRIFT_DETECTED(3)" "3" "$code"
-check_contains "reports the mergeCommit field" "PR #41: mergeCommit" "$out"
+scenario "Authentication failure → unverified"
+export BHA_TEST_GH_MODE=auth-fail
+out="$(run_sync)"; code=$?
+check_eq "exit SYNC_UNVERIFIED(4)" 4 "$code"
+check_contains "names the auth failure" "not authenticated" "$out"
 
-printf '\n[6] A merge commit not contained by the base ref is drift\n'
-export BHA_TEST_MERGE_SHA="$SIDE_SHA"
-write_snapshot "$SNAP" "$NOT_CONTAINED_ROW" "$MERGE_SHA"
-out="$(run_sync "$SNAP")"; code=$?
-check_eq "exit code is DRIFT_DETECTED(3)" "3" "$code"
-check_contains "reports the containment failure" "not an ancestor" "$out"
+scenario "API/network failure → unverified"
+export BHA_TEST_GH_MODE=api-fail
+out="$(run_sync)"; code=$?
+check_eq "exit SYNC_UNVERIFIED(4)" 4 "$code"
+check_contains "says the lookup failed" "GitHub lookup failed" "$out"
+check_not_contains "infers nothing" "bha-sync: SYNCHRONIZED" "$out"
+export BHA_TEST_GH_MODE=ok
 
-# --- 7. JSON output stays machine-readable -------------------------------
-printf '\n[7] --json emits a parseable result\n'
-export BHA_TEST_MERGE_SHA="$MERGE_SHA"
-write_snapshot "$SNAP" "$STALE_ROW" "$BASE_SHA"
-out="$( cd "$REPO" && PATH="$STUB_BIN:$PATH" "$BHA_SYNC" \
-        --snapshot "$SNAP" --repo owner/repo --base-ref develop --json 2>&1 )"
-code=$?
-check_eq "exit code is DRIFT_DETECTED(3)" "3" "$code"
-check_contains "carries the status" '"status": "DRIFT_DETECTED"' "$out"
-check_contains "carries the drifted field" '"field": "lifecycle"' "$out"
-if command -v python3 >/dev/null 2>&1; then
-  if printf '%s' "$out" | python3 -c 'import json,sys; json.load(sys.stdin)' 2>/dev/null; then
-    ok "output is valid JSON"
-  else
-    fail "output is not valid JSON"
-  fi
-fi
+scenario "Usage errors exit 2 with an actionable message"
+out="$( cd "$REPO" && PATH="$STUB_BIN:$PATH" "$BHA_SYNC" --snapshot 2>&1 )"; code=$?
+check_eq "missing option value exits USAGE_ERROR(2)" 2 "$code"
+check_contains "says which option" "option --snapshot requires a value" "$out"
+out="$( cd "$REPO" && PATH="$STUB_BIN:$PATH" "$BHA_SYNC" --nope 2>&1 )"; code=$?
+check_eq "unknown argument exits USAGE_ERROR(2)" 2 "$code"
+check_contains "names the argument" "unknown argument: --nope" "$out"
+out="$( cd "$REPO" && PATH="$STUB_BIN:$PATH" "$BHA_SYNC" --base-ref 2>&1 )"; code=$?
+check_eq "trailing --base-ref exits USAGE_ERROR(2)" 2 "$code"
+out="$( cd "$REPO" && PATH="$STUB_BIN:$PATH" "$BHA_SYNC" --help 2>&1 )"; code=$?
+check_eq "--help exits 0" 0 "$code"
+check_contains "help documents the exit codes" "3 DRIFT_DETECTED" "$out"
+
+scenario "Second run is byte-identical (idempotent)"
+reset_fixtures
+fixture 41 MERGED false 2026-09-03T03:11:21Z "$SHA_MERGE41" develop
+write_snapshot "$SHA_A" "$MERGED_ROW_41"
+first="$(run_sync)"; first_code=$?
+second="$(run_sync)"; second_code=$?
+check_eq "same exit code" "$first_code" "$second_code"
+check_eq "byte-identical output" "$first" "$second"
+
+scenario "No worktree side effects and no remote mutation"
+before="$(worktree_state)"
+: > "$GH_LOG"
+out="$(run_sync)"; code=$?
+after="$(worktree_state)"
+check_eq "exit unchanged" 0 "$code"
+check_eq "tracked and untracked worktree state is identical" "$before" "$after"
+gh_calls="$(cat "$GH_LOG")"
+check_not_contains "never merges" "pr merge" "$gh_calls"
+check_not_contains "never marks ready" "pr ready" "$gh_calls"
+check_not_contains "never uses a write method" "--method" "$gh_calls"
+check_not_contains "never uses -X" " -X " "$gh_calls"
+check_not_contains "never edits" "pr edit" "$gh_calls"
+check_contains "only reads PR state" "pr view" "$gh_calls"
 
 printf '\n----------------------------------------\n'
-printf 'passed: %d   failed: %d\n' "$pass_count" "$fail_count"
-[[ $fail_count -eq 0 ]]
+printf 'scenarios: %d   assertions: %d passed, %d failed\n' \
+  "$scenario_count" "$assert_pass" "$assert_fail"
+if [[ $assert_fail -gt 0 ]]; then
+  printf '\nFailed assertions:\n'
+  for f in "${failed_scenarios[@]}"; do printf '  - %s\n' "$f"; done
+fi
+[[ $assert_fail -eq 0 ]]

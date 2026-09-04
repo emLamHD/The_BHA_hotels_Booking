@@ -7,7 +7,9 @@
 Lần cập nhật này ghi nhận `PMS-CAL-001.1` — Reservation Board Read
 Projection & Frontend Integration — đã **merged và closed**: PR #41 merge
 vào `develop` lúc `2026-09-03T03:11:21Z`, merge commit
-`e0f5a395aec15cc02e328433a97850e30e165675`, hiện là `develop` HEAD.
+`e0f5a395aec15cc02e328433a97850e30e165675`, được ghi trong §1.1 là
+`develop-checkpoint` — checkpoint đã reconcile lần cuối, không phải khẳng
+định về `develop` HEAD hiện tại.
 
 Bản cập nhật này đồng thời là một governance correction (`AI-OPS-GOV-004`).
 Snapshot trước đó vẫn mô tả PR #41 là Draft/OPEN/chưa merge và vẫn ghi
@@ -35,31 +37,116 @@ SHA khác (evidence canonical ở `docs/reports/PMS-CAL-001.1-completion.md`):
 - **Merge commit** — `e0f5a395aec15cc02e328433a97850e30e165675`: CI run
   `33710458612` `success` (Backend/Frontend/Admin) trên đúng merge commit.
 
-Repository SHA và PR state bên dưới đã được xác minh trực tiếp qua
-`git`/`gh` tại thời điểm cập nhật tài liệu này, không phải cam kết rằng SHA
-này sẽ còn là `develop` HEAD sau các commit tiếp theo. Trước khi tạo feature
-branch mới, chạy `git fetch --prune origin` rồi `tools/bha-sync/bha-sync.sh`
-và chỉ dùng baseline này khi kết quả là `SYNCHRONIZED`.
+Canonical record ở §1.1 đã được xác minh trực tiếp qua `git`/`gh` tại thời
+điểm cập nhật tài liệu này. Nó **không** cam kết `develop-checkpoint` sẽ còn
+bằng `develop` HEAD sau các commit tiếp theo — bất biến là checkpoint phải là
+ancestor của HEAD hiện tại. Trước khi tạo feature branch mới, chạy
+`git fetch --prune origin` rồi `tools/bha-sync/bha-sync.sh`, và chỉ dùng
+baseline này khi kết quả là `SYNCHRONIZED`.
 
 ## 1. Repository state
 
-| Thuộc tính | Giá trị |
+§1 có hai phần với vai trò khác nhau, và **chỉ phần đầu là nguồn trạng thái**:
+
+- **Canonical record** (khối `BHA-SYNC` bên dưới) — nơi duy nhất khẳng định
+  repository, base branch, checkpoint và lifecycle của từng PR.
+  `tools/bha-sync/bha-sync.sh` chỉ đọc đúng khối này và đối chiếu với GitHub
+  live state.
+- **PR context** (§1.2) — mô tả mỗi PR đã giao gì. **Không** phải nguồn trạng
+  thái; không lặp lại lifecycle, merge commit hay `mergedAt`, để không tồn tại
+  hai nguồn sự thật có thể lệch nhau.
+
+`develop-checkpoint` là **checkpoint đã reconcile lần cuối**, không phải khẳng
+định rằng nó bằng `develop` HEAD hiện tại. Yêu cầu bằng nhau là bất khả thi:
+merge chính commit cập nhật Snapshot sẽ đẩy `develop` vượt qua SHA mà commit
+đó ghi, nên mỗi lần reconcile sẽ lập tức drift lại. Bất biến đúng là
+**checkpoint phải là ancestor của `origin/develop` HEAD hiện tại**; bằng nhau
+được phép nhưng không bắt buộc. Live HEAD dùng để lập kế hoạch luôn lấy từ
+Git sau khi fetch, không lấy từ tài liệu này.
+
+### 1.1 Canonical record
+
+<!-- BHA-SYNC:BEGIN — canonical machine-verified record; `bha-sync` reads only this block. `—` means null. -->
+
+| Canonical field | Giá trị |
 |---|---|
-| Repository | `emLamHD/The_BHA_hotels_Booking` |
-| Base branch | `develop` |
-| `develop` HEAD | `e0f5a395aec15cc02e328433a97850e30e165675` |
-| PR #31 | merged — `docs(pms): record core database blueprint v2`, merge commit `bfb3377b701e9309d3cbbea22bb18159bc37a2e0`, merged `2026-08-19T10:56:01Z`. Persists PMS blueprint documentation foundation (`docs/design/PMS-DATA-001-core-database-blueprint-v2.md`, ADR 0005, ADR 0006). |
-| PR #32 | merged — `feat(admin): add PMS reservation board UI baseline`, merge commit `17e929d7c1f82941599223344b5f4cdc3aa34307`, merged `2026-08-22T14:42:31Z`. Closes `ADMIN-002.1`. |
-| PR #33 | merged — `docs(project): close ADMIN-002.1 and record next sequence`, merge commit `2c38face7cf51d7271c361e6d684adea466edcf9`, merged `2026-08-22T15:38:25Z`. Closes `ADMIN-002.1-DOCS-CLOSEOUT`. |
-| PR #34 | merged — `docs(project): record Graphify tooling adoption`, merge commit `7db8844dfde5ccc0651949f83ddfff76a3a977b9`, merged `2026-08-22T19:08:04Z`. Closes `TOOL-GRAPHIFY-001-DOCS-CLOSEOUT`; remote branch `docs/tool-graphify-001-closeout` deleted. This row is the current-state truth, replacing a since-corrected stale reference that had lingered in this file's own §7 section. |
-| PR #35 | merged — `feat(booking): normalize commercial commitments`, feature branch `feature/pms-be-001-1-commercial-commitment-v2-foundation` (head `9e25f7cb6247420467957061a13c04801ce9b3c7`), merge commit `265d10006b219e456c30ed92bbb6c153a946944d`, merged `2026-08-24T16:46:46Z`. Closes `PMS-BE-001.1`. GitHub CI (Admin/Backend/Frontend) confirmed `pass` on this PR as of this Snapshot update (`gh pr checks 35`). Remote feature branch deleted (confirmed empty via `git ls-remote --heads origin feature/pms-be-001-1-commercial-commitment-v2-foundation`); the linked worktree `/home/admin1/The_BHA_hotels_Booking-pms-be-001-1` used for its implementation is confirmed removed (directory absent, not listed by `git worktree list --porcelain`) — see §4. |
-| PR #36 | merged — `docs(project): close PMS-BE-001.1 and restore single-checkout workflow`, feature branch `docs/pms-be-001-1-closeout-single-checkout` (head `c8938c731dd5647868a07f0c3654d919e5d60e9a`), merge commit `298b7fd53c47824550e955b98c2bed370b38a646`, merged `2026-08-24T19:17:44Z`. Closes `PMS-BE-001.1-DOCS-CLOSEOUT`. |
-| PR #37 | merged — `feat(pms): add physical room schedule and availability authority`, feature branch `feature/pms-be-001-2-physical-room-schedule-availability` (head `4b2de0ab50fa1703f0b125a043d2461cc0309417`), merge commit `0a818f7a8ebb8ee72f45605e5a0ce37fed2a5442`, merged `2026-08-26T10:33:13Z`. Closes `PMS-BE-001.2`. GitHub Actions (Backend/Frontend/Admin) confirmed `success` on this head (run `32957454881`). Remote feature branch confirmed deleted (`git ls-remote --heads origin feature/pms-be-001-2-physical-room-schedule-availability` empty). |
-| PR #38 | merged — `docs(project): close PMS-BE-001.2 and record calendar handoff`, feature branch `docs/pms-be-001-2-closeout` (head `9b627fb29ce4b5b955e6e5640a465aa03953304f`), merge commit `f0eef23c59608d2aba1e43063c38074ea863edef`, merged `2026-08-26T12:01:07Z`. Closes `PMS-BE-001.2-DOCS-CLOSEOUT`. |
-| PR #39 | merged — `docs(governance): allow prompt-selected single implementer`, merge commit `89b631cc58cb4d21e99d6054d2a9094338283fc7`, merged `2026-09-01T15:44:40Z`. Closes `AI-OPS-GOV-003`. |
-| PR #40 | merged — `test(backend): pin clock in reservation-cancellation integration test`, feature branch `fix/pin-clock-reservation-cancellation-test`, merge commit `ff9d5b0c8d58efe64b562c631ecb36d488887df8`, merged `2026-09-01T15:57:51Z`. Unplanned CI fix: `AssignmentAwareAvailabilityTests.Reservation_cancellation_atomically_cancels_effective_assignments_and_removes_demand` never pinned `factory.Clock.UtcNow`, so it silently depended on real wall-clock time staying before its hardcoded `2026-09-01` check-in date. GitHub Actions (Admin/Backend/Frontend) confirmed `pass` on this head. Remote feature branch confirmed deleted. |
-| PR #41 | merged — `feat(pms): Reservation Board read projection & Admin frontend integration`, feature branch `feature/pms-cal-001-1-board-read-integration` (checked out directly in the one repository checkout, no `git worktree add`), baseline `ff9d5b0c8d58efe64b562c631ecb36d488887df8` (PR #40), merge commit `e0f5a395aec15cc02e328433a97850e30e165675`, merged `2026-09-03T03:11:21Z`. Closes `PMS-CAL-001.1`. GitHub Actions (Backend/Frontend/Admin) confirmed `success` on the merge commit (run `33710458612`). Remote feature branch confirmed deleted (`git ls-remote --heads origin feature/pms-cal-001-1-board-read-integration` empty). Checkpoint/correction history (`C1`–`C11`) and full evidence: `docs/reports/PMS-CAL-001.1-completion.md` (không liệt kê lại ở đây). |
-| Open execution PR khác | Không có. `PMS-CAL-001.1` đã đóng cùng PR #41; không có product execution PR nào đang mở. Governance/docs remediation PR được truy vết ở `docs/reports/`, không ghi lại trong bảng này. |
+| repository | `emLamHD/The_BHA_hotels_Booking` |
+| base-branch | `develop` |
+| develop-checkpoint | `e0f5a395aec15cc02e328433a97850e30e165675` |
+
+| PR | Base | Lifecycle | Merge commit | Merged at |
+|---|---|---|---|---|
+| 31 | `develop` | `MERGED` | `bfb3377b701e9309d3cbbea22bb18159bc37a2e0` | `2026-08-19T10:56:01Z` |
+| 32 | `develop` | `MERGED` | `17e929d7c1f82941599223344b5f4cdc3aa34307` | `2026-08-22T14:42:31Z` |
+| 33 | `develop` | `MERGED` | `2c38face7cf51d7271c361e6d684adea466edcf9` | `2026-08-22T15:38:25Z` |
+| 34 | `develop` | `MERGED` | `7db8844dfde5ccc0651949f83ddfff76a3a977b9` | `2026-08-22T19:08:04Z` |
+| 35 | `develop` | `MERGED` | `265d10006b219e456c30ed92bbb6c153a946944d` | `2026-08-24T16:46:46Z` |
+| 36 | `develop` | `MERGED` | `298b7fd53c47824550e955b98c2bed370b38a646` | `2026-08-24T19:17:44Z` |
+| 37 | `develop` | `MERGED` | `0a818f7a8ebb8ee72f45605e5a0ce37fed2a5442` | `2026-08-26T10:33:13Z` |
+| 38 | `develop` | `MERGED` | `f0eef23c59608d2aba1e43063c38074ea863edef` | `2026-08-26T12:01:07Z` |
+| 39 | `develop` | `MERGED` | `89b631cc58cb4d21e99d6054d2a9094338283fc7` | `2026-09-01T15:44:40Z` |
+| 40 | `develop` | `MERGED` | `ff9d5b0c8d58efe64b562c631ecb36d488887df8` | `2026-09-01T15:57:51Z` |
+| 41 | `develop` | `MERGED` | `e0f5a395aec15cc02e328433a97850e30e165675` | `2026-09-03T03:11:21Z` |
+
+<!-- BHA-SYNC:END -->
+
+Khối này cố ý **không** liệt kê PR remediation governance đang mở của chính
+bản Snapshot này. Một PR ghi lifecycle của chính nó sẽ tự tạo drift ngay khi
+được merge: nội dung đã merge vẫn nói "DRAFT" trong khi GitHub nói "MERGED".
+PR đó được truy vết ở `docs/reports/`, không ở đây.
+
+### 1.2 PR context — không phải nguồn trạng thái
+
+- **PR #31** — `docs(pms): record core database blueprint v2`. Persists the PMS
+  blueprint documentation foundation
+  (`docs/design/PMS-DATA-001-core-database-blueprint-v2.md`, ADR 0005, ADR 0006).
+- **PR #32** — `feat(admin): add PMS reservation board UI baseline`. Closes
+  `ADMIN-002.1`.
+- **PR #33** — `docs(project): close ADMIN-002.1 and record next sequence`.
+  Closes `ADMIN-002.1-DOCS-CLOSEOUT`.
+- **PR #34** — `docs(project): record Graphify tooling adoption`. Closes
+  `TOOL-GRAPHIFY-001-DOCS-CLOSEOUT`; remote branch
+  `docs/tool-graphify-001-closeout` deleted.
+- **PR #35** — `feat(booking): normalize commercial commitments`. Feature branch
+  `feature/pms-be-001-1-commercial-commitment-v2-foundation`
+  (head `9e25f7cb6247420467957061a13c04801ce9b3c7`). Closes `PMS-BE-001.1`.
+  Remote feature branch deleted; the linked worktree
+  `/home/admin1/The_BHA_hotels_Booking-pms-be-001-1` used for it is confirmed
+  removed — see §4.
+- **PR #36** — `docs(project): close PMS-BE-001.1 and restore single-checkout
+  workflow`. Feature branch `docs/pms-be-001-1-closeout-single-checkout`
+  (head `c8938c731dd5647868a07f0c3654d919e5d60e9a`). Closes
+  `PMS-BE-001.1-DOCS-CLOSEOUT`.
+- **PR #37** — `feat(pms): add physical room schedule and availability
+  authority`. Feature branch
+  `feature/pms-be-001-2-physical-room-schedule-availability`
+  (head `4b2de0ab50fa1703f0b125a043d2461cc0309417`). Closes `PMS-BE-001.2`.
+  GitHub Actions (Backend/Frontend/Admin) `success` on that head
+  (run `32957454881`). Remote feature branch confirmed deleted.
+- **PR #38** — `docs(project): close PMS-BE-001.2 and record calendar handoff`.
+  Feature branch `docs/pms-be-001-2-closeout`
+  (head `9b627fb29ce4b5b955e6e5640a465aa03953304f`). Closes
+  `PMS-BE-001.2-DOCS-CLOSEOUT`.
+- **PR #39** — `docs(governance): allow prompt-selected single implementer`.
+  Closes `AI-OPS-GOV-003`.
+- **PR #40** — `test(backend): pin clock in reservation-cancellation integration
+  test`. Feature branch `fix/pin-clock-reservation-cancellation-test`. Unplanned
+  CI fix: `AssignmentAwareAvailabilityTests.Reservation_cancellation_atomically_cancels_effective_assignments_and_removes_demand`
+  never pinned `factory.Clock.UtcNow`, so it silently depended on real
+  wall-clock time staying before its hardcoded `2026-09-01` check-in date.
+  GitHub Actions (Admin/Backend/Frontend) `pass` on this head. Remote feature
+  branch confirmed deleted.
+- **PR #41** — `feat(pms): Reservation Board read projection & Admin frontend
+  integration`. Feature branch `feature/pms-cal-001-1-board-read-integration`,
+  checked out directly in the one repository checkout (no `git worktree add`),
+  baseline `ff9d5b0c8d58efe64b562c631ecb36d488887df8` (PR #40). Closes
+  `PMS-CAL-001.1`. GitHub Actions (Backend/Frontend/Admin) `success` on the
+  merge commit (run `33710458612`). Remote feature branch confirmed deleted
+  (`git ls-remote --heads origin feature/pms-cal-001-1-board-read-integration`
+  empty). Checkpoint/correction history (`C1`–`C11`) và toàn bộ evidence:
+  `docs/reports/PMS-CAL-001.1-completion.md`.
+
+Không có product execution PR nào đang mở.
 
 ## 2. Work item state
 
@@ -177,8 +264,8 @@ và chỉ dùng baseline này khi kết quả là `SYNCHRONIZED`.
 Ý nghĩa:
 
 - `PMS-CAL-001.1` đã merge và đóng. Merge commit
-  `e0f5a395aec15cc02e328433a97850e30e165675` là `develop` HEAD tại thời
-  điểm cập nhật này; CI run `33710458612` `success` trên đúng commit đó.
+  `e0f5a395aec15cc02e328433a97850e30e165675` được ghi ở §1.1 là
+  `develop-checkpoint`; CI run `33710458612` `success` trên đúng commit đó.
   Remote feature branch đã bị xóa.
 - Không còn bước review hay merge nào đang chờ cho work item này. Mọi mô tả
   "đang chờ Codex review trên C11 PR head" trong các bản Snapshot trước đã
@@ -400,7 +487,9 @@ evidence independently verified for this closeout via:
   `mergeCommit=e0f5a395aec15cc02e328433a97850e30e165675`,
   `mergedAt=2026-09-03T03:11:21Z`, `baseRefName=develop`.
 - `git merge-base --is-ancestor e0f5a39 origin/develop`: merge commit is
-  contained by `origin/develop` (and is its HEAD at this update).
+  contained by `origin/develop`. It is also the `develop-checkpoint`
+  recorded in §1.1; containment, not equality with the live tip, is the
+  invariant `bha-sync` enforces.
 - Check runs on `e0f5a39`: `Backend`, `Frontend`, `Admin` all `success`
   (workflow run `33710458612`, `conclusion=success`).
 - `git ls-remote --heads origin feature/pms-cal-001-1-board-read-integration`:
@@ -500,9 +589,11 @@ evidence independently verified for this closeout via:
   (docs-only, no defect in scope).
 - `bha-sync` (`tools/bha-sync/bha-sync.sh`): project-local, repository-tracked,
   **bắt buộc** trước khi bất kỳ agent nào dùng file này làm planning baseline,
-  và trong post-merge closeout. Read-only: đối chiếu claim PR trong §1 với
-  GitHub live state, fail closed khi không xác minh được, và không bao giờ tự
-  ghi vào Snapshot. Hợp đồng: `docs/governance/BHA_SYNC.md`; điểm gọi:
+  và trong post-merge closeout. Read-only: đối chiếu **canonical block §1.1**
+  với GitHub live state (lifecycle, base branch, merge evidence, và checkpoint
+  ancestry), fail closed khi không xác minh được, và không bao giờ tự ghi vào
+  Snapshot. Yêu cầu bash >= 4.0, `git`, `gh` đã authenticate.
+  Hợp đồng: `docs/governance/BHA_SYNC.md`; điểm gọi:
   `docs/governance/WORKFLOW.md` §2 và §13. Regression harness:
   `tools/bha-sync/tests/run-tests.sh`.
 - Không bật rescue, transfer, Codex write mode hoặc automatic review gate.
@@ -533,7 +624,7 @@ bất kỳ product/backend work item nào khác từ Snapshot này.
 
 - Coi `SNAPSHOT.md` là đúng mà không đối chiếu GitHub — đây chính là drift
   đã xảy ra với PR #41: tài liệu mô tả Draft/OPEN/chưa merge sau khi PR đã
-  merge, và `develop` HEAD vẫn ghi baseline cũ. Chạy
+  merge, và checkpoint vẫn ghi baseline cũ. Chạy
   `tools/bha-sync/bha-sync.sh` trước khi dùng file này làm baseline; không
   đọc được GitHub thì fail closed, không suy diễn.
 - Trích một CI run hoặc review result sang một SHA khác với SHA nêu kèm nó
