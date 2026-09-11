@@ -90,9 +90,10 @@ builder.Services.Configure<AdminCalendarOptions>(
     builder.Configuration.GetSection(AdminCalendarOptions.SectionName));
 builder.Services.AddScoped<AdminReservationBoardReadGateFilter>();
 
-// PMS-CAL-001.2-CP01: registered so a future Admin Calendar write action can
-// opt in with [ServiceFilter], never added to MvcOptions.Filters. CP01 exposes
-// no such action, so nothing in this application applies it yet.
+// PMS-CAL-001.2-CP01: registered as a scoped filter an Admin Calendar write
+// action opts into with [ServiceFilter], never added to MvcOptions.Filters.
+// CP02 is the one action that applies it — AdminReservationAssignmentsController
+// .Create. Every remaining Admin mutation is still unexposed.
 //
 // Correction C1, finding 1: the filter receives the write opt-in as a value
 // frozen from the configuration snapshot above, not IOptions<T> resolved per
@@ -150,6 +151,7 @@ builder.Services.AddSwaggerGen(options =>
     options.OperationFilter<AuthOperationFilter>();
     options.OperationFilter<BookingHoldOperationFilter>();
     options.OperationFilter<ReservationLifecycleOperationFilter>();
+    options.OperationFilter<AdminReservationAssignmentOpenApiOperationFilter>();
 });
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services

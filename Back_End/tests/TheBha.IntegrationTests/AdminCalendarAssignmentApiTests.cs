@@ -452,7 +452,15 @@ public sealed class AdminCalendarAssignmentApiTests(PostgreSqlWebApplicationFact
 
         Assert.False(responses.GetProperty("404").TryGetProperty("content", out _));
 
-        var schemaRef = post.GetProperty("requestBody").GetProperty("content")
+        // Correction C4: the gate accepts application/json alone, so that is the
+        // only media type the contract may advertise — the formatter's defaults
+        // (text/json, application/*+json) would be answered with 415.
+        var requestContent = post.GetProperty("requestBody").GetProperty("content");
+        Assert.Equal(
+            ["application/json"],
+            requestContent.EnumerateObject().Select(media => media.Name).ToArray());
+
+        var schemaRef = requestContent
             .GetProperty("application/json").GetProperty("schema")
             .GetProperty("$ref").GetString()!;
         var schema = swagger.GetProperty("components").GetProperty("schemas")
