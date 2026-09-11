@@ -6,8 +6,6 @@ using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Options;
-using TheBha.Api;
 using TheBha.Api.Controllers;
 
 namespace TheBha.IntegrationTests;
@@ -40,14 +38,37 @@ public sealed class AdminCalendarWriteGateFilterTests
     private static readonly string[] AdminOrigins =
         ["https://localhost:3001", "https://admin.localhost:4001"];
 
+    /// <summary>
+    /// Correction C1, finding 1: the opt-in is a plain <see cref="bool"/>
+    /// captured at startup, so there is no <c>IOptions&lt;T&gt;</c> here to
+    /// construct — and no later value for anything to rebind. The filter's
+    /// constructor is the proof: it cannot accept one.
+    /// </summary>
     private static AdminCalendarWriteGateFilter CreateFilter(
         string environment = DevelopmentEnvironment,
         bool enableWrite = true,
         string[]? adminOrigins = null) =>
         new(
             new HostingEnvironment { EnvironmentName = environment },
-            Options.Create(new AdminCalendarOptions { EnableUnauthenticatedWrite = enableWrite }),
+            enableWrite,
             adminOrigins ?? AdminOrigins);
+
+    [Fact]
+    public void The_filter_takes_the_write_opt_in_as_a_frozen_value_not_a_bound_option()
+    {
+        var parameters = typeof(AdminCalendarWriteGateFilter)
+            .GetConstructors()
+            .Single()
+            .GetParameters();
+
+        Assert.Equal(typeof(bool), parameters[1].ParameterType);
+        Assert.DoesNotContain(
+            parameters,
+            parameter => parameter.ParameterType.Namespace?.StartsWith(
+                "Microsoft.Extensions.Options", StringComparison.Ordinal) == true ||
+                parameter.ParameterType.Namespace?.StartsWith(
+                    "Microsoft.Extensions.Configuration", StringComparison.Ordinal) == true);
+    }
 
     private static ResourceExecutingContext CreateContext(
         bool https = true,
@@ -324,9 +345,9 @@ public sealed class AdminCalendarWriteGateFilterTests
     [InlineData("application/json; charset=utf-8")]
     [InlineData("application/json;charset=UTF-8")]
     [InlineData("application/json; charset=\"utf-8\"")]
+    [InlineData("application/json; charset=Utf-8")]
     [InlineData("Application/JSON")]
-    [InlineData("application/json; charset=us-ascii")]
-    public void A_json_content_type_with_an_optional_valid_charset_is_accepted(string contentType)
+    public void A_json_content_type_with_an_optional_utf8_charset_is_accepted(string contentType)
     {
         var context = CreateContext(contentType: contentType);
 
@@ -351,7 +372,19 @@ public sealed class AdminCalendarWriteGateFilterTests
     [InlineData("application/*")]
     [InlineData("*/*")]
     [InlineData("not a media type")]
-    public void Anything_that_is_not_json_is_an_unsupported_media_type(string? contentType)
+    // Correction C1, finding 3: every encoding other than UTF-8 is refused
+    // here, including ones Encoding.GetEncoding recognizes. The gate used to
+    // accept those and MVC's System.Text.Json input formatter then refused them
+    // with its own 415, so the gate was promising a contract it did not govern.
+    [InlineData("application/json; charset=us-ascii")]
+    [InlineData("application/json; charset=utf-16")]
+    [InlineData("application/json; charset=utf-16le")]
+    [InlineData("application/json; charset=iso-8859-1")]
+    [InlineData("application/json; charset=windows-1252")]
+    [InlineData("application/json; charset=utf-8; charset=utf-8")]
+    [InlineData("application/json; charset=utf-8; boundary=x")]
+    [InlineData("application/json; boundary=x; charset=utf-8")]
+    public void Anything_that_is_not_utf8_json_is_an_unsupported_media_type(string? contentType)
     {
         var context = CreateContext(contentType: contentType);
 

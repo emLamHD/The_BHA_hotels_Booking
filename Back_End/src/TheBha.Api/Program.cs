@@ -4,7 +4,6 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
-using Microsoft.Extensions.Options;
 using Microsoft.OpenApi.Models;
 using System.Security.Claims;
 using System.Text.Json.Serialization;
@@ -76,9 +75,10 @@ if (builder.Environment.IsProduction() && adminCalendarOptions.EnableUnauthentic
 // PMS-CAL-001.2-CP01: the write opt-in is guarded separately from the read
 // one, with its own message, because they are independent capabilities — a
 // host may legitimately have one on and the other off, and a startup failure
-// should name the flag that is actually wrong. As above, this snapshot cannot
-// see a value supplied later by a reloadable source; AdminCalendarWriteGateFilter
-// is what keeps every non-Development host closed at request time.
+// should name the flag that is actually wrong. Unlike the read flag, the
+// snapshot bound here is also the value the write gate uses at request time
+// (correction C1, finding 1), so for the write boundary there is no later
+// value for a reloadable source to supply.
 if (builder.Environment.IsProduction() && adminCalendarOptions.EnableUnauthenticatedWrite)
 {
     throw new InvalidOperationException(
@@ -92,12 +92,23 @@ builder.Services.AddScoped<AdminReservationBoardReadGateFilter>();
 
 // PMS-CAL-001.2-CP01: registered so a future Admin Calendar write action can
 // opt in with [ServiceFilter], never added to MvcOptions.Filters. CP01 exposes
-// no such action, so nothing in this application applies it yet. It receives
-// the Admin origins validated above rather than re-reading configuration, so a
-// later reload cannot introduce an origin that skipped that validation.
+// no such action, so nothing in this application applies it yet.
+//
+// Correction C1, finding 1: the filter receives the write opt-in as a value
+// frozen from the configuration snapshot above, not IOptions<T> resolved per
+// request. IOptions<T> binds lazily on first access, so a Development host
+// started with the opt-in off could have it bound to true by a reloadable
+// source before the first Admin request — and Development is precisely where
+// this gate is meant to operate, so environment-first ordering does not cover
+// it. Frozen here, only a restart can change it. The Admin origins are passed
+// the same way, and for the same reason: neither can be widened past the
+// validation performed above without restarting.
+//
+// Services.Configure<AdminCalendarOptions> above stays: the read gate still
+// resolves IOptions<AdminCalendarOptions>, and that gate is out of scope here.
 builder.Services.AddScoped(serviceProvider => new AdminCalendarWriteGateFilter(
     serviceProvider.GetRequiredService<IHostEnvironment>(),
-    serviceProvider.GetRequiredService<IOptions<AdminCalendarOptions>>(),
+    adminCalendarOptions.EnableUnauthenticatedWrite,
     cors.AdminOrigins));
 
 var dataProtectionKeysPath = builder.Configuration["DataProtection:KeysPath"];

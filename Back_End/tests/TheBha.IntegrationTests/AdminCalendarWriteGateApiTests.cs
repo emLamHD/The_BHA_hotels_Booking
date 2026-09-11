@@ -142,10 +142,20 @@ public sealed class AdminCalendarWriteGateApiTests(PostgreSqlWebApplicationFacto
             $"{because}: expected Cache-Control: no-store, got '{response.Headers.CacheControl}'");
 
     /// <summary>
-    /// The gate's closed answer must stay indistinguishable from an absent
-    /// route, and identical for every request: the framework's own generic
-    /// 404 Problem Details — the same shape the read gate produces — carrying
-    /// nothing that describes what was sent.
+    /// Every closed answer must be identical to every other closed answer: the
+    /// framework's own generic 404 Problem Details — the same shape the read
+    /// gate produces — carrying nothing that says which condition failed or
+    /// what was sent.
+    ///
+    /// <para>
+    /// Correction C1, finding 2: this is deliberately <em>not</em> an
+    /// assertion that a closed route is indistinguishable from an absent one.
+    /// CORS headers are governed by endpoint metadata, outside this filter, and
+    /// an approved Admin origin does see them on a closed response — see
+    /// <see cref="A_closed_gate_may_still_carry_cors_headers_for_an_approved_admin_origin"/>
+    /// for the contract as it actually stands. A wildcard allow-origin is still
+    /// refused, because that would hand the boundary to any origin at all.
+    /// </para>
     /// </summary>
     private static async Task AssertClosedGateResponseAsync(HttpResponseMessage response, string because)
     {
@@ -169,8 +179,8 @@ public sealed class AdminCalendarWriteGateApiTests(PostgreSqlWebApplicationFacto
     /// <summary>
     /// What <c>[ApiController]</c>'s client-error filter turns the gate's bare
     /// <c>NotFoundResult</c> into. Only <c>traceId</c> varies per request, so
-    /// it is deliberately excluded: everything that could distinguish one
-    /// refused request from another is compared.
+    /// it is deliberately excluded: everything in the body that could
+    /// distinguish one refused request from another is compared.
     /// </summary>
     private static readonly (string? Type, string? Title, string? Status, string? Detail) GenericNotFound =
         ("https://tools.ietf.org/html/rfc9110#section-15.5.5", "Not Found", "404", null);
@@ -221,7 +231,7 @@ public sealed class AdminCalendarWriteGateApiTests(PostgreSqlWebApplicationFacto
     // purpose: every WebApplicationFactory build puts an inotify watch on the
     // content root, and Linux allows 128 per user.
     [Fact]
-    public async Task A_valid_json_content_type_with_or_without_a_charset_is_accepted()
+    public async Task A_valid_json_content_type_with_or_without_a_utf8_charset_is_accepted()
     {
         var spy = new WriteGateProbeSpy();
         await using var host = CreateProbeHost(spy);
@@ -232,6 +242,7 @@ public sealed class AdminCalendarWriteGateApiTests(PostgreSqlWebApplicationFacto
             JsonMediaType,
             "application/json; charset=utf-8",
             "application/json;charset=UTF-8",
+            "application/json; charset=\"utf-8\"",
             "APPLICATION/JSON",
         ];
 
@@ -306,6 +317,58 @@ public sealed class AdminCalendarWriteGateApiTests(PostgreSqlWebApplicationFacto
         // The read gate's own closed 404 — the generic shape, not the action's
         // "Property not found", so the read really is off on this host.
         Assert.Equal(GenericNotFound, ClosedGateShape(await board.Content.ReadAsStringAsync()));
+    }
+
+    // Correction C1, finding 1. The gate reads a value frozen from
+    // configuration at startup, so an options registration applied afterwards —
+    // which is how a reloadable configuration source would surface — cannot
+    // move the boundary in either direction. The pre-C1 filter resolved
+    // IOptions<T> per request, and IOptions<T> materializes lazily, so a
+    // Development host started with the opt-in off could be opened by a later
+    // value: environment-first ordering protects every host except the one this
+    // gate actually runs on.
+    [Fact]
+    public async Task A_late_option_value_cannot_open_a_development_host_that_started_closed()
+    {
+        var spy = new WriteGateProbeSpy();
+        await using var host = CreateProbeHost(
+            spy,
+            enableWriteAtStartup: false,
+            lateOptionChange: options => options.EnableUnauthenticatedWrite = true);
+        using var client = CreateHttpsClient(host);
+
+        // The bound option really does say true — the gate simply never reads it.
+        Assert.True(host.Services.GetRequiredService<IOptions<AdminCalendarOptions>>()
+            .Value.EnableUnauthenticatedWrite);
+        Assert.Equal(
+            "Development",
+            host.Services.GetRequiredService<IHostEnvironment>().EnvironmentName);
+
+        using var request = ProbePost();
+        await AssertClosedGateResponseAsync(
+            await client.SendAsync(request), "Development, started closed, late option says open");
+        Assert.Equal(0, spy.Invocations);
+    }
+
+    // The counterpart, so the frozen value is not merely "always closed": a
+    // host that started open stays open even when a later value says otherwise.
+    [Fact]
+    public async Task A_late_option_value_cannot_close_a_development_host_that_started_open()
+    {
+        var spy = new WriteGateProbeSpy();
+        await using var host = CreateProbeHost(
+            spy,
+            lateOptionChange: options => options.EnableUnauthenticatedWrite = false);
+        using var client = CreateHttpsClient(host);
+
+        Assert.False(host.Services.GetRequiredService<IOptions<AdminCalendarOptions>>()
+            .Value.EnableUnauthenticatedWrite);
+
+        using var request = ProbePost();
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal(1, spy.Invocations);
     }
 
     [Fact]
@@ -692,6 +755,17 @@ public sealed class AdminCalendarWriteGateApiTests(PostgreSqlWebApplicationFacto
             "application/json; charset=not-a-charset",
             "application/json; boundary=x",
             "*/*",
+
+            // Correction C1, finding 3: encodings the gate used to accept
+            // because Encoding.GetEncoding recognized them, which MVC's
+            // System.Text.Json input formatter would then have refused with its
+            // own 415 — the gate governing a wider contract than the action
+            // behind it could honour. `us-ascii` is the case Codex named.
+            "application/json; charset=us-ascii",
+            "application/json; charset=utf-16",
+            "application/json; charset=iso-8859-1",
+            "application/json; charset=utf-8; charset=utf-8",
+            "application/json; charset=utf-8; boundary=x",
         ];
 
         foreach (var contentType in contentTypes)
@@ -823,6 +897,48 @@ public sealed class AdminCalendarWriteGateApiTests(PostgreSqlWebApplicationFacto
             Assert.False(response.Headers.Contains("Access-Control-Allow-Origin"), origin);
             Assert.Equal(0, spy.Invocations);
         }
+    }
+
+    // Correction C1, finding 2. The original suite claimed a closed route was
+    // indistinguishable from an absent one. It is not: CORS headers come from
+    // endpoint metadata, outside this filter, so an approved Admin origin sees
+    // Access-Control-Allow-Origin even on a closed 404, while an absent route
+    // has no endpoint CORS metadata and gets none. Route existence is therefore
+    // observable to an origin that is already explicitly configured as an Admin
+    // origin — it is not an authorization boundary, and that origin knows the
+    // API contract anyway. This test pins the contract that does hold: the POST
+    // is refused, nothing behind the gate runs, and an unapproved origin is
+    // granted nothing.
+    [Fact]
+    public async Task A_closed_gate_may_still_carry_cors_headers_for_an_approved_admin_origin()
+    {
+        var spy = new WriteGateProbeSpy();
+        await using var host = CreateProbeHost(spy, enableWriteAtStartup: false);
+        using var client = CreateHttpsClient(host);
+
+        using var approved = ProbePost();
+        var approvedResponse = await client.SendAsync(approved);
+
+        await AssertClosedGateResponseAsync(approvedResponse, "closed gate, approved origin");
+        Assert.Equal(0, spy.Invocations);
+
+        // Whatever CORS decided to say, it may only ever name the one
+        // configured origin — never a wildcard, never credentials.
+        // Asserted as fact, not tolerated as a possibility: the approved origin
+        // really does receive this header on a closed 404, which is precisely
+        // why the "indistinguishable from an absent route" claim was wrong and
+        // has been removed. It may only ever name the one configured origin.
+        Assert.Equal(
+            AllowedAdminOrigin,
+            Assert.Single(approvedResponse.Headers.GetValues("Access-Control-Allow-Origin")));
+
+        Assert.False(approvedResponse.Headers.Contains("Access-Control-Allow-Credentials"));
+
+        using var unapproved = ProbePost(origin: "https://evil.example");
+        var unapprovedResponse = await client.SendAsync(unapproved);
+
+        Assert.False(unapprovedResponse.Headers.Contains("Access-Control-Allow-Origin"));
+        Assert.Equal(0, spy.Invocations);
     }
 
     // A preflight is a browser-side question, never a decision: CORS answers it

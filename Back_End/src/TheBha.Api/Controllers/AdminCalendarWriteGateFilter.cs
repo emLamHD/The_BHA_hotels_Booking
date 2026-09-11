@@ -1,10 +1,8 @@
 using System.Net;
-using System.Text;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Primitives;
 using Microsoft.Net.Http.Headers;
 
@@ -28,11 +26,13 @@ namespace TheBha.Api.Controllers;
 /// therefore answers a valid body and a malformed one identically, and no
 /// action, mutation store or database call is reached in either case — the
 /// same property <see cref="AdminReservationBoardReadGateFilter"/> establishes
-/// for the read side (correction C2). The gate deliberately does not use
-/// <c>[Consumes]</c> or an MVC action constraint for its JSON requirement:
-/// those run at selection time and would leak a 415 before the environmental
-/// conditions were ever examined, making a closed deployment distinguishable
-/// from an absent route.
+/// for the read side (correction C2). That is the security property: when the
+/// gate is closed, nothing behind it runs and nothing about the request is
+/// reflected back. The gate deliberately does not use <c>[Consumes]</c> or an
+/// MVC action constraint for its JSON requirement: those run at selection time
+/// and would answer a 415 before the environmental conditions were examined,
+/// which would tell an unauthenticated caller that the route exists and what
+/// it accepts before establishing that the caller is local at all.
 /// </para>
 ///
 /// <para>
@@ -57,14 +57,15 @@ namespace TheBha.Api.Controllers;
 ///   <item><description>HTTPS transport and a Development host — else 404.</description></item>
 ///   <item><description>Both connection endpoints loopback — else 404.</description></item>
 ///   <item><description>No <c>Forwarded</c>/<c>X-Forwarded-*</c> header — else 404.</description></item>
-///   <item><description><see cref="AdminCalendarOptions.EnableUnauthenticatedWrite"/> — else 404.</description></item>
+///   <item><description>The startup-frozen <see cref="AdminCalendarOptions.EnableUnauthenticatedWrite"/> — else 404.</description></item>
 ///   <item><description>Exactly one <c>Origin</c>, exactly matching a configured Admin origin — else 403.</description></item>
-///   <item><description><c>Content-Type: application/json</c> — else 415.</description></item>
+///   <item><description><c>Content-Type: application/json</c>, optionally <c>charset=utf-8</c> — else 415.</description></item>
 /// </list>
 /// <para>
-/// Everything that describes <em>whether this boundary exists at all</em>
-/// answers 404, in the read gate's shape, so a closed deployment is
-/// indistinguishable from an absent route. Only once the boundary is
+/// Every environmental and opt-in failure answers the one same 404, in the read
+/// gate's shape, so no closed request can be told apart from any other closed
+/// request: a caller learns nothing about which condition it failed, and
+/// nothing about what the route would have accepted. Only once the boundary is
 /// established as present and local does it answer with a diagnosable 403/415,
 /// and those bodies describe the rule, never the configuration. The 403 is an
 /// explicit result rather than <c>Forbid()</c>, which would invoke the
@@ -73,20 +74,49 @@ namespace TheBha.Api.Controllers;
 /// </para>
 ///
 /// <para>
+/// Correction C1, finding 2: this uniformity is deliberately <em>not</em> a
+/// claim that a closed route is indistinguishable from an absent one. When a
+/// future action carries <c>[EnableCors("admin-calendar-write")]</c>, the CORS
+/// middleware wraps MVC and stamps <c>Access-Control-Allow-Origin</c> on the
+/// response of an approved <c>Origin</c> even when this filter closed it,
+/// while an absent route has no endpoint CORS metadata and gets no such
+/// header. Route existence is therefore observable to an origin that is
+/// already explicitly configured as an Admin origin, and it is not treated as
+/// an authorization boundary: that origin knows the API contract anyway. What
+/// is guaranteed is what matters — a closed gate reaches no action, no store
+/// and no database, and a disallowed origin is granted nothing by CORS.
+/// </para>
+///
+/// <para>
+/// Correction C1, finding 1: the write opt-in reaches this filter as a
+/// <see cref="bool"/> captured from configuration once at startup, never as
+/// <see cref="Microsoft.Extensions.Options.IOptions{TOptions}"/> read per
+/// request. <c>IOptions&lt;T&gt;</c> materializes lazily, on first access, so a
+/// Development host that started with the opt-in <em>off</em> could have it
+/// bound to <c>true</c> by a reloadable configuration source before the first
+/// Admin request and open this boundary — environment-first ordering makes that
+/// unreachable outside Development, but Development is exactly where this gate
+/// operates. A value frozen at startup cannot be changed by anything but a
+/// restart, which is what the README already tells a local operator.
+/// </para>
+///
+/// <para>
 /// The <c>Origin</c> check is performed here, at the server, and is not left
 /// to CORS: CORS restricts browsers only, never <c>curl</c> or a
 /// server-to-server client. The allowlist is the startup-validated
 /// <c>Cors:AdminOrigins</c> snapshot (<c>Program.cs</c> rejects a non-HTTPS or
-/// wildcard entry before the host starts), so a later configuration reload
-/// cannot widen it past that validation.
+/// wildcard entry before the host starts), captured at startup for the same
+/// reason as the opt-in above, so a later configuration change cannot widen it
+/// past that validation.
 /// </para>
 /// </summary>
 public sealed class AdminCalendarWriteGateFilter(
     IHostEnvironment hostEnvironment,
-    IOptions<AdminCalendarOptions> adminCalendarOptions,
+    bool enableUnauthenticatedWrite,
     string[] allowedAdminOrigins) : IResourceFilter
 {
     private const string JsonMediaType = "application/json";
+    private const string SupportedCharset = "utf-8";
 
     public void OnResourceExecuting(ResourceExecutingContext context)
     {
@@ -99,17 +129,16 @@ public sealed class AdminCalendarWriteGateFilter(
         var request = context.HttpContext.Request;
         var connection = context.HttpContext.Connection;
 
-        // `||` short-circuits, so the order is deliberate: cleartext is refused
-        // without consulting anything else, outside Development nothing further
-        // is examined, and a non-local or relayed request is refused before the
-        // reloadable option is ever materialized — so nothing it could later
-        // bind matters.
+        // `||` short-circuits, and the order is the contract: cleartext is
+        // refused without consulting anything else, outside Development nothing
+        // further is examined, and a relayed request is refused before the
+        // opt-in is considered at all.
         if (!request.IsHttps ||
             !hostEnvironment.IsDevelopment() ||
             !IsLoopback(connection.LocalIpAddress) ||
             !IsLoopback(connection.RemoteIpAddress) ||
             HasForwardedHeader(request.Headers) ||
-            !adminCalendarOptions.Value.EnableUnauthenticatedWrite)
+            !enableUnauthenticatedWrite)
         {
             context.Result = new NotFoundResult();
             return;
@@ -129,7 +158,7 @@ public sealed class AdminCalendarWriteGateFilter(
             context.Result = Problem(
                 StatusCodes.Status415UnsupportedMediaType,
                 "Unsupported media type",
-                $"The request body must be sent as {JsonMediaType}.");
+                $"The request body must be sent as {JsonMediaType} encoded as {SupportedCharset}.");
         }
     }
 
@@ -215,12 +244,30 @@ public sealed class AdminCalendarWriteGateFilter(
     }
 
     /// <summary>
-    /// Accepts <c>application/json</c> with an optional, recognized
-    /// <c>charset</c> parameter and nothing else — a missing or unparsable
-    /// header, a different media type, a <c>+json</c> suffix type, an unknown
-    /// charset, or any other parameter is rejected. Checked here rather than
-    /// with <c>[Consumes]</c> so it can never run before the environmental
-    /// conditions above.
+    /// Accepts <c>application/json</c>, either with no parameters or with
+    /// exactly one <c>charset</c> equal to <c>utf-8</c>. Everything else is
+    /// rejected: a missing or unparsable header, a different media type, a
+    /// <c>+json</c> suffix type, any other parameter, a duplicate or empty
+    /// charset, and every other encoding.
+    ///
+    /// <para>
+    /// Correction C1, finding 3: this used to accept any charset
+    /// <see cref="System.Text.Encoding.GetEncoding(string)"/> recognized, which
+    /// is a wider set than the boundary behind it. MVC's System.Text.Json input
+    /// formatter accepts only its configured UTF-8/UTF-16 encodings, so
+    /// <c>application/json; charset=us-ascii</c> passed this gate and was then
+    /// refused with a 415 by the formatter — the gate promised a contract it
+    /// did not actually govern. The future Admin client sends UTF-8 JSON from
+    /// <c>fetch</c>, so the narrow contract is the honest one: what this gate
+    /// accepts is exactly what the action behind it can read.
+    /// </para>
+    ///
+    /// <para>
+    /// Checked here rather than with <c>[Consumes]</c> so it can never run
+    /// before the environmental conditions above, and stated as a literal
+    /// rather than read from the formatter, so this filter neither inspects MVC
+    /// internals nor depends on formatter configuration.
+    /// </para>
     /// </summary>
     private static bool IsJsonContentType(string? contentType)
     {
@@ -230,24 +277,18 @@ public sealed class AdminCalendarWriteGateFilter(
             return false;
         }
 
+        var charsetSeen = false;
         foreach (var parameter in mediaType.Parameters)
         {
-            if (!parameter.Name.Equals("charset", StringComparison.OrdinalIgnoreCase))
+            if (charsetSeen ||
+                !parameter.Name.Equals("charset", StringComparison.OrdinalIgnoreCase))
             {
                 return false;
             }
 
-            var charset = HeaderUtilities.RemoveQuotes(parameter.Value).ToString();
-            if (charset.Length == 0)
-            {
-                return false;
-            }
-
-            try
-            {
-                _ = Encoding.GetEncoding(charset);
-            }
-            catch (ArgumentException)
+            charsetSeen = true;
+            if (!HeaderUtilities.RemoveQuotes(parameter.Value)
+                    .Equals(SupportedCharset, StringComparison.OrdinalIgnoreCase))
             {
                 return false;
             }

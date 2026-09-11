@@ -127,14 +127,20 @@ AdminCalendar__EnableUnauthenticatedWrite=true \
 ```
 
 Turn it back off by removing the variable (`Remove-Item Env:\AdminCalendar__EnableUnauthenticatedWrite`)
-and restarting the API; there is no way to turn it off in a running process.
+and restarting the API. Both directions need a restart: the write gate reads
+this flag once, at startup, and never re-reads configuration per request, so
+changing it in a running process has no effect at all.
 
 Even with the flag on, a request reaches the write boundary only when it is
 HTTPS, on a Development host, loopback at both ends of the connection, free of
 any `Forwarded`/`X-Forwarded-*` header, and carries exactly one `Origin` header
 matching a configured `Cors:AdminOrigins` entry (`https://localhost:3001` in
-`appsettings.Development.json`) with `Content-Type: application/json`. Anything
-else is refused before the request body is read.
+`appsettings.Development.json`) with `Content-Type: application/json` — with no
+parameters, or with `charset=utf-8` and nothing else. Any other encoding,
+including ones .NET recognizes such as `us-ascii` or UTF-16, is refused: the
+JSON the Admin client sends is UTF-8, and the gate accepts exactly what the
+action behind it can read. Anything else is refused before the request body is
+read.
 
 Run the API directly over HTTPS on `localhost` — never behind a LAN listener, a
 tunnel, or a public reverse proxy. The forwarded-header refusal is not a proxy

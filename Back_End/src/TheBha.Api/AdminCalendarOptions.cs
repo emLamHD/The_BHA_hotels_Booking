@@ -56,10 +56,24 @@ public sealed class AdminCalendarOptions
     /// <see cref="TheBha.Api.Controllers.AdminCalendarWriteGateFilter"/>
     /// requires, per request, an HTTPS transport, a Development host, a
     /// loopback-to-loopback connection and the absence of any forwarded-header
-    /// claim before it even reads this flag — so setting it to <c>true</c> in
-    /// another environment, on a LAN/container/wildcard listener, behind a
-    /// proxy, or through a configuration reload after startup leaves the write
-    /// boundary closed.
+    /// claim before this flag is consulted at all — so setting it to
+    /// <c>true</c> in another environment, on a LAN/container/wildcard
+    /// listener, or behind a proxy leaves the write boundary closed.
+    /// </para>
+    ///
+    /// <para>
+    /// Correction C1, finding 1: unlike
+    /// <see cref="EnableUnauthenticatedRead"/>, this value is read from
+    /// configuration <em>once, at startup</em>, and handed to the write gate as
+    /// a plain <see cref="bool"/>; the gate never resolves
+    /// <see cref="Microsoft.Extensions.Options.IOptions{TOptions}"/> per
+    /// request. <c>IOptions&lt;T&gt;</c> materializes lazily, so a Development
+    /// host that started with this <c>false</c> could otherwise have it bound
+    /// to <c>true</c> by a reloadable configuration source before the first
+    /// Admin request, and Development is exactly where this gate operates —
+    /// the environment-first ordering that protects every other host would not
+    /// have covered it. Changing this flag therefore requires restarting the
+    /// API, which is what the repository README tells a local operator.
     /// </para>
     ///
     /// <para>
