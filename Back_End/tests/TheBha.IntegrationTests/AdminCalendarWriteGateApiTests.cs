@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.HttpsPolicy;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -54,7 +55,8 @@ public sealed class AdminCalendarWriteGateApiTests(PostgreSqlWebApplicationFacto
         string? environment = null,
         string? dataProtectionKeysPath = null,
         TestConnectionAddresses? connection = null,
-        Action<AdminCalendarOptions>? lateOptionChange = null) =>
+        Action<AdminCalendarOptions>? lateOptionChange = null,
+        int? httpsRedirectionPort = null) =>
         factory.WithWebHostBuilder(builder =>
         {
             if (environment is not null)
@@ -86,6 +88,16 @@ public sealed class AdminCalendarWriteGateApiTests(PostgreSqlWebApplicationFacto
                 if (lateOptionChange is not null)
                 {
                     services.Configure<AdminCalendarOptions>(lateOptionChange);
+                }
+
+                // PMS-CAL-001.2-CP02-C5: models the supported dual-listener
+                // launch profile. Without a port UseHttpsRedirection cannot
+                // build a redirect and passes the request through, which is a
+                // shape the real `https` profile never has.
+                if (httpsRedirectionPort is not null)
+                {
+                    services.Configure<HttpsRedirectionOptions>(
+                        options => options.HttpsPort = httpsRedirectionPort.Value);
                 }
             });
         });
@@ -415,15 +427,21 @@ public sealed class AdminCalendarWriteGateApiTests(PostgreSqlWebApplicationFacto
     // Transport
     // ---------------------------------------------------------------
 
-    // UseHttpsRedirection cannot discover an HTTPS port on this host, so it
-    // logs a warning and passes the request through — which is exactly why the
-    // gate must refuse cleartext itself. Redirects are disabled on the client,
-    // so a 307 would fail this test rather than pass it.
+    /// <summary>
+    /// PMS-CAL-001.2-CP02-C5: a dual-listener host, which is what the supported
+    /// <c>https</c> launch profile actually is. Given an HTTPS port,
+    /// <c>UseHttpsRedirection</c> answers a cleartext request with a 307 before
+    /// any MVC filter runs, and 307 preserves method and body — so a
+    /// redirect-following client would have completed an Admin write that never
+    /// passed the gate. The pre-redirect guard refuses Admin mutation verbs
+    /// first, which is what this asserts. Redirects stay disabled on the client,
+    /// so a 307 fails this test rather than silently passing it.
+    /// </summary>
     [Fact]
-    public async Task Cleartext_requests_are_refused_by_the_gate_and_never_reach_the_action()
+    public async Task Cleartext_admin_writes_are_refused_before_https_redirection_ever_runs()
     {
         var spy = new WriteGateProbeSpy();
-        await using var host = CreateProbeHost(spy);
+        await using var host = CreateProbeHost(spy, httpsRedirectionPort: 44_301);
         using var client = CreateCleartextClient(host);
         Assert.Equal("http", client.BaseAddress!.Scheme);
 
@@ -433,8 +451,18 @@ public sealed class AdminCalendarWriteGateApiTests(PostgreSqlWebApplicationFacto
             var response = await client.SendAsync(request);
 
             await AssertClosedGateResponseAsync(response, $"cleartext, {shape}");
+            Assert.False(response.Headers.Contains("Location"), $"cleartext, {shape}: no redirect");
             Assert.Equal(0, spy.Invocations);
         }
+
+        // Control: redirection really is configured on this host, so the 404s
+        // above are the guard answering first rather than a host that could not
+        // redirect at all. A Customer route keeps the ordinary 307.
+        using var customer = new HttpRequestMessage(HttpMethod.Post, "/api/v1/booking-holds");
+        var customerResponse = await client.SendAsync(customer);
+
+        Assert.Equal(HttpStatusCode.TemporaryRedirect, customerResponse.StatusCode);
+        Assert.Equal("https", customerResponse.Headers.Location!.Scheme);
     }
 
     [Fact]

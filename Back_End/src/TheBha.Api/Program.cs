@@ -329,6 +329,37 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseExceptionHandler();
+
+// PMS-CAL-001.2-CP02-C5: a cleartext Admin mutation is refused here, ahead of
+// the redirect. UseHttpsRedirection answers a dual-listener host's HTTP request
+// with a 307 before any MVC filter runs, and 307 preserves method and body — so
+// a redirect-following client would have completed the write over HTTPS, and
+// one that does not follow would see a redirect instead of the closed
+// boundary's answer. AdminCalendarWriteGateFilter is a resource filter and
+// cannot run earlier than middleware, so its IsHttps check stays as defence in
+// depth for any pipeline that does not pass through here. Scope is deliberately
+// narrow: only Admin mutation verbs, matched by path segment so /api/administrator
+// is untouched; every other request, Customer routes included, redirects as before.
+app.Use(async (context, next) =>
+{
+    if (!context.Request.IsHttps &&
+        context.Request.Path.StartsWithSegments("/api/admin", StringComparison.OrdinalIgnoreCase) &&
+        (HttpMethods.IsPost(context.Request.Method) ||
+         HttpMethods.IsPut(context.Request.Method) ||
+         HttpMethods.IsPatch(context.Request.Method) ||
+         HttpMethods.IsDelete(context.Request.Method)))
+    {
+        // The same detail-free 404 body the closed gate produces, via the same
+        // ProblemDetails service, and no Location: a caller learns nothing it
+        // did not already know, and cannot tell this refusal from that one.
+        context.Response.Headers.CacheControl = "no-store";
+        await Results.Problem(statusCode: StatusCodes.Status404NotFound).ExecuteAsync(context);
+        return;
+    }
+
+    await next(context);
+});
+
 app.UseHttpsRedirection();
 app.UseCors("customer-web");
 app.UseRateLimiter();

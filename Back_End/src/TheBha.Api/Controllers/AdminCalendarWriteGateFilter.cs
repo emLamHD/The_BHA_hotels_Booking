@@ -12,12 +12,24 @@ namespace TheBha.Api.Controllers;
 /// PMS-CAL-001.2-CP01: the local Admin Calendar <em>write</em> boundary.
 ///
 /// <para>
-/// This is the foundation a later checkpoint's assignment/move/block endpoints
-/// will opt into; CP01 deliberately exposes no business mutation endpoint, so
-/// nothing in <c>TheBha.Api</c> applies this filter yet. It is a resource
-/// filter, not middleware and not a policy framework: it is registered in DI,
-/// never added globally, and never attached to the read board or any Customer
-/// route.
+/// CP02's <see cref="AdminReservationAssignmentsController.Create"/> is the one
+/// action that applies this filter; assignment move/unassign/split and every
+/// OperationalBlock mutation remain unexposed. It is a resource filter, not
+/// middleware and not a policy framework: it is registered in DI, never added
+/// globally, and never attached to the read board or any Customer route.
+/// </para>
+///
+/// <para>
+/// Correction C5: being a resource filter is also this gate's one structural
+/// limit — it cannot run before middleware, and on a dual-listener host
+/// <c>UseHttpsRedirection</c> answers a cleartext request with a 307 before any
+/// filter runs. Since 307 preserves method and body, a redirect-following
+/// client would have completed an Admin write that never reached this gate.
+/// <c>Program.cs</c> therefore refuses cleartext Admin mutation verbs in a small
+/// guard placed ahead of the redirect, with the same detail-free 404 and
+/// <c>no-store</c> used here. The <c>IsHttps</c> check below is unchanged and
+/// stays as defence in depth: it still refuses cleartext in any pipeline that
+/// does not pass through that guard.
 /// </para>
 ///
 /// <para>

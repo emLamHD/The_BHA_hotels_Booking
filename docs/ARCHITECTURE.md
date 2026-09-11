@@ -122,7 +122,11 @@ CP02 (Draft PR #44, **not merged**) adds exactly one endpoint behind it:
 over `IAssignmentMutationStore.CreateAsync`. The audit actor and authorization
 evidence are fixed server-owned constants naming this local boundary — not a
 person, not an approval, not an authenticated Staff identity. No Admin frontend
-calls it. Assignment move/unassign/split/batch, OperationalBlock HTTP mutation,
+calls it. A cleartext Admin mutation verb is answered `404` + `Cache-Control:
+no-store` by a guard placed ahead of `UseHttpsRedirection`, because a 307
+preserves method and body and would otherwise let a redirect-following client
+complete a write that never reached the gate; the gate repeats the HTTPS check
+as defence in depth. Assignment move/unassign/split/batch, OperationalBlock HTTP mutation,
 Admin authentication/RBAC, real Staff identity and OTA behavior remain TARGET.
 
 ## Deliberately deferred decisions
