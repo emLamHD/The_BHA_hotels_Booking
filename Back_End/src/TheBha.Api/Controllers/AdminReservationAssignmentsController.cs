@@ -140,12 +140,26 @@ public sealed class AdminReservationAssignmentsController(IAssignmentMutationSto
     /// un-clipped, so a range that exceeds the Unit's booked nights is refused
     /// rather than silently trimmed to fit.
     /// </summary>
+    /// <remarks>
+    /// Correction C3: the published metadata is deliberately the conservative
+    /// description of what a caller can actually receive, including the two
+    /// statuses the gate answers before this action runs. <c>400</c> is declared
+    /// as the base <see cref="ProblemDetails"/> because it has two shapes — the
+    /// input formatter's <see cref="ValidationProblemDetails"/> for a malformed
+    /// or incomplete body, and this action's plain problem for input the store
+    /// rejects — and only the base type is true of both. <c>404</c> is declared
+    /// as a status with no body schema for the same reason in the other
+    /// direction: a closed gate returns an empty 404, so no schema could be
+    /// promised for every 404 without generated clients expecting a payload
+    /// that is sometimes absent.
+    /// </remarks>
     [HttpPost]
     [ProducesResponseType(typeof(RoomOccupancySegmentDto), StatusCodes.Status201Created)]
-    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(void), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status415UnsupportedMediaType)]
     public async Task<ActionResult<RoomOccupancySegmentDto>> Create(
         Guid propertyId,
         [FromBody] CreateReservationAssignmentRequest request,

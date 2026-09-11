@@ -260,11 +260,16 @@ này sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
   same-Property invariants, `xmin` optimistic concurrency, and append-only
   audit. Availability is block-adjusted and assignment-attributed.
   Whole-Reservation cancellation atomically cancels its assignment segments.
-  Internal-only assignment/OperationalBlock mutation commands exist behind
-  the application/persistence boundary only — **no HTTP controller and no
-  Admin/Calendar endpoint expose them**, and no Staff identity or Admin RBAC
-  model exists; cross-RoomType assignment requires an opaque
-  `AuthorizationEvidence`/`Reason` pair, not a real permission check. A
+  Assignment/OperationalBlock mutation commands live behind the
+  application/persistence boundary. Trên `develop` **chưa** có HTTP controller
+  nào expose chúng; trên branch `PMS-CAL-001.2-CP02` (Draft PR #44, chưa merge)
+  đúng **một** operation được expose — `CreateAsync`, qua
+  `POST /api/admin/v1/properties/{propertyId}/reservation-assignments`, local
+  Development only sau write gate của CP01. `SupersedeAsync` (move/unassign/
+  split/batch) và mọi OperationalBlock mutation **vẫn** internal-only ở mọi
+  branch. Không có Staff identity hay Admin RBAC model; cross-RoomType
+  assignment requires an opaque `AuthorizationEvidence`/`Reason` pair, not a
+  real permission check. A
   shared `AdvisoryLockCoordinator` is now used by every advisory-lock-taking
   writer. Exact constraint names, SQLSTATEs, lock order, and error mapping
   are recorded in ADR 0006 and `docs/reports/PMS-BE-001.2-completion.md`,
@@ -276,7 +281,9 @@ này sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
   `/api/admin/v1/properties/{propertyId}/reservation-board`, projects the
   existing `RoomOccupancySegment`/`RoomBlock` authority (above) into a
   frozen read-only JSON contract for the Admin Reservation Board frontend.
-  **Read-only**; no mutation endpoint of any kind exists over HTTP. Mỗi
+  **Read-only**: trên `develop` không có mutation endpoint nào qua HTTP;
+  endpoint ghi duy nhất của CP02 nằm trên branch chưa merge (§2) và không
+  thuộc contract đọc này. Mỗi
   request chỉ được phục vụ khi **tất cả** điều kiện sau đúng, kiểm tra
   trước model binding: HTTPS; host environment là Development; địa chỉ
   local **và** remote của connection đều là loopback; và
@@ -418,9 +425,10 @@ evidence independently verified for this closeout via:
   lifecycle/folio/move demonstrations tại `reservationRuntimeReducer` trong
   `reservationRuntime.ts`, `formReducer` trong `CreateReservationForm.tsx`)
   **vẫn** chỉ chạy trên local deterministic mock state — không có backend
-  call, không có persistence, không có Admin authentication/RBAC thật,
-  không có OTA behavior thật, và không có mutation endpoint nào (assignment/
-  block create/move/cancel) được expose qua HTTP.
+  call, không có persistence, không có Admin authentication/RBAC thật và
+  không có OTA behavior thật. Endpoint tạo assignment của CP02 (branch chưa
+  merge, §2) **không** được frontend nào gọi; move/unassign/split và block
+  mutation vẫn chưa có route HTTP.
 - `PROJECT_BIBLE.md`, `docs/design/PMS-DATA-001-core-database-blueprint-v2.md`,
   ADR (0001–0006), test baseline và source code là nguồn sự thật sản phẩm/
   kiến trúc. Chúng phân biệt rõ CURRENT frontend prototype (mock-only),

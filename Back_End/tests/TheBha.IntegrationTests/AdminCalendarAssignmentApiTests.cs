@@ -130,6 +130,17 @@ public sealed class AdminCalendarAssignmentApiTests(PostgreSqlWebApplicationFact
         return problem.TryGetProperty("title", out var title) ? title.GetString() : null;
     }
 
+    /// <summary>
+    /// The one schema a published response promises. Swashbuckle lists a
+    /// response body under several media types; every one of them must name the
+    /// same schema, or the response does not have a single contract.
+    /// </summary>
+    private static string BodySchemaRef(JsonElement response) =>
+        response.GetProperty("content").EnumerateObject()
+            .Select(media => media.Value.GetProperty("schema").GetProperty("$ref").GetString()!)
+            .Distinct(StringComparer.Ordinal)
+            .Single();
+
     private async Task<List<RoomOccupancySegment>> SegmentsAsync()
     {
         await using var context = factory.CreateDbContext();
@@ -421,8 +432,25 @@ public sealed class AdminCalendarAssignmentApiTests(PostgreSqlWebApplicationFact
         Assert.Equal(["post"], operations);
 
         var post = assignmentsPath.Value.GetProperty("post");
-        var documented = post.GetProperty("responses").EnumerateObject().Select(r => r.Name).ToArray();
-        Assert.Equal(["201", "400", "403", "404", "409"], documented.Order().ToArray());
+        var responses = post.GetProperty("responses");
+        Assert.Equal(
+            ["201", "400", "403", "404", "409", "415"],
+            responses.EnumerateObject().Select(r => r.Name).Order().ToArray());
+
+        // Correction C3, finding 1: what each status actually returns. 415 is
+        // the gate's, and is published because a caller can receive it. 404 is
+        // published as a status alone: the closed gate answers it with an empty
+        // body, so promising a schema for every 404 would be a contract no
+        // generated client could rely on.
+        Assert.Equal(
+            "#/components/schemas/RoomOccupancySegmentDto",
+            BodySchemaRef(responses.GetProperty("201")));
+        foreach (var status in new[] { "400", "403", "409", "415" })
+        {
+            Assert.Equal("#/components/schemas/ProblemDetails", BodySchemaRef(responses.GetProperty(status)));
+        }
+
+        Assert.False(responses.GetProperty("404").TryGetProperty("content", out _));
 
         var schemaRef = post.GetProperty("requestBody").GetProperty("content")
             .GetProperty("application/json").GetProperty("schema")
