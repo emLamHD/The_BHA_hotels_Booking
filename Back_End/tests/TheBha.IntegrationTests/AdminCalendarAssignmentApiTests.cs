@@ -302,6 +302,40 @@ public sealed class AdminCalendarAssignmentApiTests(PostgreSqlWebApplicationFact
         Assert.Equal("Guest requested upgrade", audit.Reason);
     }
 
+    /// <summary>
+    /// Correction C6, finding 1: a caller may acknowledge a cross-RoomType
+    /// placement and then pick a room of the sold RoomType anyway. Nothing was
+    /// crossed, so nothing was authorized, and the append-only audit row must
+    /// not say otherwise — an over-confirming caller is not making an error, so
+    /// the flag simply goes inert. The evidence a same-type placement records is
+    /// identical whether the flag was set, cleared, or never sent.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Same_room_type_assignment_records_no_cross_type_evidence(bool confirmCrossRoomType)
+    {
+        var data = await SeedAsync("cp02-inert-flag");
+        using var host = CreateWriteHost();
+        using var client = CreateHttpsClient(host);
+
+        using var request = CreatePost(
+            data.Property.Id,
+            RequestBody(
+                data.Unit.Id, data.RoomsA[0].Id, CheckIn, CheckOut,
+                confirmCrossRoomType: confirmCrossRoomType,
+                reason: "Front-desk preference"));
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var audit = Assert.Single(await AuditsAsync());
+        Assert.Equal(ServerOwnedActor, audit.ActorReference);
+        Assert.Null(audit.AuthorizationEvidence);
+        // The reason is untouched: recording why a room was chosen claims
+        // nothing about authorization, and stays useful for a same-type move.
+        Assert.Equal("Front-desk preference", audit.Reason);
+    }
+
     // ---------------------------------------------------------------
     // Acceptance 4: representative status mapping, without restating the
     // store's own invariant matrix

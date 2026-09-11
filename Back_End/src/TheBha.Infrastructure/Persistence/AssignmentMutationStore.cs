@@ -160,7 +160,20 @@ internal sealed class AssignmentMutationStore(
                 Guid.NewGuid(),
                 RoomOccupancySegmentAuditEventType.Created,
                 command.ActorReference,
-                command.AuthorizationEvidence,
+                // Correction C6, finding 1: authorization evidence answers "why was
+                // this allowed to cross RoomTypes" (ADR 0006 Decision item 8). A
+                // same-RoomType placement crosses nothing, so evidence offered for
+                // one is not evidence of anything and must not be recorded as
+                // though it were — an append-only audit row saying a placement was
+                // cross-type-authorized when it was never cross-type is worse than
+                // no row at all. A caller that over-confirms is not making an
+                // error, so the intent is dropped here rather than refused at the
+                // edge: this is the one place where the actual RoomType comparison
+                // is already known, under the advisory lock that makes it true.
+                // Reason is deliberately left alone — recording why a same-type
+                // room was chosen is legitimate, and claims nothing about
+                // authorization.
+                isCrossType ? command.AuthorizationEvidence : null,
                 command.Reason,
                 utcNow));
         }
