@@ -216,8 +216,9 @@ này sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
   vi `PMS-BE-001.1`/`PMS-BE-001.2` và ngoài phạm vi planning-only của
   `PMS-CAL-001.1` (Organization, multi-RoomType Hold/Reservation
   **request** shape, HTTP/Admin/Calendar exposure của
-  `RoomOccupancySegments`/`RoomBlock` vượt ngoài `PMS-CAL-001.1`'s exact
-  scope, Admin authentication/RBAC, Staff identity, `FolioEntries`, OTA
+  `RoomOccupancySegments`/`RoomBlock` vượt ngoài `PMS-CAL-001.1` và
+  `PMS-CAL-001.2`'s exact scope, Admin authentication/RBAC, Staff identity,
+  `FolioEntries`, OTA
   adapter/inbox/outbox): **locked** — documented as TARGET/APPROVED by
   `PMS-DATA-DOCS-001`, not authorized for implementation until its own
   Master Execution Prompt.
@@ -559,8 +560,9 @@ product/backend work item nào khác từ Snapshot này.
   phải thứ code phát hiện được; Admin authentication/RBAC vẫn deferred.
 - Nhầm database authority/internal mutation boundary của `RoomOccupancySegment`/
   `RoomBlock` (`PMS-BE-001.2`, đã CURRENT) với HTTP/Admin/Calendar
-  integration, Staff identity, hoặc Admin RBAC thật — những thứ này vẫn
-  TARGET, chưa implement; `ActorReference`/`AuthorizationEvidence` chỉ là
+  integration đầy đủ, Staff identity, hoặc Admin RBAC thật — ngoài đúng một
+  endpoint tạo assignment local-only của `PMS-CAL-001.2` CP02, những thứ này
+  vẫn TARGET, chưa implement; `ActorReference`/`AuthorizationEvidence` chỉ là
   opaque string, không phải permission check thật.
 - Nhầm foundation normalized Item/Unit (`PMS-BE-001.1`, single-RoomType
   public request) với multi-RoomType public request TARGET đã implement —

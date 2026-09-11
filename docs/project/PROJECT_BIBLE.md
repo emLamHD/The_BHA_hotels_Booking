@@ -99,7 +99,8 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   mỏng cho `IAssignmentMutationStore.CreateAsync`, chỉ chạy trên host
   Development loopback đã bật opt-in. Audit dùng hằng số do server sở hữu —
   không phải nhân viên, phê duyệt hay Staff identity đã xác thực. Không
-  frontend nào gọi nó.
+  frontend nào gọi nó. ADR 0006 §Amendments (2026-09-11) ghi nhận đúng phần
+  narration cũ của nó bị thay thế; Decision của ADR không đổi.
 
 ### Target/approved, chưa implement (TARGET)
 
