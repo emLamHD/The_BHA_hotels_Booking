@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Mvc;
@@ -13,20 +15,66 @@ namespace TheBha.Api.Controllers;
 /// (PMS-CAL-001.2-CP01). Unknown JSON properties are ignored by the default
 /// System.Text.Json behaviour, so a body that invents <c>actorReference</c> or
 /// <c>authorizationEvidence</c> is read exactly as one that does not.
+///
+/// <para>
+/// Correction C2, finding 1: the four identifying/date properties are required.
+/// They are value types, so an omitted property would otherwise deserialize to
+/// its default and reach the store as a real-looking value — an absent
+/// <c>reservationUnitId</c> became <see cref="Guid.Empty"/> and came back as
+/// <c>404 Assignment target not found</c>, telling the caller its Unit does not
+/// exist rather than that it forgot a field. <c>[ApiController]</c> cannot tell
+/// the difference, because a default is a valid value; System.Text.Json can,
+/// because it knows whether the property appeared.
+/// <see cref="JsonRequiredAttribute"/> is therefore what enforces presence, and
+/// it does so inside the input formatter — before the action, and so before the
+/// store. <see cref="RequiredAttribute"/> alongside it changes no behaviour
+/// (DataAnnotations treats any non-null value as present, and these four can
+/// never be null); it exists because Swashbuckle reads that attribute and not
+/// the System.Text.Json one, so without it the published schema would claim
+/// nothing is required while the endpoint required four things.
+/// </para>
+///
+/// <para>
+/// This is a plain type with init-only properties rather than a positional
+/// record for exactly that reason: ASP.NET Core refuses to validate a record
+/// whose validation metadata sits on a property that is also a primary
+/// constructor parameter (<c>ModelMetadata.ThrowIfRecordTypeHasValidationOnProperties</c>
+/// throws, and every request 500s), while Swashbuckle only reads attributes
+/// from the property. Moving the attribute to the constructor parameter
+/// satisfies MVC and is invisible to Swashbuckle; having no primary constructor
+/// satisfies both. The JSON contract is unchanged either way.
+/// </para>
 /// </summary>
-/// <param name="ConfirmCrossRoomType">
-/// An explicit operational acknowledgement that the caller intends to place a
-/// guest in a PhysicalRoom of a different RoomType than the one sold. It is
-/// <em>not</em> authentication, RBAC, or evidence of staff identity — it only
-/// records that the choice was deliberate rather than accidental.
-/// </param>
-public sealed record CreateReservationAssignmentRequest(
-    Guid ReservationUnitId,
-    Guid PhysicalRoomId,
-    DateOnly StartDate,
-    DateOnly EndDate,
-    bool ConfirmCrossRoomType,
-    string? Reason);
+public sealed class CreateReservationAssignmentRequest
+{
+    [JsonRequired]
+    [Required]
+    public Guid ReservationUnitId { get; init; }
+
+    [JsonRequired]
+    [Required]
+    public Guid PhysicalRoomId { get; init; }
+
+    [JsonRequired]
+    [Required]
+    public DateOnly StartDate { get; init; }
+
+    [JsonRequired]
+    [Required]
+    public DateOnly EndDate { get; init; }
+
+    /// <summary>
+    /// An explicit operational acknowledgement that the caller intends to place
+    /// a guest in a PhysicalRoom of a different RoomType than the one sold. It
+    /// is <em>not</em> authentication, RBAC, or evidence of staff identity — it
+    /// only records that the choice was deliberate rather than accidental.
+    /// Optional: absent means "not acknowledged", which is meaningful.
+    /// </summary>
+    public bool ConfirmCrossRoomType { get; init; }
+
+    /// <summary>Optional; required by the store only for a cross-RoomType placement.</summary>
+    public string? Reason { get; init; }
+}
 
 /// <summary>
 /// PMS-CAL-001.2-CP02: the first Admin Calendar <em>write</em> endpoint, and a
@@ -94,7 +142,7 @@ public sealed class AdminReservationAssignmentsController(IAssignmentMutationSto
     /// </summary>
     [HttpPost]
     [ProducesResponseType(typeof(RoomOccupancySegmentDto), StatusCodes.Status201Created)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]

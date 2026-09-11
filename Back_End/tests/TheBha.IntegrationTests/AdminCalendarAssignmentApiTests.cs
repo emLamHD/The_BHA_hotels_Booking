@@ -301,6 +301,11 @@ public sealed class AdminCalendarAssignmentApiTests(PostgreSqlWebApplicationFact
     [InlineData("unknown-unit", HttpStatusCode.NotFound, "Assignment target not found")]
     [InlineData("other-property", HttpStatusCode.NotFound, "Assignment target not found")]
     [InlineData("outside-booked-nights", HttpStatusCode.Conflict, "Assignment conflict")]
+    // Correction C2, finding 2: the widest range DateOnly can express, against a
+    // real Unit and a real room. It is refused for the ordinary reason — those
+    // nights are not booked — and the store derives its candidate dates from the
+    // Unit's five booked nights rather than enumerating the 3.6 million requested.
+    [InlineData("extreme-range", HttpStatusCode.Conflict, "Assignment conflict")]
     public async Task Refused_requests_map_to_the_documented_status_and_write_nothing(
         string scenario,
         HttpStatusCode expectedStatus,
@@ -318,6 +323,8 @@ public sealed class AdminCalendarAssignmentApiTests(PostgreSqlWebApplicationFact
             // Property isolation: a real Unit, addressed under a different
             // Property, is not found rather than assigned across the boundary.
             "other-property" => RequestBody(data.Unit.Id, data.RoomsA[0].Id, CheckIn, CheckOut),
+            "extreme-range" => RequestBody(
+                data.Unit.Id, data.RoomsA[0].Id, DateOnly.MinValue, DateOnly.MaxValue),
             _ => RequestBody(data.Unit.Id, data.RoomsA[0].Id, CheckIn, CheckOut.AddDays(2)),
         };
 
@@ -332,6 +339,48 @@ public sealed class AdminCalendarAssignmentApiTests(PostgreSqlWebApplicationFact
         Assert.Equal(expectedStatus, response.StatusCode);
         Assert.Equal(expectedTitle, await TitleAsync(response));
         await AssertNothingWrittenAsync($"'{scenario}' must be refused without writing");
+    }
+
+    // ---------------------------------------------------------------
+    // Correction C2, finding 1: an omitted required property is a bad
+    // request, not a missing Unit
+    // ---------------------------------------------------------------
+
+    /// <summary>
+    /// All four are value types, so before <c>[JsonRequired]</c> an omitted
+    /// property deserialized to its default and reached the store as a
+    /// real-looking value — an absent <c>reservationUnitId</c> came back as
+    /// <c>404</c>, telling the caller its Unit did not exist rather than that it
+    /// forgot a field.
+    /// </summary>
+    [Theory]
+    [InlineData("reservationUnitId")]
+    [InlineData("physicalRoomId")]
+    [InlineData("startDate")]
+    [InlineData("endDate")]
+    public async Task An_omitted_required_property_is_refused_before_the_store(string omitted)
+    {
+        var data = await SeedAsync("cp02-omitted");
+        using var host = CreateWriteHost();
+        using var client = CreateHttpsClient(host);
+
+        var properties = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["reservationUnitId"] = $"\"{data.Unit.Id}\"",
+            ["physicalRoomId"] = $"\"{data.RoomsA[0].Id}\"",
+            ["startDate"] = $"\"{CheckIn:yyyy-MM-dd}\"",
+            ["endDate"] = $"\"{CheckOut:yyyy-MM-dd}\"",
+            ["confirmCrossRoomType"] = "false",
+            ["reason"] = "null",
+        };
+        properties.Remove(omitted);
+        var body = $"{{{string.Join(",", properties.Select(p => $"\"{p.Key}\":{p.Value}"))}}}";
+
+        using var request = CreatePost(data.Property.Id, body);
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await AssertNothingWrittenAsync($"'{omitted}' is required, so nothing may reach the store");
     }
 
     // ---------------------------------------------------------------
@@ -386,6 +435,12 @@ public sealed class AdminCalendarAssignmentApiTests(PostgreSqlWebApplicationFact
         Assert.Equal(
             ["confirmCrossRoomType", "endDate", "physicalRoomId", "reason", "reservationUnitId", "startDate"],
             properties.Order(StringComparer.OrdinalIgnoreCase).ToArray());
+
+        // Correction C2, finding 1: the published contract says which four a
+        // caller may not leave out, and the other two stay optional.
+        var required = schema.GetProperty("required").EnumerateArray()
+            .Select(entry => entry.GetString()!).Order(StringComparer.OrdinalIgnoreCase).ToArray();
+        Assert.Equal(["endDate", "physicalRoomId", "reservationUnitId", "startDate"], required);
     }
 
     // ---------------------------------------------------------------

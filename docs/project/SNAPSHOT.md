@@ -175,7 +175,12 @@ này sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
   thật. Không move/unassign/split/batch, không block mutation, không
   idempotency, không đụng frontend/schema/Customer contract/auth. Correction
   `C1` thu hẹp hai assertion test đã merge vốn khẳng định *sự vắng mặt* của
-  chính endpoint này về đúng phạm vi sở hữu của chúng.
+  chính endpoint này về đúng phạm vi sở hữu của chúng. Correction `C2` sửa hai
+  finding `[P2]` của Codex: bốn property định danh/ngày nay bắt buộc có mặt
+  trong JSON (thiếu → `400` trước khi chạm store, thay vì `404` gây hiểu nhầm),
+  và `CreateAsync` suy ra ngày đích từ booked nights hữu hạn của ReservationUnit
+  thay vì liệt kê khoảng ngày do caller cung cấp — không thêm giới hạn số đêm
+  tùy tiện nào.
 - `CP01` đã đóng (PR #43 merged). `CP03` và mọi mutation nghiệp vụ khác của
   `PMS-CAL-001.2` **chưa kích hoạt**; Snapshot này không tự mở chúng.
 
