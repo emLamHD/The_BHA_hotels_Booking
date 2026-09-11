@@ -100,6 +100,51 @@ See [docs/BE-003-5-CANCELLATION-LIFECYCLE-HARDENING.md](docs/BE-003-5-CANCELLATI
 for the Hold read, Hold cancellation, and Reservation cancellation contract
 that closes the BE-003 reservation lifecycle.
 
+### Admin Calendar local gates
+
+The Admin Calendar surface has no authentication or RBAC yet, so both of its
+opt-ins are **same-machine development only**, default to `false` everywhere
+(including Development), and are fatal at startup in Production:
+
+| Environment variable | Opens |
+|---|---|
+| `AdminCalendar__EnableUnauthenticatedRead` | the Reservation Board read endpoint |
+| `AdminCalendar__EnableUnauthenticatedWrite` | the Admin Calendar write boundary |
+
+They are independent — turning one on never turns the other on — and neither
+is set by any checked-in `appsettings` file. The read opt-in is set by the
+`https` launch profile; the write opt-in is set only by an explicit local
+environment variable, and only for as long as you need it:
+
+```powershell
+$env:AdminCalendar__EnableUnauthenticatedWrite = "true"
+dotnet run --project Back_End/src/TheBha.Api/TheBha.Api.csproj --launch-profile https
+```
+
+```bash
+AdminCalendar__EnableUnauthenticatedWrite=true \
+  dotnet run --project Back_End/src/TheBha.Api/TheBha.Api.csproj --launch-profile https
+```
+
+Turn it back off by removing the variable (`Remove-Item Env:\AdminCalendar__EnableUnauthenticatedWrite`)
+and restarting the API; there is no way to turn it off in a running process.
+
+Even with the flag on, a request reaches the write boundary only when it is
+HTTPS, on a Development host, loopback at both ends of the connection, free of
+any `Forwarded`/`X-Forwarded-*` header, and carries exactly one `Origin` header
+matching a configured `Cors:AdminOrigins` entry (`https://localhost:3001` in
+`appsettings.Development.json`) with `Content-Type: application/json`. Anything
+else is refused before the request body is read.
+
+Run the API directly over HTTPS on `localhost` — never behind a LAN listener, a
+tunnel, or a public reverse proxy. The forwarded-header refusal is not a proxy
+detector: a proxy that strips every trace of itself is indistinguishable from a
+direct client, so keeping the local API un-proxied is a condition of running it,
+not something the code can enforce.
+
+`PMS-CAL-001.2-CP01` adds this gate only. Enabling the write flag exposes **no**
+assignment, move, or block API — no such endpoint exists yet.
+
 ## Local production simulation
 
 Customer web:
