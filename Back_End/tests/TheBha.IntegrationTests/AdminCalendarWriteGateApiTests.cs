@@ -18,8 +18,9 @@ namespace TheBha.IntegrationTests;
 /// PMS-CAL-001.2-CP01 acceptance: the local Admin Calendar write gate, proven
 /// end to end against a real host through the test-only probe controller (see
 /// <see cref="AdminCalendarWriteGateProbeController"/>). The application itself
-/// exposes no write endpoint in CP01, which
-/// <see cref="The_ordinary_host_serves_no_write_probe_route_and_publishes_no_new_post_path"/>
+/// exposes no write endpoint in CP01, and the probe route stays inside this
+/// test assembly, which
+/// <see cref="The_ordinary_host_neither_serves_nor_publishes_the_test_only_probe_route"/>
 /// asserts rather than assumes.
 ///
 /// <para>
@@ -1059,11 +1060,29 @@ public sealed class AdminCalendarWriteGateApiTests(PostgreSqlWebApplicationFacto
     }
 
     // ---------------------------------------------------------------
-    // The application's own route surface gains nothing
+    // The test-only probe never escapes the test assembly
     // ---------------------------------------------------------------
 
+    /// <summary>
+    /// The probe route exists only where this suite adds the probe assembly as
+    /// an MVC application part, so an ordinary host must neither serve it nor
+    /// publish it.
+    ///
+    /// <para>
+    /// PMS-CAL-001.2-CP02-C1: this test used to also forbid every
+    /// <c>POST/PUT/PATCH/DELETE</c> under <c>/api/admin/</c>. That was a true
+    /// statement about CP01, whose acceptance was precisely that no production
+    /// mutation route existed yet — but it would have made this CP01 test a
+    /// permanent registry of every Admin mutation route added afterwards, and
+    /// CP02's first authorized one already falsified it. The exact Admin
+    /// mutation surface is now owned by
+    /// <see cref="AdminCalendarAssignmentApiTests.OpenApi_publishes_exactly_this_one_admin_write_route_and_no_actor_fields"/>,
+    /// which is the checkpoint that adds it. What belongs here, and stays
+    /// here, is probe isolation.
+    /// </para>
+    /// </summary>
     [Fact]
-    public async Task The_ordinary_host_serves_no_write_probe_route_and_publishes_no_new_post_path()
+    public async Task The_ordinary_host_neither_serves_nor_publishes_the_test_only_probe_route()
     {
         using var client = CreateHttpsClient(factory);
 
@@ -1080,29 +1099,6 @@ public sealed class AdminCalendarWriteGateApiTests(PostgreSqlWebApplicationFacto
         {
             Assert.DoesNotContain("write-gate-probe", path.Name, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("test-only", path.Name, StringComparison.OrdinalIgnoreCase);
-
-            if (path.Name.StartsWith("/api/admin/", StringComparison.Ordinal))
-            {
-                Assert.False(path.Value.TryGetProperty("post", out _), path.Name);
-                Assert.False(path.Value.TryGetProperty("put", out _), path.Name);
-                Assert.False(path.Value.TryGetProperty("patch", out _), path.Name);
-                Assert.False(path.Value.TryGetProperty("delete", out _), path.Name);
-            }
         }
-    }
-
-    [Fact]
-    public void The_api_project_contains_no_controller_that_applies_the_write_gate()
-    {
-        var apiControllers = typeof(AdminCalendarWriteGateFilter).Assembly
-            .GetTypes()
-            .Where(type => typeof(Microsoft.AspNetCore.Mvc.ControllerBase).IsAssignableFrom(type))
-            .Where(type => type.GetCustomAttributes(inherit: true)
-                .OfType<Microsoft.AspNetCore.Mvc.ServiceFilterAttribute>()
-                .Any(attribute => attribute.ServiceType == typeof(AdminCalendarWriteGateFilter)))
-            .Select(type => type.FullName)
-            .ToArray();
-
-        Assert.Empty(apiControllers);
     }
 }

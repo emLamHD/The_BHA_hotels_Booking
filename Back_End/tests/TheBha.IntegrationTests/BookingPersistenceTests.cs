@@ -611,7 +611,17 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
         var holdPath = paths.GetProperty("/api/v1/booking-holds");
         Assert.True(holdPath.TryGetProperty("post", out _));
 
+        // PMS-CAL-001.2-CP02-C1: scoped to the Customer API surface this test
+        // actually owns. It used to select every path containing "reservation",
+        // which swept in the Admin Calendar routes and made a Customer booking
+        // allowlist the gatekeeper for Admin Calendar checkpoints — the Admin
+        // Reservation Board was already listed here, and the Admin
+        // reservation-assignment route would have been next. Each Admin route's
+        // method/schema/response contract is owned by its own suite
+        // (AdminReservationBoardApiTests, AdminCalendarAssignmentApiTests), so
+        // the /api/v1/ prefix filter is what keeps this test about booking.
         var reservationRelatedPaths = paths.EnumerateObject()
+            .Where(path => path.Name.StartsWith("/api/v1/", StringComparison.Ordinal))
             .Where(path => path.Name.Contains("reservation", StringComparison.OrdinalIgnoreCase) ||
                 path.Name.Contains("confirm", StringComparison.OrdinalIgnoreCase) ||
                 (path.Name.StartsWith("/api/v1/booking-holds/", StringComparison.Ordinal) &&
@@ -622,7 +632,6 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
         Assert.Equal(
             new[]
             {
-                "/api/admin/v1/properties/{propertyId}/reservation-board",
                 "/api/v1/booking-holds/{holdId}",
                 "/api/v1/booking-holds/{holdId}/cancel",
                 "/api/v1/booking-holds/{holdId}/confirm",
@@ -630,10 +639,6 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
                 "/api/v1/reservations/{reservationId}/cancel"
             }.Order(),
             reservationRelatedPaths);
-        Assert.True(paths.GetProperty("/api/admin/v1/properties/{propertyId}/reservation-board")
-            .TryGetProperty("get", out _));
-        Assert.False(paths.GetProperty("/api/admin/v1/properties/{propertyId}/reservation-board")
-            .TryGetProperty("post", out _));
         Assert.True(paths.GetProperty("/api/v1/booking-holds/{holdId}")
             .TryGetProperty("get", out _));
         Assert.True(paths.GetProperty("/api/v1/booking-holds/{holdId}/cancel")
