@@ -72,9 +72,44 @@ if (builder.Environment.IsProduction() && adminCalendarOptions.EnableUnauthentic
         "Admin Reservation Board read endpoint has no authentication/RBAC yet (PMS-CAL-001.1).");
 }
 
+// PMS-CAL-001.2-CP01: the write opt-in is guarded separately from the read
+// one, with its own message, because they are independent capabilities — a
+// host may legitimately have one on and the other off, and a startup failure
+// should name the flag that is actually wrong. Unlike the read flag, the
+// snapshot bound here is also the value the write gate uses at request time
+// (correction C1, finding 1), so for the write boundary there is no later
+// value for a reloadable source to supply.
+if (builder.Environment.IsProduction() && adminCalendarOptions.EnableUnauthenticatedWrite)
+{
+    throw new InvalidOperationException(
+        "AdminCalendar:EnableUnauthenticatedWrite must never be true in Production — the " +
+        "Admin Calendar write boundary has no authentication/RBAC yet (PMS-CAL-001.2).");
+}
+
 builder.Services.Configure<AdminCalendarOptions>(
     builder.Configuration.GetSection(AdminCalendarOptions.SectionName));
 builder.Services.AddScoped<AdminReservationBoardReadGateFilter>();
+
+// PMS-CAL-001.2-CP01: registered so a future Admin Calendar write action can
+// opt in with [ServiceFilter], never added to MvcOptions.Filters. CP01 exposes
+// no such action, so nothing in this application applies it yet.
+//
+// Correction C1, finding 1: the filter receives the write opt-in as a value
+// frozen from the configuration snapshot above, not IOptions<T> resolved per
+// request. IOptions<T> binds lazily on first access, so a Development host
+// started with the opt-in off could have it bound to true by a reloadable
+// source before the first Admin request — and Development is precisely where
+// this gate is meant to operate, so environment-first ordering does not cover
+// it. Frozen here, only a restart can change it. The Admin origins are passed
+// the same way, and for the same reason: neither can be widened past the
+// validation performed above without restarting.
+//
+// Services.Configure<AdminCalendarOptions> above stays: the read gate still
+// resolves IOptions<AdminCalendarOptions>, and that gate is out of scope here.
+builder.Services.AddScoped(serviceProvider => new AdminCalendarWriteGateFilter(
+    serviceProvider.GetRequiredService<IHostEnvironment>(),
+    adminCalendarOptions.EnableUnauthenticatedWrite,
+    cors.AdminOrigins));
 
 var dataProtectionKeysPath = builder.Configuration["DataProtection:KeysPath"];
 if (builder.Environment.IsProduction() && string.IsNullOrWhiteSpace(dataProtectionKeysPath))
@@ -200,6 +235,25 @@ builder.Services.AddCors(options =>
             policy.WithOrigins(cors.AdminOrigins)
                 .AllowAnyHeader()
                 .WithMethods("GET");
+        }
+    });
+    // PMS-CAL-001.2-CP01: the browser half of the local Admin Calendar write
+    // boundary, kept separate from the read policy above so neither one can
+    // widen the other. Explicit Admin origins, POST only, and only the
+    // Content-Type header the gate requires. Deliberately uncredentialed: the
+    // Admin client will call it with `credentials: "omit"`, and adding
+    // AllowCredentials() here would let a browser attach the Customer session
+    // cookie to an Admin write. A policy only tells a browser what it may
+    // attempt — AdminCalendarWriteGateFilter is what actually decides, and it
+    // re-checks Origin at the server, where curl and server-to-server clients
+    // are also subject to it. Nothing opts into this policy in CP01.
+    options.AddPolicy("admin-calendar-write", policy =>
+    {
+        if (cors.AdminOrigins.Length > 0)
+        {
+            policy.WithOrigins(cors.AdminOrigins)
+                .WithHeaders("Content-Type")
+                .WithMethods("POST");
         }
     });
     // PMS-CAL-001.1 (correction C1): GET /api/v1/properties is public
