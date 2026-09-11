@@ -105,6 +105,20 @@ public sealed class PostgreSqlWebApplicationFactory : WebApplicationFactory<Prog
         builder.UseEnvironment("Development");
         builder.UseSetting("ConnectionStrings:TheBhaDatabase", ConnectionString);
 
+        // The host default (`reloadOnChange: true`) puts an inotify watch on
+        // every appsettings file, and this suite builds one host per boundary
+        // case. On Linux the per-user limit is 128 inotify instances (the
+        // GitHub Actions runner's default too), so once the suite grew past
+        // that the failures were `IOException: The configured user limit (128)
+        // on the number of inotify instances has been reached` at
+        // `WebApplication.CreateBuilder` — a resource exhaustion in the test
+        // host, unrelated to anything under test, and one that would have hit
+        // CI as readily as a workstation. No test depends on a configuration
+        // *file* being re-read at runtime: the late-value cases deliberately
+        // rebind the bound options object instead, which is what the gates
+        // guard against.
+        builder.UseSetting("hostBuilder:reloadConfigOnChange", "false");
+
         // PMS-CAL-001.1 correction C9: model the supported local launch. The
         // Development configuration no longer enables the unauthenticated board
         // read on its own — the local HTTPS launch profile opts in explicitly —
