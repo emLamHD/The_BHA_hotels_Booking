@@ -629,11 +629,14 @@ closes this gap.
 
 ## Current-versus-target boundary
 
-Everything in the Decision section is TARGET / APPROVED. CURRENT / AS-BUILT
-has no PhysicalRoom-level schedule, no `RoomOccupancySegment` table, no
-`RoomBlock` table, no exclusion constraint, and no `btree_gist` dependency
-anywhere in the repository. No migration, entity, extension, or test is
-introduced by this ADR.
+The PhysicalRoom schedule database authority and the internal assignment/
+block mutation boundary are CURRENT / AS-BUILT from `PMS-BE-001.2`
+(migration 8); their read exposure is CURRENT from `PMS-CAL-001.1`; and
+`PMS-CAL-001.2` CP02 adds exactly one gated assignment-create HTTP
+operation (see Amendments). The remaining Admin mutation surface, real
+Staff identity, and Admin RBAC stay TARGET / APPROVED. This ADR *document*
+introduced no migration, entity, extension, or test of its own — the
+repository now contains all of them.
 
 ## Amendments
 
