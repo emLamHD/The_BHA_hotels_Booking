@@ -11,10 +11,14 @@
   source Hold (§6 items 6, 11) and stay extension (§6 item 10); an
   independent single-Unit cancellation entry point (§7);
   `RoomTypeDailyInventory` as a stored/closed-snapshot table (§7 rules 16,
-  33–34); the Calendar/Reservation Board read projection (§10); real Staff
-  identity/Admin RBAC (§12); and any HTTP/Admin/Calendar endpoint exposing
-  this authority. Existing CURRENT entities and capabilities not superseded
-  by the above remain implemented exactly as recorded in §2.
+  33–34); real Staff identity/Admin RBAC (§12); and every HTTP/Admin/Calendar
+  mutation over this authority except the one recorded in §2 — supersede,
+  move, unassign, split, batch, `RoomBlock` mutation, and any authenticated
+  or Admin-frontend-integrated write path. Two unauthenticated, opt-in,
+  local-Development-only HTTP surfaces are already CURRENT: the §10 read
+  projection (`PMS-CAL-001.1`) and one assignment-create operation
+  (`PMS-CAL-001.2` CP02, PR #44). Existing CURRENT entities and capabilities
+  not superseded by the above remain implemented exactly as recorded in §2.
 - **Date:** 2026-08-19. Partially implemented 2026-08-23 (`PMS-BE-001.1`)
   and 2026-08-26 (`PMS-BE-001.2`).
 - **Scope:** the locked, Owner-approved PMS core database design that Customer
@@ -85,9 +89,14 @@ firm decision — firmness of the decision is not evidence of construction.
   triggers (`SQLSTATE XBHA1`/`XBHA2`), `xmin`-based optimistic concurrency,
   and append-only `RoomOccupancySegmentAudit` history. Availability is
   block-adjusted and assignment-attributed (§7's formula is now CURRENT).
-  Internal-only `IAssignmentMutationStore`/`IOperationalBlockMutationStore`
-  mutation commands exist behind the application/persistence boundary — no
-  HTTP/Admin/Calendar controller endpoint, no Staff identity, and no Admin
+  `IAssignmentMutationStore`/`IOperationalBlockMutationStore` mutation
+  commands exist behind the application/persistence boundary; exactly one is
+  exposed over HTTP — `IAssignmentMutationStore.CreateAsync` through
+  `POST /api/admin/v1/properties/{propertyId}/reservation-assignments`
+  (`PMS-CAL-001.2` CP02, PR #44), unauthenticated, reachable only from a
+  local opt-in Development host, called by no Admin frontend. `SupersedeAsync`,
+  move/unassign/split/batch and every `RoomBlock` mutation stay
+  internal-only; no Staff identity and no Admin
   RBAC model exist. See ADR 0006 and
   `docs/reports/PMS-BE-001.2-completion.md` for the exact as-built boundary.
 - Availability committed demand is already expiry-aware:
@@ -324,9 +333,9 @@ availability-reaction boundary and remain DEFERRED (§17).
 > mutation are CURRENT / AS-BUILT, relabeled inline through §12. Still
 > TARGET: `RoomTypeDailyInventory` as a separate materialized/closed-snapshot
 > table (rules 16, 33–34 — the formula is computed on read, not stored or
-> closed); the Calendar/Reservation Board read projection itself (§10); real
-> Staff identity/Admin RBAC behind `ActorReference`/`AuthorizationEvidence`
-> (§12); and any HTTP/Admin endpoint exposing this authority. See ADR 0006
+> closed); real Staff identity/Admin RBAC behind
+> `ActorReference`/`AuthorizationEvidence` (§12); and the HTTP/Admin surface
+> beyond the two exposures recorded in the Status block above. See ADR 0006
 > and `docs/reports/PMS-BE-001.2-completion.md` for full evidence.
 
 `RoomTypeDailyInventory` is a future operational projection and a closed
@@ -903,8 +912,8 @@ Summary for this blueprint:
 The Calendar/Reservation Board is a read projection composed from
 `Reservation`, `ReservationUnit`, `ReservationUnitNight`,
 `RoomOccupancySegment`, `RoomBlock`, and related operational state — it owns
-no independent write authority and no separate aggregate table (TARGET,
-extends §8 item 4).
+no independent write authority and no separate aggregate table (CURRENT
+read-only HTTP exposure from `PMS-CAL-001.1`; extends §8 item 4).
 
 - A reservation that is fully assigned shows its `ReservationUnit` mapped to
   specific PhysicalRooms via `Effective` `ReservationAssignment` segments for

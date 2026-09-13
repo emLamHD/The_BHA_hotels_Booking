@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.HttpsPolicy;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -18,8 +19,9 @@ namespace TheBha.IntegrationTests;
 /// PMS-CAL-001.2-CP01 acceptance: the local Admin Calendar write gate, proven
 /// end to end against a real host through the test-only probe controller (see
 /// <see cref="AdminCalendarWriteGateProbeController"/>). The application itself
-/// exposes no write endpoint in CP01, which
-/// <see cref="The_ordinary_host_serves_no_write_probe_route_and_publishes_no_new_post_path"/>
+/// exposes no write endpoint in CP01, and the probe route stays inside this
+/// test assembly, which
+/// <see cref="The_ordinary_host_neither_serves_nor_publishes_the_test_only_probe_route"/>
 /// asserts rather than assumes.
 ///
 /// <para>
@@ -53,7 +55,8 @@ public sealed class AdminCalendarWriteGateApiTests(PostgreSqlWebApplicationFacto
         string? environment = null,
         string? dataProtectionKeysPath = null,
         TestConnectionAddresses? connection = null,
-        Action<AdminCalendarOptions>? lateOptionChange = null) =>
+        Action<AdminCalendarOptions>? lateOptionChange = null,
+        int? httpsRedirectionPort = null) =>
         factory.WithWebHostBuilder(builder =>
         {
             if (environment is not null)
@@ -85,6 +88,16 @@ public sealed class AdminCalendarWriteGateApiTests(PostgreSqlWebApplicationFacto
                 if (lateOptionChange is not null)
                 {
                     services.Configure<AdminCalendarOptions>(lateOptionChange);
+                }
+
+                // PMS-CAL-001.2-CP02-C5: models the supported dual-listener
+                // launch profile. Without a port UseHttpsRedirection cannot
+                // build a redirect and passes the request through, which is a
+                // shape the real `https` profile never has.
+                if (httpsRedirectionPort is not null)
+                {
+                    services.Configure<HttpsRedirectionOptions>(
+                        options => options.HttpsPort = httpsRedirectionPort.Value);
                 }
             });
         });
@@ -414,15 +427,21 @@ public sealed class AdminCalendarWriteGateApiTests(PostgreSqlWebApplicationFacto
     // Transport
     // ---------------------------------------------------------------
 
-    // UseHttpsRedirection cannot discover an HTTPS port on this host, so it
-    // logs a warning and passes the request through — which is exactly why the
-    // gate must refuse cleartext itself. Redirects are disabled on the client,
-    // so a 307 would fail this test rather than pass it.
+    /// <summary>
+    /// PMS-CAL-001.2-CP02-C5: a dual-listener host, which is what the supported
+    /// <c>https</c> launch profile actually is. Given an HTTPS port,
+    /// <c>UseHttpsRedirection</c> answers a cleartext request with a 307 before
+    /// any MVC filter runs, and 307 preserves method and body — so a
+    /// redirect-following client would have completed an Admin write that never
+    /// passed the gate. The pre-redirect guard refuses Admin mutation verbs
+    /// first, which is what this asserts. Redirects stay disabled on the client,
+    /// so a 307 fails this test rather than silently passing it.
+    /// </summary>
     [Fact]
-    public async Task Cleartext_requests_are_refused_by_the_gate_and_never_reach_the_action()
+    public async Task Cleartext_admin_writes_are_refused_before_https_redirection_ever_runs()
     {
         var spy = new WriteGateProbeSpy();
-        await using var host = CreateProbeHost(spy);
+        await using var host = CreateProbeHost(spy, httpsRedirectionPort: 44_301);
         using var client = CreateCleartextClient(host);
         Assert.Equal("http", client.BaseAddress!.Scheme);
 
@@ -432,8 +451,18 @@ public sealed class AdminCalendarWriteGateApiTests(PostgreSqlWebApplicationFacto
             var response = await client.SendAsync(request);
 
             await AssertClosedGateResponseAsync(response, $"cleartext, {shape}");
+            Assert.False(response.Headers.Contains("Location"), $"cleartext, {shape}: no redirect");
             Assert.Equal(0, spy.Invocations);
         }
+
+        // Control: redirection really is configured on this host, so the 404s
+        // above are the guard answering first rather than a host that could not
+        // redirect at all. A Customer route keeps the ordinary 307.
+        using var customer = new HttpRequestMessage(HttpMethod.Post, "/api/v1/booking-holds");
+        var customerResponse = await client.SendAsync(customer);
+
+        Assert.Equal(HttpStatusCode.TemporaryRedirect, customerResponse.StatusCode);
+        Assert.Equal("https", customerResponse.Headers.Location!.Scheme);
     }
 
     [Fact]
@@ -1059,11 +1088,29 @@ public sealed class AdminCalendarWriteGateApiTests(PostgreSqlWebApplicationFacto
     }
 
     // ---------------------------------------------------------------
-    // The application's own route surface gains nothing
+    // The test-only probe never escapes the test assembly
     // ---------------------------------------------------------------
 
+    /// <summary>
+    /// The probe route exists only where this suite adds the probe assembly as
+    /// an MVC application part, so an ordinary host must neither serve it nor
+    /// publish it.
+    ///
+    /// <para>
+    /// PMS-CAL-001.2-CP02-C1: this test used to also forbid every
+    /// <c>POST/PUT/PATCH/DELETE</c> under <c>/api/admin/</c>. That was a true
+    /// statement about CP01, whose acceptance was precisely that no production
+    /// mutation route existed yet — but it would have made this CP01 test a
+    /// permanent registry of every Admin mutation route added afterwards, and
+    /// CP02's first authorized one already falsified it. The exact Admin
+    /// mutation surface is now owned by
+    /// <see cref="AdminCalendarAssignmentApiTests.OpenApi_publishes_exactly_this_one_admin_write_route_and_no_actor_fields"/>,
+    /// which is the checkpoint that adds it. What belongs here, and stays
+    /// here, is probe isolation.
+    /// </para>
+    /// </summary>
     [Fact]
-    public async Task The_ordinary_host_serves_no_write_probe_route_and_publishes_no_new_post_path()
+    public async Task The_ordinary_host_neither_serves_nor_publishes_the_test_only_probe_route()
     {
         using var client = CreateHttpsClient(factory);
 
@@ -1080,29 +1127,6 @@ public sealed class AdminCalendarWriteGateApiTests(PostgreSqlWebApplicationFacto
         {
             Assert.DoesNotContain("write-gate-probe", path.Name, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("test-only", path.Name, StringComparison.OrdinalIgnoreCase);
-
-            if (path.Name.StartsWith("/api/admin/", StringComparison.Ordinal))
-            {
-                Assert.False(path.Value.TryGetProperty("post", out _), path.Name);
-                Assert.False(path.Value.TryGetProperty("put", out _), path.Name);
-                Assert.False(path.Value.TryGetProperty("patch", out _), path.Name);
-                Assert.False(path.Value.TryGetProperty("delete", out _), path.Name);
-            }
         }
-    }
-
-    [Fact]
-    public void The_api_project_contains_no_controller_that_applies_the_write_gate()
-    {
-        var apiControllers = typeof(AdminCalendarWriteGateFilter).Assembly
-            .GetTypes()
-            .Where(type => typeof(Microsoft.AspNetCore.Mvc.ControllerBase).IsAssignableFrom(type))
-            .Where(type => type.GetCustomAttributes(inherit: true)
-                .OfType<Microsoft.AspNetCore.Mvc.ServiceFilterAttribute>()
-                .Any(attribute => attribute.ServiceType == typeof(AdminCalendarWriteGateFilter)))
-            .Select(type => type.FullName)
-            .ToArray();
-
-        Assert.Empty(apiControllers);
     }
 }

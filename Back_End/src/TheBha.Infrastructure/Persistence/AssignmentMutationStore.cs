@@ -9,8 +9,15 @@ namespace TheBha.Infrastructure.Persistence;
 
 /// <summary>
 /// Internal application/persistence boundary for ReservationAssignment segment
-/// mutation (PMS-BE-001.2 Phase 4 §4/§6/§7). No HTTP/controller surface exists or is
-/// added for this store — Admin authentication/RBAC do not exist yet (§5).
+/// mutation (PMS-BE-001.2 Phase 4 §4/§6/§7).
+///
+/// <para>
+/// PMS-CAL-001.2-CP02: <see cref="CreateAsync"/> is now reachable over HTTP
+/// through one local-development-only Admin endpoint
+/// (<c>AdminReservationAssignmentsController</c>), which is gated, unauthenticated
+/// and off by default — Admin authentication/RBAC still do not exist.
+/// <see cref="SupersedeAsync"/> remains unexposed by any controller.
+/// </para>
 /// </summary>
 internal sealed class AssignmentMutationStore(
     TheBhaDbContext dbContext,
@@ -72,9 +79,24 @@ internal sealed class AssignmentMutationStore(
             return SegmentMutationResult.Conflict("The destination PhysicalRoom is not Active.");
         }
 
-        var destinationDates = DatesInRange(command.Destination.StartDate, command.Destination.EndDate);
-        var bookedDates = unit.Nights.Select(n => n.StayDate).ToHashSet();
-        if (destinationDates.Any(date => !bookedDates.Contains(date)))
+        // Correction C2, finding 2: the requested range is caller-supplied and
+        // unbounded — `0001-01-01` to `9999-12-31` is a valid half-open range —
+        // so it is never enumerated. The count of requested nights is arithmetic,
+        // and the candidate dates are derived from the Unit's own already-loaded,
+        // finite booked nights narrowed to that range. Full coverage is then the
+        // equality of the two counts: every derived date is by construction both
+        // booked and inside the range, so as many distinct ones as the range has
+        // nights can only mean the range is entirely booked. The work and the
+        // allocation are bounded by the reservation, not by what was asked for.
+        var requestedNightCount =
+            command.Destination.EndDate.DayNumber - command.Destination.StartDate.DayNumber;
+        var destinationDates = unit.Nights
+            .Select(night => night.StayDate)
+            .Where(date => date >= command.Destination.StartDate && date < command.Destination.EndDate)
+            .Distinct()
+            .Order()
+            .ToArray();
+        if (destinationDates.Length != requestedNightCount)
         {
             await transaction.RollbackAsync(cancellationToken);
             return SegmentMutationResult.Conflict(
@@ -138,7 +160,20 @@ internal sealed class AssignmentMutationStore(
                 Guid.NewGuid(),
                 RoomOccupancySegmentAuditEventType.Created,
                 command.ActorReference,
-                command.AuthorizationEvidence,
+                // Correction C6, finding 1: authorization evidence answers "why was
+                // this allowed to cross RoomTypes" (ADR 0006 Decision item 8). A
+                // same-RoomType placement crosses nothing, so evidence offered for
+                // one is not evidence of anything and must not be recorded as
+                // though it were — an append-only audit row saying a placement was
+                // cross-type-authorized when it was never cross-type is worse than
+                // no row at all. A caller that over-confirms is not making an
+                // error, so the intent is dropped here rather than refused at the
+                // edge: this is the one place where the actual RoomType comparison
+                // is already known, under the advisory lock that makes it true.
+                // Reason is deliberately left alone — recording why a same-type
+                // room was chosen is legitimate, and claims nothing about
+                // authorization.
+                isCrossType ? command.AuthorizationEvidence : null,
                 command.Reason,
                 utcNow));
         }

@@ -4,7 +4,8 @@
   mutation boundary implemented (`PMS-BE-001.2`, migration 8); Admin
   authentication/RBAC, Staff identity, and any HTTP/Admin/Calendar
   integration of this authority remain target architecture, implementation
-  pending.
+  pending *(superseded in part — one assignment-create endpoint is now
+  exposed; see Amendments)*.
 - **Date:** 2026-08-19. Database authority and internal mutation boundary
   implemented 2026-08-26.
 
@@ -30,7 +31,7 @@ string, not implemented Staff identity or Admin RBAC (item 3 below remains
 partially TARGET). No HTTP/Admin/Calendar controller endpoint exposes any
 of this — that integration, along with Admin authentication/RBAC, Staff
 identity, check-in/check-out, and OTA behavior, remains TARGET, not
-implemented. See
+implemented *(superseded in part; see Amendments)*. See
 [PMS-DATA-001-core-database-blueprint-v2](../design/PMS-DATA-001-core-database-blueprint-v2.md)
 for full detail and scenario walkthroughs, and
 `docs/reports/PMS-BE-001.2-completion.md` for implementation evidence.
@@ -628,8 +629,25 @@ closes this gap.
 
 ## Current-versus-target boundary
 
-Everything in the Decision section is TARGET / APPROVED. CURRENT / AS-BUILT
-has no PhysicalRoom-level schedule, no `RoomOccupancySegment` table, no
-`RoomBlock` table, no exclusion constraint, and no `btree_gist` dependency
-anywhere in the repository. No migration, entity, extension, or test is
-introduced by this ADR.
+The PhysicalRoom schedule database authority and the internal assignment/
+block mutation boundary are CURRENT / AS-BUILT from `PMS-BE-001.2`
+(migration 8); their read exposure is CURRENT from `PMS-CAL-001.1`; and
+`PMS-CAL-001.2` CP02 adds exactly one gated assignment-create HTTP
+operation (see Amendments). The remaining Admin mutation surface, real
+Staff identity, and Admin RBAC stay TARGET / APPROVED. This ADR *document*
+introduced no migration, entity, extension, or test of its own — the
+repository now contains all of them.
+
+## Amendments
+
+### 2026-09-11 — one assignment-create endpoint is exposed (`PMS-CAL-001.2-CP02`)
+
+`PMS-CAL-001.2` CP01 (merged) added a local write gate, and CP02 (PR #44)
+exposes exactly one endpoint behind it —
+`POST /api/admin/v1/properties/{propertyId}/reservation-assignments` — over
+`IAssignmentMutationStore.CreateAsync`, reachable only from a Development
+loopback host with the write opt-in on. The Decision above is unchanged and
+still stands; only its statements *narrating* that no controller exposes these
+mutations were stale. `SupersedeAsync`, OperationalBlock HTTP mutation, Admin
+authentication/RBAC and real Staff identity remain TARGET. Current state is
+tracked in `docs/project/PROJECT_BIBLE.md`, not here.

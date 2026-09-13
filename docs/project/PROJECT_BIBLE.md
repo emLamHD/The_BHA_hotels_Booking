@@ -79,8 +79,9 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   ADR 0006). Availability đã block-adjusted và assignment-attributed; hủy
   Reservation tự động hủy mọi assignment liên quan cùng transaction.
   Internal-only mutation commands tồn tại ở application/persistence boundary
-  — **không có HTTP controller hay Admin/Calendar endpoint nào** expose
-  chúng, không có Staff identity, không có Admin RBAC model. Chi tiết đầy đủ
+  — tại thời điểm work item đó, **không có HTTP controller hay Admin/Calendar
+  endpoint nào** expose chúng, không có Staff identity, không có Admin RBAC
+  model (exposure hiện tại: xem `PMS-CAL-001.2` bên dưới). Chi tiết đầy đủ
   trong `docs/reports/PMS-BE-001.2-completion.md`.
 - `PMS-CAL-001.1` (không có migration mới) đã thêm HTTP **read-only**
   projection đầu tiên của authority trên: `GET
@@ -88,9 +89,18 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   `AdminCalendar:EnableUnauthenticatedRead` (mặc định `false`, không thể
   bật ở Production), HTTPS-only/non-wildcard `Cors:AdminOrigins`. Admin
   Reservation Board frontend (`Front_End/Admin_Web`) đọc endpoint này thay
-  vì mock data. Vẫn **không có** mutation endpoint HTTP nào, không có Admin
-  authentication/RBAC, không có Staff identity thật. Chi tiết đầy đủ trong
-  `docs/reports/PMS-CAL-001.1-completion.md`.
+  vì mock data. Bản thân work item đó **không** thêm mutation endpoint HTTP
+  nào, và không có Admin authentication/RBAC hay Staff identity thật. Chi tiết
+  đầy đủ trong `docs/reports/PMS-CAL-001.1-completion.md`.
+- `PMS-CAL-001.2` (không có migration mới) thêm ranh giới **ghi** local đầu
+  tiên: CP01 (merged) là opt-in/gate/CORS policy riêng, không endpoint nào;
+  CP02 (Draft PR #44, **chưa merge**) là đúng **một** endpoint sau gate đó,
+  `POST /api/admin/v1/properties/{propertyId}/reservation-assignments`, adapter
+  mỏng cho `IAssignmentMutationStore.CreateAsync`, chỉ chạy trên host
+  Development loopback đã bật opt-in. Audit dùng hằng số do server sở hữu —
+  không phải nhân viên, phê duyệt hay Staff identity đã xác thực. Không
+  frontend nào gọi nó. ADR 0006 §Amendments (2026-09-11) ghi nhận đúng phần
+  narration cũ của nó bị thay thế; Decision của ADR không đổi.
 
 ### Target/approved, chưa implement (TARGET)
 
@@ -99,12 +109,14 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   Item/Unit cho việc này đã CURRENT (`PMS-BE-001.1` ở trên), nhưng public API
   vẫn giới hạn đúng một RoomType/RatePlan mỗi request; mở rộng lên
   multi-RoomType request là TARGET riêng, chưa implement — xem ADR 0005.
-- HTTP/Admin/Calendar **mutation** integration của physical-room schedule
-  authority (`RoomOccupancySegments`/`RoomBlock`, đã CURRENT ở trên; read
-  projection cũng đã CURRENT từ `PMS-CAL-001.1`) — assignment/block
-  create/split/move/cancel qua HTTP, Admin authentication/RBAC thật, và
-  Staff identity thật để thay cho `ActorReference`/`AuthorizationEvidence`
-  opaque hiện tại, vẫn TARGET, chưa implement.
+- HTTP/Admin/Calendar **mutation** integration còn lại của physical-room
+  schedule authority (`RoomOccupancySegments`/`RoomBlock`, đã CURRENT ở trên;
+  read projection CURRENT từ `PMS-CAL-001.1`, assignment *create* CURRENT ở
+  mức local-only từ `PMS-CAL-001.2` CP02) — assignment move/unassign/split/
+  batch và OperationalBlock create/cancel qua HTTP, frontend integration cho
+  chúng, Admin authentication/RBAC thật, và Staff identity thật để thay cho
+  `ActorReference`/`AuthorizationEvidence` opaque hiện tại, vẫn TARGET, chưa
+  implement.
 - Intentional cross-RoomType upgrade/downgrade **có authorization/reason/
   audit thật qua Staff/RBAC** (opaque `AuthorizationEvidence`/`Reason` string
   đã CURRENT ở mutation boundary trên, nhưng không phải permission check
@@ -246,8 +258,10 @@ Xem [ADR 0003](../ADR/0003-model-hotel-stays-with-half-open-date-ranges.md).
   RatePlan; multi-RoomType public request vẫn TARGET, chưa implement.
   Physical-room allocation độc lập (`RoomOccupancySegments`/`RoomBlock`) đã
   CURRENT ở database authority/availability/internal mutation boundary
-  (`PMS-BE-001.2`, migration 8) — HTTP/Admin/Calendar exposure và Staff/RBAC
-  thật vẫn TARGET, chưa implement — xem
+  (`PMS-BE-001.2`, migration 8); HTTP exposure hiện có là read projection
+  (`PMS-CAL-001.1`) và một assignment-create endpoint local-only
+  (`PMS-CAL-001.2` CP02) — các mutation còn lại và Staff/RBAC thật vẫn
+  TARGET, chưa implement — xem
   [PMS-DATA-001-core-database-blueprint-v2](../design/PMS-DATA-001-core-database-blueprint-v2.md),
   [ADR 0005](../ADR/0005-separate-commercial-commitment-from-physical-allocation.md)
   và

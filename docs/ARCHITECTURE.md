@@ -6,7 +6,7 @@ The repository separates deployable applications under `Front_End` and `Back_End
 
 CURRENT frontend (PR #32, updated by `PMS-CAL-001.1`): a room/date timeline with multi-property switching, assigned/unassigned reservations, operational blocks, reservation hover/detail views, a reservation-creation workspace, and a front-desk lifecycle/folio/notes/activity workspace. `PMS-CAL-001.1` reconnected the timeline's main read path (`ReservationBoard.tsx`/`ReservationBoardServerTimeline.tsx`/`ReservationBoardStayPopover.tsx`) to the real, read-only Admin Calendar API (below) — it no longer reads `mockData.ts`. Everything else — drag-and-drop room moves, date shifting, negotiated pricing, the reservation-creation workspace, and the front-desk lifecycle/folio/notes/activity workspace — remains on deterministic local mock state (`mockData.ts`, a fixed demo-clock anchor): reservation-board durable mutations (lifecycle, folio, moves) still go through the `reservationRuntimeReducer` in `reservationRuntime.ts`; the reservation-creation workflow still has its own `formReducer` in `CreateReservationForm.tsx`. None of that mock-driven part reads or writes real data — no backend call, no persistence, every reload resets to the same mock baseline.
 
-CURRENT backend (`PMS-BE-001.2` + `PMS-CAL-001.1`, migration 8 — no new migration): the normalized commercial-commitment authority from `PMS-BE-001.1` — `InventoryHold → InventoryHoldItem → InventoryHoldItemNight` and `Reservation → ReservationUnit → ReservationUnitNight` (ADR 0005), one `RoomTypeId`/`RatePlanId` per public request — plus the physical-room schedule authority added by `PMS-BE-001.2`: `RoomOccupancySegment`/`RoomBlock` (ADR 0006), the assignment-aware and block-adjusted availability formula, and internal-only assignment/block mutation commands. `PMS-CAL-001.1` adds the first HTTP read exposure of that schedule authority — see "Admin Calendar read API" below — but still no Admin authentication/RBAC, no OTA integration, and no HTTP mutation endpoint of any kind for it.
+CURRENT backend (`PMS-BE-001.2` + `PMS-CAL-001.1`, migration 8 — no new migration): the normalized commercial-commitment authority from `PMS-BE-001.1` — `InventoryHold → InventoryHoldItem → InventoryHoldItemNight` and `Reservation → ReservationUnit → ReservationUnitNight` (ADR 0005), one `RoomTypeId`/`RatePlanId` per public request — plus the physical-room schedule authority added by `PMS-BE-001.2`: `RoomOccupancySegment`/`RoomBlock` (ADR 0006), the assignment-aware and block-adjusted availability formula, and internal-only assignment/block mutation commands. `PMS-CAL-001.1` adds the first HTTP read exposure of that schedule authority — see "Admin Calendar read API" below. `PMS-CAL-001.2` (CP01 merged; CP02 on Draft PR #44, not merged) adds the first HTTP *write* exposure: a local-Development-only write gate plus exactly one assignment-create endpoint — see "Admin Calendar write boundary" below. There is still no Admin authentication/RBAC, no OTA integration, and no HTTP endpoint for any other mutation.
 
 TARGET architecture (unimplemented): Customer Web and Admin Web as separate clients of one shared ASP.NET Core backend and one shared PostgreSQL database, with the full multi-RoomType public request shape, Admin authentication/RBAC, HTTP/Admin/Calendar integration of the physical-room schedule authority, and OTA behavior. See [`docs/design/PMS-DATA-001-core-database-blueprint-v2.md`](design/PMS-DATA-001-core-database-blueprint-v2.md), [ADR 0005](ADR/0005-separate-commercial-commitment-from-physical-allocation.md), and [ADR 0006](ADR/0006-schedule-physical-rooms-with-occupancy-segments.md) for the full target PMS design; this document does not duplicate it, and the CURRENT frontend prototype described above is not authoritative persistence or concurrency evidence for that TARGET design.
 
@@ -73,9 +73,14 @@ assignment-attributed; `IReservationCancellationStore` atomically cancels
 any still-`Effective` assignment segments alongside Reservation
 cancellation. `IAssignmentMutationStore` and `IOperationalBlockMutationStore`
 (`Infrastructure/Persistence/AssignmentMutationStore.cs`,
-`OperationalBlockMutationStore.cs`) are internal application/persistence
-boundary services only — **no HTTP controller or Admin/Calendar endpoint
-exposes them**, and no Staff identity or Admin RBAC model exists. Exact
+`OperationalBlockMutationStore.cs`) are application/persistence boundary
+services. Exactly one of their operations has an HTTP caller:
+`IAssignmentMutationStore.CreateAsync`, through the local-Development-only
+endpoint described under "Admin Calendar write boundary" below.
+`SupersedeAsync` (move/unassign/split/batch) and every
+`IOperationalBlockMutationStore` operation remain internal-only, with **no
+HTTP controller or Admin/Calendar endpoint exposing them**, and no Staff
+identity or Admin RBAC model exists. Exact
 invariants, the availability formula, mutation semantics, and error mapping
 are recorded in ADR 0006 and `docs/reports/PMS-BE-001.2-completion.md`, not
 duplicated here.
@@ -92,10 +97,9 @@ contract, served by `AdminReservationBoardController` at `GET
 startup guard makes it impossible to enable there), served over a
 CORS-restricted, HTTPS-only, non-wildcard `Cors:AdminOrigins` origin list
 separate from the customer-facing credentialed CORS policy, and returns
-`Cache-Control: no-store`. No HTTP mutation endpoint exists for
-assignments or blocks — those remain the internal-only
-`IAssignmentMutationStore`/`IOperationalBlockMutationStore` boundary from
-`PMS-BE-001.2`. `Front_End/Admin_Web/src/lib/api/{env,types,client}.ts` is
+`Cache-Control: no-store`. This read contract is unchanged by the write
+boundary below and shares nothing with it — separate opt-in, separate CORS
+policy, separate gate. `Front_End/Admin_Web/src/lib/api/{env,types,client}.ts` is
 the frontend's typed, HTTPS-only client for this endpoint and the shared
 `GET /api/v1/properties` catalog read (which required adding a second,
 uncredentialed, `GET`-only CORS policy — `properties-catalog-read` — to
@@ -103,6 +107,27 @@ that one Customer-facing controller action, alongside its unchanged
 Customer_Web policy). Exact contract shape, coverage-classification
 semantics, and acceptance evidence:
 `docs/reports/PMS-CAL-001.1-completion.md`.
+
+
+## Admin Calendar write boundary (`PMS-CAL-001.2`)
+
+CP01 (merged) adds the write half of the boundary and no endpoint: the separate
+`AdminCalendar:EnableUnauthenticatedWrite` opt-in (default `false`, Production
+startup-fatal), `AdminCalendarWriteGateFilter`, and the uncredentialed
+`admin-calendar-write` CORS policy.
+
+CP02 (Draft PR #44, **not merged**) adds exactly one endpoint behind it:
+`AdminReservationAssignmentsController` at `POST
+/api/admin/v1/properties/{propertyId}/reservation-assignments`, a thin adapter
+over `IAssignmentMutationStore.CreateAsync`. The audit actor and authorization
+evidence are fixed server-owned constants naming this local boundary — not a
+person, not an approval, not an authenticated Staff identity. No Admin frontend
+calls it. A cleartext Admin mutation verb is answered `404` + `Cache-Control:
+no-store` by a guard placed ahead of `UseHttpsRedirection`, because a 307
+preserves method and body and would otherwise let a redirect-following client
+complete a write that never reached the gate; the gate repeats the HTTPS check
+as defence in depth. Assignment move/unassign/split/batch, OperationalBlock HTTP mutation,
+Admin authentication/RBAC, real Staff identity and OTA behavior remain TARGET.
 
 ## Deliberately deferred decisions
 
