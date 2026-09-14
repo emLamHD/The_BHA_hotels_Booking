@@ -658,18 +658,22 @@ describe("PMS-CAL-001.2-CP03A-C1 corrections", () => {
     expect(mockedCreate).toHaveBeenCalledTimes(1);
   });
 
-  // ---- Finding 3: the toolbar states the actual capability ----
+  // ---- Finding 3 (CP03A-C1): the toolbar states the actual capability.
+  // PMS-CAL-001.2-CP03B: the capability itself grew (cross-RoomType assignment
+  // with confirmation/reason is now offered), so the banner is updated to say
+  // so — the invariant this test protects is accuracy, not a fixed wording.
 
-  it("describes exactly what the board can write, without claiming read-only or cross-RoomType assignment", async () => {
+  it("describes exactly what the board can write, without claiming read-only", async () => {
     await renderLoadedBoard();
     const capabilities = screen.getByTestId("reservation-board-capabilities");
 
-    expect(capabilities).toHaveTextContent("Unassigned nights can be assigned to a room of the same sold room type.");
+    expect(capabilities).toHaveTextContent(
+      "Unassigned nights can be assigned to an Active room, of the same sold room type or, with confirmation and a reason, a different one."
+    );
     expect(capabilities).toHaveTextContent("Move, unassign, blocks and lifecycle actions are read-only.");
     expect(capabilities).toHaveTextContent("local Development write opt-in");
     expect(capabilities).toHaveTextContent("no production sign-in or permissions yet");
     expect(capabilities).not.toHaveTextContent(/no assignment/i);
-    expect(capabilities).not.toHaveTextContent(/cross|different room type/i);
   });
 });
 

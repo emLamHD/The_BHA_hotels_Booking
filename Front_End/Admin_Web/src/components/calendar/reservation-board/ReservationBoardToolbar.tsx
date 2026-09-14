@@ -87,18 +87,18 @@ const ReservationBoardToolbar: React.FC<ReservationBoardToolbarProps> = ({
             Reservation Board
           </h3>
         </div>
-        {/* PMS-CAL-001.2-CP03A: states exactly what is writable today. The board
-            cannot know whether the backend's write opt-in is on — it never
-            probes — so the requirement is stated rather than asserted. */}
+        {/* PMS-CAL-001.2-CP03A/B: states exactly what is writable today. The
+            board cannot know whether the backend's write opt-in is on — it
+            never probes — so the requirement is stated rather than asserted. */}
         <span
           data-testid="reservation-board-capabilities"
           className="inline-flex max-w-full items-start gap-1.5 rounded-2xl bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600 dark:bg-white/[0.05] dark:text-gray-300"
         >
           <InfoIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
           <span>
-            Live data. Unassigned nights can be assigned to a room of the same sold room type. Move, unassign,
-            blocks and lifecycle actions are read-only. Writes need the local Development write opt-in — no
-            production sign-in or permissions yet.
+            Live data. Unassigned nights can be assigned to an Active room, of the same sold room type or, with
+            confirmation and a reason, a different one. Move, unassign, blocks and lifecycle actions are read-only.
+            Writes need the local Development write opt-in — no production sign-in or permissions yet.
           </span>
         </span>
       </div>
