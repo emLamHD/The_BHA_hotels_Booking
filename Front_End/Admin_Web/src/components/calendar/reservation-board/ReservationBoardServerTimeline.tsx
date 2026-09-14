@@ -132,6 +132,13 @@ interface ReservationBoardServerTimelineProps {
   onSelectStay: (selection: StaySelection) => void;
   onSelectUnassignedRange: (selection: UnassignedRangeSelection) => void;
   onSelectBlock: (selection: BlockSelection) => void;
+  /**
+   * PMS-CAL-001.2-CP03A-C1: true while the rendered stays are known to be
+   * stale — a write for this exact board has not yet been reconciled by an
+   * authoritative read. Unassigned bars then stay visible and focusable but
+   * are `aria-disabled` and cannot open assignment.
+   */
+  unassignedActionsBlocked?: boolean;
 }
 
 const LABEL_COLUMN = "220px";
@@ -149,7 +156,9 @@ const ReservationBoardServerTimeline: React.FC<ReservationBoardServerTimelinePro
   onSelectStay,
   onSelectUnassignedRange,
   onSelectBlock,
+  unassignedActionsBlocked = false,
 }) => {
+  const blockedNoteId = React.useId();
   const dates = React.useMemo(() => generateRangeDates(range), [range]);
 
   const roomTypeById = React.useMemo(
@@ -321,14 +330,17 @@ const ReservationBoardServerTimeline: React.FC<ReservationBoardServerTimelinePro
               <button
                 key={bar.key}
                 type="button"
-                onClick={() =>
+                onClick={() => {
+                  if (unassignedActionsBlocked) return;
                   onSelectUnassignedRange({
                     stay: bar.stay,
                     unassignedRange: bar.stay.unassignedRanges[bar.rangeIndex],
-                  })
-                }
+                  });
+                }}
+                aria-disabled={unassignedActionsBlocked || undefined}
+                aria-describedby={unassignedActionsBlocked ? blockedNoteId : undefined}
                 aria-label={`Assign room: ${bar.stay.guestDisplayName}, ${bar.stay.confirmationNumber}, unassigned ${bar.stay.unassignedRanges[bar.rangeIndex].startDate} to ${bar.stay.unassignedRanges[bar.rangeIndex].endDate}`}
-                className="z-10 m-1 flex items-center overflow-hidden rounded-md border-2 border-dashed border-purple-500 bg-purple-50 px-2 text-left text-xs font-medium text-purple-700 hover:bg-purple-100 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-purple-500/60 dark:bg-purple-500/10 dark:text-purple-300"
+                className="z-10 m-1 flex items-center overflow-hidden rounded-md border-2 border-dashed border-purple-500 bg-purple-50 px-2 text-left text-xs font-medium text-purple-700 hover:bg-purple-100 aria-disabled:cursor-not-allowed aria-disabled:opacity-60 aria-disabled:hover:bg-purple-50 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-purple-500/60 dark:bg-purple-500/10 dark:text-purple-300"
                 style={{ gridColumn: `${bar.startCol + 2} / span ${bar.span}`, gridRow: rowIndex + 2 }}
                 title={`${bar.stay.guestDisplayName} — unassigned — ${bar.stay.confirmationNumber}`}
               >
@@ -359,6 +371,11 @@ const ReservationBoardServerTimeline: React.FC<ReservationBoardServerTimelinePro
             );
           })}
       </div>
+      {unassignedActionsBlocked && (
+        <p id={blockedNoteId} className="sr-only">
+          Refreshing from the server: assignment is unavailable until the latest board has loaded.
+        </p>
+      )}
       <p className="sr-only" aria-live="polite">
         {gridRowCount} rows rendered for {dates.length} visible dates.
       </p>

@@ -35,7 +35,11 @@ import { describeAssignmentOutcome, type AssignmentOutcomeView } from "./assignm
 import type { AssignmentTarget } from "./assignmentTarget";
 import { diffDaysIso, formatDisplayDate } from "./dateMath";
 
-export type BoardReloadStatus = "idle" | "pending" | "done" | "failed";
+/**
+ * `elsewhere`: not yet confirmed, and the view now shows a different Property
+ * or date range, so nothing currently loading can confirm it.
+ */
+export type BoardReloadStatus = "idle" | "pending" | "elsewhere" | "done" | "failed";
 
 interface ReservationAssignmentDialogProps {
   target: AssignmentTarget;
@@ -337,6 +341,9 @@ const ReloadStatusLine: React.FC<{ status: BoardReloadStatus }> = ({ status }) =
   }
   if (status === "done") {
     return <p className="mt-1 text-xs">The board has been reloaded from the server.</p>;
+  }
+  if (status === "elsewhere") {
+    return <p className="mt-1 text-xs">The view changed before the board was reloaded; the result has not been re-read yet.</p>;
   }
   return <p className="mt-1 text-xs">Reloading the board from the server…</p>;
 };

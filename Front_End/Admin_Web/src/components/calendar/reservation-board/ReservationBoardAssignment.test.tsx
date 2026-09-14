@@ -486,3 +486,159 @@ describe("ReservationBoard — same-RoomType assignment (PMS-CAL-001.2-CP03A)", 
     expect(screen.queryByText(/Room 102 assigned to Nguyen Van A/)).not.toBeInTheDocument();
   });
 });
+
+describe("PMS-CAL-001.2-CP03A-C1 corrections", () => {
+  const created: AssignmentCreateOutcome = { kind: "created", segment: null };
+
+  function secondRangeBar(from: string, to: string) {
+    return screen.getByRole("button", {
+      name: `Assign room: Nguyen Van A, CNF-100, unassigned ${addDaysIso(from, 4)} to ${to}`,
+    });
+  }
+
+  async function assignFirstRangeToRoom102(from: string) {
+    const user = userEvent.setup();
+    await user.click(firstRangeBar(from));
+    await user.click(within(dialog()).getByLabelText(/Room 102/));
+    await user.click(within(dialog()).getByRole("button", { name: "Assign room 102" }));
+    return user;
+  }
+
+  // ---- Finding 1: stale unassigned bars during the authoritative re-read ----
+
+  it("blocks stale unassigned bars by click and keyboard while the post-write re-read runs, then re-enables them", async () => {
+    const { from, to } = await renderLoadedBoard();
+    const reread = deferred<Awaited<ReturnType<typeof fetchReservationBoard>>>();
+    mockedFetchReservationBoard.mockImplementation(() => reread.promise);
+    mockedCreate.mockResolvedValue(created);
+
+    const user = await assignFirstRangeToRoom102(from);
+    await waitFor(() => expect(screen.getByText("Refreshing board from the server…")).toBeInTheDocument());
+
+    const staleSecond = secondRangeBar(from, to);
+    const staleFirst = firstRangeBar(from);
+    for (const bar of [staleFirst, staleSecond]) {
+      expect(bar).toHaveAttribute("aria-disabled", "true");
+      expect(bar).toHaveAccessibleDescription(/assignment is unavailable until the latest board has loaded/);
+    }
+
+    await user.click(staleFirst);
+    await user.click(staleSecond);
+    staleSecond.focus();
+    await user.keyboard("{Enter}");
+    await user.keyboard(" ");
+    expect(screen.queryByRole("dialog", { name: "Assign room" })).not.toBeInTheDocument();
+    expect(mockedCreate).toHaveBeenCalledTimes(1);
+
+    const [propertyId, requestFrom, requestTo] = mockedFetchReservationBoard.mock.calls.at(-1)!;
+    await act(async () => reread.resolve({ ok: true, data: boardFor(propertyId, requestFrom, requestTo, true) }));
+    await waitFor(() => expect(screen.getByText(/The board has been reloaded from the server/)).toBeInTheDocument());
+
+    const freshSecond = secondRangeBar(from, to);
+    expect(freshSecond).not.toHaveAttribute("aria-disabled");
+    freshSecond.focus();
+    await user.keyboard("{Enter}");
+    expect(dialog()).toBeInTheDocument();
+    expect(within(dialog()).getByText(new RegExp(`^\\[${addDaysIso(from, 4)}, ${to}\\)`))).toBeInTheDocument();
+    expect(mockedCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a stale bar activated in the same tick the write resolves, before React has re-rendered the board", async () => {
+    const { from, to } = await renderLoadedBoard();
+    const create = deferred<AssignmentCreateOutcome>();
+    mockedCreate.mockImplementation(() => create.promise);
+    mockedFetchReservationBoard.mockImplementation(() => new Promise(() => {}));
+
+    await assignFirstRangeToRoom102(from);
+    const staleSecond = secondRangeBar(from, to);
+    expect(staleSecond).not.toHaveAttribute("aria-disabled");
+
+    await act(async () => {
+      create.resolve(created);
+      for (let tick = 0; tick < 10; tick += 1) await Promise.resolve();
+      // Still the pre-write render: only a synchronous guard can refuse this.
+      fireEvent.click(staleSecond);
+    });
+
+    expect(screen.queryByRole("dialog", { name: "Assign room" })).not.toBeInTheDocument();
+    expect(mockedCreate).toHaveBeenCalledTimes(1);
+  });
+
+  // ---- Finding 2: reconciliation is scoped to the written board's identity ----
+
+  it("never reports the written board as reloaded when the date range changes mid re-read, and drops its late response", async () => {
+    const user = userEvent.setup();
+    const { from, to } = await renderLoadedBoard();
+    const nextFrom = to;
+    const staleReread = deferred<Awaited<ReturnType<typeof fetchReservationBoard>>>();
+    mockedFetchReservationBoard.mockImplementation((propertyId, requestFrom, requestTo) =>
+      requestFrom === from
+        ? staleReread.promise
+        : Promise.resolve({ ok: true, data: boardFor(propertyId, requestFrom, requestTo) })
+    );
+    mockedCreate.mockResolvedValue(created);
+
+    await assignFirstRangeToRoom102(from);
+    await waitFor(() => expect(screen.getByText("Saved on the server. Reloading the board…")).toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: "Next date range" }));
+    await waitFor(() => expect(firstRangeBar(nextFrom)).toBeInTheDocument());
+
+    const notice = screen.getByText(/Room 102 assigned to Nguyen Van A/).closest("[role=status]")!;
+    expect(notice).toHaveTextContent(`board for [${from}, ${to}) has not been reloaded since the view changed`);
+    expect(notice).not.toHaveTextContent("The board has been reloaded from the server");
+    expect(firstRangeBar(nextFrom)).not.toHaveAttribute("aria-disabled");
+
+    // The abandoned read of the written board finally answers: it must neither
+    // replace the board now on screen nor confirm anything.
+    await act(async () => staleReread.resolve({ ok: true, data: boardFor("prop-a", from, to, true) }));
+    expect(firstRangeBar(nextFrom)).toBeInTheDocument();
+    expect(screen.getAllByTitle("Nguyen Van A — unassigned — CNF-100")).toHaveLength(2);
+    expect(notice).toHaveTextContent("has not been reloaded since the view changed");
+
+    // Only a fresh read of the written board itself confirms it.
+    await user.click(screen.getByRole("button", { name: "Previous date range" }));
+    await waitFor(() => expect(notice).toHaveTextContent("The board has been reloaded from the server"));
+    expect(screen.getAllByTitle("Nguyen Van A — unassigned — CNF-100")).toHaveLength(1);
+    expect(mockedCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears the notice on a Property change mid re-read and never lets the old Property's response overwrite the new board", async () => {
+    const user = userEvent.setup();
+    const { from, to } = await renderLoadedBoard();
+    const staleReread = deferred<Awaited<ReturnType<typeof fetchReservationBoard>>>();
+    mockedFetchReservationBoard.mockImplementation((propertyId, requestFrom, requestTo) =>
+      propertyId === "prop-a"
+        ? staleReread.promise
+        : Promise.resolve({ ok: true, data: boardFor(propertyId, requestFrom, requestTo) })
+    );
+    mockedCreate.mockResolvedValue(created);
+
+    await assignFirstRangeToRoom102(from);
+    await waitFor(() => expect(screen.getByText(/Room 102 assigned to Nguyen Van A/)).toBeInTheDocument());
+
+    await user.selectOptions(screen.getByLabelText("Property"), "prop-b");
+    await waitFor(() => expect(mockedFetchReservationBoard.mock.calls.at(-1)![0]).toBe("prop-b"));
+    await waitFor(() => expect(screen.getByText("101")).toBeInTheDocument());
+    expect(screen.queryByText(/Room 102 assigned to Nguyen Van A/)).not.toBeInTheDocument();
+
+    await act(async () => staleReread.resolve({ ok: true, data: boardFor("prop-a", from, to, true) }));
+    expect(screen.queryByTitle(/Nguyen Van A/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/has been reloaded from the server/)).not.toBeInTheDocument();
+    expect(mockedCreate).toHaveBeenCalledTimes(1);
+  });
+
+  // ---- Finding 3: the toolbar states the actual capability ----
+
+  it("describes exactly what the board can write, without claiming read-only or cross-RoomType assignment", async () => {
+    await renderLoadedBoard();
+    const capabilities = screen.getByTestId("reservation-board-capabilities");
+
+    expect(capabilities).toHaveTextContent("Unassigned nights can be assigned to a room of the same sold room type.");
+    expect(capabilities).toHaveTextContent("Move, unassign, blocks and lifecycle actions are read-only.");
+    expect(capabilities).toHaveTextContent("local Development write opt-in");
+    expect(capabilities).toHaveTextContent("no production sign-in or permissions yet");
+    expect(capabilities).not.toHaveTextContent(/no assignment/i);
+    expect(capabilities).not.toHaveTextContent(/cross|different room type/i);
+  });
+});

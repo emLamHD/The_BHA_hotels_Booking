@@ -25,8 +25,9 @@ import ReservationBoardServerTimeline, {
 } from "./ReservationBoardServerTimeline";
 import ReservationBoardStayPopover from "./ReservationBoardStayPopover";
 import ReservationAssignmentDialog, { type BoardReloadStatus } from "./ReservationAssignmentDialog";
-import { buildAssignmentTarget, type AssignmentTarget } from "./assignmentTarget";
+import { boardIdentityKey, buildAssignmentTarget, type AssignmentTarget } from "./assignmentTarget";
 import { describeAssignmentOutcome } from "./assignmentOutcome";
+import { isBoardAwaitingReconciliation, settleReconciliations, type Reconciliation } from "./reconciliation";
 import { AlertIcon, CloseLineIcon } from "@/icons";
 import {
   buildVisibleRange,
@@ -114,19 +115,23 @@ const ReservationBoard: React.FC = () => {
   >(null);
 
   const [assignmentTarget, setAssignmentTarget] = useState<AssignmentTarget | null>(null);
-  /** `loadedVersion` when the open dialog's outcome asked for a board re-read; `null` when none has. */
-  const [dialogReloadBaseline, setDialogReloadBaseline] = useState<number | null>(null);
-  const [assignmentNotice, setAssignmentNotice] = useState<{ text: string; reloadBaseline: number } | null>(
+  /** The reconciliation started by the open dialog's last outcome, if any. */
+  const [dialogReconciliationId, setDialogReconciliationId] = useState<number | null>(null);
+  const [assignmentNotice, setAssignmentNotice] = useState<{ text: string; reconciliationId: number } | null>(
     null
   );
   /**
-   * Incremented only when a board response is committed. A re-read requested
-   * at version N is complete once the version exceeds N: the request sequence
-   * guard below lets only the newest request commit, so any commit after the
-   * request is at least as fresh as the requested read.
+   * Rendered from state; decided from the ref. The ref is updated
+   * synchronously the moment a write resolves, so a click that lands before
+   * React has re-rendered the board is still refused.
    */
-  const [loadedVersion, setLoadedVersion] = useState(0);
-  const loadedVersionRef = useRef(0);
+  const [reconciliations, setReconciliations] = useState<Reconciliation[]>([]);
+  const reconciliationsRef = useRef<Reconciliation[]>([]);
+  const nextReconciliationIdRef = useRef(1);
+  const referencedReconciliationIdsRef = useRef<{ dialog: number | null; notice: number | null }>({
+    dialog: null,
+    notice: null,
+  });
   const noticeRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef(true);
 
@@ -138,6 +143,20 @@ const ReservationBoard: React.FC = () => {
       mountedRef.current = false;
     };
   }, []);
+
+  const updateReconciliations = useCallback((update: (list: Reconciliation[]) => Reconciliation[]) => {
+    const next = update(reconciliationsRef.current);
+    if (next === reconciliationsRef.current) return;
+    reconciliationsRef.current = next;
+    setReconciliations(next);
+  }, []);
+
+  useEffect(() => {
+    referencedReconciliationIdsRef.current = {
+      dialog: dialogReconciliationId,
+      notice: assignmentNotice?.reconciliationId ?? null,
+    };
+  }, [dialogReconciliationId, assignmentNotice]);
 
   // Initial load: real active Properties, then deterministically select the
   // first and derive the initial anchor from its own time zone.
@@ -175,6 +194,7 @@ const ReservationBoard: React.FC = () => {
     const controller = new AbortController();
     const rangeStartIso = range.start;
     const rangeEndIso = range.endExclusive;
+    const requestKey = boardIdentityKey(selectedPropertyId, rangeStartIso, rangeEndIso);
     // A re-read of exactly the Property and range already on screen (the only
     // case is a post-write reload) keeps that board visible while it refreshes.
     // Any other key — a different Property or date range — still clears to the
@@ -194,11 +214,11 @@ const ReservationBoard: React.FC = () => {
       if (!result.ok) {
         if (result.error.kind === "aborted") return;
         setBoardState({ status: "error", error: result.error });
+        updateReconciliations((list) => settleReconciliations(list, requestKey, thisSeq, "failed"));
         return;
       }
       setBoardState({ status: "loaded", board: result.data });
-      loadedVersionRef.current += 1;
-      setLoadedVersion(loadedVersionRef.current);
+      updateReconciliations((list) => settleReconciliations(list, requestKey, thisSeq, "loaded"));
     });
     return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -247,10 +267,20 @@ const ReservationBoard: React.FC = () => {
   const handleSelectUnassignedRange = useCallback(
     (unassignedSelection: UnassignedRangeSelection) => {
       if (boardState.status !== "loaded") return;
+      const displayedKey = boardIdentityKey(
+        boardState.board.property.id,
+        boardState.board.from,
+        boardState.board.to
+      );
+      // The board on screen may already be contradicted by a write that has
+      // not been re-read yet; nothing on it may start another one.
+      if (isBoardAwaitingReconciliation(reconciliationsRef.current, displayedKey)) {
+        return;
+      }
       const target = buildAssignmentTarget(boardState.board, selectedPropertyId, unassignedSelection);
       if (!target) return;
       setSelection(null);
-      setDialogReloadBaseline(null);
+      setDialogReconciliationId(null);
       setAssignmentTarget(target);
     },
     [boardState, selectedPropertyId]
@@ -274,28 +304,63 @@ const ReservationBoard: React.FC = () => {
       if (!mountedRef.current) return outcome;
 
       if (describeAssignmentOutcome(outcome).reloadBoard) {
-        const baseline = loadedVersionRef.current;
-        setDialogReloadBaseline(baseline);
-        setRetryToken((token) => token + 1);
+        const reconciliation: Reconciliation = {
+          id: nextReconciliationIdRef.current++,
+          key: target.boardKey,
+          from: target.boardFrom,
+          to: target.boardTo,
+          // Any board request already issued may have been answered before the write.
+          afterSeq: requestSeqRef.current,
+          status: "pending",
+        };
+        const referenced = referencedReconciliationIdsRef.current;
+        updateReconciliations((list) => [
+          // Settled entries are kept only while a notice or dialog still shows them.
+          ...list.filter(
+            (entry) => entry.status !== "done" || entry.id === referenced.dialog || entry.id === referenced.notice
+          ),
+          reconciliation,
+        ]);
+        setDialogReconciliationId(reconciliation.id);
         if (outcome.kind === "created") {
           setAssignmentTarget(null);
           setAssignmentNotice({
             text: `Room ${room.roomNumber} assigned to ${target.stay.guestDisplayName} (${target.stay.confirmationNumber}) for [${target.unassignedRange.startDate}, ${target.unassignedRange.endDate}).`,
-            reloadBaseline: baseline,
+            reconciliationId: reconciliation.id,
           });
         }
+        setRetryToken((token) => token + 1);
       }
       return outcome;
     },
-    []
+    [updateReconciliations]
   );
 
-  const reloadStatusSince = (baseline: number | null): BoardReloadStatus => {
-    if (baseline === null) return "idle";
-    if (loadedVersion > baseline) return "done";
-    if (boardState.status === "error") return "failed";
-    return "pending";
+  const currentBoardKey =
+    selectedPropertyId && range ? boardIdentityKey(selectedPropertyId, range.start, range.endExclusive) : null;
+
+  const reconciliationStatus = (id: number | null): BoardReloadStatus => {
+    if (id === null) return "idle";
+    const entry = reconciliations.find((candidate) => candidate.id === id);
+    if (!entry) return "idle";
+    if (entry.status === "done") return "done";
+    // Not confirmed, and the view now shows a different Property or range:
+    // whatever that view loads says nothing about the board that was written.
+    if (entry.key !== currentBoardKey) return "elsewhere";
+    return entry.status;
   };
+
+  const noticeReconciliation =
+    assignmentNotice === null
+      ? null
+      : reconciliations.find((entry) => entry.id === assignmentNotice.reconciliationId) ?? null;
+
+  const displayedBoardAwaitingReconciliation =
+    boardState.status === "loaded" &&
+    isBoardAwaitingReconciliation(
+      reconciliations,
+      boardIdentityKey(boardState.board.property.id, boardState.board.from, boardState.board.to)
+    );
 
   // A new notice takes focus: the bar that opened the dialog is gone once the
   // board reloads, so focus would otherwise fall back to the document.
@@ -349,9 +414,18 @@ const ReservationBoard: React.FC = () => {
         onSelectStay={(value) => setSelection({ kind: "stay", value })}
         onSelectUnassignedRange={handleSelectUnassignedRange}
         onSelectBlock={(value) => setSelection({ kind: "block", value })}
+        unassignedActionsBlocked={displayedBoardAwaitingReconciliation}
       />
     );
-  }, [propertiesState, boardState, range, filters, handleRetry, handleSelectUnassignedRange]);
+  }, [
+    propertiesState,
+    boardState,
+    range,
+    filters,
+    handleRetry,
+    handleSelectUnassignedRange,
+    displayedBoardAwaitingReconciliation,
+  ]);
 
   const toolbarProperties = propertiesState.status === "loaded" ? propertiesState.properties : [];
 
@@ -374,7 +448,8 @@ const ReservationBoard: React.FC = () => {
         <AssignmentNotice
           ref={noticeRef}
           text={assignmentNotice.text}
-          reloadStatus={reloadStatusSince(assignmentNotice.reloadBaseline)}
+          reloadStatus={reconciliationStatus(assignmentNotice.reconciliationId)}
+          writtenRange={noticeReconciliation ? { from: noticeReconciliation.from, to: noticeReconciliation.to } : null}
           onDismiss={() => setAssignmentNotice(null)}
         />
       )}
@@ -391,7 +466,7 @@ const ReservationBoard: React.FC = () => {
           // selection, result or submit lock over to another.
           key={`${assignmentTarget.stay.reservationUnitId}:${assignmentTarget.unassignedRange.startDate}:${assignmentTarget.unassignedRange.endDate}`}
           target={assignmentTarget}
-          boardReloadStatus={reloadStatusSince(dialogReloadBaseline)}
+          boardReloadStatus={reconciliationStatus(dialogReconciliationId)}
           onSubmit={(physicalRoomId) => submitAssignment(assignmentTarget, physicalRoomId)}
           onClose={() => setAssignmentTarget(null)}
         />
@@ -402,8 +477,13 @@ const ReservationBoard: React.FC = () => {
 
 const AssignmentNotice = React.forwardRef<
   HTMLDivElement,
-  { text: string; reloadStatus: BoardReloadStatus; onDismiss: () => void }
->(function AssignmentNotice({ text, reloadStatus, onDismiss }, ref) {
+  {
+    text: string;
+    reloadStatus: BoardReloadStatus;
+    writtenRange: { from: string; to: string } | null;
+    onDismiss: () => void;
+  }
+>(function AssignmentNotice({ text, reloadStatus, writtenRange, onDismiss }, ref) {
   return (
     <div
       ref={ref}
@@ -418,7 +498,9 @@ const AssignmentNotice = React.forwardRef<
             ? "Saved on the server. The board has been reloaded from the server."
             : reloadStatus === "failed"
               ? "Saved on the server, but the board could not be reloaded. Use Retry to see the latest data."
-              : "Saved on the server. Reloading the board…"}
+              : reloadStatus === "elsewhere"
+                ? `Saved on the server, but the board for ${writtenRange ? `[${writtenRange.from}, ${writtenRange.to})` : "that range"} has not been reloaded since the view changed. Return to it to see the result.`
+                : "Saved on the server. Reloading the board…"}
         </p>
       </div>
       <button

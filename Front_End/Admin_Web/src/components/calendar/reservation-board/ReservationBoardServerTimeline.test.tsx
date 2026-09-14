@@ -153,6 +153,46 @@ describe("ReservationBoardServerTimeline", () => {
     expect(onSelectStay).not.toHaveBeenCalled();
   });
 
+  it("keeps unassigned bars focusable but aria-disabled and inert while actions are blocked (CP03A-C1)", async () => {
+    const user = userEvent.setup();
+    const onSelectUnassignedRange = vi.fn();
+    const stay: ReservationBoardStay = {
+      reservationId: "res-9",
+      reservationUnitId: "unit-9",
+      confirmationNumber: "CNF-009",
+      guestDisplayName: "Blocked Guest",
+      soldRoomTypeId: "type-standard",
+      checkIn: "2026-09-02",
+      checkOut: "2026-09-04",
+      coverageStatus: "FullyUnassigned",
+      assignments: [],
+      unassignedRanges: [{ startDate: "2026-09-02", endDate: "2026-09-04" }],
+    };
+    const { rerender } = render(
+      <ReservationBoardServerTimeline
+        {...baseProps()}
+        stays={[stay]}
+        onSelectUnassignedRange={onSelectUnassignedRange}
+        unassignedActionsBlocked
+      />
+    );
+
+    const bar = screen.getByTitle("Blocked Guest — unassigned — CNF-009");
+    expect(bar).toHaveAttribute("aria-disabled", "true");
+    expect(bar).toHaveAccessibleDescription(/assignment is unavailable/);
+    await user.click(bar);
+    bar.focus();
+    await user.keyboard("{Enter} ");
+    expect(onSelectUnassignedRange).not.toHaveBeenCalled();
+
+    rerender(
+      <ReservationBoardServerTimeline {...baseProps()} stays={[stay]} onSelectUnassignedRange={onSelectUnassignedRange} />
+    );
+    expect(bar).not.toHaveAttribute("aria-disabled");
+    await user.click(bar);
+    expect(onSelectUnassignedRange).toHaveBeenCalledTimes(1);
+  });
+
   it("renders an operational block bar and reports the room number on selection", async () => {
     const user = userEvent.setup();
     const onSelectBlock = vi.fn();

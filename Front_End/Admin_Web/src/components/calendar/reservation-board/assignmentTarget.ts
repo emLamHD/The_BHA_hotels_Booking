@@ -20,8 +20,21 @@ import type {
 } from "@/lib/api/types";
 import type { UnassignedRangeSelection } from "./ReservationBoardServerTimeline";
 
+/**
+ * Identity of one board read: the Property and the visible half-open
+ * `[from, to)`. Reconciliation after a write is only ever satisfied by a read
+ * of this exact identity (PMS-CAL-001.2-CP03A-C1).
+ */
+export function boardIdentityKey(propertyId: string, from: string, to: string): string {
+  return `${propertyId}|${from}|${to}`;
+}
+
 export interface AssignmentTarget {
   propertyId: string;
+  /** The board read this target was built from. */
+  boardKey: string;
+  boardFrom: string;
+  boardTo: string;
   propertyName: string;
   stay: ReservationBoardStay;
   unassignedRange: ReservationBoardUnassignedRange;
@@ -73,6 +86,9 @@ export function buildAssignmentTarget(
 
   return {
     propertyId: board.property.id,
+    boardKey: boardIdentityKey(board.property.id, board.from, board.to),
+    boardFrom: board.from,
+    boardTo: board.to,
     propertyName: board.property.name,
     stay,
     unassignedRange,
