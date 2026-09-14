@@ -95,7 +95,9 @@ firm decision — firmness of the decision is not evidence of construction.
   `POST /api/admin/v1/properties/{propertyId}/reservation-assignments`
   (`PMS-CAL-001.2` CP02, PR #44), unauthenticated, reachable only from a
   local opt-in Development host, and called by the Admin Reservation Board for
-  same-RoomType assignment only (`PMS-CAL-001.2-CP03A`). `SupersedeAsync`,
+  both same-RoomType (`PMS-CAL-001.2-CP03A`) and, with an explicit operator
+  confirmation and recorded reason, controlled cross-RoomType assignment
+  (`PMS-CAL-001.2-CP03B`). `SupersedeAsync`,
   move/unassign/split/batch and every `RoomBlock` mutation stay
   internal-only; no Staff identity and no Admin
   RBAC model exist. See ADR 0006 and

@@ -113,13 +113,30 @@ export function fetchReservationBoard(
  * The backend claims no idempotency, so `unknown` must never be retried
  * automatically; the caller re-reads the board instead.
  */
-export type AssignmentRejectionCategory = "validation" | "not-permitted" | "conflict" | "refused";
+export type AssignmentRejectionCategory =
+  | "validation"
+  | "not-permitted"
+  | "cross-room-type-confirmation-required"
+  | "conflict"
+  | "refused";
 
 export type AssignmentCreateOutcome =
   | { kind: "created"; segment: RoomOccupancySegment | null }
   | { kind: "not-sent"; message: string }
   | { kind: "rejected"; status: number; category: AssignmentRejectionCategory; detail?: string }
   | { kind: "unknown"; reason: "network" | "timeout" | "aborted" | "server-error"; status?: number };
+
+/**
+ * PMS-CAL-001.2-CP03B: the exact `title` the backend publishes for the one
+ * 403 that is actionable rather than a closed write boundary —
+ * `AdminReservationAssignmentsController.Create`'s `SegmentMutationStatus
+ * .Unauthorized` branch. ProblemDetails carries no machine-readable code
+ * beyond this title (the `type` URI is only the generic per-status-code
+ * default), so this string is the contract between the two services; it is
+ * matched exactly, never fuzzily, so an unrelated 403 never misreads as this
+ * one.
+ */
+const CROSS_ROOM_TYPE_CONFIRMATION_TITLE = "Cross-RoomType confirmation required";
 
 export interface CreateReservationAssignmentOptions {
   /** Aborts the request; an abort after sending is reported as `unknown`, never as "cancelled". */
@@ -201,13 +218,19 @@ export async function createReservationAssignment(
 
   // Built field by field rather than spread, so nothing beyond the contract —
   // in particular no actor or authorization evidence — can reach the wire even
-  // if a caller passes a wider object at runtime.
+  // if a caller passes a wider object at runtime. `reason` is included only
+  // when the caller actually set it: JSON.stringify drops an `undefined`
+  // property entirely, so CP03A's same-RoomType request (no `reason` field)
+  // is unchanged, and an empty-string `reason` is never silently substituted
+  // for an absent one — the caller (the dialog) must already have validated
+  // it non-empty before this is reached.
   const body = JSON.stringify({
     reservationUnitId: request.reservationUnitId,
     physicalRoomId: request.physicalRoomId,
     startDate: request.startDate,
     endDate: request.endDate,
-    confirmCrossRoomType: false,
+    confirmCrossRoomType: request.confirmCrossRoomType,
+    ...(request.reason !== undefined ? { reason: request.reason } : {}),
   });
 
   const controller = new AbortController();
@@ -265,6 +288,23 @@ export async function createReservationAssignment(
       case 400:
         return { kind: "rejected", status, category: "validation", detail: validationDetail(problem) };
       case 403:
+        // PMS-CAL-001.2-CP03B: the one 403 the store, not the write gate,
+        // produces — the dialog already requires confirmation and a reason
+        // before ever sending a cross-RoomType request, so reaching this is
+        // defense in depth, not the expected path. Nothing was written: the
+        // store rolls back before responding. Every other 403 (write-gate
+        // origin refusal, or any body this title does not exactly match)
+        // falls through to the same detail-free "not-permitted" as a closed
+        // gate always has.
+        if (problem?.title === CROSS_ROOM_TYPE_CONFIRMATION_TITLE) {
+          return {
+            kind: "rejected",
+            status,
+            category: "cross-room-type-confirmation-required",
+            detail: safeProblemText(problem?.detail),
+          };
+        }
+        return { kind: "rejected", status, category: "not-permitted" };
       case 404:
         // Deliberately detail-free: a closed gate's 404 has no body, and a
         // store 404/403 text must not be shown as though the booking were gone.

@@ -1,5 +1,5 @@
 /**
- * PMS-CAL-001.2-CP03A: turns one clicked unassigned bar into the exact thing
+ * PMS-CAL-001.2-CP03A/B: turns one clicked unassigned bar into the exact thing
  * the assignment dialog is allowed to act on, or refuses to.
  *
  * Everything comes from the authoritative board snapshot the bar was rendered
@@ -15,6 +15,7 @@
 import type {
   ReservationBoardPhysicalRoom,
   ReservationBoardResponse,
+  ReservationBoardRoomType,
   ReservationBoardStay,
   ReservationBoardUnassignedRange,
 } from "@/lib/api/types";
@@ -29,6 +30,22 @@ export function boardIdentityKey(propertyId: string, from: string, to: string): 
   return `${propertyId}|${from}|${to}`;
 }
 
+/**
+ * PMS-CAL-001.2-CP03B: one Active PhysicalRoom the dialog may offer, with its
+ * RoomType resolved to a display name and tagged against the Unit's own sold
+ * RoomType. `isSameSoldType` is what the dialog uses to decide whether a
+ * cross-RoomType confirmation and reason are required — never the room's
+ * position in the list.
+ */
+export interface AssignmentRoomCandidate {
+  id: string;
+  roomNumber: string;
+  floor: number;
+  roomTypeId: string;
+  roomTypeName: string;
+  isSameSoldType: boolean;
+}
+
 export interface AssignmentTarget {
   propertyId: string;
   /** The board read this target was built from. */
@@ -39,24 +56,40 @@ export interface AssignmentTarget {
   stay: ReservationBoardStay;
   unassignedRange: ReservationBoardUnassignedRange;
   soldRoomTypeName: string;
-  /** Active PhysicalRooms of this Property whose RoomType is the Unit's sold RoomType, in board order. */
-  candidateRooms: ReservationBoardPhysicalRoom[];
+  /**
+   * Every Active PhysicalRoom of this Property: candidates whose RoomType
+   * matches the Unit's sold RoomType first (in board order), then every other
+   * Active RoomType's rooms (also in board order). CP03B offers both; CP03A's
+   * dialog rendered only the first group.
+   */
+  candidateRooms: AssignmentRoomCandidate[];
 }
 
 /**
- * Same-RoomType candidates only (CP03A). Cross-RoomType placement belongs to
- * CP03B, so a room of any other RoomType is never offered — not even disabled.
- * The board already returns only this Property's Active rooms; the status is
- * re-checked so a future widening of that projection cannot silently offer an
- * inactive room.
+ * Every Active PhysicalRoom of this Property, tagged and grouped: same sold
+ * RoomType first, then cross-RoomType, each group in board order. The board
+ * already returns only this Property's Active rooms; the status is re-checked
+ * so a future widening of that projection cannot silently offer an inactive
+ * room.
  */
-export function selectSameRoomTypeCandidates(
+export function selectAssignableRoomCandidates(
   physicalRooms: ReservationBoardPhysicalRoom[],
+  roomTypes: ReservationBoardRoomType[],
   soldRoomTypeId: string
-): ReservationBoardPhysicalRoom[] {
-  return physicalRooms.filter(
-    (room) => room.roomTypeId === soldRoomTypeId && room.operationalStatus === "Active"
-  );
+): AssignmentRoomCandidate[] {
+  const roomTypeNameById = new Map(roomTypes.map((roomType) => [roomType.id, roomType.name]));
+  const toCandidate = (room: ReservationBoardPhysicalRoom): AssignmentRoomCandidate => ({
+    id: room.id,
+    roomNumber: room.roomNumber,
+    floor: room.floor,
+    roomTypeId: room.roomTypeId,
+    roomTypeName: roomTypeNameById.get(room.roomTypeId) ?? "Unknown room type",
+    isSameSoldType: room.roomTypeId === soldRoomTypeId,
+  });
+  const active = physicalRooms.filter((room) => room.operationalStatus === "Active");
+  const sameType = active.filter((room) => room.roomTypeId === soldRoomTypeId).map(toCandidate);
+  const crossType = active.filter((room) => room.roomTypeId !== soldRoomTypeId).map(toCandidate);
+  return [...sameType, ...crossType];
 }
 
 /**
@@ -94,6 +127,6 @@ export function buildAssignmentTarget(
     unassignedRange,
     soldRoomTypeName:
       board.roomTypes.find((roomType) => roomType.id === stay.soldRoomTypeId)?.name ?? "Unknown room type",
-    candidateRooms: selectSameRoomTypeCandidates(board.physicalRooms, stay.soldRoomTypeId),
+    candidateRooms: selectAssignableRoomCandidates(board.physicalRooms, board.roomTypes, stay.soldRoomTypeId),
   };
 }

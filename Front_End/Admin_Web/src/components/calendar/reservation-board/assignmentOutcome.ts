@@ -66,6 +66,20 @@ export function describeAssignmentOutcome(outcome: AssignmentCreateOutcome): Ass
             reloadBoard: false,
             allowResubmit: false,
           };
+        case "cross-room-type-confirmation-required":
+          // PMS-CAL-001.2-CP03B: the dialog already blocks sending without a
+          // confirmed acknowledgement and a non-empty reason, so this is
+          // defense in depth against a contract mismatch, not the expected
+          // path. Nothing was written — the store rolls back before
+          // responding — so the same room/reason may be resubmitted once
+          // corrected.
+          return {
+            tone: "error",
+            title: "This cross-room-type placement was not confirmed. Nothing was saved.",
+            detail: outcome.detail ?? "Confirm the placement and enter a reason, then try again.",
+            reloadBoard: false,
+            allowResubmit: true,
+          };
         case "conflict":
           return {
             tone: "warning",
