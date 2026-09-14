@@ -18,6 +18,14 @@ namespace TheBha.Infrastructure.Persistence;
 /// and off by default — Admin authentication/RBAC still do not exist.
 /// <see cref="SupersedeAsync"/> remains unexposed by any controller.
 /// </para>
+///
+/// <para>
+/// PMS-CAL-001.2-CP04A: both mutations record <c>AuthorizationEvidence</c> per
+/// audit event, not per command — only on a <c>Created</c> row whose segment
+/// places a Unit in a RoomType other than its sold RoomType. <c>Cancelled</c>
+/// rows and same-RoomType <c>Created</c> rows carry none. <c>ActorReference</c>,
+/// <c>Reason</c> and <c>MutationGroupId</c> are unchanged by this rule.
+/// </para>
 /// </summary>
 internal sealed class AssignmentMutationStore(
     TheBhaDbContext dbContext,
@@ -296,7 +304,10 @@ internal sealed class AssignmentMutationStore(
 
         var demandDeltas = new Dictionary<(Guid RoomTypeId, DateOnly StayDate), int>();
         var requiresCrossTypeAuthorization = false;
-        var newSegmentSpecs = new List<(Guid PhysicalRoomId, DateOnly StartDate, DateOnly EndDate, Guid ReservationUnitId)>();
+        // IsCrossRoomType is decided per replacement, against that replacement's
+        // own Unit's sold RoomType, so a mixed split or batch records authorization
+        // evidence only on the successor segments that actually cross RoomTypes.
+        var newSegmentSpecs = new List<(Guid PhysicalRoomId, DateOnly StartDate, DateOnly EndDate, Guid ReservationUnitId, bool IsCrossRoomType)>();
 
         foreach (var supersession in command.Supersessions)
         {
@@ -348,7 +359,8 @@ internal sealed class AssignmentMutationStore(
                     return SegmentMutationResult.Conflict("The destination PhysicalRoom is not Active.");
                 }
 
-                if (newRoom.RoomTypeId != unit.RoomTypeId)
+                var isCrossRoomType = newRoom.RoomTypeId != unit.RoomTypeId;
+                if (isCrossRoomType)
                 {
                     requiresCrossTypeAuthorization = true;
                 }
@@ -358,7 +370,7 @@ internal sealed class AssignmentMutationStore(
                     AddDelta(demandDeltas, (newRoom.RoomTypeId, date), 1);
                 }
 
-                newSegmentSpecs.Add((replacement.PhysicalRoomId, replacement.StartDate, replacement.EndDate, unit.Id));
+                newSegmentSpecs.Add((replacement.PhysicalRoomId, replacement.StartDate, replacement.EndDate, unit.Id, isCrossRoomType));
             }
         }
 
@@ -415,7 +427,13 @@ internal sealed class AssignmentMutationStore(
                     mutationGroupId,
                     RoomOccupancySegmentAuditEventType.Cancelled,
                     command.ActorReference,
-                    command.AuthorizationEvidence,
+                    // PMS-CAL-001.2-CP04A: a Cancelled row ends the superseded
+                    // segment; it places nobody anywhere, so it is never evidence
+                    // that a cross-RoomType placement was authorized — even when
+                    // the segment being ended was itself cross-RoomType, or the
+                    // same mutation creates one. The command's evidence belongs
+                    // only on the Created rows below that actually cross.
+                    null,
                     command.Reason,
                     utcNow));
                 mutatedSegments.Add(segment);
@@ -441,7 +459,16 @@ internal sealed class AssignmentMutationStore(
                     mutationGroupId,
                     RoomOccupancySegmentAuditEventType.Created,
                     command.ActorReference,
-                    command.AuthorizationEvidence,
+                    // PMS-CAL-001.2-CP04A: the same rule CreateAsync applies
+                    // (Correction C6) — evidence is recorded only for a successor
+                    // placed in a RoomType other than its Unit's sold RoomType.
+                    // A same-RoomType successor crosses nothing, so evidence the
+                    // caller supplied for the command (for another replacement,
+                    // or over-confirmed) is dropped rather than propagated into
+                    // an append-only row it does not describe. Reason is kept on
+                    // every row: it explains the mutation, and claims nothing
+                    // about authorization.
+                    spec.IsCrossRoomType ? command.AuthorizationEvidence : null,
                     command.Reason,
                     utcNow));
                 mutatedSegments.Add(newSegment);

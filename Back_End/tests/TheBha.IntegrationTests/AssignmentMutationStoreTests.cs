@@ -756,6 +756,300 @@ public sealed class AssignmentMutationStoreTests(PostgreSqlWebApplicationFactory
         Assert.Empty(await verify.RoomOccupancySegmentAudits.ToListAsync());
     }
 
+    // ---------------------------------------------------------------------
+    // PMS-CAL-001.2-CP04A: SupersedeAsync records AuthorizationEvidence per audit
+    // event. Every test below asserts each audit row of the mutation individually
+    // (segment, event type, actor, evidence, reason, shared MutationGroupId) and
+    // that the commercial record is untouched — never a bare row count.
+    // ---------------------------------------------------------------------
+
+    private const string Actor = "actor:front-desk";
+    private const string Evidence = "evidence:manager-approval-7788";
+
+    [Fact]
+    public async Task Supersede_same_type_move_with_over_supplied_evidence_records_no_authorization_evidence()
+    {
+        var data = await SeedAsync("cp04a-same-type-over-supplied");
+        var store = CreateStore();
+        var original = await CreateAssignmentAsync(store, data, data.UnitsA[0], data.RoomsA[0], null, null);
+        var commercialBefore = await CommercialSnapshotAsync(data.UnitsA[0].Id);
+
+        var result = await store.SupersedeAsync(
+            new SupersedeAssignmentsCommand(
+                data.Property.Id,
+                [new AssignmentSupersession(original.Id, original.Version, [new AssignmentDestination(data.RoomsA[1].Id, CheckIn, CheckOut)])],
+                Actor, Evidence, "Housekeeping moved the guest"),
+            CancellationToken.None);
+
+        Assert.Equal(SegmentMutationStatus.Succeeded, result.Status);
+        var successor = result.Segments!.Single(s => s.Id != original.Id);
+        var group = await MutationGroupAuditsAsync(original.Id);
+        Assert.Equal(2, group.Count);
+        AssertAudit(group, original.Id, RoomOccupancySegmentAuditEventType.Cancelled, null, "Housekeeping moved the guest");
+        AssertAudit(group, successor.Id, RoomOccupancySegmentAuditEventType.Created, null, "Housekeeping moved the guest");
+        Assert.Equal(commercialBefore, await CommercialSnapshotAsync(data.UnitsA[0].Id));
+    }
+
+    [Fact]
+    public async Task Supersede_same_type_to_cross_type_move_records_evidence_only_on_the_cross_type_successor()
+    {
+        var data = await SeedAsync("cp04a-same-to-cross");
+        var store = CreateStore();
+        var original = await CreateAssignmentAsync(store, data, data.UnitsA[0], data.RoomsA[0], null, null);
+        var commercialBefore = await CommercialSnapshotAsync(data.UnitsA[0].Id);
+
+        var result = await store.SupersedeAsync(
+            new SupersedeAssignmentsCommand(
+                data.Property.Id,
+                [new AssignmentSupersession(original.Id, original.Version, [new AssignmentDestination(data.RoomsB[0].Id, CheckIn, CheckOut)])],
+                Actor, Evidence, "Guest requested upgrade"),
+            CancellationToken.None);
+
+        Assert.Equal(SegmentMutationStatus.Succeeded, result.Status);
+        var successor = result.Segments!.Single(s => s.Id != original.Id);
+        Assert.Equal(data.RoomsB[0].Id, successor.PhysicalRoomId);
+        var group = await MutationGroupAuditsAsync(original.Id);
+        Assert.Equal(2, group.Count);
+        AssertAudit(group, original.Id, RoomOccupancySegmentAuditEventType.Cancelled, null, "Guest requested upgrade");
+        AssertAudit(group, successor.Id, RoomOccupancySegmentAuditEventType.Created, Evidence, "Guest requested upgrade");
+        Assert.Equal(commercialBefore, await CommercialSnapshotAsync(data.UnitsA[0].Id));
+    }
+
+    [Fact]
+    public async Task Supersede_cross_type_to_same_type_move_records_no_evidence_and_keeps_the_original_creation_history()
+    {
+        var data = await SeedAsync("cp04a-cross-to-same");
+        var store = CreateStore();
+        var original = await CreateAssignmentAsync(store, data, data.UnitsA[0], data.RoomsB[0], "evidence:original-upgrade", "Original upgrade");
+        var commercialBefore = await CommercialSnapshotAsync(data.UnitsA[0].Id);
+
+        var result = await store.SupersedeAsync(
+            new SupersedeAssignmentsCommand(
+                data.Property.Id,
+                [new AssignmentSupersession(original.Id, original.Version, [new AssignmentDestination(data.RoomsA[0].Id, CheckIn, CheckOut)])],
+                Actor, Evidence, "Back to the sold room type"),
+            CancellationToken.None);
+
+        Assert.Equal(SegmentMutationStatus.Succeeded, result.Status);
+        var successor = result.Segments!.Single(s => s.Id != original.Id);
+        var group = await MutationGroupAuditsAsync(original.Id);
+        Assert.Equal(2, group.Count);
+        AssertAudit(group, original.Id, RoomOccupancySegmentAuditEventType.Cancelled, null, "Back to the sold room type");
+        AssertAudit(group, successor.Id, RoomOccupancySegmentAuditEventType.Created, null, "Back to the sold room type");
+
+        // The earlier cross-type creation keeps its own, true evidence: history is appended, never rewritten.
+        await using var verify = factory.CreateDbContext();
+        var originalCreated = await verify.RoomOccupancySegmentAudits.SingleAsync(
+            a => a.SegmentId == original.Id && a.EventType == RoomOccupancySegmentAuditEventType.Created);
+        Assert.Equal("evidence:original-upgrade", originalCreated.AuthorizationEvidence);
+        Assert.Equal("Original upgrade", originalCreated.Reason);
+        Assert.NotEqual(group[0].MutationGroupId, originalCreated.MutationGroupId);
+        Assert.Equal(commercialBefore, await CommercialSnapshotAsync(data.UnitsA[0].Id));
+    }
+
+    [Fact]
+    public async Task Supersede_cross_type_unassign_records_no_evidence_on_the_cancellation()
+    {
+        var data = await SeedAsync("cp04a-cross-unassign");
+        var store = CreateStore();
+        var original = await CreateAssignmentAsync(store, data, data.UnitsA[0], data.RoomsB[0], "evidence:original-upgrade", "Original upgrade");
+        var commercialBefore = await CommercialSnapshotAsync(data.UnitsA[0].Id);
+
+        var result = await store.SupersedeAsync(
+            new SupersedeAssignmentsCommand(
+                data.Property.Id,
+                [new AssignmentSupersession(original.Id, original.Version, [])],
+                Actor, Evidence, "Guest no longer needs the upgrade"),
+            CancellationToken.None);
+
+        Assert.Equal(SegmentMutationStatus.Succeeded, result.Status);
+        var group = await MutationGroupAuditsAsync(original.Id);
+        var cancelled = Assert.Single(group);
+        AssertAudit(group, original.Id, RoomOccupancySegmentAuditEventType.Cancelled, null, "Guest no longer needs the upgrade");
+        Assert.Equal(Actor, cancelled.ActorReference);
+        Assert.Equal(commercialBefore, await CommercialSnapshotAsync(data.UnitsA[0].Id));
+    }
+
+    [Fact]
+    public async Task Supersede_mixed_split_records_evidence_only_on_the_cross_type_part()
+    {
+        var data = await SeedAsync("cp04a-mixed-split");
+        var store = CreateStore();
+        var original = await CreateAssignmentAsync(store, data, data.UnitsA[0], data.RoomsA[0], null, null);
+        var commercialBefore = await CommercialSnapshotAsync(data.UnitsA[0].Id);
+        var splitDate = CheckIn.AddDays(2);
+
+        var result = await store.SupersedeAsync(
+            new SupersedeAssignmentsCommand(
+                data.Property.Id,
+                [
+                    new AssignmentSupersession(original.Id, original.Version,
+                    [
+                        new AssignmentDestination(data.RoomsA[1].Id, CheckIn, splitDate),
+                        new AssignmentDestination(data.RoomsB[0].Id, splitDate, CheckOut)
+                    ])
+                ],
+                Actor, Evidence, "Split stay for maintenance"),
+            CancellationToken.None);
+
+        Assert.Equal(SegmentMutationStatus.Succeeded, result.Status);
+        var sameTypePart = result.Segments!.Single(s => s.PhysicalRoomId == data.RoomsA[1].Id);
+        var crossTypePart = result.Segments!.Single(s => s.PhysicalRoomId == data.RoomsB[0].Id);
+        Assert.Equal((CheckIn, splitDate), (sameTypePart.StartDate, sameTypePart.EndDate));
+        Assert.Equal((splitDate, CheckOut), (crossTypePart.StartDate, crossTypePart.EndDate));
+
+        var group = await MutationGroupAuditsAsync(original.Id);
+        Assert.Equal(3, group.Count);
+        AssertAudit(group, original.Id, RoomOccupancySegmentAuditEventType.Cancelled, null, "Split stay for maintenance");
+        AssertAudit(group, sameTypePart.Id, RoomOccupancySegmentAuditEventType.Created, null, "Split stay for maintenance");
+        AssertAudit(group, crossTypePart.Id, RoomOccupancySegmentAuditEventType.Created, Evidence, "Split stay for maintenance");
+        Assert.Equal(commercialBefore, await CommercialSnapshotAsync(data.UnitsA[0].Id));
+    }
+
+    [Fact]
+    public async Task Supersede_mixed_two_unit_swap_records_evidence_only_on_the_unit_that_crosses()
+    {
+        var data = await SeedAsync("cp04a-mixed-swap", unitsA: 2);
+        var store = CreateStore();
+        var sameTypeSource = await CreateAssignmentAsync(store, data, data.UnitsA[0], data.RoomsA[0], null, null);
+        var crossTypeSource = await CreateAssignmentAsync(store, data, data.UnitsA[1], data.RoomsB[0], "evidence:original-upgrade", "Original upgrade");
+        var commercialBefore0 = await CommercialSnapshotAsync(data.UnitsA[0].Id);
+        var commercialBefore1 = await CommercialSnapshotAsync(data.UnitsA[1].Id);
+
+        // Unit 0 moves A0 -> B0 (crosses); Unit 1 moves B0 -> A0 (back to its sold type). One command, one group.
+        var result = await store.SupersedeAsync(
+            new SupersedeAssignmentsCommand(
+                data.Property.Id,
+                [
+                    new AssignmentSupersession(sameTypeSource.Id, sameTypeSource.Version, [new AssignmentDestination(data.RoomsB[0].Id, CheckIn, CheckOut)]),
+                    new AssignmentSupersession(crossTypeSource.Id, crossTypeSource.Version, [new AssignmentDestination(data.RoomsA[0].Id, CheckIn, CheckOut)])
+                ],
+                Actor, Evidence, "Swap rooms between two guests"),
+            CancellationToken.None);
+
+        Assert.Equal(SegmentMutationStatus.Succeeded, result.Status);
+        await using var verify = factory.CreateDbContext();
+        var unit0Successor = await verify.RoomOccupancySegments.SingleAsync(
+            s => s.ReservationUnitId == data.UnitsA[0].Id && s.Status == RoomOccupancySegmentStatus.Effective);
+        var unit1Successor = await verify.RoomOccupancySegments.SingleAsync(
+            s => s.ReservationUnitId == data.UnitsA[1].Id && s.Status == RoomOccupancySegmentStatus.Effective);
+        Assert.Equal(data.RoomsB[0].Id, unit0Successor.PhysicalRoomId);
+        Assert.Equal(data.RoomsA[0].Id, unit1Successor.PhysicalRoomId);
+
+        var group = await MutationGroupAuditsAsync(sameTypeSource.Id);
+        Assert.Equal(4, group.Count);
+        AssertAudit(group, sameTypeSource.Id, RoomOccupancySegmentAuditEventType.Cancelled, null, "Swap rooms between two guests");
+        AssertAudit(group, crossTypeSource.Id, RoomOccupancySegmentAuditEventType.Cancelled, null, "Swap rooms between two guests");
+        AssertAudit(group, unit0Successor.Id, RoomOccupancySegmentAuditEventType.Created, Evidence, "Swap rooms between two guests");
+        AssertAudit(group, unit1Successor.Id, RoomOccupancySegmentAuditEventType.Created, null, "Swap rooms between two guests");
+        Assert.Equal(commercialBefore0, await CommercialSnapshotAsync(data.UnitsA[0].Id));
+        Assert.Equal(commercialBefore1, await CommercialSnapshotAsync(data.UnitsA[1].Id));
+    }
+
+    [Theory]
+    [InlineData(null, "Guest requested upgrade")]
+    [InlineData("   ", "Guest requested upgrade")]
+    [InlineData(Evidence, null)]
+    [InlineData(Evidence, "   ")]
+    public async Task Supersede_cross_type_mutation_missing_evidence_or_reason_is_rejected_without_partial_state(
+        string? evidence,
+        string? reason)
+    {
+        var data = await SeedAsync("cp04a-missing-evidence");
+        var store = CreateStore();
+        var original = await CreateAssignmentAsync(store, data, data.UnitsA[0], data.RoomsA[0], null, null);
+        var commercialBefore = await CommercialSnapshotAsync(data.UnitsA[0].Id);
+        var splitDate = CheckIn.AddDays(2);
+
+        await using (var before = factory.CreateDbContext())
+        {
+            Assert.Single(await before.RoomOccupancySegments.Where(s => s.PropertyId == data.Property.Id).ToListAsync());
+            Assert.Single(await before.RoomOccupancySegmentAudits.Where(a => a.PropertyId == data.Property.Id).ToListAsync());
+        }
+
+        // A mixed split: its same-type part alone would be allowed, so any partial write would be visible.
+        var result = await store.SupersedeAsync(
+            new SupersedeAssignmentsCommand(
+                data.Property.Id,
+                [
+                    new AssignmentSupersession(original.Id, original.Version,
+                    [
+                        new AssignmentDestination(data.RoomsA[1].Id, CheckIn, splitDate),
+                        new AssignmentDestination(data.RoomsB[0].Id, splitDate, CheckOut)
+                    ])
+                ],
+                Actor, evidence, reason),
+            CancellationToken.None);
+
+        Assert.Equal(SegmentMutationStatus.Unauthorized, result.Status);
+        await using var verify = factory.CreateDbContext();
+        var segment = Assert.Single(await verify.RoomOccupancySegments.Where(s => s.PropertyId == data.Property.Id).ToListAsync());
+        Assert.Equal(original.Id, segment.Id);
+        Assert.Equal(RoomOccupancySegmentStatus.Effective, segment.Status);
+        // The xmin concurrency token is unchanged: the rejected command did not touch the row at all.
+        Assert.Equal(original.Version, verify.Entry(segment).Property<uint>("xmin").CurrentValue);
+        var audit = Assert.Single(await verify.RoomOccupancySegmentAudits.Where(a => a.PropertyId == data.Property.Id).ToListAsync());
+        Assert.Equal(original.Id, audit.SegmentId);
+        Assert.Equal(RoomOccupancySegmentAuditEventType.Created, audit.EventType);
+        Assert.Equal(commercialBefore, await CommercialSnapshotAsync(data.UnitsA[0].Id));
+    }
+
+    private async Task<RoomOccupancySegmentDto> CreateAssignmentAsync(
+        IAssignmentMutationStore store,
+        Fixture data,
+        ReservationUnit unit,
+        PhysicalRoom room,
+        string? evidence,
+        string? reason)
+    {
+        var created = await store.CreateAsync(
+            new CreateAssignmentCommand(
+                data.Property.Id, unit.Id, new AssignmentDestination(room.Id, CheckIn, CheckOut), Actor, evidence, reason),
+            CancellationToken.None);
+        Assert.Equal(SegmentMutationStatus.Succeeded, created.Status);
+        return created.Segments![0];
+    }
+
+    /// <summary>
+    /// Every audit row written by the supersede mutation that cancelled
+    /// <paramref name="supersededSegmentId"/>: that segment's Cancelled row fixes
+    /// the MutationGroupId, and the group is read back by it.
+    /// </summary>
+    private async Task<List<RoomOccupancySegmentAudit>> MutationGroupAuditsAsync(Guid supersededSegmentId)
+    {
+        await using var context = factory.CreateDbContext();
+        var cancelled = await context.RoomOccupancySegmentAudits.SingleAsync(
+            a => a.SegmentId == supersededSegmentId && a.EventType == RoomOccupancySegmentAuditEventType.Cancelled);
+        return await context.RoomOccupancySegmentAudits
+            .Where(a => a.MutationGroupId == cancelled.MutationGroupId)
+            .ToListAsync();
+    }
+
+    private static void AssertAudit(
+        IReadOnlyCollection<RoomOccupancySegmentAudit> group,
+        Guid segmentId,
+        RoomOccupancySegmentAuditEventType eventType,
+        string? expectedEvidence,
+        string? expectedReason)
+    {
+        var row = Assert.Single(group, a => a.SegmentId == segmentId && a.EventType == eventType);
+        Assert.Equal(Actor, row.ActorReference);
+        Assert.Equal(expectedEvidence, row.AuthorizationEvidence);
+        Assert.Equal(expectedReason, row.Reason);
+        Assert.All(group, a => Assert.Equal(row.MutationGroupId, a.MutationGroupId));
+    }
+
+    /// <summary>Sold RoomType, commitment status and every booked night (date, rate plan, amount), in order.</summary>
+    private async Task<string> CommercialSnapshotAsync(Guid unitId)
+    {
+        await using var context = factory.CreateDbContext();
+        var unit = await context.ReservationUnits.AsNoTracking().Include(u => u.Nights).SingleAsync(u => u.Id == unitId);
+        var nights = unit.Nights
+            .OrderBy(n => n.StayDate)
+            .Select(n => $"{n.StayDate:yyyy-MM-dd}/{n.RatePlanId}/{n.UnitAmount:0.00}");
+        return $"{unit.RoomTypeId}|{unit.CommitmentStatus}|{string.Join(",", nights)}";
+    }
+
     private IAssignmentMutationStore CreateStore()
     {
         var scope = factory.Services.CreateScope();
