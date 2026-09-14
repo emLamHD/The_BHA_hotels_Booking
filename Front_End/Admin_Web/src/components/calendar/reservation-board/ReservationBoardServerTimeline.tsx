@@ -139,6 +139,12 @@ interface ReservationBoardServerTimelineProps {
    * are `aria-disabled` and cannot open assignment.
    */
   unassignedActionsBlocked?: boolean;
+  /**
+   * PMS-CAL-001.2-CP03A-C2: true for an unassigned range an earlier create
+   * with a lost response may already have covered. Such a range stays
+   * non-actionable even on a board that is otherwise current.
+   */
+  isUnassignedRangeUnconfirmed?: (reservationUnitId: string, range: ReservationBoardUnassignedRange) => boolean;
 }
 
 const LABEL_COLUMN = "220px";
@@ -157,8 +163,11 @@ const ReservationBoardServerTimeline: React.FC<ReservationBoardServerTimelinePro
   onSelectUnassignedRange,
   onSelectBlock,
   unassignedActionsBlocked = false,
+  isUnassignedRangeUnconfirmed,
 }) => {
   const blockedNoteId = React.useId();
+  const unconfirmedNoteId = React.useId();
+  let anyUnconfirmedBar = false;
   const dates = React.useMemo(() => generateRangeDates(range), [range]);
 
   const roomTypeById = React.useMemo(
@@ -326,19 +335,23 @@ const ReservationBoardServerTimeline: React.FC<ReservationBoardServerTimelinePro
           unassignedBars.map((bar) => {
             const rowIndex = rowIndexByUnassignedLane.get(unassignedLaneKey(bar.roomTypeId, bar.lane));
             if (rowIndex === undefined) return null;
+            const unassignedRange = bar.stay.unassignedRanges[bar.rangeIndex];
+            const unconfirmed =
+              isUnassignedRangeUnconfirmed?.(bar.stay.reservationUnitId, unassignedRange) ?? false;
+            if (unconfirmed) anyUnconfirmedBar = true;
+            const blocked = unassignedActionsBlocked || unconfirmed;
             return (
               <button
                 key={bar.key}
                 type="button"
                 onClick={() => {
-                  if (unassignedActionsBlocked) return;
-                  onSelectUnassignedRange({
-                    stay: bar.stay,
-                    unassignedRange: bar.stay.unassignedRanges[bar.rangeIndex],
-                  });
+                  if (blocked) return;
+                  onSelectUnassignedRange({ stay: bar.stay, unassignedRange });
                 }}
-                aria-disabled={unassignedActionsBlocked || undefined}
-                aria-describedby={unassignedActionsBlocked ? blockedNoteId : undefined}
+                aria-disabled={blocked || undefined}
+                aria-describedby={
+                  unassignedActionsBlocked ? blockedNoteId : unconfirmed ? unconfirmedNoteId : undefined
+                }
                 aria-label={`Assign room: ${bar.stay.guestDisplayName}, ${bar.stay.confirmationNumber}, unassigned ${bar.stay.unassignedRanges[bar.rangeIndex].startDate} to ${bar.stay.unassignedRanges[bar.rangeIndex].endDate}`}
                 className="z-10 m-1 flex items-center overflow-hidden rounded-md border-2 border-dashed border-purple-500 bg-purple-50 px-2 text-left text-xs font-medium text-purple-700 hover:bg-purple-100 aria-disabled:cursor-not-allowed aria-disabled:opacity-60 aria-disabled:hover:bg-purple-50 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-purple-500/60 dark:bg-purple-500/10 dark:text-purple-300"
                 style={{ gridColumn: `${bar.startCol + 2} / span ${bar.span}`, gridRow: rowIndex + 2 }}
@@ -374,6 +387,12 @@ const ReservationBoardServerTimeline: React.FC<ReservationBoardServerTimelinePro
       {unassignedActionsBlocked && (
         <p id={blockedNoteId} className="sr-only">
           Refreshing from the server: assignment is unavailable until the latest board has loaded.
+        </p>
+      )}
+      {anyUnconfirmedBar && !unassignedActionsBlocked && (
+        <p id={unconfirmedNoteId} className="sr-only">
+          An earlier assignment request for these nights has an unconfirmed result, so they cannot be assigned
+          until the server shows what happened.
         </p>
       )}
       <p className="sr-only" aria-live="polite">

@@ -45,6 +45,8 @@ interface ReservationAssignmentDialogProps {
   target: AssignmentTarget;
   /** State of the board re-read triggered by this dialog's last outcome, if any. */
   boardReloadStatus: BoardReloadStatus;
+  /** PMS-CAL-001.2-CP03A-C2: what the server's data says about a create whose response was lost. */
+  uncertainResolution?: "unresolved" | "observed" | "changed";
   onSubmit: (physicalRoomId: string) => Promise<AssignmentCreateOutcome>;
   onClose: () => void;
 }
@@ -55,6 +57,7 @@ const FOCUSABLE_SELECTOR =
 const ReservationAssignmentDialog: React.FC<ReservationAssignmentDialogProps> = ({
   target,
   boardReloadStatus,
+  uncertainResolution,
   onSubmit,
   onClose,
 }) => {
@@ -305,7 +308,12 @@ const ReservationAssignmentDialog: React.FC<ReservationAssignmentDialogProps> = 
               >
                 <p className="font-medium">{result.title}</p>
                 {result.detail && <p className="mt-1 text-xs">{result.detail}</p>}
-                {result.reloadBoard && <ReloadStatusLine status={boardReloadStatus} />}
+                {result.reloadBoard &&
+                  (uncertainResolution ? (
+                    <UncertainStatusLine status={boardReloadStatus} resolution={uncertainResolution} />
+                  ) : (
+                    <ReloadStatusLine status={boardReloadStatus} />
+                  ))}
               </div>
             )}
           </div>
@@ -333,6 +341,37 @@ const ReservationAssignmentDialog: React.FC<ReservationAssignmentDialogProps> = 
       </div>
     </div>
   );
+};
+
+/**
+ * A completed board read is not evidence about a create whose response was
+ * lost: the line only reports the write as known once the server's data shows
+ * the assignment, or shows the nights can no longer receive it.
+ */
+const UncertainStatusLine: React.FC<{
+  status: BoardReloadStatus;
+  resolution: "unresolved" | "observed" | "changed";
+}> = ({ status, resolution }) => {
+  if (resolution === "observed") {
+    return <p className="mt-1 text-xs">An assignment matching this request is now shown on the server.</p>;
+  }
+  if (resolution === "changed") {
+    return (
+      <p className="mt-1 text-xs">
+        These nights have since changed on the server, so this request can no longer take effect. Its own result was
+        never confirmed.
+      </p>
+    );
+  }
+  if (status === "done") {
+    return (
+      <p className="mt-1 text-xs">
+        The board was checked, but no matching assignment is shown yet. The result is still unknown; these nights stay
+        locked. Close this dialog and use Check again.
+      </p>
+    );
+  }
+  return <ReloadStatusLine status={status} />;
 };
 
 const ReloadStatusLine: React.FC<{ status: BoardReloadStatus }> = ({ status }) => {

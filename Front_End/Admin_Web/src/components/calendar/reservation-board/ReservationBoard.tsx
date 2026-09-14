@@ -27,7 +27,12 @@ import ReservationBoardStayPopover from "./ReservationBoardStayPopover";
 import ReservationAssignmentDialog, { type BoardReloadStatus } from "./ReservationAssignmentDialog";
 import { boardIdentityKey, buildAssignmentTarget, type AssignmentTarget } from "./assignmentTarget";
 import { describeAssignmentOutcome } from "./assignmentOutcome";
-import { isBoardAwaitingReconciliation, settleReconciliations, type Reconciliation } from "./reconciliation";
+import {
+  isBoardAwaitingReconciliation,
+  isUnassignedRangeUnresolved,
+  settleReconciliations,
+  type Reconciliation,
+} from "./reconciliation";
 import { AlertIcon, CloseLineIcon } from "@/icons";
 import {
   buildVisibleRange,
@@ -44,7 +49,7 @@ import {
   type ApiError,
   type AssignmentCreateOutcome,
 } from "@/lib/api/client";
-import type { ApiProperty, ReservationBoardResponse } from "@/lib/api/types";
+import type { ApiProperty, ReservationBoardResponse, ReservationBoardUnassignedRange } from "@/lib/api/types";
 
 const INITIAL_RANGE_LENGTH: ReservationBoardRangeLength = 14;
 
@@ -214,11 +219,13 @@ const ReservationBoard: React.FC = () => {
       if (!result.ok) {
         if (result.error.kind === "aborted") return;
         setBoardState({ status: "error", error: result.error });
-        updateReconciliations((list) => settleReconciliations(list, requestKey, thisSeq, "failed"));
+        updateReconciliations((list) => settleReconciliations(list, requestKey, thisSeq, { kind: "failed" }));
         return;
       }
       setBoardState({ status: "loaded", board: result.data });
-      updateReconciliations((list) => settleReconciliations(list, requestKey, thisSeq, "loaded"));
+      updateReconciliations((list) =>
+        settleReconciliations(list, requestKey, thisSeq, { kind: "loaded", board: result.data })
+      );
     });
     return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -277,6 +284,18 @@ const ReservationBoard: React.FC = () => {
       if (isBoardAwaitingReconciliation(reconciliationsRef.current, displayedKey)) {
         return;
       }
+      // An earlier create for these nights lost its response and has not been
+      // resolved by the server's data: a second create must not be offered.
+      if (
+        isUnassignedRangeUnresolved(
+          reconciliationsRef.current,
+          boardState.board.property.id,
+          unassignedSelection.stay.reservationUnitId,
+          unassignedSelection.unassignedRange
+        )
+      ) {
+        return;
+      }
       const target = buildAssignmentTarget(boardState.board, selectedPropertyId, unassignedSelection);
       if (!target) return;
       setSelection(null);
@@ -304,20 +323,39 @@ const ReservationBoard: React.FC = () => {
       if (!mountedRef.current) return outcome;
 
       if (describeAssignmentOutcome(outcome).reloadBoard) {
+        const uncertain = outcome.kind === "unknown";
         const reconciliation: Reconciliation = {
           id: nextReconciliationIdRef.current++,
           key: target.boardKey,
+          propertyId: target.propertyId,
           from: target.boardFrom,
           to: target.boardTo,
           // Any board request already issued may have been answered before the write.
           afterSeq: requestSeqRef.current,
+          // 201 and 409 are decided before the response; a lost response is not.
+          certainty: uncertain ? "uncertain" : "settled",
+          target: {
+            reservationUnitId: target.stay.reservationUnitId,
+            physicalRoomId: room.id,
+            startDate: target.unassignedRange.startDate,
+            endDate: target.unassignedRange.endDate,
+            roomNumber: room.roomNumber,
+            guestDisplayName: target.stay.guestDisplayName,
+            confirmationNumber: target.stay.confirmationNumber,
+          },
           status: "pending",
+          resolution: uncertain ? "unresolved" : "settled",
         };
         const referenced = referencedReconciliationIdsRef.current;
         updateReconciliations((list) => [
-          // Settled entries are kept only while a notice or dialog still shows them.
+          // Settled entries are kept only while a notice or dialog still shows
+          // them; uncertain ones stay until the operator dismisses a resolved one.
           ...list.filter(
-            (entry) => entry.status !== "done" || entry.id === referenced.dialog || entry.id === referenced.notice
+            (entry) =>
+              entry.status !== "done" ||
+              entry.certainty === "uncertain" ||
+              entry.id === referenced.dialog ||
+              entry.id === referenced.notice
           ),
           reconciliation,
         ]);
@@ -349,6 +387,38 @@ const ReservationBoard: React.FC = () => {
     if (entry.key !== currentBoardKey) return "elsewhere";
     return entry.status;
   };
+
+  const dialogReconciliation =
+    dialogReconciliationId === null
+      ? null
+      : reconciliations.find((entry) => entry.id === dialogReconciliationId) ?? null;
+
+  const handleCheckAgain = useCallback(() => setRetryToken((token) => token + 1), []);
+
+  const dismissReconciliation = useCallback(
+    (id: number) =>
+      updateReconciliations((list) =>
+        list.filter((entry) => entry.id !== id || entry.resolution === "unresolved")
+      ),
+    [updateReconciliations]
+  );
+
+  const isRangeUnconfirmed = useCallback(
+    (reservationUnitId: string, unassignedRange: ReservationBoardUnassignedRange) =>
+      selectedPropertyId !== null &&
+      isUnassignedRangeUnresolved(reconciliations, selectedPropertyId, reservationUnitId, unassignedRange),
+    [reconciliations, selectedPropertyId]
+  );
+
+  const uncertainWrites = reconciliations.filter(
+    (entry) => entry.certainty === "uncertain" && entry.propertyId === selectedPropertyId
+  );
+
+  const boardCanShow = (entry: Reconciliation) =>
+    boardState.status === "loaded" &&
+    boardState.board.property.id === entry.propertyId &&
+    boardState.board.from <= entry.target.startDate &&
+    boardState.board.to >= entry.target.endDate;
 
   const noticeReconciliation =
     assignmentNotice === null
@@ -415,6 +485,7 @@ const ReservationBoard: React.FC = () => {
         onSelectUnassignedRange={handleSelectUnassignedRange}
         onSelectBlock={(value) => setSelection({ kind: "block", value })}
         unassignedActionsBlocked={displayedBoardAwaitingReconciliation}
+        isUnassignedRangeUnconfirmed={isRangeUnconfirmed}
       />
     );
   }, [
@@ -425,6 +496,7 @@ const ReservationBoard: React.FC = () => {
     handleRetry,
     handleSelectUnassignedRange,
     displayedBoardAwaitingReconciliation,
+    isRangeUnconfirmed,
   ]);
 
   const toolbarProperties = propertiesState.status === "loaded" ? propertiesState.properties : [];
@@ -453,6 +525,17 @@ const ReservationBoard: React.FC = () => {
           onDismiss={() => setAssignmentNotice(null)}
         />
       )}
+      {uncertainWrites.map((entry) => (
+        <UncertainWriteNotice
+          key={entry.id}
+          entry={entry}
+          readStatus={boardState.status === "error" ? "failed" : reconciliationStatus(entry.id)}
+          canCheckHere={boardCanShow(entry)}
+          checking={boardState.status === "loading" || (boardState.status === "loaded" && !!boardState.refreshing)}
+          onCheckAgain={handleCheckAgain}
+          onDismiss={() => dismissReconciliation(entry.id)}
+        />
+      ))}
       {boardState.status === "loaded" && boardState.refreshing && (
         <p role="status" className="px-4 pt-2 text-xs text-gray-500 dark:text-gray-400">
           Refreshing board from the server…
@@ -467,6 +550,11 @@ const ReservationBoard: React.FC = () => {
           key={`${assignmentTarget.stay.reservationUnitId}:${assignmentTarget.unassignedRange.startDate}:${assignmentTarget.unassignedRange.endDate}`}
           target={assignmentTarget}
           boardReloadStatus={reconciliationStatus(dialogReconciliationId)}
+          uncertainResolution={
+            dialogReconciliation?.certainty === "uncertain" && dialogReconciliation.resolution !== "settled"
+              ? dialogReconciliation.resolution
+              : undefined
+          }
           onSubmit={(physicalRoomId) => submitAssignment(assignmentTarget, physicalRoomId)}
           onClose={() => setAssignmentTarget(null)}
         />
@@ -514,6 +602,86 @@ const AssignmentNotice = React.forwardRef<
     </div>
   );
 });
+
+/**
+ * PMS-CAL-001.2-CP03A-C2: one create whose response was lost. It stays on the
+ * board — and its nights stay locked — until the server's data resolves it;
+ * checking again only re-reads the board and never re-sends the create.
+ */
+const UncertainWriteNotice: React.FC<{
+  entry: Reconciliation;
+  readStatus: BoardReloadStatus;
+  canCheckHere: boolean;
+  checking: boolean;
+  onCheckAgain: () => void;
+  onDismiss: () => void;
+}> = ({ entry, readStatus, canCheckHere, checking, onCheckAgain, onDismiss }) => {
+  const { target } = entry;
+  const range = `[${target.startDate}, ${target.endDate})`;
+  const resolved = entry.resolution === "observed" || entry.resolution === "changed";
+  let detail: string;
+  if (entry.resolution === "observed") {
+    detail = `An assignment matching this request — room ${target.roomNumber} for ${range} — is now shown on the server.`;
+  } else if (entry.resolution === "changed") {
+    detail =
+      "These nights have since changed on the server, so this request can no longer take effect. Its own result was never confirmed.";
+  } else if (readStatus === "pending") {
+    detail = "Checking the board on the server…";
+  } else if (readStatus === "failed") {
+    detail = "The board could not be reloaded, so the result is still unknown. Use Retry on the board.";
+  } else if (!canCheckHere) {
+    detail = `The result is still unknown and these nights stay locked. Open a view of this Property that includes ${range} to check again.`;
+  } else {
+    detail = checking
+      ? "Checking the board on the server again…"
+      : "The board was checked, but no matching assignment is shown yet, so the result is still unknown. These nights stay locked and the request will not be sent again.";
+  }
+
+  return (
+    <div
+      role="status"
+      data-testid="uncertain-write-notice"
+      className={`mx-2 mt-2 flex items-start justify-between gap-3 rounded-lg px-3 py-2 text-sm sm:mx-4 ${
+        resolved
+          ? "bg-gray-100 text-gray-700 dark:bg-white/5 dark:text-gray-200"
+          : "bg-warning-50 text-warning-800 dark:bg-warning-500/10 dark:text-warning-300"
+      }`}
+    >
+      <div>
+        <p className="font-medium">
+          Unconfirmed request: room {target.roomNumber} for {target.guestDisplayName} ({target.confirmationNumber}),{" "}
+          {range}.
+        </p>
+        <p className="mt-0.5 text-xs">{detail}</p>
+      </div>
+      {resolved ? (
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label="Dismiss notice"
+          className="flex size-6 shrink-0 items-center justify-center rounded-full hover:bg-gray-200 dark:hover:bg-white/5"
+        >
+          <CloseLineIcon className="size-3.5" aria-hidden="true" />
+        </button>
+      ) : (
+        canCheckHere &&
+        readStatus !== "pending" &&
+        readStatus !== "failed" && (
+          <button
+            type="button"
+            onClick={() => {
+              if (!checking) onCheckAgain();
+            }}
+            aria-disabled={checking || undefined}
+            className="shrink-0 rounded-lg border border-warning-300 px-3 py-1 text-xs font-medium hover:bg-warning-100 aria-disabled:cursor-not-allowed aria-disabled:opacity-60 dark:border-warning-500/40 dark:hover:bg-white/5"
+          >
+            Check again
+          </button>
+        )
+      )}
+    </div>
+  );
+};
 
 const CenteredMessage: React.FC<React.PropsWithChildren> = ({ children }) => (
   <div className="flex min-h-40 items-center justify-center px-4 py-10 text-sm text-gray-500 dark:text-gray-400">

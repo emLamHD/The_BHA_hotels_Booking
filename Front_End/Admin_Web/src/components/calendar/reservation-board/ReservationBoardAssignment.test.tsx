@@ -330,7 +330,11 @@ describe("ReservationBoard — same-RoomType assignment (PMS-CAL-001.2-CP03A)", 
     expect(alert).toHaveTextContent(/could not be confirmed — the assignment may or may not have been saved/);
     expect(alert).toHaveTextContent(/did not respond in time/);
     expect(alert).not.toHaveTextContent(/cancel/i);
-    await waitFor(() => expect(alert).toHaveTextContent("The board has been reloaded from the server."));
+    // CP03A-C2: an unchanged re-read after a lost response is not evidence either way.
+    await waitFor(() =>
+      expect(alert).toHaveTextContent("The board was checked, but no matching assignment is shown yet. The result is still unknown")
+    );
+    expect(alert).not.toHaveTextContent("The board has been reloaded from the server.");
     expect(mockedFetchReservationBoard.mock.calls.length).toBe(boardCallsBefore + 1);
     expect(within(dialog()).queryByRole("button", { name: /Assign room/ })).not.toBeInTheDocument();
     expect(mockedCreate).toHaveBeenCalledTimes(1);
@@ -640,5 +644,216 @@ describe("PMS-CAL-001.2-CP03A-C1 corrections", () => {
     expect(capabilities).toHaveTextContent("no production sign-in or permissions yet");
     expect(capabilities).not.toHaveTextContent(/no assignment/i);
     expect(capabilities).not.toHaveTextContent(/cross|different room type/i);
+  });
+});
+
+describe("PMS-CAL-001.2-CP03A-C2 — a create whose response was lost", () => {
+  const lost: AssignmentCreateOutcome = { kind: "unknown", reason: "timeout" };
+
+  function secondRange(from: string, to: string) {
+    return screen.getByRole("button", {
+      name: `Assign room: Nguyen Van A, CNF-100, unassigned ${addDaysIso(from, 4)} to ${to}`,
+    });
+  }
+
+  function notice() {
+    return screen.getByTestId("uncertain-write-notice");
+  }
+
+  /** The board after some other writer covered the first range with room 101 (not the lost request's room 102). */
+  function boardCoveredByOtherRoom(propertyId: string, from: string, to: string) {
+    const b = boardFor(propertyId, from, to, true);
+    const stay = b.stays[0];
+    stay.assignments = stay.assignments.map((a) => (a.segmentId === "seg-new" ? { ...a, physicalRoomId: "room-101" } : a));
+    return b;
+  }
+
+  /** Sends one create for the first range to room 102 that loses its response, then closes the dialog. */
+  async function loseCreateForFirstRange(from: string) {
+    const user = userEvent.setup();
+    mockedCreate.mockResolvedValue(lost);
+    await user.click(firstRangeBar(from));
+    await user.click(within(dialog()).getByLabelText(/Room 102/));
+    await user.click(within(dialog()).getByRole("button", { name: "Assign room 102" }));
+    const alert = await within(dialog()).findByRole("alert");
+    await waitFor(() => expect(alert).toHaveTextContent("The board was checked, but no matching assignment is shown yet"));
+    await user.click(within(dialog()).getAllByRole("button", { name: "Close" }).at(-1)!);
+    return user;
+  }
+
+  it("1. keeps the write unresolved and its nights locked after an immediate unchanged re-read, without claiming completion or re-sending", async () => {
+    const { from, to } = await renderLoadedBoard();
+    const boardCallsBefore = mockedFetchReservationBoard.mock.calls.length;
+    const user = await loseCreateForFirstRange(from);
+
+    expect(mockedFetchReservationBoard.mock.calls.length).toBe(boardCallsBefore + 1);
+    expect(notice()).toHaveTextContent("Unconfirmed request: room 102 for Nguyen Van A (CNF-100)");
+    expect(notice()).toHaveTextContent("no matching assignment is shown yet, so the result is still unknown");
+    expect(notice()).not.toHaveTextContent(/reloaded from the server|assigned to/);
+    expect(screen.queryByText("Refreshing board from the server…")).not.toBeInTheDocument();
+
+    const locked = firstRangeBar(from);
+    expect(locked).toHaveAttribute("aria-disabled", "true");
+    expect(locked).toHaveAccessibleDescription(/unconfirmed result/);
+    await user.click(locked);
+    locked.focus();
+    await user.keyboard("{Enter} ");
+    expect(screen.queryByRole("dialog", { name: "Assign room" })).not.toBeInTheDocument();
+
+    // Only the uncertain nights are locked; the Unit's other range stays actionable.
+    expect(secondRange(from, to)).not.toHaveAttribute("aria-disabled");
+    expect(mockedCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("2. stays unresolved across repeated Check again reads that still lack the assignment — request order alone never resolves it", async () => {
+    const { from } = await renderLoadedBoard();
+    const user = await loseCreateForFirstRange(from);
+    const boardCallsBefore = mockedFetchReservationBoard.mock.calls.length;
+
+    for (let check = 1; check <= 3; check += 1) {
+      await user.click(within(notice()).getByRole("button", { name: "Check again" }));
+      await waitFor(() => expect(mockedFetchReservationBoard.mock.calls.length).toBe(boardCallsBefore + check));
+      await waitFor(() => expect(notice()).toHaveTextContent("no matching assignment is shown yet"));
+    }
+
+    expect(firstRangeBar(from)).toHaveAttribute("aria-disabled", "true");
+    expect(within(notice()).queryByRole("button", { name: "Dismiss notice" })).not.toBeInTheDocument();
+    expect(mockedCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("3. resolves from authoritative data when a later read shows the intended assignment, with no optimistic insertion before it", async () => {
+    const { from } = await renderLoadedBoard();
+    const user = await loseCreateForFirstRange(from);
+
+    // Before the server shows it, nothing was painted locally.
+    expect(screen.getAllByTitle("Nguyen Van A — CNF-100")).toHaveLength(1);
+
+    mockedFetchReservationBoard.mockImplementation((propertyId, requestFrom, requestTo) =>
+      Promise.resolve({ ok: true, data: boardFor(propertyId, requestFrom, requestTo, true) })
+    );
+    await user.click(within(notice()).getByRole("button", { name: "Check again" }));
+
+    await waitFor(() =>
+      expect(notice()).toHaveTextContent(
+        `An assignment matching this request — room 102 for [${from}, ${addDaysIso(from, 2)}) — is now shown on the server.`
+      )
+    );
+    // Observed on the server — never worded as though the lost response had succeeded.
+    expect(notice()).not.toHaveTextContent(/Room 102 assigned to|Saved on the server/);
+    expect(screen.getAllByTitle("Nguyen Van A — CNF-100")).toHaveLength(2);
+    expect(screen.getAllByTitle("Nguyen Van A — unassigned — CNF-100")).toHaveLength(1);
+    expect(within(notice()).getByRole("button", { name: "Dismiss notice" })).toBeInTheDocument();
+    expect(mockedCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("4. resolves as changed — without attributing a result — when the nights are covered by something else, and offers no duplicate create", async () => {
+    const { from } = await renderLoadedBoard();
+    const user = await loseCreateForFirstRange(from);
+
+    mockedFetchReservationBoard.mockImplementation((propertyId, requestFrom, requestTo) =>
+      Promise.resolve({ ok: true, data: boardCoveredByOtherRoom(propertyId, requestFrom, requestTo) })
+    );
+    await user.click(within(notice()).getByRole("button", { name: "Check again" }));
+
+    await waitFor(() => expect(notice()).toHaveTextContent("These nights have since changed on the server"));
+    expect(notice()).toHaveTextContent("Its own result was never confirmed.");
+    expect(notice()).not.toHaveTextContent(/matching this request|assigned to/);
+    expect(
+      screen.queryByRole("button", { name: `Assign room: Nguyen Van A, CNF-100, unassigned ${from} to ${addDaysIso(from, 2)}` })
+    ).not.toBeInTheDocument();
+    expect(mockedCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("5a. a date-range switch and return never make the unresolved range actionable", async () => {
+    const { from, to } = await renderLoadedBoard();
+    const user = await loseCreateForFirstRange(from);
+
+    await user.click(screen.getByRole("button", { name: "Next date range" }));
+    await waitFor(() => expect(firstRangeBar(to)).toBeInTheDocument());
+    expect(notice()).toHaveTextContent(`Open a view of this Property that includes [${from}, ${addDaysIso(from, 2)}) to check again`);
+    expect(within(notice()).queryByRole("button", { name: "Check again" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Previous date range" }));
+    await waitFor(() => expect(firstRangeBar(from)).toBeInTheDocument());
+    await waitFor(() => expect(notice()).toHaveTextContent("no matching assignment is shown yet"));
+    expect(firstRangeBar(from)).toHaveAttribute("aria-disabled", "true");
+    expect(mockedCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("5b. a Property switch neither resolves the write nor unlocks its nights when returning", async () => {
+    const { from } = await renderLoadedBoard();
+    const user = await loseCreateForFirstRange(from);
+
+    await user.selectOptions(screen.getByLabelText("Property"), "prop-b");
+    await waitFor(() => expect(mockedFetchReservationBoard.mock.calls.at(-1)![0]).toBe("prop-b"));
+    await waitFor(() => expect(screen.queryByTestId("uncertain-write-notice")).not.toBeInTheDocument());
+
+    await user.selectOptions(screen.getByLabelText("Property"), "prop-a");
+    await waitFor(() => expect(firstRangeBar(from)).toBeInTheDocument());
+    await waitFor(() => expect(notice()).toHaveTextContent("no matching assignment is shown yet"));
+    expect(firstRangeBar(from)).toHaveAttribute("aria-disabled", "true");
+    expect(mockedCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("5c. a failed read and a superseded, late read carrying the assignment never resolve the write", async () => {
+    const { from, to } = await renderLoadedBoard();
+    const user = await loseCreateForFirstRange(from);
+
+    // A failed check: nothing resolves, and the board says so.
+    mockedFetchReservationBoard.mockResolvedValueOnce({
+      ok: false,
+      error: { kind: "network", message: "Could not reach the Admin API." },
+    });
+    await user.click(within(notice()).getByRole("button", { name: "Check again" }));
+    await waitFor(() => expect(notice()).toHaveTextContent("The board could not be reloaded, so the result is still unknown"));
+
+    // Retry succeeds, but its answer is held back; the operator navigates away,
+    // and only then does that stale answer arrive — showing the assignment.
+    const late = deferred<Awaited<ReturnType<typeof fetchReservationBoard>>>();
+    mockedFetchReservationBoard.mockImplementation((propertyId, requestFrom, requestTo) =>
+      requestFrom === from ? late.promise : Promise.resolve({ ok: true, data: boardFor(propertyId, requestFrom, requestTo) })
+    );
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await user.click(screen.getByRole("button", { name: "Next date range" }));
+    await waitFor(() => expect(firstRangeBar(to)).toBeInTheDocument());
+    await act(async () => late.resolve({ ok: true, data: boardFor("prop-a", from, to, true) }));
+
+    expect(notice()).not.toHaveTextContent("is now shown on the server");
+    expect(firstRangeBar(to)).toBeInTheDocument();
+
+    mockedFetchReservationBoard.mockImplementation((propertyId, requestFrom, requestTo) =>
+      Promise.resolve({ ok: true, data: boardFor(propertyId, requestFrom, requestTo) })
+    );
+    await user.click(screen.getByRole("button", { name: "Previous date range" }));
+    await waitFor(() => expect(firstRangeBar(from)).toHaveAttribute("aria-disabled", "true"));
+    expect(notice()).toHaveTextContent("no matching assignment is shown yet");
+    expect(mockedCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("6. 201 and 409 still settle on their first re-read and leave no unconfirmed-request notice", async () => {
+    const user = userEvent.setup();
+    const { from, to } = await renderLoadedBoard();
+
+    mockedCreate.mockResolvedValueOnce({ kind: "rejected", status: 409, category: "conflict", detail: "overlap" });
+    await user.click(firstRangeBar(from));
+    await user.click(within(dialog()).getByLabelText(/Room 101/));
+    await user.click(within(dialog()).getByRole("button", { name: "Assign room 101" }));
+    const alert = await within(dialog()).findByRole("alert");
+    await waitFor(() => expect(alert).toHaveTextContent("The board has been reloaded from the server."));
+    await user.click(within(dialog()).getAllByRole("button", { name: "Close" }).at(-1)!);
+    expect(screen.queryByTestId("uncertain-write-notice")).not.toBeInTheDocument();
+    expect(firstRangeBar(from)).not.toHaveAttribute("aria-disabled");
+
+    mockedCreate.mockResolvedValueOnce({ kind: "created", segment: null });
+    mockedFetchReservationBoard.mockImplementation((propertyId, requestFrom, requestTo) =>
+      Promise.resolve({ ok: true, data: boardFor(propertyId, requestFrom, requestTo, true) })
+    );
+    await user.click(firstRangeBar(from));
+    await user.click(within(dialog()).getByLabelText(/Room 102/));
+    await user.click(within(dialog()).getByRole("button", { name: "Assign room 102" }));
+    await waitFor(() => expect(screen.getByText(/The board has been reloaded from the server/)).toBeInTheDocument());
+    expect(screen.queryByTestId("uncertain-write-notice")).not.toBeInTheDocument();
+    expect(secondRange(from, to)).not.toHaveAttribute("aria-disabled");
+    expect(mockedCreate).toHaveBeenCalledTimes(2);
   });
 });
