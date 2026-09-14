@@ -77,6 +77,78 @@ public sealed class CreateReservationAssignmentRequest
 }
 
 /// <summary>
+/// One Admin Calendar move request (PMS-CAL-001.2-CP04B): supersedes exactly
+/// the segment named in the route with exactly one replacement, which
+/// <see cref="AssignmentMutationStoreTests"/>' <c>SupersedeAsync</c> authority
+/// requires to exactly and contiguously cover the source segment's own
+/// <c>[StartDate, EndDate)</c> — a shorter, longer, or shifted range is a
+/// <c>400 Invalid assignment request</c>, exactly as it would be for a direct
+/// <see cref="IAssignmentMutationStore"/> caller. <see cref="StartDate"/>/
+/// <see cref="EndDate"/> are therefore not an invitation to edit dates: they
+/// exist so that check can run, not so this endpoint can bypass it. A partial
+/// move, a split, or a date change has no endpoint here — those remain
+/// internal-only.
+///
+/// <para>
+/// Deliberately narrower than <see cref="AssignmentSupersession"/>/
+/// <see cref="SupersedeAssignmentsCommand"/>: exactly one segment, exactly one
+/// replacement, no actor, no authorization evidence, and no way to express a
+/// multi-segment atomic batch/swap. A body that invents <c>actorReference</c>
+/// or <c>authorizationEvidence</c> is read exactly as one that does not, for
+/// the same reason as <see cref="CreateReservationAssignmentRequest"/>.
+/// </para>
+/// </summary>
+public sealed class MoveReservationAssignmentRequest
+{
+    /// <summary>
+    /// The optimistic-concurrency token last observed for the source segment
+    /// (its <c>Version</c> from a prior create/board/move/unassign response).
+    /// </summary>
+    [JsonRequired]
+    [Required]
+    public uint ExpectedVersion { get; init; }
+
+    [JsonRequired]
+    [Required]
+    public Guid PhysicalRoomId { get; init; }
+
+    /// <summary>Must equal the source segment's own current StartDate — see class remarks.</summary>
+    [JsonRequired]
+    [Required]
+    public DateOnly StartDate { get; init; }
+
+    /// <summary>Must equal the source segment's own current EndDate — see class remarks.</summary>
+    [JsonRequired]
+    [Required]
+    public DateOnly EndDate { get; init; }
+
+    /// <summary>Same meaning as <see cref="CreateReservationAssignmentRequest.ConfirmCrossRoomType"/>.</summary>
+    public bool ConfirmCrossRoomType { get; init; }
+
+    /// <summary>Optional; required by the store only for a cross-RoomType destination.</summary>
+    public string? Reason { get; init; }
+}
+
+/// <summary>
+/// One Admin Calendar unassign request (PMS-CAL-001.2-CP04B): supersedes the
+/// segment named in the route with zero replacements, so the Unit's nights
+/// revert to its sold RoomType. There is nothing to place, so this carries no
+/// target room, no dates, and — because an empty replacement list can never be
+/// cross-RoomType — no <c>confirmCrossRoomType</c> either; the controller never
+/// forwards authorization evidence for this request.
+/// </summary>
+public sealed class UnassignReservationAssignmentRequest
+{
+    /// <summary>The optimistic-concurrency token last observed for the source segment.</summary>
+    [JsonRequired]
+    [Required]
+    public uint ExpectedVersion { get; init; }
+
+    /// <summary>Optional; explains the unassignment. Never required — unassign never crosses RoomTypes.</summary>
+    public string? Reason { get; init; }
+}
+
+/// <summary>
 /// PMS-CAL-001.2-CP02: the first Admin Calendar <em>write</em> endpoint, and a
 /// thin adapter over the already-accepted
 /// <see cref="IAssignmentMutationStore.CreateAsync"/> — every reservation,
@@ -110,6 +182,16 @@ public sealed class CreateReservationAssignmentRequest
 /// response to a create does not know whether the segment exists, and must
 /// re-read the board rather than retry blindly; a future UI must not retry
 /// automatically.
+/// </para>
+///
+/// <para>
+/// PMS-CAL-001.2-CP04B: <see cref="Move"/> and <see cref="Unassign"/> are the
+/// same adapter pattern applied to <see cref="IAssignmentMutationStore.SupersedeAsync"/>,
+/// each a thin, narrow single-segment view onto it — never the general
+/// multi-segment/multi-replacement command. The same idempotency caveat
+/// applies: a lost response leaves the caller not knowing whether the
+/// supersession committed, and the response is the mutation evidence, not a
+/// substitute for re-reading the board.
 /// </para>
 /// </summary>
 [ApiController]
@@ -206,4 +288,113 @@ public sealed class AdminReservationAssignmentsController(IAssignmentMutationSto
                 detail: result.Error)
         };
     }
+
+    /// <summary>
+    /// Supersedes one existing Effective segment with one replacement occupying
+    /// its entire current range — a move/reassign, never a partial move or
+    /// split. Dates are passed to the store un-clipped; a mismatch against the
+    /// source segment's own range is refused by the store's exact-partition
+    /// check, not reinterpreted here.
+    /// </summary>
+    /// <remarks>
+    /// The published metadata mirrors <see cref="Create"/>'s for the same
+    /// reasons (Correction C3): <c>400</c> as the base <see cref="ProblemDetails"/>
+    /// because it has two shapes, and <c>404</c> with no body schema because a
+    /// closed gate's <c>404</c> is empty. <c>200</c>, not <c>201</c>: nothing new
+    /// is only-just-created from the caller's point of view — an existing
+    /// segment is ended and its replacement takes over — and the body is an
+    /// array of the mutated segments (cancelled source, then created
+    /// successor), not one created resource.
+    /// </remarks>
+    [HttpPost("{segmentId:guid}/move")]
+    [ProducesResponseType(typeof(IReadOnlyList<RoomOccupancySegmentDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(void), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status415UnsupportedMediaType)]
+    public async Task<ActionResult<IReadOnlyList<RoomOccupancySegmentDto>>> Move(
+        Guid propertyId,
+        Guid segmentId,
+        [FromBody] MoveReservationAssignmentRequest request,
+        CancellationToken cancellationToken)
+    {
+        var reason = string.IsNullOrWhiteSpace(request.Reason) ? null : request.Reason.Trim();
+
+        var result = await store.SupersedeAsync(
+            new SupersedeAssignmentsCommand(
+                propertyId,
+                [
+                    new AssignmentSupersession(
+                        segmentId,
+                        request.ExpectedVersion,
+                        [new AssignmentDestination(request.PhysicalRoomId, request.StartDate, request.EndDate)])
+                ],
+                LocalActorReference,
+                request.ConfirmCrossRoomType ? CrossRoomTypeAuthorizationEvidence : null,
+                reason),
+            cancellationToken);
+
+        return MapSupersedeResult(result);
+    }
+
+    /// <summary>
+    /// Supersedes one existing Effective segment with zero replacements: the
+    /// Unit's nights covered by it revert to its sold RoomType. Never
+    /// cross-RoomType — an empty replacement list places nobody anywhere — so
+    /// no authorization evidence is ever forwarded for this request.
+    /// </summary>
+    [HttpPost("{segmentId:guid}/unassign")]
+    [ProducesResponseType(typeof(IReadOnlyList<RoomOccupancySegmentDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(void), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status415UnsupportedMediaType)]
+    public async Task<ActionResult<IReadOnlyList<RoomOccupancySegmentDto>>> Unassign(
+        Guid propertyId,
+        Guid segmentId,
+        [FromBody] UnassignReservationAssignmentRequest request,
+        CancellationToken cancellationToken)
+    {
+        var reason = string.IsNullOrWhiteSpace(request.Reason) ? null : request.Reason.Trim();
+
+        var result = await store.SupersedeAsync(
+            new SupersedeAssignmentsCommand(
+                propertyId,
+                [new AssignmentSupersession(segmentId, request.ExpectedVersion, [])],
+                LocalActorReference,
+                null,
+                reason),
+            cancellationToken);
+
+        return MapSupersedeResult(result);
+    }
+
+    /// <summary>
+    /// The status mapping <see cref="Move"/> and <see cref="Unassign"/> share —
+    /// deliberately the same shape as <see cref="Create"/>'s switch, so the two
+    /// write surfaces never disagree about what one <see cref="SegmentMutationStatus"/>
+    /// means to a caller.
+    /// </summary>
+    private ActionResult<IReadOnlyList<RoomOccupancySegmentDto>> MapSupersedeResult(SegmentMutationResult result) =>
+        result.Status switch
+        {
+            SegmentMutationStatus.Succeeded => StatusCode(StatusCodes.Status200OK, result.Segments!),
+            SegmentMutationStatus.Invalid => Problem(
+                statusCode: StatusCodes.Status400BadRequest,
+                title: "Invalid assignment request",
+                detail: result.Error),
+            SegmentMutationStatus.Unauthorized => Problem(
+                statusCode: StatusCodes.Status403Forbidden,
+                title: "Cross-RoomType confirmation required",
+                detail: result.Error),
+            SegmentMutationStatus.NotFound => Problem(
+                statusCode: StatusCodes.Status404NotFound,
+                title: "Assignment target not found",
+                detail: result.Error),
+            _ => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "Assignment conflict",
+                detail: result.Error)
+        };
 }

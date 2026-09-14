@@ -651,3 +651,15 @@ still stands; only its statements *narrating* that no controller exposes these
 mutations were stale. `SupersedeAsync`, OperationalBlock HTTP mutation, Admin
 authentication/RBAC and real Staff identity remain TARGET. Current state is
 tracked in `docs/project/PROJECT_BIBLE.md`, not here.
+
+### 2026-09-15 — one-segment move/unassign is exposed (`PMS-CAL-001.2-CP04B`)
+
+Two more routes, `POST .../reservation-assignments/{segmentId}/move` and
+`POST .../reservation-assignments/{segmentId}/unassign`, expose a narrow,
+single-segment slice of `IAssignmentMutationStore.SupersedeAsync` — one
+replacement occupying the source segment's own full range, or zero
+replacements to unassign — behind the identical CP01 write gate and
+opt-in as CP02. Split, swap, batch and every remaining `SupersedeAsync`
+shape stay internal-only, as do OperationalBlock HTTP mutation, Admin
+authentication/RBAC and real Staff identity. Current state is tracked in
+`docs/project/PROJECT_BIBLE.md`, not here.

@@ -74,13 +74,14 @@ any still-`Effective` assignment segments alongside Reservation
 cancellation. `IAssignmentMutationStore` and `IOperationalBlockMutationStore`
 (`Infrastructure/Persistence/AssignmentMutationStore.cs`,
 `OperationalBlockMutationStore.cs`) are application/persistence boundary
-services. Exactly one of their operations has an HTTP caller:
-`IAssignmentMutationStore.CreateAsync`, through the local-Development-only
-endpoint described under "Admin Calendar write boundary" below.
-`SupersedeAsync` (move/unassign/split/batch) and every
-`IOperationalBlockMutationStore` operation remain internal-only, with **no
-HTTP controller or Admin/Calendar endpoint exposing them**, and no Staff
-identity or Admin RBAC model exists. Exact
+services. `IAssignmentMutationStore.CreateAsync` and a narrow, single-segment
+slice of `SupersedeAsync` — one-segment move and one-segment unassign only,
+never split/swap/batch — have HTTP callers, all through the
+local-Development-only endpoints described under "Admin Calendar write
+boundary" below (`PMS-CAL-001.2` CP02/CP04B). Every
+`IOperationalBlockMutationStore` operation, and every other `SupersedeAsync`
+shape, remain internal-only, with **no HTTP controller or Admin/Calendar
+endpoint exposing them**, and no Staff identity or Admin RBAC model exists. Exact
 invariants, the availability formula, mutation semantics, and error mapping
 are recorded in ADR 0006 and `docs/reports/PMS-BE-001.2-completion.md`, not
 duplicated here.

@@ -112,11 +112,12 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
 - HTTP/Admin/Calendar **mutation** integration còn lại của physical-room
   schedule authority (`RoomOccupancySegments`/`RoomBlock`, đã CURRENT ở trên;
   read projection CURRENT từ `PMS-CAL-001.1`, assignment *create* CURRENT ở
-  mức local-only từ `PMS-CAL-001.2` CP02) — assignment move/unassign/split/
-  batch và OperationalBlock create/cancel qua HTTP, frontend integration cho
-  chúng, Admin authentication/RBAC thật, và Staff identity thật để thay cho
-  `ActorReference`/`AuthorizationEvidence` opaque hiện tại, vẫn TARGET, chưa
-  implement.
+  mức local-only từ `PMS-CAL-001.2` CP02, one-segment *move*/*unassign*
+  CURRENT ở mức local-only từ CP04B) — assignment split/batch và
+  OperationalBlock create/cancel qua HTTP, frontend integration cho move/
+  unassign/split/batch, Admin authentication/RBAC thật, và Staff identity
+  thật để thay cho `ActorReference`/`AuthorizationEvidence` opaque hiện tại,
+  vẫn TARGET, chưa implement.
 - Intentional cross-RoomType upgrade/downgrade **có authorization/reason/
   audit thật qua Staff/RBAC** (opaque `AuthorizationEvidence`/`Reason` string
   đã CURRENT ở mutation boundary trên, nhưng không phải permission check
