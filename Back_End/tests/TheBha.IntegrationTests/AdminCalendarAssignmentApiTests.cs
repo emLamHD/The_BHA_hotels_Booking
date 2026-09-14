@@ -450,9 +450,13 @@ public sealed class AdminCalendarAssignmentApiTests(PostgreSqlWebApplicationFact
                 continue;
             }
 
-            // CP02 adds exactly one Admin mutation route; every other Admin
+            // CP02 adds exactly one Admin mutation route, and CP04B adds
+            // exactly two more (asserted in full by
+            // AdminCalendarAssignmentMoveUnassignApiTests) — every other Admin
             // path must still publish no mutating operation at all.
-            if (path.Name.StartsWith("/api/admin/", StringComparison.Ordinal))
+            if (path.Name.StartsWith("/api/admin/", StringComparison.Ordinal) &&
+                path.Name != $"{ExpectedPath}/{{segmentId}}/move" &&
+                path.Name != $"{ExpectedPath}/{{segmentId}}/unassign")
             {
                 foreach (var method in new[] { "post", "put", "patch", "delete" })
                 {

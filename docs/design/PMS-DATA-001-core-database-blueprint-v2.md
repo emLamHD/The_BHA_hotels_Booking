@@ -97,8 +97,10 @@ firm decision — firmness of the decision is not evidence of construction.
   local opt-in Development host, and called by the Admin Reservation Board for
   both same-RoomType (`PMS-CAL-001.2-CP03A`) and, with an explicit operator
   confirmation and recorded reason, controlled cross-RoomType assignment
-  (`PMS-CAL-001.2-CP03B`). `SupersedeAsync`,
-  move/unassign/split/batch and every `RoomBlock` mutation stay
+  (`PMS-CAL-001.2-CP03B`). Two more routes expose a narrow, single-segment
+  slice of `SupersedeAsync` — one-segment move and one-segment unassign,
+  `PMS-CAL-001.2-CP04B` — same local opt-in Development boundary, no Admin
+  frontend caller yet. Split, swap, batch and every `RoomBlock` mutation stay
   internal-only; no Staff identity and no Admin
   RBAC model exist. See ADR 0006 and
   `docs/reports/PMS-BE-001.2-completion.md` for the exact as-built boundary.

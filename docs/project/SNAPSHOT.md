@@ -17,12 +17,13 @@ PR #43 merge vào `develop` lúc `2026-09-11T12:53:38Z`, merge commit
 `c8c1ea50e2b2eec44b1ae30e65a7919596458f99`, remote feature branch đã xóa.
 `PMS-CAL-001.2-CP02` (PR #44, merge commit
 `2f50951b8197eab7e2180e2ea4498a9fea1042d8`), `CP03A` (PR #45, merge commit
-`261f75595042d9549ac3133b503cd09a66ed193a`) và `CP03B` (PR #46, merge commit
-`16303edd472e4b960db8b765f69b394f58411246`) đều đã **merged**; CI `success`
+`261f75595042d9549ac3133b503cd09a66ed193a`), `CP03B` (PR #46, merge commit
+`16303edd472e4b960db8b765f69b394f58411246`) và `CP04A` (PR #47, merge commit
+`2fefb6295e4b772411dc2c63c270e298253690db`) đều đã **merged**; CI `success`
 trên đúng từng merge commit, remote feature branch đã xóa. Work item đang
-thực thi là `PMS-CAL-001.2-CP04A` — sửa tính toàn vẹn audit evidence của
-`SupersedeAsync`, baseline chính là merge commit của PR #46 (§2, §8). Không
-có mô tả nào ở đây tuyên bố production readiness.
+thực thi là `PMS-CAL-001.2-CP04B` — expose một API local-only hẹp cho
+move/unassign một segment, baseline chính là merge commit của PR #47 (§2,
+§8). Không có mô tả nào ở đây tuyên bố production readiness.
 
 Lịch sử checkpoint của `PMS-CAL-001.1` được giữ lại vì mỗi CI run và review
 result trích dẫn dưới đây gắn với **đúng SHA nêu kèm**, không tự động áp cho
@@ -71,7 +72,8 @@ này sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
 | PR #44 | merged — `feat(admin): Admin reservation-assignment create API (PMS-CAL-001.2-CP02)`, merge commit `2f50951b8197eab7e2180e2ea4498a9fea1042d8`, merged `2026-09-13T08:02:12Z`. CI run `34746682303` `success` trên đúng merge commit. Remote feature branch đã xóa. |
 | PR #45 | merged — `feat(admin): same-RoomType reservation assignment from the board (PMS-CAL-001.2-CP03A)`, merge commit `261f75595042d9549ac3133b503cd09a66ed193a`, merged `2026-09-14T17:09:04Z`. CI run `34872986691` `success` trên đúng merge commit. Remote feature branch đã xóa. |
 | PR #46 | merged — `feat(admin): controlled cross-RoomType reservation assignment (PMS-CAL-001.2-CP03B)`, merge commit `16303edd472e4b960db8b765f69b394f58411246`, merged `2026-09-14T18:02:54Z`. CI run `34878420882` `success` trên đúng merge commit. Remote feature branch đã xóa. |
-| Open execution PR | `PMS-CAL-001.2-CP04A` — Draft PR #47 vào `develop`, feature branch `feature/pms-cal-001-2-cp04a-supersede-audit-integrity`, baseline `16303edd472e4b960db8b765f69b394f58411246`, checked out trực tiếp trong một checkout duy nhất. Chưa Ready, chưa merge; Codex review do Owner invoke. |
+| PR #47 | merged — `fix(backend): record SupersedeAsync authorization evidence per audit event (PMS-CAL-001.2-CP04A)`, merge commit `2fefb6295e4b772411dc2c63c270e298253690db`, merged `2026-09-14T18:58:06Z`. CI run `34884020638` `success` trên đúng merge commit. Remote feature branch đã xóa. |
+| Open execution PR | `PMS-CAL-001.2-CP04B` — Draft PR vào `develop`, feature branch `feature/pms-cal-001-2-cp04b-move-unassign-api`, baseline `2fefb6295e4b772411dc2c63c270e298253690db`, checked out trực tiếp trong một checkout duy nhất. Chưa Ready, chưa merge; Codex review do Owner invoke. |
 
 ## 2. Work item state
 
@@ -180,19 +182,27 @@ này sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
 
 ### Đang thực thi
 
-- `PMS-CAL-001.2-CP04A` — `SupersedeAsync` audit-evidence integrity. Baseline
-  `16303edd472e4b960db8b765f69b394f58411246` (merge commit PR #46), feature
-  branch `feature/pms-cal-001-2-cp04a-supersede-audit-integrity`, Draft PR #47.
-  Phạm vi: `SupersedeAsync` chỉ ghi `AuthorizationEvidence` lên audit
-  `Created` của successor thực sự khác sold RoomType; audit `Cancelled` và
-  successor cùng RoomType không nhận evidence. Không expose HTTP/UI, không
-  schema/API/business-rule change.
-- `CP04B`–`CP04D`, `CP05`, `CP06` và mọi mutation nghiệp vụ khác của
+- `PMS-CAL-001.2-CP04A` (PR #47) — merged. `SupersedeAsync` ghi
+  `AuthorizationEvidence` per audit event, không còn copy nguyên command
+  evidence vào mọi row.
+
+### Đang thực thi
+
+- `PMS-CAL-001.2-CP04B` — expose hai route local-only hẹp,
+  `POST .../reservation-assignments/{segmentId}/move` và
+  `POST .../reservation-assignments/{segmentId}/unassign`, mỗi route là
+  adapter mỏng cho đúng một `AssignmentSupersession` (một replacement hoặc
+  rỗng) qua `IAssignmentMutationStore.SupersedeAsync` đã có. Baseline
+  `2fefb6295e4b772411dc2c63c270e298253690db` (merge commit PR #47), feature
+  branch `feature/pms-cal-001-2-cp04b-move-unassign-api`. Cùng CP01 write
+  gate/CORS/opt-in; không split/swap/batch qua HTTP, không Admin frontend
+  caller, không schema/business-rule change.
+- `CP04C`, `CP04D`, `CP05`, `CP06` và mọi mutation nghiệp vụ khác của
   `PMS-CAL-001.2` **chưa kích hoạt**; Snapshot này không tự mở chúng.
 
 ### Quyết định đang hiệu lực
 
-`PMS_CAL_001_2_CP03B_MERGED__CP04A_ACTIVE`
+`PMS_CAL_001_2_CP04A_MERGED__CP04B_ACTIVE`
 
 Ý nghĩa:
 
@@ -204,12 +214,13 @@ này sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
   lực.
 - Owner đã thay kế hoạch một PR lớn cho `PMS-CAL-001.2` bằng các checkpoint
   độc lập. `CP01` (PR #43), `CP02` (PR #44), `CP03A` (PR #45) và `CP03B`
-  (PR #46) đã merge; `CP04A` đang thực thi trên branch riêng; các checkpoint
-  sau chưa được kích hoạt.
+  (PR #46) và `CP04A` (PR #47) đã merge; `CP04B` đang thực thi trên branch
+  riêng; các checkpoint sau chưa được kích hoạt.
 - Không checkpoint nào tuyên bố public deployment readiness: vẫn chưa có
-  Admin authentication/RBAC. Endpoint gán phòng duy nhất nằm sau write gate
-  same-machine development only, mặc định tắt; Admin Reservation Board là
-  caller duy nhất của nó.
+  Admin authentication/RBAC. Ba route ghi hẹp — create (CP02), move và
+  unassign một segment (CP04B) — nằm sau cùng write gate same-machine
+  development only, mặc định tắt. Admin Reservation Board là caller duy
+  nhất của create; move/unassign chưa có Admin frontend nào gọi.
 - Chỉ Owner được mark Ready, merge và branch cleanup. Claude không merge,
   không mark Ready, không xóa branch, và không tự invoke Codex.
 - Governance vẫn dùng đúng một checkout repository duy nhất cho execution
@@ -289,7 +300,7 @@ này sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
   `/api/admin/v1/properties/{propertyId}/reservation-board`, projects the
   existing `RoomOccupancySegment`/`RoomBlock` authority (above) into a
   frozen read-only JSON contract for the Admin Reservation Board frontend.
-  **Read-only**: endpoint ghi duy nhất (CP02, merged) là một route riêng và
+  **Read-only**: các route ghi (CP02/CP04B, merged) là những route riêng và
   không thuộc contract đọc này. Mỗi
   request chỉ được phục vụ khi **tất cả** điều kiện sau đúng, kiểm tra
   trước model binding: HTTPS; host environment là Development; địa chỉ
@@ -515,22 +526,24 @@ evidence independently verified for this closeout via:
 `e0f5a395aec15cc02e328433a97850e30e165675`, `2026-09-03T03:11:21Z`; §1,
 §2, §4). Không còn review gate hay merge nào đang chờ trên work item đó.
 
-Objective hiện tại là `PMS-CAL-001.2-CP04A` — sửa tính toàn vẹn audit
-evidence của `SupersedeAsync` trước khi move/unassign được expose:
+Objective hiện tại là `PMS-CAL-001.2-CP04B` — expose một API local-only hẹp
+cho move/unassign một segment qua `SupersedeAsync` đã có:
 
-1. `AuthorizationEvidence` chỉ được ghi trên audit `Created` của successor
-   thực sự khác sold RoomType; audit `Cancelled` và successor cùng RoomType
-   ghi `null`. `ActorReference`, `Reason`, `MutationGroupId` không đổi.
-2. Không expose HTTP/UI, không schema/API/business-rule change.
+1. Hai route mới, mỗi route chỉ tạo đúng một `AssignmentSupersession` (một
+   replacement cho move, rỗng cho unassign); không split/swap/batch qua
+   HTTP. `ActorReference`/`AuthorizationEvidence` do server sở hữu, giữ
+   nguyên rule "chỉ ghi evidence khi thực sự cross-RoomType" từ CP04A.
+2. Cùng CP01 write gate/CORS/opt-in; không Admin frontend caller, không
+   schema/business-rule change.
 3. Sau implementation: Owner invoke review, OC quyết định, Owner mark
    Ready/merge/branch cleanup.
 4. Nếu OC yêu cầu correction, OC phát hành correction prompt cho đúng
    implementer ban đầu và Owner activate trước khi có thêm bất kỳ thao tác
    ghi nào.
 
-`CP04A` PASS ở mức implementation không đồng nghĩa review PASS, không đồng
+`CP04B` PASS ở mức implementation không đồng nghĩa review PASS, không đồng
 nghĩa được merge, và không tuyên bố public deployment readiness. Không tự
-động bắt đầu `CP04B` hay bất kỳ product/backend work item nào khác từ
+động bắt đầu `CP04C` hay bất kỳ product/backend work item nào khác từ
 Snapshot này.
 
 ## 9. Main risks
@@ -542,13 +555,16 @@ Snapshot này.
 - Trích một CI run hoặc review result sang một SHA khác với SHA nêu kèm nó
   — không hợp lệ. Mỗi con số trong tài liệu này gắn với đúng commit được ghi
   bên cạnh.
-- Nhầm một endpoint gán phòng local-only với một Admin Calendar đã có
-  mutation/CRUD thật — không đúng. `PMS-CAL-001.2-CP02` expose đúng **một**
-  route ghi (`POST .../reservation-assignments`), chỉ chạy được trên host
-  Development loopback đã bật `AdminCalendar:EnableUnauthenticatedWrite`
-  (mặc định tắt), không có Admin authentication/RBAC; caller duy nhất là
-  Admin Reservation Board. Move/unassign/split/batch và block mutation vẫn chỉ tồn tại ở
-  tầng application/persistence nội bộ (`PMS-BE-001.2`), không có route HTTP.
+- Nhầm các route gán phòng local-only với một Admin Calendar đã có
+  mutation/CRUD thật — không đúng. `PMS-CAL-001.2-CP02` expose route tạo
+  (`POST .../reservation-assignments`) và `CP04B` expose route move/
+  unassign một segment (`.../{segmentId}/move`, `.../{segmentId}/unassign`),
+  chỉ chạy được trên host Development loopback đã bật
+  `AdminCalendar:EnableUnauthenticatedWrite` (mặc định tắt), không có Admin
+  authentication/RBAC; caller duy nhất của create là Admin Reservation
+  Board, move/unassign chưa có caller nào. Split/batch và block mutation
+  vẫn chỉ tồn tại ở tầng application/persistence nội bộ (`PMS-BE-001.2`),
+  không có route HTTP.
 - Nhầm phần còn lại của frontend mock prototype (`ADMIN-002.1`: front-desk
   creation workspace, lifecycle/folio/move demonstrations) — vẫn hoàn toàn
   mock-only — với backend PMS behavior thật.
@@ -590,13 +606,13 @@ Chạy `git fetch --prune origin` và đọc `origin/develop` HEAD trực tiếp
 Git — **không** lấy SHA từ tài liệu này — trước khi dùng Snapshot này làm
 planning baseline.
 
-Work item đang thực thi là `PMS-CAL-001.2-CP04A` (§2, §8). Khi
+Work item đang thực thi là `PMS-CAL-001.2-CP04B` (§2, §8). Khi
 implementation của nó dừng ở checkpoint ổn định, Owner đọc PR head còn sống
 từ GitHub rồi invoke review trên đúng head đó với explicit base
 `origin/develop` (không suy ra `main`). Nếu review không có actionable
 finding và CI mới xanh trên đúng head đó, Owner mark Ready, squash-merge và
 branch cleanup; sau khi merge, xác nhận merge SHA trước khi ghi checkpoint
-là đóng, rồi Owner/Control Tower quyết định có kích hoạt `CP04B` hay không.
+là đóng, rồi Owner/Control Tower quyết định có kích hoạt `CP04C` hay không.
 Bối cảnh đầy đủ: `docs/daily/2026-09/2026-09-11-worklog.md`,
 `docs/reports/PMS-CAL-001.2-CP01-completion.md` và
 `docs/reports/PMS-CAL-001.1-completion.md`.
