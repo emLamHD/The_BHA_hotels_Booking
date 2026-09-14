@@ -83,3 +83,38 @@ export interface ReservationBoardResponse {
   stays: ReservationBoardStay[];
   operationalBlocks: ReservationBoardOperationalBlock[];
 }
+
+/**
+ * PMS-CAL-001.2-CP03A: body of
+ * `POST /api/admin/v1/properties/{propertyId}/reservation-assignments`,
+ * mirroring the backend's `CreateReservationAssignmentRequest`.
+ *
+ * Deliberately closed: there is no `actorReference` and no
+ * `authorizationEvidence` — the backend owns both as server-side constants and
+ * a browser-supplied identity would be a claim, not proof. This slice only
+ * places a Unit in a room of its own sold RoomType, so `confirmCrossRoomType`
+ * is the literal `false` and `reason` is not part of the type at all.
+ */
+export interface CreateReservationAssignmentRequest {
+  reservationUnitId: string;
+  physicalRoomId: string;
+  /** First night, inclusive (`YYYY-MM-DD`). */
+  startDate: string;
+  /** Night after the last one, exclusive (`YYYY-MM-DD`) — half-open `[startDate, endDate)`. */
+  endDate: string;
+  confirmCrossRoomType: false;
+}
+
+/** The `201 Created` body: the backend's `RoomOccupancySegmentDto`. */
+export interface RoomOccupancySegment {
+  id: string;
+  propertyId: string;
+  physicalRoomId: string;
+  type: string;
+  status: string;
+  startDate: string;
+  endDate: string;
+  reservationUnitId: string | null;
+  roomBlockId: string | null;
+  version: number;
+}

@@ -35,6 +35,7 @@ function baseProps() {
     showUnassigned: true,
     showOperationalBlocks: true,
     onSelectStay: vi.fn(),
+    onSelectUnassignedRange: vi.fn(),
     onSelectBlock: vi.fn(),
   };
 }
@@ -119,9 +120,10 @@ describe("ReservationBoardServerTimeline", () => {
     expect(screen.queryByText("Nguyen Van A")).not.toBeInTheDocument();
   });
 
-  it("renders an unassigned bar in the sold RoomType's unassigned lane", async () => {
+  it("renders an unassigned bar in the sold RoomType's unassigned lane and reports its exact range", async () => {
     const user = userEvent.setup();
     const onSelectStay = vi.fn();
+    const onSelectUnassignedRange = vi.fn();
     const stay: ReservationBoardStay = {
       reservationId: "res-2",
       reservationUnitId: "unit-2",
@@ -134,11 +136,61 @@ describe("ReservationBoardServerTimeline", () => {
       assignments: [],
       unassignedRanges: [{ startDate: "2026-09-03", endDate: "2026-09-05" }],
     };
-    render(<ReservationBoardServerTimeline {...baseProps()} stays={[stay]} onSelectStay={onSelectStay} />);
+    render(
+      <ReservationBoardServerTimeline
+        {...baseProps()}
+        stays={[stay]}
+        onSelectStay={onSelectStay}
+        onSelectUnassignedRange={onSelectUnassignedRange}
+      />
+    );
 
     const bar = screen.getByTitle("Tran Thi B — unassigned — CNF-002");
     await user.click(bar);
-    expect(onSelectStay).toHaveBeenCalledWith({ stay, roomTypeName: "Deluxe" });
+    // PMS-CAL-001.2-CP03A: an unassigned bar opens room assignment for that
+    // range, not the read-only stay popover.
+    expect(onSelectUnassignedRange).toHaveBeenCalledWith({ stay, unassignedRange: stay.unassignedRanges[0] });
+    expect(onSelectStay).not.toHaveBeenCalled();
+  });
+
+  it("keeps unassigned bars focusable but aria-disabled and inert while actions are blocked (CP03A-C1)", async () => {
+    const user = userEvent.setup();
+    const onSelectUnassignedRange = vi.fn();
+    const stay: ReservationBoardStay = {
+      reservationId: "res-9",
+      reservationUnitId: "unit-9",
+      confirmationNumber: "CNF-009",
+      guestDisplayName: "Blocked Guest",
+      soldRoomTypeId: "type-standard",
+      checkIn: "2026-09-02",
+      checkOut: "2026-09-04",
+      coverageStatus: "FullyUnassigned",
+      assignments: [],
+      unassignedRanges: [{ startDate: "2026-09-02", endDate: "2026-09-04" }],
+    };
+    const { rerender } = render(
+      <ReservationBoardServerTimeline
+        {...baseProps()}
+        stays={[stay]}
+        onSelectUnassignedRange={onSelectUnassignedRange}
+        unassignedActionsBlocked
+      />
+    );
+
+    const bar = screen.getByTitle("Blocked Guest — unassigned — CNF-009");
+    expect(bar).toHaveAttribute("aria-disabled", "true");
+    expect(bar).toHaveAccessibleDescription(/assignment is unavailable/);
+    await user.click(bar);
+    bar.focus();
+    await user.keyboard("{Enter} ");
+    expect(onSelectUnassignedRange).not.toHaveBeenCalled();
+
+    rerender(
+      <ReservationBoardServerTimeline {...baseProps()} stays={[stay]} onSelectUnassignedRange={onSelectUnassignedRange} />
+    );
+    expect(bar).not.toHaveAttribute("aria-disabled");
+    await user.click(bar);
+    expect(onSelectUnassignedRange).toHaveBeenCalledTimes(1);
   });
 
   it("renders an operational block bar and reports the room number on selection", async () => {
@@ -207,7 +259,7 @@ describe("ReservationBoardServerTimeline", () => {
 
     it("keeps a fully unassigned stay visible, in the correct sold RoomType lane and dates", async () => {
       const user = userEvent.setup();
-      const onSelectStay = vi.fn();
+      const onSelectUnassignedRange = vi.fn();
       const stay: ReservationBoardStay = {
         reservationId: "res-3",
         reservationUnitId: "unit-3",
@@ -226,14 +278,14 @@ describe("ReservationBoardServerTimeline", () => {
           {...baseProps()}
           roomTypes={roomTypesWithNoActiveRoom}
           stays={[stay]}
-          onSelectStay={onSelectStay}
+          onSelectUnassignedRange={onSelectUnassignedRange}
         />
       );
 
       expect(screen.getByText("Penthouse")).toBeInTheDocument();
       const bar = screen.getByTitle("Tran Thi B — unassigned — CNF-003");
       await user.click(bar);
-      expect(onSelectStay).toHaveBeenCalledWith({ stay, roomTypeName: "Penthouse" });
+      expect(onSelectUnassignedRange).toHaveBeenCalledWith({ stay, unassignedRange: stay.unassignedRanges[0] });
     });
 
     it("still displays a stay sold under an inactive (deactivated) RoomType", () => {
@@ -373,7 +425,7 @@ describe("ReservationBoardServerTimeline", () => {
 
     it("gives two overlapping stays different rows, both rendered and independently selectable", async () => {
       const user = userEvent.setup();
-      const onSelectStay = vi.fn();
+      const onSelectUnassignedRange = vi.fn();
       const first = unassignedStay("A", "type-standard", "2026-09-01", "2026-09-04");
       const second = unassignedStay("B", "type-standard", "2026-09-02", "2026-09-05");
 
@@ -381,7 +433,7 @@ describe("ReservationBoardServerTimeline", () => {
         <ReservationBoardServerTimeline
           {...baseProps()}
           stays={[first, second]}
-          onSelectStay={onSelectStay}
+          onSelectUnassignedRange={onSelectUnassignedRange}
         />
       );
 
@@ -391,9 +443,12 @@ describe("ReservationBoardServerTimeline", () => {
       expect(screen.getByText("Unassigned 2")).toBeInTheDocument();
 
       await user.click(barFor("A"));
-      expect(onSelectStay).toHaveBeenLastCalledWith({ stay: first, roomTypeName: "Standard" });
+      expect(onSelectUnassignedRange).toHaveBeenLastCalledWith({ stay: first, unassignedRange: first.unassignedRanges[0] });
       await user.click(barFor("B"));
-      expect(onSelectStay).toHaveBeenLastCalledWith({ stay: second, roomTypeName: "Standard" });
+      expect(onSelectUnassignedRange).toHaveBeenLastCalledWith({
+        stay: second,
+        unassignedRange: second.unassignedRanges[0],
+      });
     });
 
     it("allocates three lanes for three mutually overlapping stays", () => {
@@ -480,7 +535,7 @@ describe("ReservationBoardServerTimeline", () => {
 
     it("keeps both bars of a single Unit's two disjoint unassigned ranges, sharing one lane", async () => {
       const user = userEvent.setup();
-      const onSelectStay = vi.fn();
+      const onSelectUnassignedRange = vi.fn();
       const split = unassignedStay("A", "type-standard", "2026-09-01", "2026-09-03", [
         { startDate: "2026-09-05", endDate: "2026-09-07" },
       ]);
@@ -489,7 +544,7 @@ describe("ReservationBoardServerTimeline", () => {
         <ReservationBoardServerTimeline
           {...baseProps()}
           stays={[split]}
-          onSelectStay={onSelectStay}
+          onSelectUnassignedRange={onSelectUnassignedRange}
         />
       );
 
@@ -498,8 +553,20 @@ describe("ReservationBoardServerTimeline", () => {
       expect(bars[0].style.gridRow).toBe(bars[1].style.gridRow);
       expect(screen.queryByText("Unassigned 2")).not.toBeInTheDocument();
 
+      // Each bar selects exactly its own range — never the Unit's first or whole stay.
       await user.click(bars[1]);
-      expect(onSelectStay).toHaveBeenCalledWith({ stay: split, roomTypeName: "Standard" });
+      expect(onSelectUnassignedRange).toHaveBeenLastCalledWith({
+        stay: split,
+        unassignedRange: { startDate: "2026-09-05", endDate: "2026-09-07" },
+      });
+      await user.click(bars[0]);
+      expect(onSelectUnassignedRange).toHaveBeenLastCalledWith({
+        stay: split,
+        unassignedRange: { startDate: "2026-09-01", endDate: "2026-09-03" },
+      });
+      expect(screen.getByRole("button", { name: "Assign room: Guest A, CNF-A, unassigned 2026-09-05 to 2026-09-07" })).toBe(
+        bars[1]
+      );
     });
 
     it("packs each sold RoomType independently", () => {
