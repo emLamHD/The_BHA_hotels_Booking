@@ -8,6 +8,11 @@ const cases: Array<[string, AssignmentCreateOutcome, { reloadBoard: boolean; all
   ["400", { kind: "rejected", status: 400, category: "validation", detail: "bad" }, { reloadBoard: false, allowResubmit: true }],
   ["403", { kind: "rejected", status: 403, category: "not-permitted" }, { reloadBoard: false, allowResubmit: false }],
   ["404", { kind: "rejected", status: 404, category: "not-permitted" }, { reloadBoard: false, allowResubmit: false }],
+  [
+    "403 cross-room-type",
+    { kind: "rejected", status: 403, category: "cross-room-type-confirmation-required", detail: "needs reason" },
+    { reloadBoard: false, allowResubmit: true },
+  ],
   ["409", { kind: "rejected", status: 409, category: "conflict", detail: "overlap" }, { reloadBoard: true, allowResubmit: false }],
   ["415", { kind: "rejected", status: 415, category: "refused" }, { reloadBoard: false, allowResubmit: false }],
   ["network", { kind: "unknown", reason: "network" }, { reloadBoard: true, allowResubmit: false }],
@@ -16,7 +21,7 @@ const cases: Array<[string, AssignmentCreateOutcome, { reloadBoard: boolean; all
   ["5xx", { kind: "unknown", reason: "server-error", status: 503 }, { reloadBoard: true, allowResubmit: false }],
 ];
 
-describe("describeAssignmentOutcome (PMS-CAL-001.2-CP03A)", () => {
+describe("describeAssignmentOutcome (PMS-CAL-001.2-CP03A/B)", () => {
   it.each(cases)("%s → reload/resubmit policy", (_name, outcome, expected) => {
     const view = describeAssignmentOutcome(outcome);
     expect({ reloadBoard: view.reloadBoard, allowResubmit: view.allowResubmit }).toEqual(expected);
@@ -38,9 +43,11 @@ describe("describeAssignmentOutcome (PMS-CAL-001.2-CP03A)", () => {
     for (const [, outcome] of cases) {
       const view = describeAssignmentOutcome(outcome);
       if (view.allowResubmit) {
-        expect(outcome.kind === "not-sent" || (outcome.kind === "rejected" && outcome.category === "validation")).toBe(
-          true
-        );
+        expect(
+          outcome.kind === "not-sent" ||
+            (outcome.kind === "rejected" &&
+              (outcome.category === "validation" || outcome.category === "cross-room-type-confirmation-required"))
+        ).toBe(true);
       }
     }
   });
@@ -70,5 +77,20 @@ describe("describeAssignmentOutcome (PMS-CAL-001.2-CP03A)", () => {
     expect(view.title).toMatch(/not saved/);
     expect(view.title).toMatch(/reloaded board/);
     expect(view.detail).toBe("overlap");
+  });
+
+  it("PMS-CAL-001.2-CP03B: says a cross-room-type rejection was not confirmed/saved, never that the booking was deleted, and allows resubmit", () => {
+    const view = describeAssignmentOutcome({
+      kind: "rejected",
+      status: 403,
+      category: "cross-room-type-confirmation-required",
+      detail: "Cross-RoomType assignment requires non-empty authorization evidence and a recorded reason.",
+    });
+    const text = `${view.title} ${view.detail ?? ""}`.toLowerCase();
+    expect(text).toMatch(/not confirmed/);
+    expect(text).toMatch(/nothing was saved/);
+    expect(text).not.toMatch(/deleted|does not exist|no longer exists|not found/);
+    expect(view.allowResubmit).toBe(true);
+    expect(view.reloadBoard).toBe(false);
   });
 });

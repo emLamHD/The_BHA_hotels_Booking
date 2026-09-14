@@ -137,7 +137,7 @@ beforeEach(() => {
 });
 
 describe("ReservationBoard — same-RoomType assignment (PMS-CAL-001.2-CP03A)", () => {
-  it("opens the dialog for exactly the clicked partial range and offers only Active rooms of the sold RoomType", async () => {
+  it("opens the dialog for exactly the clicked partial range and offers same-RoomType rooms first, then cross-RoomType rooms", async () => {
     const user = userEvent.setup();
     const { from, to } = await renderLoadedBoard();
 
@@ -153,11 +153,17 @@ describe("ReservationBoard — same-RoomType assignment (PMS-CAL-001.2-CP03A)", 
     expect(view.getByText("Standard")).toBeInTheDocument();
     expect(view.getByText(new RegExp(`^\\[${addDaysIso(from, 4)}, ${to}\\)`))).toBeInTheDocument();
     expect(view.getByText(/Partial assignment/)).toBeInTheDocument();
+    // PMS-CAL-001.2-CP03B: same sold RoomType first (untagged), then every
+    // other Active RoomType's rooms, each tagged with its own RoomType name —
+    // never with the sold RoomType.
     expect(view.getAllByRole("radio").map((radio) => radio.closest("label")!.textContent)).toEqual([
       "Room 101Floor 1",
       "Room 102Floor 1",
+      "Room 201DeluxeFloor 2",
     ]);
-    expect(view.queryByText("Room 201")).not.toBeInTheDocument();
+    expect(view.getByText("Deluxe")).toBeInTheDocument();
+    // The cross-RoomType confirmation panel is not shown until a cross-type room is actually selected.
+    expect(view.queryByLabelText(/deliberately chosen a room of a different room type/)).not.toBeInTheDocument();
     // Selecting a range opens assignment, not the read-only popover.
     expect(screen.queryByRole("dialog", { name: "Reservation details" })).not.toBeInTheDocument();
   });
@@ -416,7 +422,7 @@ describe("ReservationBoard — same-RoomType assignment (PMS-CAL-001.2-CP03A)", 
     await user.click(within(dialog()).getByRole("button", { name: "Assign room" }));
 
     expect(within(dialog()).getByRole("alert")).toHaveTextContent("Select a room to assign.");
-    const group = within(dialog()).getByRole("radiogroup", { name: "Target room (Standard)" });
+    const group = within(dialog()).getByRole("radiogroup", { name: "Target room" });
     expect(group).toHaveAttribute("aria-invalid", "true");
     expect(group).toHaveAccessibleDescription("Select a room to assign.");
     expect(mockedCreate).not.toHaveBeenCalled();
@@ -458,7 +464,22 @@ describe("ReservationBoard — same-RoomType assignment (PMS-CAL-001.2-CP03A)", 
     expect(mockedCreate).toHaveBeenCalledTimes(1);
   });
 
-  it("explains, and offers no Confirm, when the sold RoomType has no Active room on the board", async () => {
+  it("explains, and offers no Confirm, when this Property has no Active room of any RoomType", async () => {
+    const user = userEvent.setup();
+    mockedFetchReservationBoard.mockImplementation((propertyId, from, to) => {
+      const board = boardFor(propertyId, from, to);
+      return Promise.resolve({ ok: true, data: { ...board, physicalRooms: [] } });
+    });
+    const { from } = await renderLoadedBoard();
+
+    await user.click(firstRangeBar(from));
+
+    expect(within(dialog()).getByText("No active room is available on this Property to assign.")).toBeInTheDocument();
+    expect(within(dialog()).queryByRole("radio")).not.toBeInTheDocument();
+    expect(within(dialog()).queryByRole("button", { name: /Assign room/ })).not.toBeInTheDocument();
+  });
+
+  it("PMS-CAL-001.2-CP03B: still offers cross-RoomType rooms, with no same-RoomType subheading, when the sold RoomType itself has no Active room", async () => {
     const user = userEvent.setup();
     mockedFetchReservationBoard.mockImplementation((propertyId, from, to) => {
       const board = boardFor(propertyId, from, to);
@@ -471,9 +492,14 @@ describe("ReservationBoard — same-RoomType assignment (PMS-CAL-001.2-CP03A)", 
 
     await user.click(firstRangeBar(from));
 
-    expect(within(dialog()).getByText("No active Standard room is available on this board to assign.")).toBeInTheDocument();
-    expect(within(dialog()).queryByRole("radio")).not.toBeInTheDocument();
-    expect(within(dialog()).queryByRole("button", { name: /Assign room/ })).not.toBeInTheDocument();
+    const view = within(dialog());
+    expect(view.queryByText("No active room is available on this Property to assign.")).not.toBeInTheDocument();
+    expect(view.queryByText(/\(sold room type\)/)).not.toBeInTheDocument();
+    expect(view.getByText(/Other room types/)).toBeInTheDocument();
+    expect(view.getAllByRole("radio").map((radio) => radio.closest("label")!.textContent)).toEqual([
+      "Room 201DeluxeFloor 2",
+    ]);
+    expect(view.getByRole("button", { name: "Assign room" })).toBeInTheDocument();
   });
 
   it("clears the success notice when the Property changes, so it never describes another Property's board", async () => {
@@ -855,5 +881,332 @@ describe("PMS-CAL-001.2-CP03A-C2 — a create whose response was lost", () => {
     expect(screen.queryByTestId("uncertain-write-notice")).not.toBeInTheDocument();
     expect(secondRange(from, to)).not.toHaveAttribute("aria-disabled");
     expect(mockedCreate).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("ReservationBoard — controlled cross-RoomType assignment (PMS-CAL-001.2-CP03B)", () => {
+  function crossTypeRadio() {
+    return within(dialog()).getByLabelText(/Room 201/);
+  }
+  function confirmCheckbox() {
+    return within(dialog()).getByLabelText(/deliberately chosen a room of a different room type/);
+  }
+  function reasonField() {
+    return within(dialog()).getByLabelText("Reason");
+  }
+  function submitButton(label = "Assign room 201") {
+    return within(dialog()).getByRole("button", { name: label });
+  }
+  it("1. does not regress same-RoomType assignment: still sends confirmCrossRoomType:false with no reason field", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    mockedCreate.mockResolvedValue({ kind: "created", segment: null });
+
+    await user.click(firstRangeBar(from));
+    await user.click(within(dialog()).getByLabelText(/Room 101/));
+    await user.click(within(dialog()).getByRole("button", { name: "Assign room 101" }));
+
+    await waitFor(() => expect(mockedCreate).toHaveBeenCalledTimes(1));
+    const [, request] = mockedCreate.mock.calls[0];
+    expect(request.confirmCrossRoomType).toBe(false);
+    expect("reason" in request).toBe(false);
+  });
+
+  it("2. selecting a cross-RoomType room and submitting without touching confirmation or reason sends no request", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+
+    await user.click(firstRangeBar(from));
+    await user.click(crossTypeRadio());
+    await user.click(submitButton());
+
+    expect(mockedCreate).not.toHaveBeenCalled();
+    expect(within(dialog()).getByText("Confirm this cross-room-type placement to continue.")).toBeInTheDocument();
+    expect(confirmCheckbox()).toHaveAttribute("aria-invalid", "true");
+    expect(document.activeElement).toBe(confirmCheckbox());
+  });
+
+  it("3. confirmed but the reason is empty or whitespace-only: sends no request", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+
+    await user.click(firstRangeBar(from));
+    await user.click(crossTypeRadio());
+    await user.click(confirmCheckbox());
+    await user.type(reasonField(), "   ");
+    await user.click(submitButton());
+
+    expect(mockedCreate).not.toHaveBeenCalled();
+    expect(within(dialog()).getByText("Enter a reason for this cross-room-type placement.")).toBeInTheDocument();
+    expect(reasonField()).toHaveAttribute("aria-invalid", "true");
+    expect(document.activeElement).toBe(reasonField());
+    // The confirmation itself was valid — only the reason is flagged.
+    expect(confirmCheckbox()).not.toHaveAttribute("aria-invalid");
+  });
+
+  it("4. a reason is entered but confirmation is not checked: sends no request", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+
+    await user.click(firstRangeBar(from));
+    await user.click(crossTypeRadio());
+    await user.type(reasonField(), "Guest requested a specific view; only a Deluxe was available.");
+    await user.click(submitButton());
+
+    expect(mockedCreate).not.toHaveBeenCalled();
+    expect(within(dialog()).getByText("Confirm this cross-room-type placement to continue.")).toBeInTheDocument();
+    expect(document.activeElement).toBe(confirmCheckbox());
+  });
+
+  it("5. selecting a different target room clears a previously entered confirmation and reason — never reused", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+
+    await user.click(firstRangeBar(from));
+    await user.click(crossTypeRadio());
+    await user.click(confirmCheckbox());
+    await user.type(reasonField(), "First reason, for room 201.");
+    expect(confirmCheckbox()).toBeChecked();
+
+    // Switch to a same-RoomType room: the cross-RoomType panel disappears entirely.
+    await user.click(within(dialog()).getByLabelText(/Room 101/));
+    expect(within(dialog()).queryByLabelText(/deliberately chosen a room of a different room type/)).not.toBeInTheDocument();
+
+    // Switch back to the cross-RoomType room: the panel reappears, but empty — nothing carried over.
+    await user.click(crossTypeRadio());
+    expect(confirmCheckbox()).not.toBeChecked();
+    expect(reasonField()).toHaveValue("");
+
+    // Submitting now without re-confirming is still blocked — proof the old state is truly gone, not just hidden.
+    await user.click(submitButton());
+    expect(mockedCreate).not.toHaveBeenCalled();
+  });
+
+  it("6. a valid cross-RoomType submission sends exactly the six contract fields (no actor/evidence), gets 201, and reloads the board", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    mockedCreate.mockResolvedValue({ kind: "created", segment: null });
+    const boardCallsBefore = mockedFetchReservationBoard.mock.calls.length;
+
+    await user.click(firstRangeBar(from));
+    await user.click(crossTypeRadio());
+    await user.click(confirmCheckbox());
+    await user.type(reasonField(), "  Guest requested a Deluxe; only room 201 was available.  ");
+    await user.click(submitButton());
+
+    await waitFor(() => expect(mockedCreate).toHaveBeenCalledTimes(1));
+    const [propertyId, request] = mockedCreate.mock.calls[0];
+    expect(propertyId).toBe("prop-a");
+    expect(Object.keys(request).sort()).toEqual(
+      ["confirmCrossRoomType", "endDate", "physicalRoomId", "reason", "reservationUnitId", "startDate"].sort()
+    );
+    expect(request).toMatchObject({
+      reservationUnitId: "unit-1",
+      physicalRoomId: "room-201",
+      startDate: from,
+      endDate: addDaysIso(from, 2),
+      confirmCrossRoomType: true,
+      // Sent already-trimmed — the dialog trims before calling onSubmit.
+      reason: "Guest requested a Deluxe; only room 201 was available.",
+    });
+    expect("actorReference" in request).toBe(false);
+    expect("authorizationEvidence" in request).toBe(false);
+
+    await waitFor(() => expect(screen.getByText(/Room 201 \(Deluxe\) assigned to Nguyen Van A/)).toBeInTheDocument());
+    expect(mockedFetchReservationBoard.mock.calls.length).toBe(boardCallsBefore + 1);
+    expect(screen.queryByRole("dialog", { name: "Assign room" })).not.toBeInTheDocument();
+  });
+
+  it("7. a cross-RoomType capacity/room conflict (409) is not saved, reloads the board, and removes Confirm", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    const boardCallsBefore = mockedFetchReservationBoard.mock.calls.length;
+    mockedCreate.mockResolvedValue({
+      kind: "rejected",
+      status: 409,
+      category: "conflict",
+      detail: "The destination PhysicalRoom already has an overlapping Effective schedule entry for one or more of these dates.",
+    });
+
+    await user.click(firstRangeBar(from));
+    await user.click(crossTypeRadio());
+    await user.click(confirmCheckbox());
+    await user.type(reasonField(), "Only Deluxe available for this arrival.");
+    await user.click(submitButton());
+
+    const alert = await within(dialog()).findByRole("alert");
+    expect(alert).toHaveTextContent(/not saved: the schedule has changed or the room is no longer suitable/);
+    await waitFor(() => expect(alert).toHaveTextContent("The board has been reloaded from the server."));
+    expect(mockedFetchReservationBoard.mock.calls.length).toBe(boardCallsBefore + 1);
+    expect(within(dialog()).queryByRole("button", { name: /Assign room/ })).not.toBeInTheDocument();
+    expect(mockedCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("8. the server's own 403 (a contract mismatch the dialog itself should already prevent) is shown as unconfirmed, never as a deleted booking, and allows resubmit", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    mockedCreate
+      .mockResolvedValueOnce({
+        kind: "rejected",
+        status: 403,
+        category: "cross-room-type-confirmation-required",
+        detail: "Cross-RoomType assignment requires non-empty authorization evidence and a recorded reason.",
+      })
+      .mockResolvedValueOnce({ kind: "created", segment: null });
+
+    await user.click(firstRangeBar(from));
+    await user.click(crossTypeRadio());
+    await user.click(confirmCheckbox());
+    await user.type(reasonField(), "Only Deluxe available.");
+    await user.click(submitButton());
+
+    const alert = await within(dialog()).findByRole("alert");
+    expect(alert).toHaveTextContent(/not confirmed/);
+    expect(alert).toHaveTextContent(/Nothing was saved/);
+    expect(alert.textContent?.toLowerCase()).not.toMatch(/deleted|does not exist|no longer exists/);
+
+    // Resubmit is offered — nothing was written — and it sends a real second attempt.
+    await user.click(submitButton());
+    await waitFor(() => expect(mockedCreate).toHaveBeenCalledTimes(2));
+  });
+
+  it("9. write opt-in disabled: a cross-RoomType submission mutates nothing and shows the same not-permitted message as same-RoomType", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    const boardCallsBefore = mockedFetchReservationBoard.mock.calls.length;
+    mockedCreate.mockResolvedValue({ kind: "rejected", status: 404, category: "not-permitted" });
+
+    await user.click(firstRangeBar(from));
+    await user.click(crossTypeRadio());
+    await user.click(confirmCheckbox());
+    await user.type(reasonField(), "Only Deluxe available.");
+    await user.click(submitButton());
+
+    const alert = await within(dialog()).findByRole("alert");
+    expect(alert).toHaveTextContent(/not available or not permitted/);
+    expect(alert).toHaveTextContent(/does not mean the booking was removed/);
+    expect(within(dialog()).queryByRole("button", { name: /Assign room/ })).not.toBeInTheDocument();
+    expect(mockedFetchReservationBoard.mock.calls.length).toBe(boardCallsBefore);
+    expect(mockedCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("10. double-click and repeated Enter on a valid cross-RoomType submission still start exactly one request", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    const create = deferred<AssignmentCreateOutcome>();
+    mockedCreate.mockImplementation(() => create.promise);
+
+    await user.click(firstRangeBar(from));
+    await user.click(crossTypeRadio());
+    await user.click(confirmCheckbox());
+    await user.type(reasonField(), "Only Deluxe available.");
+    const submit = submitButton();
+    const form = submit.closest("form")!;
+
+    act(() => {
+      fireEvent.submit(form);
+      fireEvent.submit(form);
+      fireEvent.submit(form);
+    });
+    await user.dblClick(submit);
+    submit.focus();
+    await user.keyboard("{Enter}{Enter}{Enter}");
+
+    expect(mockedCreate).toHaveBeenCalledTimes(1);
+    expect(within(dialog()).getByRole("button", { name: "Assigning…" })).toHaveAttribute("aria-disabled", "true");
+
+    await act(async () => create.resolve({ kind: "created", segment: null }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Assign room" })).not.toBeInTheDocument());
+    expect(mockedCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("11. an unconfirmed (lost-response) cross-RoomType create stays unresolved and locked until the server's data resolves it", async () => {
+    const user = userEvent.setup();
+    const { from, to } = await renderLoadedBoard();
+    mockedCreate.mockResolvedValue({ kind: "unknown", reason: "timeout" });
+
+    await user.click(firstRangeBar(from));
+    await user.click(crossTypeRadio());
+    await user.click(confirmCheckbox());
+    await user.type(reasonField(), "Only Deluxe available.");
+    await user.click(submitButton());
+
+    const alert = await within(dialog()).findByRole("alert");
+    await waitFor(() => expect(alert).toHaveTextContent("The board was checked, but no matching assignment is shown yet"));
+    await user.click(within(dialog()).getAllByRole("button", { name: "Close" }).at(-1)!);
+
+    const lockedBar = firstRangeBar(from);
+    expect(lockedBar).toHaveAttribute("aria-disabled", "true");
+    expect(lockedBar).toHaveAccessibleDescription(/unconfirmed result/);
+    // The Unit's other, non-overlapping range is unaffected.
+    expect(
+      screen.getByRole("button", { name: `Assign room: Nguyen Van A, CNF-100, unassigned ${addDaysIso(from, 4)} to ${to}` })
+    ).not.toHaveAttribute("aria-disabled");
+
+    // The server's data then shows exactly the intended cross-RoomType assignment.
+    mockedFetchReservationBoard.mockImplementation((propertyId, requestFrom, requestTo) => {
+      const board = boardFor(propertyId, requestFrom, requestTo);
+      const stay = board.stays[0];
+      stay.assignments = [
+        ...stay.assignments,
+        {
+          segmentId: "seg-cross",
+          segmentVersion: 1,
+          physicalRoomId: "room-201",
+          actualRoomTypeId: "type-deluxe",
+          startDate: from,
+          endDate: addDaysIso(from, 2),
+        },
+      ];
+      stay.unassignedRanges = stay.unassignedRanges.filter((range) => range.startDate !== from);
+      return Promise.resolve({ ok: true, data: board });
+    });
+    await user.click(screen.getByRole("button", { name: "Check again" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("uncertain-write-notice")).toHaveTextContent("is now shown on the server")
+    );
+    // The pre-existing assignment plus the now-observed cross-RoomType one — read from the GET, not painted locally.
+    expect(screen.getAllByTitle("Nguyen Van A — CNF-100")).toHaveLength(2);
+    expect(mockedCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("12. is fully keyboard operable end to end: room list, confirmation checkbox, reason field and submit", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    mockedCreate.mockResolvedValue({ kind: "created", segment: null });
+
+    const bar = firstRangeBar(from);
+    bar.focus();
+    await user.keyboard("{Enter}");
+
+    const radios = within(dialog()).getAllByRole("radio");
+    expect(document.activeElement).toBe(radios[0]);
+    // Arrow-key navigation moves across the same-RoomType/cross-RoomType boundary
+    // within the one radiogroup: 101 → 102 → 201.
+    await user.keyboard("{ArrowDown}{ArrowDown}");
+    expect(document.activeElement).toBe(crossTypeRadio());
+    expect(crossTypeRadio()).toBeChecked();
+
+    await user.tab();
+    expect(document.activeElement).toBe(confirmCheckbox());
+    await user.keyboard(" ");
+    expect(confirmCheckbox()).toBeChecked();
+
+    await user.tab();
+    expect(document.activeElement).toBe(reasonField());
+    await user.keyboard("Only Deluxe available for this arrival.");
+
+    // The footer's own "Close" button is the next DOM focus stop before Submit.
+    await user.tab();
+    expect(document.activeElement).toHaveTextContent("Close");
+    await user.tab();
+    expect(document.activeElement).toHaveTextContent("Assign room 201");
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Assign room" })).not.toBeInTheDocument());
+    expect(mockedCreate).toHaveBeenCalledTimes(1);
+    const [, request] = mockedCreate.mock.calls[0];
+    expect(request.confirmCrossRoomType).toBe(true);
+    expect(request.reason).toBe("Only Deluxe available for this arrival.");
   });
 });

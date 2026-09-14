@@ -14,6 +14,14 @@
  * create call goes to the backend, and every outcome that may have changed
  * the schedule (success, conflict, unconfirmed) is followed by a re-read of
  * the authoritative board. Nothing is ever inserted into board state locally.
+ *
+ * PMS-CAL-001.2-CP03B: the dialog may also offer a controlled cross-RoomType
+ * placement — a confirmed, reasoned request to a room of a different RoomType
+ * than sold. This board treats it exactly like same-RoomType assignment for
+ * every safety property (double-submit guard, authoritative reload,
+ * board-key-scoped reconciliation, stale-bar locking): the only difference is
+ * the extra `reason` field this component forwards to the API client when the
+ * dialog reports a confirmed cross-RoomType submission.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -24,7 +32,10 @@ import ReservationBoardServerTimeline, {
   type UnassignedRangeSelection,
 } from "./ReservationBoardServerTimeline";
 import ReservationBoardStayPopover from "./ReservationBoardStayPopover";
-import ReservationAssignmentDialog, { type BoardReloadStatus } from "./ReservationAssignmentDialog";
+import ReservationAssignmentDialog, {
+  type BoardReloadStatus,
+  type CrossRoomTypeConfirmation,
+} from "./ReservationAssignmentDialog";
 import { boardIdentityKey, buildAssignmentTarget, type AssignmentTarget } from "./assignmentTarget";
 import { describeAssignmentOutcome } from "./assignmentOutcome";
 import {
@@ -306,19 +317,30 @@ const ReservationBoard: React.FC = () => {
   );
 
   const submitAssignment = useCallback(
-    async (target: AssignmentTarget, physicalRoomId: string): Promise<AssignmentCreateOutcome> => {
+    async (
+      target: AssignmentTarget,
+      physicalRoomId: string,
+      crossRoomType: CrossRoomTypeConfirmation | null
+    ): Promise<AssignmentCreateOutcome> => {
       // Only a room the dialog was built with can be sent — never an arbitrary id.
       const room = target.candidateRooms.find((candidate) => candidate.id === physicalRoomId);
       if (!room) {
         return { kind: "not-sent", message: "Choose one of the listed rooms." };
       }
+      // The dialog decides whether a room is cross-RoomType from the same
+      // board data this target was built from; re-checked here so a stale
+      // target (e.g. a RoomType deactivated between render and submit) can
+      // never send `confirmCrossRoomType: false` for a room that is not, in
+      // fact, the Unit's sold RoomType.
+      const isCrossRoomType = room.roomTypeId !== target.stay.soldRoomTypeId;
 
       const outcome = await createReservationAssignment(target.propertyId, {
         reservationUnitId: target.stay.reservationUnitId,
         physicalRoomId: room.id,
         startDate: target.unassignedRange.startDate,
         endDate: target.unassignedRange.endDate,
-        confirmCrossRoomType: false,
+        confirmCrossRoomType: isCrossRoomType,
+        ...(isCrossRoomType && crossRoomType ? { reason: crossRoomType.reason } : {}),
       });
       if (!mountedRef.current) return outcome;
 
@@ -363,7 +385,7 @@ const ReservationBoard: React.FC = () => {
         if (outcome.kind === "created") {
           setAssignmentTarget(null);
           setAssignmentNotice({
-            text: `Room ${room.roomNumber} assigned to ${target.stay.guestDisplayName} (${target.stay.confirmationNumber}) for [${target.unassignedRange.startDate}, ${target.unassignedRange.endDate}).`,
+            text: `Room ${room.roomNumber}${isCrossRoomType ? ` (${room.roomTypeName})` : ""} assigned to ${target.stay.guestDisplayName} (${target.stay.confirmationNumber}) for [${target.unassignedRange.startDate}, ${target.unassignedRange.endDate}).`,
             reconciliationId: reconciliation.id,
           });
         }
@@ -555,7 +577,7 @@ const ReservationBoard: React.FC = () => {
               ? dialogReconciliation.resolution
               : undefined
           }
-          onSubmit={(physicalRoomId) => submitAssignment(assignmentTarget, physicalRoomId)}
+          onSubmit={(physicalRoomId, crossRoomType) => submitAssignment(assignmentTarget, physicalRoomId, crossRoomType)}
           onClose={() => setAssignmentTarget(null)}
         />
       )}

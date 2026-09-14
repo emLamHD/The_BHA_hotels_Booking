@@ -85,15 +85,22 @@ export interface ReservationBoardResponse {
 }
 
 /**
- * PMS-CAL-001.2-CP03A: body of
+ * PMS-CAL-001.2-CP03A/B: body of
  * `POST /api/admin/v1/properties/{propertyId}/reservation-assignments`,
  * mirroring the backend's `CreateReservationAssignmentRequest`.
  *
  * Deliberately closed: there is no `actorReference` and no
  * `authorizationEvidence` — the backend owns both as server-side constants and
- * a browser-supplied identity would be a claim, not proof. This slice only
- * places a Unit in a room of its own sold RoomType, so `confirmCrossRoomType`
- * is the literal `false` and `reason` is not part of the type at all.
+ * a browser-supplied identity would be a claim, not proof.
+ *
+ * `confirmCrossRoomType`/`reason` are CP03B's controlled cross-RoomType path:
+ * `confirmCrossRoomType: true` is only an operational acknowledgement that the
+ * placement was deliberate, never authentication or a staff permission, and
+ * the backend requires a non-empty (post-trim) `reason` whenever it is `true`.
+ * Same-RoomType assignment (CP03A) sends `confirmCrossRoomType: false` and
+ * omits `reason` entirely — `client.ts` drops the key rather than sending an
+ * empty string, so the two flows stay indistinguishable from CP03A's own
+ * request shape at the wire level.
  */
 export interface CreateReservationAssignmentRequest {
   reservationUnitId: string;
@@ -102,7 +109,9 @@ export interface CreateReservationAssignmentRequest {
   startDate: string;
   /** Night after the last one, exclusive (`YYYY-MM-DD`) — half-open `[startDate, endDate)`. */
   endDate: string;
-  confirmCrossRoomType: false;
+  confirmCrossRoomType: boolean;
+  /** Required, already-trimmed, non-empty when `confirmCrossRoomType` is `true`; absent otherwise. */
+  reason?: string;
 }
 
 /** The `201 Created` body: the backend's `RoomOccupancySegmentDto`. */

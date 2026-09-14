@@ -20,7 +20,7 @@ function problem(status: number, body: unknown) {
   });
 }
 
-describe("createReservationAssignment (PMS-CAL-001.2-CP03A)", () => {
+describe("createReservationAssignment (PMS-CAL-001.2-CP03A/B)", () => {
   beforeEach(() => {
     process.env.NEXT_PUBLIC_API_BASE_URL = BASE_URL;
   });
@@ -54,7 +54,7 @@ describe("createReservationAssignment (PMS-CAL-001.2-CP03A)", () => {
     });
   });
 
-  it("never sends actor, authorization evidence, reason or a cross-RoomType acknowledgement, even if a caller passes them", async () => {
+  it("never sends actor or authorization evidence, even if a caller passes them", async () => {
     const fetchSpy = vi.fn().mockResolvedValue(new Response("{}", { status: 201 }));
     vi.stubGlobal("fetch", fetchSpy);
 
@@ -62,8 +62,6 @@ describe("createReservationAssignment (PMS-CAL-001.2-CP03A)", () => {
       ...request,
       actorReference: "someone",
       authorizationEvidence: "trust-me",
-      reason: "because",
-      confirmCrossRoomType: true,
     } as unknown as CreateReservationAssignmentRequest;
     await createReservationAssignment(PROPERTY_ID, widened);
 
@@ -72,6 +70,34 @@ describe("createReservationAssignment (PMS-CAL-001.2-CP03A)", () => {
       ["confirmCrossRoomType", "endDate", "physicalRoomId", "reservationUnitId", "startDate"].sort()
     );
     expect(body.confirmCrossRoomType).toBe(false);
+  });
+
+  it("PMS-CAL-001.2-CP03B: omits the reason key entirely for a same-RoomType (confirmCrossRoomType: false) request", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(new Response("{}", { status: 201 }));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await createReservationAssignment(PROPERTY_ID, request);
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect("reason" in body).toBe(false);
+  });
+
+  it("PMS-CAL-001.2-CP03B: sends confirmCrossRoomType:true and the caller's reason verbatim for a cross-RoomType request", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(new Response("{}", { status: 201 }));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await createReservationAssignment(PROPERTY_ID, {
+      ...request,
+      confirmCrossRoomType: true,
+      reason: "Guest requested a quiet room; only a Deluxe was available.",
+    });
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.confirmCrossRoomType).toBe(true);
+    expect(body.reason).toBe("Guest requested a quiet room; only a Deluxe was available.");
+    expect(Object.keys(body).sort()).toEqual(
+      ["confirmCrossRoomType", "endDate", "physicalRoomId", "reason", "reservationUnitId", "startDate"].sort()
+    );
   });
 
   it("reports not-sent and never calls fetch when the API base URL is not HTTPS", async () => {
@@ -170,6 +196,40 @@ describe("createReservationAssignment (PMS-CAL-001.2-CP03A)", () => {
       kind: "rejected",
       status: 403,
       category: "not-permitted",
+    });
+  });
+
+  it("maps a 403 with a JSON body whose title is not the cross-RoomType one to not-permitted (exact match only)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(problem(403, { title: "Origin not allowed", detail: "..." }))
+    );
+
+    await expect(createReservationAssignment(PROPERTY_ID, request)).resolves.toEqual({
+      kind: "rejected",
+      status: 403,
+      category: "not-permitted",
+    });
+  });
+
+  it("PMS-CAL-001.2-CP03B: maps the store's 403 'Cross-RoomType confirmation required' to its own category with the server detail", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        problem(403, {
+          title: "Cross-RoomType confirmation required",
+          detail: "Cross-RoomType assignment requires non-empty authorization evidence and a recorded reason.",
+        })
+      )
+    );
+
+    await expect(
+      createReservationAssignment(PROPERTY_ID, { ...request, confirmCrossRoomType: true, reason: "" })
+    ).resolves.toEqual({
+      kind: "rejected",
+      status: 403,
+      category: "cross-room-type-confirmation-required",
+      detail: "Cross-RoomType assignment requires non-empty authorization evidence and a recorded reason.",
     });
   });
 
