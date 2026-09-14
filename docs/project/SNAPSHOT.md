@@ -272,8 +272,9 @@ này sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
   application/persistence boundary. Trên `develop` đúng **một** operation
   được expose qua HTTP — `CreateAsync`, qua
   `POST /api/admin/v1/properties/{propertyId}/reservation-assignments`, local
-  Development only sau write gate của CP01 (PR #44), và được Admin Reservation
-  Board gọi (PR #45/#46). `SupersedeAsync` (move/unassign/split/batch) và mọi
+  Development only sau write gate của CP01 (PR #43); endpoint này được CP02
+  expose (PR #44) và được Admin Reservation Board gọi (PR #45/#46).
+  `SupersedeAsync` (move/unassign/split/batch) và mọi
   OperationalBlock mutation **vẫn** internal-only. Không có Staff identity hay Admin RBAC model; cross-RoomType
   assignment requires an opaque `AuthorizationEvidence`/`Reason` pair, not a
   real permission check. A
