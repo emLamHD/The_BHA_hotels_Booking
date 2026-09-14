@@ -8,6 +8,7 @@ import type { ApiProperty, ReservationBoardResponse } from "@/lib/api/types";
 vi.mock("@/lib/api/client", () => ({
   fetchActiveProperties: vi.fn(),
   fetchReservationBoard: vi.fn(),
+  createReservationAssignment: vi.fn(),
 }));
 
 import { fetchActiveProperties, fetchReservationBoard } from "@/lib/api/client";

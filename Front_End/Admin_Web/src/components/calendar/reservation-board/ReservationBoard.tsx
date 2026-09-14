@@ -8,6 +8,12 @@
  * component — they stay in the tree for tests and the next mutation slice
  * (FRONTEND INTEGRATION CONTRACT item 2 of the Master Execution Prompt),
  * but no longer drive what this component renders.
+ *
+ * PMS-CAL-001.2-CP03A: the first real write from this board. Clicking an
+ * unassigned bar opens `ReservationAssignmentDialog` for that exact range; the
+ * create call goes to the backend, and every outcome that may have changed
+ * the schedule (success, conflict, unconfirmed) is followed by a re-read of
+ * the authoritative board. Nothing is ever inserted into board state locally.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -15,9 +21,13 @@ import ReservationBoardToolbar from "./ReservationBoardToolbar";
 import ReservationBoardServerTimeline, {
   type BlockSelection,
   type StaySelection,
+  type UnassignedRangeSelection,
 } from "./ReservationBoardServerTimeline";
 import ReservationBoardStayPopover from "./ReservationBoardStayPopover";
-import { AlertIcon } from "@/icons";
+import ReservationAssignmentDialog, { type BoardReloadStatus } from "./ReservationAssignmentDialog";
+import { buildAssignmentTarget, type AssignmentTarget } from "./assignmentTarget";
+import { describeAssignmentOutcome } from "./assignmentOutcome";
+import { AlertIcon, CloseLineIcon } from "@/icons";
 import {
   buildVisibleRange,
   computeVisibleStartFromAnchor,
@@ -26,7 +36,13 @@ import {
   formatRangeLabel,
 } from "./dateMath";
 import type { IsoDate, ReservationBoardFilters, ReservationBoardRangeLength } from "./types";
-import { fetchActiveProperties, fetchReservationBoard, type ApiError } from "@/lib/api/client";
+import {
+  createReservationAssignment,
+  fetchActiveProperties,
+  fetchReservationBoard,
+  type ApiError,
+  type AssignmentCreateOutcome,
+} from "@/lib/api/client";
 import type { ApiProperty, ReservationBoardResponse } from "@/lib/api/types";
 
 const INITIAL_RANGE_LENGTH: ReservationBoardRangeLength = 14;
@@ -39,7 +55,7 @@ type PropertiesState =
 type BoardState =
   | { status: "idle" }
   | { status: "loading" }
-  | { status: "loaded"; board: ReservationBoardResponse }
+  | { status: "loaded"; board: ReservationBoardResponse; refreshing?: boolean }
   | { status: "error"; error: ApiError };
 
 /**
@@ -97,7 +113,31 @@ const ReservationBoard: React.FC = () => {
     { kind: "stay"; value: StaySelection } | { kind: "block"; value: BlockSelection } | null
   >(null);
 
+  const [assignmentTarget, setAssignmentTarget] = useState<AssignmentTarget | null>(null);
+  /** `loadedVersion` when the open dialog's outcome asked for a board re-read; `null` when none has. */
+  const [dialogReloadBaseline, setDialogReloadBaseline] = useState<number | null>(null);
+  const [assignmentNotice, setAssignmentNotice] = useState<{ text: string; reloadBaseline: number } | null>(
+    null
+  );
+  /**
+   * Incremented only when a board response is committed. A re-read requested
+   * at version N is complete once the version exceeds N: the request sequence
+   * guard below lets only the newest request commit, so any commit after the
+   * request is at least as fresh as the requested read.
+   */
+  const [loadedVersion, setLoadedVersion] = useState(0);
+  const loadedVersionRef = useRef(0);
+  const noticeRef = useRef<HTMLDivElement>(null);
+  const mountedRef = useRef(true);
+
   const requestSeqRef = useRef(0);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   // Initial load: real active Properties, then deterministically select the
   // first and derive the initial anchor from its own time zone.
@@ -133,7 +173,21 @@ const ReservationBoard: React.FC = () => {
     const thisSeq = requestSeqRef.current + 1;
     requestSeqRef.current = thisSeq;
     const controller = new AbortController();
-    setBoardState({ status: "loading" });
+    const rangeStartIso = range.start;
+    const rangeEndIso = range.endExclusive;
+    // A re-read of exactly the Property and range already on screen (the only
+    // case is a post-write reload) keeps that board visible while it refreshes.
+    // Any other key — a different Property or date range — still clears to the
+    // loading state, so a previous Property's or range's data is never shown
+    // under a new selection.
+    setBoardState((previous) =>
+      previous.status === "loaded" &&
+      previous.board.property.id === selectedPropertyId &&
+      previous.board.from === rangeStartIso &&
+      previous.board.to === rangeEndIso
+        ? { ...previous, refreshing: true }
+        : { status: "loading" }
+    );
     fetchReservationBoard(selectedPropertyId, range.start, range.endExclusive, controller.signal).then((result) => {
       if (requestSeqRef.current !== thisSeq) return; // superseded by a newer request
       if (controller.signal.aborted) return;
@@ -143,6 +197,8 @@ const ReservationBoard: React.FC = () => {
         return;
       }
       setBoardState({ status: "loaded", board: result.data });
+      loadedVersionRef.current += 1;
+      setLoadedVersion(loadedVersionRef.current);
     });
     return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -152,6 +208,8 @@ const ReservationBoard: React.FC = () => {
     (propertyId: string) => {
       setSelectedPropertyId(propertyId);
       setSelection(null);
+      setAssignmentTarget(null);
+      setAssignmentNotice(null);
       if (propertiesState.status === "loaded") {
         const property = propertiesState.properties.find((candidate) => candidate.id === propertyId);
         if (property) {
@@ -185,6 +243,65 @@ const ReservationBoard: React.FC = () => {
   }, []);
 
   const handleRetry = useCallback(() => setRetryToken((token) => token + 1), []);
+
+  const handleSelectUnassignedRange = useCallback(
+    (unassignedSelection: UnassignedRangeSelection) => {
+      if (boardState.status !== "loaded") return;
+      const target = buildAssignmentTarget(boardState.board, selectedPropertyId, unassignedSelection);
+      if (!target) return;
+      setSelection(null);
+      setDialogReloadBaseline(null);
+      setAssignmentTarget(target);
+    },
+    [boardState, selectedPropertyId]
+  );
+
+  const submitAssignment = useCallback(
+    async (target: AssignmentTarget, physicalRoomId: string): Promise<AssignmentCreateOutcome> => {
+      // Only a room the dialog was built with can be sent — never an arbitrary id.
+      const room = target.candidateRooms.find((candidate) => candidate.id === physicalRoomId);
+      if (!room) {
+        return { kind: "not-sent", message: "Choose one of the listed rooms." };
+      }
+
+      const outcome = await createReservationAssignment(target.propertyId, {
+        reservationUnitId: target.stay.reservationUnitId,
+        physicalRoomId: room.id,
+        startDate: target.unassignedRange.startDate,
+        endDate: target.unassignedRange.endDate,
+        confirmCrossRoomType: false,
+      });
+      if (!mountedRef.current) return outcome;
+
+      if (describeAssignmentOutcome(outcome).reloadBoard) {
+        const baseline = loadedVersionRef.current;
+        setDialogReloadBaseline(baseline);
+        setRetryToken((token) => token + 1);
+        if (outcome.kind === "created") {
+          setAssignmentTarget(null);
+          setAssignmentNotice({
+            text: `Room ${room.roomNumber} assigned to ${target.stay.guestDisplayName} (${target.stay.confirmationNumber}) for [${target.unassignedRange.startDate}, ${target.unassignedRange.endDate}).`,
+            reloadBaseline: baseline,
+          });
+        }
+      }
+      return outcome;
+    },
+    []
+  );
+
+  const reloadStatusSince = (baseline: number | null): BoardReloadStatus => {
+    if (baseline === null) return "idle";
+    if (loadedVersion > baseline) return "done";
+    if (boardState.status === "error") return "failed";
+    return "pending";
+  };
+
+  // A new notice takes focus: the bar that opened the dialog is gone once the
+  // board reloads, so focus would otherwise fall back to the document.
+  useEffect(() => {
+    if (assignmentNotice) noticeRef.current?.focus();
+  }, [assignmentNotice]);
 
   const rangeLabel = range ? formatRangeLabel(range) : "";
 
@@ -230,10 +347,11 @@ const ReservationBoard: React.FC = () => {
         showUnassigned={filters.showUnassigned}
         showOperationalBlocks={filters.showOperationalBlocks}
         onSelectStay={(value) => setSelection({ kind: "stay", value })}
+        onSelectUnassignedRange={handleSelectUnassignedRange}
         onSelectBlock={(value) => setSelection({ kind: "block", value })}
       />
     );
-  }, [propertiesState, boardState, range, filters, handleRetry]);
+  }, [propertiesState, boardState, range, filters, handleRetry, handleSelectUnassignedRange]);
 
   const toolbarProperties = propertiesState.status === "loaded" ? propertiesState.properties : [];
 
@@ -252,11 +370,68 @@ const ReservationBoard: React.FC = () => {
         filters={filters}
         onToggleFilter={handleToggleFilter}
       />
+      {assignmentNotice && (
+        <AssignmentNotice
+          ref={noticeRef}
+          text={assignmentNotice.text}
+          reloadStatus={reloadStatusSince(assignmentNotice.reloadBaseline)}
+          onDismiss={() => setAssignmentNotice(null)}
+        />
+      )}
+      {boardState.status === "loaded" && boardState.refreshing && (
+        <p role="status" className="px-4 pt-2 text-xs text-gray-500 dark:text-gray-400">
+          Refreshing board from the server…
+        </p>
+      )}
       <div className="p-2 sm:p-4">{body}</div>
       {selection && <ReservationBoardStayPopover selection={selection} onClose={() => setSelection(null)} />}
+      {assignmentTarget && (
+        <ReservationAssignmentDialog
+          // A different target is a different dialog: never carry one range's
+          // selection, result or submit lock over to another.
+          key={`${assignmentTarget.stay.reservationUnitId}:${assignmentTarget.unassignedRange.startDate}:${assignmentTarget.unassignedRange.endDate}`}
+          target={assignmentTarget}
+          boardReloadStatus={reloadStatusSince(dialogReloadBaseline)}
+          onSubmit={(physicalRoomId) => submitAssignment(assignmentTarget, physicalRoomId)}
+          onClose={() => setAssignmentTarget(null)}
+        />
+      )}
     </div>
   );
 };
+
+const AssignmentNotice = React.forwardRef<
+  HTMLDivElement,
+  { text: string; reloadStatus: BoardReloadStatus; onDismiss: () => void }
+>(function AssignmentNotice({ text, reloadStatus, onDismiss }, ref) {
+  return (
+    <div
+      ref={ref}
+      tabIndex={-1}
+      role="status"
+      className="mx-2 mt-2 flex items-start justify-between gap-3 rounded-lg bg-success-50 px-3 py-2 text-sm text-success-800 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-success-500/60 sm:mx-4 dark:bg-success-500/10 dark:text-success-300"
+    >
+      <div>
+        <p className="font-medium">{text}</p>
+        <p className="mt-0.5 text-xs">
+          {reloadStatus === "done"
+            ? "Saved on the server. The board has been reloaded from the server."
+            : reloadStatus === "failed"
+              ? "Saved on the server, but the board could not be reloaded. Use Retry to see the latest data."
+              : "Saved on the server. Reloading the board…"}
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={onDismiss}
+        aria-label="Dismiss notice"
+        className="flex size-6 shrink-0 items-center justify-center rounded-full hover:bg-success-100 dark:hover:bg-white/5"
+      >
+        <CloseLineIcon className="size-3.5" aria-hidden="true" />
+      </button>
+    </div>
+  );
+});
 
 const CenteredMessage: React.FC<React.PropsWithChildren> = ({ children }) => (
   <div className="flex min-h-40 items-center justify-center px-4 py-10 text-sm text-gray-500 dark:text-gray-400">
