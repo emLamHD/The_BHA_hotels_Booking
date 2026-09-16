@@ -15,7 +15,7 @@
  *    the freshly reloaded board instead of pressing Confirm again.
  */
 
-import type { AssignmentCreateOutcome } from "@/lib/api/client";
+import type { AssignmentCreateOutcome, MoveAssignmentOutcome } from "@/lib/api/client";
 
 export type AssignmentOutcomeTone = "success" | "error" | "warning";
 
@@ -114,6 +114,102 @@ export function describeAssignmentOutcome(outcome: AssignmentCreateOutcome): Ass
         tone: "warning",
         title:
           "The result could not be confirmed — the assignment may or may not have been saved. It was not retried automatically. Check the reloaded board before trying again.",
+        detail: cause,
+        reloadBoard: true,
+        allowResubmit: false,
+      };
+    }
+  }
+}
+
+/**
+ * PMS-CAL-001.2-CP04C.4: the move-attempt counterpart to
+ * {@link describeAssignmentOutcome}, sharing the same two rules and the same
+ * {@link AssignmentOutcomeView} shape — the dialog that renders a move's
+ * result needs no separate presentation contract from the one that renders a
+ * create's. Only the wording changes ("assignment" → "move"); the
+ * reload/resubmit policy per category is identical, including
+ * `cross-room-type-confirmation-required` staying resubmittable as defense
+ * in depth even though the same-RoomType-only move dialog never sends
+ * `confirmCrossRoomType: true` itself.
+ */
+export function describeMoveOutcome(outcome: MoveAssignmentOutcome): AssignmentOutcomeView {
+  switch (outcome.kind) {
+    case "moved":
+      return { tone: "success", title: "Room moved.", reloadBoard: true, allowResubmit: false };
+
+    case "not-sent":
+      return {
+        tone: "error",
+        title: "The request was not sent because the Admin API is not configured.",
+        detail: outcome.message,
+        reloadBoard: false,
+        allowResubmit: true,
+      };
+
+    case "rejected":
+      switch (outcome.category) {
+        case "validation":
+          return {
+            tone: "error",
+            title: "The server did not accept this move. Nothing was saved.",
+            detail: outcome.detail,
+            reloadBoard: false,
+            allowResubmit: true,
+          };
+        case "not-permitted":
+          return {
+            tone: "error",
+            title: "Room move is not available or not permitted from this Admin session. Nothing was saved.",
+            detail:
+              outcome.status === 404
+                ? "Writes may be disabled on this API host. This does not mean the booking was removed."
+                : "The server refused this write.",
+            reloadBoard: false,
+            allowResubmit: false,
+          };
+        case "cross-room-type-confirmation-required":
+          return {
+            tone: "error",
+            title: "This destination requires cross-room-type confirmation, which this dialog does not offer. Nothing was saved.",
+            detail: outcome.detail ?? "Choose a room of the sold room type instead.",
+            reloadBoard: false,
+            allowResubmit: true,
+          };
+        case "conflict":
+          return {
+            tone: "warning",
+            title:
+              "This move was not saved: the schedule has changed or the room is no longer suitable. Review the reloaded board before trying again.",
+            detail: outcome.detail,
+            reloadBoard: true,
+            allowResubmit: false,
+          };
+        case "refused":
+        default:
+          return {
+            tone: "error",
+            title: `The server refused the request (HTTP ${outcome.status}). Nothing was saved.`,
+            detail: outcome.detail,
+            reloadBoard: false,
+            allowResubmit: false,
+          };
+      }
+
+    case "unknown":
+    default: {
+      const cause =
+        outcome.reason === "timeout"
+          ? "The server did not respond in time."
+          : outcome.reason === "server-error"
+            ? `The server returned an unexpected response${outcome.status ? ` (HTTP ${outcome.status})` : ""}.`
+            : outcome.reason === "aborted"
+              ? "The request was interrupted after it was sent."
+              : "The connection to the Admin API failed.";
+      return {
+        tone: "warning",
+        title:
+          "The result could not be confirmed — the move may or may not have been saved. It was not retried automatically. Check the reloaded board before trying again.",
         detail: cause,
         reloadBoard: true,
         allowResubmit: false,
