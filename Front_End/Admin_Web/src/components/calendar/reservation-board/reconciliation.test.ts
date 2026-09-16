@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  boardCanEvaluate,
   evaluateUncertainWrite,
   isBoardAwaitingReconciliation,
   isSegmentMoveUnresolved,
@@ -393,5 +394,103 @@ describe("move reconciliation on a segment longer than the board's own window (P
     const createEntry = entry({ certainty: "uncertain", resolution: "unresolved", target: createTarget });
     const boardShowingUncovered = board({ assignments: [], unassignedRanges: [LONG_RANGE] }, overlappingWindow);
     expect(evaluateUncertainWrite(createEntry, boardShowingUncovered)).toBeNull();
+  });
+});
+
+/**
+ * PMS-CAL-001.2-CP04C.3-C2: `boardCanEvaluate` is the one predicate both
+ * `evaluateUncertainWrite` above and `ReservationBoard.tsx`'s retry gate
+ * (`canCheckHere` on the "Check again" notice) must agree on. These tests
+ * pin its own contract directly, independent of `evaluateUncertainWrite`'s
+ * behavior, so a future change to one can never silently diverge from the
+ * other without a failing test naming which one moved.
+ */
+describe("boardCanEvaluate — the shared board-authority predicate (PMS-CAL-001.2-CP04C.3-C2)", () => {
+  const LONG_RANGE = { startDate: "2026-08-01", endDate: "2026-10-15" };
+  const longMove: MoveReconciliationTarget = {
+    operation: "move",
+    reservationUnitId: "unit-1",
+    physicalRoomId: "room-102",
+    ...LONG_RANGE,
+    roomNumber: "102",
+    guestDisplayName: "Guest",
+    confirmationNumber: "CNF-1",
+    segmentId: "seg-1",
+    expectedVersion: 3,
+    sourcePhysicalRoomId: "room-101",
+  };
+  const longMoveUnresolved = entry({ certainty: "uncertain", resolution: "unresolved", target: longMove });
+
+  it("1. allows a long move segment to be checked from a board window that only overlaps its range", () => {
+    expect(
+      boardCanEvaluate(longMoveUnresolved, { propertyId: "prop-a", from: "2026-09-07", to: "2026-09-21" })
+    ).toBe(true);
+  });
+
+  it("2. refuses a long move segment from a board window that does not overlap at all, including exact half-open adjacency", () => {
+    expect(
+      boardCanEvaluate(longMoveUnresolved, { propertyId: "prop-a", from: "2026-11-01", to: "2026-11-15" })
+    ).toBe(false);
+    // Adjacent, not overlapping: a window starting exactly where the range ends.
+    expect(
+      boardCanEvaluate(longMoveUnresolved, { propertyId: "prop-a", from: LONG_RANGE.endDate, to: "2026-11-01" })
+    ).toBe(false);
+    // Adjacent the other way: a window ending exactly where the range starts.
+    expect(
+      boardCanEvaluate(longMoveUnresolved, { propertyId: "prop-a", from: "2026-07-01", to: LONG_RANGE.startDate })
+    ).toBe(false);
+  });
+
+  it("3. refuses a create target from a board window that only overlaps, not fully contains, its range", () => {
+    const createTarget: CreateReconciliationTarget = {
+      operation: "create",
+      reservationUnitId: "unit-1",
+      physicalRoomId: "room-102",
+      ...LONG_RANGE,
+      roomNumber: "102",
+      guestDisplayName: "Guest",
+      confirmationNumber: "CNF-1",
+    };
+    const createUnresolved = entry({ certainty: "uncertain", resolution: "unresolved", target: createTarget });
+    expect(
+      boardCanEvaluate(createUnresolved, { propertyId: "prop-a", from: "2026-09-07", to: "2026-09-21" })
+    ).toBe(false);
+    // A create target is allowed once the window fully contains it — existing behavior preserved.
+    expect(
+      boardCanEvaluate(createUnresolved, { propertyId: "prop-a", from: "2026-07-01", to: "2026-11-01" })
+    ).toBe(true);
+  });
+
+  it("4. refuses any target, of either operation, from the wrong Property regardless of window", () => {
+    expect(
+      boardCanEvaluate(longMoveUnresolved, { propertyId: "prop-b", from: "2026-08-01", to: "2026-10-15" })
+    ).toBe(false);
+    expect(boardCanEvaluate(entry(), { propertyId: "prop-b", from: "2026-09-07", to: "2026-09-21" })).toBe(false);
+  });
+
+  it("5. evaluateUncertainWrite never resolves a board that boardCanEvaluate refuses, and always proceeds to judge one it allows", () => {
+    const boardsAndExpectations: Array<[ReservationBoardResponse, boolean]> = [
+      [board(null, { propertyId: "prop-a", from: "2026-09-07", to: "2026-09-21" }), true],
+      [board(null, { propertyId: "prop-a", from: "2026-11-01", to: "2026-11-15" }), false],
+      [board(null, { propertyId: "prop-b", from: "2026-08-01", to: "2026-10-15" }), false],
+    ];
+    for (const [candidateBoard, canEvaluate] of boardsAndExpectations) {
+      const allowed = boardCanEvaluate(longMoveUnresolved, {
+        propertyId: candidateBoard.property.id,
+        from: candidateBoard.from,
+        to: candidateBoard.to,
+      });
+      expect(allowed).toBe(canEvaluate);
+      const verdict = evaluateUncertainWrite(longMoveUnresolved, candidateBoard);
+      // boardCanEvaluate:false must always mean evaluateUncertainWrite returns
+      // null; boardCanEvaluate:true means it proceeds to a real verdict
+      // (here "changed", since board(null, ...) has no stays at all).
+      expect(verdict === null).toBe(!allowed);
+    }
+  });
+
+  it("6. an existing (non-long) create target still works exactly as before: full containment allows, partial overlap refuses", () => {
+    expect(boardCanEvaluate(entry(), { propertyId: "prop-a", from: "2026-09-07", to: "2026-09-21" })).toBe(true);
+    expect(boardCanEvaluate(entry(), { propertyId: "prop-a", from: "2026-09-11", to: "2026-09-25" })).toBe(false);
   });
 });

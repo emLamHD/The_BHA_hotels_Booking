@@ -98,9 +98,16 @@ function overlapsRange(a: { startDate: string; endDate: string }, b: { startDate
 }
 
 /**
- * What one authoritative board says about an uncertain write, or `null` when
- * that board cannot say anything (another Property, or a window that fails
- * the operation's own coverage test).
+ * PMS-CAL-001.2-CP04C.3-C2: the single authority for whether a board's own
+ * Property + visible `[from, to)` may say anything at all about one
+ * reconciliation's target — the same question `evaluateUncertainWrite` asks
+ * before judging a write, and `ReservationBoard.tsx`'s retry-gate
+ * (`Check again`) asks before offering to re-read. Both must use this one
+ * function: a board window that this says cannot evaluate the target must
+ * never be judged by one caller and silently skipped by the other, and vice
+ * versa (C1's bug — the evaluator was fixed but the retry gate still
+ * inlined the old full-containment check, so a long move segment resolved
+ * correctly on a re-read yet the UI never offered that re-read at all).
  *
  * PMS-CAL-001.2-CP04C.3-C1: the two operations need different tests here,
  * not the same one. A create's `UnassignedRanges` are the board's own
@@ -116,18 +123,32 @@ function overlapsRange(a: { startDate: string; endDate: string }, b: { startDate
  * destination assignment, whichever is on the server. Requiring full
  * containment for a move would leave any segment longer than the UI's
  * maximum visible window (`ReservationBoardRangeLength`, capped at 31 nights)
- * permanently unresolved despite unambiguous overlapping evidence.
+ * permanently unresolved (and, for the retry gate specifically, permanently
+ * un-checkable) despite unambiguous overlapping evidence. Half-open
+ * adjacency (a window ending exactly where the target starts, or vice versa)
+ * is never overlap — `overlapsRange` already excludes it.
+ */
+export function boardCanEvaluate(
+  entry: Reconciliation,
+  boardIdentity: { propertyId: string; from: string; to: string }
+): boolean {
+  if (boardIdentity.propertyId !== entry.propertyId) return false;
+  const boardWindow = { startDate: boardIdentity.from, endDate: boardIdentity.to };
+  return entry.target.operation === "move"
+    ? overlapsRange(boardWindow, entry.target)
+    : containsRange(boardWindow, entry.target);
+}
+
+/**
+ * What one authoritative board says about an uncertain write, or `null` when
+ * `boardCanEvaluate` says this board cannot say anything about it.
  */
 export function evaluateUncertainWrite(
   entry: Reconciliation,
   board: ReservationBoardResponse
 ): "unresolved" | "observed" | "changed" | null {
   const { target } = entry;
-  if (board.property.id !== entry.propertyId) return null;
-  const boardWindow = { startDate: board.from, endDate: board.to };
-  const windowIsEvidence =
-    target.operation === "move" ? overlapsRange(boardWindow, target) : containsRange(boardWindow, target);
-  if (!windowIsEvidence) return null;
+  if (!boardCanEvaluate(entry, { propertyId: board.property.id, from: board.from, to: board.to })) return null;
 
   const stay = board.stays.find((candidate) => candidate.reservationUnitId === target.reservationUnitId);
 
