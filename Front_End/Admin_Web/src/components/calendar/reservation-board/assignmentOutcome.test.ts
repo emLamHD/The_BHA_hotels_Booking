@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { describeAssignmentOutcome } from "./assignmentOutcome";
-import type { AssignmentCreateOutcome } from "@/lib/api/client";
+import { describeAssignmentOutcome, describeMoveOutcome } from "./assignmentOutcome";
+import type { AssignmentCreateOutcome, MoveAssignmentOutcome } from "@/lib/api/client";
 
 const cases: Array<[string, AssignmentCreateOutcome, { reloadBoard: boolean; allowResubmit: boolean }]> = [
   ["created", { kind: "created", segment: null }, { reloadBoard: true, allowResubmit: false }],
@@ -92,5 +92,83 @@ describe("describeAssignmentOutcome (PMS-CAL-001.2-CP03A/B)", () => {
     expect(text).not.toMatch(/deleted|does not exist|no longer exists|not found/);
     expect(view.allowResubmit).toBe(true);
     expect(view.reloadBoard).toBe(false);
+  });
+});
+
+const moveCases: Array<[string, MoveAssignmentOutcome, { reloadBoard: boolean; allowResubmit: boolean }]> = [
+  ["moved", { kind: "moved", segments: null }, { reloadBoard: true, allowResubmit: false }],
+  ["not-sent", { kind: "not-sent", message: "not configured" }, { reloadBoard: false, allowResubmit: true }],
+  ["400", { kind: "rejected", status: 400, category: "validation", detail: "bad" }, { reloadBoard: false, allowResubmit: true }],
+  ["403", { kind: "rejected", status: 403, category: "not-permitted" }, { reloadBoard: false, allowResubmit: false }],
+  ["404", { kind: "rejected", status: 404, category: "not-permitted" }, { reloadBoard: false, allowResubmit: false }],
+  [
+    "403 cross-room-type",
+    { kind: "rejected", status: 403, category: "cross-room-type-confirmation-required", detail: "needs reason" },
+    { reloadBoard: false, allowResubmit: true },
+  ],
+  ["409", { kind: "rejected", status: 409, category: "conflict", detail: "stale version" }, { reloadBoard: true, allowResubmit: false }],
+  ["415", { kind: "rejected", status: 415, category: "refused" }, { reloadBoard: false, allowResubmit: false }],
+  ["network", { kind: "unknown", reason: "network" }, { reloadBoard: true, allowResubmit: false }],
+  ["timeout", { kind: "unknown", reason: "timeout" }, { reloadBoard: true, allowResubmit: false }],
+  ["aborted", { kind: "unknown", reason: "aborted" }, { reloadBoard: true, allowResubmit: false }],
+  ["5xx", { kind: "unknown", reason: "server-error", status: 503 }, { reloadBoard: true, allowResubmit: false }],
+];
+
+describe("describeMoveOutcome (PMS-CAL-001.2-CP04C.4)", () => {
+  it.each(moveCases)("%s → reload/resubmit policy", (_name, outcome, expected) => {
+    const view = describeMoveOutcome(outcome);
+    expect({ reloadBoard: view.reloadBoard, allowResubmit: view.allowResubmit }).toEqual(expected);
+  });
+
+  it("only a moved outcome is ever described as success", () => {
+    for (const [, outcome] of moveCases) {
+      const view = describeMoveOutcome(outcome);
+      expect(view.tone === "success").toBe(outcome.kind === "moved");
+      if (outcome.kind !== "moved") {
+        expect(`${view.title} ${view.detail ?? ""}`).not.toMatch(/successfully|room moved|move (was|has been) saved|saved on the server/i);
+      }
+    }
+  });
+
+  it("never words 403/404 as the booking being deleted or missing", () => {
+    for (const status of [403, 404] as const) {
+      const view = describeMoveOutcome({ kind: "rejected", status, category: "not-permitted" });
+      const text = `${view.title} ${view.detail ?? ""}`.toLowerCase();
+      expect(text).toMatch(/not available or not permitted/);
+      expect(text).not.toMatch(/deleted|does not exist|no longer exists|not found/);
+    }
+  });
+
+  it("never describes an unconfirmed result as failed, cancelled, or a rollback, and says it was not retried", () => {
+    for (const reason of ["network", "timeout", "aborted", "server-error"] as const) {
+      const view = describeMoveOutcome({ kind: "unknown", reason });
+      const text = `${view.title} ${view.detail ?? ""}`.toLowerCase();
+      expect(text).toContain("could not be confirmed");
+      expect(text).toContain("may or may not have been saved");
+      expect(text).toContain("not retried");
+      expect(text).not.toMatch(/cancel|failed to save|was not saved|rolled? back|rollback/);
+      expect(view.allowResubmit).toBe(false);
+    }
+  });
+
+  it("says a conflict (stale version or unsuitable destination) was not saved, points back to the reloaded board, and locks resubmit", () => {
+    const view = describeMoveOutcome({ kind: "rejected", status: 409, category: "conflict", detail: "stale version" });
+    expect(view.title).toMatch(/not saved/);
+    expect(view.title).toMatch(/reloaded board/);
+    expect(view.detail).toBe("stale version");
+    expect(view.allowResubmit).toBe(false);
+  });
+
+  it("offers a resubmit only when the server proved nothing was written and another choice could succeed", () => {
+    for (const [, outcome] of moveCases) {
+      const view = describeMoveOutcome(outcome);
+      if (view.allowResubmit) {
+        expect(
+          outcome.kind === "not-sent" ||
+            (outcome.kind === "rejected" &&
+              (outcome.category === "validation" || outcome.category === "cross-room-type-confirmation-required"))
+        ).toBe(true);
+      }
+    }
   });
 });
