@@ -91,7 +91,53 @@ describe("ReservationBoardServerTimeline", () => {
       stay,
       roomTypeName: "Standard", // sold RoomType name, not the room it physically sits in
       actualRoomTypeName: "Deluxe",
+      segment: stay.assignments[0],
     });
+  });
+
+  it("PMS-CAL-001.2-CP04C.2: reports the exact clicked segment, not just the Unit, when a stay has more than one assignment", async () => {
+    const user = userEvent.setup();
+    const onSelectStay = vi.fn();
+    const stay: ReservationBoardStay = {
+      reservationId: "res-1",
+      reservationUnitId: "unit-1",
+      confirmationNumber: "CNF-001",
+      guestDisplayName: "Nguyen Van A",
+      soldRoomTypeId: "type-standard",
+      checkIn: "2026-09-02",
+      checkOut: "2026-09-06",
+      coverageStatus: "FullyAssigned",
+      assignments: [
+        {
+          segmentId: "seg-1",
+          segmentVersion: 1,
+          physicalRoomId: "room-101",
+          actualRoomTypeId: "type-standard",
+          startDate: "2026-09-02",
+          endDate: "2026-09-04",
+        },
+        {
+          segmentId: "seg-2",
+          segmentVersion: 3,
+          physicalRoomId: "room-201",
+          actualRoomTypeId: "type-deluxe",
+          startDate: "2026-09-04",
+          endDate: "2026-09-06",
+        },
+      ],
+      unassignedRanges: [],
+    };
+
+    render(<ReservationBoardServerTimeline {...baseProps()} stays={[stay]} onSelectStay={onSelectStay} />);
+
+    const bars = screen.getAllByTitle("Nguyen Van A — CNF-001");
+    expect(bars).toHaveLength(2);
+
+    await user.click(bars[0]);
+    expect(onSelectStay).toHaveBeenLastCalledWith(expect.objectContaining({ segment: stay.assignments[0] }));
+
+    await user.click(bars[1]);
+    expect(onSelectStay).toHaveBeenLastCalledWith(expect.objectContaining({ segment: stay.assignments[1] }));
   });
 
   it("does not render assigned bars when showAssigned is false", () => {

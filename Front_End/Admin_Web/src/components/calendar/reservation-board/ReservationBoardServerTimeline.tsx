@@ -21,6 +21,7 @@
 import React from "react";
 import { clipToVisibleRange, formatMonthDay, generateRangeDates, isWeekendIso, type VisibleRange } from "./dateMath";
 import type {
+  ReservationBoardAssignment,
   ReservationBoardOperationalBlock,
   ReservationBoardPhysicalRoom,
   ReservationBoardRoomType,
@@ -106,6 +107,24 @@ export interface StaySelection {
   stay: ReservationBoardStay;
   roomTypeName: string;
   actualRoomTypeName?: string;
+  /**
+   * PMS-CAL-001.2-CP04C.2: the exact, authoritative assignment segment behind
+   * the clicked bar — set only for an assigned bar (a stay can have more than
+   * one assignment, and this identifies which one was clicked, not just the
+   * ReservationUnit). Absent for any other selection source.
+   */
+  segment?: ReservationBoardAssignment;
+}
+
+/**
+ * PMS-CAL-001.2-CP04C.2: the authoritative (server-returned, un-clipped)
+ * assignment segment behind one clicked assigned bar, paired with its own
+ * stay. `moveTarget.ts` consumes this to build the read-only data a future
+ * move dialog would act on — never the rendered, window-clipped bar.
+ */
+export interface AssignedSegmentSelection {
+  stay: ReservationBoardStay;
+  segment: ReservationBoardAssignment;
 }
 
 /** The authoritative (server-returned, un-reconstructed) range behind one clicked unassigned bar. */
@@ -318,6 +337,7 @@ const ReservationBoardServerTimeline: React.FC<ReservationBoardServerTimelinePro
                       stay,
                       roomTypeName: roomTypeById.get(stay.soldRoomTypeId)?.name ?? "Unknown room type",
                       actualRoomTypeName: actualRoomType?.name,
+                      segment: assignment,
                     })
                   }
                   className="z-10 m-1 flex items-center overflow-hidden rounded-md bg-brand-500 px-2 text-left text-xs font-medium text-white shadow-theme-xs hover:bg-brand-600 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-500/60"
