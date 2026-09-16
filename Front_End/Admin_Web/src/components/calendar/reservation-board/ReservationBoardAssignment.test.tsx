@@ -1477,7 +1477,10 @@ describe("ReservationBoard — same-RoomType move (PMS-CAL-001.2-CP04C.5)", () =
 
     await user.selectOptions(screen.getByLabelText("Property"), "prop-b");
     await waitFor(() => expect(mockedFetchReservationBoard.mock.calls.at(-1)![0]).toBe("prop-b"));
-    expect(screen.queryByRole("dialog", { name: "Move room" })).not.toBeInTheDocument();
+    // C3: the in-flight dialog remains the owner of its request even though
+    // the board underneath it changed; the late outcome must update this
+    // dialog without painting the old Property's success notice on prop-b.
+    expect(screen.getByRole("dialog", { name: "Move room" })).toBeInTheDocument();
 
     const boardCallsBeforeResolve = mockedFetchReservationBoard.mock.calls.length;
     await act(async () => move.resolve({ kind: "moved", segments: null }));
@@ -1798,5 +1801,138 @@ describe("ReservationBoard — move-flow recovery, focus, and stale-view correct
       );
       expect(within(notice).getByRole("button", { name: "Check again" })).toBeInTheDocument();
     });
+  });
+});
+
+describe("ReservationBoard — reconciliation linkage and notice focus (PMS-CAL-001.2-CP04C.5-C3)", () => {
+  function assignedBar() {
+    return screen.getByTitle("Nguyen Van A — CNF-100");
+  }
+
+  function popover() {
+    return screen.getByRole("dialog", { name: "Reservation details" });
+  }
+
+  function moveDialog() {
+    return screen.getByRole("dialog", { name: "Move room" });
+  }
+
+  async function startPendingMove(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(assignedBar());
+    await user.click(within(popover()).getByRole("button", { name: "Move room" }));
+    await user.click(within(moveDialog()).getByLabelText(/Room 102/));
+    await user.click(within(moveDialog()).getByRole("button", { name: "Move to room 102" }));
+  }
+
+  it("1&3. a range change keeps the pending dialog linked to its reconciliation, and the other range's GET cannot settle it", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    const move = deferred<MoveAssignmentOutcome>();
+    mockedMove.mockImplementation(() => move.promise);
+
+    await startPendingMove(user);
+    await user.click(screen.getByRole("button", { name: "Next date range" }));
+    await waitFor(() => expect(mockedFetchReservationBoard.mock.calls.at(-1)![1]).toBe(addDaysIso(from, 14)));
+
+    await act(async () => move.resolve({ kind: "moved", segments: null }));
+
+    const alert = await within(moveDialog()).findByRole("alert");
+    await waitFor(() => expect(alert).toHaveTextContent("The view changed before the board was reloaded"));
+    expect(alert).not.toHaveTextContent("Reloading the board from the server");
+    expect(screen.queryByText(/Room 102 moved/)).not.toBeInTheDocument();
+    expect(mockedMove).toHaveBeenCalledTimes(1);
+  });
+
+  it("2. a Property change preserves the original dialog's reconciliation state without showing its success notice on the new board", async () => {
+    const user = userEvent.setup();
+    await renderLoadedBoard();
+    const move = deferred<MoveAssignmentOutcome>();
+    mockedMove.mockImplementation(() => move.promise);
+
+    await startPendingMove(user);
+    await user.selectOptions(screen.getByLabelText("Property"), "prop-b");
+    await waitFor(() => expect(mockedFetchReservationBoard.mock.calls.at(-1)![0]).toBe("prop-b"));
+
+    await act(async () => move.resolve({ kind: "moved", segments: null }));
+
+    const alert = await within(moveDialog()).findByRole("alert");
+    await waitFor(() => expect(alert).toHaveTextContent("The view changed before the board was reloaded"));
+    expect(alert).not.toHaveTextContent("Reloading the board from the server");
+    expect(screen.queryByText(/Room 102 moved/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Property")).toHaveValue("prop-b");
+    expect(mockedMove).toHaveBeenCalledTimes(1);
+  });
+
+  it("4. returning to an authoritative overlapping board continues uncertain move reconciliation and updates the original dialog", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    const move = deferred<MoveAssignmentOutcome>();
+    mockedMove.mockImplementation(() => move.promise);
+
+    await startPendingMove(user);
+    await user.click(screen.getByRole("button", { name: "Next date range" }));
+    await waitFor(() => expect(mockedFetchReservationBoard.mock.calls.at(-1)![1]).toBe(addDaysIso(from, 14)));
+
+    await act(async () => move.resolve({ kind: "unknown", reason: "timeout" }));
+    const alert = await within(moveDialog()).findByRole("alert");
+    await waitFor(() => expect(alert).toHaveTextContent("The view changed before the board was reloaded"));
+
+    mockedFetchReservationBoard.mockImplementation((propertyId, requestFrom, requestTo) => {
+      const board = boardFor(propertyId, requestFrom, requestTo);
+      if (propertyId === "prop-a" && requestFrom === from) {
+        board.stays[0].assignments = board.stays[0].assignments.map((assignment) =>
+          assignment.segmentId === "seg-existing" ? { ...assignment, physicalRoomId: "room-102" } : assignment
+        );
+      }
+      return Promise.resolve({ ok: true, data: board });
+    });
+
+    await user.click(screen.getByRole("button", { name: "Previous date range" }));
+    await waitFor(() => expect(mockedFetchReservationBoard.mock.calls.at(-1)![1]).toBe(from));
+    await waitFor(() => expect(alert).toHaveTextContent("The destination now shown on the server matches this move"));
+    expect(alert).not.toHaveTextContent("Reloading the board from the server");
+    expect(mockedMove).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["{Enter}", " "])(
+    "5. dismissing the focused move notice with %s restores focus to the stable Property control",
+    async (dismissKey) => {
+      const user = userEvent.setup();
+      await renderLoadedBoard();
+      mockedMove.mockResolvedValue({ kind: "moved", segments: null });
+
+      await startPendingMove(user);
+      const noticeText = await screen.findByText(/Room 102 moved/);
+      const notice = noticeText.closest('[role="status"]')!;
+      await waitFor(() => expect(document.activeElement).toBe(notice));
+
+      await user.tab();
+      const dismiss = within(notice as HTMLElement).getByRole("button", { name: "Dismiss notice" });
+      expect(document.activeElement).toBe(dismiss);
+      await user.keyboard(dismissKey);
+
+      expect(screen.queryByText(/Room 102 moved/)).not.toBeInTheDocument();
+      expect(document.activeElement).toBe(screen.getByLabelText("Property"));
+      expect(document.activeElement).not.toBe(document.body);
+      expect(mockedMove).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it("6. dismissing a move notice that does not own focus leaves the operator's current control focused", async () => {
+    const user = userEvent.setup();
+    await renderLoadedBoard();
+    mockedMove.mockResolvedValue({ kind: "moved", segments: null });
+
+    await startPendingMove(user);
+    const noticeText = await screen.findByText(/Room 102 moved/);
+    const notice = noticeText.closest('[role="status"]')!;
+    const dismiss = within(notice as HTMLElement).getByRole("button", { name: "Dismiss notice" });
+    const nextRange = screen.getByRole("button", { name: "Next date range" });
+    nextRange.focus();
+
+    fireEvent.click(dismiss);
+
+    expect(screen.queryByText(/Room 102 moved/)).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(nextRange);
   });
 });

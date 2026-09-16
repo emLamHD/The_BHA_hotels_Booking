@@ -149,6 +149,7 @@ const ReservationBoard: React.FC = () => {
   const [dialogMoveReconciliationId, setDialogMoveReconciliationId] = useState<number | null>(null);
   const [moveNotice, setMoveNotice] = useState<{ text: string; reconciliationId: number } | null>(null);
   const moveNoticeRef = useRef<HTMLDivElement>(null);
+  const moveRequestPendingRef = useRef(false);
   /**
    * PMS-CAL-001.2-CP04C.5-C2: the assigned-bar element that opened the
    * current stay popover, captured the moment it is selected — before the
@@ -291,7 +292,7 @@ const ReservationBoard: React.FC = () => {
       setSelection(null);
       setAssignmentTarget(null);
       setAssignmentNotice(null);
-      setMoveTarget(null);
+      if (!moveRequestPendingRef.current) setMoveTarget(null);
       setMoveNotice(null);
       if (propertiesState.status === "loaded") {
         const property = propertiesState.properties.find((candidate) => candidate.id === propertyId);
@@ -492,6 +493,7 @@ const ReservationBoard: React.FC = () => {
         return { kind: "not-sent", message: "Choose one of the listed rooms." };
       }
 
+      moveRequestPendingRef.current = true;
       const outcome = await moveReservationAssignment(target.propertyId, target.segment.segmentId, {
         expectedVersion: target.segment.segmentVersion,
         physicalRoomId: room.id,
@@ -499,6 +501,7 @@ const ReservationBoard: React.FC = () => {
         endDate: target.segment.endDate,
         confirmCrossRoomType: false,
       });
+      moveRequestPendingRef.current = false;
       if (!mountedRef.current) return outcome;
 
       if (describeMoveOutcome(outcome).reloadBoard) {
@@ -530,20 +533,18 @@ const ReservationBoard: React.FC = () => {
           resolution: uncertain ? "unresolved" : "settled",
         };
         updateReconciliations((list) => [...list.filter(keepReconciliation), reconciliation]);
-        // PMS-CAL-001.2-CP04C.5-C2: the reconciliation entry above is always
-        // recorded, whatever board is on screen now — returning to the
-        // Property/range it was written against can still resolve it, via
-        // the same key match `reconciliationStatus`/`evaluateUncertainWrite`
-        // already use. But the *display* channels below (which dialog's
-        // reload status this reconciliation drives, and the success toast)
-        // belong only to the board this write was actually made from. A
-        // response that resolves after the operator has switched
-        // Property/range must not repoint an unrelated (or already-closed)
-        // dialog's status at this reconciliation, and must not paint this
-        // guest/room onto a board it was never for.
+        // PMS-CAL-001.2-CP04C.5-C3: this dialog owns the request even when
+        // the visible Property/range changes before the response arrives.
+        // Keep its reload status attached to this exact reconciliation so it
+        // can truthfully report "elsewhere" and later settle when an
+        // authoritative board is shown, instead of remaining at "idle".
+        setDialogMoveReconciliationId(reconciliation.id);
+
+        // The success notice, unlike the still-open dialog, belongs to the
+        // board currently being presented. Never paint a completed move from
+        // an old Property/range onto the new view.
         const stillOnWrittenBoard = currentBoardKeyRef.current === target.boardKey;
         if (stillOnWrittenBoard) {
-          setDialogMoveReconciliationId(reconciliation.id);
           if (outcome.kind === "moved") {
             setMoveTarget(null);
             setMoveNotice({
@@ -682,6 +683,17 @@ const ReservationBoard: React.FC = () => {
     if (moveNotice) moveNoticeRef.current?.focus();
   }, [moveNotice]);
 
+  const dismissMoveNotice = useCallback(() => {
+    const noticeOwnedFocus = moveNoticeRef.current?.contains(document.activeElement) ?? false;
+    setMoveNotice(null);
+    // A keyboard dismissal removes the focused notice/button. Move focus to
+    // a stable board control before that subtree unmounts; pointer/programmatic
+    // dismissal while focus is elsewhere must leave the operator there.
+    if (noticeOwnedFocus) {
+      document.getElementById("reservation-board-property")?.focus();
+    }
+  }, []);
+
   const rangeLabel = range ? formatRangeLabel(range) : "";
 
   const body = useMemo(() => {
@@ -783,7 +795,7 @@ const ReservationBoard: React.FC = () => {
           writtenRange={
             noticeMoveReconciliation ? { from: noticeMoveReconciliation.from, to: noticeMoveReconciliation.to } : null
           }
-          onDismiss={() => setMoveNotice(null)}
+          onDismiss={dismissMoveNotice}
         />
       )}
       {uncertainWrites.map((entry) => (
