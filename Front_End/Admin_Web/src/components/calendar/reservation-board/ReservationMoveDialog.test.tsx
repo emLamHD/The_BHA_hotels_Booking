@@ -73,7 +73,7 @@ function dialog() {
 
 describe("ReservationMoveDialog (PMS-CAL-001.2-CP04C.4)", () => {
   it("1. summary shows the full source range and the exact current-room identity", () => {
-    render(<ReservationMoveDialog target={buildTarget()} onSubmit={vi.fn()} onClose={vi.fn()} />);
+    render(<ReservationMoveDialog target={buildTarget()} boardReloadStatus="idle" onSubmit={vi.fn()} onClose={vi.fn()} />);
     expect(within(dialog()).getByText("Nguyen Van A")).toBeInTheDocument();
     expect(within(dialog()).getByText("CNF-001")).toBeInTheDocument();
     expect(within(dialog()).getByText("Standard")).toBeInTheDocument();
@@ -82,7 +82,7 @@ describe("ReservationMoveDialog (PMS-CAL-001.2-CP04C.4)", () => {
   });
 
   it("2. offers only the same-sold-RoomType candidate; the cross-RoomType candidate is never shown", () => {
-    render(<ReservationMoveDialog target={buildTarget()} onSubmit={vi.fn()} onClose={vi.fn()} />);
+    render(<ReservationMoveDialog target={buildTarget()} boardReloadStatus="idle" onSubmit={vi.fn()} onClose={vi.fn()} />);
     expect(within(dialog()).getByLabelText(/Room 102/)).toBeInTheDocument();
     expect(within(dialog()).queryByLabelText(/Room 201/)).not.toBeInTheDocument();
     expect(within(dialog()).queryByText("Deluxe")).not.toBeInTheDocument();
@@ -91,7 +91,7 @@ describe("ReservationMoveDialog (PMS-CAL-001.2-CP04C.4)", () => {
   it("3. submitting without a selected room shows validation and never calls onSubmit", async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn();
-    render(<ReservationMoveDialog target={buildTarget()} onSubmit={onSubmit} onClose={vi.fn()} />);
+    render(<ReservationMoveDialog target={buildTarget()} boardReloadStatus="idle" onSubmit={onSubmit} onClose={vi.fn()} />);
 
     await user.click(within(dialog()).getByRole("button", { name: "Move room" }));
 
@@ -103,7 +103,7 @@ describe("ReservationMoveDialog (PMS-CAL-001.2-CP04C.4)", () => {
     const user = userEvent.setup();
     const move = deferred<MoveAssignmentOutcome>();
     const onSubmit = vi.fn().mockImplementation(() => move.promise);
-    render(<ReservationMoveDialog target={buildTarget()} onSubmit={onSubmit} onClose={vi.fn()} />);
+    render(<ReservationMoveDialog target={buildTarget()} boardReloadStatus="idle" onSubmit={onSubmit} onClose={vi.fn()} />);
 
     await user.click(within(dialog()).getByLabelText(/Room 102/));
     const submit = within(dialog()).getByRole("button", { name: "Move to room 102" });
@@ -137,7 +137,7 @@ describe("ReservationMoveDialog (PMS-CAL-001.2-CP04C.4)", () => {
     document.body.appendChild(opener);
     opener.focus();
 
-    render(<ReservationMoveDialog target={buildTarget()} onSubmit={onSubmit} onClose={onClose} />);
+    render(<ReservationMoveDialog target={buildTarget()} boardReloadStatus="idle" onSubmit={onSubmit} onClose={onClose} />);
     await user.click(within(dialog()).getByLabelText(/Room 102/));
     await user.click(within(dialog()).getByRole("button", { name: "Move to room 102" }));
 
@@ -161,7 +161,7 @@ describe("ReservationMoveDialog (PMS-CAL-001.2-CP04C.4)", () => {
       .fn()
       .mockResolvedValueOnce({ kind: "rejected", status: 400, category: "validation", detail: "bad" })
       .mockResolvedValueOnce({ kind: "not-sent", message: "not configured" });
-    render(<ReservationMoveDialog target={buildTarget()} onSubmit={onSubmit} onClose={vi.fn()} />);
+    render(<ReservationMoveDialog target={buildTarget()} boardReloadStatus="idle" onSubmit={onSubmit} onClose={vi.fn()} />);
 
     await user.click(within(dialog()).getByLabelText(/Room 102/));
     await user.click(within(dialog()).getByRole("button", { name: "Move to room 102" }));
@@ -182,7 +182,7 @@ describe("ReservationMoveDialog (PMS-CAL-001.2-CP04C.4)", () => {
     ]) {
       const user = userEvent.setup();
       const onSubmit = vi.fn().mockResolvedValue(outcome);
-      const { unmount } = render(<ReservationMoveDialog target={buildTarget()} onSubmit={onSubmit} onClose={vi.fn()} />);
+      const { unmount } = render(<ReservationMoveDialog target={buildTarget()} boardReloadStatus="idle" onSubmit={onSubmit} onClose={vi.fn()} />);
 
       await user.click(within(dialog()).getByLabelText(/Room 102/));
       await user.click(within(dialog()).getByRole("button", { name: "Move to room 102" }));
@@ -196,7 +196,7 @@ describe("ReservationMoveDialog (PMS-CAL-001.2-CP04C.4)", () => {
   it("8. an unknown result never claims failure, cancellation, or a rollback, and states it was not retried", async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn().mockResolvedValue({ kind: "unknown", reason: "timeout" });
-    render(<ReservationMoveDialog target={buildTarget()} onSubmit={onSubmit} onClose={vi.fn()} />);
+    render(<ReservationMoveDialog target={buildTarget()} boardReloadStatus="idle" onSubmit={onSubmit} onClose={vi.fn()} />);
 
     await user.click(within(dialog()).getByLabelText(/Room 102/));
     await user.click(within(dialog()).getByRole("button", { name: "Move to room 102" }));
@@ -212,7 +212,7 @@ describe("ReservationMoveDialog (PMS-CAL-001.2-CP04C.4)", () => {
   it("9. is fully keyboard-operable: select a candidate, submit, and Tab never leaves the dialog", async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn().mockResolvedValue({ kind: "moved", segments: null });
-    render(<ReservationMoveDialog target={buildTarget()} onSubmit={onSubmit} onClose={vi.fn()} />);
+    render(<ReservationMoveDialog target={buildTarget()} boardReloadStatus="idle" onSubmit={onSubmit} onClose={vi.fn()} />);
 
     const roomInput = within(dialog()).getByLabelText(/Room 102/);
     expect(document.activeElement).toBe(roomInput);

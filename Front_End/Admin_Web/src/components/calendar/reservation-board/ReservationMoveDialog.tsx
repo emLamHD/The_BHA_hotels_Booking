@@ -17,8 +17,12 @@
  * here at all — that is a later checkpoint's scope, exactly as CP03A shipped
  * same-RoomType assignment before CP03B added the cross-RoomType path.
  *
- * Not yet mounted anywhere: `ReservationBoard.tsx` does not import this
- * component in this checkpoint. It is exercised directly by its own tests.
+ * PMS-CAL-001.2-CP04C.5: now mounted from `ReservationBoard.tsx`.
+ * `boardReloadStatus`/`uncertainResolution` mirror
+ * `ReservationAssignmentDialog.tsx`'s own props of the same names exactly —
+ * the board owns the actual re-read and reconciliation tracking; this dialog
+ * only renders what it is told, so a conflict or lost-response result never
+ * sits next to stale "reloading…" text.
  *
  * Submission guarantees — identical in spirit to `ReservationAssignmentDialog.tsx`:
  * - At most one request on the wire at a time. `inFlightRef` is set
@@ -46,9 +50,14 @@ import type { MoveAssignmentOutcome } from "@/lib/api/client";
 import { describeMoveOutcome, type AssignmentOutcomeView } from "./assignmentOutcome";
 import { diffDaysIso } from "./dateMath";
 import type { MoveTarget } from "./moveTarget";
+import type { BoardReloadStatus } from "./ReservationAssignmentDialog";
 
 interface ReservationMoveDialogProps {
   target: MoveTarget;
+  /** State of the board re-read triggered by this dialog's last outcome, if any. */
+  boardReloadStatus: BoardReloadStatus;
+  /** What the server's data says about a move whose response was lost. */
+  uncertainResolution?: "unresolved" | "observed" | "changed";
   onSubmit: (physicalRoomId: string) => Promise<MoveAssignmentOutcome>;
   onClose: () => void;
 }
@@ -56,7 +65,13 @@ interface ReservationMoveDialogProps {
 const FOCUSABLE_SELECTOR =
   'button:not([disabled]), input:not([disabled]), [href], select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-const ReservationMoveDialog: React.FC<ReservationMoveDialogProps> = ({ target, onSubmit, onClose }) => {
+const ReservationMoveDialog: React.FC<ReservationMoveDialogProps> = ({
+  target,
+  boardReloadStatus,
+  uncertainResolution,
+  onSubmit,
+  onClose,
+}) => {
   const titleId = useId();
   const descriptionId = useId();
   const roomErrorId = useId();
@@ -283,6 +298,9 @@ const ReservationMoveDialog: React.FC<ReservationMoveDialogProps> = ({ target, o
               >
                 <p className="font-medium">{result.title}</p>
                 {result.detail && <p className="mt-1 text-xs">{result.detail}</p>}
+                {result.reloadBoard && (
+                  <p className="mt-1 text-xs">{reloadStatusText(boardReloadStatus, uncertainResolution)}</p>
+                )}
               </div>
             )}
           </div>
@@ -344,5 +362,30 @@ const SummaryRow: React.FC<{ label: string; value: string; mono?: boolean }> = (
     </dd>
   </div>
 );
+
+/**
+ * PMS-CAL-001.2-CP04C.5: the condensed equivalent of
+ * `ReservationAssignmentDialog.tsx`'s `ReloadStatusLine`/`UncertainStatusLine`
+ * pair — same fallthrough order (observed → changed → checked-but-unshown →
+ * plain reload status), returned as text rather than a second `role="alert"`
+ * element, since it renders inside the result panel's own alert region here.
+ */
+function reloadStatusText(status: BoardReloadStatus, resolution?: "unresolved" | "observed" | "changed"): string {
+  if (resolution !== undefined) {
+    if (resolution === "observed") return "The destination now shown on the server matches this move.";
+    if (resolution === "changed") {
+      return "This segment has since changed on the server, so this request can no longer take effect. Its own result was never confirmed.";
+    }
+    if (status === "done") {
+      return "The board was checked, but the destination is not shown yet. The result is still unknown; this segment stays locked. Close this dialog and use Check again.";
+    }
+  }
+  if (status === "failed") return "The board could not be reloaded. Close this dialog and use Retry on the board.";
+  if (status === "done") return "The board has been reloaded from the server.";
+  if (status === "elsewhere") {
+    return "The view changed before the board was reloaded; the result has not been re-read yet.";
+  }
+  return "Reloading the board from the server…";
+}
 
 export default ReservationMoveDialog;
