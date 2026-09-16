@@ -366,6 +366,18 @@ export async function moveReservationAssignment(
     return { kind: "not-sent", message: describeApiBaseUrlError(baseUrlResult.reason) };
   }
 
+  // PMS-CAL-001.2-CP04C.1-C1: a signal that is already aborted before this
+  // call ever runs can never produce an HTTP request — `fetch` would reject
+  // immediately, but no attempt to write anything was ever made. Reported as
+  // `not-sent` (proof of no write), never as `unknown/aborted` (which would
+  // wrongly suggest the move may have committed and could trigger the
+  // board's uncertain-write reconciliation for a request that never left the
+  // browser). An abort that happens *after* this point — once the request is
+  // genuinely in flight — is unchanged: that remains `unknown/aborted` below.
+  if (options.signal?.aborted) {
+    return { kind: "not-sent", message: "The request was cancelled before it was sent." };
+  }
+
   // Field by field, for the identical reason as createReservationAssignment:
   // nothing beyond the CP04B move contract — in particular no actor and no
   // authorization evidence — can reach the wire even if a caller passes a
@@ -388,11 +400,9 @@ export async function moveReservationAssignment(
     controller.abort();
   }, options.timeoutMs ?? DEFAULT_ASSIGNMENT_TIMEOUT_MS);
   const forwardAbort = () => controller.abort();
-  if (options.signal?.aborted) {
-    controller.abort();
-  } else {
-    options.signal?.addEventListener("abort", forwardAbort, { once: true });
-  }
+  // The signal is already known not-aborted here (checked above), so this
+  // only ever needs to listen for a future abort.
+  options.signal?.addEventListener("abort", forwardAbort, { once: true });
 
   try {
     let response: Response;

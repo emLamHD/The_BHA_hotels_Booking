@@ -296,4 +296,16 @@ describe("moveReservationAssignment (PMS-CAL-001.2-CP04C.1)", () => {
 
     await expect(pending).resolves.toEqual({ kind: "unknown", reason: "aborted" });
   });
+
+  it("PMS-CAL-001.2-CP04C.1-C1: reports not-sent, never fetches, for a signal already aborted before the call", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const outcome = await moveReservationAssignment(PROPERTY_ID, SEGMENT_ID, request, { signal: controller.signal });
+
+    expect(outcome.kind).toBe("not-sent");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
 });
