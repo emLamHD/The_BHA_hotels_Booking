@@ -671,18 +671,34 @@ describe("PMS-CAL-001.2-CP03A-C1 corrections", () => {
   // PMS-CAL-001.2-CP03B: the capability itself grew (cross-RoomType assignment
   // with confirmation/reason is now offered), so the banner is updated to say
   // so — the invariant this test protects is accuracy, not a fixed wording.
+  // PMS-CAL-001.2-CP04C.5-C1: the capability grew again (same-sold-RoomType
+  // move is now a real write); this test now also pins the negative claims —
+  // cross-RoomType move is not offered, and the local write opt-in is never
+  // described as authentication or a permission grant — so either direction
+  // of drift (claiming too little or too much) fails it.
 
-  it("describes exactly what the board can write, without claiming read-only", async () => {
+  it("describes exactly what the board can write, without claiming everything is read-only or promising unbuilt capability", async () => {
     await renderLoadedBoard();
     const capabilities = screen.getByTestId("reservation-board-capabilities");
 
     expect(capabilities).toHaveTextContent(
       "Unassigned nights can be assigned to an Active room, of the same sold room type or, with confirmation and a reason, a different one."
     );
-    expect(capabilities).toHaveTextContent("Move, unassign, blocks and lifecycle actions are read-only.");
+    expect(capabilities).toHaveTextContent(
+      "An assigned segment can be moved to another Active room of the same sold room type."
+    );
+    expect(capabilities).toHaveTextContent(
+      "Cross-RoomType move, unassign, operational blocks and other lifecycle actions are read-only."
+    );
     expect(capabilities).toHaveTextContent("local Development write opt-in");
     expect(capabilities).toHaveTextContent("no production sign-in or permissions yet");
     expect(capabilities).not.toHaveTextContent(/no assignment/i);
+    // Never claims every move is read-only (stale as of this checkpoint)...
+    expect(capabilities).not.toHaveTextContent("Move, unassign, blocks and lifecycle actions are read-only.");
+    // ...and never overclaims cross-RoomType move as offered.
+    expect(capabilities).not.toHaveTextContent(/cross-roomtype move can be|cross-roomtype move is offered/i);
+    // The local write opt-in is an environment flag, never authentication/RBAC/permissions granted to the operator.
+    expect(capabilities).not.toHaveTextContent(/authenticat|\bRBAC\b|signed in|logged in/i);
   });
 });
 
