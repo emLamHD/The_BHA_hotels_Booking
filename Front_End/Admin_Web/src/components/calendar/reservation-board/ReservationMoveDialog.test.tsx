@@ -126,16 +126,16 @@ describe("ReservationMoveDialog (PMS-CAL-001.2-CP04C.4)", () => {
     expect(onSubmit).toHaveBeenCalledTimes(1);
   });
 
-  it("5. cannot be closed while pending; once settled, Close/Escape work and focus returns to the opener", async () => {
+  it("5. cannot be closed while pending; once settled, Close/Escape call onClose exactly once", async () => {
+    // PMS-CAL-001.2-CP04C.5-C2: this dialog no longer tries to restore focus
+    // to an "opener" on unmount itself — see ReservationMoveDialog.tsx's own
+    // comment on why it cannot reliably do that when opened from a popover.
+    // `onClose` firing is the caller's (ReservationBoard.tsx's) signal to
+    // handle focus restoration; that behavior is covered at the board level.
     const user = userEvent.setup();
     const move = deferred<MoveAssignmentOutcome>();
     const onSubmit = vi.fn().mockImplementation(() => move.promise);
     const onClose = vi.fn();
-
-    const opener = document.createElement("button");
-    opener.textContent = "opener";
-    document.body.appendChild(opener);
-    opener.focus();
 
     render(<ReservationMoveDialog target={buildTarget()} boardReloadStatus="idle" onSubmit={onSubmit} onClose={onClose} />);
     await user.click(within(dialog()).getByLabelText(/Room 102/));
@@ -151,8 +151,6 @@ describe("ReservationMoveDialog (PMS-CAL-001.2-CP04C.4)", () => {
     await act(async () => move.resolve({ kind: "moved", segments: null }));
     await user.keyboard("{Escape}");
     expect(onClose).toHaveBeenCalledTimes(1);
-
-    opener.remove();
   });
 
   it("6. a validation rejection and a not-sent outcome both keep resubmit available", async () => {

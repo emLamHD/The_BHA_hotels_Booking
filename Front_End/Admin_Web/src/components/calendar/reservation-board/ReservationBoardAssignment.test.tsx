@@ -11,8 +11,8 @@ import React from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import ReservationBoard from "./ReservationBoard";
-import { addDaysIso } from "./dateMath";
+import ReservationBoard, { todayInTimeZone } from "./ReservationBoard";
+import { addDaysIso, buildVisibleRange, computeVisibleStartFromAnchor } from "./dateMath";
 import type { AssignmentCreateOutcome } from "@/lib/api/client";
 import type { ApiProperty, ReservationBoardResponse, ReservationBoardStay } from "@/lib/api/types";
 
@@ -1486,11 +1486,317 @@ describe("ReservationBoard — same-RoomType move (PMS-CAL-001.2-CP04C.5)", () =
     // misapplied, a bar for Nguyen Van A would appear on prop-b's empty board.
     expect(screen.queryByTitle(/Nguyen Van A/)).not.toBeInTheDocument();
     expect(screen.getByLabelText("Property")).toHaveValue("prop-b");
+    // PMS-CAL-001.2-CP04C.5-C2: the success text itself must never paint onto
+    // prop-b's board either — it belongs only to the board the write was made
+    // from (see `submitMove`'s `stillOnWrittenBoard` guard).
+    expect(screen.queryByText(/Room 102 moved/)).not.toBeInTheDocument();
     // The late resolution still triggers a retry, but whatever it re-fetches
     // is for the Property/range current at that moment (prop-b) — never prop-a's.
     await waitFor(() =>
       expect(mockedFetchReservationBoard.mock.calls.length).toBeGreaterThan(boardCallsBeforeResolve)
     );
     expect(mockedFetchReservationBoard.mock.calls.at(-1)![0]).toBe("prop-b");
+  });
+});
+
+describe("ReservationBoard — move-flow recovery, focus, and stale-view correctness (PMS-CAL-001.2-CP04C.5-C2)", () => {
+  function assignedBar() {
+    return screen.getByTitle("Nguyen Van A — CNF-100");
+  }
+
+  function popover() {
+    return screen.getByRole("dialog", { name: "Reservation details" });
+  }
+
+  function moveDialog() {
+    return screen.getByRole("dialog", { name: "Move room" });
+  }
+
+  async function openMoveDialog(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(assignedBar());
+    await user.click(within(popover()).getByRole("button", { name: "Move room" }));
+  }
+
+  /** Opens Move room via keyboard activation only — no pointer clicks. */
+  async function openMoveDialogByKeyboard(user: ReturnType<typeof userEvent.setup>) {
+    assignedBar().focus();
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(popover()).toBeInTheDocument());
+    const moveButton = within(popover()).getByRole("button", { name: "Move room" });
+    moveButton.focus();
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(moveDialog()).toBeInTheDocument());
+  }
+
+  describe("Fix 1 — focus restoration after the move dialog closes", () => {
+    it("1a. keyboard-open Move, closed after a validation refusal, returns focus to the assigned bar that opened it", async () => {
+      const user = userEvent.setup();
+      await renderLoadedBoard();
+      mockedMove.mockResolvedValueOnce({ kind: "rejected", status: 400, category: "validation", detail: "bad" });
+
+      await openMoveDialogByKeyboard(user);
+      await user.click(within(moveDialog()).getByLabelText(/Room 102/));
+      await user.click(within(moveDialog()).getByRole("button", { name: "Move to room 102" }));
+      await within(moveDialog()).findByText("The server did not accept this move. Nothing was saved.");
+
+      await user.click(within(moveDialog()).getAllByRole("button", { name: "Close" }).at(-1)!);
+      expect(screen.queryByRole("dialog", { name: "Move room" })).not.toBeInTheDocument();
+      expect(document.activeElement).toBe(assignedBar());
+    });
+
+    it("1b. keyboard-open Move, closed after a conflict, returns focus to the assigned bar that opened it", async () => {
+      const user = userEvent.setup();
+      await renderLoadedBoard();
+      mockedMove.mockResolvedValue({
+        kind: "rejected",
+        status: 409,
+        category: "conflict",
+        detail: "The segment has since changed; expectedVersion no longer matches.",
+      });
+
+      await openMoveDialogByKeyboard(user);
+      await user.click(within(moveDialog()).getByLabelText(/Room 102/));
+      await user.click(within(moveDialog()).getByRole("button", { name: "Move to room 102" }));
+      await within(moveDialog()).findByRole("alert");
+
+      await user.click(within(moveDialog()).getAllByRole("button", { name: "Close" }).at(-1)!);
+      expect(screen.queryByRole("dialog", { name: "Move room" })).not.toBeInTheDocument();
+      expect(document.activeElement).toBe(assignedBar());
+    });
+
+    it("1c. keyboard-open Move, closed after an unknown (lost) result, returns focus to the assigned bar that opened it", async () => {
+      const user = userEvent.setup();
+      await renderLoadedBoard();
+      mockedMove.mockResolvedValue({ kind: "unknown", reason: "timeout" });
+
+      await openMoveDialogByKeyboard(user);
+      await user.click(within(moveDialog()).getByLabelText(/Room 102/));
+      await user.click(within(moveDialog()).getByRole("button", { name: "Move to room 102" }));
+      await within(moveDialog()).findByRole("alert");
+
+      await user.click(within(moveDialog()).getAllByRole("button", { name: "Close" }).at(-1)!);
+      expect(screen.queryByRole("dialog", { name: "Move room" })).not.toBeInTheDocument();
+      expect(document.activeElement).toBe(assignedBar());
+      expect(document.activeElement).not.toBe(document.body);
+    });
+
+    it("2a. a successful move hands focus to the success notice — never to the assigned bar (now moved) or to document.body", async () => {
+      const user = userEvent.setup();
+      await renderLoadedBoard();
+      mockedMove.mockResolvedValue({ kind: "moved", segments: null });
+
+      await openMoveDialogByKeyboard(user);
+      await user.click(within(moveDialog()).getByLabelText(/Room 102/));
+      await user.click(within(moveDialog()).getByRole("button", { name: "Move to room 102" }));
+
+      await waitFor(() => expect(screen.getByText(/Room 102 moved/)).toBeInTheDocument());
+      expect(screen.queryByRole("dialog", { name: "Move room" })).not.toBeInTheDocument();
+      expect(document.activeElement?.textContent).toContain("Room 102 moved");
+      expect(document.activeElement).not.toBe(document.body);
+    });
+
+    it("2b. when the opener bar has been hidden since the dialog opened, closing after an unresolved result falls back to the Property selector, never document.body", async () => {
+      const user = userEvent.setup();
+      await renderLoadedBoard();
+      mockedMove.mockResolvedValue({ kind: "unknown", reason: "timeout" });
+
+      await openMoveDialogByKeyboard(user);
+      await user.click(within(moveDialog()).getByLabelText(/Room 102/));
+      await user.click(within(moveDialog()).getByRole("button", { name: "Move to room 102" }));
+      await within(moveDialog()).findByRole("alert");
+
+      // Hide the opener without touching Property/range — same board, just no
+      // longer rendered (an authoritative reload that supersedes a segment id,
+      // or a filter change, has the same effect on `.isConnected`).
+      await user.click(screen.getByRole("checkbox", { name: "Assigned" }));
+      expect(screen.queryByTitle("Nguyen Van A — CNF-100")).not.toBeInTheDocument();
+
+      await user.click(within(moveDialog()).getAllByRole("button", { name: "Close" }).at(-1)!);
+      expect(screen.queryByRole("dialog", { name: "Move room" })).not.toBeInTheDocument();
+      expect(document.activeElement).toBe(screen.getByLabelText("Property"));
+      expect(document.activeElement).not.toBe(document.body);
+    });
+  });
+
+  describe("Fix 2 — attainable retry for a move segment longer than any board window", () => {
+    /** A single fully-assigned stay whose one segment spans an arbitrary, caller-chosen range. */
+    function longSegmentBoardFor(
+      propertyId: string,
+      from: string,
+      to: string,
+      segStart: string,
+      segEnd: string
+    ): ReservationBoardResponse {
+      const base = boardFor(propertyId, from, to);
+      if (propertyId === "prop-a") {
+        base.stays = [
+          {
+            reservationId: "res-1",
+            reservationUnitId: "unit-1",
+            confirmationNumber: "CNF-100",
+            guestDisplayName: "Nguyen Van A",
+            soldRoomTypeId: "type-standard",
+            checkIn: segStart,
+            checkOut: segEnd,
+            coverageStatus: "FullyAssigned",
+            assignments: [
+              {
+                segmentId: "seg-existing",
+                segmentVersion: 1,
+                physicalRoomId: "room-101",
+                actualRoomTypeId: "type-standard",
+                startDate: segStart,
+                endDate: segEnd,
+              },
+            ],
+            unassignedRanges: [],
+          },
+        ];
+      }
+      return base;
+    }
+
+    it("3. an overlapping view offers Check again with move-specific guidance; a non-overlapping view asks for an overlapping one instead; Check again sends only a GET", async () => {
+      const user = userEvent.setup();
+
+      // A 45-night segment: longer than the board's own 31-night maximum
+      // window, so it can never be fully contained by any view — only
+      // overlapped. Anchored relative to the real initial window (computed
+      // with the same pure helpers the component itself uses) so it is
+      // guaranteed to be visible — and clickable — the moment the board
+      // first loads.
+      const todayIso = todayInTimeZone(propertyA.timeZone);
+      const initialStart = computeVisibleStartFromAnchor(todayIso, 14);
+      const initialRange = buildVisibleRange(initialStart, 14);
+      const segStart = addDaysIso(initialRange.start, -5);
+      const segEnd = addDaysIso(initialRange.start, 40);
+
+      mockedFetchReservationBoard.mockImplementation((propertyId, reqFrom, reqTo) =>
+        Promise.resolve({ ok: true, data: longSegmentBoardFor(propertyId, reqFrom, reqTo, segStart, segEnd) })
+      );
+      mockedMove.mockResolvedValue({ kind: "unknown", reason: "timeout" });
+
+      render(<ReservationBoard />);
+      await waitFor(() => expect(screen.getByTitle("Nguyen Van A — CNF-100")).toBeInTheDocument());
+
+      await openMoveDialog(user);
+      await user.click(within(moveDialog()).getByLabelText(/Room 102/));
+      await user.click(within(moveDialog()).getByRole("button", { name: "Move to room 102" }));
+      await within(moveDialog()).findByRole("alert");
+      await user.click(within(moveDialog()).getAllByRole("button", { name: "Close" }).at(-1)!);
+
+      const notice = screen.getByTestId("uncertain-write-notice");
+      const rangeText = `[${segStart}, ${segEnd})`;
+
+      // Still in the initial (overlapping — in fact containing) window: Check
+      // again is offered, and never with the create-oriented "includes" wording.
+      expect(within(notice).getByRole("button", { name: "Check again" })).toBeInTheDocument();
+      expect(notice).not.toHaveTextContent(`includes ${rangeText}`);
+
+      // Navigate far enough away (3 * 14-night windows) that the visible
+      // range no longer overlaps [segStart, segEnd) at all.
+      await user.click(screen.getByRole("button", { name: "Next date range" }));
+      await user.click(screen.getByRole("button", { name: "Next date range" }));
+      await user.click(screen.getByRole("button", { name: "Next date range" }));
+      await waitFor(() =>
+        expect(mockedFetchReservationBoard.mock.calls.at(-1)![1]).toBe(addDaysIso(initialRange.start, 42))
+      );
+
+      expect(within(notice).queryByRole("button", { name: "Check again" })).not.toBeInTheDocument();
+      expect(notice).toHaveTextContent(`Open a view of this Property that overlaps ${rangeText} to check again`);
+      // Never the create wording, and never claims a containing view is required.
+      expect(notice).not.toHaveTextContent(`includes ${rangeText}`);
+
+      // Step back one window: [start+28, start+42) overlaps [start-5, start+40)
+      // without containing it — exactly the case full-containment would reject.
+      await user.click(screen.getByRole("button", { name: "Previous date range" }));
+      await waitFor(() =>
+        expect(mockedFetchReservationBoard.mock.calls.at(-1)![1]).toBe(addDaysIso(initialRange.start, 28))
+      );
+      expect(within(notice).getByRole("button", { name: "Check again" })).toBeInTheDocument();
+
+      const boardCallsBefore = mockedFetchReservationBoard.mock.calls.length;
+      const moveCallsBefore = mockedMove.mock.calls.length;
+      await user.click(within(notice).getByRole("button", { name: "Check again" }));
+      await waitFor(() => expect(mockedFetchReservationBoard.mock.calls.length).toBe(boardCallsBefore + 1));
+      // Check again only ever reads — it must never resend the move.
+      expect(mockedMove).toHaveBeenCalledTimes(moveCallsBefore);
+    });
+
+    it("4. a create reconciliation still requires full containment — an overlapping-but-not-containing view keeps the 'includes' wording and hides Check again (regression pin)", async () => {
+      const user = userEvent.setup();
+      const { from } = await renderLoadedBoard();
+      mockedCreate.mockResolvedValue({ kind: "unknown", reason: "timeout" });
+
+      await user.click(firstRangeBar(from));
+      await user.click(within(dialog()).getByLabelText(/Room 102/));
+      await user.click(within(dialog()).getByRole("button", { name: "Assign room 102" }));
+      await within(dialog()).findByRole("alert");
+      await user.click(within(dialog()).getAllByRole("button", { name: "Close" }).at(-1)!);
+
+      const notice = screen.getByTestId("uncertain-write-notice");
+      const rangeText = `[${from}, ${addDaysIso(from, 2)})`;
+
+      // One window forward overlaps the tail of the initial window but does
+      // not contain the create's own (unclipped) [from, from+2) range.
+      await user.click(screen.getByRole("button", { name: "Next date range" }));
+      await waitFor(() => expect(mockedFetchReservationBoard.mock.calls.at(-1)![1]).toBe(addDaysIso(from, 14)));
+
+      expect(within(notice).queryByRole("button", { name: "Check again" })).not.toBeInTheDocument();
+      expect(notice).toHaveTextContent(`Open a view of this Property that includes ${rangeText} to check again`);
+      expect(notice).not.toHaveTextContent(`overlaps ${rangeText}`);
+    });
+  });
+
+  describe("Fix 3 — no stale Property/range results from a move POST that outlives the view that started it", () => {
+    it("6. changing only the visible date range (same Property) while a move POST is pending never paints the stale board's success notice on the new range", async () => {
+      const user = userEvent.setup();
+      const { from } = await renderLoadedBoard();
+      const move = deferred<MoveAssignmentOutcome>();
+      mockedMove.mockImplementation(() => move.promise);
+
+      await openMoveDialog(user);
+      await user.click(within(moveDialog()).getByLabelText(/Room 102/));
+      await user.click(within(moveDialog()).getByRole("button", { name: "Move to room 102" }));
+
+      // Changing only the range (no Property switch) does not itself close
+      // the still-pending dialog — only the late response's own handling is
+      // under test here.
+      await user.click(screen.getByRole("button", { name: "Next date range" }));
+      await waitFor(() => expect(mockedFetchReservationBoard.mock.calls.at(-1)![1]).toBe(addDaysIso(from, 14)));
+
+      await act(async () => move.resolve({ kind: "moved", segments: null }));
+      expect(screen.queryByText(/Room 102 moved/)).not.toBeInTheDocument();
+    });
+
+    it("7. returning to the Property the move was written on still resolves the write via overlap rules, once switched back", async () => {
+      const user = userEvent.setup();
+      const { from } = await renderLoadedBoard();
+      const move = deferred<MoveAssignmentOutcome>();
+      mockedMove.mockImplementation(() => move.promise);
+
+      await openMoveDialog(user);
+      await user.click(within(moveDialog()).getByLabelText(/Room 102/));
+      await user.click(within(moveDialog()).getByRole("button", { name: "Move to room 102" }));
+
+      await user.selectOptions(screen.getByLabelText("Property"), "prop-b");
+      await waitFor(() => expect(mockedFetchReservationBoard.mock.calls.at(-1)![0]).toBe("prop-b"));
+
+      await act(async () => move.resolve({ kind: "unknown", reason: "timeout" }));
+      // Not shown while viewing prop-b — this reconciliation belongs to prop-a.
+      expect(screen.queryByTestId("uncertain-write-notice")).not.toBeInTheDocument();
+
+      // Both fixture Properties share a time zone, so switching back resets
+      // the anchor to the same "today" window the write was made from.
+      await user.selectOptions(screen.getByLabelText("Property"), "prop-a");
+      await waitFor(() => expect(mockedFetchReservationBoard.mock.calls.at(-1)![0]).toBe("prop-a"));
+
+      await waitFor(() => expect(screen.getByTestId("uncertain-write-notice")).toBeInTheDocument());
+      const notice = screen.getByTestId("uncertain-write-notice");
+      expect(notice).toHaveTextContent(
+        `room 102 for Nguyen Van A (CNF-100), [${addDaysIso(from, 2)}, ${addDaysIso(from, 4)})`
+      );
+      expect(within(notice).getByRole("button", { name: "Check again" })).toBeInTheDocument();
+    });
   });
 });

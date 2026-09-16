@@ -150,6 +150,27 @@ const ReservationBoard: React.FC = () => {
   const [moveNotice, setMoveNotice] = useState<{ text: string; reconciliationId: number } | null>(null);
   const moveNoticeRef = useRef<HTMLDivElement>(null);
   /**
+   * PMS-CAL-001.2-CP04C.5-C2: the assigned-bar element that opened the
+   * current stay popover, captured the moment it is selected — before the
+   * popover (and, if the operator goes on to Move room, the move dialog)
+   * ever mount. `ReservationMoveDialog` cannot reliably capture this itself:
+   * opening it also unmounts the popover's own "Move room" button in the
+   * same commit, so by the time the dialog's own mount effect would read
+   * `document.activeElement`, the browser has already moved focus to
+   * `document.body`. Capturing it here, one hop earlier, is the only point
+   * where `document.activeElement` is still the real opener.
+   */
+  const assignedBarOpenerRef = useRef<HTMLElement | null>(null);
+  /**
+   * PMS-CAL-001.2-CP04C.5-C2: the board identity (`propertyId|from|to`)
+   * currently on screen, mirrored into a ref so `submitMove`'s async
+   * continuation can read the *live* value at the moment a response arrives
+   * — not the value closed over when the request was sent. A move started
+   * on one Property/range must never paint its success text onto whatever
+   * Property/range the operator has since navigated to.
+   */
+  const currentBoardKeyRef = useRef<string | null>(null);
+  /**
    * Rendered from state; decided from the ref. The ref is updated
    * synchronously the moment a write resolves, so a click that lands before
    * React has re-rendered the board is still refused.
@@ -509,13 +530,27 @@ const ReservationBoard: React.FC = () => {
           resolution: uncertain ? "unresolved" : "settled",
         };
         updateReconciliations((list) => [...list.filter(keepReconciliation), reconciliation]);
-        setDialogMoveReconciliationId(reconciliation.id);
-        if (outcome.kind === "moved") {
-          setMoveTarget(null);
-          setMoveNotice({
-            text: `Room ${room.roomNumber} moved for ${target.stay.guestDisplayName} (${target.stay.confirmationNumber}), [${target.segment.startDate}, ${target.segment.endDate}).`,
-            reconciliationId: reconciliation.id,
-          });
+        // PMS-CAL-001.2-CP04C.5-C2: the reconciliation entry above is always
+        // recorded, whatever board is on screen now — returning to the
+        // Property/range it was written against can still resolve it, via
+        // the same key match `reconciliationStatus`/`evaluateUncertainWrite`
+        // already use. But the *display* channels below (which dialog's
+        // reload status this reconciliation drives, and the success toast)
+        // belong only to the board this write was actually made from. A
+        // response that resolves after the operator has switched
+        // Property/range must not repoint an unrelated (or already-closed)
+        // dialog's status at this reconciliation, and must not paint this
+        // guest/room onto a board it was never for.
+        const stillOnWrittenBoard = currentBoardKeyRef.current === target.boardKey;
+        if (stillOnWrittenBoard) {
+          setDialogMoveReconciliationId(reconciliation.id);
+          if (outcome.kind === "moved") {
+            setMoveTarget(null);
+            setMoveNotice({
+              text: `Room ${room.roomNumber} moved for ${target.stay.guestDisplayName} (${target.stay.confirmationNumber}), [${target.segment.startDate}, ${target.segment.endDate}).`,
+              reconciliationId: reconciliation.id,
+            });
+          }
         }
         setRetryToken((token) => token + 1);
       }
@@ -526,6 +561,10 @@ const ReservationBoard: React.FC = () => {
 
   const currentBoardKey =
     selectedPropertyId && range ? boardIdentityKey(selectedPropertyId, range.start, range.endExclusive) : null;
+
+  useEffect(() => {
+    currentBoardKeyRef.current = currentBoardKey;
+  }, [currentBoardKey]);
 
   const reconciliationStatus = (id: number | null): BoardReloadStatus => {
     if (id === null) return "idle";
@@ -611,6 +650,28 @@ const ReservationBoard: React.FC = () => {
     [displayedBoardAwaitingReconciliation, reconciliations, selectedPropertyId]
   );
 
+  /**
+   * PMS-CAL-001.2-CP04C.5-C2: the one place focus returns to after the move
+   * dialog closes without a notice taking over (validation, a refused
+   * submit, a conflict, or an unknown result — see `assignedBarOpenerRef`'s
+   * own comment for why the dialog cannot determine this itself). Prefers
+   * the exact assigned bar that opened this move, but only while it is
+   * still actually attached to the document — an authoritative reload that
+   * superseded the segment's own id, or a Property/range switch, unmounts
+   * that specific element, and `.isConnected` reports that reliably without
+   * this needing to know why. Falls back to the Property selector: always
+   * present, always focusable, a real board control rather than the
+   * document body.
+   */
+  const restoreBoardFocus = useCallback(() => {
+    const opener = assignedBarOpenerRef.current;
+    if (opener && opener.isConnected) {
+      opener.focus();
+      return;
+    }
+    document.getElementById("reservation-board-property")?.focus();
+  }, []);
+
   // A new notice takes focus: the bar that opened the dialog is gone once the
   // board reloads, so focus would otherwise fall back to the document.
   useEffect(() => {
@@ -664,7 +725,13 @@ const ReservationBoard: React.FC = () => {
         showAssigned={filters.showAssigned}
         showUnassigned={filters.showUnassigned}
         showOperationalBlocks={filters.showOperationalBlocks}
-        onSelectStay={(value) => setSelection({ kind: "stay", value })}
+        onSelectStay={(value) => {
+          // Captured here, before the popover (and, if the operator goes on
+          // to Move room, the dialog after it) ever mounts — see
+          // `assignedBarOpenerRef`'s own comment.
+          assignedBarOpenerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+          setSelection({ kind: "stay", value });
+        }}
         onSelectUnassignedRange={handleSelectUnassignedRange}
         onSelectBlock={(value) => setSelection({ kind: "block", value })}
         unassignedActionsBlocked={displayedBoardAwaitingReconciliation}
@@ -777,7 +844,15 @@ const ReservationBoard: React.FC = () => {
               : undefined
           }
           onSubmit={(physicalRoomId) => submitMove(moveTarget, physicalRoomId)}
-          onClose={() => setMoveTarget(null)}
+          onClose={() => {
+            setMoveTarget(null);
+            // Only reached when the operator closes the dialog directly
+            // (validation, a refused submit, a conflict, or an unknown
+            // result) — a successful move instead clears `moveTarget`
+            // itself from `submitMove` and hands focus to the success
+            // notice via the effect above, so this never fights that path.
+            restoreBoardFocus();
+          }}
         />
       )}
     </div>
@@ -851,7 +926,17 @@ const UncertainWriteNotice: React.FC<{
   } else if (readStatus === "failed") {
     detail = "The board could not be reloaded, so the result is still unknown. Use Retry on the board.";
   } else if (!canCheckHere) {
-    detail = `The result is still unknown and these nights stay locked. Open a view of this Property that includes ${range} to check again.`;
+    // PMS-CAL-001.2-CP04C.5-C2: `canCheckHere` (via `boardCanShow` →
+    // `boardCanEvaluate`) already applies the correct per-operation window
+    // rule — full containment for create, overlap for move (CP04C.3-C1/C2).
+    // The guidance text must match that exact rule, or a move segment
+    // longer than the board's own maximum window would be told to open a
+    // containing view that can never exist, even though an overlapping one
+    // (which `canCheckHere` would accept) does.
+    detail =
+      target.operation === "move"
+        ? `The result is still unknown and this segment stays locked. Open a view of this Property that overlaps ${range} to check again.`
+        : `The result is still unknown and these nights stay locked. Open a view of this Property that includes ${range} to check again.`;
   } else {
     detail = checking
       ? "Checking the board on the server again…"

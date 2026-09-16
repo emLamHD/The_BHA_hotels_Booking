@@ -98,14 +98,20 @@ const ReservationMoveDialog: React.FC<ReservationMoveDialogProps> = ({
   const selectedRoom = sameSoldTypeCandidates.find((room) => room.id === selectedRoomId) ?? null;
   const nights = diffDaysIso(target.segment.startDate, target.segment.endDate);
 
-  // Open: remember the opener and move focus in. Close: hand focus back.
+  // Move focus in on open. This dialog deliberately does not try to restore
+  // focus to an "opener" on unmount (PMS-CAL-001.2-CP04C.5-C2): it is opened
+  // from a popover's own button, which unmounts in the very same commit as
+  // this dialog mounts, so by the time this effect could read
+  // `document.activeElement` the browser has already moved focus to
+  // `document.body` — capturing that would be worse than capturing nothing.
+  // `ReservationBoard.tsx` owns the real opener (captured one hop earlier,
+  // before the popover ever mounted) and restores focus itself via this
+  // dialog's `onClose` prop.
   useEffect(() => {
     mountedRef.current = true;
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     (firstRoomRef.current ?? closeButtonRef.current)?.focus();
     return () => {
       mountedRef.current = false;
-      if (opener && opener.isConnected) opener.focus();
     };
   }, []);
 
