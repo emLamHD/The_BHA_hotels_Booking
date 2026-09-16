@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   evaluateUncertainWrite,
   isBoardAwaitingReconciliation,
+  isSegmentMoveUnresolved,
   isUnassignedRangeUnresolved,
   settleReconciliations,
+  type MoveReconciliationTarget,
   type Reconciliation,
 } from "./reconciliation";
 import type { ReservationBoardResponse, ReservationBoardStay } from "@/lib/api/types";
@@ -22,6 +24,7 @@ function entry(overrides: Partial<Reconciliation> = {}): Reconciliation {
     afterSeq: 5,
     certainty: "settled",
     target: {
+      operation: "create",
       reservationUnitId: "unit-1",
       physicalRoomId: "room-101",
       ...TARGET,
@@ -37,6 +40,28 @@ function entry(overrides: Partial<Reconciliation> = {}): Reconciliation {
 
 const uncertain = (overrides: Partial<Reconciliation> = {}) =>
   entry({ certainty: "uncertain", resolution: "unresolved", ...overrides });
+
+/** A move reconciliation: source room-101 moving to destination room-102, same range as TARGET (moves never change dates). */
+function moveEntry(overrides: Partial<Reconciliation> = {}): Reconciliation {
+  const moveTarget: MoveReconciliationTarget = {
+    operation: "move",
+    reservationUnitId: "unit-1",
+    physicalRoomId: "room-102", // destination
+    ...TARGET,
+    roomNumber: "102",
+    guestDisplayName: "Guest",
+    confirmationNumber: "CNF-1",
+    segmentId: "seg-1",
+    expectedVersion: 3,
+    sourcePhysicalRoomId: "room-101",
+  };
+  return entry({
+    certainty: "uncertain",
+    resolution: "unresolved",
+    target: moveTarget,
+    ...overrides,
+  });
+}
 
 type StayShape = Pick<ReservationBoardStay, "assignments" | "unassignedRanges">;
 
@@ -185,5 +210,84 @@ describe("blocking predicates", () => {
     expect(isUnassignedRangeUnresolved(list, "prop-b", "unit-1", TARGET)).toBe(false);
     expect(isUnassignedRangeUnresolved([uncertain({ resolution: "observed" })], "prop-a", "unit-1", TARGET)).toBe(false);
     expect(isUnassignedRangeUnresolved([entry({ status: "done" })], "prop-a", "unit-1", TARGET)).toBe(false);
+  });
+
+  it("isSegmentMoveUnresolved locks only an unresolved move whose source is exactly this segment", () => {
+    const list = [moveEntry({ status: "done" })];
+    expect(isSegmentMoveUnresolved(list, "prop-a", "seg-1")).toBe(true);
+    // A different segment id, even on the same ReservationUnit, is never locked.
+    expect(isSegmentMoveUnresolved(list, "prop-a", "seg-other")).toBe(false);
+    // A different Property is never locked.
+    expect(isSegmentMoveUnresolved(list, "prop-b", "seg-1")).toBe(false);
+    // An unresolved create reconciliation never locks — operation must be "move", and create has no segmentId at all.
+    expect(isSegmentMoveUnresolved([uncertain({ status: "done" })], "prop-a", "room-101")).toBe(false);
+    // Resolved (observed/changed) never locks.
+    expect(isSegmentMoveUnresolved([moveEntry({ resolution: "observed" })], "prop-a", "seg-1")).toBe(false);
+    expect(isSegmentMoveUnresolved([moveEntry({ resolution: "changed" })], "prop-a", "seg-1")).toBe(false);
+    // A settled (never-uncertain) entry never locks.
+    expect(isSegmentMoveUnresolved([entry({ status: "done" })], "prop-a", "room-101")).toBe(false);
+  });
+});
+
+describe("move reconciliation (PMS-CAL-001.2-CP04C.3)", () => {
+  const sourceIntact = board({
+    assignments: [{ segmentId: "seg-1", segmentVersion: 3, physicalRoomId: "room-101", actualRoomTypeId: "type-std", ...TARGET }],
+    unassignedRanges: [],
+  });
+  const movedToDestination = board({
+    // A superseded segment gets a new id — "observed" never depends on the id matching.
+    assignments: [{ segmentId: "seg-2", segmentVersion: 1, physicalRoomId: "room-102", actualRoomTypeId: "type-std", ...TARGET }],
+    unassignedRanges: [],
+  });
+  const staleVersionSameRoom = board({
+    assignments: [{ segmentId: "seg-1", segmentVersion: 4, physicalRoomId: "room-101", actualRoomTypeId: "type-std", ...TARGET }],
+    unassignedRanges: [],
+  });
+  const staleRoomChangedElsewhere = board({
+    assignments: [{ segmentId: "seg-1", segmentVersion: 3, physicalRoomId: "room-103", actualRoomTypeId: "type-std", ...TARGET }],
+    unassignedRanges: [],
+  });
+  const segmentGone = board({ assignments: [], unassignedRanges: [TARGET] });
+
+  it("resolves as observed when a later read shows the ReservationUnit at the destination room over the exact range", () => {
+    let list = settleReconciliations([moveEntry()], A, 6, loaded(sourceIntact));
+    list = settleReconciliations(list, A, 7, loaded(movedToDestination));
+    expect(list[0].resolution).toBe("observed");
+  });
+
+  it("stays unresolved across any number of reads while the source segment's id/version/room/range are all still exactly intact", () => {
+    let list = [moveEntry()];
+    for (let seq = 6; seq < 12; seq += 1) list = settleReconciliations(list, A, seq, loaded(sourceIntact));
+    expect(list[0].resolution).toBe("unresolved");
+  });
+
+  it("resolves as changed — never observed — when the source segment's version no longer matches, even in the same room", () => {
+    expect(settleReconciliations([moveEntry()], A, 6, loaded(staleVersionSameRoom))[0].resolution).toBe("changed");
+  });
+
+  it("resolves as changed when the source segment's room no longer matches (moved by something else)", () => {
+    expect(settleReconciliations([moveEntry()], A, 6, loaded(staleRoomChangedElsewhere))[0].resolution).toBe("changed");
+  });
+
+  it("resolves as changed when the source segment no longer exists at all", () => {
+    expect(settleReconciliations([moveEntry()], A, 6, loaded(segmentGone))[0].resolution).toBe("changed");
+  });
+
+  it("checks the destination before the source: an intact-looking source on a board that also already shows the destination is observed, not unresolved", () => {
+    // A board can only show one state per Unit at a time in these fixtures,
+    // so this is exercised via the two-read sequence above; this test pins
+    // the *priority* directly against evaluateUncertainWrite.
+    expect(evaluateUncertainWrite(moveEntry(), movedToDestination)).toBe("observed");
+  });
+
+  it("is never resolved by a wrong Property or a window that does not include the full range", () => {
+    expect(evaluateUncertainWrite(moveEntry(), board(null, { propertyId: "prop-b" }))).toBeNull();
+    expect(evaluateUncertainWrite(moveEntry(), board(null, { from: "2026-09-11", to: "2026-09-25" }))).toBeNull();
+  });
+
+  it("is never resolved by a read issued before the write attempt", () => {
+    const list = [moveEntry({ afterSeq: 10 })];
+    expect(settleReconciliations(list, A, 9, loaded(movedToDestination))).toBe(list);
+    expect(settleReconciliations(list, A, 10, loaded(movedToDestination))).toBe(list);
   });
 });

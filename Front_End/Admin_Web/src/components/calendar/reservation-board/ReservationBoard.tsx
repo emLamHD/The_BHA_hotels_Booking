@@ -357,6 +357,11 @@ const ReservationBoard: React.FC = () => {
           // 201 and 409 are decided before the response; a lost response is not.
           certainty: uncertain ? "uncertain" : "settled",
           target: {
+            // PMS-CAL-001.2-CP04C.3: reconciliation.ts's ReconciliationTarget
+            // is now a discriminated union (create/move); this remains the
+            // only producer of an entry in this component, and it is always
+            // the create path.
+            operation: "create",
             reservationUnitId: target.stay.reservationUnitId,
             physicalRoomId: room.id,
             startDate: target.unassignedRange.startDate,
