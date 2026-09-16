@@ -127,3 +127,26 @@ export interface RoomOccupancySegment {
   roomBlockId: string | null;
   version: number;
 }
+
+/**
+ * PMS-CAL-001.2-CP04C.1: body of
+ * `POST /api/admin/v1/properties/{propertyId}/reservation-assignments/{segmentId}/move`,
+ * mirroring the backend's `MoveReservationAssignmentRequest`. Moves the
+ * segment named in the URL to a different PhysicalRoom over exactly the
+ * `[startDate, endDate)` it already occupies — a room change, never a date
+ * change, split or partial move; the store's exact-partition check rejects
+ * any other range as `400`. `confirmCrossRoomType`/`reason` carry the same
+ * meaning as `CreateReservationAssignmentRequest`'s.
+ */
+export interface MoveReservationAssignmentRequest {
+  /** Optimistic-concurrency token last observed for this segment. */
+  expectedVersion: number;
+  physicalRoomId: string;
+  /** Must equal the source segment's own current start date (`YYYY-MM-DD`). */
+  startDate: string;
+  /** Must equal the source segment's own current end date (`YYYY-MM-DD`), exclusive. */
+  endDate: string;
+  confirmCrossRoomType: boolean;
+  /** Required, already-trimmed, non-empty when `confirmCrossRoomType` is `true`; absent otherwise. */
+  reason?: string;
+}
