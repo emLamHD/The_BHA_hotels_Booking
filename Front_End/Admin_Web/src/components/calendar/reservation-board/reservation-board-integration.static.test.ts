@@ -31,6 +31,29 @@ describe("ReservationBoard no-mock-fallback (FRONTEND INTEGRATION CONTRACT)", ()
   });
 });
 
+describe("ReservationBoard retry gate shares reconciliation's board-authority predicate (PMS-CAL-001.2-CP04C.3-C2)", () => {
+  it("imports boardCanEvaluate from reconciliation.ts, and its retry-gate predicate calls it rather than inlining a containment check", () => {
+    const source = read("ReservationBoard.tsx");
+    // Import statements can span multiple lines (a wrapped named-import
+    // list), so this matches the whole `import ... ;` block rather than a
+    // single line the way the file's other import-presence check above does.
+    const importBlocks = source.match(/^import\s[\s\S]*?;$/gm) ?? [];
+    expect(importBlocks.join("\n")).toContain("boardCanEvaluate");
+
+    const boardCanShowMatch = source.match(/const boardCanShow[\s\S]*?;\n/);
+    expect(boardCanShowMatch).not.toBeNull();
+    const boardCanShowSource = boardCanShowMatch![0];
+    // Must delegate to the shared predicate...
+    expect(boardCanShowSource).toContain("boardCanEvaluate(");
+    // ...and must not reintroduce CP04C.3-C1's bug: an inlined full-containment
+    // comparison here would silently diverge from evaluateUncertainWrite's
+    // per-operation rule for any move segment longer than the board's own
+    // maximum visible window.
+    expect(boardCanShowSource).not.toMatch(/\.from\s*<=/);
+    expect(boardCanShowSource).not.toMatch(/\.to\s*>=/);
+  });
+});
+
 describe("Calendar page layout preservation", () => {
   const pagePath = "../../../app/(admin)/(others-pages)/calendar/page.tsx";
 

@@ -10,32 +10,39 @@
  *    flight may have been answered from pre-write data, and a read of any
  *    other Property or range says nothing about that board.
  *
- * 2. Is the write's effect known? (`resolution`, C2) — for a `201` or a `409`
- *    the server decided before it answered: the store commits or rolls back
- *    inside its transaction and only then responds, so a later read observes
- *    the settled outcome and question 1 is enough (`certainty: "settled"`).
- *    For a lost response — timeout, network failure, abort, `5xx` — the
- *    transaction may still be running when the next read executes, so a read
- *    that does not show the assignment is *not* evidence of rollback
- *    (`certainty: "uncertain"`). Such a write resolves only on evidence in an
- *    authoritative board:
- *    - `observed`: the intended assignment itself is on the server — same
- *      ReservationUnit, same PhysicalRoom, exactly `[startDate, endDate)`.
- *      This says the assignment exists, not that the lost request was the one
- *      that created it.
- *    - `changed`: the ReservationUnit no longer has those exact nights
- *      uncovered (another committed assignment covers some of them, or the
- *      Unit is no longer a committed stay). The lost create can then never
- *      take effect — the database refuses an overlapping Effective assignment
- *      for the same Unit and the store refuses a non-committed Unit — so the
- *      range is no longer a candidate for a duplicate create.
+ * 2. Is the write's effect known? (`resolution`, C2) — for a `201`/`200` or a
+ *    `409` the server decided before it answered: the store commits or rolls
+ *    back inside its transaction and only then responds, so a later read
+ *    observes the settled outcome and question 1 is enough
+ *    (`certainty: "settled"`). For a lost response — timeout, network
+ *    failure, abort, `5xx` — the transaction may still be running when the
+ *    next read executes, so a read that does not show the destination is
+ *    *not* evidence of rollback (`certainty: "uncertain"`). Such a write
+ *    resolves only on evidence in an authoritative board, destination checked
+ *    before source:
+ *    - `observed`: the intended destination is on the server — same
+ *      ReservationUnit, same destination PhysicalRoom, exactly
+ *      `[startDate, endDate)`. This says the assignment exists, not that the
+ *      lost request was the one that produced it.
+ *    - `changed`: PMS-CAL-001.2-CP04C.3 — for a **create**, the
+ *      ReservationUnit no longer has those exact nights uncovered (another
+ *      committed assignment covers some of them, or the Unit is no longer a
+ *      committed stay); for a **move**, the source segment's own identity —
+ *      `segmentId`, `expectedVersion`, its current room, its own range — no
+ *      longer matches exactly (superseded, unassigned, or moved by something
+ *      else). Either way the lost write can then never take effect: a create
+ *      is refused by the database's overlap rule or the store's
+ *      non-committed-Unit check, and a move's optimistic-concurrency check
+ *      refuses a stale `expectedVersion` — so the write is no longer a
+ *      candidate for a duplicate.
  *    Otherwise it stays `unresolved`, however many reads follow.
  */
 
 import type { ReservationBoardResponse, ReservationBoardUnassignedRange } from "@/lib/api/types";
 
-export interface ReconciliationTarget {
+interface ReconciliationTargetBase {
   reservationUnitId: string;
+  /** Destination PhysicalRoom: the room being assigned (create) or moved to (move). */
   physicalRoomId: string;
   startDate: string;
   endDate: string;
@@ -43,6 +50,27 @@ export interface ReconciliationTarget {
   guestDisplayName: string;
   confirmationNumber: string;
 }
+
+export interface CreateReconciliationTarget extends ReconciliationTargetBase {
+  operation: "create";
+}
+
+/**
+ * PMS-CAL-001.2-CP04C.3: a move never changes dates (CP04B's contract
+ * requires the replacement to occupy exactly the source segment's own
+ * current range), so `startDate`/`endDate` above already describe both the
+ * source and destination range — only the room differs between them.
+ */
+export interface MoveReconciliationTarget extends ReconciliationTargetBase {
+  operation: "move";
+  /** Source segment identity/version exactly as clicked — what "changed" is judged against. */
+  segmentId: string;
+  expectedVersion: number;
+  /** Source segment's own current room before the move. */
+  sourcePhysicalRoomId: string;
+}
+
+export type ReconciliationTarget = CreateReconciliationTarget | MoveReconciliationTarget;
 
 export interface Reconciliation {
   id: number;
@@ -70,30 +98,90 @@ function overlapsRange(a: { startDate: string; endDate: string }, b: { startDate
 }
 
 /**
+ * PMS-CAL-001.2-CP04C.3-C2: the single authority for whether a board's own
+ * Property + visible `[from, to)` may say anything at all about one
+ * reconciliation's target — the same question `evaluateUncertainWrite` asks
+ * before judging a write, and `ReservationBoard.tsx`'s retry-gate
+ * (`Check again`) asks before offering to re-read. Both must use this one
+ * function: a board window that this says cannot evaluate the target must
+ * never be judged by one caller and silently skipped by the other, and vice
+ * versa (C1's bug — the evaluator was fixed but the retry gate still
+ * inlined the old full-containment check, so a long move segment resolved
+ * correctly on a re-read yet the UI never offered that re-read at all).
+ *
+ * PMS-CAL-001.2-CP04C.3-C1: the two operations need different tests here,
+ * not the same one. A create's `UnassignedRanges` are the board's own
+ * *clipped* view of a Unit's uncovered nights (`assignmentTarget.ts`'s doc
+ * comment), so a window that only overlaps the write's range could show a
+ * clipped, partial "still uncovered" fragment and wrongly read as `changed`
+ * once the actual (fuller) range is covered elsewhere — full containment is
+ * what keeps that judgement correct. A move's target, by contrast, is never
+ * clipped (`moveTarget.ts` deliberately carries the segment's own full,
+ * un-clipped `[startDate, endDate)`), and `assignments` on a board are
+ * returned complete for any Unit the board includes at all — so a window
+ * that merely *overlaps* that range already returns the exact full source or
+ * destination assignment, whichever is on the server. Requiring full
+ * containment for a move would leave any segment longer than the UI's
+ * maximum visible window (`ReservationBoardRangeLength`, capped at 31 nights)
+ * permanently unresolved (and, for the retry gate specifically, permanently
+ * un-checkable) despite unambiguous overlapping evidence. Half-open
+ * adjacency (a window ending exactly where the target starts, or vice versa)
+ * is never overlap — `overlapsRange` already excludes it.
+ */
+export function boardCanEvaluate(
+  entry: Reconciliation,
+  boardIdentity: { propertyId: string; from: string; to: string }
+): boolean {
+  if (boardIdentity.propertyId !== entry.propertyId) return false;
+  const boardWindow = { startDate: boardIdentity.from, endDate: boardIdentity.to };
+  return entry.target.operation === "move"
+    ? overlapsRange(boardWindow, entry.target)
+    : containsRange(boardWindow, entry.target);
+}
+
+/**
  * What one authoritative board says about an uncertain write, or `null` when
- * that board cannot say anything (another Property, or a window that does not
- * include every night of the write).
+ * `boardCanEvaluate` says this board cannot say anything about it.
  */
 export function evaluateUncertainWrite(
   entry: Reconciliation,
   board: ReservationBoardResponse
 ): "unresolved" | "observed" | "changed" | null {
   const { target } = entry;
-  if (board.property.id !== entry.propertyId) return null;
-  if (!containsRange({ startDate: board.from, endDate: board.to }, target)) return null;
+  if (!boardCanEvaluate(entry, { propertyId: board.property.id, from: board.from, to: board.to })) return null;
 
   const stay = board.stays.find((candidate) => candidate.reservationUnitId === target.reservationUnitId);
-  if (
+
+  // Destination checked first, regardless of operation: if the intended
+  // placement itself is on the server, the write's effect is known.
+  const observed =
     stay?.assignments.some(
       (assignment) =>
         assignment.physicalRoomId === target.physicalRoomId &&
         assignment.startDate === target.startDate &&
         assignment.endDate === target.endDate
-    )
-  ) {
-    return "observed";
+    ) ?? false;
+  if (observed) return "observed";
+
+  if (target.operation === "move") {
+    // PMS-CAL-001.2-CP04C.3: the source segment is still a candidate to
+    // commit only while every part of its clicked identity — id, version,
+    // room, range — still matches exactly. Any mismatch (superseded,
+    // unassigned, or moved by something else) means the stale
+    // `expectedVersion` this write carries can never take effect again.
+    const sourceIntact =
+      stay?.assignments.some(
+        (assignment) =>
+          assignment.segmentId === target.segmentId &&
+          assignment.segmentVersion === target.expectedVersion &&
+          assignment.physicalRoomId === target.sourcePhysicalRoomId &&
+          assignment.startDate === target.startDate &&
+          assignment.endDate === target.endDate
+      ) ?? false;
+    return sourceIntact ? "unresolved" : "changed";
   }
-  // Still a candidate only while every night of the write is still uncovered.
+
+  // create: still a candidate only while every night of the write is still uncovered.
   const stillUncovered = stay?.unassignedRanges.some((range) => containsRange(range, target)) ?? false;
   return stillUncovered ? "unresolved" : "changed";
 }
@@ -157,5 +245,29 @@ export function isUnassignedRangeUnresolved(
       entry.propertyId === propertyId &&
       entry.target.reservationUnitId === reservationUnitId &&
       overlapsRange(entry.target, range)
+  );
+}
+
+/**
+ * PMS-CAL-001.2-CP04C.3: true while an uncertain move whose source is
+ * exactly this segment is unresolved — on any board, whatever its range.
+ * Matches on `segmentId` alone (not version/room/range): once a segment has
+ * an unresolved move in flight for it, re-opening a move dialog for that
+ * same segment id is refused outright rather than left to a version/range
+ * comparison, since a fresh click could otherwise build a second target from
+ * whatever the board currently (and possibly still pre-write) shows.
+ *
+ * Never locks a create reconciliation, a different segment (even one on the
+ * same ReservationUnit), or an unrelated unassigned range — `operation` and
+ * `segmentId` alone decide the match, independent of everything
+ * `isUnassignedRangeUnresolved` above checks.
+ */
+export function isSegmentMoveUnresolved(list: Reconciliation[], propertyId: string, segmentId: string): boolean {
+  return list.some(
+    (entry) =>
+      entry.resolution === "unresolved" &&
+      entry.propertyId === propertyId &&
+      entry.target.operation === "move" &&
+      entry.target.segmentId === segmentId
   );
 }

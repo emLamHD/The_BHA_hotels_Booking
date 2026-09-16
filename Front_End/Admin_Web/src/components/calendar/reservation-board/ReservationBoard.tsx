@@ -39,6 +39,7 @@ import ReservationAssignmentDialog, {
 import { boardIdentityKey, buildAssignmentTarget, type AssignmentTarget } from "./assignmentTarget";
 import { describeAssignmentOutcome } from "./assignmentOutcome";
 import {
+  boardCanEvaluate,
   isBoardAwaitingReconciliation,
   isUnassignedRangeUnresolved,
   settleReconciliations,
@@ -357,6 +358,11 @@ const ReservationBoard: React.FC = () => {
           // 201 and 409 are decided before the response; a lost response is not.
           certainty: uncertain ? "uncertain" : "settled",
           target: {
+            // PMS-CAL-001.2-CP04C.3: reconciliation.ts's ReconciliationTarget
+            // is now a discriminated union (create/move); this remains the
+            // only producer of an entry in this component, and it is always
+            // the create path.
+            operation: "create",
             reservationUnitId: target.stay.reservationUnitId,
             physicalRoomId: room.id,
             startDate: target.unassignedRange.startDate,
@@ -436,11 +442,19 @@ const ReservationBoard: React.FC = () => {
     (entry) => entry.certainty === "uncertain" && entry.propertyId === selectedPropertyId
   );
 
+  // PMS-CAL-001.2-CP04C.3-C2: must use the same board-authority predicate as
+  // evaluateUncertainWrite, not an inlined containment check — the two
+  // operations have different window rules (see reconciliation.ts's doc
+  // comment), and this gate deciding differently than the evaluator would
+  // either offer "Check again" for a board that can prove nothing, or hide
+  // it from a board that could.
   const boardCanShow = (entry: Reconciliation) =>
     boardState.status === "loaded" &&
-    boardState.board.property.id === entry.propertyId &&
-    boardState.board.from <= entry.target.startDate &&
-    boardState.board.to >= entry.target.endDate;
+    boardCanEvaluate(entry, {
+      propertyId: boardState.board.property.id,
+      from: boardState.board.from,
+      to: boardState.board.to,
+    });
 
   const noticeReconciliation =
     assignmentNotice === null

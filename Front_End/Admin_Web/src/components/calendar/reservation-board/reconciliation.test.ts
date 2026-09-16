@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  boardCanEvaluate,
   evaluateUncertainWrite,
   isBoardAwaitingReconciliation,
+  isSegmentMoveUnresolved,
   isUnassignedRangeUnresolved,
   settleReconciliations,
+  type CreateReconciliationTarget,
+  type MoveReconciliationTarget,
   type Reconciliation,
 } from "./reconciliation";
 import type { ReservationBoardResponse, ReservationBoardStay } from "@/lib/api/types";
@@ -22,6 +26,7 @@ function entry(overrides: Partial<Reconciliation> = {}): Reconciliation {
     afterSeq: 5,
     certainty: "settled",
     target: {
+      operation: "create",
       reservationUnitId: "unit-1",
       physicalRoomId: "room-101",
       ...TARGET,
@@ -37,6 +42,28 @@ function entry(overrides: Partial<Reconciliation> = {}): Reconciliation {
 
 const uncertain = (overrides: Partial<Reconciliation> = {}) =>
   entry({ certainty: "uncertain", resolution: "unresolved", ...overrides });
+
+/** A move reconciliation: source room-101 moving to destination room-102, same range as TARGET (moves never change dates). */
+function moveEntry(overrides: Partial<Reconciliation> = {}): Reconciliation {
+  const moveTarget: MoveReconciliationTarget = {
+    operation: "move",
+    reservationUnitId: "unit-1",
+    physicalRoomId: "room-102", // destination
+    ...TARGET,
+    roomNumber: "102",
+    guestDisplayName: "Guest",
+    confirmationNumber: "CNF-1",
+    segmentId: "seg-1",
+    expectedVersion: 3,
+    sourcePhysicalRoomId: "room-101",
+  };
+  return entry({
+    certainty: "uncertain",
+    resolution: "unresolved",
+    target: moveTarget,
+    ...overrides,
+  });
+}
 
 type StayShape = Pick<ReservationBoardStay, "assignments" | "unassignedRanges">;
 
@@ -185,5 +212,285 @@ describe("blocking predicates", () => {
     expect(isUnassignedRangeUnresolved(list, "prop-b", "unit-1", TARGET)).toBe(false);
     expect(isUnassignedRangeUnresolved([uncertain({ resolution: "observed" })], "prop-a", "unit-1", TARGET)).toBe(false);
     expect(isUnassignedRangeUnresolved([entry({ status: "done" })], "prop-a", "unit-1", TARGET)).toBe(false);
+  });
+
+  it("isSegmentMoveUnresolved locks only an unresolved move whose source is exactly this segment", () => {
+    const list = [moveEntry({ status: "done" })];
+    expect(isSegmentMoveUnresolved(list, "prop-a", "seg-1")).toBe(true);
+    // A different segment id, even on the same ReservationUnit, is never locked.
+    expect(isSegmentMoveUnresolved(list, "prop-a", "seg-other")).toBe(false);
+    // A different Property is never locked.
+    expect(isSegmentMoveUnresolved(list, "prop-b", "seg-1")).toBe(false);
+    // An unresolved create reconciliation never locks — operation must be "move", and create has no segmentId at all.
+    expect(isSegmentMoveUnresolved([uncertain({ status: "done" })], "prop-a", "room-101")).toBe(false);
+    // Resolved (observed/changed) never locks.
+    expect(isSegmentMoveUnresolved([moveEntry({ resolution: "observed" })], "prop-a", "seg-1")).toBe(false);
+    expect(isSegmentMoveUnresolved([moveEntry({ resolution: "changed" })], "prop-a", "seg-1")).toBe(false);
+    // A settled (never-uncertain) entry never locks.
+    expect(isSegmentMoveUnresolved([entry({ status: "done" })], "prop-a", "room-101")).toBe(false);
+  });
+});
+
+describe("move reconciliation (PMS-CAL-001.2-CP04C.3)", () => {
+  const sourceIntact = board({
+    assignments: [{ segmentId: "seg-1", segmentVersion: 3, physicalRoomId: "room-101", actualRoomTypeId: "type-std", ...TARGET }],
+    unassignedRanges: [],
+  });
+  const movedToDestination = board({
+    // A superseded segment gets a new id — "observed" never depends on the id matching.
+    assignments: [{ segmentId: "seg-2", segmentVersion: 1, physicalRoomId: "room-102", actualRoomTypeId: "type-std", ...TARGET }],
+    unassignedRanges: [],
+  });
+  const staleVersionSameRoom = board({
+    assignments: [{ segmentId: "seg-1", segmentVersion: 4, physicalRoomId: "room-101", actualRoomTypeId: "type-std", ...TARGET }],
+    unassignedRanges: [],
+  });
+  const staleRoomChangedElsewhere = board({
+    assignments: [{ segmentId: "seg-1", segmentVersion: 3, physicalRoomId: "room-103", actualRoomTypeId: "type-std", ...TARGET }],
+    unassignedRanges: [],
+  });
+  const segmentGone = board({ assignments: [], unassignedRanges: [TARGET] });
+
+  it("resolves as observed when a later read shows the ReservationUnit at the destination room over the exact range", () => {
+    let list = settleReconciliations([moveEntry()], A, 6, loaded(sourceIntact));
+    list = settleReconciliations(list, A, 7, loaded(movedToDestination));
+    expect(list[0].resolution).toBe("observed");
+  });
+
+  it("stays unresolved across any number of reads while the source segment's id/version/room/range are all still exactly intact", () => {
+    let list = [moveEntry()];
+    for (let seq = 6; seq < 12; seq += 1) list = settleReconciliations(list, A, seq, loaded(sourceIntact));
+    expect(list[0].resolution).toBe("unresolved");
+  });
+
+  it("resolves as changed — never observed — when the source segment's version no longer matches, even in the same room", () => {
+    expect(settleReconciliations([moveEntry()], A, 6, loaded(staleVersionSameRoom))[0].resolution).toBe("changed");
+  });
+
+  it("resolves as changed when the source segment's room no longer matches (moved by something else)", () => {
+    expect(settleReconciliations([moveEntry()], A, 6, loaded(staleRoomChangedElsewhere))[0].resolution).toBe("changed");
+  });
+
+  it("resolves as changed when the source segment no longer exists at all", () => {
+    expect(settleReconciliations([moveEntry()], A, 6, loaded(segmentGone))[0].resolution).toBe("changed");
+  });
+
+  it("checks the destination before the source: an intact-looking source on a board that also already shows the destination is observed, not unresolved", () => {
+    // A board can only show one state per Unit at a time in these fixtures,
+    // so this is exercised via the two-read sequence above; this test pins
+    // the *priority* directly against evaluateUncertainWrite.
+    expect(evaluateUncertainWrite(moveEntry(), movedToDestination)).toBe("observed");
+  });
+
+  it("is never resolved by a wrong Property or a board window that does not even overlap the range", () => {
+    expect(evaluateUncertainWrite(moveEntry(), board(null, { propertyId: "prop-b" }))).toBeNull();
+    // PMS-CAL-001.2-CP04C.3-C1: a window that overlaps TARGET (2026-09-10 to
+    // 2026-09-13) is now sufficient evidence for a move — see the long-segment
+    // suite below — so this uses a window with no overlap at all.
+    expect(evaluateUncertainWrite(moveEntry(), board(null, { from: "2026-09-14", to: "2026-09-25" }))).toBeNull();
+  });
+
+  it("PMS-CAL-001.2-CP04C.3-C1: unlike create, resolves from a board window that only overlaps the range — never requires full containment", () => {
+    // This window (from A) overlaps TARGET but does not fully contain it if
+    // TARGET's start were, say, 2026-09-05 — exercised precisely below with a
+    // segment far longer than any board window could ever contain.
+    const partialOverlap = board(
+      { assignments: [{ segmentId: "seg-1", segmentVersion: 3, physicalRoomId: "room-101", actualRoomTypeId: "type-std", startDate: "2026-09-05", endDate: "2026-09-13" }], unassignedRanges: [] },
+      { from: "2026-09-07", to: "2026-09-21" }
+    );
+    const overlappingButNotContaining: MoveReconciliationTarget = {
+      operation: "move",
+      reservationUnitId: "unit-1",
+      physicalRoomId: "room-102",
+      startDate: "2026-09-05",
+      endDate: "2026-09-13",
+      roomNumber: "102",
+      guestDisplayName: "Guest",
+      confirmationNumber: "CNF-1",
+      segmentId: "seg-1",
+      expectedVersion: 3,
+      sourcePhysicalRoomId: "room-101",
+    };
+    expect(evaluateUncertainWrite(entry({ target: overlappingButNotContaining }), partialOverlap)).toBe("unresolved");
+  });
+
+  it("is never resolved by a read issued before the write attempt", () => {
+    const list = [moveEntry({ afterSeq: 10 })];
+    expect(settleReconciliations(list, A, 9, loaded(movedToDestination))).toBe(list);
+    expect(settleReconciliations(list, A, 10, loaded(movedToDestination))).toBe(list);
+  });
+});
+
+/**
+ * PMS-CAL-001.2-CP04C.3-C1: a move segment longer than any board window the
+ * UI can ever show (`ReservationBoardRangeLength` caps at 31 nights) — here
+ * 2026-08-01 to 2026-10-15, 75 nights — reconciled from a board whose own
+ * `[from, to)` only overlaps that range, never contains it. `moveTarget.ts`
+ * carries this full, un-clipped range verbatim (never the visible window),
+ * so a real segment this long is exactly what a live board would produce.
+ */
+describe("move reconciliation on a segment longer than the board's own window (PMS-CAL-001.2-CP04C.3-C1)", () => {
+  const LONG_RANGE = { startDate: "2026-08-01", endDate: "2026-10-15" };
+  const longMoveTarget = (extra: Partial<MoveReconciliationTarget> = {}): MoveReconciliationTarget => ({
+    operation: "move",
+    reservationUnitId: "unit-1",
+    physicalRoomId: "room-102",
+    ...LONG_RANGE,
+    roomNumber: "102",
+    guestDisplayName: "Guest",
+    confirmationNumber: "CNF-1",
+    segmentId: "seg-1",
+    expectedVersion: 3,
+    sourcePhysicalRoomId: "room-101",
+    ...extra,
+  });
+  const longMoveEntry = (extra: Partial<MoveReconciliationTarget> = {}) =>
+    entry({ certainty: "uncertain", resolution: "unresolved", target: longMoveTarget(extra) });
+
+  // A 14-night board window fully inside LONG_RANGE: overlaps it, but is
+  // nowhere near containing it — exactly the shape a real 31-night-max board
+  // would have against a 75-night segment.
+  const overlappingWindow = { from: "2026-09-07", to: "2026-09-21" };
+  const nonOverlappingWindow = { from: "2026-11-01", to: "2026-11-15" };
+
+  it("1. an overlapping read that shows the exact full source resolves unresolved, not stuck at null", () => {
+    const sourceStillThere = board(
+      { assignments: [{ segmentId: "seg-1", segmentVersion: 3, physicalRoomId: "room-101", actualRoomTypeId: "type-std", ...LONG_RANGE }], unassignedRanges: [] },
+      overlappingWindow
+    );
+    expect(evaluateUncertainWrite(longMoveEntry(), sourceStillThere)).toBe("unresolved");
+  });
+
+  it("2. an overlapping read that shows the exact full destination resolves observed", () => {
+    const atDestination = board(
+      { assignments: [{ segmentId: "seg-9", segmentVersion: 1, physicalRoomId: "room-102", actualRoomTypeId: "type-std", ...LONG_RANGE }], unassignedRanges: [] },
+      overlappingWindow
+    );
+    expect(evaluateUncertainWrite(longMoveEntry(), atDestination)).toBe("observed");
+  });
+
+  it("3. an overlapping read that shows the source's identity/version changed resolves changed", () => {
+    const sourceSuperseded = board(
+      { assignments: [{ segmentId: "seg-1", segmentVersion: 4, physicalRoomId: "room-101", actualRoomTypeId: "type-std", ...LONG_RANGE }], unassignedRanges: [] },
+      overlappingWindow
+    );
+    expect(evaluateUncertainWrite(longMoveEntry(), sourceSuperseded)).toBe("changed");
+  });
+
+  it("4. a board window that does not overlap the range at all still resolves nothing", () => {
+    expect(evaluateUncertainWrite(longMoveEntry(), board(null, nonOverlappingWindow))).toBeNull();
+  });
+
+  it("5. an equivalent create target on the same partial (overlapping, non-containing) window still resolves nothing — create semantics are not loosened", () => {
+    const createTarget: CreateReconciliationTarget = {
+      operation: "create",
+      reservationUnitId: "unit-1",
+      physicalRoomId: "room-102",
+      ...LONG_RANGE,
+      roomNumber: "102",
+      guestDisplayName: "Guest",
+      confirmationNumber: "CNF-1",
+    };
+    const createEntry = entry({ certainty: "uncertain", resolution: "unresolved", target: createTarget });
+    const boardShowingUncovered = board({ assignments: [], unassignedRanges: [LONG_RANGE] }, overlappingWindow);
+    expect(evaluateUncertainWrite(createEntry, boardShowingUncovered)).toBeNull();
+  });
+});
+
+/**
+ * PMS-CAL-001.2-CP04C.3-C2: `boardCanEvaluate` is the one predicate both
+ * `evaluateUncertainWrite` above and `ReservationBoard.tsx`'s retry gate
+ * (`canCheckHere` on the "Check again" notice) must agree on. These tests
+ * pin its own contract directly, independent of `evaluateUncertainWrite`'s
+ * behavior, so a future change to one can never silently diverge from the
+ * other without a failing test naming which one moved.
+ */
+describe("boardCanEvaluate — the shared board-authority predicate (PMS-CAL-001.2-CP04C.3-C2)", () => {
+  const LONG_RANGE = { startDate: "2026-08-01", endDate: "2026-10-15" };
+  const longMove: MoveReconciliationTarget = {
+    operation: "move",
+    reservationUnitId: "unit-1",
+    physicalRoomId: "room-102",
+    ...LONG_RANGE,
+    roomNumber: "102",
+    guestDisplayName: "Guest",
+    confirmationNumber: "CNF-1",
+    segmentId: "seg-1",
+    expectedVersion: 3,
+    sourcePhysicalRoomId: "room-101",
+  };
+  const longMoveUnresolved = entry({ certainty: "uncertain", resolution: "unresolved", target: longMove });
+
+  it("1. allows a long move segment to be checked from a board window that only overlaps its range", () => {
+    expect(
+      boardCanEvaluate(longMoveUnresolved, { propertyId: "prop-a", from: "2026-09-07", to: "2026-09-21" })
+    ).toBe(true);
+  });
+
+  it("2. refuses a long move segment from a board window that does not overlap at all, including exact half-open adjacency", () => {
+    expect(
+      boardCanEvaluate(longMoveUnresolved, { propertyId: "prop-a", from: "2026-11-01", to: "2026-11-15" })
+    ).toBe(false);
+    // Adjacent, not overlapping: a window starting exactly where the range ends.
+    expect(
+      boardCanEvaluate(longMoveUnresolved, { propertyId: "prop-a", from: LONG_RANGE.endDate, to: "2026-11-01" })
+    ).toBe(false);
+    // Adjacent the other way: a window ending exactly where the range starts.
+    expect(
+      boardCanEvaluate(longMoveUnresolved, { propertyId: "prop-a", from: "2026-07-01", to: LONG_RANGE.startDate })
+    ).toBe(false);
+  });
+
+  it("3. refuses a create target from a board window that only overlaps, not fully contains, its range", () => {
+    const createTarget: CreateReconciliationTarget = {
+      operation: "create",
+      reservationUnitId: "unit-1",
+      physicalRoomId: "room-102",
+      ...LONG_RANGE,
+      roomNumber: "102",
+      guestDisplayName: "Guest",
+      confirmationNumber: "CNF-1",
+    };
+    const createUnresolved = entry({ certainty: "uncertain", resolution: "unresolved", target: createTarget });
+    expect(
+      boardCanEvaluate(createUnresolved, { propertyId: "prop-a", from: "2026-09-07", to: "2026-09-21" })
+    ).toBe(false);
+    // A create target is allowed once the window fully contains it — existing behavior preserved.
+    expect(
+      boardCanEvaluate(createUnresolved, { propertyId: "prop-a", from: "2026-07-01", to: "2026-11-01" })
+    ).toBe(true);
+  });
+
+  it("4. refuses any target, of either operation, from the wrong Property regardless of window", () => {
+    expect(
+      boardCanEvaluate(longMoveUnresolved, { propertyId: "prop-b", from: "2026-08-01", to: "2026-10-15" })
+    ).toBe(false);
+    expect(boardCanEvaluate(entry(), { propertyId: "prop-b", from: "2026-09-07", to: "2026-09-21" })).toBe(false);
+  });
+
+  it("5. evaluateUncertainWrite never resolves a board that boardCanEvaluate refuses, and always proceeds to judge one it allows", () => {
+    const boardsAndExpectations: Array<[ReservationBoardResponse, boolean]> = [
+      [board(null, { propertyId: "prop-a", from: "2026-09-07", to: "2026-09-21" }), true],
+      [board(null, { propertyId: "prop-a", from: "2026-11-01", to: "2026-11-15" }), false],
+      [board(null, { propertyId: "prop-b", from: "2026-08-01", to: "2026-10-15" }), false],
+    ];
+    for (const [candidateBoard, canEvaluate] of boardsAndExpectations) {
+      const allowed = boardCanEvaluate(longMoveUnresolved, {
+        propertyId: candidateBoard.property.id,
+        from: candidateBoard.from,
+        to: candidateBoard.to,
+      });
+      expect(allowed).toBe(canEvaluate);
+      const verdict = evaluateUncertainWrite(longMoveUnresolved, candidateBoard);
+      // boardCanEvaluate:false must always mean evaluateUncertainWrite returns
+      // null; boardCanEvaluate:true means it proceeds to a real verdict
+      // (here "changed", since board(null, ...) has no stays at all).
+      expect(verdict === null).toBe(!allowed);
+    }
+  });
+
+  it("6. an existing (non-long) create target still works exactly as before: full containment allows, partial overlap refuses", () => {
+    expect(boardCanEvaluate(entry(), { propertyId: "prop-a", from: "2026-09-07", to: "2026-09-21" })).toBe(true);
+    expect(boardCanEvaluate(entry(), { propertyId: "prop-a", from: "2026-09-11", to: "2026-09-25" })).toBe(false);
   });
 });
