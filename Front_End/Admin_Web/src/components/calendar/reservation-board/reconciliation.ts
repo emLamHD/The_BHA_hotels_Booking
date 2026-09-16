@@ -99,9 +99,24 @@ function overlapsRange(a: { startDate: string; endDate: string }, b: { startDate
 
 /**
  * What one authoritative board says about an uncertain write, or `null` when
- * that board cannot say anything (another Property, or a window that does not
- * include every night of the write — for a move this is the same window test
- * as create's, since source and destination share one range).
+ * that board cannot say anything (another Property, or a window that fails
+ * the operation's own coverage test).
+ *
+ * PMS-CAL-001.2-CP04C.3-C1: the two operations need different tests here,
+ * not the same one. A create's `UnassignedRanges` are the board's own
+ * *clipped* view of a Unit's uncovered nights (`assignmentTarget.ts`'s doc
+ * comment), so a window that only overlaps the write's range could show a
+ * clipped, partial "still uncovered" fragment and wrongly read as `changed`
+ * once the actual (fuller) range is covered elsewhere — full containment is
+ * what keeps that judgement correct. A move's target, by contrast, is never
+ * clipped (`moveTarget.ts` deliberately carries the segment's own full,
+ * un-clipped `[startDate, endDate)`), and `assignments` on a board are
+ * returned complete for any Unit the board includes at all — so a window
+ * that merely *overlaps* that range already returns the exact full source or
+ * destination assignment, whichever is on the server. Requiring full
+ * containment for a move would leave any segment longer than the UI's
+ * maximum visible window (`ReservationBoardRangeLength`, capped at 31 nights)
+ * permanently unresolved despite unambiguous overlapping evidence.
  */
 export function evaluateUncertainWrite(
   entry: Reconciliation,
@@ -109,7 +124,10 @@ export function evaluateUncertainWrite(
 ): "unresolved" | "observed" | "changed" | null {
   const { target } = entry;
   if (board.property.id !== entry.propertyId) return null;
-  if (!containsRange({ startDate: board.from, endDate: board.to }, target)) return null;
+  const boardWindow = { startDate: board.from, endDate: board.to };
+  const windowIsEvidence =
+    target.operation === "move" ? overlapsRange(boardWindow, target) : containsRange(boardWindow, target);
+  if (!windowIsEvidence) return null;
 
   const stay = board.stays.find((candidate) => candidate.reservationUnitId === target.reservationUnitId);
 

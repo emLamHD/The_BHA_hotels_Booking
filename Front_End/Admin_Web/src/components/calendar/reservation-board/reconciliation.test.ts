@@ -5,6 +5,7 @@ import {
   isSegmentMoveUnresolved,
   isUnassignedRangeUnresolved,
   settleReconciliations,
+  type CreateReconciliationTarget,
   type MoveReconciliationTarget,
   type Reconciliation,
 } from "./reconciliation";
@@ -280,14 +281,117 @@ describe("move reconciliation (PMS-CAL-001.2-CP04C.3)", () => {
     expect(evaluateUncertainWrite(moveEntry(), movedToDestination)).toBe("observed");
   });
 
-  it("is never resolved by a wrong Property or a window that does not include the full range", () => {
+  it("is never resolved by a wrong Property or a board window that does not even overlap the range", () => {
     expect(evaluateUncertainWrite(moveEntry(), board(null, { propertyId: "prop-b" }))).toBeNull();
-    expect(evaluateUncertainWrite(moveEntry(), board(null, { from: "2026-09-11", to: "2026-09-25" }))).toBeNull();
+    // PMS-CAL-001.2-CP04C.3-C1: a window that overlaps TARGET (2026-09-10 to
+    // 2026-09-13) is now sufficient evidence for a move — see the long-segment
+    // suite below — so this uses a window with no overlap at all.
+    expect(evaluateUncertainWrite(moveEntry(), board(null, { from: "2026-09-14", to: "2026-09-25" }))).toBeNull();
+  });
+
+  it("PMS-CAL-001.2-CP04C.3-C1: unlike create, resolves from a board window that only overlaps the range — never requires full containment", () => {
+    // This window (from A) overlaps TARGET but does not fully contain it if
+    // TARGET's start were, say, 2026-09-05 — exercised precisely below with a
+    // segment far longer than any board window could ever contain.
+    const partialOverlap = board(
+      { assignments: [{ segmentId: "seg-1", segmentVersion: 3, physicalRoomId: "room-101", actualRoomTypeId: "type-std", startDate: "2026-09-05", endDate: "2026-09-13" }], unassignedRanges: [] },
+      { from: "2026-09-07", to: "2026-09-21" }
+    );
+    const overlappingButNotContaining: MoveReconciliationTarget = {
+      operation: "move",
+      reservationUnitId: "unit-1",
+      physicalRoomId: "room-102",
+      startDate: "2026-09-05",
+      endDate: "2026-09-13",
+      roomNumber: "102",
+      guestDisplayName: "Guest",
+      confirmationNumber: "CNF-1",
+      segmentId: "seg-1",
+      expectedVersion: 3,
+      sourcePhysicalRoomId: "room-101",
+    };
+    expect(evaluateUncertainWrite(entry({ target: overlappingButNotContaining }), partialOverlap)).toBe("unresolved");
   });
 
   it("is never resolved by a read issued before the write attempt", () => {
     const list = [moveEntry({ afterSeq: 10 })];
     expect(settleReconciliations(list, A, 9, loaded(movedToDestination))).toBe(list);
     expect(settleReconciliations(list, A, 10, loaded(movedToDestination))).toBe(list);
+  });
+});
+
+/**
+ * PMS-CAL-001.2-CP04C.3-C1: a move segment longer than any board window the
+ * UI can ever show (`ReservationBoardRangeLength` caps at 31 nights) — here
+ * 2026-08-01 to 2026-10-15, 75 nights — reconciled from a board whose own
+ * `[from, to)` only overlaps that range, never contains it. `moveTarget.ts`
+ * carries this full, un-clipped range verbatim (never the visible window),
+ * so a real segment this long is exactly what a live board would produce.
+ */
+describe("move reconciliation on a segment longer than the board's own window (PMS-CAL-001.2-CP04C.3-C1)", () => {
+  const LONG_RANGE = { startDate: "2026-08-01", endDate: "2026-10-15" };
+  const longMoveTarget = (extra: Partial<MoveReconciliationTarget> = {}): MoveReconciliationTarget => ({
+    operation: "move",
+    reservationUnitId: "unit-1",
+    physicalRoomId: "room-102",
+    ...LONG_RANGE,
+    roomNumber: "102",
+    guestDisplayName: "Guest",
+    confirmationNumber: "CNF-1",
+    segmentId: "seg-1",
+    expectedVersion: 3,
+    sourcePhysicalRoomId: "room-101",
+    ...extra,
+  });
+  const longMoveEntry = (extra: Partial<MoveReconciliationTarget> = {}) =>
+    entry({ certainty: "uncertain", resolution: "unresolved", target: longMoveTarget(extra) });
+
+  // A 14-night board window fully inside LONG_RANGE: overlaps it, but is
+  // nowhere near containing it — exactly the shape a real 31-night-max board
+  // would have against a 75-night segment.
+  const overlappingWindow = { from: "2026-09-07", to: "2026-09-21" };
+  const nonOverlappingWindow = { from: "2026-11-01", to: "2026-11-15" };
+
+  it("1. an overlapping read that shows the exact full source resolves unresolved, not stuck at null", () => {
+    const sourceStillThere = board(
+      { assignments: [{ segmentId: "seg-1", segmentVersion: 3, physicalRoomId: "room-101", actualRoomTypeId: "type-std", ...LONG_RANGE }], unassignedRanges: [] },
+      overlappingWindow
+    );
+    expect(evaluateUncertainWrite(longMoveEntry(), sourceStillThere)).toBe("unresolved");
+  });
+
+  it("2. an overlapping read that shows the exact full destination resolves observed", () => {
+    const atDestination = board(
+      { assignments: [{ segmentId: "seg-9", segmentVersion: 1, physicalRoomId: "room-102", actualRoomTypeId: "type-std", ...LONG_RANGE }], unassignedRanges: [] },
+      overlappingWindow
+    );
+    expect(evaluateUncertainWrite(longMoveEntry(), atDestination)).toBe("observed");
+  });
+
+  it("3. an overlapping read that shows the source's identity/version changed resolves changed", () => {
+    const sourceSuperseded = board(
+      { assignments: [{ segmentId: "seg-1", segmentVersion: 4, physicalRoomId: "room-101", actualRoomTypeId: "type-std", ...LONG_RANGE }], unassignedRanges: [] },
+      overlappingWindow
+    );
+    expect(evaluateUncertainWrite(longMoveEntry(), sourceSuperseded)).toBe("changed");
+  });
+
+  it("4. a board window that does not overlap the range at all still resolves nothing", () => {
+    expect(evaluateUncertainWrite(longMoveEntry(), board(null, nonOverlappingWindow))).toBeNull();
+  });
+
+  it("5. an equivalent create target on the same partial (overlapping, non-containing) window still resolves nothing — create semantics are not loosened", () => {
+    const createTarget: CreateReconciliationTarget = {
+      operation: "create",
+      reservationUnitId: "unit-1",
+      physicalRoomId: "room-102",
+      ...LONG_RANGE,
+      roomNumber: "102",
+      guestDisplayName: "Guest",
+      confirmationNumber: "CNF-1",
+    };
+    const createEntry = entry({ certainty: "uncertain", resolution: "unresolved", target: createTarget });
+    const boardShowingUncovered = board({ assignments: [], unassignedRanges: [LONG_RANGE] }, overlappingWindow);
+    expect(evaluateUncertainWrite(createEntry, boardShowingUncovered)).toBeNull();
   });
 });
