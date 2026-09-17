@@ -486,12 +486,26 @@ const ReservationBoard: React.FC = () => {
   );
 
   const submitMove = useCallback(
-    async (target: MoveTarget, physicalRoomId: string): Promise<MoveAssignmentOutcome> => {
+    async (
+      target: MoveTarget,
+      physicalRoomId: string,
+      crossRoomType: CrossRoomTypeConfirmation | null
+    ): Promise<MoveAssignmentOutcome> => {
       // Only a room the dialog was built with can be sent — never an arbitrary id.
       const room = target.candidateRooms.find((candidate) => candidate.id === physicalRoomId);
       if (!room) {
         return { kind: "not-sent", message: "Choose one of the listed rooms." };
       }
+      // PMS-CAL-001.2-CP04C.6A: re-derived here, the same way `submitAssignment`
+      // re-derives it for create, rather than trusted from the dialog — a
+      // stale target (e.g. a RoomType deactivated between render and submit)
+      // must never let `confirmCrossRoomType: false` reach the wire for a
+      // room that is not, in fact, the Unit's sold RoomType. No live caller
+      // of `ReservationMoveDialog` enables cross-RoomType selection yet
+      // (CP04C.6B), so `room` here is always same-sold-RoomType in practice
+      // and this stays `false` — this only makes the contract typed and
+      // correct ahead of that checkpoint, without changing today's behavior.
+      const isCrossRoomType = room.roomTypeId !== target.stay.soldRoomTypeId;
 
       moveRequestPendingRef.current = true;
       const outcome = await moveReservationAssignment(target.propertyId, target.segment.segmentId, {
@@ -499,7 +513,8 @@ const ReservationBoard: React.FC = () => {
         physicalRoomId: room.id,
         startDate: target.segment.startDate,
         endDate: target.segment.endDate,
-        confirmCrossRoomType: false,
+        confirmCrossRoomType: isCrossRoomType,
+        ...(isCrossRoomType && crossRoomType ? { reason: crossRoomType.reason } : {}),
       });
       moveRequestPendingRef.current = false;
       if (!mountedRef.current) return outcome;
@@ -849,13 +864,16 @@ const ReservationBoard: React.FC = () => {
           // segment's selection, result or submit lock over to another.
           key={`${moveTarget.segment.segmentId}:${moveTarget.segment.segmentVersion}`}
           target={moveTarget}
+          // PMS-CAL-001.2-CP04C.6A: `crossRoomTypeEnabled` is deliberately
+          // never passed here — this board still offers only same-sold-
+          // RoomType move, exactly as CP04C.5. Enabling it live is CP04C.6B.
           boardReloadStatus={reconciliationStatus(dialogMoveReconciliationId)}
           uncertainResolution={
             dialogMoveReconciliation?.certainty === "uncertain" && dialogMoveReconciliation.resolution !== "settled"
               ? dialogMoveReconciliation.resolution
               : undefined
           }
-          onSubmit={(physicalRoomId) => submitMove(moveTarget, physicalRoomId)}
+          onSubmit={(physicalRoomId, crossRoomType) => submitMove(moveTarget, physicalRoomId, crossRoomType)}
           onClose={() => {
             setMoveTarget(null);
             // Only reached when the operator closes the dialog directly
