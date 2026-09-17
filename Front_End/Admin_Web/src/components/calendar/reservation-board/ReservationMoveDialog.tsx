@@ -10,14 +10,35 @@
  * reused here — the two operate on incompatible data shapes and only one of
  * them writes anything real.
  *
- * This checkpoint offers only a same-sold-RoomType destination: every
- * candidate this dialog renders is filtered to `isSameSoldType === true`
- * (the source room is already excluded upstream by `buildMoveTarget`), no
- * date may be changed, and no cross-RoomType confirmation/reason UI exists
- * here at all — that is a later checkpoint's scope, exactly as CP03A shipped
- * same-RoomType assignment before CP03B added the cross-RoomType path.
+ * CP04C.4/C.5 offered only a same-sold-RoomType destination. No date may be
+ * changed here, then or now.
  *
- * PMS-CAL-001.2-CP04C.5: now mounted from `ReservationBoard.tsx`.
+ * PMS-CAL-001.2-CP04C.6A: this dialog can now also offer a controlled
+ * cross-RoomType destination — same sold RoomType first, then every other
+ * Active RoomType's rooms, each tagged with its own RoomType name — gated
+ * entirely behind the explicit, caller-supplied `crossRoomTypeEnabled` prop.
+ * `crossRoomTypeEnabled` is omitted (so `undefined`, treated as `false`)
+ * everywhere this dialog is actually mounted from the real
+ * `ReservationBoard.tsx` in this checkpoint: the *capability* exists here so
+ * a later checkpoint (CP04C.6B) can turn it on with a one-line prop change,
+ * but the production board's own behavior is byte-identical to CP04C.5 —
+ * same-sold-RoomType candidates only, no confirmation/reason UI, same
+ * request shape. This mirrors exactly how CP03A shipped same-RoomType
+ * assignment before CP03B's cross-RoomType path, and reuses
+ * `ReservationAssignmentDialog.tsx`'s own cross-RoomType contract
+ * (`CrossRoomTypeConfirmation`, the confirm-checkbox + trimmed-reason
+ * validation, the reset-on-any-room-change rule) rather than inventing a
+ * second one that could drift from it.
+ *
+ * `isCrossRoomType` is always judged against the Unit's *sold* RoomType
+ * (`target.stay.soldRoomTypeId`, via `AssignmentRoomCandidate.isSameSoldType`
+ * — computed once, upstream, in `selectAssignableRoomCandidates`), never
+ * against the segment's own *current* room — a source segment already
+ * sitting in a different RoomType than sold (possible after an earlier
+ * cross-RoomType assignment) must not make a same-sold-RoomType destination
+ * look like it needs confirmation, or vice versa.
+ *
+ * PMS-CAL-001.2-CP04C.5: mounted from `ReservationBoard.tsx`.
  * `boardReloadStatus`/`uncertainResolution` mirror
  * `ReservationAssignmentDialog.tsx`'s own props of the same names exactly —
  * the board owns the actual re-read and reconciliation tracking; this dialog
@@ -50,7 +71,7 @@ import type { MoveAssignmentOutcome } from "@/lib/api/client";
 import { describeMoveOutcome, type AssignmentOutcomeView } from "./assignmentOutcome";
 import { diffDaysIso } from "./dateMath";
 import type { MoveTarget } from "./moveTarget";
-import type { BoardReloadStatus } from "./ReservationAssignmentDialog";
+import type { BoardReloadStatus, CrossRoomTypeConfirmation } from "./ReservationAssignmentDialog";
 
 interface ReservationMoveDialogProps {
   target: MoveTarget;
@@ -58,7 +79,14 @@ interface ReservationMoveDialogProps {
   boardReloadStatus: BoardReloadStatus;
   /** What the server's data says about a move whose response was lost. */
   uncertainResolution?: "unresolved" | "observed" | "changed";
-  onSubmit: (physicalRoomId: string) => Promise<MoveAssignmentOutcome>;
+  /**
+   * PMS-CAL-001.2-CP04C.6A: explicit opt-in for offering a cross-RoomType
+   * destination. Omitted (`undefined`) or `false` reproduces CP04C.5
+   * exactly: same-sold-RoomType candidates only, no confirmation/reason UI.
+   * No caller in this checkpoint passes `true`.
+   */
+  crossRoomTypeEnabled?: boolean;
+  onSubmit: (physicalRoomId: string, crossRoomType: CrossRoomTypeConfirmation | null) => Promise<MoveAssignmentOutcome>;
   onClose: () => void;
 }
 
@@ -69,6 +97,7 @@ const ReservationMoveDialog: React.FC<ReservationMoveDialogProps> = ({
   target,
   boardReloadStatus,
   uncertainResolution,
+  crossRoomTypeEnabled = false,
   onSubmit,
   onClose,
 }) => {
@@ -77,9 +106,16 @@ const ReservationMoveDialog: React.FC<ReservationMoveDialogProps> = ({
   const roomErrorId = useId();
   const roomGroupName = useId();
   const roomLegendId = useId();
+  const crossConfirmErrorId = useId();
+  const crossReasonErrorId = useId();
+  const crossReasonId = useId();
 
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [roomError, setRoomError] = useState(false);
+  const [crossTypeConfirmed, setCrossTypeConfirmed] = useState(false);
+  const [crossTypeReason, setCrossTypeReason] = useState("");
+  const [crossConfirmError, setCrossConfirmError] = useState(false);
+  const [crossReasonError, setCrossReasonError] = useState(false);
   const [pending, setPending] = useState(false);
   const [result, setResult] = useState<AssignmentOutcomeView | null>(null);
 
@@ -87,6 +123,8 @@ const ReservationMoveDialog: React.FC<ReservationMoveDialogProps> = ({
   const firstRoomRef = useRef<HTMLInputElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const resultRef = useRef<HTMLDivElement>(null);
+  const crossConfirmRef = useRef<HTMLInputElement>(null);
+  const crossReasonRef = useRef<HTMLTextAreaElement>(null);
   /** A request is on the wire: nothing may close the dialog or send again. */
   const inFlightRef = useRef(false);
   /** A terminal outcome was reached: sending again from this dialog is never allowed. */
@@ -94,8 +132,14 @@ const ReservationMoveDialog: React.FC<ReservationMoveDialogProps> = ({
   const mountedRef = useRef(true);
 
   const sameSoldTypeCandidates = target.candidateRooms.filter((room) => room.isSameSoldType);
-  const canSubmit = sameSoldTypeCandidates.length > 0 && (result === null || result.allowResubmit);
-  const selectedRoom = sameSoldTypeCandidates.find((room) => room.id === selectedRoomId) ?? null;
+  const crossTypeCandidates = target.candidateRooms.filter((room) => !room.isSameSoldType);
+  // PMS-CAL-001.2-CP04C.6A: the only place `crossRoomTypeEnabled` changes
+  // what is offered. Disabled (the only mode any live caller uses today),
+  // this is exactly CP04C.5's `sameSoldTypeCandidates` list.
+  const visibleCandidates = crossRoomTypeEnabled ? target.candidateRooms : sameSoldTypeCandidates;
+  const canSubmit = visibleCandidates.length > 0 && (result === null || result.allowResubmit);
+  const selectedRoom = visibleCandidates.find((room) => room.id === selectedRoomId) ?? null;
+  const isCrossRoomType = crossRoomTypeEnabled && selectedRoom !== null && !selectedRoom.isSameSoldType;
   const nights = diffDaysIso(target.segment.startDate, target.segment.endDate);
 
   // Move focus in on open. This dialog deliberately does not try to restore
@@ -148,20 +192,44 @@ const ReservationMoveDialog: React.FC<ReservationMoveDialogProps> = ({
     }
   };
 
+  /**
+   * Every room radio — same-RoomType or cross-RoomType — shares this
+   * handler, so no transition between any two target rooms (cross→same,
+   * cross→cross, or same→cross) can leave a stale confirmation or reason
+   * behind.
+   */
   const selectRoom = (roomId: string) => {
     if (inFlightRef.current) return;
     setSelectedRoomId(roomId);
     setRoomError(false);
+    setCrossTypeConfirmed(false);
+    setCrossTypeReason("");
+    setCrossConfirmError(false);
+    setCrossReasonError(false);
     setResult(null);
   };
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (inFlightRef.current || submitLockedRef.current || !canSubmit) return;
-    if (!selectedRoomId) {
+    if (!selectedRoomId || !selectedRoom) {
       setRoomError(true);
       firstRoomRef.current?.focus();
       return;
+    }
+
+    let crossRoomType: CrossRoomTypeConfirmation | null = null;
+    if (isCrossRoomType) {
+      const trimmedReason = crossTypeReason.trim();
+      const confirmMissing = !crossTypeConfirmed;
+      const reasonMissing = trimmedReason === "";
+      if (confirmMissing || reasonMissing) {
+        setCrossConfirmError(confirmMissing);
+        setCrossReasonError(reasonMissing);
+        (confirmMissing ? crossConfirmRef : crossReasonRef).current?.focus();
+        return;
+      }
+      crossRoomType = { reason: trimmedReason };
     }
 
     inFlightRef.current = true;
@@ -170,7 +238,7 @@ const ReservationMoveDialog: React.FC<ReservationMoveDialogProps> = ({
 
     let outcome: MoveAssignmentOutcome;
     try {
-      outcome = await onSubmit(selectedRoomId);
+      outcome = await onSubmit(selectedRoomId, crossRoomType);
     } catch {
       // onSubmit is not expected to throw; if it does, the request may have been sent.
       outcome = { kind: "unknown", reason: "network" };
@@ -208,8 +276,9 @@ const ReservationMoveDialog: React.FC<ReservationMoveDialogProps> = ({
               Move room
             </h3>
             <p id={descriptionId} className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              Moves this segment to another room of the same sold room type. The stay dates, rate and booking are not
-              changed.
+              {crossRoomTypeEnabled
+                ? "Moves this segment to another Active room on this Property — of the same sold room type, or, with confirmation and a reason, a different one. The stay dates, rate and booking are not changed."
+                : "Moves this segment to another room of the same sold room type. The stay dates, rate and booking are not changed."}
             </p>
           </div>
           <button
@@ -243,9 +312,11 @@ const ReservationMoveDialog: React.FC<ReservationMoveDialogProps> = ({
               />
             </dl>
 
-            {sameSoldTypeCandidates.length === 0 ? (
+            {visibleCandidates.length === 0 ? (
               <p className="rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600 dark:bg-white/5 dark:text-gray-300">
-                No other Active room of this room type is available to move to on this Property.
+                {crossRoomTypeEnabled
+                  ? "No other Active room is available to move to on this Property."
+                  : "No other Active room of this room type is available to move to on this Property."}
               </p>
             ) : (
               <fieldset disabled={!canSubmit}>
@@ -260,6 +331,11 @@ const ReservationMoveDialog: React.FC<ReservationMoveDialogProps> = ({
                   aria-describedby={roomError ? roomErrorId : undefined}
                   className="max-h-64 space-y-1.5 overflow-y-auto pr-1"
                 >
+                  {crossRoomTypeEnabled && sameSoldTypeCandidates.length > 0 && (
+                    <p className="pt-0.5 text-xs font-medium text-gray-400 dark:text-gray-500">
+                      {target.soldRoomTypeName} (sold room type)
+                    </p>
+                  )}
                   {sameSoldTypeCandidates.map((room, index) => (
                     <RoomOption
                       key={room.id}
@@ -270,6 +346,23 @@ const ReservationMoveDialog: React.FC<ReservationMoveDialogProps> = ({
                       inputRef={index === 0 ? firstRoomRef : undefined}
                     />
                   ))}
+                  {crossRoomTypeEnabled && crossTypeCandidates.length > 0 && (
+                    <>
+                      <p className="pt-2 text-xs font-medium text-gray-400 dark:text-gray-500">
+                        Other room types — requires confirmation and a reason
+                      </p>
+                      {crossTypeCandidates.map((room, index) => (
+                        <RoomOption
+                          key={room.id}
+                          room={room}
+                          name={roomGroupName}
+                          checked={selectedRoomId === room.id}
+                          onSelect={selectRoom}
+                          inputRef={sameSoldTypeCandidates.length === 0 && index === 0 ? firstRoomRef : undefined}
+                        />
+                      ))}
+                    </>
+                  )}
                 </div>
                 {roomError && (
                   <p id={roomErrorId} role="alert" className="mt-2 text-xs text-error-600 dark:text-error-400">
@@ -280,6 +373,78 @@ const ReservationMoveDialog: React.FC<ReservationMoveDialogProps> = ({
                   Availability is checked by the server when you confirm.
                 </p>
               </fieldset>
+            )}
+
+            {isCrossRoomType && selectedRoom && (
+              <div className="space-y-3 rounded-lg border border-warning-300 bg-warning-50 px-3 py-3 dark:border-warning-500/40 dark:bg-warning-500/10">
+                <div>
+                  <p className="text-sm font-medium text-warning-800 dark:text-warning-300">
+                    Cross-room-type placement
+                  </p>
+                  <p className="mt-1 text-xs text-warning-700 dark:text-warning-400">
+                    This room is not the sold room type. Moving this segment here does not change what was sold or
+                    its price.
+                  </p>
+                  <dl className="mt-2 space-y-1 text-xs">
+                    <SummaryRow label="Sold room type" value={target.soldRoomTypeName} />
+                    <SummaryRow label="Target room type" value={selectedRoom.roomTypeName} />
+                  </dl>
+                </div>
+
+                <label className="flex items-start gap-2 text-sm text-warning-800 dark:text-warning-300">
+                  <input
+                    ref={crossConfirmRef}
+                    type="checkbox"
+                    disabled={!canSubmit}
+                    checked={crossTypeConfirmed}
+                    onChange={(event) => {
+                      if (inFlightRef.current) return;
+                      setCrossTypeConfirmed(event.target.checked);
+                      setCrossConfirmError(false);
+                    }}
+                    aria-describedby={crossConfirmError ? crossConfirmErrorId : undefined}
+                    aria-invalid={crossConfirmError || undefined}
+                    className="mt-0.5 size-4 accent-warning-600"
+                  />
+                  <span>I have deliberately chosen a room of a different room type than sold for this move.</span>
+                </label>
+                {crossConfirmError && (
+                  <p id={crossConfirmErrorId} role="alert" className="text-xs text-error-600 dark:text-error-400">
+                    Confirm this cross-room-type placement to continue.
+                  </p>
+                )}
+
+                <div>
+                  <label
+                    htmlFor={crossReasonId}
+                    className="mb-1 block text-sm font-medium text-warning-800 dark:text-warning-300"
+                  >
+                    Reason
+                  </label>
+                  <textarea
+                    ref={crossReasonRef}
+                    id={crossReasonId}
+                    disabled={!canSubmit}
+                    value={crossTypeReason}
+                    onChange={(event) => {
+                      if (inFlightRef.current) return;
+                      setCrossTypeReason(event.target.value);
+                      setCrossReasonError(false);
+                    }}
+                    aria-required="true"
+                    aria-describedby={crossReasonError ? crossReasonErrorId : undefined}
+                    aria-invalid={crossReasonError || undefined}
+                    rows={2}
+                    placeholder="Why is this segment being moved to a different room type?"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-800 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-500/60 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90"
+                  />
+                  {crossReasonError && (
+                    <p id={crossReasonErrorId} role="alert" className="mt-1 text-xs text-error-600 dark:text-error-400">
+                      Enter a reason for this cross-room-type placement.
+                    </p>
+                  )}
+                </div>
+              </div>
             )}
 
             {pending && (
@@ -354,6 +519,11 @@ const RoomOption: React.FC<{
       className="size-4 accent-brand-500"
     />
     <span className="font-medium text-gray-800 dark:text-white/90">Room {room.roomNumber}</span>
+    {!room.isSameSoldType && (
+      <span className="rounded-full bg-warning-100 px-2 py-0.5 text-[11px] font-medium text-warning-700 dark:bg-warning-500/15 dark:text-warning-300">
+        {room.roomTypeName}
+      </span>
+    )}
     <span className="text-xs text-gray-500 dark:text-gray-400">Floor {room.floor}</span>
   </label>
 );

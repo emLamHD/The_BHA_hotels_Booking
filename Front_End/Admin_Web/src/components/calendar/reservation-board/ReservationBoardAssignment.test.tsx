@@ -1300,6 +1300,69 @@ describe("ReservationBoard — same-RoomType move (PMS-CAL-001.2-CP04C.5)", () =
     });
   });
 
+  it("3b. a move to a same-sold-RoomType room sends confirmCrossRoomType: false even when the source segment's own current room is a different RoomType than sold (PMS-CAL-001.2-CP04C.6A)", async () => {
+    // A segment already sitting in a cross-placed RoomType (room-201,
+    // Deluxe) for a Unit sold as Standard — e.g. left over from an earlier
+    // CP03B cross-RoomType assignment. Moving it to a Standard room must be
+    // judged against the *sold* RoomType, never the segment's own current
+    // one: `submitMove` must not accidentally derive "cross" from
+    // `target.segment.actualRoomTypeId` instead of `target.stay.soldRoomTypeId`.
+    const user = userEvent.setup();
+    mockedFetchReservationBoard.mockImplementation((propertyId, requestFrom, requestTo) =>
+      Promise.resolve({
+        ok: true,
+        data: {
+          ...boardFor(propertyId, requestFrom, requestTo),
+          stays:
+            propertyId === "prop-a"
+              ? [
+                  {
+                    reservationId: "res-1",
+                    reservationUnitId: "unit-1",
+                    confirmationNumber: "CNF-100",
+                    guestDisplayName: "Nguyen Van A",
+                    soldRoomTypeId: "type-standard",
+                    checkIn: addDaysIso(requestFrom, -3),
+                    checkOut: addDaysIso(requestFrom, 9),
+                    coverageStatus: "FullyAssigned",
+                    assignments: [
+                      {
+                        segmentId: "seg-cross-placed",
+                        segmentVersion: 3,
+                        physicalRoomId: "room-201",
+                        actualRoomTypeId: "type-deluxe",
+                        startDate: addDaysIso(requestFrom, 2),
+                        endDate: addDaysIso(requestFrom, 4),
+                      },
+                    ],
+                    unassignedRanges: [],
+                  },
+                ]
+              : [],
+        },
+      })
+    );
+    render(<ReservationBoard />);
+    await waitFor(() => expect(screen.getByTitle("Nguyen Van A — CNF-100")).toBeInTheDocument());
+    const [, from] = mockedFetchReservationBoard.mock.calls.at(-1)!;
+    mockedMove.mockResolvedValue({ kind: "moved", segments: null });
+
+    await openMoveDialog(user);
+    // The only candidate offered is the Standard room the Unit was sold as
+    // (room-102) — room-201, the segment's own current room, is excluded as
+    // the source itself, not because it isn't Standard.
+    await user.click(within(moveDialog()).getByLabelText(/Room 102/));
+    await user.click(within(moveDialog()).getByRole("button", { name: "Move to room 102" }));
+
+    expect(mockedMove).toHaveBeenCalledWith("prop-a", "seg-cross-placed", {
+      expectedVersion: 3,
+      physicalRoomId: "room-102",
+      startDate: addDaysIso(from, 2),
+      endDate: addDaysIso(from, 4),
+      confirmCrossRoomType: false,
+    });
+  });
+
   it("4. a double click, repeated Enter, or several submits in the same tick start exactly one move request", async () => {
     const user = userEvent.setup();
     await renderLoadedBoard();
