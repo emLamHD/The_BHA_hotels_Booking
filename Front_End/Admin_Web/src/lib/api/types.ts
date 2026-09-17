@@ -150,3 +150,18 @@ export interface MoveReservationAssignmentRequest {
   /** Required, already-trimmed, non-empty when `confirmCrossRoomType` is `true`; absent otherwise. */
   reason?: string;
 }
+
+/**
+ * PMS-CAL-001.2-CP04D.1: body of
+ * `POST /api/admin/v1/properties/{propertyId}/reservation-assignments/{segmentId}/unassign`,
+ * mirroring the backend's `UnassignReservationAssignmentRequest`. Supersedes
+ * the segment named in the URL with zero replacements — there is no target
+ * room or date range to carry, and an empty replacement list can never be
+ * cross-RoomType, so this never sends `confirmCrossRoomType`.
+ */
+export interface UnassignReservationAssignmentRequest {
+  /** Optimistic-concurrency token last observed for this segment. */
+  expectedVersion: number;
+  /** Optional; already-trimmed when present. Never required. */
+  reason?: string;
+}
