@@ -1,17 +1,24 @@
 "use client";
 
 /**
- * PMS-CAL-001.1: a small, strictly read-only details panel. Shows only
- * fields the Admin Reservation Board API actually returns — never a fake
- * email/phone/nationality/source/payment/lifecycle timestamp (FRONTEND
- * INTEGRATION CONTRACT item 11). Unavailable data is simply not shown here,
- * rather than invented.
+ * PMS-CAL-001.1: a small details panel. Shows only fields the Admin
+ * Reservation Board API actually returns — never a fake email/phone/
+ * nationality/source/payment/lifecycle timestamp (FRONTEND INTEGRATION
+ * CONTRACT item 11). Unavailable data is simply not shown here, rather than
+ * invented.
+ *
+ * PMS-CAL-001.2-CP04C.5: the one exception to "read-only" is the `Move room`
+ * action offered for an assigned-bar selection that carries a `segment`
+ * (CP04C.2) — this panel never performs the move itself; it only reports the
+ * exact clicked segment back to `ReservationBoard.tsx`, which decides
+ * whether that selection still matches the authoritative board
+ * (`buildMoveTarget`) before ever opening a write dialog.
  */
 
 import React from "react";
 import { CloseLineIcon } from "@/icons";
 import { formatDisplayDate } from "./dateMath";
-import type { StaySelection, BlockSelection } from "./ReservationBoardServerTimeline";
+import type { AssignedSegmentSelection, StaySelection, BlockSelection } from "./ReservationBoardServerTimeline";
 
 const COVERAGE_LABEL: Record<string, string> = {
   FullyAssigned: "Fully assigned",
@@ -22,9 +29,18 @@ const COVERAGE_LABEL: Record<string, string> = {
 interface ReservationBoardStayPopoverProps {
   selection: { kind: "stay"; value: StaySelection } | { kind: "block"; value: BlockSelection };
   onClose: () => void;
+  /** Present only when this selection came from an assigned bar (carries `segment`). */
+  onMoveRoom?: (selection: AssignedSegmentSelection) => void;
+  /** True while the board is stale or this exact segment already has an unresolved move outstanding. */
+  moveBlocked?: boolean;
 }
 
-const ReservationBoardStayPopover: React.FC<ReservationBoardStayPopoverProps> = ({ selection, onClose }) => {
+const ReservationBoardStayPopover: React.FC<ReservationBoardStayPopoverProps> = ({
+  selection,
+  onClose,
+  onMoveRoom,
+  moveBlocked = false,
+}) => {
   return (
     <div
       role="dialog"
@@ -71,6 +87,25 @@ const ReservationBoardStayPopover: React.FC<ReservationBoardStayPopoverProps> = 
             <p className="pt-2 text-xs text-gray-400 dark:text-gray-500">
               Contact details, payment/folio, and lifecycle timestamps are not recorded by this read-only view.
             </p>
+            {selection.value.segment && onMoveRoom && (
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={() => onMoveRoom({ stay: selection.value.stay, segment: selection.value.segment! })}
+                  disabled={moveBlocked}
+                  aria-disabled={moveBlocked}
+                  className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-white/5"
+                >
+                  Move room
+                </button>
+                {moveBlocked && (
+                  <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                    Refreshing from the server, or this segment already has an unresolved move — try again once it
+                    settles.
+                  </p>
+                )}
+              </div>
+            )}
           </dl>
         ) : (
           <dl className="space-y-2.5 text-sm">

@@ -101,4 +101,55 @@ describe("ReservationBoardStayPopover", () => {
     await user.click(screen.getByText("Nguyen Van A"));
     expect(onClose).not.toHaveBeenCalled();
   });
+
+  const segment = {
+    segmentId: "seg-1",
+    segmentVersion: 2,
+    physicalRoomId: "room-101",
+    actualRoomTypeId: "type-standard",
+    startDate: "2026-09-02",
+    endDate: "2026-09-04",
+  };
+
+  it("PMS-CAL-001.2-CP04C.5: offers Move room only when the selection carries the exact clicked segment, and reports exactly that segment — never the whole Reservation", async () => {
+    const user = userEvent.setup();
+    const onMoveRoom = vi.fn();
+    const selection: { kind: "stay"; value: StaySelection } = {
+      kind: "stay",
+      value: { stay, roomTypeName: "Standard", segment },
+    };
+    render(<ReservationBoardStayPopover selection={selection} onClose={vi.fn()} onMoveRoom={onMoveRoom} />);
+
+    const move = screen.getByRole("button", { name: "Move room" });
+    expect(move).not.toBeDisabled();
+    await user.click(move);
+    expect(onMoveRoom).toHaveBeenCalledTimes(1);
+    expect(onMoveRoom).toHaveBeenCalledWith({ stay, segment });
+  });
+
+  it("never offers Move room for a selection without a segment, even when onMoveRoom is supplied", () => {
+    const selection: { kind: "stay"; value: StaySelection } = {
+      kind: "stay",
+      value: { stay, roomTypeName: "Standard" },
+    };
+    render(<ReservationBoardStayPopover selection={selection} onClose={vi.fn()} onMoveRoom={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: "Move room" })).not.toBeInTheDocument();
+  });
+
+  it("disables Move room while moveBlocked is true, without calling onMoveRoom on click", async () => {
+    const user = userEvent.setup();
+    const onMoveRoom = vi.fn();
+    const selection: { kind: "stay"; value: StaySelection } = {
+      kind: "stay",
+      value: { stay, roomTypeName: "Standard", segment },
+    };
+    render(
+      <ReservationBoardStayPopover selection={selection} onClose={vi.fn()} onMoveRoom={onMoveRoom} moveBlocked />
+    );
+
+    const move = screen.getByRole("button", { name: "Move room" });
+    expect(move).toBeDisabled();
+    await user.click(move);
+    expect(onMoveRoom).not.toHaveBeenCalled();
+  });
 });

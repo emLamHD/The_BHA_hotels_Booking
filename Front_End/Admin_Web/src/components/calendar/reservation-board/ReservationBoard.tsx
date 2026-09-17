@@ -27,6 +27,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReservationBoardToolbar from "./ReservationBoardToolbar";
 import ReservationBoardServerTimeline, {
+  type AssignedSegmentSelection,
   type BlockSelection,
   type StaySelection,
   type UnassignedRangeSelection,
@@ -36,11 +37,14 @@ import ReservationAssignmentDialog, {
   type BoardReloadStatus,
   type CrossRoomTypeConfirmation,
 } from "./ReservationAssignmentDialog";
+import ReservationMoveDialog from "./ReservationMoveDialog";
 import { boardIdentityKey, buildAssignmentTarget, type AssignmentTarget } from "./assignmentTarget";
-import { describeAssignmentOutcome } from "./assignmentOutcome";
+import { buildMoveTarget, type MoveTarget } from "./moveTarget";
+import { describeAssignmentOutcome, describeMoveOutcome } from "./assignmentOutcome";
 import {
   boardCanEvaluate,
   isBoardAwaitingReconciliation,
+  isSegmentMoveUnresolved,
   isUnassignedRangeUnresolved,
   settleReconciliations,
   type Reconciliation,
@@ -58,8 +62,10 @@ import {
   createReservationAssignment,
   fetchActiveProperties,
   fetchReservationBoard,
+  moveReservationAssignment,
   type ApiError,
   type AssignmentCreateOutcome,
+  type MoveAssignmentOutcome,
 } from "@/lib/api/client";
 import type { ApiProperty, ReservationBoardResponse, ReservationBoardUnassignedRange } from "@/lib/api/types";
 
@@ -137,6 +143,34 @@ const ReservationBoard: React.FC = () => {
   const [assignmentNotice, setAssignmentNotice] = useState<{ text: string; reconciliationId: number } | null>(
     null
   );
+
+  /** PMS-CAL-001.2-CP04C.5: same shape as the create-assignment state above, kept separate — a move and an assign are different dialogs and never share a lock. */
+  const [moveTarget, setMoveTarget] = useState<MoveTarget | null>(null);
+  const [dialogMoveReconciliationId, setDialogMoveReconciliationId] = useState<number | null>(null);
+  const [moveNotice, setMoveNotice] = useState<{ text: string; reconciliationId: number } | null>(null);
+  const moveNoticeRef = useRef<HTMLDivElement>(null);
+  const moveRequestPendingRef = useRef(false);
+  /**
+   * PMS-CAL-001.2-CP04C.5-C2: the assigned-bar element that opened the
+   * current stay popover, captured the moment it is selected — before the
+   * popover (and, if the operator goes on to Move room, the move dialog)
+   * ever mount. `ReservationMoveDialog` cannot reliably capture this itself:
+   * opening it also unmounts the popover's own "Move room" button in the
+   * same commit, so by the time the dialog's own mount effect would read
+   * `document.activeElement`, the browser has already moved focus to
+   * `document.body`. Capturing it here, one hop earlier, is the only point
+   * where `document.activeElement` is still the real opener.
+   */
+  const assignedBarOpenerRef = useRef<HTMLElement | null>(null);
+  /**
+   * PMS-CAL-001.2-CP04C.5-C2: the board identity (`propertyId|from|to`)
+   * currently on screen, mirrored into a ref so `submitMove`'s async
+   * continuation can read the *live* value at the moment a response arrives
+   * — not the value closed over when the request was sent. A move started
+   * on one Property/range must never paint its success text onto whatever
+   * Property/range the operator has since navigated to.
+   */
+  const currentBoardKeyRef = useRef<string | null>(null);
   /**
    * Rendered from state; decided from the ref. The ref is updated
    * synchronously the moment a write resolves, so a click that lands before
@@ -145,9 +179,16 @@ const ReservationBoard: React.FC = () => {
   const [reconciliations, setReconciliations] = useState<Reconciliation[]>([]);
   const reconciliationsRef = useRef<Reconciliation[]>([]);
   const nextReconciliationIdRef = useRef(1);
-  const referencedReconciliationIdsRef = useRef<{ dialog: number | null; notice: number | null }>({
+  const referencedReconciliationIdsRef = useRef<{
+    dialog: number | null;
+    notice: number | null;
+    moveDialog: number | null;
+    moveNotice: number | null;
+  }>({
     dialog: null,
     notice: null,
+    moveDialog: null,
+    moveNotice: null,
   });
   const noticeRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef(true);
@@ -172,8 +213,10 @@ const ReservationBoard: React.FC = () => {
     referencedReconciliationIdsRef.current = {
       dialog: dialogReconciliationId,
       notice: assignmentNotice?.reconciliationId ?? null,
+      moveDialog: dialogMoveReconciliationId,
+      moveNotice: moveNotice?.reconciliationId ?? null,
     };
-  }, [dialogReconciliationId, assignmentNotice]);
+  }, [dialogReconciliationId, assignmentNotice, dialogMoveReconciliationId, moveNotice]);
 
   // Initial load: real active Properties, then deterministically select the
   // first and derive the initial anchor from its own time zone.
@@ -249,6 +292,8 @@ const ReservationBoard: React.FC = () => {
       setSelection(null);
       setAssignmentTarget(null);
       setAssignmentNotice(null);
+      if (!moveRequestPendingRef.current) setMoveTarget(null);
+      setMoveNotice(null);
       if (propertiesState.status === "loaded") {
         const property = propertiesState.properties.find((candidate) => candidate.id === propertyId);
         if (property) {
@@ -317,6 +362,24 @@ const ReservationBoard: React.FC = () => {
     [boardState, selectedPropertyId]
   );
 
+  /**
+   * PMS-CAL-001.2-CP04C.5: shared by `submitAssignment` and `submitMove`.
+   * Settled entries are kept only while a notice or dialog (of either kind)
+   * still shows them; uncertain ones stay until the operator dismisses a
+   * resolved one.
+   */
+  const keepReconciliation = useCallback((entry: Reconciliation) => {
+    const referenced = referencedReconciliationIdsRef.current;
+    return (
+      entry.status !== "done" ||
+      entry.certainty === "uncertain" ||
+      entry.id === referenced.dialog ||
+      entry.id === referenced.notice ||
+      entry.id === referenced.moveDialog ||
+      entry.id === referenced.moveNotice
+    );
+  }, []);
+
   const submitAssignment = useCallback(
     async (
       target: AssignmentTarget,
@@ -359,9 +422,8 @@ const ReservationBoard: React.FC = () => {
           certainty: uncertain ? "uncertain" : "settled",
           target: {
             // PMS-CAL-001.2-CP04C.3: reconciliation.ts's ReconciliationTarget
-            // is now a discriminated union (create/move); this remains the
-            // only producer of an entry in this component, and it is always
-            // the create path.
+            // is a discriminated union (create/move); this is always the
+            // create path — `submitMove` below produces the move path.
             operation: "create",
             reservationUnitId: target.stay.reservationUnitId,
             physicalRoomId: room.id,
@@ -374,19 +436,7 @@ const ReservationBoard: React.FC = () => {
           status: "pending",
           resolution: uncertain ? "unresolved" : "settled",
         };
-        const referenced = referencedReconciliationIdsRef.current;
-        updateReconciliations((list) => [
-          // Settled entries are kept only while a notice or dialog still shows
-          // them; uncertain ones stay until the operator dismisses a resolved one.
-          ...list.filter(
-            (entry) =>
-              entry.status !== "done" ||
-              entry.certainty === "uncertain" ||
-              entry.id === referenced.dialog ||
-              entry.id === referenced.notice
-          ),
-          reconciliation,
-        ]);
+        updateReconciliations((list) => [...list.filter(keepReconciliation), reconciliation]);
         setDialogReconciliationId(reconciliation.id);
         if (outcome.kind === "created") {
           setAssignmentTarget(null);
@@ -399,11 +449,123 @@ const ReservationBoard: React.FC = () => {
       }
       return outcome;
     },
-    [updateReconciliations]
+    [updateReconciliations, keepReconciliation]
+  );
+
+  const handleMoveRoom = useCallback(
+    (moveSelection: AssignedSegmentSelection) => {
+      if (boardState.status !== "loaded") return;
+      const displayedKey = boardIdentityKey(
+        boardState.board.property.id,
+        boardState.board.from,
+        boardState.board.to
+      );
+      // Same guard as handleSelectUnassignedRange: nothing on a board that is
+      // already contradicted by an un-reread write may start another one.
+      if (isBoardAwaitingReconciliation(reconciliationsRef.current, displayedKey)) {
+        return;
+      }
+      // This exact segment already has an uncertain move outstanding — its
+      // eventual effect is still unknown, so a second move on it must not be offered.
+      if (
+        isSegmentMoveUnresolved(
+          reconciliationsRef.current,
+          boardState.board.property.id,
+          moveSelection.segment.segmentId
+        )
+      ) {
+        return;
+      }
+      const target = buildMoveTarget(boardState.board, selectedPropertyId, moveSelection);
+      if (!target) return;
+      setSelection(null);
+      setDialogMoveReconciliationId(null);
+      setMoveTarget(target);
+    },
+    [boardState, selectedPropertyId]
+  );
+
+  const submitMove = useCallback(
+    async (target: MoveTarget, physicalRoomId: string): Promise<MoveAssignmentOutcome> => {
+      // Only a room the dialog was built with can be sent — never an arbitrary id.
+      const room = target.candidateRooms.find((candidate) => candidate.id === physicalRoomId);
+      if (!room) {
+        return { kind: "not-sent", message: "Choose one of the listed rooms." };
+      }
+
+      moveRequestPendingRef.current = true;
+      const outcome = await moveReservationAssignment(target.propertyId, target.segment.segmentId, {
+        expectedVersion: target.segment.segmentVersion,
+        physicalRoomId: room.id,
+        startDate: target.segment.startDate,
+        endDate: target.segment.endDate,
+        confirmCrossRoomType: false,
+      });
+      moveRequestPendingRef.current = false;
+      if (!mountedRef.current) return outcome;
+
+      if (describeMoveOutcome(outcome).reloadBoard) {
+        const uncertain = outcome.kind === "unknown";
+        const reconciliation: Reconciliation = {
+          id: nextReconciliationIdRef.current++,
+          key: target.boardKey,
+          propertyId: target.propertyId,
+          from: target.boardFrom,
+          to: target.boardTo,
+          // Any board request already issued may have been answered before the write.
+          afterSeq: requestSeqRef.current,
+          // 200 and 409 are decided before the response; a lost response is not.
+          certainty: uncertain ? "uncertain" : "settled",
+          target: {
+            operation: "move",
+            reservationUnitId: target.stay.reservationUnitId,
+            physicalRoomId: room.id,
+            startDate: target.segment.startDate,
+            endDate: target.segment.endDate,
+            roomNumber: room.roomNumber,
+            guestDisplayName: target.stay.guestDisplayName,
+            confirmationNumber: target.stay.confirmationNumber,
+            segmentId: target.segment.segmentId,
+            expectedVersion: target.segment.segmentVersion,
+            sourcePhysicalRoomId: target.segment.physicalRoomId,
+          },
+          status: "pending",
+          resolution: uncertain ? "unresolved" : "settled",
+        };
+        updateReconciliations((list) => [...list.filter(keepReconciliation), reconciliation]);
+        // PMS-CAL-001.2-CP04C.5-C3: this dialog owns the request even when
+        // the visible Property/range changes before the response arrives.
+        // Keep its reload status attached to this exact reconciliation so it
+        // can truthfully report "elsewhere" and later settle when an
+        // authoritative board is shown, instead of remaining at "idle".
+        setDialogMoveReconciliationId(reconciliation.id);
+
+        // The success notice, unlike the still-open dialog, belongs to the
+        // board currently being presented. Never paint a completed move from
+        // an old Property/range onto the new view.
+        const stillOnWrittenBoard = currentBoardKeyRef.current === target.boardKey;
+        if (stillOnWrittenBoard) {
+          if (outcome.kind === "moved") {
+            setMoveTarget(null);
+            setMoveNotice({
+              text: `Room ${room.roomNumber} moved for ${target.stay.guestDisplayName} (${target.stay.confirmationNumber}), [${target.segment.startDate}, ${target.segment.endDate}).`,
+              reconciliationId: reconciliation.id,
+            });
+          }
+        }
+        setRetryToken((token) => token + 1);
+      }
+      return outcome;
+    },
+    [updateReconciliations, keepReconciliation]
   );
 
   const currentBoardKey =
     selectedPropertyId && range ? boardIdentityKey(selectedPropertyId, range.start, range.endExclusive) : null;
+
+  useEffect(() => {
+    currentBoardKeyRef.current = currentBoardKey;
+  }, [currentBoardKey]);
 
   const reconciliationStatus = (id: number | null): BoardReloadStatus => {
     if (id === null) return "idle";
@@ -421,6 +583,11 @@ const ReservationBoard: React.FC = () => {
       ? null
       : reconciliations.find((entry) => entry.id === dialogReconciliationId) ?? null;
 
+  const dialogMoveReconciliation =
+    dialogMoveReconciliationId === null
+      ? null
+      : reconciliations.find((entry) => entry.id === dialogMoveReconciliationId) ?? null;
+
   const handleCheckAgain = useCallback(() => setRetryToken((token) => token + 1), []);
 
   const dismissReconciliation = useCallback(
@@ -437,6 +604,7 @@ const ReservationBoard: React.FC = () => {
       isUnassignedRangeUnresolved(reconciliations, selectedPropertyId, reservationUnitId, unassignedRange),
     [reconciliations, selectedPropertyId]
   );
+
 
   const uncertainWrites = reconciliations.filter(
     (entry) => entry.certainty === "uncertain" && entry.propertyId === selectedPropertyId
@@ -461,6 +629,9 @@ const ReservationBoard: React.FC = () => {
       ? null
       : reconciliations.find((entry) => entry.id === assignmentNotice.reconciliationId) ?? null;
 
+  const noticeMoveReconciliation =
+    moveNotice === null ? null : reconciliations.find((entry) => entry.id === moveNotice.reconciliationId) ?? null;
+
   const displayedBoardAwaitingReconciliation =
     boardState.status === "loaded" &&
     isBoardAwaitingReconciliation(
@@ -468,11 +639,60 @@ const ReservationBoard: React.FC = () => {
       boardIdentityKey(boardState.board.property.id, boardState.board.from, boardState.board.to)
     );
 
+  /**
+   * PMS-CAL-001.2-CP04C.5: the same rule `handleMoveRoom` enforces before
+   * opening a dialog, exposed so the popover can disable its Move room
+   * button in advance rather than let the operator open it and find out.
+   */
+  const isMoveBlockedForSegment = useCallback(
+    (segmentId: string) =>
+      displayedBoardAwaitingReconciliation ||
+      (selectedPropertyId !== null && isSegmentMoveUnresolved(reconciliations, selectedPropertyId, segmentId)),
+    [displayedBoardAwaitingReconciliation, reconciliations, selectedPropertyId]
+  );
+
+  /**
+   * PMS-CAL-001.2-CP04C.5-C2: the one place focus returns to after the move
+   * dialog closes without a notice taking over (validation, a refused
+   * submit, a conflict, or an unknown result — see `assignedBarOpenerRef`'s
+   * own comment for why the dialog cannot determine this itself). Prefers
+   * the exact assigned bar that opened this move, but only while it is
+   * still actually attached to the document — an authoritative reload that
+   * superseded the segment's own id, or a Property/range switch, unmounts
+   * that specific element, and `.isConnected` reports that reliably without
+   * this needing to know why. Falls back to the Property selector: always
+   * present, always focusable, a real board control rather than the
+   * document body.
+   */
+  const restoreBoardFocus = useCallback(() => {
+    const opener = assignedBarOpenerRef.current;
+    if (opener && opener.isConnected) {
+      opener.focus();
+      return;
+    }
+    document.getElementById("reservation-board-property")?.focus();
+  }, []);
+
   // A new notice takes focus: the bar that opened the dialog is gone once the
   // board reloads, so focus would otherwise fall back to the document.
   useEffect(() => {
     if (assignmentNotice) noticeRef.current?.focus();
   }, [assignmentNotice]);
+
+  useEffect(() => {
+    if (moveNotice) moveNoticeRef.current?.focus();
+  }, [moveNotice]);
+
+  const dismissMoveNotice = useCallback(() => {
+    const noticeOwnedFocus = moveNoticeRef.current?.contains(document.activeElement) ?? false;
+    setMoveNotice(null);
+    // A keyboard dismissal removes the focused notice/button. Move focus to
+    // a stable board control before that subtree unmounts; pointer/programmatic
+    // dismissal while focus is elsewhere must leave the operator there.
+    if (noticeOwnedFocus) {
+      document.getElementById("reservation-board-property")?.focus();
+    }
+  }, []);
 
   const rangeLabel = range ? formatRangeLabel(range) : "";
 
@@ -517,7 +737,13 @@ const ReservationBoard: React.FC = () => {
         showAssigned={filters.showAssigned}
         showUnassigned={filters.showUnassigned}
         showOperationalBlocks={filters.showOperationalBlocks}
-        onSelectStay={(value) => setSelection({ kind: "stay", value })}
+        onSelectStay={(value) => {
+          // Captured here, before the popover (and, if the operator goes on
+          // to Move room, the dialog after it) ever mounts — see
+          // `assignedBarOpenerRef`'s own comment.
+          assignedBarOpenerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+          setSelection({ kind: "stay", value });
+        }}
         onSelectUnassignedRange={handleSelectUnassignedRange}
         onSelectBlock={(value) => setSelection({ kind: "block", value })}
         unassignedActionsBlocked={displayedBoardAwaitingReconciliation}
@@ -561,6 +787,17 @@ const ReservationBoard: React.FC = () => {
           onDismiss={() => setAssignmentNotice(null)}
         />
       )}
+      {moveNotice && (
+        <AssignmentNotice
+          ref={moveNoticeRef}
+          text={moveNotice.text}
+          reloadStatus={reconciliationStatus(moveNotice.reconciliationId)}
+          writtenRange={
+            noticeMoveReconciliation ? { from: noticeMoveReconciliation.from, to: noticeMoveReconciliation.to } : null
+          }
+          onDismiss={dismissMoveNotice}
+        />
+      )}
       {uncertainWrites.map((entry) => (
         <UncertainWriteNotice
           key={entry.id}
@@ -578,7 +815,18 @@ const ReservationBoard: React.FC = () => {
         </p>
       )}
       <div className="p-2 sm:p-4">{body}</div>
-      {selection && <ReservationBoardStayPopover selection={selection} onClose={() => setSelection(null)} />}
+      {selection && (
+        <ReservationBoardStayPopover
+          selection={selection}
+          onClose={() => setSelection(null)}
+          onMoveRoom={handleMoveRoom}
+          moveBlocked={
+            selection.kind === "stay" && selection.value.segment
+              ? isMoveBlockedForSegment(selection.value.segment.segmentId)
+              : false
+          }
+        />
+      )}
       {assignmentTarget && (
         <ReservationAssignmentDialog
           // A different target is a different dialog: never carry one range's
@@ -593,6 +841,30 @@ const ReservationBoard: React.FC = () => {
           }
           onSubmit={(physicalRoomId, crossRoomType) => submitAssignment(assignmentTarget, physicalRoomId, crossRoomType)}
           onClose={() => setAssignmentTarget(null)}
+        />
+      )}
+      {moveTarget && (
+        <ReservationMoveDialog
+          // A different target is a different dialog: never carry one
+          // segment's selection, result or submit lock over to another.
+          key={`${moveTarget.segment.segmentId}:${moveTarget.segment.segmentVersion}`}
+          target={moveTarget}
+          boardReloadStatus={reconciliationStatus(dialogMoveReconciliationId)}
+          uncertainResolution={
+            dialogMoveReconciliation?.certainty === "uncertain" && dialogMoveReconciliation.resolution !== "settled"
+              ? dialogMoveReconciliation.resolution
+              : undefined
+          }
+          onSubmit={(physicalRoomId) => submitMove(moveTarget, physicalRoomId)}
+          onClose={() => {
+            setMoveTarget(null);
+            // Only reached when the operator closes the dialog directly
+            // (validation, a refused submit, a conflict, or an unknown
+            // result) — a successful move instead clears `moveTarget`
+            // itself from `submitMove` and hands focus to the success
+            // notice via the effect above, so this never fights that path.
+            restoreBoardFocus();
+          }}
         />
       )}
     </div>
@@ -666,7 +938,17 @@ const UncertainWriteNotice: React.FC<{
   } else if (readStatus === "failed") {
     detail = "The board could not be reloaded, so the result is still unknown. Use Retry on the board.";
   } else if (!canCheckHere) {
-    detail = `The result is still unknown and these nights stay locked. Open a view of this Property that includes ${range} to check again.`;
+    // PMS-CAL-001.2-CP04C.5-C2: `canCheckHere` (via `boardCanShow` →
+    // `boardCanEvaluate`) already applies the correct per-operation window
+    // rule — full containment for create, overlap for move (CP04C.3-C1/C2).
+    // The guidance text must match that exact rule, or a move segment
+    // longer than the board's own maximum window would be told to open a
+    // containing view that can never exist, even though an overlapping one
+    // (which `canCheckHere` would accept) does.
+    detail =
+      target.operation === "move"
+        ? `The result is still unknown and this segment stays locked. Open a view of this Property that overlaps ${range} to check again.`
+        : `The result is still unknown and these nights stay locked. Open a view of this Property that includes ${range} to check again.`;
   } else {
     detail = checking
       ? "Checking the board on the server again…"

@@ -87,9 +87,14 @@ const ReservationBoardToolbar: React.FC<ReservationBoardToolbarProps> = ({
             Reservation Board
           </h3>
         </div>
-        {/* PMS-CAL-001.2-CP03A/B: states exactly what is writable today. The
-            board cannot know whether the backend's write opt-in is on — it
-            never probes — so the requirement is stated rather than asserted. */}
+        {/* PMS-CAL-001.2-CP03A/B/CP04C.5: states exactly what is writable
+            today. The board cannot know whether the backend's write opt-in
+            is on — it never probes — so the requirement is stated rather
+            than asserted. Updated in CP04C.5-C1: a same-sold-RoomType move
+            is now a real write too, so this can no longer say every move is
+            read-only. It does not say cross-RoomType move is offered — it
+            is not — and it does not describe the local write opt-in as
+            authentication or a permission grant, since it is neither. */}
         <span
           data-testid="reservation-board-capabilities"
           className="inline-flex max-w-full items-start gap-1.5 rounded-2xl bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600 dark:bg-white/[0.05] dark:text-gray-300"
@@ -97,8 +102,9 @@ const ReservationBoardToolbar: React.FC<ReservationBoardToolbarProps> = ({
           <InfoIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
           <span>
             Live data. Unassigned nights can be assigned to an Active room, of the same sold room type or, with
-            confirmation and a reason, a different one. Move, unassign, blocks and lifecycle actions are read-only.
-            Writes need the local Development write opt-in — no production sign-in or permissions yet.
+            confirmation and a reason, a different one. An assigned segment can be moved to another Active room of
+            the same sold room type. Cross-RoomType move, unassign, operational blocks and other lifecycle actions
+            are read-only. Writes need the local Development write opt-in — no production sign-in or permissions yet.
           </span>
         </span>
       </div>
