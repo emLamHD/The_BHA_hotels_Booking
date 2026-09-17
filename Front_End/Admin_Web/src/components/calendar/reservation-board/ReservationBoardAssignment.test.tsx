@@ -676,6 +676,10 @@ describe("PMS-CAL-001.2-CP03A-C1 corrections", () => {
   // cross-RoomType move is not offered, and the local write opt-in is never
   // described as authentication or a permission grant — so either direction
   // of drift (claiming too little or too much) fails it.
+  // PMS-CAL-001.2-CP04C.6B: the capability grew again (a move may now also
+  // target a cross-RoomType destination, with confirmation and a reason),
+  // so the banner's negative claim flips — it must now say cross-RoomType
+  // move *is* offered, and must no longer list it among the read-only items.
 
   it("describes exactly what the board can write, without claiming everything is read-only or promising unbuilt capability", async () => {
     await renderLoadedBoard();
@@ -685,18 +689,18 @@ describe("PMS-CAL-001.2-CP03A-C1 corrections", () => {
       "Unassigned nights can be assigned to an Active room, of the same sold room type or, with confirmation and a reason, a different one."
     );
     expect(capabilities).toHaveTextContent(
-      "An assigned segment can be moved to another Active room of the same sold room type."
+      "An assigned segment can be moved to another Active room, of the same sold room type or, with confirmation and a reason, a different one."
     );
     expect(capabilities).toHaveTextContent(
-      "Cross-RoomType move, unassign, operational blocks and other lifecycle actions are read-only."
+      "Unassign, operational blocks and other lifecycle actions are read-only."
     );
     expect(capabilities).toHaveTextContent("local Development write opt-in");
     expect(capabilities).toHaveTextContent("no production sign-in or permissions yet");
     expect(capabilities).not.toHaveTextContent(/no assignment/i);
     // Never claims every move is read-only (stale as of this checkpoint)...
     expect(capabilities).not.toHaveTextContent("Move, unassign, blocks and lifecycle actions are read-only.");
-    // ...and never overclaims cross-RoomType move as offered.
-    expect(capabilities).not.toHaveTextContent(/cross-roomtype move can be|cross-roomtype move is offered/i);
+    // ...and never claims cross-RoomType move is still read-only (stale as of CP04C.6B).
+    expect(capabilities).not.toHaveTextContent(/cross-roomtype move.{0,40}read-only/i);
     // The local write opt-in is an environment flag, never authentication/RBAC/permissions granted to the operator.
     expect(capabilities).not.toHaveTextContent(/authenticat|\bRBAC\b|signed in|logged in/i);
   });
@@ -1275,9 +1279,12 @@ describe("ReservationBoard — same-RoomType move (PMS-CAL-001.2-CP04C.5)", () =
     expect(view.getByText("CNF-100")).toBeInTheDocument();
     expect(view.getByText("101 (Standard)")).toBeInTheDocument();
     expect(view.getByText(new RegExp(`^\\[${addDaysIso(from, 2)}, ${addDaysIso(from, 4)}\\)`))).toBeInTheDocument();
-    // Same-RoomType only: room 102 (Standard) offered, room 201 (Deluxe) never shown.
+    // Room 102 (Standard) offered as the same-sold-RoomType candidate.
+    // PMS-CAL-001.2-CP04C.6B: room 201 (Deluxe) is now also offered live — see
+    // the dedicated "cross-RoomType move enabled live" describe block below
+    // for that destination's own confirmation/reason/payload behavior.
     expect(view.getByLabelText(/Room 102/)).toBeInTheDocument();
-    expect(view.queryByLabelText(/Room 201/)).not.toBeInTheDocument();
+    expect(view.getByLabelText(/Room 201/)).toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "Reservation details" })).not.toBeInTheDocument();
   });
 
@@ -1562,6 +1569,112 @@ describe("ReservationBoard — same-RoomType move (PMS-CAL-001.2-CP04C.5)", () =
       expect(mockedFetchReservationBoard.mock.calls.length).toBeGreaterThan(boardCallsBeforeResolve)
     );
     expect(mockedFetchReservationBoard.mock.calls.at(-1)![0]).toBe("prop-b");
+  });
+});
+
+// PMS-CAL-001.2-CP04C.6B: the board now passes `crossRoomTypeEnabled` live to
+// `ReservationMoveDialog` (merged, opt-in-only, in CP04C.6A). The dialog's own
+// confirmation/reason/reset/double-submit/keyboard matrix is unchanged and
+// already covered there — these tests prove only the board-level delta: the
+// cross-RoomType destination is actually reachable from a live board, the
+// board's own request wiring (`submitMove`) sends the same contract CP04C.6A
+// already typed, and same-RoomType move is byte-identical to CP04C.5.
+describe("ReservationBoard — cross-RoomType move enabled live (PMS-CAL-001.2-CP04C.6B)", () => {
+  function assignedBar() {
+    return screen.getByTitle("Nguyen Van A — CNF-100");
+  }
+
+  function popover() {
+    return screen.getByRole("dialog", { name: "Reservation details" });
+  }
+
+  function moveDialog() {
+    return screen.getByRole("dialog", { name: "Move room" });
+  }
+
+  async function openMoveDialog(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(assignedBar());
+    await user.click(within(popover()).getByRole("button", { name: "Move room" }));
+  }
+
+  it("1. offers room 201 (Deluxe) as a destination from the live board, grouped separately and requiring confirmation and a reason", async () => {
+    const user = userEvent.setup();
+    await renderLoadedBoard();
+
+    await openMoveDialog(user);
+
+    const view = within(moveDialog());
+    expect(view.getByText(/other room types — requires confirmation and a reason/i)).toBeInTheDocument();
+    expect(view.getByLabelText(/Room 201/)).toBeInTheDocument();
+    // Same-sold-RoomType candidate is still offered too — this is additive, not a replacement.
+    expect(view.getByLabelText(/Room 102/)).toBeInTheDocument();
+  });
+
+  it("2. selecting room 201 and submitting without confirming or entering a reason sends no move request", async () => {
+    const user = userEvent.setup();
+    await renderLoadedBoard();
+
+    await openMoveDialog(user);
+    await user.click(within(moveDialog()).getByLabelText(/Room 201/));
+    await user.click(within(moveDialog()).getByRole("button", { name: "Move to room 201" }));
+
+    expect(mockedMove).not.toHaveBeenCalled();
+    expect(within(moveDialog()).getByText("Confirm this cross-room-type placement to continue.")).toBeInTheDocument();
+  });
+
+  it("3. a valid cross-RoomType submit sends exactly one request with the exact contract fields, then reloads the board from an authoritative GET", async () => {
+    const user = userEvent.setup();
+    const { from, to } = await renderLoadedBoard();
+    const boardCallsBefore = mockedFetchReservationBoard.mock.calls.length;
+    mockedMove.mockResolvedValue({ kind: "moved", segments: null });
+
+    await openMoveDialog(user);
+    await user.click(within(moveDialog()).getByLabelText(/Room 201/));
+    await user.click(
+      within(moveDialog()).getByLabelText(/deliberately chosen a room of a different room type/)
+    );
+    await user.type(within(moveDialog()).getByLabelText("Reason"), "  Only a Deluxe was free for this night.  ");
+    await user.click(within(moveDialog()).getByRole("button", { name: "Move to room 201" }));
+
+    await waitFor(() => expect(mockedMove).toHaveBeenCalledTimes(1));
+    expect(mockedMove).toHaveBeenCalledWith("prop-a", "seg-existing", {
+      expectedVersion: 1,
+      physicalRoomId: "room-201",
+      startDate: addDaysIso(from, 2),
+      endDate: addDaysIso(from, 4),
+      confirmCrossRoomType: true,
+      // Sent already-trimmed — the dialog trims before calling onSubmit.
+      reason: "Only a Deluxe was free for this night.",
+    });
+    const [, , request] = mockedMove.mock.calls[0];
+    expect(Object.keys(request).sort()).toEqual(
+      ["confirmCrossRoomType", "endDate", "expectedVersion", "physicalRoomId", "reason", "startDate"].sort()
+    );
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Move room" })).not.toBeInTheDocument());
+    expect(mockedFetchReservationBoard.mock.calls.length).toBe(boardCallsBefore + 1);
+    expect(mockedFetchReservationBoard.mock.calls.at(-1)).toEqual(["prop-a", from, to, expect.any(AbortSignal)]);
+  });
+
+  it("4. a same-RoomType submit is still byte-identical to CP04C.5: confirmCrossRoomType:false and no reason field", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    mockedMove.mockResolvedValue({ kind: "moved", segments: null });
+
+    await openMoveDialog(user);
+    await user.click(within(moveDialog()).getByLabelText(/Room 102/));
+    await user.click(within(moveDialog()).getByRole("button", { name: "Move to room 102" }));
+
+    await waitFor(() => expect(mockedMove).toHaveBeenCalledTimes(1));
+    expect(mockedMove).toHaveBeenCalledWith("prop-a", "seg-existing", {
+      expectedVersion: 1,
+      physicalRoomId: "room-102",
+      startDate: addDaysIso(from, 2),
+      endDate: addDaysIso(from, 4),
+      confirmCrossRoomType: false,
+    });
+    const [, , request] = mockedMove.mock.calls[0];
+    expect("reason" in request).toBe(false);
   });
 });
 

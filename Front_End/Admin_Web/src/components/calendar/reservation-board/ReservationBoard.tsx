@@ -22,6 +22,14 @@
  * board-key-scoped reconciliation, stale-bar locking): the only difference is
  * the extra `reason` field this component forwards to the API client when the
  * dialog reports a confirmed cross-RoomType submission.
+ *
+ * PMS-CAL-001.2-CP04C.6B: `ReservationMoveDialog` now mounts here with
+ * `crossRoomTypeEnabled` live, offering the same controlled cross-RoomType
+ * destination for a move that CP03B already offers for a new assignment.
+ * `submitMove`'s own request wiring (`confirmCrossRoomType`, trimmed
+ * `reason`, exact segment version, full `[startDate, endDate)`) does not
+ * change here — it was already correct as of CP04C.6A, ahead of any live
+ * caller enabling the choice that exercises it.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -500,11 +508,11 @@ const ReservationBoard: React.FC = () => {
       // re-derives it for create, rather than trusted from the dialog — a
       // stale target (e.g. a RoomType deactivated between render and submit)
       // must never let `confirmCrossRoomType: false` reach the wire for a
-      // room that is not, in fact, the Unit's sold RoomType. No live caller
-      // of `ReservationMoveDialog` enables cross-RoomType selection yet
-      // (CP04C.6B), so `room` here is always same-sold-RoomType in practice
-      // and this stays `false` — this only makes the contract typed and
-      // correct ahead of that checkpoint, without changing today's behavior.
+      // room that is not, in fact, the Unit's sold RoomType.
+      // PMS-CAL-001.2-CP04C.6B: `ReservationMoveDialog` now offers a
+      // cross-RoomType destination live, so `room` here is no longer always
+      // same-sold-RoomType — this is the line that turns that choice into
+      // the request's own `confirmCrossRoomType`.
       const isCrossRoomType = room.roomTypeId !== target.stay.soldRoomTypeId;
 
       moveRequestPendingRef.current = true;
@@ -864,9 +872,11 @@ const ReservationBoard: React.FC = () => {
           // segment's selection, result or submit lock over to another.
           key={`${moveTarget.segment.segmentId}:${moveTarget.segment.segmentVersion}`}
           target={moveTarget}
-          // PMS-CAL-001.2-CP04C.6A: `crossRoomTypeEnabled` is deliberately
-          // never passed here — this board still offers only same-sold-
-          // RoomType move, exactly as CP04C.5. Enabling it live is CP04C.6B.
+          // PMS-CAL-001.2-CP04C.6B: live opt-in — this board now offers a
+          // controlled cross-RoomType destination for a move, the same
+          // contract CP04C.6A merged and CP03B already offers for a new
+          // assignment.
+          crossRoomTypeEnabled
           boardReloadStatus={reconciliationStatus(dialogMoveReconciliationId)}
           uncertainResolution={
             dialogMoveReconciliation?.certainty === "uncertain" && dialogMoveReconciliation.resolution !== "settled"
