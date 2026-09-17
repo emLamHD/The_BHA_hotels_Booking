@@ -87,13 +87,13 @@ const ReservationBoardToolbar: React.FC<ReservationBoardToolbarProps> = ({
             Reservation Board
           </h3>
         </div>
-        {/* PMS-CAL-001.2-CP03A/B/CP04C.5: states exactly what is writable
-            today. The board cannot know whether the backend's write opt-in
-            is on — it never probes — so the requirement is stated rather
-            than asserted. Updated in CP04C.5-C1: a same-sold-RoomType move
-            is now a real write too, so this can no longer say every move is
-            read-only. It does not say cross-RoomType move is offered — it
-            is not — and it does not describe the local write opt-in as
+        {/* PMS-CAL-001.2-CP03A/B/CP04C.5/CP04C.6B: states exactly what is
+            writable today. The board cannot know whether the backend's
+            write opt-in is on — it never probes — so the requirement is
+            stated rather than asserted. Updated in CP04C.6B: a move may now
+            also target a cross-RoomType destination, with confirmation and
+            a reason, so this can no longer say cross-RoomType move is
+            read-only. It does not describe the local write opt-in as
             authentication or a permission grant, since it is neither. */}
         <span
           data-testid="reservation-board-capabilities"
@@ -102,9 +102,10 @@ const ReservationBoardToolbar: React.FC<ReservationBoardToolbarProps> = ({
           <InfoIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
           <span>
             Live data. Unassigned nights can be assigned to an Active room, of the same sold room type or, with
-            confirmation and a reason, a different one. An assigned segment can be moved to another Active room of
-            the same sold room type. Cross-RoomType move, unassign, operational blocks and other lifecycle actions
-            are read-only. Writes need the local Development write opt-in — no production sign-in or permissions yet.
+            confirmation and a reason, a different one. An assigned segment can be moved to another Active room, of
+            the same sold room type or, with confirmation and a reason, a different one. Unassign, operational
+            blocks and other lifecycle actions are read-only. Writes need the local Development write opt-in — no
+            production sign-in or permissions yet.
           </span>
         </span>
       </div>
