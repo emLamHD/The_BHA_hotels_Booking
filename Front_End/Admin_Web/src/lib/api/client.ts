@@ -12,6 +12,7 @@ import type {
   MoveReservationAssignmentRequest,
   ReservationBoardResponse,
   RoomOccupancySegment,
+  UnassignReservationAssignmentRequest,
 } from "./types";
 
 export type ApiErrorKind = "config" | "network" | "http" | "aborted";
@@ -457,6 +458,150 @@ export async function moveReservationAssignment(
             detail: safeProblemText(problem?.detail),
           };
         }
+        return { kind: "rejected", status, category: "not-permitted" };
+      case 404:
+        // Deliberately detail-free: a closed gate's 404 has no body, and a
+        // store 404/403 text must not be shown as though the booking were gone.
+        return { kind: "rejected", status, category: "not-permitted" };
+      case 409:
+        return { kind: "rejected", status, category: "conflict", detail: safeProblemText(problem?.detail) };
+      default:
+        return { kind: "rejected", status, category: "refused", detail: safeProblemText(problem?.detail) };
+    }
+  } finally {
+    clearTimeout(timeoutHandle);
+    options.signal?.removeEventListener("abort", forwardAbort);
+  }
+}
+
+/**
+ * PMS-CAL-001.2-CP04D.1: what is known after one unassign attempt against
+ * `POST .../reservation-assignments/{segmentId}/unassign`. Deliberately its
+ * own outcome type, not a reuse of {@link MoveAssignmentOutcome}: the two
+ * requests share no fields beyond `expectedVersion`/`reason`, and a `kind`
+ * borrowed from `moved` would misdescribe a write that places nobody
+ * anywhere. Same reasoning as {@link AssignmentCreateOutcome} otherwise:
+ *
+ * - `unassigned`: the server answered `200`. Proof of a write. The body is
+ *   the mutated segments (the superseded source; an unassign has no
+ *   replacement to also report) when the `200` body parsed as JSON; `null`
+ *   only means that body itself could not be read, which is not evidence the
+ *   unassign failed — the status already is.
+ * - `not-sent`: the request never left the browser (configuration, or a
+ *   signal already aborted before this call ran). Proof of no write.
+ * - `rejected`: the server answered with a `4xx`. The store refuses inside
+ *   its transaction and the write gate refuses before any action runs, so a
+ *   `4xx` is proof of no write. An unassign never sends `confirmCrossRoomType`
+ *   (an empty replacement list can never be cross-RoomType), so a `403` here
+ *   is always the generic write-boundary refusal, never the cross-RoomType
+ *   confirmation title `createReservationAssignment`/`moveReservationAssignment`
+ *   detect — this function does not look for it.
+ * - `unknown`: a network failure, a timeout, an abort after sending, or a
+ *   `5xx` — the source segment may or may not have been superseded. Never
+ *   retried automatically; the caller re-reads the board instead.
+ */
+export type UnassignAssignmentOutcome =
+  | { kind: "unassigned"; segments: RoomOccupancySegment[] | null }
+  | { kind: "not-sent"; message: string }
+  | { kind: "rejected"; status: number; category: AssignmentRejectionCategory; detail?: string }
+  | { kind: "unknown"; reason: "network" | "timeout" | "aborted" | "server-error"; status?: number };
+
+/**
+ * Supersedes one existing Effective ReservationAssignment segment with zero
+ * replacements, through the same local Admin Calendar write gate and
+ * uncredentialed `admin-calendar-write` CORS policy as
+ * {@link createReservationAssignment} — every request-shape guarantee
+ * documented there (field-by-field body, no actor/authorization evidence
+ * from the caller, no credentials, no cache, no redirect following) applies
+ * here unchanged. Exactly one network attempt is made; this function never
+ * retries.
+ */
+export async function unassignReservationAssignment(
+  propertyId: string,
+  segmentId: string,
+  request: UnassignReservationAssignmentRequest,
+  options: CreateReservationAssignmentOptions = {}
+): Promise<UnassignAssignmentOutcome> {
+  const baseUrlResult = getApiBaseUrl();
+  if (!baseUrlResult.ok) {
+    return { kind: "not-sent", message: describeApiBaseUrlError(baseUrlResult.reason) };
+  }
+
+  // PMS-CAL-001.2-CP04C.1-C1's guard, applied here too: a signal already
+  // aborted before this call ever runs can never produce an HTTP request, so
+  // it is proof of no write (`not-sent`), never `unknown/aborted`.
+  if (options.signal?.aborted) {
+    return { kind: "not-sent", message: "The request was cancelled before it was sent." };
+  }
+
+  // Field by field, for the identical reason as createReservationAssignment
+  // and moveReservationAssignment: nothing beyond this contract — in
+  // particular no actor and no authorization evidence — can reach the wire
+  // even if a caller passes a wider object at runtime. `reason` is included
+  // only when the caller actually set it; JSON.stringify drops an
+  // `undefined` property entirely.
+  const body = JSON.stringify({
+    expectedVersion: request.expectedVersion,
+    ...(request.reason !== undefined ? { reason: request.reason } : {}),
+  });
+
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeoutHandle = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, options.timeoutMs ?? DEFAULT_ASSIGNMENT_TIMEOUT_MS);
+  const forwardAbort = () => controller.abort();
+  // The signal is already known not-aborted here (checked above), so this
+  // only ever needs to listen for a future abort.
+  options.signal?.addEventListener("abort", forwardAbort, { once: true });
+
+  try {
+    let response: Response;
+    try {
+      response = await fetch(
+        `${baseUrlResult.baseUrl}/api/admin/v1/properties/${encodeURIComponent(propertyId)}/reservation-assignments/${encodeURIComponent(segmentId)}/unassign`,
+        {
+          method: "POST",
+          headers: { Accept: "application/json", "Content-Type": "application/json" },
+          body,
+          credentials: "omit",
+          cache: "no-store",
+          redirect: "error",
+          signal: controller.signal,
+        }
+      );
+    } catch {
+      if (timedOut) return { kind: "unknown", reason: "timeout" };
+      if (controller.signal.aborted) return { kind: "unknown", reason: "aborted" };
+      return { kind: "unknown", reason: "network" };
+    }
+
+    const status = response.status;
+    if (status === 200) {
+      let segments: RoomOccupancySegment[] | null = null;
+      try {
+        segments = (await response.json()) as RoomOccupancySegment[];
+      } catch {
+        // The 200 status is the proof of the write; an unreadable body does not undo it.
+      }
+      return { kind: "unassigned", segments };
+    }
+
+    if (status >= 500 || status < 400) {
+      // A 5xx may follow a commit; any other unexpected status is equally unproven.
+      return { kind: "unknown", reason: "server-error", status };
+    }
+
+    const problem = await readProblem(response);
+    switch (status) {
+      case 400:
+        return { kind: "rejected", status, category: "validation", detail: validationDetail(problem) };
+      case 403:
+        // Generic, unlike create/move: an unassign's empty replacement list
+        // can never be cross-RoomType, so this is always the plain
+        // write-boundary refusal — never matched against the cross-RoomType
+        // confirmation title.
         return { kind: "rejected", status, category: "not-permitted" };
       case 404:
         // Deliberately detail-free: a closed gate's 404 has no body, and a
