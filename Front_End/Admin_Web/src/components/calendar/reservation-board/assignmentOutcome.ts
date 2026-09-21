@@ -15,7 +15,7 @@
  *    the freshly reloaded board instead of pressing Confirm again.
  */
 
-import type { AssignmentCreateOutcome, MoveAssignmentOutcome } from "@/lib/api/client";
+import type { AssignmentCreateOutcome, MoveAssignmentOutcome, UnassignAssignmentOutcome } from "@/lib/api/client";
 
 export type AssignmentOutcomeTone = "success" | "error" | "warning";
 
@@ -211,6 +211,107 @@ export function describeMoveOutcome(outcome: MoveAssignmentOutcome): AssignmentO
         title:
           "The result could not be confirmed — the move may or may not have been saved. It was not retried automatically. Check the reloaded board before trying again.",
         detail: cause,
+        reloadBoard: true,
+        allowResubmit: false,
+      };
+    }
+  }
+}
+
+/**
+ * PMS-CAL-001.2-CP04D.4A: the unassign-attempt counterpart, sharing the same
+ * two rules and the same {@link AssignmentOutcomeView} shape. Only the wording
+ * and two category rules differ from create/move:
+ *
+ * - An unassign removes one room assignment, never the booking, so no text
+ *   here speaks of a cancelled/deleted Reservation, and a `403`/`404` is
+ *   never worded as though the booking or segment were gone (a `404` is most
+ *   often the closed local write gate).
+ * - An unassign has no destination, hence no cross-RoomType semantics. If a
+ *   `cross-room-type-confirmation-required` outcome ever arrives it is a
+ *   contract mismatch, not something the operator can act on: it is treated
+ *   as the generic not-permitted refusal — no RoomType/reason guidance, no
+ *   resubmit, and the server's own text is not echoed.
+ * - `unassigned` is success whether or not its `200` body could be read.
+ */
+export function describeUnassignOutcome(outcome: UnassignAssignmentOutcome): AssignmentOutcomeView {
+  switch (outcome.kind) {
+    case "unassigned":
+      return {
+        tone: "success",
+        title: "Room assignment removed.",
+        detail: "Only this room assignment was removed. The reservation itself is unchanged.",
+        reloadBoard: true,
+        allowResubmit: false,
+      };
+
+    case "not-sent":
+      return {
+        tone: "error",
+        title: "The unassign request was not sent. Nothing was changed on the server.",
+        detail: outcome.message,
+        reloadBoard: false,
+        allowResubmit: true,
+      };
+
+    case "rejected":
+      switch (outcome.category) {
+        case "validation":
+          return {
+            tone: "error",
+            title: "The server did not accept this unassign request. No assignment change was saved.",
+            detail: outcome.detail,
+            reloadBoard: false,
+            allowResubmit: true,
+          };
+        case "not-permitted":
+        case "cross-room-type-confirmation-required":
+          return {
+            tone: "error",
+            title:
+              "Unassigning a room is not available or not permitted from this Admin session. No assignment change was saved.",
+            detail:
+              outcome.status === 404
+                ? "Writes may be disabled on this API host. It does not indicate a problem with the booking."
+                : "The server refused this write.",
+            reloadBoard: false,
+            allowResubmit: false,
+          };
+        case "conflict":
+          return {
+            tone: "warning",
+            title:
+              "This unassign was not saved: the room assignment has changed or is no longer current. Review the reloaded board before trying again.",
+            detail: outcome.detail,
+            reloadBoard: true,
+            allowResubmit: false,
+          };
+        case "refused":
+        default:
+          return {
+            tone: "error",
+            title: `The server refused the request (HTTP ${outcome.status}). No assignment change was saved.`,
+            detail: outcome.detail,
+            reloadBoard: false,
+            allowResubmit: false,
+          };
+      }
+
+    case "unknown":
+    default: {
+      const cause =
+        outcome.reason === "timeout"
+          ? "The server did not respond in time."
+          : outcome.reason === "server-error"
+            ? `The server returned an unexpected response${outcome.status ? ` (HTTP ${outcome.status})` : ""}.`
+            : outcome.reason === "aborted"
+              ? "The request was interrupted after it was sent."
+              : "The connection to the Admin API could not be completed.";
+      return {
+        tone: "warning",
+        title:
+          "The result could not be confirmed — the room assignment may or may not have been removed. It was not retried automatically. Check the reloaded board before trying again.",
+        detail: `${cause} Closing this dialog does not stop or undo a request that was already sent.`,
         reloadBoard: true,
         allowResubmit: false,
       };
