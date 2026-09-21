@@ -13,9 +13,16 @@
  * exact clicked segment back to `ReservationBoard.tsx`, which decides
  * whether that selection still matches the authoritative board
  * (`buildMoveTarget`) before ever opening a write dialog.
+ *
+ * PMS-CAL-001.2-CP04D.4C.1: the same holds for the optional `Remove room
+ * assignment` action (`onUnassignRoom`) — an independent, opt-in second
+ * contract that reports the same exact `{ stay, segment }` and nothing else.
+ * It builds no target, opens no dialog and calls no API, and never closes this
+ * panel: the parent decides the transition and owns focus restoration. No
+ * caller passes it yet, so nothing is offered on the live board.
  */
 
-import React from "react";
+import React, { useId } from "react";
 import { CloseLineIcon } from "@/icons";
 import { formatDisplayDate } from "./dateMath";
 import type { AssignedSegmentSelection, StaySelection, BlockSelection } from "./ReservationBoardServerTimeline";
@@ -33,6 +40,10 @@ interface ReservationBoardStayPopoverProps {
   onMoveRoom?: (selection: AssignedSegmentSelection) => void;
   /** True while the board is stale or this exact segment already has an unresolved move outstanding. */
   moveBlocked?: boolean;
+  /** Present only when this selection came from an assigned bar (carries `segment`). */
+  onUnassignRoom?: (selection: AssignedSegmentSelection) => void;
+  /** True while the board is stale or this exact segment already has an unresolved write. Independent of `moveBlocked`. */
+  unassignBlocked?: boolean;
 }
 
 const ReservationBoardStayPopover: React.FC<ReservationBoardStayPopoverProps> = ({
@@ -40,7 +51,10 @@ const ReservationBoardStayPopover: React.FC<ReservationBoardStayPopoverProps> = 
   onClose,
   onMoveRoom,
   moveBlocked = false,
+  onUnassignRoom,
+  unassignBlocked = false,
 }) => {
+  const unassignBlockedId = useId();
   return (
     <div
       role="dialog"
@@ -101,6 +115,26 @@ const ReservationBoardStayPopover: React.FC<ReservationBoardStayPopoverProps> = 
                 {moveBlocked && (
                   <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
                     Refreshing from the server, or this segment already has an unresolved move — try again once it
+                    settles.
+                  </p>
+                )}
+              </div>
+            )}
+            {selection.value.segment && onUnassignRoom && (
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={() => onUnassignRoom({ stay: selection.value.stay, segment: selection.value.segment! })}
+                  disabled={unassignBlocked}
+                  aria-disabled={unassignBlocked}
+                  aria-describedby={unassignBlocked ? unassignBlockedId : undefined}
+                  className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-white/5"
+                >
+                  Remove room assignment
+                </button>
+                {unassignBlocked && (
+                  <p id={unassignBlockedId} className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                    Refreshing from the server, or this segment already has an unresolved write — try again once it
                     settles.
                   </p>
                 )}
