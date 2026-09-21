@@ -35,6 +35,13 @@
  *      non-committed-Unit check, and a move's optimistic-concurrency check
  *      refuses a stale `expectedVersion` — so the write is no longer a
  *      candidate for a duplicate.
+ *    PMS-CAL-001.2-CP04D.3: an **unassign** has no destination, so there is
+ *    nothing to `observe` — an assignment elsewhere over the same range is
+ *    never evidence of it. It is judged on the source segment alone, exactly
+ *    like a move's source: `unresolved` while the segment still matches
+ *    exactly, `changed` once it does not. `changed` then only says the stale
+ *    `expectedVersion` can never commit again — not that the lost request
+ *    succeeded, rolled back or caused the change.
  *    Otherwise it stays `unresolved`, however many reads follow.
  */
 
@@ -42,8 +49,6 @@ import type { ReservationBoardResponse, ReservationBoardUnassignedRange } from "
 
 interface ReconciliationTargetBase {
   reservationUnitId: string;
-  /** Destination PhysicalRoom: the room being assigned (create) or moved to (move). */
-  physicalRoomId: string;
   startDate: string;
   endDate: string;
   roomNumber: string;
@@ -53,6 +58,8 @@ interface ReconciliationTargetBase {
 
 export interface CreateReconciliationTarget extends ReconciliationTargetBase {
   operation: "create";
+  /** Destination PhysicalRoom: the room being assigned. */
+  physicalRoomId: string;
 }
 
 /**
@@ -63,6 +70,8 @@ export interface CreateReconciliationTarget extends ReconciliationTargetBase {
  */
 export interface MoveReconciliationTarget extends ReconciliationTargetBase {
   operation: "move";
+  /** Destination PhysicalRoom: the room being moved to. */
+  physicalRoomId: string;
   /** Source segment identity/version exactly as clicked — what "changed" is judged against. */
   segmentId: string;
   expectedVersion: number;
@@ -70,7 +79,22 @@ export interface MoveReconciliationTarget extends ReconciliationTargetBase {
   sourcePhysicalRoomId: string;
 }
 
-export type ReconciliationTarget = CreateReconciliationTarget | MoveReconciliationTarget;
+/**
+ * PMS-CAL-001.2-CP04D.3: a single-segment unassign. Like a move it carries the
+ * segment's own full, un-clipped `[startDate, endDate)` and is judged against
+ * its source identity — but it has no destination room (it is not a move to
+ * an "unassigned room"), so `roomNumber` is the source room's.
+ */
+export interface UnassignReconciliationTarget extends ReconciliationTargetBase {
+  operation: "unassign";
+  /** Source segment identity/version exactly as clicked — what "changed" is judged against. */
+  segmentId: string;
+  expectedVersion: number;
+  /** The segment's current room, the one being released. */
+  sourcePhysicalRoomId: string;
+}
+
+export type ReconciliationTarget = CreateReconciliationTarget | MoveReconciliationTarget | UnassignReconciliationTarget;
 
 export interface Reconciliation {
   id: number;
@@ -134,9 +158,11 @@ export function boardCanEvaluate(
 ): boolean {
   if (boardIdentity.propertyId !== entry.propertyId) return false;
   const boardWindow = { startDate: boardIdentity.from, endDate: boardIdentity.to };
-  return entry.target.operation === "move"
-    ? overlapsRange(boardWindow, entry.target)
-    : containsRange(boardWindow, entry.target);
+  // Only create needs full containment; move and unassign carry an un-clipped
+  // segment range, so overlap already returns the exact full segment.
+  return entry.target.operation === "create"
+    ? containsRange(boardWindow, entry.target)
+    : overlapsRange(boardWindow, entry.target);
 }
 
 /**
@@ -152,20 +178,23 @@ export function evaluateUncertainWrite(
 
   const stay = board.stays.find((candidate) => candidate.reservationUnitId === target.reservationUnitId);
 
-  // Destination checked first, regardless of operation: if the intended
-  // placement itself is on the server, the write's effect is known.
-  const observed =
-    stay?.assignments.some(
-      (assignment) =>
-        assignment.physicalRoomId === target.physicalRoomId &&
-        assignment.startDate === target.startDate &&
-        assignment.endDate === target.endDate
-    ) ?? false;
-  if (observed) return "observed";
+  // Destination checked first for create/move: if the intended placement
+  // itself is on the server, the write's effect is known. An unassign has no
+  // destination, so nothing on the board can ever be "observed" for it.
+  if (target.operation !== "unassign") {
+    const observed =
+      stay?.assignments.some(
+        (assignment) =>
+          assignment.physicalRoomId === target.physicalRoomId &&
+          assignment.startDate === target.startDate &&
+          assignment.endDate === target.endDate
+      ) ?? false;
+    if (observed) return "observed";
+  }
 
-  if (target.operation === "move") {
-    // PMS-CAL-001.2-CP04C.3: the source segment is still a candidate to
-    // commit only while every part of its clicked identity — id, version,
+  if (target.operation === "move" || target.operation === "unassign") {
+    // PMS-CAL-001.2-CP04C.3 (move) / CP04D.3 (unassign): the source segment
+    // is still a candidate to commit only while every part of its clicked identity — id, version,
     // room, range — still matches exactly. Any mismatch (superseded,
     // unassigned, or moved by something else) means the stale
     // `expectedVersion` this write carries can never take effect again.
@@ -268,6 +297,26 @@ export function isSegmentMoveUnresolved(list: Reconciliation[], propertyId: stri
       entry.resolution === "unresolved" &&
       entry.propertyId === propertyId &&
       entry.target.operation === "move" &&
+      entry.target.segmentId === segmentId
+  );
+}
+
+/**
+ * PMS-CAL-001.2-CP04D.3: true while an uncertain unassign whose source is
+ * exactly this segment is unresolved — on any board, whatever its range.
+ * Matches on `segmentId` alone, for the same reason as
+ * `isSegmentMoveUnresolved`: a still-stale board must not let a second
+ * unassign be opened for a segment whose first one is unconfirmed.
+ *
+ * Never locks a create or move entry, a different segment (even on the same
+ * ReservationUnit), or an entry that is `observed`, `changed` or settled.
+ */
+export function isSegmentUnassignUnresolved(list: Reconciliation[], propertyId: string, segmentId: string): boolean {
+  return list.some(
+    (entry) =>
+      entry.resolution === "unresolved" &&
+      entry.propertyId === propertyId &&
+      entry.target.operation === "unassign" &&
       entry.target.segmentId === segmentId
   );
 }

@@ -4,11 +4,13 @@ import {
   evaluateUncertainWrite,
   isBoardAwaitingReconciliation,
   isSegmentMoveUnresolved,
+  isSegmentUnassignUnresolved,
   isUnassignedRangeUnresolved,
   settleReconciliations,
   type CreateReconciliationTarget,
   type MoveReconciliationTarget,
   type Reconciliation,
+  type UnassignReconciliationTarget,
 } from "./reconciliation";
 import type { ReservationBoardResponse, ReservationBoardStay } from "@/lib/api/types";
 
@@ -492,5 +494,134 @@ describe("boardCanEvaluate — the shared board-authority predicate (PMS-CAL-001
   it("6. an existing (non-long) create target still works exactly as before: full containment allows, partial overlap refuses", () => {
     expect(boardCanEvaluate(entry(), { propertyId: "prop-a", from: "2026-09-07", to: "2026-09-21" })).toBe(true);
     expect(boardCanEvaluate(entry(), { propertyId: "prop-a", from: "2026-09-11", to: "2026-09-25" })).toBe(false);
+  });
+});
+
+/**
+ * PMS-CAL-001.2-CP04D.3: an uncertain single-segment unassign. It has no
+ * destination, so it can only ever be `unresolved` or `changed` — never
+ * `observed` — and, like a move, it is judged from any window that overlaps
+ * its full, un-clipped segment range.
+ */
+describe("unassign reconciliation (PMS-CAL-001.2-CP04D.3)", () => {
+  const unassignTarget = (extra: Partial<UnassignReconciliationTarget> = {}): UnassignReconciliationTarget => ({
+    operation: "unassign",
+    reservationUnitId: "unit-1",
+    ...TARGET,
+    roomNumber: "101", // the source room being released
+    guestDisplayName: "Guest",
+    confirmationNumber: "CNF-1",
+    segmentId: "seg-1",
+    expectedVersion: 3,
+    sourcePhysicalRoomId: "room-101",
+    ...extra,
+  });
+  const unassignEntry = (overrides: Partial<Reconciliation> = {}, extra: Partial<UnassignReconciliationTarget> = {}) =>
+    entry({ certainty: "uncertain", resolution: "unresolved", target: unassignTarget(extra), ...overrides });
+
+  const segment = (over: Record<string, unknown> = {}) => ({
+    segmentId: "seg-1",
+    segmentVersion: 3,
+    physicalRoomId: "room-101",
+    actualRoomTypeId: "type-std",
+    ...TARGET,
+    ...over,
+  });
+  const withAssignments = (...assignments: ReturnType<typeof segment>[]) =>
+    board({ assignments, unassignedRanges: [] });
+
+  const sourceIntact = withAssignments(segment());
+
+  it("1. stays unresolved across any number of authoritative reads while the exact source segment is intact", () => {
+    let list = [unassignEntry()];
+    for (let seq = 6; seq < 12; seq += 1) list = settleReconciliations(list, A, seq, loaded(sourceIntact));
+    expect(list[0].resolution).toBe("unresolved");
+    expect(list[0].status).toBe("done");
+  });
+
+  it("2. resolves as changed when the source segment is gone", () => {
+    const gone = board({ assignments: [], unassignedRanges: [TARGET] });
+    expect(settleReconciliations([unassignEntry()], A, 6, loaded(gone))[0].resolution).toBe("changed");
+    expect(evaluateUncertainWrite(unassignEntry(), board(null))).toBe("changed");
+  });
+
+  it("3. resolves as changed when the source version no longer matches, even with the same id and room", () => {
+    expect(evaluateUncertainWrite(unassignEntry(), withAssignments(segment({ segmentVersion: 4 })))).toBe("changed");
+  });
+
+  it("4. resolves as changed when the source room or range no longer matches", () => {
+    expect(evaluateUncertainWrite(unassignEntry(), withAssignments(segment({ physicalRoomId: "room-103" })))).toBe("changed");
+    expect(evaluateUncertainWrite(unassignEntry(), withAssignments(segment({ endDate: "2026-09-14" })))).toBe("changed");
+    expect(evaluateUncertainWrite(unassignEntry(), withAssignments(segment({ startDate: "2026-09-09" })))).toBe("changed");
+  });
+
+  it("5. never reports another assignment over the same range as an observed unassign", () => {
+    // Different id in a different room, and a different id in the very same room: neither is evidence of an unassign.
+    for (const other of [segment({ segmentId: "seg-9", physicalRoomId: "room-102" }), segment({ segmentId: "seg-9" })]) {
+      expect(evaluateUncertainWrite(unassignEntry(), withAssignments(other))).toBe("changed");
+    }
+    // A sibling segment does not hide the source: the exact one is still found by identity.
+    const sibling = segment({ segmentId: "seg-2", physicalRoomId: "room-102", startDate: "2026-09-13", endDate: "2026-09-15" });
+    expect(evaluateUncertainWrite(unassignEntry(), withAssignments(sibling, segment()))).toBe("unresolved");
+  });
+
+  it("6. is never resolved by a wrong Property, or a window that does not overlap — including half-open adjacency", () => {
+    expect(evaluateUncertainWrite(unassignEntry(), board(null, { propertyId: "prop-b" }))).toBeNull();
+    expect(evaluateUncertainWrite(unassignEntry(), board(null, { from: "2026-09-14", to: "2026-09-25" }))).toBeNull();
+    // TARGET is [09-10, 09-13): a window ending on 09-10 or starting on 09-13 only touches it.
+    expect(evaluateUncertainWrite(unassignEntry(), board(null, { from: "2026-09-01", to: "2026-09-10" }))).toBeNull();
+    expect(evaluateUncertainWrite(unassignEntry(), board(null, { from: "2026-09-13", to: "2026-09-20" }))).toBeNull();
+  });
+
+  it("7. is never resolved by a read issued before the write attempt, or by a failed read", () => {
+    const gone = board({ assignments: [], unassignedRanges: [TARGET] });
+    const list = [unassignEntry({ afterSeq: 10 })];
+    expect(settleReconciliations(list, A, 9, loaded(gone))).toBe(list);
+    expect(settleReconciliations(list, A, 10, loaded(gone))).toBe(list);
+    expect(settleReconciliations(list, A, 11, { kind: "failed" })[0].resolution).toBe("unresolved");
+  });
+
+  it("8. is evaluated from a window that only overlaps a segment longer than the board's own maximum window", () => {
+    const LONG = { startDate: "2026-08-01", endDate: "2026-10-15" };
+    const long = unassignEntry({}, LONG);
+    const longSegment = segment(LONG);
+    const overlapping = { from: "2026-09-07", to: "2026-09-21" };
+    expect(boardCanEvaluate(long, { propertyId: "prop-a", ...overlapping })).toBe(true);
+    expect(evaluateUncertainWrite(long, board({ assignments: [longSegment], unassignedRanges: [] }, overlapping))).toBe("unresolved");
+    expect(
+      evaluateUncertainWrite(long, board({ assignments: [{ ...longSegment, segmentVersion: 4 }], unassignedRanges: [] }, overlapping))
+    ).toBe("changed");
+    expect(boardCanEvaluate(long, { propertyId: "prop-a", from: "2026-11-01", to: "2026-11-15" })).toBe(false);
+  });
+
+  it("9. uses overlap where create still needs full containment, on the very same window", () => {
+    const partial = { propertyId: "prop-a", from: "2026-09-11", to: "2026-09-25" };
+    expect(boardCanEvaluate(unassignEntry(), partial)).toBe(true);
+    expect(boardCanEvaluate(entry(), partial)).toBe(false);
+    expect(boardCanEvaluate(moveEntry(), partial)).toBe(true);
+  });
+
+  it("10. isSegmentUnassignUnresolved locks exactly the unresolved unassign of that segment on that Property", () => {
+    const list = [unassignEntry({ status: "done" })];
+    expect(isSegmentUnassignUnresolved(list, "prop-a", "seg-1")).toBe(true);
+    expect(isSegmentUnassignUnresolved(list, "prop-a", "seg-other")).toBe(false); // sibling segment, same Unit
+    expect(isSegmentUnassignUnresolved(list, "prop-b", "seg-1")).toBe(false);
+    // Never locks create/move entries, even one whose segment id matches.
+    expect(isSegmentUnassignUnresolved([moveEntry({ status: "done" })], "prop-a", "seg-1")).toBe(false);
+    expect(isSegmentUnassignUnresolved([uncertain({ status: "done" })], "prop-a", "seg-1")).toBe(false);
+    // Nor an entry that is observed, changed or settled.
+    for (const resolution of ["observed", "changed", "settled"] as const) {
+      expect(isSegmentUnassignUnresolved([unassignEntry({ resolution })], "prop-a", "seg-1")).toBe(false);
+    }
+    // The move lock never locks an unassign either.
+    expect(isSegmentMoveUnresolved(list, "prop-a", "seg-1")).toBe(false);
+  });
+
+  it("11. settleReconciliations returns the same list and entry objects when an unassign is still unresolved and nothing else changed", () => {
+    const first = settleReconciliations([unassignEntry()], A, 6, loaded(sourceIntact));
+    expect(first[0].status).toBe("done");
+    const second = settleReconciliations(first, A, 7, loaded(sourceIntact));
+    expect(second).toBe(first);
+    expect(second[0]).toBe(first[0]);
   });
 });
