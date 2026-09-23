@@ -142,6 +142,24 @@ describe("ReservationBoard — unassign room wiring (PMS-CAL-001.2-CP04D-BOARD-W
     expect(screen.queryByTitle("Nguyen Van A — CNF-100")).not.toBeInTheDocument();
   });
 
+  it("PMS-CAL-001.2-CP04D-BOARD-WIRING-C1: dismissing the unassign success notice by keyboard restores focus to the Property selector", async () => {
+    const user = userEvent.setup();
+    await renderLoadedBoard();
+    mockedUnassign.mockResolvedValue({ kind: "unassigned", segments: null });
+
+    await openUnassignDialog(user);
+    await user.click(confirmButton());
+    await waitFor(() => expect(screen.getByText(/assignment removed/)).toBeInTheDocument());
+
+    const dismissButton = screen.getByRole("button", { name: "Dismiss notice" });
+    dismissButton.focus();
+    expect(document.activeElement).toBe(dismissButton);
+    await user.keyboard("{Enter}");
+
+    expect(screen.queryByText(/assignment removed/)).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(screen.getByLabelText("Property"));
+  });
+
   it("on 409, reports the conflict inline, reloads the board, and never resubmits", async () => {
     const user = userEvent.setup();
     await renderLoadedBoard();
@@ -153,9 +171,51 @@ describe("ReservationBoard — unassign room wiring (PMS-CAL-001.2-CP04D-BOARD-W
 
     const alert = await within(unassignDialog()).findByRole("alert");
     expect(alert).toHaveTextContent(/not saved: the room assignment has changed/);
+    // PMS-CAL-001.2-CP04D-BOARD-WIRING-C1: the dialog's own alert must say the
+    // board was actually reloaded once the re-read completes, not just the
+    // outer board-level notice — this line did not exist before the correction.
+    await waitFor(() => expect(alert).toHaveTextContent("The board has been reloaded from the server."));
     await waitFor(() => expect(mockedFetchReservationBoard.mock.calls.length).toBe(boardCallsBefore + 1));
     expect(within(unassignDialog()).queryByRole("button", { name: "Remove room 101 assignment" })).not.toBeInTheDocument();
     expect(mockedUnassign).toHaveBeenCalledTimes(1);
+  });
+
+  it("PMS-CAL-001.2-CP04D-BOARD-WIRING-C1: a Property switch mid-flight makes the dialog report the originating board as not yet reloaded, never that it was", async () => {
+    const user = userEvent.setup();
+    await renderLoadedBoard();
+    const write = deferred<UnassignAssignmentOutcome>();
+    mockedUnassign.mockImplementation(() => write.promise);
+
+    await openUnassignDialog(user);
+    await user.click(confirmButton());
+    // A range change (no second Property needed) already changes the board
+    // identity the write is judged against — the same trigger the move flow's
+    // own CP04C.5-C3 regression test uses.
+    const boardCallsBefore = mockedFetchReservationBoard.mock.calls.length;
+    await user.click(screen.getByRole("button", { name: "Next date range" }));
+    await waitFor(() => expect(mockedFetchReservationBoard.mock.calls.length).toBeGreaterThan(boardCallsBefore));
+
+    await act(async () => write.resolve({ kind: "rejected", status: 409, category: "conflict", detail: "stale" }));
+
+    const alert = await within(unassignDialog()).findByRole("alert");
+    await waitFor(() => expect(alert).toHaveTextContent("The view changed before the board was reloaded"));
+    expect(alert).not.toHaveTextContent("The board has been reloaded from the server.");
+    // The stale segment's own success text must never appear on the new range either.
+    expect(screen.queryByText(/assignment removed/)).not.toBeInTheDocument();
+  });
+
+  it("PMS-CAL-001.2-CP04D-BOARD-WIRING-C1: when the board re-read itself fails, the dialog says the board could not be reloaded, not that it succeeded", async () => {
+    const user = userEvent.setup();
+    await renderLoadedBoard();
+    mockedUnassign.mockResolvedValue({ kind: "rejected", status: 409, category: "conflict", detail: "stale" });
+    mockedFetchReservationBoard.mockResolvedValue({ ok: false, error: { kind: "network", message: "Could not reach the Admin API." } });
+
+    await openUnassignDialog(user);
+    await user.click(confirmButton());
+
+    const alert = await within(unassignDialog()).findByRole("alert");
+    await waitFor(() => expect(alert).toHaveTextContent("The board could not be reloaded."));
+    expect(alert).not.toHaveTextContent("The board has been reloaded from the server.");
   });
 
   it("on an unknown (lost) response, locks the segment against a second unassign, and Check again only re-reads", async () => {
@@ -165,11 +225,19 @@ describe("ReservationBoard — unassign room wiring (PMS-CAL-001.2-CP04D-BOARD-W
 
     await openUnassignDialog(user);
     await user.click(confirmButton());
-    await within(unassignDialog()).findByRole("alert");
+    const alert = await within(unassignDialog()).findByRole("alert");
+    // PMS-CAL-001.2-CP04D-BOARD-WIRING-C1: once the board is re-read and the
+    // source segment is still shown exactly as it was, the wording must say
+    // so — never "no matching assignment", which describes a destination an
+    // unassign never has.
+    await waitFor(() => expect(alert).toHaveTextContent("the room assignment is still shown unchanged"));
+    expect(alert).not.toHaveTextContent("no matching assignment is shown yet");
     await user.click(within(unassignDialog()).getAllByRole("button", { name: "Close" }).at(-1)!);
 
     const notice = screen.getByTestId("uncertain-write-notice");
     expect(notice).toHaveTextContent(`room 101 for Nguyen Van A (CNF-100), [${from}, ${to})`);
+    expect(notice).toHaveTextContent("the room assignment is still shown unchanged");
+    expect(notice).not.toHaveTextContent("no matching assignment is shown yet");
 
     // Re-opening the popover for the same locked segment is refused.
     await user.click(assignedBar());

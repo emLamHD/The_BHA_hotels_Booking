@@ -36,6 +36,12 @@
  * assigned bar → popover → dialog path as Move room. `submitUnassign` follows
  * `submitMove`'s own rules verbatim, built on the pure `unassignTarget.ts`/
  * `unassignSubmission.ts` helpers rather than re-deriving them inline.
+ *
+ * PMS-CAL-001.2-CP04D-BOARD-WIRING-C1: three review corrections — the
+ * dialog now carries its own `boardReloadStatus`/`uncertainResolution`
+ * (parity with move, see `dialogUnassignReconciliationId`'s own comment),
+ * the shared uncertain-write notice speaks unassign-correct wording, and
+ * dismissing the unassign success notice by keyboard restores focus.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -173,12 +179,19 @@ const ReservationBoard: React.FC = () => {
 
   /**
    * PMS-CAL-001.2-CP04D-BOARD-WIRING: the unassign counterpart of the move
-   * state above, kept just as separate. `ReservationUnassignDialog` has no
-   * `boardReloadStatus`/`uncertainResolution` props of its own, so unlike
-   * move there is no per-dialog reconciliation id to track — only the
-   * success notice and the shared uncertain-write list need one.
+   * state above, kept just as separate — an unassign never shares a lock
+   * with a move or a create, even for the very same segment.
+   *
+   * PMS-CAL-001.2-CP04D-BOARD-WIRING-C1: `dialogUnassignReconciliationId`
+   * mirrors `dialogMoveReconciliationId` exactly — a review finding on the
+   * initial wiring noted this board reloaded the *currently displayed*
+   * board on every unassign outcome but never told the still-open dialog
+   * which reconciliation to report on, so a conflict/unknown result during a
+   * Property/range switch could read as if the *originating* board had been
+   * reloaded when it had not.
    */
   const [unassignTarget, setUnassignTarget] = useState<UnassignTarget | null>(null);
+  const [dialogUnassignReconciliationId, setDialogUnassignReconciliationId] = useState<number | null>(null);
   const [unassignNotice, setUnassignNotice] = useState<{ text: string; reconciliationId: number } | null>(null);
   const unassignNoticeRef = useRef<HTMLDivElement>(null);
   const unassignRequestPendingRef = useRef(false);
@@ -216,12 +229,14 @@ const ReservationBoard: React.FC = () => {
     notice: number | null;
     moveDialog: number | null;
     moveNotice: number | null;
+    unassignDialog: number | null;
     unassignNotice: number | null;
   }>({
     dialog: null,
     notice: null,
     moveDialog: null,
     moveNotice: null,
+    unassignDialog: null,
     unassignNotice: null,
   });
   const noticeRef = useRef<HTMLDivElement>(null);
@@ -249,9 +264,17 @@ const ReservationBoard: React.FC = () => {
       notice: assignmentNotice?.reconciliationId ?? null,
       moveDialog: dialogMoveReconciliationId,
       moveNotice: moveNotice?.reconciliationId ?? null,
+      unassignDialog: dialogUnassignReconciliationId,
       unassignNotice: unassignNotice?.reconciliationId ?? null,
     };
-  }, [dialogReconciliationId, assignmentNotice, dialogMoveReconciliationId, moveNotice, unassignNotice]);
+  }, [
+    dialogReconciliationId,
+    assignmentNotice,
+    dialogMoveReconciliationId,
+    moveNotice,
+    dialogUnassignReconciliationId,
+    unassignNotice,
+  ]);
 
   // Initial load: real active Properties, then deterministically select the
   // first and derive the initial anchor from its own time zone.
@@ -414,6 +437,7 @@ const ReservationBoard: React.FC = () => {
       entry.id === referenced.notice ||
       entry.id === referenced.moveDialog ||
       entry.id === referenced.moveNotice ||
+      entry.id === referenced.unassignDialog ||
       entry.id === referenced.unassignNotice
     );
   }, []);
@@ -549,6 +573,7 @@ const ReservationBoard: React.FC = () => {
       const target = buildUnassignTarget(boardState.board, selectedPropertyId, unassignSelection);
       if (!target) return;
       setSelection(null);
+      setDialogUnassignReconciliationId(null);
       setUnassignTarget(target);
     },
     [boardState, selectedPropertyId]
@@ -666,6 +691,12 @@ const ReservationBoard: React.FC = () => {
       if (reconciliation) {
         nextReconciliationIdRef.current = reconciliation.id + 1;
         updateReconciliations((list) => [...list.filter(keepReconciliation), reconciliation]);
+        // PMS-CAL-001.2-CP04D-BOARD-WIRING-C1: same as submitMove's own
+        // `setDialogMoveReconciliationId` — keep the still-open dialog's
+        // reload status attached to this exact reconciliation, so it can
+        // truthfully report "elsewhere" instead of implying a board was
+        // reloaded when the one it was written from was not.
+        setDialogUnassignReconciliationId(reconciliation.id);
 
         // Same as submitMove's own guard: never paint a completed unassign
         // onto a Property/range the operator has since navigated away from.
@@ -711,6 +742,11 @@ const ReservationBoard: React.FC = () => {
     dialogMoveReconciliationId === null
       ? null
       : reconciliations.find((entry) => entry.id === dialogMoveReconciliationId) ?? null;
+
+  const dialogUnassignReconciliation =
+    dialogUnassignReconciliationId === null
+      ? null
+      : reconciliations.find((entry) => entry.id === dialogUnassignReconciliationId) ?? null;
 
   const handleCheckAgain = useCallback(() => setRetryToken((token) => token + 1), []);
 
@@ -835,6 +871,15 @@ const ReservationBoard: React.FC = () => {
     }
   }, []);
 
+  /** PMS-CAL-001.2-CP04D-BOARD-WIRING-C1: the unassign counterpart of `dismissMoveNotice` above — same rule. */
+  const dismissUnassignNotice = useCallback(() => {
+    const noticeOwnedFocus = unassignNoticeRef.current?.contains(document.activeElement) ?? false;
+    setUnassignNotice(null);
+    if (noticeOwnedFocus) {
+      document.getElementById("reservation-board-property")?.focus();
+    }
+  }, []);
+
   const rangeLabel = range ? formatRangeLabel(range) : "";
 
   const body = useMemo(() => {
@@ -949,7 +994,7 @@ const ReservationBoard: React.FC = () => {
               ? { from: noticeUnassignReconciliation.from, to: noticeUnassignReconciliation.to }
               : null
           }
-          onDismiss={() => setUnassignNotice(null)}
+          onDismiss={dismissUnassignNotice}
         />
       )}
       {uncertainWrites.map((entry) => (
@@ -1038,6 +1083,13 @@ const ReservationBoard: React.FC = () => {
           // segment's selection, result or submit lock over to another.
           key={`${unassignTarget.segment.segmentId}:${unassignTarget.segment.segmentVersion}`}
           target={unassignTarget}
+          boardReloadStatus={reconciliationStatus(dialogUnassignReconciliationId)}
+          uncertainResolution={
+            dialogUnassignReconciliation?.certainty === "uncertain" &&
+            dialogUnassignReconciliation.resolution !== "settled"
+              ? dialogUnassignReconciliation.resolution
+              : undefined
+          }
           onSubmit={(reason) => submitUnassign(unassignTarget, reason)}
           onClose={() => {
             setUnassignTarget(null);
@@ -1125,10 +1177,18 @@ const UncertainWriteNotice: React.FC<{
       target.operation === "move" || target.operation === "unassign"
         ? `The result is still unknown and this segment stays locked. Open a view of this Property that overlaps ${range} to check again.`
         : `The result is still unknown and these nights stay locked. Open a view of this Property that includes ${range} to check again.`;
+  } else if (checking) {
+    detail = "Checking the board on the server again…";
+  } else if (target.operation === "unassign") {
+    // PMS-CAL-001.2-CP04D-BOARD-WIRING-C1: an unassign's "unresolved" state
+    // means the *source* room assignment is still shown, unchanged — never
+    // "no matching assignment", which describes a destination that an
+    // unassign never has in the first place.
+    detail =
+      "The board was checked, and the room assignment is still shown unchanged, so the result is still unknown. This segment stays locked and the request will not be sent again.";
   } else {
-    detail = checking
-      ? "Checking the board on the server again…"
-      : "The board was checked, but no matching assignment is shown yet, so the result is still unknown. These nights stay locked and the request will not be sent again.";
+    detail =
+      "The board was checked, but no matching assignment is shown yet, so the result is still unknown. These nights stay locked and the request will not be sent again.";
   }
 
   return (

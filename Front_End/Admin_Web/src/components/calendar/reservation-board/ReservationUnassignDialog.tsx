@@ -33,6 +33,17 @@
  * unmounts in the same commit, so `document.activeElement` would already be
  * `document.body`. The parent (`ReservationBoard.tsx`, CP04D.4C) owns a stable
  * opener and restores focus from `onClose`, which is called at most once.
+ *
+ * PMS-CAL-001.2-CP04D-BOARD-WIRING-C1: `boardReloadStatus`/`uncertainResolution`
+ * mirror `ReservationMoveDialog.tsx`'s own props of the same names — the
+ * board owns the actual re-read and reconciliation tracking; this dialog only
+ * renders what it is told, so a conflict or lost-response result never sits
+ * next to stale "reloading…" text, and never implies the board it was
+ * written from was reloaded when a Property/range switch means it was not.
+ * `reloadStatusText` below is the unassign-flavored equivalent of that
+ * dialog's own helper of the same name: an unassign has no destination, so a
+ * lost write staying unresolved means the *source* room assignment is still
+ * shown, unchanged — never that "the destination is not shown yet".
  */
 
 import React, { useCallback, useEffect, useId, useRef, useState } from "react";
@@ -41,18 +52,54 @@ import type { UnassignAssignmentOutcome } from "@/lib/api/client";
 import { describeUnassignOutcome, type AssignmentOutcomeView } from "./assignmentOutcome";
 import { diffDaysIso } from "./dateMath";
 import type { UnassignTarget } from "./unassignTarget";
+import type { BoardReloadStatus } from "./ReservationAssignmentDialog";
 
 interface ReservationUnassignDialogProps {
   target: UnassignTarget;
+  /** State of the board re-read triggered by this dialog's last outcome, if any. */
+  boardReloadStatus: BoardReloadStatus;
+  /** What the server's data says about an unassign whose response was lost. */
+  uncertainResolution?: "unresolved" | "observed" | "changed";
   /** `reason` is omitted when blank, and already trimmed otherwise. */
   onSubmit: (reason?: string) => Promise<UnassignAssignmentOutcome>;
   onClose: () => void;
 }
 
+/**
+ * PMS-CAL-001.2-CP04D-BOARD-WIRING-C1: see this file's own header comment.
+ * `resolution === "observed"` is intentionally not special-cased: an
+ * unassign never produces it (`reconciliation.ts`'s `evaluateUncertainWrite`
+ * has no destination to observe for this operation), so it falls through to
+ * the plain status-based text below exactly like an undefined resolution
+ * would.
+ */
+function reloadStatusText(status: BoardReloadStatus, resolution?: "unresolved" | "observed" | "changed"): string {
+  if (resolution !== undefined) {
+    if (resolution === "changed") {
+      return "This segment has since changed on the server, so this request can no longer take effect. Its own result was never confirmed.";
+    }
+    if (status === "done") {
+      return "The board was checked, and the room assignment is still shown unchanged. The result is still unknown; this segment stays locked. Close this dialog and use Check again.";
+    }
+  }
+  if (status === "failed") return "The board could not be reloaded. Close this dialog and use Retry on the board.";
+  if (status === "done") return "The board has been reloaded from the server.";
+  if (status === "elsewhere") {
+    return "The view changed before the board was reloaded; the result has not been re-read yet.";
+  }
+  return "Reloading the board from the server…";
+}
+
 const FOCUSABLE_SELECTOR =
   'button:not([disabled]), input:not([disabled]), [href], select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-const ReservationUnassignDialog: React.FC<ReservationUnassignDialogProps> = ({ target, onSubmit, onClose }) => {
+const ReservationUnassignDialog: React.FC<ReservationUnassignDialogProps> = ({
+  target,
+  boardReloadStatus,
+  uncertainResolution,
+  onSubmit,
+  onClose,
+}) => {
   const titleId = useId();
   const descriptionId = useId();
   const reasonId = useId();
@@ -241,6 +288,9 @@ const ReservationUnassignDialog: React.FC<ReservationUnassignDialogProps> = ({ t
               >
                 <p className="font-medium">{result.title}</p>
                 {result.detail && <p className="mt-1 text-xs">{result.detail}</p>}
+                {result.reloadBoard && (
+                  <p className="mt-1 text-xs">{reloadStatusText(boardReloadStatus, uncertainResolution)}</p>
+                )}
               </div>
             )}
           </div>
