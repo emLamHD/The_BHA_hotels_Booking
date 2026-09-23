@@ -54,7 +54,7 @@ function buildTarget(): UnassignTarget {
 const dialog = () => screen.getByRole("dialog", { name: "Remove room assignment" });
 const confirmButton = () => within(dialog()).queryByRole("button", { name: /^(Remove room 201 assignment|Removing…)$/ });
 const renderDialog = (onSubmit = vi.fn(), onClose = vi.fn()) => {
-  render(<ReservationUnassignDialog target={buildTarget()} onSubmit={onSubmit} onClose={onClose} />);
+  render(<ReservationUnassignDialog target={buildTarget()} boardReloadStatus="idle" onSubmit={onSubmit} onClose={onClose} />);
   return { onSubmit, onClose };
 };
 
@@ -184,7 +184,9 @@ describe("ReservationUnassignDialog (PMS-CAL-001.2-CP04D.4B)", () => {
     ]) {
       const user = userEvent.setup();
       const onSubmit = vi.fn().mockResolvedValue(outcome);
-      const { unmount } = render(<ReservationUnassignDialog target={buildTarget()} onSubmit={onSubmit} onClose={vi.fn()} />);
+      const { unmount } = render(
+        <ReservationUnassignDialog target={buildTarget()} boardReloadStatus="idle" onSubmit={onSubmit} onClose={vi.fn()} />
+      );
 
       await user.click(confirmButton()!);
       await waitFor(() => expect(within(dialog()).queryByRole("alert") ?? within(dialog()).queryByRole("status")).toBeTruthy());
@@ -250,7 +252,9 @@ describe("ReservationUnassignDialog (PMS-CAL-001.2-CP04D.4B)", () => {
     ] as const) {
       const user = userEvent.setup();
       const onSubmit = vi.fn().mockResolvedValue(outcome);
-      const { unmount } = render(<ReservationUnassignDialog target={buildTarget()} onSubmit={onSubmit} onClose={vi.fn()} />);
+      const { unmount } = render(
+        <ReservationUnassignDialog target={buildTarget()} boardReloadStatus="idle" onSubmit={onSubmit} onClose={vi.fn()} />
+      );
 
       await user.click(confirmButton()!);
       const result = await within(dialog()).findByRole(role, { name: "" });
