@@ -457,9 +457,11 @@ evidence independently verified for this closeout via:
   CURRENT backend (`PMS-BE-001.1` normalized Item/Unit authority, một
   RoomType/RatePlan mỗi public request; `PMS-BE-001.2` physical-room
   schedule database authority/availability/internal mutation boundary — cả
-  hai đã hoạt động) và TARGET (multi-RoomType public request, HTTP/Admin/
-  Calendar integration của schedule authority, Admin authentication/RBAC,
-  OTA — chưa implement).
+  hai đã hoạt động; phần HTTP exposure local-only của schedule authority đã
+  CURRENT theo `PMS-CAL-001.1`/`PMS-CAL-001.2`/`PMS-CAL-001.3-CP01`) và
+  TARGET (multi-RoomType public request, phần HTTP/Admin/Calendar mutation
+  còn lại của schedule authority, Admin authentication/RBAC, OTA — chưa
+  implement).
 - Local Graphify tooling state (đọc/graph hoá source hiện có trên máy
   Claude, không commit vào Git) không được gộp với tracked repository
   state hay product/backend implementation state — nó không tạo, sửa hay
@@ -585,10 +587,12 @@ Snapshot này.
   phải thứ code phát hiện được; Admin authentication/RBAC vẫn deferred.
 - Nhầm database authority/internal mutation boundary của `RoomOccupancySegment`/
   `RoomBlock` (`PMS-BE-001.2`, đã CURRENT) với HTTP/Admin/Calendar
-  integration đầy đủ, Staff identity, hoặc Admin RBAC thật — ngoài đúng một
-  endpoint tạo assignment local-only của `PMS-CAL-001.2` CP02, những thứ này
-  vẫn TARGET, chưa implement; `ActorReference`/`AuthorizationEvidence` chỉ là
-  opaque string, không phải permission check thật.
+  integration đầy đủ, Staff identity, hoặc Admin RBAC thật — ngoài các
+  endpoint local-only sau write gate CP01 (assignment create của
+  `PMS-CAL-001.2` CP02, one-segment move/unassign của CP04B, và
+  single-segment operational-block create của `PMS-CAL-001.3-CP01`), những
+  thứ này vẫn TARGET, chưa implement; `ActorReference`/`AuthorizationEvidence`
+  chỉ là opaque string, không phải permission check thật.
 - Nhầm foundation normalized Item/Unit (`PMS-BE-001.1`, single-RoomType
   public request) với multi-RoomType public request TARGET đã implement —
   vẫn chưa implement.

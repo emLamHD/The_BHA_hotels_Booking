@@ -12,9 +12,14 @@ namespace TheBha.Api.Controllers;
 /// PMS-CAL-001.2-CP01: the local Admin Calendar <em>write</em> boundary.
 ///
 /// <para>
-/// CP02's <see cref="AdminReservationAssignmentsController.Create"/> is the one
-/// action that applies this filter; assignment move/unassign/split and every
-/// OperationalBlock mutation remain unexposed. It is a resource filter, not
+/// Four actions apply this filter, all of them thin adapters over an
+/// already-accepted mutation command:
+/// <see cref="AdminReservationAssignmentsController.Create"/> (CP02),
+/// <see cref="AdminReservationAssignmentsController.Move"/> and
+/// <see cref="AdminReservationAssignmentsController.Unassign"/> (CP04B), and
+/// <see cref="AdminOperationalBlocksController.Create"/>
+/// (`PMS-CAL-001.3-CP01`). Assignment split/swap/batch and OperationalBlock
+/// cancel/move/split remain unexposed. This filter is a resource filter, not
 /// middleware and not a policy framework: it is registered in DI, never added
 /// globally, and never attached to the read board or any Customer route.
 /// </para>
