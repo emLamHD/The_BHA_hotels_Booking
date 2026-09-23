@@ -280,13 +280,17 @@ này sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
   audit. Availability is block-adjusted and assignment-attributed.
   Whole-Reservation cancellation atomically cancels its assignment segments.
   Assignment/OperationalBlock mutation commands live behind the
-  application/persistence boundary. Trên `develop` đúng **một** operation
-  được expose qua HTTP — `CreateAsync`, qua
-  `POST /api/admin/v1/properties/{propertyId}/reservation-assignments`, local
-  Development only sau write gate của CP01 (PR #43); endpoint này được CP02
-  expose (PR #44) và được Admin Reservation Board gọi (PR #45/#46).
-  `SupersedeAsync` (move/unassign/split/batch) và mọi
-  OperationalBlock mutation **vẫn** internal-only. Không có Staff identity hay Admin RBAC model; cross-RoomType
+  application/persistence boundary. Trên `develop` các operation được expose
+  qua HTTP — tất cả local Development only, sau write gate của CP01 (PR #43) —
+  là: `CreateAsync` qua
+  `POST /api/admin/v1/properties/{propertyId}/reservation-assignments` (CP02,
+  PR #44; được Admin Reservation Board gọi qua PR #45/#46), `SupersedeAsync`
+  dạng một-segment qua `POST .../reservation-assignments/{segmentId}/move` và
+  `.../unassign` (CP04B), và `CreateBlockAsync` dạng một-segment qua
+  `POST /api/admin/v1/properties/{propertyId}/operational-blocks`
+  (`PMS-CAL-001.3-CP01`; chưa có Admin frontend caller). `SupersedeAsync` dạng
+  split/batch và mọi OperationalBlock supersede (move/split/cancel) **vẫn**
+  internal-only. Không có Staff identity hay Admin RBAC model; cross-RoomType
   assignment requires an opaque `AuthorizationEvidence`/`Reason` pair, not a
   real permission check. A
   shared `AdvisoryLockCoordinator` is now used by every advisory-lock-taking
