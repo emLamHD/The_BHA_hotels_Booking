@@ -280,10 +280,12 @@ describe("ReservationBoardStayPopover", () => {
       expect(screen.queryByText(/unresolved write/)).not.toBeInTheDocument();
     });
 
-    it("10. the live board does not pass the callback yet, so nothing is enabled at runtime", () => {
+    it("10. PMS-CAL-001.2-CP04D-BOARD-WIRING: the live board now wires the callback, the same way it already wires Move room", () => {
       const source = readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), "ReservationBoard.tsx"), "utf8");
       expect(source).toContain("ReservationBoardStayPopover");
-      expect(source).not.toMatch(/onUnassignRoom|unassignBlocked|ReservationUnassignDialog/);
+      expect(source).toMatch(/onUnassignRoom={handleUnassignRoom}/);
+      expect(source).toMatch(/unassignBlocked=\{/);
+      expect(source).toContain("ReservationUnassignDialog");
     });
   });
 });
