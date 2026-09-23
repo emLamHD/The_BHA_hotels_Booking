@@ -50,7 +50,10 @@ public sealed class CreateOperationalBlockRequest
     [Required]
     public DateOnly StartDate { get; init; }
 
-    /// <summary>Exclusive: the block covers <c>[startDate, endDate)</c>.</summary>
+    /// <summary>
+    /// Exclusive: the block covers <c>[startDate, endDate)</c>, at most 366
+    /// nights. A longer closure is recorded as consecutive blocks.
+    /// </summary>
     [JsonRequired]
     [Required]
     public DateOnly EndDate { get; init; }
@@ -125,11 +128,39 @@ public sealed class AdminOperationalBlocksController(IOperationalBlockMutationSt
     private const string LocalActorReference = "admin-calendar-local-development";
 
     /// <summary>
+    /// PMS-CAL-001.3-CP01-C2: the longest <c>[startDate, endDate)</c> this
+    /// endpoint will forward, in nights.
+    ///
+    /// <para>
+    /// This is a resource bound, not a business rule about how long a room may
+    /// be out of service. <see cref="IOperationalBlockMutationStore.CreateBlockAsync"/>
+    /// does work proportional to the requested span: it materializes every
+    /// night of the range, and the advisory-lock plan it builds takes one
+    /// sequential PostgreSQL lock per night inside an open transaction. A
+    /// caller-controlled span is therefore caller-controlled load, and
+    /// <see cref="DateOnly"/> can express about 3.65 million nights — enough for
+    /// one mistyped year to hold a connection and a transaction open
+    /// indefinitely. Refusing here keeps the cost of a bad request constant,
+    /// and keeps that decision at the HTTP boundary where the untrusted input
+    /// arrives rather than changing the store every caller shares.
+    /// </para>
+    ///
+    /// <para>
+    /// 366 nights covers a full year including a leap year, which is well past
+    /// any realistic single closure; a longer one is expressed as consecutive
+    /// blocks. If a real operational need ever exceeds it, that is a business
+    /// decision to raise deliberately, not something to discover through an
+    /// exhausted connection pool.
+    /// </para>
+    /// </summary>
+    private const int MaximumBlockNights = 366;
+
+    /// <summary>
     /// Creates one RoomBlock header with exactly one Effective OperationalBlock
-    /// segment over the half-open night range <c>[startDate, endDate)</c>.
-    /// Dates are passed to the store un-clipped, and the ordering rule
-    /// (<c>startDate &lt; endDate</c>) is the store's to enforce, not
-    /// reinterpreted here.
+    /// segment over the half-open night range <c>[startDate, endDate)</c>, which
+    /// may cover at most 366 nights. Dates are otherwise passed to the store
+    /// un-clipped, and the ordering rule (<c>startDate &lt; endDate</c>) is the
+    /// store's to enforce, not reinterpreted here.
     /// </summary>
     /// <remarks>
     /// The published metadata mirrors the assignment endpoint's for the same
@@ -155,6 +186,23 @@ public sealed class AdminOperationalBlocksController(IOperationalBlockMutationSt
         [FromBody] CreateOperationalBlockRequest request,
         CancellationToken cancellationToken)
     {
+        // Bounded before the store, because the store's cost scales with this
+        // number — see MaximumBlockNights. A reversed or zero-night range is
+        // negative or zero here, so it is never caught by this check: that
+        // ordering rule stays the store's to enforce and to word, exactly as
+        // before.
+        var nights = request.EndDate.DayNumber - request.StartDate.DayNumber;
+        if (nights > MaximumBlockNights)
+        {
+            return Problem(
+                statusCode: StatusCodes.Status400BadRequest,
+                title: "Invalid operational block request",
+                detail:
+                    $"An operational block may cover at most {MaximumBlockNights} nights, " +
+                    $"but [{request.StartDate:yyyy-MM-dd}, {request.EndDate:yyyy-MM-dd}) covers {nights}. " +
+                    "Shorten the range, or record a longer closure as consecutive blocks.");
+        }
+
         var result = await store.CreateBlockAsync(
             new CreateRoomBlockCommand(
                 propertyId,

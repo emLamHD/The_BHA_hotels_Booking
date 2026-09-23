@@ -288,7 +288,9 @@ này sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
   dạng một-segment qua `POST .../reservation-assignments/{segmentId}/move` và
   `.../unassign` (CP04B), và `CreateBlockAsync` dạng một-segment qua
   `POST /api/admin/v1/properties/{propertyId}/operational-blocks`
-  (`PMS-CAL-001.3-CP01`; chưa có Admin frontend caller). `SupersedeAsync` dạng
+  (`PMS-CAL-001.3-CP01`; chưa có Admin frontend caller; endpoint từ chối
+  `[startDate, endDate)` dài hơn **366 đêm** ngay tại HTTP boundary — chốt
+  chặn tài nguyên, không phải business rule về độ dài closure). `SupersedeAsync` dạng
   split/batch và mọi OperationalBlock supersede (move/split/cancel) **vẫn**
   internal-only. Không có Staff identity hay Admin RBAC model; cross-RoomType
   assignment requires an opaque `AuthorizationEvidence`/`Reason` pair, not a

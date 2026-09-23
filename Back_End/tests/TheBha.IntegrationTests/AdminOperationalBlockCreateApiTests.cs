@@ -316,6 +316,92 @@ public sealed class AdminOperationalBlockCreateApiTests(PostgreSqlWebApplication
     }
 
     // ---------------------------------------------------------------
+    // Acceptance 2b: the endpoint bounds the caller-controlled night span
+    // ---------------------------------------------------------------
+
+    /// <summary>
+    /// PMS-CAL-001.3-CP01-C2: the store enumerates every requested night —
+    /// `DatesInRange` materializes them, and `AdvisoryLockCoordinator` takes one
+    /// sequential PostgreSQL advisory lock per night inside an open transaction —
+    /// so an unbounded span is work proportional to untrusted input. The endpoint
+    /// refuses a span longer than its published maximum before the store is
+    /// called at all. One night over the maximum is the boundary that proves the
+    /// rule, and is deliberately small enough to be safe to run against code
+    /// without the guard.
+    /// </summary>
+    [Fact]
+    public async Task Range_one_night_longer_than_the_maximum_is_a_400_and_never_reaches_the_store()
+    {
+        var data = await SeedAsync("cp01-too-long");
+        using var host = CreateWriteHost();
+        using var client = CreateHttpsClient(host);
+
+        using var request = CreatePost(
+            data.Property.Id,
+            RequestBody(data.RoomsA[0].Id, CheckIn, CheckIn.AddDays(367)));
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        // Read the problem document once: the body is a stream, and reading it
+        // twice would fail on the second read rather than on the assertion.
+        var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("Invalid operational block request", problem.GetProperty("title").GetString());
+        // The operator is told the rule and the offending length, not just "invalid".
+        var detail = problem.GetProperty("detail").GetString()!;
+        Assert.Contains("366", detail);
+        Assert.Contains("367", detail);
+        await AssertNothingWrittenAsync("a span over the maximum must never reach the store");
+    }
+
+    /// <summary>
+    /// The widest span <see cref="DateOnly"/> can express — roughly 3.65 million
+    /// nights, the case the review finding named. Safe to run only because the
+    /// guard answers it before any night is enumerated or any lock is taken.
+    /// </summary>
+    [Fact]
+    public async Task Maximum_DateOnly_span_is_refused_without_touching_the_store()
+    {
+        var data = await SeedAsync("cp01-max-span");
+        using var host = CreateWriteHost();
+        using var client = CreateHttpsClient(host);
+
+        using var request = CreatePost(
+            data.Property.Id,
+            RequestBody(data.RoomsA[0].Id, DateOnly.MinValue, DateOnly.MaxValue));
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("Invalid operational block request", await TitleAsync(response));
+        await AssertNothingWrittenAsync("the widest expressible span must never reach the store");
+    }
+
+    /// <summary>
+    /// The maximum itself is *not* refused by the guard. Proven without asking a
+    /// real fixture to lock 366 nights: the request names a room another Property
+    /// owns, and the store answers `404` from its room lookup — which happens
+    /// before it builds a lock plan or enumerates a single night. A `404` here can
+    /// only mean the request passed the guard and reached the store; the guard's
+    /// own refusal is a `400`.
+    /// </summary>
+    [Fact]
+    public async Task Range_of_exactly_the_maximum_passes_the_guard_and_reaches_the_store()
+    {
+        var data = await SeedAsync("cp01-max-allowed");
+        var other = await SeedOtherPropertyWithRoomAsync();
+        using var host = CreateWriteHost();
+        using var client = CreateHttpsClient(host);
+
+        using var request = CreatePost(
+            data.Property.Id,
+            RequestBody(other.Room.Id, CheckIn, CheckIn.AddDays(366)));
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal("Operational block target not found", await TitleAsync(response));
+        await AssertNothingWrittenAsync("a refused room writes nothing, whatever the span");
+    }
+
+    // ---------------------------------------------------------------
     // Acceptance 3: a room this Property does not own is a 404
     // ---------------------------------------------------------------
 
