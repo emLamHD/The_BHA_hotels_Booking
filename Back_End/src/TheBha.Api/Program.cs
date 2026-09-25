@@ -152,6 +152,7 @@ builder.Services.AddSwaggerGen(options =>
     options.OperationFilter<BookingHoldOperationFilter>();
     options.OperationFilter<ReservationLifecycleOperationFilter>();
     options.OperationFilter<AdminReservationAssignmentOpenApiOperationFilter>();
+    options.OperationFilter<AdminOperationalBlockOpenApiOperationFilter>();
 });
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services

@@ -4,8 +4,9 @@
   mutation boundary implemented (`PMS-BE-001.2`, migration 8); Admin
   authentication/RBAC, Staff identity, and any HTTP/Admin/Calendar
   integration of this authority remain target architecture, implementation
-  pending *(superseded in part — one assignment-create endpoint is now
-  exposed; see Amendments)*.
+  pending *(superseded in part — assignment create, one-segment move/unassign,
+  and single-segment operational-block create are now exposed behind the local
+  write gate; see Amendments)*.
 - **Date:** 2026-08-19. Database authority and internal mutation boundary
   implemented 2026-08-26.
 
@@ -631,12 +632,15 @@ closes this gap.
 
 The PhysicalRoom schedule database authority and the internal assignment/
 block mutation boundary are CURRENT / AS-BUILT from `PMS-BE-001.2`
-(migration 8); their read exposure is CURRENT from `PMS-CAL-001.1`; and
-`PMS-CAL-001.2` CP02 adds exactly one gated assignment-create HTTP
-operation (see Amendments). The remaining Admin mutation surface, real
-Staff identity, and Admin RBAC stay TARGET / APPROVED. This ADR *document*
-introduced no migration, entity, extension, or test of its own — the
-repository now contains all of them.
+(migration 8); their read exposure is CURRENT from `PMS-CAL-001.1`; and four
+gated HTTP write operations are CURRENT behind the local Development write
+gate — assignment create (`PMS-CAL-001.2` CP02), one-segment assignment
+move and unassign (CP04B), and single-segment operational-block create
+(`PMS-CAL-001.3-CP01`); see Amendments. The remaining Admin mutation surface
+— assignment split/swap/batch, operational-block cancel/move/split,
+multi-segment block creation — plus real Staff identity and Admin RBAC stay
+TARGET / APPROVED. This ADR *document* introduced no migration, entity,
+extension, or test of its own — the repository now contains all of them.
 
 ## Amendments
 
@@ -663,3 +667,19 @@ opt-in as CP02. Split, swap, batch and every remaining `SupersedeAsync`
 shape stay internal-only, as do OperationalBlock HTTP mutation, Admin
 authentication/RBAC and real Staff identity. Current state is tracked in
 `docs/project/PROJECT_BIBLE.md`, not here.
+
+### 2026-09-24 — one operational-block create endpoint is exposed (`PMS-CAL-001.3-CP01`)
+
+`POST /api/admin/v1/properties/{propertyId}/operational-blocks` exposes
+`IOperationalBlockMutationStore.CreateBlockAsync` behind the identical CP01
+write gate and opt-in, narrowed to **one** `BlockSegmentSpec` per request: one
+new RoomBlock header with exactly one Effective OperationalBlock segment. The
+multi-room/multi-range shape the command itself supports has no HTTP surface.
+Decision items 4, 6 and 9 above are unchanged and still stand — every room,
+Active-status, capacity, advisory-lock, transaction and audit rule is enforced
+by the store, not by the endpoint; only the Decision's statements *narrating*
+that no controller exposes OperationalBlock mutation were stale.
+`SupersedeSegmentsAsync` (block cancel/move/split), Admin authentication/RBAC
+and real Staff identity remain TARGET, and no Admin frontend calls this
+endpoint yet. Current state is tracked in `docs/project/PROJECT_BIBLE.md`,
+not here.

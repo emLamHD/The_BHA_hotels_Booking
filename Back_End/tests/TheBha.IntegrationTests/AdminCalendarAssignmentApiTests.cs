@@ -450,13 +450,19 @@ public sealed class AdminCalendarAssignmentApiTests(PostgreSqlWebApplicationFact
                 continue;
             }
 
-            // CP02 adds exactly one Admin mutation route, and CP04B adds
-            // exactly two more (asserted in full by
-            // AdminCalendarAssignmentMoveUnassignApiTests) — every other Admin
-            // path must still publish no mutating operation at all.
+            // CP02 adds exactly one Admin mutation route, CP04B adds exactly
+            // two more (asserted in full by
+            // AdminCalendarAssignmentMoveUnassignApiTests), and
+            // PMS-CAL-001.3-CP01 adds exactly one operational-block create
+            // route (asserted in full by AdminOperationalBlockCreateApiTests) —
+            // every other Admin path must still publish no mutating operation
+            // at all. This list is the registry of authorized Admin mutation
+            // routes: a new one is added here deliberately, never by weakening
+            // the assertion.
             if (path.Name.StartsWith("/api/admin/", StringComparison.Ordinal) &&
                 path.Name != $"{ExpectedPath}/{{segmentId}}/move" &&
-                path.Name != $"{ExpectedPath}/{{segmentId}}/unassign")
+                path.Name != $"{ExpectedPath}/{{segmentId}}/unassign" &&
+                path.Name != "/api/admin/v1/properties/{propertyId}/operational-blocks")
             {
                 foreach (var method in new[] { "post", "put", "patch", "delete" })
                 {

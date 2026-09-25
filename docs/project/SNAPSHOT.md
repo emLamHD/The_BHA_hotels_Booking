@@ -280,13 +280,19 @@ này sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
   audit. Availability is block-adjusted and assignment-attributed.
   Whole-Reservation cancellation atomically cancels its assignment segments.
   Assignment/OperationalBlock mutation commands live behind the
-  application/persistence boundary. Trên `develop` đúng **một** operation
-  được expose qua HTTP — `CreateAsync`, qua
-  `POST /api/admin/v1/properties/{propertyId}/reservation-assignments`, local
-  Development only sau write gate của CP01 (PR #43); endpoint này được CP02
-  expose (PR #44) và được Admin Reservation Board gọi (PR #45/#46).
-  `SupersedeAsync` (move/unassign/split/batch) và mọi
-  OperationalBlock mutation **vẫn** internal-only. Không có Staff identity hay Admin RBAC model; cross-RoomType
+  application/persistence boundary. Trên `develop` các operation được expose
+  qua HTTP — tất cả local Development only, sau write gate của CP01 (PR #43) —
+  là: `CreateAsync` qua
+  `POST /api/admin/v1/properties/{propertyId}/reservation-assignments` (CP02,
+  PR #44; được Admin Reservation Board gọi qua PR #45/#46), `SupersedeAsync`
+  dạng một-segment qua `POST .../reservation-assignments/{segmentId}/move` và
+  `.../unassign` (CP04B), và `CreateBlockAsync` dạng một-segment qua
+  `POST /api/admin/v1/properties/{propertyId}/operational-blocks`
+  (`PMS-CAL-001.3-CP01`; chưa có Admin frontend caller; endpoint từ chối
+  `[startDate, endDate)` dài hơn **366 đêm** ngay tại HTTP boundary — chốt
+  chặn tài nguyên, không phải business rule về độ dài closure). `SupersedeAsync` dạng
+  split/batch và mọi OperationalBlock supersede (move/split/cancel) **vẫn**
+  internal-only. Không có Staff identity hay Admin RBAC model; cross-RoomType
   assignment requires an opaque `AuthorizationEvidence`/`Reason` pair, not a
   real permission check. A
   shared `AdvisoryLockCoordinator` is now used by every advisory-lock-taking
@@ -444,18 +450,24 @@ evidence independently verified for this closeout via:
   `reservationRuntime.ts`, `formReducer` trong `CreateReservationForm.tsx`)
   **vẫn** chỉ chạy trên local deterministic mock state — không có backend
   call, không có persistence, không có Admin authentication/RBAC thật và
-  không có OTA behavior thật. Riêng Admin Reservation Board gọi endpoint tạo
-  assignment của CP02 (CP03A/CP03B, merged); move/unassign/split và block
-  mutation vẫn chưa có route HTTP.
+  không có OTA behavior thật. Riêng Admin Reservation Board là caller thật
+  của các route assignment local-only: create của CP02 (CP03A/CP03B, merged),
+  move một segment (CP04C, PR #53/#55) và unassign một segment (CP04D, PR
+  #63) của CP04B. Route tạo một OperationalBlock segment
+  (`PMS-CAL-001.3-CP01`) đã có ở backend nhưng **chưa** có Admin frontend
+  caller. Assignment split/batch và OperationalBlock supersede/cancel/move/
+  split vẫn chưa có route HTTP.
 - `PROJECT_BIBLE.md`, `docs/design/PMS-DATA-001-core-database-blueprint-v2.md`,
   ADR (0001–0006), test baseline và source code là nguồn sự thật sản phẩm/
   kiến trúc. Chúng phân biệt rõ CURRENT frontend prototype (mock-only),
   CURRENT backend (`PMS-BE-001.1` normalized Item/Unit authority, một
   RoomType/RatePlan mỗi public request; `PMS-BE-001.2` physical-room
   schedule database authority/availability/internal mutation boundary — cả
-  hai đã hoạt động) và TARGET (multi-RoomType public request, HTTP/Admin/
-  Calendar integration của schedule authority, Admin authentication/RBAC,
-  OTA — chưa implement).
+  hai đã hoạt động; phần HTTP exposure local-only của schedule authority đã
+  CURRENT theo `PMS-CAL-001.1`/`PMS-CAL-001.2`/`PMS-CAL-001.3-CP01`) và
+  TARGET (multi-RoomType public request, phần HTTP/Admin/Calendar mutation
+  còn lại của schedule authority, Admin authentication/RBAC, OTA — chưa
+  implement).
 - Local Graphify tooling state (đọc/graph hoá source hiện có trên máy
   Claude, không commit vào Git) không được gộp với tracked repository
   state hay product/backend implementation state — nó không tạo, sửa hay
@@ -555,16 +567,19 @@ Snapshot này.
 - Trích một CI run hoặc review result sang một SHA khác với SHA nêu kèm nó
   — không hợp lệ. Mỗi con số trong tài liệu này gắn với đúng commit được ghi
   bên cạnh.
-- Nhầm các route gán phòng local-only với một Admin Calendar đã có
-  mutation/CRUD thật — không đúng. `PMS-CAL-001.2-CP02` expose route tạo
-  (`POST .../reservation-assignments`) và `CP04B` expose route move/
-  unassign một segment (`.../{segmentId}/move`, `.../{segmentId}/unassign`),
+- Nhầm các route ghi local-only với một Admin Calendar đã có mutation/CRUD
+  thật — không đúng. `PMS-CAL-001.2-CP02` expose route tạo assignment
+  (`POST .../reservation-assignments`), `CP04B` expose route move/unassign
+  một segment (`.../{segmentId}/move`, `.../{segmentId}/unassign`), và
+  `PMS-CAL-001.3-CP01` expose route tạo một OperationalBlock segment
+  (`POST .../operational-blocks`, tối đa 366 đêm tại HTTP boundary). Tất cả
   chỉ chạy được trên host Development loopback đã bật
   `AdminCalendar:EnableUnauthenticatedWrite` (mặc định tắt), không có Admin
-  authentication/RBAC; caller duy nhất của create là Admin Reservation
-  Board, move/unassign chưa có caller nào. Split/batch và block mutation
-  vẫn chỉ tồn tại ở tầng application/persistence nội bộ (`PMS-BE-001.2`),
-  không có route HTTP.
+  authentication/RBAC. Caller duy nhất của create/move/unassign assignment
+  là Admin Reservation Board; route tạo block chưa có Admin frontend
+  caller. Assignment split/batch và OperationalBlock supersede/cancel/move/
+  split vẫn chỉ tồn tại ở tầng application/persistence nội bộ
+  (`PMS-BE-001.2`), không có route HTTP.
 - Nhầm phần còn lại của frontend mock prototype (`ADMIN-002.1`: front-desk
   creation workspace, lifecycle/folio/move demonstrations) — vẫn hoàn toàn
   mock-only — với backend PMS behavior thật.
@@ -581,10 +596,12 @@ Snapshot này.
   phải thứ code phát hiện được; Admin authentication/RBAC vẫn deferred.
 - Nhầm database authority/internal mutation boundary của `RoomOccupancySegment`/
   `RoomBlock` (`PMS-BE-001.2`, đã CURRENT) với HTTP/Admin/Calendar
-  integration đầy đủ, Staff identity, hoặc Admin RBAC thật — ngoài đúng một
-  endpoint tạo assignment local-only của `PMS-CAL-001.2` CP02, những thứ này
-  vẫn TARGET, chưa implement; `ActorReference`/`AuthorizationEvidence` chỉ là
-  opaque string, không phải permission check thật.
+  integration đầy đủ, Staff identity, hoặc Admin RBAC thật — ngoài các
+  endpoint local-only sau write gate CP01 (assignment create của
+  `PMS-CAL-001.2` CP02, one-segment move/unassign của CP04B, và
+  single-segment operational-block create của `PMS-CAL-001.3-CP01`), những
+  thứ này vẫn TARGET, chưa implement; `ActorReference`/`AuthorizationEvidence`
+  chỉ là opaque string, không phải permission check thật.
 - Nhầm foundation normalized Item/Unit (`PMS-BE-001.1`, single-RoomType
   public request) với multi-RoomType public request TARGET đã implement —
   vẫn chưa implement.

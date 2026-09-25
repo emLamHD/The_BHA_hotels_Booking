@@ -94,13 +94,24 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   đầy đủ trong `docs/reports/PMS-CAL-001.1-completion.md`.
 - `PMS-CAL-001.2` (không có migration mới) thêm ranh giới **ghi** local đầu
   tiên: CP01 (merged) là opt-in/gate/CORS policy riêng, không endpoint nào;
-  CP02 (Draft PR #44, **chưa merge**) là đúng **một** endpoint sau gate đó,
+  CP02 (merged) là endpoint đầu tiên sau gate đó,
   `POST /api/admin/v1/properties/{propertyId}/reservation-assignments`, adapter
-  mỏng cho `IAssignmentMutationStore.CreateAsync`, chỉ chạy trên host
-  Development loopback đã bật opt-in. Audit dùng hằng số do server sở hữu —
-  không phải nhân viên, phê duyệt hay Staff identity đã xác thực. Không
-  frontend nào gọi nó. ADR 0006 §Amendments (2026-09-11) ghi nhận đúng phần
-  narration cũ của nó bị thay thế; Decision của ADR không đổi.
+  mỏng cho `IAssignmentMutationStore.CreateAsync`; CP04B (merged) thêm hai
+  route một-segment `POST .../reservation-assignments/{segmentId}/move` và
+  `.../unassign` trên `SupersedeAsync`. Tất cả chỉ chạy trên host Development
+  loopback đã bật opt-in. Audit dùng hằng số do server sở hữu — không phải
+  nhân viên, phê duyệt hay Staff identity đã xác thực. Admin Reservation Board
+  gọi create (CP03A/CP03B) và move/unassign. ADR 0006 §Amendments (2026-09-11,
+  2026-09-15) ghi nhận đúng phần narration cũ bị thay thế; Decision của ADR
+  không đổi.
+- `PMS-CAL-001.3-CP01` (không có migration mới) thêm endpoint **ghi** đầu tiên
+  cho operational block sau đúng gate CP01 đó:
+  `POST /api/admin/v1/properties/{propertyId}/operational-blocks`, adapter mỏng
+  cho `IOperationalBlockMutationStore.CreateBlockAsync`, tạo **đúng một**
+  OperationalBlock segment dưới một RoomBlock header mới, chỉ chạy trên host
+  Development loopback đã bật opt-in. Audit actor là cùng hằng số do server sở
+  hữu; request không mang actor/authorization evidence. **Chưa có** frontend
+  nào gọi nó. ADR 0006 §Amendments (2026-09-24) ghi nhận phần exposure này.
 
 ### Target/approved, chưa implement (TARGET)
 
@@ -113,11 +124,14 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   schedule authority (`RoomOccupancySegments`/`RoomBlock`, đã CURRENT ở trên;
   read projection CURRENT từ `PMS-CAL-001.1`, assignment *create* CURRENT ở
   mức local-only từ `PMS-CAL-001.2` CP02, one-segment *move*/*unassign*
-  CURRENT ở mức local-only từ CP04B) — assignment split/batch và
-  OperationalBlock create/cancel qua HTTP, frontend integration cho move/
-  unassign/split/batch, Admin authentication/RBAC thật, và Staff identity
-  thật để thay cho `ActorReference`/`AuthorizationEvidence` opaque hiện tại,
-  vẫn TARGET, chưa implement.
+  CURRENT ở mức local-only từ CP04B, single-segment operational-block
+  *create* CURRENT ở mức local-only từ `PMS-CAL-001.3-CP01`) — assignment
+  split/batch, OperationalBlock *cancel/move/split* và multi-segment block
+  create qua HTTP, frontend integration cho split/batch và cho mọi
+  operational-block mutation (kể cả create), Admin authentication/RBAC
+  thật, và Staff identity thật để thay cho
+  `ActorReference`/`AuthorizationEvidence` opaque hiện tại, vẫn TARGET, chưa
+  implement.
 - Intentional cross-RoomType upgrade/downgrade **có authorization/reason/
   audit thật qua Staff/RBAC** (opaque `AuthorizationEvidence`/`Reason` string
   đã CURRENT ở mutation boundary trên, nhưng không phải permission check
@@ -128,10 +142,11 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   lifecycle riêng.
 - Admin PMS/Calendar UI thật, tức backend-integrated, server-authoritative
   **cho mutation** (Admin Web hiện có một interactive Reservation Board
-  frontend từ `ADMIN-002.1`/PR #32; phần đọc chính đã backend-integrated,
-  read-only, qua HTTPS từ `PMS-CAL-001.1`, nhưng front-desk creation
-  workspace và lifecycle/folio/move demonstrations vẫn chạy hoàn toàn trên
-  local mock state — chưa có mutation/persistence/auth thật).
+  frontend từ `ADMIN-002.1`/PR #32; phần đọc chính đã backend-integrated
+  qua HTTPS từ `PMS-CAL-001.1`, và board gọi các route local-only assignment
+  create/move/unassign ở trên — chưa có Admin authentication/RBAC thật.
+  Front-desk creation workspace và lifecycle/folio/move demonstrations vẫn
+  chạy hoàn toàn trên local mock state, chưa có mutation/persistence thật).
 
 Mixed-RoomType allocation không còn nằm trong danh sách "ngoài phạm vi" bên
 dưới — nó là TARGET/APPROVED, chưa implement, theo đúng nghĩa ở trên.
@@ -260,9 +275,11 @@ Xem [ADR 0003](../ADR/0003-model-hotel-stays-with-half-open-date-ranges.md).
   Physical-room allocation độc lập (`RoomOccupancySegments`/`RoomBlock`) đã
   CURRENT ở database authority/availability/internal mutation boundary
   (`PMS-BE-001.2`, migration 8); HTTP exposure hiện có là read projection
-  (`PMS-CAL-001.1`) và một assignment-create endpoint local-only
-  (`PMS-CAL-001.2` CP02) — các mutation còn lại và Staff/RBAC thật vẫn
-  TARGET, chưa implement — xem
+  (`PMS-CAL-001.1`) cùng các endpoint ghi local-only sau write gate CP01:
+  assignment create (`PMS-CAL-001.2` CP02), one-segment move/unassign
+  (CP04B) và single-segment operational-block create (`PMS-CAL-001.3-CP01`)
+  — các mutation còn lại (assignment split/batch, operational-block
+  cancel/move/split) và Staff/RBAC thật vẫn TARGET, chưa implement — xem
   [PMS-DATA-001-core-database-blueprint-v2](../design/PMS-DATA-001-core-database-blueprint-v2.md),
   [ADR 0005](../ADR/0005-separate-commercial-commitment-from-physical-allocation.md)
   và
