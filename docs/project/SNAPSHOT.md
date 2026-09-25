@@ -450,9 +450,13 @@ evidence independently verified for this closeout via:
   `reservationRuntime.ts`, `formReducer` trong `CreateReservationForm.tsx`)
   **vẫn** chỉ chạy trên local deterministic mock state — không có backend
   call, không có persistence, không có Admin authentication/RBAC thật và
-  không có OTA behavior thật. Riêng Admin Reservation Board gọi endpoint tạo
-  assignment của CP02 (CP03A/CP03B, merged); move/unassign/split và block
-  mutation vẫn chưa có route HTTP.
+  không có OTA behavior thật. Riêng Admin Reservation Board là caller thật
+  của các route assignment local-only: create của CP02 (CP03A/CP03B, merged),
+  move một segment (CP04C, PR #53/#55) và unassign một segment (CP04D, PR
+  #63) của CP04B. Route tạo một OperationalBlock segment
+  (`PMS-CAL-001.3-CP01`) đã có ở backend nhưng **chưa** có Admin frontend
+  caller. Assignment split/batch và OperationalBlock supersede/cancel/move/
+  split vẫn chưa có route HTTP.
 - `PROJECT_BIBLE.md`, `docs/design/PMS-DATA-001-core-database-blueprint-v2.md`,
   ADR (0001–0006), test baseline và source code là nguồn sự thật sản phẩm/
   kiến trúc. Chúng phân biệt rõ CURRENT frontend prototype (mock-only),
@@ -563,16 +567,19 @@ Snapshot này.
 - Trích một CI run hoặc review result sang một SHA khác với SHA nêu kèm nó
   — không hợp lệ. Mỗi con số trong tài liệu này gắn với đúng commit được ghi
   bên cạnh.
-- Nhầm các route gán phòng local-only với một Admin Calendar đã có
-  mutation/CRUD thật — không đúng. `PMS-CAL-001.2-CP02` expose route tạo
-  (`POST .../reservation-assignments`) và `CP04B` expose route move/
-  unassign một segment (`.../{segmentId}/move`, `.../{segmentId}/unassign`),
+- Nhầm các route ghi local-only với một Admin Calendar đã có mutation/CRUD
+  thật — không đúng. `PMS-CAL-001.2-CP02` expose route tạo assignment
+  (`POST .../reservation-assignments`), `CP04B` expose route move/unassign
+  một segment (`.../{segmentId}/move`, `.../{segmentId}/unassign`), và
+  `PMS-CAL-001.3-CP01` expose route tạo một OperationalBlock segment
+  (`POST .../operational-blocks`, tối đa 366 đêm tại HTTP boundary). Tất cả
   chỉ chạy được trên host Development loopback đã bật
   `AdminCalendar:EnableUnauthenticatedWrite` (mặc định tắt), không có Admin
-  authentication/RBAC; caller duy nhất của create là Admin Reservation
-  Board, move/unassign chưa có caller nào. Split/batch và block mutation
-  vẫn chỉ tồn tại ở tầng application/persistence nội bộ (`PMS-BE-001.2`),
-  không có route HTTP.
+  authentication/RBAC. Caller duy nhất của create/move/unassign assignment
+  là Admin Reservation Board; route tạo block chưa có Admin frontend
+  caller. Assignment split/batch và OperationalBlock supersede/cancel/move/
+  split vẫn chỉ tồn tại ở tầng application/persistence nội bộ
+  (`PMS-BE-001.2`), không có route HTTP.
 - Nhầm phần còn lại của frontend mock prototype (`ADMIN-002.1`: front-desk
   creation workspace, lifecycle/folio/move demonstrations) — vẫn hoàn toàn
   mock-only — với backend PMS behavior thật.
