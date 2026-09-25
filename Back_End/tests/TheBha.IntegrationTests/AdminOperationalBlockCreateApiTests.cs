@@ -94,9 +94,20 @@ public sealed class AdminOperationalBlockCreateApiTests(PostgreSqlWebApplication
         Guid propertyId,
         string body,
         string? origin = AllowedAdminOrigin,
-        string? contentType = "application/json")
+        string? contentType = "application/json") =>
+        Post(BlocksUrl(propertyId), body, origin, contentType);
+
+    private static HttpRequestMessage CancelPost(
+        Guid propertyId,
+        Guid segmentId,
+        string body,
+        string? origin = AllowedAdminOrigin,
+        string? contentType = "application/json") =>
+        Post($"{BlocksUrl(propertyId)}/{segmentId}/cancel", body, origin, contentType);
+
+    private static HttpRequestMessage Post(string url, string body, string? origin, string? contentType)
     {
-        var request = new HttpRequestMessage(HttpMethod.Post, BlocksUrl(propertyId))
+        var request = new HttpRequestMessage(HttpMethod.Post, url)
         {
             Content = new ByteArrayContent(Encoding.UTF8.GetBytes(body)),
         };
@@ -170,6 +181,40 @@ public sealed class AdminOperationalBlockCreateApiTests(PostgreSqlWebApplication
             $"/api/admin/v1/properties/{propertyId}/reservation-board" +
             $"?from={CheckIn:yyyy-MM-dd}&to={CheckOut:yyyy-MM-dd}",
             BoardJson))!;
+
+    /// <summary>
+    /// Rooms of the fixture's RoomType the public availability search would sell
+    /// for the whole stay, or 0 when it offers none (it omits sold-out offers).
+    /// </summary>
+    private static async Task<int> SellableRoomsAsync(HttpClient client, Guid propertyId)
+    {
+        var offers = await client.GetFromJsonAsync<JsonElement>(
+            $"/api/v1/properties/{propertyId}/availability" +
+            $"?checkIn={CheckIn:yyyy-MM-dd}&checkOut={CheckOut:yyyy-MM-dd}&adults=1&children=0&rooms=1");
+        return offers.EnumerateArray().Select(offer => offer.GetProperty("availableRooms").GetInt32()).SingleOrDefault();
+    }
+
+    private static async Task<RoomOccupancySegmentDto> CreateBlockAsync(
+        HttpClient client, Guid propertyId, Guid physicalRoomId)
+    {
+        using var request = CreatePost(propertyId, RequestBody(physicalRoomId, CheckIn, CheckOut));
+        var response = await client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<CreateOperationalBlockResponse>())!.Segment;
+    }
+
+    private static string CancelBody(uint expectedVersion, string? reason = null) =>
+        JsonSerializer.Serialize(new { expectedVersion, reason });
+
+    /// <summary>The block survived a refused cancel exactly as created: Effective, one audit row.</summary>
+    private async Task AssertBlockUntouchedAsync(RoomOccupancySegmentDto block, string because)
+    {
+        var persisted = Assert.Single(await SegmentsAsync(), s => s.Id == block.Id);
+        Assert.True(persisted.Status == RoomOccupancySegmentStatus.Effective, because);
+        Assert.True(
+            (await AuditsAsync()).Count(a => a.SegmentId == block.Id) == 1,
+            because);
+    }
 
     // ---------------------------------------------------------------
     // Acceptance 1: the happy path, end to end
@@ -598,11 +643,254 @@ public sealed class AdminOperationalBlockCreateApiTests(PostgreSqlWebApplication
             responseSchema.GetProperty("properties").EnumerateObject()
                 .Select(property => property.Name).Order(StringComparer.OrdinalIgnoreCase).ToArray());
 
-        // No block supersede/split/cancel route exists anywhere.
-        var allPaths = swagger.GetProperty("paths").EnumerateObject().Select(p => p.Name).ToArray();
-        Assert.DoesNotContain(allPaths, p =>
-            p.Contains("operational-blocks/", StringComparison.OrdinalIgnoreCase));
+        // Below the collection, only CP02's single-segment cancel exists: no
+        // block move, split or multi-segment supersede route.
+        var subPaths = swagger.GetProperty("paths").EnumerateObject().Select(p => p.Name)
+            .Where(p => p.Contains("operational-blocks/", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        Assert.Equal([ExpectedPath + "/{segmentId}/cancel"], subPaths);
     }
+
+    // ---------------------------------------------------------------
+    // PMS-CAL-001.3-CP02: cancel one block segment
+    // ---------------------------------------------------------------
+
+    /// <summary>
+    /// The fixture's one confirmed Unit needs one of the two Active rooms, so
+    /// while a block holds the other the RoomType has nothing left to sell;
+    /// cancelling the block must make exactly one room sellable again.
+    /// </summary>
+    [Fact]
+    public async Task Cancel_lifts_the_block_keeps_header_and_audit_and_releases_the_room()
+    {
+        var data = await SeedAsync("cp02-happy");
+        using var host = CreateWriteHost();
+        using var client = CreateHttpsClient(host);
+        var block = await CreateBlockAsync(client, data.Property.Id, data.RoomsA[0].Id);
+        Assert.Equal(0, await SellableRoomsAsync(client, data.Property.Id));
+
+        using var request = CancelPost(
+            data.Property.Id, block.Id, CancelBody(block.Version, "  Pipe repaired  "));
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
+        Assert.Equal(
+            [AllowedAdminOrigin],
+            response.Headers.GetValues("Access-Control-Allow-Origin").ToArray());
+        var cancelled = (await response.Content.ReadFromJsonAsync<RoomOccupancySegmentDto>())!;
+        Assert.Equal(block.Id, cancelled.Id);
+        Assert.Equal(block.RoomBlockId, cancelled.RoomBlockId);
+        Assert.Equal(RoomOccupancySegmentStatus.Cancelled.ToString(), cancelled.Status);
+        Assert.NotEqual(block.Version, cancelled.Version);
+
+        // The header and the segment row stay; only the status changed.
+        Assert.Equal(block.RoomBlockId, Assert.Single(await BlocksAsync()).Id);
+        var persisted = Assert.Single(await SegmentsAsync());
+        Assert.Equal(RoomOccupancySegmentStatus.Cancelled, persisted.Status);
+        Assert.Equal((CheckIn, CheckOut), (persisted.StartDate, persisted.EndDate));
+
+        // Append-only audit: the original Created row plus one Cancelled row.
+        var audits = await AuditsAsync();
+        Assert.Equal(2, audits.Count);
+        Assert.Single(audits, a => a.EventType == RoomOccupancySegmentAuditEventType.Created && a.SegmentId == block.Id);
+        var cancelAudit = Assert.Single(audits, a => a.EventType == RoomOccupancySegmentAuditEventType.Cancelled);
+        Assert.Equal(block.Id, cancelAudit.SegmentId);
+        Assert.Equal(ServerOwnedActor, cancelAudit.ActorReference);
+        Assert.Null(cancelAudit.AuthorizationEvidence);
+        Assert.Equal("Pipe repaired", cancelAudit.Reason);
+
+        // The authoritative read and public availability both see the room back.
+        Assert.Empty((await ReadBoardAsync(client, data.Property.Id)).OperationalBlocks);
+        Assert.Equal(1, await SellableRoomsAsync(client, data.Property.Id));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("   ")]
+    public async Task Cancel_without_a_reason_records_no_reason(string? reason)
+    {
+        var data = await SeedAsync("cp02-no-reason");
+        using var host = CreateWriteHost();
+        using var client = CreateHttpsClient(host);
+        var block = await CreateBlockAsync(client, data.Property.Id, data.RoomsA[0].Id);
+
+        using var request = CancelPost(data.Property.Id, block.Id, CancelBody(block.Version, reason));
+        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(request)).StatusCode);
+
+        var cancelAudit = Assert.Single(
+            await AuditsAsync(), a => a.EventType == RoomOccupancySegmentAuditEventType.Cancelled);
+        Assert.Null(cancelAudit.Reason);
+    }
+
+    [Theory]
+    [InlineData("""{ "reason": "no version" }""")]
+    [InlineData("""{ "expectedVersion": null }""")]
+    [InlineData("""{ "expectedVersion": -1 }""")]
+    [InlineData("{ this is not json")]
+    public async Task Missing_or_malformed_expected_version_is_a_400_and_cancels_nothing(string body)
+    {
+        var data = await SeedAsync("cp02-bad-body");
+        using var host = CreateWriteHost();
+        using var client = CreateHttpsClient(host);
+        var block = await CreateBlockAsync(client, data.Property.Id, data.RoomsA[0].Id);
+
+        using var request = CancelPost(data.Property.Id, block.Id, body);
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await AssertBlockUntouchedAsync(block, "an unreadable body must never reach the store");
+    }
+
+    [Fact]
+    public async Task Stale_version_and_a_second_cancel_are_each_a_409()
+    {
+        var data = await SeedAsync("cp02-conflict");
+        using var host = CreateWriteHost();
+        using var client = CreateHttpsClient(host);
+        var block = await CreateBlockAsync(client, data.Property.Id, data.RoomsA[0].Id);
+
+        using var stale = CancelPost(data.Property.Id, block.Id, CancelBody(block.Version + 1));
+        var staleResponse = await client.SendAsync(stale);
+        Assert.Equal(HttpStatusCode.Conflict, staleResponse.StatusCode);
+        Assert.Equal("Operational block conflict", await TitleAsync(staleResponse));
+        await AssertBlockUntouchedAsync(block, "a stale version must not cancel the block");
+
+        using var first = CancelPost(data.Property.Id, block.Id, CancelBody(block.Version));
+        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(first)).StatusCode);
+
+        // Replaying the same request after success is refused, not repeated:
+        // the segment is no longer Effective, and exactly one Cancelled audit exists.
+        using var again = CancelPost(data.Property.Id, block.Id, CancelBody(block.Version));
+        var againResponse = await client.SendAsync(again);
+        Assert.Equal(HttpStatusCode.Conflict, againResponse.StatusCode);
+        Assert.Equal("Operational block conflict", await TitleAsync(againResponse));
+        Assert.Single(await AuditsAsync(), a => a.EventType == RoomOccupancySegmentAuditEventType.Cancelled);
+    }
+
+    [Fact]
+    public async Task Another_propertys_block_an_assignment_or_an_unknown_segment_is_a_404()
+    {
+        var data = await SeedAsync("cp02-not-found");
+        var other = await SeedOtherPropertyWithRoomAsync();
+        using var host = CreateWriteHost();
+        using var client = CreateHttpsClient(host);
+        var otherBlock = await CreateBlockAsync(client, other.Property.Id, other.Room.Id);
+
+        var assignment = new RoomOccupancySegment(
+            Guid.NewGuid(), data.Property.Id, data.RoomsA[1].Id, RoomOccupancySegmentType.ReservationAssignment,
+            CheckIn, CheckOut, data.Unit.Id, null, Now);
+        await using (var context = factory.CreateDbContext())
+        {
+            context.Add(assignment);
+            await context.SaveChangesAsync();
+        }
+
+        var assignmentVersion = await ReadAssignmentVersionAsync(client, data.Property.Id, assignment.Id);
+        foreach (var (segmentId, version, because) in new[]
+        {
+            (otherBlock.Id, otherBlock.Version, "another Property's block"),
+            (assignment.Id, assignmentVersion, "a reservation assignment segment"),
+            (Guid.NewGuid(), 1u, "a segment that does not exist"),
+        })
+        {
+            using var request = CancelPost(data.Property.Id, segmentId, CancelBody(version));
+            var response = await client.SendAsync(request);
+            Assert.True(response.StatusCode == HttpStatusCode.NotFound, because);
+            Assert.Equal("Operational block target not found", await TitleAsync(response));
+        }
+
+        await AssertBlockUntouchedAsync(otherBlock, "a cross-Property block must survive");
+        Assert.Equal(
+            RoomOccupancySegmentStatus.Effective,
+            Assert.Single(await SegmentsAsync(), s => s.Id == assignment.Id).Status);
+        Assert.DoesNotContain(
+            await AuditsAsync(), a => a.EventType == RoomOccupancySegmentAuditEventType.Cancelled);
+    }
+
+    [Fact]
+    public async Task Gate_refuses_cancel_before_the_controller_whatever_the_body()
+    {
+        var data = await SeedAsync("cp02-gate");
+        using var host = CreateWriteHost();
+        using var client = CreateHttpsClient(host);
+        var block = await CreateBlockAsync(client, data.Property.Id, data.RoomsA[0].Id);
+        var body = CancelBody(block.Version);
+
+        // Closed gate: a valid and a malformed body are answered identically.
+        using var closedClient = CreateHttpsClient(factory);
+        using var closedValid = CancelPost(data.Property.Id, block.Id, body);
+        using var closedMalformed = CancelPost(data.Property.Id, block.Id, "{ this is not json");
+        Assert.Equal(HttpStatusCode.NotFound, (await closedClient.SendAsync(closedValid)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await closedClient.SendAsync(closedMalformed)).StatusCode);
+
+        using var cleartextClient = CreateCleartextClient(host);
+        using var cleartext = CancelPost(data.Property.Id, block.Id, body);
+        var cleartextResponse = await cleartextClient.SendAsync(cleartext);
+        Assert.Equal(HttpStatusCode.NotFound, cleartextResponse.StatusCode);
+        Assert.Null(cleartextResponse.Headers.Location);
+
+        using var badOrigin = CancelPost(data.Property.Id, block.Id, body, origin: "https://evil.example");
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.SendAsync(badOrigin)).StatusCode);
+
+        using var badMediaType = CancelPost(data.Property.Id, block.Id, body, contentType: "text/json");
+        Assert.Equal(HttpStatusCode.UnsupportedMediaType, (await client.SendAsync(badMediaType)).StatusCode);
+
+        await AssertBlockUntouchedAsync(block, "every gate refusal must reach neither the controller nor the store");
+    }
+
+    [Fact]
+    public async Task OpenApi_publishes_the_cancel_route_with_version_and_optional_reason_json_only()
+    {
+        using var host = CreateWriteHost();
+        using var client = CreateHttpsClient(host);
+
+        var swagger = await client.GetFromJsonAsync<JsonElement>("/swagger/v1/swagger.json");
+        const string CancelPath = "/api/admin/v1/properties/{propertyId}/operational-blocks/{segmentId}/cancel";
+        Assert.True(
+            swagger.GetProperty("paths").TryGetProperty(CancelPath, out var cancelPath),
+            $"{CancelPath} must be published");
+        Assert.Equal(["post"], cancelPath.EnumerateObject().Select(o => o.Name).ToArray());
+
+        var post = cancelPath.GetProperty("post");
+        var responses = post.GetProperty("responses");
+        Assert.Equal(
+            ["200", "400", "403", "404", "409", "415"],
+            responses.EnumerateObject().Select(r => r.Name).Order().ToArray());
+        Assert.Equal("#/components/schemas/RoomOccupancySegmentDto", BodySchemaRef(responses.GetProperty("200")));
+        foreach (var status in new[] { "400", "403", "409", "415" })
+        {
+            Assert.Equal("#/components/schemas/ProblemDetails", BodySchemaRef(responses.GetProperty(status)));
+        }
+
+        Assert.False(responses.GetProperty("404").TryGetProperty("content", out _));
+
+        var requestContent = post.GetProperty("requestBody").GetProperty("content");
+        Assert.Equal(
+            ["application/json"],
+            requestContent.EnumerateObject().Select(media => media.Name).ToArray());
+
+        var schemaRef = requestContent
+            .GetProperty("application/json").GetProperty("schema")
+            .GetProperty("$ref").GetString()!;
+        var schema = swagger.GetProperty("components").GetProperty("schemas")
+            .GetProperty(schemaRef["#/components/schemas/".Length..]);
+
+        // No room, dates, segment list, actor or authorization evidence.
+        Assert.Equal(
+            ["expectedVersion", "reason"],
+            schema.GetProperty("properties").EnumerateObject()
+                .Select(property => property.Name).Order(StringComparer.Ordinal).ToArray());
+        Assert.Equal(
+            ["expectedVersion"],
+            schema.GetProperty("required").EnumerateArray().Select(entry => entry.GetString()!).ToArray());
+    }
+
+    private async Task<uint> ReadAssignmentVersionAsync(HttpClient client, Guid propertyId, Guid segmentId) =>
+        (await ReadBoardAsync(client, propertyId)).Stays
+            .SelectMany(stay => stay.Assignments)
+            .Single(a => a.SegmentId == segmentId)
+            .SegmentVersion;
 
     // ---------------------------------------------------------------
     // Seeding
@@ -648,8 +936,13 @@ public sealed class AdminOperationalBlockCreateApiTests(PostgreSqlWebApplication
         var reservation = hold.Confirm(Guid.NewGuid(), $"BHA-{HexHash(slug)[..8].ToUpperInvariant()}", Now);
         context.Add(reservation);
 
+        // A rate for every night, so public availability can offer this
+        // RoomType and its sellable count is observable (CP02 cancel evidence).
+        context.AddRange(nights.Select(night => new DailyRoomRate(
+            Guid.NewGuid(), property.Id, roomType.Id, ratePlan.Id, night.StayDate, 100m, Now)));
+
         await context.SaveChangesAsync();
-        return new Fixture(property, roomsA, outOfServiceRoom);
+        return new Fixture(property, roomsA, outOfServiceRoom, reservation.Units.Single());
     }
 
     /// <summary>A second, unrelated Property with its own room, used only to prove isolation.</summary>
@@ -677,7 +970,8 @@ public sealed class AdminOperationalBlockCreateApiTests(PostgreSqlWebApplication
     private sealed record Fixture(
         Property Property,
         List<PhysicalRoom> RoomsA,
-        PhysicalRoom OutOfServiceRoom);
+        PhysicalRoom OutOfServiceRoom,
+        ReservationUnit Unit);
 
     private sealed record OtherProperty(Property Property, PhysicalRoom Room);
 }

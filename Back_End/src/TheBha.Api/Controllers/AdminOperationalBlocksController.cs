@@ -76,6 +76,27 @@ public sealed class CreateOperationalBlockRequest
 public sealed record CreateOperationalBlockResponse(Guid RoomBlockId, RoomOccupancySegmentDto Segment);
 
 /// <summary>
+/// One Admin Calendar operational-block cancel request (PMS-CAL-001.3-CP02):
+/// supersedes the segment named in the route with zero replacements. There is
+/// nothing to place, so it carries no room, no dates and no segment list — and,
+/// like <see cref="CreateOperationalBlockRequest"/>, no actor or authorization
+/// evidence. <see cref="ExpectedVersion"/> uses <see cref="JsonRequiredAttribute"/>
+/// for the same reason as the create request's value-typed fields: an omitted
+/// version would otherwise bind as <c>0</c> and come back as a misleading
+/// <c>409</c> instead of the <c>400</c> the caller's mistake deserves.
+/// </summary>
+public sealed class CancelOperationalBlockRequest
+{
+    /// <summary>The segment's <c>Version</c> as last read from the board projection.</summary>
+    [JsonRequired]
+    [Required]
+    public uint ExpectedVersion { get; init; }
+
+    /// <summary>Optional; why the block is lifted. Trimmed; blank is recorded as no reason.</summary>
+    public string? Reason { get; init; }
+}
+
+/// <summary>
 /// PMS-CAL-001.3-CP01: the first OperationalBlock <em>write</em> endpoint, and a
 /// thin adapter over the already-accepted
 /// <see cref="IOperationalBlockMutationStore.CreateBlockAsync"/> — every room,
@@ -108,9 +129,16 @@ public sealed record CreateOperationalBlockResponse(Guid RoomBlockId, RoomOccupa
 /// <para>
 /// No idempotency or exactly-once guarantee is claimed. A caller that loses the
 /// response does not know whether the block exists, and must re-read the board
-/// rather than retry blindly; a future UI must not retry automatically. Block
-/// move, split and cancel (<see cref="IOperationalBlockMutationStore.SupersedeSegmentsAsync"/>)
-/// remain internal-only and get no route here.
+/// rather than retry blindly; a future UI must not retry automatically.
+/// </para>
+///
+/// <para>
+/// PMS-CAL-001.3-CP02: <see cref="Cancel"/> is the same adapter pattern over
+/// <see cref="IOperationalBlockMutationStore.SupersedeSegmentsAsync"/>, narrowed
+/// to exactly one segment and zero replacements. The same caveat applies: a
+/// lost cancel response leaves the caller not knowing whether the block was
+/// lifted, and the board is the evidence — not a second POST. Block move,
+/// split and multi-segment supersede remain internal-only and get no route here.
 /// </para>
 /// </summary>
 [ApiController]
@@ -229,6 +257,64 @@ public sealed class AdminOperationalBlocksController(IOperationalBlockMutationSt
                 detail: result.Error),
             // Conflict is the store's only remaining status for this command; an
             // unrecognised one must never fall through to a success shape.
+            _ => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "Operational block conflict",
+                detail: result.Error)
+        };
+    }
+
+    /// <summary>
+    /// Cancels one existing Effective OperationalBlock segment of this Property:
+    /// the segment becomes Cancelled, its RoomBlock header and audit history
+    /// stay, and the room's nights return to usable capacity. Which segment
+    /// qualifies — this Property's, an OperationalBlock, still Effective, at
+    /// <c>expectedVersion</c> — is the store's to decide, not restated here.
+    /// </summary>
+    /// <remarks>
+    /// <c>200</c> with the cancelled segment, not <c>204</c>: its new
+    /// <c>Status</c> and <c>Version</c> are the mutation evidence. <c>404</c>
+    /// covers a segment that does not exist, belongs to another Property, or is
+    /// a reservation assignment rather than a block; <c>409</c> covers a stale
+    /// version and a segment that is already cancelled. The other metadata
+    /// mirrors <see cref="Create"/>'s for the same reasons.
+    /// </remarks>
+    [HttpPost("{segmentId:guid}/cancel")]
+    [ProducesResponseType(typeof(RoomOccupancySegmentDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(void), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status415UnsupportedMediaType)]
+    public async Task<ActionResult<RoomOccupancySegmentDto>> Cancel(
+        Guid propertyId,
+        Guid segmentId,
+        [FromBody] CancelOperationalBlockRequest request,
+        CancellationToken cancellationToken)
+    {
+        var reason = string.IsNullOrWhiteSpace(request.Reason) ? null : request.Reason.Trim();
+
+        var result = await store.SupersedeSegmentsAsync(
+            new SupersedeBlockSegmentsCommand(
+                propertyId,
+                [new BlockSegmentSupersession(segmentId, request.ExpectedVersion, [])],
+                LocalActorReference,
+                reason),
+            cancellationToken);
+
+        return result.Status switch
+        {
+            // One supersession with no replacements yields exactly the one
+            // cancelled segment; Single() makes any other shape a server fault.
+            SegmentMutationStatus.Succeeded => Ok(result.Segments!.Single()),
+            SegmentMutationStatus.Invalid => Problem(
+                statusCode: StatusCodes.Status400BadRequest,
+                title: "Invalid operational block request",
+                detail: result.Error),
+            SegmentMutationStatus.NotFound => Problem(
+                statusCode: StatusCodes.Status404NotFound,
+                title: "Operational block target not found",
+                detail: result.Error),
             _ => Problem(
                 statusCode: StatusCodes.Status409Conflict,
                 title: "Operational block conflict",

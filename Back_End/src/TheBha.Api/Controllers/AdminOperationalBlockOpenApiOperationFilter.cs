@@ -4,9 +4,9 @@ using Swashbuckle.AspNetCore.SwaggerGen;
 namespace TheBha.Api.Controllers;
 
 /// <summary>
-/// PMS-CAL-001.3-CP01: publishes, for the Admin Calendar operational-block
-/// write operation, only the media type <see cref="AdminCalendarWriteGateFilter"/>
-/// accepts — the same correction
+/// PMS-CAL-001.3-CP01/CP02: publishes, for the Admin Calendar operational-block
+/// write operations (create and cancel), only the media type
+/// <see cref="AdminCalendarWriteGateFilter"/> accepts — the same correction
 /// <see cref="AdminReservationAssignmentOpenApiOperationFilter"/> applies to the
 /// assignment routes, for the same reason and behind the same gate. ApiExplorer
 /// otherwise describes the body with everything the JSON formatter can read
@@ -29,7 +29,8 @@ public sealed class AdminOperationalBlockOpenApiOperationFilter : IOperationFilt
     public void Apply(OpenApiOperation operation, OperationFilterContext context)
     {
         if (context.MethodInfo.DeclaringType != typeof(AdminOperationalBlocksController) ||
-            context.MethodInfo.Name != nameof(AdminOperationalBlocksController.Create))
+            context.MethodInfo.Name is not (nameof(AdminOperationalBlocksController.Create)
+                or nameof(AdminOperationalBlocksController.Cancel)))
         {
             return;
         }

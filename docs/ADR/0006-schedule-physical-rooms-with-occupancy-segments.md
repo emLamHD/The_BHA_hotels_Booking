@@ -632,15 +632,16 @@ closes this gap.
 
 The PhysicalRoom schedule database authority and the internal assignment/
 block mutation boundary are CURRENT / AS-BUILT from `PMS-BE-001.2`
-(migration 8); their read exposure is CURRENT from `PMS-CAL-001.1`; and four
+(migration 8); their read exposure is CURRENT from `PMS-CAL-001.1`; and five
 gated HTTP write operations are CURRENT behind the local Development write
 gate — assignment create (`PMS-CAL-001.2` CP02), one-segment assignment
-move and unassign (CP04B), and single-segment operational-block create
-(`PMS-CAL-001.3-CP01`); see Amendments. The remaining Admin mutation surface
-— assignment split/swap/batch, operational-block cancel/move/split,
-multi-segment block creation — plus real Staff identity and Admin RBAC stay
-TARGET / APPROVED. This ADR *document* introduced no migration, entity,
-extension, or test of its own — the repository now contains all of them.
+move and unassign (CP04B), and single-segment operational-block create and
+cancel (`PMS-CAL-001.3` CP01/CP02); see Amendments. The remaining Admin
+mutation surface — assignment split/swap/batch, operational-block move/split,
+multi-segment block creation or supersede — plus real Staff identity and
+Admin RBAC stay TARGET / APPROVED. This ADR *document* introduced no
+migration, entity, extension, or test of its own — the repository now
+contains all of them.
 
 ## Amendments
 
@@ -683,3 +684,16 @@ that no controller exposes OperationalBlock mutation were stale.
 and real Staff identity remain TARGET, and no Admin frontend calls this
 endpoint yet. Current state is tracked in `docs/project/PROJECT_BIBLE.md`,
 not here.
+
+### 2026-09-25 — one operational-block cancel endpoint is exposed (`PMS-CAL-001.3-CP02`)
+
+`POST .../operational-blocks/{segmentId}/cancel` exposes a single-segment,
+zero-replacement slice of `IOperationalBlockMutationStore.SupersedeSegmentsAsync`
+behind the identical CP01 write gate and opt-in. The caller supplies only
+`expectedVersion` and an optional reason; the store still decides Property
+ownership, segment type, Effective status, optimistic concurrency, locking,
+capacity and audit. The segment becomes Cancelled while its RoomBlock header
+and audit history stay, as Decision items 4 and 5 already require. Block
+move/split, multi-segment supersede, Admin authentication/RBAC and real Staff
+identity remain TARGET, and no Admin frontend calls this endpoint yet. Current
+state is tracked in `docs/project/PROJECT_BIBLE.md`, not here.
