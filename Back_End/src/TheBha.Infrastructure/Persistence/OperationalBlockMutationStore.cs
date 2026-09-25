@@ -8,10 +8,11 @@ namespace TheBha.Infrastructure.Persistence;
 
 /// <summary>
 /// Internal application/persistence boundary for RoomBlock/OperationalBlock segment
-/// mutation (PMS-BE-001.2 Phase 4 §4/§8). The only HTTP surface is the local
-/// Development-only single-segment adapter over <c>CreateBlockAsync</c>
-/// (PMS-CAL-001.3-CP01, AdminOperationalBlocksController); multi-segment create and
-/// <c>SupersedeSegmentsAsync</c> (move/split/cancel) remain internal-only.
+/// mutation (PMS-BE-001.2 Phase 4 §4/§8). The only HTTP surface is two local
+/// Development-only single-segment adapters in AdminOperationalBlocksController:
+/// create over <c>CreateBlockAsync</c> (PMS-CAL-001.3-CP01) and cancel over a
+/// zero-replacement <c>SupersedeSegmentsAsync</c> (PMS-CAL-001.3-CP02). Multi-segment
+/// create, block move/split and multi-segment supersede remain internal-only.
 /// </summary>
 internal sealed class OperationalBlockMutationStore(
     TheBhaDbContext dbContext,

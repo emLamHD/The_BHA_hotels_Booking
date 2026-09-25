@@ -112,6 +112,12 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   Development loopback đã bật opt-in. Audit actor là cùng hằng số do server sở
   hữu; request không mang actor/authorization evidence. **Chưa có** frontend
   nào gọi nó. ADR 0006 §Amendments (2026-09-24) ghi nhận phần exposure này.
+- `PMS-CAL-001.3-CP02` (không có migration mới) thêm
+  `POST .../operational-blocks/{segmentId}/cancel` sau cùng gate: hủy **đúng
+  một** OperationalBlock segment Effective qua
+  `IOperationalBlockMutationStore.SupersedeSegmentsAsync` với danh sách thay
+  thế rỗng và `expectedVersion` bắt buộc; RoomBlock header và audit được giữ.
+  **Chưa có** frontend nào gọi nó. ADR 0006 §Amendments (2026-09-25).
 
 ### Target/approved, chưa implement (TARGET)
 
@@ -125,9 +131,9 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   read projection CURRENT từ `PMS-CAL-001.1`, assignment *create* CURRENT ở
   mức local-only từ `PMS-CAL-001.2` CP02, one-segment *move*/*unassign*
   CURRENT ở mức local-only từ CP04B, single-segment operational-block
-  *create* CURRENT ở mức local-only từ `PMS-CAL-001.3-CP01`) — assignment
-  split/batch, OperationalBlock *cancel/move/split* và multi-segment block
-  create qua HTTP, frontend integration cho split/batch và cho mọi
+  *create*/*cancel* CURRENT ở mức local-only từ `PMS-CAL-001.3` CP01/CP02) —
+  assignment split/batch, OperationalBlock *move/split* và multi-segment block
+  create/supersede qua HTTP, frontend integration cho split/batch và cho mọi
   operational-block mutation (kể cả create), Admin authentication/RBAC
   thật, và Staff identity thật để thay cho
   `ActorReference`/`AuthorizationEvidence` opaque hiện tại, vẫn TARGET, chưa
@@ -277,9 +283,9 @@ Xem [ADR 0003](../ADR/0003-model-hotel-stays-with-half-open-date-ranges.md).
   (`PMS-BE-001.2`, migration 8); HTTP exposure hiện có là read projection
   (`PMS-CAL-001.1`) cùng các endpoint ghi local-only sau write gate CP01:
   assignment create (`PMS-CAL-001.2` CP02), one-segment move/unassign
-  (CP04B) và single-segment operational-block create (`PMS-CAL-001.3-CP01`)
-  — các mutation còn lại (assignment split/batch, operational-block
-  cancel/move/split) và Staff/RBAC thật vẫn TARGET, chưa implement — xem
+  (CP04B), single-segment operational-block create/cancel (`PMS-CAL-001.3`
+  CP01/CP02) — các mutation còn lại (assignment split/batch, operational-block
+  move/split) và Staff/RBAC thật vẫn TARGET, chưa implement — xem
   [PMS-DATA-001-core-database-blueprint-v2](../design/PMS-DATA-001-core-database-blueprint-v2.md),
   [ADR 0005](../ADR/0005-separate-commercial-commitment-from-physical-allocation.md)
   và

@@ -6,7 +6,7 @@ The repository separates deployable applications under `Front_End` and `Back_End
 
 CURRENT frontend (PR #32, updated by `PMS-CAL-001.1`): a room/date timeline with multi-property switching, assigned/unassigned reservations, operational blocks, reservation hover/detail views, a reservation-creation workspace, and a front-desk lifecycle/folio/notes/activity workspace. `PMS-CAL-001.1` reconnected the timeline's main read path (`ReservationBoard.tsx`/`ReservationBoardServerTimeline.tsx`/`ReservationBoardStayPopover.tsx`) to the real, read-only Admin Calendar API (below) — it no longer reads `mockData.ts`. Everything else — drag-and-drop room moves, date shifting, negotiated pricing, the reservation-creation workspace, and the front-desk lifecycle/folio/notes/activity workspace — remains on deterministic local mock state (`mockData.ts`, a fixed demo-clock anchor): reservation-board durable mutations (lifecycle, folio, moves) still go through the `reservationRuntimeReducer` in `reservationRuntime.ts`; the reservation-creation workflow still has its own `formReducer` in `CreateReservationForm.tsx`. None of that mock-driven part reads or writes real data — no backend call, no persistence, every reload resets to the same mock baseline.
 
-CURRENT backend (`PMS-BE-001.2` + `PMS-CAL-001.1`, migration 8 — no new migration): the normalized commercial-commitment authority from `PMS-BE-001.1` — `InventoryHold → InventoryHoldItem → InventoryHoldItemNight` and `Reservation → ReservationUnit → ReservationUnitNight` (ADR 0005), one `RoomTypeId`/`RatePlanId` per public request — plus the physical-room schedule authority added by `PMS-BE-001.2`: `RoomOccupancySegment`/`RoomBlock` (ADR 0006), the assignment-aware and block-adjusted availability formula, and internal-only assignment/block mutation commands. `PMS-CAL-001.1` adds the first HTTP read exposure of that schedule authority — see "Admin Calendar read API" below. `PMS-CAL-001.2` adds the first HTTP *write* exposure — a local-Development-only write gate (CP01) plus assignment create (CP02) and one-segment move/unassign (CP04B) — and `PMS-CAL-001.3-CP01` adds one single-segment operational-block create endpoint behind the same gate; see "Admin Calendar write boundary" below. There is still no Admin authentication/RBAC, no OTA integration, and no HTTP endpoint for any other mutation (assignment split/swap/batch, and operational-block cancel/move/split, remain internal-only).
+CURRENT backend (`PMS-BE-001.2` + `PMS-CAL-001.1`, migration 8 — no new migration): the normalized commercial-commitment authority from `PMS-BE-001.1` — `InventoryHold → InventoryHoldItem → InventoryHoldItemNight` and `Reservation → ReservationUnit → ReservationUnitNight` (ADR 0005), one `RoomTypeId`/`RatePlanId` per public request — plus the physical-room schedule authority added by `PMS-BE-001.2`: `RoomOccupancySegment`/`RoomBlock` (ADR 0006), the assignment-aware and block-adjusted availability formula, and internal-only assignment/block mutation commands. `PMS-CAL-001.1` adds the first HTTP read exposure of that schedule authority — see "Admin Calendar read API" below. `PMS-CAL-001.2` adds the first HTTP *write* exposure — a local-Development-only write gate (CP01) plus assignment create (CP02) and one-segment move/unassign (CP04B) — and `PMS-CAL-001.3` adds single-segment operational-block create (CP01) and cancel (CP02) endpoints behind the same gate; see "Admin Calendar write boundary" below. There is still no Admin authentication/RBAC, no OTA integration, and no HTTP endpoint for any other mutation (assignment split/swap/batch, and operational-block move/split, remain internal-only).
 
 TARGET architecture (unimplemented): Customer Web and Admin Web as separate clients of one shared ASP.NET Core backend and one shared PostgreSQL database, with the full multi-RoomType public request shape, Admin authentication/RBAC, HTTP/Admin/Calendar integration of the physical-room schedule authority, and OTA behavior. See [`docs/design/PMS-DATA-001-core-database-blueprint-v2.md`](design/PMS-DATA-001-core-database-blueprint-v2.md), [ADR 0005](ADR/0005-separate-commercial-commitment-from-physical-allocation.md), and [ADR 0006](ADR/0006-schedule-physical-rooms-with-occupancy-segments.md) for the full target PMS design; this document does not duplicate it, and the CURRENT frontend prototype described above is not authoritative persistence or concurrency evidence for that TARGET design.
 
@@ -80,12 +80,12 @@ never split/swap/batch — have HTTP callers, all through the
 local-Development-only endpoints described under "Admin Calendar write
 boundary" below (`PMS-CAL-001.2` CP02/CP04B). `IOperationalBlockMutationStore.CreateBlockAsync`
 has one too, restricted to a single segment per request
-(`PMS-CAL-001.3-CP01`). `IOperationalBlockMutationStore.SupersedeSegmentsAsync`
-(block cancel/move/split), multi-segment block creation, and every other
-`SupersedeAsync` shape remain internal-only, with **no HTTP controller or
-Admin/Calendar endpoint exposing them**, and no Staff identity or Admin RBAC
-model exists. Exact
-invariants, the availability formula, mutation semantics, and error mapping
+(`PMS-CAL-001.3-CP01`), and so does a single-segment, zero-replacement slice of
+`IOperationalBlockMutationStore.SupersedeSegmentsAsync` — one-block cancel only
+(`PMS-CAL-001.3-CP02`). Block move/split, multi-segment block creation or
+supersede, and every other `SupersedeAsync` shape remain internal-only, with
+**no HTTP controller or Admin/Calendar endpoint exposing them**, and no Staff
+identity or Admin RBAC model exists. Exact invariants, the availability formula, mutation semantics, and error mapping
 are recorded in ADR 0006 and `docs/reports/PMS-BE-001.2-completion.md`, not
 duplicated here.
 
@@ -120,7 +120,7 @@ separate `AdminCalendar:EnableUnauthenticatedWrite` opt-in (default `false`,
 Production startup-fatal), `AdminCalendarWriteGateFilter`, and the
 uncredentialed `admin-calendar-write` CORS policy.
 
-Four endpoints now sit behind that one gate, each a thin adapter over an
+Five endpoints now sit behind that one gate, each a thin adapter over an
 already-accepted mutation command, and each reachable only from a Development
 loopback host with the write opt-in on:
 
@@ -132,7 +132,11 @@ loopback host with the write opt-in on:
 - `POST /api/admin/v1/properties/{propertyId}/operational-blocks` —
   `IOperationalBlockMutationStore.CreateBlockAsync`, creating exactly one
   OperationalBlock segment under one new RoomBlock header
-  (`PMS-CAL-001.3-CP01`). No Admin frontend calls this one yet.
+  (`PMS-CAL-001.3-CP01`).
+- `POST .../operational-blocks/{segmentId}/cancel` — a single-segment,
+  zero-replacement slice of `IOperationalBlockMutationStore.SupersedeSegmentsAsync`
+  (`PMS-CAL-001.3-CP02`): the segment becomes Cancelled, the RoomBlock header
+  and audit history stay. No Admin frontend calls either block route yet.
 
 The audit actor — and, where an operation can carry one, the authorization
 evidence — are fixed server-owned constants naming this local boundary: not a
@@ -141,8 +145,8 @@ mutation verb is answered `404` + `Cache-Control: no-store` by a guard placed
 ahead of `UseHttpsRedirection`, because a 307 preserves method and body and
 would otherwise let a redirect-following client complete a write that never
 reached the gate; the gate repeats the HTTPS check as defence in depth.
-Assignment split/swap/batch, operational-block cancel/move/split, multi-segment
-block creation, Admin authentication/RBAC, real Staff identity and OTA behavior
+Assignment split/swap/batch, operational-block move/split, multi-segment
+block creation or supersede, Admin authentication/RBAC, real Staff identity and OTA behavior
 remain TARGET.
 
 ## Deliberately deferred decisions

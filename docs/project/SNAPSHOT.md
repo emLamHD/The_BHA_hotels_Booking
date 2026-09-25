@@ -290,9 +290,11 @@ này sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
   `POST /api/admin/v1/properties/{propertyId}/operational-blocks`
   (`PMS-CAL-001.3-CP01`; chưa có Admin frontend caller; endpoint từ chối
   `[startDate, endDate)` dài hơn **366 đêm** ngay tại HTTP boundary — chốt
-  chặn tài nguyên, không phải business rule về độ dài closure). `SupersedeAsync` dạng
-  split/batch và mọi OperationalBlock supersede (move/split/cancel) **vẫn**
-  internal-only. Không có Staff identity hay Admin RBAC model; cross-RoomType
+  chặn tài nguyên, không phải business rule về độ dài closure), và
+  `SupersedeSegmentsAsync` dạng một-segment, không replacement, qua
+  `POST .../operational-blocks/{segmentId}/cancel` (`PMS-CAL-001.3-CP02`;
+  chưa có Admin frontend caller). `SupersedeAsync` dạng split/batch và
+  OperationalBlock move/split/multi-segment supersede **vẫn** internal-only. Không có Staff identity hay Admin RBAC model; cross-RoomType
   assignment requires an opaque `AuthorizationEvidence`/`Reason` pair, not a
   real permission check. A
   shared `AdvisoryLockCoordinator` is now used by every advisory-lock-taking
@@ -453,10 +455,10 @@ evidence independently verified for this closeout via:
   không có OTA behavior thật. Riêng Admin Reservation Board là caller thật
   của các route assignment local-only: create của CP02 (CP03A/CP03B, merged),
   move một segment (CP04C, PR #53/#55) và unassign một segment (CP04D, PR
-  #63) của CP04B. Route tạo một OperationalBlock segment
-  (`PMS-CAL-001.3-CP01`) đã có ở backend nhưng **chưa** có Admin frontend
-  caller. Assignment split/batch và OperationalBlock supersede/cancel/move/
-  split vẫn chưa có route HTTP.
+  #63) của CP04B. Route tạo và hủy một OperationalBlock segment
+  (`PMS-CAL-001.3` CP01/CP02) đã có ở backend nhưng **chưa** có Admin
+  frontend caller. Assignment split/batch và OperationalBlock move/split vẫn
+  chưa có route HTTP.
 - `PROJECT_BIBLE.md`, `docs/design/PMS-DATA-001-core-database-blueprint-v2.md`,
   ADR (0001–0006), test baseline và source code là nguồn sự thật sản phẩm/
   kiến trúc. Chúng phân biệt rõ CURRENT frontend prototype (mock-only),
@@ -464,7 +466,7 @@ evidence independently verified for this closeout via:
   RoomType/RatePlan mỗi public request; `PMS-BE-001.2` physical-room
   schedule database authority/availability/internal mutation boundary — cả
   hai đã hoạt động; phần HTTP exposure local-only của schedule authority đã
-  CURRENT theo `PMS-CAL-001.1`/`PMS-CAL-001.2`/`PMS-CAL-001.3-CP01`) và
+  CURRENT theo `PMS-CAL-001.1`/`PMS-CAL-001.2`/`PMS-CAL-001.3` CP01–CP02) và
   TARGET (multi-RoomType public request, phần HTTP/Admin/Calendar mutation
   còn lại của schedule authority, Admin authentication/RBAC, OTA — chưa
   implement).
@@ -571,14 +573,15 @@ Snapshot này.
   thật — không đúng. `PMS-CAL-001.2-CP02` expose route tạo assignment
   (`POST .../reservation-assignments`), `CP04B` expose route move/unassign
   một segment (`.../{segmentId}/move`, `.../{segmentId}/unassign`), và
-  `PMS-CAL-001.3-CP01` expose route tạo một OperationalBlock segment
-  (`POST .../operational-blocks`, tối đa 366 đêm tại HTTP boundary). Tất cả
+  `PMS-CAL-001.3` expose route tạo một OperationalBlock segment
+  (`POST .../operational-blocks`, tối đa 366 đêm tại HTTP boundary; CP01) và
+  route hủy một segment (`.../{segmentId}/cancel`; CP02). Tất cả
   chỉ chạy được trên host Development loopback đã bật
   `AdminCalendar:EnableUnauthenticatedWrite` (mặc định tắt), không có Admin
   authentication/RBAC. Caller duy nhất của create/move/unassign assignment
-  là Admin Reservation Board; route tạo block chưa có Admin frontend
-  caller. Assignment split/batch và OperationalBlock supersede/cancel/move/
-  split vẫn chỉ tồn tại ở tầng application/persistence nội bộ
+  là Admin Reservation Board; hai route block chưa có Admin frontend
+  caller. Assignment split/batch và OperationalBlock move/split vẫn chỉ tồn
+  tại ở tầng application/persistence nội bộ
   (`PMS-BE-001.2`), không có route HTTP.
 - Nhầm phần còn lại của frontend mock prototype (`ADMIN-002.1`: front-desk
   creation workspace, lifecycle/folio/move demonstrations) — vẫn hoàn toàn
@@ -599,7 +602,8 @@ Snapshot này.
   integration đầy đủ, Staff identity, hoặc Admin RBAC thật — ngoài các
   endpoint local-only sau write gate CP01 (assignment create của
   `PMS-CAL-001.2` CP02, one-segment move/unassign của CP04B, và
-  single-segment operational-block create của `PMS-CAL-001.3-CP01`), những
+  single-segment operational-block create/cancel của `PMS-CAL-001.3`
+  CP01/CP02), những
   thứ này vẫn TARGET, chưa implement; `ActorReference`/`AuthorizationEvidence`
   chỉ là opaque string, không phải permission check thật.
 - Nhầm foundation normalized Item/Unit (`PMS-BE-001.1`, single-RoomType
