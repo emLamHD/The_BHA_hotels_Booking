@@ -127,10 +127,11 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   CURRENT ở mức local-only từ CP04B, single-segment operational-block
   *create* CURRENT ở mức local-only từ `PMS-CAL-001.3-CP01`) — assignment
   split/batch, OperationalBlock *cancel/move/split* và multi-segment block
-  create qua HTTP, frontend integration cho move/unassign/split/batch và cho
-  operational-block create, Admin authentication/RBAC thật, và Staff identity
-  thật để thay cho `ActorReference`/`AuthorizationEvidence` opaque hiện tại,
-  vẫn TARGET, chưa implement.
+  create qua HTTP, frontend integration cho split/batch và cho mọi
+  operational-block mutation (kể cả create), Admin authentication/RBAC
+  thật, và Staff identity thật để thay cho
+  `ActorReference`/`AuthorizationEvidence` opaque hiện tại, vẫn TARGET, chưa
+  implement.
 - Intentional cross-RoomType upgrade/downgrade **có authorization/reason/
   audit thật qua Staff/RBAC** (opaque `AuthorizationEvidence`/`Reason` string
   đã CURRENT ở mutation boundary trên, nhưng không phải permission check
@@ -141,10 +142,11 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   lifecycle riêng.
 - Admin PMS/Calendar UI thật, tức backend-integrated, server-authoritative
   **cho mutation** (Admin Web hiện có một interactive Reservation Board
-  frontend từ `ADMIN-002.1`/PR #32; phần đọc chính đã backend-integrated,
-  read-only, qua HTTPS từ `PMS-CAL-001.1`, nhưng front-desk creation
-  workspace và lifecycle/folio/move demonstrations vẫn chạy hoàn toàn trên
-  local mock state — chưa có mutation/persistence/auth thật).
+  frontend từ `ADMIN-002.1`/PR #32; phần đọc chính đã backend-integrated
+  qua HTTPS từ `PMS-CAL-001.1`, và board gọi các route local-only assignment
+  create/move/unassign ở trên — chưa có Admin authentication/RBAC thật.
+  Front-desk creation workspace và lifecycle/folio/move demonstrations vẫn
+  chạy hoàn toàn trên local mock state, chưa có mutation/persistence thật).
 
 Mixed-RoomType allocation không còn nằm trong danh sách "ngoài phạm vi" bên
 dưới — nó là TARGET/APPROVED, chưa implement, theo đúng nghĩa ở trên.
