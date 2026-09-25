@@ -1504,7 +1504,7 @@ describe("ReservationBoard — same-RoomType move (PMS-CAL-001.2-CP04C.5)", () =
     await openMoveDialog(user);
     await user.click(within(moveDialog()).getByLabelText(/Room 102/));
     await user.click(within(moveDialog()).getByRole("button", { name: "Move to room 102" }));
-    await within(moveDialog()).findByText("The request was not sent because the Admin API is not configured.");
+    await within(moveDialog()).findByText("The request was not sent. Nothing was saved.");
     expect(screen.queryByTestId("uncertain-write-notice")).not.toBeInTheDocument();
     expect(within(moveDialog()).getByRole("button", { name: "Move to room 102" })).toBeInTheDocument();
 

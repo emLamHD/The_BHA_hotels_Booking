@@ -38,7 +38,9 @@ export function describeAssignmentOutcome(outcome: AssignmentCreateOutcome): Ass
     case "not-sent":
       return {
         tone: "error",
-        title: "The request was not sent because the Admin API is not configured.",
+        // PMS-CAL-001.3-CP03-C1: not only configuration — the board also refuses
+        // before sending while a lost write locks the room; `detail` says which.
+        title: "The request was not sent. Nothing was saved.",
         detail: outcome.message,
         reloadBoard: false,
         allowResubmit: true,
@@ -141,7 +143,9 @@ export function describeMoveOutcome(outcome: MoveAssignmentOutcome): AssignmentO
     case "not-sent":
       return {
         tone: "error",
-        title: "The request was not sent because the Admin API is not configured.",
+        // PMS-CAL-001.3-CP03-C1: not only configuration — the board also refuses
+        // before sending while a lost write locks the room; `detail` says which.
+        title: "The request was not sent. Nothing was saved.",
         detail: outcome.message,
         reloadBoard: false,
         allowResubmit: true,

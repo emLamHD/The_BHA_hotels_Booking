@@ -104,23 +104,3 @@ export function settleBlockReconciliations(
 export function isBoardAwaitingBlockReconciliation(list: BlockCreateReconciliation[], key: string): boolean {
   return list.some((entry) => entry.key === key && entry.status !== "done");
 }
-
-/**
- * True while a lost-response block create for this room on this Property,
- * overlapping these nights, is unresolved — a second create there could
- * duplicate it, so the dialog refuses to send one.
- */
-export function isBlockCreateUnresolved(
-  list: BlockCreateReconciliation[],
-  propertyId: string,
-  physicalRoomId: string,
-  range: { startDate: string; endDate: string }
-): boolean {
-  return list.some(
-    (entry) =>
-      entry.resolution === "unresolved" &&
-      entry.propertyId === propertyId &&
-      entry.target.physicalRoomId === physicalRoomId &&
-      overlaps(entry.target, range)
-  );
-}

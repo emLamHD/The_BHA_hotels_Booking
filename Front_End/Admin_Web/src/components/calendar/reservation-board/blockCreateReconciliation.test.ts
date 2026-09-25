@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ReservationBoardOperationalBlock, ReservationBoardResponse } from "@/lib/api/types";
 import {
-  isBlockCreateUnresolved,
   isBoardAwaitingBlockReconciliation,
   settleBlockReconciliations,
   type BlockCreateReconciliation,
@@ -98,19 +97,5 @@ describe("blockCreateReconciliation (PMS-CAL-001.3-CP03)", () => {
       board: board("2026-09-01", "2026-09-15", [{}], "prop-b"),
     });
     expect(otherProperty[0].resolution).toBe("unresolved");
-  });
-
-  it("locks only the same room on the same Property over overlapping nights while unresolved", () => {
-    const list = [entry()];
-    expect(isBlockCreateUnresolved(list, "prop-a", "room-101", { startDate: "2026-09-04", endDate: "2026-09-08" })).toBe(true);
-    expect(isBlockCreateUnresolved(list, "prop-a", "room-101", { startDate: "2026-09-05", endDate: "2026-09-08" })).toBe(false);
-    expect(isBlockCreateUnresolved(list, "prop-a", "room-102", { startDate: "2026-09-02", endDate: "2026-09-05" })).toBe(false);
-    expect(isBlockCreateUnresolved(list, "prop-b", "room-101", { startDate: "2026-09-02", endDate: "2026-09-05" })).toBe(false);
-    expect(
-      isBlockCreateUnresolved([entry({ resolution: "observed" })], "prop-a", "room-101", {
-        startDate: "2026-09-02",
-        endDate: "2026-09-05",
-      })
-    ).toBe(false);
   });
 });

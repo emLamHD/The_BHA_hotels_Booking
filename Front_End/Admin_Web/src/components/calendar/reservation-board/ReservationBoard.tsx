@@ -75,7 +75,6 @@ import ReservationBlockCreateDialog, {
 } from "./ReservationBlockCreateDialog";
 import {
   boardCanEvaluateBlock,
-  isBlockCreateUnresolved,
   isBoardAwaitingBlockReconciliation,
   settleBlockReconciliations,
   type BlockCreateReconciliation,
@@ -90,6 +89,7 @@ import {
   isBoardAwaitingReconciliation,
   isSegmentMoveUnresolved,
   isSegmentUnassignUnresolved,
+  isRoomRangeUnresolved,
   isUnassignedRangeUnresolved,
   settleReconciliations,
   type Reconciliation,
@@ -124,6 +124,10 @@ import type {
 } from "@/lib/api/types";
 
 const INITIAL_RANGE_LENGTH: ReservationBoardRangeLength = 14;
+
+/** PMS-CAL-001.3-CP03-C1: why a write was refused before sending (see `isRoomLocked`). */
+const ROOM_LOCKED_MESSAGE =
+  "An earlier request for this room on overlapping nights is still unconfirmed. Nothing was sent; check the board again before sending another.";
 
 type PropertiesState =
   | { status: "loading" }
@@ -276,6 +280,12 @@ const ReservationBoard: React.FC = () => {
   const [blockNotice, setBlockNotice] = useState<{ text: string; reconciliationId: number } | null>(null);
   const blockNoticeRef = useRef<HTMLDivElement>(null);
   const blockRequestPendingRef = useRef(false);
+  /**
+   * PMS-CAL-001.3-CP03-C1: the open block dialog has sent a request. Such a
+   * dialog is never closed by navigation — it must stay to report its own
+   * result — even after the request is no longer pending.
+   */
+  const blockSubmittedRef = useRef(false);
   const [blockReconciliations, setBlockReconciliations] = useState<BlockCreateReconciliation[]>([]);
   const blockReconciliationsRef = useRef<BlockCreateReconciliation[]>([]);
   const referencedBlockIdsRef = useRef<{ dialog: number | null; notice: number | null }>({
@@ -321,6 +331,24 @@ const ReservationBoard: React.FC = () => {
     (key: string) =>
       isBoardAwaitingReconciliation(reconciliationsRef.current, key) ||
       isBoardAwaitingBlockReconciliation(blockReconciliationsRef.current, key),
+    []
+  );
+
+  /**
+   * PMS-CAL-001.3-CP03-C1: true while a lost-response write of any type is
+   * still unresolved for one of these rooms over overlapping nights on this
+   * Property (`isRoomRangeUnresolved`). Read from the refs, so a lock that
+   * appeared after a dialog opened is still seen at the moment of sending.
+   */
+  const isRoomLocked = useCallback(
+    (propertyId: string, physicalRoomIds: string[], range: { startDate: string; endDate: string }) =>
+      isRoomRangeUnresolved(
+        reconciliationsRef.current,
+        blockReconciliationsRef.current,
+        propertyId,
+        physicalRoomIds,
+        range
+      ),
     []
   );
 
@@ -414,8 +442,32 @@ const ReservationBoard: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPropertyId, range?.start, range?.endExclusive, retryToken]);
 
+  /**
+   * PMS-CAL-001.3-CP03-C1: every navigation records the board identity it is
+   * about to show in `currentBoardKeyRef` synchronously, inside the event
+   * handler. The effect that also sets it runs only after React renders, and
+   * a write that resolves in between must already see the new identity — or
+   * it would paint its result onto a board the operator has left. A control
+   * that leaves the identity unchanged records the same key, so it is not
+   * mistaken for navigation.
+   */
+  const markNavigation = useCallback(
+    (propertyId: string | null, anchor: IsoDate | null, length: ReservationBoardRangeLength) => {
+      if (!propertyId || !anchor) return;
+      const next = buildVisibleRange(computeVisibleStartFromAnchor(anchor, length), length);
+      currentBoardKeyRef.current = boardIdentityKey(propertyId, next.start, next.endExclusive);
+    },
+    []
+  );
+
   const handleSelectProperty = useCallback(
     (propertyId: string) => {
+      const property =
+        propertiesState.status === "loaded"
+          ? propertiesState.properties.find((candidate) => candidate.id === propertyId)
+          : undefined;
+      const nextAnchor = property ? todayInTimeZone(property.timeZone) : anchorDate;
+      markNavigation(propertyId, nextAnchor, rangeLength);
       setSelectedPropertyId(propertyId);
       setSelection(null);
       setAssignmentTarget(null);
@@ -424,35 +476,44 @@ const ReservationBoard: React.FC = () => {
       setMoveNotice(null);
       if (!unassignRequestPendingRef.current) setUnassignTarget(null);
       setUnassignNotice(null);
-      if (!blockRequestPendingRef.current) setBlockTarget(null);
+      if (!blockSubmittedRef.current) setBlockTarget(null);
       setBlockNotice(null);
-      if (propertiesState.status === "loaded") {
-        const property = propertiesState.properties.find((candidate) => candidate.id === propertyId);
-        if (property) {
-          setAnchorDate(todayInTimeZone(property.timeZone));
-        }
-      }
+      if (nextAnchor !== anchorDate) setAnchorDate(nextAnchor);
     },
-    [propertiesState]
+    [propertiesState, anchorDate, rangeLength, markNavigation]
   );
 
   const handlePrev = useCallback(() => {
     if (!anchorDate) return;
-    setAnchorDate(addDaysIso(anchorDate, -rangeLength));
-  }, [anchorDate, rangeLength]);
+    const nextAnchor = addDaysIso(anchorDate, -rangeLength);
+    markNavigation(selectedPropertyId, nextAnchor, rangeLength);
+    setAnchorDate(nextAnchor);
+  }, [anchorDate, rangeLength, selectedPropertyId, markNavigation]);
 
   const handleNext = useCallback(() => {
     if (!anchorDate) return;
-    setAnchorDate(addDaysIso(anchorDate, rangeLength));
-  }, [anchorDate, rangeLength]);
+    const nextAnchor = addDaysIso(anchorDate, rangeLength);
+    markNavigation(selectedPropertyId, nextAnchor, rangeLength);
+    setAnchorDate(nextAnchor);
+  }, [anchorDate, rangeLength, selectedPropertyId, markNavigation]);
 
   const handleToday = useCallback(() => {
     if (propertiesState.status !== "loaded" || !selectedPropertyId) return;
     const property = propertiesState.properties.find((candidate) => candidate.id === selectedPropertyId);
     if (property) {
-      setAnchorDate(todayInTimeZone(property.timeZone));
+      const nextAnchor = todayInTimeZone(property.timeZone);
+      markNavigation(selectedPropertyId, nextAnchor, rangeLength);
+      setAnchorDate(nextAnchor);
     }
-  }, [propertiesState, selectedPropertyId]);
+  }, [propertiesState, selectedPropertyId, rangeLength, markNavigation]);
+
+  const handleSelectRangeLength = useCallback(
+    (length: ReservationBoardRangeLength) => {
+      markNavigation(selectedPropertyId, anchorDate, length);
+      setRangeLength(length);
+    },
+    [selectedPropertyId, anchorDate, markNavigation]
+  );
 
   const handleToggleFilter = useCallback((key: keyof ReservationBoardFilters) => {
     setFilters((previous) => ({ ...previous, [key]: !previous[key] }));
@@ -531,6 +592,10 @@ const ReservationBoard: React.FC = () => {
       // never send `confirmCrossRoomType: false` for a room that is not, in
       // fact, the Unit's sold RoomType.
       const isCrossRoomType = room.roomTypeId !== target.stay.soldRoomTypeId;
+      // PMS-CAL-001.3-CP03-C1: re-checked at send time, not only when the dialog opened.
+      if (isRoomLocked(target.propertyId, [room.id], target.unassignedRange)) {
+        return { kind: "not-sent", message: ROOM_LOCKED_MESSAGE };
+      }
 
       const outcome = await createReservationAssignment(target.propertyId, {
         reservationUnitId: target.stay.reservationUnitId,
@@ -583,7 +648,7 @@ const ReservationBoard: React.FC = () => {
       }
       return outcome;
     },
-    [updateReconciliations, keepReconciliation]
+    [updateReconciliations, keepReconciliation, isRoomLocked]
   );
 
   const handleMoveRoom = useCallback(
@@ -610,13 +675,17 @@ const ReservationBoard: React.FC = () => {
       ) {
         return;
       }
+      // PMS-CAL-001.3-CP03-C1: nor while another lost write still touches its room and nights.
+      if (isRoomLocked(boardState.board.property.id, [moveSelection.segment.physicalRoomId], moveSelection.segment)) {
+        return;
+      }
       const target = buildMoveTarget(boardState.board, selectedPropertyId, moveSelection);
       if (!target) return;
       setSelection(null);
       setDialogMoveReconciliationId(null);
       setMoveTarget(target);
     },
-    [boardState, selectedPropertyId, isBoardAwaitingAnyWrite]
+    [boardState, selectedPropertyId, isBoardAwaitingAnyWrite, isRoomLocked]
   );
 
   /** PMS-CAL-001.2-CP04D-BOARD-WIRING: the unassign counterpart of `handleMoveRoom` above, same two guards. */
@@ -642,13 +711,16 @@ const ReservationBoard: React.FC = () => {
       ) {
         return;
       }
+      if (isRoomLocked(boardState.board.property.id, [unassignSelection.segment.physicalRoomId], unassignSelection.segment)) {
+        return;
+      }
       const target = buildUnassignTarget(boardState.board, selectedPropertyId, unassignSelection);
       if (!target) return;
       setSelection(null);
       setDialogUnassignReconciliationId(null);
       setUnassignTarget(target);
     },
-    [boardState, selectedPropertyId, isBoardAwaitingAnyWrite]
+    [boardState, selectedPropertyId, isBoardAwaitingAnyWrite, isRoomLocked]
   );
 
   const submitMove = useCallback(
@@ -672,6 +744,10 @@ const ReservationBoard: React.FC = () => {
       // same-sold-RoomType — this is the line that turns that choice into
       // the request's own `confirmCrossRoomType`.
       const isCrossRoomType = room.roomTypeId !== target.stay.soldRoomTypeId;
+      // PMS-CAL-001.3-CP03-C1: a move changes both its source and its destination room.
+      if (isRoomLocked(target.propertyId, [room.id, target.segment.physicalRoomId], target.segment)) {
+        return { kind: "not-sent", message: ROOM_LOCKED_MESSAGE };
+      }
 
       moveRequestPendingRef.current = true;
       const outcome = await moveReservationAssignment(target.propertyId, target.segment.segmentId, {
@@ -738,7 +814,7 @@ const ReservationBoard: React.FC = () => {
       }
       return outcome;
     },
-    [updateReconciliations, keepReconciliation]
+    [updateReconciliations, keepReconciliation, isRoomLocked]
   );
 
   /**
@@ -751,6 +827,9 @@ const ReservationBoard: React.FC = () => {
   const submitUnassign = useCallback(
     async (target: UnassignTarget, reason?: string): Promise<UnassignAssignmentOutcome> => {
       const { propertyId, segmentId, request } = buildUnassignRequest(target, reason);
+      if (isRoomLocked(propertyId, [target.segment.physicalRoomId], target.segment)) {
+        return { kind: "not-sent", message: ROOM_LOCKED_MESSAGE };
+      }
       unassignRequestPendingRef.current = true;
       const outcome = await unassignReservationAssignment(propertyId, segmentId, request);
       unassignRequestPendingRef.current = false;
@@ -784,7 +863,7 @@ const ReservationBoard: React.FC = () => {
       }
       return outcome;
     },
-    [updateReconciliations, keepReconciliation]
+    [updateReconciliations, keepReconciliation, isRoomLocked]
   );
 
   const currentBoardKey =
@@ -793,10 +872,10 @@ const ReservationBoard: React.FC = () => {
   useEffect(() => {
     currentBoardKeyRef.current = currentBoardKey;
     // A block dialog offers the rooms and nights of the board it was opened
-    // from; once the view shows another board, an idle one is stale. One whose
-    // request is in flight stays open to report its own result.
+    // from; once the view shows another board, one that has sent nothing is
+    // stale. One that has sent a request stays open to report its own result.
     setBlockTarget((open) =>
-      open && !blockRequestPendingRef.current && open.boardKey !== currentBoardKey ? null : open
+      open && !blockSubmittedRef.current && open.boardKey !== currentBoardKey ? null : open
     );
   }, [currentBoardKey]);
 
@@ -815,6 +894,7 @@ const ReservationBoard: React.FC = () => {
         roomTypeName: roomTypeNames.get(room.roomTypeId) ?? "Unknown room type",
       }));
     if (rooms.length === 0) return;
+    blockSubmittedRef.current = false;
     setSelection(null);
     setDialogBlockReconciliationId(null);
     setBlockTarget({
@@ -829,8 +909,8 @@ const ReservationBoard: React.FC = () => {
 
   const isBlockRangeLocked = useCallback(
     (propertyId: string, physicalRoomId: string, startDate: string, endDate: string) =>
-      isBlockCreateUnresolved(blockReconciliationsRef.current, propertyId, physicalRoomId, { startDate, endDate }),
-    []
+      isRoomLocked(propertyId, [physicalRoomId], { startDate, endDate }),
+    [isRoomLocked]
   );
 
   const submitBlockCreate = useCallback(
@@ -840,8 +920,12 @@ const ReservationBoard: React.FC = () => {
       if (!room) {
         return { kind: "not-sent", message: "Choose one of the listed rooms." };
       }
+      if (isRoomLocked(target.propertyId, [room.id], request)) {
+        return { kind: "not-sent", message: ROOM_LOCKED_MESSAGE };
+      }
 
       blockRequestPendingRef.current = true;
+      blockSubmittedRef.current = true;
       let outcome: OperationalBlockCreateOutcome;
       try {
         outcome = await createOperationalBlock(target.propertyId, {
@@ -899,7 +983,7 @@ const ReservationBoard: React.FC = () => {
       }
       return outcome;
     },
-    [updateBlockReconciliations]
+    [updateBlockReconciliations, isRoomLocked]
   );
 
   const reconciliationStatus = (id: number | null): BoardReloadStatus => {
@@ -1030,20 +1114,28 @@ const ReservationBoard: React.FC = () => {
    * opening a dialog, exposed so the popover can disable its Move room
    * button in advance rather than let the operator open it and find out.
    */
-  const isMoveBlockedForSegment = useCallback(
-    (segmentId: string) =>
-      displayedBoardAwaitingReconciliation ||
-      (selectedPropertyId !== null && isSegmentMoveUnresolved(reconciliations, selectedPropertyId, segmentId)),
-    [displayedBoardAwaitingReconciliation, reconciliations, selectedPropertyId]
-  );
+  /** PMS-CAL-001.3-CP03-C1: the displayed segment's own room and nights are locked by another lost write. */
+  const isSegmentRoomLocked = (segmentId: string) => {
+    if (boardState.status !== "loaded") return false;
+    const segment = boardState.board.stays
+      .flatMap((stay) => stay.assignments)
+      .find((assignment) => assignment.segmentId === segmentId);
+    return (
+      segment !== undefined &&
+      isRoomRangeUnresolved(reconciliations, blockReconciliations, boardState.board.property.id, [segment.physicalRoomId], segment)
+    );
+  };
+
+  const isMoveBlockedForSegment = (segmentId: string) =>
+    displayedBoardAwaitingReconciliation ||
+    (selectedPropertyId !== null && isSegmentMoveUnresolved(reconciliations, selectedPropertyId, segmentId)) ||
+    isSegmentRoomLocked(segmentId);
 
   /** PMS-CAL-001.2-CP04D-BOARD-WIRING: the unassign counterpart of `isMoveBlockedForSegment` above, independent of it. */
-  const isUnassignBlockedForSegment = useCallback(
-    (segmentId: string) =>
-      displayedBoardAwaitingReconciliation ||
-      (selectedPropertyId !== null && isSegmentUnassignUnresolved(reconciliations, selectedPropertyId, segmentId)),
-    [displayedBoardAwaitingReconciliation, reconciliations, selectedPropertyId]
-  );
+  const isUnassignBlockedForSegment = (segmentId: string) =>
+    displayedBoardAwaitingReconciliation ||
+    (selectedPropertyId !== null && isSegmentUnassignUnresolved(reconciliations, selectedPropertyId, segmentId)) ||
+    isSegmentRoomLocked(segmentId);
 
   /**
    * PMS-CAL-001.2-CP04C.5-C2: the one place focus returns to after the move
@@ -1197,7 +1289,7 @@ const ReservationBoard: React.FC = () => {
         selectedPropertyId={selectedPropertyId ?? ""}
         onSelectProperty={handleSelectProperty}
         rangeLength={rangeLength}
-        onSelectRangeLength={setRangeLength}
+        onSelectRangeLength={handleSelectRangeLength}
         rangeLabel={rangeLabel}
         onPrev={handlePrev}
         onNext={handleNext}

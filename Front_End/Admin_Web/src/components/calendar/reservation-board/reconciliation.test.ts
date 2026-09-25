@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  isRoomRangeUnresolved,
   boardCanEvaluate,
   evaluateUncertainWrite,
   isBoardAwaitingReconciliation,
@@ -623,5 +624,39 @@ describe("unassign reconciliation (PMS-CAL-001.2-CP04D.3)", () => {
     const second = settleReconciliations(first, A, 7, loaded(sourceIntact));
     expect(second).toBe(first);
     expect(second[0]).toBe(first[0]);
+  });
+});
+
+describe("isRoomRangeUnresolved (PMS-CAL-001.3-CP03-C1)", () => {
+  const nights = { startDate: "2026-09-02", endDate: "2026-09-05" };
+  const base = { id: 1, key: "k", propertyId: "prop-a", from: "2026-09-01", to: "2026-09-15", afterSeq: 1, certainty: "uncertain" as const };
+  const person = { reservationUnitId: "unit-1", roomNumber: "101", guestDisplayName: "G", confirmationNumber: "C" };
+  const move = {
+    ...base,
+    // Re-read already completed, yet still unresolved: must keep locking.
+    status: "done" as const,
+    resolution: "unresolved" as const,
+    target: { ...person, ...nights, operation: "move" as const, physicalRoomId: "room-102", sourcePhysicalRoomId: "room-101", segmentId: "s", expectedVersion: 1 },
+  };
+  const block = {
+    ...base,
+    status: "done" as const,
+    resolution: "unresolved" as const,
+    target: { physicalRoomId: "room-201", roomNumber: "201", ...nights, reason: "Leak" },
+  };
+
+  it("locks both rooms of an unresolved move and the room of an unresolved block, on overlapping nights of the same Property only", () => {
+    expect(isRoomRangeUnresolved([move], [], "prop-a", ["room-101"], { startDate: "2026-09-04", endDate: "2026-09-06" })).toBe(true);
+    expect(isRoomRangeUnresolved([move], [], "prop-a", ["room-102"], nights)).toBe(true);
+    expect(isRoomRangeUnresolved([], [block], "prop-a", ["room-201"], nights)).toBe(true);
+    expect(isRoomRangeUnresolved([move], [block], "prop-a", ["room-301"], nights)).toBe(false);
+    expect(isRoomRangeUnresolved([move], [block], "prop-a", ["room-101"], { startDate: "2026-09-05", endDate: "2026-09-07" })).toBe(false);
+    expect(isRoomRangeUnresolved([move], [block], "prop-b", ["room-101", "room-201"], nights)).toBe(false);
+  });
+
+  it("releases the lock once the write is settled, observed or changed", () => {
+    expect(isRoomRangeUnresolved([{ ...move, resolution: "changed" }], [], "prop-a", ["room-101"], nights)).toBe(false);
+    expect(isRoomRangeUnresolved([{ ...move, resolution: "observed" }], [], "prop-a", ["room-102"], nights)).toBe(false);
+    expect(isRoomRangeUnresolved([], [{ ...block, resolution: "observed" }], "prop-a", ["room-201"], nights)).toBe(false);
   });
 });
