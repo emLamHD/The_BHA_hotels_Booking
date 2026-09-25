@@ -136,7 +136,9 @@ loopback host with the write opt-in on:
 - `POST .../operational-blocks/{segmentId}/cancel` — a single-segment,
   zero-replacement slice of `IOperationalBlockMutationStore.SupersedeSegmentsAsync`
   (`PMS-CAL-001.3-CP02`): the segment becomes Cancelled, the RoomBlock header
-  and audit history stay. No Admin frontend calls either block route yet.
+  and audit history stay. The Admin Reservation Board calls the create route
+  (`PMS-CAL-001.3-CP03`: one Active room, a confirmed range within the visible
+  board, then an authoritative re-read); no Admin frontend calls cancel yet.
 
 The audit actor — and, where an operation can carry one, the authorization
 evidence — are fixed server-owned constants naming this local boundary: not a

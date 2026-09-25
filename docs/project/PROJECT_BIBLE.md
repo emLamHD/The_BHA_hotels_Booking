@@ -110,8 +110,11 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   cho `IOperationalBlockMutationStore.CreateBlockAsync`, tạo **đúng một**
   OperationalBlock segment dưới một RoomBlock header mới, chỉ chạy trên host
   Development loopback đã bật opt-in. Audit actor là cùng hằng số do server sở
-  hữu; request không mang actor/authorization evidence. **Chưa có** frontend
-  nào gọi nó. ADR 0006 §Amendments (2026-09-24) ghi nhận phần exposure này.
+  hữu; request không mang actor/authorization evidence. Từ
+  `PMS-CAL-001.3-CP03`, Admin Reservation Board gọi nó qua dialog trên
+  toolbar (một phòng Active, khoảng đêm đã xác nhận nằm trong board đang hiển
+  thị, rồi đọc lại board từ server). ADR 0006 §Amendments (2026-09-24) ghi
+  nhận phần exposure này.
 - `PMS-CAL-001.3-CP02` (không có migration mới) thêm
   `POST .../operational-blocks/{segmentId}/cancel` sau cùng gate: hủy **đúng
   một** OperationalBlock segment Effective qua
@@ -133,8 +136,8 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   CURRENT ở mức local-only từ CP04B, single-segment operational-block
   *create*/*cancel* CURRENT ở mức local-only từ `PMS-CAL-001.3` CP01/CP02) —
   assignment split/batch, OperationalBlock *move/split* và multi-segment block
-  create/supersede qua HTTP, frontend integration cho split/batch và cho mọi
-  operational-block mutation (kể cả create), Admin authentication/RBAC
+  create/supersede qua HTTP, frontend integration cho split/batch và cho
+  operational-block cancel/move/split, Admin authentication/RBAC
   thật, và Staff identity thật để thay cho
   `ActorReference`/`AuthorizationEvidence` opaque hiện tại, vẫn TARGET, chưa
   implement.
@@ -150,7 +153,8 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   **cho mutation** (Admin Web hiện có một interactive Reservation Board
   frontend từ `ADMIN-002.1`/PR #32; phần đọc chính đã backend-integrated
   qua HTTPS từ `PMS-CAL-001.1`, và board gọi các route local-only assignment
-  create/move/unassign ở trên — chưa có Admin authentication/RBAC thật.
+  create/move/unassign và operational-block create ở trên — chưa có Admin
+  authentication/RBAC thật.
   Front-desk creation workspace và lifecycle/folio/move demonstrations vẫn
   chạy hoàn toàn trên local mock state, chưa có mutation/persistence thật).
 

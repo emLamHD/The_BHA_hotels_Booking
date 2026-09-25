@@ -288,7 +288,7 @@ này sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
   dạng một-segment qua `POST .../reservation-assignments/{segmentId}/move` và
   `.../unassign` (CP04B), và `CreateBlockAsync` dạng một-segment qua
   `POST /api/admin/v1/properties/{propertyId}/operational-blocks`
-  (`PMS-CAL-001.3-CP01`; chưa có Admin frontend caller; endpoint từ chối
+  (`PMS-CAL-001.3-CP01`; Admin Reservation Board gọi từ CP03; endpoint từ chối
   `[startDate, endDate)` dài hơn **366 đêm** ngay tại HTTP boundary — chốt
   chặn tài nguyên, không phải business rule về độ dài closure), và
   `SupersedeSegmentsAsync` dạng một-segment, không replacement, qua
@@ -455,10 +455,11 @@ evidence independently verified for this closeout via:
   không có OTA behavior thật. Riêng Admin Reservation Board là caller thật
   của các route assignment local-only: create của CP02 (CP03A/CP03B, merged),
   move một segment (CP04C, PR #53/#55) và unassign một segment (CP04D, PR
-  #63) của CP04B. Route tạo và hủy một OperationalBlock segment
-  (`PMS-CAL-001.3` CP01/CP02) đã có ở backend nhưng **chưa** có Admin
-  frontend caller. Assignment split/batch và OperationalBlock move/split vẫn
-  chưa có route HTTP.
+  #63) của CP04B, và của route tạo một OperationalBlock segment
+  (`PMS-CAL-001.3-CP01`) qua dialog trên toolbar từ CP03 — khoảng đêm nằm
+  trong board đang hiển thị, rồi đọc lại board từ server. Route hủy block
+  (CP02) đã có ở backend nhưng **chưa** có Admin frontend caller. Assignment
+  split/batch và OperationalBlock move/split vẫn chưa có route HTTP.
 - `PROJECT_BIBLE.md`, `docs/design/PMS-DATA-001-core-database-blueprint-v2.md`,
   ADR (0001–0006), test baseline và source code là nguồn sự thật sản phẩm/
   kiến trúc. Chúng phân biệt rõ CURRENT frontend prototype (mock-only),
@@ -579,10 +580,10 @@ Snapshot này.
   chỉ chạy được trên host Development loopback đã bật
   `AdminCalendar:EnableUnauthenticatedWrite` (mặc định tắt), không có Admin
   authentication/RBAC. Caller duy nhất của create/move/unassign assignment
-  là Admin Reservation Board; hai route block chưa có Admin frontend
-  caller. Assignment split/batch và OperationalBlock move/split vẫn chỉ tồn
-  tại ở tầng application/persistence nội bộ
-  (`PMS-BE-001.2`), không có route HTTP.
+  là Admin Reservation Board; board cũng gọi route tạo block (CP03), còn
+  route hủy block chưa có Admin frontend caller. Assignment split/batch và
+  OperationalBlock move/split vẫn chỉ tồn tại ở tầng application/persistence
+  nội bộ (`PMS-BE-001.2`), không có route HTTP.
 - Nhầm phần còn lại của frontend mock prototype (`ADMIN-002.1`: front-desk
   creation workspace, lifecycle/folio/move demonstrations) — vẫn hoàn toàn
   mock-only — với backend PMS behavior thật.

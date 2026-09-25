@@ -680,6 +680,8 @@ describe("PMS-CAL-001.2-CP03A-C1 corrections", () => {
   // target a cross-RoomType destination, with confirmation and a reason),
   // so the banner's negative claim flips — it must now say cross-RoomType
   // move *is* offered, and must no longer list it among the read-only items.
+  // PMS-CAL-001.3-CP03: unassign and operational-block create are live, so
+  // neither may be listed as read-only; block cancel still is.
 
   it("describes exactly what the board can write, without claiming everything is read-only or promising unbuilt capability", async () => {
     await renderLoadedBoard();
@@ -691,9 +693,11 @@ describe("PMS-CAL-001.2-CP03A-C1 corrections", () => {
     expect(capabilities).toHaveTextContent(
       "An assigned segment can be moved to another Active room, of the same sold room type or, with confirmation and a reason, a different one."
     );
-    expect(capabilities).toHaveTextContent(
-      "Unassign, operational blocks and other lifecycle actions are read-only."
-    );
+    expect(capabilities).toHaveTextContent("It can also be unassigned.");
+    expect(capabilities).toHaveTextContent("An Active room can be blocked for a range of nights with a reason.");
+    expect(capabilities).toHaveTextContent("Cancelling blocks and other lifecycle actions are read-only.");
+    expect(capabilities).not.toHaveTextContent(/unassign.{0,40}read-only/i);
+    expect(capabilities).not.toHaveTextContent(/operational blocks.{0,40}read-only/i);
     expect(capabilities).toHaveTextContent("local Development write opt-in");
     expect(capabilities).toHaveTextContent("no production sign-in or permissions yet");
     expect(capabilities).not.toHaveTextContent(/no assignment/i);
