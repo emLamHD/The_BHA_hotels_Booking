@@ -120,7 +120,14 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   một** OperationalBlock segment Effective qua
   `IOperationalBlockMutationStore.SupersedeSegmentsAsync` với danh sách thay
   thế rỗng và `expectedVersion` bắt buộc; RoomBlock header và audit được giữ.
-  **Chưa có** frontend nào gọi nó. ADR 0006 §Amendments (2026-09-25).
+  ADR 0006 §Amendments (2026-09-25).
+- `PMS-CAL-001.3-CP04` (không có migration mới) đưa Admin Reservation Board
+  thành caller đầu tiên của route cancel: chọn một block bar trên timeline,
+  popover hiển thị **toàn bộ `[startDate, endDate)` của segment** (không phải
+  phần bar bị cắt theo cửa sổ đang xem), xác nhận với lý do tùy chọn, gửi đúng
+  một request kèm `expectedVersion` đọc từ board, rồi đọc lại board — block chỉ
+  biến mất từ dữ liệu GET. Lost response không bao giờ được gửi lại và giữ khóa
+  phòng/đêm cho mọi loại ghi.
 
 ### Target/approved, chưa implement (TARGET)
 
@@ -134,10 +141,11 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   read projection CURRENT từ `PMS-CAL-001.1`, assignment *create* CURRENT ở
   mức local-only từ `PMS-CAL-001.2` CP02, one-segment *move*/*unassign*
   CURRENT ở mức local-only từ CP04B, single-segment operational-block
-  *create*/*cancel* CURRENT ở mức local-only từ `PMS-CAL-001.3` CP01/CP02) —
+  *create*/*cancel* CURRENT ở mức local-only từ `PMS-CAL-001.3` CP01/CP02,
+  và Admin Reservation Board gọi cả hai từ CP03/CP04) —
   assignment split/batch, OperationalBlock *move/split* và multi-segment block
   create/supersede qua HTTP, frontend integration cho split/batch và cho
-  operational-block cancel/move/split, Admin authentication/RBAC
+  operational-block move/split, Admin authentication/RBAC
   thật, và Staff identity thật để thay cho
   `ActorReference`/`AuthorizationEvidence` opaque hiện tại, vẫn TARGET, chưa
   implement.
@@ -153,8 +161,8 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   **cho mutation** (Admin Web hiện có một interactive Reservation Board
   frontend từ `ADMIN-002.1`/PR #32; phần đọc chính đã backend-integrated
   qua HTTPS từ `PMS-CAL-001.1`, và board gọi các route local-only assignment
-  create/move/unassign và operational-block create ở trên — chưa có Admin
-  authentication/RBAC thật.
+  create/move/unassign và operational-block create/cancel ở trên — chưa có
+  Admin authentication/RBAC thật.
   Front-desk creation workspace và lifecycle/folio/move demonstrations vẫn
   chạy hoàn toàn trên local mock state, chưa có mutation/persistence thật).
 

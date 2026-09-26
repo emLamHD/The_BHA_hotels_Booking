@@ -188,3 +188,19 @@ export interface CreateOperationalBlockResponse {
   roomBlockId: string;
   segment: RoomOccupancySegment;
 }
+
+/**
+ * PMS-CAL-001.3-CP04: body of
+ * `POST /api/admin/v1/properties/{propertyId}/operational-blocks/{segmentId}/cancel`,
+ * mirroring the backend's `CancelOperationalBlockRequest`. Supersedes the one
+ * segment named in the URL with zero replacements: there is no room and no
+ * date range to carry, because a cancel never moves or reshapes a block, and —
+ * like every other Admin Calendar write request — it carries no actor and no
+ * authorization evidence.
+ */
+export interface CancelOperationalBlockRequest {
+  /** The segment's `Version` as last read from the board projection. */
+  expectedVersion: number;
+  /** Optional; already-trimmed when present. Never required. */
+  reason?: string;
+}

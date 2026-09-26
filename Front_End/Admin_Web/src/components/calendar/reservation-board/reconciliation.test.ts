@@ -642,7 +642,7 @@ describe("isRoomRangeUnresolved (PMS-CAL-001.3-CP03-C1)", () => {
     ...base,
     status: "done" as const,
     resolution: "unresolved" as const,
-    target: { physicalRoomId: "room-201", roomNumber: "201", ...nights, reason: "Leak" },
+    target: { operation: "create" as const, physicalRoomId: "room-201", roomNumber: "201", ...nights, reason: "Leak" },
   };
 
   it("locks both rooms of an unresolved move and the room of an unresolved block, on overlapping nights of the same Property only", () => {

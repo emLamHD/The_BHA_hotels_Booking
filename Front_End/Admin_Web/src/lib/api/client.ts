@@ -8,6 +8,7 @@
 import { describeApiBaseUrlError, getApiBaseUrl } from "./env";
 import type {
   ApiProperty,
+  CancelOperationalBlockRequest,
   CreateOperationalBlockRequest,
   CreateOperationalBlockResponse,
   CreateReservationAssignmentRequest,
@@ -728,6 +729,136 @@ export async function createOperationalBlock(
         return { kind: "rejected", status, category: "validation", detail: validationDetail(problem) };
       case 403:
       case 404:
+        return { kind: "rejected", status, category: "not-permitted" };
+      case 409:
+        return { kind: "rejected", status, category: "conflict", detail: safeProblemText(problem?.detail) };
+      default:
+        return { kind: "rejected", status, category: "refused", detail: safeProblemText(problem?.detail) };
+    }
+  } finally {
+    clearTimeout(timeoutHandle);
+    options.signal?.removeEventListener("abort", forwardAbort);
+  }
+}
+
+/**
+ * PMS-CAL-001.3-CP04: what is known after one operational-block cancel attempt
+ * against `POST .../operational-blocks/{segmentId}/cancel`. Its own type rather
+ * than a reuse of {@link OperationalBlockCreateOutcome}, because the success
+ * case proves something different: a create proves a block now exists, a cancel
+ * proves one specific segment is no longer Effective.
+ *
+ * - `cancelled`: `200`. Proof of a write. `segment` is the cancelled segment
+ *   with its new `status`/`version`, and is `null` only when that body could not
+ *   be read — the status is the proof, not the body.
+ * - `not-sent`: the request never left the browser (configuration, or a signal
+ *   already aborted). Proof of no write.
+ * - `rejected`: a `4xx`. The store refuses inside its transaction and the write
+ *   gate refuses before any action runs, so it is proof of no write. `403` is
+ *   the gate's origin refusal; `404` is a closed gate (empty body), a segment
+ *   this Property does not own, or one that is not a block at all — all
+ *   reported without server detail, so a closed gate is never shown as though
+ *   the block had been deleted. `409` is a stale `expectedVersion` or a segment
+ *   already cancelled.
+ * - `unknown`: a network failure, a timeout, an abort after sending, or a
+ *   `5xx` — the segment may or may not have been cancelled. Never retried
+ *   automatically; the caller re-reads the board instead.
+ */
+export type OperationalBlockCancelOutcome =
+  | { kind: "cancelled"; segment: RoomOccupancySegment | null }
+  | { kind: "not-sent"; message: string }
+  | { kind: "rejected"; status: number; category: "validation" | "not-permitted" | "conflict" | "refused"; detail?: string }
+  | { kind: "unknown"; reason: "network" | "timeout" | "aborted" | "server-error"; status?: number };
+
+/**
+ * Cancels exactly one Effective OperationalBlock segment through the same local
+ * Admin Calendar write gate and uncredentialed `admin-calendar-write` CORS
+ * policy as {@link createOperationalBlock}; every request-shape guarantee
+ * documented there (field-by-field body, no actor or authorization evidence, no
+ * credentials, no cache, no redirect following) applies here unchanged. Exactly
+ * one network attempt is made; this function never retries, because a lost
+ * response leaves the block's state unknown and only a board read can settle it.
+ */
+export async function cancelOperationalBlock(
+  propertyId: string,
+  segmentId: string,
+  request: CancelOperationalBlockRequest,
+  options: CreateReservationAssignmentOptions = {}
+): Promise<OperationalBlockCancelOutcome> {
+  const baseUrlResult = getApiBaseUrl();
+  if (!baseUrlResult.ok) {
+    return { kind: "not-sent", message: describeApiBaseUrlError(baseUrlResult.reason) };
+  }
+
+  // A signal already aborted before this call runs can never produce an HTTP
+  // request, so it is proof of no write (`not-sent`), never `unknown/aborted`.
+  if (options.signal?.aborted) {
+    return { kind: "not-sent", message: "The request was cancelled before it was sent." };
+  }
+
+  // Field by field: nothing beyond the contract can reach the wire even if a
+  // caller passes a wider object at runtime. `reason` is included only when the
+  // caller actually set it; JSON.stringify drops an `undefined` property.
+  const body = JSON.stringify({
+    expectedVersion: request.expectedVersion,
+    ...(request.reason !== undefined ? { reason: request.reason } : {}),
+  });
+
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeoutHandle = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, options.timeoutMs ?? DEFAULT_ASSIGNMENT_TIMEOUT_MS);
+  const forwardAbort = () => controller.abort();
+  options.signal?.addEventListener("abort", forwardAbort, { once: true });
+
+  try {
+    let response: Response;
+    try {
+      response = await fetch(
+        `${baseUrlResult.baseUrl}/api/admin/v1/properties/${encodeURIComponent(propertyId)}/operational-blocks/${encodeURIComponent(segmentId)}/cancel`,
+        {
+          method: "POST",
+          headers: { Accept: "application/json", "Content-Type": "application/json" },
+          body,
+          credentials: "omit",
+          cache: "no-store",
+          redirect: "error",
+          signal: controller.signal,
+        }
+      );
+    } catch {
+      if (timedOut) return { kind: "unknown", reason: "timeout" };
+      if (controller.signal.aborted) return { kind: "unknown", reason: "aborted" };
+      return { kind: "unknown", reason: "network" };
+    }
+
+    const status = response.status;
+    if (status === 200) {
+      let segment: RoomOccupancySegment | null = null;
+      try {
+        segment = (await response.json()) as RoomOccupancySegment;
+      } catch {
+        // The 200 status is the proof of the write; an unreadable body does not undo it.
+      }
+      return { kind: "cancelled", segment };
+    }
+
+    if (status >= 500 || status < 400) {
+      // A 5xx may follow a commit; any other unexpected status is equally unproven.
+      return { kind: "unknown", reason: "server-error", status };
+    }
+
+    const problem = await readProblem(response);
+    switch (status) {
+      case 400:
+        return { kind: "rejected", status, category: "validation", detail: validationDetail(problem) };
+      case 403:
+      case 404:
+        // Deliberately detail-free: a closed gate answers 404 with an empty
+        // body, and a store 404 text must never be shown as though the block
+        // had already been lifted.
         return { kind: "rejected", status, category: "not-permitted" };
       case 409:
         return { kind: "rejected", status, category: "conflict", detail: safeProblemText(problem?.detail) };

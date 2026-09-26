@@ -17,7 +17,14 @@ function entry(overrides: Partial<BlockCreateReconciliation> = {}): BlockCreateR
     to: "2026-09-15",
     afterSeq: 3,
     certainty: "uncertain",
-    target: { physicalRoomId: "room-101", roomNumber: "101", startDate: "2026-09-02", endDate: "2026-09-05", reason: "Pipe" },
+    target: {
+      operation: "create",
+      physicalRoomId: "room-101",
+      roomNumber: "101",
+      startDate: "2026-09-02",
+      endDate: "2026-09-05",
+      reason: "Pipe",
+    },
     status: "pending",
     resolution: "unresolved",
     ...overrides,
@@ -97,5 +104,77 @@ describe("blockCreateReconciliation (PMS-CAL-001.3-CP03)", () => {
       board: board("2026-09-01", "2026-09-15", [{}], "prop-b"),
     });
     expect(otherProperty[0].resolution).toBe("unresolved");
+  });
+});
+
+describe("blockCreateReconciliation — the cancel direction (PMS-CAL-001.3-CP04)", () => {
+  /** A lost cancel of segment `s` at version 1, on room 101 over [09-02, 09-05). */
+  const cancelEntry = (overrides: Partial<BlockCreateReconciliation> = {}) =>
+    entry({
+      target: {
+        operation: "cancel",
+        physicalRoomId: "room-101",
+        roomNumber: "101",
+        startDate: "2026-09-02",
+        endDate: "2026-09-05",
+        reason: "Pipe",
+        segmentId: "s",
+        expectedVersion: 1,
+      },
+      ...overrides,
+    });
+
+  const settle = (list: BlockCreateReconciliation[], blocks: Partial<ReservationBoardOperationalBlock>[]) =>
+    settleBlockReconciliations(list, KEY, 4, {
+      kind: "loaded",
+      board: board("2026-09-01", "2026-09-15", blocks),
+    });
+
+  it("stays unresolved while the board still shows that exact segment and version", () => {
+    const [settled] = settle([cancelEntry()], [{ segmentId: "s", segmentVersion: 1 }]);
+    expect(settled.status).toBe("done");
+    // A read that still shows the segment proves nothing: the transaction may
+    // simply not have committed yet.
+    expect(settled.resolution).toBe("unresolved");
+  });
+
+  it("becomes observed when the segment is gone from a board that could have shown it", () => {
+    const [settled] = settle([cancelEntry()], []);
+    expect(settled.resolution).toBe("observed");
+  });
+
+  it("becomes observed when the segment comes back at a different version", () => {
+    const [settled] = settle([cancelEntry()], [{ segmentId: "s", segmentVersion: 2 }]);
+    expect(settled.resolution).toBe("observed");
+  });
+
+  it("ignores a different segment that happens to sit on the same room and nights", () => {
+    const [settled] = settle([cancelEntry()], [{ segmentId: "other", segmentVersion: 1 }]);
+    expect(settled.resolution).toBe("observed");
+
+    const [kept] = settle([cancelEntry()], [
+      { segmentId: "other", segmentVersion: 9 },
+      { segmentId: "s", segmentVersion: 1 },
+    ]);
+    expect(kept.resolution).toBe("unresolved");
+  });
+
+  it("never resolves from a board that cannot see those nights, or another Property's", () => {
+    const [farAway] = settleBlockReconciliations([cancelEntry()], KEY, 4, {
+      kind: "loaded",
+      board: board("2026-10-01", "2026-10-15", []),
+    });
+    expect(farAway.resolution).toBe("unresolved");
+
+    const [otherProperty] = settleBlockReconciliations([cancelEntry()], KEY, 4, {
+      kind: "loaded",
+      board: board("2026-09-01", "2026-09-15", [], "prop-b"),
+    });
+    expect(otherProperty.resolution).toBe("unresolved");
+  });
+
+  it("keeps the board-awaiting rule shared with create", () => {
+    expect(isBoardAwaitingBlockReconciliation([cancelEntry()], KEY)).toBe(true);
+    expect(isBoardAwaitingBlockReconciliation([cancelEntry({ status: "done" })], KEY)).toBe(false);
   });
 });
