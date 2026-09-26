@@ -46,6 +46,7 @@
  */
 
 import type { ReservationBoardResponse, ReservationBoardUnassignedRange } from "@/lib/api/types";
+import type { BlockCreateReconciliation } from "./blockCreateReconciliation";
 
 interface ReconciliationTargetBase {
   reservationUnitId: string;
@@ -318,5 +319,52 @@ export function isSegmentUnassignUnresolved(list: Reconciliation[], propertyId: 
       entry.propertyId === propertyId &&
       entry.target.operation === "unassign" &&
       entry.target.segmentId === segmentId
+  );
+}
+
+/**
+ * PMS-CAL-001.3-CP03-C1: the rooms an unresolved assignment-type write may
+ * still change — a create's destination, both rooms of a move, an unassign's
+ * source.
+ */
+function roomsTouchedBy(target: ReconciliationTarget): string[] {
+  switch (target.operation) {
+    case "create":
+      return [target.physicalRoomId];
+    case "move":
+      return [target.physicalRoomId, target.sourcePhysicalRoomId];
+    case "unassign":
+      return [target.sourcePhysicalRoomId];
+  }
+}
+
+/**
+ * PMS-CAL-001.3-CP03-C1: true while any write whose response was lost — an
+ * assignment create, move or unassign from `assignments`, or a block create
+ * from `blocks` — is still `unresolved` and touches one of `physicalRoomIds`
+ * on this Property over nights overlapping `range`. Keyed on `resolution`
+ * alone, never on `status`: a re-read that could not settle the write (`done`
+ * but still `unresolved`) leaves its transaction as unknown as before, and a
+ * second write into the same room and nights could race it. This adds a lock
+ * across write types; the per-Unit and per-segment locks above still apply.
+ */
+export function isRoomRangeUnresolved(
+  assignments: Reconciliation[],
+  blocks: BlockCreateReconciliation[],
+  propertyId: string,
+  physicalRoomIds: string[],
+  range: { startDate: string; endDate: string }
+): boolean {
+  const touches = (rooms: string[], nights: { startDate: string; endDate: string }) =>
+    rooms.some((room) => physicalRoomIds.includes(room)) && overlapsRange(nights, range);
+  return (
+    assignments.some(
+      (entry) =>
+        entry.resolution === "unresolved" && entry.propertyId === propertyId && touches(roomsTouchedBy(entry.target), entry.target)
+    ) ||
+    blocks.some(
+      (entry) =>
+        entry.resolution === "unresolved" && entry.propertyId === propertyId && touches([entry.target.physicalRoomId], entry.target)
+    )
   );
 }

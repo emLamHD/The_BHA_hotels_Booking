@@ -63,6 +63,10 @@ interface ReservationBoardToolbarProps {
   onToday: () => void;
   filters: ReservationBoardFilters;
   onToggleFilter: (key: keyof ReservationBoardFilters) => void;
+  /** PMS-CAL-001.3-CP03: opens the create-operational-block dialog for the board on screen. */
+  onCreateBlock?: () => void;
+  /** Why Create operational block is unavailable now; `null` when it is available. */
+  createBlockUnavailableReason?: string | null;
 }
 
 const ReservationBoardToolbar: React.FC<ReservationBoardToolbarProps> = ({
@@ -77,6 +81,8 @@ const ReservationBoardToolbar: React.FC<ReservationBoardToolbarProps> = ({
   onToday,
   filters,
   onToggleFilter,
+  onCreateBlock,
+  createBlockUnavailableReason = null,
 }) => {
   return (
     <div className="flex flex-col gap-4 border-b border-gray-200 p-5 dark:border-gray-800 sm:p-6">
@@ -94,7 +100,9 @@ const ReservationBoardToolbar: React.FC<ReservationBoardToolbarProps> = ({
             also target a cross-RoomType destination, with confirmation and
             a reason, so this can no longer say cross-RoomType move is
             read-only. It does not describe the local write opt-in as
-            authentication or a permission grant, since it is neither. */}
+            authentication or a permission grant, since it is neither.
+            PMS-CAL-001.3-CP03: unassign (CP04D) and operational-block create
+            are now live too; block cancel and other lifecycle actions are not. */}
         <span
           data-testid="reservation-board-capabilities"
           className="inline-flex max-w-full items-start gap-1.5 rounded-2xl bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600 dark:bg-white/[0.05] dark:text-gray-300"
@@ -103,9 +111,10 @@ const ReservationBoardToolbar: React.FC<ReservationBoardToolbarProps> = ({
           <span>
             Live data. Unassigned nights can be assigned to an Active room, of the same sold room type or, with
             confirmation and a reason, a different one. An assigned segment can be moved to another Active room, of
-            the same sold room type or, with confirmation and a reason, a different one. Unassign, operational
-            blocks and other lifecycle actions are read-only. Writes need the local Development write opt-in — no
-            production sign-in or permissions yet.
+            the same sold room type or, with confirmation and a reason, a different one. It can also be unassigned.
+            An Active room can be blocked for a range of nights with a reason. Cancelling blocks and other lifecycle
+            actions are read-only. Writes need the local Development write opt-in — no production sign-in or
+            permissions yet.
           </span>
         </span>
       </div>
@@ -166,6 +175,19 @@ const ReservationBoardToolbar: React.FC<ReservationBoardToolbarProps> = ({
         <span className="text-sm font-medium text-gray-600 dark:text-gray-300">
           {rangeLabel}
         </span>
+
+        {onCreateBlock && (
+          <button
+            id="reservation-board-create-block"
+            type="button"
+            onClick={onCreateBlock}
+            disabled={createBlockUnavailableReason !== null}
+            title={createBlockUnavailableReason ?? undefined}
+            className="h-10 rounded-lg border border-amber-400 bg-amber-50 px-3 text-sm font-medium text-amber-800 hover:bg-amber-100 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-500/40 disabled:cursor-not-allowed disabled:opacity-50 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300"
+          >
+            Create operational block
+          </button>
+        )}
 
         <fieldset className="ml-auto flex flex-wrap items-center gap-1 rounded-lg border border-gray-200 p-1 dark:border-gray-800">
           <legend className="sr-only">Visible date range length</legend>

@@ -165,3 +165,26 @@ export interface UnassignReservationAssignmentRequest {
   /** Optional; already-trimmed when present. Never required. */
   reason?: string;
 }
+
+/**
+ * PMS-CAL-001.3-CP03: body of
+ * `POST /api/admin/v1/properties/{propertyId}/operational-blocks`, mirroring the
+ * backend's `CreateOperationalBlockRequest`: exactly one room and one half-open
+ * night range per request, all four fields required. Like the assignment
+ * requests it carries no actor or authorization evidence.
+ */
+export interface CreateOperationalBlockRequest {
+  physicalRoomId: string;
+  /** First blocked night, inclusive (`YYYY-MM-DD`). */
+  startDate: string;
+  /** Night after the last blocked one, exclusive (`YYYY-MM-DD`). At most 366 nights after `startDate`. */
+  endDate: string;
+  /** Already trimmed and non-empty. */
+  reason: string;
+}
+
+/** The `201 Created` body: the new RoomBlock header's id and its one Effective segment. */
+export interface CreateOperationalBlockResponse {
+  roomBlockId: string;
+  segment: RoomOccupancySegment;
+}

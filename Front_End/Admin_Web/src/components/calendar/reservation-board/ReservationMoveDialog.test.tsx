@@ -167,7 +167,7 @@ describe("ReservationMoveDialog (PMS-CAL-001.2-CP04C.4)", () => {
     expect(within(dialog()).getByRole("button", { name: "Move to room 102" })).toBeInTheDocument();
 
     await user.click(within(dialog()).getByRole("button", { name: "Move to room 102" }));
-    await within(dialog()).findByText("The request was not sent because the Admin API is not configured.");
+    await within(dialog()).findByText("The request was not sent. Nothing was saved.");
     expect(within(dialog()).getByRole("button", { name: "Move to room 102" })).toBeInTheDocument();
     expect(onSubmit).toHaveBeenCalledTimes(2);
   });

@@ -42,6 +42,16 @@
  * (parity with move, see `dialogUnassignReconciliationId`'s own comment),
  * the shared uncertain-write notice speaks unassign-correct wording, and
  * dismissing the unassign success notice by keyboard restores focus.
+ *
+ * PMS-CAL-001.3-CP03: the toolbar's Create operational block opens
+ * `ReservationBlockCreateDialog` for the board on screen. A block has no
+ * ReservationUnit, so its writes are tracked in their own list
+ * (`blockCreateReconciliation.ts`) rather than forced into the assignment
+ * reconciliation types — but under the same rules: one request, re-read the
+ * authoritative board, never paint a result onto a board the operator has
+ * left, and keep a lost-response room/night range locked until the server
+ * shows the block. A pending re-read from either list holds every write on
+ * that board.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -59,6 +69,16 @@ import ReservationAssignmentDialog, {
 } from "./ReservationAssignmentDialog";
 import ReservationMoveDialog from "./ReservationMoveDialog";
 import ReservationUnassignDialog from "./ReservationUnassignDialog";
+import ReservationBlockCreateDialog, {
+  describeBlockCreateOutcome,
+  type BlockCreateDialogTarget,
+} from "./ReservationBlockCreateDialog";
+import {
+  boardCanEvaluateBlock,
+  isBoardAwaitingBlockReconciliation,
+  settleBlockReconciliations,
+  type BlockCreateReconciliation,
+} from "./blockCreateReconciliation";
 import { boardIdentityKey, buildAssignmentTarget, type AssignmentTarget } from "./assignmentTarget";
 import { buildMoveTarget, type MoveTarget } from "./moveTarget";
 import { buildUnassignTarget, type UnassignTarget } from "./unassignTarget";
@@ -69,6 +89,7 @@ import {
   isBoardAwaitingReconciliation,
   isSegmentMoveUnresolved,
   isSegmentUnassignUnresolved,
+  isRoomRangeUnresolved,
   isUnassignedRangeUnresolved,
   settleReconciliations,
   type Reconciliation,
@@ -83,6 +104,7 @@ import {
 } from "./dateMath";
 import type { IsoDate, ReservationBoardFilters, ReservationBoardRangeLength } from "./types";
 import {
+  createOperationalBlock,
   createReservationAssignment,
   fetchActiveProperties,
   fetchReservationBoard,
@@ -91,11 +113,25 @@ import {
   type ApiError,
   type AssignmentCreateOutcome,
   type MoveAssignmentOutcome,
+  type OperationalBlockCreateOutcome,
   type UnassignAssignmentOutcome,
 } from "@/lib/api/client";
-import type { ApiProperty, ReservationBoardResponse, ReservationBoardUnassignedRange } from "@/lib/api/types";
+import type {
+  ApiProperty,
+  CreateOperationalBlockRequest,
+  ReservationBoardResponse,
+  ReservationBoardUnassignedRange,
+} from "@/lib/api/types";
 
 const INITIAL_RANGE_LENGTH: ReservationBoardRangeLength = 14;
+
+/** PMS-CAL-001.3-CP03-C1: why a write was refused before sending (see `isRoomLocked`). */
+const ROOM_LOCKED_MESSAGE =
+  "An earlier request for this room on overlapping nights is still unconfirmed. Nothing was sent; check the board again before sending another.";
+
+/** PMS-CAL-001.3-CP03-C2: a block dialog outlived the board it was opened from. */
+const STALE_BLOCK_DIALOG_MESSAGE =
+  "The board changed after this dialog was opened. Nothing was sent; open Create operational block again from the board on screen.";
 
 type PropertiesState =
   | { status: "loading" }
@@ -242,6 +278,32 @@ const ReservationBoard: React.FC = () => {
   const noticeRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef(true);
 
+  /** PMS-CAL-001.3-CP03: operational-block create, tracked apart from assignment writes (see header). */
+  const [blockTarget, setBlockTarget] = useState<BlockCreateDialogTarget | null>(null);
+  const [dialogBlockReconciliationId, setDialogBlockReconciliationId] = useState<number | null>(null);
+  const [blockNotice, setBlockNotice] = useState<{ text: string; reconciliationId: number } | null>(null);
+  const blockNoticeRef = useRef<HTMLDivElement>(null);
+  const blockRequestPendingRef = useRef(false);
+  /**
+   * PMS-CAL-001.3-CP03-C1: the open block dialog has sent a request whose
+   * result it must report. Such a dialog is never closed by navigation, even
+   * after the request is no longer pending.
+   *
+   * PMS-CAL-001.3-CP03-C2: cleared again when the result proves nothing was
+   * written (`allowResubmit`: `not-sent`, `400`). That dialog then offers its
+   * form again, which is correctable only on the board it was opened from —
+   * so from then on navigation closes it like one that never sent.
+   */
+  const blockSubmittedRef = useRef(false);
+  /** C2: the board closed a stale block dialog; restore focus if that dialog took it along. */
+  const restoreFocusAfterStaleBlockDialogRef = useRef(false);
+  const [blockReconciliations, setBlockReconciliations] = useState<BlockCreateReconciliation[]>([]);
+  const blockReconciliationsRef = useRef<BlockCreateReconciliation[]>([]);
+  const referencedBlockIdsRef = useRef<{ dialog: number | null; notice: number | null }>({
+    dialog: null,
+    notice: null,
+  });
+
   const requestSeqRef = useRef(0);
 
   useEffect(() => {
@@ -257,6 +319,49 @@ const ReservationBoard: React.FC = () => {
     reconciliationsRef.current = next;
     setReconciliations(next);
   }, []);
+
+  const updateBlockReconciliations = useCallback(
+    (update: (list: BlockCreateReconciliation[]) => BlockCreateReconciliation[]) => {
+      const next = update(blockReconciliationsRef.current);
+      if (next === blockReconciliationsRef.current) return;
+      blockReconciliationsRef.current = next;
+      setBlockReconciliations(next);
+    },
+    []
+  );
+
+  useEffect(() => {
+    referencedBlockIdsRef.current = {
+      dialog: dialogBlockReconciliationId,
+      notice: blockNotice?.reconciliationId ?? null,
+    };
+  }, [dialogBlockReconciliationId, blockNotice]);
+
+  /** A write of either kind made from exactly this board has not been re-read yet. */
+  const isBoardAwaitingAnyWrite = useCallback(
+    (key: string) =>
+      isBoardAwaitingReconciliation(reconciliationsRef.current, key) ||
+      isBoardAwaitingBlockReconciliation(blockReconciliationsRef.current, key),
+    []
+  );
+
+  /**
+   * PMS-CAL-001.3-CP03-C1: true while a lost-response write of any type is
+   * still unresolved for one of these rooms over overlapping nights on this
+   * Property (`isRoomRangeUnresolved`). Read from the refs, so a lock that
+   * appeared after a dialog opened is still seen at the moment of sending.
+   */
+  const isRoomLocked = useCallback(
+    (propertyId: string, physicalRoomIds: string[], range: { startDate: string; endDate: string }) =>
+      isRoomRangeUnresolved(
+        reconciliationsRef.current,
+        blockReconciliationsRef.current,
+        propertyId,
+        physicalRoomIds,
+        range
+      ),
+    []
+  );
 
   useEffect(() => {
     referencedReconciliationIdsRef.current = {
@@ -333,19 +438,55 @@ const ReservationBoard: React.FC = () => {
         if (result.error.kind === "aborted") return;
         setBoardState({ status: "error", error: result.error });
         updateReconciliations((list) => settleReconciliations(list, requestKey, thisSeq, { kind: "failed" }));
+        updateBlockReconciliations((list) => settleBlockReconciliations(list, requestKey, thisSeq, { kind: "failed" }));
         return;
       }
       setBoardState({ status: "loaded", board: result.data });
       updateReconciliations((list) =>
         settleReconciliations(list, requestKey, thisSeq, { kind: "loaded", board: result.data })
       );
+      updateBlockReconciliations((list) =>
+        settleBlockReconciliations(list, requestKey, thisSeq, { kind: "loaded", board: result.data })
+      );
     });
     return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPropertyId, range?.start, range?.endExclusive, retryToken]);
 
+  /**
+   * PMS-CAL-001.3-CP03-C1: every navigation records the board identity it is
+   * about to show in `currentBoardKeyRef` synchronously, inside the event
+   * handler. The effect that also sets it runs only after React renders, and
+   * a write that resolves in between must already see the new identity — or
+   * it would paint its result onto a board the operator has left. A control
+   * that leaves the identity unchanged records the same key, so it is not
+   * mistaken for navigation.
+   */
+  const markNavigation = useCallback(
+    (propertyId: string | null, anchor: IsoDate | null, length: ReservationBoardRangeLength) => {
+      if (!propertyId || !anchor) return;
+      const next = buildVisibleRange(computeVisibleStartFromAnchor(anchor, length), length);
+      currentBoardKeyRef.current = boardIdentityKey(propertyId, next.start, next.endExclusive);
+    },
+    []
+  );
+
+  /** C2: closes a block dialog that belongs to a board no longer on screen. */
+  const closeStaleBlockDialog = useCallback(() => {
+    setBlockTarget((open) => {
+      if (open) restoreFocusAfterStaleBlockDialogRef.current = true;
+      return null;
+    });
+  }, []);
+
   const handleSelectProperty = useCallback(
     (propertyId: string) => {
+      const property =
+        propertiesState.status === "loaded"
+          ? propertiesState.properties.find((candidate) => candidate.id === propertyId)
+          : undefined;
+      const nextAnchor = property ? todayInTimeZone(property.timeZone) : anchorDate;
+      markNavigation(propertyId, nextAnchor, rangeLength);
       setSelectedPropertyId(propertyId);
       setSelection(null);
       setAssignmentTarget(null);
@@ -354,33 +495,44 @@ const ReservationBoard: React.FC = () => {
       setMoveNotice(null);
       if (!unassignRequestPendingRef.current) setUnassignTarget(null);
       setUnassignNotice(null);
-      if (propertiesState.status === "loaded") {
-        const property = propertiesState.properties.find((candidate) => candidate.id === propertyId);
-        if (property) {
-          setAnchorDate(todayInTimeZone(property.timeZone));
-        }
-      }
+      if (!blockSubmittedRef.current) closeStaleBlockDialog();
+      setBlockNotice(null);
+      if (nextAnchor !== anchorDate) setAnchorDate(nextAnchor);
     },
-    [propertiesState]
+    [propertiesState, anchorDate, rangeLength, markNavigation, closeStaleBlockDialog]
   );
 
   const handlePrev = useCallback(() => {
     if (!anchorDate) return;
-    setAnchorDate(addDaysIso(anchorDate, -rangeLength));
-  }, [anchorDate, rangeLength]);
+    const nextAnchor = addDaysIso(anchorDate, -rangeLength);
+    markNavigation(selectedPropertyId, nextAnchor, rangeLength);
+    setAnchorDate(nextAnchor);
+  }, [anchorDate, rangeLength, selectedPropertyId, markNavigation]);
 
   const handleNext = useCallback(() => {
     if (!anchorDate) return;
-    setAnchorDate(addDaysIso(anchorDate, rangeLength));
-  }, [anchorDate, rangeLength]);
+    const nextAnchor = addDaysIso(anchorDate, rangeLength);
+    markNavigation(selectedPropertyId, nextAnchor, rangeLength);
+    setAnchorDate(nextAnchor);
+  }, [anchorDate, rangeLength, selectedPropertyId, markNavigation]);
 
   const handleToday = useCallback(() => {
     if (propertiesState.status !== "loaded" || !selectedPropertyId) return;
     const property = propertiesState.properties.find((candidate) => candidate.id === selectedPropertyId);
     if (property) {
-      setAnchorDate(todayInTimeZone(property.timeZone));
+      const nextAnchor = todayInTimeZone(property.timeZone);
+      markNavigation(selectedPropertyId, nextAnchor, rangeLength);
+      setAnchorDate(nextAnchor);
     }
-  }, [propertiesState, selectedPropertyId]);
+  }, [propertiesState, selectedPropertyId, rangeLength, markNavigation]);
+
+  const handleSelectRangeLength = useCallback(
+    (length: ReservationBoardRangeLength) => {
+      markNavigation(selectedPropertyId, anchorDate, length);
+      setRangeLength(length);
+    },
+    [selectedPropertyId, anchorDate, markNavigation]
+  );
 
   const handleToggleFilter = useCallback((key: keyof ReservationBoardFilters) => {
     setFilters((previous) => ({ ...previous, [key]: !previous[key] }));
@@ -398,7 +550,7 @@ const ReservationBoard: React.FC = () => {
       );
       // The board on screen may already be contradicted by a write that has
       // not been re-read yet; nothing on it may start another one.
-      if (isBoardAwaitingReconciliation(reconciliationsRef.current, displayedKey)) {
+      if (isBoardAwaitingAnyWrite(displayedKey)) {
         return;
       }
       // An earlier create for these nights lost its response and has not been
@@ -419,7 +571,7 @@ const ReservationBoard: React.FC = () => {
       setDialogReconciliationId(null);
       setAssignmentTarget(target);
     },
-    [boardState, selectedPropertyId]
+    [boardState, selectedPropertyId, isBoardAwaitingAnyWrite]
   );
 
   /**
@@ -459,6 +611,10 @@ const ReservationBoard: React.FC = () => {
       // never send `confirmCrossRoomType: false` for a room that is not, in
       // fact, the Unit's sold RoomType.
       const isCrossRoomType = room.roomTypeId !== target.stay.soldRoomTypeId;
+      // PMS-CAL-001.3-CP03-C1: re-checked at send time, not only when the dialog opened.
+      if (isRoomLocked(target.propertyId, [room.id], target.unassignedRange)) {
+        return { kind: "not-sent", message: ROOM_LOCKED_MESSAGE };
+      }
 
       const outcome = await createReservationAssignment(target.propertyId, {
         reservationUnitId: target.stay.reservationUnitId,
@@ -511,7 +667,7 @@ const ReservationBoard: React.FC = () => {
       }
       return outcome;
     },
-    [updateReconciliations, keepReconciliation]
+    [updateReconciliations, keepReconciliation, isRoomLocked]
   );
 
   const handleMoveRoom = useCallback(
@@ -524,7 +680,7 @@ const ReservationBoard: React.FC = () => {
       );
       // Same guard as handleSelectUnassignedRange: nothing on a board that is
       // already contradicted by an un-reread write may start another one.
-      if (isBoardAwaitingReconciliation(reconciliationsRef.current, displayedKey)) {
+      if (isBoardAwaitingAnyWrite(displayedKey)) {
         return;
       }
       // This exact segment already has an uncertain move outstanding — its
@@ -538,13 +694,17 @@ const ReservationBoard: React.FC = () => {
       ) {
         return;
       }
+      // PMS-CAL-001.3-CP03-C1: nor while another lost write still touches its room and nights.
+      if (isRoomLocked(boardState.board.property.id, [moveSelection.segment.physicalRoomId], moveSelection.segment)) {
+        return;
+      }
       const target = buildMoveTarget(boardState.board, selectedPropertyId, moveSelection);
       if (!target) return;
       setSelection(null);
       setDialogMoveReconciliationId(null);
       setMoveTarget(target);
     },
-    [boardState, selectedPropertyId]
+    [boardState, selectedPropertyId, isBoardAwaitingAnyWrite, isRoomLocked]
   );
 
   /** PMS-CAL-001.2-CP04D-BOARD-WIRING: the unassign counterpart of `handleMoveRoom` above, same two guards. */
@@ -556,7 +716,7 @@ const ReservationBoard: React.FC = () => {
         boardState.board.from,
         boardState.board.to
       );
-      if (isBoardAwaitingReconciliation(reconciliationsRef.current, displayedKey)) {
+      if (isBoardAwaitingAnyWrite(displayedKey)) {
         return;
       }
       // This exact segment already has an uncertain unassign outstanding — its
@@ -570,13 +730,16 @@ const ReservationBoard: React.FC = () => {
       ) {
         return;
       }
+      if (isRoomLocked(boardState.board.property.id, [unassignSelection.segment.physicalRoomId], unassignSelection.segment)) {
+        return;
+      }
       const target = buildUnassignTarget(boardState.board, selectedPropertyId, unassignSelection);
       if (!target) return;
       setSelection(null);
       setDialogUnassignReconciliationId(null);
       setUnassignTarget(target);
     },
-    [boardState, selectedPropertyId]
+    [boardState, selectedPropertyId, isBoardAwaitingAnyWrite, isRoomLocked]
   );
 
   const submitMove = useCallback(
@@ -600,6 +763,10 @@ const ReservationBoard: React.FC = () => {
       // same-sold-RoomType — this is the line that turns that choice into
       // the request's own `confirmCrossRoomType`.
       const isCrossRoomType = room.roomTypeId !== target.stay.soldRoomTypeId;
+      // PMS-CAL-001.3-CP03-C1: a move changes both its source and its destination room.
+      if (isRoomLocked(target.propertyId, [room.id, target.segment.physicalRoomId], target.segment)) {
+        return { kind: "not-sent", message: ROOM_LOCKED_MESSAGE };
+      }
 
       moveRequestPendingRef.current = true;
       const outcome = await moveReservationAssignment(target.propertyId, target.segment.segmentId, {
@@ -666,7 +833,7 @@ const ReservationBoard: React.FC = () => {
       }
       return outcome;
     },
-    [updateReconciliations, keepReconciliation]
+    [updateReconciliations, keepReconciliation, isRoomLocked]
   );
 
   /**
@@ -679,6 +846,9 @@ const ReservationBoard: React.FC = () => {
   const submitUnassign = useCallback(
     async (target: UnassignTarget, reason?: string): Promise<UnassignAssignmentOutcome> => {
       const { propertyId, segmentId, request } = buildUnassignRequest(target, reason);
+      if (isRoomLocked(propertyId, [target.segment.physicalRoomId], target.segment)) {
+        return { kind: "not-sent", message: ROOM_LOCKED_MESSAGE };
+      }
       unassignRequestPendingRef.current = true;
       const outcome = await unassignReservationAssignment(propertyId, segmentId, request);
       unassignRequestPendingRef.current = false;
@@ -712,7 +882,7 @@ const ReservationBoard: React.FC = () => {
       }
       return outcome;
     },
-    [updateReconciliations, keepReconciliation]
+    [updateReconciliations, keepReconciliation, isRoomLocked]
   );
 
   const currentBoardKey =
@@ -720,7 +890,139 @@ const ReservationBoard: React.FC = () => {
 
   useEffect(() => {
     currentBoardKeyRef.current = currentBoardKey;
+    // A block dialog offers the rooms and nights of the board it was opened
+    // from; once the view shows another board, one that has sent nothing is
+    // stale. One that has sent a request stays open to report its own result.
+    setBlockTarget((open) => {
+      if (!open || blockSubmittedRef.current || open.boardKey === currentBoardKey) return open;
+      restoreFocusAfterStaleBlockDialogRef.current = true;
+      return null;
+    });
   }, [currentBoardKey]);
+
+  /** PMS-CAL-001.3-CP03: opens the create dialog for the board on screen, never for a stale or unread one. */
+  const handleOpenCreateBlock = useCallback(() => {
+    if (boardState.status !== "loaded" || blockRequestPendingRef.current) return;
+    const board = boardState.board;
+    const key = boardIdentityKey(board.property.id, board.from, board.to);
+    if (isBoardAwaitingAnyWrite(key)) return;
+    const roomTypeNames = new Map(board.roomTypes.map((roomType) => [roomType.id, roomType.name]));
+    const rooms = board.physicalRooms
+      .filter((room) => room.operationalStatus === "Active")
+      .map((room) => ({
+        id: room.id,
+        roomNumber: room.roomNumber,
+        roomTypeName: roomTypeNames.get(room.roomTypeId) ?? "Unknown room type",
+      }));
+    if (rooms.length === 0) return;
+    blockSubmittedRef.current = false;
+    setSelection(null);
+    setDialogBlockReconciliationId(null);
+    setBlockTarget({
+      propertyId: board.property.id,
+      propertyName: board.property.name,
+      boardKey: key,
+      boardFrom: board.from,
+      boardTo: board.to,
+      rooms,
+    });
+  }, [boardState, isBoardAwaitingAnyWrite]);
+
+  const isBlockRangeLocked = useCallback(
+    (propertyId: string, physicalRoomId: string, startDate: string, endDate: string) =>
+      isRoomLocked(propertyId, [physicalRoomId], { startDate, endDate }),
+    [isRoomLocked]
+  );
+
+  const submitBlockCreate = useCallback(
+    async (target: BlockCreateDialogTarget, request: CreateOperationalBlockRequest): Promise<OperationalBlockCreateOutcome> => {
+      // Only a room the dialog was built with can be sent — never an arbitrary id.
+      const room = target.rooms.find((candidate) => candidate.id === request.physicalRoomId);
+      if (!room) {
+        return { kind: "not-sent", message: "Choose one of the listed rooms." };
+      }
+      if (isRoomLocked(target.propertyId, [room.id], request)) {
+        return { kind: "not-sent", message: ROOM_LOCKED_MESSAGE };
+      }
+      // C2: a dialog built from a board the operator has left never sends that
+      // board's Property, room and nights. Navigation normally closes it first;
+      // this also covers a confirm that lands before React has re-rendered.
+      if (currentBoardKeyRef.current !== target.boardKey) {
+        closeStaleBlockDialog();
+        return { kind: "not-sent", message: STALE_BLOCK_DIALOG_MESSAGE };
+      }
+
+      blockRequestPendingRef.current = true;
+      blockSubmittedRef.current = true;
+      let outcome: OperationalBlockCreateOutcome;
+      try {
+        outcome = await createOperationalBlock(target.propertyId, {
+          physicalRoomId: room.id,
+          startDate: request.startDate,
+          endDate: request.endDate,
+          reason: request.reason,
+        });
+      } finally {
+        blockRequestPendingRef.current = false;
+      }
+      if (!mountedRef.current) return outcome;
+
+      const view = describeBlockCreateOutcome(outcome);
+      if (view.allowResubmit) {
+        // Nothing was written: the dialog returns to its form, and a form is
+        // only correctable on the board it was opened from. If the view moved
+        // on while the request was pending, the navigation effect has already
+        // passed over this dialog, so it is closed here.
+        blockSubmittedRef.current = false;
+        if (currentBoardKeyRef.current !== target.boardKey) closeStaleBlockDialog();
+      }
+
+      if (view.reloadBoard) {
+        const uncertain = outcome.kind === "unknown";
+        const referenced = referencedBlockIdsRef.current;
+        const reconciliation: BlockCreateReconciliation = {
+          id: nextReconciliationIdRef.current++,
+          key: target.boardKey,
+          propertyId: target.propertyId,
+          from: target.boardFrom,
+          to: target.boardTo,
+          afterSeq: requestSeqRef.current,
+          certainty: uncertain ? "uncertain" : "settled",
+          target: {
+            physicalRoomId: room.id,
+            roomNumber: room.roomNumber,
+            startDate: request.startDate,
+            endDate: request.endDate,
+            reason: request.reason,
+          },
+          status: "pending",
+          resolution: uncertain ? "unresolved" : "settled",
+        };
+        updateBlockReconciliations((list) => [
+          ...list.filter(
+            (entry) =>
+              entry.status !== "done" ||
+              entry.certainty === "uncertain" ||
+              entry.id === referenced.dialog ||
+              entry.id === referenced.notice
+          ),
+          reconciliation,
+        ]);
+        setDialogBlockReconciliationId(reconciliation.id);
+        // Never paint a created block onto a Property/range the operator has left.
+        if (currentBoardKeyRef.current === target.boardKey && outcome.kind === "created") {
+          setBlockTarget(null);
+          setBlockNotice({
+            text: `Room ${room.roomNumber} blocked for [${request.startDate}, ${request.endDate}): ${request.reason}`,
+            reconciliationId: reconciliation.id,
+          });
+        }
+        setRetryToken((token) => token + 1);
+      }
+      return outcome;
+    },
+    [updateBlockReconciliations, isRoomLocked, closeStaleBlockDialog]
+  );
 
   const reconciliationStatus = (id: number | null): BoardReloadStatus => {
     if (id === null) return "idle";
@@ -732,6 +1034,35 @@ const ReservationBoard: React.FC = () => {
     if (entry.key !== currentBoardKey) return "elsewhere";
     return entry.status;
   };
+
+  const blockReconciliationStatus = (id: number | null): BoardReloadStatus => {
+    if (id === null) return "idle";
+    const entry = blockReconciliations.find((candidate) => candidate.id === id);
+    if (!entry) return "idle";
+    if (entry.status === "done") return "done";
+    if (entry.key !== currentBoardKey) return "elsewhere";
+    return entry.status;
+  };
+
+  const dialogBlockReconciliation =
+    dialogBlockReconciliationId === null
+      ? null
+      : blockReconciliations.find((entry) => entry.id === dialogBlockReconciliationId) ?? null;
+
+  const noticeBlockReconciliation =
+    blockNotice === null ? null : blockReconciliations.find((entry) => entry.id === blockNotice.reconciliationId) ?? null;
+
+  const uncertainBlockWrites = blockReconciliations.filter(
+    (entry) => entry.certainty === "uncertain" && entry.propertyId === selectedPropertyId
+  );
+
+  const dismissBlockReconciliation = useCallback(
+    (id: number) =>
+      updateBlockReconciliations((list) =>
+        list.filter((entry) => entry.id !== id || entry.resolution === "unresolved")
+      ),
+    [updateBlockReconciliations]
+  );
 
   const dialogReconciliation =
     dialogReconciliationId === null
@@ -797,32 +1128,52 @@ const ReservationBoard: React.FC = () => {
       ? null
       : reconciliations.find((entry) => entry.id === unassignNotice.reconciliationId) ?? null;
 
+  const displayedBoardKey =
+    boardState.status === "loaded"
+      ? boardIdentityKey(boardState.board.property.id, boardState.board.from, boardState.board.to)
+      : null;
   const displayedBoardAwaitingReconciliation =
-    boardState.status === "loaded" &&
-    isBoardAwaitingReconciliation(
-      reconciliations,
-      boardIdentityKey(boardState.board.property.id, boardState.board.from, boardState.board.to)
-    );
+    displayedBoardKey !== null &&
+    (isBoardAwaitingReconciliation(reconciliations, displayedBoardKey) ||
+      isBoardAwaitingBlockReconciliation(blockReconciliations, displayedBoardKey));
+
+  /** Why the toolbar's Create operational block is unavailable right now, or `null` when it is available. */
+  const createBlockUnavailableReason =
+    boardState.status !== "loaded"
+      ? "The board has not loaded."
+      : displayedBoardAwaitingReconciliation
+        ? "Waiting for the board to be re-read after a change."
+        : !boardState.board.physicalRooms.some((room) => room.operationalStatus === "Active")
+          ? "This Property has no Active rooms."
+          : null;
 
   /**
    * PMS-CAL-001.2-CP04C.5: the same rule `handleMoveRoom` enforces before
    * opening a dialog, exposed so the popover can disable its Move room
    * button in advance rather than let the operator open it and find out.
    */
-  const isMoveBlockedForSegment = useCallback(
-    (segmentId: string) =>
-      displayedBoardAwaitingReconciliation ||
-      (selectedPropertyId !== null && isSegmentMoveUnresolved(reconciliations, selectedPropertyId, segmentId)),
-    [displayedBoardAwaitingReconciliation, reconciliations, selectedPropertyId]
-  );
+  /** PMS-CAL-001.3-CP03-C1: the displayed segment's own room and nights are locked by another lost write. */
+  const isSegmentRoomLocked = (segmentId: string) => {
+    if (boardState.status !== "loaded") return false;
+    const segment = boardState.board.stays
+      .flatMap((stay) => stay.assignments)
+      .find((assignment) => assignment.segmentId === segmentId);
+    return (
+      segment !== undefined &&
+      isRoomRangeUnresolved(reconciliations, blockReconciliations, boardState.board.property.id, [segment.physicalRoomId], segment)
+    );
+  };
+
+  const isMoveBlockedForSegment = (segmentId: string) =>
+    displayedBoardAwaitingReconciliation ||
+    (selectedPropertyId !== null && isSegmentMoveUnresolved(reconciliations, selectedPropertyId, segmentId)) ||
+    isSegmentRoomLocked(segmentId);
 
   /** PMS-CAL-001.2-CP04D-BOARD-WIRING: the unassign counterpart of `isMoveBlockedForSegment` above, independent of it. */
-  const isUnassignBlockedForSegment = useCallback(
-    (segmentId: string) =>
-      displayedBoardAwaitingReconciliation ||
-      (selectedPropertyId !== null && isSegmentUnassignUnresolved(reconciliations, selectedPropertyId, segmentId)),
-    [displayedBoardAwaitingReconciliation, reconciliations, selectedPropertyId]
-  );
+  const isUnassignBlockedForSegment = (segmentId: string) =>
+    displayedBoardAwaitingReconciliation ||
+    (selectedPropertyId !== null && isSegmentUnassignUnresolved(reconciliations, selectedPropertyId, segmentId)) ||
+    isSegmentRoomLocked(segmentId);
 
   /**
    * PMS-CAL-001.2-CP04C.5-C2: the one place focus returns to after the move
@@ -859,6 +1210,49 @@ const ReservationBoard: React.FC = () => {
   useEffect(() => {
     if (unassignNotice) unassignNoticeRef.current?.focus();
   }, [unassignNotice]);
+
+  useEffect(() => {
+    if (blockNotice) blockNoticeRef.current?.focus();
+  }, [blockNotice]);
+
+  /** Focus after the block dialog or its notice goes away: its own toolbar button, else the Property selector. */
+  const restoreCreateBlockFocus = useCallback(() => {
+    const button = document.getElementById("reservation-board-create-block");
+    if (button instanceof HTMLButtonElement && !button.disabled) {
+      button.focus();
+      return;
+    }
+    document.getElementById("reservation-board-property")?.focus();
+  }, []);
+
+  // C2: a block dialog the board closed because it had gone stale took the
+  // focused element with it. Only focus that fell to the document is moved;
+  // focus the operator has put elsewhere is left where it is.
+  useEffect(() => {
+    if (blockTarget || !restoreFocusAfterStaleBlockDialogRef.current) return;
+    restoreFocusAfterStaleBlockDialogRef.current = false;
+    const active = document.activeElement;
+    if (active === null || active === document.body) restoreCreateBlockFocus();
+  }, [blockTarget, restoreCreateBlockFocus]);
+
+  /**
+   * C2: same rule as `dismissBlockNotice`, for an observed unconfirmed block
+   * notice — focus moves before the focused button unmounts, and only if the
+   * notice held it.
+   */
+  const dismissUncertainBlockNotice = useCallback(
+    (id: number, noticeOwnedFocus: boolean) => {
+      if (noticeOwnedFocus) restoreCreateBlockFocus();
+      dismissBlockReconciliation(id);
+    },
+    [dismissBlockReconciliation, restoreCreateBlockFocus]
+  );
+
+  const dismissBlockNotice = useCallback(() => {
+    const noticeOwnedFocus = blockNoticeRef.current?.contains(document.activeElement) ?? false;
+    setBlockNotice(null);
+    if (noticeOwnedFocus) restoreCreateBlockFocus();
+  }, [restoreCreateBlockFocus]);
 
   const dismissMoveNotice = useCallback(() => {
     const noticeOwnedFocus = moveNoticeRef.current?.contains(document.activeElement) ?? false;
@@ -956,14 +1350,45 @@ const ReservationBoard: React.FC = () => {
         selectedPropertyId={selectedPropertyId ?? ""}
         onSelectProperty={handleSelectProperty}
         rangeLength={rangeLength}
-        onSelectRangeLength={setRangeLength}
+        onSelectRangeLength={handleSelectRangeLength}
         rangeLabel={rangeLabel}
         onPrev={handlePrev}
         onNext={handleNext}
         onToday={handleToday}
         filters={filters}
         onToggleFilter={handleToggleFilter}
+        onCreateBlock={handleOpenCreateBlock}
+        createBlockUnavailableReason={createBlockUnavailableReason}
       />
+      {blockNotice && (
+        <AssignmentNotice
+          ref={blockNoticeRef}
+          text={blockNotice.text}
+          reloadStatus={blockReconciliationStatus(blockNotice.reconciliationId)}
+          writtenRange={
+            noticeBlockReconciliation ? { from: noticeBlockReconciliation.from, to: noticeBlockReconciliation.to } : null
+          }
+          onDismiss={dismissBlockNotice}
+        />
+      )}
+      {uncertainBlockWrites.map((entry) => (
+        <UncertainBlockNotice
+          key={entry.id}
+          entry={entry}
+          readStatus={boardState.status === "error" ? "failed" : blockReconciliationStatus(entry.id)}
+          canCheckHere={
+            boardState.status === "loaded" &&
+            boardCanEvaluateBlock(entry, {
+              propertyId: boardState.board.property.id,
+              from: boardState.board.from,
+              to: boardState.board.to,
+            })
+          }
+          checking={boardState.status === "loading" || (boardState.status === "loaded" && !!boardState.refreshing)}
+          onCheckAgain={handleCheckAgain}
+          onDismiss={(noticeOwnedFocus) => dismissUncertainBlockNotice(entry.id, noticeOwnedFocus)}
+        />
+      ))}
       {assignmentNotice && (
         <AssignmentNotice
           ref={noticeRef}
@@ -1098,6 +1523,107 @@ const ReservationBoard: React.FC = () => {
             restoreBoardFocus();
           }}
         />
+      )}
+      {blockTarget && (
+        <ReservationBlockCreateDialog
+          key={blockTarget.boardKey}
+          target={blockTarget}
+          boardReloadStatus={blockReconciliationStatus(dialogBlockReconciliationId)}
+          uncertainResolution={
+            dialogBlockReconciliation?.certainty === "uncertain" && dialogBlockReconciliation.resolution !== "settled"
+              ? dialogBlockReconciliation.resolution
+              : undefined
+          }
+          isRangeLocked={(physicalRoomId, startDate, endDate) =>
+            isBlockRangeLocked(blockTarget.propertyId, physicalRoomId, startDate, endDate)
+          }
+          onSubmit={(request) => submitBlockCreate(blockTarget, request)}
+          onClose={() => {
+            setBlockTarget(null);
+            restoreCreateBlockFocus();
+          }}
+        />
+      )}
+    </div>
+  );
+};
+
+/**
+ * PMS-CAL-001.3-CP03: one block create whose response was lost. It stays — and
+ * that room's overlapping nights stay locked for another create — until a
+ * board of this Property shows a block for the same room over exactly the
+ * same nights. Check again only re-reads the board; it never re-sends the POST.
+ */
+const UncertainBlockNotice: React.FC<{
+  entry: BlockCreateReconciliation;
+  readStatus: BoardReloadStatus;
+  canCheckHere: boolean;
+  checking: boolean;
+  onCheckAgain: () => void;
+  /** `noticeOwnedFocus`: focus was inside this notice, which is about to unmount. */
+  onDismiss: (noticeOwnedFocus: boolean) => void;
+}> = ({ entry, readStatus, canCheckHere, checking, onCheckAgain, onDismiss }) => {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const { target } = entry;
+  const range = `[${target.startDate}, ${target.endDate})`;
+  const observed = entry.resolution === "observed";
+  let detail: string;
+  if (observed) {
+    detail = `A block for room ${target.roomNumber} over ${range} is now shown on the server. That shows the schedule; it does not prove this request created it.`;
+  } else if (readStatus === "pending") {
+    detail = "Checking the board on the server…";
+  } else if (readStatus === "failed") {
+    detail = "The board could not be reloaded, so the result is still unknown. Use Retry on the board.";
+  } else if (!canCheckHere) {
+    detail = `The result is still unknown and this room stays locked for these nights. Open a view of this Property that overlaps ${range} to check again.`;
+  } else if (checking) {
+    detail = "Checking the board on the server again…";
+  } else {
+    detail =
+      "The board was checked, but no matching block is shown yet. That does not prove the request failed. This room stays locked for these nights and the request will not be sent again.";
+  }
+
+  return (
+    <div
+      ref={rootRef}
+      role="status"
+      data-testid="uncertain-block-notice"
+      className={`mx-2 mt-2 flex items-start justify-between gap-3 rounded-lg px-3 py-2 text-sm sm:mx-4 ${
+        observed
+          ? "bg-gray-100 text-gray-700 dark:bg-white/5 dark:text-gray-200"
+          : "bg-warning-50 text-warning-800 dark:bg-warning-500/10 dark:text-warning-300"
+      }`}
+    >
+      <div>
+        <p className="font-medium">
+          Unconfirmed block request: room {target.roomNumber}, {range} — {target.reason}
+        </p>
+        <p className="mt-0.5 text-xs">{detail}</p>
+      </div>
+      {observed ? (
+        <button
+          type="button"
+          onClick={() => onDismiss(rootRef.current?.contains(document.activeElement) ?? false)}
+          aria-label="Dismiss notice"
+          className="flex size-6 shrink-0 items-center justify-center rounded-full hover:bg-gray-200 dark:hover:bg-white/5"
+        >
+          <CloseLineIcon className="size-3.5" aria-hidden="true" />
+        </button>
+      ) : (
+        canCheckHere &&
+        readStatus !== "pending" &&
+        readStatus !== "failed" && (
+          <button
+            type="button"
+            onClick={() => {
+              if (!checking) onCheckAgain();
+            }}
+            aria-disabled={checking || undefined}
+            className="shrink-0 rounded-lg border border-warning-300 px-3 py-1 text-xs font-medium hover:bg-warning-100 aria-disabled:cursor-not-allowed aria-disabled:opacity-60 dark:border-warning-500/40 dark:hover:bg-white/5"
+          >
+            Check again
+          </button>
+        )
       )}
     </div>
   );

@@ -8,6 +8,8 @@
 import { describeApiBaseUrlError, getApiBaseUrl } from "./env";
 import type {
   ApiProperty,
+  CreateOperationalBlockRequest,
+  CreateOperationalBlockResponse,
   CreateReservationAssignmentRequest,
   MoveReservationAssignmentRequest,
   ReservationBoardResponse,
@@ -606,6 +608,126 @@ export async function unassignReservationAssignment(
       case 404:
         // Deliberately detail-free: a closed gate's 404 has no body, and a
         // store 404/403 text must not be shown as though the booking were gone.
+        return { kind: "rejected", status, category: "not-permitted" };
+      case 409:
+        return { kind: "rejected", status, category: "conflict", detail: safeProblemText(problem?.detail) };
+      default:
+        return { kind: "rejected", status, category: "refused", detail: safeProblemText(problem?.detail) };
+    }
+  } finally {
+    clearTimeout(timeoutHandle);
+    options.signal?.removeEventListener("abort", forwardAbort);
+  }
+}
+
+/**
+ * PMS-CAL-001.3-CP03: what is known after one operational-block create attempt
+ * against `POST .../operational-blocks`. Its own type rather than a reuse of
+ * {@link AssignmentCreateOutcome}: a block has no ReservationUnit and the
+ * backend never answers the cross-RoomType `403` for it. The reasoning is the
+ * same otherwise:
+ *
+ * - `created`: `201`. Proof of a write. `block` is `null` only when that body
+ *   could not be read — the status is the proof, not the body.
+ * - `not-sent`: the request never left the browser (configuration, or a signal
+ *   already aborted). Proof of no write.
+ * - `rejected`: a `4xx`. The store refuses inside its transaction and the write
+ *   gate refuses before any action runs, so it is proof of no write. `403` is
+ *   the gate's origin refusal; `404` is a closed gate (empty body) or a room
+ *   this Property does not own — both reported without server detail.
+ * - `unknown`: a network failure, a timeout, an abort after sending, or a
+ *   `5xx` — the block may or may not exist. Never retried automatically; the
+ *   caller re-reads the board instead.
+ */
+export type OperationalBlockCreateOutcome =
+  | { kind: "created"; block: CreateOperationalBlockResponse | null }
+  | { kind: "not-sent"; message: string }
+  | { kind: "rejected"; status: number; category: "validation" | "not-permitted" | "conflict" | "refused"; detail?: string }
+  | { kind: "unknown"; reason: "network" | "timeout" | "aborted" | "server-error"; status?: number };
+
+/**
+ * Creates one RoomBlock with exactly one OperationalBlock segment through the
+ * same local Admin Calendar write gate and uncredentialed `admin-calendar-write`
+ * CORS policy as {@link createReservationAssignment}; every request-shape
+ * guarantee documented there applies here unchanged. Exactly one network
+ * attempt is made; this function never retries.
+ */
+export async function createOperationalBlock(
+  propertyId: string,
+  request: CreateOperationalBlockRequest,
+  options: CreateReservationAssignmentOptions = {}
+): Promise<OperationalBlockCreateOutcome> {
+  const baseUrlResult = getApiBaseUrl();
+  if (!baseUrlResult.ok) {
+    return { kind: "not-sent", message: describeApiBaseUrlError(baseUrlResult.reason) };
+  }
+
+  if (options.signal?.aborted) {
+    return { kind: "not-sent", message: "The request was cancelled before it was sent." };
+  }
+
+  // Field by field: nothing beyond the contract — in particular no actor and
+  // no authorization evidence — can reach the wire even if a caller passes a
+  // wider object at runtime.
+  const body = JSON.stringify({
+    physicalRoomId: request.physicalRoomId,
+    startDate: request.startDate,
+    endDate: request.endDate,
+    reason: request.reason,
+  });
+
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeoutHandle = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, options.timeoutMs ?? DEFAULT_ASSIGNMENT_TIMEOUT_MS);
+  const forwardAbort = () => controller.abort();
+  options.signal?.addEventListener("abort", forwardAbort, { once: true });
+
+  try {
+    let response: Response;
+    try {
+      response = await fetch(
+        `${baseUrlResult.baseUrl}/api/admin/v1/properties/${encodeURIComponent(propertyId)}/operational-blocks`,
+        {
+          method: "POST",
+          headers: { Accept: "application/json", "Content-Type": "application/json" },
+          body,
+          credentials: "omit",
+          cache: "no-store",
+          redirect: "error",
+          signal: controller.signal,
+        }
+      );
+    } catch {
+      if (timedOut) return { kind: "unknown", reason: "timeout" };
+      if (controller.signal.aborted) return { kind: "unknown", reason: "aborted" };
+      return { kind: "unknown", reason: "network" };
+    }
+
+    const status = response.status;
+    if (status === 201) {
+      let block: CreateOperationalBlockResponse | null = null;
+      try {
+        block = (await response.json()) as CreateOperationalBlockResponse;
+      } catch {
+        // The 201 status is the proof of the write; an unreadable body does not undo it.
+      }
+      return { kind: "created", block };
+    }
+
+    if (status >= 500 || status < 400) {
+      // A 5xx may follow a commit; any other unexpected status is equally unproven.
+      return { kind: "unknown", reason: "server-error", status };
+    }
+
+    const problem = await readProblem(response);
+    switch (status) {
+      case 400:
+        return { kind: "rejected", status, category: "validation", detail: validationDetail(problem) };
+      case 403:
+      case 404:
         return { kind: "rejected", status, category: "not-permitted" };
       case 409:
         return { kind: "rejected", status, category: "conflict", detail: safeProblemText(problem?.detail) };
