@@ -809,3 +809,317 @@ describe("ReservationBoard — an unconfirmed write survives a reload in the sam
     expect(document.activeElement).toBe(next);
   });
 });
+
+describe("ReservationBoard — a write still in flight survives a reload in the same tab (PMS-CAL-001.5-CP03)", () => {
+  /** The board as the server shows it once an assignment of `[from, from+2)` to room 102 exists. */
+  function serveAssignedTo102() {
+    mockedBoard.mockImplementation((propertyId, from, to) => {
+      const board = boardFor(propertyId, from, to);
+      if (propertyId !== "prop-a") return Promise.resolve({ ok: true, data: board });
+      const [stay] = board.stays;
+      return Promise.resolve({
+        ok: true,
+        data: {
+          ...board,
+          stays: [
+            {
+              ...stay,
+              assignments: [
+                ...stay.assignments,
+                { segmentId: "seg-new", segmentVersion: 1, physicalRoomId: "room-102", actualRoomTypeId: "type-standard", startDate: from, endDate: addDaysIso(from, 2) },
+              ],
+              unassignedRanges: stay.unassignedRanges.slice(1),
+            },
+          ],
+        },
+      });
+    });
+  }
+
+  const PENDING_KEY = "thebha.adminCalendar.pendingWrites";
+  const UNCERTAIN_KEY = "thebha.adminCalendar.uncertainWrites";
+
+  async function reloadSameTab() {
+    cleanup();
+    return renderLoadedBoard();
+  }
+
+  async function expectBlockLocked(user: ReturnType<typeof userEvent.setup>, room: string, start: string, end: string) {
+    await reviewBlock(user, room, start, end);
+    expect(within(blockDialog()).getByRole("alert")).toHaveTextContent("still unconfirmed");
+    await closeDialog(user, blockDialog());
+  }
+
+  async function expectBlockAllowed(user: ReturnType<typeof userEvent.setup>, room: string, start: string, end: string) {
+    await reviewBlock(user, room, start, end);
+    expect(within(blockDialog()).queryByRole("alert")).not.toBeInTheDocument();
+    await closeDialog(user, blockDialog());
+  }
+
+  function expectInFlightWording(notice: HTMLElement) {
+    expect(notice).toHaveTextContent("sent just before this page was reloaded");
+    expect(notice).toHaveTextContent("may never have reached the server, or may already have been saved");
+    expect(notice).toHaveTextContent("shows the schedule, not which request changed it");
+  }
+
+  /** Starts an assignment of the first unassigned range to room 102 whose POST never answers. */
+  async function startPendingAssignment(user: ReturnType<typeof userEvent.setup>, from: string) {
+    const post = deferred<AssignmentCreateOutcome>();
+    mockedCreate.mockImplementation(() => post.promise);
+    await user.click(firstRangeBar(from));
+    await user.click(within(assignDialog()).getByLabelText(/Room 102/));
+    await user.click(within(assignDialog()).getByRole("button", { name: "Assign room 102" }));
+    expect(mockedCreate).toHaveBeenCalledTimes(1);
+    return post;
+  }
+
+  it("assign: reloaded while its POST is pending, the notice and the lock come back, nothing is resent, and Check again only reads", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    await startPendingAssignment(user, from);
+
+    await reloadSameTab();
+
+    const notice = await screen.findByTestId("uncertain-write-notice");
+    expectInFlightWording(notice);
+    expect(notice).toHaveTextContent(`room 102, [${from}, ${addDaysIso(from, 2)})`);
+    expect(notice).not.toHaveTextContent("Nguyen Van A");
+    expect(firstRangeBar(from)).toHaveAttribute("aria-disabled", "true");
+    await expectBlockLocked(user, "room-102", from, addDaysIso(from, 1));
+    await expectBlockAllowed(user, "room-201", from, addDaysIso(from, 1));
+    await expectBlockAllowed(user, "room-102", addDaysIso(from, 5), addDaysIso(from, 6));
+
+    const boardCalls = mockedBoard.mock.calls.length;
+    await user.click(within(screen.getByTestId("uncertain-write-notice")).getByRole("button", { name: "Check again" }));
+    await waitFor(() => expect(mockedBoard.mock.calls.length).toBe(boardCalls + 1));
+    expect(screen.getByTestId("uncertain-write-notice")).toHaveTextContent("still unknown");
+    expect(mockedCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("move: reloaded while pending, both its source and destination rooms stay locked for its nights", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    mockedMove.mockImplementation(() => deferred<MoveAssignmentOutcome>().promise);
+    await openMoveDialog(user);
+    await user.click(within(moveDialog()).getByLabelText(/Room 102/));
+    await user.click(within(moveDialog()).getByRole("button", { name: "Move to room 102" }));
+
+    await reloadSameTab();
+
+    expectInFlightWording(await screen.findByTestId("uncertain-write-notice"));
+    await expectBlockLocked(user, "room-101", addDaysIso(from, 2), addDaysIso(from, 3));
+    await expectBlockLocked(user, "room-102", addDaysIso(from, 3), addDaysIso(from, 4));
+    await expectBlockAllowed(user, "room-102", from, addDaysIso(from, 1));
+    expect(mockedMove).toHaveBeenCalledTimes(1);
+  });
+
+  it("unassign: reloaded while pending, its source room stays locked and the unassign is not offered again", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    mockedUnassign.mockImplementation(() => deferred<UnassignAssignmentOutcome>().promise);
+    await user.click(screen.getByTitle("Nguyen Van A — CNF-100"));
+    await user.click(within(screen.getByRole("dialog", { name: "Reservation details" })).getByRole("button", { name: "Remove room assignment" }));
+    await user.click(within(screen.getByRole("dialog", { name: "Remove room assignment" })).getByRole("button", { name: "Remove room 101 assignment" }));
+
+    await reloadSameTab();
+
+    expectInFlightWording(await screen.findByTestId("uncertain-write-notice"));
+    await expectBlockLocked(user, "room-101", addDaysIso(from, 2), addDaysIso(from, 3));
+    await user.click(screen.getByTitle("Nguyen Van A — CNF-100"));
+    expect(within(screen.getByRole("dialog", { name: "Reservation details" })).getByRole("button", { name: "Remove room assignment" })).toBeDisabled();
+    expect(mockedUnassign).toHaveBeenCalledTimes(1);
+  });
+
+  it("block create: reloaded while pending, the room's nights stay locked and the notice carries no reason", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    mockedBlock.mockImplementation(() => deferred<OperationalBlockCreateOutcome>().promise);
+    await reviewBlock(user, "room-102", from, addDaysIso(from, 1));
+    await user.click(within(blockDialog()).getByRole("button", { name: "Create block" }));
+
+    await reloadSameTab();
+
+    const notice = await screen.findByTestId("uncertain-block-notice");
+    expectInFlightWording(notice);
+    expect(notice).not.toHaveTextContent("Leak");
+    await expectBlockLocked(user, "room-102", from, addDaysIso(from, 1));
+    await expectBlockAllowed(user, "room-101", from, addDaysIso(from, 1));
+    expect(mockedBlock).toHaveBeenCalledTimes(1);
+  });
+
+  it("block cancel: reloaded while pending, the block's room and nights stay locked and the cancel is not offered again", async () => {
+    const user = userEvent.setup();
+    mockedBoard.mockImplementation((propertyId, from, to) => {
+      const board = boardFor(propertyId, from, to);
+      return Promise.resolve({
+        ok: true,
+        data: {
+          ...board,
+          operationalBlocks:
+            propertyId === "prop-a"
+              ? [{ roomBlockId: "b-1", segmentId: "seg-b-1", segmentVersion: 7, physicalRoomId: "room-201", startDate: addDaysIso(from, 6), endDate: addDaysIso(from, 7), reason: "Paint" }]
+              : [],
+        },
+      });
+    });
+    const { from } = await renderLoadedBoard();
+    mockedCancel.mockImplementation(() => new Promise(() => {}));
+    await user.click(screen.getByTitle("Paint"));
+    await user.click(within(screen.getByRole("dialog", { name: "Operational block details" })).getByRole("button", { name: "Cancel block" }));
+    await user.click(within(screen.getByRole("dialog", { name: "Cancel operational block" })).getByRole("button", { name: "Cancel block on room 201" }));
+
+    await reloadSameTab();
+
+    const notice = await screen.findByTestId("uncertain-block-notice");
+    expectInFlightWording(notice);
+    expect(notice).not.toHaveTextContent("Paint");
+    await expectBlockLocked(user, "room-201", addDaysIso(from, 6), addDaysIso(from, 7));
+    await user.click(screen.getByTitle("Paint"));
+    expect(within(screen.getByRole("dialog", { name: "Operational block details" })).getByRole("button", { name: "Cancel block" })).toBeDisabled();
+    expect(mockedCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["201", { kind: "created", segment: null }],
+    ["409", { kind: "rejected", status: 409, category: "conflict" }],
+    ["400", { kind: "rejected", status: 400, category: "validation" }],
+    ["not-sent", { kind: "not-sent", message: "No API address." }],
+  ] as [string, AssignmentCreateOutcome][])("a %s answer removes the intent, and a later reload restores nothing", async (_label, outcome) => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    const post = await startPendingAssignment(user, from);
+    expect(sessionStorage.getItem(PENDING_KEY)).not.toBeNull();
+
+    await act(async () => post.resolve(outcome));
+    await waitFor(() => expect(sessionStorage.getItem(PENDING_KEY)).toBeNull());
+    expect(sessionStorage.getItem(UNCERTAIN_KEY)).toBeNull();
+
+    await reloadSameTab();
+    expect(screen.queryByTestId("uncertain-write-notice")).not.toBeInTheDocument();
+  });
+
+  it("an unknown answer hands the lock from the intent to the unconfirmed record with no moment unlocked", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    const post = await startPendingAssignment(user, from);
+
+    // Watch every storage write: at no point may both records be empty.
+    const gaps: string[] = [];
+    const realRemove = Storage.prototype.removeItem;
+    const spy = vi.spyOn(Storage.prototype, "removeItem").mockImplementation(function (this: Storage, key: string) {
+      realRemove.call(this, key);
+      if (this.getItem(PENDING_KEY) === null && this.getItem(UNCERTAIN_KEY) === null) gaps.push(key);
+    });
+    await act(async () => post.resolve({ kind: "unknown", reason: "timeout" }));
+    spy.mockRestore();
+
+    expect(gaps).toEqual([]);
+    expect(sessionStorage.getItem(PENDING_KEY)).toBeNull();
+    expect(sessionStorage.getItem(UNCERTAIN_KEY)).not.toBeNull();
+    await reloadSameTab();
+    expect(await screen.findByTestId("uncertain-write-notice")).toHaveTextContent("from before this page was reloaded");
+  });
+
+  it("a late answer from the page that was reloaded cannot remove what the new page is tracking", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    const post = await startPendingAssignment(user, from);
+
+    await reloadSameTab();
+    await screen.findByTestId("uncertain-write-notice");
+    // The old page's request now answers — its page is gone.
+    await act(async () => post.resolve({ kind: "created", segment: null }));
+
+    // The new page still tracks it: only server data may resolve it.
+    expect(screen.getByTestId("uncertain-write-notice")).toBeInTheDocument();
+    expect(firstRangeBar(from)).toHaveAttribute("aria-disabled", "true");
+    await reloadSameTab();
+    expect(await screen.findByTestId("uncertain-write-notice")).toBeInTheDocument();
+  });
+
+  it("an unknown answer that reaches the old page after it unmounted, before the new page loads, is still there for the new page", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    const post = await startPendingAssignment(user, from);
+
+    cleanup();
+    await act(async () => post.resolve({ kind: "unknown", reason: "network" }));
+    await renderLoadedBoard();
+
+    expectInFlightWording(await screen.findByTestId("uncertain-write-notice"));
+    expect(firstRangeBar(from)).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("once server data resolves a restored in-flight write, a later reload does not bring it back", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    await startPendingAssignment(user, from);
+
+    serveAssignedTo102();
+    await reloadSameTab();
+    await waitFor(() => expect(screen.getByTestId("uncertain-write-notice")).toHaveTextContent("is now shown on the server"));
+    expect(sessionStorage.getItem(PENDING_KEY)).toBeNull();
+    expect(sessionStorage.getItem(UNCERTAIN_KEY)).toBeNull();
+
+    await reloadSameTab();
+    expect(screen.queryByTestId("uncertain-write-notice")).not.toBeInTheDocument();
+  });
+
+  it("a real reload aborts the pending POST while the old page is still mounted: the intent stays in flight, with the in-flight wording", async () => {
+    // Verified live in Chrome: reloading aborts the old page's fetch *before*
+    // that page unmounts, so the client reports `unknown/aborted` to a board
+    // that is still mounted. `pagehide` marks the page as unloading first.
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    const post = await startPendingAssignment(user, from);
+
+    await act(async () => {
+      window.dispatchEvent(new Event("pagehide"));
+      post.resolve({ kind: "unknown", reason: "aborted" });
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+    });
+    expect(sessionStorage.getItem(PENDING_KEY)).not.toBeNull();
+
+    await reloadSameTab();
+    expectInFlightWording(await screen.findByTestId("uncertain-write-notice"));
+    expect(firstRangeBar(from)).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("when the intent cannot be stored, nothing is sent and the operator is told why", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    const spy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("full", "QuotaExceededError");
+    });
+    mockedCreate.mockResolvedValue({ kind: "created", segment: null });
+    await user.click(firstRangeBar(from));
+    await user.click(within(assignDialog()).getByLabelText(/Room 102/));
+    await user.click(within(assignDialog()).getByRole("button", { name: "Assign room 102" }));
+    spy.mockRestore();
+
+    expect(mockedCreate).not.toHaveBeenCalled();
+    expect(await within(assignDialog()).findByRole("alert")).toHaveTextContent("could not keep the safety record");
+    // The dialog stays usable once storage works again.
+    mockedCreate.mockResolvedValue({ kind: "rejected", status: 409, category: "conflict" });
+    await user.click(within(assignDialog()).getByRole("button", { name: "Assign room 102" }));
+    await waitFor(() => expect(mockedCreate).toHaveBeenCalledTimes(1));
+  });
+
+  it("a double submit records one intent for its one POST, and a refusal before sending records none", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    // Refused before sending: the destination is locked by an earlier lost block.
+    await loseBlock(user, "room-102", from, addDaysIso(from, 1));
+    await user.click(firstRangeBar(from));
+    await user.click(within(assignDialog()).getByLabelText(/Room 102/));
+    await user.click(within(assignDialog()).getByRole("button", { name: "Assign room 102" }));
+    expect(await within(assignDialog()).findByRole("alert")).toHaveTextContent("still unconfirmed");
+    expect(sessionStorage.getItem(PENDING_KEY)).toBeNull();
+
+    mockedCreate.mockImplementation(() => deferred<AssignmentCreateOutcome>().promise);
+    await user.click(within(assignDialog()).getByLabelText(/Room 101/));
+    await user.dblClick(within(assignDialog()).getByRole("button", { name: "Assign room 101" }));
+    expect(mockedCreate).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(sessionStorage.getItem(PENDING_KEY)!).writes).toHaveLength(1);
+  });
+});

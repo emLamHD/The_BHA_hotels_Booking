@@ -8,7 +8,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BlockCreateReconciliation } from "./blockCreateReconciliation";
 import type { Reconciliation } from "./reconciliation";
 import {
+  PENDING_WRITES_STORAGE_KEY,
   UNCERTAIN_WRITES_STORAGE_KEY,
+  beginPendingWrite,
+  endPendingWrite,
   persistUncertainWrites,
   restoreUncertainWrites,
   tabStorage,
@@ -120,7 +123,7 @@ describe("uncertainWriteStorage (PMS-CAL-001.5-CP02)", () => {
     expect(restored.blocks.map((entry) => entry.target.operation)).toEqual(["create", "cancel"]);
     expect([...restored.assignments, ...restored.blocks].map((entry) => entry.id)).toEqual([5, 6, 7, 8, 9]);
     for (const entry of [...restored.assignments, ...restored.blocks]) {
-      expect(entry).toMatchObject({ ...board, afterSeq: 0, certainty: "uncertain", status: "pending", resolution: "unresolved", restored: true });
+      expect(entry).toMatchObject({ ...board, afterSeq: 0, certainty: "uncertain", status: "pending", resolution: "unresolved", restored: "unknown-outcome" });
     }
     // Everything the lock and the reconciliation rules read comes back exactly.
     expect(restored.assignments[1].target).toMatchObject({
@@ -144,7 +147,7 @@ describe("uncertainWriteStorage (PMS-CAL-001.5-CP02)", () => {
     ["the wrong shape", JSON.stringify({ v: 1, assignments: "nope", blocks: [] })],
   ])("reports %s as unreadable and restores nothing", (_label, text) => {
     sessionStorage.setItem(UNCERTAIN_WRITES_STORAGE_KEY, text);
-    expect(restoreUncertainWrites(sessionStorage, 1)).toEqual({ assignments: [], blocks: [], unreadable: true });
+    expect(restoreUncertainWrites(sessionStorage, 1)).toEqual({ assignments: [], blocks: [], unreadable: true, pendingTokens: [] });
   });
 
   it("drops only the entries that fail validation, keeps the valid ones, and reports the loss", () => {
@@ -174,8 +177,8 @@ describe("uncertainWriteStorage (PMS-CAL-001.5-CP02)", () => {
       },
     } as unknown as Storage;
     expect(() => persistUncertainWrites(refusing, [assignment()], [])).not.toThrow();
-    expect(restoreUncertainWrites(refusing, 1)).toEqual({ assignments: [], blocks: [], unreadable: false });
-    expect(restoreUncertainWrites(null, 1)).toEqual({ assignments: [], blocks: [], unreadable: false });
+    expect(restoreUncertainWrites(refusing, 1)).toEqual({ assignments: [], blocks: [], unreadable: false, pendingTokens: [] });
+    expect(restoreUncertainWrites(null, 1)).toEqual({ assignments: [], blocks: [], unreadable: false, pendingTokens: [] });
   });
 
   it("tabStorage is null where sessionStorage cannot be reached", () => {
@@ -183,5 +186,69 @@ describe("uncertainWriteStorage (PMS-CAL-001.5-CP02)", () => {
       throw new DOMException("denied", "SecurityError");
     });
     expect(tabStorage()).toBeNull();
+  });
+});
+
+describe("uncertainWriteStorage — in-flight intents (PMS-CAL-001.5-CP03)", () => {
+  it("records a minimal intent, readable back, with no guest, confirmation or reason text", () => {
+    const token = beginPendingWrite(sessionStorage, { kind: "assignment", entry: assignment() });
+    expect(token).toEqual(expect.any(String));
+    const text = sessionStorage.getItem(PENDING_WRITES_STORAGE_KEY)!;
+    for (const sensitive of ["Nguyen Van A", "CNF-100", "guestDisplayName", "confirmationNumber"]) {
+      expect(text).not.toContain(sensitive);
+    }
+    const blockToken = beginPendingWrite(sessionStorage, { kind: "block", entry: block() });
+    expect(sessionStorage.getItem(PENDING_WRITES_STORAGE_KEY)).not.toContain("Paint");
+    expect(blockToken).not.toBe(token);
+  });
+
+  it("removes only its own intent, and removing an unknown token changes nothing", () => {
+    const first = beginPendingWrite(sessionStorage, { kind: "assignment", entry: assignment() })!;
+    const second = beginPendingWrite(sessionStorage, { kind: "block", entry: block() })!;
+    endPendingWrite(sessionStorage, "not-a-token");
+    expect(JSON.parse(sessionStorage.getItem(PENDING_WRITES_STORAGE_KEY)!).writes).toHaveLength(2);
+    endPendingWrite(sessionStorage, first);
+    const left = JSON.parse(sessionStorage.getItem(PENDING_WRITES_STORAGE_KEY)!).writes;
+    expect(left.map((record: { token: string }) => record.token)).toEqual([second]);
+    endPendingWrite(sessionStorage, second);
+    expect(sessionStorage.getItem(PENDING_WRITES_STORAGE_KEY)).toBeNull();
+  });
+
+  it("returns null — so the write must not be sent — when the intent cannot be stored", () => {
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("full", "QuotaExceededError");
+    });
+    expect(beginPendingWrite(sessionStorage, { kind: "assignment", entry: assignment() })).toBeNull();
+    expect(beginPendingWrite(null, { kind: "assignment", entry: assignment() })).toBeNull();
+  });
+
+  it("restores intents as in-flight entries, after the unconfirmed ones, and reports their tokens", () => {
+    persistUncertainWrites(sessionStorage, [assignment()], []);
+    const token = beginPendingWrite(sessionStorage, { kind: "block", entry: block() })!;
+
+    const restored = restoreUncertainWrites(sessionStorage, 1);
+
+    expect(restored.assignments.map((entry) => [entry.id, entry.restored])).toEqual([[1, "unknown-outcome"]]);
+    expect(restored.blocks.map((entry) => [entry.id, entry.restored])).toEqual([[2, "in-flight"]]);
+    expect(restored.blocks[0]).toMatchObject({ afterSeq: 0, status: "pending", resolution: "unresolved" });
+    expect(restored.pendingTokens).toEqual([token]);
+  });
+
+  it("keeps an in-flight origin once the page has moved the intent into the unconfirmed record", () => {
+    beginPendingWrite(sessionStorage, { kind: "assignment", entry: assignment() });
+    const restored = restoreUncertainWrites(sessionStorage, 1);
+    persistUncertainWrites(sessionStorage, restored.assignments, restored.blocks);
+    for (const token of restored.pendingTokens) endPendingWrite(sessionStorage, token);
+
+    expect(restoreUncertainWrites(sessionStorage, 1).assignments[0].restored).toBe("in-flight");
+  });
+
+  it("reports an unreadable intent record without losing the readable unconfirmed ones", () => {
+    persistUncertainWrites(sessionStorage, [assignment()], []);
+    sessionStorage.setItem(PENDING_WRITES_STORAGE_KEY, "{broken");
+    const restored = restoreUncertainWrites(sessionStorage, 1);
+    expect(restored.unreadable).toBe(true);
+    expect(restored.assignments).toHaveLength(1);
+    expect(restored.pendingTokens).toEqual([]);
   });
 });

@@ -116,8 +116,10 @@ export interface Reconciliation {
    * PMS-CAL-001.5-CP02: brought back from this tab's storage after a reload
    * (`uncertainWriteStorage.ts`). Such an entry no longer carries guest,
    * confirmation or reason text, so its notice describes it neutrally.
+   * PMS-CAL-001.5-CP03: `"in-flight"` when the page unloaded before any
+   * outcome arrived, `"unknown-outcome"` when it received `unknown`.
    */
-  restored?: true;
+  restored?: "unknown-outcome" | "in-flight";
 }
 
 function containsRange(outer: { startDate: string; endDate: string }, inner: { startDate: string; endDate: string }) {
