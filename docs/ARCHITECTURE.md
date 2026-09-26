@@ -138,7 +138,11 @@ loopback host with the write opt-in on:
   (`PMS-CAL-001.3-CP02`): the segment becomes Cancelled, the RoomBlock header
   and audit history stay. The Admin Reservation Board calls the create route
   (`PMS-CAL-001.3-CP03`: one Active room, a confirmed range within the visible
-  board, then an authoritative re-read); no Admin frontend calls cancel yet.
+  board, then an authoritative re-read) and the cancel route
+  (`PMS-CAL-001.3-CP04`: one block bar, a confirmation showing the segment's
+  own full nights and the `expectedVersion` read from the board, then the same
+  authoritative re-read — a lost response is never retried and keeps that
+  room's nights locked).
 
 The audit actor — and, where an operation can carry one, the authorization
 evidence — are fixed server-owned constants naming this local boundary: not a

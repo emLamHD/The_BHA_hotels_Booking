@@ -69,6 +69,7 @@ import ReservationAssignmentDialog, {
 } from "./ReservationAssignmentDialog";
 import ReservationMoveDialog from "./ReservationMoveDialog";
 import ReservationUnassignDialog from "./ReservationUnassignDialog";
+import ReservationBlockCancelDialog, { describeBlockCancelOutcome } from "./ReservationBlockCancelDialog";
 import ReservationBlockCreateDialog, {
   describeBlockCreateOutcome,
   type BlockCreateDialogTarget,
@@ -81,6 +82,7 @@ import {
 } from "./blockCreateReconciliation";
 import { boardIdentityKey, buildAssignmentTarget, type AssignmentTarget } from "./assignmentTarget";
 import { buildMoveTarget, type MoveTarget } from "./moveTarget";
+import { buildBlockCancelTarget, type BlockCancelTarget } from "./blockCancelTarget";
 import { buildUnassignTarget, type UnassignTarget } from "./unassignTarget";
 import { buildUnassignRequest, planUnassignReconciliation } from "./unassignSubmission";
 import { describeAssignmentOutcome, describeMoveOutcome } from "./assignmentOutcome";
@@ -104,6 +106,7 @@ import {
 } from "./dateMath";
 import type { IsoDate, ReservationBoardFilters, ReservationBoardRangeLength } from "./types";
 import {
+  cancelOperationalBlock,
   createOperationalBlock,
   createReservationAssignment,
   fetchActiveProperties,
@@ -113,12 +116,14 @@ import {
   type ApiError,
   type AssignmentCreateOutcome,
   type MoveAssignmentOutcome,
+  type OperationalBlockCancelOutcome,
   type OperationalBlockCreateOutcome,
   type UnassignAssignmentOutcome,
 } from "@/lib/api/client";
 import type {
   ApiProperty,
   CreateOperationalBlockRequest,
+  ReservationBoardOperationalBlock,
   ReservationBoardResponse,
   ReservationBoardUnassignedRange,
 } from "@/lib/api/types";
@@ -297,11 +302,32 @@ const ReservationBoard: React.FC = () => {
   const blockSubmittedRef = useRef(false);
   /** C2: the board closed a stale block dialog; restore focus if that dialog took it along. */
   const restoreFocusAfterStaleBlockDialogRef = useRef(false);
+  /**
+   * PMS-CAL-001.3-CP04: operational-block cancel. It shares the block
+   * reconciliation list and therefore the cross-write-type room lock with
+   * create — a lost cancel and a lost create both leave the same room's nights
+   * unsettled — but keeps its own dialog, notice and pending flag, so neither
+   * direction can present the other's result.
+   */
+  const [blockCancelTarget, setBlockCancelTarget] = useState<BlockCancelTarget | null>(null);
+  const [dialogBlockCancelReconciliationId, setDialogBlockCancelReconciliationId] = useState<number | null>(null);
+  const [blockCancelNotice, setBlockCancelNotice] = useState<{ text: string; reconciliationId: number } | null>(null);
+  const blockCancelNoticeRef = useRef<HTMLDivElement>(null);
+  const blockCancelRequestPendingRef = useRef(false);
+  /** Set once a cancel request is sent: such a dialog stays open to report its own result. */
+  const blockCancelSubmittedRef = useRef(false);
   const [blockReconciliations, setBlockReconciliations] = useState<BlockCreateReconciliation[]>([]);
   const blockReconciliationsRef = useRef<BlockCreateReconciliation[]>([]);
-  const referencedBlockIdsRef = useRef<{ dialog: number | null; notice: number | null }>({
+  const referencedBlockIdsRef = useRef<{
+    dialog: number | null;
+    notice: number | null;
+    cancelDialog: number | null;
+    cancelNotice: number | null;
+  }>({
     dialog: null,
     notice: null,
+    cancelDialog: null,
+    cancelNotice: null,
   });
 
   const requestSeqRef = useRef(0);
@@ -334,8 +360,10 @@ const ReservationBoard: React.FC = () => {
     referencedBlockIdsRef.current = {
       dialog: dialogBlockReconciliationId,
       notice: blockNotice?.reconciliationId ?? null,
+      cancelDialog: dialogBlockCancelReconciliationId,
+      cancelNotice: blockCancelNotice?.reconciliationId ?? null,
     };
-  }, [dialogBlockReconciliationId, blockNotice]);
+  }, [dialogBlockReconciliationId, blockNotice, dialogBlockCancelReconciliationId, blockCancelNotice]);
 
   /** A write of either kind made from exactly this board has not been re-read yet. */
   const isBoardAwaitingAnyWrite = useCallback(
@@ -471,6 +499,30 @@ const ReservationBoard: React.FC = () => {
     []
   );
 
+  /**
+   * Settled block entries are kept only while a dialog or notice of either
+   * block direction still refers to them; an uncertain one is never dropped.
+   */
+  const keepBlockReconciliation = useCallback((entry: BlockCreateReconciliation) => {
+    const referenced = referencedBlockIdsRef.current;
+    return (
+      entry.status !== "done" ||
+      entry.certainty === "uncertain" ||
+      entry.id === referenced.dialog ||
+      entry.id === referenced.notice ||
+      entry.id === referenced.cancelDialog ||
+      entry.id === referenced.cancelNotice
+    );
+  }, []);
+
+  /** CP04: closes a block cancel dialog that belongs to a board no longer on screen. */
+  const closeStaleBlockCancelDialog = useCallback(() => {
+    setBlockCancelTarget((open) => {
+      if (open) restoreFocusAfterStaleBlockDialogRef.current = true;
+      return null;
+    });
+  }, []);
+
   /** C2: closes a block dialog that belongs to a board no longer on screen. */
   const closeStaleBlockDialog = useCallback(() => {
     setBlockTarget((open) => {
@@ -497,9 +549,11 @@ const ReservationBoard: React.FC = () => {
       setUnassignNotice(null);
       if (!blockSubmittedRef.current) closeStaleBlockDialog();
       setBlockNotice(null);
+      if (!blockCancelSubmittedRef.current) closeStaleBlockCancelDialog();
+      setBlockCancelNotice(null);
       if (nextAnchor !== anchorDate) setAnchorDate(nextAnchor);
     },
-    [propertiesState, anchorDate, rangeLength, markNavigation, closeStaleBlockDialog]
+    [propertiesState, anchorDate, rangeLength, markNavigation, closeStaleBlockDialog, closeStaleBlockCancelDialog]
   );
 
   const handlePrev = useCallback(() => {
@@ -898,6 +952,14 @@ const ReservationBoard: React.FC = () => {
       restoreFocusAfterStaleBlockDialogRef.current = true;
       return null;
     });
+    // CP04: the same rule for a cancel dialog. It names one segment of one
+    // board read; once another board is shown, a dialog that has sent nothing
+    // can no longer be confirmed against what the operator is looking at.
+    setBlockCancelTarget((open) => {
+      if (!open || blockCancelSubmittedRef.current || open.boardKey === currentBoardKey) return open;
+      restoreFocusAfterStaleBlockDialogRef.current = true;
+      return null;
+    });
   }, [currentBoardKey]);
 
   /** PMS-CAL-001.3-CP03: opens the create dialog for the board on screen, never for a stale or unread one. */
@@ -927,6 +989,115 @@ const ReservationBoard: React.FC = () => {
       rooms,
     });
   }, [boardState, isBoardAwaitingAnyWrite]);
+
+  /**
+   * PMS-CAL-001.3-CP04: opens the cancel dialog for one clicked block, but only
+   * when the authoritative board still shows that exact segment at that exact
+   * version. Everything the operator will confirm therefore comes from the same
+   * read, and a bar clicked from a board that has since been contradicted opens
+   * nothing at all.
+   */
+  const handleCancelBlock = useCallback(
+    (blockSelection: BlockSelection) => {
+      if (boardState.status !== "loaded" || blockCancelRequestPendingRef.current) return;
+      const board = boardState.board;
+      const key = boardIdentityKey(board.property.id, board.from, board.to);
+      // The board on screen may already be contradicted by a write that has not
+      // been re-read yet; nothing on it may start another one.
+      if (isBoardAwaitingAnyWrite(key)) return;
+      const target = buildBlockCancelTarget(board, selectedPropertyId, blockSelection);
+      if (!target) return;
+      // An unresolved write already covers this room and these nights.
+      if (isRoomLocked(target.propertyId, [target.block.physicalRoomId], target.block)) return;
+      blockCancelSubmittedRef.current = false;
+      setSelection(null);
+      setDialogBlockCancelReconciliationId(null);
+      setBlockCancelTarget(target);
+    },
+    [boardState, selectedPropertyId, isBoardAwaitingAnyWrite, isRoomLocked]
+  );
+
+  /**
+   * CP04: the cancel counterpart of `submitBlockCreate`, with the same rules.
+   * One request, never a retry; the board is the only evidence; and a result is
+   * reported onto the board it was written from, never onto one the operator
+   * has since navigated to.
+   */
+  const submitBlockCancel = useCallback(
+    async (target: BlockCancelTarget, reason?: string): Promise<OperationalBlockCancelOutcome> => {
+      const { block } = target;
+      if (isRoomLocked(target.propertyId, [block.physicalRoomId], block)) {
+        return { kind: "not-sent", message: ROOM_LOCKED_MESSAGE };
+      }
+      // A dialog built from a board the operator has left never sends that
+      // board's segment; navigation normally closes it first, and this also
+      // covers a confirm that lands before React has re-rendered.
+      if (currentBoardKeyRef.current !== target.boardKey) {
+        closeStaleBlockCancelDialog();
+        return { kind: "not-sent", message: STALE_BLOCK_DIALOG_MESSAGE };
+      }
+
+      blockCancelRequestPendingRef.current = true;
+      blockCancelSubmittedRef.current = true;
+      let outcome: OperationalBlockCancelOutcome;
+      try {
+        outcome = await cancelOperationalBlock(target.propertyId, block.segmentId, {
+          expectedVersion: block.segmentVersion,
+          ...(reason !== undefined ? { reason } : {}),
+        });
+      } finally {
+        blockCancelRequestPendingRef.current = false;
+      }
+      if (!mountedRef.current) return outcome;
+
+      const view = describeBlockCancelOutcome(outcome);
+      if (view.allowResubmit) {
+        // Nothing was changed: the dialog may be used again, but only on the
+        // board it was opened from.
+        blockCancelSubmittedRef.current = false;
+        if (currentBoardKeyRef.current !== target.boardKey) closeStaleBlockCancelDialog();
+      }
+
+      if (view.reloadBoard) {
+        const uncertain = outcome.kind === "unknown";
+        const reconciliation: BlockCreateReconciliation = {
+          id: nextReconciliationIdRef.current++,
+          key: target.boardKey,
+          propertyId: target.propertyId,
+          from: target.boardFrom,
+          to: target.boardTo,
+          afterSeq: requestSeqRef.current,
+          certainty: uncertain ? "uncertain" : "settled",
+          target: {
+            operation: "cancel",
+            physicalRoomId: block.physicalRoomId,
+            roomNumber: target.roomNumber,
+            // The segment's own full range, never the visible board window.
+            startDate: block.startDate,
+            endDate: block.endDate,
+            reason: block.reason,
+            segmentId: block.segmentId,
+            expectedVersion: block.segmentVersion,
+          },
+          status: "pending",
+          resolution: uncertain ? "unresolved" : "settled",
+        };
+        updateBlockReconciliations((list) => [...list.filter(keepBlockReconciliation), reconciliation]);
+        setDialogBlockCancelReconciliationId(reconciliation.id);
+        // Never paint a cancelled block onto a Property/range the operator has left.
+        if (currentBoardKeyRef.current === target.boardKey && outcome.kind === "cancelled") {
+          setBlockCancelTarget(null);
+          setBlockCancelNotice({
+            text: `Block on room ${target.roomNumber} cancelled for [${block.startDate}, ${block.endDate}).`,
+            reconciliationId: reconciliation.id,
+          });
+        }
+        setRetryToken((token) => token + 1);
+      }
+      return outcome;
+    },
+    [updateBlockReconciliations, isRoomLocked, closeStaleBlockCancelDialog, keepBlockReconciliation]
+  );
 
   const isBlockRangeLocked = useCallback(
     (propertyId: string, physicalRoomId: string, startDate: string, endDate: string) =>
@@ -979,7 +1150,6 @@ const ReservationBoard: React.FC = () => {
 
       if (view.reloadBoard) {
         const uncertain = outcome.kind === "unknown";
-        const referenced = referencedBlockIdsRef.current;
         const reconciliation: BlockCreateReconciliation = {
           id: nextReconciliationIdRef.current++,
           key: target.boardKey,
@@ -989,6 +1159,7 @@ const ReservationBoard: React.FC = () => {
           afterSeq: requestSeqRef.current,
           certainty: uncertain ? "uncertain" : "settled",
           target: {
+            operation: "create",
             physicalRoomId: room.id,
             roomNumber: room.roomNumber,
             startDate: request.startDate,
@@ -998,16 +1169,7 @@ const ReservationBoard: React.FC = () => {
           status: "pending",
           resolution: uncertain ? "unresolved" : "settled",
         };
-        updateBlockReconciliations((list) => [
-          ...list.filter(
-            (entry) =>
-              entry.status !== "done" ||
-              entry.certainty === "uncertain" ||
-              entry.id === referenced.dialog ||
-              entry.id === referenced.notice
-          ),
-          reconciliation,
-        ]);
+        updateBlockReconciliations((list) => [...list.filter(keepBlockReconciliation), reconciliation]);
         setDialogBlockReconciliationId(reconciliation.id);
         // Never paint a created block onto a Property/range the operator has left.
         if (currentBoardKeyRef.current === target.boardKey && outcome.kind === "created") {
@@ -1021,7 +1183,7 @@ const ReservationBoard: React.FC = () => {
       }
       return outcome;
     },
-    [updateBlockReconciliations, isRoomLocked, closeStaleBlockDialog]
+    [updateBlockReconciliations, isRoomLocked, closeStaleBlockDialog, keepBlockReconciliation]
   );
 
   const reconciliationStatus = (id: number | null): BoardReloadStatus => {
@@ -1043,6 +1205,16 @@ const ReservationBoard: React.FC = () => {
     if (entry.key !== currentBoardKey) return "elsewhere";
     return entry.status;
   };
+
+  const dialogBlockCancelReconciliation =
+    dialogBlockCancelReconciliationId === null
+      ? null
+      : blockReconciliations.find((entry) => entry.id === dialogBlockCancelReconciliationId) ?? null;
+
+  const noticeBlockCancelReconciliation =
+    blockCancelNotice === null
+      ? null
+      : blockReconciliations.find((entry) => entry.id === blockCancelNotice.reconciliationId) ?? null;
 
   const dialogBlockReconciliation =
     dialogBlockReconciliationId === null
@@ -1170,6 +1342,17 @@ const ReservationBoard: React.FC = () => {
     isSegmentRoomLocked(segmentId);
 
   /** PMS-CAL-001.2-CP04D-BOARD-WIRING: the unassign counterpart of `isMoveBlockedForSegment` above, independent of it. */
+  /**
+   * PMS-CAL-001.3-CP04: the block counterpart. A cancel is unavailable while
+   * the board on screen is already contradicted by a write that has not been
+   * re-read, and while an unresolved write of any type still covers this
+   * room's overlapping nights — including an earlier lost cancel of this very
+   * segment, which must never be sent a second time.
+   */
+  const isCancelBlockedForBlock = (block: ReservationBoardOperationalBlock) =>
+    displayedBoardAwaitingReconciliation ||
+    (selectedPropertyId !== null && isRoomLocked(selectedPropertyId, [block.physicalRoomId], block));
+
   const isUnassignBlockedForSegment = (segmentId: string) =>
     displayedBoardAwaitingReconciliation ||
     (selectedPropertyId !== null && isSegmentUnassignUnresolved(reconciliations, selectedPropertyId, segmentId)) ||
@@ -1215,6 +1398,10 @@ const ReservationBoard: React.FC = () => {
     if (blockNotice) blockNoticeRef.current?.focus();
   }, [blockNotice]);
 
+  useEffect(() => {
+    if (blockCancelNotice) blockCancelNoticeRef.current?.focus();
+  }, [blockCancelNotice]);
+
   /** Focus after the block dialog or its notice goes away: its own toolbar button, else the Property selector. */
   const restoreCreateBlockFocus = useCallback(() => {
     const button = document.getElementById("reservation-board-create-block");
@@ -1229,11 +1416,11 @@ const ReservationBoard: React.FC = () => {
   // focused element with it. Only focus that fell to the document is moved;
   // focus the operator has put elsewhere is left where it is.
   useEffect(() => {
-    if (blockTarget || !restoreFocusAfterStaleBlockDialogRef.current) return;
+    if (blockTarget || blockCancelTarget || !restoreFocusAfterStaleBlockDialogRef.current) return;
     restoreFocusAfterStaleBlockDialogRef.current = false;
     const active = document.activeElement;
     if (active === null || active === document.body) restoreCreateBlockFocus();
-  }, [blockTarget, restoreCreateBlockFocus]);
+  }, [blockTarget, blockCancelTarget, restoreCreateBlockFocus]);
 
   /**
    * C2: same rule as `dismissBlockNotice`, for an observed unconfirmed block
@@ -1247,6 +1434,12 @@ const ReservationBoard: React.FC = () => {
     },
     [dismissBlockReconciliation, restoreCreateBlockFocus]
   );
+
+  const dismissBlockCancelNotice = useCallback(() => {
+    const noticeOwnedFocus = blockCancelNoticeRef.current?.contains(document.activeElement) ?? false;
+    setBlockCancelNotice(null);
+    if (noticeOwnedFocus) restoreBoardFocus();
+  }, [restoreBoardFocus]);
 
   const dismissBlockNotice = useCallback(() => {
     const noticeOwnedFocus = blockNoticeRef.current?.contains(document.activeElement) ?? false;
@@ -1325,7 +1518,13 @@ const ReservationBoard: React.FC = () => {
           setSelection({ kind: "stay", value });
         }}
         onSelectUnassignedRange={handleSelectUnassignedRange}
-        onSelectBlock={(value) => setSelection({ kind: "block", value })}
+        onSelectBlock={(value) => {
+          // CP04: captured for the same reason as `onSelectStay`'s — the block
+          // bar is the stable opener focus returns to when the cancel dialog
+          // closes without a notice taking over.
+          assignedBarOpenerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+          setSelection({ kind: "block", value });
+        }}
         unassignedActionsBlocked={displayedBoardAwaitingReconciliation}
         isUnassignedRangeUnconfirmed={isRangeUnconfirmed}
       />
@@ -1369,6 +1568,19 @@ const ReservationBoard: React.FC = () => {
             noticeBlockReconciliation ? { from: noticeBlockReconciliation.from, to: noticeBlockReconciliation.to } : null
           }
           onDismiss={dismissBlockNotice}
+        />
+      )}
+      {blockCancelNotice && (
+        <AssignmentNotice
+          ref={blockCancelNoticeRef}
+          text={blockCancelNotice.text}
+          reloadStatus={blockReconciliationStatus(blockCancelNotice.reconciliationId)}
+          writtenRange={
+            noticeBlockCancelReconciliation
+              ? { from: noticeBlockCancelReconciliation.from, to: noticeBlockCancelReconciliation.to }
+              : null
+          }
+          onDismiss={dismissBlockCancelNotice}
         />
       )}
       {uncertainBlockWrites.map((entry) => (
@@ -1454,6 +1666,10 @@ const ReservationBoard: React.FC = () => {
             selection.kind === "stay" && selection.value.segment
               ? isUnassignBlockedForSegment(selection.value.segment.segmentId)
               : false
+          }
+          onCancelBlock={selection.kind === "block" ? handleCancelBlock : undefined}
+          cancelBlockBlocked={
+            selection.kind === "block" ? isCancelBlockedForBlock(selection.value.block) : false
           }
         />
       )}
@@ -1541,6 +1757,27 @@ const ReservationBoard: React.FC = () => {
           onClose={() => {
             setBlockTarget(null);
             restoreCreateBlockFocus();
+          }}
+        />
+      )}
+      {blockCancelTarget && (
+        <ReservationBlockCancelDialog
+          // A different segment/version is a different dialog: never carry one
+          // block's result or submit lock over to another.
+          key={`${blockCancelTarget.block.segmentId}:${blockCancelTarget.block.segmentVersion}`}
+          target={blockCancelTarget}
+          boardReloadStatus={blockReconciliationStatus(dialogBlockCancelReconciliationId)}
+          uncertainResolution={
+            dialogBlockCancelReconciliation?.certainty === "uncertain" &&
+            dialogBlockCancelReconciliation.resolution !== "settled"
+              ? dialogBlockCancelReconciliation.resolution
+              : undefined
+          }
+          onSubmit={(reason) => submitBlockCancel(blockCancelTarget, reason)}
+          onClose={() => {
+            setBlockCancelTarget(null);
+            // Success instead clears the target from `submitBlockCancel` itself.
+            restoreBoardFocus();
           }}
         />
       )}

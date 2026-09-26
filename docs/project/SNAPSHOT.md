@@ -293,7 +293,9 @@ này sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
   chặn tài nguyên, không phải business rule về độ dài closure), và
   `SupersedeSegmentsAsync` dạng một-segment, không replacement, qua
   `POST .../operational-blocks/{segmentId}/cancel` (`PMS-CAL-001.3-CP02`;
-  chưa có Admin frontend caller). `SupersedeAsync` dạng split/batch và
+  Admin Reservation Board gọi từ CP04 — block bar → popover → dialog xác nhận
+  hiển thị đúng toàn bộ nights của segment và `expectedVersion` từ board, rồi
+  đọc lại board). `SupersedeAsync` dạng split/batch và
   OperationalBlock move/split/multi-segment supersede **vẫn** internal-only. Không có Staff identity hay Admin RBAC model; cross-RoomType
   assignment requires an opaque `AuthorizationEvidence`/`Reason` pair, not a
   real permission check. A

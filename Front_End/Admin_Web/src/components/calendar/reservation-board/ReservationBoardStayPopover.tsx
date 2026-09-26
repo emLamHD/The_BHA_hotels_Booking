@@ -20,6 +20,11 @@
  * It builds no target, opens no dialog and calls no API, and never closes this
  * panel: the parent decides the transition and owns focus restoration. No
  * caller passes it yet, so nothing is offered on the live board.
+ *
+ * PMS-CAL-001.3-CP04: `onCancelBlock` is the same opt-in contract for the block
+ * branch — it reports back the exact `BlockSelection` that was clicked and
+ * nothing else, and the parent decides whether that selection still matches the
+ * authoritative board (`buildBlockCancelTarget`) before any dialog opens.
  */
 
 import React, { useId } from "react";
@@ -44,6 +49,10 @@ interface ReservationBoardStayPopoverProps {
   onUnassignRoom?: (selection: AssignedSegmentSelection) => void;
   /** True while the board is stale or this exact segment already has an unresolved write. Independent of `moveBlocked`. */
   unassignBlocked?: boolean;
+  /** Present only when this selection came from an operational-block bar. */
+  onCancelBlock?: (selection: BlockSelection) => void;
+  /** True while the board is stale or this exact block already has an unresolved write. */
+  cancelBlockBlocked?: boolean;
 }
 
 const ReservationBoardStayPopover: React.FC<ReservationBoardStayPopoverProps> = ({
@@ -53,8 +62,11 @@ const ReservationBoardStayPopover: React.FC<ReservationBoardStayPopoverProps> = 
   moveBlocked = false,
   onUnassignRoom,
   unassignBlocked = false,
+  onCancelBlock,
+  cancelBlockBlocked = false,
 }) => {
   const unassignBlockedId = useId();
+  const cancelBlockBlockedId = useId();
   return (
     <div
       role="dialog"
@@ -149,6 +161,25 @@ const ReservationBoardStayPopover: React.FC<ReservationBoardStayPopoverProps> = 
               value={`${formatDisplayDate(selection.value.block.startDate)} – ${formatDisplayDate(selection.value.block.endDate)}`}
             />
             <Row label="Reason" value={selection.value.block.reason} />
+            {onCancelBlock && (
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={() => onCancelBlock(selection.value)}
+                  disabled={cancelBlockBlocked}
+                  aria-disabled={cancelBlockBlocked}
+                  aria-describedby={cancelBlockBlocked ? cancelBlockBlockedId : undefined}
+                  className="w-full rounded-lg border border-error-300 px-3 py-2 text-sm font-medium text-error-600 hover:bg-error-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-error-500/40 dark:text-error-400 dark:hover:bg-white/5"
+                >
+                  Cancel block
+                </button>
+                {cancelBlockBlocked && (
+                  <p id={cancelBlockBlockedId} className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                    Unavailable until the board has been re-read after the last change.
+                  </p>
+                )}
+              </div>
+            )}
           </dl>
         )}
       </div>

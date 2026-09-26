@@ -120,7 +120,14 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   một** OperationalBlock segment Effective qua
   `IOperationalBlockMutationStore.SupersedeSegmentsAsync` với danh sách thay
   thế rỗng và `expectedVersion` bắt buộc; RoomBlock header và audit được giữ.
-  **Chưa có** frontend nào gọi nó. ADR 0006 §Amendments (2026-09-25).
+  ADR 0006 §Amendments (2026-09-25).
+- `PMS-CAL-001.3-CP04` (không có migration mới) đưa Admin Reservation Board
+  thành caller đầu tiên của route cancel: chọn một block bar trên timeline,
+  popover hiển thị **toàn bộ `[startDate, endDate)` của segment** (không phải
+  phần bar bị cắt theo cửa sổ đang xem), xác nhận với lý do tùy chọn, gửi đúng
+  một request kèm `expectedVersion` đọc từ board, rồi đọc lại board — block chỉ
+  biến mất từ dữ liệu GET. Lost response không bao giờ được gửi lại và giữ khóa
+  phòng/đêm cho mọi loại ghi.
 
 ### Target/approved, chưa implement (TARGET)
 
