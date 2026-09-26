@@ -1,6 +1,7 @@
 /**
  * PMS-CAL-001.3-CP03: what the board may conclude after one operational-block
- * create, from authoritative board reads only. Kept separate from
+ * write — a create, or since CP04 a cancel (`target.operation`) — from
+ * authoritative board reads only. Kept separate from
  * `reconciliation.ts`, whose targets are all about a ReservationUnit; a block
  * has none, and forcing one in would make every assignment rule there lie.
  *
@@ -12,11 +13,13 @@
  * 2. Is the write's effect known (`resolution`)? A `201`/`200` or `409` is decided
  *    before the server answers (`settled`). A lost response is not: the
  *    transaction may still be running when the next read executes, so it
- *    starts `unresolved` and resolves only to `observed` — a block for the same
- *    room over exactly the same nights is on the server. That shows the
- *    schedule, not that this request created it. A read that shows no such
- *    block proves nothing, so there is no "not written" verdict: the entry
- *    stays `unresolved` and keeps that room's nights locked on this Property.
+ *    starts `unresolved` and resolves only to `observed`. For a create, that is
+ *    a block for the same room over exactly the same nights on the server; for
+ *    a cancel, the targeted segment no longer shown at the version that was
+ *    sent (gone, or re-versioned). Either shows the schedule, not that this
+ *    request caused it. A read that does not show that change proves nothing,
+ *    so there is no "not written" verdict: the entry stays `unresolved` and
+ *    keeps that room's nights locked on this Property.
  */
 
 import type { ReservationBoardResponse } from "@/lib/api/types";

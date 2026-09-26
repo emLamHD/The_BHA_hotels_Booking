@@ -1786,10 +1786,12 @@ const ReservationBoard: React.FC = () => {
 };
 
 /**
- * PMS-CAL-001.3-CP03: one block create whose response was lost. It stays — and
- * that room's overlapping nights stay locked for another create — until a
- * board of this Property shows a block for the same room over exactly the
- * same nights. Check again only re-reads the board; it never re-sends the POST.
+ * PMS-CAL-001.3-CP03: one block write whose response was lost. It stays — and
+ * that room's overlapping nights stay locked for every write type — until a
+ * board of this Property shows the write's effect: for a create, a block for
+ * the same room over exactly the same nights; for a cancel (CP04), the
+ * targeted segment no longer at the version that was sent. Check again only
+ * re-reads the board; it never re-sends the POST.
  */
 const UncertainBlockNotice: React.FC<{
   entry: BlockCreateReconciliation;
@@ -1804,9 +1806,23 @@ const UncertainBlockNotice: React.FC<{
   const { target } = entry;
   const range = `[${target.startDate}, ${target.endDate})`;
   const observed = entry.resolution === "observed";
+  // PMS-CAL-001.3-CP04-C1: the two directions observe opposite things, so
+  // neither may borrow the other's wording. For a cancel, `observed` means the
+  // targeted segment/version is no longer on the board (gone or re-versioned);
+  // `unresolved` after a read means it is still there at that version. Both are
+  // facts about the schedule, never about what this lost request did. The
+  // block's own reason is labelled as such: a cancel's optional reason is not
+  // tracked here, and the block's reason must not read as the cancel's.
+  const title =
+    target.operation === "cancel"
+      ? `Unconfirmed cancel request: block on room ${target.roomNumber}, ${range} · original block reason: ${target.reason}`
+      : `Unconfirmed block request: room ${target.roomNumber}, ${range} — ${target.reason}`;
   let detail: string;
   if (observed) {
-    detail = `A block for room ${target.roomNumber} over ${range} is now shown on the server. That shows the schedule; it does not prove this request created it.`;
+    detail =
+      target.operation === "cancel"
+        ? `This block is no longer shown at version ${target.expectedVersion}, the version this request targeted. That shows the schedule changed; it does not prove this request cancelled it.`
+        : `A block for room ${target.roomNumber} over ${range} is now shown on the server. That shows the schedule; it does not prove this request created it.`;
   } else if (readStatus === "pending") {
     detail = "Checking the board on the server…";
   } else if (readStatus === "failed") {
@@ -1815,6 +1831,8 @@ const UncertainBlockNotice: React.FC<{
     detail = `The result is still unknown and this room stays locked for these nights. Open a view of this Property that overlaps ${range} to check again.`;
   } else if (checking) {
     detail = "Checking the board on the server again…";
+  } else if (target.operation === "cancel") {
+    detail = `The board was checked and this block is still shown at version ${target.expectedVersion}, the version this request targeted. That does not prove the cancel failed. This room stays locked for these nights and the request will not be sent again.`;
   } else {
     detail =
       "The board was checked, but no matching block is shown yet. That does not prove the request failed. This room stays locked for these nights and the request will not be sent again.";
@@ -1832,9 +1850,7 @@ const UncertainBlockNotice: React.FC<{
       }`}
     >
       <div>
-        <p className="font-medium">
-          Unconfirmed block request: room {target.roomNumber}, {range} — {target.reason}
-        </p>
+        <p className="font-medium">{title}</p>
         <p className="mt-0.5 text-xs">{detail}</p>
       </div>
       {observed ? (

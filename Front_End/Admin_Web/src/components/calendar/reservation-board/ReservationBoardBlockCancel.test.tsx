@@ -326,26 +326,54 @@ describe("ReservationBoard — a cancel whose response was lost (PMS-CAL-001.3-C
     return screen.getByTestId("uncertain-block-notice");
   }
 
-  it("never re-sends: a board that still shows the segment keeps it unresolved, and Check again only re-reads", async () => {
+  /**
+   * C1: the notice speaks about a *cancel*. Create's wording ("no matching
+   * block is shown yet", "did not prove this request created it", "is now
+   * shown") would tell the operator the opposite of what the board observed.
+   */
+  function expectNoCreateWording(notice: HTMLElement) {
+    expect(notice).not.toHaveTextContent("Unconfirmed block request");
+    expect(notice).not.toHaveTextContent("no matching block is shown yet");
+    expect(notice).not.toHaveTextContent("is now shown on the server");
+    expect(notice).not.toHaveTextContent("created it");
+  }
+
+  /** The block's own reason is labelled as such — it is not why the cancel was requested. */
+  function expectCancelTitle(notice: HTMLElement, from: string, to: string) {
+    expect(notice.querySelector("p")).toHaveTextContent(
+      `Unconfirmed cancel request: block on room 101, [${addDaysIso(from, -1)}, ${addDaysIso(to, 1)}) · original block reason: ${REASON}`,
+      { normalizeWhitespace: true }
+    );
+  }
+
+  it("never re-sends: a board that still shows the segment at the sent version keeps the result unknown, and Check again only re-reads", async () => {
     const user = userEvent.setup();
     const { from, to } = await renderLoadedBoard();
 
     const notice = await loseCancel(user);
-    expect(notice).toHaveTextContent(`room 101, [${addDaysIso(from, -1)}, ${addDaysIso(to, 1)})`);
-    expect(notice).toHaveTextContent("does not prove the request failed");
+    expectCancelTitle(notice, from, to);
+    expect(notice).toHaveTextContent(
+      `The board was checked and this block is still shown at version ${VERSION}, the version this request targeted. That does not prove the cancel failed.`
+    );
+    expect(notice).toHaveTextContent("This room stays locked for these nights and the request will not be sent again.");
+    expectNoCreateWording(notice);
 
-    // A first GET has already come back with the segment intact — that must not
-    // clear the lock, and the block must stay offered as still present.
+    // Another GET still shows the segment intact: the result stays unknown and
+    // the lock stays, rather than being read as a failed cancel.
     const boardCallsBefore = mockedBoard.mock.calls.length;
     await user.click(within(notice).getByRole("button", { name: "Check again" }));
     await waitFor(() => expect(mockedBoard.mock.calls.length).toBe(boardCallsBefore + 1));
-    expect(screen.getByTestId("uncertain-block-notice")).toHaveTextContent("does not prove the request failed");
+    const after = screen.getByTestId("uncertain-block-notice");
+    expect(after).toHaveTextContent("That does not prove the cancel failed.");
+    expect(within(after).getByRole("button", { name: "Check again" })).toBeInTheDocument();
+    expect(within(after).queryByRole("button", { name: "Dismiss notice" })).not.toBeInTheDocument();
+    expect(screen.getByTitle(REASON)).toBeInTheDocument();
     expect(mockedCancel).toHaveBeenCalledTimes(1);
   });
 
   it("reports a segment that later disappears as a schedule change, never as proof this request cancelled it", async () => {
     const user = userEvent.setup();
-    await renderLoadedBoard();
+    const { from, to } = await renderLoadedBoard();
     await loseCancel(user);
 
     serveBoards(() => true);
@@ -353,13 +381,16 @@ describe("ReservationBoard — a cancel whose response was lost (PMS-CAL-001.3-C
 
     await waitFor(() =>
       expect(screen.getByTestId("uncertain-block-notice")).toHaveTextContent(
-        "is now shown on the server. That shows the schedule; it does not prove this request created it."
+        `This block is no longer shown at version ${VERSION}, the version this request targeted. That shows the schedule changed; it does not prove this request cancelled it.`
       )
     );
+    const notice = screen.getByTestId("uncertain-block-notice");
+    expectCancelTitle(notice, from, to);
+    expectNoCreateWording(notice);
     expect(mockedCancel).toHaveBeenCalledTimes(1);
   });
 
-  it("treats a segment returning at a different version as a schedule change too", async () => {
+  it("treats a segment returning at a different version as a schedule change too, with the same cautious wording", async () => {
     const user = userEvent.setup();
     const { from, to } = await renderLoadedBoard();
     await loseCancel(user);
@@ -375,8 +406,15 @@ describe("ReservationBoard — a cancel whose response was lost (PMS-CAL-001.3-C
     await user.click(within(screen.getByTestId("uncertain-block-notice")).getByRole("button", { name: "Check again" }));
 
     await waitFor(() =>
-      expect(screen.getByTestId("uncertain-block-notice")).toHaveTextContent("is now shown on the server")
+      expect(screen.getByTestId("uncertain-block-notice")).toHaveTextContent(
+        `This block is no longer shown at version ${VERSION}, the version this request targeted. That shows the schedule changed; it does not prove this request cancelled it.`
+      )
     );
+    const notice = screen.getByTestId("uncertain-block-notice");
+    expectCancelTitle(notice, from, to);
+    expectNoCreateWording(notice);
+    // The re-versioned segment is still on the board; nothing claims it was lifted.
+    expect(screen.getByTitle(REASON)).toBeInTheDocument();
     expect(mockedCancel).toHaveBeenCalledTimes(1);
   });
 
