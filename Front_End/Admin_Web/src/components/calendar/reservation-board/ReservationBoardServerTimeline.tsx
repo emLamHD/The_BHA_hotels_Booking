@@ -337,6 +337,14 @@ const ReservationBoardServerTimeline: React.FC<ReservationBoardServerTimelinePro
     setDropHover(null);
   };
 
+  /**
+   * PMS-CAL-001.5-CP01: the same decision for `dragenter` and `dragover`. In the
+   * HTML drag-and-drop model an element becomes the drop target by cancelling
+   * `dragenter`; Chrome otherwise accepts the drop only after it has processed a
+   * later `dragover` reply, so a quick release right after entering an allowed
+   * row was silently lost (verified live in Chrome 153: 1 drop in 5 quick drags
+   * with `dragover` alone, 5 in 5 once `dragenter` is cancelled too).
+   */
   const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
     const dragged = draggedRef.current;
     if (!dragged || !getAssignedSegmentDropRefusal) return;
@@ -398,6 +406,7 @@ const ReservationBoardServerTimeline: React.FC<ReservationBoardServerTimelinePro
       )}
       <div
         className="grid min-w-max"
+        onDragEnter={dragEnabled ? handleDragOver : undefined}
         onDragOver={dragEnabled ? handleDragOver : undefined}
         onDragLeave={dragEnabled ? handleDragLeave : undefined}
         onDrop={dragEnabled ? handleDrop : undefined}
@@ -443,6 +452,13 @@ const ReservationBoardServerTimeline: React.FC<ReservationBoardServerTimelinePro
           />
         ))}
 
+        {/*
+          PMS-CAL-001.5-CP01: every bar below is `[contain:inline-size]`. The grid
+          is `min-w-max` with `minmax(56px, 1fr)` columns, so any item's
+          max-content width grows all date columns equally — one long block
+          reason made every column 1008px wide. With its inline size contained,
+          a bar's label only fills (and truncates within) the columns it spans.
+        */}
         {/* Assigned bars */}
         {showAssigned &&
           stays.flatMap((stay) =>
@@ -500,7 +516,7 @@ const ReservationBoardServerTimeline: React.FC<ReservationBoardServerTimelinePro
                       segment: assignment,
                     })
                   }
-                  className="z-10 m-1 flex items-center overflow-hidden rounded-md bg-brand-500 px-2 text-left text-xs font-medium text-white shadow-theme-xs hover:bg-brand-600 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-500/60"
+                  className="z-10 m-1 flex items-center overflow-hidden rounded-md bg-brand-500 px-2 [contain:inline-size] text-left text-xs font-medium text-white shadow-theme-xs hover:bg-brand-600 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-500/60"
                   style={{ gridColumn: `${clipped.startCol + 2} / span ${clipped.span}`, gridRow: rowIndex + 2 }}
                   title={`${stay.guestDisplayName} — ${stay.confirmationNumber}`}
                 >
@@ -533,7 +549,7 @@ const ReservationBoardServerTimeline: React.FC<ReservationBoardServerTimelinePro
                   unassignedActionsBlocked ? blockedNoteId : unconfirmed ? unconfirmedNoteId : undefined
                 }
                 aria-label={`Assign room: ${bar.stay.guestDisplayName}, ${bar.stay.confirmationNumber}, unassigned ${bar.stay.unassignedRanges[bar.rangeIndex].startDate} to ${bar.stay.unassignedRanges[bar.rangeIndex].endDate}`}
-                className="z-10 m-1 flex items-center overflow-hidden rounded-md border-2 border-dashed border-purple-500 bg-purple-50 px-2 text-left text-xs font-medium text-purple-700 hover:bg-purple-100 aria-disabled:cursor-not-allowed aria-disabled:opacity-60 aria-disabled:hover:bg-purple-50 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-purple-500/60 dark:bg-purple-500/10 dark:text-purple-300"
+                className="z-10 m-1 flex items-center overflow-hidden rounded-md border-2 border-dashed border-purple-500 [contain:inline-size] bg-purple-50 px-2 text-left text-xs font-medium text-purple-700 hover:bg-purple-100 aria-disabled:cursor-not-allowed aria-disabled:opacity-60 aria-disabled:hover:bg-purple-50 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-purple-500/60 dark:bg-purple-500/10 dark:text-purple-300"
                 style={{ gridColumn: `${bar.startCol + 2} / span ${bar.span}`, gridRow: rowIndex + 2 }}
                 title={`${bar.stay.guestDisplayName} — unassigned — ${bar.stay.confirmationNumber}`}
               >
@@ -556,7 +572,7 @@ const ReservationBoardServerTimeline: React.FC<ReservationBoardServerTimelinePro
                 type="button"
                 data-drop-room-id={block.physicalRoomId}
                 onClick={() => onSelectBlock({ block, roomNumber: room?.roomNumber ?? "" })}
-                className="z-10 m-1 flex items-center overflow-hidden rounded-md border border-amber-500 bg-[repeating-linear-gradient(45deg,#fcd34d_0,#fcd34d_2px,transparent_2px,transparent_6px)] px-2 text-left text-xs font-medium text-amber-900 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500/60 dark:bg-[repeating-linear-gradient(45deg,#b45309_0,#b45309_2px,transparent_2px,transparent_6px)] dark:text-amber-100"
+                className="z-10 m-1 flex items-center overflow-hidden rounded-md border border-amber-500 [contain:inline-size] bg-[repeating-linear-gradient(45deg,#fcd34d_0,#fcd34d_2px,transparent_2px,transparent_6px)] px-2 text-left text-xs font-medium text-amber-900 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500/60 dark:bg-[repeating-linear-gradient(45deg,#b45309_0,#b45309_2px,transparent_2px,transparent_6px)] dark:text-amber-100"
                 style={{ gridColumn: `${clipped.startCol + 2} / span ${clipped.span}`, gridRow: rowIndex + 2 }}
                 title={block.reason}
               >
