@@ -772,24 +772,28 @@ describe("ReservationBoardServerTimeline — drag to move (PMS-CAL-001.4-CP01)",
     }
   });
 
-  it("reports a drop outside any room row as null, and shows the board's refusal", () => {
-    const onDrop = vi.fn().mockReturnValue("Drop on a room's row to move this stay.");
+  it("over a row that is not a room it asks the board with null, does not accept the drop, and keeps the refusal after dragend", () => {
+    const refusal = vi.fn().mockReturnValue("Drop on a room's row to move this stay.");
+    const onDrop = vi.fn();
     render(
       <ReservationBoardServerTimeline
         {...baseProps()}
         stays={[stay]}
         onAssignedSegmentDragStart={vi.fn().mockReturnValue(null)}
-        getAssignedSegmentDropRefusal={vi.fn().mockReturnValue("Drop on a room's row to move this stay.")}
+        getAssignedSegmentDropRefusal={refusal}
         onAssignedSegmentDrop={onDrop}
       />
     );
     const header = screen.getAllByText("Standard").find((element) => element.classList.contains("sticky"))!;
+    const bar = screen.getByTitle("Nguyen Van A — CNF-001");
     const dt = transfer();
-    fireEvent.dragStart(screen.getByTitle("Nguyen Van A — CNF-001"), { dataTransfer: dt });
+    fireEvent.dragStart(bar, { dataTransfer: dt });
     // Not accepted: fireEvent returns true when the handler did not preventDefault().
     expect(fireEvent.dragOver(header, { dataTransfer: dt })).toBe(true);
-    fireEvent.drop(header, { dataTransfer: dt });
-    expect(onDrop).toHaveBeenCalledWith({ stay, segment: stay.assignments[0] }, null);
+    expect(refusal).toHaveBeenLastCalledWith({ stay, segment: stay.assignments[0] }, null);
+    // As in a real browser, a refused dragover is followed by dragend, never drop.
+    fireEvent.dragEnd(bar, { dataTransfer: dt });
+    expect(onDrop).not.toHaveBeenCalled();
     expect(screen.getByTestId("board-drag-feedback")).toHaveTextContent(
       "Nothing was moved: Drop on a room's row to move this stay."
     );

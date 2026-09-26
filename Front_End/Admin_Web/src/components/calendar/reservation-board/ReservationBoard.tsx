@@ -229,8 +229,15 @@ const ReservationBoard: React.FC = () => {
   const [moveInitialRoomId, setMoveInitialRoomId] = useState<string | undefined>(undefined);
   /** The board identity a drag started on; a drop onto any other board is refused. */
   const dragSourceBoardKeyRef = useRef<string | null>(null);
-  /** The board closed a stale move dialog; restore focus if that dialog took it along. */
-  const restoreFocusAfterStaleMoveDialogRef = useRef(false);
+  /**
+   * PMS-CAL-001.4-CP01-C1: why a move dialog was closed without sending — it
+   * outlived the board it was opened from. Shown on the board, because the
+   * dialog is gone and the operator has to start again from what is on screen.
+   * `focus` is true only when the closed dialog held focus (a Confirm); a
+   * Property switch leaves focus on the control the operator just used.
+   */
+  const [moveRefusal, setMoveRefusal] = useState<{ text: string; focus: boolean } | null>(null);
+  const moveRefusalRef = useRef<HTMLDivElement>(null);
 
   /**
    * PMS-CAL-001.2-CP04D-BOARD-WIRING: the unassign counterpart of the move
@@ -557,7 +564,11 @@ const ReservationBoard: React.FC = () => {
       setSelection(null);
       setAssignmentTarget(null);
       setAssignmentNotice(null);
-      if (!moveRequestPendingRef.current) setMoveTarget(null);
+      if (!moveRequestPendingRef.current) {
+        // A dialog that had sent nothing closes with the board it belonged to.
+        setMoveRefusal(moveTarget ? { text: STALE_MOVE_DIALOG_MESSAGE, focus: false } : null);
+        setMoveTarget(null);
+      }
       setMoveNotice(null);
       if (!unassignRequestPendingRef.current) setUnassignTarget(null);
       setUnassignNotice(null);
@@ -567,7 +578,7 @@ const ReservationBoard: React.FC = () => {
       setBlockCancelNotice(null);
       if (nextAnchor !== anchorDate) setAnchorDate(nextAnchor);
     },
-    [propertiesState, anchorDate, rangeLength, markNavigation, closeStaleBlockDialog, closeStaleBlockCancelDialog]
+    [propertiesState, anchorDate, rangeLength, markNavigation, closeStaleBlockDialog, closeStaleBlockCancelDialog, moveTarget]
   );
 
   const handlePrev = useCallback(() => {
@@ -771,6 +782,7 @@ const ReservationBoard: React.FC = () => {
       setSelection(null);
       setDialogMoveReconciliationId(null);
       setMoveInitialRoomId(undefined);
+      setMoveRefusal(null);
       setMoveTarget(target);
     },
     [boardState, selectedPropertyId, isBoardAwaitingAnyWrite, isRoomLocked]
@@ -852,6 +864,7 @@ const ReservationBoard: React.FC = () => {
       setSelection(null);
       setDialogMoveReconciliationId(null);
       setMoveInitialRoomId(physicalRoomId);
+      setMoveRefusal(null);
       setMoveTarget(target);
       return null;
     },
@@ -922,8 +935,10 @@ const ReservationBoard: React.FC = () => {
       // from a drop — built from a board the operator has since left never
       // sends that board's segment. Checked immediately before the POST.
       if (currentBoardKeyRef.current !== target.boardKey) {
-        restoreFocusAfterStaleMoveDialogRef.current = true;
+        // The dialog closes, so it can never Confirm this target again; the
+        // refusal moves to the board and takes the focus the dialog held.
         setMoveTarget(null);
+        setMoveRefusal({ text: STALE_MOVE_DIALOG_MESSAGE, focus: true });
         return { kind: "not-sent", message: STALE_MOVE_DIALOG_MESSAGE };
       }
 
@@ -1485,14 +1500,17 @@ const ReservationBoard: React.FC = () => {
     document.getElementById("reservation-board-property")?.focus();
   }, []);
 
-  // PMS-CAL-001.4-CP01: a move dialog the board closed as stale took the
-  // focused element with it. Only focus that fell to the document is moved.
+  // PMS-CAL-001.4-CP01-C1: the refusal takes over the focus the closed dialog held.
   useEffect(() => {
-    if (moveTarget || !restoreFocusAfterStaleMoveDialogRef.current) return;
-    restoreFocusAfterStaleMoveDialogRef.current = false;
-    const active = document.activeElement;
-    if (active === null || active === document.body) restoreBoardFocus();
-  }, [moveTarget, restoreBoardFocus]);
+    if (moveRefusal?.focus) moveRefusalRef.current?.focus();
+  }, [moveRefusal]);
+
+  const dismissMoveRefusal = useCallback(() => {
+    const noticeOwnedFocus = moveRefusalRef.current?.contains(document.activeElement) ?? false;
+    // Focus leaves before the focused notice unmounts.
+    if (noticeOwnedFocus) restoreBoardFocus();
+    setMoveRefusal(null);
+  }, [restoreBoardFocus]);
 
   // A new notice takes focus: the bar that opened the dialog is gone once the
   // board reloads, so focus would otherwise fall back to the document.
@@ -1729,6 +1747,25 @@ const ReservationBoard: React.FC = () => {
           writtenRange={noticeReconciliation ? { from: noticeReconciliation.from, to: noticeReconciliation.to } : null}
           onDismiss={() => setAssignmentNotice(null)}
         />
+      )}
+      {moveRefusal && (
+        <div
+          ref={moveRefusalRef}
+          tabIndex={-1}
+          role="alert"
+          data-testid="move-refusal-notice"
+          className="mx-2 mt-2 flex items-start justify-between gap-3 rounded-lg bg-warning-50 px-3 py-2 text-sm text-warning-800 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-warning-500/60 sm:mx-4 dark:bg-warning-500/10 dark:text-warning-300"
+        >
+          <p className="font-medium">{moveRefusal.text}</p>
+          <button
+            type="button"
+            onClick={dismissMoveRefusal}
+            aria-label="Dismiss notice"
+            className="flex size-6 shrink-0 items-center justify-center rounded-full hover:bg-warning-100 dark:hover:bg-white/5"
+          >
+            <CloseLineIcon className="size-3.5" aria-hidden="true" />
+          </button>
+        </div>
       )}
       {moveNotice && (
         <AssignmentNotice

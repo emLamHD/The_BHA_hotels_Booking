@@ -195,6 +195,8 @@ function dropRoomIdOf(target: EventTarget | null): string | null {
 
 const LABEL_COLUMN = "220px";
 
+const DRAGGING_MESSAGE = "Drop on another room's row to review a move. The stay dates will not change.";
+
 const ReservationBoardServerTimeline: React.FC<ReservationBoardServerTimelineProps> = ({
   range,
   todayIso,
@@ -219,6 +221,12 @@ const ReservationBoardServerTimeline: React.FC<ReservationBoardServerTimelinePro
   const draggedRef = React.useRef<AssignedSegmentSelection | null>(null);
   const [dropHover, setDropHover] = React.useState<{ roomId: string; allowed: boolean } | null>(null);
   const [dragFeedback, setDragFeedback] = React.useState<string | null>(null);
+  /**
+   * PMS-CAL-001.4-CP01-C1: the refusal for the target the pointer was last over.
+   * A browser dispatches no `drop` after a refused `dragover` — it goes straight
+   * to `dragend` — so this is the only place that reason survives the release.
+   */
+  const lastRefusalRef = React.useRef<string | null>(null);
   const blockedNoteId = React.useId();
   const unconfirmedNoteId = React.useId();
   let anyUnconfirmedBar = false;
@@ -325,6 +333,7 @@ const ReservationBoardServerTimeline: React.FC<ReservationBoardServerTimelinePro
 
   const endDrag = () => {
     draggedRef.current = null;
+    lastRefusalRef.current = null;
     setDropHover(null);
   };
 
@@ -340,6 +349,7 @@ const ReservationBoardServerTimeline: React.FC<ReservationBoardServerTimelinePro
       if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
     }
     const allowed = refusal === null;
+    lastRefusalRef.current = refusal;
     if (roomId === null) {
       if (dropHover !== null) setDropHover(null);
     } else if (dropHover?.roomId !== roomId || dropHover.allowed !== allowed) {
@@ -347,6 +357,16 @@ const ReservationBoardServerTimeline: React.FC<ReservationBoardServerTimelinePro
     }
     const message = allowed ? `Release to review moving this stay to room ${roomNumberById.get(roomId!) ?? ""}.` : refusal;
     if (message !== dragFeedback) setDragFeedback(message);
+  };
+
+  /** Leaving the grid entirely forgets the last target: releasing out there refuses nothing specific. */
+  const handleDragLeave = (event: React.DragEvent<HTMLDivElement>) => {
+    if (!draggedRef.current) return;
+    const next = event.relatedTarget;
+    if (next instanceof Node && event.currentTarget.contains(next)) return;
+    lastRefusalRef.current = null;
+    setDropHover(null);
+    setDragFeedback(DRAGGING_MESSAGE);
   };
 
   const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
@@ -361,14 +381,25 @@ const ReservationBoardServerTimeline: React.FC<ReservationBoardServerTimelinePro
 
   return (
     <div className="overflow-x-auto">
-      {dragFeedback && (
-        <p role="status" data-testid="board-drag-feedback" className="px-3 py-1.5 text-xs text-gray-600 dark:text-gray-300">
+      {dragEnabled && (
+        // PMS-CAL-001.4-CP01-C1: rendered, at a fixed height, before any drag
+        // starts, so a message appearing, changing or wrapping mid-drag never
+        // moves the room rows (and so the drop target) under the pointer. Two
+        // lines are shown; a longer message is clipped visually but stays whole
+        // for assistive technology and in the tooltip.
+        <p
+          role="status"
+          data-testid="board-drag-feedback"
+          title={dragFeedback ?? undefined}
+          className="h-10 overflow-hidden px-3 py-1 text-xs leading-4 text-gray-600 line-clamp-2 dark:text-gray-300"
+        >
           {dragFeedback}
         </p>
       )}
       <div
         className="grid min-w-max"
         onDragOver={dragEnabled ? handleDragOver : undefined}
+        onDragLeave={dragEnabled ? handleDragLeave : undefined}
         onDrop={dragEnabled ? handleDrop : undefined}
         style={{
           gridTemplateColumns: `${LABEL_COLUMN} repeat(${dates.length}, minmax(56px, 1fr))`,
@@ -438,12 +469,14 @@ const ReservationBoardServerTimeline: React.FC<ReservationBoardServerTimelinePro
                             return;
                           }
                           draggedRef.current = segmentSelection;
+                          // A new drag never shows an earlier drag's refusal.
+                          lastRefusalRef.current = null;
                           if (event.dataTransfer) {
                             event.dataTransfer.effectAllowed = "move";
                             // Some browsers only start a drag once data is set.
                             event.dataTransfer.setData("text/plain", assignment.segmentId);
                           }
-                          setDragFeedback("Drop on another room's row to review a move. The stay dates will not change.");
+                          setDragFeedback(DRAGGING_MESSAGE);
                         }
                       : undefined
                   }
@@ -451,10 +484,11 @@ const ReservationBoardServerTimeline: React.FC<ReservationBoardServerTimelinePro
                     dragEnabled
                       ? () => {
                           // Still set only when no drop of ours happened: the
-                          // drag was cancelled or released somewhere invalid.
+                          // drag was cancelled or released somewhere refused.
                           if (draggedRef.current === null) return;
+                          const refusal = lastRefusalRef.current;
                           endDrag();
-                          setDragFeedback("Nothing was moved.");
+                          setDragFeedback(refusal === null ? "Nothing was moved." : `Nothing was moved: ${refusal}`);
                         }
                       : undefined
                   }

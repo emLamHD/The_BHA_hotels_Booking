@@ -196,13 +196,21 @@ function dragOnto(target: HTMLElement) {
   return { transfer, accepted };
 }
 
-/** A complete drag: start, over, drop, end. */
+/**
+ * A complete drag with the event sequence a real browser produces: `drop` is
+ * dispatched only when the last `dragover` was accepted (`preventDefault()`);
+ * otherwise the browser goes straight to `dragend`.
+ */
 function dragAndDrop(target: HTMLElement) {
   const { transfer, accepted } = dragOnto(target);
-  fireEvent.drop(target, { dataTransfer: transfer });
+  if (accepted) fireEvent.drop(target, { dataTransfer: transfer });
   fireEvent.dragEnd(bar(), { dataTransfer: transfer });
   return accepted;
 }
+
+const refusalNotice = () => screen.getByTestId("move-refusal-notice");
+const STALE_TEXT =
+  "The board changed after this move was opened. Nothing was sent; start the move again from the board on screen.";
 
 beforeEach(() => {
   for (const mock of [mockedProperties, mockedBoard, mockedMove, mockedCreateBlock]) mock.mockReset();
@@ -293,7 +301,7 @@ describe("ReservationBoard — drag an assigned segment to another room (PMS-CAL
     ["a room that is not Active", () => roomCells("room-103")[1], "Room 103 is not Active."],
     ["a RoomType header row", () => nonRoomRowLabel("Standard"), "Drop on a room's row to move this stay."],
     ["an Unassigned row", () => nonRoomRowLabel("Unassigned"), "Drop on a room's row to move this stay."],
-  ])("refuses a drop on %s: no preview, no dialog, no request, and says why", async (_label, target, reason) => {
+  ])("refuses a release on %s: no preview, no dialog, no request, and the reason survives dragend", async (_label, target, reason) => {
     await renderLoadedBoard();
     const element = target();
 
@@ -301,12 +309,76 @@ describe("ReservationBoard — drag an assigned segment to another room (PMS-CAL
     expect(accepted).toBe(false);
     expect(feedback()).toHaveTextContent(reason);
 
-    // Even a drop event that reaches the board anyway is refused there.
-    fireEvent.drop(element, { dataTransfer: transfer });
+    // A real browser dispatches no `drop` after a refused `dragover`: only `dragend`.
     fireEvent.dragEnd(bar(), { dataTransfer: transfer });
     expect(queryMoveDialog()).not.toBeInTheDocument();
     expect(feedback()).toHaveTextContent(`Nothing was moved: ${reason}`);
     expect(mockedMove).not.toHaveBeenCalled();
+  });
+
+  it("a drop event forced onto a refused target is still refused by the board (defence in depth)", async () => {
+    await renderLoadedBoard();
+    const element = roomCells("room-101")[4];
+    const { transfer } = dragOnto(element);
+    fireEvent.drop(element, { dataTransfer: transfer });
+    fireEvent.dragEnd(bar(), { dataTransfer: transfer });
+    expect(queryMoveDialog()).not.toBeInTheDocument();
+    expect(feedback()).toHaveTextContent("Nothing was moved: This stay is already in room 101.");
+    expect(mockedMove).not.toHaveBeenCalled();
+  });
+
+  it("a new drag clears the previous refusal, and leaving the grid forgets the last refused target", async () => {
+    await renderLoadedBoard();
+    dragAndDrop(roomCells("room-103")[1]);
+    expect(feedback()).toHaveTextContent("Nothing was moved: Room 103 is not Active.");
+
+    const transfer = dataTransfer();
+    fireEvent.dragStart(bar(), { dataTransfer: transfer });
+    expect(feedback()).not.toHaveTextContent("Room 103");
+    fireEvent.dragOver(roomCells("room-103")[1], { dataTransfer: transfer });
+    const grid = roomCells("room-103")[1].parentElement!;
+    fireEvent.dragLeave(grid, { dataTransfer: transfer, relatedTarget: document.body });
+    fireEvent.dragEnd(bar(), { dataTransfer: transfer });
+    expect(feedback()).toHaveTextContent("Nothing was moved.");
+    expect(feedback()).not.toHaveTextContent("Room 103");
+  });
+
+  it("a drag whose dragend never arrived leaves no stale reason for the next one", async () => {
+    await renderLoadedBoard();
+    // If the dragged bar unmounts mid-drag (a reload supersedes its segment),
+    // its dragend never reaches React. The next drag must still start clean.
+    const lost = dataTransfer();
+    fireEvent.dragStart(bar(), { dataTransfer: lost });
+    fireEvent.dragOver(roomCells("room-103")[1], { dataTransfer: lost });
+
+    const next = dataTransfer();
+    fireEvent.dragStart(bar(), { dataTransfer: next });
+    fireEvent.dragEnd(bar(), { dataTransfer: next });
+    expect(feedback()).toHaveTextContent("Nothing was moved.");
+    expect(feedback()).not.toHaveTextContent("Room 103");
+  });
+
+  it("the feedback line exists, with a fixed height, before any drag, so starting or updating a drag inserts nothing above the rows", async () => {
+    await renderLoadedBoard();
+    // jsdom performs no layout, so pixel positions cannot be measured here; what
+    // is provable is that no element is inserted or removed above the grid and
+    // that the line's height does not depend on its text.
+    const line = feedback();
+    const grid = roomCells("room-102")[0].parentElement!;
+    const siblingsBefore = Array.from(grid.parentElement!.children);
+    expect(line).toBeEmptyDOMElement();
+    expect(line).toHaveClass("h-10", "overflow-hidden");
+
+    const transfer = dataTransfer();
+    fireEvent.dragStart(bar(), { dataTransfer: transfer });
+    fireEvent.dragOver(nonRoomRowLabel("Unassigned"), { dataTransfer: transfer });
+    fireEvent.dragOver(roomCells("room-102")[1], { dataTransfer: transfer });
+
+    expect(feedback()).toBe(line);
+    expect(Array.from(grid.parentElement!.children)).toEqual(siblingsBefore);
+    expect(line).toHaveClass("h-10", "overflow-hidden");
+    expect(line).toHaveTextContent("Release to review moving this stay to room 102.");
+    fireEvent.dragEnd(bar(), { dataTransfer: transfer });
   });
 
   it("a drag released nowhere, or cancelled, changes nothing", async () => {
@@ -353,47 +425,78 @@ describe("ReservationBoard — drag-to-move write safety (PMS-CAL-001.4-CP01)", 
     select.dispatchEvent(new Event("change", { bubbles: true }));
   }
 
-  it("a drop onto a different board than the drag started on is refused", async () => {
+  it("a drag that crosses into a different board is refused over the new board, with the reason kept after dragend", async () => {
     await renderLoadedBoard();
     const transfer = dataTransfer();
     fireEvent.dragStart(bar(), { dataTransfer: transfer });
-    // The segment and room 102 stay visible, but the board identity changes.
-    const cell = roomCells("room-102")[3];
+    // 7 days still shows this segment and room 102 — only the board identity changes.
     await act(async () => {
-      screen.getByRole("button", { name: "Next date range" }).dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      screen.getByRole("button", { name: "7 days" }).dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    fireEvent.drop(cell.isConnected ? cell : roomCells("room-102")[3], { dataTransfer: transfer });
+    await waitFor(() => expect(roomCells("room-102").length).toBe(7));
+    expect(fireEvent.dragOver(roomCells("room-102")[3], { dataTransfer: transfer })).toBe(true);
+    fireEvent.dragEnd(bar(), { dataTransfer: transfer });
 
     expect(queryMoveDialog()).not.toBeInTheDocument();
     expect(feedback()).toHaveTextContent("Nothing was moved: The board changed during the drag.");
     expect(mockedMove).not.toHaveBeenCalled();
   });
 
-  it("a dialog opened by a drop cannot send once the view has moved to another range", async () => {
-    const user = userEvent.setup();
-    const { from } = await renderLoadedBoard();
-    dragAndDrop(roomCells("room-102")[1]);
-    const form = moveDialog().querySelector("form")!;
-
-    // The modal dialog stays mounted; only the board behind it changes.
+  /** Changes only the visible range behind the still-open modal dialog. */
+  async function nextRangeBehindDialog(from: string) {
     await act(async () => {
       screen.getByRole("button", { name: "Next date range" }).dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     await waitFor(() => expect(mockedBoard.mock.calls.at(-1)![1]).toBe(addDaysIso(from, 14)));
     expect(moveDialog()).toBeInTheDocument();
+  }
+
+  it("a dialog opened by a drop cannot send once the view has moved, and the refusal stays readable and focused on the board", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    dragAndDrop(roomCells("room-102")[1]);
+    await nextRangeBehindDialog(from);
+
+    await user.click(within(moveDialog()).getByRole("button", { name: "Move to room 102" }));
+
+    expect(mockedMove).not.toHaveBeenCalled();
+    // No dialog is left offering a Confirm for the old board's target.
+    expect(queryMoveDialog()).not.toBeInTheDocument();
+    expect(refusalNotice()).toHaveTextContent(STALE_TEXT);
+    expect(refusalNotice()).not.toHaveTextContent(/moved|saved/i);
+    expect(document.activeElement).toBe(refusalNotice());
+
+    await user.click(within(refusalNotice()).getByRole("button", { name: "Dismiss notice" }));
+    expect(screen.queryByTestId("move-refusal-notice")).not.toBeInTheDocument();
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
+  it("the same refusal is shown for a Move room dialog opened from the popover", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    await user.click(bar());
+    await user.click(within(screen.getByRole("dialog", { name: "Reservation details" })).getByRole("button", { name: "Move room" }));
+    await user.click(within(moveDialog()).getByLabelText(/Room 102/));
+    await nextRangeBehindDialog(from);
+
     await user.click(within(moveDialog()).getByRole("button", { name: "Move to room 102" }));
 
     expect(mockedMove).not.toHaveBeenCalled();
     expect(queryMoveDialog()).not.toBeInTheDocument();
-    expect(document.activeElement).not.toBe(document.body);
-    expect(form.isConnected).toBe(false);
+    expect(refusalNotice()).toHaveTextContent(STALE_TEXT);
+    expect(document.activeElement).toBe(refusalNotice());
   });
 
-  it("a Property switch before Confirm closes the dialog, and nothing is sent", async () => {
+  it("a Property switch before Confirm closes the dialog, says why, sends nothing, and leaves focus with the operator", async () => {
     await renderLoadedBoard();
     dragAndDrop(roomCells("room-102")[1]);
+    const select = screen.getByLabelText("Property") as HTMLSelectElement;
+    select.focus();
     await act(async () => switchToPropertyB());
+
     expect(queryMoveDialog()).not.toBeInTheDocument();
+    expect(refusalNotice()).toHaveTextContent(STALE_TEXT);
+    expect(document.activeElement).toBe(select);
     expect(mockedMove).not.toHaveBeenCalled();
   });
 
@@ -435,9 +538,10 @@ describe("ReservationBoard — drag-to-move write safety (PMS-CAL-001.4-CP01)", 
 
     const { transfer, accepted } = dragOnto(roomCells("room-102")[5]);
     expect(accepted).toBe(false);
-    fireEvent.drop(roomCells("room-102")[5], { dataTransfer: transfer });
     fireEvent.dragEnd(bar(), { dataTransfer: transfer });
-    expect(feedback()).toHaveTextContent("An earlier change to room 102 on these nights is still unconfirmed.");
+    expect(feedback()).toHaveTextContent(
+      "Nothing was moved: An earlier change to room 102 on these nights is still unconfirmed."
+    );
     expect(queryMoveDialog()).not.toBeInTheDocument();
 
     // Room 201 is untouched by that lock.
