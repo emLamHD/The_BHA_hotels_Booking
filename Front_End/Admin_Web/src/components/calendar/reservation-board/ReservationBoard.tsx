@@ -134,6 +134,18 @@ const INITIAL_RANGE_LENGTH: ReservationBoardRangeLength = 14;
 const ROOM_LOCKED_MESSAGE =
   "An earlier request for this room on overlapping nights is still unconfirmed. Nothing was sent; check the board again before sending another.";
 
+/** PMS-CAL-001.4-CP01: a move dialog outlived the board it was opened from. */
+const STALE_MOVE_DIALOG_MESSAGE =
+  "The board changed after this move was opened. Nothing was sent; start the move again from the board on screen.";
+
+/**
+ * PMS-CAL-001.4-CP01-C2: the same, for a dialog whose last request did reach
+ * the server and was rejected there. A request was sent, so "Nothing was sent"
+ * would be false; what the rejection proves is that nothing was changed.
+ */
+const REJECTED_MOVE_THEN_BOARD_CHANGED_MESSAGE =
+  "The server rejected the last move request, so nothing was changed. The board has changed; start the move again from the board on screen.";
+
 /** PMS-CAL-001.3-CP03-C2: a block dialog outlived the board it was opened from. */
 const STALE_BLOCK_DIALOG_MESSAGE =
   "The board changed after this dialog was opened. Nothing was sent; open Create operational block again from the board on screen.";
@@ -217,6 +229,32 @@ const ReservationBoard: React.FC = () => {
   const [moveNotice, setMoveNotice] = useState<{ text: string; reconciliationId: number } | null>(null);
   const moveNoticeRef = useRef<HTMLDivElement>(null);
   const moveRequestPendingRef = useRef(false);
+  /**
+   * PMS-CAL-001.4-CP01: the room a drag-and-drop chose, handed to the move
+   * dialog as a preselection only; `undefined` when the dialog was opened from
+   * the popover's Move room action.
+   */
+  const [moveInitialRoomId, setMoveInitialRoomId] = useState<string | undefined>(undefined);
+  /** The board identity a drag started on; a drop onto any other board is refused. */
+  const dragSourceBoardKeyRef = useRef<string | null>(null);
+  /**
+   * PMS-CAL-001.4-CP01-C1: why a move dialog was closed without sending — it
+   * outlived the board it was opened from. Shown on the board, because the
+   * dialog is gone and the operator has to start again from what is on screen.
+   * `focus` is true only when the closed dialog held focus (a Confirm); a
+   * Property switch leaves focus on the control the operator just used.
+   */
+  const [moveRefusal, setMoveRefusal] = useState<{ text: string; focus: boolean } | null>(null);
+  /**
+   * PMS-CAL-001.4-CP01-C2: what the open move dialog has actually done — reset
+   * whenever a move dialog opens. `moveRequestPendingRef` only says whether a
+   * request is on the wire *now*; once its response arrives it is false again,
+   * so it cannot tell a dialog that never sent from one whose request reached
+   * the server. These two can.
+   */
+  const moveDialogSentRef = useRef(false);
+  const moveDialogOutcomeRef = useRef<MoveAssignmentOutcome | null>(null);
+  const moveRefusalRef = useRef<HTMLDivElement>(null);
 
   /**
    * PMS-CAL-001.2-CP04D-BOARD-WIRING: the unassign counterpart of the move
@@ -543,7 +581,29 @@ const ReservationBoard: React.FC = () => {
       setSelection(null);
       setAssignmentTarget(null);
       setAssignmentNotice(null);
-      if (!moveRequestPendingRef.current) setMoveTarget(null);
+      if (!moveRequestPendingRef.current) {
+        const outcome = moveDialogOutcomeRef.current;
+        if (moveTarget && outcome !== null && !describeMoveOutcome(outcome).allowResubmit) {
+          // PMS-CAL-001.4-CP01-C2: this dialog's request reached — or, when
+          // unknown, may have reached — the server, and the dialog is now
+          // reporting that outcome with no way to send it again. It stays, like
+          // a dialog whose request is still pending: closing it would hide a
+          // success, a conflict or an unconfirmed write the operator must see.
+          setMoveRefusal(null);
+        } else {
+          // Sent nothing, or was refused in a way that proves nothing changed:
+          // it closes with the board it belonged to, and says which of the two.
+          setMoveRefusal(
+            moveTarget
+              ? {
+                  text: moveDialogSentRef.current ? REJECTED_MOVE_THEN_BOARD_CHANGED_MESSAGE : STALE_MOVE_DIALOG_MESSAGE,
+                  focus: false,
+                }
+              : null
+          );
+          setMoveTarget(null);
+        }
+      }
       setMoveNotice(null);
       if (!unassignRequestPendingRef.current) setUnassignTarget(null);
       setUnassignNotice(null);
@@ -553,7 +613,7 @@ const ReservationBoard: React.FC = () => {
       setBlockCancelNotice(null);
       if (nextAnchor !== anchorDate) setAnchorDate(nextAnchor);
     },
-    [propertiesState, anchorDate, rangeLength, markNavigation, closeStaleBlockDialog, closeStaleBlockCancelDialog]
+    [propertiesState, anchorDate, rangeLength, markNavigation, closeStaleBlockDialog, closeStaleBlockCancelDialog, moveTarget]
   );
 
   const handlePrev = useCallback(() => {
@@ -756,9 +816,98 @@ const ReservationBoard: React.FC = () => {
       if (!target) return;
       setSelection(null);
       setDialogMoveReconciliationId(null);
+      setMoveInitialRoomId(undefined);
+      setMoveRefusal(null);
+      moveDialogSentRef.current = false;
+      moveDialogOutcomeRef.current = null;
       setMoveTarget(target);
     },
     [boardState, selectedPropertyId, isBoardAwaitingAnyWrite, isRoomLocked]
+  );
+
+  /**
+   * PMS-CAL-001.4-CP01: every rule a drag-to-move must pass, in one place, so
+   * the drag preview, the drop and the source check can never disagree. It is
+   * `handleMoveRoom`'s own guards plus the destination: the room must be one of
+   * `buildMoveTarget`'s `candidateRooms` (Active, not the current room) and not
+   * touched by an unresolved write on the segment's nights. Nothing here guesses
+   * whether the room is free — the server decides that when the move is sent.
+   *
+   * `physicalRoomId` is `undefined` for the source-only check at drag start,
+   * and `null` when the pointer is over a row that is not a room.
+   */
+  const moveDragRefusal = useCallback(
+    (dragged: AssignedSegmentSelection, physicalRoomId?: string | null): string | null => {
+      if (boardState.status !== "loaded") return "The board is not loaded.";
+      const board = boardState.board;
+      const displayedKey = boardIdentityKey(board.property.id, board.from, board.to);
+      if (physicalRoomId !== undefined && dragSourceBoardKeyRef.current !== displayedKey) {
+        return "The board changed during the drag.";
+      }
+      if (moveRequestPendingRef.current) return "Another move is still waiting for the server.";
+      if (isBoardAwaitingAnyWrite(displayedKey)) return "Waiting for the board to be re-read after a change.";
+      if (
+        isSegmentMoveUnresolved(reconciliationsRef.current, board.property.id, dragged.segment.segmentId) ||
+        isRoomLocked(board.property.id, [dragged.segment.physicalRoomId], dragged.segment)
+      ) {
+        return "An earlier change to this room on these nights is still unconfirmed.";
+      }
+      const target = buildMoveTarget(board, selectedPropertyId, dragged);
+      if (!target) return "This stay has changed on the server. Reload the board and try again.";
+      if (physicalRoomId === undefined) return null;
+      if (physicalRoomId === null) return "Drop on a room's row to move this stay.";
+      const room = board.physicalRooms.find((candidate) => candidate.id === physicalRoomId);
+      if (!room) return "Drop on a room's row to move this stay.";
+      // `candidateRooms` is the one rule that decides; the wording only says why.
+      if (!target.candidateRooms.some((candidate) => candidate.id === room.id)) {
+        if (room.id === dragged.segment.physicalRoomId) return `This stay is already in room ${room.roomNumber}.`;
+        if (room.operationalStatus !== "Active") return `Room ${room.roomNumber} is not Active.`;
+        return `Room ${room.roomNumber} can't take this stay.`;
+      }
+      if (isRoomLocked(board.property.id, [room.id], dragged.segment)) {
+        return `An earlier change to room ${room.roomNumber} on these nights is still unconfirmed.`;
+      }
+      return null;
+    },
+    [boardState, selectedPropertyId, isBoardAwaitingAnyWrite, isRoomLocked]
+  );
+
+  const handleAssignedSegmentDragStart = useCallback(
+    (dragged: AssignedSegmentSelection, bar: HTMLElement) => {
+      const refusal = moveDragRefusal(dragged);
+      if (refusal !== null) return refusal;
+      dragSourceBoardKeyRef.current = currentBoardKeyRef.current;
+      // The dragged bar is the opener focus returns to if the dialog closes.
+      assignedBarOpenerRef.current = bar;
+      return null;
+    },
+    [moveDragRefusal]
+  );
+
+  /**
+   * PMS-CAL-001.4-CP01: a drop only opens the existing Move room dialog with
+   * the room preselected, for review. It never sends anything, and the target
+   * is rebuilt from the authoritative board — the segment's own full
+   * `[startDate, endDate)`, never anything derived from where it was dropped.
+   */
+  const handleAssignedSegmentDrop = useCallback(
+    (dragged: AssignedSegmentSelection, physicalRoomId: string | null) => {
+      const refusal = moveDragRefusal(dragged, physicalRoomId);
+      dragSourceBoardKeyRef.current = null;
+      if (refusal !== null) return refusal;
+      if (boardState.status !== "loaded") return "The board is not loaded.";
+      const target = buildMoveTarget(boardState.board, selectedPropertyId, dragged);
+      if (!target || physicalRoomId === null) return "This stay has changed on the server. Reload the board and try again.";
+      setSelection(null);
+      setDialogMoveReconciliationId(null);
+      setMoveInitialRoomId(physicalRoomId);
+      setMoveRefusal(null);
+      moveDialogSentRef.current = false;
+      moveDialogOutcomeRef.current = null;
+      setMoveTarget(target);
+      return null;
+    },
+    [moveDragRefusal, boardState, selectedPropertyId]
   );
 
   /** PMS-CAL-001.2-CP04D-BOARD-WIRING: the unassign counterpart of `handleMoveRoom` above, same two guards. */
@@ -796,6 +945,12 @@ const ReservationBoard: React.FC = () => {
     [boardState, selectedPropertyId, isBoardAwaitingAnyWrite, isRoomLocked]
   );
 
+  /** C2: the open move dialog's latest result, read by a later Property switch. */
+  const recordMoveOutcome = useCallback((outcome: MoveAssignmentOutcome) => {
+    moveDialogOutcomeRef.current = outcome;
+    return outcome;
+  }, []);
+
   const submitMove = useCallback(
     async (
       target: MoveTarget,
@@ -805,7 +960,7 @@ const ReservationBoard: React.FC = () => {
       // Only a room the dialog was built with can be sent — never an arbitrary id.
       const room = target.candidateRooms.find((candidate) => candidate.id === physicalRoomId);
       if (!room) {
-        return { kind: "not-sent", message: "Choose one of the listed rooms." };
+        return recordMoveOutcome({ kind: "not-sent", message: "Choose one of the listed rooms." });
       }
       // PMS-CAL-001.2-CP04C.6A: re-derived here, the same way `submitAssignment`
       // re-derives it for create, rather than trusted from the dialog — a
@@ -819,7 +974,17 @@ const ReservationBoard: React.FC = () => {
       const isCrossRoomType = room.roomTypeId !== target.stay.soldRoomTypeId;
       // PMS-CAL-001.3-CP03-C1: a move changes both its source and its destination room.
       if (isRoomLocked(target.propertyId, [room.id, target.segment.physicalRoomId], target.segment)) {
-        return { kind: "not-sent", message: ROOM_LOCKED_MESSAGE };
+        return recordMoveOutcome({ kind: "not-sent", message: ROOM_LOCKED_MESSAGE });
+      }
+      // PMS-CAL-001.4-CP01: a move dialog — whether opened from the popover or
+      // from a drop — built from a board the operator has since left never
+      // sends that board's segment. Checked immediately before the POST.
+      if (currentBoardKeyRef.current !== target.boardKey) {
+        // The dialog closes, so it can never Confirm this target again; the
+        // refusal moves to the board and takes the focus the dialog held.
+        setMoveTarget(null);
+        setMoveRefusal({ text: STALE_MOVE_DIALOG_MESSAGE, focus: true });
+        return { kind: "not-sent", message: STALE_MOVE_DIALOG_MESSAGE };
       }
 
       moveRequestPendingRef.current = true;
@@ -832,6 +997,11 @@ const ReservationBoard: React.FC = () => {
         ...(isCrossRoomType && crossRoomType ? { reason: crossRoomType.reason } : {}),
       });
       moveRequestPendingRef.current = false;
+      // Only the outcome says whether a request left the browser: the client's
+      // own `not-sent` (configuration, or a signal aborted before sending) is
+      // proof that none did, even though it was called.
+      if (outcome.kind !== "not-sent") moveDialogSentRef.current = true;
+      recordMoveOutcome(outcome);
       if (!mountedRef.current) return outcome;
 
       if (describeMoveOutcome(outcome).reloadBoard) {
@@ -887,7 +1057,7 @@ const ReservationBoard: React.FC = () => {
       }
       return outcome;
     },
-    [updateReconciliations, keepReconciliation, isRoomLocked]
+    [updateReconciliations, keepReconciliation, isRoomLocked, recordMoveOutcome]
   );
 
   /**
@@ -1380,6 +1550,18 @@ const ReservationBoard: React.FC = () => {
     document.getElementById("reservation-board-property")?.focus();
   }, []);
 
+  // PMS-CAL-001.4-CP01-C1: the refusal takes over the focus the closed dialog held.
+  useEffect(() => {
+    if (moveRefusal?.focus) moveRefusalRef.current?.focus();
+  }, [moveRefusal]);
+
+  const dismissMoveRefusal = useCallback(() => {
+    const noticeOwnedFocus = moveRefusalRef.current?.contains(document.activeElement) ?? false;
+    // Focus leaves before the focused notice unmounts.
+    if (noticeOwnedFocus) restoreBoardFocus();
+    setMoveRefusal(null);
+  }, [restoreBoardFocus]);
+
   // A new notice takes focus: the bar that opened the dialog is gone once the
   // board reloads, so focus would otherwise fall back to the document.
   useEffect(() => {
@@ -1527,6 +1709,9 @@ const ReservationBoard: React.FC = () => {
         }}
         unassignedActionsBlocked={displayedBoardAwaitingReconciliation}
         isUnassignedRangeUnconfirmed={isRangeUnconfirmed}
+        onAssignedSegmentDragStart={handleAssignedSegmentDragStart}
+        getAssignedSegmentDropRefusal={moveDragRefusal}
+        onAssignedSegmentDrop={handleAssignedSegmentDrop}
       />
     );
   }, [
@@ -1538,6 +1723,9 @@ const ReservationBoard: React.FC = () => {
     handleSelectUnassignedRange,
     displayedBoardAwaitingReconciliation,
     isRangeUnconfirmed,
+    handleAssignedSegmentDragStart,
+    moveDragRefusal,
+    handleAssignedSegmentDrop,
   ]);
 
   const toolbarProperties = propertiesState.status === "loaded" ? propertiesState.properties : [];
@@ -1609,6 +1797,25 @@ const ReservationBoard: React.FC = () => {
           writtenRange={noticeReconciliation ? { from: noticeReconciliation.from, to: noticeReconciliation.to } : null}
           onDismiss={() => setAssignmentNotice(null)}
         />
+      )}
+      {moveRefusal && (
+        <div
+          ref={moveRefusalRef}
+          tabIndex={-1}
+          role="alert"
+          data-testid="move-refusal-notice"
+          className="mx-2 mt-2 flex items-start justify-between gap-3 rounded-lg bg-warning-50 px-3 py-2 text-sm text-warning-800 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-warning-500/60 sm:mx-4 dark:bg-warning-500/10 dark:text-warning-300"
+        >
+          <p className="font-medium">{moveRefusal.text}</p>
+          <button
+            type="button"
+            onClick={dismissMoveRefusal}
+            aria-label="Dismiss notice"
+            className="flex size-6 shrink-0 items-center justify-center rounded-full hover:bg-warning-100 dark:hover:bg-white/5"
+          >
+            <CloseLineIcon className="size-3.5" aria-hidden="true" />
+          </button>
+        </div>
       )}
       {moveNotice && (
         <AssignmentNotice
@@ -1693,8 +1900,10 @@ const ReservationBoard: React.FC = () => {
         <ReservationMoveDialog
           // A different target is a different dialog: never carry one
           // segment's selection, result or submit lock over to another.
-          key={`${moveTarget.segment.segmentId}:${moveTarget.segment.segmentVersion}`}
+          key={`${moveTarget.segment.segmentId}:${moveTarget.segment.segmentVersion}:${moveInitialRoomId ?? ""}`}
           target={moveTarget}
+          // PMS-CAL-001.4-CP01: a drop's room, preselected for review only.
+          initialRoomId={moveInitialRoomId}
           // PMS-CAL-001.2-CP04C.6B: live opt-in — this board now offers a
           // controlled cross-RoomType destination for a move, the same
           // contract CP04C.6A merged and CP03B already offers for a new

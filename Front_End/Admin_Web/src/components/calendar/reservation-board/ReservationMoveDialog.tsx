@@ -86,6 +86,14 @@ interface ReservationMoveDialogProps {
    * No caller in this checkpoint passes `true`.
    */
   crossRoomTypeEnabled?: boolean;
+  /**
+   * PMS-CAL-001.4-CP01: the destination room a drag-and-drop chose on the
+   * board. It is only a *preselection* for review: nothing is sent until the
+   * operator confirms, and a cross-RoomType destination still starts with its
+   * confirmation unchecked and its reason empty, exactly as if the radio had
+   * been clicked. Ignored unless it is one of the offered candidates.
+   */
+  initialRoomId?: string;
   onSubmit: (physicalRoomId: string, crossRoomType: CrossRoomTypeConfirmation | null) => Promise<MoveAssignmentOutcome>;
   onClose: () => void;
 }
@@ -98,6 +106,7 @@ const ReservationMoveDialog: React.FC<ReservationMoveDialogProps> = ({
   boardReloadStatus,
   uncertainResolution,
   crossRoomTypeEnabled = false,
+  initialRoomId,
   onSubmit,
   onClose,
 }) => {
@@ -110,7 +119,14 @@ const ReservationMoveDialog: React.FC<ReservationMoveDialogProps> = ({
   const crossReasonErrorId = useId();
   const crossReasonId = useId();
 
-  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
+  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(() =>
+    initialRoomId !== undefined &&
+    target.candidateRooms.some(
+      (room) => room.id === initialRoomId && (crossRoomTypeEnabled || room.isSameSoldType)
+    )
+      ? initialRoomId
+      : null
+  );
   const [roomError, setRoomError] = useState(false);
   const [crossTypeConfirmed, setCrossTypeConfirmed] = useState(false);
   const [crossTypeReason, setCrossTypeReason] = useState("");
@@ -153,7 +169,10 @@ const ReservationMoveDialog: React.FC<ReservationMoveDialogProps> = ({
   // dialog's `onClose` prop.
   useEffect(() => {
     mountedRef.current = true;
-    (firstRoomRef.current ?? closeButtonRef.current)?.focus();
+    // A preselected (dropped) room takes focus, so the operator reviews the
+    // room that was chosen rather than the first one in the list.
+    const preselected = dialogRef.current?.querySelector<HTMLInputElement>('input[type="radio"]:checked');
+    (preselected ?? firstRoomRef.current ?? closeButtonRef.current)?.focus();
     return () => {
       mountedRef.current = false;
     };
