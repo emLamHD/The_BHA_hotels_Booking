@@ -595,3 +595,144 @@ describe("ReservationBoard — drag-to-move write safety (PMS-CAL-001.4-CP01)", 
     expect(mockedMove).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("ReservationBoard — a Property switch after a move was sent (PMS-CAL-001.4-CP01-C2)", () => {
+  /**
+   * "Nothing was sent" may only be said when it is true. Once a request has
+   * left the browser, a Property switch must keep — never overwrite — what the
+   * server said, and a result that may have committed must not be presented in
+   * a way that invites sending the move again.
+   */
+  const NOTHING_SENT = /Nothing was sent/;
+
+  async function sendMove(user: ReturnType<typeof userEvent.setup>, outcome: MoveAssignmentOutcome) {
+    mockedMove.mockResolvedValue(outcome);
+    dragAndDrop(roomCells("room-102")[1]);
+    await user.click(within(moveDialog()).getByRole("button", { name: "Move to room 102" }));
+    // The move dialog reports every result, success included, as role="alert".
+    await within(moveDialog()).findByRole("alert");
+    expect(mockedMove).toHaveBeenCalledTimes(1);
+  }
+
+  async function switchProperty(user: ReturnType<typeof userEvent.setup>, propertyId: string) {
+    await user.selectOptions(screen.getByLabelText("Property"), propertyId);
+    await waitFor(() => expect(mockedBoard.mock.calls.at(-1)![0]).toBe(propertyId));
+  }
+
+  it("unknown: the dialog keeps saying the result is unknown, nothing claims it was unsent, nothing is resent, and the lock and read-only Check again remain", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    await sendMove(user, { kind: "unknown", reason: "timeout" });
+
+    await switchProperty(user, "prop-b");
+
+    const result = within(moveDialog()).getByRole("alert");
+    expect(result).toHaveTextContent("may or may not");
+    expect(screen.queryByText(NOTHING_SENT)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("move-refusal-notice")).not.toBeInTheDocument();
+    // No way to confirm the old target again.
+    expect(within(moveDialog()).queryByRole("button", { name: "Move to room 102" })).not.toBeInTheDocument();
+
+    await user.click(within(moveDialog()).getAllByRole("button", { name: "Close" }).at(-1)!);
+    await switchProperty(user, "prop-a");
+    const notice = await screen.findByTestId("uncertain-write-notice");
+    expect(notice).toHaveTextContent(`room 102 for Nguyen Van A (CNF-100), [${addDaysIso(from, -2)}, ${addDaysIso(from, 3)})`);
+    const boardCalls = mockedBoard.mock.calls.length;
+    await user.click(within(notice).getByRole("button", { name: "Check again" }));
+    await waitFor(() => expect(mockedBoard.mock.calls.length).toBe(boardCalls + 1));
+    expect(mockedMove).toHaveBeenCalledTimes(1);
+    // Still locked: this segment cannot be dragged into another move.
+    expect(fireEvent.dragStart(bar(), { dataTransfer: dataTransfer() })).toBe(false);
+  });
+
+  it.each([
+    ["409 conflict", { kind: "rejected", status: 409, category: "conflict", detail: "Room 102 is occupied." } as MoveAssignmentOutcome, "Room 102 is occupied."],
+    ["403 not permitted", { kind: "rejected", status: 403, category: "not-permitted" } as MoveAssignmentOutcome, "not permitted"],
+  ])("%s: the server's answer stays on screen after a Property switch, never replaced by an unsent claim", async (_label, outcome, text) => {
+    const user = userEvent.setup();
+    await renderLoadedBoard();
+    await sendMove(user, outcome);
+
+    await switchProperty(user, "prop-b");
+
+    expect(within(moveDialog()).getByRole("alert")).toHaveTextContent(text);
+    expect(screen.queryByText(NOTHING_SENT)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("move-refusal-notice")).not.toBeInTheDocument();
+    expect(within(moveDialog()).queryByRole("button", { name: "Move to room 102" })).not.toBeInTheDocument();
+    expect(mockedMove).toHaveBeenCalledTimes(1);
+  });
+
+  it("200 that arrived after a range change: the dialog keeps reporting the saved move, and no success lands on the new Property", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    const move = deferred<MoveAssignmentOutcome>();
+    mockedMove.mockImplementation(() => move.promise);
+    dragAndDrop(roomCells("room-102")[1]);
+    await user.click(within(moveDialog()).getByRole("button", { name: "Move to room 102" }));
+    await user.click(screen.getByRole("button", { name: "Next date range" }));
+    await waitFor(() => expect(mockedBoard.mock.calls.at(-1)![1]).toBe(addDaysIso(from, 14)));
+    await act(async () => move.resolve({ kind: "moved", segments: null }));
+    expect(await within(moveDialog()).findByRole("alert")).toHaveTextContent("Room moved.");
+
+    await switchProperty(user, "prop-b");
+
+    expect(within(moveDialog()).getByRole("alert")).toHaveTextContent("Room moved.");
+    expect(screen.queryByText(NOTHING_SENT)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Room 102 moved/)).not.toBeInTheDocument();
+    expect(mockedMove).toHaveBeenCalledTimes(1);
+  });
+
+  it("400: the dialog closes so the old target cannot be confirmed on the new board, and the notice says the server rejected it — not that nothing was sent", async () => {
+    const user = userEvent.setup();
+    await renderLoadedBoard();
+    await sendMove(user, { kind: "rejected", status: 400, category: "validation", detail: "startDate is invalid." });
+
+    await switchProperty(user, "prop-b");
+
+    expect(queryMoveDialog()).not.toBeInTheDocument();
+    const notice = screen.getByTestId("move-refusal-notice");
+    expect(notice).toHaveTextContent("The server rejected the last move request, so nothing was changed.");
+    expect(notice).not.toHaveTextContent(NOTHING_SENT);
+    expect(document.activeElement).toBe(screen.getByLabelText("Property"));
+    expect(mockedMove).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([["the popover's Move room"], ["a new drop"]])(
+    "a fresh dialog opened from %s after an earlier one got a 409 has sent nothing, so a Property switch closes it as unsent",
+    async (via) => {
+      const user = userEvent.setup();
+      await renderLoadedBoard();
+      await sendMove(user, { kind: "rejected", status: 409, category: "conflict", detail: "Room 102 is occupied." });
+      await user.click(within(moveDialog()).getAllByRole("button", { name: "Close" }).at(-1)!);
+      // Wait for the conflict's re-read, after which the segment may be moved again.
+      await waitFor(() => expect(fireEvent.dragStart(bar(), { dataTransfer: dataTransfer() })).toBe(true));
+      fireEvent.dragEnd(bar(), { dataTransfer: dataTransfer() });
+
+      if (via === "a new drop") {
+        dragAndDrop(roomCells("room-102")[1]);
+      } else {
+        await user.click(bar());
+        await user.click(within(screen.getByRole("dialog", { name: "Reservation details" })).getByRole("button", { name: "Move room" }));
+      }
+      expect(within(moveDialog()).queryByRole("alert")).not.toBeInTheDocument();
+
+      await switchProperty(user, "prop-b");
+
+      expect(queryMoveDialog()).not.toBeInTheDocument();
+      expect(screen.getByTestId("move-refusal-notice")).toHaveTextContent(STALE_TEXT);
+      expect(mockedMove).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it("not-sent: the dialog closes and saying nothing was sent is correct", async () => {
+    const user = userEvent.setup();
+    await renderLoadedBoard();
+    await sendMove(user, { kind: "not-sent", message: "The Admin API address is not configured." });
+
+    await switchProperty(user, "prop-b");
+
+    expect(queryMoveDialog()).not.toBeInTheDocument();
+    expect(screen.getByTestId("move-refusal-notice")).toHaveTextContent(STALE_TEXT);
+    expect(document.activeElement).not.toBe(document.body);
+  });
+});

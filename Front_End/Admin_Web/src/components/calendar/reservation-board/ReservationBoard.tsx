@@ -138,6 +138,14 @@ const ROOM_LOCKED_MESSAGE =
 const STALE_MOVE_DIALOG_MESSAGE =
   "The board changed after this move was opened. Nothing was sent; start the move again from the board on screen.";
 
+/**
+ * PMS-CAL-001.4-CP01-C2: the same, for a dialog whose last request did reach
+ * the server and was rejected there. A request was sent, so "Nothing was sent"
+ * would be false; what the rejection proves is that nothing was changed.
+ */
+const REJECTED_MOVE_THEN_BOARD_CHANGED_MESSAGE =
+  "The server rejected the last move request, so nothing was changed. The board has changed; start the move again from the board on screen.";
+
 /** PMS-CAL-001.3-CP03-C2: a block dialog outlived the board it was opened from. */
 const STALE_BLOCK_DIALOG_MESSAGE =
   "The board changed after this dialog was opened. Nothing was sent; open Create operational block again from the board on screen.";
@@ -237,6 +245,15 @@ const ReservationBoard: React.FC = () => {
    * Property switch leaves focus on the control the operator just used.
    */
   const [moveRefusal, setMoveRefusal] = useState<{ text: string; focus: boolean } | null>(null);
+  /**
+   * PMS-CAL-001.4-CP01-C2: what the open move dialog has actually done — reset
+   * whenever a move dialog opens. `moveRequestPendingRef` only says whether a
+   * request is on the wire *now*; once its response arrives it is false again,
+   * so it cannot tell a dialog that never sent from one whose request reached
+   * the server. These two can.
+   */
+  const moveDialogSentRef = useRef(false);
+  const moveDialogOutcomeRef = useRef<MoveAssignmentOutcome | null>(null);
   const moveRefusalRef = useRef<HTMLDivElement>(null);
 
   /**
@@ -565,9 +582,27 @@ const ReservationBoard: React.FC = () => {
       setAssignmentTarget(null);
       setAssignmentNotice(null);
       if (!moveRequestPendingRef.current) {
-        // A dialog that had sent nothing closes with the board it belonged to.
-        setMoveRefusal(moveTarget ? { text: STALE_MOVE_DIALOG_MESSAGE, focus: false } : null);
-        setMoveTarget(null);
+        const outcome = moveDialogOutcomeRef.current;
+        if (moveTarget && outcome !== null && !describeMoveOutcome(outcome).allowResubmit) {
+          // PMS-CAL-001.4-CP01-C2: this dialog's request reached — or, when
+          // unknown, may have reached — the server, and the dialog is now
+          // reporting that outcome with no way to send it again. It stays, like
+          // a dialog whose request is still pending: closing it would hide a
+          // success, a conflict or an unconfirmed write the operator must see.
+          setMoveRefusal(null);
+        } else {
+          // Sent nothing, or was refused in a way that proves nothing changed:
+          // it closes with the board it belonged to, and says which of the two.
+          setMoveRefusal(
+            moveTarget
+              ? {
+                  text: moveDialogSentRef.current ? REJECTED_MOVE_THEN_BOARD_CHANGED_MESSAGE : STALE_MOVE_DIALOG_MESSAGE,
+                  focus: false,
+                }
+              : null
+          );
+          setMoveTarget(null);
+        }
       }
       setMoveNotice(null);
       if (!unassignRequestPendingRef.current) setUnassignTarget(null);
@@ -783,6 +818,8 @@ const ReservationBoard: React.FC = () => {
       setDialogMoveReconciliationId(null);
       setMoveInitialRoomId(undefined);
       setMoveRefusal(null);
+      moveDialogSentRef.current = false;
+      moveDialogOutcomeRef.current = null;
       setMoveTarget(target);
     },
     [boardState, selectedPropertyId, isBoardAwaitingAnyWrite, isRoomLocked]
@@ -865,6 +902,8 @@ const ReservationBoard: React.FC = () => {
       setDialogMoveReconciliationId(null);
       setMoveInitialRoomId(physicalRoomId);
       setMoveRefusal(null);
+      moveDialogSentRef.current = false;
+      moveDialogOutcomeRef.current = null;
       setMoveTarget(target);
       return null;
     },
@@ -906,6 +945,12 @@ const ReservationBoard: React.FC = () => {
     [boardState, selectedPropertyId, isBoardAwaitingAnyWrite, isRoomLocked]
   );
 
+  /** C2: the open move dialog's latest result, read by a later Property switch. */
+  const recordMoveOutcome = useCallback((outcome: MoveAssignmentOutcome) => {
+    moveDialogOutcomeRef.current = outcome;
+    return outcome;
+  }, []);
+
   const submitMove = useCallback(
     async (
       target: MoveTarget,
@@ -915,7 +960,7 @@ const ReservationBoard: React.FC = () => {
       // Only a room the dialog was built with can be sent — never an arbitrary id.
       const room = target.candidateRooms.find((candidate) => candidate.id === physicalRoomId);
       if (!room) {
-        return { kind: "not-sent", message: "Choose one of the listed rooms." };
+        return recordMoveOutcome({ kind: "not-sent", message: "Choose one of the listed rooms." });
       }
       // PMS-CAL-001.2-CP04C.6A: re-derived here, the same way `submitAssignment`
       // re-derives it for create, rather than trusted from the dialog — a
@@ -929,7 +974,7 @@ const ReservationBoard: React.FC = () => {
       const isCrossRoomType = room.roomTypeId !== target.stay.soldRoomTypeId;
       // PMS-CAL-001.3-CP03-C1: a move changes both its source and its destination room.
       if (isRoomLocked(target.propertyId, [room.id, target.segment.physicalRoomId], target.segment)) {
-        return { kind: "not-sent", message: ROOM_LOCKED_MESSAGE };
+        return recordMoveOutcome({ kind: "not-sent", message: ROOM_LOCKED_MESSAGE });
       }
       // PMS-CAL-001.4-CP01: a move dialog — whether opened from the popover or
       // from a drop — built from a board the operator has since left never
@@ -952,6 +997,11 @@ const ReservationBoard: React.FC = () => {
         ...(isCrossRoomType && crossRoomType ? { reason: crossRoomType.reason } : {}),
       });
       moveRequestPendingRef.current = false;
+      // Only the outcome says whether a request left the browser: the client's
+      // own `not-sent` (configuration, or a signal aborted before sending) is
+      // proof that none did, even though it was called.
+      if (outcome.kind !== "not-sent") moveDialogSentRef.current = true;
+      recordMoveOutcome(outcome);
       if (!mountedRef.current) return outcome;
 
       if (describeMoveOutcome(outcome).reloadBoard) {
@@ -1007,7 +1057,7 @@ const ReservationBoard: React.FC = () => {
       }
       return outcome;
     },
-    [updateReconciliations, keepReconciliation, isRoomLocked]
+    [updateReconciliations, keepReconciliation, isRoomLocked, recordMoveOutcome]
   );
 
   /**
