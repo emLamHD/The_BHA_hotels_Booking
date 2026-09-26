@@ -129,6 +129,10 @@ const INITIAL_RANGE_LENGTH: ReservationBoardRangeLength = 14;
 const ROOM_LOCKED_MESSAGE =
   "An earlier request for this room on overlapping nights is still unconfirmed. Nothing was sent; check the board again before sending another.";
 
+/** PMS-CAL-001.3-CP03-C2: a block dialog outlived the board it was opened from. */
+const STALE_BLOCK_DIALOG_MESSAGE =
+  "The board changed after this dialog was opened. Nothing was sent; open Create operational block again from the board on screen.";
+
 type PropertiesState =
   | { status: "loading" }
   | { status: "loaded"; properties: ApiProperty[] }
@@ -281,11 +285,18 @@ const ReservationBoard: React.FC = () => {
   const blockNoticeRef = useRef<HTMLDivElement>(null);
   const blockRequestPendingRef = useRef(false);
   /**
-   * PMS-CAL-001.3-CP03-C1: the open block dialog has sent a request. Such a
-   * dialog is never closed by navigation — it must stay to report its own
-   * result — even after the request is no longer pending.
+   * PMS-CAL-001.3-CP03-C1: the open block dialog has sent a request whose
+   * result it must report. Such a dialog is never closed by navigation, even
+   * after the request is no longer pending.
+   *
+   * PMS-CAL-001.3-CP03-C2: cleared again when the result proves nothing was
+   * written (`allowResubmit`: `not-sent`, `400`). That dialog then offers its
+   * form again, which is correctable only on the board it was opened from —
+   * so from then on navigation closes it like one that never sent.
    */
   const blockSubmittedRef = useRef(false);
+  /** C2: the board closed a stale block dialog; restore focus if that dialog took it along. */
+  const restoreFocusAfterStaleBlockDialogRef = useRef(false);
   const [blockReconciliations, setBlockReconciliations] = useState<BlockCreateReconciliation[]>([]);
   const blockReconciliationsRef = useRef<BlockCreateReconciliation[]>([]);
   const referencedBlockIdsRef = useRef<{ dialog: number | null; notice: number | null }>({
@@ -460,6 +471,14 @@ const ReservationBoard: React.FC = () => {
     []
   );
 
+  /** C2: closes a block dialog that belongs to a board no longer on screen. */
+  const closeStaleBlockDialog = useCallback(() => {
+    setBlockTarget((open) => {
+      if (open) restoreFocusAfterStaleBlockDialogRef.current = true;
+      return null;
+    });
+  }, []);
+
   const handleSelectProperty = useCallback(
     (propertyId: string) => {
       const property =
@@ -476,11 +495,11 @@ const ReservationBoard: React.FC = () => {
       setMoveNotice(null);
       if (!unassignRequestPendingRef.current) setUnassignTarget(null);
       setUnassignNotice(null);
-      if (!blockSubmittedRef.current) setBlockTarget(null);
+      if (!blockSubmittedRef.current) closeStaleBlockDialog();
       setBlockNotice(null);
       if (nextAnchor !== anchorDate) setAnchorDate(nextAnchor);
     },
-    [propertiesState, anchorDate, rangeLength, markNavigation]
+    [propertiesState, anchorDate, rangeLength, markNavigation, closeStaleBlockDialog]
   );
 
   const handlePrev = useCallback(() => {
@@ -874,9 +893,11 @@ const ReservationBoard: React.FC = () => {
     // A block dialog offers the rooms and nights of the board it was opened
     // from; once the view shows another board, one that has sent nothing is
     // stale. One that has sent a request stays open to report its own result.
-    setBlockTarget((open) =>
-      open && !blockSubmittedRef.current && open.boardKey !== currentBoardKey ? null : open
-    );
+    setBlockTarget((open) => {
+      if (!open || blockSubmittedRef.current || open.boardKey === currentBoardKey) return open;
+      restoreFocusAfterStaleBlockDialogRef.current = true;
+      return null;
+    });
   }, [currentBoardKey]);
 
   /** PMS-CAL-001.3-CP03: opens the create dialog for the board on screen, never for a stale or unread one. */
@@ -923,6 +944,13 @@ const ReservationBoard: React.FC = () => {
       if (isRoomLocked(target.propertyId, [room.id], request)) {
         return { kind: "not-sent", message: ROOM_LOCKED_MESSAGE };
       }
+      // C2: a dialog built from a board the operator has left never sends that
+      // board's Property, room and nights. Navigation normally closes it first;
+      // this also covers a confirm that lands before React has re-rendered.
+      if (currentBoardKeyRef.current !== target.boardKey) {
+        closeStaleBlockDialog();
+        return { kind: "not-sent", message: STALE_BLOCK_DIALOG_MESSAGE };
+      }
 
       blockRequestPendingRef.current = true;
       blockSubmittedRef.current = true;
@@ -939,7 +967,17 @@ const ReservationBoard: React.FC = () => {
       }
       if (!mountedRef.current) return outcome;
 
-      if (describeBlockCreateOutcome(outcome).reloadBoard) {
+      const view = describeBlockCreateOutcome(outcome);
+      if (view.allowResubmit) {
+        // Nothing was written: the dialog returns to its form, and a form is
+        // only correctable on the board it was opened from. If the view moved
+        // on while the request was pending, the navigation effect has already
+        // passed over this dialog, so it is closed here.
+        blockSubmittedRef.current = false;
+        if (currentBoardKeyRef.current !== target.boardKey) closeStaleBlockDialog();
+      }
+
+      if (view.reloadBoard) {
         const uncertain = outcome.kind === "unknown";
         const referenced = referencedBlockIdsRef.current;
         const reconciliation: BlockCreateReconciliation = {
@@ -983,7 +1021,7 @@ const ReservationBoard: React.FC = () => {
       }
       return outcome;
     },
-    [updateBlockReconciliations, isRoomLocked]
+    [updateBlockReconciliations, isRoomLocked, closeStaleBlockDialog]
   );
 
   const reconciliationStatus = (id: number | null): BoardReloadStatus => {
@@ -1187,6 +1225,29 @@ const ReservationBoard: React.FC = () => {
     document.getElementById("reservation-board-property")?.focus();
   }, []);
 
+  // C2: a block dialog the board closed because it had gone stale took the
+  // focused element with it. Only focus that fell to the document is moved;
+  // focus the operator has put elsewhere is left where it is.
+  useEffect(() => {
+    if (blockTarget || !restoreFocusAfterStaleBlockDialogRef.current) return;
+    restoreFocusAfterStaleBlockDialogRef.current = false;
+    const active = document.activeElement;
+    if (active === null || active === document.body) restoreCreateBlockFocus();
+  }, [blockTarget, restoreCreateBlockFocus]);
+
+  /**
+   * C2: same rule as `dismissBlockNotice`, for an observed unconfirmed block
+   * notice — focus moves before the focused button unmounts, and only if the
+   * notice held it.
+   */
+  const dismissUncertainBlockNotice = useCallback(
+    (id: number, noticeOwnedFocus: boolean) => {
+      if (noticeOwnedFocus) restoreCreateBlockFocus();
+      dismissBlockReconciliation(id);
+    },
+    [dismissBlockReconciliation, restoreCreateBlockFocus]
+  );
+
   const dismissBlockNotice = useCallback(() => {
     const noticeOwnedFocus = blockNoticeRef.current?.contains(document.activeElement) ?? false;
     setBlockNotice(null);
@@ -1325,7 +1386,7 @@ const ReservationBoard: React.FC = () => {
           }
           checking={boardState.status === "loading" || (boardState.status === "loaded" && !!boardState.refreshing)}
           onCheckAgain={handleCheckAgain}
-          onDismiss={() => dismissBlockReconciliation(entry.id)}
+          onDismiss={(noticeOwnedFocus) => dismissUncertainBlockNotice(entry.id, noticeOwnedFocus)}
         />
       ))}
       {assignmentNotice && (
@@ -1499,8 +1560,10 @@ const UncertainBlockNotice: React.FC<{
   canCheckHere: boolean;
   checking: boolean;
   onCheckAgain: () => void;
-  onDismiss: () => void;
+  /** `noticeOwnedFocus`: focus was inside this notice, which is about to unmount. */
+  onDismiss: (noticeOwnedFocus: boolean) => void;
 }> = ({ entry, readStatus, canCheckHere, checking, onCheckAgain, onDismiss }) => {
+  const rootRef = useRef<HTMLDivElement>(null);
   const { target } = entry;
   const range = `[${target.startDate}, ${target.endDate})`;
   const observed = entry.resolution === "observed";
@@ -1522,6 +1585,7 @@ const UncertainBlockNotice: React.FC<{
 
   return (
     <div
+      ref={rootRef}
       role="status"
       data-testid="uncertain-block-notice"
       className={`mx-2 mt-2 flex items-start justify-between gap-3 rounded-lg px-3 py-2 text-sm sm:mx-4 ${
@@ -1539,7 +1603,7 @@ const UncertainBlockNotice: React.FC<{
       {observed ? (
         <button
           type="button"
-          onClick={onDismiss}
+          onClick={() => onDismiss(rootRef.current?.contains(document.activeElement) ?? false)}
           aria-label="Dismiss notice"
           className="flex size-6 shrink-0 items-center justify-center rounded-full hover:bg-gray-200 dark:hover:bg-white/5"
         >

@@ -10,6 +10,10 @@
  * 2. A Property/range switch that happens while a block create is in flight,
  *    and before React has re-rendered, never lets that create's success
  *    notice land on the new board or close its dialog.
+ * 3. (C2) A block dialog whose result proved nothing was written (`not-sent`,
+ *    `400`) is correctable only on the board it was opened from. Once the view
+ *    shows another board — before or after that result arrives — the old
+ *    dialog is gone and nothing can send its Property, room and nights.
  *
  * The API client is mocked; these prove the board's decisions.
  */
@@ -374,5 +378,141 @@ describe("ReservationBoard — navigation while a block create is in flight (PMS
     expect(status).not.toHaveTextContent("The board has been reloaded from the server.");
     await act(async () => reread.resolve({ ok: true, data: boardFor("prop-a", from, mockedBoard.mock.calls.at(-1)![2]) }));
     await waitFor(() => expect(status).toHaveTextContent("The board has been reloaded from the server."));
+  });
+});
+
+describe("ReservationBoard — a correctable block result never sends for a board the operator has left (PMS-CAL-001.3-CP03-C2)", () => {
+  const validation: OperationalBlockCreateOutcome = { kind: "rejected", status: 400, category: "validation", detail: "reason is invalid." };
+  const notSent: OperationalBlockCreateOutcome = { kind: "not-sent", message: "The Admin API address is not configured." };
+
+  const propertySelect = () => screen.getByLabelText("Property") as HTMLSelectElement;
+  const createBlockButton = () => screen.getByRole("button", { name: "Create operational block" });
+  const queryBlockDialog = () => screen.queryByRole("dialog", { name: "Create operational block" });
+
+  function switchToPropertyB() {
+    propertySelect().value = "prop-b";
+    propertySelect().dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  function nextRange() {
+    screen.getByRole("button", { name: "Next date range" }).dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  }
+
+  /** Reviews room 102 for the first night and confirms; the POST stays pending until `write` resolves. */
+  async function startPending(user: ReturnType<typeof userEvent.setup>, from: string) {
+    const write = deferred<OperationalBlockCreateOutcome>();
+    mockedBlock.mockImplementationOnce(() => write.promise);
+    await reviewBlock(user, "room-102", from, addDaysIso(from, 1));
+    await user.click(within(blockDialog()).getByRole("button", { name: "Create block" }));
+    expect(mockedBlock).toHaveBeenCalledTimes(1);
+    return write;
+  }
+
+  /** Every way an old dialog could still send: back on the form it reviews again, then confirms. */
+  async function tryToSendAgain(user: ReturnType<typeof userEvent.setup>) {
+    const dialog = queryBlockDialog();
+    if (!dialog) return;
+    const review = within(dialog).queryByRole("button", { name: "Review" });
+    if (review) await user.click(review);
+    const create = within(dialog).queryByRole("button", { name: "Create block" });
+    if (create) await user.click(create);
+  }
+
+  function expectFocusOnStableBoardControl() {
+    expect(document.activeElement).not.toBe(document.body);
+    expect([createBlockButton(), propertySelect()]).toContain(document.activeElement);
+  }
+
+  beforeEach(() => {
+    // A stray second POST must be observable as a call, not crash the dialog.
+    mockedBlock.mockResolvedValue({ kind: "created", block: null });
+  });
+
+  it.each([
+    ["Property switch", "400", switchToPropertyB, validation],
+    ["Property switch", "not-sent", switchToPropertyB, notSent],
+    ["Next date range", "400", nextRange, validation],
+    ["Next date range", "not-sent", nextRange, notSent],
+  ])("%s while the POST is pending, then %s: the old dialog closes and sends nothing", async (_nav, _kind, navigate, outcome) => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    const write = await startPending(user, from);
+    const boardCallsBefore = mockedBoard.mock.calls.length;
+
+    await act(async () => navigate());
+    await waitFor(() => expect(mockedBoard.mock.calls.length).toBeGreaterThan(boardCallsBefore));
+    // The dialog is still reporting its pending request.
+    expect(blockDialog()).toBeInTheDocument();
+
+    await act(async () => write.resolve(outcome));
+    await tryToSendAgain(user);
+
+    expect(mockedBlock).toHaveBeenCalledTimes(1);
+    expect(queryBlockDialog()).not.toBeInTheDocument();
+    expectFocusOnStableBoardControl();
+  });
+
+  it.each([
+    ["Property switch", switchToPropertyB],
+    ["Next date range", nextRange],
+  ])("400 on the origin board, then %s: the old dialog closes and sends nothing", async (_nav, navigate) => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    mockedBlock.mockResolvedValueOnce(validation);
+    await reviewBlock(user, "room-102", from, addDaysIso(from, 1));
+    await user.click(within(blockDialog()).getByRole("button", { name: "Create block" }));
+    expect(await within(blockDialog()).findByRole("alert")).toHaveTextContent("reason is invalid.");
+
+    await act(async () => navigate());
+    await tryToSendAgain(user);
+
+    expect(mockedBlock).toHaveBeenCalledTimes(1);
+    expect(queryBlockDialog()).not.toBeInTheDocument();
+  });
+
+  it("400 while still on the origin board keeps the values for a deliberate correction and sends the corrected request", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    mockedBlock.mockResolvedValueOnce(validation);
+    await reviewBlock(user, "room-102", from, addDaysIso(from, 1));
+    await user.click(within(blockDialog()).getByRole("button", { name: "Create block" }));
+    expect(await within(blockDialog()).findByRole("alert")).toHaveTextContent("reason is invalid.");
+    expect(within(blockDialog()).getByLabelText("Room")).toHaveValue("room-102");
+    expect(within(blockDialog()).getByLabelText("Reason")).toHaveValue("Leak");
+
+    const reason = within(blockDialog()).getByLabelText("Reason");
+    await user.clear(reason);
+    await user.type(reason, "Leak in bathroom");
+    await user.click(within(blockDialog()).getByRole("button", { name: "Review" }));
+    await user.click(within(blockDialog()).getByRole("button", { name: "Create block" }));
+
+    expect(mockedBlock).toHaveBeenCalledTimes(2);
+    expect(mockedBlock).toHaveBeenLastCalledWith("prop-a", {
+      physicalRoomId: "room-102",
+      startDate: from,
+      endDate: addDaysIso(from, 1),
+      reason: "Leak in bathroom",
+    });
+  });
+
+  it("a confirm that lands in the old dialog after its 400, before React has re-rendered it, sends nothing", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    const write = await startPending(user, from);
+    await act(async () => switchToPropertyB());
+    const form = blockDialog().querySelector("form")!;
+
+    // Same act: the 400 continuation runs, then a confirm reaches the dialog
+    // that React has not re-rendered or removed yet.
+    await act(async () => {
+      write.resolve(validation);
+      await flushMicrotasks();
+      expect(form.isConnected).toBe(true);
+      fireEvent.submit(form);
+      await flushMicrotasks();
+    });
+
+    expect(mockedBlock).toHaveBeenCalledTimes(1);
+    expect(queryBlockDialog()).not.toBeInTheDocument();
+    expectFocusOnStableBoardControl();
   });
 });

@@ -220,6 +220,59 @@ describe("ReservationBoard — create operational block (PMS-CAL-001.3-CP03)", (
     expect(mockedCreateBlock).toHaveBeenCalledTimes(1);
   });
 
+  describe("dismissing an observed unconfirmed block notice (PMS-CAL-001.3-CP03-C2)", () => {
+    /** A lost response, then a re-read that shows the block: the notice becomes dismissible. */
+    async function observedNotice(user: ReturnType<typeof userEvent.setup>) {
+      await renderLoadedBoard();
+      serveBoards(() => true);
+      mockedCreateBlock.mockResolvedValue({ kind: "unknown", reason: "network" });
+      await openAndReview(user);
+      await user.click(within(blockDialog()).getByRole("button", { name: "Create block" }));
+      const alert = await within(blockDialog()).findByRole("alert");
+      await waitFor(() => expect(alert).toHaveTextContent("is now shown on the server"));
+      await user.click(within(blockDialog()).getAllByRole("button", { name: "Close" }).at(-1)!);
+      const notice = screen.getByTestId("uncertain-block-notice");
+      expect(notice).toHaveTextContent("it does not prove this request created it");
+      await waitFor(() => expect(createButton()).toBeEnabled());
+      return within(notice).getByRole("button", { name: "Dismiss notice" });
+    }
+
+    it("by keyboard moves focus to Create operational block before the notice unmounts", async () => {
+      const user = userEvent.setup();
+      const dismiss = await observedNotice(user);
+      dismiss.focus();
+      await user.keyboard("{Enter}");
+      expect(screen.queryByTestId("uncertain-block-notice")).not.toBeInTheDocument();
+      expect(document.activeElement).toBe(createButton());
+      expect(mockedCreateBlock).toHaveBeenCalledTimes(1);
+    });
+
+    it("by keyboard falls back to the Property selector while Create operational block is unavailable", async () => {
+      const user = userEvent.setup();
+      const dismiss = await observedNotice(user);
+      // Hold the next re-read, so the toolbar button is disabled while the board reloads.
+      mockedFetchReservationBoard.mockImplementation(() => new Promise(() => {}));
+      await user.click(screen.getByRole("button", { name: "Next date range" }));
+      await waitFor(() => expect(createButton()).toBeDisabled());
+      // The notice belongs to the Property, not the range, so it is still offered.
+      within(screen.getByTestId("uncertain-block-notice")).getByRole("button", { name: "Dismiss notice" }).focus();
+      await user.keyboard(" ");
+      expect(screen.queryByTestId("uncertain-block-notice")).not.toBeInTheDocument();
+      expect(document.activeElement).toBe(screen.getByLabelText("Property"));
+      expect(dismiss.isConnected).toBe(false);
+    });
+
+    it("from a pointer or program while focus is elsewhere leaves focus where it is", async () => {
+      const user = userEvent.setup();
+      const dismiss = await observedNotice(user);
+      const next = screen.getByRole("button", { name: "Next date range" });
+      next.focus();
+      fireEvent.click(dismiss);
+      expect(screen.queryByTestId("uncertain-block-notice")).not.toBeInTheDocument();
+      expect(document.activeElement).toBe(next);
+    });
+  });
+
   it("a range switch while the request is in flight never presents the new view as the reloaded origin board", async () => {
     const user = userEvent.setup();
     await renderLoadedBoard();
