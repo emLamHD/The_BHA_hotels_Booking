@@ -18,6 +18,9 @@ import React from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+// PMS-CAL-001.5-CP02: unconfirmed writes survive a reload in this tab; no test may inherit another's.
+beforeEach(() => sessionStorage.clear());
 import ReservationBoard from "./ReservationBoard";
 import type { MoveAssignmentOutcome } from "@/lib/api/client";
 import type { ApiProperty, ReservationBoardResponse } from "@/lib/api/types";

@@ -112,6 +112,12 @@ export interface Reconciliation {
   status: "pending" | "done" | "failed";
   /** Settled writes are always `settled`; uncertain writes start `unresolved`. */
   resolution: "settled" | "unresolved" | "observed" | "changed";
+  /**
+   * PMS-CAL-001.5-CP02: brought back from this tab's storage after a reload
+   * (`uncertainWriteStorage.ts`). Such an entry no longer carries guest,
+   * confirmation or reason text, so its notice describes it neutrally.
+   */
+  restored?: true;
 }
 
 function containsRange(outer: { startDate: string; endDate: string }, inner: { startDate: string; endDate: string }) {
