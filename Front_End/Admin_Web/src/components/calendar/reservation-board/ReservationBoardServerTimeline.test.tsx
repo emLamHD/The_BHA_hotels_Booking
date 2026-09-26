@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import ReservationBoardServerTimeline from "./ReservationBoardServerTimeline";
@@ -706,5 +706,108 @@ describe("ReservationBoardServerTimeline", () => {
       expect(screen.getByTitle("Assigned Guest — CNF-ASSIGNED")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Maintenance" })).toBeInTheDocument();
     });
+  });
+});
+
+describe("ReservationBoardServerTimeline — drag to move (PMS-CAL-001.4-CP01)", () => {
+  // Starts two days before the 7-day window, so its bar is clipped at the left edge.
+  const stay: ReservationBoardStay = {
+    reservationId: "res-1",
+    reservationUnitId: "unit-1",
+    confirmationNumber: "CNF-001",
+    guestDisplayName: "Nguyen Van A",
+    soldRoomTypeId: "type-standard",
+    checkIn: "2026-08-30",
+    checkOut: "2026-09-03",
+    coverageStatus: "FullyAssigned",
+    assignments: [
+      {
+        segmentId: "seg-1",
+        segmentVersion: 4,
+        physicalRoomId: "room-101",
+        actualRoomTypeId: "type-standard",
+        startDate: "2026-08-30",
+        endDate: "2026-09-03",
+      },
+    ],
+    unassignedRanges: [],
+  };
+
+  const transfer = () => ({ dropEffect: "none", effectAllowed: "all", setData: vi.fn(), getData: () => "", types: [] });
+
+  function roomCells(roomId: string) {
+    return Array.from(document.querySelectorAll<HTMLElement>(`div[data-drop-room-id="${roomId}"]`)).filter(
+      (element) => !element.classList.contains("sticky")
+    );
+  }
+
+  it("is not draggable unless the board offers drag-to-move", () => {
+    render(<ReservationBoardServerTimeline {...baseProps()} stays={[stay]} />);
+    expect(screen.getByTitle("Nguyen Van A — CNF-001")).not.toHaveAttribute("draggable");
+  });
+
+  it("reports only the room a drop landed in — the same for every column — plus the un-clipped segment", () => {
+    const onDrop = vi.fn().mockReturnValue(null);
+    render(
+      <ReservationBoardServerTimeline
+        {...baseProps()}
+        stays={[stay]}
+        onAssignedSegmentDragStart={vi.fn().mockReturnValue(null)}
+        getAssignedSegmentDropRefusal={vi.fn().mockReturnValue(null)}
+        onAssignedSegmentDrop={onDrop}
+      />
+    );
+    const bar = screen.getByTitle("Nguyen Van A — CNF-001");
+    expect(bar).toHaveAttribute("draggable", "true");
+
+    for (const column of [0, 3, 6]) {
+      const dt = transfer();
+      fireEvent.dragStart(bar, { dataTransfer: dt });
+      fireEvent.dragOver(roomCells("room-201")[column], { dataTransfer: dt });
+      fireEvent.drop(roomCells("room-201")[column], { dataTransfer: dt });
+    }
+    expect(onDrop).toHaveBeenCalledTimes(3);
+    for (const call of onDrop.mock.calls) {
+      expect(call).toEqual([{ stay, segment: stay.assignments[0] }, "room-201"]);
+    }
+  });
+
+  it("reports a drop outside any room row as null, and shows the board's refusal", () => {
+    const onDrop = vi.fn().mockReturnValue("Drop on a room's row to move this stay.");
+    render(
+      <ReservationBoardServerTimeline
+        {...baseProps()}
+        stays={[stay]}
+        onAssignedSegmentDragStart={vi.fn().mockReturnValue(null)}
+        getAssignedSegmentDropRefusal={vi.fn().mockReturnValue("Drop on a room's row to move this stay.")}
+        onAssignedSegmentDrop={onDrop}
+      />
+    );
+    const header = screen.getAllByText("Standard").find((element) => element.classList.contains("sticky"))!;
+    const dt = transfer();
+    fireEvent.dragStart(screen.getByTitle("Nguyen Van A — CNF-001"), { dataTransfer: dt });
+    // Not accepted: fireEvent returns true when the handler did not preventDefault().
+    expect(fireEvent.dragOver(header, { dataTransfer: dt })).toBe(true);
+    fireEvent.drop(header, { dataTransfer: dt });
+    expect(onDrop).toHaveBeenCalledWith({ stay, segment: stay.assignments[0] }, null);
+    expect(screen.getByTestId("board-drag-feedback")).toHaveTextContent(
+      "Nothing was moved: Drop on a room's row to move this stay."
+    );
+  });
+
+  it("a refused drag start cancels the drag and says why", () => {
+    render(
+      <ReservationBoardServerTimeline
+        {...baseProps()}
+        stays={[stay]}
+        onAssignedSegmentDragStart={vi.fn().mockReturnValue("Waiting for the board to be re-read after a change.")}
+        getAssignedSegmentDropRefusal={vi.fn()}
+        onAssignedSegmentDrop={vi.fn()}
+      />
+    );
+    expect(fireEvent.dragStart(screen.getByTitle("Nguyen Van A — CNF-001"), { dataTransfer: transfer() })).toBe(false);
+    expect(screen.getByTestId("board-drag-feedback")).toHaveTextContent(
+      "This stay can't be moved right now: Waiting for the board to be re-read after a change."
+    );
   });
 });

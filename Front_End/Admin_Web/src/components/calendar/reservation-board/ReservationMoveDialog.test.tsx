@@ -470,3 +470,68 @@ describe("ReservationMoveDialog — cross-RoomType contract, opt-in only (PMS-CA
     }
   });
 });
+
+describe("ReservationMoveDialog — a room preselected by drag-and-drop (PMS-CAL-001.4-CP01)", () => {
+  const noop = () => {};
+
+  it("checks and focuses the preselected room, and sends nothing until the operator confirms", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue({ kind: "moved", segments: null } satisfies MoveAssignmentOutcome);
+    render(
+      <ReservationMoveDialog
+        target={buildTarget()}
+        boardReloadStatus="idle"
+        crossRoomTypeEnabled
+        initialRoomId="room-102"
+        onSubmit={onSubmit}
+        onClose={noop}
+      />
+    );
+    const room102 = within(dialog()).getByLabelText(/Room 102/);
+    expect(room102).toBeChecked();
+    expect(document.activeElement).toBe(room102);
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    await user.click(within(dialog()).getByRole("button", { name: "Move to room 102" }));
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit).toHaveBeenCalledWith("room-102", null);
+  });
+
+  it("a preselected cross-RoomType room starts unconfirmed, with an empty reason", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    render(
+      <ReservationMoveDialog
+        target={buildTarget()}
+        boardReloadStatus="idle"
+        crossRoomTypeEnabled
+        initialRoomId="room-201"
+        onSubmit={onSubmit}
+        onClose={noop}
+      />
+    );
+    expect(within(dialog()).getByLabelText(/Room 201/)).toBeChecked();
+    expect(within(dialog()).getByRole("checkbox")).not.toBeChecked();
+    expect(within(dialog()).getByRole("textbox")).toHaveValue("");
+    await user.click(within(dialog()).getByRole("button", { name: /^Move to room 201/ }));
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["not one of the candidates", "room-999", true],
+    ["the current room", "room-101", true],
+    ["cross-RoomType while that is not enabled", "room-201", false],
+  ])("ignores a preselection that is %s", (_label, initialRoomId, crossRoomTypeEnabled) => {
+    render(
+      <ReservationMoveDialog
+        target={buildTarget()}
+        boardReloadStatus="idle"
+        crossRoomTypeEnabled={crossRoomTypeEnabled}
+        initialRoomId={initialRoomId}
+        onSubmit={vi.fn()}
+        onClose={noop}
+      />
+    );
+    expect(within(dialog()).queryByRole("radio", { checked: true })).not.toBeInTheDocument();
+  });
+});

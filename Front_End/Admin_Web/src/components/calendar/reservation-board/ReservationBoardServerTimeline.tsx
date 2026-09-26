@@ -9,13 +9,24 @@
  * so this component never needs to fabricate the guest/source/payment/
  * lifecycle fields that type only knows how to represent as mock data.
  *
- * No bar here mutates anything by itself: there are no drag handlers.
- * Assigned bars and operational blocks open a small read-only popover
+ * No bar here mutates anything by itself. Assigned bars and operational
+ * blocks open a small read-only popover
  * (`onSelectStay`/`onSelectBlock`). PMS-CAL-001.2-CP03A: an unassigned bar
  * reports the exact server-returned `UnassignedRange` it was drawn from
  * (`onSelectUnassignedRange`), which `ReservationBoard.tsx` turns into the
  * room-assignment dialog — the rendered, clipped grid columns are never used
  * as request dates.
+ *
+ * PMS-CAL-001.4-CP01: when the board passes the three `…AssignedSegment…`
+ * drag callbacks, an assigned bar can also be dragged onto another room's row.
+ * A drop reports only **which room** it landed on — read from the nearest
+ * element carrying `data-drop-room-id` (a room row's label, its cells, or a bar
+ * drawn in it) — never the column under the pointer, so dragging sideways can
+ * never become a date change. The board decides whether that room is allowed
+ * and opens the existing Move room dialog for review; nothing here sends a
+ * request. Header and Unassigned rows carry no room and are never targets.
+ * Clicking a bar still opens its details, whose Move room action remains the
+ * keyboard/touch way to do the same thing.
  */
 
 import React from "react";
@@ -164,6 +175,22 @@ interface ReservationBoardServerTimelineProps {
    * non-actionable even on a board that is otherwise current.
    */
   isUnassignedRangeUnconfirmed?: (reservationUnitId: string, range: ReservationBoardUnassignedRange) => boolean;
+  /**
+   * PMS-CAL-001.4-CP01: drag-to-move is offered only when all three are given.
+   * Each returns `null` when allowed, or a short operator-facing reason why not.
+   * `onAssignedSegmentDragStart` also receives the dragged bar so the board can
+   * return focus to it later.
+   */
+  onAssignedSegmentDragStart?: (selection: AssignedSegmentSelection, bar: HTMLElement) => string | null;
+  /** `physicalRoomId` is `null` when the pointer is over a row that is not a room. */
+  getAssignedSegmentDropRefusal?: (selection: AssignedSegmentSelection, physicalRoomId: string | null) => string | null;
+  onAssignedSegmentDrop?: (selection: AssignedSegmentSelection, physicalRoomId: string | null) => string | null;
+}
+
+/** The room a drag event is over: its own or its nearest ancestor's `data-drop-room-id`, else `null`. */
+function dropRoomIdOf(target: EventTarget | null): string | null {
+  if (!(target instanceof Element)) return null;
+  return target.closest<HTMLElement>("[data-drop-room-id]")?.dataset.dropRoomId ?? null;
 }
 
 const LABEL_COLUMN = "220px";
@@ -183,7 +210,15 @@ const ReservationBoardServerTimeline: React.FC<ReservationBoardServerTimelinePro
   onSelectBlock,
   unassignedActionsBlocked = false,
   isUnassignedRangeUnconfirmed,
+  onAssignedSegmentDragStart,
+  getAssignedSegmentDropRefusal,
+  onAssignedSegmentDrop,
 }) => {
+  const dragEnabled = !!(onAssignedSegmentDragStart && getAssignedSegmentDropRefusal && onAssignedSegmentDrop);
+  /** The segment being dragged; `null` when no drag of ours is in progress. */
+  const draggedRef = React.useRef<AssignedSegmentSelection | null>(null);
+  const [dropHover, setDropHover] = React.useState<{ roomId: string; allowed: boolean } | null>(null);
+  const [dragFeedback, setDragFeedback] = React.useState<string | null>(null);
   const blockedNoteId = React.useId();
   const unconfirmedNoteId = React.useId();
   let anyUnconfirmedBar = false;
@@ -286,10 +321,55 @@ const ReservationBoardServerTimeline: React.FC<ReservationBoardServerTimelinePro
 
   const gridRowCount = rows.length + 1; // +1 header row
 
+  const roomNumberById = new Map(physicalRooms.map((room) => [room.id, room.roomNumber]));
+
+  const endDrag = () => {
+    draggedRef.current = null;
+    setDropHover(null);
+  };
+
+  const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+    const dragged = draggedRef.current;
+    if (!dragged || !getAssignedSegmentDropRefusal) return;
+    const roomId = dropRoomIdOf(event.target);
+    const refusal = getAssignedSegmentDropRefusal(dragged, roomId);
+    if (refusal === null) {
+      // Only an allowed room accepts the drop; everywhere else the browser
+      // shows its own "not allowed" cursor and no drop event follows.
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+    }
+    const allowed = refusal === null;
+    if (roomId === null) {
+      if (dropHover !== null) setDropHover(null);
+    } else if (dropHover?.roomId !== roomId || dropHover.allowed !== allowed) {
+      setDropHover({ roomId, allowed });
+    }
+    const message = allowed ? `Release to review moving this stay to room ${roomNumberById.get(roomId!) ?? ""}.` : refusal;
+    if (message !== dragFeedback) setDragFeedback(message);
+  };
+
+  const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    const dragged = draggedRef.current;
+    if (!dragged || !onAssignedSegmentDrop) return;
+    event.preventDefault();
+    endDrag();
+    // The board re-checks everything here; the preview above may already be stale.
+    const refusal = onAssignedSegmentDrop(dragged, dropRoomIdOf(event.target));
+    setDragFeedback(refusal === null ? null : `Nothing was moved: ${refusal}`);
+  };
+
   return (
     <div className="overflow-x-auto">
+      {dragFeedback && (
+        <p role="status" data-testid="board-drag-feedback" className="px-3 py-1.5 text-xs text-gray-600 dark:text-gray-300">
+          {dragFeedback}
+        </p>
+      )}
       <div
         className="grid min-w-max"
+        onDragOver={dragEnabled ? handleDragOver : undefined}
+        onDrop={dragEnabled ? handleDrop : undefined}
         style={{
           gridTemplateColumns: `${LABEL_COLUMN} repeat(${dates.length}, minmax(56px, 1fr))`,
           gridTemplateRows: `40px repeat(${rows.length}, 40px)`,
@@ -316,7 +396,20 @@ const ReservationBoardServerTimeline: React.FC<ReservationBoardServerTimelinePro
 
         {/* Room / room-type / unassigned label column + background grid cells */}
         {rows.map((row, rowIndex) => (
-          <RowLabelAndCells key={row.key} row={row} rowIndex={rowIndex} dates={dates} todayIso={todayIso} />
+          <RowLabelAndCells
+            key={row.key}
+            row={row}
+            rowIndex={rowIndex}
+            dates={dates}
+            todayIso={todayIso}
+            dropState={
+              row.kind === "room" && dropHover?.roomId === row.room.id
+                ? dropHover.allowed
+                  ? "allowed"
+                  : "refused"
+                : undefined
+            }
+          />
         ))}
 
         {/* Assigned bars */}
@@ -328,10 +421,43 @@ const ReservationBoardServerTimeline: React.FC<ReservationBoardServerTimelinePro
               const clipped = clipToVisibleRange(assignment.startDate, assignment.endDate, range);
               if (!clipped) return null;
               const actualRoomType = roomTypeById.get(assignment.actualRoomTypeId);
+              const segmentSelection: AssignedSegmentSelection = { stay, segment: assignment };
               return (
                 <button
                   key={assignment.segmentId}
                   type="button"
+                  data-drop-room-id={assignment.physicalRoomId}
+                  draggable={dragEnabled || undefined}
+                  onDragStart={
+                    dragEnabled
+                      ? (event) => {
+                          const refusal = onAssignedSegmentDragStart!(segmentSelection, event.currentTarget);
+                          if (refusal !== null) {
+                            event.preventDefault();
+                            setDragFeedback(`This stay can't be moved right now: ${refusal}`);
+                            return;
+                          }
+                          draggedRef.current = segmentSelection;
+                          if (event.dataTransfer) {
+                            event.dataTransfer.effectAllowed = "move";
+                            // Some browsers only start a drag once data is set.
+                            event.dataTransfer.setData("text/plain", assignment.segmentId);
+                          }
+                          setDragFeedback("Drop on another room's row to review a move. The stay dates will not change.");
+                        }
+                      : undefined
+                  }
+                  onDragEnd={
+                    dragEnabled
+                      ? () => {
+                          // Still set only when no drop of ours happened: the
+                          // drag was cancelled or released somewhere invalid.
+                          if (draggedRef.current === null) return;
+                          endDrag();
+                          setDragFeedback("Nothing was moved.");
+                        }
+                      : undefined
+                  }
                   onClick={() =>
                     onSelectStay({
                       stay,
@@ -394,6 +520,7 @@ const ReservationBoardServerTimeline: React.FC<ReservationBoardServerTimelinePro
               <button
                 key={block.segmentId}
                 type="button"
+                data-drop-room-id={block.physicalRoomId}
                 onClick={() => onSelectBlock({ block, roomNumber: room?.roomNumber ?? "" })}
                 className="z-10 m-1 flex items-center overflow-hidden rounded-md border border-amber-500 bg-[repeating-linear-gradient(45deg,#fcd34d_0,#fcd34d_2px,transparent_2px,transparent_6px)] px-2 text-left text-xs font-medium text-amber-900 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500/60 dark:bg-[repeating-linear-gradient(45deg,#b45309_0,#b45309_2px,transparent_2px,transparent_6px)] dark:text-amber-100"
                 style={{ gridColumn: `${clipped.startCol + 2} / span ${clipped.span}`, gridRow: rowIndex + 2 }}
@@ -427,7 +554,9 @@ const RowLabelAndCells: React.FC<{
   rowIndex: number;
   dates: string[];
   todayIso: string;
-}> = ({ row, rowIndex, dates, todayIso }) => {
+  /** PMS-CAL-001.4-CP01: this room row is under an in-progress drag. */
+  dropState?: "allowed" | "refused";
+}> = ({ row, rowIndex, dates, todayIso, dropState }) => {
   if (row.kind === "roomTypeHeader") {
     return (
       <>
@@ -449,10 +578,19 @@ const RowLabelAndCells: React.FC<{
   }
 
   const label = row.kind === "room" ? row.room.roomNumber : row.label;
+  // Only a room row is a drop target; header and Unassigned rows carry no room.
+  const dropRoomId = row.kind === "room" ? row.room.id : undefined;
+  const dropClass =
+    dropState === "allowed"
+      ? "bg-brand-100/70 dark:bg-brand-500/20"
+      : dropState === "refused"
+        ? "bg-error-50 dark:bg-error-500/10"
+        : "";
   return (
     <>
       <div
-        className="sticky left-0 z-20 flex items-center border-b border-gray-100 bg-white pl-6 text-xs text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300"
+        data-drop-room-id={dropRoomId}
+        className={`sticky left-0 z-20 flex items-center border-b border-gray-100 bg-white pl-6 text-xs text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 ${dropClass}`}
         style={{ gridColumn: 1, gridRow: rowIndex + 2 }}
       >
         {label}
@@ -460,9 +598,10 @@ const RowLabelAndCells: React.FC<{
       {dates.map((date, columnIndex) => (
         <div
           key={date}
+          data-drop-room-id={dropRoomId}
           className={`border-b border-l border-gray-100 dark:border-gray-800 ${
             date === todayIso ? "bg-brand-50 dark:bg-brand-500/10" : ""
-          } ${isWeekendIso(date) ? "bg-gray-50/60 dark:bg-white/[0.015]" : ""}`}
+          } ${isWeekendIso(date) ? "bg-gray-50/60 dark:bg-white/[0.015]" : ""} ${dropClass}`}
           style={{ gridColumn: columnIndex + 2, gridRow: rowIndex + 2 }}
         />
       ))}
