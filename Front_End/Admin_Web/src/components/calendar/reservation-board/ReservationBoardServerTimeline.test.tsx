@@ -815,3 +815,50 @@ describe("ReservationBoardServerTimeline — drag to move (PMS-CAL-001.4-CP01)",
     );
   });
 });
+
+describe("ReservationBoardServerTimeline — a bar's label never sizes the date columns (PMS-CAL-001.5-CP01)", () => {
+  /**
+   * The grid is `min-w-max` with `minmax(56px, 1fr)` date columns, so every
+   * item's max-content width feeds the column size and the `1fr` columns grow
+   * equally to fit the widest one. `truncate` clips visually but does not
+   * reduce that. Live in Chrome, one block with a 186-character reason made all
+   * 14 columns 1008px wide (grid 14,331px, one day visible). Each bar must
+   * therefore be `contain: inline-size`, so its label contributes no width.
+   *
+   * jsdom performs no layout and loads no Tailwind CSS, so this can only guard
+   * the structure; the pixel evidence is the live measurement in the report.
+   */
+  it("every bar kind — assigned, unassigned and operational block — contains its inline size", () => {
+    const longText = "x".repeat(200);
+    render(
+      <ReservationBoardServerTimeline
+        {...baseProps()}
+        stays={[
+          {
+            reservationId: "res-1",
+            reservationUnitId: "unit-1",
+            confirmationNumber: "CNF-001",
+            guestDisplayName: longText,
+            soldRoomTypeId: "type-standard",
+            checkIn: "2026-09-02",
+            checkOut: "2026-09-05",
+            coverageStatus: "PartiallyAssigned",
+            assignments: [
+              { segmentId: "seg-1", segmentVersion: 1, physicalRoomId: "room-101", actualRoomTypeId: "type-standard", startDate: "2026-09-02", endDate: "2026-09-03" },
+            ],
+            unassignedRanges: [{ startDate: "2026-09-03", endDate: "2026-09-05" }],
+          },
+        ]}
+        operationalBlocks={[
+          { roomBlockId: "b-1", segmentId: "seg-b", segmentVersion: 1, physicalRoomId: "room-201", startDate: "2026-09-04", endDate: "2026-09-05", reason: longText },
+        ]}
+      />
+    );
+    const assigned = screen.getByTitle(`${longText} — CNF-001`);
+    const unassigned = screen.getByTitle(`${longText} — unassigned — CNF-001`);
+    const block = screen.getByTitle(longText);
+    for (const bar of [assigned, unassigned, block]) {
+      expect(bar).toHaveClass("[contain:inline-size]");
+    }
+  });
+});

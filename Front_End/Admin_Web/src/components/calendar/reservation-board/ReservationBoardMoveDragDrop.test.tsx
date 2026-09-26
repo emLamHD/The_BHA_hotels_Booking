@@ -316,6 +316,35 @@ describe("ReservationBoard — drag an assigned segment to another room (PMS-CAL
     expect(mockedMove).not.toHaveBeenCalled();
   });
 
+  it("an allowed room accepts dragenter as well as dragover, so a quick release right after entering the row still drops (PMS-CAL-001.5-CP01)", async () => {
+    await renderLoadedBoard();
+    const transfer = dataTransfer();
+    fireEvent.dragStart(bar(), { dataTransfer: transfer });
+    // Chrome makes an element the drop target from a cancelled dragenter; with
+    // only dragover handled, a release before Chrome processes a dragover reply
+    // is dropped silently (reproduced live: 1 drop in 5 quick drags).
+    const accepted = !fireEvent.dragEnter(roomCells("room-102")[6], { dataTransfer: transfer });
+    expect(accepted).toBe(true);
+    expect(transfer.dropEffect).toBe("move");
+    fireEvent.drop(roomCells("room-102")[6], { dataTransfer: transfer });
+    fireEvent.dragEnd(bar(), { dataTransfer: transfer });
+    expect(within(moveDialog()).getByLabelText(/Room 102/)).toBeChecked();
+    expect(mockedMove).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["its own room", () => roomCells("room-101")[4]],
+    ["a room that is not Active", () => roomCells("room-103")[1]],
+    ["an Unassigned row", () => nonRoomRowLabel("Unassigned")],
+  ])("%s does not accept dragenter either", async (_label, target) => {
+    await renderLoadedBoard();
+    const transfer = dataTransfer();
+    fireEvent.dragStart(bar(), { dataTransfer: transfer });
+    expect(fireEvent.dragEnter(target(), { dataTransfer: transfer })).toBe(true);
+    fireEvent.dragEnd(bar(), { dataTransfer: transfer });
+    expect(queryMoveDialog()).not.toBeInTheDocument();
+  });
+
   it("a drop event forced onto a refused target is still refused by the board (defence in depth)", async () => {
     await renderLoadedBoard();
     const element = roomCells("room-101")[4];
