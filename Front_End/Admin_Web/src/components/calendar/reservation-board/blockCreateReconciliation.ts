@@ -69,6 +69,12 @@ export interface BlockCreateReconciliation {
   target: BlockWriteTarget;
   status: "pending" | "done" | "failed";
   resolution: "settled" | "unresolved" | "observed";
+  /**
+   * PMS-CAL-001.5-CP02: brought back from this tab's storage after a reload
+   * (`uncertainWriteStorage.ts`). Such an entry no longer carries guest,
+   * confirmation or reason text, so its notice describes it neutrally.
+   */
+  restored?: true;
 }
 
 function overlaps(a: { startDate: string; endDate: string }, b: { startDate: string; endDate: string }) {

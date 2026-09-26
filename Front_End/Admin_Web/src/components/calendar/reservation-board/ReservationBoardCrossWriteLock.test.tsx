@@ -19,10 +19,11 @@
  */
 
 import React from "react";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ReservationBoard from "./ReservationBoard";
+import { UNCERTAIN_WRITES_STORAGE_KEY } from "./uncertainWriteStorage";
 import { addDaysIso } from "./dateMath";
 import type {
   AssignmentCreateOutcome,
@@ -39,9 +40,11 @@ vi.mock("@/lib/api/client", () => ({
   moveReservationAssignment: vi.fn(),
   unassignReservationAssignment: vi.fn(),
   createOperationalBlock: vi.fn(),
+  cancelOperationalBlock: vi.fn(),
 }));
 
 import {
+  cancelOperationalBlock,
   createOperationalBlock,
   createReservationAssignment,
   fetchActiveProperties,
@@ -56,6 +59,7 @@ const mockedCreate = vi.mocked(createReservationAssignment);
 const mockedMove = vi.mocked(moveReservationAssignment);
 const mockedUnassign = vi.mocked(unassignReservationAssignment);
 const mockedBlock = vi.mocked(createOperationalBlock);
+const mockedCancel = vi.mocked(cancelOperationalBlock);
 
 const propertyA: ApiProperty = { id: "prop-a", name: "Property A", timeZone: "Asia/Ho_Chi_Minh" };
 const propertyB: ApiProperty = { id: "prop-b", name: "Property B", timeZone: "Asia/Ho_Chi_Minh" };
@@ -166,7 +170,9 @@ async function flushMicrotasks() {
 }
 
 beforeEach(() => {
-  for (const mock of [mockedProperties, mockedBoard, mockedCreate, mockedMove, mockedUnassign, mockedBlock]) mock.mockReset();
+  // Unconfirmed writes survive a reload in this tab (PMS-CAL-001.5-CP02): no test may inherit another's.
+  sessionStorage.clear();
+  for (const mock of [mockedProperties, mockedBoard, mockedCreate, mockedMove, mockedUnassign, mockedBlock, mockedCancel]) mock.mockReset();
   mockedProperties.mockResolvedValue({ ok: true, data: [propertyA, propertyB] });
   mockedBoard.mockImplementation((propertyId, from, to) => Promise.resolve({ ok: true, data: boardFor(propertyId, from, to) }));
 });
@@ -514,5 +520,292 @@ describe("ReservationBoard — a correctable block result never sends for a boar
     expect(mockedBlock).toHaveBeenCalledTimes(1);
     expect(queryBlockDialog()).not.toBeInTheDocument();
     expectFocusOnStableBoardControl();
+  });
+});
+
+describe("ReservationBoard — an unconfirmed write survives a reload in the same tab (PMS-CAL-001.5-CP02)", () => {
+  /**
+   * A reload of the same tab is simulated by unmounting the board and mounting
+   * a fresh one: every React state and ref is lost, exactly as on a page
+   * reload, while `sessionStorage` — which belongs to the tab — is kept.
+   */
+  async function reloadSameTab() {
+    cleanup();
+    return renderLoadedBoard();
+  }
+
+  /** The restored lock is proven the way the operator meets it: a block on those nights is refused. */
+  async function expectBlockLocked(user: ReturnType<typeof userEvent.setup>, room: string, start: string, end: string) {
+    await reviewBlock(user, room, start, end);
+    expect(within(blockDialog()).getByRole("alert")).toHaveTextContent("still unconfirmed");
+    await closeDialog(user, blockDialog());
+  }
+
+  async function expectBlockAllowed(user: ReturnType<typeof userEvent.setup>, room: string, start: string, end: string) {
+    await reviewBlock(user, room, start, end);
+    expect(within(blockDialog()).queryByRole("alert")).not.toBeInTheDocument();
+    expect(within(blockDialog()).getByRole("button", { name: "Create block" })).toBeInTheDocument();
+    await closeDialog(user, blockDialog());
+  }
+
+  /** What every restored notice must say: the request may have been saved, and the board proves only the schedule. */
+  function expectRestoredWording(notice: HTMLElement) {
+    expect(notice).toHaveTextContent("before this page was reloaded");
+    expect(notice).toHaveTextContent("may already have been saved");
+    expect(notice).toHaveTextContent("shows the schedule, not which request changed it");
+  }
+
+  it("assign: the notice and the lock on its room and nights come back, nothing is resent, and Check again only reads", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    mockedCreate.mockResolvedValue({ kind: "unknown", reason: "network" } as AssignmentCreateOutcome);
+    const before = mockedBoard.mock.calls.length;
+    await user.click(firstRangeBar(from));
+    await user.click(within(assignDialog()).getByLabelText(/Room 102/));
+    await user.click(within(assignDialog()).getByRole("button", { name: "Assign room 102" }));
+    await settleReread(before);
+    await closeDialog(user, assignDialog());
+
+    await reloadSameTab();
+
+    const notice = await screen.findByTestId("uncertain-write-notice");
+    expectRestoredWording(notice);
+    expect(notice).toHaveTextContent(`room 102, [${from}, ${addDaysIso(from, 2)})`);
+    // The new page's first read already counts as a read of that board: it is
+    // judged at once, not left "Checking…" behind a previous page's sequence.
+    await waitFor(() => expect(screen.getByTestId("uncertain-write-notice")).toHaveTextContent("still unknown"));
+    // No guest name or confirmation number was kept.
+    expect(notice).not.toHaveTextContent("Nguyen Van A");
+    expect(notice).not.toHaveTextContent("CNF-100");
+    // The range stays unconfirmed: it cannot be assigned again.
+    expect(firstRangeBar(from)).toHaveAttribute("aria-disabled", "true");
+    await expectBlockLocked(user, "room-102", from, addDaysIso(from, 1));
+    // An unrelated room over the same nights is not locked.
+    await expectBlockAllowed(user, "room-201", from, addDaysIso(from, 1));
+
+    const boardCalls = mockedBoard.mock.calls.length;
+    await user.click(within(screen.getByTestId("uncertain-write-notice")).getByRole("button", { name: "Check again" }));
+    await waitFor(() => expect(mockedBoard.mock.calls.length).toBe(boardCalls + 1));
+    expect(screen.getByTestId("uncertain-write-notice")).toHaveTextContent("still unknown");
+    expect(mockedCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("move: both its source and destination rooms stay locked for its nights after the reload", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    mockedMove.mockResolvedValue({ kind: "unknown", reason: "timeout" } as MoveAssignmentOutcome);
+    const before = mockedBoard.mock.calls.length;
+    await openMoveDialog(user);
+    await user.click(within(moveDialog()).getByLabelText(/Room 102/));
+    await user.click(within(moveDialog()).getByRole("button", { name: "Move to room 102" }));
+    await settleReread(before);
+    await closeDialog(user, moveDialog());
+
+    await reloadSameTab();
+
+    expectRestoredWording(await screen.findByTestId("uncertain-write-notice"));
+    await expectBlockLocked(user, "room-101", addDaysIso(from, 3), addDaysIso(from, 4));
+    await expectBlockLocked(user, "room-102", addDaysIso(from, 3), addDaysIso(from, 4));
+    // Nights outside the segment are not locked.
+    await expectBlockAllowed(user, "room-102", from, addDaysIso(from, 1));
+    expect(mockedMove).toHaveBeenCalledTimes(1);
+  });
+
+  it("unassign: its source room stays locked and the segment's unassign stays unavailable after the reload", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    mockedUnassign.mockResolvedValue({ kind: "unknown", reason: "network" } as UnassignAssignmentOutcome);
+    const before = mockedBoard.mock.calls.length;
+    await user.click(screen.getByTitle("Nguyen Van A — CNF-100"));
+    await user.click(within(screen.getByRole("dialog", { name: "Reservation details" })).getByRole("button", { name: "Remove room assignment" }));
+    await user.click(within(screen.getByRole("dialog", { name: "Remove room assignment" })).getByRole("button", { name: "Remove room 101 assignment" }));
+    await settleReread(before);
+    await closeDialog(user, screen.getByRole("dialog", { name: "Remove room assignment" }));
+
+    await reloadSameTab();
+
+    expectRestoredWording(await screen.findByTestId("uncertain-write-notice"));
+    await expectBlockLocked(user, "room-101", addDaysIso(from, 2), addDaysIso(from, 3));
+    await user.click(screen.getByTitle("Nguyen Van A — CNF-100"));
+    expect(within(screen.getByRole("dialog", { name: "Reservation details" })).getByRole("button", { name: "Remove room assignment" })).toBeDisabled();
+    expect(mockedUnassign).toHaveBeenCalledTimes(1);
+  });
+
+  it("block create: the notice (without its reason) and the room's lock come back after the reload", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    await loseBlock(user, "room-102", from, addDaysIso(from, 1));
+
+    await reloadSameTab();
+
+    const notice = await screen.findByTestId("uncertain-block-notice");
+    expectRestoredWording(notice);
+    expect(notice).toHaveTextContent(`room 102, [${from}, ${addDaysIso(from, 1)})`);
+    expect(notice).not.toHaveTextContent("Leak");
+    await expectBlockLocked(user, "room-102", from, addDaysIso(from, 1));
+    expect(mockedBlock).toHaveBeenCalledTimes(1);
+  });
+
+  it("block cancel: the lock on the block's room and nights comes back after the reload, and the cancel is not offered again", async () => {
+    const user = userEvent.setup();
+    mockedBoard.mockImplementation((propertyId, from, to) => {
+      const board = boardFor(propertyId, from, to);
+      return Promise.resolve({
+        ok: true,
+        data: {
+          ...board,
+          operationalBlocks:
+            propertyId === "prop-a"
+              ? [{ roomBlockId: "b-1", segmentId: "seg-b-1", segmentVersion: 7, physicalRoomId: "room-201", startDate: addDaysIso(from, 6), endDate: addDaysIso(from, 7), reason: "Paint" }]
+              : [],
+        },
+      });
+    });
+    const { from } = await renderLoadedBoard();
+    mockedCancel.mockResolvedValue({ kind: "unknown", reason: "timeout" });
+    const before = mockedBoard.mock.calls.length;
+    await user.click(screen.getByTitle("Paint"));
+    await user.click(within(screen.getByRole("dialog", { name: "Operational block details" })).getByRole("button", { name: "Cancel block" }));
+    await user.click(within(screen.getByRole("dialog", { name: "Cancel operational block" })).getByRole("button", { name: "Cancel block on room 201" }));
+    await settleReread(before);
+    await closeDialog(user, screen.getByRole("dialog", { name: "Cancel operational block" }));
+
+    await reloadSameTab();
+
+    const notice = await screen.findByTestId("uncertain-block-notice");
+    expectRestoredWording(notice);
+    expect(notice).not.toHaveTextContent("Paint");
+    await expectBlockLocked(user, "room-201", addDaysIso(from, 6), addDaysIso(from, 7));
+    await user.click(screen.getByTitle("Paint"));
+    expect(within(screen.getByRole("dialog", { name: "Operational block details" })).getByRole("button", { name: "Cancel block" })).toBeDisabled();
+    expect(mockedCancel).toHaveBeenCalledTimes(1);
+  });
+
+  /** Loses an assignment of the first unassigned range to room 102, then leaves the dialog. */
+  async function loseAssignment(user: ReturnType<typeof userEvent.setup>, from: string) {
+    mockedCreate.mockResolvedValue({ kind: "unknown", reason: "network" } as AssignmentCreateOutcome);
+    const before = mockedBoard.mock.calls.length;
+    await user.click(firstRangeBar(from));
+    await user.click(within(assignDialog()).getByLabelText(/Room 102/));
+    await user.click(within(assignDialog()).getByRole("button", { name: "Assign room 102" }));
+    await settleReread(before);
+    await closeDialog(user, assignDialog());
+  }
+
+  /** The board as the server shows it once an assignment of `[from, from+2)` to room 102 exists. */
+  function serveAssignedTo102() {
+    mockedBoard.mockImplementation((propertyId, from, to) => {
+      const board = boardFor(propertyId, from, to);
+      if (propertyId !== "prop-a") return Promise.resolve({ ok: true, data: board });
+      const [stay] = board.stays;
+      return Promise.resolve({
+        ok: true,
+        data: {
+          ...board,
+          stays: [
+            {
+              ...stay,
+              assignments: [
+                ...stay.assignments,
+                { segmentId: "seg-new", segmentVersion: 1, physicalRoomId: "room-102", actualRoomTypeId: "type-standard", startDate: from, endDate: addDaysIso(from, 2) },
+              ],
+              unassignedRanges: stay.unassignedRanges.slice(1),
+            },
+          ],
+        },
+      });
+    });
+  }
+
+  it("server evidence after the reload resolves it through the existing rules and clears the tab's record; a later reload shows nothing", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    await loseAssignment(user, from);
+    expect(sessionStorage.getItem(UNCERTAIN_WRITES_STORAGE_KEY)).not.toBeNull();
+
+    serveAssignedTo102();
+    await reloadSameTab();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("uncertain-write-notice")).toHaveTextContent("is now shown on the server")
+    );
+    expect(sessionStorage.getItem(UNCERTAIN_WRITES_STORAGE_KEY)).toBeNull();
+
+    await reloadSameTab();
+    expect(screen.queryByTestId("uncertain-write-notice")).not.toBeInTheDocument();
+    expect(mockedCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("a board that cannot see those nights after the reload resolves nothing, even if it contains other data", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    await loseAssignment(user, from);
+    await reloadSameTab();
+    await user.click(screen.getByRole("button", { name: "Next date range" }));
+    await waitFor(() => expect(mockedBoard.mock.calls.at(-1)![1]).toBe(addDaysIso(from, 14)));
+
+    const notice = await screen.findByTestId("uncertain-write-notice");
+    expect(notice).toHaveTextContent("Open a view of this Property that includes");
+    expect(sessionStorage.getItem(UNCERTAIN_WRITES_STORAGE_KEY)).not.toBeNull();
+  });
+
+  it.each([
+    ["201", { kind: "created", segment: null }],
+    ["409", { kind: "rejected", status: 409, category: "conflict" }],
+    ["400", { kind: "rejected", status: 400, category: "validation" }],
+    ["not-sent", { kind: "not-sent", message: "No API address." }],
+  ] as [string, AssignmentCreateOutcome][])("a %s result leaves nothing for a reload to restore", async (_label, outcome) => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    mockedCreate.mockResolvedValue(outcome);
+    await user.click(firstRangeBar(from));
+    await user.click(within(assignDialog()).getByLabelText(/Room 102/));
+    await user.click(within(assignDialog()).getByRole("button", { name: "Assign room 102" }));
+    await waitFor(() => expect(mockedCreate).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Create operational block" })).toBeEnabled());
+    expect(sessionStorage.getItem(UNCERTAIN_WRITES_STORAGE_KEY)).toBeNull();
+
+    await reloadSameTab();
+    expect(screen.queryByTestId("uncertain-write-notice")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["not JSON", "{broken"],
+    ["another format version", JSON.stringify({ v: 99, assignments: [], blocks: [] })],
+  ])("a stored record that is %s never crashes the board, and says a protection could not be restored", async (_label, text) => {
+    sessionStorage.setItem(UNCERTAIN_WRITES_STORAGE_KEY, text);
+    await renderLoadedBoard();
+    const warning = screen.getByTestId("unreadable-uncertain-writes");
+    expect(warning).toHaveTextContent("could not be restored");
+    expect(warning).toHaveTextContent("may already have been saved");
+    expect(screen.queryByTestId("uncertain-write-notice")).not.toBeInTheDocument();
+  });
+
+  it("once resolved, a restored notice dismissed by keyboard hands focus to a stable control; dismissed with focus elsewhere, it leaves focus alone", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    await loseAssignment(user, from);
+    serveAssignedTo102();
+    await reloadSameTab();
+    const dismiss = await within(await screen.findByTestId("uncertain-write-notice")).findByRole("button", { name: "Dismiss notice" });
+
+    dismiss.focus();
+    await user.keyboard("{Enter}");
+    expect(screen.queryByTestId("uncertain-write-notice")).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Create operational block" }));
+
+    // Same, from a pointer while focus is elsewhere: focus stays put.
+    cleanup();
+    sessionStorage.clear();
+    mockedBoard.mockImplementation((propertyId, boardFrom, to) => Promise.resolve({ ok: true, data: boardFor(propertyId, boardFrom, to) }));
+    const again = await renderLoadedBoard();
+    await loseAssignment(user, again.from);
+    serveAssignedTo102();
+    await reloadSameTab();
+    const dismissAgain = await within(await screen.findByTestId("uncertain-write-notice")).findByRole("button", { name: "Dismiss notice" });
+    const next = screen.getByRole("button", { name: "Next date range" });
+    next.focus();
+    fireEvent.click(dismissAgain);
+    expect(document.activeElement).toBe(next);
   });
 });

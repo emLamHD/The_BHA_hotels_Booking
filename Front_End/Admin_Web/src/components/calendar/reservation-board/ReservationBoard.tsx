@@ -83,6 +83,7 @@ import {
 import { boardIdentityKey, buildAssignmentTarget, type AssignmentTarget } from "./assignmentTarget";
 import { buildMoveTarget, type MoveTarget } from "./moveTarget";
 import { buildBlockCancelTarget, type BlockCancelTarget } from "./blockCancelTarget";
+import { persistUncertainWrites, restoreUncertainWrites, tabStorage } from "./uncertainWriteStorage";
 import { buildUnassignTarget, type UnassignTarget } from "./unassignTarget";
 import { buildUnassignRequest, planUnassignReconciliation } from "./unassignSubmission";
 import { describeAssignmentOutcome, describeMoveOutcome } from "./assignmentOutcome";
@@ -133,6 +134,14 @@ const INITIAL_RANGE_LENGTH: ReservationBoardRangeLength = 14;
 /** PMS-CAL-001.3-CP03-C1: why a write was refused before sending (see `isRoomLocked`). */
 const ROOM_LOCKED_MESSAGE =
   "An earlier request for this room on overlapping nights is still unconfirmed. Nothing was sent; check the board again before sending another.";
+
+/**
+ * PMS-CAL-001.5-CP02: what a notice restored after a reload must say. The page
+ * that sent the request never learned its result; the board can show the
+ * schedule as it is now, but not which request produced it.
+ */
+const RESTORED_EXPLANATION =
+  "Its result was never confirmed. It may already have been saved: the board shows the schedule, not which request changed it.";
 
 /** PMS-CAL-001.4-CP01: a move dialog outlived the board it was opened from. */
 const STALE_MOVE_DIALOG_MESSAGE =
@@ -300,9 +309,15 @@ const ReservationBoard: React.FC = () => {
    * synchronously the moment a write resolves, so a click that lands before
    * React has re-rendered the board is still refused.
    */
-  const [reconciliations, setReconciliations] = useState<Reconciliation[]>([]);
-  const reconciliationsRef = useRef<Reconciliation[]>([]);
-  const nextReconciliationIdRef = useRef(1);
+  /**
+   * PMS-CAL-001.5-CP02: unconfirmed writes a previous page in this tab left
+   * behind. Restored here, in the first render's state initializers, so their
+   * locks are in the refs before the board can offer any write at all.
+   */
+  const [restoredWrites] = useState(() => restoreUncertainWrites(tabStorage(), 1));
+  const [reconciliations, setReconciliations] = useState<Reconciliation[]>(restoredWrites.assignments);
+  const reconciliationsRef = useRef<Reconciliation[]>(restoredWrites.assignments);
+  const nextReconciliationIdRef = useRef(1 + restoredWrites.assignments.length + restoredWrites.blocks.length);
   const referencedReconciliationIdsRef = useRef<{
     dialog: number | null;
     notice: number | null;
@@ -354,8 +369,8 @@ const ReservationBoard: React.FC = () => {
   const blockCancelRequestPendingRef = useRef(false);
   /** Set once a cancel request is sent: such a dialog stays open to report its own result. */
   const blockCancelSubmittedRef = useRef(false);
-  const [blockReconciliations, setBlockReconciliations] = useState<BlockCreateReconciliation[]>([]);
-  const blockReconciliationsRef = useRef<BlockCreateReconciliation[]>([]);
+  const [blockReconciliations, setBlockReconciliations] = useState<BlockCreateReconciliation[]>(restoredWrites.blocks);
+  const blockReconciliationsRef = useRef<BlockCreateReconciliation[]>(restoredWrites.blocks);
   const referencedBlockIdsRef = useRef<{
     dialog: number | null;
     notice: number | null;
@@ -377,11 +392,14 @@ const ReservationBoard: React.FC = () => {
     };
   }, []);
 
+  // PMS-CAL-001.5-CP02: the only two places either list changes, so the tab's
+  // record of unresolved writes can never drift from what the board locks.
   const updateReconciliations = useCallback((update: (list: Reconciliation[]) => Reconciliation[]) => {
     const next = update(reconciliationsRef.current);
     if (next === reconciliationsRef.current) return;
     reconciliationsRef.current = next;
     setReconciliations(next);
+    persistUncertainWrites(tabStorage(), next, blockReconciliationsRef.current);
   }, []);
 
   const updateBlockReconciliations = useCallback(
@@ -390,6 +408,7 @@ const ReservationBoard: React.FC = () => {
       if (next === blockReconciliationsRef.current) return;
       blockReconciliationsRef.current = next;
       setBlockReconciliations(next);
+      persistUncertainWrites(tabStorage(), reconciliationsRef.current, next);
     },
     []
   );
@@ -1849,9 +1868,24 @@ const ReservationBoard: React.FC = () => {
           canCheckHere={boardCanShow(entry)}
           checking={boardState.status === "loading" || (boardState.status === "loaded" && !!boardState.refreshing)}
           onCheckAgain={handleCheckAgain}
-          onDismiss={() => dismissReconciliation(entry.id)}
+          onDismiss={(noticeOwnedFocus) => {
+            // Same rule as the block notice: focus leaves before the focused button unmounts.
+            if (noticeOwnedFocus) restoreCreateBlockFocus();
+            dismissReconciliation(entry.id);
+          }}
         />
       ))}
+      {restoredWrites.unreadable && selectedPropertyId !== null && (
+        // Client-only (gated on a loaded Property), so it never differs from the server render.
+        <p
+          role="alert"
+          data-testid="unreadable-uncertain-writes"
+          className="mx-2 mt-2 rounded-lg bg-warning-50 px-3 py-2 text-sm text-warning-800 sm:mx-4 dark:bg-warning-500/10 dark:text-warning-300"
+        >
+          An unconfirmed request from before this page was reloaded could not be restored, so its rooms and nights are
+          not locked here. It may already have been saved: check the board before repeating any recent change.
+        </p>
+      )}
       {boardState.status === "loaded" && boardState.refreshing && (
         <p role="status" className="px-4 pt-2 text-xs text-gray-500 dark:text-gray-400">
           Refreshing board from the server…
@@ -2022,8 +2056,9 @@ const UncertainBlockNotice: React.FC<{
   // facts about the schedule, never about what this lost request did. The
   // block's own reason is labelled as such: a cancel's optional reason is not
   // tracked here, and the block's reason must not read as the cancel's.
-  const title =
-    target.operation === "cancel"
+  const title = entry.restored
+    ? `Unconfirmed block ${target.operation === "cancel" ? "cancel" : "create"} request from before this page was reloaded: room ${target.roomNumber}, ${range}.`
+    : target.operation === "cancel"
       ? `Unconfirmed cancel request: block on room ${target.roomNumber}, ${range} · original block reason: ${target.reason}`
       : `Unconfirmed block request: room ${target.roomNumber}, ${range} — ${target.reason}`;
   let detail: string;
@@ -2060,6 +2095,7 @@ const UncertainBlockNotice: React.FC<{
     >
       <div>
         <p className="font-medium">{title}</p>
+        {entry.restored && <p className="mt-0.5 text-xs">{RESTORED_EXPLANATION}</p>}
         <p className="mt-0.5 text-xs">{detail}</p>
       </div>
       {observed ? (
@@ -2142,11 +2178,14 @@ const UncertainWriteNotice: React.FC<{
   canCheckHere: boolean;
   checking: boolean;
   onCheckAgain: () => void;
-  onDismiss: () => void;
+  /** `noticeOwnedFocus`: focus was inside this notice, which is about to unmount. */
+  onDismiss: (noticeOwnedFocus: boolean) => void;
 }> = ({ entry, readStatus, canCheckHere, checking, onCheckAgain, onDismiss }) => {
+  const rootRef = useRef<HTMLDivElement>(null);
   const { target } = entry;
   const range = `[${target.startDate}, ${target.endDate})`;
   const resolved = entry.resolution === "observed" || entry.resolution === "changed";
+  const operationLabel = target.operation === "create" ? "room assignment" : target.operation === "move" ? "room move" : "room unassign";
   let detail: string;
   if (entry.resolution === "observed") {
     detail = `An assignment matching this request — room ${target.roomNumber} for ${range} — is now shown on the server.`;
@@ -2181,6 +2220,7 @@ const UncertainWriteNotice: React.FC<{
 
   return (
     <div
+      ref={rootRef}
       role="status"
       data-testid="uncertain-write-notice"
       className={`mx-2 mt-2 flex items-start justify-between gap-3 rounded-lg px-3 py-2 text-sm sm:mx-4 ${
@@ -2191,15 +2231,17 @@ const UncertainWriteNotice: React.FC<{
     >
       <div>
         <p className="font-medium">
-          Unconfirmed request: room {target.roomNumber} for {target.guestDisplayName} ({target.confirmationNumber}),{" "}
-          {range}.
+          {entry.restored
+            ? `Unconfirmed ${operationLabel} request from before this page was reloaded: room ${target.roomNumber}, ${range}.`
+            : `Unconfirmed request: room ${target.roomNumber} for ${target.guestDisplayName} (${target.confirmationNumber}), ${range}.`}
         </p>
+        {entry.restored && <p className="mt-0.5 text-xs">{RESTORED_EXPLANATION}</p>}
         <p className="mt-0.5 text-xs">{detail}</p>
       </div>
       {resolved ? (
         <button
           type="button"
-          onClick={onDismiss}
+          onClick={() => onDismiss(rootRef.current?.contains(document.activeElement) ?? false)}
           aria-label="Dismiss notice"
           className="flex size-6 shrink-0 items-center justify-center rounded-full hover:bg-gray-200 dark:hover:bg-white/5"
         >
