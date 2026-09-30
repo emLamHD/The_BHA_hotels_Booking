@@ -45,4 +45,12 @@ Design only; the feasibility spike does not replace CP01's tests. No CP01 prompt
 
 The reviewer read docs and source only: it did not run builds or tests and did not reproduce the feasibility spike. CI on that head: run 36700162116, Admin / Backend / Frontend success.
 
-**C1 (this update)** — `REVIEW: NOT RUN`. The role matrix (`FrontDesk` now has `BlockWrite`), the session and topology statements and the CP05 acceptance changed after the original review; that review does not cover them. Owner must run `/codex:review --base origin/develop` on the new head.
+**C1 (Owner decisions)** — `REVIEW: RUN`. One invocation of `/codex:review --base origin/develop`, run by Owner. `REVIEWED_HEAD: 7b5cef64d2689a4e413f8b508663259d2d1cb0b7`. `REVIEW_BASE: origin/develop`, baseline `0952e1b58e274a055b47ca3f04beb6fe08ed5ed8`. No finding. Codex's result, verbatim:
+
+> The documentation-only diff clearly distinguishes proposed Staff auth/RBAC behavior from current functionality. No actionable defects were found against the referenced source and repository rules; whitespace validation passed. Builds, tests, and the reported feasibility spike were not run during this review.
+
+- The reviewer did not run builds or tests and did not reproduce the feasibility spike; the spike remains the implementer's evidence.
+- CI on `7b5cef6`: run 36705086978, Admin / Backend / Frontend success.
+- The reviewed diff is +197 / −10 across 3 files against `origin/develop`.
+- **OC_DISPOSITION (as communicated by Owner): PASS** for CP00-C1. The design is still a proposal; the items under "Still open" and the CP01 size exception remain undecided, and neither the milestone choice nor this review approves them.
+- The commit that records this section is a separate reporting commit **after** `7b5cef6`. Codex did not review it; the reviewed head stays `7b5cef6`.
