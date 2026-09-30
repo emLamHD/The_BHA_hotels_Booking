@@ -17,10 +17,11 @@ Admin Web hiện có một Reservation Board frontend prototype tương tác
 (`ADMIN-002.1`, PR #32, trên nền template baseline PR #30): room/date
 timeline, chuyển đổi demo giữa nhiều property, reservation đã/chưa gán
 phòng, operational block, và front-desk reservation workspace với lifecycle/
-folio/move demonstration — toàn bộ chạy trên local deterministic mock state,
-không phải server authority. Admin Web vẫn chưa tích hợp `Back_End/`: chưa có
-database persistence, chưa có Admin authentication/RBAC thật, chưa có OTA
-behavior thật; PMS/Admin backend behavior thật vẫn TARGET, chưa implement.
+folio/move demonstration — ban đầu chạy trên local deterministic mock state.
+Hiện chỉ Reservation Board đọc và ghi qua `Back_End/` (route local-only, xem
+CURRENT bên dưới); front-desk creation workspace và lifecycle/folio/move
+demonstration vẫn là mock. Chưa có Admin authentication/RBAC thật, chưa có OTA
+behavior thật; phần PMS/Admin backend còn lại vẫn TARGET, chưa implement.
 
 Phạm vi onboarding hiện tại — TARGET, hai property đã được Owner duyệt, không
 phải khẳng định rằng cả hai đã tồn tại trong seed/schema hiện tại:
@@ -128,6 +129,13 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   một request kèm `expectedVersion` đọc từ board, rồi đọc lại board — block chỉ
   biến mất từ dữ liệu GET. Lost response không bao giờ được gửi lại và giữ khóa
   phòng/đêm cho mọi loại ghi.
+- `PMS-CAL-001.4-CP01` (frontend) cho kéo một assigned segment sang phòng khác
+  chỉ để **mở dialog Move** với phòng đã chọn; ngày và `expectedVersion` lấy
+  từ segment, chỉ confirm mới gửi. `PMS-CAL-001.5` (CP01–CP03, PR #69–#71)
+  giữ write chưa rõ kết quả và khóa phòng/đêm qua reload **cùng tab** bằng
+  `sessionStorage`, kể cả request còn in-flight; đây không phải idempotency
+  phía server và không bảo vệ qua tab/thiết bị khác. Evidence live:
+  `docs/reports/PMS-CAL-001.5-CP04-completion.md`.
 
 ### Target/approved, chưa implement (TARGET)
 
