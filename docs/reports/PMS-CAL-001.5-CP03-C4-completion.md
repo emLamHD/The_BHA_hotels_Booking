@@ -2,7 +2,7 @@
 
 > Correction of Draft PR #71 (`feat/pms-cal-001-5-inflight-reload-safety`). Not merged. Owner decides Ready/merge.
 > Implementer: Claude. Reviewer: Codex (read-only, invoked by Owner only).
-> START_HEAD `513650e`. FINAL_HEAD: the commit that carries this report (see PR / `git log`).
+> START_HEAD `513650e`. Code commit `cce7613`; FINAL_HEAD is the report-only commit after it (see PR / `git log`).
 
 ## Finding → cause → fix
 
@@ -24,7 +24,7 @@
 
 ## Size
 
-Correction: 3 code/test files, +49 / −2 (source +10/−2, tests +39), plus this report. Below the 100–400 guideline because the finding is a one-function defect; nothing added to reach a number. Whole PR against `origin/develop`: see the PR page (about +2610 / −107 across 9 files with this report).
+Correction: 3 code/test files, +49 / −2 (source +10/−2, tests +39), plus this report. Below the 100–400 guideline because the finding is a one-function defect; nothing added to reach a number. Whole PR against `origin/develop` at `cce7613` (with this report): +2648 / −105 across 9 files, per GitHub. The report-only follow-up commit adds a few lines to this file.
 
 ## Not run / residual
 
