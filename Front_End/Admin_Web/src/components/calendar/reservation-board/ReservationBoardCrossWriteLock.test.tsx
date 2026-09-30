@@ -23,7 +23,9 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ReservationBoard from "./ReservationBoard";
-import { UNCERTAIN_WRITES_STORAGE_KEY } from "./uncertainWriteStorage";
+import { PENDING_WRITES_STORAGE_KEY, UNCERTAIN_WRITES_STORAGE_KEY, beginPendingWrite } from "./uncertainWriteStorage";
+import type { BlockCreateReconciliation } from "./blockCreateReconciliation";
+import type { Reconciliation } from "./reconciliation";
 import { addDaysIso } from "./dateMath";
 import type {
   AssignmentCreateOutcome,
@@ -1384,6 +1386,346 @@ describe("ReservationBoard — no write that may have reached the server is ever
         await flushMicrotasks();
       });
       expect(mockedBoard.mock.calls.length).toBe(boardCalls);
+    });
+  });
+});
+
+describe("ReservationBoard — known outcomes, mixed restores and damaged records stay honest about the tab's writes (PMS-CAL-001.5-CP03-C2)", () => {
+  const PENDING_KEY = PENDING_WRITES_STORAGE_KEY;
+  const UNCERTAIN_KEY = UNCERTAIN_WRITES_STORAGE_KEY;
+
+  /** Real storage, except that `refuse(key, value)` makes the call throw like a denied or full store. */
+  function failStorage(method: "getItem" | "setItem" | "removeItem", refuse: (key: string, value?: string) => boolean) {
+    const real = Storage.prototype[method] as (this: Storage, key: string, value?: string) => unknown;
+    return vi.spyOn(Storage.prototype, method).mockImplementation(function (this: Storage, key: string, value?: string) {
+      if (refuse(key, value)) throw new DOMException("refused", "QuotaExceededError");
+      return real.call(this, key, value);
+    } as never);
+  }
+
+  const pendingTokens = () => {
+    const text = sessionStorage.getItem(PENDING_KEY);
+    return text === null ? [] : (JSON.parse(text).writes as Array<{ token?: string } | null>).map((record) => record?.token ?? null);
+  };
+  const pendingCount = () => pendingTokens().length;
+
+  async function reloadSameTab() {
+    cleanup();
+    return renderLoadedBoard();
+  }
+
+  function showFromBackForwardCache() {
+    const event = new Event("pageshow");
+    Object.defineProperty(event, "persisted", { value: true });
+    window.dispatchEvent(event);
+  }
+
+  async function backForward() {
+    await act(async () => {
+      showFromBackForwardCache();
+      await flushMicrotasks();
+    });
+  }
+
+  async function startPendingAssignment(user: ReturnType<typeof userEvent.setup>, from: string, room = "102") {
+    const post = deferred<AssignmentCreateOutcome>();
+    mockedCreate.mockImplementation(() => post.promise);
+    await user.click(firstRangeBar(from));
+    await user.click(within(assignDialog()).getByLabelText(new RegExp(`Room ${room}`)));
+    await user.click(within(assignDialog()).getByRole("button", { name: `Assign room ${room}` }));
+    expect(mockedCreate).toHaveBeenCalledTimes(1);
+    return post;
+  }
+
+  async function expectBlockLocked(user: ReturnType<typeof userEvent.setup>, room: string, start: string, end: string) {
+    await reviewBlock(user, room, start, end);
+    expect(within(blockDialog()).getByRole("alert")).toHaveTextContent("still unconfirmed");
+    await closeDialog(user, blockDialog());
+  }
+
+  function expectNoWarningOrLock(from: string) {
+    expect(screen.queryByTestId("uncertain-write-notice")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("uncertain-block-notice")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("unreadable-uncertain-writes")).not.toBeInTheDocument();
+    expect(firstRangeBar(from)).not.toHaveAttribute("aria-disabled", "true");
+  }
+
+  /** A write of a previous page, as its intent would have been recorded before it went on the wire. */
+  function seedAssignmentIntent(from: string, to: string) {
+    const entry: Reconciliation = {
+      id: 0,
+      key: `prop-a|${from}|${to}`,
+      propertyId: "prop-a",
+      from,
+      to,
+      afterSeq: 0,
+      certainty: "uncertain",
+      status: "pending",
+      resolution: "unresolved",
+      target: {
+        operation: "create",
+        reservationUnitId: "unit-1",
+        physicalRoomId: "room-101",
+        startDate: addDaysIso(from, 4),
+        endDate: to,
+        roomNumber: "101",
+        guestDisplayName: "",
+        confirmationNumber: "",
+      },
+    };
+    return beginPendingWrite(sessionStorage, { kind: "assignment", entry })!;
+  }
+
+  function seedBlockIntent(from: string, to: string) {
+    const entry: BlockCreateReconciliation = {
+      id: 0,
+      key: `prop-a|${from}|${to}`,
+      propertyId: "prop-a",
+      from,
+      to,
+      afterSeq: 0,
+      certainty: "uncertain",
+      status: "pending",
+      resolution: "unresolved",
+      target: { operation: "create", physicalRoomId: "room-201", roomNumber: "201", startDate: from, endDate: addDaysIso(from, 1), reason: "" },
+    };
+    return beginPendingWrite(sessionStorage, { kind: "block", entry })!;
+  }
+
+  describe("a write whose outcome is known but whose intent storage would not delete (F1)", () => {
+    it("a 400 keeps its token for a later retry, which a read of the board provides once storage works — no warning, no lock, ever", async () => {
+      const user = userEvent.setup();
+      const { from } = await renderLoadedBoard();
+      const post = await startPendingAssignment(user, from);
+
+      const spy = failStorage("removeItem", (key) => key === PENDING_KEY);
+      await act(async () => post.resolve({ kind: "rejected", status: 400, category: "validation" }));
+      spy.mockRestore();
+      // Deleting failed: the token is still owed a deletion, but nothing is warned or locked for it.
+      expect(pendingCount()).toBe(1);
+      expect(screen.queryByTestId("uncertain-write-notice")).not.toBeInTheDocument();
+
+      // No list changes for a 400; the read a date-range change issues is the retry chance.
+      await closeDialog(user, assignDialog());
+      await user.click(screen.getByRole("button", { name: "Next date range" }));
+      await waitFor(() => expect(pendingCount()).toBe(0));
+
+      await reloadSameTab();
+      expectNoWarningOrLock(from);
+      expect(mockedCreate).toHaveBeenCalledTimes(1);
+    });
+
+    it("a page shown from the back/forward cache while that deletion is still refused restores no false unknown write, then finishes the deletion", async () => {
+      const user = userEvent.setup();
+      const { from } = await renderLoadedBoard();
+      const post = await startPendingAssignment(user, from);
+
+      const spy = failStorage("removeItem", (key) => key === PENDING_KEY);
+      await act(async () => post.resolve({ kind: "rejected", status: 400, category: "validation" }));
+      await closeDialog(user, assignDialog());
+      await backForward();
+      expectNoWarningOrLock(from);
+      expect(pendingCount()).toBe(1);
+
+      spy.mockRestore();
+      await backForward();
+      expect(pendingCount()).toBe(0);
+      expectNoWarningOrLock(from);
+
+      await reloadSameTab();
+      expectNoWarningOrLock(from);
+      expect(mockedCreate).toHaveBeenCalledTimes(1);
+    });
+
+    it("an answer that reaches a page already being left is retried too, and the page that returns from the cache is clean", async () => {
+      const user = userEvent.setup();
+      const { from } = await renderLoadedBoard();
+      const post = await startPendingAssignment(user, from);
+
+      const spy = failStorage("removeItem", (key) => key === PENDING_KEY);
+      await act(async () => {
+        window.dispatchEvent(new Event("pagehide"));
+        post.resolve({ kind: "rejected", status: 400, category: "validation" });
+        await flushMicrotasks();
+      });
+      expect(pendingCount()).toBe(1);
+      spy.mockRestore();
+      await backForward();
+
+      expect(pendingCount()).toBe(0);
+      expectNoWarningOrLock(from);
+      await closeDialog(user, assignDialog());
+      expect(firstRangeBar(from)).not.toHaveAttribute("aria-disabled", "true");
+    });
+
+    it("a created answer still reloads the board and reports the assignment while its token waits for deletion", async () => {
+      const user = userEvent.setup();
+      const { from } = await renderLoadedBoard();
+      const post = await startPendingAssignment(user, from);
+
+      const spy = failStorage("removeItem", (key) => key === PENDING_KEY);
+      const before = mockedBoard.mock.calls.length;
+      await act(async () => post.resolve({ kind: "created", segment: null }));
+      await settleReread(before);
+      spy.mockRestore();
+
+      expect(screen.getByText(`Room 102 assigned to Nguyen Van A (CNF-100) for [${from}, ${addDaysIso(from, 2)}).`)).toBeInTheDocument();
+      expect(pendingCount()).toBe(1);
+      expect(screen.queryByTestId("uncertain-write-notice")).not.toBeInTheDocument();
+
+      await backForward();
+      expect(pendingCount()).toBe(0);
+      expect(screen.queryByTestId("uncertain-write-notice")).not.toBeInTheDocument();
+      await reloadSameTab();
+      expect(screen.queryByTestId("uncertain-write-notice")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("a bfcache return that restores both an assignment and a block (F2)", () => {
+    it("keeps both intents while the two-list record is refused, and each write comes back exactly once — even after repeated pageshow and reloads", async () => {
+      const user = userEvent.setup();
+      const { from, to } = await renderLoadedBoard();
+      seedAssignmentIntent(from, to);
+      seedBlockIntent(from, to);
+      expect(pendingCount()).toBe(2);
+
+      // Quota: a record with only one kind of write fits; the full one does not.
+      const spy = failStorage("setItem", (key, value) => {
+        if (key !== UNCERTAIN_KEY) return false;
+        const record = JSON.parse(value ?? "{}") as { assignments: unknown[]; blocks: unknown[] };
+        return record.assignments.length > 0 && record.blocks.length > 0;
+      });
+      await backForward();
+      await backForward();
+
+      expect(screen.getAllByTestId("uncertain-write-notice")).toHaveLength(1);
+      expect(screen.getAllByTestId("uncertain-block-notice")).toHaveLength(1);
+      await expectBlockLocked(user, "room-101", addDaysIso(from, 4), addDaysIso(from, 5));
+      await expectBlockLocked(user, "room-201", from, addDaysIso(from, 1));
+      // Neither write was handed over: an intent is all that names it until the record holds both.
+      expect(pendingCount()).toBe(2);
+      expect(sessionStorage.getItem(UNCERTAIN_KEY)).toBeNull();
+
+      // A reload while storage still refuses restores both, from the intents.
+      await reloadSameTab();
+      expect(screen.getAllByTestId("uncertain-write-notice")).toHaveLength(1);
+      expect(screen.getAllByTestId("uncertain-block-notice")).toHaveLength(1);
+      await expectBlockLocked(user, "room-201", from, addDaysIso(from, 1));
+
+      // Storage recovers: the next read hands both over, and only then are the intents dropped.
+      spy.mockRestore();
+      const boardCalls = mockedBoard.mock.calls.length;
+      await user.click(within(screen.getByTestId("uncertain-write-notice")).getByRole("button", { name: "Check again" }));
+      await waitFor(() => expect(mockedBoard.mock.calls.length).toBe(boardCalls + 1));
+      await waitFor(() => expect(pendingCount()).toBe(0));
+      const record = JSON.parse(sessionStorage.getItem(UNCERTAIN_KEY)!);
+      expect([record.assignments.length, record.blocks.length]).toEqual([1, 1]);
+
+      await reloadSameTab();
+      expect(screen.getAllByTestId("uncertain-write-notice")).toHaveLength(1);
+      expect(screen.getAllByTestId("uncertain-block-notice")).toHaveLength(1);
+      expect(mockedCreate).not.toHaveBeenCalled();
+      expect(mockedBlock).not.toHaveBeenCalled();
+    });
+
+    it("never restores or drops the intent of a write of this page that is still on the wire", async () => {
+      const user = userEvent.setup();
+      const { from, to } = await renderLoadedBoard();
+      const post = await startPendingAssignment(user, from);
+      seedAssignmentIntent(from, to);
+      seedBlockIntent(from, to);
+      expect(pendingCount()).toBe(3);
+
+      const spy = failStorage("setItem", (key, value) => {
+        if (key !== UNCERTAIN_KEY) return false;
+        const record = JSON.parse(value ?? "{}") as { assignments: unknown[]; blocks: unknown[] };
+        return record.assignments.length > 0 && record.blocks.length > 0;
+      });
+      await backForward();
+
+      expect(screen.getAllByTestId("uncertain-write-notice")).toHaveLength(1);
+      expect(screen.getAllByTestId("uncertain-block-notice")).toHaveLength(1);
+      expect(pendingCount()).toBe(3);
+
+      // Its own answer, and only that, makes it a warning.
+      const before = mockedBoard.mock.calls.length;
+      await act(async () => post.resolve({ kind: "unknown", reason: "timeout" }));
+      await settleReread(before);
+      expect(screen.getAllByTestId("uncertain-write-notice")).toHaveLength(2);
+      spy.mockRestore();
+      expect(mockedCreate).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("a damaged pending record (F3)", () => {
+    const tryAssign = async (user: ReturnType<typeof userEvent.setup>, from: string) => {
+      mockedCreate.mockResolvedValue({ kind: "created", segment: null });
+      await user.click(firstRangeBar(from));
+      await user.click(within(assignDialog()).getByLabelText(/Room 102/));
+      await user.click(within(assignDialog()).getByRole("button", { name: "Assign room 102" }));
+    };
+
+    it("a null entry refuses the write: it neither throws, sends, nor leaves a new intent behind", async () => {
+      const user = userEvent.setup();
+      sessionStorage.setItem(PENDING_KEY, JSON.stringify({ v: 1, writes: [null] }));
+      const { from } = await renderLoadedBoard();
+      const before = sessionStorage.getItem(PENDING_KEY);
+
+      await tryAssign(user, from);
+
+      expect(await within(assignDialog()).findByRole("alert")).toHaveTextContent("could not keep the safety record");
+      expect(mockedCreate).not.toHaveBeenCalled();
+      expect(sessionStorage.getItem(PENDING_KEY)).toBe(before);
+      expect(screen.getByTestId("unreadable-uncertain-writes")).toBeInTheDocument();
+    });
+
+    it("a null entry next to a valid intent keeps the valid write warned and locked, and refuses new writes", async () => {
+      const user = userEvent.setup();
+      const probe = await renderLoadedBoard();
+      cleanup();
+      seedAssignmentIntent(probe.from, probe.to);
+      const pending = JSON.parse(sessionStorage.getItem(PENDING_KEY)!);
+      sessionStorage.setItem(PENDING_KEY, JSON.stringify({ ...pending, writes: [null, ...pending.writes] }));
+
+      const { from } = await renderLoadedBoard();
+      expect(screen.getAllByTestId("uncertain-write-notice")).toHaveLength(1);
+      expect(screen.getByTestId("unreadable-uncertain-writes")).toBeInTheDocument();
+      const before = [sessionStorage.getItem(PENDING_KEY), sessionStorage.getItem(UNCERTAIN_KEY)];
+
+      await reviewBlock(user, "room-201", from, addDaysIso(from, 1));
+      await user.click(within(blockDialog()).getByRole("button", { name: "Create block" }));
+      expect(await within(blockDialog()).findByRole("alert")).toHaveTextContent("could not keep the safety record");
+      expect(mockedBlock).not.toHaveBeenCalled();
+      expect([sessionStorage.getItem(PENDING_KEY), sessionStorage.getItem(UNCERTAIN_KEY)]).toEqual(before);
+
+      await closeDialog(user, blockDialog());
+      await reloadSameTab();
+      expect(screen.getAllByTestId("uncertain-write-notice")).toHaveLength(1);
+      expect(screen.getByTestId("unreadable-uncertain-writes")).toBeInTheDocument();
+    });
+
+    it("an intent that was stored but cannot be read back is not sent, and is removed once storage answers again", async () => {
+      const user = userEvent.setup();
+      const { from } = await renderLoadedBoard();
+
+      let stored = false;
+      const set = failStorage("setItem", (key) => {
+        if (key === PENDING_KEY) stored = true;
+        return false;
+      });
+      const get = failStorage("getItem", (key) => stored && key === PENDING_KEY);
+      await tryAssign(user, from);
+      expect(await within(assignDialog()).findByRole("alert")).toHaveTextContent("could not keep the safety record");
+      expect(mockedCreate).not.toHaveBeenCalled();
+      set.mockRestore();
+      get.mockRestore();
+      expect(pendingCount()).toBe(1);
+
+      await backForward();
+      expect(pendingCount()).toBe(0);
+      expectNoWarningOrLock(from);
+      await reloadSameTab();
+      expectNoWarningOrLock(from);
     });
   });
 });

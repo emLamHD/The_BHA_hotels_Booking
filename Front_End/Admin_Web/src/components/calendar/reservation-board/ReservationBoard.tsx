@@ -86,11 +86,13 @@ import { buildMoveTarget, type MoveTarget } from "./moveTarget";
 import { buildBlockCancelTarget, type BlockCancelTarget } from "./blockCancelTarget";
 import {
   beginPendingWrite,
+  discardPendingWrite,
   endPendingWrite,
   isPageUnloading,
   markPageAlive,
   persistUncertainWrites,
   restoreUncertainWrites,
+  retryPendingCleanup,
   tabStorage,
   uncertainWriteIdentity,
 } from "./uncertainWriteStorage";
@@ -459,6 +461,8 @@ const ReservationBoard: React.FC = () => {
    * refused write drops nothing; the next change of either list tries again.
    */
   const persistTracked = useCallback(() => {
+    // CP03-C2: a deletion storage refused earlier is owed whatever happens to the record below.
+    retryPendingCleanup(tabStorage());
     if (!persistUncertainWrites(tabStorage(), reconciliationsRef.current, blockReconciliationsRef.current)) return;
     for (const token of [...handOffTokensRef.current]) {
       if (endPendingWrite(tabStorage(), token)) handOffTokensRef.current.delete(token);
@@ -473,48 +477,61 @@ const ReservationBoard: React.FC = () => {
     if (handOffTokensRef.current.size > 0) persistTracked();
   }, [persistTracked]);
 
+  /**
+   * CP03-C1/C2: an unchanged list is still a moment to retry what storage
+   * refused — a hand-over (`persistTracked`) or the deletion of an intent whose
+   * outcome is known (`retryPendingCleanup`). A board read reaches this on every
+   * completion.
+   */
+  const retryStorage = useCallback(() => {
+    if (handOffTokensRef.current.size > 0) persistTracked();
+    else retryPendingCleanup(tabStorage());
+  }, [persistTracked]);
+
   // PMS-CAL-001.5-CP02: the only two places either list changes, so the tab's
   // record of unresolved writes can never drift from what the board locks.
+  // CP03-C2: `persist: false` only for a caller that changes both lists and
+  // persists once after, so no record ever holds just one list of a pair.
   const updateReconciliations = useCallback(
-    (update: (list: Reconciliation[]) => Reconciliation[]) => {
+    (update: (list: Reconciliation[]) => Reconciliation[], persist = true) => {
       const next = update(reconciliationsRef.current);
       if (next === reconciliationsRef.current) {
-        // CP03-C1: an unchanged list is still a moment to retry a hand-over storage refused.
-        if (handOffTokensRef.current.size > 0) persistTracked();
+        retryStorage();
         return;
       }
       reconciliationsRef.current = next;
       setReconciliations(next);
-      persistTracked();
+      if (persist) persistTracked();
     },
-    [persistTracked]
+    [persistTracked, retryStorage]
   );
 
   const updateBlockReconciliations = useCallback(
-    (update: (list: BlockCreateReconciliation[]) => BlockCreateReconciliation[]) => {
+    (update: (list: BlockCreateReconciliation[]) => BlockCreateReconciliation[], persist = true) => {
       const next = update(blockReconciliationsRef.current);
       if (next === blockReconciliationsRef.current) {
-        // CP03-C1: an unchanged list is still a moment to retry a hand-over storage refused.
-        if (handOffTokensRef.current.size > 0) persistTracked();
+        retryStorage();
         return;
       }
       blockReconciliationsRef.current = next;
       setBlockReconciliations(next);
-      persistTracked();
+      if (persist) persistTracked();
     },
-    [persistTracked]
+    [persistTracked, retryStorage]
   );
 
   /**
    * CP03-C1: how a submit handler lets go of its intent once the answer is in
    * on a live page. A lost answer (`unknown`) that is now a tracked entry is
    * handed over (see `persistTracked`); an answer that decided the outcome
-   * needs no record. An `unknown` the board did not track keeps its intent.
+   * needs no record, only the intent's deletion — which is retried, not
+   * forgotten, if storage refuses it now (CP03-C2). An `unknown` the board did
+   * not track keeps its intent.
    */
   const finishIntent = useCallback(
     (token: string, outcomeKind: string, tracked: boolean) => {
       if (outcomeKind !== "unknown") {
-        endPendingWrite(tabStorage(), token);
+        discardPendingWrite(tabStorage(), token);
       } else if (tracked) {
         handOffTokensRef.current.add(token);
         persistTracked();
@@ -554,8 +571,10 @@ const ReservationBoard: React.FC = () => {
       for (const token of restored.pendingTokens) if (!inFlight.has(token)) handOffTokensRef.current.add(token);
       const assignments = missing("assignment", restored.assignments);
       const blocks = missing("block", restored.blocks);
-      if (assignments.length > 0) updateReconciliations((list) => [...list, ...assignments]);
-      if (blocks.length > 0) updateBlockReconciliations((list) => [...list, ...blocks]);
+      // Both lists hold everything they took in before anything is persisted: an
+      // intent is dropped only for a record that contains every write handed over (CP03-C2).
+      if (assignments.length > 0) updateReconciliations((list) => [...list, ...assignments], false);
+      if (blocks.length > 0) updateBlockReconciliations((list) => [...list, ...blocks], false);
       persistTracked();
       if (restored.unreadable) setStorageUnreadable(true);
       // The board may have changed while the page was away: read it again, whatever was found.
@@ -932,7 +951,7 @@ const ReservationBoard: React.FC = () => {
       // fetch before the board unmounts (verified live in Chrome).
       if (!mountedRef.current || isPageUnloading()) {
         // An unknown outcome on a page that is gone stays recorded for the next one.
-        if (outcome.kind !== "unknown") endPendingWrite(tabStorage(), pendingToken);
+        if (outcome.kind !== "unknown") discardPendingWrite(tabStorage(), pendingToken);
         return outcome;
       }
 
@@ -1213,7 +1232,7 @@ const ReservationBoard: React.FC = () => {
       // fetch before the board unmounts (verified live in Chrome).
       if (!mountedRef.current || isPageUnloading()) {
         // An unknown outcome on a page that is gone stays recorded for the next one.
-        if (outcome.kind !== "unknown") endPendingWrite(tabStorage(), pendingToken);
+        if (outcome.kind !== "unknown") discardPendingWrite(tabStorage(), pendingToken);
         return outcome;
       }
 
@@ -1292,7 +1311,7 @@ const ReservationBoard: React.FC = () => {
       // fetch before the board unmounts (verified live in Chrome).
       if (!mountedRef.current || isPageUnloading()) {
         // An unknown outcome on a page that is gone stays recorded for the next one.
-        if (outcome.kind !== "unknown") endPendingWrite(tabStorage(), pendingToken);
+        if (outcome.kind !== "unknown") discardPendingWrite(tabStorage(), pendingToken);
         return outcome;
       }
 
@@ -1461,7 +1480,7 @@ const ReservationBoard: React.FC = () => {
       // fetch before the board unmounts (verified live in Chrome).
       if (!mountedRef.current || isPageUnloading()) {
         // An unknown outcome on a page that is gone stays recorded for the next one.
-        if (outcome.kind !== "unknown") endPendingWrite(tabStorage(), pendingToken);
+        if (outcome.kind !== "unknown") discardPendingWrite(tabStorage(), pendingToken);
         return outcome;
       }
 
@@ -1563,7 +1582,7 @@ const ReservationBoard: React.FC = () => {
       // fetch before the board unmounts (verified live in Chrome).
       if (!mountedRef.current || isPageUnloading()) {
         // An unknown outcome on a page that is gone stays recorded for the next one.
-        if (outcome.kind !== "unknown") endPendingWrite(tabStorage(), pendingToken);
+        if (outcome.kind !== "unknown") discardPendingWrite(tabStorage(), pendingToken);
         return outcome;
       }
 

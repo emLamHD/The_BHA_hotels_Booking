@@ -11,9 +11,11 @@ import {
   PENDING_WRITES_STORAGE_KEY,
   UNCERTAIN_WRITES_STORAGE_KEY,
   beginPendingWrite,
+  discardPendingWrite,
   endPendingWrite,
   persistUncertainWrites,
   restoreUncertainWrites,
+  retryPendingCleanup,
   tabStorage,
 } from "./uncertainWriteStorage";
 
@@ -306,5 +308,149 @@ describe("uncertainWriteStorage — durable hand-over from intent to unconfirmed
   it("an intent restored on its own keeps its token as the entry's identity", () => {
     const token = beginPendingWrite(sessionStorage, { kind: "block", entry: block() })!;
     expect(restoreUncertainWrites(sessionStorage, 1).blocks[0]).toMatchObject({ restored: "in-flight", intent: token });
+  });
+});
+
+describe("uncertainWriteStorage — a damaged pending record is never built upon (PMS-CAL-001.5-CP03-C2 F3)", () => {
+  /** A valid stored record for `entry`, taken out of storage so a test can damage it. */
+  function validRecord(kind: "assignment" | "block", entry: Reconciliation | BlockCreateReconciliation) {
+    const token = beginPendingWrite(sessionStorage, { kind, entry } as never)!;
+    const record = JSON.parse(sessionStorage.getItem(PENDING_WRITES_STORAGE_KEY)!).writes.find((r: { token: string }) => r.token === token);
+    sessionStorage.clear();
+    return record as { token: string; kind: string; write: { target: Record<string, unknown> } };
+  }
+
+  const store = (writes: unknown[]) => sessionStorage.setItem(PENDING_WRITES_STORAGE_KEY, JSON.stringify({ v: 1, writes }));
+
+  it.each([
+    ["a null entry", () => [null]],
+    ["a non-object entry", () => ["token"]],
+    ["a null entry beside a valid intent", () => [null, validRecord("assignment", assignment())]],
+    ["an unknown kind", () => [{ ...validRecord("assignment", assignment()), kind: "other" }]],
+    ["a missing token", () => [{ ...validRecord("assignment", assignment()), token: undefined }]],
+    ["an empty token", () => [{ ...validRecord("block", block()), token: "" }]],
+    ["a missing write", () => [{ ...validRecord("assignment", assignment()), write: undefined }]],
+    [
+      "a move without its segment",
+      () => {
+        const record = validRecord("assignment", assignment());
+        delete record.write.target.segmentId;
+        return [record];
+      },
+    ],
+    [
+      "a move without its expected version",
+      () => {
+        const record = validRecord("assignment", assignment());
+        record.write.target.expectedVersion = "7";
+        return [record];
+      },
+    ],
+    [
+      "a block cancel without its expected version",
+      () => {
+        const record = validRecord("block", block());
+        delete record.write.target.expectedVersion;
+        return [record];
+      },
+    ],
+    [
+      "a range that does not run forward",
+      () => {
+        const record = validRecord("block", block());
+        record.write.target.endDate = record.write.target.startDate;
+        return [record];
+      },
+    ],
+  ])("refuses to begin a write beside %s, and changes nothing in storage", (_label, damaged) => {
+    store(damaged());
+    const before = sessionStorage.getItem(PENDING_WRITES_STORAGE_KEY);
+    expect(beginPendingWrite(sessionStorage, { kind: "assignment", entry: assignment() })).toBeNull();
+    expect(beginPendingWrite(sessionStorage, { kind: "block", entry: block() })).toBeNull();
+    expect(sessionStorage.getItem(PENDING_WRITES_STORAGE_KEY)).toBe(before);
+  });
+
+  it("restores the valid entries beside a damaged one and reports the damage", () => {
+    const good = validRecord("assignment", assignment());
+    const goodBlock = validRecord("block", block());
+    store([null, good, { ...goodBlock, kind: "other" }, goodBlock]);
+    const restored = restoreUncertainWrites(sessionStorage, 1);
+    expect(restored.unreadable).toBe(true);
+    expect(restored.assignments.map((entry) => entry.intent)).toEqual([good.token]);
+    expect(restored.blocks.map((entry) => entry.intent)).toEqual([goodBlock.token]);
+    expect(restored.pendingTokens).toEqual([good.token, goodBlock.token]);
+  });
+
+  it("removes its own token from beside a damaged entry and leaves the damaged one exactly as it was", () => {
+    const good = validRecord("assignment", assignment());
+    store([null, good]);
+    expect(endPendingWrite(sessionStorage, good.token)).toBe(true);
+    expect(JSON.parse(sessionStorage.getItem(PENDING_WRITES_STORAGE_KEY)!)).toEqual({ v: 1, writes: [null] });
+  });
+
+  it("a storage that stored the intent but cannot read it back gets no send, and the unsent intent is removed when it can", () => {
+    const other = beginPendingWrite(sessionStorage, { kind: "block", entry: block() })!;
+    let stored = false;
+    const realSet = Storage.prototype.setItem;
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key: string, value: string) {
+      realSet.call(this, key, value);
+      if (key === PENDING_WRITES_STORAGE_KEY) stored = true;
+    });
+    const realGet = Storage.prototype.getItem;
+    const getSpy = vi.spyOn(Storage.prototype, "getItem").mockImplementation(function (this: Storage, key: string) {
+      if (stored && key === PENDING_WRITES_STORAGE_KEY) throw new DOMException("denied", "SecurityError");
+      return realGet.call(this, key);
+    });
+
+    expect(beginPendingWrite(sessionStorage, { kind: "assignment", entry: assignment() })).toBeNull();
+    getSpy.mockRestore();
+    expect(JSON.parse(sessionStorage.getItem(PENDING_WRITES_STORAGE_KEY)!).writes).toHaveLength(2);
+
+    retryPendingCleanup(sessionStorage);
+    const left = JSON.parse(sessionStorage.getItem(PENDING_WRITES_STORAGE_KEY)!).writes;
+    expect(left.map((record: { token: string }) => record.token)).toEqual([other]);
+  });
+});
+
+describe("uncertainWriteStorage — a known outcome's intent is deleted later, never restored as unknown (PMS-CAL-001.5-CP03-C2 F1)", () => {
+  it("keeps the token owed a deletion while storage refuses, skips it on restore, and deletes only it once storage works", () => {
+    const answered = beginPendingWrite(sessionStorage, { kind: "assignment", entry: assignment() })!;
+    const other = beginPendingWrite(sessionStorage, { kind: "block", entry: block() })!;
+    const spy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("full", "QuotaExceededError");
+    });
+
+    expect(discardPendingWrite(sessionStorage, answered)).toBe(false);
+    // Not a warning and not a lock: the outcome is known. The other write's intent is untouched.
+    const restored = restoreUncertainWrites(sessionStorage, 1);
+    expect(restored.assignments).toEqual([]);
+    expect(restored.blocks.map((entry) => entry.intent)).toEqual([other]);
+    expect(restored.pendingTokens).toEqual([other]);
+    expect(restored.unreadable).toBe(false);
+
+    spy.mockRestore();
+    retryPendingCleanup(sessionStorage);
+    const left = JSON.parse(sessionStorage.getItem(PENDING_WRITES_STORAGE_KEY)!).writes;
+    expect(left.map((record: { token: string }) => record.token)).toEqual([other]);
+    // Forgotten only now: a later restore treats nothing about it specially.
+    expect(restoreUncertainWrites(sessionStorage, 1).pendingTokens).toEqual([other]);
+  });
+
+  it("restoring is itself a chance to finish the deletion", () => {
+    const answered = beginPendingWrite(sessionStorage, { kind: "assignment", entry: assignment() })!;
+    const spy = vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => {
+      throw new DOMException("denied", "SecurityError");
+    });
+    expect(discardPendingWrite(sessionStorage, answered)).toBe(false);
+    spy.mockRestore();
+
+    expect(restoreUncertainWrites(sessionStorage, 1)).toEqual({ assignments: [], blocks: [], unreadable: false, pendingTokens: [] });
+    expect(sessionStorage.getItem(PENDING_WRITES_STORAGE_KEY)).toBeNull();
+  });
+
+  it("an answered token that is already gone counts as deleted and is not remembered", () => {
+    const answered = beginPendingWrite(sessionStorage, { kind: "assignment", entry: assignment() })!;
+    endPendingWrite(sessionStorage, answered);
+    expect(discardPendingWrite(sessionStorage, answered)).toBe(true);
   });
 });

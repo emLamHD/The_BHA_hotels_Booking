@@ -33,6 +33,21 @@
  * token (`intent`) as its identity: when both records describe the same write
  * (the record was saved but dropping the intent failed), it is restored once.
  *
+ * PMS-CAL-001.5-CP03-C2: three ways storage misbehaving could still turn a
+ * known outcome into a false warning, or an unknown one into no record:
+ * - An intent whose write is known *not* to be unconfirmed (never sent, refused,
+ *   answered) but which storage would not delete is remembered
+ *   (`discardPendingWrite`) and deleted at the next chance
+ *   (`retryPendingCleanup`) — never restored as an unknown write while this
+ *   document lives. A full reload forgets that memory, so a deletion storage
+ *   refused until then comes back as a warning: the safe direction.
+ * - The page persists the unconfirmed record for both lists at once before it
+ *   lets go of any intent (see the board's `persistTracked`).
+ * - A pending record is only ever built upon when every entry in it is valid
+ *   (`beginPendingWrite`); one that is damaged, unreadable or unavailable
+ *   refuses the new write instead of being replaced, because it cannot prove no
+ *   write is in flight.
+ *
  * A restored entry is treated as new to this page: `afterSeq` is 0 and `status`
  * is `pending`, because the previous page's board request sequence restarted
  * with the page, and none of this page's reads has seen that board yet.
@@ -291,39 +306,65 @@ export function uncertainWriteIdentity(kind: "assignment" | "block", entry: Reco
 
 let pendingCounter = 0;
 
-function readPendingRecords(storage: Storage): PendingRecord[] {
+/** The stored pending entries, exactly as stored. Throws when the record is unreadable or of another format. */
+function readPendingEntries(storage: Storage): unknown[] {
   const text = storage.getItem(PENDING_WRITES_STORAGE_KEY);
   if (text === null) return [];
-  const parsed = JSON.parse(text) as { v?: unknown; writes?: unknown };
+  const parsed = JSON.parse(text) as { v?: unknown; writes?: unknown } | null;
   if (parsed?.v !== FORMAT_VERSION || !Array.isArray(parsed.writes)) throw new Error("unreadable pending writes");
-  return parsed.writes as PendingRecord[];
+  return parsed.writes;
 }
+
+const tokenOf = (entry: unknown): unknown => (typeof entry === "object" && entry !== null ? (entry as { token?: unknown }).token : undefined);
+
+/** CP03-C2: an entry restore could turn into a write: a token, a known kind, and a write that passes the same validation as a restored one. */
+function isPendingRecord(entry: unknown): entry is PendingRecord {
+  if (typeof entry !== "object" || entry === null) return false;
+  const { token, kind, write } = entry as Record<string, unknown>;
+  if (!isText(token)) return false;
+  return kind === "assignment" ? readAssignment(write, 0) !== null : kind === "block" ? readBlock(write, 0) !== null : false;
+}
+
+/**
+ * CP03-C2: tokens of intents whose write is known not to be unconfirmed but
+ * which storage would not delete yet. Module-level, not the board's: the answer
+ * may arrive after the board unmounted, and a board mounting again in this
+ * document (or a page coming back from the back/forward cache) must neither
+ * forget them nor restore them as unknown writes.
+ */
+const undeletedIntents = new Set<string>();
 
 /**
  * CP03: records a write that is about to be sent, and returns its token — or
  * `null` when the record could not be written, in which case the caller must
  * not send: a reload could then no longer show that the write may have
  * happened. The write reaching storage is checked by reading it back.
+ *
+ * CP03-C2: nothing is written unless the record already in storage is readable
+ * and every entry in it is valid — it is never replaced or cut down, so the
+ * intents beside a damaged entry survive. An intent that reached storage but
+ * cannot be confirmed is removed again (or remembered for `retryPendingCleanup`)
+ * because the write it names is never sent.
  */
 export function beginPendingWrite(storage: Storage | null, pending: PendingWrite): string | null {
   if (!storage) return null;
+  retryPendingCleanup(storage);
+  let token: string | null = null;
   try {
-    let records: PendingRecord[];
-    try {
-      records = readPendingRecords(storage);
-    } catch {
-      // An unreadable pending record is replaced; restoring it already reported it as unreadable.
-      records = [];
-    }
+    const entries = readPendingEntries(storage);
+    if (!entries.every(isPendingRecord)) return null;
     pendingCounter += 1;
-    const token = `${pageToken}-${pendingCounter}`;
+    const candidate = `${pageToken}-${pendingCounter}`;
+    token = candidate;
     const write = pending.kind === "assignment" ? assignmentRecord(pending.entry) : blockRecord(pending.entry);
-    records.push({ token, kind: pending.kind, write: { ...write, inFlight: true } });
-    storage.setItem(PENDING_WRITES_STORAGE_KEY, JSON.stringify({ v: FORMAT_VERSION, writes: records }));
-    return readPendingRecords(storage).some((record) => record.token === token) ? token : null;
+    const record: PendingRecord = { token: candidate, kind: pending.kind, write: { ...write, inFlight: true } };
+    storage.setItem(PENDING_WRITES_STORAGE_KEY, JSON.stringify({ v: FORMAT_VERSION, writes: [...entries, record] }));
+    if (readPendingEntries(storage).some((entry) => tokenOf(entry) === candidate)) return candidate;
   } catch {
-    return null;
+    // Handled below like a failed read-back.
   }
+  if (token !== null) discardPendingWrite(storage, token);
+  return null;
 }
 
 /**
@@ -333,18 +374,45 @@ export function beginPendingWrite(storage: Storage | null, pending: PendingWrite
  *
  * CP03-C1: returns whether the intent is verifiably gone (already absent
  * counts), so a caller can try again later.
+ *
+ * CP03-C2: entries that are not this write's are kept exactly as stored, damaged
+ * ones included.
  */
 export function endPendingWrite(storage: Storage | null, token: string): boolean {
   if (!storage) return false;
   try {
-    const records = readPendingRecords(storage);
-    const kept = records.filter((record) => record.token !== token);
-    if (kept.length === records.length) return true;
+    const entries = readPendingEntries(storage);
+    const kept = entries.filter((entry) => tokenOf(entry) !== token);
+    if (kept.length === entries.length) return true;
     if (kept.length === 0) storage.removeItem(PENDING_WRITES_STORAGE_KEY);
     else storage.setItem(PENDING_WRITES_STORAGE_KEY, JSON.stringify({ v: FORMAT_VERSION, writes: kept }));
-    return !readPendingRecords(storage).some((record) => record.token === token);
+    return !readPendingEntries(storage).some((entry) => tokenOf(entry) === token);
   } catch {
     return false;
+  }
+}
+
+/**
+ * CP03-C2: lets go of an intent whose write is known *not* to be unconfirmed —
+ * it was never sent, was refused, or was answered. If storage will not delete it
+ * now, the token is remembered and deleted by `retryPendingCleanup` instead of
+ * being forgotten; it is not an unconfirmed write, so it is never warned about
+ * or locked. Returns whether the intent is verifiably gone.
+ */
+export function discardPendingWrite(storage: Storage | null, token: string): boolean {
+  if (endPendingWrite(storage, token)) {
+    undeletedIntents.delete(token);
+    return true;
+  }
+  undeletedIntents.add(token);
+  return false;
+}
+
+/** CP03-C2: another try at every deletion storage refused. Only removes tokens; sends nothing. */
+export function retryPendingCleanup(storage: Storage | null): void {
+  if (undeletedIntents.size === 0) return;
+  for (const token of [...undeletedIntents]) {
+    if (endPendingWrite(storage, token)) undeletedIntents.delete(token);
   }
 }
 
@@ -361,12 +429,13 @@ export function endPendingWrite(storage: Storage | null, token: string): boolean
 export function restoreUncertainWrites(storage: Storage | null, firstId: number): RestoredUncertainWrites {
   const empty: RestoredUncertainWrites = { assignments: [], blocks: [], unreadable: false, pendingTokens: [] };
   if (!storage) return empty;
+  retryPendingCleanup(storage);
   const outcomes = restoreOutcomes(storage, firstId);
   let nextId = firstId + outcomes.assignments.length + outcomes.blocks.length;
   const pendingTokens: string[] = [];
   const recorded = new Set([...outcomes.assignments, ...outcomes.blocks].map((entry) => entry.intent));
   let unreadable = outcomes.unreadable;
-  let records: PendingRecord[] = [];
+  let records: unknown[] = [];
   let pendingText: string | null = null;
   try {
     pendingText = storage.getItem(PENDING_WRITES_STORAGE_KEY);
@@ -375,19 +444,20 @@ export function restoreUncertainWrites(storage: Storage | null, firstId: number)
   }
   if (pendingText !== null) {
     try {
-      records = readPendingRecords(storage);
+      records = readPendingEntries(storage);
     } catch {
       unreadable = true;
     }
   }
   for (const record of records) {
-    const entry =
-      record?.kind === "assignment"
-        ? readAssignment(record.write, nextId)
-        : record?.kind === "block"
-          ? readBlock(record.write, nextId)
-          : null;
-    if (!entry || typeof record.token !== "string") {
+    if (!isPendingRecord(record)) {
+      unreadable = true;
+      continue;
+    }
+    // CP03-C2: its outcome is known and only its deletion is owed.
+    if (undeletedIntents.has(record.token)) continue;
+    const entry = record.kind === "assignment" ? readAssignment(record.write, nextId) : readBlock(record.write, nextId);
+    if (!entry) {
       unreadable = true;
       continue;
     }
