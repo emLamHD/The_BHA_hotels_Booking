@@ -2,7 +2,7 @@
 
 > Correction of Draft PR #71 (`feat/pms-cal-001-5-inflight-reload-safety`). Not merged. Owner decides Ready/merge.
 > Implementer: Claude. Reviewer: Codex (read-only, invoked by Owner only).
-> START_HEAD `513650e`. Code commit `cce7613`; FINAL_HEAD is the report-only commit after it (see PR / `git log`).
+> START_HEAD `513650e`. Code commit `cce7613`; reviewed head `241b212`; later commits are docs-only (see PR / `git log`).
 
 ## Finding → cause → fix
 
@@ -34,4 +34,14 @@ Correction: 3 code/test files, +49 / −2 (source +10/−2, tests +39), plus thi
 
 ## Review
 
-`REVIEW: NOT RUN` at the time of writing. The C4 prompt asks the implementer to invoke Codex review itself; repository rules (`AGENTS.md` §2.B/§13, `CLAUDE.md`, `RULES.md` §3/§7) reserve that invocation to Owner, so it was not invoked. Owner must run `/codex:review --base origin/develop` on FINAL_HEAD.
+- **REVIEW: RUN.** One invocation of `/codex:review --base origin/develop`, run by Owner.
+- **REVIEWED_HEAD: `241b212`.** REVIEW_BASE: `origin/develop` (baseline `80f582e`). Reviewer: `CODEX_READ_ONLY`.
+- **Result: no finding.** Codex's conclusion, verbatim:
+
+  > No actionable regressions were identified in the reviewed diff. Tests could not run because the read-only sandbox blocked Vitest's temporary-file creation.
+
+- The reviewer did not run the tests: targeted 133/133 and full 674/674 are the implementer's results, not confirmed by the reviewer.
+- CI on `241b212`: run 36663622746, Admin / Backend / Frontend success.
+- **UI_LIVE: PARTIAL**, with the limits stated above unchanged (intents and storage faults seeded/injected; move/unassign/cancel dialogs and a permanently refused `sessionStorage` not exercised live; UI_LIVE not re-run for C4).
+- **OC disposition (as communicated by Owner): PASS for correction C4.** Merge/Ready remain Owner decisions.
+- The commit that records this section is a separate docs-only commit **after** `241b212`. Codex did not review that commit; the reviewed code and tests are those of `241b212`.
