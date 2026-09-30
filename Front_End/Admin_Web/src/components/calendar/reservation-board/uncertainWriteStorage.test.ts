@@ -149,7 +149,7 @@ describe("uncertainWriteStorage (PMS-CAL-001.5-CP02)", () => {
     ["the wrong shape", JSON.stringify({ v: 1, assignments: "nope", blocks: [] })],
   ])("reports %s as unreadable and restores nothing", (_label, text) => {
     sessionStorage.setItem(UNCERTAIN_WRITES_STORAGE_KEY, text);
-    expect(restoreUncertainWrites(sessionStorage, 1)).toEqual({ assignments: [], blocks: [], unreadable: true, pendingTokens: [] });
+    expect(restoreUncertainWrites(sessionStorage, 1)).toEqual({ assignments: [], blocks: [], unreadable: true, incomplete: false, pendingTokens: [] });
   });
 
   it("drops only the entries that fail validation, keeps the valid ones, and reports the loss", () => {
@@ -166,7 +166,7 @@ describe("uncertainWriteStorage (PMS-CAL-001.5-CP02)", () => {
     expect(restored.blocks).toHaveLength(1);
   });
 
-  it("never throws when storage refuses reads or writes, and restores nothing it could not read", () => {
+  it("never throws when storage refuses reads or writes, restores nothing it could not read, and says the restoration is incomplete", () => {
     const refusing = {
       getItem: () => {
         throw new DOMException("denied", "SecurityError");
@@ -179,8 +179,9 @@ describe("uncertainWriteStorage (PMS-CAL-001.5-CP02)", () => {
       },
     } as unknown as Storage;
     expect(() => persistUncertainWrites(refusing, [assignment()], [])).not.toThrow();
-    expect(restoreUncertainWrites(refusing, 1)).toEqual({ assignments: [], blocks: [], unreadable: false, pendingTokens: [] });
-    expect(restoreUncertainWrites(null, 1)).toEqual({ assignments: [], blocks: [], unreadable: false, pendingTokens: [] });
+    // PMS-CAL-001.5-CP03-C3: a read that throws is not "nothing was recorded".
+    expect(restoreUncertainWrites(refusing, 1)).toEqual({ assignments: [], blocks: [], unreadable: false, incomplete: true, pendingTokens: [] });
+    expect(restoreUncertainWrites(null, 1)).toEqual({ assignments: [], blocks: [], unreadable: false, incomplete: true, pendingTokens: [] });
   });
 
   it("tabStorage is null where sessionStorage cannot be reached", () => {
@@ -444,7 +445,7 @@ describe("uncertainWriteStorage — a known outcome's intent is deleted later, n
     expect(discardPendingWrite(sessionStorage, answered)).toBe(false);
     spy.mockRestore();
 
-    expect(restoreUncertainWrites(sessionStorage, 1)).toEqual({ assignments: [], blocks: [], unreadable: false, pendingTokens: [] });
+    expect(restoreUncertainWrites(sessionStorage, 1)).toEqual({ assignments: [], blocks: [], unreadable: false, incomplete: false, pendingTokens: [] });
     expect(sessionStorage.getItem(PENDING_WRITES_STORAGE_KEY)).toBeNull();
   });
 
@@ -452,5 +453,63 @@ describe("uncertainWriteStorage — a known outcome's intent is deleted later, n
     const answered = beginPendingWrite(sessionStorage, { kind: "assignment", entry: assignment() })!;
     endPendingWrite(sessionStorage, answered);
     expect(discardPendingWrite(sessionStorage, answered)).toBe(true);
+  });
+});
+
+describe("uncertainWriteStorage — a read that throws is an unfinished restoration, never confirmed-empty (PMS-CAL-001.5-CP03-C3)", () => {
+  /** Real storage, except that reading `keys` throws like a temporarily denied store. */
+  function refuseReads(...keys: string[]) {
+    const realGet = Storage.prototype.getItem;
+    return vi.spyOn(Storage.prototype, "getItem").mockImplementation(function (this: Storage, key: string) {
+      if (keys.includes(key)) throw new DOMException("denied", "SecurityError");
+      return realGet.call(this, key);
+    });
+  }
+
+  it.each([
+    ["the unconfirmed record", UNCERTAIN_WRITES_STORAGE_KEY],
+    ["the intent record", PENDING_WRITES_STORAGE_KEY],
+  ])("%s unreadable: incomplete, not unreadable, and the other record is still restored", (_label, key) => {
+    persistUncertainWrites(sessionStorage, [assignment()], []);
+    const token = beginPendingWrite(sessionStorage, { kind: "block", entry: block() })!;
+    const spy = refuseReads(key);
+
+    const restored = restoreUncertainWrites(sessionStorage, 1);
+
+    expect(restored.incomplete).toBe(true);
+    expect(restored.unreadable).toBe(false);
+    if (key === UNCERTAIN_WRITES_STORAGE_KEY) {
+      expect(restored.assignments).toEqual([]);
+      expect(restored.blocks.map((entry) => entry.intent)).toEqual([token]);
+    } else {
+      expect(restored.assignments).toHaveLength(1);
+      expect(restored.blocks).toEqual([]);
+    }
+    // Once readable again, everything comes back and the restoration is complete.
+    spy.mockRestore();
+    const recovered = restoreUncertainWrites(sessionStorage, 1);
+    expect(recovered.incomplete).toBe(false);
+    expect([recovered.assignments.length, recovered.blocks.length]).toEqual([1, 1]);
+  });
+
+  it("both records unreadable is incomplete too", () => {
+    beginPendingWrite(sessionStorage, { kind: "block", entry: block() });
+    refuseReads(UNCERTAIN_WRITES_STORAGE_KEY, PENDING_WRITES_STORAGE_KEY);
+    expect(restoreUncertainWrites(sessionStorage, 1)).toMatchObject({ assignments: [], blocks: [], incomplete: true, unreadable: false });
+  });
+
+  it("keeps the three states apart: corrupt (unreadable), verified empty, and unfinished", () => {
+    expect(restoreUncertainWrites(sessionStorage, 1)).toMatchObject({ incomplete: false, unreadable: false });
+    sessionStorage.setItem(PENDING_WRITES_STORAGE_KEY, "{broken");
+    expect(restoreUncertainWrites(sessionStorage, 1)).toMatchObject({ incomplete: false, unreadable: true });
+  });
+
+  it("no window at all (server render) is not a storage failure", () => {
+    vi.stubGlobal("window", undefined);
+    try {
+      expect(restoreUncertainWrites(null, 1)).toEqual({ assignments: [], blocks: [], unreadable: false, incomplete: false, pendingTokens: [] });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

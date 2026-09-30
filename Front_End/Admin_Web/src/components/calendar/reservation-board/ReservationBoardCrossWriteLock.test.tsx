@@ -21,9 +21,9 @@
 import React from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ReservationBoard from "./ReservationBoard";
-import { PENDING_WRITES_STORAGE_KEY, UNCERTAIN_WRITES_STORAGE_KEY, beginPendingWrite } from "./uncertainWriteStorage";
+import { PENDING_WRITES_STORAGE_KEY, UNCERTAIN_WRITES_STORAGE_KEY, beginPendingWrite, persistUncertainWrites } from "./uncertainWriteStorage";
 import type { BlockCreateReconciliation } from "./blockCreateReconciliation";
 import type { Reconciliation } from "./reconciliation";
 import { addDaysIso } from "./dateMath";
@@ -1726,6 +1726,390 @@ describe("ReservationBoard — known outcomes, mixed restores and damaged record
       expectNoWarningOrLock(from);
       await reloadSameTab();
       expectNoWarningOrLock(from);
+    });
+  });
+
+  describe("storage that cannot be read while restoring never means \"nothing was recorded\" (PMS-CAL-001.5-CP03-C3)", () => {
+    const BANNER = "unverified-storage-writes";
+    // The genuine reader: the tests must be able to look at storage while a read fault is being injected.
+    const rawGet = Storage.prototype.getItem;
+    afterEach(() => vi.restoreAllMocks());
+    const UNVERIFIED = "could not read the safety records";
+
+    /** The range the board opens on, found by mounting once; the fixtures below are seeded for it. */
+    async function probeRange() {
+      const range = await renderLoadedBoard();
+      cleanup();
+      return range;
+    }
+
+    const boardKey = (from: string, to: string) => `prop-a|${from}|${to}`;
+    const blockEntry = (from: string, to: string, roomId: string, roomNumber: string, start: number, end: number): BlockCreateReconciliation => ({
+      id: 0,
+      key: boardKey(from, to),
+      propertyId: "prop-a",
+      from,
+      to,
+      afterSeq: 0,
+      certainty: "uncertain",
+      status: "pending",
+      resolution: "unresolved",
+      target: { operation: "create", physicalRoomId: roomId, roomNumber, startDate: addDaysIso(from, start), endDate: addDaysIso(from, end), reason: "" },
+    });
+    const assignmentEntry = (from: string, to: string, roomId: string, roomNumber: string, start: number, end: number): Reconciliation => ({
+      id: 0,
+      key: boardKey(from, to),
+      propertyId: "prop-a",
+      from,
+      to,
+      afterSeq: 0,
+      certainty: "uncertain",
+      status: "pending",
+      resolution: "unresolved",
+      target: {
+        operation: "create",
+        reservationUnitId: "unit-1",
+        physicalRoomId: roomId,
+        startDate: addDaysIso(from, start),
+        endDate: addDaysIso(from, end),
+        roomNumber,
+        guestDisplayName: "",
+        confirmationNumber: "",
+      },
+    });
+
+    /** Reads of `keys` throw until `recover()`; the record itself is untouched. */
+    function readFailure(...keys: string[]) {
+      const refused = new Set(keys);
+      failStorage("getItem", (key) => refused.has(key));
+      return { recover: () => refused.clear() };
+    }
+
+    async function expectBlockAllowed(user: ReturnType<typeof userEvent.setup>, room: string, start: string, end: string) {
+      await reviewBlock(user, room, start, end);
+      expect(within(blockDialog()).queryByRole("alert")).not.toBeInTheDocument();
+      await closeDialog(user, blockDialog());
+    }
+
+    const storedKeys = () => [rawGet.call(sessionStorage, PENDING_KEY), rawGet.call(sessionStorage, UNCERTAIN_KEY)];
+    const banner = () => screen.queryByTestId(BANNER);
+    const postCount = () => [mockedCreate, mockedMove, mockedUnassign, mockedBlock, mockedCancel].reduce((sum, mock) => sum + mock.mock.calls.length, 0);
+
+    const boardWithPaintBlock = () =>
+      mockedBoard.mockImplementation((propertyId, from, to) => {
+        const board = boardFor(propertyId, from, to);
+        return Promise.resolve({
+          ok: true,
+          data: {
+            ...board,
+            operationalBlocks:
+              propertyId === "prop-a"
+                ? [{ roomBlockId: "b-1", segmentId: "seg-b-1", segmentVersion: 7, physicalRoomId: "room-201", startDate: addDaysIso(from, 6), endDate: addDaysIso(from, 7), reason: "Paint" }]
+                : [],
+          },
+        });
+      });
+
+    type User = ReturnType<typeof userEvent.setup>;
+    const operations: Array<{
+      name: string;
+      lock: [roomId: string, roomNumber: string, start: number, end: number];
+      prepare?: () => void;
+      open: (user: User, from: string) => Promise<HTMLElement>;
+      confirm: string;
+      /** What the dialog needs before it can be confirmed again after a refusal. */
+      again?: (dialog: HTMLElement, user: User) => Promise<void>;
+      posted: () => number;
+    }> = [
+      {
+        name: "assign",
+        lock: ["room-102", "102", 0, 1],
+        open: async (user, from) => {
+          await user.click(firstRangeBar(from));
+          await user.click(within(assignDialog()).getByLabelText(/Room 102/));
+          return assignDialog();
+        },
+        confirm: "Assign room 102",
+        posted: () => mockedCreate.mock.calls.length,
+      },
+      {
+        name: "move",
+        lock: ["room-102", "102", 3, 4],
+        open: async (user) => {
+          await openMoveDialog(user);
+          await user.click(within(moveDialog()).getByLabelText(/Room 102/));
+          return moveDialog();
+        },
+        confirm: "Move to room 102",
+        posted: () => mockedMove.mock.calls.length,
+      },
+      {
+        name: "unassign",
+        lock: ["room-101", "101", 2, 3],
+        open: async (user) => {
+          await user.click(screen.getByTitle("Nguyen Van A — CNF-100"));
+          await user.click(within(screen.getByRole("dialog", { name: "Reservation details" })).getByRole("button", { name: "Remove room assignment" }));
+          return screen.getByRole("dialog", { name: "Remove room assignment" });
+        },
+        confirm: "Remove room 101 assignment",
+        posted: () => mockedUnassign.mock.calls.length,
+      },
+      {
+        name: "block create",
+        lock: ["room-102", "102", 0, 1],
+        open: async (user, from) => {
+          await reviewBlock(user, "room-102", from, addDaysIso(from, 1));
+          return blockDialog();
+        },
+        confirm: "Create block",
+        again: (dialog, user) => user.click(within(dialog).getByRole("button", { name: "Review" })),
+        posted: () => mockedBlock.mock.calls.length,
+      },
+      {
+        name: "block cancel",
+        lock: ["room-201", "201", 6, 7],
+        prepare: boardWithPaintBlock,
+        open: async (user) => {
+          await user.click(screen.getByTitle("Paint"));
+          await user.click(within(screen.getByRole("dialog", { name: "Operational block details" })).getByRole("button", { name: "Cancel block" }));
+          return screen.getByRole("dialog", { name: "Cancel operational block" });
+        },
+        confirm: "Cancel block on room 201",
+        posted: () => mockedCancel.mock.calls.length,
+      },
+    ];
+
+    it.each(operations)(
+      "$name: a dialog opened while the intent record cannot be read sends nothing — not before, and not once storage is readable again but the operator has not asked to re-check",
+      async (operation) => {
+        const user = userEvent.setup();
+        operation.prepare?.();
+        for (const mock of [mockedCreate, mockedMove, mockedUnassign, mockedBlock, mockedCancel]) mock.mockResolvedValue({ kind: "unknown", reason: "timeout" } as never);
+        const { from, to } = await probeRange();
+        const [roomId, roomNumber, start, end] = operation.lock;
+        beginPendingWrite(sessionStorage, { kind: "block", entry: blockEntry(from, to, roomId, roomNumber, start, end) });
+        const stored = storedKeys();
+        const storage = readFailure(PENDING_KEY);
+
+        await renderLoadedBoard();
+        const dialog = await operation.open(user, from);
+
+        // Still unreadable: refused, with the reason, and the operator is told on the board too.
+        await user.click(within(dialog).getByRole("button", { name: operation.confirm }));
+        expect(operation.posted()).toBe(0);
+        expect(await within(dialog).findByRole("alert")).toHaveTextContent(UNVERIFIED);
+        expect(banner()).toHaveTextContent(UNVERIFIED);
+        expect(screen.queryByTestId("uncertain-block-notice")).not.toBeInTheDocument();
+
+        // Readable again, no click on the board's own re-check: the confirm itself takes the records in first.
+        storage.recover();
+        await operation.again?.(dialog, user);
+        await user.click(within(dialog).getByRole("button", { name: operation.confirm }));
+        expect(await within(dialog).findByRole("alert")).toHaveTextContent("still unconfirmed");
+        expect(operation.posted()).toBe(0);
+        expect(screen.getAllByTestId("uncertain-block-notice")).toHaveLength(1);
+        expect(banner()).not.toBeInTheDocument();
+        // Taken in, and the intent handed over to the record (the board may already show the block).
+        expect(storedKeys()[0]).not.toEqual(stored[0]);
+        expect(sessionStorage.getItem(PENDING_KEY)).toBeNull();
+      }
+    );
+
+    it.each(operations)(
+      "$name: storage readable again before the first confirm — the earlier request's lock is in force and the overlapping request is not sent",
+      async (operation) => {
+        const user = userEvent.setup();
+        operation.prepare?.();
+        for (const mock of [mockedCreate, mockedMove, mockedUnassign, mockedBlock, mockedCancel]) mock.mockResolvedValue({ kind: "unknown", reason: "timeout" } as never);
+        const { from, to } = await probeRange();
+        const [roomId, roomNumber, start, end] = operation.lock;
+        beginPendingWrite(sessionStorage, { kind: "block", entry: blockEntry(from, to, roomId, roomNumber, start, end) });
+        const storage = readFailure(PENDING_KEY);
+        await renderLoadedBoard();
+        const dialog = await operation.open(user, from);
+
+        storage.recover();
+        await user.click(within(dialog).getByRole("button", { name: operation.confirm }));
+        expect(operation.posted()).toBe(0);
+        expect(await within(dialog).findByRole("alert")).toHaveTextContent("still unconfirmed");
+        expect(screen.getAllByTestId("uncertain-block-notice")).toHaveLength(1);
+      }
+    );
+
+    it.each([
+      ["the intent record", PENDING_KEY],
+      ["the unconfirmed record", UNCERTAIN_KEY],
+    ])("%s unreadable at mount: a warning explains it, Check storage again re-reads without looping, and recovery restores the lock on the mounted board", async (_label, key) => {
+      const user = userEvent.setup();
+      const { from, to } = await probeRange();
+      const entry = assignmentEntry(from, to, "room-102", "102", 0, 2);
+      if (key === PENDING_KEY) beginPendingWrite(sessionStorage, { kind: "assignment", entry });
+      else persistUncertainWrites(sessionStorage, [entry], []);
+      const stored = storedKeys();
+      const storage = readFailure(key);
+
+      await renderLoadedBoard();
+      expect(banner()).toHaveTextContent("Nothing new was sent");
+      expect(banner()).not.toHaveTextContent(/reload the page|close (the|this) tab/i);
+      expect(screen.queryByTestId("uncertain-write-notice")).not.toBeInTheDocument();
+
+      // Still unreadable: another look changes nothing, sends nothing and does not read the board again.
+      const boardCalls = mockedBoard.mock.calls.length;
+      await user.click(within(banner()!).getByRole("button", { name: "Check storage again" }));
+      await user.click(within(banner()!).getByRole("button", { name: "Check storage again" }));
+      expect(banner()).toBeInTheDocument();
+      expect(mockedBoard.mock.calls.length).toBe(boardCalls);
+      expect(storedKeys()).toEqual(stored);
+
+      storage.recover();
+      await user.click(within(banner()!).getByRole("button", { name: "Check storage again" }));
+      const notice = await screen.findByTestId("uncertain-write-notice");
+      expect(notice).toHaveTextContent(`room 102, [${from}, ${addDaysIso(from, 2)})`);
+      expect(banner()).not.toBeInTheDocument();
+      expect(firstRangeBar(from)).toHaveAttribute("aria-disabled", "true");
+      await waitFor(() => expect(mockedBoard.mock.calls.length).toBe(boardCalls + 1));
+      expect(postCount()).toBe(0);
+      // Handed over: one record, no leftover intent — and one notice after a reload.
+      await waitFor(() => expect(pendingCount()).toBe(0));
+      expect(JSON.parse(sessionStorage.getItem(UNCERTAIN_KEY)!).assignments).toHaveLength(1);
+      await reloadSameTab();
+      expect(screen.getAllByTestId("uncertain-write-notice")).toHaveLength(1);
+      expect(banner()).not.toBeInTheDocument();
+    });
+
+    it.each([
+      ["intent record unreadable, unconfirmed record readable", PENDING_KEY],
+      ["unconfirmed record unreadable, intent record readable", UNCERTAIN_KEY],
+      ["both unreadable", "both"],
+    ])("an assignment in one record and a block in the other, %s: what can be read is locked at once, nothing stored is lost, and every write comes back exactly once", async (_label, unreadable) => {
+      const user = userEvent.setup();
+      const { from, to } = await probeRange();
+      // The assignment lives in the intent record, the block in the unconfirmed record — unless that record is the unreadable one.
+      const assignment = assignmentEntry(from, to, "room-102", "102", 0, 2);
+      const blockOnly = blockEntry(from, to, "room-201", "201", 0, 1);
+      beginPendingWrite(sessionStorage, { kind: "assignment", entry: assignment });
+      persistUncertainWrites(sessionStorage, [], [blockOnly]);
+      const stored = storedKeys();
+      const storage = readFailure(...(unreadable === "both" ? [PENDING_KEY, UNCERTAIN_KEY] : [unreadable]));
+
+      await renderLoadedBoard();
+      expect(banner()).toBeInTheDocument();
+      expect(screen.queryAllByTestId("uncertain-block-notice")).toHaveLength(unreadable === PENDING_KEY ? 1 : 0);
+      expect(screen.queryAllByTestId("uncertain-write-notice")).toHaveLength(unreadable === UNCERTAIN_KEY ? 1 : 0);
+
+      // Whatever else the board does meanwhile, it must not rewrite a record it could not read.
+      await user.click(screen.getByRole("button", { name: "Next date range" }));
+      await user.click(screen.getByRole("button", { name: "Previous date range" }));
+      expect(storedKeys()).toEqual(stored);
+
+      storage.recover();
+      await user.click(within(banner()!).getByRole("button", { name: "Check storage again" }));
+      await waitFor(() => expect(banner()).not.toBeInTheDocument());
+      expect(screen.getAllByTestId("uncertain-write-notice")).toHaveLength(1);
+      expect(screen.getAllByTestId("uncertain-block-notice")).toHaveLength(1);
+      await waitFor(() => expect(pendingCount()).toBe(0));
+      const record = JSON.parse(sessionStorage.getItem(UNCERTAIN_KEY)!);
+      expect([record.assignments.length, record.blocks.length]).toEqual([1, 1]);
+
+      await reloadSameTab();
+      expect(screen.getAllByTestId("uncertain-write-notice")).toHaveLength(1);
+      expect(screen.getAllByTestId("uncertain-block-notice")).toHaveLength(1);
+      expect(postCount()).toBe(0);
+    });
+
+    it("verified empty after a failed read reopens writes: one deliberate confirm sends exactly one request, and nothing earlier is replayed", async () => {
+      const user = userEvent.setup();
+      const storage = readFailure(PENDING_KEY, UNCERTAIN_KEY);
+      const { from } = await renderLoadedBoard();
+      expect(banner()).toBeInTheDocument();
+
+      storage.recover();
+      await user.click(within(banner()!).getByRole("button", { name: "Check storage again" }));
+      await waitFor(() => expect(banner()).not.toBeInTheDocument());
+      expect(postCount()).toBe(0);
+      expect(screen.queryByTestId("uncertain-write-notice")).not.toBeInTheDocument();
+
+      mockedCreate.mockResolvedValue({ kind: "created", segment: null });
+      await user.click(firstRangeBar(from));
+      await user.click(within(assignDialog()).getByLabelText(/Room 102/));
+      await user.click(within(assignDialog()).getByRole("button", { name: "Assign room 102" }));
+      await waitFor(() => expect(mockedCreate).toHaveBeenCalledTimes(1));
+      expect(postCount()).toBe(1);
+    });
+
+    it("a lock that recovery brought in still holds when the re-read shows nothing new; unrelated rooms and nights stay usable and Check again only reads", async () => {
+      const user = userEvent.setup();
+      const { from, to } = await probeRange();
+      beginPendingWrite(sessionStorage, { kind: "block", entry: blockEntry(from, to, "room-102", "102", 0, 1) });
+      const storage = readFailure(PENDING_KEY);
+      await renderLoadedBoard();
+      storage.recover();
+      await user.click(within(banner()!).getByRole("button", { name: "Check storage again" }));
+      const notice = await screen.findByTestId("uncertain-block-notice");
+      await waitFor(() => expect(notice).toHaveTextContent("no matching block is shown yet"));
+
+      await expectBlockLocked(user, "room-102", from, addDaysIso(from, 1));
+      await expectBlockAllowed(user, "room-102", addDaysIso(from, 1), addDaysIso(from, 2));
+      await expectBlockAllowed(user, "room-201", from, addDaysIso(from, 1));
+      const boardCalls = mockedBoard.mock.calls.length;
+      await user.click(within(screen.getByTestId("uncertain-block-notice")).getByRole("button", { name: "Check again" }));
+      await waitFor(() => expect(mockedBoard.mock.calls.length).toBe(boardCalls + 1));
+      expect(postCount()).toBe(0);
+    });
+
+    it("a page shown from the back/forward cache, and an ordinary board read, both retry the restoration — and neither restores a write twice", async () => {
+      const user = userEvent.setup();
+      const { from, to } = await probeRange();
+      beginPendingWrite(sessionStorage, { kind: "assignment", entry: assignmentEntry(from, to, "room-102", "102", 0, 2) });
+      beginPendingWrite(sessionStorage, { kind: "block", entry: blockEntry(from, to, "room-201", "201", 0, 1) });
+      const storage = readFailure(PENDING_KEY);
+      await renderLoadedBoard();
+      expect(banner()).toBeInTheDocument();
+
+      // An ordinary board read while it is still unreadable changes nothing.
+      await user.click(screen.getByRole("button", { name: "Next date range" }));
+      await user.click(screen.getByRole("button", { name: "Previous date range" }));
+      expect(banner()).toBeInTheDocument();
+      expect(screen.queryByTestId("uncertain-write-notice")).not.toBeInTheDocument();
+
+      storage.recover();
+      await backForward();
+      await backForward();
+      expect(banner()).not.toBeInTheDocument();
+      expect(screen.getAllByTestId("uncertain-write-notice")).toHaveLength(1);
+      expect(screen.getAllByTestId("uncertain-block-notice")).toHaveLength(1);
+      await waitFor(() => expect(pendingCount()).toBe(0));
+      expect(postCount()).toBe(0);
+    });
+
+    it("an ordinary board read alone is enough to retry once storage is readable", async () => {
+      const user = userEvent.setup();
+      const { from, to } = await probeRange();
+      beginPendingWrite(sessionStorage, { kind: "block", entry: blockEntry(from, to, "room-201", "201", 0, 1) });
+      const storage = readFailure(PENDING_KEY);
+      await renderLoadedBoard();
+      expect(banner()).toBeInTheDocument();
+
+      storage.recover();
+      await user.click(screen.getByRole("button", { name: "Next date range" }));
+      await waitFor(() => expect(banner()).not.toBeInTheDocument());
+      expect(screen.getAllByTestId("uncertain-block-notice")).toHaveLength(1);
+      expect(postCount()).toBe(0);
+    });
+
+    it("a copy of the same write in both records is one warning, and a write of this page still on the wire is not doubled", async () => {
+      const user = userEvent.setup();
+      const { from, to } = await probeRange();
+      const token = beginPendingWrite(sessionStorage, { kind: "block", entry: blockEntry(from, to, "room-201", "201", 0, 1) })!;
+      persistUncertainWrites(sessionStorage, [], [{ ...blockEntry(from, to, "room-201", "201", 0, 1), intent: token }]);
+      const storage = readFailure(UNCERTAIN_KEY);
+      await renderLoadedBoard();
+      expect(screen.getAllByTestId("uncertain-block-notice")).toHaveLength(1);
+
+      storage.recover();
+      await user.click(within(banner()!).getByRole("button", { name: "Check storage again" }));
+      await waitFor(() => expect(banner()).not.toBeInTheDocument());
+      expect(screen.getAllByTestId("uncertain-block-notice")).toHaveLength(1);
     });
   });
 });

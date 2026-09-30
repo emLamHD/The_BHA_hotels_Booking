@@ -172,6 +172,14 @@ const INTENT_NOT_RECORDED_MESSAGE =
   "Nothing was sent: this browser tab could not keep the safety record that protects this change if the page is reloaded before the server answers. Allow this site to store data for the session (for example, leave private browsing), then try again.";
 
 /**
+ * PMS-CAL-001.5-CP03-C3: shown while the records an earlier page left behind
+ * could not be read. It says neither that an earlier request exists nor that it
+ * does not — that is exactly what is not known.
+ */
+const STORAGE_UNVERIFIED_MESSAGE =
+  "Nothing was sent: this browser tab could not read the safety records of earlier requests, so it cannot yet rule out that this change repeats one. Choose Check storage again on the board, or allow this site to store data for the session (for example, leave private browsing), then try again.";
+
+/**
  * PMS-CAL-001.5-CP03: a write described exactly as it would be tracked if its
  * outcome were `unknown` — which is what an unanswered request is. Used only
  * to record the intent; the board's own entry is still built from the outcome.
@@ -447,6 +455,15 @@ const ReservationBoard: React.FC = () => {
   const inFlightTokensRef = useRef<Set<string>>(new Set());
   /** Something stored could not be read back: at mount, or when the page came back from the back/forward cache. */
   const [storageUnreadable, setStorageUnreadable] = useState(restoredWrites.unreadable);
+  /**
+   * PMS-CAL-001.5-CP03-C3: a read of the tab's records threw, so earlier writes
+   * are not accounted for. While set, no write is sent and no record is
+   * written over what could not be read. The ref is what decides (it changes
+   * the moment a read succeeds); the state only draws the warning.
+   */
+  const storageIncompleteRef = useRef(restoredWrites.incomplete);
+  const [storageIncomplete, setStorageIncomplete] = useState(restoredWrites.incomplete);
+  const recoverStorageRef = useRef<() => void>(() => undefined);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -463,6 +480,8 @@ const ReservationBoard: React.FC = () => {
   const persistTracked = useCallback(() => {
     // CP03-C2: a deletion storage refused earlier is owed whatever happens to the record below.
     retryPendingCleanup(tabStorage());
+    // C3: never write over a record that could not be read; its unread entries are not in these lists.
+    if (storageIncompleteRef.current) return;
     if (!persistUncertainWrites(tabStorage(), reconciliationsRef.current, blockReconciliationsRef.current)) return;
     for (const token of [...handOffTokensRef.current]) {
       if (endPendingWrite(tabStorage(), token)) handOffTokensRef.current.delete(token);
@@ -479,12 +498,13 @@ const ReservationBoard: React.FC = () => {
 
   /**
    * CP03-C1/C2: an unchanged list is still a moment to retry what storage
-   * refused — a hand-over (`persistTracked`) or the deletion of an intent whose
-   * outcome is known (`retryPendingCleanup`). A board read reaches this on every
-   * completion.
+   * refused — a restoration that could not read (C3), a hand-over
+   * (`persistTracked`) or the deletion of an intent whose outcome is known
+   * (`retryPendingCleanup`). A board read reaches this on every completion.
    */
   const retryStorage = useCallback(() => {
-    if (handOffTokensRef.current.size > 0) persistTracked();
+    if (storageIncompleteRef.current) recoverStorageRef.current();
+    else if (handOffTokensRef.current.size > 0) persistTracked();
     else retryPendingCleanup(tabStorage());
   }, [persistTracked]);
 
@@ -541,48 +561,82 @@ const ReservationBoard: React.FC = () => {
   );
 
   /**
-   * PMS-CAL-001.5-CP03-C1: a page restored from the back/forward cache is not
-   * mounted again, so nothing above would run. What it recorded while it was
-   * being left — an intent whose request was cut off, an unknown answer that
-   * arrived while it was unloading — is in the tab's storage but not in this
-   * page's lists. `pageshow` runs before the page takes any input, so the
-   * missing writes are taken in here, synchronously into the lock refs; they
-   * are `pending` for a re-read issued from now on, which keeps this board's
-   * write controls closed until the server has been asked again. A write
-   * already tracked here, or still on the wire (its own answer will decide
-   * it), is never taken in twice.
+   * PMS-CAL-001.5-CP03-C1: takes in what this tab's storage holds and this page's
+   * lists do not. A page restored from the back/forward cache is not mounted
+   * again, so nothing else would: what it recorded while it was being left — an
+   * intent whose request was cut off, an unknown answer that arrived while it
+   * was unloading — is in storage but not in the lists. The missing writes go
+   * synchronously into the lock refs, `pending` for a re-read issued from now on,
+   * which keeps this board's write controls closed until the server has been
+   * asked again. A write already tracked here, or still on the wire (its own
+   * answer will decide it), is never taken in twice.
+   *
+   * PMS-CAL-001.5-CP03-C3: the same routine finishes a restoration whose read
+   * threw (`incomplete`), so a mounted board recovers without a reload: it
+   * reads again, keeps the locks of whatever was readable meanwhile, and only
+   * when every record has been read does it open writes again. Returns how many
+   * writes it took in.
    */
+  const restoreStoredWrites = useCallback((): number => {
+    const restored = restoreUncertainWrites(tabStorage(), nextReconciliationIdRef.current);
+    nextReconciliationIdRef.current += restored.assignments.length + restored.blocks.length;
+    const inFlight = inFlightTokensRef.current;
+    const known = new Set([
+      ...reconciliationsRef.current.map((entry) => uncertainWriteIdentity("assignment", entry)),
+      ...blockReconciliationsRef.current.map((entry) => uncertainWriteIdentity("block", entry)),
+    ]);
+    const afterSeq = requestSeqRef.current;
+    const missing = <T extends Reconciliation | BlockCreateReconciliation>(kind: "assignment" | "block", entries: T[]) =>
+      entries
+        .filter((entry) => !known.has(uncertainWriteIdentity(kind, entry)) && !(entry.intent !== undefined && inFlight.has(entry.intent)))
+        .map((entry) => ({ ...entry, afterSeq }));
+    for (const token of restored.pendingTokens) if (!inFlight.has(token)) handOffTokensRef.current.add(token);
+    const assignments = missing("assignment", restored.assignments);
+    const blocks = missing("block", restored.blocks);
+    // Both lists hold everything they took in before anything is persisted: an
+    // intent is dropped only for a record that contains every write handed over (CP03-C2).
+    if (assignments.length > 0) updateReconciliations((list) => [...list, ...assignments], false);
+    if (blocks.length > 0) updateBlockReconciliations((list) => [...list, ...blocks], false);
+    // Before persisting: `persistTracked` writes nothing while a record is still unread.
+    storageIncompleteRef.current = restored.incomplete;
+    setStorageIncomplete(restored.incomplete);
+    persistTracked();
+    if (restored.unreadable) setStorageUnreadable(true);
+    return assignments.length + blocks.length;
+  }, [persistTracked, updateReconciliations, updateBlockReconciliations]);
+
+  /** C3: another look at records that could not be read; a board read is only needed if it found something. */
+  const recoverStorage = useCallback(() => {
+    if (restoreStoredWrites() > 0) setRetryToken((token) => token + 1);
+  }, [restoreStoredWrites]);
+
+  useEffect(() => {
+    recoverStorageRef.current = recoverStorage;
+  }, [recoverStorage]);
+
+  /**
+   * C3: called at the start of every submit path, before its room/night guard. It
+   * reads the newest state synchronously — a dialog opened, or a click made, while
+   * records were unreadable still meets the recovered locks — and refuses the
+   * send for as long as any record is unread. It never sends anything itself.
+   */
+  const refuseWhileStorageUnverified = useCallback((): string | null => {
+    if (!storageIncompleteRef.current) return null;
+    recoverStorage();
+    return storageIncompleteRef.current ? STORAGE_UNVERIFIED_MESSAGE : null;
+  }, [recoverStorage]);
+
   useEffect(() => {
     const onPageShow = (event: PageTransitionEvent) => {
       if (!event.persisted) return;
       markPageAlive();
-      const restored = restoreUncertainWrites(tabStorage(), nextReconciliationIdRef.current);
-      nextReconciliationIdRef.current += restored.assignments.length + restored.blocks.length;
-      const inFlight = inFlightTokensRef.current;
-      const known = new Set([
-        ...reconciliationsRef.current.map((entry) => uncertainWriteIdentity("assignment", entry)),
-        ...blockReconciliationsRef.current.map((entry) => uncertainWriteIdentity("block", entry)),
-      ]);
-      const afterSeq = requestSeqRef.current;
-      const missing = <T extends Reconciliation | BlockCreateReconciliation>(kind: "assignment" | "block", entries: T[]) =>
-        entries
-          .filter((entry) => !known.has(uncertainWriteIdentity(kind, entry)) && !(entry.intent !== undefined && inFlight.has(entry.intent)))
-          .map((entry) => ({ ...entry, afterSeq }));
-      for (const token of restored.pendingTokens) if (!inFlight.has(token)) handOffTokensRef.current.add(token);
-      const assignments = missing("assignment", restored.assignments);
-      const blocks = missing("block", restored.blocks);
-      // Both lists hold everything they took in before anything is persisted: an
-      // intent is dropped only for a record that contains every write handed over (CP03-C2).
-      if (assignments.length > 0) updateReconciliations((list) => [...list, ...assignments], false);
-      if (blocks.length > 0) updateBlockReconciliations((list) => [...list, ...blocks], false);
-      persistTracked();
-      if (restored.unreadable) setStorageUnreadable(true);
+      restoreStoredWrites();
       // The board may have changed while the page was away: read it again, whatever was found.
       setRetryToken((token) => token + 1);
     };
     window.addEventListener("pageshow", onPageShow);
     return () => window.removeEventListener("pageshow", onPageShow);
-  }, [persistTracked, updateReconciliations, updateBlockReconciliations]);
+  }, [restoreStoredWrites]);
 
   useEffect(() => {
     referencedBlockIdsRef.current = {
@@ -916,6 +970,8 @@ const ReservationBoard: React.FC = () => {
       // fact, the Unit's sold RoomType.
       const isCrossRoomType = room.roomTypeId !== target.stay.soldRoomTypeId;
       // PMS-CAL-001.3-CP03-C1: re-checked at send time, not only when the dialog opened.
+      const unverified = refuseWhileStorageUnverified();
+      if (unverified) return { kind: "not-sent", message: unverified };
       if (isRoomLocked(target.propertyId, [room.id], target.unassignedRange)) {
         return { kind: "not-sent", message: ROOM_LOCKED_MESSAGE };
       }
@@ -988,7 +1044,7 @@ const ReservationBoard: React.FC = () => {
       finishIntent(pendingToken, outcome.kind, describeAssignmentOutcome(outcome).reloadBoard);
       return outcome;
     },
-    [updateReconciliations, keepReconciliation, isRoomLocked, finishIntent]
+    [updateReconciliations, keepReconciliation, isRoomLocked, refuseWhileStorageUnverified, finishIntent]
   );
 
   const handleMoveRoom = useCallback(
@@ -1180,6 +1236,8 @@ const ReservationBoard: React.FC = () => {
       // the request's own `confirmCrossRoomType`.
       const isCrossRoomType = room.roomTypeId !== target.stay.soldRoomTypeId;
       // PMS-CAL-001.3-CP03-C1: a move changes both its source and its destination room.
+      const unverified = refuseWhileStorageUnverified();
+      if (unverified) return recordMoveOutcome({ kind: "not-sent", message: unverified });
       if (isRoomLocked(target.propertyId, [room.id, target.segment.physicalRoomId], target.segment)) {
         return recordMoveOutcome({ kind: "not-sent", message: ROOM_LOCKED_MESSAGE });
       }
@@ -1281,7 +1339,7 @@ const ReservationBoard: React.FC = () => {
       finishIntent(pendingToken, outcome.kind, describeMoveOutcome(outcome).reloadBoard);
       return outcome;
     },
-    [updateReconciliations, keepReconciliation, isRoomLocked, recordMoveOutcome, finishIntent]
+    [updateReconciliations, keepReconciliation, isRoomLocked, refuseWhileStorageUnverified, recordMoveOutcome, finishIntent]
   );
 
   /**
@@ -1294,6 +1352,8 @@ const ReservationBoard: React.FC = () => {
   const submitUnassign = useCallback(
     async (target: UnassignTarget, reason?: string): Promise<UnassignAssignmentOutcome> => {
       const { propertyId, segmentId, request } = buildUnassignRequest(target, reason);
+      const unverified = refuseWhileStorageUnverified();
+      if (unverified) return { kind: "not-sent", message: unverified };
       if (isRoomLocked(propertyId, [target.segment.physicalRoomId], target.segment)) {
         return { kind: "not-sent", message: ROOM_LOCKED_MESSAGE };
       }
@@ -1347,7 +1407,7 @@ const ReservationBoard: React.FC = () => {
       finishIntent(pendingToken, outcome.kind, reconciliation !== null);
       return outcome;
     },
-    [updateReconciliations, keepReconciliation, isRoomLocked, finishIntent]
+    [updateReconciliations, keepReconciliation, isRoomLocked, refuseWhileStorageUnverified, finishIntent]
   );
 
   const currentBoardKey =
@@ -1437,6 +1497,8 @@ const ReservationBoard: React.FC = () => {
   const submitBlockCancel = useCallback(
     async (target: BlockCancelTarget, reason?: string): Promise<OperationalBlockCancelOutcome> => {
       const { block } = target;
+      const unverified = refuseWhileStorageUnverified();
+      if (unverified) return { kind: "not-sent", message: unverified };
       if (isRoomLocked(target.propertyId, [block.physicalRoomId], block)) {
         return { kind: "not-sent", message: ROOM_LOCKED_MESSAGE };
       }
@@ -1524,7 +1586,7 @@ const ReservationBoard: React.FC = () => {
       finishIntent(pendingToken, outcome.kind, view.reloadBoard);
       return outcome;
     },
-    [updateBlockReconciliations, isRoomLocked, closeStaleBlockCancelDialog, keepBlockReconciliation, finishIntent]
+    [updateBlockReconciliations, isRoomLocked, closeStaleBlockCancelDialog, keepBlockReconciliation, refuseWhileStorageUnverified, finishIntent]
   );
 
   const isBlockRangeLocked = useCallback(
@@ -1540,6 +1602,8 @@ const ReservationBoard: React.FC = () => {
       if (!room) {
         return { kind: "not-sent", message: "Choose one of the listed rooms." };
       }
+      const unverified = refuseWhileStorageUnverified();
+      if (unverified) return { kind: "not-sent", message: unverified };
       if (isRoomLocked(target.propertyId, [room.id], request)) {
         return { kind: "not-sent", message: ROOM_LOCKED_MESSAGE };
       }
@@ -1628,7 +1692,7 @@ const ReservationBoard: React.FC = () => {
       finishIntent(pendingToken, outcome.kind, view.reloadBoard);
       return outcome;
     },
-    [updateBlockReconciliations, isRoomLocked, closeStaleBlockDialog, keepBlockReconciliation, finishIntent]
+    [updateBlockReconciliations, isRoomLocked, closeStaleBlockDialog, keepBlockReconciliation, refuseWhileStorageUnverified, finishIntent]
   );
 
   const reconciliationStatus = (id: number | null): BoardReloadStatus => {
@@ -2131,6 +2195,27 @@ const ReservationBoard: React.FC = () => {
           }}
         />
       ))}
+      {storageIncomplete && selectedPropertyId !== null && (
+        // Client-only, like the warning below. Writes stay closed until every record has been read.
+        <div
+          role="alert"
+          data-testid="unverified-storage-writes"
+          className="mx-2 mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-warning-50 px-3 py-2 text-sm text-warning-800 sm:mx-4 dark:bg-warning-500/10 dark:text-warning-300"
+        >
+          <p>
+            This browser tab could not read the safety records of requests sent before this page was reloaded or left, so
+            those requests, if any, are not accounted for. Changes are not sent from this board until they can be read.
+            Nothing new was sent.
+          </p>
+          <button
+            type="button"
+            onClick={recoverStorage}
+            className="shrink-0 rounded-lg border border-warning-300 px-3 py-1 text-xs font-medium hover:bg-warning-100 dark:border-warning-500/40 dark:hover:bg-white/5"
+          >
+            Check storage again
+          </button>
+        </div>
+      )}
       {storageUnreadable && selectedPropertyId !== null && (
         // Client-only (gated on a loaded Property), so it never differs from the server render.
         <p

@@ -48,6 +48,11 @@
  *   refuses the new write instead of being replaced, because it cannot prove no
  *   write is in flight.
  *
+ * PMS-CAL-001.5-CP03-C3: a *read* that throws is not "nothing was recorded".
+ * `restoreUncertainWrites` reports it as `incomplete`; the board keeps writes
+ * closed, does not persist over a record it could not read, and restores again
+ * when storage answers (see the board's `restoreStoredWrites`).
+ *
  * A restored entry is treated as new to this page: `afterSeq` is 0 and `status`
  * is `pending`, because the previous page's board request sequence restarted
  * with the page, and none of this page's reads has seen that board yet.
@@ -76,6 +81,15 @@ export interface RestoredUncertainWrites {
    * rebuilt; the board says so instead of implying nothing was pending.
    */
   unreadable: boolean;
+  /**
+   * PMS-CAL-001.5-CP03-C3: a read *threw* (or the tab's storage could not be
+   * reached at all), so what a previous page left behind is not known — which is
+   * not the same as nothing having been left. Distinct from `unreadable`
+   * (something was read and is damaged) and from a verified-empty result. The
+   * entries above are whatever the other record still yielded; the caller keeps
+   * writes closed and restores again until this is `false`.
+   */
+  incomplete: boolean;
   /** CP03: the in-flight intents restored above, to hand over once the page has taken them in. */
   pendingTokens: string[];
 }
@@ -427,8 +441,9 @@ export function retryPendingCleanup(storage: Storage | null): void {
  * while the intent's token is still reported so the page can drop it.
  */
 export function restoreUncertainWrites(storage: Storage | null, firstId: number): RestoredUncertainWrites {
-  const empty: RestoredUncertainWrites = { assignments: [], blocks: [], unreadable: false, pendingTokens: [] };
-  if (!storage) return empty;
+  const empty: RestoredUncertainWrites = { assignments: [], blocks: [], unreadable: false, incomplete: false, pendingTokens: [] };
+  // No `window` is a server render, which has nothing to restore; a client whose storage cannot be reached has not looked.
+  if (!storage) return { ...empty, incomplete: typeof window !== "undefined" };
   retryPendingCleanup(storage);
   const outcomes = restoreOutcomes(storage, firstId);
   let nextId = firstId + outcomes.assignments.length + outcomes.blocks.length;
@@ -437,10 +452,12 @@ export function restoreUncertainWrites(storage: Storage | null, firstId: number)
   let unreadable = outcomes.unreadable;
   let records: unknown[] = [];
   let pendingText: string | null = null;
+  let incomplete = outcomes.incomplete;
   try {
     pendingText = storage.getItem(PENDING_WRITES_STORAGE_KEY);
   } catch {
-    // Refused storage: nothing could have been recorded, so there is nothing to report.
+    // Refused storage says nothing about what was recorded (C3).
+    incomplete = true;
   }
   if (pendingText !== null) {
     try {
@@ -468,16 +485,16 @@ export function restoreUncertainWrites(storage: Storage | null, firstId: number)
     if (record.kind === "assignment") outcomes.assignments.push(entry as Reconciliation);
     else outcomes.blocks.push(entry as BlockCreateReconciliation);
   }
-  return { ...outcomes, unreadable, pendingTokens };
+  return { ...outcomes, unreadable, incomplete, pendingTokens };
 }
 
 function restoreOutcomes(storage: Storage, firstId: number): Omit<RestoredUncertainWrites, "pendingTokens"> {
-  const empty = { assignments: [] as Reconciliation[], blocks: [] as BlockCreateReconciliation[], unreadable: false };
+  const empty = { assignments: [] as Reconciliation[], blocks: [] as BlockCreateReconciliation[], unreadable: false, incomplete: false };
   let text: string | null;
   try {
     text = storage.getItem(UNCERTAIN_WRITES_STORAGE_KEY);
   } catch {
-    return empty;
+    return { ...empty, incomplete: true };
   }
   if (text === null) return empty;
 
@@ -520,5 +537,5 @@ function restoreOutcomes(storage: Storage, firstId: number): Omit<RestoredUncert
       unreadable = true;
     }
   }
-  return { assignments, blocks, unreadable };
+  return { assignments, blocks, unreadable, incomplete: false };
 }
