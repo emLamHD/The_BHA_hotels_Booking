@@ -116,8 +116,17 @@ export interface Reconciliation {
    * PMS-CAL-001.5-CP02: brought back from this tab's storage after a reload
    * (`uncertainWriteStorage.ts`). Such an entry no longer carries guest,
    * confirmation or reason text, so its notice describes it neutrally.
+   * PMS-CAL-001.5-CP03: `"in-flight"` when the page unloaded before any
+   * outcome arrived, `"unknown-outcome"` when it received `unknown`.
    */
-  restored?: true;
+  restored?: "unknown-outcome" | "in-flight";
+  /**
+   * PMS-CAL-001.5-CP03-C1: the token of the in-flight intent this write was
+   * recorded under before it was sent (`uncertainWriteStorage.ts`). It is the
+   * write's identity across the tab's two records, so one write is never
+   * restored — or warned about — twice. Not read by the reconciliation rules.
+   */
+  intent?: string;
 }
 
 function containsRange(outer: { startDate: string; endDate: string }, inner: { startDate: string; endDate: string }) {

@@ -21,9 +21,11 @@
 import React from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ReservationBoard from "./ReservationBoard";
-import { UNCERTAIN_WRITES_STORAGE_KEY } from "./uncertainWriteStorage";
+import { PENDING_WRITES_STORAGE_KEY, UNCERTAIN_WRITES_STORAGE_KEY, beginPendingWrite, persistUncertainWrites } from "./uncertainWriteStorage";
+import type { BlockCreateReconciliation } from "./blockCreateReconciliation";
+import type { Reconciliation } from "./reconciliation";
 import { addDaysIso } from "./dateMath";
 import type {
   AssignmentCreateOutcome,
@@ -807,5 +809,1326 @@ describe("ReservationBoard — an unconfirmed write survives a reload in the sam
     next.focus();
     fireEvent.click(dismissAgain);
     expect(document.activeElement).toBe(next);
+  });
+});
+
+describe("ReservationBoard — a write still in flight survives a reload in the same tab (PMS-CAL-001.5-CP03)", () => {
+  /** The board as the server shows it once an assignment of `[from, from+2)` to room 102 exists. */
+  function serveAssignedTo102() {
+    mockedBoard.mockImplementation((propertyId, from, to) => {
+      const board = boardFor(propertyId, from, to);
+      if (propertyId !== "prop-a") return Promise.resolve({ ok: true, data: board });
+      const [stay] = board.stays;
+      return Promise.resolve({
+        ok: true,
+        data: {
+          ...board,
+          stays: [
+            {
+              ...stay,
+              assignments: [
+                ...stay.assignments,
+                { segmentId: "seg-new", segmentVersion: 1, physicalRoomId: "room-102", actualRoomTypeId: "type-standard", startDate: from, endDate: addDaysIso(from, 2) },
+              ],
+              unassignedRanges: stay.unassignedRanges.slice(1),
+            },
+          ],
+        },
+      });
+    });
+  }
+
+  const PENDING_KEY = "thebha.adminCalendar.pendingWrites";
+  const UNCERTAIN_KEY = "thebha.adminCalendar.uncertainWrites";
+
+  async function reloadSameTab() {
+    cleanup();
+    return renderLoadedBoard();
+  }
+
+  async function expectBlockLocked(user: ReturnType<typeof userEvent.setup>, room: string, start: string, end: string) {
+    await reviewBlock(user, room, start, end);
+    expect(within(blockDialog()).getByRole("alert")).toHaveTextContent("still unconfirmed");
+    await closeDialog(user, blockDialog());
+  }
+
+  async function expectBlockAllowed(user: ReturnType<typeof userEvent.setup>, room: string, start: string, end: string) {
+    await reviewBlock(user, room, start, end);
+    expect(within(blockDialog()).queryByRole("alert")).not.toBeInTheDocument();
+    await closeDialog(user, blockDialog());
+  }
+
+  function expectInFlightWording(notice: HTMLElement) {
+    expect(notice).toHaveTextContent("sent just before this page was reloaded");
+    expect(notice).toHaveTextContent("may never have reached the server, or may already have been saved");
+    expect(notice).toHaveTextContent("shows the schedule, not which request changed it");
+  }
+
+  /** Starts an assignment of the first unassigned range to room 102 whose POST never answers. */
+  async function startPendingAssignment(user: ReturnType<typeof userEvent.setup>, from: string) {
+    const post = deferred<AssignmentCreateOutcome>();
+    mockedCreate.mockImplementation(() => post.promise);
+    await user.click(firstRangeBar(from));
+    await user.click(within(assignDialog()).getByLabelText(/Room 102/));
+    await user.click(within(assignDialog()).getByRole("button", { name: "Assign room 102" }));
+    expect(mockedCreate).toHaveBeenCalledTimes(1);
+    return post;
+  }
+
+  it("assign: reloaded while its POST is pending, the notice and the lock come back, nothing is resent, and Check again only reads", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    await startPendingAssignment(user, from);
+
+    await reloadSameTab();
+
+    const notice = await screen.findByTestId("uncertain-write-notice");
+    expectInFlightWording(notice);
+    expect(notice).toHaveTextContent(`room 102, [${from}, ${addDaysIso(from, 2)})`);
+    expect(notice).not.toHaveTextContent("Nguyen Van A");
+    expect(firstRangeBar(from)).toHaveAttribute("aria-disabled", "true");
+    await expectBlockLocked(user, "room-102", from, addDaysIso(from, 1));
+    await expectBlockAllowed(user, "room-201", from, addDaysIso(from, 1));
+    await expectBlockAllowed(user, "room-102", addDaysIso(from, 5), addDaysIso(from, 6));
+
+    const boardCalls = mockedBoard.mock.calls.length;
+    await user.click(within(screen.getByTestId("uncertain-write-notice")).getByRole("button", { name: "Check again" }));
+    await waitFor(() => expect(mockedBoard.mock.calls.length).toBe(boardCalls + 1));
+    expect(screen.getByTestId("uncertain-write-notice")).toHaveTextContent("still unknown");
+    expect(mockedCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("move: reloaded while pending, both its source and destination rooms stay locked for its nights", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    mockedMove.mockImplementation(() => deferred<MoveAssignmentOutcome>().promise);
+    await openMoveDialog(user);
+    await user.click(within(moveDialog()).getByLabelText(/Room 102/));
+    await user.click(within(moveDialog()).getByRole("button", { name: "Move to room 102" }));
+
+    await reloadSameTab();
+
+    expectInFlightWording(await screen.findByTestId("uncertain-write-notice"));
+    await expectBlockLocked(user, "room-101", addDaysIso(from, 2), addDaysIso(from, 3));
+    await expectBlockLocked(user, "room-102", addDaysIso(from, 3), addDaysIso(from, 4));
+    await expectBlockAllowed(user, "room-102", from, addDaysIso(from, 1));
+    expect(mockedMove).toHaveBeenCalledTimes(1);
+  });
+
+  it("unassign: reloaded while pending, its source room stays locked and the unassign is not offered again", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    mockedUnassign.mockImplementation(() => deferred<UnassignAssignmentOutcome>().promise);
+    await user.click(screen.getByTitle("Nguyen Van A — CNF-100"));
+    await user.click(within(screen.getByRole("dialog", { name: "Reservation details" })).getByRole("button", { name: "Remove room assignment" }));
+    await user.click(within(screen.getByRole("dialog", { name: "Remove room assignment" })).getByRole("button", { name: "Remove room 101 assignment" }));
+
+    await reloadSameTab();
+
+    expectInFlightWording(await screen.findByTestId("uncertain-write-notice"));
+    await expectBlockLocked(user, "room-101", addDaysIso(from, 2), addDaysIso(from, 3));
+    await user.click(screen.getByTitle("Nguyen Van A — CNF-100"));
+    expect(within(screen.getByRole("dialog", { name: "Reservation details" })).getByRole("button", { name: "Remove room assignment" })).toBeDisabled();
+    expect(mockedUnassign).toHaveBeenCalledTimes(1);
+  });
+
+  it("block create: reloaded while pending, the room's nights stay locked and the notice carries no reason", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    mockedBlock.mockImplementation(() => deferred<OperationalBlockCreateOutcome>().promise);
+    await reviewBlock(user, "room-102", from, addDaysIso(from, 1));
+    await user.click(within(blockDialog()).getByRole("button", { name: "Create block" }));
+
+    await reloadSameTab();
+
+    const notice = await screen.findByTestId("uncertain-block-notice");
+    expectInFlightWording(notice);
+    expect(notice).not.toHaveTextContent("Leak");
+    await expectBlockLocked(user, "room-102", from, addDaysIso(from, 1));
+    await expectBlockAllowed(user, "room-101", from, addDaysIso(from, 1));
+    expect(mockedBlock).toHaveBeenCalledTimes(1);
+  });
+
+  it("block cancel: reloaded while pending, the block's room and nights stay locked and the cancel is not offered again", async () => {
+    const user = userEvent.setup();
+    mockedBoard.mockImplementation((propertyId, from, to) => {
+      const board = boardFor(propertyId, from, to);
+      return Promise.resolve({
+        ok: true,
+        data: {
+          ...board,
+          operationalBlocks:
+            propertyId === "prop-a"
+              ? [{ roomBlockId: "b-1", segmentId: "seg-b-1", segmentVersion: 7, physicalRoomId: "room-201", startDate: addDaysIso(from, 6), endDate: addDaysIso(from, 7), reason: "Paint" }]
+              : [],
+        },
+      });
+    });
+    const { from } = await renderLoadedBoard();
+    mockedCancel.mockImplementation(() => new Promise(() => {}));
+    await user.click(screen.getByTitle("Paint"));
+    await user.click(within(screen.getByRole("dialog", { name: "Operational block details" })).getByRole("button", { name: "Cancel block" }));
+    await user.click(within(screen.getByRole("dialog", { name: "Cancel operational block" })).getByRole("button", { name: "Cancel block on room 201" }));
+
+    await reloadSameTab();
+
+    const notice = await screen.findByTestId("uncertain-block-notice");
+    expectInFlightWording(notice);
+    expect(notice).not.toHaveTextContent("Paint");
+    await expectBlockLocked(user, "room-201", addDaysIso(from, 6), addDaysIso(from, 7));
+    await user.click(screen.getByTitle("Paint"));
+    expect(within(screen.getByRole("dialog", { name: "Operational block details" })).getByRole("button", { name: "Cancel block" })).toBeDisabled();
+    expect(mockedCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["201", { kind: "created", segment: null }],
+    ["409", { kind: "rejected", status: 409, category: "conflict" }],
+    ["400", { kind: "rejected", status: 400, category: "validation" }],
+    ["not-sent", { kind: "not-sent", message: "No API address." }],
+  ] as [string, AssignmentCreateOutcome][])("a %s answer removes the intent, and a later reload restores nothing", async (_label, outcome) => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    const post = await startPendingAssignment(user, from);
+    expect(sessionStorage.getItem(PENDING_KEY)).not.toBeNull();
+
+    await act(async () => post.resolve(outcome));
+    await waitFor(() => expect(sessionStorage.getItem(PENDING_KEY)).toBeNull());
+    expect(sessionStorage.getItem(UNCERTAIN_KEY)).toBeNull();
+
+    await reloadSameTab();
+    expect(screen.queryByTestId("uncertain-write-notice")).not.toBeInTheDocument();
+  });
+
+  it("an unknown answer hands the lock from the intent to the unconfirmed record with no moment unlocked", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    const post = await startPendingAssignment(user, from);
+
+    // Watch every storage write: at no point may both records be empty.
+    const gaps: string[] = [];
+    const realRemove = Storage.prototype.removeItem;
+    const spy = vi.spyOn(Storage.prototype, "removeItem").mockImplementation(function (this: Storage, key: string) {
+      realRemove.call(this, key);
+      if (this.getItem(PENDING_KEY) === null && this.getItem(UNCERTAIN_KEY) === null) gaps.push(key);
+    });
+    await act(async () => post.resolve({ kind: "unknown", reason: "timeout" }));
+    spy.mockRestore();
+
+    expect(gaps).toEqual([]);
+    expect(sessionStorage.getItem(PENDING_KEY)).toBeNull();
+    expect(sessionStorage.getItem(UNCERTAIN_KEY)).not.toBeNull();
+    await reloadSameTab();
+    expect(await screen.findByTestId("uncertain-write-notice")).toHaveTextContent("from before this page was reloaded");
+  });
+
+  it("a late answer from the page that was reloaded cannot remove what the new page is tracking", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    const post = await startPendingAssignment(user, from);
+
+    await reloadSameTab();
+    await screen.findByTestId("uncertain-write-notice");
+    // The old page's request now answers — its page is gone.
+    await act(async () => post.resolve({ kind: "created", segment: null }));
+
+    // The new page still tracks it: only server data may resolve it.
+    expect(screen.getByTestId("uncertain-write-notice")).toBeInTheDocument();
+    expect(firstRangeBar(from)).toHaveAttribute("aria-disabled", "true");
+    await reloadSameTab();
+    expect(await screen.findByTestId("uncertain-write-notice")).toBeInTheDocument();
+  });
+
+  it("an unknown answer that reaches the old page after it unmounted, before the new page loads, is still there for the new page", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    const post = await startPendingAssignment(user, from);
+
+    cleanup();
+    await act(async () => post.resolve({ kind: "unknown", reason: "network" }));
+    await renderLoadedBoard();
+
+    expectInFlightWording(await screen.findByTestId("uncertain-write-notice"));
+    expect(firstRangeBar(from)).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("once server data resolves a restored in-flight write, a later reload does not bring it back", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    await startPendingAssignment(user, from);
+
+    serveAssignedTo102();
+    await reloadSameTab();
+    await waitFor(() => expect(screen.getByTestId("uncertain-write-notice")).toHaveTextContent("is now shown on the server"));
+    expect(sessionStorage.getItem(PENDING_KEY)).toBeNull();
+    expect(sessionStorage.getItem(UNCERTAIN_KEY)).toBeNull();
+
+    await reloadSameTab();
+    expect(screen.queryByTestId("uncertain-write-notice")).not.toBeInTheDocument();
+  });
+
+  it("a real reload aborts the pending POST while the old page is still mounted: the intent stays in flight, with the in-flight wording", async () => {
+    // Verified live in Chrome: reloading aborts the old page's fetch *before*
+    // that page unmounts, so the client reports `unknown/aborted` to a board
+    // that is still mounted. `pagehide` marks the page as unloading first.
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    const post = await startPendingAssignment(user, from);
+
+    await act(async () => {
+      window.dispatchEvent(new Event("pagehide"));
+      post.resolve({ kind: "unknown", reason: "aborted" });
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+    });
+    expect(sessionStorage.getItem(PENDING_KEY)).not.toBeNull();
+
+    await reloadSameTab();
+    expectInFlightWording(await screen.findByTestId("uncertain-write-notice"));
+    expect(firstRangeBar(from)).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("when the intent cannot be stored, nothing is sent and the operator is told why", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    const spy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("full", "QuotaExceededError");
+    });
+    mockedCreate.mockResolvedValue({ kind: "created", segment: null });
+    await user.click(firstRangeBar(from));
+    await user.click(within(assignDialog()).getByLabelText(/Room 102/));
+    await user.click(within(assignDialog()).getByRole("button", { name: "Assign room 102" }));
+    spy.mockRestore();
+
+    expect(mockedCreate).not.toHaveBeenCalled();
+    expect(await within(assignDialog()).findByRole("alert")).toHaveTextContent("could not keep the safety record");
+    // The dialog stays usable once storage works again.
+    mockedCreate.mockResolvedValue({ kind: "rejected", status: 409, category: "conflict" });
+    await user.click(within(assignDialog()).getByRole("button", { name: "Assign room 102" }));
+    await waitFor(() => expect(mockedCreate).toHaveBeenCalledTimes(1));
+  });
+
+  it("a double submit records one intent for its one POST, and a refusal before sending records none", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    // Refused before sending: the destination is locked by an earlier lost block.
+    await loseBlock(user, "room-102", from, addDaysIso(from, 1));
+    await user.click(firstRangeBar(from));
+    await user.click(within(assignDialog()).getByLabelText(/Room 102/));
+    await user.click(within(assignDialog()).getByRole("button", { name: "Assign room 102" }));
+    expect(await within(assignDialog()).findByRole("alert")).toHaveTextContent("still unconfirmed");
+    expect(sessionStorage.getItem(PENDING_KEY)).toBeNull();
+
+    mockedCreate.mockImplementation(() => deferred<AssignmentCreateOutcome>().promise);
+    await user.click(within(assignDialog()).getByLabelText(/Room 101/));
+    await user.dblClick(within(assignDialog()).getByRole("button", { name: "Assign room 101" }));
+    expect(mockedCreate).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(sessionStorage.getItem(PENDING_KEY)!).writes).toHaveLength(1);
+  });
+});
+
+describe("ReservationBoard — no write that may have reached the server is ever left without a record (PMS-CAL-001.5-CP03-C1)", () => {
+  const PENDING_KEY = "thebha.adminCalendar.pendingWrites";
+  const UNCERTAIN_KEY = "thebha.adminCalendar.uncertainWrites";
+
+  async function reloadSameTab() {
+    cleanup();
+    return renderLoadedBoard();
+  }
+
+  /** Storage that refuses only the unconfirmed record (quota, temporary denial); the intent key keeps working. */
+  function refuseUnconfirmedRecord() {
+    const realSet = Storage.prototype.setItem;
+    return vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key: string, value: string) {
+      if (key === UNCERTAIN_KEY) throw new DOMException("full", "QuotaExceededError");
+      realSet.call(this, key, value);
+    });
+  }
+
+  async function expectBlockLocked(user: ReturnType<typeof userEvent.setup>, room: string, start: string, end: string) {
+    await reviewBlock(user, room, start, end);
+    expect(within(blockDialog()).getByRole("alert")).toHaveTextContent("still unconfirmed");
+    await closeDialog(user, blockDialog());
+  }
+
+  async function expectBlockAllowed(user: ReturnType<typeof userEvent.setup>, room: string, start: string, end: string) {
+    await reviewBlock(user, room, start, end);
+    expect(within(blockDialog()).queryByRole("alert")).not.toBeInTheDocument();
+    await closeDialog(user, blockDialog());
+  }
+
+  const pendingCount = () => {
+    const text = sessionStorage.getItem(PENDING_KEY);
+    return text === null ? 0 : (JSON.parse(text).writes as unknown[]).length;
+  };
+
+  /** An assignment of the first unassigned range to room 102 whose POST answers only when told to. */
+  async function startPendingAssignment(user: ReturnType<typeof userEvent.setup>, from: string) {
+    const post = deferred<AssignmentCreateOutcome>();
+    mockedCreate.mockImplementation(() => post.promise);
+    await user.click(firstRangeBar(from));
+    await user.click(within(assignDialog()).getByLabelText(/Room 102/));
+    await user.click(within(assignDialog()).getByRole("button", { name: "Assign room 102" }));
+    expect(mockedCreate).toHaveBeenCalledTimes(1);
+    return post;
+  }
+
+  /** A block create on room 102 for `[from, from+1)` whose POST answers only when told to. */
+  async function startPendingBlock(user: ReturnType<typeof userEvent.setup>, from: string) {
+    const post = deferred<OperationalBlockCreateOutcome>();
+    mockedBlock.mockImplementation(() => post.promise);
+    await reviewBlock(user, "room-102", from, addDaysIso(from, 1));
+    await user.click(within(blockDialog()).getByRole("button", { name: "Create block" }));
+    expect(mockedBlock).toHaveBeenCalledTimes(1);
+    return post;
+  }
+
+  function showFromBackForwardCache() {
+    const event = new Event("pageshow");
+    Object.defineProperty(event, "persisted", { value: true });
+    window.dispatchEvent(event);
+  }
+
+  describe("the unconfirmed record cannot be written when a restored intent is handed over at mount", () => {
+    it("assignment: the intent survives, and the next reload still shows the notice and the lock", async () => {
+      const user = userEvent.setup();
+      const { from } = await renderLoadedBoard();
+      await startPendingAssignment(user, from);
+      expect(pendingCount()).toBe(1);
+
+      const spy = refuseUnconfirmedRecord();
+      await reloadSameTab();
+      // This page itself still warns and locks, from memory.
+      expect(await screen.findByTestId("uncertain-write-notice")).toBeInTheDocument();
+      expect(firstRangeBar(from)).toHaveAttribute("aria-disabled", "true");
+      spy.mockRestore();
+      expect(pendingCount()).toBe(1);
+
+      await reloadSameTab();
+      const notice = await screen.findByTestId("uncertain-write-notice");
+      expect(notice).toHaveTextContent(`room 102, [${from}, ${addDaysIso(from, 2)})`);
+      expect(screen.getAllByTestId("uncertain-write-notice")).toHaveLength(1);
+      expect(firstRangeBar(from)).toHaveAttribute("aria-disabled", "true");
+      await expectBlockLocked(user, "room-102", from, addDaysIso(from, 1));
+      await expectBlockAllowed(user, "room-201", from, addDaysIso(from, 1));
+      expect(mockedCreate).toHaveBeenCalledTimes(1);
+    });
+
+    it("block: the intent survives, and the next reload still shows the notice and the lock", async () => {
+      const user = userEvent.setup();
+      const { from } = await renderLoadedBoard();
+      await startPendingBlock(user, from);
+
+      const spy = refuseUnconfirmedRecord();
+      await reloadSameTab();
+      expect(await screen.findByTestId("uncertain-block-notice")).toBeInTheDocument();
+      spy.mockRestore();
+      expect(pendingCount()).toBe(1);
+
+      await reloadSameTab();
+      expect(screen.getAllByTestId("uncertain-block-notice")).toHaveLength(1);
+      await expectBlockLocked(user, "room-102", from, addDaysIso(from, 1));
+      await expectBlockAllowed(user, "room-101", from, addDaysIso(from, 1));
+      expect(mockedBlock).toHaveBeenCalledTimes(1);
+    });
+
+    it("once storage accepts the record again, the hand-over completes: one record, no leftover intent, one notice", async () => {
+      const user = userEvent.setup();
+      const { from } = await renderLoadedBoard();
+      await startPendingAssignment(user, from);
+
+      const spy = refuseUnconfirmedRecord();
+      await reloadSameTab();
+      await screen.findByTestId("uncertain-write-notice");
+      spy.mockRestore();
+      // Any later change of the tracked list writes the record again; Check again's re-read is one.
+      const boardCalls = mockedBoard.mock.calls.length;
+      await user.click(within(screen.getByTestId("uncertain-write-notice")).getByRole("button", { name: "Check again" }));
+      await waitFor(() => expect(mockedBoard.mock.calls.length).toBe(boardCalls + 1));
+      await waitFor(() => expect(pendingCount()).toBe(0));
+      expect(sessionStorage.getItem(UNCERTAIN_KEY)).not.toBeNull();
+
+      await reloadSameTab();
+      expect(screen.getAllByTestId("uncertain-write-notice")).toHaveLength(1);
+      expect(mockedCreate).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("the unconfirmed record cannot be written when an unknown answer reaches the live page", () => {
+    it("assignment: the intent survives, this page warns and locks, and a reload still does", async () => {
+      const user = userEvent.setup();
+      const { from } = await renderLoadedBoard();
+      const post = await startPendingAssignment(user, from);
+
+      const spy = refuseUnconfirmedRecord();
+      const before = mockedBoard.mock.calls.length;
+      await act(async () => post.resolve({ kind: "unknown", reason: "timeout" }));
+      await settleReread(before);
+      spy.mockRestore();
+      expect(pendingCount()).toBe(1);
+      await closeDialog(user, assignDialog());
+      expect(screen.getByTestId("uncertain-write-notice")).toBeInTheDocument();
+      expect(firstRangeBar(from)).toHaveAttribute("aria-disabled", "true");
+
+      await reloadSameTab();
+      expect(screen.getAllByTestId("uncertain-write-notice")).toHaveLength(1);
+      expect(firstRangeBar(from)).toHaveAttribute("aria-disabled", "true");
+      await expectBlockLocked(user, "room-102", from, addDaysIso(from, 1));
+      expect(mockedCreate).toHaveBeenCalledTimes(1);
+    });
+
+    it("block: the intent survives, this page warns and locks, and a reload still does", async () => {
+      const user = userEvent.setup();
+      const { from } = await renderLoadedBoard();
+      const post = await startPendingBlock(user, from);
+
+      const spy = refuseUnconfirmedRecord();
+      const before = mockedBoard.mock.calls.length;
+      await act(async () => post.resolve({ kind: "unknown", reason: "timeout" }));
+      await settleReread(before);
+      spy.mockRestore();
+      expect(pendingCount()).toBe(1);
+      await closeDialog(user, blockDialog());
+      expect(screen.getByTestId("uncertain-block-notice")).toBeInTheDocument();
+      await expectBlockLocked(user, "room-102", from, addDaysIso(from, 1));
+
+      await reloadSameTab();
+      expect(screen.getAllByTestId("uncertain-block-notice")).toHaveLength(1);
+      await expectBlockLocked(user, "room-102", from, addDaysIso(from, 1));
+      expect(mockedBlock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("the page comes back from the back/forward cache without remounting", () => {
+    it("assignment: an unknown answer received while the page was hidden comes back as a notice and a lock before any new write, with no second POST", async () => {
+      const user = userEvent.setup();
+      const { from } = await renderLoadedBoard();
+      const post = await startPendingAssignment(user, from);
+
+      await act(async () => {
+        window.dispatchEvent(new Event("pagehide"));
+        post.resolve({ kind: "unknown", reason: "aborted" });
+        await flushMicrotasks();
+      });
+      const boardCalls = mockedBoard.mock.calls.length;
+      await act(async () => {
+        showFromBackForwardCache();
+        await flushMicrotasks();
+      });
+
+      const notice = await screen.findByTestId("uncertain-write-notice");
+      expect(notice).toHaveTextContent("sent just before this page was reloaded or left");
+      expect(notice).toHaveTextContent("may never have reached the server, or may already have been saved");
+      expect(screen.getAllByTestId("uncertain-write-notice")).toHaveLength(1);
+      // An authoritative re-read, not the board as it was before the page was hidden.
+      await waitFor(() => expect(mockedBoard.mock.calls.length).toBe(boardCalls + 1));
+      await waitFor(() => expect(screen.getByTestId("uncertain-write-notice")).toHaveTextContent("still unknown"));
+      await closeDialog(user, assignDialog());
+      expect(firstRangeBar(from)).toHaveAttribute("aria-disabled", "true");
+      await expectBlockLocked(user, "room-102", from, addDaysIso(from, 1));
+      // A write that does not overlap is still possible.
+      await expectBlockAllowed(user, "room-201", from, addDaysIso(from, 1));
+
+      const afterReread = mockedBoard.mock.calls.length;
+      await user.click(within(screen.getByTestId("uncertain-write-notice")).getByRole("button", { name: "Check again" }));
+      await waitFor(() => expect(mockedBoard.mock.calls.length).toBe(afterReread + 1));
+      expect(mockedCreate).toHaveBeenCalledTimes(1);
+      // The page holds it now: the intent was handed over to the record.
+      expect(pendingCount()).toBe(0);
+      expect(sessionStorage.getItem(UNCERTAIN_KEY)).not.toBeNull();
+    });
+
+    it("block: an unknown answer received while the page was hidden comes back as a notice and a lock", async () => {
+      const user = userEvent.setup();
+      const { from } = await renderLoadedBoard();
+      const post = await startPendingBlock(user, from);
+
+      await act(async () => {
+        window.dispatchEvent(new Event("pagehide"));
+        post.resolve({ kind: "unknown", reason: "aborted" });
+        await flushMicrotasks();
+      });
+      await act(async () => {
+        showFromBackForwardCache();
+        await flushMicrotasks();
+      });
+
+      expect(await screen.findByTestId("uncertain-block-notice")).toBeInTheDocument();
+      expect(screen.getAllByTestId("uncertain-block-notice")).toHaveLength(1);
+      await closeDialog(user, blockDialog());
+      await expectBlockLocked(user, "room-102", from, addDaysIso(from, 1));
+      expect(mockedBlock).toHaveBeenCalledTimes(1);
+    });
+
+    it("a write still on the wire when the page comes back is not doubled: its own answer later creates the one notice", async () => {
+      const user = userEvent.setup();
+      const { from } = await renderLoadedBoard();
+      const post = await startPendingAssignment(user, from);
+
+      await act(async () => {
+        window.dispatchEvent(new Event("pagehide"));
+        showFromBackForwardCache();
+        await flushMicrotasks();
+      });
+      expect(screen.queryByTestId("uncertain-write-notice")).not.toBeInTheDocument();
+
+      const before = mockedBoard.mock.calls.length;
+      await act(async () => post.resolve({ kind: "unknown", reason: "timeout" }));
+      await settleReread(before);
+      expect(screen.getAllByTestId("uncertain-write-notice")).toHaveLength(1);
+      expect(pendingCount()).toBe(0);
+    });
+
+    it("a page shown normally (not from the cache) is left alone", async () => {
+      await renderLoadedBoard();
+      const boardCalls = mockedBoard.mock.calls.length;
+      await act(async () => {
+        window.dispatchEvent(new Event("pageshow"));
+        await flushMicrotasks();
+      });
+      expect(mockedBoard.mock.calls.length).toBe(boardCalls);
+    });
+  });
+});
+
+describe("ReservationBoard — known outcomes, mixed restores and damaged records stay honest about the tab's writes (PMS-CAL-001.5-CP03-C2)", () => {
+  const PENDING_KEY = PENDING_WRITES_STORAGE_KEY;
+  const UNCERTAIN_KEY = UNCERTAIN_WRITES_STORAGE_KEY;
+
+  /** Real storage, except that `refuse(key, value)` makes the call throw like a denied or full store. */
+  function failStorage(method: "getItem" | "setItem" | "removeItem", refuse: (key: string, value?: string) => boolean) {
+    const real = Storage.prototype[method] as (this: Storage, key: string, value?: string) => unknown;
+    return vi.spyOn(Storage.prototype, method).mockImplementation(function (this: Storage, key: string, value?: string) {
+      if (refuse(key, value)) throw new DOMException("refused", "QuotaExceededError");
+      return real.call(this, key, value);
+    } as never);
+  }
+
+  const pendingTokens = () => {
+    const text = sessionStorage.getItem(PENDING_KEY);
+    return text === null ? [] : (JSON.parse(text).writes as Array<{ token?: string } | null>).map((record) => record?.token ?? null);
+  };
+  const pendingCount = () => pendingTokens().length;
+
+  async function reloadSameTab() {
+    cleanup();
+    return renderLoadedBoard();
+  }
+
+  function showFromBackForwardCache() {
+    const event = new Event("pageshow");
+    Object.defineProperty(event, "persisted", { value: true });
+    window.dispatchEvent(event);
+  }
+
+  async function backForward() {
+    await act(async () => {
+      showFromBackForwardCache();
+      await flushMicrotasks();
+    });
+  }
+
+  async function startPendingAssignment(user: ReturnType<typeof userEvent.setup>, from: string, room = "102") {
+    const post = deferred<AssignmentCreateOutcome>();
+    mockedCreate.mockImplementation(() => post.promise);
+    await user.click(firstRangeBar(from));
+    await user.click(within(assignDialog()).getByLabelText(new RegExp(`Room ${room}`)));
+    await user.click(within(assignDialog()).getByRole("button", { name: `Assign room ${room}` }));
+    expect(mockedCreate).toHaveBeenCalledTimes(1);
+    return post;
+  }
+
+  async function expectBlockLocked(user: ReturnType<typeof userEvent.setup>, room: string, start: string, end: string) {
+    await reviewBlock(user, room, start, end);
+    expect(within(blockDialog()).getByRole("alert")).toHaveTextContent("still unconfirmed");
+    await closeDialog(user, blockDialog());
+  }
+
+  function expectNoWarningOrLock(from: string) {
+    expect(screen.queryByTestId("uncertain-write-notice")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("uncertain-block-notice")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("unreadable-uncertain-writes")).not.toBeInTheDocument();
+    expect(firstRangeBar(from)).not.toHaveAttribute("aria-disabled", "true");
+  }
+
+  /** A write of a previous page, as its intent would have been recorded before it went on the wire. */
+  function seedAssignmentIntent(from: string, to: string) {
+    const entry: Reconciliation = {
+      id: 0,
+      key: `prop-a|${from}|${to}`,
+      propertyId: "prop-a",
+      from,
+      to,
+      afterSeq: 0,
+      certainty: "uncertain",
+      status: "pending",
+      resolution: "unresolved",
+      target: {
+        operation: "create",
+        reservationUnitId: "unit-1",
+        physicalRoomId: "room-101",
+        startDate: addDaysIso(from, 4),
+        endDate: to,
+        roomNumber: "101",
+        guestDisplayName: "",
+        confirmationNumber: "",
+      },
+    };
+    return beginPendingWrite(sessionStorage, { kind: "assignment", entry })!;
+  }
+
+  function seedBlockIntent(from: string, to: string) {
+    const entry: BlockCreateReconciliation = {
+      id: 0,
+      key: `prop-a|${from}|${to}`,
+      propertyId: "prop-a",
+      from,
+      to,
+      afterSeq: 0,
+      certainty: "uncertain",
+      status: "pending",
+      resolution: "unresolved",
+      target: { operation: "create", physicalRoomId: "room-201", roomNumber: "201", startDate: from, endDate: addDaysIso(from, 1), reason: "" },
+    };
+    return beginPendingWrite(sessionStorage, { kind: "block", entry })!;
+  }
+
+  describe("a write whose outcome is known but whose intent storage would not delete (F1)", () => {
+    it("a 400 keeps its token for a later retry, which a read of the board provides once storage works — no warning, no lock, ever", async () => {
+      const user = userEvent.setup();
+      const { from } = await renderLoadedBoard();
+      const post = await startPendingAssignment(user, from);
+
+      const spy = failStorage("removeItem", (key) => key === PENDING_KEY);
+      await act(async () => post.resolve({ kind: "rejected", status: 400, category: "validation" }));
+      spy.mockRestore();
+      // Deleting failed: the token is still owed a deletion, but nothing is warned or locked for it.
+      expect(pendingCount()).toBe(1);
+      expect(screen.queryByTestId("uncertain-write-notice")).not.toBeInTheDocument();
+
+      // No list changes for a 400; the read a date-range change issues is the retry chance.
+      await closeDialog(user, assignDialog());
+      await user.click(screen.getByRole("button", { name: "Next date range" }));
+      await waitFor(() => expect(pendingCount()).toBe(0));
+
+      await reloadSameTab();
+      expectNoWarningOrLock(from);
+      expect(mockedCreate).toHaveBeenCalledTimes(1);
+    });
+
+    it("a page shown from the back/forward cache while that deletion is still refused restores no false unknown write, then finishes the deletion", async () => {
+      const user = userEvent.setup();
+      const { from } = await renderLoadedBoard();
+      const post = await startPendingAssignment(user, from);
+
+      const spy = failStorage("removeItem", (key) => key === PENDING_KEY);
+      await act(async () => post.resolve({ kind: "rejected", status: 400, category: "validation" }));
+      await closeDialog(user, assignDialog());
+      await backForward();
+      expectNoWarningOrLock(from);
+      expect(pendingCount()).toBe(1);
+
+      spy.mockRestore();
+      await backForward();
+      expect(pendingCount()).toBe(0);
+      expectNoWarningOrLock(from);
+
+      await reloadSameTab();
+      expectNoWarningOrLock(from);
+      expect(mockedCreate).toHaveBeenCalledTimes(1);
+    });
+
+    it("an answer that reaches a page already being left is retried too, and the page that returns from the cache is clean", async () => {
+      const user = userEvent.setup();
+      const { from } = await renderLoadedBoard();
+      const post = await startPendingAssignment(user, from);
+
+      const spy = failStorage("removeItem", (key) => key === PENDING_KEY);
+      await act(async () => {
+        window.dispatchEvent(new Event("pagehide"));
+        post.resolve({ kind: "rejected", status: 400, category: "validation" });
+        await flushMicrotasks();
+      });
+      expect(pendingCount()).toBe(1);
+      spy.mockRestore();
+      await backForward();
+
+      expect(pendingCount()).toBe(0);
+      expectNoWarningOrLock(from);
+      await closeDialog(user, assignDialog());
+      expect(firstRangeBar(from)).not.toHaveAttribute("aria-disabled", "true");
+    });
+
+    it("a created answer still reloads the board and reports the assignment while its token waits for deletion", async () => {
+      const user = userEvent.setup();
+      const { from } = await renderLoadedBoard();
+      const post = await startPendingAssignment(user, from);
+
+      const spy = failStorage("removeItem", (key) => key === PENDING_KEY);
+      const before = mockedBoard.mock.calls.length;
+      await act(async () => post.resolve({ kind: "created", segment: null }));
+      await settleReread(before);
+      spy.mockRestore();
+
+      expect(screen.getByText(`Room 102 assigned to Nguyen Van A (CNF-100) for [${from}, ${addDaysIso(from, 2)}).`)).toBeInTheDocument();
+      expect(pendingCount()).toBe(1);
+      expect(screen.queryByTestId("uncertain-write-notice")).not.toBeInTheDocument();
+
+      await backForward();
+      expect(pendingCount()).toBe(0);
+      expect(screen.queryByTestId("uncertain-write-notice")).not.toBeInTheDocument();
+      await reloadSameTab();
+      expect(screen.queryByTestId("uncertain-write-notice")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("a bfcache return that restores both an assignment and a block (F2)", () => {
+    it("keeps both intents while the two-list record is refused, and each write comes back exactly once — even after repeated pageshow and reloads", async () => {
+      const user = userEvent.setup();
+      const { from, to } = await renderLoadedBoard();
+      seedAssignmentIntent(from, to);
+      seedBlockIntent(from, to);
+      expect(pendingCount()).toBe(2);
+
+      // Quota: a record with only one kind of write fits; the full one does not.
+      const spy = failStorage("setItem", (key, value) => {
+        if (key !== UNCERTAIN_KEY) return false;
+        const record = JSON.parse(value ?? "{}") as { assignments: unknown[]; blocks: unknown[] };
+        return record.assignments.length > 0 && record.blocks.length > 0;
+      });
+      await backForward();
+      await backForward();
+
+      expect(screen.getAllByTestId("uncertain-write-notice")).toHaveLength(1);
+      expect(screen.getAllByTestId("uncertain-block-notice")).toHaveLength(1);
+      await expectBlockLocked(user, "room-101", addDaysIso(from, 4), addDaysIso(from, 5));
+      await expectBlockLocked(user, "room-201", from, addDaysIso(from, 1));
+      // Neither write was handed over: an intent is all that names it until the record holds both.
+      expect(pendingCount()).toBe(2);
+      expect(sessionStorage.getItem(UNCERTAIN_KEY)).toBeNull();
+
+      // A reload while storage still refuses restores both, from the intents.
+      await reloadSameTab();
+      expect(screen.getAllByTestId("uncertain-write-notice")).toHaveLength(1);
+      expect(screen.getAllByTestId("uncertain-block-notice")).toHaveLength(1);
+      await expectBlockLocked(user, "room-201", from, addDaysIso(from, 1));
+
+      // Storage recovers: the next read hands both over, and only then are the intents dropped.
+      spy.mockRestore();
+      const boardCalls = mockedBoard.mock.calls.length;
+      await user.click(within(screen.getByTestId("uncertain-write-notice")).getByRole("button", { name: "Check again" }));
+      await waitFor(() => expect(mockedBoard.mock.calls.length).toBe(boardCalls + 1));
+      await waitFor(() => expect(pendingCount()).toBe(0));
+      const record = JSON.parse(sessionStorage.getItem(UNCERTAIN_KEY)!);
+      expect([record.assignments.length, record.blocks.length]).toEqual([1, 1]);
+
+      await reloadSameTab();
+      expect(screen.getAllByTestId("uncertain-write-notice")).toHaveLength(1);
+      expect(screen.getAllByTestId("uncertain-block-notice")).toHaveLength(1);
+      expect(mockedCreate).not.toHaveBeenCalled();
+      expect(mockedBlock).not.toHaveBeenCalled();
+    });
+
+    it("never restores or drops the intent of a write of this page that is still on the wire", async () => {
+      const user = userEvent.setup();
+      const { from, to } = await renderLoadedBoard();
+      const post = await startPendingAssignment(user, from);
+      seedAssignmentIntent(from, to);
+      seedBlockIntent(from, to);
+      expect(pendingCount()).toBe(3);
+
+      const spy = failStorage("setItem", (key, value) => {
+        if (key !== UNCERTAIN_KEY) return false;
+        const record = JSON.parse(value ?? "{}") as { assignments: unknown[]; blocks: unknown[] };
+        return record.assignments.length > 0 && record.blocks.length > 0;
+      });
+      await backForward();
+
+      expect(screen.getAllByTestId("uncertain-write-notice")).toHaveLength(1);
+      expect(screen.getAllByTestId("uncertain-block-notice")).toHaveLength(1);
+      expect(pendingCount()).toBe(3);
+
+      // Its own answer, and only that, makes it a warning.
+      const before = mockedBoard.mock.calls.length;
+      await act(async () => post.resolve({ kind: "unknown", reason: "timeout" }));
+      await settleReread(before);
+      expect(screen.getAllByTestId("uncertain-write-notice")).toHaveLength(2);
+      spy.mockRestore();
+      expect(mockedCreate).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("a damaged pending record (F3)", () => {
+    const tryAssign = async (user: ReturnType<typeof userEvent.setup>, from: string) => {
+      mockedCreate.mockResolvedValue({ kind: "created", segment: null });
+      await user.click(firstRangeBar(from));
+      await user.click(within(assignDialog()).getByLabelText(/Room 102/));
+      await user.click(within(assignDialog()).getByRole("button", { name: "Assign room 102" }));
+    };
+
+    it("a null entry refuses the write: it neither throws, sends, nor leaves a new intent behind", async () => {
+      const user = userEvent.setup();
+      sessionStorage.setItem(PENDING_KEY, JSON.stringify({ v: 1, writes: [null] }));
+      const { from } = await renderLoadedBoard();
+      const before = sessionStorage.getItem(PENDING_KEY);
+
+      await tryAssign(user, from);
+
+      expect(await within(assignDialog()).findByRole("alert")).toHaveTextContent("could not keep the safety record");
+      expect(mockedCreate).not.toHaveBeenCalled();
+      expect(sessionStorage.getItem(PENDING_KEY)).toBe(before);
+      expect(screen.getByTestId("unreadable-uncertain-writes")).toBeInTheDocument();
+    });
+
+    it("a null entry next to a valid intent keeps the valid write warned and locked, and refuses new writes", async () => {
+      const user = userEvent.setup();
+      const probe = await renderLoadedBoard();
+      cleanup();
+      seedAssignmentIntent(probe.from, probe.to);
+      const pending = JSON.parse(sessionStorage.getItem(PENDING_KEY)!);
+      sessionStorage.setItem(PENDING_KEY, JSON.stringify({ ...pending, writes: [null, ...pending.writes] }));
+
+      const { from } = await renderLoadedBoard();
+      expect(screen.getAllByTestId("uncertain-write-notice")).toHaveLength(1);
+      expect(screen.getByTestId("unreadable-uncertain-writes")).toBeInTheDocument();
+      const before = [sessionStorage.getItem(PENDING_KEY), sessionStorage.getItem(UNCERTAIN_KEY)];
+
+      await reviewBlock(user, "room-201", from, addDaysIso(from, 1));
+      await user.click(within(blockDialog()).getByRole("button", { name: "Create block" }));
+      expect(await within(blockDialog()).findByRole("alert")).toHaveTextContent("could not keep the safety record");
+      expect(mockedBlock).not.toHaveBeenCalled();
+      expect([sessionStorage.getItem(PENDING_KEY), sessionStorage.getItem(UNCERTAIN_KEY)]).toEqual(before);
+
+      await closeDialog(user, blockDialog());
+      await reloadSameTab();
+      expect(screen.getAllByTestId("uncertain-write-notice")).toHaveLength(1);
+      expect(screen.getByTestId("unreadable-uncertain-writes")).toBeInTheDocument();
+    });
+
+    it("an intent that was stored but cannot be read back is not sent, and is removed once storage answers again", async () => {
+      const user = userEvent.setup();
+      const { from } = await renderLoadedBoard();
+
+      let stored = false;
+      const set = failStorage("setItem", (key) => {
+        if (key === PENDING_KEY) stored = true;
+        return false;
+      });
+      const get = failStorage("getItem", (key) => stored && key === PENDING_KEY);
+      await tryAssign(user, from);
+      expect(await within(assignDialog()).findByRole("alert")).toHaveTextContent("could not keep the safety record");
+      expect(mockedCreate).not.toHaveBeenCalled();
+      set.mockRestore();
+      get.mockRestore();
+      expect(pendingCount()).toBe(1);
+
+      await backForward();
+      expect(pendingCount()).toBe(0);
+      expectNoWarningOrLock(from);
+      await reloadSameTab();
+      expectNoWarningOrLock(from);
+    });
+  });
+
+  describe("storage that cannot be read while restoring never means \"nothing was recorded\" (PMS-CAL-001.5-CP03-C3)", () => {
+    const BANNER = "unverified-storage-writes";
+    // The genuine reader: the tests must be able to look at storage while a read fault is being injected.
+    const rawGet = Storage.prototype.getItem;
+    afterEach(() => vi.restoreAllMocks());
+    const UNVERIFIED = "could not read the safety records";
+
+    /** The range the board opens on, found by mounting once; the fixtures below are seeded for it. */
+    async function probeRange() {
+      const range = await renderLoadedBoard();
+      cleanup();
+      return range;
+    }
+
+    const boardKey = (from: string, to: string) => `prop-a|${from}|${to}`;
+    const blockEntry = (from: string, to: string, roomId: string, roomNumber: string, start: number, end: number): BlockCreateReconciliation => ({
+      id: 0,
+      key: boardKey(from, to),
+      propertyId: "prop-a",
+      from,
+      to,
+      afterSeq: 0,
+      certainty: "uncertain",
+      status: "pending",
+      resolution: "unresolved",
+      target: { operation: "create", physicalRoomId: roomId, roomNumber, startDate: addDaysIso(from, start), endDate: addDaysIso(from, end), reason: "" },
+    });
+    const assignmentEntry = (from: string, to: string, roomId: string, roomNumber: string, start: number, end: number): Reconciliation => ({
+      id: 0,
+      key: boardKey(from, to),
+      propertyId: "prop-a",
+      from,
+      to,
+      afterSeq: 0,
+      certainty: "uncertain",
+      status: "pending",
+      resolution: "unresolved",
+      target: {
+        operation: "create",
+        reservationUnitId: "unit-1",
+        physicalRoomId: roomId,
+        startDate: addDaysIso(from, start),
+        endDate: addDaysIso(from, end),
+        roomNumber,
+        guestDisplayName: "",
+        confirmationNumber: "",
+      },
+    });
+
+    /** Reads of `keys` throw until `recover()`; the record itself is untouched. */
+    function readFailure(...keys: string[]) {
+      const refused = new Set(keys);
+      failStorage("getItem", (key) => refused.has(key));
+      return { recover: () => refused.clear() };
+    }
+
+    async function expectBlockAllowed(user: ReturnType<typeof userEvent.setup>, room: string, start: string, end: string) {
+      await reviewBlock(user, room, start, end);
+      expect(within(blockDialog()).queryByRole("alert")).not.toBeInTheDocument();
+      await closeDialog(user, blockDialog());
+    }
+
+    const storedKeys = () => [rawGet.call(sessionStorage, PENDING_KEY), rawGet.call(sessionStorage, UNCERTAIN_KEY)];
+    const banner = () => screen.queryByTestId(BANNER);
+    const postCount = () => [mockedCreate, mockedMove, mockedUnassign, mockedBlock, mockedCancel].reduce((sum, mock) => sum + mock.mock.calls.length, 0);
+
+    const boardWithPaintBlock = () =>
+      mockedBoard.mockImplementation((propertyId, from, to) => {
+        const board = boardFor(propertyId, from, to);
+        return Promise.resolve({
+          ok: true,
+          data: {
+            ...board,
+            operationalBlocks:
+              propertyId === "prop-a"
+                ? [{ roomBlockId: "b-1", segmentId: "seg-b-1", segmentVersion: 7, physicalRoomId: "room-201", startDate: addDaysIso(from, 6), endDate: addDaysIso(from, 7), reason: "Paint" }]
+                : [],
+          },
+        });
+      });
+
+    type User = ReturnType<typeof userEvent.setup>;
+    const operations: Array<{
+      name: string;
+      lock: [roomId: string, roomNumber: string, start: number, end: number];
+      prepare?: () => void;
+      open: (user: User, from: string) => Promise<HTMLElement>;
+      confirm: string;
+      /** What the dialog needs before it can be confirmed again after a refusal. */
+      again?: (dialog: HTMLElement, user: User) => Promise<void>;
+      posted: () => number;
+    }> = [
+      {
+        name: "assign",
+        lock: ["room-102", "102", 0, 1],
+        open: async (user, from) => {
+          await user.click(firstRangeBar(from));
+          await user.click(within(assignDialog()).getByLabelText(/Room 102/));
+          return assignDialog();
+        },
+        confirm: "Assign room 102",
+        posted: () => mockedCreate.mock.calls.length,
+      },
+      {
+        name: "move",
+        lock: ["room-102", "102", 3, 4],
+        open: async (user) => {
+          await openMoveDialog(user);
+          await user.click(within(moveDialog()).getByLabelText(/Room 102/));
+          return moveDialog();
+        },
+        confirm: "Move to room 102",
+        posted: () => mockedMove.mock.calls.length,
+      },
+      {
+        name: "unassign",
+        lock: ["room-101", "101", 2, 3],
+        open: async (user) => {
+          await user.click(screen.getByTitle("Nguyen Van A — CNF-100"));
+          await user.click(within(screen.getByRole("dialog", { name: "Reservation details" })).getByRole("button", { name: "Remove room assignment" }));
+          return screen.getByRole("dialog", { name: "Remove room assignment" });
+        },
+        confirm: "Remove room 101 assignment",
+        posted: () => mockedUnassign.mock.calls.length,
+      },
+      {
+        name: "block create",
+        lock: ["room-102", "102", 0, 1],
+        open: async (user, from) => {
+          await reviewBlock(user, "room-102", from, addDaysIso(from, 1));
+          return blockDialog();
+        },
+        confirm: "Create block",
+        again: (dialog, user) => user.click(within(dialog).getByRole("button", { name: "Review" })),
+        posted: () => mockedBlock.mock.calls.length,
+      },
+      {
+        name: "block cancel",
+        lock: ["room-201", "201", 6, 7],
+        prepare: boardWithPaintBlock,
+        open: async (user) => {
+          await user.click(screen.getByTitle("Paint"));
+          await user.click(within(screen.getByRole("dialog", { name: "Operational block details" })).getByRole("button", { name: "Cancel block" }));
+          return screen.getByRole("dialog", { name: "Cancel operational block" });
+        },
+        confirm: "Cancel block on room 201",
+        posted: () => mockedCancel.mock.calls.length,
+      },
+    ];
+
+    it.each(operations)(
+      "$name: a dialog opened while the intent record cannot be read sends nothing — not before, and not once storage is readable again but the operator has not asked to re-check",
+      async (operation) => {
+        const user = userEvent.setup();
+        operation.prepare?.();
+        for (const mock of [mockedCreate, mockedMove, mockedUnassign, mockedBlock, mockedCancel]) mock.mockResolvedValue({ kind: "unknown", reason: "timeout" } as never);
+        const { from, to } = await probeRange();
+        const [roomId, roomNumber, start, end] = operation.lock;
+        beginPendingWrite(sessionStorage, { kind: "block", entry: blockEntry(from, to, roomId, roomNumber, start, end) });
+        const stored = storedKeys();
+        const storage = readFailure(PENDING_KEY);
+
+        await renderLoadedBoard();
+        const dialog = await operation.open(user, from);
+
+        // Still unreadable: refused, with the reason, and the operator is told on the board too.
+        await user.click(within(dialog).getByRole("button", { name: operation.confirm }));
+        expect(operation.posted()).toBe(0);
+        expect(await within(dialog).findByRole("alert")).toHaveTextContent(UNVERIFIED);
+        expect(banner()).toHaveTextContent(UNVERIFIED);
+        expect(screen.queryByTestId("uncertain-block-notice")).not.toBeInTheDocument();
+
+        // Readable again, no click on the board's own re-check: the confirm itself takes the records in first.
+        storage.recover();
+        await operation.again?.(dialog, user);
+        await user.click(within(dialog).getByRole("button", { name: operation.confirm }));
+        expect(await within(dialog).findByRole("alert")).toHaveTextContent("still unconfirmed");
+        expect(operation.posted()).toBe(0);
+        expect(screen.getAllByTestId("uncertain-block-notice")).toHaveLength(1);
+        expect(banner()).not.toBeInTheDocument();
+        // Taken in, and the intent handed over to the record (the board may already show the block).
+        expect(storedKeys()[0]).not.toEqual(stored[0]);
+        expect(sessionStorage.getItem(PENDING_KEY)).toBeNull();
+      }
+    );
+
+    it.each(operations)(
+      "$name: storage readable again before the first confirm — the earlier request's lock is in force and the overlapping request is not sent",
+      async (operation) => {
+        const user = userEvent.setup();
+        operation.prepare?.();
+        for (const mock of [mockedCreate, mockedMove, mockedUnassign, mockedBlock, mockedCancel]) mock.mockResolvedValue({ kind: "unknown", reason: "timeout" } as never);
+        const { from, to } = await probeRange();
+        const [roomId, roomNumber, start, end] = operation.lock;
+        beginPendingWrite(sessionStorage, { kind: "block", entry: blockEntry(from, to, roomId, roomNumber, start, end) });
+        const storage = readFailure(PENDING_KEY);
+        await renderLoadedBoard();
+        const dialog = await operation.open(user, from);
+
+        storage.recover();
+        await user.click(within(dialog).getByRole("button", { name: operation.confirm }));
+        expect(operation.posted()).toBe(0);
+        expect(await within(dialog).findByRole("alert")).toHaveTextContent("still unconfirmed");
+        expect(screen.getAllByTestId("uncertain-block-notice")).toHaveLength(1);
+      }
+    );
+
+    it.each([
+      ["the intent record", PENDING_KEY],
+      ["the unconfirmed record", UNCERTAIN_KEY],
+    ])("%s unreadable at mount: a warning explains it, Check storage again re-reads without looping, and recovery restores the lock on the mounted board", async (_label, key) => {
+      const user = userEvent.setup();
+      const { from, to } = await probeRange();
+      const entry = assignmentEntry(from, to, "room-102", "102", 0, 2);
+      if (key === PENDING_KEY) beginPendingWrite(sessionStorage, { kind: "assignment", entry });
+      else persistUncertainWrites(sessionStorage, [entry], []);
+      const stored = storedKeys();
+      const storage = readFailure(key);
+
+      await renderLoadedBoard();
+      expect(banner()).toHaveTextContent("Nothing new was sent");
+      expect(banner()).not.toHaveTextContent(/reload the page|close (the|this) tab/i);
+      expect(screen.queryByTestId("uncertain-write-notice")).not.toBeInTheDocument();
+
+      // Still unreadable: another look changes nothing, sends nothing and does not read the board again.
+      const boardCalls = mockedBoard.mock.calls.length;
+      await user.click(within(banner()!).getByRole("button", { name: "Check storage again" }));
+      await user.click(within(banner()!).getByRole("button", { name: "Check storage again" }));
+      expect(banner()).toBeInTheDocument();
+      expect(mockedBoard.mock.calls.length).toBe(boardCalls);
+      expect(storedKeys()).toEqual(stored);
+
+      storage.recover();
+      await user.click(within(banner()!).getByRole("button", { name: "Check storage again" }));
+      const notice = await screen.findByTestId("uncertain-write-notice");
+      expect(notice).toHaveTextContent(`room 102, [${from}, ${addDaysIso(from, 2)})`);
+      expect(banner()).not.toBeInTheDocument();
+      expect(firstRangeBar(from)).toHaveAttribute("aria-disabled", "true");
+      await waitFor(() => expect(mockedBoard.mock.calls.length).toBe(boardCalls + 1));
+      expect(postCount()).toBe(0);
+      // Handed over: one record, no leftover intent — and one notice after a reload.
+      await waitFor(() => expect(pendingCount()).toBe(0));
+      expect(JSON.parse(sessionStorage.getItem(UNCERTAIN_KEY)!).assignments).toHaveLength(1);
+      await reloadSameTab();
+      expect(screen.getAllByTestId("uncertain-write-notice")).toHaveLength(1);
+      expect(banner()).not.toBeInTheDocument();
+    });
+
+    it.each([
+      ["intent record unreadable, unconfirmed record readable", PENDING_KEY],
+      ["unconfirmed record unreadable, intent record readable", UNCERTAIN_KEY],
+      ["both unreadable", "both"],
+    ])("an assignment in one record and a block in the other, %s: what can be read is locked at once, nothing stored is lost, and every write comes back exactly once", async (_label, unreadable) => {
+      const user = userEvent.setup();
+      const { from, to } = await probeRange();
+      // The assignment lives in the intent record, the block in the unconfirmed record — unless that record is the unreadable one.
+      const assignment = assignmentEntry(from, to, "room-102", "102", 0, 2);
+      const blockOnly = blockEntry(from, to, "room-201", "201", 0, 1);
+      beginPendingWrite(sessionStorage, { kind: "assignment", entry: assignment });
+      persistUncertainWrites(sessionStorage, [], [blockOnly]);
+      const stored = storedKeys();
+      const storage = readFailure(...(unreadable === "both" ? [PENDING_KEY, UNCERTAIN_KEY] : [unreadable]));
+
+      await renderLoadedBoard();
+      expect(banner()).toBeInTheDocument();
+      expect(screen.queryAllByTestId("uncertain-block-notice")).toHaveLength(unreadable === PENDING_KEY ? 1 : 0);
+      expect(screen.queryAllByTestId("uncertain-write-notice")).toHaveLength(unreadable === UNCERTAIN_KEY ? 1 : 0);
+
+      // Whatever else the board does meanwhile, it must not rewrite a record it could not read.
+      await user.click(screen.getByRole("button", { name: "Next date range" }));
+      await user.click(screen.getByRole("button", { name: "Previous date range" }));
+      expect(storedKeys()).toEqual(stored);
+
+      storage.recover();
+      await user.click(within(banner()!).getByRole("button", { name: "Check storage again" }));
+      await waitFor(() => expect(banner()).not.toBeInTheDocument());
+      expect(screen.getAllByTestId("uncertain-write-notice")).toHaveLength(1);
+      expect(screen.getAllByTestId("uncertain-block-notice")).toHaveLength(1);
+      await waitFor(() => expect(pendingCount()).toBe(0));
+      const record = JSON.parse(sessionStorage.getItem(UNCERTAIN_KEY)!);
+      expect([record.assignments.length, record.blocks.length]).toEqual([1, 1]);
+
+      await reloadSameTab();
+      expect(screen.getAllByTestId("uncertain-write-notice")).toHaveLength(1);
+      expect(screen.getAllByTestId("uncertain-block-notice")).toHaveLength(1);
+      expect(postCount()).toBe(0);
+    });
+
+    it("verified empty after a failed read reopens writes: one deliberate confirm sends exactly one request, and nothing earlier is replayed", async () => {
+      const user = userEvent.setup();
+      const storage = readFailure(PENDING_KEY, UNCERTAIN_KEY);
+      const { from } = await renderLoadedBoard();
+      expect(banner()).toBeInTheDocument();
+
+      storage.recover();
+      await user.click(within(banner()!).getByRole("button", { name: "Check storage again" }));
+      await waitFor(() => expect(banner()).not.toBeInTheDocument());
+      expect(postCount()).toBe(0);
+      expect(screen.queryByTestId("uncertain-write-notice")).not.toBeInTheDocument();
+
+      mockedCreate.mockResolvedValue({ kind: "created", segment: null });
+      await user.click(firstRangeBar(from));
+      await user.click(within(assignDialog()).getByLabelText(/Room 102/));
+      await user.click(within(assignDialog()).getByRole("button", { name: "Assign room 102" }));
+      await waitFor(() => expect(mockedCreate).toHaveBeenCalledTimes(1));
+      expect(postCount()).toBe(1);
+    });
+
+    it("a lock that recovery brought in still holds when the re-read shows nothing new; unrelated rooms and nights stay usable and Check again only reads", async () => {
+      const user = userEvent.setup();
+      const { from, to } = await probeRange();
+      beginPendingWrite(sessionStorage, { kind: "block", entry: blockEntry(from, to, "room-102", "102", 0, 1) });
+      const storage = readFailure(PENDING_KEY);
+      await renderLoadedBoard();
+      storage.recover();
+      await user.click(within(banner()!).getByRole("button", { name: "Check storage again" }));
+      const notice = await screen.findByTestId("uncertain-block-notice");
+      await waitFor(() => expect(notice).toHaveTextContent("no matching block is shown yet"));
+
+      await expectBlockLocked(user, "room-102", from, addDaysIso(from, 1));
+      await expectBlockAllowed(user, "room-102", addDaysIso(from, 1), addDaysIso(from, 2));
+      await expectBlockAllowed(user, "room-201", from, addDaysIso(from, 1));
+      const boardCalls = mockedBoard.mock.calls.length;
+      await user.click(within(screen.getByTestId("uncertain-block-notice")).getByRole("button", { name: "Check again" }));
+      await waitFor(() => expect(mockedBoard.mock.calls.length).toBe(boardCalls + 1));
+      expect(postCount()).toBe(0);
+    });
+
+    it("a page shown from the back/forward cache, and an ordinary board read, both retry the restoration — and neither restores a write twice", async () => {
+      const user = userEvent.setup();
+      const { from, to } = await probeRange();
+      beginPendingWrite(sessionStorage, { kind: "assignment", entry: assignmentEntry(from, to, "room-102", "102", 0, 2) });
+      beginPendingWrite(sessionStorage, { kind: "block", entry: blockEntry(from, to, "room-201", "201", 0, 1) });
+      const storage = readFailure(PENDING_KEY);
+      await renderLoadedBoard();
+      expect(banner()).toBeInTheDocument();
+
+      // An ordinary board read while it is still unreadable changes nothing.
+      await user.click(screen.getByRole("button", { name: "Next date range" }));
+      await user.click(screen.getByRole("button", { name: "Previous date range" }));
+      expect(banner()).toBeInTheDocument();
+      expect(screen.queryByTestId("uncertain-write-notice")).not.toBeInTheDocument();
+
+      storage.recover();
+      await backForward();
+      await backForward();
+      expect(banner()).not.toBeInTheDocument();
+      expect(screen.getAllByTestId("uncertain-write-notice")).toHaveLength(1);
+      expect(screen.getAllByTestId("uncertain-block-notice")).toHaveLength(1);
+      await waitFor(() => expect(pendingCount()).toBe(0));
+      expect(postCount()).toBe(0);
+    });
+
+    it("an ordinary board read alone is enough to retry once storage is readable", async () => {
+      const user = userEvent.setup();
+      const { from, to } = await probeRange();
+      beginPendingWrite(sessionStorage, { kind: "block", entry: blockEntry(from, to, "room-201", "201", 0, 1) });
+      const storage = readFailure(PENDING_KEY);
+      await renderLoadedBoard();
+      expect(banner()).toBeInTheDocument();
+
+      storage.recover();
+      await user.click(screen.getByRole("button", { name: "Next date range" }));
+      await waitFor(() => expect(banner()).not.toBeInTheDocument());
+      expect(screen.getAllByTestId("uncertain-block-notice")).toHaveLength(1);
+      expect(postCount()).toBe(0);
+    });
+
+    it("an intent record that is read once and fails on the next read still restores its lock: the overlapping confirm is refused, not sent (C4)", async () => {
+      const user = userEvent.setup();
+      const { from, to } = await probeRange();
+      beginPendingWrite(sessionStorage, { kind: "block", entry: blockEntry(from, to, "room-102", "102", 0, 1) });
+      let reads = 0;
+      failStorage("getItem", (key) => key === PENDING_KEY && ++reads === 2);
+
+      await renderLoadedBoard();
+
+      expect(screen.getAllByTestId("uncertain-block-notice")).toHaveLength(1);
+      expect(screen.queryByTestId("unreadable-uncertain-writes")).not.toBeInTheDocument();
+      mockedCreate.mockResolvedValue({ kind: "created", segment: null });
+      await user.click(firstRangeBar(from));
+      await user.click(within(assignDialog()).getByLabelText(/Room 102/));
+      await user.click(within(assignDialog()).getByRole("button", { name: "Assign room 102" }));
+      expect(await within(assignDialog()).findByRole("alert")).toHaveTextContent("still unconfirmed");
+      expect(mockedCreate).not.toHaveBeenCalled();
+    });
+
+    it("a copy of the same write in both records is one warning, and a write of this page still on the wire is not doubled", async () => {
+      const user = userEvent.setup();
+      const { from, to } = await probeRange();
+      const token = beginPendingWrite(sessionStorage, { kind: "block", entry: blockEntry(from, to, "room-201", "201", 0, 1) })!;
+      persistUncertainWrites(sessionStorage, [], [{ ...blockEntry(from, to, "room-201", "201", 0, 1), intent: token }]);
+      const storage = readFailure(UNCERTAIN_KEY);
+      await renderLoadedBoard();
+      expect(screen.getAllByTestId("uncertain-block-notice")).toHaveLength(1);
+
+      storage.recover();
+      await user.click(within(banner()!).getByRole("button", { name: "Check storage again" }));
+      await waitFor(() => expect(banner()).not.toBeInTheDocument());
+      expect(screen.getAllByTestId("uncertain-block-notice")).toHaveLength(1);
+    });
   });
 });
