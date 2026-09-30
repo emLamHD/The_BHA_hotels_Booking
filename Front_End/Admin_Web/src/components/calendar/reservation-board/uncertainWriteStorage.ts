@@ -322,7 +322,15 @@ let pendingCounter = 0;
 
 /** The stored pending entries, exactly as stored. Throws when the record is unreadable or of another format. */
 function readPendingEntries(storage: Storage): unknown[] {
-  const text = storage.getItem(PENDING_WRITES_STORAGE_KEY);
+  return parsePendingEntries(storage.getItem(PENDING_WRITES_STORAGE_KEY));
+}
+
+/**
+ * The entries of a pending record already read (`null` = no record). Throws only
+ * on a payload that is not this format — never on storage, so a caller that has
+ * read the text once (restore, C4) can tell a damaged record from a failed read.
+ */
+function parsePendingEntries(text: string | null): unknown[] {
   if (text === null) return [];
   const parsed = JSON.parse(text) as { v?: unknown; writes?: unknown } | null;
   if (parsed?.v !== FORMAT_VERSION || !Array.isArray(parsed.writes)) throw new Error("unreadable pending writes");
@@ -461,7 +469,7 @@ export function restoreUncertainWrites(storage: Storage | null, firstId: number)
   }
   if (pendingText !== null) {
     try {
-      records = readPendingEntries(storage);
+      records = parsePendingEntries(pendingText);
     } catch {
       unreadable = true;
     }

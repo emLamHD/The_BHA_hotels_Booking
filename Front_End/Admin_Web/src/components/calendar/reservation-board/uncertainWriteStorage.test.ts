@@ -512,4 +512,24 @@ describe("uncertainWriteStorage — a read that throws is an unfinished restorat
       vi.unstubAllGlobals();
     }
   });
+
+  it("reads the intent record once per restoration: a second read that would throw cannot turn readable intents into an 'unreadable' record (C4)", () => {
+    const token = beginPendingWrite(sessionStorage, { kind: "block", entry: block() })!;
+    const realGet = Storage.prototype.getItem;
+    let reads = 0;
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(function (this: Storage, key: string) {
+      if (key === PENDING_WRITES_STORAGE_KEY) {
+        reads += 1;
+        if (reads > 1) throw new DOMException("denied", "SecurityError");
+      }
+      return realGet.call(this, key);
+    });
+
+    const restored = restoreUncertainWrites(sessionStorage, 1);
+
+    expect(reads).toBe(1);
+    expect(restored.blocks.map((entry) => entry.intent)).toEqual([token]);
+    expect(restored.pendingTokens).toEqual([token]);
+    expect([restored.unreadable, restored.incomplete]).toEqual([false, false]);
+  });
 });

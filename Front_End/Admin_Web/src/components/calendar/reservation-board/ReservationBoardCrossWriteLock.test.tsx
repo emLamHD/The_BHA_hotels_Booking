@@ -2097,6 +2097,25 @@ describe("ReservationBoard — known outcomes, mixed restores and damaged record
       expect(postCount()).toBe(0);
     });
 
+    it("an intent record that is read once and fails on the next read still restores its lock: the overlapping confirm is refused, not sent (C4)", async () => {
+      const user = userEvent.setup();
+      const { from, to } = await probeRange();
+      beginPendingWrite(sessionStorage, { kind: "block", entry: blockEntry(from, to, "room-102", "102", 0, 1) });
+      let reads = 0;
+      failStorage("getItem", (key) => key === PENDING_KEY && ++reads === 2);
+
+      await renderLoadedBoard();
+
+      expect(screen.getAllByTestId("uncertain-block-notice")).toHaveLength(1);
+      expect(screen.queryByTestId("unreadable-uncertain-writes")).not.toBeInTheDocument();
+      mockedCreate.mockResolvedValue({ kind: "created", segment: null });
+      await user.click(firstRangeBar(from));
+      await user.click(within(assignDialog()).getByLabelText(/Room 102/));
+      await user.click(within(assignDialog()).getByRole("button", { name: "Assign room 102" }));
+      expect(await within(assignDialog()).findByRole("alert")).toHaveTextContent("still unconfirmed");
+      expect(mockedCreate).not.toHaveBeenCalled();
+    });
+
     it("a copy of the same write in both records is one warning, and a write of this page still on the wire is not doubled", async () => {
       const user = userEvent.setup();
       const { from, to } = await probeRange();
