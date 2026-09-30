@@ -252,3 +252,59 @@ describe("uncertainWriteStorage — in-flight intents (PMS-CAL-001.5-CP03)", () 
     expect(restored.pendingTokens).toEqual([]);
   });
 });
+
+describe("uncertainWriteStorage — durable hand-over from intent to unconfirmed record (PMS-CAL-001.5-CP03-C1)", () => {
+  /** Storage that refuses only the unconfirmed record — the intent key keeps working. */
+  function refuseUnconfirmedRecord() {
+    const realSet = Storage.prototype.setItem;
+    return vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key: string, value: string) {
+      if (key === UNCERTAIN_WRITES_STORAGE_KEY) throw new DOMException("full", "QuotaExceededError");
+      realSet.call(this, key, value);
+    });
+  }
+
+  it("reports whether the unconfirmed record really reached storage, so an intent is only dropped once it has", () => {
+    expect(persistUncertainWrites(sessionStorage, [assignment()], [])).toBe(true);
+    const spy = refuseUnconfirmedRecord();
+    expect(persistUncertainWrites(sessionStorage, [assignment(), assignment({ id: 11 })], [block()])).toBe(false);
+    spy.mockRestore();
+    expect(persistUncertainWrites(null, [assignment()], [])).toBe(false);
+    // Removing the record once nothing is unresolved is a success too.
+    expect(persistUncertainWrites(sessionStorage, [], [])).toBe(true);
+    expect(sessionStorage.getItem(UNCERTAIN_WRITES_STORAGE_KEY)).toBeNull();
+  });
+
+  it("reports whether an intent is really gone", () => {
+    const token = beginPendingWrite(sessionStorage, { kind: "assignment", entry: assignment() })!;
+    const spy = vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => {
+      throw new DOMException("denied", "SecurityError");
+    });
+    expect(endPendingWrite(sessionStorage, token)).toBe(false);
+    spy.mockRestore();
+    expect(endPendingWrite(sessionStorage, token)).toBe(true);
+    // Already gone counts as gone.
+    expect(endPendingWrite(sessionStorage, token)).toBe(true);
+  });
+
+  it("restores one entry, not two, when the intent and the unconfirmed record describe the same write", () => {
+    const token = beginPendingWrite(sessionStorage, { kind: "assignment", entry: assignment() })!;
+    const blockToken = beginPendingWrite(sessionStorage, { kind: "block", entry: block() })!;
+    // The page took both in (`intent`) and wrote them into the record, but could not drop the intents.
+    persistUncertainWrites(sessionStorage, [assignment({ intent: token })], [block({ intent: blockToken })]);
+
+    const restored = restoreUncertainWrites(sessionStorage, 1);
+
+    expect(restored.assignments).toHaveLength(1);
+    expect(restored.blocks).toHaveLength(1);
+    // The record is the later knowledge: an unknown answer was received.
+    expect(restored.assignments[0]).toMatchObject({ restored: "unknown-outcome", intent: token });
+    expect(restored.blocks[0]).toMatchObject({ restored: "unknown-outcome", intent: blockToken });
+    // Both intents are still handed to the page, so it drops them once the record is safe.
+    expect(restored.pendingTokens).toEqual([token, blockToken]);
+  });
+
+  it("an intent restored on its own keeps its token as the entry's identity", () => {
+    const token = beginPendingWrite(sessionStorage, { kind: "block", entry: block() })!;
+    expect(restoreUncertainWrites(sessionStorage, 1).blocks[0]).toMatchObject({ restored: "in-flight", intent: token });
+  });
+});

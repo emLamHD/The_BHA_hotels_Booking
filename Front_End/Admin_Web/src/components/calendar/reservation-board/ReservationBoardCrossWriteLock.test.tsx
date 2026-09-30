@@ -1123,3 +1123,267 @@ describe("ReservationBoard — a write still in flight survives a reload in the 
     expect(JSON.parse(sessionStorage.getItem(PENDING_KEY)!).writes).toHaveLength(1);
   });
 });
+
+describe("ReservationBoard — no write that may have reached the server is ever left without a record (PMS-CAL-001.5-CP03-C1)", () => {
+  const PENDING_KEY = "thebha.adminCalendar.pendingWrites";
+  const UNCERTAIN_KEY = "thebha.adminCalendar.uncertainWrites";
+
+  async function reloadSameTab() {
+    cleanup();
+    return renderLoadedBoard();
+  }
+
+  /** Storage that refuses only the unconfirmed record (quota, temporary denial); the intent key keeps working. */
+  function refuseUnconfirmedRecord() {
+    const realSet = Storage.prototype.setItem;
+    return vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key: string, value: string) {
+      if (key === UNCERTAIN_KEY) throw new DOMException("full", "QuotaExceededError");
+      realSet.call(this, key, value);
+    });
+  }
+
+  async function expectBlockLocked(user: ReturnType<typeof userEvent.setup>, room: string, start: string, end: string) {
+    await reviewBlock(user, room, start, end);
+    expect(within(blockDialog()).getByRole("alert")).toHaveTextContent("still unconfirmed");
+    await closeDialog(user, blockDialog());
+  }
+
+  async function expectBlockAllowed(user: ReturnType<typeof userEvent.setup>, room: string, start: string, end: string) {
+    await reviewBlock(user, room, start, end);
+    expect(within(blockDialog()).queryByRole("alert")).not.toBeInTheDocument();
+    await closeDialog(user, blockDialog());
+  }
+
+  const pendingCount = () => {
+    const text = sessionStorage.getItem(PENDING_KEY);
+    return text === null ? 0 : (JSON.parse(text).writes as unknown[]).length;
+  };
+
+  /** An assignment of the first unassigned range to room 102 whose POST answers only when told to. */
+  async function startPendingAssignment(user: ReturnType<typeof userEvent.setup>, from: string) {
+    const post = deferred<AssignmentCreateOutcome>();
+    mockedCreate.mockImplementation(() => post.promise);
+    await user.click(firstRangeBar(from));
+    await user.click(within(assignDialog()).getByLabelText(/Room 102/));
+    await user.click(within(assignDialog()).getByRole("button", { name: "Assign room 102" }));
+    expect(mockedCreate).toHaveBeenCalledTimes(1);
+    return post;
+  }
+
+  /** A block create on room 102 for `[from, from+1)` whose POST answers only when told to. */
+  async function startPendingBlock(user: ReturnType<typeof userEvent.setup>, from: string) {
+    const post = deferred<OperationalBlockCreateOutcome>();
+    mockedBlock.mockImplementation(() => post.promise);
+    await reviewBlock(user, "room-102", from, addDaysIso(from, 1));
+    await user.click(within(blockDialog()).getByRole("button", { name: "Create block" }));
+    expect(mockedBlock).toHaveBeenCalledTimes(1);
+    return post;
+  }
+
+  function showFromBackForwardCache() {
+    const event = new Event("pageshow");
+    Object.defineProperty(event, "persisted", { value: true });
+    window.dispatchEvent(event);
+  }
+
+  describe("the unconfirmed record cannot be written when a restored intent is handed over at mount", () => {
+    it("assignment: the intent survives, and the next reload still shows the notice and the lock", async () => {
+      const user = userEvent.setup();
+      const { from } = await renderLoadedBoard();
+      await startPendingAssignment(user, from);
+      expect(pendingCount()).toBe(1);
+
+      const spy = refuseUnconfirmedRecord();
+      await reloadSameTab();
+      // This page itself still warns and locks, from memory.
+      expect(await screen.findByTestId("uncertain-write-notice")).toBeInTheDocument();
+      expect(firstRangeBar(from)).toHaveAttribute("aria-disabled", "true");
+      spy.mockRestore();
+      expect(pendingCount()).toBe(1);
+
+      await reloadSameTab();
+      const notice = await screen.findByTestId("uncertain-write-notice");
+      expect(notice).toHaveTextContent(`room 102, [${from}, ${addDaysIso(from, 2)})`);
+      expect(screen.getAllByTestId("uncertain-write-notice")).toHaveLength(1);
+      expect(firstRangeBar(from)).toHaveAttribute("aria-disabled", "true");
+      await expectBlockLocked(user, "room-102", from, addDaysIso(from, 1));
+      await expectBlockAllowed(user, "room-201", from, addDaysIso(from, 1));
+      expect(mockedCreate).toHaveBeenCalledTimes(1);
+    });
+
+    it("block: the intent survives, and the next reload still shows the notice and the lock", async () => {
+      const user = userEvent.setup();
+      const { from } = await renderLoadedBoard();
+      await startPendingBlock(user, from);
+
+      const spy = refuseUnconfirmedRecord();
+      await reloadSameTab();
+      expect(await screen.findByTestId("uncertain-block-notice")).toBeInTheDocument();
+      spy.mockRestore();
+      expect(pendingCount()).toBe(1);
+
+      await reloadSameTab();
+      expect(screen.getAllByTestId("uncertain-block-notice")).toHaveLength(1);
+      await expectBlockLocked(user, "room-102", from, addDaysIso(from, 1));
+      await expectBlockAllowed(user, "room-101", from, addDaysIso(from, 1));
+      expect(mockedBlock).toHaveBeenCalledTimes(1);
+    });
+
+    it("once storage accepts the record again, the hand-over completes: one record, no leftover intent, one notice", async () => {
+      const user = userEvent.setup();
+      const { from } = await renderLoadedBoard();
+      await startPendingAssignment(user, from);
+
+      const spy = refuseUnconfirmedRecord();
+      await reloadSameTab();
+      await screen.findByTestId("uncertain-write-notice");
+      spy.mockRestore();
+      // Any later change of the tracked list writes the record again; Check again's re-read is one.
+      const boardCalls = mockedBoard.mock.calls.length;
+      await user.click(within(screen.getByTestId("uncertain-write-notice")).getByRole("button", { name: "Check again" }));
+      await waitFor(() => expect(mockedBoard.mock.calls.length).toBe(boardCalls + 1));
+      await waitFor(() => expect(pendingCount()).toBe(0));
+      expect(sessionStorage.getItem(UNCERTAIN_KEY)).not.toBeNull();
+
+      await reloadSameTab();
+      expect(screen.getAllByTestId("uncertain-write-notice")).toHaveLength(1);
+      expect(mockedCreate).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("the unconfirmed record cannot be written when an unknown answer reaches the live page", () => {
+    it("assignment: the intent survives, this page warns and locks, and a reload still does", async () => {
+      const user = userEvent.setup();
+      const { from } = await renderLoadedBoard();
+      const post = await startPendingAssignment(user, from);
+
+      const spy = refuseUnconfirmedRecord();
+      const before = mockedBoard.mock.calls.length;
+      await act(async () => post.resolve({ kind: "unknown", reason: "timeout" }));
+      await settleReread(before);
+      spy.mockRestore();
+      expect(pendingCount()).toBe(1);
+      await closeDialog(user, assignDialog());
+      expect(screen.getByTestId("uncertain-write-notice")).toBeInTheDocument();
+      expect(firstRangeBar(from)).toHaveAttribute("aria-disabled", "true");
+
+      await reloadSameTab();
+      expect(screen.getAllByTestId("uncertain-write-notice")).toHaveLength(1);
+      expect(firstRangeBar(from)).toHaveAttribute("aria-disabled", "true");
+      await expectBlockLocked(user, "room-102", from, addDaysIso(from, 1));
+      expect(mockedCreate).toHaveBeenCalledTimes(1);
+    });
+
+    it("block: the intent survives, this page warns and locks, and a reload still does", async () => {
+      const user = userEvent.setup();
+      const { from } = await renderLoadedBoard();
+      const post = await startPendingBlock(user, from);
+
+      const spy = refuseUnconfirmedRecord();
+      const before = mockedBoard.mock.calls.length;
+      await act(async () => post.resolve({ kind: "unknown", reason: "timeout" }));
+      await settleReread(before);
+      spy.mockRestore();
+      expect(pendingCount()).toBe(1);
+      await closeDialog(user, blockDialog());
+      expect(screen.getByTestId("uncertain-block-notice")).toBeInTheDocument();
+      await expectBlockLocked(user, "room-102", from, addDaysIso(from, 1));
+
+      await reloadSameTab();
+      expect(screen.getAllByTestId("uncertain-block-notice")).toHaveLength(1);
+      await expectBlockLocked(user, "room-102", from, addDaysIso(from, 1));
+      expect(mockedBlock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("the page comes back from the back/forward cache without remounting", () => {
+    it("assignment: an unknown answer received while the page was hidden comes back as a notice and a lock before any new write, with no second POST", async () => {
+      const user = userEvent.setup();
+      const { from } = await renderLoadedBoard();
+      const post = await startPendingAssignment(user, from);
+
+      await act(async () => {
+        window.dispatchEvent(new Event("pagehide"));
+        post.resolve({ kind: "unknown", reason: "aborted" });
+        await flushMicrotasks();
+      });
+      const boardCalls = mockedBoard.mock.calls.length;
+      await act(async () => {
+        showFromBackForwardCache();
+        await flushMicrotasks();
+      });
+
+      const notice = await screen.findByTestId("uncertain-write-notice");
+      expect(notice).toHaveTextContent("sent just before this page was reloaded or left");
+      expect(notice).toHaveTextContent("may never have reached the server, or may already have been saved");
+      expect(screen.getAllByTestId("uncertain-write-notice")).toHaveLength(1);
+      // An authoritative re-read, not the board as it was before the page was hidden.
+      await waitFor(() => expect(mockedBoard.mock.calls.length).toBe(boardCalls + 1));
+      await waitFor(() => expect(screen.getByTestId("uncertain-write-notice")).toHaveTextContent("still unknown"));
+      await closeDialog(user, assignDialog());
+      expect(firstRangeBar(from)).toHaveAttribute("aria-disabled", "true");
+      await expectBlockLocked(user, "room-102", from, addDaysIso(from, 1));
+      // A write that does not overlap is still possible.
+      await expectBlockAllowed(user, "room-201", from, addDaysIso(from, 1));
+
+      const afterReread = mockedBoard.mock.calls.length;
+      await user.click(within(screen.getByTestId("uncertain-write-notice")).getByRole("button", { name: "Check again" }));
+      await waitFor(() => expect(mockedBoard.mock.calls.length).toBe(afterReread + 1));
+      expect(mockedCreate).toHaveBeenCalledTimes(1);
+      // The page holds it now: the intent was handed over to the record.
+      expect(pendingCount()).toBe(0);
+      expect(sessionStorage.getItem(UNCERTAIN_KEY)).not.toBeNull();
+    });
+
+    it("block: an unknown answer received while the page was hidden comes back as a notice and a lock", async () => {
+      const user = userEvent.setup();
+      const { from } = await renderLoadedBoard();
+      const post = await startPendingBlock(user, from);
+
+      await act(async () => {
+        window.dispatchEvent(new Event("pagehide"));
+        post.resolve({ kind: "unknown", reason: "aborted" });
+        await flushMicrotasks();
+      });
+      await act(async () => {
+        showFromBackForwardCache();
+        await flushMicrotasks();
+      });
+
+      expect(await screen.findByTestId("uncertain-block-notice")).toBeInTheDocument();
+      expect(screen.getAllByTestId("uncertain-block-notice")).toHaveLength(1);
+      await closeDialog(user, blockDialog());
+      await expectBlockLocked(user, "room-102", from, addDaysIso(from, 1));
+      expect(mockedBlock).toHaveBeenCalledTimes(1);
+    });
+
+    it("a write still on the wire when the page comes back is not doubled: its own answer later creates the one notice", async () => {
+      const user = userEvent.setup();
+      const { from } = await renderLoadedBoard();
+      const post = await startPendingAssignment(user, from);
+
+      await act(async () => {
+        window.dispatchEvent(new Event("pagehide"));
+        showFromBackForwardCache();
+        await flushMicrotasks();
+      });
+      expect(screen.queryByTestId("uncertain-write-notice")).not.toBeInTheDocument();
+
+      const before = mockedBoard.mock.calls.length;
+      await act(async () => post.resolve({ kind: "unknown", reason: "timeout" }));
+      await settleReread(before);
+      expect(screen.getAllByTestId("uncertain-write-notice")).toHaveLength(1);
+      expect(pendingCount()).toBe(0);
+    });
+
+    it("a page shown normally (not from the cache) is left alone", async () => {
+      await renderLoadedBoard();
+      const boardCalls = mockedBoard.mock.calls.length;
+      await act(async () => {
+        window.dispatchEvent(new Event("pageshow"));
+        await flushMicrotasks();
+      });
+      expect(mockedBoard.mock.calls.length).toBe(boardCalls);
+    });
+  });
+});

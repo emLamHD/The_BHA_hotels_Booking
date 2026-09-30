@@ -92,6 +92,7 @@ import {
   persistUncertainWrites,
   restoreUncertainWrites,
   tabStorage,
+  uncertainWriteIdentity,
 } from "./uncertainWriteStorage";
 import { buildUnassignTarget, type UnassignTarget } from "./unassignTarget";
 import { buildUnassignRequest, planUnassignReconciliation } from "./unassignSubmission";
@@ -158,7 +159,7 @@ const RESTORED_EXPLANATION =
  * before any answer arrived — it may not even have reached the server.
  */
 const RESTORED_IN_FLIGHT_EXPLANATION =
-  "The page was reloaded before the server answered. The request may never have reached the server, or may already have been saved: the board shows the schedule, not which request changed it.";
+  "The page was reloaded or left before the server answered. The request may never have reached the server, or may already have been saved: the board shows the schedule, not which request changed it.";
 
 /**
  * PMS-CAL-001.5-CP03: a write is only sent after its intent is safely recorded
@@ -433,6 +434,18 @@ const ReservationBoard: React.FC = () => {
 
   const requestSeqRef = useRef(0);
 
+  /**
+   * PMS-CAL-001.5-CP03-C1: intents whose write this page now tracks in its
+   * lists, but which stay in storage until the unconfirmed record replacing
+   * them has been saved and read back (`persistTracked`). While storage
+   * refuses that record, the intent is the tab's only record of the write.
+   */
+  const handOffTokensRef = useRef<Set<string>>(new Set(restoredWrites.pendingTokens));
+  /** CP03-C1: intents of this page's writes still on the wire; their own answer decides them. */
+  const inFlightTokensRef = useRef<Set<string>>(new Set());
+  /** Something stored could not be read back: at mount, or when the page came back from the back/forward cache. */
+  const [storageUnreadable, setStorageUnreadable] = useState(restoredWrites.unreadable);
+
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -440,36 +453,117 @@ const ReservationBoard: React.FC = () => {
     };
   }, []);
 
+  /**
+   * CP03-C1: writes the tab's unconfirmed record from both lists and, only if
+   * storage verifiably holds it, drops the intents handed over to it. A
+   * refused write drops nothing; the next change of either list tries again.
+   */
+  const persistTracked = useCallback(() => {
+    if (!persistUncertainWrites(tabStorage(), reconciliationsRef.current, blockReconciliationsRef.current)) return;
+    for (const token of [...handOffTokensRef.current]) {
+      if (endPendingWrite(tabStorage(), token)) handOffTokensRef.current.delete(token);
+    }
+  }, []);
+
   // PMS-CAL-001.5-CP03: restored in-flight intents are now tracked entries of
-  // this page. Write them into the unresolved record first, then drop exactly
-  // those intents — never ones a later write of this page has begun — so they
-  // are resolved by the same rules and never restored again once they are.
+  // this page. They are handed over to the unresolved record through
+  // `persistTracked` — dropped only once that record is safely stored, and
+  // never an intent a later write of this page has begun.
   useEffect(() => {
-    if (restoredWrites.pendingTokens.length === 0) return;
-    persistUncertainWrites(tabStorage(), reconciliationsRef.current, blockReconciliationsRef.current);
-    for (const token of restoredWrites.pendingTokens) endPendingWrite(tabStorage(), token);
-  }, [restoredWrites]);
+    if (handOffTokensRef.current.size > 0) persistTracked();
+  }, [persistTracked]);
 
   // PMS-CAL-001.5-CP02: the only two places either list changes, so the tab's
   // record of unresolved writes can never drift from what the board locks.
-  const updateReconciliations = useCallback((update: (list: Reconciliation[]) => Reconciliation[]) => {
-    const next = update(reconciliationsRef.current);
-    if (next === reconciliationsRef.current) return;
-    reconciliationsRef.current = next;
-    setReconciliations(next);
-    persistUncertainWrites(tabStorage(), next, blockReconciliationsRef.current);
-  }, []);
+  const updateReconciliations = useCallback(
+    (update: (list: Reconciliation[]) => Reconciliation[]) => {
+      const next = update(reconciliationsRef.current);
+      if (next === reconciliationsRef.current) {
+        // CP03-C1: an unchanged list is still a moment to retry a hand-over storage refused.
+        if (handOffTokensRef.current.size > 0) persistTracked();
+        return;
+      }
+      reconciliationsRef.current = next;
+      setReconciliations(next);
+      persistTracked();
+    },
+    [persistTracked]
+  );
 
   const updateBlockReconciliations = useCallback(
     (update: (list: BlockCreateReconciliation[]) => BlockCreateReconciliation[]) => {
       const next = update(blockReconciliationsRef.current);
-      if (next === blockReconciliationsRef.current) return;
+      if (next === blockReconciliationsRef.current) {
+        // CP03-C1: an unchanged list is still a moment to retry a hand-over storage refused.
+        if (handOffTokensRef.current.size > 0) persistTracked();
+        return;
+      }
       blockReconciliationsRef.current = next;
       setBlockReconciliations(next);
-      persistUncertainWrites(tabStorage(), reconciliationsRef.current, next);
+      persistTracked();
     },
-    []
+    [persistTracked]
   );
+
+  /**
+   * CP03-C1: how a submit handler lets go of its intent once the answer is in
+   * on a live page. A lost answer (`unknown`) that is now a tracked entry is
+   * handed over (see `persistTracked`); an answer that decided the outcome
+   * needs no record. An `unknown` the board did not track keeps its intent.
+   */
+  const finishIntent = useCallback(
+    (token: string, outcomeKind: string, tracked: boolean) => {
+      if (outcomeKind !== "unknown") {
+        endPendingWrite(tabStorage(), token);
+      } else if (tracked) {
+        handOffTokensRef.current.add(token);
+        persistTracked();
+      }
+    },
+    [persistTracked]
+  );
+
+  /**
+   * PMS-CAL-001.5-CP03-C1: a page restored from the back/forward cache is not
+   * mounted again, so nothing above would run. What it recorded while it was
+   * being left — an intent whose request was cut off, an unknown answer that
+   * arrived while it was unloading — is in the tab's storage but not in this
+   * page's lists. `pageshow` runs before the page takes any input, so the
+   * missing writes are taken in here, synchronously into the lock refs; they
+   * are `pending` for a re-read issued from now on, which keeps this board's
+   * write controls closed until the server has been asked again. A write
+   * already tracked here, or still on the wire (its own answer will decide
+   * it), is never taken in twice.
+   */
+  useEffect(() => {
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (!event.persisted) return;
+      markPageAlive();
+      const restored = restoreUncertainWrites(tabStorage(), nextReconciliationIdRef.current);
+      nextReconciliationIdRef.current += restored.assignments.length + restored.blocks.length;
+      const inFlight = inFlightTokensRef.current;
+      const known = new Set([
+        ...reconciliationsRef.current.map((entry) => uncertainWriteIdentity("assignment", entry)),
+        ...blockReconciliationsRef.current.map((entry) => uncertainWriteIdentity("block", entry)),
+      ]);
+      const afterSeq = requestSeqRef.current;
+      const missing = <T extends Reconciliation | BlockCreateReconciliation>(kind: "assignment" | "block", entries: T[]) =>
+        entries
+          .filter((entry) => !known.has(uncertainWriteIdentity(kind, entry)) && !(entry.intent !== undefined && inFlight.has(entry.intent)))
+          .map((entry) => ({ ...entry, afterSeq }));
+      for (const token of restored.pendingTokens) if (!inFlight.has(token)) handOffTokensRef.current.add(token);
+      const assignments = missing("assignment", restored.assignments);
+      const blocks = missing("block", restored.blocks);
+      if (assignments.length > 0) updateReconciliations((list) => [...list, ...assignments]);
+      if (blocks.length > 0) updateBlockReconciliations((list) => [...list, ...blocks]);
+      persistTracked();
+      if (restored.unreadable) setStorageUnreadable(true);
+      // The board may have changed while the page was away: read it again, whatever was found.
+      setRetryToken((token) => token + 1);
+    };
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, [persistTracked, updateReconciliations, updateBlockReconciliations]);
 
   useEffect(() => {
     referencedBlockIdsRef.current = {
@@ -823,6 +917,7 @@ const ReservationBoard: React.FC = () => {
       // PMS-CAL-001.5-CP03: after every refusal above, immediately before the wire.
       const pendingToken = beginPendingWrite(tabStorage(), { kind: "assignment", entry: asUnansweredEntry(target, writeTarget) });
       if (pendingToken === null) return { kind: "not-sent", message: INTENT_NOT_RECORDED_MESSAGE };
+      inFlightTokensRef.current.add(pendingToken);
 
       const outcome = await createReservationAssignment(target.propertyId, {
         reservationUnitId: target.stay.reservationUnitId,
@@ -832,6 +927,7 @@ const ReservationBoard: React.FC = () => {
         confirmCrossRoomType: isCrossRoomType,
         ...(isCrossRoomType && crossRoomType ? { reason: crossRoomType.reason } : {}),
       });
+      inFlightTokensRef.current.delete(pendingToken);
       // CP03: a page that is unloading is as good as gone — a reload aborts the
       // fetch before the board unmounts (verified live in Chrome).
       if (!mountedRef.current || isPageUnloading()) {
@@ -855,6 +951,7 @@ const ReservationBoard: React.FC = () => {
           target: writeTarget,
           status: "pending",
           resolution: uncertain ? "unresolved" : "settled",
+          intent: pendingToken,
         };
         updateReconciliations((list) => [...list.filter(keepReconciliation), reconciliation]);
         setDialogReconciliationId(reconciliation.id);
@@ -867,11 +964,12 @@ const ReservationBoard: React.FC = () => {
         }
         setRetryToken((token) => token + 1);
       }
-      // Only now: an unknown outcome is already in the tracked list, and persisted.
-      endPendingWrite(tabStorage(), pendingToken);
+      // Only now: an unknown outcome is already in the tracked list, and the
+      // intent goes only once that list is safely stored (CP03-C1).
+      finishIntent(pendingToken, outcome.kind, describeAssignmentOutcome(outcome).reloadBoard);
       return outcome;
     },
-    [updateReconciliations, keepReconciliation, isRoomLocked]
+    [updateReconciliations, keepReconciliation, isRoomLocked, finishIntent]
   );
 
   const handleMoveRoom = useCallback(
@@ -1093,6 +1191,7 @@ const ReservationBoard: React.FC = () => {
       // PMS-CAL-001.5-CP03: after every refusal above, immediately before the wire.
       const pendingToken = beginPendingWrite(tabStorage(), { kind: "assignment", entry: asUnansweredEntry(target, writeTarget) });
       if (pendingToken === null) return recordMoveOutcome({ kind: "not-sent", message: INTENT_NOT_RECORDED_MESSAGE });
+      inFlightTokensRef.current.add(pendingToken);
 
       moveRequestPendingRef.current = true;
       const outcome = await moveReservationAssignment(target.propertyId, target.segment.segmentId, {
@@ -1109,6 +1208,7 @@ const ReservationBoard: React.FC = () => {
       // proof that none did, even though it was called.
       if (outcome.kind !== "not-sent") moveDialogSentRef.current = true;
       recordMoveOutcome(outcome);
+      inFlightTokensRef.current.delete(pendingToken);
       // CP03: a page that is unloading is as good as gone — a reload aborts the
       // fetch before the board unmounts (verified live in Chrome).
       if (!mountedRef.current || isPageUnloading()) {
@@ -1132,6 +1232,7 @@ const ReservationBoard: React.FC = () => {
           target: writeTarget,
           status: "pending",
           resolution: uncertain ? "unresolved" : "settled",
+          intent: pendingToken,
         };
         updateReconciliations((list) => [...list.filter(keepReconciliation), reconciliation]);
         // PMS-CAL-001.2-CP04C.5-C3: this dialog owns the request even when
@@ -1156,11 +1257,12 @@ const ReservationBoard: React.FC = () => {
         }
         setRetryToken((token) => token + 1);
       }
-      // Only now: an unknown outcome is already in the tracked list, and persisted.
-      endPendingWrite(tabStorage(), pendingToken);
+      // Only now: an unknown outcome is already in the tracked list, and the
+      // intent goes only once that list is safely stored (CP03-C1).
+      finishIntent(pendingToken, outcome.kind, describeMoveOutcome(outcome).reloadBoard);
       return outcome;
     },
-    [updateReconciliations, keepReconciliation, isRoomLocked, recordMoveOutcome]
+    [updateReconciliations, keepReconciliation, isRoomLocked, recordMoveOutcome, finishIntent]
   );
 
   /**
@@ -1180,10 +1282,12 @@ const ReservationBoard: React.FC = () => {
       const unanswered = planUnassignReconciliation(target, { kind: "unknown", reason: "network" }, { id: 0, afterSeq: 0 });
       const pendingToken = unanswered ? beginPendingWrite(tabStorage(), { kind: "assignment", entry: unanswered }) : null;
       if (pendingToken === null) return { kind: "not-sent", message: INTENT_NOT_RECORDED_MESSAGE };
+      inFlightTokensRef.current.add(pendingToken);
 
       unassignRequestPendingRef.current = true;
       const outcome = await unassignReservationAssignment(propertyId, segmentId, request);
       unassignRequestPendingRef.current = false;
+      inFlightTokensRef.current.delete(pendingToken);
       // CP03: a page that is unloading is as good as gone — a reload aborts the
       // fetch before the board unmounts (verified live in Chrome).
       if (!mountedRef.current || isPageUnloading()) {
@@ -1192,10 +1296,11 @@ const ReservationBoard: React.FC = () => {
         return outcome;
       }
 
-      const reconciliation = planUnassignReconciliation(target, outcome, {
+      const planned = planUnassignReconciliation(target, outcome, {
         id: nextReconciliationIdRef.current,
         afterSeq: requestSeqRef.current,
       });
+      const reconciliation = planned && { ...planned, intent: pendingToken };
       if (reconciliation) {
         nextReconciliationIdRef.current = reconciliation.id + 1;
         updateReconciliations((list) => [...list.filter(keepReconciliation), reconciliation]);
@@ -1218,11 +1323,12 @@ const ReservationBoard: React.FC = () => {
         }
         setRetryToken((token) => token + 1);
       }
-      // Only now: an unknown outcome is already in the tracked list, and persisted.
-      endPendingWrite(tabStorage(), pendingToken);
+      // Only now: an unknown outcome is already in the tracked list, and the
+      // intent goes only once that list is safely stored (CP03-C1).
+      finishIntent(pendingToken, outcome.kind, reconciliation !== null);
       return outcome;
     },
-    [updateReconciliations, keepReconciliation, isRoomLocked]
+    [updateReconciliations, keepReconciliation, isRoomLocked, finishIntent]
   );
 
   const currentBoardKey =
@@ -1337,6 +1443,7 @@ const ReservationBoard: React.FC = () => {
       // PMS-CAL-001.5-CP03: after every refusal above, immediately before the wire.
       const pendingToken = beginPendingWrite(tabStorage(), { kind: "block", entry: asUnansweredEntry(target, writeTarget) });
       if (pendingToken === null) return { kind: "not-sent", message: INTENT_NOT_RECORDED_MESSAGE };
+      inFlightTokensRef.current.add(pendingToken);
 
       blockCancelRequestPendingRef.current = true;
       blockCancelSubmittedRef.current = true;
@@ -1349,6 +1456,7 @@ const ReservationBoard: React.FC = () => {
       } finally {
         blockCancelRequestPendingRef.current = false;
       }
+      inFlightTokensRef.current.delete(pendingToken);
       // CP03: a page that is unloading is as good as gone — a reload aborts the
       // fetch before the board unmounts (verified live in Chrome).
       if (!mountedRef.current || isPageUnloading()) {
@@ -1378,6 +1486,7 @@ const ReservationBoard: React.FC = () => {
           target: writeTarget,
           status: "pending",
           resolution: uncertain ? "unresolved" : "settled",
+          intent: pendingToken,
         };
         updateBlockReconciliations((list) => [...list.filter(keepBlockReconciliation), reconciliation]);
         setDialogBlockCancelReconciliationId(reconciliation.id);
@@ -1391,11 +1500,12 @@ const ReservationBoard: React.FC = () => {
         }
         setRetryToken((token) => token + 1);
       }
-      // Only now: an unknown outcome is already in the tracked list, and persisted.
-      endPendingWrite(tabStorage(), pendingToken);
+      // Only now: an unknown outcome is already in the tracked list, and the
+      // intent goes only once that list is safely stored (CP03-C1).
+      finishIntent(pendingToken, outcome.kind, view.reloadBoard);
       return outcome;
     },
-    [updateBlockReconciliations, isRoomLocked, closeStaleBlockCancelDialog, keepBlockReconciliation]
+    [updateBlockReconciliations, isRoomLocked, closeStaleBlockCancelDialog, keepBlockReconciliation, finishIntent]
   );
 
   const isBlockRangeLocked = useCallback(
@@ -1433,6 +1543,7 @@ const ReservationBoard: React.FC = () => {
       // PMS-CAL-001.5-CP03: after every refusal above, immediately before the wire.
       const pendingToken = beginPendingWrite(tabStorage(), { kind: "block", entry: asUnansweredEntry(target, writeTarget) });
       if (pendingToken === null) return { kind: "not-sent", message: INTENT_NOT_RECORDED_MESSAGE };
+      inFlightTokensRef.current.add(pendingToken);
 
       blockRequestPendingRef.current = true;
       blockSubmittedRef.current = true;
@@ -1447,6 +1558,7 @@ const ReservationBoard: React.FC = () => {
       } finally {
         blockRequestPendingRef.current = false;
       }
+      inFlightTokensRef.current.delete(pendingToken);
       // CP03: a page that is unloading is as good as gone — a reload aborts the
       // fetch before the board unmounts (verified live in Chrome).
       if (!mountedRef.current || isPageUnloading()) {
@@ -1478,6 +1590,7 @@ const ReservationBoard: React.FC = () => {
           target: writeTarget,
           status: "pending",
           resolution: uncertain ? "unresolved" : "settled",
+          intent: pendingToken,
         };
         updateBlockReconciliations((list) => [...list.filter(keepBlockReconciliation), reconciliation]);
         setDialogBlockReconciliationId(reconciliation.id);
@@ -1491,11 +1604,12 @@ const ReservationBoard: React.FC = () => {
         }
         setRetryToken((token) => token + 1);
       }
-      // Only now: an unknown outcome is already in the tracked list, and persisted.
-      endPendingWrite(tabStorage(), pendingToken);
+      // Only now: an unknown outcome is already in the tracked list, and the
+      // intent goes only once that list is safely stored (CP03-C1).
+      finishIntent(pendingToken, outcome.kind, view.reloadBoard);
       return outcome;
     },
-    [updateBlockReconciliations, isRoomLocked, closeStaleBlockDialog, keepBlockReconciliation]
+    [updateBlockReconciliations, isRoomLocked, closeStaleBlockDialog, keepBlockReconciliation, finishIntent]
   );
 
   const reconciliationStatus = (id: number | null): BoardReloadStatus => {
@@ -1998,14 +2112,14 @@ const ReservationBoard: React.FC = () => {
           }}
         />
       ))}
-      {restoredWrites.unreadable && selectedPropertyId !== null && (
+      {storageUnreadable && selectedPropertyId !== null && (
         // Client-only (gated on a loaded Property), so it never differs from the server render.
         <p
           role="alert"
           data-testid="unreadable-uncertain-writes"
           className="mx-2 mt-2 rounded-lg bg-warning-50 px-3 py-2 text-sm text-warning-800 sm:mx-4 dark:bg-warning-500/10 dark:text-warning-300"
         >
-          An unconfirmed request from before this page was reloaded could not be restored, so its rooms and nights are
+          An unconfirmed request from before this page was reloaded or left could not be restored, so its rooms and nights are
           not locked here. It may already have been saved: check the board before repeating any recent change.
         </p>
       )}
@@ -2180,7 +2294,7 @@ const UncertainBlockNotice: React.FC<{
   // block's own reason is labelled as such: a cancel's optional reason is not
   // tracked here, and the block's reason must not read as the cancel's.
   const title = entry.restored
-    ? `Unconfirmed block ${target.operation === "cancel" ? "cancel" : "create"} request ${entry.restored === "in-flight" ? "sent just" : "from"} before this page was reloaded: room ${target.roomNumber}, ${range}.`
+    ? `Unconfirmed block ${target.operation === "cancel" ? "cancel" : "create"} request ${entry.restored === "in-flight" ? "sent just" : "from"} before this page was reloaded or left: room ${target.roomNumber}, ${range}.`
     : target.operation === "cancel"
       ? `Unconfirmed cancel request: block on room ${target.roomNumber}, ${range} · original block reason: ${target.reason}`
       : `Unconfirmed block request: room ${target.roomNumber}, ${range} — ${target.reason}`;
@@ -2359,7 +2473,7 @@ const UncertainWriteNotice: React.FC<{
       <div>
         <p className="font-medium">
           {entry.restored
-            ? `Unconfirmed ${operationLabel} request ${entry.restored === "in-flight" ? "sent just" : "from"} before this page was reloaded: room ${target.roomNumber}, ${range}.`
+            ? `Unconfirmed ${operationLabel} request ${entry.restored === "in-flight" ? "sent just" : "from"} before this page was reloaded or left: room ${target.roomNumber}, ${range}.`
             : `Unconfirmed request: room ${target.roomNumber} for ${target.guestDisplayName} (${target.confirmationNumber}), ${range}.`}
         </p>
         {entry.restored && (

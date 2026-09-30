@@ -26,6 +26,13 @@
  * stored; a restored entry is marked `restored` so its notice can say neutrally
  * what it can no longer name.
  *
+ * PMS-CAL-001.5-CP03-C1: an intent is dropped only once the unconfirmed
+ * record that replaces it has been written *and read back* — never after a
+ * write that storage refused — so a write that may have reached the server
+ * always has at least one record in this tab. Each entry carries its intent's
+ * token (`intent`) as its identity: when both records describe the same write
+ * (the record was saved but dropping the intent failed), it is restored once.
+ *
  * A restored entry is treated as new to this page: `afterSeq` is 0 and `status`
  * is `pending`, because the previous page's board request sequence restarted
  * with the page, and none of this page's reads has seen that board yet.
@@ -78,6 +85,7 @@ function assignmentRecord(entry: Reconciliation) {
     from: entry.from,
     to: entry.to,
     ...(entry.restored === "in-flight" ? { inFlight: true } : {}),
+    ...(entry.intent !== undefined ? { intent: entry.intent } : {}),
     target: {
       operation: target.operation,
       reservationUnitId: target.reservationUnitId,
@@ -104,6 +112,7 @@ function blockRecord(entry: BlockCreateReconciliation) {
     from: entry.from,
     to: entry.to,
     ...(entry.restored === "in-flight" ? { inFlight: true } : {}),
+    ...(entry.intent !== undefined ? { intent: entry.intent } : {}),
     target: {
       operation: target.operation,
       physicalRoomId: target.physicalRoomId,
@@ -120,14 +129,18 @@ function blockRecord(entry: BlockCreateReconciliation) {
 /**
  * Writes the current unresolved entries of both lists, or removes the record
  * when there are none. Never throws: storage that refuses the write (quota,
- * privacy mode) simply leaves this tab without reload continuity.
+ * privacy mode) leaves this tab without reload continuity for writes that have
+ * no intent left — which is why the result matters.
+ *
+ * CP03-C1: returns `true` only when the record now in storage, read back, is
+ * exactly what was written. Until then an intent it replaces must be kept.
  */
 export function persistUncertainWrites(
   storage: Storage | null,
   assignments: Reconciliation[],
   blocks: BlockCreateReconciliation[]
-): void {
-  if (!storage) return;
+): boolean {
+  if (!storage) return false;
   try {
     const kept = {
       v: FORMAT_VERSION,
@@ -136,24 +149,27 @@ export function persistUncertainWrites(
     };
     if (kept.assignments.length === 0 && kept.blocks.length === 0) {
       storage.removeItem(UNCERTAIN_WRITES_STORAGE_KEY);
-    } else {
-      storage.setItem(UNCERTAIN_WRITES_STORAGE_KEY, JSON.stringify(kept));
+      return storage.getItem(UNCERTAIN_WRITES_STORAGE_KEY) === null;
     }
+    const text = JSON.stringify(kept);
+    storage.setItem(UNCERTAIN_WRITES_STORAGE_KEY, text);
+    return storage.getItem(UNCERTAIN_WRITES_STORAGE_KEY) === text;
   } catch {
-    // Deliberately silent: see this function's comment.
+    return false;
   }
 }
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const isText = (value: unknown): value is string => typeof value === "string" && value.length > 0;
+const isOptionalText = (value: unknown) => value === undefined || isText(value);
 const isVersion = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value >= 0;
 const isNights = (start: unknown, end: unknown) =>
   typeof start === "string" && typeof end === "string" && ISO_DATE.test(start) && ISO_DATE.test(end) && start < end;
 
 function readBoard(record: Record<string, unknown>) {
-  const { key, propertyId, from, to } = record;
-  if (!isText(key) || !isText(propertyId) || !isNights(from, to)) return null;
-  return { key, propertyId, from: from as string, to: to as string };
+  const { key, propertyId, from, to, intent } = record;
+  if (!isText(key) || !isText(propertyId) || !isNights(from, to) || !isOptionalText(intent)) return null;
+  return { key, propertyId, from: from as string, to: to as string, ...(intent !== undefined ? { intent: intent as string } : {}) };
 }
 
 function readAssignment(value: unknown, id: number): Reconciliation | null {
@@ -245,7 +261,8 @@ if (typeof window !== "undefined") {
   };
   window.addEventListener("beforeunload", markUnloading);
   window.addEventListener("pagehide", markUnloading);
-  // Back from the back/forward cache: the page is alive again.
+  // Back from the back/forward cache: the page is alive again. What it recorded
+  // while unloading is taken back in by the mounted board's own `pageshow` (CP03-C1).
   window.addEventListener("pageshow", () => {
     pageUnloading = false;
   });
@@ -260,6 +277,18 @@ export function isPageUnloading(): boolean {
 export function markPageAlive(): void {
   pageUnloading = false;
 }
+
+/**
+ * CP03-C1: one write, whichever record it was restored from. Its intent's
+ * token when it has one; otherwise (a record written before intents carried
+ * one) everything the record keeps about it.
+ */
+export function uncertainWriteIdentity(kind: "assignment" | "block", entry: Reconciliation | BlockCreateReconciliation): string {
+  if (entry.intent !== undefined) return entry.intent;
+  const record = kind === "assignment" ? assignmentRecord(entry as Reconciliation) : blockRecord(entry as BlockCreateReconciliation);
+  return `${kind}:${JSON.stringify({ ...record, inFlight: undefined })}`;
+}
+
 let pendingCounter = 0;
 
 function readPendingRecords(storage: Storage): PendingRecord[] {
@@ -300,18 +329,22 @@ export function beginPendingWrite(storage: Storage | null, pending: PendingWrite
 /**
  * CP03: removes exactly this write's intent — never another one, so a late
  * completion from an old page cannot remove what a newer page is tracking.
- * Never throws.
+ * Never throws: an intent left behind only ever errs toward a lock.
+ *
+ * CP03-C1: returns whether the intent is verifiably gone (already absent
+ * counts), so a caller can try again later.
  */
-export function endPendingWrite(storage: Storage | null, token: string): void {
-  if (!storage) return;
+export function endPendingWrite(storage: Storage | null, token: string): boolean {
+  if (!storage) return false;
   try {
     const records = readPendingRecords(storage);
     const kept = records.filter((record) => record.token !== token);
-    if (kept.length === records.length) return;
+    if (kept.length === records.length) return true;
     if (kept.length === 0) storage.removeItem(PENDING_WRITES_STORAGE_KEY);
     else storage.setItem(PENDING_WRITES_STORAGE_KEY, JSON.stringify({ v: FORMAT_VERSION, writes: kept }));
+    return !readPendingRecords(storage).some((record) => record.token === token);
   } catch {
-    // Deliberately silent: an intent left behind only ever errs toward a lock.
+    return false;
   }
 }
 
@@ -320,6 +353,10 @@ export function endPendingWrite(storage: Storage | null, token: string): void {
  * CP03's in-flight intents — numbering the restored entries from `firstId`.
  * Never throws. An entry that fails validation is dropped and flagged as
  * `unreadable`, never guessed at.
+ *
+ * CP03-C1: an intent whose token an unconfirmed entry already carries is the
+ * same write; only the unconfirmed entry (the later knowledge) is restored,
+ * while the intent's token is still reported so the page can drop it.
  */
 export function restoreUncertainWrites(storage: Storage | null, firstId: number): RestoredUncertainWrites {
   const empty: RestoredUncertainWrites = { assignments: [], blocks: [], unreadable: false, pendingTokens: [] };
@@ -327,6 +364,7 @@ export function restoreUncertainWrites(storage: Storage | null, firstId: number)
   const outcomes = restoreOutcomes(storage, firstId);
   let nextId = firstId + outcomes.assignments.length + outcomes.blocks.length;
   const pendingTokens: string[] = [];
+  const recorded = new Set([...outcomes.assignments, ...outcomes.blocks].map((entry) => entry.intent));
   let unreadable = outcomes.unreadable;
   let records: PendingRecord[] = [];
   let pendingText: string | null = null;
@@ -353,8 +391,10 @@ export function restoreUncertainWrites(storage: Storage | null, firstId: number)
       unreadable = true;
       continue;
     }
-    nextId += 1;
     pendingTokens.push(record.token);
+    if (recorded.has(record.token)) continue;
+    entry.intent = record.token;
+    nextId += 1;
     if (record.kind === "assignment") outcomes.assignments.push(entry as Reconciliation);
     else outcomes.blocks.push(entry as BlockCreateReconciliation);
   }

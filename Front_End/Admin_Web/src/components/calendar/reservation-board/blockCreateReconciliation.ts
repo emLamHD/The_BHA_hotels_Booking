@@ -77,6 +77,13 @@ export interface BlockCreateReconciliation {
    * outcome arrived, `"unknown-outcome"` when it received `unknown`.
    */
   restored?: "unknown-outcome" | "in-flight";
+  /**
+   * PMS-CAL-001.5-CP03-C1: the token of the in-flight intent this write was
+   * recorded under before it was sent (`uncertainWriteStorage.ts`). It is the
+   * write's identity across the tab's two records, so one write is never
+   * restored — or warned about — twice. Not read by the reconciliation rules.
+   */
+  intent?: string;
 }
 
 function overlaps(a: { startDate: string; endDate: string }, b: { startDate: string; endDate: string }) {
