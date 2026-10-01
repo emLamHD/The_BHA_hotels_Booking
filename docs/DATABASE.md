@@ -101,6 +101,7 @@ The current migration chain is:
 6. `20260723105404_AddBookingHoldReservationFoundation`
 7. `20260823084717_CommercialCommitmentV2Foundation`
 8. `20260826035254_PhysicalRoomScheduleAvailabilityAuthority`
+9. `20261001141847_AddStaffIdentityFoundation`
 
 `PMS-BE-001.1` (migration 7) replaces the single-RoomType `BookingHold`/
 `BookingHoldNight` and `Reservation`/`ReservationNight` commercial authority
@@ -161,6 +162,15 @@ Organization table, no HTTP/Admin endpoint, and no Admin
 authentication/RBAC model are introduced by this migration. See
 `docs/reports/PMS-BE-001.2-completion.md` for the complete contract and
 test evidence.
+
+`PMS-ADMIN-AUTH-001-CP01` (migration 9, `AddStaffIdentityFoundation`) adds
+`StaffAccounts` (a separate Identity user table: unique normalized email and
+user name, `IsActive`/`DisabledAtUtc` consistency check) and
+`StaffPropertyMemberships` (primary key `(StaffAccountId, PropertyId)`,
+`Role` checked to `FrontDesk`/`Manager`, `Restrict` foreign keys to both
+parents) — ADR 0007. Customer tables are unchanged. `Down()` is guarded: it
+fails atomically while either new table has rows. No Staff sign-in, endpoint
+or bootstrap command exists yet, and the seed creates no Staff.
 
 Run the update command before the development seed. The API never calls
 `EnsureCreated()` and never applies a migration during startup.

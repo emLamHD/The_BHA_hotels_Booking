@@ -1,8 +1,21 @@
 # THE BHA — SNAPSHOT
 
-> Ngày cập nhật: 2026-09-30 (`PMS-ADMIN-AUTH-001-CP00`; các phần cũ hơn giữ nguyên kèm SHA)
+> Ngày cập nhật: 2026-10-01 (`PMS-ADMIN-AUTH-001-CP01`; các phần cũ hơn giữ nguyên kèm SHA)
 >
 > Mục đích: phục hồi trạng thái hiện tại mà không cần nạp worklog lịch sử
+
+Cập nhật 2026-10-01 (`PMS-ADMIN-AUTH-001-CP01`, Draft PR, chưa merge):
+`PMS-ADMIN-AUTH-001-CP00` (PR #73) đã **merged**, merge commit
+`874f1481808afbcc83e18950b00d6ab07368b1be`. Owner đã duyệt: Staff là identity
+riêng (D1); role chỉ `FrontDesk`/`Manager`, không `Viewer`; Staff dùng password/
+lockout policy của Customer, MFA hoãn; ADR 0007 nằm trong CP01; CP01 được vượt
+giới hạn 100–400 dòng kèm lời giải thích (phần lớn là output EF sinh tự động).
+CP01 thêm `StaffAccount`, `StaffPropertyMembership`, migration 9
+`20261001141847_AddStaffIdentityFoundation` và ADR 0007 — **chỉ schema và
+Identity store**: chưa có đăng nhập Staff, cookie, endpoint, CLI bootstrap hay
+route authorization; các gate local unauthenticated vẫn là cơ chế duy nhất
+truy cập Admin. Evidence: `docs/reports/PMS-ADMIN-AUTH-001-CP01-completion.md`.
+CP02–CP07 chưa được kích hoạt.
 
 Cập nhật 2026-09-30 (`PMS-ADMIN-AUTH-001-CP00`, docs, không đổi source):
 `PMS-CAL-001.5-CP04` (PR #72) đã **merged**, merge commit
@@ -266,6 +279,10 @@ này sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
 
 ## 3. Current PostgreSQL schema and Hold/Reservation model
 
+- `PMS-ADMIN-AUTH-001-CP01` (Draft PR) adds migration 9,
+  `20261001141847_AddStaffIdentityFoundation`: `StaffAccounts` and
+  `StaffPropertyMemberships` (ADR 0007; `docs/DATABASE.md`). Migrations 1–8
+  are unchanged. The bullet below records the chain as of `PMS-BE-001.2`.
 - Migration chain is now **eight** migrations, ending at
   `20260826035254_PhysicalRoomScheduleAvailabilityAuthority` (`PMS-BE-001.2`
   migration 8, this work item). Migrations 1–7 (pre-existing before
@@ -563,11 +580,11 @@ evidence independently verified for this closeout via:
 `e0f5a395aec15cc02e328433a97850e30e165675`, `2026-09-03T03:11:21Z`; §1,
 §2, §4). Không còn review gate hay merge nào đang chờ trên work item đó.
 
-Objective hiện tại là `PMS-ADMIN-AUTH-001-CP00` — chốt thiết kế tối thiểu cho
-Staff authentication và RBAC theo Property của Admin Reservation Board (đề
-xuất chờ Owner duyệt, không implement). Review Codex chỉ do Owner gọi, OC
-quyết định, Owner giữ Ready/merge/branch cleanup. Không tự bắt đầu CP01 hay
-work item nào khác từ Snapshot này.
+Objective hiện tại là `PMS-ADMIN-AUTH-001-CP01` — schema và Identity store
+cho Staff (`StaffAccounts`, `StaffPropertyMemberships`, migration 9, ADR 0007),
+không có hành vi đăng nhập hay authorization mới. Review Codex chỉ do Owner
+gọi, OC quyết định, Owner giữ Ready/merge/branch cleanup. Không tự bắt đầu
+CP02 hay work item nào khác từ Snapshot này.
 
 ## 9. Main risks
 
