@@ -1,10 +1,20 @@
 # THE BHA — SNAPSHOT
 
-> Ngày cập nhật: 2026-09-30 (`PMS-CAL-001.5-CP04`; các phần cũ hơn giữ nguyên kèm SHA)
+> Ngày cập nhật: 2026-09-30 (`PMS-ADMIN-AUTH-001-CP00`; các phần cũ hơn giữ nguyên kèm SHA)
 >
 > Mục đích: phục hồi trạng thái hiện tại mà không cần nạp worklog lịch sử
 
-Cập nhật 2026-09-30 (`PMS-CAL-001.5-CP04`, docs/evidence, không đổi source):
+Cập nhật 2026-09-30 (`PMS-ADMIN-AUTH-001-CP00`, docs, không đổi source):
+`PMS-CAL-001.5-CP04` (PR #72) đã **merged**, merge commit
+`0952e1b58e274a055b47ca3f04beb6fe08ed5ed8` (`origin/develop`). Owner chọn Admin
+authentication/RBAC làm milestone tiếp theo; `PMS-ADMIN-AUTH-001-CP00` là PR
+thiết kế (Draft) —
+`docs/design/PMS-ADMIN-AUTH-001-staff-auth-rbac.md`. Đó là **đề xuất chờ Owner
+duyệt**, chưa phải CURRENT: chưa có Staff, role, membership hay đăng nhập
+Admin nào; các gate local unauthenticated vẫn là cơ chế duy nhất. CP01–CP07
+chưa được kích hoạt.
+
+Bản cập nhật trước (2026-09-30, `PMS-CAL-001.5-CP04`, docs/evidence, không đổi source):
 `origin/develop` = `3d7eb12b09286bbb2aa79590442f4ace69321563` (PR #71). PR
 #48–#71 đều **merged**; các câu bên dưới nói CP04B là "đang thực thi" đã hết
 hiệu lực. Trong `develop` hiện có, trên Admin Reservation Board (local
@@ -204,8 +214,8 @@ này sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
 
 ### Đang thực thi
 
-- Không có work item sản phẩm nào đang thực thi. `PMS-CAL-001.5-CP04` là
-  checkpoint docs/evidence (Draft PR). `CP04B` (PR #48) đã merged: hai route
+- Không có work item sản phẩm nào đang thực thi. `PMS-CAL-001.5-CP04` đã
+  merged (PR #72); `PMS-ADMIN-AUTH-001-CP00` là checkpoint thiết kế (Draft PR). `CP04B` (PR #48) đã merged: hai route
   local-only `.../reservation-assignments/{segmentId}/move` và `/unassign`,
   cùng CP01 write gate; Admin Reservation Board là caller (CP04C/CP04D).
 - Mọi mutation nghiệp vụ khác của `PMS-CAL-001.2` (CP05, CP06 trở đi) **chưa
@@ -213,7 +223,7 @@ này sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
 
 ### Quyết định đang hiệu lực
 
-`PMS_CAL_001_5_CP03_MERGED__CP04_CLOSEOUT_ACTIVE`
+`PMS_CAL_001_5_CP04_MERGED__ADMIN_AUTH_CP00_DESIGN_ACTIVE`
 
 Ý nghĩa:
 
@@ -553,11 +563,11 @@ evidence independently verified for this closeout via:
 `e0f5a395aec15cc02e328433a97850e30e165675`, `2026-09-03T03:11:21Z`; §1,
 §2, §4). Không còn review gate hay merge nào đang chờ trên work item đó.
 
-Objective hiện tại là `PMS-CAL-001.5-CP04` — nghiệm thu live trên baseline
-`3d7eb12b09286bbb2aa79590442f4ace69321563` và đồng bộ tài liệu, không đổi
-source. Evidence ở `docs/reports/PMS-CAL-001.5-CP04-completion.md`; review
-Codex chỉ do Owner gọi, OC quyết định, Owner giữ Ready/merge/branch cleanup.
-Không tự bắt đầu work item sản phẩm nào khác từ Snapshot này.
+Objective hiện tại là `PMS-ADMIN-AUTH-001-CP00` — chốt thiết kế tối thiểu cho
+Staff authentication và RBAC theo Property của Admin Reservation Board (đề
+xuất chờ Owner duyệt, không implement). Review Codex chỉ do Owner gọi, OC
+quyết định, Owner giữ Ready/merge/branch cleanup. Không tự bắt đầu CP01 hay
+work item nào khác từ Snapshot này.
 
 ## 9. Main risks
 
