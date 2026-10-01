@@ -1,7 +1,7 @@
 # PMS-ADMIN-AUTH-001-CP01 — Staff identity and Property membership schema
 
-> Draft PR into `develop`. Implementer: Claude. Reviewer: Codex (read-only, invoked by Owner only). `REVIEW: NOT RUN` until Owner runs it.
-> Baseline `874f1481808afbcc83e18950b00d6ab07368b1be` (PR #73 merged). Branch `feature/pms-admin-auth-001-cp01-staff-identity`.
+> Draft PR #74 into `develop`, not merged. Implementer: Claude. Reviewer: Codex (read-only, invoked by Owner only). Review history: see "Review" below.
+> Baseline `874f1481808afbcc83e18950b00d6ab07368b1be` (PR #73 merged). Branch `feature/pms-admin-auth-001-cp01-staff-identity`. Implementation head `59f540acbf2e257c3f26ad020881f7db8e376233`; correction C1 (documentation only) follows it.
 
 ## Owner decisions applied (2026-10-01)
 
@@ -9,9 +9,9 @@
 - Roles are exactly `FrontDesk` and `Manager`; no `Viewer`.
 - Staff use the Customer password and lockout policy; MFA is deferred.
 - ADR 0007 is part of CP01.
-- CP01 may exceed the 100–400 changed-line limit, with the explanation below.
+- CP01 alone may exceed the 100–400 changed-line limit, with the explanation below; the exception does not extend to CP02–CP07.
 
-The design's other open items (D3/D4/D6/D7/D8, production bootstrap) belong to CP02–CP07 and are untouched.
+Still open and not approved by this checkpoint or by the merge of #73: D3 (the `TheBha.Staff` scheme), D4, D6 and the production bootstrap, D7, D8. The design (`docs/design/PMS-ADMIN-AUTH-001-staff-auth-rbac.md` §10) lists the same split since C1.
 
 ## Deliverable
 
@@ -25,7 +25,7 @@ No endpoint, cookie, login, CLI verb, gate, CORS, frontend or Customer behaviour
 
 ## Why this PR exceeds 100–400 changed lines
 
-Of about 2,390 changed lines, **1,836 are EF Core output that nobody writes or edits**:
+At the implementation head `59f540a` GitHub reported +2,389 / −14 (2,403 changed lines); the final size including C1 is in the "Correction C1" section. **1,836 lines are EF Core output that nobody writes or edits**:
 
 | File | Lines | Origin |
 |---|---|---|
@@ -42,7 +42,7 @@ The generated part can be checked mechanically instead of read line by line:
 
 The part to review by eye is about 430 lines of source and tests plus the docs. These sizes were measured beforehand in an external spike (`PMS-ADMIN-AUTH-001-CP01-FEASIBILITY`) and match this PR exactly for source and tests.
 
-## Verification (this session, local PostgreSQL 17 in a disposable container)
+## Verification (implementation head `59f540a`, local PostgreSQL 17 in a disposable container)
 
 | Command | Result |
 |---|---|
@@ -62,10 +62,22 @@ Updated existing tests (required by migration 9): `PropertyInventoryPersistenceT
 ## Limits and residual risk
 
 - `IdentityOptions` is global: a later, stricter Staff policy needs its own validator.
-- Identity claim/login/token tables stay keyed to customers; CP03 must not give Staff claims (a write fails, a read returns nothing).
-- `docs/design/PMS-ADMIN-AUTH-001-staff-auth-rbac.md` still shows `Viewer` and the §10 items as open; ADR 0007 records the Owner decisions and takes precedence. The design file was left unchanged (outside this checkpoint's scope).
-- CI has not run on this branch at the time of writing; see the PR checks.
+- `AspNetUserClaims/Logins/Tokens` stay keyed to customers. No code may call the Staff Identity store APIs that store or read claims, external logins or tokens through them (a write fails on the foreign key, a read returns nothing). This limits the Identity store, not the session: the Staff cookie's `ClaimsPrincipal` still carries the Staff id and security stamp, and roles/Property ids are never put in the cookie as an authorization source. The default `UserClaimsPrincipalFactory<StaffAccount>` reads claims through `GetClaimsAsync`, so CP03 builds the Staff principal without that read (design §3).
+- CI: run `36876443326` on `59f540acbf2e257c3f26ad020881f7db8e376233` — Admin, Backend and Frontend success. CI for the C1 head is on PR #74.
 
 ## Review
 
-`REVIEW: NOT RUN`. Owner invokes `/codex:review --base origin/develop`.
+**Original review (implementation head)** — `REVIEW: RUN`. One invocation of `/codex:review --base origin/develop`, run by Owner. `REVIEW_BASE: origin/develop`. `REVIEWED_HEAD: AWAITING_OWNER_EVIDENCE` — the Codex job record (`review-mupmvxnb-uboyuo`, 2026-10-01T14:32:56Z–14:34:18Z) does not state the reviewed SHA. No finding. Codex's result, verbatim:
+
+> Target: branch diff against origin/develop
+>
+> No actionable defects were identified in the diff. The Staff schema, Identity registration and migration updates are consistent with the documented checkpoint scope. Tests were not rerun in this read-only review.
+
+The reviewer did not rerun builds or tests. This review does not cover correction C1.
+
+## Correction C1 (documentation only)
+
+- Design synchronised with the Owner decisions of 2026-10-01 (header, §1, D1/D2/D3 status, §3 caveats, §4 role matrix without `Viewer`, §6 role choices, §9 size note and CP05 acceptance, §10 decided/open split). ADR 0007: Draft-PR status, explicit `IsActive`/`DisabledAtUtc` CHECK, precise Identity-claims limit. SNAPSHOT: PR #74 and the still-open items. This report: decisions, sizes, claims limit, CI and review record.
+- No source, test, migration, snapshot or dependency changed relative to `59f540a`; tests NOT RERUN (docs-only), the evidence above stays tied to `59f540a`.
+- Size: C1 changes +64 / −42 lines against `59f540a`; the whole PR is +2,435 / −38 (2,473 changed lines) against `origin/develop`, of which the 1,836 generated lines are unchanged.
+- `REVIEW: NOT RUN` for C1 until Owner invokes `/codex:review --base origin/develop`.

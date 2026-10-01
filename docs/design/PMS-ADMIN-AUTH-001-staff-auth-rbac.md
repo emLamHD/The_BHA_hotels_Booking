@@ -1,7 +1,7 @@
 # PMS-ADMIN-AUTH-001 — Staff authentication and property-scoped RBAC
 
-> Status: **proposal (CP00, design only)**. Nothing below is CURRENT until a later checkpoint merges. Baseline `0952e1b58e274a055b47ca3f04beb6fe08ed5ed8`.
-> Owner has decided **three** points (marked *Owner decision* below; recorded in C1). Choosing this milestone is not approval of the rest: the items listed in §10 "Still open" remain open, and the design as a whole is **not** approved.
+> Status: **proposal**, written in CP00 (baseline `0952e1b58e274a055b47ca3f04beb6fe08ed5ed8`, merged as PR #73) and synchronised with the Owner decisions of 2026-10-01 in `PMS-ADMIN-AUTH-001-CP01-C1`. Nothing below is CURRENT until a later checkpoint merges.
+> Owner decisions are marked *Owner decision* and listed in §10. CP01 (Staff schema and Identity store, ADR 0007) is in **Draft PR #74, not merged into `develop`**; Staff session, bootstrap, route authorization and Staff audit do not exist anywhere. Neither the merge of #73 nor the CP01 implementation approves the items in §10 "Still open" (D3 scheme, D4, D6 and production bootstrap, D7, D8), and the design as a whole is **not** approved.
 > Scope: authentication and authorization of the Admin Reservation Board routes. Out of scope: Organization/tenant onboarding, MFA, SSO/IdP, JWT, dynamic roles, role-admin UI, Staff self-service (registration, password reset by email), any non-calendar Admin module.
 
 ## 1. Verified CURRENT (source, not history)
@@ -15,15 +15,15 @@
 | Admin CORS policies are **uncredentialed** (`admin-calendar` GET; `admin-calendar-write` POST + `Content-Type`); `Cors:AdminOrigins` must be explicit HTTPS origins. Write controllers use `[IgnoreAntiforgeryToken]`; the global `AutoValidateAntiforgeryToken` protects the rest. | `Program.cs:219-286`, `Program.cs:130-135`, controllers |
 | Audit actor is the constant `admin-calendar-local-development` (assignments and block header); cross-RoomType evidence is the constant `local-development-write-gate:cross-room-type-confirmed`, written only when the request confirms a cross-RoomType placement and a reason is present. Column limits: `ActorReference` 200, `AuthorizationEvidence` 500. | `AdminReservationAssignmentsController.cs:208-216`, `AdminOperationalBlocksController.cs:156`, `Domain/Scheduling/SchedulingFieldLimits.cs`, `AssignmentMutationStore.cs:116,378` |
 | Admin_Web sends every write with `credentials: "omit"`; reads use the default fetch credentials. The Property selector uses the public `GET /api/v1/properties`. | `Front_End/Admin_Web/src/lib/api/client.ts` |
-| There is no Staff entity, role, membership or Admin authentication anywhere. | whole tree |
+| There is no Staff entity, role, membership or Admin authentication anywhere on `develop` (`874f148`). CP01 (Draft PR #74, not merged) adds only the Staff schema and Identity store. | whole tree |
 
 ## 2. Decisions
 
 | # | Decision | Owner approval |
 |---|---|---|
-| D1 | Staff are a **separate identity**: new `StaffAccount : IdentityUser<Guid>` (§3). `CustomerAccount` is not touched. | confirm |
-| D2 | Authorization is server-side, per request, from `StaffPropertyMembership(Staff, Property, Role)`; roles map to a fixed permission set in code (§4). | *Owner decision:* `FrontDesk` and `Manager` permissions. **Open:** whether `Viewer` exists; final role names |
-| D3 | Staff session = its own cookie scheme `TheBha.Staff`; the Customer scheme stays the default and is unchanged (§5). Lifetime **8 h absolute, not sliding** — *Owner decision*. | scheme: confirm |
+| D1 | Staff are a **separate identity**: new `StaffAccount : IdentityUser<Guid>` in the same `TheBhaDbContext` (§3). `CustomerAccount` is not touched. | *Owner decision* (2026-10-01); ADR 0007 |
+| D2 | Authorization is server-side, per request, from `StaffPropertyMembership(Staff, Property, Role)`; roles map to a fixed permission set in code (§4). | *Owner decision:* exactly `FrontDesk` and `Manager`, no `Viewer` (2026-10-01), with the permissions in §4 |
+| D3 | Staff session = its own cookie scheme `TheBha.Staff`; the Customer scheme stays the default and is unchanged (§5). Lifetime **8 h absolute, not sliding** — *Owner decision*. | lifetime decided; scheme: open |
 | D4 | CSRF protection for Staff = `SameSite=Strict` + exact `Origin` allow-list on every non-GET + JSON content type; no antiforgery tokens (§5). | confirm |
 | D5 | Admin_Web and the API are deployed **same-site** (one registrable domain, or localhost in dev) — *Owner decision*. | decided |
 | D6 | First Staff and memberships are created only by a controlled CLI command, never by an HTTP route (§6). | confirm |
@@ -40,25 +40,24 @@
 | D. Hand-rolled hashing and lockout. | Rejected: re-implements Identity for no gain. |
 | E. JWT / external IdP. | Out of scope (brief). |
 
-Feasibility was **checked with a throwaway spike outside the repo** (EF 8.0.29 / Npgsql 8.0.11, same packages): with `StaffAccount` mapped as a plain entity (`ToTable("StaffAccounts")`, unique `NormalizedEmail`/`NormalizedUserName`, concurrency stamp), `AddIdentityCore<StaffAccount>` resolved `UserManager<StaffAccount>` beside `UserManager<CustomerAccount>`, and these behaved: create, duplicate email/user name rejected, lookup by email (case-insensitive), password check, lockout after 5 failures, security-stamp rotation, change password, weak password rejected; the same email could exist as customer and staff without interference. Not verified by the spike (verify at CP01): `SignInManager` (deliberately not used, see §5) and the migration output.
+Feasibility was **checked with a throwaway spike outside the repo** (EF 8.0.29 / Npgsql 8.0.11, same packages): with `StaffAccount` mapped as a plain entity (`ToTable("StaffAccounts")`, unique `NormalizedEmail`/`NormalizedUserName`, concurrency stamp), `AddIdentityCore<StaffAccount>` resolved `UserManager<StaffAccount>` beside `UserManager<CustomerAccount>`, and these behaved: create, duplicate email/user name rejected, lookup by email (case-insensitive), password check, lockout after 5 failures, security-stamp rotation, change password, weak password rejected; the same email could exist as customer and staff without interference. Not verified by the spike: `SignInManager` (deliberately not used, see §5). The migration output was generated and tested in CP01 (Draft PR #74).
 
 Caveats CP01 must respect:
-- `IdentityOptions` (password policy, lockout) is **global**: Staff inherits the Customer values (12 chars, upper/lower/digit/symbol, lockout 5 / 15 min). A stricter Staff policy needs a separate validator, not a different option object.
-- `AspNetUserClaims/Logins/Tokens` stay keyed to `CustomerAccount`. Staff must **not** use claims, external logins or user tokens; no token providers are registered for Staff.
+- `IdentityOptions` (password policy, lockout) is **global**: Staff inherits the Customer values (12 chars, upper/lower/digit/symbol, lockout 5 / 15 min) — *Owner decision* (2026-10-01); MFA is deferred. A stricter Staff policy would need a separate validator, not a different option object.
+- `AspNetUserClaims/Logins/Tokens` stay keyed to `CustomerAccount`. No code may call the Staff Identity store APIs that store or read claims, external logins or user tokens (`UserManager<StaffAccount>` claim/login/token methods), because they go through those Customer-keyed tables; no token providers are registered for Staff. This limits the **Identity store**, not the session: the Staff cookie's `ClaimsPrincipal` still carries the Staff id and security stamp (§5). The default `UserClaimsPrincipalFactory<StaffAccount>` reads `AspNetUserClaims` through `GetClaimsAsync` (ASP.NET Core `UserClaimsPrincipalFactory.cs`), so CP03 builds the Staff principal from the Staff id and security stamp without that read, and a CP03 test proves it.
 - New tables (generated by one migration): `StaffAccounts` (Identity columns + `IsActive`, `CreatedAtUtc`, `DisabledAtUtc`) and `StaffPropertyMemberships` (`StaffAccountId`, `PropertyId`, `Role` text with a CHECK, `CreatedAtUtc`; PK (`StaffAccountId`,`PropertyId`); FK `Restrict` to `StaffAccounts` and `Properties`). A Staff row is never deleted, only disabled.
-- A durable Identity/auth decision should be recorded as `docs/ADR/0007-…` in CP01 (**open:** needs Owner sign-off; one more file).
+- The durable Identity decision is recorded as `docs/ADR/0007-separate-staff-identity-with-property-memberships.md` in CP01 (*Owner decision*, 2026-10-01).
 
-## 4. Property authorization and RBAC (`FrontDesk`/`Manager` permissions: *Owner decision*; `Viewer` and final role names: open)
+## 4. Property authorization and RBAC (roles and permissions: *Owner decision*)
 
 Permissions (code constants): `BoardRead`, `AssignmentWrite` (create / move / unassign, same-RoomType), `AssignmentCrossRoomType` (create or move with `confirmCrossRoomType`), `BlockWrite` (create / cancel).
 
-| Role (proposed) | BoardRead | AssignmentWrite | BlockWrite | AssignmentCrossRoomType |
+| Role | BoardRead | AssignmentWrite | BlockWrite | AssignmentCrossRoomType |
 |---|---|---|---|---|
-| `Viewer` | ✔ | – | – | – |
 | `FrontDesk` | ✔ | ✔ | ✔ | – |
 | `Manager` | ✔ | ✔ | ✔ | ✔ |
 
-`Manager` differs from `FrontDesk` only by `AssignmentCrossRoomType`. `Viewer` is a proposal and may be dropped.
+`Manager` differs from `FrontDesk` only by `AssignmentCrossRoomType`. There is no `Viewer` role (*Owner decision*, 2026-10-01); the database CHECK allows exactly these two roles, so adding a role needs a migration.
 
 Rules:
 - One role per (Staff, Property). No cross-Property effect: a membership never implies another Property, and cross-RoomType stays within the sold unit's Property (blueprint §12).
@@ -80,7 +79,7 @@ Rules:
 
 ## 6. Bootstrap
 
-A CLI verb on the API host, in the style of `--seed-development` (`Program.cs:312`): `--staff-create --email <e> --property-id <guid> --role <Viewer|FrontDesk|Manager>`, plus `--staff-grant`, `--staff-disable`, `--staff-reset-password`. The password is read from the environment variable `BHA_STAFF_PASSWORD` or an interactive hidden prompt — never a command-line argument, never a default, never in Git; it must pass the Identity policy. The command prints the target database (host/name, no secret) and Staff id only, works in any environment against the configured database, and there is **no HTTP registration**. `DevelopmentDataSeeder` does not create Staff. Implemented in CP02, not here.
+A CLI verb on the API host, in the style of `--seed-development` (`Program.cs:312`): `--staff-create --email <e> --property-id <guid> --role <FrontDesk|Manager>`, plus `--staff-grant`, `--staff-disable`, `--staff-reset-password`. The password is read from the environment variable `BHA_STAFF_PASSWORD` or an interactive hidden prompt — never a command-line argument, never a default, never in Git; it must pass the Identity policy. The command prints the target database (host/name, no secret) and Staff id only, works in any environment against the configured database, and there is **no HTTP registration**. `DevelopmentDataSeeder` does not create Staff. Implemented in CP02, not here.
 
 ## 7. Route cut-over
 
@@ -100,15 +99,17 @@ A CLI verb on the API host, in the style of `--seed-development` (`Program.cs:31
 
 `ActorReference = staff:{StaffAccountId}` (a GUID: stable, no email/PII, ≤ 200) for assignments and the `RoomBlock` header. Cross-RoomType keeps the current rule (evidence and reason only for a confirmed cross-RoomType placement) with `AuthorizationEvidence = staff-rbac:{role}:{propertyId}:cross-room-type-confirmed` (≤ 500). Existing rows keep `admin-calendar-local-development`; no backfill, no invented Staff. Anonymous `LocalGate` writes keep the old constants.
 
-## 9. Checkpoints (each one Draft PR; lines = hand-written + tests + docs, generated shown apart)
+## 9. Checkpoints (each one Draft PR; "≈ lines" = CP00 estimate, kept as history; hand-written + tests + docs, generated shown apart)
+
+The 100–400 changed-line limit has an Owner-approved exception for **CP01 only** (2026-10-01): its generated EF output cannot be split from the model. CP02–CP07 keep the limit. The current CP01 size is the GitHub figure for PR #74, explained in `docs/reports/PMS-ADMIN-AUTH-001-CP01-completion.md`.
 
 | CP | Behaviour after merge | Depends | Scope | Acceptance (minimum) | ≈ lines |
 |---|---|---|---|---|---|
-| CP01 | Staff tables exist; no endpoint, no behaviour change | – | `StaffAccount`, `StaffPropertyMembership`, `StaffRole`, EF config, `AddIdentityCore<StaffAccount>`, one migration, ADR 0007 | PostgreSQL tests: create/duplicate/lockout/stamp, membership FK/PK/CHECK; Customer auth tests unchanged; migration applies on a fresh DB | ~300 hand-written + ~1,700 **generated** (migration Designer ≈ 1,600 (the last one is 1,492), snapshot delta ≈ 100) |
+| CP01 | Staff tables exist; no endpoint, no behaviour change | – | `StaffAccount`, `StaffPropertyMembership`, `StaffRole`, EF config, `AddIdentityCore<StaffAccount>`, one migration, ADR 0007 | PostgreSQL tests: create/duplicate/lockout/stamp, membership FK/PK/CHECK; Customer auth tests unchanged; migration applies on a fresh DB | CP00 estimate: ~300 hand-written + ~1,700 **generated**. Measured at PR #74 head `59f540a`: +2,389 / −14, of which 1,836 generated (Designer 1,615, snapshot +123, migration body 98) |
 | CP02 | Operator can create/grant/disable/reset Staff | CP01 | CLI verbs, secret input, tests | no password in args/output; weak password refused; idempotent grant | ~350 |
 | CP03 | Staff can log in/out and read `me` | CP01–02 | scheme, cookie events, login/logout/me, `admin-staff` CORS, Origin check extraction, rate limit | 401/403 JSON; Customer↔Staff cookie isolation both ways; disable/stamp invalidation; no redirect | ~400 |
 | CP04 | `AccessMode` + evaluator; board read authorized in `Staff` mode | CP03 | `IStaffAccessEvaluator`, permission map, policies, mode switch, guards, read route | member ok, non-member 403, no session 401; `Staff` mode ignores the read flag; unconverted routes 404 | ~350 |
-| CP05 | Five write routes authorized; audit from Staff | CP04 | policies, actor/evidence, cross-RoomType permission | per route: `Viewer` (if kept) read only; `FrontDesk` assign / move / unassign / block create / block cancel, but 403 on `confirmCrossRoomType`; `Manager` all; 403 before the store; audit rows carry `staff:{id}`; `LocalGate` unchanged | ~400 |
+| CP05 | Five write routes authorized; audit from Staff | CP04 | policies, actor/evidence, cross-RoomType permission | per route: `FrontDesk` assign / move / unassign / block create / block cancel, but 403 on `confirmCrossRoomType`; `Manager` all; 403 before the store; audit rows carry `staff:{id}`; `LocalGate` unchanged | ~400 |
 | CP06 | Admin_Web login, `credentials: include`, selector from `me` | CP05 | login page, client, 401/403 handling, permission-aware controls | unit tests + live acceptance in `Staff` mode incl. reload protection unchanged | ~400 |
 | CP07 | `Staff` default; Production requires it; docs current | CP06 | config defaults, startup guard, SNAPSHOT/BIBLE/ADR | Production + `LocalGate` refuses to start; end-to-end live acceptance | ~250 |
 
@@ -116,14 +117,21 @@ If CP01's generated migration is judged too large to review, the only honest spl
 
 ## 10. Owner decisions
 
-**Decided (recorded in C1):**
+**Decided in CP00 (recorded in CP00-C1):**
 1. `FrontDesk` has `BoardRead`, `AssignmentWrite` and `BlockWrite`; `Manager` additionally has `AssignmentCrossRoomType`.
 2. Admin_Web and the API are deployed same-site, so the `SameSite=Strict` + Origin design stands (a different topology would reopen §5).
 3. The Staff session lasts 8 hours absolute, without sliding renewal.
 
+**Decided 2026-10-01 (before CP01; 4–6 recorded in ADR 0007, 8 in the CP01 completion report):**
+4. D1: Staff are a separate Identity user type in the same `TheBhaDbContext`.
+5. Roles are exactly `FrontDesk` and `Manager`; there is no `Viewer`.
+6. Staff use the Customer password and lockout policy; MFA is deferred.
+7. ADR 0007 is part of CP01.
+8. CP01 alone may exceed the 100–400 changed-line limit, with the explanation in its PR and completion report; the exception does not extend to other checkpoints.
+
 **Still open:**
-1. Is a `Viewer` role needed, and the final role names.
-2. Staff password policy (proposal: the Customer policy, §3) and MFA (proposal: deferred).
-3. Who runs the production bootstrap, from where, and how `BHA_STAFF_PASSWORD` is handed over (§6).
-4. Adding ADR 0007 in CP01.
-5. The CP01 size exception: about 300 hand-written lines plus about 1,700 generated (§9). The choice of this milestone does not grant it.
+1. D3: the separate `TheBha.Staff` cookie scheme (its 8 h absolute lifetime is decided above).
+2. D4: CSRF by `SameSite=Strict` + exact Origin + JSON content type, without antiforgery tokens.
+3. D6: bootstrap only by CLI; and who runs the production bootstrap, from where, and how `BHA_STAFF_PASSWORD` is handed over (§6).
+4. D7: the `AdminCalendar:AccessMode` cut-over.
+5. D8: `staff:{StaffAccountId}` audit actor.

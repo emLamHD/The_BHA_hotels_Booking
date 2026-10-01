@@ -4,16 +4,18 @@
 >
 > Mục đích: phục hồi trạng thái hiện tại mà không cần nạp worklog lịch sử
 
-Cập nhật 2026-10-01 (`PMS-ADMIN-AUTH-001-CP01`, Draft PR, chưa merge):
+Cập nhật 2026-10-01 (`PMS-ADMIN-AUTH-001-CP01`, Draft PR #74, chưa merge):
 `PMS-ADMIN-AUTH-001-CP00` (PR #73) đã **merged**, merge commit
 `874f1481808afbcc83e18950b00d6ab07368b1be`. Owner đã duyệt: Staff là identity
 riêng (D1); role chỉ `FrontDesk`/`Manager`, không `Viewer`; Staff dùng password/
-lockout policy của Customer, MFA hoãn; ADR 0007 nằm trong CP01; CP01 được vượt
-giới hạn 100–400 dòng kèm lời giải thích (phần lớn là output EF sinh tự động).
+lockout policy của Customer, MFA hoãn; ADR 0007 nằm trong CP01; riêng CP01 được
+vượt giới hạn 100–400 dòng kèm lời giải thích (phần lớn là output EF sinh tự
+động; CP02–CP07 vẫn giữ giới hạn). Vẫn **mở**, không được duyệt bởi merge #73
+hay CP01: D3 (scheme `TheBha.Staff`), D4, D6 và bootstrap Production, D7, D8.
 CP01 thêm `StaffAccount`, `StaffPropertyMembership`, migration 9
 `20261001141847_AddStaffIdentityFoundation` và ADR 0007 — **chỉ schema và
-Identity store**: chưa có đăng nhập Staff, cookie, endpoint, CLI bootstrap hay
-route authorization; các gate local unauthenticated vẫn là cơ chế duy nhất
+Identity store**: chưa có đăng nhập Staff, cookie, endpoint, CLI bootstrap,
+route authorization hay audit Staff; các gate local unauthenticated vẫn là cơ chế duy nhất
 truy cập Admin. Evidence: `docs/reports/PMS-ADMIN-AUTH-001-CP01-completion.md`.
 CP02–CP07 chưa được kích hoạt.
 
