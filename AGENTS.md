@@ -209,7 +209,7 @@ When a work item has more than one internal phase, `ACTIVE_EXECUTOR` reports at 
 
 ## 13. Completion report and review handoff
 
-After the final phase of a work item, `ACTIVE_EXECUTOR` stops all writes at a stable checkpoint and reports: `Status: PASS | BLOCKED`; work item; branch/base/HEAD; commits; authorized Draft PR URL; diff stat/files; acceptance; exact checks/outcomes; self-review; deviations; risks/`NOT RUN`; blockers when blocked; requested Owner/OC decision.
+After the final phase of a work item, `ACTIVE_EXECUTOR` stops all writes at a stable checkpoint and reports: `Status: PASS | BLOCKED`; work item; branch/base/HEAD; commits; authorized Draft PR URL; diff stat/files; PR size from GitHub, with the reason when it is outside the 100–400 line target (`docs/governance/WORKFLOW.md` §6); acceptance; exact checks/outcomes; self-review; deviations; risks/`NOT RUN`; blockers when blocked; requested Owner/OC decision.
 
 `ACTIVE_EXECUTOR` then prints, for `REVIEWER: CODEX_READ_ONLY`, replacing `<CODEX_REVIEW_COMMAND>` verbatim with the `CODEX_REVIEW_COMMAND` supplied by the current Master Execution Prompt (no inferred or hardcoded default base or flags):
 

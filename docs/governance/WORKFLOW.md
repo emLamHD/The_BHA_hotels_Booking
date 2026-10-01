@@ -139,6 +139,13 @@ Không recap toàn bộ project. Nếu baseline hoặc ownership không khớp, 
 
 OC không review trực tiếp trong lúc `ACTIVE_EXECUTOR` đang sửa, trừ khi Owner yêu cầu một checkpoint tư vấn không ghi file.
 
+### Kích thước PR (quyết định Owner, 2026-10-01)
+
+- Mục tiêu: 100–400 dòng additions + deletions cho toàn PR, tính cả generated files, test và tài liệu. Đây là **mục tiêu, không phải giới hạn bắt buộc**; không cần xin ngoại lệ kích thước.
+- PR dưới 100 hoặc trên 400 vẫn hợp lệ, nhưng PR body và completion report phải ghi số thực tế từ GitHub và lý do cụ thể theo nhóm file (ví dụ output sinh tự động, test hoặc safety cần giữ), không chỉ ghi "task lớn".
+- Không padding, không nén code bất thường, không giảm test hay safety để đạt mục tiêu; không dùng quy tắc này để mở rộng scope.
+- Ngoại lệ kích thước riêng của `PMS-ADMIN-AUTH-001-CP01` là lịch sử trước quyết định này.
+
 ## 7. Review gate
 
 ### Review invocation
@@ -198,6 +205,7 @@ Implementer:
 Reviewer:
 Base and head SHA:
 Files changed:
+PR size (GitHub additions/deletions; reason if outside 100–400):
 Acceptance results:
 Checks run and results:
 Skill policy / skills invoked / trigger evidence:

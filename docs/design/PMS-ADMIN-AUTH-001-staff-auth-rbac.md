@@ -1,7 +1,7 @@
 # PMS-ADMIN-AUTH-001 — Staff authentication and property-scoped RBAC
 
 > Status: **proposal**, written in CP00 (baseline `0952e1b58e274a055b47ca3f04beb6fe08ed5ed8`, merged as PR #73) and synchronised with the Owner decisions of 2026-10-01 in `PMS-ADMIN-AUTH-001-CP01-C1`. Nothing below is CURRENT until a later checkpoint merges.
-> Owner decisions are marked *Owner decision* and listed in §10. CP01 (Staff schema and Identity store, ADR 0007) is in **Draft PR #74, not merged into `develop`**; Staff session, bootstrap, route authorization and Staff audit do not exist anywhere. Neither the merge of #73 nor the CP01 implementation approves the items in §10 "Still open" (D3 scheme, D4, D6 and production bootstrap, D7, D8), and the design as a whole is **not** approved.
+> Owner decisions are marked *Owner decision* and listed in §10. CP01 (Staff schema and Identity store, ADR 0007) is **merged** (PR #74, `3c1eefd`). CP02 (the Staff bootstrap CLI, §6) is in a **Draft PR, not merged**. Staff session, route authorization and Staff audit do not exist anywhere. Neither the merges of #73/#74 nor CP02 approve the items in §10 "Still open" (D3 scheme, D4, D7, D8), and the design as a whole is **not** approved.
 > Scope: authentication and authorization of the Admin Reservation Board routes. Out of scope: Organization/tenant onboarding, MFA, SSO/IdP, JWT, dynamic roles, role-admin UI, Staff self-service (registration, password reset by email), any non-calendar Admin module.
 
 ## 1. Verified CURRENT (source, not history)
@@ -15,7 +15,7 @@
 | Admin CORS policies are **uncredentialed** (`admin-calendar` GET; `admin-calendar-write` POST + `Content-Type`); `Cors:AdminOrigins` must be explicit HTTPS origins. Write controllers use `[IgnoreAntiforgeryToken]`; the global `AutoValidateAntiforgeryToken` protects the rest. | `Program.cs:219-286`, `Program.cs:130-135`, controllers |
 | Audit actor is the constant `admin-calendar-local-development` (assignments and block header); cross-RoomType evidence is the constant `local-development-write-gate:cross-room-type-confirmed`, written only when the request confirms a cross-RoomType placement and a reason is present. Column limits: `ActorReference` 200, `AuthorizationEvidence` 500. | `AdminReservationAssignmentsController.cs:208-216`, `AdminOperationalBlocksController.cs:156`, `Domain/Scheduling/SchedulingFieldLimits.cs`, `AssignmentMutationStore.cs:116,378` |
 | Admin_Web sends every write with `credentials: "omit"`; reads use the default fetch credentials. The Property selector uses the public `GET /api/v1/properties`. | `Front_End/Admin_Web/src/lib/api/client.ts` |
-| There is no Staff entity, role, membership or Admin authentication anywhere on `develop` (`874f148`). CP01 (Draft PR #74, not merged) adds only the Staff schema and Identity store. | whole tree |
+| Written at `874f148`, before any Staff code. Since CP01 (PR #74, `3c1eefd`) `develop` has the Staff schema and Identity store, but no Staff session, route authorization or Staff audit. | whole tree |
 
 ## 2. Decisions
 
@@ -26,7 +26,7 @@
 | D3 | Staff session = its own cookie scheme `TheBha.Staff`; the Customer scheme stays the default and is unchanged (§5). Lifetime **8 h absolute, not sliding** — *Owner decision*. | lifetime decided; scheme: open |
 | D4 | CSRF protection for Staff = `SameSite=Strict` + exact `Origin` allow-list on every non-GET + JSON content type; no antiforgery tokens (§5). | confirm |
 | D5 | Admin_Web and the API are deployed **same-site** (one registrable domain, or localhost in dev) — *Owner decision*. | decided |
-| D6 | First Staff and memberships are created only by a controlled CLI command, never by an HTTP route (§6). | confirm |
+| D6 | First Staff and memberships are created only by a controlled CLI command, never by an HTTP route (§6). | *Owner decision* (2026-10-01), scope in §6 |
 | D7 | Cut-over uses an explicit `AdminCalendar:AccessMode` switch; a route without a Staff policy is closed in `Staff` mode (§7). | confirm |
 | D8 | Audit actor becomes `staff:{StaffAccountId}`; historical rows are untouched (§8). | confirm |
 
@@ -79,7 +79,15 @@ Rules:
 
 ## 6. Bootstrap
 
-A CLI verb on the API host, in the style of `--seed-development` (`Program.cs:312`): `--staff-create --email <e> --property-id <guid> --role <FrontDesk|Manager>`, plus `--staff-grant`, `--staff-disable`, `--staff-reset-password`. The password is read from the environment variable `BHA_STAFF_PASSWORD` or an interactive hidden prompt — never a command-line argument, never a default, never in Git; it must pass the Identity policy. The command prints the target database (host/name, no secret) and Staff id only, works in any environment against the configured database, and there is **no HTTP registration**. `DevelopmentDataSeeder` does not create Staff. Implemented in CP02, not here.
+A CLI verb on the API host, in the style of `--seed-development`: `--staff-create --email <e> --property-id <guid> --role <FrontDesk|Manager>`, `--staff-grant` (same arguments), `--staff-disable --email <e>`, `--staff-reset-password --email <e>`. The password is read from the environment variable `BHA_STAFF_PASSWORD` or an interactive hidden prompt — never a command-line argument, never a default, never in Git; it must pass the Identity policy. The command prints the target database (host/name, no secret) and Staff id only, works in any environment against the configured database, and there is **no HTTP registration**. `DevelopmentDataSeeder` does not create Staff. Implemented in CP02 (`Api/Authentication/StaffBootstrapCommand.cs`, Draft PR).
+
+Bootstrap scope (*Owner decision*, 2026-10-01):
+- Exactly one verb per invocation, validated before any change; exit 0 on success or no-op, non-zero otherwise; no HTTP listener and no seed.
+- Production is run by Owner or an operator Owner names, on the API host in a controlled admin session, after confirming the printed target database.
+- The hidden prompt is the default; `BHA_STAFF_PASSWORD` is only for short-lived automation; redirected input without the variable is refused. Credentials are handed over through a password manager with limited sharing — never in arguments, Git or logs.
+- Create adds the Staff and its membership in one transaction. Grant with the same role is a no-op; a different role replaces it; grant never creates a Staff or a Property and never re-enables a disabled Staff.
+- Disable sets `IsActive=false`, `DisabledAtUtc` and rotates the security stamp in one update; repeating it changes nothing.
+- Reset-password (remove + add inside one transaction, no token providers) keeps the old password if the new one is refused, and neither unlocks a locked-out account nor re-enables a disabled one.
 
 ## 7. Route cut-over
 
@@ -101,12 +109,12 @@ A CLI verb on the API host, in the style of `--seed-development` (`Program.cs:31
 
 ## 9. Checkpoints (each one Draft PR; "≈ lines" = CP00 estimate, kept as history; hand-written + tests + docs, generated shown apart)
 
-The 100–400 changed-line limit has an Owner-approved exception for **CP01 only** (2026-10-01): its generated EF output cannot be split from the model. CP02–CP07 keep the limit. The current CP01 size is the GitHub figure for PR #74, explained in `docs/reports/PMS-ADMIN-AUTH-001-CP01-completion.md`.
+Since 2026-10-01, 100–400 changed lines per PR is a **target, not a limit** (`docs/governance/WORKFLOW.md` §6): a PR outside it states the GitHub figure and the reason. CP01's earlier size exception (2026-10-01) is history; its size is explained in `docs/reports/PMS-ADMIN-AUTH-001-CP01-completion.md`.
 
 | CP | Behaviour after merge | Depends | Scope | Acceptance (minimum) | ≈ lines |
 |---|---|---|---|---|---|
 | CP01 | Staff tables exist; no endpoint, no behaviour change | – | `StaffAccount`, `StaffPropertyMembership`, `StaffRole`, EF config, `AddIdentityCore<StaffAccount>`, one migration, ADR 0007 | PostgreSQL tests: create/duplicate/lockout/stamp, membership FK/PK/CHECK; Customer auth tests unchanged; migration applies on a fresh DB | CP00 estimate: ~300 hand-written + ~1,700 **generated**. Measured at PR #74 head `59f540a`: +2,389 / −14, of which 1,836 generated (Designer 1,615, snapshot +123, migration body 98) |
-| CP02 | Operator can create/grant/disable/reset Staff | CP01 | CLI verbs, secret input, tests | no password in args/output; weak password refused; idempotent grant | ~350 |
+| CP02 | Operator can create/grant/disable/reset Staff | CP01 | CLI verbs, secret input, tests | no password in args/output; weak password refused; idempotent grant | ~350 (CP00 estimate); actual size in `docs/reports/PMS-ADMIN-AUTH-001-CP02-completion.md` |
 | CP03 | Staff can log in/out and read `me` | CP01–02 | scheme, cookie events, login/logout/me, `admin-staff` CORS, Origin check extraction, rate limit | 401/403 JSON; Customer↔Staff cookie isolation both ways; disable/stamp invalidation; no redirect | ~400 |
 | CP04 | `AccessMode` + evaluator; board read authorized in `Staff` mode | CP03 | `IStaffAccessEvaluator`, permission map, policies, mode switch, guards, read route | member ok, non-member 403, no session 401; `Staff` mode ignores the read flag; unconverted routes 404 | ~350 |
 | CP05 | Five write routes authorized; audit from Staff | CP04 | policies, actor/evidence, cross-RoomType permission | per route: `FrontDesk` assign / move / unassign / block create / block cancel, but 403 on `confirmCrossRoomType`; `Manager` all; 403 before the store; audit rows carry `staff:{id}`; `LocalGate` unchanged | ~400 |
@@ -127,11 +135,14 @@ If CP01's generated migration is judged too large to review, the only honest spl
 5. Roles are exactly `FrontDesk` and `Manager`; there is no `Viewer`.
 6. Staff use the Customer password and lockout policy; MFA is deferred.
 7. ADR 0007 is part of CP01.
-8. CP01 alone may exceed the 100–400 changed-line limit, with the explanation in its PR and completion report; the exception does not extend to other checkpoints.
+8. CP01 alone may exceed the 100–400 changed-line limit, with the explanation in its PR and completion report (history: superseded by item 10).
+
+**Decided at CP02 activation, 2026-10-01 (recorded in ADR 0007 and `docs/governance/WORKFLOW.md` §6):**
+9. D6: bootstrap only by the four CLI verbs, with the production operator, secret handling, grant, disable and reset rules in §6.
+10. 100–400 changed lines per PR is a target, not a limit; a PR outside it states its GitHub size and the reason.
 
 **Still open:**
 1. D3: the separate `TheBha.Staff` cookie scheme (its 8 h absolute lifetime is decided above).
 2. D4: CSRF by `SameSite=Strict` + exact Origin + JSON content type, without antiforgery tokens.
-3. D6: bootstrap only by CLI; and who runs the production bootstrap, from where, and how `BHA_STAFF_PASSWORD` is handed over (§6).
-4. D7: the `AdminCalendar:AccessMode` cut-over.
-5. D8: `staff:{StaffAccountId}` audit actor.
+3. D7: the `AdminCalendar:AccessMode` cut-over.
+4. D8: `staff:{StaffAccountId}` audit actor.
