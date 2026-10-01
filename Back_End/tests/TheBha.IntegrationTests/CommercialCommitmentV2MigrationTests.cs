@@ -90,11 +90,11 @@ public sealed class CommercialCommitmentV2MigrationTests : IAsyncLifetime
         var applied = await context.Database.GetAppliedMigrationsAsync();
         Assert.Equal(7, applied.Count());
         Assert.Contains(applied, migration => migration.EndsWith("_CommercialCommitmentV2Foundation"));
-        // PMS-BE-001.2's migration 8 now exists in the assembly beyond this test's V7
-        // target, so it is legitimately still pending here — this test only proves V7
+        // Migrations 8 and 9 now exist in the assembly beyond this test's V7
+        // target, so they are legitimately still pending here — this test only proves V7
         // applies cleanly in isolation, not that the whole chain is exhausted.
         Assert.Equal(
-            ["20260826035254_PhysicalRoomScheduleAvailabilityAuthority"],
+            ["20260826035254_PhysicalRoomScheduleAvailabilityAuthority", "20261001141847_AddStaffIdentityFoundation"],
             await context.Database.GetPendingMigrationsAsync());
     }
 
@@ -186,10 +186,10 @@ public sealed class CommercialCommitmentV2MigrationTests : IAsyncLifetime
             ) d
             """));
 
-        // See Fresh_database_applies_all_seven_migrations for why migration 8 is
+        // See Fresh_database_applies_all_seven_migrations for why migrations 8 and 9 are
         // legitimately still pending relative to this test's V7 target.
         Assert.Equal(
-            ["20260826035254_PhysicalRoomScheduleAvailabilityAuthority"],
+            ["20260826035254_PhysicalRoomScheduleAvailabilityAuthority", "20261001141847_AddStaffIdentityFoundation"],
             await context.Database.GetPendingMigrationsAsync());
     }
 

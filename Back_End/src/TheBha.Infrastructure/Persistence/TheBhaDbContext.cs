@@ -11,6 +11,8 @@ public sealed class TheBhaDbContext(DbContextOptions<TheBhaDbContext> options)
     : IdentityUserContext<CustomerAccount, Guid>(options)
 {
     public DbSet<CustomerAccount> CustomerAccounts => Set<CustomerAccount>();
+    public DbSet<StaffAccount> StaffAccounts => Set<StaffAccount>();
+    public DbSet<StaffPropertyMembership> StaffPropertyMemberships => Set<StaffPropertyMembership>();
     public DbSet<InventoryHold> InventoryHolds => Set<InventoryHold>();
     public DbSet<InventoryHoldItem> InventoryHoldItems => Set<InventoryHoldItem>();
     public DbSet<InventoryHoldItemNight> InventoryHoldItemNights => Set<InventoryHoldItemNight>();

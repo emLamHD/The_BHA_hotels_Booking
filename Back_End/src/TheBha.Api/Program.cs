@@ -170,6 +170,10 @@ builder.Services
     })
     .AddEntityFrameworkStores<TheBhaDbContext>()
     .AddSignInManager();
+// PMS-ADMIN-AUTH-001: a separate Staff user store; it inherits the IdentityOptions above.
+builder.Services
+    .AddIdentityCore<StaffAccount>()
+    .AddEntityFrameworkStores<TheBhaDbContext>();
 builder.Services
     .AddAuthentication(options =>
     {

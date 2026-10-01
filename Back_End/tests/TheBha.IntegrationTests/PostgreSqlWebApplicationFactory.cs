@@ -207,6 +207,8 @@ public sealed class PostgreSqlWebApplicationFactory : WebApplicationFactory<Prog
                 "InventoryHoldItemNights",
                 "InventoryHoldItems",
                 "InventoryHolds",
+                "StaffPropertyMemberships",
+                "StaffAccounts",
                 "AspNetUsers",
                 "DailyInventoryControls",
                 "DailyRoomRates",
