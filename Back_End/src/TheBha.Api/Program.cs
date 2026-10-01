@@ -313,6 +313,14 @@ builder.Services.AddRateLimiter(options =>
 
 var app = builder.Build();
 
+// PMS-ADMIN-AUTH-001-CP02: a Staff verb runs the operator CLI and exits; no listener, no seed.
+if (StaffBootstrapCommand.IsStaffCommand(args))
+{
+    Environment.ExitCode = await StaffBootstrapCommand.RunAsync(
+        args, app.Services, Console.Out, StaffBootstrapCommand.ReadPassword, app.Lifetime.ApplicationStopping);
+    return;
+}
+
 if (args.Contains("--seed-development", StringComparer.Ordinal))
 {
     if (!app.Environment.IsDevelopment())
