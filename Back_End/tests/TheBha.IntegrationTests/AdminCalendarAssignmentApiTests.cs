@@ -458,12 +458,15 @@ public sealed class AdminCalendarAssignmentApiTests(PostgreSqlWebApplicationFact
             // AdminOperationalBlockCreateApiTests — every other Admin path must
             // still publish no mutating operation at all. This list is the registry of authorized Admin mutation
             // routes: a new one is added here deliberately, never by weakening
-            // the assertion.
+            // the assertion. PMS-ADMIN-AUTH-001-CP03 adds the Staff session
+            // login and logout (asserted in full by StaffAuthenticationTests).
             if (path.Name.StartsWith("/api/admin/", StringComparison.Ordinal) &&
                 path.Name != $"{ExpectedPath}/{{segmentId}}/move" &&
                 path.Name != $"{ExpectedPath}/{{segmentId}}/unassign" &&
                 path.Name != "/api/admin/v1/properties/{propertyId}/operational-blocks" &&
-                path.Name != "/api/admin/v1/properties/{propertyId}/operational-blocks/{segmentId}/cancel")
+                path.Name != "/api/admin/v1/properties/{propertyId}/operational-blocks/{segmentId}/cancel" &&
+                path.Name != "/api/admin/v1/auth/login" &&
+                path.Name != "/api/admin/v1/auth/logout")
             {
                 foreach (var method in new[] { "post", "put", "patch", "delete" })
                 {

@@ -28,6 +28,14 @@ if (rateLimits.RegisterPermitLimit <= 0 ||
     throw new InvalidOperationException("Authentication rate-limit values must be positive.");
 }
 
+var staffLoginRateLimit = builder.Configuration
+    .GetSection(StaffLoginRateLimitOptions.SectionName)
+    .Get<StaffLoginRateLimitOptions>() ?? new StaffLoginRateLimitOptions();
+if (staffLoginRateLimit.PermitLimit <= 0 || staffLoginRateLimit.WindowSeconds <= 0)
+{
+    throw new InvalidOperationException("Staff login rate-limit values must be positive.");
+}
+
 var cookieSession = builder.Configuration
     .GetSection(CookieSessionOptions.SectionName)
     .Get<CookieSessionOptions>() ?? new CookieSessionOptions();
@@ -112,6 +120,10 @@ builder.Services.AddScoped(serviceProvider => new AdminCalendarWriteGateFilter(
     adminCalendarOptions.EnableUnauthenticatedWrite,
     cors.AdminOrigins));
 
+// PMS-ADMIN-AUTH-001-CP03: the Staff session boundary takes the same startup-frozen,
+// startup-validated Admin origins as the local write gate.
+builder.Services.AddScoped(_ => new StaffRequestBoundaryFilter(cors.AdminOrigins));
+
 var dataProtectionKeysPath = builder.Configuration["DataProtection:KeysPath"];
 if (builder.Environment.IsProduction() && string.IsNullOrWhiteSpace(dataProtectionKeysPath))
 {
@@ -148,7 +160,17 @@ builder.Services.AddSwaggerGen(options =>
             Name = ".TheBha.Customer",
             Description = "Secure HttpOnly customer session cookie; not a bearer token."
         });
+    options.AddSecurityDefinition(
+        "StaffCookie",
+        new OpenApiSecurityScheme
+        {
+            Type = SecuritySchemeType.ApiKey,
+            In = ParameterLocation.Cookie,
+            Name = StaffAuthentication.CookieName,
+            Description = "Secure HttpOnly SameSite=Strict staff session cookie (path /api/admin); not a bearer token."
+        });
     options.OperationFilter<AuthOperationFilter>();
+    options.OperationFilter<StaffAuthOperationFilter>();
     options.OperationFilter<BookingHoldOperationFilter>();
     options.OperationFilter<ReservationLifecycleOperationFilter>();
     options.OperationFilter<AdminReservationAssignmentOpenApiOperationFilter>();
@@ -205,7 +227,9 @@ builder.Services
                 "Access denied",
                 "The customer session is not authorized for this operation.")
         };
-    });
+    })
+    // PMS-ADMIN-AUTH-001-CP03 (D3): not a default scheme; Staff routes name it explicitly.
+    .AddStaffCookie(builder.Environment.IsDevelopment());
 builder.Services.AddAuthorization();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentCustomer, HttpCurrentCustomer>();
@@ -287,12 +311,31 @@ builder.Services.AddCors(options =>
                 .AllowCredentials();
         }
     });
+    // PMS-ADMIN-AUTH-001-CP03: the only credentialed Admin policy, used by the Staff session
+    // routes alone. Explicit HTTPS Admin origins, GET/POST and Content-Type; the two
+    // uncredentialed admin-calendar policies above are unchanged. StaffRequestBoundaryFilter
+    // still checks Origin at the server.
+    options.AddPolicy(StaffAuthentication.CorsPolicy, policy =>
+    {
+        if (cors.AdminOrigins.Length > 0)
+        {
+            policy.WithOrigins(cors.AdminOrigins)
+                .WithHeaders("Content-Type")
+                .WithMethods("GET", "POST")
+                .AllowCredentials();
+        }
+    });
 });
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     options.OnRejected = async (context, cancellationToken) =>
     {
+        if (StaffAuthentication.IsSessionPath(context.HttpContext.Request.Path))
+        {
+            context.HttpContext.Response.Headers.CacheControl = "no-store";
+        }
+
         await Results.Problem(
                 statusCode: StatusCodes.Status429TooManyRequests,
                 title: "Too many requests",
@@ -309,6 +352,11 @@ builder.Services.AddRateLimiter(options =>
             context,
             rateLimits.LoginPermitLimit,
             rateLimits.WindowSeconds));
+    options.AddPolicy(StaffAuthentication.LoginRateLimitPolicy, context =>
+        CreateAuthenticationLimiter(
+            context,
+            staffLoginRateLimit.PermitLimit,
+            staffLoginRateLimit.WindowSeconds));
 });
 
 var app = builder.Build();
@@ -353,14 +401,17 @@ app.UseExceptionHandler();
 // depth for any pipeline that does not pass through here. Scope is deliberately
 // narrow: only Admin mutation verbs, matched by path segment so /api/administrator
 // is untouched; every other request, Customer routes included, redirects as before.
+// PMS-ADMIN-AUTH-001-CP03: the Staff session routes (auth/*, me) are refused here for every
+// method, GET me included, so cleartext never sets a Staff cookie or returns an identity.
 app.Use(async (context, next) =>
 {
     if (!context.Request.IsHttps &&
-        context.Request.Path.StartsWithSegments("/api/admin", StringComparison.OrdinalIgnoreCase) &&
-        (HttpMethods.IsPost(context.Request.Method) ||
-         HttpMethods.IsPut(context.Request.Method) ||
-         HttpMethods.IsPatch(context.Request.Method) ||
-         HttpMethods.IsDelete(context.Request.Method)))
+        (StaffAuthentication.IsSessionPath(context.Request.Path) ||
+         (context.Request.Path.StartsWithSegments("/api/admin", StringComparison.OrdinalIgnoreCase) &&
+          (HttpMethods.IsPost(context.Request.Method) ||
+           HttpMethods.IsPut(context.Request.Method) ||
+           HttpMethods.IsPatch(context.Request.Method) ||
+           HttpMethods.IsDelete(context.Request.Method)))))
     {
         // The same detail-free 404 body the closed gate produces, via the same
         // ProblemDetails service, and no Location: a caller learns nothing it
