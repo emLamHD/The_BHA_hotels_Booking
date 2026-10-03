@@ -124,6 +124,7 @@ import {
 import { AlertIcon, CloseLineIcon } from "@/icons";
 import {
   LOCAL_GATE_ACCESS,
+  SIGNING_OUT_MESSAGE,
   capabilitiesFor,
   describeBoardAccess,
   type BoardAccess,
@@ -306,7 +307,6 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
   const sessionEndedRef = useRef(false);
   /** CP06: the session ended while a write was on the wire; hand over once none is. */
   const expirePendingRef = useRef(false);
-  const [writesInFlight, setWritesInFlight] = useState(0);
   const [propertiesState, setPropertiesState] = useState<PropertiesState>({ status: "loading" });
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
   const [rangeLength, setRangeLength] = useState<ReservationBoardRangeLength>(INITIAL_RANGE_LENGTH);
@@ -513,25 +513,48 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
     };
   }, []);
 
-  /** CP06: a write is on the wire from the moment its intent is recorded until its answer is in. */
-  const trackWrite = useCallback((token: string) => {
-    inFlightTokensRef.current.add(token);
-    setWritesInFlight(inFlightTokensRef.current.size);
+  /**
+   * CP06: a write is on the wire from the moment its intent is recorded until its
+   * answer is in. CP06-C1: reported to the page synchronously — not from an
+   * effect — so Sign out, clicked in the same tick, already sees it.
+   */
+  const reportWriteActivity = useCallback(() => {
+    const current = accessRef.current;
+    if (current.mode === "Staff") current.onWriteActivityChange?.(inFlightTokensRef.current.size > 0);
   }, []);
 
-  const untrackWrite = useCallback((token: string) => {
-    inFlightTokensRef.current.delete(token);
-    setWritesInFlight(inFlightTokensRef.current.size);
-  }, []);
+  const trackWrite = useCallback(
+    (token: string) => {
+      inFlightTokensRef.current.add(token);
+      reportWriteActivity();
+    },
+    [reportWriteActivity]
+  );
 
-  useEffect(() => {
-    if (access.mode === "Staff") access.onWriteActivityChange?.(writesInFlight > 0);
-  }, [access, writesInFlight]);
+  const untrackWrite = useCallback(
+    (token: string) => {
+      inFlightTokensRef.current.delete(token);
+      reportWriteActivity();
+    },
+    [reportWriteActivity]
+  );
+
+  /** CP06-C1: a sign-out is waiting for the server, read live at the moment a write would start. */
+  const writesPausedNow = useCallback(() => {
+    const current = accessRef.current;
+    return current.mode === "Staff" && current.isSigningOut?.() === true;
+  }, []);
 
   /** CP06: what the signed-in Staff member may do at one Property right now (LocalGate: everything, as before). */
   const capabilitiesAt = useCallback(
-    (propertyId: string | null) => capabilitiesFor(accessRef.current, propertyId, sessionEndedRef.current),
-    []
+    (propertyId: string | null) => capabilitiesFor(accessRef.current, propertyId, sessionEndedRef.current, writesPausedNow()),
+    [writesPausedNow]
+  );
+
+  /** CP06-C1: why a write the board refused at send time was not sent. */
+  const notPermittedMessage = useCallback(
+    () => (writesPausedNow() ? SIGNING_OUT_MESSAGE : NOT_PERMITTED_MESSAGE),
+    [writesPausedNow]
   );
 
   /**
@@ -1176,7 +1199,7 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
       const isCrossRoomType = room.roomTypeId !== target.stay.soldRoomTypeId;
       // CP06: re-checked at send time against the role as it is now.
       const capabilities = capabilitiesAt(target.propertyId);
-      if (!capabilities.assignmentWrite) return { kind: "not-sent", message: NOT_PERMITTED_MESSAGE };
+      if (!capabilities.assignmentWrite) return { kind: "not-sent", message: notPermittedMessage() };
       if (isCrossRoomType && !capabilities.crossRoomType) {
         return { kind: "not-sent", message: CROSS_ROOM_TYPE_NOT_PERMITTED_MESSAGE };
       }
@@ -1263,6 +1286,7 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
       refuseWhileStorageUnverified,
       finishIntent,
       capabilitiesAt,
+      notPermittedMessage,
       trackWrite,
       untrackWrite,
       afterWrite,
@@ -1331,7 +1355,9 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
         return "The board changed during the drag.";
       }
       const capabilities = capabilitiesAt(board.property.id);
-      if (!capabilities.assignmentWrite) return "Your role at this Property cannot move stays.";
+      if (!capabilities.assignmentWrite) {
+        return writesPausedNow() ? "Signing out — changes are paused." : "Your role at this Property cannot move stays.";
+      }
       if (moveRequestPendingRef.current) return "Another move is still waiting for the server.";
       if (isBoardAwaitingAnyWrite(displayedKey)) return "Waiting for the board to be re-read after a change.";
       if (
@@ -1360,7 +1386,7 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
       }
       return null;
     },
-    [boardState, selectedPropertyId, isBoardAwaitingAnyWrite, isRoomLocked, capabilitiesAt]
+    [boardState, selectedPropertyId, isBoardAwaitingAnyWrite, isRoomLocked, capabilitiesAt, writesPausedNow]
   );
 
   const handleAssignedSegmentDragStart = useCallback(
@@ -1466,7 +1492,7 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
       const isCrossRoomType = room.roomTypeId !== target.stay.soldRoomTypeId;
       // CP06: re-checked at send time against the role as it is now.
       const capabilities = capabilitiesAt(target.propertyId);
-      if (!capabilities.assignmentWrite) return recordMoveOutcome({ kind: "not-sent", message: NOT_PERMITTED_MESSAGE });
+      if (!capabilities.assignmentWrite) return recordMoveOutcome({ kind: "not-sent", message: notPermittedMessage() });
       if (isCrossRoomType && !capabilities.crossRoomType) {
         return recordMoveOutcome({ kind: "not-sent", message: CROSS_ROOM_TYPE_NOT_PERMITTED_MESSAGE });
       }
@@ -1583,6 +1609,7 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
       recordMoveOutcome,
       finishIntent,
       capabilitiesAt,
+      notPermittedMessage,
       trackWrite,
       untrackWrite,
       afterWrite,
@@ -1599,7 +1626,7 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
   const submitUnassign = useCallback(
     async (target: UnassignTarget, reason?: string): Promise<UnassignAssignmentOutcome> => {
       const { propertyId, segmentId, request } = buildUnassignRequest(target, reason);
-      if (!capabilitiesAt(propertyId).assignmentWrite) return { kind: "not-sent", message: NOT_PERMITTED_MESSAGE };
+      if (!capabilitiesAt(propertyId).assignmentWrite) return { kind: "not-sent", message: notPermittedMessage() };
       const unverified = refuseWhileStorageUnverified();
       if (unverified) return { kind: "not-sent", message: unverified };
       if (isRoomLocked(propertyId, [target.segment.physicalRoomId], target.segment)) {
@@ -1663,6 +1690,7 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
       refuseWhileStorageUnverified,
       finishIntent,
       capabilitiesAt,
+      notPermittedMessage,
       trackWrite,
       untrackWrite,
       afterWrite,
@@ -1758,7 +1786,7 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
   const submitBlockCancel = useCallback(
     async (target: BlockCancelTarget, reason?: string): Promise<OperationalBlockCancelOutcome> => {
       const { block } = target;
-      if (!capabilitiesAt(target.propertyId).blockWrite) return { kind: "not-sent", message: NOT_PERMITTED_MESSAGE };
+      if (!capabilitiesAt(target.propertyId).blockWrite) return { kind: "not-sent", message: notPermittedMessage() };
       const unverified = refuseWhileStorageUnverified();
       if (unverified) return { kind: "not-sent", message: unverified };
       if (isRoomLocked(target.propertyId, [block.physicalRoomId], block)) {
@@ -1857,6 +1885,7 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
       refuseWhileStorageUnverified,
       finishIntent,
       capabilitiesAt,
+      notPermittedMessage,
       trackWrite,
       untrackWrite,
       afterWrite,
@@ -1876,7 +1905,7 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
       if (!room) {
         return { kind: "not-sent", message: "Choose one of the listed rooms." };
       }
-      if (!capabilitiesAt(target.propertyId).blockWrite) return { kind: "not-sent", message: NOT_PERMITTED_MESSAGE };
+      if (!capabilitiesAt(target.propertyId).blockWrite) return { kind: "not-sent", message: notPermittedMessage() };
       const unverified = refuseWhileStorageUnverified();
       if (unverified) return { kind: "not-sent", message: unverified };
       if (isRoomLocked(target.propertyId, [room.id], request)) {
@@ -1976,6 +2005,7 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
       refuseWhileStorageUnverified,
       finishIntent,
       capabilitiesAt,
+      notPermittedMessage,
       trackWrite,
       untrackWrite,
       afterWrite,
@@ -2106,13 +2136,17 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
       isBoardAwaitingBlockReconciliation(blockReconciliations, displayedBoardKey));
 
   /** Why the toolbar's Create operational block is unavailable right now, or `null` when it is available. */
-  const capabilities = capabilitiesFor(access, selectedPropertyId, sessionEnded);
+  /** CP06-C1: a sign-out is waiting for the server — the board stays readable, no write is offered. */
+  const writesPaused = access.mode === "Staff" && access.signingOut === true;
+  const capabilities = capabilitiesFor(access, selectedPropertyId, sessionEnded, writesPaused);
 
   const createBlockUnavailableReason =
     boardState.status !== "loaded"
       ? "The board has not loaded."
       : !capabilities.blockWrite
-        ? "Your role at this Property cannot block rooms."
+        ? writesPaused
+          ? "Signing out — changes are paused."
+          : "Your role at this Property cannot block rooms."
       : displayedBoardAwaitingReconciliation
         ? "Waiting for the board to be re-read after a change."
         : !boardState.board.physicalRooms.some((room) => room.operationalStatus === "Active")
@@ -2596,7 +2630,7 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
           // controlled cross-RoomType destination for a move, the same
           // contract CP04C.6A merged and CP03B already offers for a new
           // assignment. CP06: only for a role that may confirm it at this Property.
-          crossRoomTypeEnabled={capabilitiesFor(access, moveTarget.propertyId, sessionEnded).crossRoomType}
+          crossRoomTypeEnabled={capabilitiesFor(access, moveTarget.propertyId, sessionEnded, writesPaused).crossRoomType}
           boardReloadStatus={reconciliationStatus(dialogMoveReconciliationId)}
           uncertainResolution={
             dialogMoveReconciliation?.certainty === "uncertain" && dialogMoveReconciliation.resolution !== "settled"

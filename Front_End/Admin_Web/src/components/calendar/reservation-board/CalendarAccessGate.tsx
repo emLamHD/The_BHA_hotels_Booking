@@ -13,9 +13,15 @@
  *   failed is an error with Retry, never a signed-out state. The signed-in Staff
  *   member and Sign out are shown here; Sign out waits while a write of the
  *   board is still waiting for the server.
+ *
+ * CP06-C1: Sign out and the board's writes exclude each other, decided on two
+ * refs at the moment each starts — never on state that has not re-rendered yet.
+ * A write that is on the wire holds Sign out; a sign-out that is waiting for the
+ * server pauses every write (controls and send-time checks), and the board
+ * stays mounted until the sign-out is confirmed.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import ReservationBoard from "./ReservationBoard";
@@ -43,23 +49,37 @@ export default function CalendarAccessGate() {
 function StaffCalendar() {
   const { state, refresh, retry, expire, signOut } = useStaffSession();
   const router = useRouter();
-  // Reported by the mounted board; a new board reports `false` when it mounts.
+  // Reported by the board, synchronously, as each write goes on the wire and gets its answer.
   const [writing, setWriting] = useState(false);
+  const writingRef = useRef(false);
   const [signingOut, setSigningOut] = useState(false);
+  const signingOutRef = useRef(false);
   const [signOutMessage, setSignOutMessage] = useState<string | null>(null);
+
+  const handleWriteActivity = useCallback((active: boolean) => {
+    writingRef.current = active;
+    setWriting(active);
+  }, []);
+  const isSigningOut = useCallback(() => signingOutRef.current, []);
 
   useEffect(() => {
     if (state.status === "unauthenticated") router.replace("/signin");
   }, [state.status, router]);
 
   const handleSignOut = useCallback(async () => {
-    if (writing || signingOut) return;
+    if (writingRef.current || signingOutRef.current) return;
+    signingOutRef.current = true;
     setSigningOut(true);
     setSignOutMessage(null);
-    const outcome = await signOut();
-    setSigningOut(false);
-    if (outcome.kind === "unconfirmed") setSignOutMessage(outcome.message);
-  }, [writing, signingOut, signOut]);
+    try {
+      const outcome = await signOut();
+      if (outcome.kind === "unconfirmed") setSignOutMessage(outcome.message);
+    } finally {
+      // Confirmed: the board is already gone. Unconfirmed: changes resume, on roles re-read if a denial asked for it.
+      signingOutRef.current = false;
+      setSigningOut(false);
+    }
+  }, [signOut]);
 
   const memberships = state.status === "authenticated" ? state.session.memberships : null;
   const access = useMemo<BoardAccess | null>(
@@ -71,9 +91,11 @@ function StaffCalendar() {
             memberships,
             onSessionExpired: expire,
             refreshAccess: refresh,
-            onWriteActivityChange: setWriting,
+            onWriteActivityChange: handleWriteActivity,
+            signingOut,
+            isSigningOut,
           },
-    [memberships, expire, refresh]
+    [memberships, expire, refresh, handleWriteActivity, signingOut, isSigningOut]
   );
 
   if (state.status === "checking") {

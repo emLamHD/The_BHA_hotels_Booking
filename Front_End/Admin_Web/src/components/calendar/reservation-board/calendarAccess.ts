@@ -55,17 +55,38 @@ export type BoardAccess =
       onSessionExpired: () => void;
       /** Re-reads `me` after a 403, so roles and memberships reflect the server's. */
       refreshAccess: () => Promise<StaffRefreshResult>;
-      /** A write of this board is (or is no longer) waiting for the server. */
+      /**
+       * A write of this board is (or is no longer) waiting for the server. Called
+       * synchronously as the write goes on the wire and when its answer is in, so
+       * Sign out can never start in between (CP06-C1).
+       */
       onWriteActivityChange?: (writing: boolean) => void;
+      /** CP06-C1: a sign-out is waiting for the server — for rendering. */
+      signingOut?: boolean;
+      /** CP06-C1: the same, live — read by a handler at the moment it would send. */
+      isSigningOut?: () => boolean;
     };
 
 export const LOCAL_GATE_ACCESS: BoardAccess = { mode: "LocalGate" };
 
-export function capabilitiesFor(access: BoardAccess, propertyId: string | null, sessionEnded = false): CalendarCapabilities {
+/**
+ * `writesPaused` (CP06-C1): a sign-out is waiting for the server. The board stays
+ * readable, but no write may start until the sign-out is answered.
+ */
+export function capabilitiesFor(
+  access: BoardAccess,
+  propertyId: string | null,
+  sessionEnded = false,
+  writesPaused = false
+): CalendarCapabilities {
   if (access.mode === "LocalGate") return LOCAL_GATE_CAPABILITIES;
   if (sessionEnded || propertyId === null) return NO_CAPABILITIES;
-  return capabilitiesForRole(access.memberships.find((membership) => membership.propertyId === propertyId)?.role);
+  const capabilities = capabilitiesForRole(access.memberships.find((membership) => membership.propertyId === propertyId)?.role);
+  return writesPaused ? { ...NO_CAPABILITIES, boardRead: capabilities.boardRead } : capabilities;
 }
+
+/** CP06-C1: why a write was not sent while a sign-out was waiting for the server. */
+export const SIGNING_OUT_MESSAGE = "Signing out — this change was not sent. If sign-out is not confirmed, try again.";
 
 /** The toolbar's one-line statement of what this board can do here, per mode and role. */
 export function describeBoardAccess(access: BoardAccess, propertyId: string | null): string {
