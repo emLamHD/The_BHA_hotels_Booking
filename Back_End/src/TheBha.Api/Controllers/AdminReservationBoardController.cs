@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
+using TheBha.Api.Authentication;
 using TheBha.Application.Scheduling;
 
 namespace TheBha.Api.Controllers;
@@ -15,16 +16,27 @@ namespace TheBha.Api.Controllers;
 /// regardless of query validity. Never mutates anything; the internal
 /// assignment/OperationalBlock mutation boundary (<c>PMS-BE-001.2</c>)
 /// remains unexposed by this or any other controller.
+///
+/// <para>
+/// PMS-ADMIN-AUTH-001-CP04: the first route converted to Staff authorization. In
+/// <c>AdminCalendar:AccessMode=LocalGate</c> (the default) the attribute below runs exactly the
+/// read gate above, in the same place. In <c>Staff</c> mode it requires a Staff session with
+/// <see cref="StaffPermission.BoardRead"/> at the route's Property (401/403 before model
+/// binding, the local flags ignored), and <c>Program.cs</c> gives this route a credentialed
+/// GET-only CORS policy for the Admin origins instead of <c>admin-calendar</c>.
+/// </para>
 /// </summary>
 [ApiController]
 [Route("api/admin/v1/properties/{propertyId:guid}/reservation-board")]
 [EnableCors("admin-calendar")]
-[ServiceFilter(typeof(AdminReservationBoardReadGateFilter))]
+[StaffCalendarPermission(StaffPermission.BoardRead, typeof(AdminReservationBoardReadGateFilter))]
 public sealed class AdminReservationBoardController(IReservationBoardQuery query) : ControllerBase
 {
     [HttpGet]
     [ProducesResponseType(typeof(ReservationBoardDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ReservationBoardDto>> GetBoard(
         Guid propertyId,

@@ -1,6 +1,69 @@
 namespace TheBha.Api;
 
 /// <summary>
+/// PMS-ADMIN-AUTH-001-CP04 (D7): how the Admin Calendar is opened. <see cref="LocalGate"/> is the
+/// local Development gates and their opt-in flags, unchanged. <see cref="Staff"/> is a Staff
+/// session plus a Property permission read from the database; the local gates and flags are not
+/// consulted, and an Admin route without a Staff permission is closed (404).
+/// </summary>
+public enum AdminCalendarAccessMode
+{
+    LocalGate,
+    Staff
+}
+
+/// <summary>
+/// The access mode, validated and captured once at startup (<c>Program.cs</c>) and handed to the
+/// filters and middleware as this value — never read per request from configuration or
+/// <c>IOptions</c>, so only a restart changes it.
+/// </summary>
+public sealed record AdminCalendarAccess(AdminCalendarAccessMode Mode)
+{
+    public const string ModeKey = "AdminCalendar:AccessMode";
+
+    /// <summary>
+    /// A key that no configuration source declares is <see cref="AdminCalendarAccessMode.LocalGate"/>
+    /// (the CP04 default). A declared key must be a scalar that is exactly <c>LocalGate</c> or
+    /// <c>Staff</c> (ordinal), with no child: an empty or null value, an empty JSON object or array,
+    /// another spelling, a number or a nested section stops the host instead of falling back.
+    ///
+    /// <para>
+    /// CP04-C1: presence is decided by listing the <c>AdminCalendar</c> children, not by
+    /// <c>Exists()</c>. The JSON provider stores <c>"AccessMode": {}</c> or <c>[]</c> as the key
+    /// with a <c>null</c> value, which <c>Exists()</c> reports as absent; every provider still lists
+    /// it as a child (key names compared case-insensitively, as configuration does). The value and
+    /// children read afterwards are the effective ones across providers, so a higher-priority empty
+    /// declaration overrides a lower valid one, and a source that does not declare the key leaves
+    /// the others' value in place.
+    /// </para>
+    /// </summary>
+    public static AdminCalendarAccess FromConfiguration(IConfiguration configuration)
+    {
+        var mode = configuration.GetSection(AdminCalendarOptions.SectionName)
+            .GetChildren()
+            .FirstOrDefault(child => string.Equals(child.Key, ModeName, StringComparison.OrdinalIgnoreCase));
+        if (mode is null)
+        {
+            return new AdminCalendarAccess(AdminCalendarAccessMode.LocalGate);
+        }
+
+        return mode.GetChildren().Any()
+            ? throw Invalid()
+            : mode.Value switch
+            {
+                nameof(AdminCalendarAccessMode.LocalGate) => new AdminCalendarAccess(AdminCalendarAccessMode.LocalGate),
+                nameof(AdminCalendarAccessMode.Staff) => new AdminCalendarAccess(AdminCalendarAccessMode.Staff),
+                _ => throw Invalid()
+            };
+    }
+
+    private const string ModeName = "AccessMode";
+
+    private static InvalidOperationException Invalid() =>
+        new($"{ModeKey} must be exactly LocalGate or Staff.");
+}
+
+/// <summary>
 /// PMS-CAL-001.1: gates the unauthenticated Admin Reservation Board read
 /// endpoint, since Admin authentication/RBAC is explicitly deferred. Defaults
 /// to <c>false</c> everywhere, <em>including</em> Development (correction C9):
