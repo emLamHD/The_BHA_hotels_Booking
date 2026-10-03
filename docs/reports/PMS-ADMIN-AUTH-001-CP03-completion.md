@@ -1,6 +1,6 @@
 # PMS-ADMIN-AUTH-001-CP03 — Staff login, logout, `me` and session cookie
 
-> Draft PR into `develop`, not merged. Implementer: Claude. Reviewer: Codex (read-only, invoked by Owner only). `REVIEW: NOT RUN` until Owner runs it.
+> Draft PR into `develop`, not merged. Implementer: Claude. Reviewer: Codex (read-only, invoked by Owner only). Original review: RUN — 2 findings, both fixed in [Correction C1](#correction-c1--pms-admin-auth-001-cp03-c1); correction re-review: NOT RUN.
 > Baseline and START_HEAD `6baefe90c409ba22f050c235bc2d5d0cf060cbd6` (PR #75, CP02, merged). Branch `feature/pms-admin-auth-001-cp03-staff-session`.
 
 ## Owner decisions applied (2026-10-03, CP03 activation)
@@ -116,4 +116,52 @@ The design (§9) suggested splitting CP03 at the login/`me` seam if it grew; the
 - `me` lists memberships of an inactive Property as stored; whether the selector hides them is a CP06 decision.
 - `ExpiresUtc` is serialized to the second, so a session can end up to one second before 8 h; never later.
 
-`REVIEW: NOT RUN` (Owner invokes `/codex:review --base origin/develop`). CP04 NOT STARTED. Production NOT TOUCHED.
+## Correction C1 — PMS-ADMIN-AUTH-001-CP03-C1
+
+Original review: **RUN** by Owner, `/codex:review --base origin/develop`, 2 findings (both P2). Reviewed SHA: **UNVERIFIED** — the review output names the base (`origin/develop`, diff from `6baefe9`) but no head SHA; the branch head was `e9cb721` with a clean tree before and after the run and no commit in between, but the review output itself does not record it. Correction start head `e9cb7216ca867dde0f24d5dd4920f93d934a5bcc`. Scope: F1, F2, their regression tests and this evidence; D3/D4, the 8-hour session, Customer isolation and the Calendar local gates are unchanged.
+
+| Finding | Root cause | Fix |
+|---|---|---|
+| F1 — Reject login when resetting the failure count fails (`StaffAuthController.cs`) | `Login` discarded the `IdentityResult` of `ResetAccessFailedCountAsync`. The reset is an update guarded by `ConcurrencyStamp`; if another request records the fifth failure (and the lockout) after this one loaded the account, Identity returns `ConcurrencyFailure` — and the request signed in anyway, with a session the validator rightly does not end for lockout | a failed reset returns the existing generic 401 before `SignInAsync`: no ticket, no cookie, no Identity detail. No retry, no reload, concurrency check kept; the validator is unchanged |
+| F2 — Align the login password limit with Staff provisioning (`StaffAuthContracts.cs`) | `StaffLoginRequest.Password` had `MaxLength(128)`, while the CP02 CLI passes any password Identity's policy accepts (no maximum), so such a Staff member got 400 at login | `MaxLength(128)` removed; `Required` and the email rules stay; the password is not trimmed, truncated or normalized. CLI, Identity policy, request-size limits and the Customer contract are unchanged |
+
+**Regression tests** (`StaffAuthenticationTests.cs`, real PostgreSQL 17):
+
+- `A_login_whose_failure_count_reset_loses_to_a_concurrent_lockout_issues_no_session` — four real wrong-password logins (count 4, not locked); then the right password. A test-host-only `UserManager<StaffAccount>` subclass (registered with `ConfigureTestServices`; no production hook) fires once, at the request's `ResetAccessFailedCountAsync`, and first has a separate DI scope load the account and call Identity's `AccessFailedAsync` (fifth failure → lockout, new stamp), bounded by a 30 s `WaitAsync`; then Identity's own reset runs on the request's stale account. Asserted: stale count 4 and the pre-race stamp; competing failure succeeded and locked; reset result `Succeeded=false` with exactly `ConcurrencyFailure`; the response is the same generic 401 as a wrong password (`application/problem+json`, `no-store`, no `Set-Cookie`, no "concurrency" text); the stamp changed and `LockoutEnd` persisted (≥ 14 min ahead); the next right-password login is refused. No sleep, no parallel load.
+- `A_password_longer_than_128_characters_provisioned_by_the_cli_signs_in` — CLI create with a 256-character password (through `RunAsync`'s password reader, never an argument) → login 200 → `me` 200; CLI reset to another 256-character password → old cookie 401; old password, a 1,024-character wrong password and a short wrong password all give the identical generic 401 (not 400); new password → login and `me` 200; failure count back to 0; neither password, the hash, the stamp nor either cookie appears in the CLI output or any response body.
+
+**Red / green** (same commands, only the two product edits differ):
+
+| Run | `dotnet test …IntegrationTests.csproj --configuration Release --no-build --filter "FullyQualifiedName~A_login_whose_failure_count_reset_loses_to_a_concurrent_lockout_issues_no_session\|FullyQualifiedName~A_password_longer_than_128_characters_provisioned_by_the_cli_signs_in"` |
+|---|---|
+| red (tests added, product at `e9cb721`) | exit 1, 2/2 failed for the defects: F1 — every race assertion passed (stale count, competing lockout, `ConcurrencyFailure`), then `Expected: Unauthorized / Actual: OK` at the response check; F2 — CLI create succeeded, then login `Expected: OK / Actual: BadRequest` |
+| green (fix applied) | exit 0, 2/2; repeated 5 times in a row, 5 × 2/2 |
+
+**Verification** (fresh PostgreSQL 17 container `cp03c1-staff-pg`, port 55433, removed afterwards; Owner's `the-bha-postgres-1` untouched):
+
+| Command | Result |
+|---|---|
+| `dotnet restore Back_End/TheBha.Booking.sln` | exit 0 |
+| `dotnet build Back_End/TheBha.Booking.sln --configuration Release --no-restore` | exit 0, 0 warnings, 0 errors |
+| `dotnet test …IntegrationTests.csproj --configuration Release --no-build --filter FullyQualifiedName~StaffAuthenticationTests` | exit 0, 39/39 |
+| `dotnet test …IntegrationTests.csproj --configuration Release --no-build --filter FullyQualifiedName~StaffBootstrapCommandTests` | exit 0, 17/17 |
+| `dotnet test Back_End/TheBha.Booking.sln --configuration Release --no-build` | exit 0, unit 244/244, integration 651/651 |
+| `git diff --check` | clean |
+
+**HTTPS smoke** (real Kestrel, `TheBha.Api.dll` Release, Development, `https://localhost:7246` + `http://127.0.0.1:5246`, the local mkcert leaf, `curl --cacert` with verification on; throwaway database `cp03c1_smoke`, migrated and `--seed-development`; passwords via `BHA_STAFF_PASSWORD`; secrets kept in files and redacted):
+
+| # | Step | Result |
+|---|---|---|
+| 0 | CLI `--staff-create` with a 256-character password | exit 0, `created Staff 11bfa236-… with Manager membership.` |
+| 1–2 | login with it, then `me` | 200 (`.TheBha.Staff=<redacted>; path=/api/admin; secure; samesite=strict; httponly`) / 200, one Manager membership |
+| 3–4 | CLI `--staff-reset-password` to another 256-character password, `me` with the old cookie | exit 0 / 401 `Authentication required` + deletion cookie |
+| 5–7 | login with the old password, with the new one, `me` with the new cookie | 401 `Authentication failed` / 200 / 200 |
+| 8–9 | wrong short password, wrong 1,024-character password | 401 / 401; steps 5, 8 and 9 have the same body apart from the per-request `traceId` |
+
+Neither password, the wrong long password nor either cookie value appears in any response body, the CLI output or the server log (scan: 0). The concurrency case is proved by the deterministic test above, not by curl.
+
+**Size**: correction diff (`git diff --numstat e9cb721..HEAD`) **+246 / −9 = 255** in 5 files — product +13 / −2, tests +177 / −3, docs +56 / −4; whole PR after C1 **+1,989 / −123 = 2,112** in 14 files (the PR body and handoff carry the GitHub figure checked against it). The correction is the two small product fixes, two regression tests with their test-host race probe, and this section; it adds to the over-target size explained above and trims no coverage.
+
+**Residual** (unchanged by C1, outside the finding): the reset only writes when the loaded count is non-zero, so if a request loads the account with zero failures and five failures land before its reset, Identity has nothing to update and the correct-password login still succeeds.
+
+Original review: RUN — 2 findings. CORRECTION_REVIEW: NOT RUN (Owner invokes `/codex:review --base origin/develop`). CP03 is still Draft and not merged; the Calendar is still local-gated. CP04 NOT STARTED. Production NOT TOUCHED.

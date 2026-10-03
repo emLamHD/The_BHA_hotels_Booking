@@ -17,7 +17,10 @@ Origin/JSON của `AdminCalendarWriteGateFilter` thành `AdminRequestBoundary` (
 gate không đổi). Staff session **không** cấp quyền vào Calendar: Board và các route
 ghi vẫn chỉ sau gate local; D7 (`AccessMode`) và D8 (audit actor) vẫn **mở**.
 Evidence: `docs/reports/PMS-ADMIN-AUTH-001-CP03-completion.md`. CP04–CP07 chưa được
-kích hoạt.
+kích hoạt. Review Codex đầu tiên (Owner gọi): RUN, 2 finding P2; correction
+`CP03-C1` sửa cả hai — reset failed count thất bại thì không cấp Staff session (401
+chung), và bỏ `MaxLength(128)` của password login để password dài do CLI CP02 cấp
+đăng nhập được. Re-review của correction: NOT RUN.
 
 Bản cập nhật trước (2026-10-01, `PMS-ADMIN-AUTH-001-CP02`, viết khi PR #75 còn Draft; nay đã merged):
 `PMS-ADMIN-AUTH-001-CP01` (PR #74) đã **merged**, merge commit
@@ -615,7 +618,8 @@ evidence independently verified for this closeout via:
 
 Objective hiện tại là `PMS-ADMIN-AUTH-001-CP03` — Staff login/logout/`me` và
 session cookie độc lập Customer (D3/D4), không có route authorization mới; Calendar
-giữ các gate local. Review Codex chỉ do Owner gọi, OC quyết định, Owner giữ
+giữ các gate local. Correction `CP03-C1` đã xong và chờ Owner gọi re-review
+Codex. Review Codex chỉ do Owner gọi, OC quyết định, Owner giữ
 Ready/merge/branch cleanup. Không tự bắt đầu CP04 hay work item nào khác từ
 Snapshot này.
 
