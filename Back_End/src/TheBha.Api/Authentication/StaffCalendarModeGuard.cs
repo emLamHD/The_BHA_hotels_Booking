@@ -7,9 +7,8 @@ namespace TheBha.Api.Authentication;
 /// PMS-ADMIN-AUTH-001-CP04 (D7): in <see cref="AdminCalendarAccessMode.Staff"/>, an Admin request
 /// reaches an endpoint only if that endpoint enforces a Staff permission
 /// (<see cref="StaffCalendarPermissionAttribute"/>) or is one of the three CP03 session actions.
-/// Everything else under <c>/api/admin</c> — the five Calendar writes until CP05, and any route
-/// that is open only because of <c>[Authorize]</c>, <c>[AllowAnonymous]</c> or a local gate —
-/// answers 404 with <c>no-store</c> here, before CORS, authentication, model binding, the action
+/// Everything else under <c>/api/admin</c> — any route that is open only because of
+/// <c>[Authorize]</c>, <c>[AllowAnonymous]</c> or a local gate — answers 404 with <c>no-store</c> here, before CORS, authentication, model binding, the action
 /// and its store. Decided on the selected endpoint's metadata after routing, not on a URL list.
 /// Registered only in Staff mode; LocalGate's pipeline does not contain it.
 /// </summary>
@@ -17,6 +16,9 @@ public static class StaffCalendarModeGuard
 {
     /// <summary>The credentialed GET-only CORS policy of Staff-authorized Calendar reads (Staff mode only).</summary>
     public const string ReadCorsPolicy = "admin-staff-calendar-read";
+
+    /// <summary>PMS-ADMIN-AUTH-001-CP05: the credentialed POST-only CORS policy of Staff-authorized Calendar writes (Staff mode only).</summary>
+    public const string WriteCorsPolicy = "admin-staff-calendar-write";
 
     private const string AdminPrefix = "/api/admin";
 

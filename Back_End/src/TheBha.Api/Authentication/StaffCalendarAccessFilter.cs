@@ -15,14 +15,24 @@ namespace TheBha.Api.Authentication;
 /// defence in depth); the <c>TheBha.Staff</c> scheme is authenticated explicitly — never the
 /// default Customer principal in <c>HttpContext.User</c> — and a missing, invalid, expired,
 /// disabled or stamp-rotated session is challenged (401 ProblemDetails from the Staff cookie
-/// events, no redirect); then the evaluator checks the permission at the route's
-/// <c>propertyId</c>, and anything short of it is forbidden (403 ProblemDetails). The local gates
-/// and their flags are not consulted in this mode.
+/// events, no redirect); then the role is read from the database at the route's
+/// <c>propertyId</c>, and a role that does not grant the permission is forbidden (403
+/// ProblemDetails). The local gates and their flags are not consulted in this mode.
+/// </para>
+///
+/// <para>
+/// PMS-ADMIN-AUTH-001-CP05: then, for a write, the CP03 Staff boundary
+/// (<see cref="StaffRequestBoundaryFilter"/>: exactly one approved <c>Origin</c> → else 403, UTF-8
+/// JSON → else 415), still before model binding; a GET passes it unchanged. Last, the verified
+/// Staff id, Property and role are stored as <see cref="StaffCalendarWriteContext"/> for the
+/// action, which builds the audit actor and any cross-RoomType evidence from them and from nothing
+/// the client sent.
 /// </para>
 /// </summary>
 public sealed class StaffCalendarAccessFilter(
     StaffPermission permission,
-    IStaffAccessEvaluator evaluator) : IAsyncResourceFilter
+    IStaffAccessEvaluator evaluator,
+    StaffRequestBoundaryFilter boundary) : IAsyncResourceFilter
 {
     public const string PropertyIdRouteKey = "propertyId";
 
@@ -46,12 +56,20 @@ public sealed class StaffCalendarAccessFilter(
             return;
         }
 
-        if (!await evaluator.HasPermissionAsync(staffId, propertyId, permission, httpContext.RequestAborted))
+        var role = await evaluator.GetRoleAsync(staffId, propertyId, httpContext.RequestAborted);
+        if (!StaffPermissions.RoleGrants(role, permission))
         {
             context.Result = new ForbidResult(StaffAuthentication.Scheme);
             return;
         }
 
+        boundary.OnResourceExecuting(context);
+        if (context.Result is not null)
+        {
+            return;
+        }
+
+        httpContext.Features.Set(new StaffCalendarWriteContext(staffId, propertyId, role!));
         await next();
     }
 }

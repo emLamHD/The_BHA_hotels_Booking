@@ -10,6 +10,13 @@ namespace TheBha.Api.Authentication;
 /// requires a Staff session with <see cref="Permission"/> at the route's Property
 /// (<see cref="StaffCalendarAccessFilter"/>). <see cref="StaffCalendarModeGuard"/> keeps every
 /// Admin route without this attribute closed in Staff mode.
+///
+/// <para>
+/// PMS-ADMIN-AUTH-001-CP05: applied per action, never per controller, so an action added later
+/// is neither opened in Staff mode (the guard closes it) nor left ungated in LocalGate without a
+/// deliberate decision — a test pins that every write action of the two Calendar controllers
+/// carries it.
+/// </para>
 /// </summary>
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = false, Inherited = false)]
 public sealed class StaffCalendarPermissionAttribute(StaffPermission permission, Type localGateFilter)
@@ -28,7 +35,8 @@ public sealed class StaffCalendarPermissionAttribute(StaffPermission permission,
         return access.Mode == AdminCalendarAccessMode.Staff
             ? new StaffCalendarAccessFilter(
                 Permission,
-                serviceProvider.GetRequiredService<IStaffAccessEvaluator>())
+                serviceProvider.GetRequiredService<IStaffAccessEvaluator>(),
+                serviceProvider.GetRequiredService<StaffRequestBoundaryFilter>())
             : (IResourceFilter)serviceProvider.GetRequiredService(LocalGateFilter);
     }
 }

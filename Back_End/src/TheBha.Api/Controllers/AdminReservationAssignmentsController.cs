@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Mvc;
+using TheBha.Api.Authentication;
 using TheBha.Application.Scheduling;
 
 namespace TheBha.Api.Controllers;
@@ -193,13 +194,29 @@ public sealed class UnassignReservationAssignmentRequest
 /// supersession committed, and the response is the mutation evidence, not a
 /// substitute for re-reading the board.
 /// </para>
+///
+/// <para>
+/// PMS-ADMIN-AUTH-001-CP05 (D8): each action carries
+/// <see cref="StaffCalendarPermissionAttribute"/> with <see cref="StaffPermission.AssignmentWrite"/>
+/// and this controller's former <see cref="AdminCalendarWriteGateFilter"/>. In
+/// <c>AdminCalendar:AccessMode=LocalGate</c> that is exactly the write gate, in the same place, and
+/// the actor and evidence below stay the local constants. In <c>Staff</c> mode the request was
+/// authorized before binding (Staff session, permission at the route's Property, Origin, JSON);
+/// a create or move that sets <c>confirmCrossRoomType</c> additionally needs
+/// <see cref="StaffPermission.AssignmentCrossRoomType"/> from the same verified role, else 403
+/// before the store. The actor is <c>staff:{StaffAccountId}</c> and the evidence
+/// <c>staff-rbac:{role}:{propertyId}:cross-room-type-confirmed</c>, both from
+/// <see cref="StaffCalendarWriteContext"/>; whether a row keeps that evidence is still decided by
+/// the store (cross-type <c>Created</c> rows only).
+/// </para>
 /// </summary>
 [ApiController]
 [Route("api/admin/v1/properties/{propertyId:guid}/reservation-assignments")]
 [EnableCors("admin-calendar-write")]
 [IgnoreAntiforgeryToken]
-[ServiceFilter(typeof(AdminCalendarWriteGateFilter))]
-public sealed class AdminReservationAssignmentsController(IAssignmentMutationStore store) : ControllerBase
+public sealed class AdminReservationAssignmentsController(
+    IAssignmentMutationStore store,
+    AdminCalendarAccess access) : ControllerBase
 {
     /// <summary>
     /// The audit actor written for every assignment this endpoint creates. It
@@ -236,6 +253,7 @@ public sealed class AdminReservationAssignmentsController(IAssignmentMutationSto
     /// that is sometimes absent.
     /// </remarks>
     [HttpPost]
+    [StaffCalendarPermission(StaffPermission.AssignmentWrite, typeof(AdminCalendarWriteGateFilter))]
     [ProducesResponseType(typeof(RoomOccupancySegmentDto), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
@@ -247,6 +265,11 @@ public sealed class AdminReservationAssignmentsController(IAssignmentMutationSto
         [FromBody] CreateReservationAssignmentRequest request,
         CancellationToken cancellationToken)
     {
+        if (!TryResolveActor(propertyId, request.ConfirmCrossRoomType, out var actorReference, out var evidence))
+        {
+            return Forbid(StaffAuthentication.Scheme);
+        }
+
         var reason = string.IsNullOrWhiteSpace(request.Reason) ? null : request.Reason.Trim();
 
         var result = await store.CreateAsync(
@@ -254,8 +277,8 @@ public sealed class AdminReservationAssignmentsController(IAssignmentMutationSto
                 propertyId,
                 request.ReservationUnitId,
                 new AssignmentDestination(request.PhysicalRoomId, request.StartDate, request.EndDate),
-                LocalActorReference,
-                request.ConfirmCrossRoomType ? CrossRoomTypeAuthorizationEvidence : null,
+                actorReference,
+                evidence,
                 reason),
             cancellationToken);
 
@@ -307,6 +330,7 @@ public sealed class AdminReservationAssignmentsController(IAssignmentMutationSto
     /// successor), not one created resource.
     /// </remarks>
     [HttpPost("{segmentId:guid}/move")]
+    [StaffCalendarPermission(StaffPermission.AssignmentWrite, typeof(AdminCalendarWriteGateFilter))]
     [ProducesResponseType(typeof(IReadOnlyList<RoomOccupancySegmentDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
@@ -319,6 +343,11 @@ public sealed class AdminReservationAssignmentsController(IAssignmentMutationSto
         [FromBody] MoveReservationAssignmentRequest request,
         CancellationToken cancellationToken)
     {
+        if (!TryResolveActor(propertyId, request.ConfirmCrossRoomType, out var actorReference, out var evidence))
+        {
+            return Forbid(StaffAuthentication.Scheme);
+        }
+
         var reason = string.IsNullOrWhiteSpace(request.Reason) ? null : request.Reason.Trim();
 
         var result = await store.SupersedeAsync(
@@ -330,8 +359,8 @@ public sealed class AdminReservationAssignmentsController(IAssignmentMutationSto
                         request.ExpectedVersion,
                         [new AssignmentDestination(request.PhysicalRoomId, request.StartDate, request.EndDate)])
                 ],
-                LocalActorReference,
-                request.ConfirmCrossRoomType ? CrossRoomTypeAuthorizationEvidence : null,
+                actorReference,
+                evidence,
                 reason),
             cancellationToken);
 
@@ -345,6 +374,7 @@ public sealed class AdminReservationAssignmentsController(IAssignmentMutationSto
     /// no authorization evidence is ever forwarded for this request.
     /// </summary>
     [HttpPost("{segmentId:guid}/unassign")]
+    [StaffCalendarPermission(StaffPermission.AssignmentWrite, typeof(AdminCalendarWriteGateFilter))]
     [ProducesResponseType(typeof(IReadOnlyList<RoomOccupancySegmentDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(void), StatusCodes.Status404NotFound)]
@@ -356,18 +386,59 @@ public sealed class AdminReservationAssignmentsController(IAssignmentMutationSto
         [FromBody] UnassignReservationAssignmentRequest request,
         CancellationToken cancellationToken)
     {
+        // Unassign places nobody, so it never needs or forwards cross-RoomType authority — also
+        // when the segment being ended is itself cross-RoomType.
+        if (!TryResolveActor(propertyId, confirmCrossRoomType: false, out var actorReference, out _))
+        {
+            return Forbid(StaffAuthentication.Scheme);
+        }
+
         var reason = string.IsNullOrWhiteSpace(request.Reason) ? null : request.Reason.Trim();
 
         var result = await store.SupersedeAsync(
             new SupersedeAssignmentsCommand(
                 propertyId,
                 [new AssignmentSupersession(segmentId, request.ExpectedVersion, [])],
-                LocalActorReference,
+                actorReference,
                 null,
                 reason),
             cancellationToken);
 
         return MapSupersedeResult(result);
+    }
+
+    /// <summary>
+    /// PMS-ADMIN-AUTH-001-CP05: the audit actor and cross-RoomType evidence for this request. In
+    /// LocalGate, the local constants (evidence only when confirmed, as before). In Staff mode,
+    /// only the verified <see cref="StaffCalendarWriteContext"/> for this Property — missing or for
+    /// another Property, or a confirmation its role does not grant, is a refusal, never a fallback
+    /// to the local actor. Confirmation alone never creates evidence for a same-RoomType row: the
+    /// store drops it there.
+    /// </summary>
+    private bool TryResolveActor(
+        Guid propertyId,
+        bool confirmCrossRoomType,
+        out string actorReference,
+        out string? evidence)
+    {
+        if (access.Mode != AdminCalendarAccessMode.Staff)
+        {
+            actorReference = LocalActorReference;
+            evidence = confirmCrossRoomType ? CrossRoomTypeAuthorizationEvidence : null;
+            return true;
+        }
+
+        if (StaffCalendarWriteContext.For(HttpContext, propertyId) is not { } staff ||
+            (confirmCrossRoomType && !staff.Grants(StaffPermission.AssignmentCrossRoomType)))
+        {
+            actorReference = string.Empty;
+            evidence = null;
+            return false;
+        }
+
+        actorReference = staff.ActorReference;
+        evidence = confirmCrossRoomType ? staff.CrossRoomTypeEvidence : null;
+        return true;
     }
 
     /// <summary>

@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Mvc;
+using TheBha.Api.Authentication;
 using TheBha.Application.Scheduling;
 
 namespace TheBha.Api.Controllers;
@@ -140,13 +141,24 @@ public sealed class CancelOperationalBlockRequest
 /// lifted, and the board is the evidence — not a second POST. Block move,
 /// split and multi-segment supersede remain internal-only and get no route here.
 /// </para>
+///
+/// <para>
+/// PMS-ADMIN-AUTH-001-CP05 (D8): each action carries
+/// <see cref="StaffCalendarPermissionAttribute"/> with <see cref="StaffPermission.BlockWrite"/> and
+/// the former <see cref="AdminCalendarWriteGateFilter"/> — exactly that gate, and the local actor,
+/// in LocalGate. In Staff mode the actor is <c>staff:{StaffAccountId}</c> from the verified
+/// <see cref="StaffCalendarWriteContext"/>: the creator on a new RoomBlock header and its
+/// <c>Created</c> audit row, the canceller on a <c>Cancelled</c> row. Cancelling never rewrites the
+/// header's creator. No authorization evidence, in either mode.
+/// </para>
 /// </summary>
 [ApiController]
 [Route("api/admin/v1/properties/{propertyId:guid}/operational-blocks")]
 [EnableCors("admin-calendar-write")]
 [IgnoreAntiforgeryToken]
-[ServiceFilter(typeof(AdminCalendarWriteGateFilter))]
-public sealed class AdminOperationalBlocksController(IOperationalBlockMutationStore store) : ControllerBase
+public sealed class AdminOperationalBlocksController(
+    IOperationalBlockMutationStore store,
+    AdminCalendarAccess access) : ControllerBase
 {
     /// <summary>
     /// The audit actor written for every block this endpoint creates. It names
@@ -203,6 +215,7 @@ public sealed class AdminOperationalBlocksController(IOperationalBlockMutationSt
     /// them.
     /// </remarks>
     [HttpPost]
+    [StaffCalendarPermission(StaffPermission.BlockWrite, typeof(AdminCalendarWriteGateFilter))]
     [ProducesResponseType(typeof(CreateOperationalBlockResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
@@ -214,6 +227,11 @@ public sealed class AdminOperationalBlocksController(IOperationalBlockMutationSt
         [FromBody] CreateOperationalBlockRequest request,
         CancellationToken cancellationToken)
     {
+        if (ResolveActor(propertyId) is not { } actorReference)
+        {
+            return Forbid(StaffAuthentication.Scheme);
+        }
+
         // Bounded before the store, because the store's cost scales with this
         // number — see MaximumBlockNights. A reversed or zero-night range is
         // negative or zero here, so it is never caught by this check: that
@@ -235,7 +253,7 @@ public sealed class AdminOperationalBlocksController(IOperationalBlockMutationSt
             new CreateRoomBlockCommand(
                 propertyId,
                 request.Reason.Trim(),
-                LocalActorReference,
+                actorReference,
                 [new BlockSegmentSpec(request.PhysicalRoomId, request.StartDate, request.EndDate)]),
             cancellationToken);
 
@@ -280,6 +298,7 @@ public sealed class AdminOperationalBlocksController(IOperationalBlockMutationSt
     /// mirrors <see cref="Create"/>'s for the same reasons.
     /// </remarks>
     [HttpPost("{segmentId:guid}/cancel")]
+    [StaffCalendarPermission(StaffPermission.BlockWrite, typeof(AdminCalendarWriteGateFilter))]
     [ProducesResponseType(typeof(RoomOccupancySegmentDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
@@ -292,13 +311,18 @@ public sealed class AdminOperationalBlocksController(IOperationalBlockMutationSt
         [FromBody] CancelOperationalBlockRequest request,
         CancellationToken cancellationToken)
     {
+        if (ResolveActor(propertyId) is not { } actorReference)
+        {
+            return Forbid(StaffAuthentication.Scheme);
+        }
+
         var reason = string.IsNullOrWhiteSpace(request.Reason) ? null : request.Reason.Trim();
 
         var result = await store.SupersedeSegmentsAsync(
             new SupersedeBlockSegmentsCommand(
                 propertyId,
                 [new BlockSegmentSupersession(segmentId, request.ExpectedVersion, [])],
-                LocalActorReference,
+                actorReference,
                 reason),
             cancellationToken);
 
@@ -321,4 +345,13 @@ public sealed class AdminOperationalBlocksController(IOperationalBlockMutationSt
                 detail: result.Error)
         };
     }
+
+    /// <summary>
+    /// PMS-ADMIN-AUTH-001-CP05: the local constant in LocalGate; in Staff mode the verified Staff
+    /// actor for this Property, or <c>null</c> (a refusal, never a fallback to the local actor).
+    /// </summary>
+    private string? ResolveActor(Guid propertyId) =>
+        access.Mode != AdminCalendarAccessMode.Staff
+            ? LocalActorReference
+            : StaffCalendarWriteContext.For(HttpContext, propertyId)?.ActorReference;
 }
