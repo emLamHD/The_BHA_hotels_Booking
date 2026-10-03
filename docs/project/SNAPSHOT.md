@@ -20,7 +20,10 @@ Evidence: `docs/reports/PMS-ADMIN-AUTH-001-CP03-completion.md`. CP04–CP07 chư
 kích hoạt. Review Codex đầu tiên (Owner gọi): RUN, 2 finding P2; correction
 `CP03-C1` sửa cả hai — reset failed count thất bại thì không cấp Staff session (401
 chung), và bỏ `MaxLength(128)` của password login để password dài do CLI CP02 cấp
-đăng nhập được. Re-review của correction: NOT RUN.
+đăng nhập được. Review C1: RUN, 1 finding P2 (count = 0 không có update kiểm tra
+concurrency); correction `CP03-C2` sửa: login thành công luôn ghi lại account bằng
+update kiểm tra `ConcurrencyStamp` (reset khi count > 0, `UpdateAsync` khi count = 0)
+trước khi cấp session. Review C2: NOT RUN.
 
 Bản cập nhật trước (2026-10-01, `PMS-ADMIN-AUTH-001-CP02`, viết khi PR #75 còn Draft; nay đã merged):
 `PMS-ADMIN-AUTH-001-CP01` (PR #74) đã **merged**, merge commit
@@ -618,7 +621,7 @@ evidence independently verified for this closeout via:
 
 Objective hiện tại là `PMS-ADMIN-AUTH-001-CP03` — Staff login/logout/`me` và
 session cookie độc lập Customer (D3/D4), không có route authorization mới; Calendar
-giữ các gate local. Correction `CP03-C1` đã xong và chờ Owner gọi re-review
+giữ các gate local. Correction `CP03-C2` đã xong và chờ Owner gọi re-review
 Codex. Review Codex chỉ do Owner gọi, OC quyết định, Owner giữ
 Ready/merge/branch cleanup. Không tự bắt đầu CP04 hay work item nào khác từ
 Snapshot này.

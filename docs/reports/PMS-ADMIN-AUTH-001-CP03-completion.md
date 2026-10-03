@@ -1,6 +1,6 @@
 # PMS-ADMIN-AUTH-001-CP03 — Staff login, logout, `me` and session cookie
 
-> Draft PR into `develop`, not merged. Implementer: Claude. Reviewer: Codex (read-only, invoked by Owner only). Original review: RUN — 2 findings, both fixed in [Correction C1](#correction-c1--pms-admin-auth-001-cp03-c1); correction re-review: NOT RUN.
+> Draft PR into `develop`, not merged. Implementer: Claude. Reviewer: Codex (read-only, invoked by Owner only). Original review: RUN — 2 findings, both fixed in [Correction C1](#correction-c1--pms-admin-auth-001-cp03-c1); C1 review: RUN — 1 finding, fixed in [Correction C2](#correction-c2--pms-admin-auth-001-cp03-c2); C2 review: NOT RUN.
 > Baseline and START_HEAD `6baefe90c409ba22f050c235bc2d5d0cf060cbd6` (PR #75, CP02, merged). Branch `feature/pms-admin-auth-001-cp03-staff-session`.
 
 ## Owner decisions applied (2026-10-03, CP03 activation)
@@ -162,6 +162,57 @@ Neither password, the wrong long password nor either cookie value appears in any
 
 **Size**: correction diff (`git diff --numstat e9cb721..HEAD`) **+246 / −9 = 255** in 5 files — product +13 / −2, tests +177 / −3, docs +56 / −4; whole PR after C1 **+1,989 / −123 = 2,112** in 14 files (the PR body and handoff carry the GitHub figure checked against it). The correction is the two small product fixes, two regression tests with their test-host race probe, and this section; it adds to the over-target size explained above and trims no coverage.
 
-**Residual** (unchanged by C1, outside the finding): the reset only writes when the loaded count is non-zero, so if a request loads the account with zero failures and five failures land before its reset, Identity has nothing to update and the correct-password login still succeeds.
+**Residual** (unchanged by C1, outside the finding): the reset only writes when the loaded count is non-zero, so if a request loads the account with zero failures and five failures land before its reset, Identity has nothing to update and the correct-password login still succeeds. **The C1 review raised exactly this (P2); it is fixed in Correction C2.**
 
-Original review: RUN — 2 findings. CORRECTION_REVIEW: NOT RUN (Owner invokes `/codex:review --base origin/develop`). CP03 is still Draft and not merged; the Calendar is still local-gated. CP04 NOT STARTED. Production NOT TOUCHED.
+Original review: RUN — 2 findings. C1 review: RUN — 1 finding (Correction C2 below).
+
+## Correction C2 — PMS-ADMIN-AUTH-001-CP03-C2
+
+C1 review: **RUN** by Owner, `/codex:review --base origin/develop`, 1 finding (P2) — "Check concurrency when the failure count is already zero". Reviewed SHA: **UNVERIFIED** (the output names the base, not a head SHA). Correction start head `3cdff116f7298d943d5c03a0924285d6243ab5d6`. Scope: the successful-login write for zero and non-zero failure counts, its regression tests and this evidence; F2, Customer isolation, the cookie lifetime, invalidation, the validator and the Calendar local gates are unchanged.
+
+**Root cause.** C1 checked the result of `ResetAccessFailedCountAsync`, but in Identity 8.0.29 (`UserManager.cs`, tag `v8.0.29`) that method returns `IdentityResult.Success` without writing when the loaded `AccessFailedCount` is 0. A login that loaded the account with no failures therefore made no concurrency-checked write at all: if five failed logins locked the account before its reset, the correct-password request still signed in, and that session survives (lockout does not rotate the security stamp; the validator deliberately ignores lockout). This was the residual recorded in C1.
+
+**What the API actually guarantees** (read from the 8.0.29 sources, then observed in a test): `UserManager.UpdateAsync` → `UpdateUserAsync` (validators, normalization) → `UserOnlyStore.UpdateAsync`, the store Staff uses (`AddIdentityCore<StaffAccount>().AddEntityFrameworkStores<TheBhaDbContext>()`), which always sets a new `ConcurrencyStamp`, marks the entity modified and saves; with `ConcurrencyStamp` configured as a concurrency token (`StaffAccountConfiguration`) the UPDATE matches on the stamp the account was loaded with, and a `DbUpdateConcurrencyException` becomes `ConcurrencyFailure`. Neither path touches `SecurityStamp`.
+
+**Fix** (`StaffAuthController.Login` only): after the password check, the authenticated account is always written back before `SignInAsync` — `ResetAccessFailedCountAsync` when `GetAccessFailedCountAsync > 0` (clears the count in its checked update, as in C1), otherwise `UpdateAsync` (the same checked update, with nothing else changed). Any failed `IdentityResult` returns the existing generic 401. No reload, retry, stamp manipulation, security-stamp rotation, lock, custom store, schema or validator change. The comment now states the zero/non-zero difference.
+
+**Regression tests** (`StaffAuthenticationTests.cs`, real PostgreSQL 17). The C1 test and probe are generalised rather than duplicated:
+
+- `A_login_whose_success_write_loses_to_a_concurrent_lockout_issues_no_session(startingFailures, expectedWrite)` — theory with `(0, UpdateAsync)` and `(4, ResetAccessFailedCountAsync)`. The test-host-only `LoginWriteRaceUserManager` (formerly `ResetRaceUserManager`) now hooks both `ResetAccessFailedCountAsync` and `UpdateAsync`, fires once, and at the request's success write has a separate DI scope call Identity's `AccessFailedAsync` until the account locks (5 calls from 0, 1 from 4; 30 s bound), then runs Identity's own method on the stale account and records which one ran. Asserted per case: stale count and pre-race stamp; every competing failure succeeded; locked out; stamp changed; `LockoutEnd` persisted; response is the generic 401 (`application/problem+json`, `no-store`, no `Set-Cookie`, no "concurrency" text); the write was the expected method and failed with exactly `ConcurrencyFailure`; the next right-password login is refused.
+- `A_login_from_zero_failures_makes_a_checked_write_and_keeps_open_sessions_and_the_security_stamp` — positive control: the resolved `IUserStore<StaffAccount>` is `UserOnlyStore<StaffAccount, TheBhaDbContext, Guid, …>`; a second login from count 0 runs exactly one non-SELECT command, `UPDATE "StaffAccounts" SET … WHERE "Id" = @p AND "ConcurrencyStamp" = @p` (EF command diagnostics for this database); afterwards the concurrency stamp differs, the security stamp is equal, count 0, no lockout; the earlier session and the new one both answer `me` 200. Stamps are compared, never printed.
+- F2 (`A_password_longer_than_128_characters_provisioned_by_the_cli_signs_in`) unchanged and green.
+
+**Red / green** (`dotnet test …IntegrationTests.csproj --configuration Release --no-build --filter "FullyQualifiedName~A_login_whose_success_write_loses_to_a_concurrent_lockout_issues_no_session|FullyQualifiedName~A_login_from_zero_failures_makes_a_checked_write"`):
+
+| Run | Result |
+|---|---|
+| red — new tests, controller at C1 (`3cdff11`) | exit 1, 2 failed / 1 passed: zero case — every race assertion passed (5 competing failures succeeded, locked, stamp changed, `LockoutEnd` persisted), then `Expected: Unauthorized / Actual: OK`; positive control — no write at all (`Assert.Single`: no non-SELECT command); count-4 case passed (C1 already covers it). A first red attempt failed the positive control on an exact-type assertion of the store (the six-parameter `UserOnlyStore` generic) — a test setup error, not counted; corrected and rerun |
+| green — fix applied | exit 0, 3/3; five consecutive runs, 5 × 3/3 |
+
+**Verification** (fresh PostgreSQL 17 container `cp03c2-staff-pg`, port 55434, removed afterwards; Owner's `the-bha-postgres-1` untouched):
+
+| Command | Result |
+|---|---|
+| `dotnet restore Back_End/TheBha.Booking.sln` | exit 0 |
+| `dotnet build Back_End/TheBha.Booking.sln --configuration Release --no-restore` | exit 0, 0 warnings, 0 errors |
+| `dotnet test …IntegrationTests.csproj --configuration Release --no-build --filter FullyQualifiedName~StaffAuthenticationTests` | exit 0, 41/41 |
+| `dotnet test …IntegrationTests.csproj --configuration Release --no-build --filter FullyQualifiedName~StaffBootstrapCommandTests` | exit 0, 17/17 |
+| `dotnet test Back_End/TheBha.Booking.sln --configuration Release --no-build` | exit 0, unit 244/244, integration 653/653 |
+| `git diff --check` | clean |
+
+**HTTPS smoke** (real Kestrel, `TheBha.Api.dll` Release, Development, `https://localhost:7247` + `http://127.0.0.1:5247`, the local mkcert leaf, `curl --cacert` with verification on; throwaway database `cp03c2_smoke`, migrated and `--seed-development`; secrets kept in files; stamps compared as hashes, never printed):
+
+| # | Step | Result |
+|---|---|---|
+| 0 | CLI `--staff-create` (password via `BHA_STAFF_PASSWORD`) | exit 0, `created Staff ab296050-… with Manager membership.` |
+| 1–2 | count 0: login, `me` | 200 (one `.TheBha.Staff` cookie) / 200 |
+| 3 | second login | 200; security stamp unchanged, concurrency stamp rewritten, count 0 |
+| 4 | `me` with the first session, with the second | 200 / 200 |
+| 5 | five wrong passwords | 401 × 5; `LockoutEnd > now()` |
+| 6 | right password while locked | 401 `Authentication failed`, no Staff cookie; same body as a wrong password apart from `traceId` |
+
+Secret scan (password, both cookie values) over response bodies, CLI output and server log: 0. The race itself is proved by the deterministic tests, not by curl.
+
+**Size**: correction diff (`git diff --numstat 3cdff11..HEAD`) **+177 / −51 = 228** in 4 files — product +10 / −4, tests +108 / −42, docs +59 / −5; whole PR after C2 **+2,115 / −123 = 2,238** in 14 files (the PR body and handoff carry the GitHub figure checked against it). Over the 100–400 target for the reasons above; C2 generalises the C1 harness instead of copying it and trims no coverage.
+
+C1 review: RUN — 1 finding. C2_REVIEW: NOT RUN (Owner invokes `/codex:review --base origin/develop`). CP03 is still Draft and not merged; the Calendar is still local-gated. CP04 NOT STARTED. Production NOT TOUCHED.
