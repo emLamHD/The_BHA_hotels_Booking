@@ -108,4 +108,36 @@ Not split: the design (§9) named login/`me` as a possible seam, but a sign-in w
 - The rest of Admin_Web (template dashboard pages) is not protected by the Staff session; only `/calendar` is in CP06 scope. `README.md`'s older "template-only" note predates CP06 and was left as is.
 - CP03–CP05 residuals unchanged (a copied cookie is valid until 8 h or the next disable/reset; logout does not rotate the stamp).
 
-`REVIEW: NOT RUN` (Owner invokes `/codex:review --base origin/develop`). CP07 NOT STARTED. Production NOT TOUCHED.
+## Correction C1 (`PMS-ADMIN-AUTH-001-CP06-C1`)
+
+Codex review of CP06 (`/codex:review --base origin/develop`, invoked by Owner): RUN — 2 findings, both P2. Reviewed SHA: UNVERIFIED (the review output names no commit). START_HEAD of C1: `571f33b1946754694e302602bf6002d69c530997`.
+
+| Finding | Root cause | Fix |
+|---|---|---|
+| F1 — a refresh supersedes a pending sign-out | `refresh()` and `signOut()` shared one generation counter; a board 403 during a pending logout ran `refresh()`, which bumped it, so the confirmed `204` was treated as stale and the identity and board stayed mounted | `StaffSession.tsx`: a pending sign-out is held in a ref. A refresh asked for meanwhile reads nothing and waits; a confirmed logout (`204`/`401`) always ends the session and invalidates every `me` still on the wire; an unconfirmed one runs that refresh once and reports back only after it answered, so changes never resume on memberships a denial asked to re-check. Retry is ignored while signing out; a throwing logout is reported unconfirmed, never a stuck lock |
+| F2 — new writes during a pending sign-out | the gate disabled only Sign out; the board kept its controls and handlers, and the "write in flight" signal reached the gate through an effect, one render late | `CalendarAccessGate.tsx`: two refs (signing out, writing) decide both directions synchronously. `ReservationBoard.tsx`/`calendarAccess.ts`: write activity is reported from `trackWrite`/`untrackWrite` directly; `capabilitiesFor` takes `writesPaused` (render: `access.signingOut`; send time: `access.isSigningOut()`), so every control closes and all five submit handlers refuse before recording an intent (`not-sent`, "Signing out — this change was not sent"). The board stays mounted until the sign-out is confirmed |
+
+`uncertainWriteStorage.ts`, the API client and the outcome semantics are unchanged.
+
+Red/green (deterministic deferred promises, no sleeps): 25 new tests — `StaffSession.test.tsx` +4, `CalendarAccessGate.test.tsx` +21 (one F1 gate test, the closed controls, the five writes × {dialog opened before Sign out, Sign out then submit in one tick, submit then Sign out in one tick}, an existing record untouched, a write on the wire holding Sign out for a success and an unknown outcome, LocalGate). Run against START_HEAD's four product files: **21 failed / 17 passed** — every failure a defect assertion (write spy called, `me` read during sign-out, identity kept after a confirmed logout, control not disabled, logout sent while a write was in flight); the 4 green ones are guards that hold on both. On the fixed code: 38/38.
+
+| Command (final code) | Result |
+|---|---|
+| `npm test` | exit 0 — 36 files, 791 tests |
+| `npm run lint` | exit 0 |
+| `npx tsc --noEmit -p .` | exit 0 |
+| `npm run build` | exit 0 |
+| `git diff --check` | exit 0 |
+
+Browser acceptance (real Chrome, trusted mkcert certificate, TLS verification on; PostgreSQL 17 container `cp06c1-pg` and database `c1_accept` created for this run; API and Admin_Web in `Staff` mode from the corrected tree). Responses were coordinated in the tab by wrapping `window.fetch` (hold a request before it is sent, or hold the answer after the server replied, then release or fail it); the backend was not changed. A real server 403 came from removing the Staff member's Second Hotel membership in the throwaway database (re-granted with the CLI between scenarios).
+
+| # | Scenario | Result |
+|---|---|---|
+| 1 | logout held; board read → real 403; logout released | no `me` during the pending logout; after release one logout POST, page on `/signin`, identity and board gone, `me` 401 |
+| 2 | assign dialog opened before Sign out, submitted while logout held | "Signing out — this change was not sent"; no assignment request; nothing in storage; database 0 segments / 0 audit rows |
+| 3 | logout failed (transport) | "sign-out was not confirmed", session kept; the same dialog resubmitted → 201. Second run: Second Hotel 403 while logout held → no `me`; after the unconfirmed answer exactly one `me` → selector lists only The BHA Hotel, board switched, Sign out back |
+| 4 | write before logout | response held after the server committed (201): Sign out disabled, and even with `disabled` removed a click sent no logout; released as a transport failure → unknown, not retried, reconciled from the board. An unassign failed before sending → unknown, record kept; Sign out → `/signin`, `me` 401, the record unchanged in `sessionStorage` |
+
+Database afterwards: two `Created` audit rows, both `staff:{id}` (scenario 3's write and scenario 4's committed write); no row from the refused submit or the failed unassign. Secret scan (the throwaway password, `Set-Cookie`, the Staff cookie name) over the API, web and CLI logs: 0. Cleanup: processes stopped, container and its volume removed (`docker rm -fv`), secret files deleted, tab closed; `the-bha-postgres-1` untouched.
+
+`ORIGINAL_REVIEW: RUN — 2 findings`. `CORRECTION_REVIEW: NOT RUN` (Owner invokes `/codex:review --base origin/develop`). CP07 NOT STARTED. Production NOT TOUCHED.
