@@ -474,6 +474,148 @@ public sealed class StaffCalendarAuthorizationTests(PostgreSqlWebApplicationFact
         Assert.Equal("AdminCalendar:AccessMode must be exactly LocalGate or Staff.", exception.Message);
     }
 
+    private const string Refused = "refused";
+
+    /// <summary>
+    /// CP04-C1: the mode as the real JSON configuration provider presents it, layered lowest
+    /// priority first in a <see cref="ConfigurationManager"/>, as the host builds it. An empty
+    /// object or array is a declared key with a null value; only a key no provider declares is
+    /// the LocalGate default.
+    /// </summary>
+    public static TheoryData<string[], string> JsonAccessModes() => new()
+    {
+        // Declared but empty or null: refused, never a default.
+        { ["""{"AdminCalendar":{"AccessMode":{}}}"""], Refused },
+        { ["""{"AdminCalendar":{"AccessMode":[]}}"""], Refused },
+        { ["""{"AdminCalendar":{"AccessMode":null}}"""], Refused },
+        { ["""{"AdminCalendar":{"AccessMode":""}}"""], Refused },
+        // Not declared anywhere: LocalGate.
+        { ["{}"], nameof(AdminCalendarAccessMode.LocalGate) },
+        { ["""{"AdminCalendar":{}}"""], nameof(AdminCalendarAccessMode.LocalGate) },
+        { ["""{"AdminCalendar":{"EnableUnauthenticatedRead":true}}"""], nameof(AdminCalendarAccessMode.LocalGate) },
+        // Valid scalars, any key casing; the value itself is ordinal.
+        { ["""{"AdminCalendar":{"AccessMode":"LocalGate"}}"""], nameof(AdminCalendarAccessMode.LocalGate) },
+        { ["""{"AdminCalendar":{"AccessMode":"Staff"}}"""], nameof(AdminCalendarAccessMode.Staff) },
+        { ["""{"adminCalendar":{"accessMode":"Staff"}}"""], nameof(AdminCalendarAccessMode.Staff) },
+        { ["""{"ADMINCALENDAR":{"ACCESSMODE":"LocalGate"}}"""], nameof(AdminCalendarAccessMode.LocalGate) },
+        { ["""{"AdminCalendar":{"AccessMode":"staff"}}"""], Refused },
+        // Children: a nested section, or a valid scalar that still has an effective child.
+        { ["""{"AdminCalendar":{"AccessMode":{"Value":"Staff"}}}"""], Refused },
+        { ["""{"AdminCalendar":{"AccessMode":{"Value":"x"}}}""", """{"AdminCalendar":{"AccessMode":"Staff"}}"""], Refused },
+        // Precedence: a higher-priority empty declaration wins over a lower valid one...
+        { ["""{"AdminCalendar":{"AccessMode":"Staff"}}""", """{"AdminCalendar":{"AccessMode":{}}}"""], Refused },
+        { ["""{"AdminCalendar":{"AccessMode":"Staff"}}""", """{"AdminCalendar":{"AccessMode":[]}}"""], Refused },
+        // ...a higher-priority valid scalar wins over a lower empty one...
+        { ["""{"AdminCalendar":{"AccessMode":{}}}""", """{"AdminCalendar":{"AccessMode":"Staff"}}"""], nameof(AdminCalendarAccessMode.Staff) },
+        { ["""{"AdminCalendar":{"AccessMode":[]}}""", """{"adminCalendar":{"accessMode":"Staff"}}"""], nameof(AdminCalendarAccessMode.Staff) },
+        // ...and a higher-priority provider that does not declare the key keeps the lower value.
+        { ["""{"AdminCalendar":{"AccessMode":"Staff"}}""", """{"AdminCalendar":{"EnableUnauthenticatedRead":false}}"""], nameof(AdminCalendarAccessMode.Staff) },
+        { ["""{"AdminCalendar":{"AccessMode":"Staff"}}""", """{"AdminCalendar":{}}"""], nameof(AdminCalendarAccessMode.Staff) },
+    };
+
+    [Theory]
+    [MemberData(nameof(JsonAccessModes))]
+    public void The_access_mode_is_read_from_real_json_providers_and_only_an_undeclared_key_defaults(
+        string[] layers,
+        string expected)
+    {
+        var configuration = new ConfigurationManager();
+        foreach (var layer in layers)
+        {
+            configuration.AddJsonStream(new MemoryStream(Encoding.UTF8.GetBytes(layer)));
+        }
+
+        if (expected == Refused)
+        {
+            var exception = Assert.Throws<InvalidOperationException>(() => AdminCalendarAccess.FromConfiguration(configuration));
+            Assert.Equal("AdminCalendar:AccessMode must be exactly LocalGate or Staff.", exception.Message);
+        }
+        else
+        {
+            Assert.Equal(expected, AdminCalendarAccess.FromConfiguration(configuration).Mode.ToString());
+        }
+    }
+
+    [Theory]
+    [InlineData("""{"AdminCalendar":{"AccessMode":{}}}""")]
+    [InlineData("""{"AdminCalendar":{"AccessMode":[]}}""")]
+    public void A_development_host_with_local_gates_on_refuses_to_start_on_an_empty_json_access_mode(string json)
+    {
+        var contentRoot = JsonContentRoot(json);
+        try
+        {
+            using var host = CreateJsonHost(contentRoot);
+            var exception = Assert.Throws<InvalidOperationException>(() => host.CreateClient());
+            Assert.Equal("AdminCalendar:AccessMode must be exactly LocalGate or Staff.", exception.Message);
+        }
+        finally
+        {
+            Directory.Delete(contentRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task The_same_json_source_selects_staff_and_leaves_an_undeclared_mode_on_local_gate()
+    {
+        var seed = await SeedAsync();
+        var staffRoot = JsonContentRoot("""{"AdminCalendar":{"AccessMode":"Staff"}}""");
+        var localRoot = JsonContentRoot("""{"AdminCalendar":{"EnableUnauthenticatedRead":true}}""");
+        try
+        {
+            // Positive controls through the same JSON file: it is read at startup...
+            using (var staff = CreateJsonHost(staffRoot))
+            {
+                Assert.Equal(AdminCalendarAccessMode.Staff, staff.Services.GetRequiredService<AdminCalendarAccess>().Mode);
+                await AssertUnauthorizedAsync(await CreateHttpsClient(staff).SendAsync(Get(BoardUrl(seed.A))));
+            }
+
+            // ...and a file that does not declare the key keeps the LocalGate board.
+            using var local = CreateJsonHost(localRoot);
+            Assert.Equal(AdminCalendarAccessMode.LocalGate, local.Services.GetRequiredService<AdminCalendarAccess>().Mode);
+            Assert.Equal(HttpStatusCode.OK, (await CreateHttpsClient(local).SendAsync(Get(BoardUrl(seed.A)))).StatusCode);
+        }
+        finally
+        {
+            Directory.Delete(staffRoot, recursive: true);
+            Directory.Delete(localRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// A content root holding the API's real <c>appsettings.json</c> and, as
+    /// <c>appsettings.Development.json</c>, the JSON under test — so the host's own JSON file
+    /// provider reads it while <c>Program.cs</c> starts, exactly as a deployed file would be read.
+    /// (A source added through <c>ConfigureAppConfiguration</c> arrives after that point.)
+    /// </summary>
+    private static string JsonContentRoot(string developmentJson)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "thebha-cp04-access-mode", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        File.Copy(Path.Combine(ApiContentRoot(), "appsettings.json"), Path.Combine(root, "appsettings.json"));
+        File.WriteAllText(Path.Combine(root, "appsettings.Development.json"), developmentJson);
+        return root;
+    }
+
+    private static string ApiContentRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null && directory.GetDirectories("Back_End").Length == 0)
+        {
+            directory = directory.Parent;
+        }
+
+        Assert.NotNull(directory);
+        return Path.Combine(directory!.FullName, "Back_End", "src", "TheBha.Api");
+    }
+
+    /// <summary>A Development host (local read and write opt-ins on) whose configuration files come from <paramref name="contentRoot"/>.</summary>
+    private WebApplicationFactory<Program> CreateJsonHost(string contentRoot) =>
+        factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseContentRoot(contentRoot);
+            builder.UseSetting("AdminCalendar:EnableUnauthenticatedWrite", "true");
+        });
+
     [Fact]
     public async Task The_mode_is_captured_at_startup_and_a_later_configuration_change_does_not_switch_it()
     {
