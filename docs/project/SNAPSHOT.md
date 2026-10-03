@@ -1,10 +1,29 @@
 # THE BHA — SNAPSHOT
 
-> Ngày cập nhật: 2026-10-03 (`PMS-ADMIN-AUTH-001-CP05`; các phần cũ hơn giữ nguyên kèm SHA)
+> Ngày cập nhật: 2026-10-03 (`PMS-ADMIN-AUTH-001-CP06`; các phần cũ hơn giữ nguyên kèm SHA)
 >
 > Mục đích: phục hồi trạng thái hiện tại mà không cần nạp worklog lịch sử
 
-Cập nhật 2026-10-03 (`PMS-ADMIN-AUTH-001-CP05`, Draft PR, chưa merge):
+Cập nhật 2026-10-03 (`PMS-ADMIN-AUTH-001-CP06`, Draft PR, chưa merge):
+`PMS-ADMIN-AUTH-001-CP05` (PR #78) đã **merged** (`2026-10-03T08:23:15Z`), merge commit
+`8f6222984b8678027e71523f27274407f8eeeb35`. CP06 chỉ đổi Admin_Web (không backend, schema,
+dependency hay CI): `NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE` = `LocalGate` (mặc định khi
+không đặt) | `Staff`; rỗng/giá trị khác là lỗi cấu hình và không gửi request Calendar nào;
+không probe, không fallback, đổi giá trị cần rebuild/restart. `Staff` mode: trang `/signin`
+đăng nhập Staff (password gửi nguyên văn), `/calendar` chờ `me` (401 → `/signin`, lỗi →
+Retry), selector Property từ `me.memberships`, UI theo role (FrontDesk không có
+cross-RoomType, Manager có), 401 kết thúc session, 403 đọc lại `me` và cập nhật quyền;
+login/logout/me/board/năm write dùng `credentials: "include"`. `LocalGate` giữ nguyên
+hành vi CP05. Pending/unknown uncertain writes giữ nguyên qua reload, sign-out và đổi
+Staff (không namespace theo Staff). Acceptance browser thật (Chrome, cert tin cậy) chạy
+trên PostgreSQL 17 riêng đã dọn. Default/Production vẫn CP07. Evidence:
+`docs/reports/PMS-ADMIN-AUTH-001-CP06-completion.md`. Review CP06: RUN — 2 findings (P2:
+logout bị refresh ghi đè; ghi mới trong lúc logout pending), Reviewed SHA: UNVERIFIED;
+correction C1 trên cùng PR #79 sửa cả hai. Review C1: RUN — 2 findings (P2: refresh bị
+logout ngắt bị mất; logout kết thúc trước recovery), Reviewed SHA: UNVERIFIED; correction C2
+trên cùng PR #79 sửa cả hai. Review C2: NOT RUN.
+
+Bản cập nhật trước (2026-10-03, `PMS-ADMIN-AUTH-001-CP05`, viết khi PR #78 còn Draft; nay đã merged):
 `PMS-ADMIN-AUTH-001-CP04` (PR #77) đã **merged** (`2026-10-03T06:40:05Z`), merge commit
 `f3f705f5e033fbcb231e19ed8ba9051f9b901dc8` — gồm correction C1. Owner chốt D8 khi kích
 hoạt CP05: audit actor `staff:{StaffAccountId}` (GUID, không PII), evidence cross-RoomType
@@ -653,11 +672,11 @@ evidence independently verified for this closeout via:
 `e0f5a395aec15cc02e328433a97850e30e165675`, `2026-09-03T03:11:21Z`; §1,
 §2, §4). Không còn review gate hay merge nào đang chờ trên work item đó.
 
-Objective hiện tại là `PMS-ADMIN-AUTH-001-CP05` — Staff authorization cho năm Calendar
-write routes, cross-RoomType permission và audit actor/evidence từ Staff đã xác thực (D8).
-Default vẫn `LocalGate`; Admin_Web chưa tích hợp (CP06); Calendar chưa Production-ready
-(CP07). Review Codex chỉ do Owner gọi, OC quyết định, Owner giữ Ready/merge/branch
-cleanup. Không tự bắt đầu CP06 hay work item nào khác từ Snapshot này.
+Objective hiện tại là `PMS-ADMIN-AUTH-001-CP06` — tích hợp Staff session vào Admin_Web
+(login, gate `/calendar`, selector Property từ memberships, UI Calendar theo quyền, xử lý
+401/403) mà vẫn giữ các bảo vệ uncertain-write. Default vẫn `LocalGate`; Calendar chưa
+Production-ready (CP07). Review Codex chỉ do Owner gọi, OC quyết định, Owner giữ
+Ready/merge/branch cleanup. Không tự bắt đầu CP07 hay work item nào khác từ Snapshot này.
 
 ## 9. Main risks
 

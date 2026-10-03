@@ -6,6 +6,7 @@
  */
 
 import { describeApiBaseUrlError, getApiBaseUrl } from "./env";
+import { getAccessMode } from "./accessMode";
 import type {
   ApiProperty,
   CancelOperationalBlockRequest,
@@ -33,7 +34,25 @@ interface ProblemDetailsShape {
   detail?: string;
 }
 
-async function requestJson<T>(path: string, signal?: AbortSignal): Promise<ApiResult<T>> {
+/**
+ * PMS-ADMIN-AUTH-001-CP06: the access mode decides whether a Calendar call
+ * carries the Staff cookie. `Staff` → `credentials: "include"` for the board
+ * read and every write; `LocalGate` → the reads keep the browser default and
+ * the writes keep `credentials: "omit"`, exactly as before. An invalid mode
+ * sends nothing at all.
+ */
+type CalendarMode = { ok: true; staff: boolean } | { ok: false; message: string };
+
+function calendarMode(): CalendarMode {
+  const mode = getAccessMode();
+  return mode.ok ? { ok: true, staff: mode.mode === "Staff" } : { ok: false, message: mode.message };
+}
+
+/** Staff mode only: a write refused with `401` — the session ended; nothing was written. */
+export const SESSION_ENDED_DETAIL =
+  "Your Staff session has ended or is no longer valid. Nothing was saved. Sign in again to continue.";
+
+async function requestJson<T>(path: string, signal?: AbortSignal, staffCredentials = false): Promise<ApiResult<T>> {
   const baseUrlResult = getApiBaseUrl();
   if (!baseUrlResult.ok) {
     return { ok: false, error: { kind: "config", message: describeApiBaseUrlError(baseUrlResult.reason) } };
@@ -44,6 +63,7 @@ async function requestJson<T>(path: string, signal?: AbortSignal): Promise<ApiRe
     response = await fetch(`${baseUrlResult.baseUrl}${path}`, {
       method: "GET",
       headers: { Accept: "application/json" },
+      ...(staffCredentials ? { credentials: "include" as const, cache: "no-store" as const } : {}),
       signal,
     });
   } catch (cause) {
@@ -82,20 +102,25 @@ async function requestJson<T>(path: string, signal?: AbortSignal): Promise<ApiRe
   }
 }
 
-export function fetchActiveProperties(signal?: AbortSignal): Promise<ApiResult<ApiProperty[]>> {
+export async function fetchActiveProperties(signal?: AbortSignal): Promise<ApiResult<ApiProperty[]>> {
+  const mode = calendarMode();
+  if (!mode.ok) return { ok: false, error: { kind: "config", message: mode.message } };
   return requestJson<ApiProperty[]>("/api/v1/properties", signal);
 }
 
-export function fetchReservationBoard(
+export async function fetchReservationBoard(
   propertyId: string,
   from: string,
   to: string,
   signal?: AbortSignal
 ): Promise<ApiResult<ReservationBoardResponse>> {
+  const mode = calendarMode();
+  if (!mode.ok) return { ok: false, error: { kind: "config", message: mode.message } };
   const query = new URLSearchParams({ from, to }).toString();
   return requestJson<ReservationBoardResponse>(
     `/api/admin/v1/properties/${propertyId}/reservation-board?${query}`,
-    signal
+    signal,
+    mode.staff
   );
 }
 
@@ -210,12 +235,19 @@ function validationDetail(problem: ValidationProblemShape | undefined): string |
  * a Customer session cookie must never ride along on an Admin write), no cache,
  * and no redirect following — a redirected write would be re-sent somewhere the
  * gate did not approve.
+ *
+ * PMS-ADMIN-AUTH-001-CP06: in `Staff` mode the same request carries the Staff
+ * cookie (`credentials: "include"`) to the API's credentialed Staff write policy;
+ * every other property above is unchanged, and a `401` (session ended) is a
+ * rejection — proof of no write — reported with {@link SESSION_ENDED_DETAIL}.
  */
 export async function createReservationAssignment(
   propertyId: string,
   request: CreateReservationAssignmentRequest,
   options: CreateReservationAssignmentOptions = {}
 ): Promise<AssignmentCreateOutcome> {
+  const mode = calendarMode();
+  if (!mode.ok) return { kind: "not-sent", message: mode.message };
   const baseUrlResult = getApiBaseUrl();
   if (!baseUrlResult.ok) {
     return { kind: "not-sent", message: describeApiBaseUrlError(baseUrlResult.reason) };
@@ -260,7 +292,7 @@ export async function createReservationAssignment(
           method: "POST",
           headers: { Accept: "application/json", "Content-Type": "application/json" },
           body,
-          credentials: "omit",
+          credentials: mode.staff ? "include" : "omit",
           cache: "no-store",
           redirect: "error",
           signal: controller.signal,
@@ -290,6 +322,9 @@ export async function createReservationAssignment(
 
     const problem = await readProblem(response);
     switch (status) {
+      case 401:
+        // Staff mode: the session ended before the request was authorized — proof of no write.
+        return { kind: "rejected", status, category: "refused", detail: SESSION_ENDED_DETAIL };
       case 400:
         return { kind: "rejected", status, category: "validation", detail: validationDetail(problem) };
       case 403:
@@ -365,6 +400,8 @@ export async function moveReservationAssignment(
   request: MoveReservationAssignmentRequest,
   options: CreateReservationAssignmentOptions = {}
 ): Promise<MoveAssignmentOutcome> {
+  const mode = calendarMode();
+  if (!mode.ok) return { kind: "not-sent", message: mode.message };
   const baseUrlResult = getApiBaseUrl();
   if (!baseUrlResult.ok) {
     return { kind: "not-sent", message: describeApiBaseUrlError(baseUrlResult.reason) };
@@ -417,7 +454,7 @@ export async function moveReservationAssignment(
           method: "POST",
           headers: { Accept: "application/json", "Content-Type": "application/json" },
           body,
-          credentials: "omit",
+          credentials: mode.staff ? "include" : "omit",
           cache: "no-store",
           redirect: "error",
           signal: controller.signal,
@@ -447,6 +484,9 @@ export async function moveReservationAssignment(
 
     const problem = await readProblem(response);
     switch (status) {
+      case 401:
+        // Staff mode: the session ended before the request was authorized — proof of no write.
+        return { kind: "rejected", status, category: "refused", detail: SESSION_ENDED_DETAIL };
       case 400:
         return { kind: "rejected", status, category: "validation", detail: validationDetail(problem) };
       case 403:
@@ -525,6 +565,8 @@ export async function unassignReservationAssignment(
   request: UnassignReservationAssignmentRequest,
   options: CreateReservationAssignmentOptions = {}
 ): Promise<UnassignAssignmentOutcome> {
+  const mode = calendarMode();
+  if (!mode.ok) return { kind: "not-sent", message: mode.message };
   const baseUrlResult = getApiBaseUrl();
   if (!baseUrlResult.ok) {
     return { kind: "not-sent", message: describeApiBaseUrlError(baseUrlResult.reason) };
@@ -568,7 +610,7 @@ export async function unassignReservationAssignment(
           method: "POST",
           headers: { Accept: "application/json", "Content-Type": "application/json" },
           body,
-          credentials: "omit",
+          credentials: mode.staff ? "include" : "omit",
           cache: "no-store",
           redirect: "error",
           signal: controller.signal,
@@ -598,6 +640,9 @@ export async function unassignReservationAssignment(
 
     const problem = await readProblem(response);
     switch (status) {
+      case 401:
+        // Staff mode: the session ended before the request was authorized — proof of no write.
+        return { kind: "rejected", status, category: "refused", detail: SESSION_ENDED_DETAIL };
       case 400:
         return { kind: "rejected", status, category: "validation", detail: validationDetail(problem) };
       case 403:
@@ -658,6 +703,8 @@ export async function createOperationalBlock(
   request: CreateOperationalBlockRequest,
   options: CreateReservationAssignmentOptions = {}
 ): Promise<OperationalBlockCreateOutcome> {
+  const mode = calendarMode();
+  if (!mode.ok) return { kind: "not-sent", message: mode.message };
   const baseUrlResult = getApiBaseUrl();
   if (!baseUrlResult.ok) {
     return { kind: "not-sent", message: describeApiBaseUrlError(baseUrlResult.reason) };
@@ -695,7 +742,7 @@ export async function createOperationalBlock(
           method: "POST",
           headers: { Accept: "application/json", "Content-Type": "application/json" },
           body,
-          credentials: "omit",
+          credentials: mode.staff ? "include" : "omit",
           cache: "no-store",
           redirect: "error",
           signal: controller.signal,
@@ -725,6 +772,9 @@ export async function createOperationalBlock(
 
     const problem = await readProblem(response);
     switch (status) {
+      case 401:
+        // Staff mode: the session ended before the request was authorized — proof of no write.
+        return { kind: "rejected", status, category: "refused", detail: SESSION_ENDED_DETAIL };
       case 400:
         return { kind: "rejected", status, category: "validation", detail: validationDetail(problem) };
       case 403:
@@ -785,6 +835,8 @@ export async function cancelOperationalBlock(
   request: CancelOperationalBlockRequest,
   options: CreateReservationAssignmentOptions = {}
 ): Promise<OperationalBlockCancelOutcome> {
+  const mode = calendarMode();
+  if (!mode.ok) return { kind: "not-sent", message: mode.message };
   const baseUrlResult = getApiBaseUrl();
   if (!baseUrlResult.ok) {
     return { kind: "not-sent", message: describeApiBaseUrlError(baseUrlResult.reason) };
@@ -822,7 +874,7 @@ export async function cancelOperationalBlock(
           method: "POST",
           headers: { Accept: "application/json", "Content-Type": "application/json" },
           body,
-          credentials: "omit",
+          credentials: mode.staff ? "include" : "omit",
           cache: "no-store",
           redirect: "error",
           signal: controller.signal,
@@ -852,6 +904,9 @@ export async function cancelOperationalBlock(
 
     const problem = await readProblem(response);
     switch (status) {
+      case 401:
+        // Staff mode: the session ended before the request was authorized — proof of no write.
+        return { kind: "rejected", status, category: "refused", detail: SESSION_ENDED_DETAIL };
       case 400:
         return { kind: "rejected", status, category: "validation", detail: validationDetail(problem) };
       case 403:

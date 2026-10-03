@@ -5,6 +5,12 @@ import React, { useState } from "react";
 import { Dropdown } from "../ui/dropdown/Dropdown";
 import { DropdownItem } from "../ui/dropdown/DropdownItem";
 
+/**
+ * TailAdmin template menu. PMS-ADMIN-AUTH-001-CP06: it shows no person, because
+ * it does not know who is signed in — the Staff identity and the real Sign out
+ * live with the Reservation Board on `/calendar`. Its last item only opens the
+ * Staff sign-in page; it does not sign anyone out.
+ */
 export default function UserDropdown() {
   const [isOpen, setIsOpen] = useState(false);
 
@@ -31,7 +37,7 @@ function toggleDropdown(e: React.MouseEvent<HTMLButtonElement, MouseEvent>) {
           />
         </span>
 
-        <span className="block mr-1 font-medium text-theme-sm">Musharof</span>
+        <span className="block mr-1 font-medium text-theme-sm">Menu</span>
 
         <svg
           className={`stroke-gray-500 dark:stroke-gray-400 transition-transform duration-200 ${
@@ -60,10 +66,10 @@ function toggleDropdown(e: React.MouseEvent<HTMLButtonElement, MouseEvent>) {
       >
         <div>
           <span className="block font-medium text-gray-700 text-theme-sm dark:text-gray-400">
-            Musharof Chowdhury
+            Template menu
           </span>
           <span className="mt-0.5 block text-theme-xs text-gray-500 dark:text-gray-400">
-            randomuser@pimjo.com
+            Not your Staff session — see the Reservation Board for who is signed in.
           </span>
         </div>
 
@@ -163,7 +169,7 @@ function toggleDropdown(e: React.MouseEvent<HTMLButtonElement, MouseEvent>) {
               fill=""
             />
           </svg>
-          Sign out
+          Staff sign-in page
         </Link>
       </Dropdown>
     </div>
