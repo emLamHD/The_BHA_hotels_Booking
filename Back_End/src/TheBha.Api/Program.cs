@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -93,6 +94,14 @@ if (builder.Environment.IsProduction() && adminCalendarOptions.EnableUnauthentic
         "AdminCalendar:EnableUnauthenticatedWrite must never be true in Production — the " +
         "Admin Calendar write boundary has no authentication/RBAC yet (PMS-CAL-001.2).");
 }
+
+// PMS-ADMIN-AUTH-001-CP04 (D7): the access mode is validated and frozen here, before anything
+// is registered. A missing key is LocalGate; an empty or unknown value stops the host. The
+// Production guards above still apply to the local flags in either mode.
+var adminCalendarAccess = AdminCalendarAccess.FromConfiguration(builder.Configuration);
+var staffCalendarMode = adminCalendarAccess.Mode == AdminCalendarAccessMode.Staff;
+builder.Services.AddSingleton(adminCalendarAccess);
+builder.Services.AddScoped<IStaffAccessEvaluator, StaffAccessEvaluator>();
 
 builder.Services.Configure<AdminCalendarOptions>(
     builder.Configuration.GetSection(AdminCalendarOptions.SectionName));
@@ -325,6 +334,23 @@ builder.Services.AddCors(options =>
                 .AllowCredentials();
         }
     });
+    // PMS-ADMIN-AUTH-001-CP04: in Staff mode only, the Staff-authorized Calendar reads (the board)
+    // are called with the Staff cookie, so they get a credentialed, GET-only policy for the
+    // explicit HTTPS Admin origins. It is attached to those endpoints in place of admin-calendar
+    // (MapControllers below); the two admin-calendar policies are not changed. CORS still
+    // authorizes nothing: StaffCalendarAccessFilter does.
+    if (staffCalendarMode)
+    {
+        options.AddPolicy(StaffCalendarModeGuard.ReadCorsPolicy, policy =>
+        {
+            if (cors.AdminOrigins.Length > 0)
+            {
+                policy.WithOrigins(cors.AdminOrigins)
+                    .WithMethods("GET")
+                    .AllowCredentials();
+            }
+        });
+    }
 });
 builder.Services.AddRateLimiter(options =>
 {
@@ -403,10 +429,14 @@ app.UseExceptionHandler();
 // is untouched; every other request, Customer routes included, redirects as before.
 // PMS-ADMIN-AUTH-001-CP03: the Staff session routes (auth/*, me) are refused here for every
 // method, GET me included, so cleartext never sets a Staff cookie or returns an identity.
+// PMS-ADMIN-AUTH-001-CP04: in Staff mode every /api/admin request is refused in cleartext, the
+// board GET included, before the redirect and before authentication; LocalGate is unchanged.
 app.Use(async (context, next) =>
 {
     if (!context.Request.IsHttps &&
         (StaffAuthentication.IsSessionPath(context.Request.Path) ||
+         (staffCalendarMode &&
+          context.Request.Path.StartsWithSegments("/api/admin", StringComparison.OrdinalIgnoreCase)) ||
          (context.Request.Path.StartsWithSegments("/api/admin", StringComparison.OrdinalIgnoreCase) &&
           (HttpMethods.IsPost(context.Request.Method) ||
            HttpMethods.IsPut(context.Request.Method) ||
@@ -424,13 +454,34 @@ app.Use(async (context, next) =>
     await next(context);
 });
 
+// PMS-ADMIN-AUTH-001-CP04 (D7): in Staff mode, an Admin endpoint that does not enforce a Staff
+// permission (or is not a CP03 session action) is closed here, ahead of CORS and authentication.
+if (staffCalendarMode)
+{
+    app.UseStaffCalendarModeGuard();
+}
+
 app.UseHttpsRedirection();
 app.UseCors("customer-web");
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapControllers();
+var controllers = app.MapControllers();
+if (staffCalendarMode)
+{
+    // Endpoint metadata: the last IEnableCorsAttribute wins, so a Staff-authorized Calendar read
+    // (GET only) uses the credentialed Staff policy instead of its admin-calendar attribute in
+    // Staff mode. A converted write (CP05) is not given this read policy by accident.
+    controllers.Add(endpoint =>
+    {
+        if (endpoint.Metadata.OfType<StaffCalendarPermissionAttribute>().Any() &&
+            endpoint.Metadata.OfType<IHttpMethodMetadata>().LastOrDefault()?.HttpMethods is ["GET"])
+        {
+            endpoint.Metadata.Add(new EnableCorsAttribute(StaffCalendarModeGuard.ReadCorsPolicy));
+        }
+    });
+}
 app.MapHealthChecks(
     "/health/ready",
     new HealthCheckOptions

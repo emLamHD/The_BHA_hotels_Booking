@@ -1,6 +1,49 @@
 namespace TheBha.Api;
 
 /// <summary>
+/// PMS-ADMIN-AUTH-001-CP04 (D7): how the Admin Calendar is opened. <see cref="LocalGate"/> is the
+/// local Development gates and their opt-in flags, unchanged. <see cref="Staff"/> is a Staff
+/// session plus a Property permission read from the database; the local gates and flags are not
+/// consulted, and an Admin route without a Staff permission is closed (404).
+/// </summary>
+public enum AdminCalendarAccessMode
+{
+    LocalGate,
+    Staff
+}
+
+/// <summary>
+/// The access mode, validated and captured once at startup (<c>Program.cs</c>) and handed to the
+/// filters and middleware as this value — never read per request from configuration or
+/// <c>IOptions</c>, so only a restart changes it.
+/// </summary>
+public sealed record AdminCalendarAccess(AdminCalendarAccessMode Mode)
+{
+    public const string ModeKey = "AdminCalendar:AccessMode";
+
+    /// <summary>
+    /// A missing key is <see cref="AdminCalendarAccessMode.LocalGate"/> (the CP04 default). A key
+    /// that is present must be exactly <c>LocalGate</c> or <c>Staff</c> (ordinal): an empty value,
+    /// another spelling, a number or a nested section stops the host instead of falling back.
+    /// </summary>
+    public static AdminCalendarAccess FromConfiguration(IConfiguration configuration)
+    {
+        var section = configuration.GetSection(ModeKey);
+        if (!section.Exists())
+        {
+            return new AdminCalendarAccess(AdminCalendarAccessMode.LocalGate);
+        }
+
+        return section.Value switch
+        {
+            nameof(AdminCalendarAccessMode.LocalGate) => new AdminCalendarAccess(AdminCalendarAccessMode.LocalGate),
+            nameof(AdminCalendarAccessMode.Staff) => new AdminCalendarAccess(AdminCalendarAccessMode.Staff),
+            _ => throw new InvalidOperationException($"{ModeKey} must be exactly LocalGate or Staff.")
+        };
+    }
+}
+
+/// <summary>
 /// PMS-CAL-001.1: gates the unauthenticated Admin Reservation Board read
 /// endpoint, since Admin authentication/RBAC is explicitly deferred. Defaults
 /// to <c>false</c> everywhere, <em>including</em> Development (correction C9):
