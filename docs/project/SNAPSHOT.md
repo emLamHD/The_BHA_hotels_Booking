@@ -1,10 +1,23 @@
 # THE BHA — SNAPSHOT
 
-> Ngày cập nhật: 2026-10-03 (`PMS-ADMIN-AUTH-001-CP04`; các phần cũ hơn giữ nguyên kèm SHA)
+> Ngày cập nhật: 2026-10-03 (`PMS-ADMIN-AUTH-001-CP05`; các phần cũ hơn giữ nguyên kèm SHA)
 >
 > Mục đích: phục hồi trạng thái hiện tại mà không cần nạp worklog lịch sử
 
-Cập nhật 2026-10-03 (`PMS-ADMIN-AUTH-001-CP04`, Draft PR, chưa merge):
+Cập nhật 2026-10-03 (`PMS-ADMIN-AUTH-001-CP05`, Draft PR, chưa merge):
+`PMS-ADMIN-AUTH-001-CP04` (PR #77) đã **merged** (`2026-10-03T06:40:05Z`), merge commit
+`f3f705f5e033fbcb231e19ed8ba9051f9b901dc8` — gồm correction C1. Owner chốt D8 khi kích
+hoạt CP05: audit actor `staff:{StaffAccountId}` (GUID, không PII), evidence cross-RoomType
+`staff-rbac:{role}:{propertyId}:cross-room-type-confirmed` từ authorization server-side.
+CP05 chuyển đổi đúng năm Calendar POST: trong `Staff` mode mỗi action cần Staff session
+và permission tại Property của route (`AssignmentWrite`/`BlockWrite`), rồi Origin/JSON —
+tất cả trước model binding; create/move có `confirmCrossRoomType` cần thêm
+`AssignmentCrossRoomType` (Manager) trước store; audit ghi Staff thực hiện (block cancel
+giữ creator của header). `LocalGate` (mặc định) giữ write gate và constants cũ. Admin_Web
+chưa dùng Staff cookie/login (CP06); default/Production vẫn CP07; Calendar chưa mở công
+khai. Evidence: `docs/reports/PMS-ADMIN-AUTH-001-CP05-completion.md`. Review CP05: NOT RUN.
+
+Bản cập nhật trước (2026-10-03, `PMS-ADMIN-AUTH-001-CP04`, viết khi PR #77 còn Draft; nay đã merged):
 `PMS-ADMIN-AUTH-001-CP03` (PR #76) đã **merged** (`2026-10-03T05:18:26Z`), merge commit
 `c89efc22246771541f6aefecf0221374076a192f` — gồm correction C1/C2; reviewed SHA của các
 lần review vẫn UNVERIFIED. Owner chốt D7 khi kích hoạt CP04:
@@ -21,7 +34,8 @@ D8 (audit actor) vẫn **mở**. Evidence:
 `docs/reports/PMS-ADMIN-AUTH-001-CP04-completion.md`. Review CP04: RUN, 1 finding P2
 (`"AccessMode": {}`/`[]` trong JSON bị coi như không khai báo → âm thầm `LocalGate`);
 correction `CP04-C1` sửa: chỉ key thực sự không được khai báo mới là `LocalGate`, khai
-báo rỗng/null/có child bị từ chối khi khởi động. Review C1: NOT RUN.
+báo rỗng/null/có child bị từ chối khi khởi động. Review C1: RUN — không có regression cần
+xử lý.
 
 Bản cập nhật trước (2026-10-03, `PMS-ADMIN-AUTH-001-CP03`, viết khi PR #76 còn Draft; nay đã merged):
 `PMS-ADMIN-AUTH-001-CP02` (PR #75) đã **merged**, merge commit
@@ -639,12 +653,11 @@ evidence independently verified for this closeout via:
 `e0f5a395aec15cc02e328433a97850e30e165675`, `2026-09-03T03:11:21Z`; §1,
 §2, §4). Không còn review gate hay merge nào đang chờ trên work item đó.
 
-Objective hiện tại là `PMS-ADMIN-AUTH-001-CP04` — `AdminCalendar:AccessMode` (D7),
-Property-scoped Staff access evaluator và Staff authorization cho Board read; trong
-`Staff` mode mọi route Admin chưa chuyển đổi bị đóng. Default vẫn `LocalGate`; Calendar
-chưa Production-ready. Review Codex chỉ do Owner gọi, OC quyết định, Owner giữ
-Ready/merge/branch cleanup. Không tự bắt đầu CP05 hay work item nào khác từ
-Snapshot này.
+Objective hiện tại là `PMS-ADMIN-AUTH-001-CP05` — Staff authorization cho năm Calendar
+write routes, cross-RoomType permission và audit actor/evidence từ Staff đã xác thực (D8).
+Default vẫn `LocalGate`; Admin_Web chưa tích hợp (CP06); Calendar chưa Production-ready
+(CP07). Review Codex chỉ do Owner gọi, OC quyết định, Owner giữ Ready/merge/branch
+cleanup. Không tự bắt đầu CP06 hay work item nào khác từ Snapshot này.
 
 ## 9. Main risks
 
