@@ -11,9 +11,11 @@ using Microsoft.AspNetCore.HttpsPolicy;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using TheBha.Api.Authentication;
 using TheBha.Infrastructure.Identity;
@@ -124,6 +126,56 @@ public sealed class StaffAuthenticationTests(PostgreSqlWebApplicationFactory fac
         }
 
         Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(Post(LoginPath, LoginBody(Email, Password)))).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_login_whose_failure_count_reset_loses_to_a_concurrent_lockout_issues_no_session()
+    {
+        await SeedAsync();
+        var race = new ResetRace();
+        using var host = CreateHost(builder => builder.ConfigureTestServices(services =>
+        {
+            services.AddSingleton(race);
+            services.AddScoped<UserManager<StaffAccount>, ResetRaceUserManager>();
+        }));
+        await CliAsync(host, Create(PropertyA, StaffRole.Manager), Password);
+        using var client = CreateHttpsClient(host);
+
+        string wrong = "";
+        for (var attempt = 0; attempt < 4; attempt++)
+        {
+            wrong = await AssertLoginRefusedAsync(client, Email, NewPassword);
+        }
+
+        var before = await FindStaffAsync();
+        Assert.Equal(4, before.AccessFailedCount);
+        Assert.Null(before.LockoutEnd);
+
+        // The right password, while a separate scope records the fifth failure at the reset.
+        race.Arm();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        var response = await client.SendAsync(Post(LoginPath, LoginBody(Email, Password)), deadline.Token);
+
+        // The race happened where it matters: the request had already loaded the account (4
+        // failures, the old concurrency stamp), the other scope locked it through Identity, and
+        // Identity then refused the request's stale reset.
+        Assert.False(race.IsArmed);
+        Assert.Equal(4, race.StaleAccessFailedCount);
+        Assert.Equal(before.ConcurrencyStamp, race.StaleConcurrencyStamp);
+        Assert.True(race.CompetingFailure?.Succeeded, "the competing AccessFailedAsync must succeed");
+        Assert.True(race.CompetingLockedOut);
+        Assert.False(race.ResetResult?.Succeeded ?? true, "the stale ResetAccessFailedCountAsync must fail");
+        Assert.Equal(["ConcurrencyFailure"], race.ResetResult!.Errors.Select(error => error.Code).ToArray());
+
+        // ...and no session came out of it: the same generic 401 as a wrong password.
+        Assert.Equal(wrong, await AssertGenericLoginRefusalAsync(response, Email));
+        Assert.DoesNotContain("concurren", await response.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
+
+        var locked = await FindStaffAsync();
+        Assert.NotEqual(race.StaleConcurrencyStamp, locked.ConcurrencyStamp);
+        var earliest = factory.Clock.UtcNow < DateTimeOffset.UtcNow ? factory.Clock.UtcNow : DateTimeOffset.UtcNow;
+        Assert.True(locked.LockoutEnd > earliest.AddMinutes(14));
+        Assert.Equal(wrong, await AssertLoginRefusedAsync(client, Email, Password));
     }
 
     [Fact]
@@ -319,6 +371,45 @@ public sealed class StaffAuthenticationTests(PostgreSqlWebApplicationFactory fac
         }
 
         await AssertUnauthorizedAsync(await client.SendAsync(Get(MePath, stillActiveCookie)));
+    }
+
+    [Fact]
+    public async Task A_password_longer_than_128_characters_provisioned_by_the_cli_signs_in()
+    {
+        await SeedAsync();
+        using var host = CreateHost();
+        var created = StrongPassword('C', 256);
+        var reset = StrongPassword('R', 256);
+        var output = await CliAsync(host, Create(PropertyA, StaffRole.Manager), created);
+        using var client = CreateHttpsClient(host);
+
+        var login = await client.SendAsync(Post(LoginPath, LoginBody(Email, created)));
+        var cookie = StaffCookieHeader(login);
+        var me = await client.SendAsync(Get(MePath, cookie));
+        Assert.Equal(HttpStatusCode.OK, me.StatusCode);
+        var bodies = new List<string> { await login.Content.ReadAsStringAsync(), await me.Content.ReadAsStringAsync() };
+
+        output += await CliAsync(host, ["--staff-reset-password", "--email", Email], reset);
+        await AssertUnauthorizedAsync(await client.SendAsync(Get(MePath, cookie)));
+        // A long credential that is wrong is the ordinary generic 401, never a 400 from the contract.
+        var wrong = await AssertLoginRefusedAsync(client, Email, created);
+        Assert.Equal(wrong, await AssertLoginRefusedAsync(client, Email, StrongPassword('W', 1024)));
+        Assert.Equal(wrong, await AssertLoginRefusedAsync(client, Email, NewPassword));
+
+        var relogin = await client.SendAsync(Post(LoginPath, LoginBody(Email, reset)));
+        var newCookie = StaffCookieHeader(relogin);
+        var newMe = await client.SendAsync(Get(MePath, newCookie));
+        Assert.Equal(HttpStatusCode.OK, newMe.StatusCode);
+        bodies.Add(await relogin.Content.ReadAsStringAsync());
+        bodies.Add(await newMe.Content.ReadAsStringAsync());
+
+        var staff = await FindStaffAsync();
+        Assert.Equal(0, staff.AccessFailedCount);
+        foreach (var secret in new[] { created, reset, staff.PasswordHash!, staff.SecurityStamp!, cookie, newCookie })
+        {
+            Assert.DoesNotContain(secret, output, StringComparison.Ordinal);
+            Assert.All(bodies, body => Assert.DoesNotContain(secret, body, StringComparison.Ordinal));
+        }
     }
 
     [Fact]
@@ -698,11 +789,25 @@ public sealed class StaffAuthenticationTests(PostgreSqlWebApplicationFactory fac
         }
     }
 
-    private static async Task CliAsync(WebApplicationFactory<Program> host, string[] args, string? password = null)
+    /// <summary>Runs the CP02 CLI in-process (the password as the env/prompt would supply it) and returns its output.</summary>
+    private static async Task<string> CliAsync(WebApplicationFactory<Program> host, string[] args, string? password = null)
     {
         using var output = new StringWriter();
         var exit = await StaffBootstrapCommand.RunAsync(args, host.Services, output, () => password, CancellationToken.None);
         Assert.True(exit == 0, output.ToString());
+        return output.ToString();
+    }
+
+    /// <summary>A password the Identity policy accepts, of exactly <paramref name="length"/> characters.</summary>
+    private static string StrongPassword(char lead, int length)
+    {
+        var password = new StringBuilder($"{lead}!a1");
+        while (password.Length < length)
+        {
+            password.Append(Guid.NewGuid().ToString("N"));
+        }
+
+        return password.ToString(0, length);
     }
 
     private static string[] Create(Guid propertyId, string role, string email = Email) =>
@@ -829,9 +934,11 @@ public sealed class StaffAuthenticationTests(PostgreSqlWebApplicationFactory fac
     }
 
     /// <summary>Returns the refusal's title and detail, so callers can prove failures are indistinguishable.</summary>
-    private static async Task<string> AssertLoginRefusedAsync(HttpClient client, string email, string password)
+    private static async Task<string> AssertLoginRefusedAsync(HttpClient client, string email, string password) =>
+        await AssertGenericLoginRefusalAsync(await client.SendAsync(Post(LoginPath, LoginBody(email, password))), email);
+
+    private static async Task<string> AssertGenericLoginRefusalAsync(HttpResponseMessage response, string email)
     {
-        var response = await client.SendAsync(Post(LoginPath, LoginBody(email, password)));
         var body = await AssertRefusedAsync(response, HttpStatusCode.Unauthorized, "Authentication failed");
         Assert.False(response.Headers.Contains("Set-Cookie"));
         Assert.DoesNotContain(email, body, StringComparison.OrdinalIgnoreCase);
@@ -889,6 +996,73 @@ public sealed class StaffAuthenticationTests(PostgreSqlWebApplicationFactory fac
         var response = await client.SendAsync(Get("/api/v1/auth/me", cookie));
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         return (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("customerAccountId").GetGuid();
+    }
+
+    /// <summary>
+    /// One armed race for <see cref="ResetRaceUserManager"/>: what the login request held when it
+    /// reached the reset, what the competing scope did, and what Identity answered the reset.
+    /// </summary>
+    private sealed class ResetRace
+    {
+        private int _armed;
+
+        public bool IsArmed => Volatile.Read(ref _armed) == 1;
+        public int? StaleAccessFailedCount { get; set; }
+        public string? StaleConcurrencyStamp { get; set; }
+        public IdentityResult? CompetingFailure { get; set; }
+        public bool CompetingLockedOut { get; set; }
+        public IdentityResult? ResetResult { get; set; }
+
+        public void Arm() => Volatile.Write(ref _armed, 1);
+
+        public bool TryFire() => Interlocked.Exchange(ref _armed, 0) == 1;
+    }
+
+    /// <summary>
+    /// Test-host-only <see cref="UserManager{TUser}"/> for Staff. When the race is armed, the first
+    /// <c>ResetAccessFailedCountAsync</c> — reached only after a correct password, with the account
+    /// the request loaded before it — first lets a separate DI scope record one more failure
+    /// through Identity, then runs Identity's own reset on the now-stale account. Everything else
+    /// is Identity's unchanged behaviour.
+    /// </summary>
+    private sealed class ResetRaceUserManager(
+        ResetRace race,
+        IServiceScopeFactory scopes,
+        IUserStore<StaffAccount> store,
+        IOptions<IdentityOptions> optionsAccessor,
+        IPasswordHasher<StaffAccount> passwordHasher,
+        IEnumerable<IUserValidator<StaffAccount>> userValidators,
+        IEnumerable<IPasswordValidator<StaffAccount>> passwordValidators,
+        ILookupNormalizer keyNormalizer,
+        IdentityErrorDescriber errors,
+        IServiceProvider services,
+        ILogger<UserManager<StaffAccount>> logger)
+        : UserManager<StaffAccount>(
+            store, optionsAccessor, passwordHasher, userValidators, passwordValidators, keyNormalizer, errors, services, logger)
+    {
+        public override async Task<IdentityResult> ResetAccessFailedCountAsync(StaffAccount user)
+        {
+            if (!race.TryFire())
+            {
+                return await base.ResetAccessFailedCountAsync(user);
+            }
+
+            race.StaleAccessFailedCount = user.AccessFailedCount;
+            race.StaleConcurrencyStamp = user.ConcurrencyStamp;
+            await RecordCompetingFailureAsync(user.Id).WaitAsync(TimeSpan.FromSeconds(30));
+            race.ResetResult = await base.ResetAccessFailedCountAsync(user);
+            return race.ResetResult;
+        }
+
+        private async Task RecordCompetingFailureAsync(Guid staffId)
+        {
+            await using var scope = scopes.CreateAsyncScope();
+            var users = scope.ServiceProvider.GetRequiredService<UserManager<StaffAccount>>();
+            var account = await users.FindByIdAsync(staffId.ToString())
+                ?? throw new InvalidOperationException("The competing scope could not load the Staff account.");
+            race.CompetingFailure = await users.AccessFailedAsync(account);
+            race.CompetingLockedOut = await users.IsLockedOutAsync(account);
+        }
     }
 
     /// <summary>

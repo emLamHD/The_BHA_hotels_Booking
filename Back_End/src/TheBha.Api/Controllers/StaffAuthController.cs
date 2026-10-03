@@ -60,7 +60,14 @@ public sealed class StaffAuthController(
             return AuthenticationFailed();
         }
 
-        await users.ResetAccessFailedCountAsync(account);
+        // The reset is an update guarded by the concurrency stamp. It fails when another request
+        // changed the account after this one loaded it — for example a fifth failed login that has
+        // just locked it — and then no session is issued.
+        if (!(await users.ResetAccessFailedCountAsync(account)).Succeeded)
+        {
+            return AuthenticationFailed();
+        }
+
         await HttpContext.SignInAsync(
             StaffAuthentication.Scheme,
             StaffAuthentication.CreatePrincipal(account.Id, await users.GetSecurityStampAsync(account)),
