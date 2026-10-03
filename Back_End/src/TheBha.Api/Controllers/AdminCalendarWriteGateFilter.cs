@@ -3,8 +3,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Primitives;
-using Microsoft.Net.Http.Headers;
+using TheBha.Api.Authentication;
 
 namespace TheBha.Api.Controllers;
 
@@ -127,15 +126,18 @@ namespace TheBha.Api.Controllers;
 /// reason as the opt-in above, so a later configuration change cannot widen it
 /// past that validation.
 /// </para>
+///
+/// <para>
+/// PMS-ADMIN-AUTH-001-CP03: the Origin and content-type predicates live in
+/// <see cref="AdminRequestBoundary"/>, shared with the Staff session boundary;
+/// their rules, this filter's order and its responses are unchanged.
+/// </para>
 /// </summary>
 public sealed class AdminCalendarWriteGateFilter(
     IHostEnvironment hostEnvironment,
     bool enableUnauthenticatedWrite,
     string[] allowedAdminOrigins) : IResourceFilter
 {
-    private const string JsonMediaType = "application/json";
-    private const string SupportedCharset = "utf-8";
-
     public void OnResourceExecuting(ResourceExecutingContext context)
     {
         // Unconditional and first, exactly as on the read side: it must also
@@ -162,7 +164,7 @@ public sealed class AdminCalendarWriteGateFilter(
             return;
         }
 
-        if (!IsAllowedAdminOrigin(request.Headers.Origin))
+        if (!AdminRequestBoundary.IsAllowedOrigin(request.Headers.Origin, allowedAdminOrigins))
         {
             context.Result = Problem(
                 StatusCodes.Status403Forbidden,
@@ -171,12 +173,12 @@ public sealed class AdminCalendarWriteGateFilter(
             return;
         }
 
-        if (!IsJsonContentType(request.ContentType))
+        if (!AdminRequestBoundary.IsJsonContentType(request.ContentType))
         {
             context.Result = Problem(
                 StatusCodes.Status415UnsupportedMediaType,
                 "Unsupported media type",
-                $"The request body must be sent as {JsonMediaType} encoded as {SupportedCharset}.");
+                $"The request body must be sent as {AdminRequestBoundary.JsonMediaType} encoded as {AdminRequestBoundary.SupportedCharset}.");
         }
     }
 
@@ -224,95 +226,6 @@ public sealed class AdminCalendarWriteGateFilter(
         }
 
         return false;
-    }
-
-    /// <summary>
-    /// Requires exactly one <c>Origin</c> header value that is ordinal-equal to
-    /// a configured Admin origin. Exact equality is what defeats a
-    /// prefix/suffix lookalike (<c>https://localhost:3001.evil.example</c>,
-    /// <c>https://evil.example/?https://localhost:3001</c>); a missing, empty,
-    /// literal <c>null</c> or multi-valued header never matches one. The
-    /// allowed entries are re-checked for an HTTPS scheme here so this filter
-    /// states its own rule rather than depending on a validation that lives in
-    /// another file.
-    /// </summary>
-    private bool IsAllowedAdminOrigin(StringValues origin)
-    {
-        if (origin.Count != 1)
-        {
-            return false;
-        }
-
-        var value = origin[0];
-        if (string.IsNullOrEmpty(value))
-        {
-            return false;
-        }
-
-        foreach (var allowed in allowedAdminOrigins)
-        {
-            if (allowed.StartsWith("https://", StringComparison.Ordinal) &&
-                string.Equals(allowed, value, StringComparison.Ordinal))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /// <summary>
-    /// Accepts <c>application/json</c>, either with no parameters or with
-    /// exactly one <c>charset</c> equal to <c>utf-8</c>. Everything else is
-    /// rejected: a missing or unparsable header, a different media type, a
-    /// <c>+json</c> suffix type, any other parameter, a duplicate or empty
-    /// charset, and every other encoding.
-    ///
-    /// <para>
-    /// Correction C1, finding 3: this used to accept any charset
-    /// <see cref="System.Text.Encoding.GetEncoding(string)"/> recognized, which
-    /// is a wider set than the boundary behind it. MVC's System.Text.Json input
-    /// formatter accepts only its configured UTF-8/UTF-16 encodings, so
-    /// <c>application/json; charset=us-ascii</c> passed this gate and was then
-    /// refused with a 415 by the formatter — the gate promised a contract it
-    /// did not actually govern. The future Admin client sends UTF-8 JSON from
-    /// <c>fetch</c>, so the narrow contract is the honest one: what this gate
-    /// accepts is exactly what the action behind it can read.
-    /// </para>
-    ///
-    /// <para>
-    /// Checked here rather than with <c>[Consumes]</c> so it can never run
-    /// before the environmental conditions above, and stated as a literal
-    /// rather than read from the formatter, so this filter neither inspects MVC
-    /// internals nor depends on formatter configuration.
-    /// </para>
-    /// </summary>
-    private static bool IsJsonContentType(string? contentType)
-    {
-        if (!MediaTypeHeaderValue.TryParse(contentType, out var mediaType) ||
-            !mediaType.MediaType.Equals(JsonMediaType, StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        var charsetSeen = false;
-        foreach (var parameter in mediaType.Parameters)
-        {
-            if (charsetSeen ||
-                !parameter.Name.Equals("charset", StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-
-            charsetSeen = true;
-            if (!HeaderUtilities.RemoveQuotes(parameter.Value)
-                    .Equals(SupportedCharset, StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-        }
-
-        return true;
     }
 
     private static ObjectResult Problem(int statusCode, string title, string detail) =>
