@@ -19,7 +19,9 @@ Staff (không namespace theo Staff). Acceptance browser thật (Chrome, cert tin
 trên PostgreSQL 17 riêng đã dọn. Default/Production vẫn CP07. Evidence:
 `docs/reports/PMS-ADMIN-AUTH-001-CP06-completion.md`. Review CP06: RUN — 2 findings (P2:
 logout bị refresh ghi đè; ghi mới trong lúc logout pending), Reviewed SHA: UNVERIFIED;
-correction C1 trên cùng PR #79 sửa cả hai. Review C1: NOT RUN.
+correction C1 trên cùng PR #79 sửa cả hai. Review C1: RUN — 2 findings (P2: refresh bị
+logout ngắt bị mất; logout kết thúc trước recovery), Reviewed SHA: UNVERIFIED; correction C2
+trên cùng PR #79 sửa cả hai. Review C2: NOT RUN.
 
 Bản cập nhật trước (2026-10-03, `PMS-ADMIN-AUTH-001-CP05`, viết khi PR #78 còn Draft; nay đã merged):
 `PMS-ADMIN-AUTH-001-CP04` (PR #77) đã **merged** (`2026-10-03T06:40:05Z`), merge commit

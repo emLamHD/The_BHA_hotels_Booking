@@ -140,4 +140,38 @@ Browser acceptance (real Chrome, trusted mkcert certificate, TLS verification on
 
 Database afterwards: two `Created` audit rows, both `staff:{id}` (scenario 3's write and scenario 4's committed write); no row from the refused submit or the failed unassign. Secret scan (the throwaway password, `Set-Cookie`, the Staff cookie name) over the API, web and CLI logs: 0. Cleanup: processes stopped, container and its volume removed (`docker rm -fv`), secret files deleted, tab closed; `the-bha-postgres-1` untouched.
 
-`ORIGINAL_REVIEW: RUN — 2 findings`. `CORRECTION_REVIEW: NOT RUN` (Owner invokes `/codex:review --base origin/develop`). CP07 NOT STARTED. Production NOT TOUCHED.
+`ORIGINAL_REVIEW: RUN — 2 findings`. (C1 review status: see Correction C2.)
+
+## Correction C2 (`PMS-ADMIN-AUTH-001-CP06-C2`)
+
+Codex review of C1 (`/codex:review --base origin/develop`, invoked by Owner): RUN — 2 findings, both P2. Reviewed SHA: UNVERIFIED. START_HEAD of C2: `8292041e19d462458b0269ee5f8e5340676cf5d7`.
+
+| Finding | Root cause | Fix (`StaffSession.tsx`) |
+|---|---|---|
+| F1 — a permission re-read interrupted by Sign out is lost | `signOut()` aborted the `me` on the wire (`begin()`) but started with `refreshWanted = false`; after an unconfirmed logout nothing re-read, the caller got `superseded`, and the board resumed on the old memberships | the public refresh on the wire is tracked in a ref; Sign out takes it over before aborting it (`refreshWanted = true`) and the interrupted caller then waits for the sign-out and returns its re-read. Its own late answer is dropped by the generation check |
+| F2 — sign-out ends before its recovery re-read | `signOutRef` was cleared before the recovery `readMe()` finished, so a second denial started a new read that aborted the recovery; the logout promise resolved and the gate reopened writes on unverified roles | the marker stays until the whole transition ends (only its owner clears it, in `finally`); a refresh during recovery joins it; the recovery uses the internal read, never the public `refresh` that waits on the transition; a repeated Sign out returns the same promise (no second POST) |
+
+Recovery outcomes: authenticated → new memberships/role applied, then the sign-out reports back; `401` → session ended (`expired`, `/signin` once); network/5xx/unreadable → access closed as an error ("Sign-out was not confirmed, and your access could not be checked again: … Retry to check it.") with Retry, never "signed out" and never the old roles; an expiry or unmount meanwhile is final. `CalendarAccessGate.tsx`: after a sign-out settles, the write lock reopens in an effect — after the render carrying the re-read roles, whose board effects hand them to the handlers first — not in the promise continuation.
+
+Red/green: 14 new tests (`StaffSession.test.tsx` +8, `CalendarAccessGate.test.tsx` +6 with the real board), deferred promises only. On START_HEAD's product code: **7 failed / 45 passed** — F1 provider and gate (`me` called 2 times, expected 3: the interrupted check is never redone), F2 provider and gate (`me` called 3 times, expected 2: a second denial starts a new read during the recovery; the old code also sent a second logout POST), recovery that cannot check access (provider: state not `error`; gate: no error panel, the board stays on the old roles), recovery `401` at provider level (state not ended). The gate-level `401`, the confirmed-logout and no-refresh controls and the expiry case pass on both. On the fixed code 52/52; all C1 regressions green.
+
+| Command (final code) | Result |
+|---|---|
+| `npm test` | exit 0 — 36 files, 805 tests |
+| `npm run lint` | exit 0 |
+| `npx tsc --noEmit -p .` | exit 0 |
+| `npm run build` | exit 0 |
+| `git diff --check` | exit 0 |
+
+Browser acceptance (real Chrome, trusted mkcert certificate, TLS verification on; PostgreSQL 17 container `cp06c2-pg`, database `c2_accept`; API and Admin_Web in `Staff` mode from the corrected tree; Staff `lead` created by the CLI as Manager at both Properties). **The order of answers was simulated** by wrapping `window.fetch` in the tab: chosen requests were held before being sent and then released (`send`) or failed as a transport error (`fail`). Server changes were real: memberships removed in the throwaway database, roles changed with the CLI. The backend was not modified.
+
+| # | Scenario | Requests (in order) and result |
+|---|---|---|
+| 1 | `me` re-read on the wire before Sign out → logout unconfirmed → recovery with new roles | Second Hotel read 403 → `me` #3 held; Sign out (logout held); CLI: Manager → FrontDesk at The BHA Hotel; logout failed → replacement `me` #6. While #6 was held: Create operational block disabled, "Signing out…". Released → 200: selector only "The BHA Hotel", role FrontDesk, writes reopened. #3 released last: the page had already aborted it; nothing changed |
+| 2 | second denial during the recovery | while #6 was held: Second Hotel read 403 (#7) → no new `me`, writes still closed, "Signing out…"; one logout POST in total; no write request at all |
+| 3 | recovery cannot check access, then Retry | logout held; The BHA Hotel membership removed; read 403 → re-read waits; logout failed → recovery `me` failed → error panel (sign-out not confirmed, access not checked) with Retry, board gone, not on `/signin`. CLI: The BHA Hotel back as Manager, Second Hotel FrontDesk; Retry → `me` 200 → both Properties, Manager at The BHA Hotel, writes enabled |
+| 4 | control: confirmed logout | one logout POST → `/signin`, identity gone, `me` 401, no further requests |
+
+The recovery error message was later re-worded (punctuation only; the acceptance run showed it with parentheses). Database: 0 segments, 0 audit rows — nothing was written during any transition. Secret scan (the throwaway password, `Set-Cookie`, the Staff cookie name) over API, web, migrate and seed logs: 0; browser storage afterwards: `theme` only. Cleanup: processes stopped, container and its volume removed (`docker rm -fv`), secret files deleted, tab closed; `the-bha-postgres-1` untouched.
+
+`C1_REVIEW: RUN — 2 findings`. `C2_REVIEW: NOT RUN` (Owner invokes `/codex:review --base origin/develop`). CP07 NOT STARTED. Production NOT TOUCHED.
