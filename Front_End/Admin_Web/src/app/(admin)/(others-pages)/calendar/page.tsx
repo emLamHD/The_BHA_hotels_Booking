@@ -1,5 +1,5 @@
 import Calendar from "@/components/calendar/Calendar";
-import ReservationBoard from "@/components/calendar/reservation-board/ReservationBoard";
+import CalendarAccessGate from "@/components/calendar/reservation-board/CalendarAccessGate";
 import PageBreadcrumb from "@/components/common/PageBreadCrumb";
 import { Metadata } from "next";
 import React from "react";
@@ -14,7 +14,8 @@ export default function page() {
   return (
     <div className="flex flex-col gap-6">
       <PageBreadcrumb pageTitle="Calendar" />
-      <ReservationBoard />
+      {/* PMS-ADMIN-AUTH-001-CP06: LocalGate → the board as before; Staff → only after a confirmed session. */}
+      <CalendarAccessGate />
       <div>
         <div className="mb-3">
           <h2 className="text-lg font-semibold text-gray-800 dark:text-white/90">
