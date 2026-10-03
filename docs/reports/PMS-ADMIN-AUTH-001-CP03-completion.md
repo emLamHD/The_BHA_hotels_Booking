@@ -1,6 +1,6 @@
 # PMS-ADMIN-AUTH-001-CP03 — Staff login, logout, `me` and session cookie
 
-> Draft PR into `develop`, not merged. Implementer: Claude. Reviewer: Codex (read-only, invoked by Owner only). Original review: RUN — 2 findings, both fixed in [Correction C1](#correction-c1--pms-admin-auth-001-cp03-c1); C1 review: RUN — 1 finding, fixed in [Correction C2](#correction-c2--pms-admin-auth-001-cp03-c2); C2 review: NOT RUN.
+> Draft PR into `develop`, not merged. Implementer: Claude. Reviewer: Codex (read-only, invoked by Owner only). Original review: RUN — 2 findings, both fixed in [Correction C1](#correction-c1--pms-admin-auth-001-cp03-c1); C1 review: RUN — 1 finding, fixed in [Correction C2](#correction-c2--pms-admin-auth-001-cp03-c2); C2 review: RUN — no actionable regressions.
 > Baseline and START_HEAD `6baefe90c409ba22f050c235bc2d5d0cf060cbd6` (PR #75, CP02, merged). Branch `feature/pms-admin-auth-001-cp03-staff-session`.
 
 ## Owner decisions applied (2026-10-03, CP03 activation)
@@ -215,4 +215,6 @@ Secret scan (password, both cookie values) over response bodies, CLI output and 
 
 **Size**: correction diff (`git diff --numstat 3cdff11..HEAD`) **+177 / −51 = 228** in 4 files — product +10 / −4, tests +108 / −42, docs +59 / −5; whole PR after C2 **+2,115 / −123 = 2,238** in 14 files (the PR body and handoff carry the GitHub figure checked against it). Over the 100–400 target for the reasons above; C2 generalises the C1 harness instead of copying it and trims no coverage.
 
-C1 review: RUN — 1 finding. C2_REVIEW: NOT RUN (Owner invokes `/codex:review --base origin/develop`). CP03 is still Draft and not merged; the Calendar is still local-gated. CP04 NOT STARTED. Production NOT TOUCHED.
+**C2 review**: **RUN** by Owner, `/codex:review --base origin/develop` (companion job `review-murxknsf-wx0z4r`, 2026-10-03 05:07:38–05:10:14 UTC) — "No actionable regressions found against the specified base. Staff authentication remains isolated from Customer sessions, and the successful-login concurrency checks address the recorded races. Tests were inspected but not rerun during this read-only review." Reviewed SHA: **UNVERIFIED** — neither the output nor the job record names a head SHA (the job log records only the base `6baefe9`).
+
+C1 review: RUN — 1 finding. C2_REVIEW: RUN — no actionable regressions. CP03 is still Draft and not merged; the Calendar is still local-gated. CP04 NOT STARTED. Production NOT TOUCHED.
