@@ -1,10 +1,26 @@
 # THE BHA — SNAPSHOT
 
-> Ngày cập nhật: 2026-10-03 (`PMS-ADMIN-AUTH-001-CP03`; các phần cũ hơn giữ nguyên kèm SHA)
+> Ngày cập nhật: 2026-10-03 (`PMS-ADMIN-AUTH-001-CP04`; các phần cũ hơn giữ nguyên kèm SHA)
 >
 > Mục đích: phục hồi trạng thái hiện tại mà không cần nạp worklog lịch sử
 
-Cập nhật 2026-10-03 (`PMS-ADMIN-AUTH-001-CP03`, Draft PR, chưa merge):
+Cập nhật 2026-10-03 (`PMS-ADMIN-AUTH-001-CP04`, Draft PR, chưa merge):
+`PMS-ADMIN-AUTH-001-CP03` (PR #76) đã **merged** (`2026-10-03T05:18:26Z`), merge commit
+`c89efc22246771541f6aefecf0221374076a192f` — gồm correction C1/C2; reviewed SHA của các
+lần review vẫn UNVERIFIED. Owner chốt D7 khi kích hoạt CP04:
+`AdminCalendar:AccessMode` = `LocalGate` | `Staff` (thiếu key → `LocalGate`; giá trị
+khai báo rỗng/không hợp lệ → host không khởi động; mode cố định từ startup). CP04 thêm
+`IStaffAccessEvaluator` (membership đọc từ DB mỗi request theo `propertyId` của route,
+map cố định FrontDesk/Manager), và **chỉ** Board GET được chuyển: trong `Staff` mode
+Board cần Staff session + `BoardRead` tại Property (401/403 trước model binding, local
+flags bị bỏ qua, CORS credentialed GET cho Admin origins); mọi route `/api/admin` khác
+không có Staff permission — gồm năm Calendar POST — trả 404 trong `Staff` mode, trừ
+login/logout/`me` của CP03. `LocalGate` (mặc định) giữ nguyên hành vi. Default chưa đổi
+sang `Staff`; writes Staff chờ CP05, Admin_Web CP06, default/Production cut-over CP07;
+D8 (audit actor) vẫn **mở**. Evidence:
+`docs/reports/PMS-ADMIN-AUTH-001-CP04-completion.md`. Review CP04: NOT RUN.
+
+Bản cập nhật trước (2026-10-03, `PMS-ADMIN-AUTH-001-CP03`, viết khi PR #76 còn Draft; nay đã merged):
 `PMS-ADMIN-AUTH-001-CP02` (PR #75) đã **merged**, merge commit
 `6baefe90c409ba22f050c235bc2d5d0cf060cbd6`. Owner chốt D3/D4 khi kích hoạt CP03:
 scheme riêng `TheBha.Staff` (cookie `.TheBha.Staff`, `Path=/api/admin`,
@@ -620,11 +636,11 @@ evidence independently verified for this closeout via:
 `e0f5a395aec15cc02e328433a97850e30e165675`, `2026-09-03T03:11:21Z`; §1,
 §2, §4). Không còn review gate hay merge nào đang chờ trên work item đó.
 
-Objective hiện tại là `PMS-ADMIN-AUTH-001-CP03` — Staff login/logout/`me` và
-session cookie độc lập Customer (D3/D4), không có route authorization mới; Calendar
-giữ các gate local. Correction `CP03-C2` đã xong; review C2 RUN — không có
-regression cần xử lý; chờ OC disposition và quyết định của Owner. Review Codex chỉ do Owner gọi, OC quyết định, Owner giữ
-Ready/merge/branch cleanup. Không tự bắt đầu CP04 hay work item nào khác từ
+Objective hiện tại là `PMS-ADMIN-AUTH-001-CP04` — `AdminCalendar:AccessMode` (D7),
+Property-scoped Staff access evaluator và Staff authorization cho Board read; trong
+`Staff` mode mọi route Admin chưa chuyển đổi bị đóng. Default vẫn `LocalGate`; Calendar
+chưa Production-ready. Review Codex chỉ do Owner gọi, OC quyết định, Owner giữ
+Ready/merge/branch cleanup. Không tự bắt đầu CP05 hay work item nào khác từ
 Snapshot này.
 
 ## 9. Main risks
