@@ -63,6 +63,28 @@ The API base URL must be `https://`; plain `http://` (including
 This read path has no Admin authentication/RBAC yet; the backend gate is
 disabled by default and cannot be enabled in a Production environment.
 
+## PMS-ADMIN-AUTH-001-CP06: Staff sign-in for the Reservation Board
+
+`NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE` selects how `/calendar` talks to the
+Admin API. It is read at build time, so rebuild or restart `next` after
+changing it, and it must match the backend's `AdminCalendar:AccessMode`.
+
+| Value | Behaviour |
+| --- | --- |
+| unset or `LocalGate` | No Staff sign-in. The board and writes use the local Development gate described above (writes need the backend's write opt-in). |
+| `Staff` | `/calendar` checks `GET /api/admin/v1/me`; without a session it sends you to `/signin`. Properties come from your memberships, and the Calendar actions follow your role at the selected Property (FrontDesk: assign/move/unassign within the sold room type, create/cancel blocks; Manager: also a confirmed cross-room-type placement with a reason). The server still checks every request. |
+| anything else, including empty | A configuration error on `/calendar`; no request is sent. There is no fallback between modes. |
+
+In `Staff` mode the browser sends the HttpOnly session cookie
+(`credentials: "include"`) for sign-in, sign-out, `me`, the board and the five
+writes. The frontend never stores the password, the cookie or the session in
+browser storage, the URL or logs. Staff accounts are created with the backend
+Staff CLI (`--staff-create`, `--staff-grant`, `--staff-reset-password`,
+`--staff-disable`). Both origins must be HTTPS and trusted by the browser
+(`https://localhost:3001` → the API, same-site on `localhost`), because the
+cookie is `SameSite=Strict` with path `/api/admin`. Do not bypass TLS
+verification to make it work.
+
 ## Overview
 
 TailAdmin provides essential UI components and layouts for building feature-rich, data-driven admin dashboards and control panels. It's built on:
