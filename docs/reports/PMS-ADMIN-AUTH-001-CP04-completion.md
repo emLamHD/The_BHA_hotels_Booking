@@ -1,6 +1,6 @@
 # PMS-ADMIN-AUTH-001-CP04 — AccessMode, Staff access evaluator and Board read authorization
 
-> Draft PR into `develop`, not merged. Implementer: Claude. Reviewer: Codex (read-only, invoked by Owner only). `REVIEW: NOT RUN` until Owner runs it.
+> Draft PR into `develop`, not merged. Implementer: Claude. Reviewer: Codex (read-only, invoked by Owner only). Original review: RUN — 1 finding, fixed in [Correction C1](#correction-c1--pms-admin-auth-001-cp04-c1); correction review: NOT RUN.
 > Baseline and START_HEAD `c89efc22246771541f6aefecf0221374076a192f` (PR #76, CP03 with corrections C1/C2, merged `2026-10-03T05:18:26Z`). Branch `feature/pms-admin-auth-001-cp04-board-read-rbac`.
 
 ## Owner decision applied (2026-10-03, CP04 activation)
@@ -112,4 +112,51 @@ Not split: the MEP defines CP04 as one checkpoint, and the guard, the Board filt
 - The evaluator adds one indexed query per authorized request (primary-key lookup on the membership), no cache by design.
 - CP03 residuals unchanged (logout does not rotate the stamp; lockout as a per-account DoS; `me` lists inactive Properties).
 
-`REVIEW: NOT RUN` (Owner invokes `/codex:review --base origin/develop`). CP05 NOT STARTED. Production NOT TOUCHED.
+## Correction C1 — PMS-ADMIN-AUTH-001-CP04-C1
+
+Original review: **RUN** by Owner, `/codex:review --base origin/develop` (companion job `review-murzjocm-yk4w1i`, 2026-10-03 06:02:51–06:05:16 UTC), 1 finding (P2) — "Reject explicitly declared empty access-mode sections". Reviewed SHA: **UNVERIFIED** (neither the output nor the job record names a head SHA; the job log records only the base `c89efc2`). Correction start head `94885737d60bd24bfc20996561472b3eccae854e`. Scope: AccessMode configuration validation, its regression tests and this evidence; D7, the startup snapshot, the evaluator, Board authorization, the guard, CORS and LocalGate are unchanged.
+
+**Root cause.** `FromConfiguration` decided presence with `GetSection("AdminCalendar:AccessMode").Exists()`, which is `Value != null || GetChildren().Any()`. In `Microsoft.Extensions.Configuration.Json` 8.0.29 (`JsonConfigurationFileParser`, tag `v8.0.29`) an empty object or array is stored as the key with a **null** value (`SetNullIfElementIsEmpty`), so `"AccessMode": {}` or `[]` looked undeclared and the host silently started in `LocalGate` — the Staff-mode guard absent, anonymous local access kept wherever the local gates are on. The tests also found a second gap in the same check: a valid scalar that still had an effective child (a lower provider's nested key) was accepted. (JSON `null` is stored as `""` and was already refused.)
+
+**Fix** (`AdminCalendarOptions.cs` only). Presence is decided by listing the children of `AdminCalendar`: every provider's `GetChildKeys` returns a null-valued key, and `ConfigurationRoot` merges them with `OrdinalIgnoreCase` (8.0.29 `InternalConfigurationRootExtensions.GetChildrenImplementation`), so the key name is matched case-insensitively. No child named `AccessMode` → `LocalGate`. Otherwise the effective section must have no children and an exact `LocalGate`/`Staff` value (ordinal); anything else throws the same `InvalidOperationException` ("AdminCalendar:AccessMode must be exactly LocalGate or Staff."). The effective value follows provider precedence (`GetConfiguration` takes the last provider whose `TryGet` succeeds, a null value included), so a higher-priority empty declaration wins over a lower valid one. Still read once in `Program.cs`; no per-request read, no JSON parsing, no custom provider.
+
+**Regression tests** (`StaffCalendarAuthorizationTests.cs`, real JSON providers):
+
+- `The_access_mode_is_read_from_real_json_providers_and_only_an_undeclared_key_defaults` — 20 cases, each a `ConfigurationManager` with one or two `AddJsonStream` layers (lowest priority first), calling `AdminCalendarAccess.FromConfiguration`: `{}`, `[]`, `null`, `""` → refused; `{}`, `{"AdminCalendar":{}}`, `AdminCalendar` with other settings only → LocalGate; `"LocalGate"`, `"Staff"`, `adminCalendar/accessMode`, `ADMINCALENDAR/ACCESSMODE` → that mode; `"staff"` → refused; nested `{"Value":"Staff"}` → refused; lower nested child + higher `"Staff"` → refused; lower `"Staff"` + higher `{}` or `[]` → refused; lower `{}` or `[]` + higher `"Staff"` → Staff; lower `"Staff"` + higher layer without the key → Staff.
+- `A_development_host_with_local_gates_on_refuses_to_start_on_an_empty_json_access_mode` (`{}`, `[]`) — a Development test host (read and write opt-ins on) whose content root holds the API's real `appsettings.json` and, as `appsettings.Development.json`, the JSON under test, so the host's own JSON file provider reads it while `Program.cs` starts; `CreateClient` throws the validation error and no server is created.
+- `The_same_json_source_selects_staff_and_leaves_an_undeclared_mode_on_local_gate` — positive controls through the same file: `"Staff"` → Staff mode (anonymous board 401); a file without the key → LocalGate (anonymous board 200).
+- Unchanged and green: the invalid-scalar theory (10), the nested `UseSetting` case and the mode-freeze test.
+
+A first attempt added the JSON with `ConfigureAppConfiguration`; its positive control showed `Expected: Staff / Actual: LocalGate` — that source arrives after `Program.cs` reads the mode — so it was a setup failure, not red evidence, and the host tests were moved to a real content-root file.
+
+**Red / green** (`dotnet test …IntegrationTests.csproj --configuration Release --no-build --filter "FullyQualifiedName~The_access_mode_is_read_from_real_json_providers|FullyQualifiedName~refuses_to_start_on_an_empty_json_access_mode|FullyQualifiedName~The_same_json_source_selects_staff"`):
+
+| Run | Result |
+|---|---|
+| red — tests added, product at `9488573` | provider cases: 5 failed with `Assert.Throws() Failure: No exception was thrown` — `{}`, `[]`, lower `"Staff"` + higher `{}`, lower `"Staff"` + higher `[]`, lower nested child + higher `"Staff"`; the other 15 passed. Host: both `{}` and `[]` hosts started (`No exception was thrown`) while the positive control passed (the file is read at startup: Staff selected, undeclared → LocalGate) |
+| green — fix applied | the same filter plus the existing mode tests (invalid-scalar theory, nested, freeze): exit 0, 35/35 |
+
+**Verification** (fresh PostgreSQL 17 container `cp04c1-staff-pg`, port 55436, removed afterwards; Owner's `the-bha-postgres-1` untouched):
+
+| Command | Result |
+|---|---|
+| `dotnet restore Back_End/TheBha.Booking.sln` | exit 0 |
+| `dotnet build Back_End/TheBha.Booking.sln --configuration Release --no-restore` | exit 0, 0 warnings, 0 errors |
+| `dotnet test …IntegrationTests.csproj --configuration Release --no-build --filter FullyQualifiedName~StaffCalendarAuthorizationTests` | exit 0, 50/50 (27 + 23 new) |
+| `dotnet test …IntegrationTests.csproj --configuration Release --no-build --filter "FullyQualifiedName~StaffAuthenticationTests\|…CustomerAuthenticationTests\|…AdminReservationBoardApiTests\|…AdminCalendarWriteGateApiTests\|…AdminCalendarAssignmentApiTests"` | exit 0, 161/161 |
+| `dotnet test Back_End/TheBha.Booking.sln --configuration Release --no-build` | exit 0, unit 244/244, integration 703/703 |
+| `git diff --check` | clean |
+
+**Real-host smoke** (`TheBha.Api.dll` Release, Development, `ASPNETCORE_CONTENTROOT` = a temporary directory outside the repository holding the real `appsettings.json` and the JSON under test as `appsettings.Development.json`; no `AdminCalendar*` environment variable set and no command-line setting; the mkcert leaf, `curl --cacert` with verification on; throwaway database `cp04c1_smoke`):
+
+| Case | Result |
+|---|---|
+| `"AccessMode": {}` with both local flags `true` | process exit 134 (unhandled startup exception), log `System.InvalidOperationException: AdminCalendar:AccessMode must be exactly LocalGate or Staff.`, no `Now listening`, no listener on 7249/5249 |
+| `"AccessMode": []` with both local flags `true` | the same |
+| `"AccessMode": "Staff"` control | migrate/seed/CLI create exit 0; API up over verified TLS; anonymous board 401 (read flag `true` in the file); login 200; member board 200; stopped, no listener left |
+
+Secret scan (password, cookie) over the board body, CLI output and the three server logs: 0. A first smoke attempt passed `--contentRoot` to the CLI, which rejects unknown arguments (exit 2), so its login/board answers were 401 and its scan pattern was empty; it was discarded and the smoke rerun on a fresh database with `ASPNETCORE_CONTENTROOT`, as above.
+
+**Size**: correction diff (`git diff --numstat 9488573..HEAD`) **+225 / −13 = 238** in 4 files — product +30 / −10, tests +142, docs +53 / −3; whole PR after C1 **+1,668 / −36 = 1,704** in 13 files (the PR body and handoff carry the GitHub figure checked against it). The correction is one validation method, 23 regression cases and this section; it adds to the over-target size explained above and trims no coverage.
+
+Original review: RUN — 1 finding. CORRECTION_REVIEW: NOT RUN (Owner invokes `/codex:review --base origin/develop`). CP04 is still Draft and not merged. CP05 NOT STARTED. Production NOT TOUCHED.

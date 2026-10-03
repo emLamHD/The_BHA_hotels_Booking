@@ -18,7 +18,10 @@ không có Staff permission — gồm năm Calendar POST — trả 404 trong `St
 login/logout/`me` của CP03. `LocalGate` (mặc định) giữ nguyên hành vi. Default chưa đổi
 sang `Staff`; writes Staff chờ CP05, Admin_Web CP06, default/Production cut-over CP07;
 D8 (audit actor) vẫn **mở**. Evidence:
-`docs/reports/PMS-ADMIN-AUTH-001-CP04-completion.md`. Review CP04: NOT RUN.
+`docs/reports/PMS-ADMIN-AUTH-001-CP04-completion.md`. Review CP04: RUN, 1 finding P2
+(`"AccessMode": {}`/`[]` trong JSON bị coi như không khai báo → âm thầm `LocalGate`);
+correction `CP04-C1` sửa: chỉ key thực sự không được khai báo mới là `LocalGate`, khai
+báo rỗng/null/có child bị từ chối khi khởi động. Review C1: NOT RUN.
 
 Bản cập nhật trước (2026-10-03, `PMS-ADMIN-AUTH-001-CP03`, viết khi PR #76 còn Draft; nay đã merged):
 `PMS-ADMIN-AUTH-001-CP02` (PR #75) đã **merged**, merge commit
