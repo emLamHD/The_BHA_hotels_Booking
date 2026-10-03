@@ -54,6 +54,13 @@ function StaffCalendar() {
   const writingRef = useRef(false);
   const [signingOut, setSigningOut] = useState(false);
   const signingOutRef = useRef(false);
+  // CP06-C2: which sign-out last settled. The lock reopens in an effect, after the render that
+  // carries the re-read roles — the board's own effects, which hand them to its handlers, run first.
+  const signOutRunRef = useRef(0);
+  const [settledRun, setSettledRun] = useState(0);
+  useEffect(() => {
+    if (settledRun === signOutRunRef.current) signingOutRef.current = false;
+  }, [settledRun]);
   const [signOutMessage, setSignOutMessage] = useState<string | null>(null);
 
   const handleWriteActivity = useCallback((active: boolean) => {
@@ -69,15 +76,17 @@ function StaffCalendar() {
   const handleSignOut = useCallback(async () => {
     if (writingRef.current || signingOutRef.current) return;
     signingOutRef.current = true;
+    const run = ++signOutRunRef.current;
     setSigningOut(true);
     setSignOutMessage(null);
     try {
       const outcome = await signOut();
       if (outcome.kind === "unconfirmed") setSignOutMessage(outcome.message);
     } finally {
-      // Confirmed: the board is already gone. Unconfirmed: changes resume, on roles re-read if a denial asked for it.
-      signingOutRef.current = false;
+      // Confirmed: the board is already gone. Unconfirmed: changes resume, on roles re-read if a denial asked
+      // for it — the ref only once that render has committed (the effect above).
       setSigningOut(false);
+      setSettledRun(run);
     }
   }, [signOut]);
 

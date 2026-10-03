@@ -203,6 +203,146 @@ describe("StaffSessionProvider", () => {
     });
   });
 
+  describe("CP06-C2: a permission check is never lost to, or cut short by, a sign-out", () => {
+    const signedIn = async (role = "Manager") => {
+      mockedMe.mockResolvedValueOnce({ kind: "authenticated", session: session("staff-1", role) });
+      renderProvider();
+      await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent(`authenticated:staff-1:${role}`));
+    };
+    /** signOut() with a held logout; `done()` says whether it has reported back. */
+    const startSignOut = () => {
+      const logout = deferred<StaffLogoutOutcome>();
+      mockedLogout.mockReturnValueOnce(logout.promise);
+      let settled = false;
+      act(() => {
+        void probe.api!.signOut().then(() => {
+          settled = true;
+        });
+      });
+      return { logout, done: () => settled };
+    };
+    const unconfirmed = { kind: "unconfirmed", message: "not confirmed" } as const;
+
+    it("F1: a check already on the wire when sign-out starts is redone after an unconfirmed logout, and its caller gets that answer", async () => {
+      await signedIn("Manager");
+      const interrupted = deferred<StaffSessionResult>(); // ignores the abort and answers late
+      mockedMe.mockReturnValueOnce(interrupted.promise);
+      let refreshed: Promise<StaffRefreshResult> | undefined;
+      act(() => {
+        refreshed = probe.api!.refresh();
+      });
+      const signOut = startSignOut();
+      const recovery = deferred<StaffSessionResult>();
+      mockedMe.mockReturnValueOnce(recovery.promise);
+      await act(async () => signOut.logout.resolve(unconfirmed));
+      expect(mockedMe).toHaveBeenCalledTimes(3); // initial, interrupted, and the replacement
+      expect(signOut.done()).toBe(false);
+      await act(async () => recovery.resolve({ kind: "authenticated", session: session("staff-1", "FrontDesk") }));
+      await act(async () => interrupted.resolve({ kind: "authenticated", session: session("staff-1", "Manager") }));
+      expect(await refreshed).toBe("authenticated");
+      expect(signOut.done()).toBe(true);
+      expect(screen.getByTestId("state")).toHaveTextContent("authenticated:staff-1:FrontDesk");
+    });
+
+    it("F2: a refresh asked for during the recovery joins it — no new read, and sign-out reports back only after it", async () => {
+      await signedIn("Manager");
+      const signOut = startSignOut();
+      let first: Promise<StaffRefreshResult> | undefined;
+      act(() => {
+        first = probe.api!.refresh();
+      });
+      const recovery = deferred<StaffSessionResult>();
+      mockedMe.mockReturnValueOnce(recovery.promise);
+      await act(async () => signOut.logout.resolve(unconfirmed));
+      expect(mockedMe).toHaveBeenCalledTimes(2);
+      let second: Promise<StaffRefreshResult> | undefined;
+      act(() => {
+        second = probe.api!.refresh();
+      });
+      act(() => {
+        void probe.api!.signOut(); // a second Sign out during the transition sends nothing
+      });
+      expect(mockedMe).toHaveBeenCalledTimes(2);
+      expect(mockedLogout).toHaveBeenCalledTimes(1);
+      expect(signOut.done()).toBe(false);
+      await act(async () => recovery.resolve({ kind: "authenticated", session: session("staff-1", "FrontDesk") }));
+      expect(await first).toBe("authenticated");
+      expect(await second).toBe("authenticated");
+      expect(signOut.done()).toBe(true);
+      expect(screen.getByTestId("state")).toHaveTextContent("authenticated:staff-1:FrontDesk");
+    });
+
+    it("a recovery that finds no session ends it", async () => {
+      await signedIn();
+      const signOut = startSignOut();
+      act(() => {
+        void probe.api!.refresh();
+      });
+      mockedMe.mockResolvedValueOnce({ kind: "unauthenticated" });
+      await act(async () => signOut.logout.resolve(unconfirmed));
+      expect(signOut.done()).toBe(true);
+      expect(screen.getByTestId("state")).toHaveTextContent("unauthenticated:expired");
+    });
+
+    it("a recovery that cannot check access closes it as an error, and Retry checks again", async () => {
+      await signedIn("Manager");
+      const signOut = startSignOut();
+      act(() => {
+        void probe.api!.refresh();
+      });
+      mockedMe.mockResolvedValueOnce({ kind: "error", message: "Could not reach the Admin API to check your Staff session." });
+      await act(async () => signOut.logout.resolve(unconfirmed));
+      expect(signOut.done()).toBe(true);
+      expect(screen.getByTestId("state")).toHaveTextContent("error");
+      mockedMe.mockResolvedValueOnce({ kind: "authenticated", session: session("staff-1", "FrontDesk") });
+      act(() => probe.api!.retry());
+      await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent("authenticated:staff-1:FrontDesk"));
+    });
+
+    it("an expiry during the recovery is final: its late answer does not bring the session back", async () => {
+      await signedIn();
+      const signOut = startSignOut();
+      act(() => {
+        void probe.api!.refresh();
+      });
+      const recovery = deferred<StaffSessionResult>();
+      mockedMe.mockReturnValueOnce(recovery.promise);
+      await act(async () => signOut.logout.resolve(unconfirmed));
+      act(() => probe.api!.expire());
+      await act(async () => recovery.resolve({ kind: "authenticated", session: session("staff-1") }));
+      expect(signOut.done()).toBe(true);
+      expect(screen.getByTestId("state")).toHaveTextContent("unauthenticated:expired");
+    });
+
+    it.each([
+      ["204", { kind: "logged-out" } as const],
+      ["401", { kind: "session-ended" } as const],
+    ])("a confirmed logout (%s) with a check on the wire ends the session and redoes nothing", async (_status, confirmed) => {
+      await signedIn();
+      const interrupted = deferred<StaffSessionResult>();
+      mockedMe.mockReturnValueOnce(interrupted.promise);
+      let refreshed: Promise<StaffRefreshResult> | undefined;
+      act(() => {
+        refreshed = probe.api!.refresh();
+      });
+      const signOut = startSignOut();
+      await act(async () => signOut.logout.resolve(confirmed));
+      await act(async () => interrupted.resolve({ kind: "authenticated", session: session("staff-1") }));
+      expect(await refreshed).toBe("superseded");
+      expect(mockedMe).toHaveBeenCalledTimes(2);
+      expect(screen.getByTestId("state")).toHaveTextContent("unauthenticated:signed-out");
+    });
+
+    it("an unconfirmed logout with no check to redo reports back at once and reads nothing", async () => {
+      await signedIn();
+      const signOut = startSignOut();
+      await act(async () => signOut.logout.resolve(unconfirmed));
+      expect(signOut.done()).toBe(true);
+      expect(mockedMe).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId("state")).toHaveTextContent("authenticated:staff-1:Manager");
+    });
+  });
+
   it("signs out only on a confirmed outcome; an unconfirmed one leaves the session as it is", async () => {
     mockedMe.mockResolvedValueOnce({ kind: "authenticated", session: session("staff-1") });
     renderProvider();

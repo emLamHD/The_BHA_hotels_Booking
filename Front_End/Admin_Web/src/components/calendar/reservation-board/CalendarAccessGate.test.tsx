@@ -456,3 +456,152 @@ describe("CP06-C1: LocalGate is not affected", () => {
     expect(screen.queryByTestId("staff-identity")).not.toBeInTheDocument();
   });
 });
+
+/** CP06-C2: a session with the given memberships (Property A/B of the staff board fixture). */
+const sessionWith = (...memberships: [string, string][]) => ({
+  ...SESSION,
+  memberships: memberships.map(([propertyId, role]) => ({
+    propertyId,
+    propertyName: propertyId === "prop-a" ? "Property A" : "Property B",
+    timeZone: "Asia/Ho_Chi_Minh",
+    role,
+  })),
+});
+const createBlockButton = () => screen.getByRole("button", { name: "Create operational block" });
+const capabilities = () => screen.getByTestId("reservation-board-capabilities");
+const propertyOptions = () => within(screen.getByLabelText("Property")).getAllByRole("option").map((option) => option.textContent);
+
+/** Signed in with `initial`; prop-a's board loads, prop-b's read is refused (403). */
+async function renderStaff(initial: ReturnType<typeof sessionWith>) {
+  mockedMe.mockResolvedValueOnce({ kind: "authenticated", session: initial });
+  mockedBoard.mockImplementation((propertyId, from, to) =>
+    Promise.resolve(
+      propertyId === "prop-b"
+        ? { ok: false as const, error: { kind: "http" as const, status: 403, message: "Access denied" } }
+        : { ok: true as const, data: staffBoard(propertyId, from, to) }
+    )
+  );
+  render(<CalendarAccessGate />);
+  await waitFor(() => expect(stayBar()).toBeInTheDocument());
+  const [, from] = mockedBoard.mock.calls.at(-1)!;
+  return { user: userEvent.setup(), from };
+}
+
+/** A board read of prop-b is refused (a denial: the board re-reads me), then prop-a is shown again. */
+async function denialViaPropertyB(user: User) {
+  await user.selectOptions(screen.getByLabelText("Property"), "prop-b");
+  expect(await screen.findByText(/refused access to this Property's board/)).toBeInTheDocument();
+  await user.selectOptions(screen.getByLabelText("Property"), "prop-a");
+  await waitFor(() => expect(stayBar()).toBeInTheDocument());
+}
+
+describe("CP06-C2: an unconfirmed sign-out resumes writes only on roles checked again", () => {
+  const unconfirmed = { kind: "unconfirmed", message: "The Admin API did not confirm sign-out (HTTP 403). Your session may still be active." } as const;
+
+  it("F1: a 403 re-read already on the wire when Sign out is clicked is redone; writes stay closed until it answers, then follow the new role", async () => {
+    const { user, from } = await renderStaff(sessionWith(["prop-a", "Manager"]));
+    mockedCreate.mockResolvedValueOnce({ kind: "rejected", status: 403, category: "not-permitted" });
+    const interrupted = deferred<StaffSessionResult>();
+    mockedMe.mockReturnValueOnce(interrupted.promise);
+    await user.click(await WRITES["create assignment"].open(user, from));
+    await waitFor(() => expect(mockedMe).toHaveBeenCalledTimes(2)); // the 403's re-read is on the wire
+
+    const logout = deferred<StaffLogoutOutcome>();
+    mockedLogout.mockReturnValueOnce(logout.promise);
+    await user.click(signOutButton());
+    const recovery = deferred<StaffSessionResult>();
+    mockedMe.mockReturnValueOnce(recovery.promise);
+    await act(async () => logout.resolve(unconfirmed));
+
+    expect(mockedMe).toHaveBeenCalledTimes(3); // the interrupted check is redone
+    expect(createBlockButton()).toBeDisabled(); // and nothing can be written meanwhile
+    expect(signOutButton()).toHaveTextContent("Signing out…");
+
+    await act(async () => recovery.resolve({ kind: "authenticated", session: sessionWith(["prop-a", "FrontDesk"]) }));
+    await act(async () => interrupted.resolve({ kind: "authenticated", session: sessionWith(["prop-a", "Manager"]) })); // stale, late
+    expect(capabilities()).toHaveTextContent("Signed in as FrontDesk");
+    expect(createBlockButton()).toBeEnabled();
+    expect(signOutButton()).toHaveTextContent(/^Sign out$/);
+    expect(mockedCreate).toHaveBeenCalledTimes(1); // nothing resent
+  });
+
+  it("F2: a second denial during the recovery joins it — writes stay closed until it answers, then follow the new memberships", async () => {
+    const { user } = await renderStaff(sessionWith(["prop-a", "Manager"], ["prop-b", "Manager"]));
+    const logout = deferred<StaffLogoutOutcome>();
+    mockedLogout.mockReturnValueOnce(logout.promise);
+    await user.click(signOutButton());
+    await denialViaPropertyB(user); // first denial: the re-read waits for the sign-out
+    expect(mockedMe).toHaveBeenCalledTimes(1);
+
+    const recovery = deferred<StaffSessionResult>();
+    mockedMe.mockReturnValueOnce(recovery.promise);
+    await act(async () => logout.resolve(unconfirmed));
+    expect(mockedMe).toHaveBeenCalledTimes(2);
+
+    mockedMe.mockReturnValueOnce(new Promise(() => {})); // what a new read would get
+    await denialViaPropertyB(user); // second denial, while the recovery is on the wire
+    expect(mockedMe).toHaveBeenCalledTimes(2);
+    expect(createBlockButton()).toBeDisabled();
+    expect(signOutButton()).toHaveTextContent("Signing out…");
+
+    await act(async () => recovery.resolve({ kind: "authenticated", session: sessionWith(["prop-a", "FrontDesk"]) }));
+    expect(propertyOptions()).toEqual(["Property A"]);
+    expect(capabilities()).toHaveTextContent("Signed in as FrontDesk");
+    expect(createBlockButton()).toBeEnabled();
+    expect(mockedLogout).toHaveBeenCalledTimes(1);
+  });
+
+  it("a recovery that finds no session closes the board and goes to /signin once", async () => {
+    const { user } = await renderStaff(sessionWith(["prop-a", "Manager"], ["prop-b", "Manager"]));
+    const logout = deferred<StaffLogoutOutcome>();
+    mockedLogout.mockReturnValueOnce(logout.promise);
+    await user.click(signOutButton());
+    await denialViaPropertyB(user);
+    mockedMe.mockResolvedValueOnce({ kind: "unauthenticated" });
+    await act(async () => logout.resolve(unconfirmed));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/signin"));
+    expect(replace).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("staff-identity")).not.toBeInTheDocument();
+    expect(screen.getByTestId("staff-session-required")).toHaveTextContent("Your Staff session has ended.");
+  });
+
+  it("a recovery that cannot check access closes the board — not signed out, nothing written on the old roles — and Retry restores it", async () => {
+    const { user } = await renderStaff(sessionWith(["prop-a", "Manager"], ["prop-b", "Manager"]));
+    const logout = deferred<StaffLogoutOutcome>();
+    mockedLogout.mockReturnValueOnce(logout.promise);
+    await user.click(signOutButton());
+    await denialViaPropertyB(user);
+    mockedMe.mockResolvedValueOnce({ kind: "error", message: "Could not reach the Admin API to check your Staff session." });
+    await act(async () => logout.resolve(unconfirmed));
+
+    const panel = await screen.findByTestId("staff-session-error");
+    expect(panel).toHaveTextContent(/Sign-out was not confirmed, and your access could not be checked/);
+    expect(screen.queryByTitle("Nguyen Van A — CNF-100")).not.toBeInTheDocument();
+    expect(replace).not.toHaveBeenCalled();
+
+    mockedMe.mockResolvedValueOnce({ kind: "authenticated", session: sessionWith(["prop-a", "FrontDesk"]) });
+    await user.click(within(panel).getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(stayBar()).toBeInTheDocument());
+    expect(capabilities()).toHaveTextContent("Signed in as FrontDesk");
+    expect(propertyOptions()).toEqual(["Property A"]);
+  });
+
+  it.each([
+    ["204", { kind: "logged-out" } as const],
+    ["401", { kind: "session-ended" } as const],
+  ])("a confirmed logout (%s) with a re-read on the wire closes the board, goes to /signin once and redoes nothing", async (_status, confirmed) => {
+    const { user, from } = await renderStaff(sessionWith(["prop-a", "Manager"]));
+    mockedCreate.mockResolvedValueOnce({ kind: "rejected", status: 403, category: "not-permitted" });
+    const interrupted = deferred<StaffSessionResult>();
+    mockedMe.mockReturnValueOnce(interrupted.promise);
+    await user.click(await WRITES["create assignment"].open(user, from));
+    await waitFor(() => expect(mockedMe).toHaveBeenCalledTimes(2));
+    mockedLogout.mockResolvedValueOnce(confirmed);
+    await user.click(signOutButton());
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/signin"));
+    await act(async () => interrupted.resolve({ kind: "authenticated", session: sessionWith(["prop-a", "Manager"]) }));
+    expect(replace).toHaveBeenCalledTimes(1);
+    expect(mockedMe).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId("staff-identity")).not.toBeInTheDocument();
+  });
+});
