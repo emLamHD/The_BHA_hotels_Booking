@@ -1,7 +1,7 @@
 # PMS-ADMIN-AUTH-001 — Staff authentication and property-scoped RBAC
 
 > Status: **proposal**, written in CP00 (baseline `0952e1b58e274a055b47ca3f04beb6fe08ed5ed8`, merged as PR #73) and synchronised with the Owner decisions of 2026-10-01 in `PMS-ADMIN-AUTH-001-CP01-C1`. Nothing below is CURRENT until a later checkpoint merges.
-> Owner decisions are marked *Owner decision* and listed in §10. CP01 (Staff schema and Identity store, ADR 0007) is **merged** (PR #74, `3c1eefd`). CP02 (the Staff bootstrap CLI, §6) is in a **Draft PR, not merged**. Staff session, route authorization and Staff audit do not exist anywhere. Neither the merges of #73/#74 nor CP02 approve the items in §10 "Still open" (D3 scheme, D4, D7, D8), and the design as a whole is **not** approved.
+> Owner decisions are marked *Owner decision* and listed in §10. CP01 (Staff schema and Identity store, ADR 0007) is **merged** (PR #74, `3c1eefd`); CP02 (the Staff bootstrap CLI, §6) is **merged** (PR #75, `6baefe9`). CP03 (the Staff session, §5) is in a **Draft PR, not merged**; D3 and D4 were decided by Owner when CP03 was activated (2026-10-03). Route authorization and Staff audit do not exist anywhere: the Calendar keeps its local gates, and a Staff session grants no Board access. D7 and D8 stay open (§10), and the design as a whole is **not** approved.
 > Scope: authentication and authorization of the Admin Reservation Board routes. Out of scope: Organization/tenant onboarding, MFA, SSO/IdP, JWT, dynamic roles, role-admin UI, Staff self-service (registration, password reset by email), any non-calendar Admin module.
 
 ## 1. Verified CURRENT (source, not history)
@@ -15,7 +15,7 @@
 | Admin CORS policies are **uncredentialed** (`admin-calendar` GET; `admin-calendar-write` POST + `Content-Type`); `Cors:AdminOrigins` must be explicit HTTPS origins. Write controllers use `[IgnoreAntiforgeryToken]`; the global `AutoValidateAntiforgeryToken` protects the rest. | `Program.cs:219-286`, `Program.cs:130-135`, controllers |
 | Audit actor is the constant `admin-calendar-local-development` (assignments and block header); cross-RoomType evidence is the constant `local-development-write-gate:cross-room-type-confirmed`, written only when the request confirms a cross-RoomType placement and a reason is present. Column limits: `ActorReference` 200, `AuthorizationEvidence` 500. | `AdminReservationAssignmentsController.cs:208-216`, `AdminOperationalBlocksController.cs:156`, `Domain/Scheduling/SchedulingFieldLimits.cs`, `AssignmentMutationStore.cs:116,378` |
 | Admin_Web sends every write with `credentials: "omit"`; reads use the default fetch credentials. The Property selector uses the public `GET /api/v1/properties`. | `Front_End/Admin_Web/src/lib/api/client.ts` |
-| Written at `874f148`, before any Staff code. Since CP01 (PR #74, `3c1eefd`) `develop` has the Staff schema and Identity store, but no Staff session, route authorization or Staff audit. | whole tree |
+| Written at `874f148`, before any Staff code. Since CP02 (PR #75, `6baefe9`) `develop` has the Staff schema, Identity store and bootstrap CLI, but no Staff session, route authorization or Staff audit; CP03 (Draft) adds the session only. | whole tree |
 
 ## 2. Decisions
 
@@ -23,8 +23,8 @@
 |---|---|---|
 | D1 | Staff are a **separate identity**: new `StaffAccount : IdentityUser<Guid>` in the same `TheBhaDbContext` (§3). `CustomerAccount` is not touched. | *Owner decision* (2026-10-01); ADR 0007 |
 | D2 | Authorization is server-side, per request, from `StaffPropertyMembership(Staff, Property, Role)`; roles map to a fixed permission set in code (§4). | *Owner decision:* exactly `FrontDesk` and `Manager`, no `Viewer` (2026-10-01), with the permissions in §4 |
-| D3 | Staff session = its own cookie scheme `TheBha.Staff`; the Customer scheme stays the default and is unchanged (§5). Lifetime **8 h absolute, not sliding** — *Owner decision*. | lifetime decided; scheme: open |
-| D4 | CSRF protection for Staff = `SameSite=Strict` + exact `Origin` allow-list on every non-GET + JSON content type; no antiforgery tokens (§5). | confirm |
+| D3 | Staff session = its own cookie scheme `TheBha.Staff`; the Customer scheme stays the default and is unchanged (§5). Lifetime **8 h absolute, not sliding** — *Owner decision*. | *Owner decision* (lifetime at CP00; scheme at CP03 activation, 2026-10-03) |
+| D4 | CSRF protection for Staff = `SameSite=Strict` + exact `Origin` allow-list on every non-GET + JSON content type; no antiforgery tokens (§5). | *Owner decision* (CP03 activation, 2026-10-03) |
 | D5 | Admin_Web and the API are deployed **same-site** (one registrable domain, or localhost in dev) — *Owner decision*. | decided |
 | D6 | First Staff and memberships are created only by a controlled CLI command, never by an HTTP route (§6). | *Owner decision* (2026-10-01), scope in §6 |
 | D7 | Cut-over uses an explicit `AdminCalendar:AccessMode` switch; a route without a Staff policy is closed in `Staff` mode (§7). | confirm |
@@ -77,9 +77,19 @@ Rules:
 - Invalidation, all effective on the **next request**: Staff disabled (`IsActive=false`) → 401; password change or reset → `UserManager` rotates the security stamp → cookie rejected; membership removed or role changed → the per-request database check → 403 / changed `me`. `OnValidatePrincipal` reloads the Staff row on every request (Staff volume is small; no cache to go stale). Logout clears the cookie only; a stolen cookie is valid until expiry or stamp rotation (residual, documented).
 - Customer_Web: no change to its scheme, cookie, CORS, antiforgery or contract; a regression test pins each.
 
+**As implemented in CP03** (Draft PR; `Api/Authentication/StaffAuthentication.cs`, `StaffRequestBoundaryFilter.cs`, `AdminRequestBoundary.cs`, `Controllers/StaffAuthController.cs`; evidence in `docs/reports/PMS-ADMIN-AUTH-001-CP03-completion.md`):
+- Principal: one `ClaimsIdentity` of type `TheBha.Staff` with exactly two claims, the Staff id (`NameIdentifier`) and `thebha:staff:security-stamp`. Built in code, never by `UserClaimsPrincipalFactory<StaffAccount>`; no role, Property id or email. A SQL-command test proves the login/`me`/logout path never touches `AspNetUserClaims/Logins/Tokens` or `AspNetUsers`.
+- Ticket: `IsPersistent=false` (a browser-session cookie, no `Expires`), `AllowRefresh=false`, `IssuedUtc` and `ExpiresUtc = IssuedUtc + 8 h` from the application `TimeProvider`, which is also the handler's clock. `OnValidatePrincipal` rejects at **and after** `ExpiresUtc` (the handler alone accepts the exact instant) and any ticket whose span exceeds 8 h; no request renews it.
+- `OnValidatePrincipal` reloads `IsActive` and `SecurityStamp` on every request; a missing/malformed claim, unknown or disabled Staff or a different stamp rejects the principal and deletes the Staff cookie only. Lockout does **not** end an existing session (otherwise anyone could end a Staff session by failing logins).
+- Login: unknown, disabled and locked-out accounts and a wrong password all answer one 401 (`Authentication failed`), and the first three still run one password hash so their timing matches a wrong password. A wrong password calls `AccessFailedAsync` (lockout 5 / 15 min); a success calls `ResetAccessFailedCountAsync`; the right password during lockout is refused. 200 returns `{staffAccountId, email, memberships[{propertyId, propertyName, timeZone, role}]}`; `me` returns the same shape, read from the database, ordered by Property name then id (ordinal). Memberships of an inactive Property are listed as stored.
+- Boundary (D4): `StaffRequestBoundaryFilter`, a resource filter on the whole controller, sets `no-store`, refuses cleartext (404), and for every non-GET request requires exactly one approved `Origin` (403) then UTF-8 JSON (415) before model binding. `AdminCalendarWriteGateFilter` now calls the same two predicates (`AdminRequestBoundary`), with its order and responses unchanged. `logout` and `me` are authorized by the middleware first, so without a session they answer 401 before the boundary. An empty `Cors:AdminOrigins` refuses every Staff write.
+- HTTPS: the cleartext guard ahead of `UseHttpsRedirection` also refuses every method on `/api/admin/v1/auth/*` and `/api/admin/v1/me` (404, `no-store`, no `Location`). No forwarded-header middleware; topology unchanged.
+- Rate limit: policy `staff-login`, fixed window per remote IP, `StaffAuthentication:LoginRateLimiting:PermitLimit` (default 10) / `WindowSeconds` (default 60), positive or the host refuses to start; 429 ProblemDetails with `no-store`. Behind a proxy every client shares one partition until a forwarded-header decision exists.
+- Residual, by design: logout deletes the cookie but does not rotate the stamp, so a copied cookie stays valid until 8 h or the next disable/reset.
+
 ## 6. Bootstrap
 
-A CLI verb on the API host, in the style of `--seed-development`: `--staff-create --email <e> --property-id <guid> --role <FrontDesk|Manager>`, `--staff-grant` (same arguments), `--staff-disable --email <e>`, `--staff-reset-password --email <e>`. The password is read from the environment variable `BHA_STAFF_PASSWORD` or an interactive hidden prompt — never a command-line argument, never a default, never in Git; it must pass the Identity policy. The command prints the target database (host/name, no secret) and Staff id only, works in any environment against the configured database, and there is **no HTTP registration**. `DevelopmentDataSeeder` does not create Staff. Implemented in CP02 (`Api/Authentication/StaffBootstrapCommand.cs`, Draft PR).
+A CLI verb on the API host, in the style of `--seed-development`: `--staff-create --email <e> --property-id <guid> --role <FrontDesk|Manager>`, `--staff-grant` (same arguments), `--staff-disable --email <e>`, `--staff-reset-password --email <e>`. The password is read from the environment variable `BHA_STAFF_PASSWORD` or an interactive hidden prompt — never a command-line argument, never a default, never in Git; it must pass the Identity policy. The command prints the target database (host/name, no secret) and Staff id only, works in any environment against the configured database, and there is **no HTTP registration**. `DevelopmentDataSeeder` does not create Staff. Implemented in CP02 (`Api/Authentication/StaffBootstrapCommand.cs`, merged in PR #75).
 
 Bootstrap scope (*Owner decision*, 2026-10-01):
 - Exactly one verb per invocation, validated before any change; exit 0 on success or no-op, non-zero otherwise; no HTTP listener and no seed.
@@ -115,7 +125,7 @@ Since 2026-10-01, 100–400 changed lines per PR is a **target, not a limit** (`
 |---|---|---|---|---|---|
 | CP01 | Staff tables exist; no endpoint, no behaviour change | – | `StaffAccount`, `StaffPropertyMembership`, `StaffRole`, EF config, `AddIdentityCore<StaffAccount>`, one migration, ADR 0007 | PostgreSQL tests: create/duplicate/lockout/stamp, membership FK/PK/CHECK; Customer auth tests unchanged; migration applies on a fresh DB | CP00 estimate: ~300 hand-written + ~1,700 **generated**. Measured at PR #74 head `59f540a`: +2,389 / −14, of which 1,836 generated (Designer 1,615, snapshot +123, migration body 98) |
 | CP02 | Operator can create/grant/disable/reset Staff | CP01 | CLI verbs, secret input, tests | no password in args/output; weak password refused; idempotent grant | ~350 (CP00 estimate); actual size in `docs/reports/PMS-ADMIN-AUTH-001-CP02-completion.md` |
-| CP03 | Staff can log in/out and read `me` | CP01–02 | scheme, cookie events, login/logout/me, `admin-staff` CORS, Origin check extraction, rate limit | 401/403 JSON; Customer↔Staff cookie isolation both ways; disable/stamp invalidation; no redirect | ~400 |
+| CP03 | Staff can log in/out and read `me` | CP01–02 | scheme, cookie events, login/logout/me, `admin-staff` CORS, Origin check extraction, rate limit | 401/403 JSON; Customer↔Staff cookie isolation both ways; disable/stamp invalidation; no redirect | ~400 (CP00 estimate); actual size in `docs/reports/PMS-ADMIN-AUTH-001-CP03-completion.md` |
 | CP04 | `AccessMode` + evaluator; board read authorized in `Staff` mode | CP03 | `IStaffAccessEvaluator`, permission map, policies, mode switch, guards, read route | member ok, non-member 403, no session 401; `Staff` mode ignores the read flag; unconverted routes 404 | ~350 |
 | CP05 | Five write routes authorized; audit from Staff | CP04 | policies, actor/evidence, cross-RoomType permission | per route: `FrontDesk` assign / move / unassign / block create / block cancel, but 403 on `confirmCrossRoomType`; `Manager` all; 403 before the store; audit rows carry `staff:{id}`; `LocalGate` unchanged | ~400 |
 | CP06 | Admin_Web login, `credentials: include`, selector from `me` | CP05 | login page, client, 401/403 handling, permission-aware controls | unit tests + live acceptance in `Staff` mode incl. reload protection unchanged | ~400 |
@@ -141,8 +151,10 @@ If CP01's generated migration is judged too large to review, the only honest spl
 9. D6: bootstrap only by the four CLI verbs, with the production operator, secret handling, grant, disable and reset rules in §6.
 10. 100–400 changed lines per PR is a target, not a limit; a PR outside it states its GitHub size and the reason.
 
+**Decided at CP03 activation, 2026-10-03 (recorded in ADR 0007):**
+11. D3: the separate `TheBha.Staff` scheme and `.TheBha.Staff` cookie; Customer stays the default authenticate/challenge/sign-in scheme; 8 h absolute, no sliding, no remember-me; the cookie principal carries only the Staff id and security stamp; no shared `SignInManager<CustomerAccount>`, no Staff sign-in manager or token providers.
+12. D4: `SameSite=Strict`, exact-Origin allow-list and JSON content type on every Staff `POST`, login and logout included; a missing, `null`, wrong or multi-valued Origin is refused; CORS does not replace the server-side check; no Customer antiforgery token for Staff, and the global antiforgery check is skipped only on the Staff actions this boundary protects.
+
 **Still open:**
-1. D3: the separate `TheBha.Staff` cookie scheme (its 8 h absolute lifetime is decided above).
-2. D4: CSRF by `SameSite=Strict` + exact Origin + JSON content type, without antiforgery tokens.
-3. D7: the `AdminCalendar:AccessMode` cut-over.
-4. D8: `staff:{StaffAccountId}` audit actor.
+1. D7: the `AdminCalendar:AccessMode` cut-over.
+2. D8: `staff:{StaffAccountId}` audit actor.

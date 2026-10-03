@@ -1,10 +1,25 @@
 # THE BHA — SNAPSHOT
 
-> Ngày cập nhật: 2026-10-01 (`PMS-ADMIN-AUTH-001-CP02`; các phần cũ hơn giữ nguyên kèm SHA)
+> Ngày cập nhật: 2026-10-03 (`PMS-ADMIN-AUTH-001-CP03`; các phần cũ hơn giữ nguyên kèm SHA)
 >
 > Mục đích: phục hồi trạng thái hiện tại mà không cần nạp worklog lịch sử
 
-Cập nhật 2026-10-01 (`PMS-ADMIN-AUTH-001-CP02`, Draft PR, chưa merge):
+Cập nhật 2026-10-03 (`PMS-ADMIN-AUTH-001-CP03`, Draft PR, chưa merge):
+`PMS-ADMIN-AUTH-001-CP02` (PR #75) đã **merged**, merge commit
+`6baefe90c409ba22f050c235bc2d5d0cf060cbd6`. Owner chốt D3/D4 khi kích hoạt CP03:
+scheme riêng `TheBha.Staff` (cookie `.TheBha.Staff`, `Path=/api/admin`,
+`SameSite=Strict`, 8 giờ tuyệt đối, không sliding), Customer vẫn là default
+scheme; CSRF cho Staff bằng `SameSite=Strict` + exact Origin + JSON content type,
+không antiforgery token. CP03 thêm `POST /api/admin/v1/auth/login`,
+`POST /api/admin/v1/auth/logout`, `GET /api/admin/v1/me` (memberships đọc từ DB mỗi
+request), CORS credentialed `admin-staff`, limiter `staff-login`, và tách predicate
+Origin/JSON của `AdminCalendarWriteGateFilter` thành `AdminRequestBoundary` (hành vi
+gate không đổi). Staff session **không** cấp quyền vào Calendar: Board và các route
+ghi vẫn chỉ sau gate local; D7 (`AccessMode`) và D8 (audit actor) vẫn **mở**.
+Evidence: `docs/reports/PMS-ADMIN-AUTH-001-CP03-completion.md`. CP04–CP07 chưa được
+kích hoạt.
+
+Bản cập nhật trước (2026-10-01, `PMS-ADMIN-AUTH-001-CP02`, viết khi PR #75 còn Draft; nay đã merged):
 `PMS-ADMIN-AUTH-001-CP01` (PR #74) đã **merged**, merge commit
 `3c1eefd5836e6fb1710817ff86021e391c55179d`. Owner quyết định D6: Staff chỉ được
 tạo/quản lý qua CLI bốn verb trên API host (`--staff-create`, `--staff-grant`,
@@ -598,10 +613,10 @@ evidence independently verified for this closeout via:
 `e0f5a395aec15cc02e328433a97850e30e165675`, `2026-09-03T03:11:21Z`; §1,
 §2, §4). Không còn review gate hay merge nào đang chờ trên work item đó.
 
-Objective hiện tại là `PMS-ADMIN-AUTH-001-CP02` — CLI vận hành để tạo Staff,
-cấp membership, vô hiệu hóa và đặt lại mật khẩu (D6), không có Staff session hay
-authorization mới. Review Codex chỉ do Owner gọi, OC quyết định, Owner giữ
-Ready/merge/branch cleanup. Không tự bắt đầu CP03 hay work item nào khác từ
+Objective hiện tại là `PMS-ADMIN-AUTH-001-CP03` — Staff login/logout/`me` và
+session cookie độc lập Customer (D3/D4), không có route authorization mới; Calendar
+giữ các gate local. Review Codex chỉ do Owner gọi, OC quyết định, Owner giữ
+Ready/merge/branch cleanup. Không tự bắt đầu CP04 hay work item nào khác từ
 Snapshot này.
 
 ## 9. Main risks
