@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.HttpsPolicy;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -19,6 +20,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using TheBha.Api.Authentication;
 using TheBha.Infrastructure.Identity;
+using TheBha.Infrastructure.Persistence;
 
 namespace TheBha.IntegrationTests;
 
@@ -128,54 +130,106 @@ public sealed class StaffAuthenticationTests(PostgreSqlWebApplicationFactory fac
         Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(Post(LoginPath, LoginBody(Email, Password)))).StatusCode);
     }
 
-    [Fact]
-    public async Task A_login_whose_failure_count_reset_loses_to_a_concurrent_lockout_issues_no_session()
+    [Theory]
+    [InlineData(0, nameof(UserManager<StaffAccount>.UpdateAsync))]
+    [InlineData(4, nameof(UserManager<StaffAccount>.ResetAccessFailedCountAsync))]
+    public async Task A_login_whose_success_write_loses_to_a_concurrent_lockout_issues_no_session(
+        int startingFailures,
+        string expectedWrite)
     {
         await SeedAsync();
-        var race = new ResetRace();
+        var race = new LoginWriteRace();
         using var host = CreateHost(builder => builder.ConfigureTestServices(services =>
         {
             services.AddSingleton(race);
-            services.AddScoped<UserManager<StaffAccount>, ResetRaceUserManager>();
+            services.AddScoped<UserManager<StaffAccount>, LoginWriteRaceUserManager>();
         }));
         await CliAsync(host, Create(PropertyA, StaffRole.Manager), Password);
         using var client = CreateHttpsClient(host);
 
-        string wrong = "";
-        for (var attempt = 0; attempt < 4; attempt++)
+        var generic = await AssertLoginRefusedAsync(client, "nobody@example.com", Password);
+        for (var attempt = 0; attempt < startingFailures; attempt++)
         {
-            wrong = await AssertLoginRefusedAsync(client, Email, NewPassword);
+            Assert.Equal(generic, await AssertLoginRefusedAsync(client, Email, NewPassword));
         }
 
         var before = await FindStaffAsync();
-        Assert.Equal(4, before.AccessFailedCount);
+        Assert.Equal(startingFailures, before.AccessFailedCount);
         Assert.Null(before.LockoutEnd);
 
-        // The right password, while a separate scope records the fifth failure at the reset.
+        // The right password; at its success write, a separate scope records failures through
+        // Identity up to the fifth, which locks the account.
         race.Arm();
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(60));
         var response = await client.SendAsync(Post(LoginPath, LoginBody(Email, Password)), deadline.Token);
 
-        // The race happened where it matters: the request had already loaded the account (4
-        // failures, the old concurrency stamp), the other scope locked it through Identity, and
-        // Identity then refused the request's stale reset.
+        // The race happened where it matters: the request had loaded the account unlocked, with
+        // this starting count and stamp, and every competing failure was saved before its write.
         Assert.False(race.IsArmed);
-        Assert.Equal(4, race.StaleAccessFailedCount);
-        Assert.Equal(before.ConcurrencyStamp, race.StaleConcurrencyStamp);
-        Assert.True(race.CompetingFailure?.Succeeded, "the competing AccessFailedAsync must succeed");
+        Assert.Equal(startingFailures, race.StaleAccessFailedCount);
+        Assert.True(before.ConcurrencyStamp == race.StaleConcurrencyStamp, "the request held the pre-race concurrency stamp");
+        Assert.Equal(5 - startingFailures, race.CompetingFailures.Count);
+        Assert.All(race.CompetingFailures, result => Assert.True(result.Succeeded, "each competing AccessFailedAsync must succeed"));
         Assert.True(race.CompetingLockedOut);
-        Assert.False(race.ResetResult?.Succeeded ?? true, "the stale ResetAccessFailedCountAsync must fail");
-        Assert.Equal(["ConcurrencyFailure"], race.ResetResult!.Errors.Select(error => error.Code).ToArray());
-
-        // ...and no session came out of it: the same generic 401 as a wrong password.
-        Assert.Equal(wrong, await AssertGenericLoginRefusalAsync(response, Email));
-        Assert.DoesNotContain("concurren", await response.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
-
         var locked = await FindStaffAsync();
-        Assert.NotEqual(race.StaleConcurrencyStamp, locked.ConcurrencyStamp);
+        Assert.True(race.StaleConcurrencyStamp != locked.ConcurrencyStamp, "the competing failures changed the concurrency stamp");
         var earliest = factory.Clock.UtcNow < DateTimeOffset.UtcNow ? factory.Clock.UtcNow : DateTimeOffset.UtcNow;
         Assert.True(locked.LockoutEnd > earliest.AddMinutes(14));
-        Assert.Equal(wrong, await AssertLoginRefusedAsync(client, Email, Password));
+
+        // ...and no session came out of it: the same generic 401 as any other failure.
+        Assert.Equal(generic, await AssertGenericLoginRefusalAsync(response, Email));
+        Assert.DoesNotContain("concurren", await response.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
+
+        // The request's own write was the concurrency-checked one for its count, and Identity refused it.
+        Assert.Equal(expectedWrite, race.Write);
+        Assert.False(race.WriteResult?.Succeeded ?? true, "the stale success write must fail");
+        Assert.Equal(["ConcurrencyFailure"], race.WriteResult!.Errors.Select(error => error.Code).ToArray());
+
+        Assert.True((await FindStaffAsync()).LockoutEnd > earliest.AddMinutes(14));
+        Assert.Equal(generic, await AssertLoginRefusedAsync(client, Email, Password));
+    }
+
+    [Fact]
+    public async Task A_login_from_zero_failures_makes_a_checked_write_and_keeps_open_sessions_and_the_security_stamp()
+    {
+        await SeedAsync();
+        using var host = CreateHost();
+        await CliAsync(host, Create(PropertyA, StaffRole.Manager), Password);
+        using var client = CreateHttpsClient(host);
+
+        // Identity's EF store for Staff is the one whose UpdateAsync is checked against ConcurrencyStamp.
+        await using (var scope = host.Services.CreateAsyncScope())
+        {
+            Assert.IsType<UserOnlyStore<StaffAccount, TheBhaDbContext, Guid, IdentityUserClaim<Guid>, IdentityUserLogin<Guid>, IdentityUserToken<Guid>>>(
+                scope.ServiceProvider.GetRequiredService<IUserStore<StaffAccount>>());
+        }
+
+        var first = StaffCookieHeader(await client.SendAsync(Post(LoginPath, LoginBody(Email, Password))));
+        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(Get(MePath, first))).StatusCode);
+        var before = await FindStaffAsync();
+        Assert.Equal(0, before.AccessFailedCount);
+
+        string second;
+        using (var recorder = new SqlCommandRecorder(factory.DatabaseName))
+        {
+            second = StaffCookieHeader(await client.SendAsync(Post(LoginPath, LoginBody(Email, Password))));
+
+            // Exactly one write, an UPDATE of the account matched on its loaded concurrency stamp.
+            var write = Assert.Single(recorder.Commands, command =>
+                !command.TrimStart().StartsWith("SELECT", StringComparison.OrdinalIgnoreCase));
+            Assert.StartsWith("UPDATE \"StaffAccounts\" SET", write.TrimStart(), StringComparison.Ordinal);
+            Assert.Matches("WHERE \"Id\" = @p\\d+ AND \"ConcurrencyStamp\" = @p\\d+;", write);
+        }
+
+        var after = await FindStaffAsync();
+        Assert.True(before.ConcurrencyStamp != after.ConcurrencyStamp, "the login wrote a new concurrency stamp");
+        Assert.True(before.SecurityStamp == after.SecurityStamp, "the login left the security stamp alone");
+        Assert.Equal(0, after.AccessFailedCount);
+        Assert.Null(after.LockoutEnd);
+
+        // Both sessions stay valid: the earlier one is not ended by the later login.
+        Assert.Equal(before.Id, (await ReadSessionAsync(await client.SendAsync(Get(MePath, first)))).StaffAccountId);
+        Assert.Equal(before.Id, (await ReadSessionAsync(await client.SendAsync(Get(MePath, second)))).StaffAccountId);
     }
 
     [Fact]
@@ -999,19 +1053,20 @@ public sealed class StaffAuthenticationTests(PostgreSqlWebApplicationFactory fac
     }
 
     /// <summary>
-    /// One armed race for <see cref="ResetRaceUserManager"/>: what the login request held when it
-    /// reached the reset, what the competing scope did, and what Identity answered the reset.
+    /// One armed race for <see cref="LoginWriteRaceUserManager"/>: what the login request held when
+    /// it reached its success write, what the competing scope did, and what Identity answered.
     /// </summary>
-    private sealed class ResetRace
+    private sealed class LoginWriteRace
     {
         private int _armed;
 
         public bool IsArmed => Volatile.Read(ref _armed) == 1;
         public int? StaleAccessFailedCount { get; set; }
         public string? StaleConcurrencyStamp { get; set; }
-        public IdentityResult? CompetingFailure { get; set; }
+        public List<IdentityResult> CompetingFailures { get; } = [];
         public bool CompetingLockedOut { get; set; }
-        public IdentityResult? ResetResult { get; set; }
+        public string? Write { get; set; }
+        public IdentityResult? WriteResult { get; set; }
 
         public void Arm() => Volatile.Write(ref _armed, 1);
 
@@ -1020,13 +1075,13 @@ public sealed class StaffAuthenticationTests(PostgreSqlWebApplicationFactory fac
 
     /// <summary>
     /// Test-host-only <see cref="UserManager{TUser}"/> for Staff. When the race is armed, the first
-    /// <c>ResetAccessFailedCountAsync</c> — reached only after a correct password, with the account
-    /// the request loaded before it — first lets a separate DI scope record one more failure
-    /// through Identity, then runs Identity's own reset on the now-stale account. Everything else
-    /// is Identity's unchanged behaviour.
+    /// <c>ResetAccessFailedCountAsync</c> or <c>UpdateAsync</c> — on a login, reached only after a
+    /// correct password, with the account the request loaded before it — first lets a separate DI
+    /// scope record failures through Identity until the account locks, then runs Identity's own
+    /// method on the now-stale account. Everything else is Identity's unchanged behaviour.
     /// </summary>
-    private sealed class ResetRaceUserManager(
-        ResetRace race,
+    private sealed class LoginWriteRaceUserManager(
+        LoginWriteRace race,
         IServiceScopeFactory scopes,
         IUserStore<StaffAccount> store,
         IOptions<IdentityOptions> optionsAccessor,
@@ -1040,27 +1095,38 @@ public sealed class StaffAuthenticationTests(PostgreSqlWebApplicationFactory fac
         : UserManager<StaffAccount>(
             store, optionsAccessor, passwordHasher, userValidators, passwordValidators, keyNormalizer, errors, services, logger)
     {
-        public override async Task<IdentityResult> ResetAccessFailedCountAsync(StaffAccount user)
+        public override Task<IdentityResult> ResetAccessFailedCountAsync(StaffAccount user) =>
+            RaceAsync(user, nameof(ResetAccessFailedCountAsync), () => base.ResetAccessFailedCountAsync(user));
+
+        public override Task<IdentityResult> UpdateAsync(StaffAccount user) =>
+            RaceAsync(user, nameof(UpdateAsync), () => base.UpdateAsync(user));
+
+        private async Task<IdentityResult> RaceAsync(StaffAccount user, string write, Func<Task<IdentityResult>> identity)
         {
             if (!race.TryFire())
             {
-                return await base.ResetAccessFailedCountAsync(user);
+                return await identity();
             }
 
             race.StaleAccessFailedCount = user.AccessFailedCount;
             race.StaleConcurrencyStamp = user.ConcurrencyStamp;
-            await RecordCompetingFailureAsync(user.Id).WaitAsync(TimeSpan.FromSeconds(30));
-            race.ResetResult = await base.ResetAccessFailedCountAsync(user);
-            return race.ResetResult;
+            await LockOutElsewhereAsync(user.Id).WaitAsync(TimeSpan.FromSeconds(30));
+            race.Write = write;
+            race.WriteResult = await identity();
+            return race.WriteResult;
         }
 
-        private async Task RecordCompetingFailureAsync(Guid staffId)
+        private async Task LockOutElsewhereAsync(Guid staffId)
         {
             await using var scope = scopes.CreateAsyncScope();
             var users = scope.ServiceProvider.GetRequiredService<UserManager<StaffAccount>>();
             var account = await users.FindByIdAsync(staffId.ToString())
                 ?? throw new InvalidOperationException("The competing scope could not load the Staff account.");
-            race.CompetingFailure = await users.AccessFailedAsync(account);
+            while (!await users.IsLockedOutAsync(account) && race.CompetingFailures.Count < 5)
+            {
+                race.CompetingFailures.Add(await users.AccessFailedAsync(account));
+            }
+
             race.CompetingLockedOut = await users.IsLockedOutAsync(account);
         }
     }
