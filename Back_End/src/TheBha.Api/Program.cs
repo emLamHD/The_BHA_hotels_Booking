@@ -350,6 +350,19 @@ builder.Services.AddCors(options =>
                     .AllowCredentials();
             }
         });
+        // PMS-ADMIN-AUTH-001-CP05: the converted Calendar writes, called with the Staff cookie:
+        // credentialed, POST only, Content-Type only, explicit HTTPS Admin origins. In place of
+        // admin-calendar-write in Staff mode; Origin and JSON are still checked at the server.
+        options.AddPolicy(StaffCalendarModeGuard.WriteCorsPolicy, policy =>
+        {
+            if (cors.AdminOrigins.Length > 0)
+            {
+                policy.WithOrigins(cors.AdminOrigins)
+                    .WithHeaders("Content-Type")
+                    .WithMethods("POST")
+                    .AllowCredentials();
+            }
+        });
     }
 });
 builder.Services.AddRateLimiter(options =>
@@ -471,14 +484,24 @@ var controllers = app.MapControllers();
 if (staffCalendarMode)
 {
     // Endpoint metadata: the last IEnableCorsAttribute wins, so a Staff-authorized Calendar read
-    // (GET only) uses the credentialed Staff policy instead of its admin-calendar attribute in
-    // Staff mode. A converted write (CP05) is not given this read policy by accident.
+    // (GET only) or write (POST only, CP05) uses its credentialed Staff policy instead of its
+    // admin-calendar(-write) attribute in Staff mode. Anything else keeps its own attribute.
     controllers.Add(endpoint =>
     {
-        if (endpoint.Metadata.OfType<StaffCalendarPermissionAttribute>().Any() &&
-            endpoint.Metadata.OfType<IHttpMethodMetadata>().LastOrDefault()?.HttpMethods is ["GET"])
+        if (!endpoint.Metadata.OfType<StaffCalendarPermissionAttribute>().Any())
         {
-            endpoint.Metadata.Add(new EnableCorsAttribute(StaffCalendarModeGuard.ReadCorsPolicy));
+            return;
+        }
+
+        var policy = endpoint.Metadata.OfType<IHttpMethodMetadata>().LastOrDefault()?.HttpMethods switch
+        {
+            ["GET"] => StaffCalendarModeGuard.ReadCorsPolicy,
+            ["POST"] => StaffCalendarModeGuard.WriteCorsPolicy,
+            _ => null
+        };
+        if (policy is not null)
+        {
+            endpoint.Metadata.Add(new EnableCorsAttribute(policy));
         }
     });
 }

@@ -44,6 +44,13 @@ public interface IStaffAccessEvaluator
         Guid propertyId,
         StaffPermission permission,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// PMS-ADMIN-AUTH-001-CP05: the role this active Staff member holds at this Property right
+    /// now, or <c>null</c>. A caller that authorizes with it keeps it for the rest of the request,
+    /// so the permission check and anything recorded about it (audit evidence) use one role.
+    /// </summary>
+    Task<string?> GetRoleAsync(Guid staffId, Guid propertyId, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -57,17 +64,16 @@ public sealed class StaffAccessEvaluator(TheBhaDbContext database) : IStaffAcces
         Guid staffId,
         Guid propertyId,
         StaffPermission permission,
-        CancellationToken cancellationToken)
-    {
-        var role = await (
-                from membership in database.StaffPropertyMemberships.AsNoTracking()
-                join staff in database.StaffAccounts.AsNoTracking()
-                    on membership.StaffAccountId equals staff.Id
-                where membership.StaffAccountId == staffId &&
-                      membership.PropertyId == propertyId &&
-                      staff.IsActive
-                select membership.Role)
-            .SingleOrDefaultAsync(cancellationToken);
-        return StaffPermissions.RoleGrants(role, permission);
-    }
+        CancellationToken cancellationToken) =>
+        StaffPermissions.RoleGrants(await GetRoleAsync(staffId, propertyId, cancellationToken), permission);
+
+    public Task<string?> GetRoleAsync(Guid staffId, Guid propertyId, CancellationToken cancellationToken) =>
+        (from membership in database.StaffPropertyMemberships.AsNoTracking()
+         join staff in database.StaffAccounts.AsNoTracking()
+             on membership.StaffAccountId equals staff.Id
+         where membership.StaffAccountId == staffId &&
+               membership.PropertyId == propertyId &&
+               staff.IsActive
+         select membership.Role)
+        .SingleOrDefaultAsync(cancellationToken);
 }

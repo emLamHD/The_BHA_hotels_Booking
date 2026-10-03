@@ -289,7 +289,7 @@ public sealed class StaffCalendarAuthorizationTests(PostgreSqlWebApplicationFact
     // ---------------------------------------------------------------
 
     [Fact]
-    public async Task In_staff_mode_the_five_calendar_writes_are_closed_before_anything_runs()
+    public async Task In_staff_mode_the_five_calendar_writes_are_converted_and_refuse_without_authority_before_binding()
     {
         var seed = await SeedAsync();
         var segment = Guid.NewGuid();
@@ -307,30 +307,36 @@ public sealed class StaffCalendarAuthorizationTests(PostgreSqlWebApplicationFact
                 Json(new { expectedVersion = 1 })),
         };
 
+        // PMS-ADMIN-AUTH-001-CP05 converted the five writes (CP04 closed them): in Staff mode they
+        // now answer the Staff boundary — with the local write flag on, which opens nothing.
         using (var staff = CreateHost(AdminCalendarAccessMode.Staff, builder =>
                    builder.UseSetting("AdminCalendar:EnableUnauthenticatedWrite", "true")))
         {
             await CreateStaffAsync(staff, seed);
             using var client = CreateHttpsClient(staff);
             var manager = await LoginAsync(client, Manager);
+            var outsider = await LoginAsync(client, Outsider);
             foreach (var (path, body) in writes)
             {
                 foreach (var payload in new[] { body, "{not json", "{}" })
                 {
-                    foreach (var cookie in new[] { manager, null })
-                    {
-                        await AssertClosedAsync(await client.SendAsync(Post(path, payload, cookie)), path);
-                    }
+                    await AssertUnauthorizedAsync(await client.SendAsync(Post(path, payload)));
+                    await AssertForbiddenAsync(await client.SendAsync(Post(path, payload, outsider)));
                 }
 
-                await AssertClosedAsync(await client.SendAsync(Preflight(path, AdminOrigin, "POST", "content-type")), $"preflight {path}");
+                // Authority established, the request reaches binding and validation.
+                Assert.Equal(HttpStatusCode.BadRequest, (await client.SendAsync(Post(path, "{not json", manager))).StatusCode);
+
+                var preflight = await client.SendAsync(Preflight(path, AdminOrigin, "POST", "content-type"));
+                Assert.Equal(AdminOrigin, Assert.Single(preflight.Headers.GetValues("Access-Control-Allow-Origin")));
+                Assert.Equal("true", Assert.Single(preflight.Headers.GetValues("Access-Control-Allow-Credentials")));
             }
 
             Assert.Equal((0, 0, 0), await CalendarRowCountsAsync());
         }
 
         // Positive control: the same block create, on a LocalGate host with the write flag on,
-        // reaches the store — so the 404s above are the guard, not a broken request.
+        // reaches the store — so the refusals above are the Staff boundary, not a broken request.
         using var local = CreateHost(null, builder => builder.UseSetting("AdminCalendar:EnableUnauthenticatedWrite", "true"));
         using var localClient = CreateHttpsClient(local);
         Assert.Equal(HttpStatusCode.Created, (await localClient.SendAsync(Post(writes[3].Path, writes[3].Body))).StatusCode);
