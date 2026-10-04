@@ -617,7 +617,9 @@ public sealed class StaffAuthenticationTests(PostgreSqlWebApplicationFactory fac
     public async Task Only_the_admin_staff_policy_is_credentialed_and_only_for_admin_origins()
     {
         await SeedAsync();
-        using var host = CreateHost();
+        // CP07: the last block pins the LocalGate Calendar policies, so this host selects LocalGate
+        // explicitly (Staff is the default; its credentialed Calendar CORS is pinned elsewhere).
+        using var host = CreateHost(LocalGate);
         await CliAsync(host, Create(PropertyA, StaffRole.Manager), Password);
         using var client = CreateHttpsClient(host);
 
@@ -647,7 +649,7 @@ public sealed class StaffAuthenticationTests(PostgreSqlWebApplicationFactory fac
         Assert.Equal(AdminOrigin, Assert.Single(login.Headers.GetValues("Access-Control-Allow-Origin")));
         Assert.Equal("true", Assert.Single(login.Headers.GetValues("Access-Control-Allow-Credentials")));
 
-        // The two admin-calendar policies stay uncredentialed.
+        // In LocalGate the two admin-calendar policies stay uncredentialed.
         var board = await client.SendAsync(Preflight($"/api/admin/v1/properties/{PropertyA}/reservation-board", AdminOrigin, "GET"));
         Assert.Equal(AdminOrigin, Assert.Single(board.Headers.GetValues("Access-Control-Allow-Origin")));
         Assert.False(board.Headers.Contains("Access-Control-Allow-Credentials"));
@@ -758,8 +760,14 @@ public sealed class StaffAuthenticationTests(PostgreSqlWebApplicationFactory fac
     public async Task Staff_challenge_and_forbid_are_json_problems_without_a_redirect()
     {
         await SeedAsync();
-        using var host = CreateHost(builder => builder.ConfigureServices(services =>
-            services.AddControllers().AddApplicationPart(typeof(StaffForbidProbeController).Assembly)));
+        // CP07: the probe is a test-only Admin route without a Staff permission, which the Staff
+        // default closes (404) before this scheme is reached — so the probe host selects LocalGate.
+        using var host = CreateHost(builder =>
+        {
+            LocalGate(builder);
+            builder.ConfigureServices(services =>
+                services.AddControllers().AddApplicationPart(typeof(StaffForbidProbeController).Assembly));
+        });
         await CliAsync(host, Create(PropertyA, StaffRole.Manager), Password);
         using var client = CreateHttpsClient(host);
 
@@ -807,6 +815,9 @@ public sealed class StaffAuthenticationTests(PostgreSqlWebApplicationFactory fac
         var customerMe = paths.GetProperty("/api/v1/auth/me").GetProperty("get");
         Assert.Equal("CustomerCookie", Assert.Single(Assert.Single(customerMe.GetProperty("security").EnumerateArray()).EnumerateObject()).Name);
     }
+
+    private static void LocalGate(IWebHostBuilder builder) =>
+        builder.UseSetting(TheBha.Api.AdminCalendarAccess.ModeKey, nameof(TheBha.Api.AdminCalendarAccessMode.LocalGate));
 
     private WebApplicationFactory<Program> CreateHost(Action<IWebHostBuilder>? configure = null) =>
         factory.WithWebHostBuilder(builder =>

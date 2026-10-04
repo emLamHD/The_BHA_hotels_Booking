@@ -56,8 +56,12 @@ public sealed class AdminCalendarWriteGateApiTests(PostgreSqlWebApplicationFacto
         string? dataProtectionKeysPath = null,
         TestConnectionAddresses? connection = null,
         Action<AdminCalendarOptions>? lateOptionChange = null,
-        int? httpsRedirectionPort = null) =>
-        factory.WithWebHostBuilder(builder =>
+        int? httpsRedirectionPort = null,
+        bool localGate = true)
+    {
+        // CP07: Staff is the default, so the probe host selects LocalGate explicitly unless a test
+        // asks for the default host (which only non-Development environments now can be).
+        void Configure(IWebHostBuilder builder)
         {
             if (environment is not null)
             {
@@ -100,7 +104,10 @@ public sealed class AdminCalendarWriteGateApiTests(PostgreSqlWebApplicationFacto
                         options => options.HttpsPort = httpsRedirectionPort.Value);
                 }
             });
-        });
+        }
+
+        return localGate ? factory.WithLocalGate(Configure) : factory.WithWebHostBuilder(Configure);
+    }
 
     /// <summary>
     /// The write gate refuses cleartext, so an HTTPS base address is what makes
@@ -618,6 +625,9 @@ public sealed class AdminCalendarWriteGateApiTests(PostgreSqlWebApplicationFacto
         return path;
     }
 
+    // CP07: a non-Development host cannot select LocalGate at all (StaffCalendarAuthorizationTests
+    // pins that startup refusal). It runs the Staff default, where the local write flag opens
+    // nothing and a write route without a Staff permission is closed.
     [Fact]
     public async Task A_staging_host_with_the_write_flag_enabled_at_startup_still_closes_the_gate()
     {
@@ -625,10 +635,12 @@ public sealed class AdminCalendarWriteGateApiTests(PostgreSqlWebApplicationFacto
         await using var host = CreateProbeHost(
             spy,
             environment: "Staging",
-            dataProtectionKeysPath: CreateDataProtectionKeysPath());
+            dataProtectionKeysPath: CreateDataProtectionKeysPath(),
+            localGate: false);
         using var client = CreateHttpsClient(host);
 
         Assert.Equal("Staging", host.Services.GetRequiredService<IHostEnvironment>().EnvironmentName);
+        Assert.Equal(AdminCalendarAccessMode.Staff, host.Services.GetRequiredService<AdminCalendarAccess>().Mode);
         Assert.True(host.Services.GetRequiredService<IOptions<AdminCalendarOptions>>()
             .Value.EnableUnauthenticatedWrite);
 
@@ -650,8 +662,10 @@ public sealed class AdminCalendarWriteGateApiTests(PostgreSqlWebApplicationFacto
             enableWriteAtStartup: false,
             environment: "Production",
             dataProtectionKeysPath: CreateDataProtectionKeysPath(),
-            lateOptionChange: options => options.EnableUnauthenticatedWrite = true);
+            lateOptionChange: options => options.EnableUnauthenticatedWrite = true,
+            localGate: false);
         using var client = CreateHttpsClient(host);
+        Assert.Equal(AdminCalendarAccessMode.Staff, host.Services.GetRequiredService<AdminCalendarAccess>().Mode);
 
         Assert.True(host.Services.GetRequiredService<IOptions<AdminCalendarOptions>>()
             .Value.EnableUnauthenticatedWrite);
@@ -1112,7 +1126,9 @@ public sealed class AdminCalendarWriteGateApiTests(PostgreSqlWebApplicationFacto
     [Fact]
     public async Task The_ordinary_host_neither_serves_nor_publishes_the_test_only_probe_route()
     {
-        using var client = CreateHttpsClient(factory);
+        // CP07: the LocalGate host the probe belongs to, without the probe's application part.
+        await using var host = factory.WithLocalGate();
+        using var client = CreateHttpsClient(host);
 
         using var request = ProbePost();
         var response = await client.SendAsync(request);

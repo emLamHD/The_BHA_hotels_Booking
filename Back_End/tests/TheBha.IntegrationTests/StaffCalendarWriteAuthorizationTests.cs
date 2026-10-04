@@ -187,7 +187,7 @@ public sealed class StaffCalendarWriteAuthorizationTests(PostgreSqlWebApplicatio
     {
         var seed = await SeedAsync();
         RoomOccupancySegmentDto historical;
-        using (var local = CreateHost(null, LocalWriteOn))
+        using (var local = CreateHost(AdminCalendarAccessMode.LocalGate, LocalWriteOn))
         {
             var block = await AssertStatusAsync(HttpStatusCode.Created,
                 CreateHttpsClient(local).SendAsync(Post(BlockUrl(seed.A), BlockBody(seed.Standard[1]))));
@@ -397,7 +397,7 @@ public sealed class StaffCalendarWriteAuthorizationTests(PostgreSqlWebApplicatio
     public async Task Local_gate_mode_keeps_anonymous_local_writes_and_their_constants_whatever_staff_cookie_is_sent()
     {
         var seed = await SeedAsync();
-        using (var open = CreateHost(null, LocalWriteOn))
+        using (var open = CreateHost(AdminCalendarAccessMode.LocalGate, LocalWriteOn))
         {
             await CreateStaffAsync(open, seed);
             using var client = CreateHttpsClient(open);
@@ -418,7 +418,7 @@ public sealed class StaffCalendarWriteAuthorizationTests(PostgreSqlWebApplicatio
         }
 
         // Write flag off: closed, a Staff session does not open it.
-        using var closed = CreateHost(null);
+        using var closed = CreateHost(AdminCalendarAccessMode.LocalGate);
         using var closedClient = CreateHttpsClient(closed);
         var response = await closedClient.SendAsync(Post(BlockUrl(seed.A), BlockBody(seed.Standard[1]), await LoginAsync(closedClient, Manager)));
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
@@ -468,7 +468,7 @@ public sealed class StaffCalendarWriteAuthorizationTests(PostgreSqlWebApplicatio
         Assert.False(split.Headers.Contains("Access-Control-Allow-Origin"));
 
         // LocalGate keeps the uncredentialed legacy write policy.
-        using var local = CreateHost(null, LocalWriteOn);
+        using var local = CreateHost(AdminCalendarAccessMode.LocalGate, LocalWriteOn);
         var localPreflight = await CreateHttpsClient(local).SendAsync(Preflight(BlockUrl(seed.A), AdminOrigin, "POST", "content-type"));
         Assert.Equal(AdminOrigin, Assert.Single(localPreflight.Headers.GetValues("Access-Control-Allow-Origin")));
         Assert.False(localPreflight.Headers.Contains("Access-Control-Allow-Credentials"));
@@ -549,7 +549,7 @@ public sealed class StaffCalendarWriteAuthorizationTests(PostgreSqlWebApplicatio
             ("/api/admin/v1/properties/{propertyId}/operational-blocks/{segmentId}/cancel", "BlockWrite", false, ["200", "400", "403", "404", "409", "415"]),
         };
 
-        foreach (var mode in new AdminCalendarAccessMode?[] { AdminCalendarAccessMode.Staff, null })
+        foreach (var mode in new AdminCalendarAccessMode?[] { AdminCalendarAccessMode.Staff, AdminCalendarAccessMode.LocalGate })
         {
             using var host = CreateHost(mode);
             using var document = JsonDocument.Parse(await CreateHttpsClient(host).GetStringAsync("/swagger/v1/swagger.json"));

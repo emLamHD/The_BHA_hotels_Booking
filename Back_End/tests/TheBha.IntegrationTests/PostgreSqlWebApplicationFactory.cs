@@ -121,9 +121,14 @@ public sealed class PostgreSqlWebApplicationFactory : WebApplicationFactory<Prog
 
         // PMS-CAL-001.1 correction C9: model the supported local launch. The
         // Development configuration no longer enables the unauthenticated board
-        // read on its own — the local HTTPS launch profile opts in explicitly —
-        // so a test host that wants the board must opt in the same way, rather
-        // than inheriting it from an environment name.
+        // read on its own — a local LocalGate run opts in explicitly — so a test
+        // host that wants the board must opt in the same way, rather than
+        // inheriting it from an environment name.
+        //
+        // PMS-ADMIN-AUTH-001-CP07: this is only the read *flag*. The mode itself
+        // is not set here: an ordinary host runs the Staff default, where the flag
+        // is not consulted, and a suite that tests the local gates selects
+        // LocalGate explicitly with WithLocalGate (below).
         //
         // This is applied as real configuration, and only when the host really
         // is Development, so a derived factory that switches to Production or
@@ -225,4 +230,22 @@ public sealed class PostgreSqlWebApplicationFactory : WebApplicationFactory<Prog
             CASCADE;
             """);
     }
+}
+
+/// <summary>
+/// PMS-ADMIN-AUTH-001-CP07: Staff is the default access mode, so a host that exercises the local
+/// Development gates selects LocalGate explicitly, as a local operator does
+/// (<c>AdminCalendar__AccessMode=LocalGate</c>) — never by inheriting it. Only Development hosts
+/// can start with it; other environments refuse at startup.
+/// </summary>
+public static class LocalGateHosts
+{
+    public static WebApplicationFactory<Program> WithLocalGate(
+        this WebApplicationFactory<Program> factory,
+        Action<IWebHostBuilder>? configure = null) =>
+        factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting(TheBha.Api.AdminCalendarAccess.ModeKey, nameof(TheBha.Api.AdminCalendarAccessMode.LocalGate));
+            configure?.Invoke(builder);
+        });
 }

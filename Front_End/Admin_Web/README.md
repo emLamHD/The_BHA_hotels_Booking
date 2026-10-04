@@ -10,44 +10,47 @@ TailAdmin utilizes the powerful features of **Next.js 16** and common features o
 
 ## Monorepo baseline note
 
-This directory is the imported TailAdmin Next.js baseline for The BHA Hotels Booking Admin Web application. It is currently template-only: it is not yet integrated with the backend API, authentication, or any PMS/reservation business behavior. Integration work is tracked as separate future work items.
+This directory is the imported TailAdmin Next.js baseline for The BHA Hotels Booking Admin Web application. The Reservation Board (`/calendar`) and the Staff sign-in (`/signin`) are integrated with the backend API (Staff authentication, Property memberships and roles, PMS-ADMIN-AUTH-001). The other template pages and modules (dashboard, forms, tables, charts, user profile, the template calendar below the board) remain template-only and are not covered by the Staff session.
 
-## PMS-CAL-001.1: Reservation Board HTTPS dev setup
+## Reservation Board: HTTPS development setup
 
-The Reservation Board (`/calendar`) reads from the real Admin API
-(`GET /api/admin/v1/properties/{propertyId}/reservation-board`) over HTTPS.
-The API base URL must be `https://`; plain `http://` (including
-`http://localhost`) is rejected by `src/lib/api/env.ts`.
+The Reservation Board reads from and writes to the real Admin API
+(`/api/admin/v1/...`) over HTTPS. The API base URL must be `https://`; plain
+`http://` (including `http://localhost`) is rejected by `src/lib/api/env.ts`.
 
-1. Copy the example env file and adjust if your backend port differs:
+`NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE` selects how `/calendar` talks to the
+API. It is read at build time, so rebuild or restart `next` after changing it,
+and it must match the backend's `AdminCalendar:AccessMode`.
+
+| Value | Behaviour |
+| --- | --- |
+| unset or `Staff` (default) | `/calendar` checks `GET /api/admin/v1/me`; without a session it sends you to `/signin`. Properties come from your memberships, and the Calendar actions follow your role at the selected Property (FrontDesk: assign/move/unassign within the sold room type, create/cancel blocks; Manager: also a confirmed cross-room-type placement with a reason). The server still checks every request. |
+| `LocalGate` | Local development only: no Staff sign-in; the board and writes use the backend's anonymous local gates (the API must run `AdminCalendar__AccessMode=LocalGate` with its read/write opt-ins — see the repository README). **Refused as a configuration error in a production build** (`next build`/`next start`). |
+| anything else, including empty | A configuration error on `/calendar`; no request is sent. There is no fallback between modes. |
+
+1. Copy the example env file and adjust if your backend port differs
+   (`NEXT_PUBLIC_API_BASE_URL`; leave the access-mode line commented out for
+   Staff):
 
    ```bash
    cp .env.local.example .env.local
    ```
 
-2. Trust the local ASP.NET Core HTTPS development certificate once (from the
-   repository root or anywhere `dotnet` is on PATH):
+2. Use certificates the browser already trusts, for both origins. The API can
+   use the ASP.NET Core development certificate (`dotnet dev-certs https --trust`)
+   or a locally-trusted certificate passed to Kestrel; `npm run dev:https`
+   (`next dev --experimental-https`) creates a certificate for
+   `https://localhost:3001` signed by a local CA. If the browser warns about a
+   certificate, make the local CA trusted on your machine instead of clicking
+   through the warning — never bypass TLS verification. The Staff cookie is
+   `SameSite=Strict` with path `/api/admin`, so the two `localhost` origins must
+   both be HTTPS and same-site.
 
-   ```bash
-   dotnet dev-certs https --trust
-   ```
-
-3. Run the backend on its `https` launch profile (`Back_End/src/TheBha.Api`),
-   which listens on `https://localhost:7145` and is the **only** supported way
-   to enable the Reservation Board read: that profile sets
-   `AdminCalendar__EnableUnauthenticatedRead=true`. `appsettings.Development.json`
-   leaves it `false`, so setting `ASPNETCORE_ENVIRONMENT=Development` by itself
-   does not expose the board. `Cors:AdminOrigins` must include
-   `https://localhost:3001`.
-
-   > **Same-machine development only.** The board read has no authentication or
-   > RBAC yet, so the API refuses it unless *all* of the following hold, checked
-   > per request: the environment is Development, the request is HTTPS, **and
-   > both ends of the connection are loopback**, and the launch-profile opt-in is
-   > present. It must never be reached through a LAN or public listener, or
-   > through an external-facing proxy — a request arriving over one gets the same
-   > `404` as a route that does not exist. This is not production readiness;
-   > Admin authentication/RBAC remains deferred.
+3. Run the backend on its `https` launch profile (`https://localhost:7145`).
+   It runs the Staff default; `Cors:AdminOrigins` must include
+   `https://localhost:3001` (it does in `appsettings.Development.json`). Create
+   a Staff account with the backend CLI and sign in at `/signin` — see
+   [the Staff Calendar runbook](../../docs/runbooks/PMS-ADMIN-AUTH-001-staff-calendar.md).
 
 4. Run the Admin Web dev server over HTTPS on port 3001:
 
@@ -55,35 +58,16 @@ The API base URL must be `https://`; plain `http://` (including
    npm run dev:https
    ```
 
-   Accept the browser's self-signed-certificate warning for
-   `https://localhost:3001` on first load (Next.js `--experimental-https`
-   generates its own local certificate for the frontend origin, separate
-   from the backend's `dotnet dev-certs` certificate).
-
-This read path has no Admin authentication/RBAC yet; the backend gate is
-disabled by default and cannot be enabled in a Production environment.
-
-## PMS-ADMIN-AUTH-001-CP06: Staff sign-in for the Reservation Board
-
-`NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE` selects how `/calendar` talks to the
-Admin API. It is read at build time, so rebuild or restart `next` after
-changing it, and it must match the backend's `AdminCalendar:AccessMode`.
-
-| Value | Behaviour |
-| --- | --- |
-| unset or `LocalGate` | No Staff sign-in. The board and writes use the local Development gate described above (writes need the backend's write opt-in). |
-| `Staff` | `/calendar` checks `GET /api/admin/v1/me`; without a session it sends you to `/signin`. Properties come from your memberships, and the Calendar actions follow your role at the selected Property (FrontDesk: assign/move/unassign within the sold room type, create/cancel blocks; Manager: also a confirmed cross-room-type placement with a reason). The server still checks every request. |
-| anything else, including empty | A configuration error on `/calendar`; no request is sent. There is no fallback between modes. |
-
-In `Staff` mode the browser sends the HttpOnly session cookie
+In Staff mode the browser sends the HttpOnly session cookie
 (`credentials: "include"`) for sign-in, sign-out, `me`, the board and the five
 writes. The frontend never stores the password, the cookie or the session in
-browser storage, the URL or logs. Staff accounts are created with the backend
-Staff CLI (`--staff-create`, `--staff-grant`, `--staff-reset-password`,
-`--staff-disable`). Both origins must be HTTPS and trusted by the browser
-(`https://localhost:3001` → the API, same-site on `localhost`), because the
-cookie is `SameSite=Strict` with path `/api/admin`. Do not bypass TLS
-verification to make it work.
+browser storage, the URL or logs.
+
+> **LocalGate is same-machine development only.** It has no authentication or
+> RBAC. The API refuses to start with it outside Development, and refuses each
+> request unless it is HTTPS, on a Development host, loopback at both ends, and
+> the matching opt-in is on. It must never be reached through a LAN or public
+> listener or an external-facing proxy, and it is never a production fallback.
 
 ## Overview
 

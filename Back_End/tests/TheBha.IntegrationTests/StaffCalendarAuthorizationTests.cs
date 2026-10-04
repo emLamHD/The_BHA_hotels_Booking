@@ -15,6 +15,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using TheBha.Api;
 using TheBha.Api.Authentication;
@@ -337,7 +338,7 @@ public sealed class StaffCalendarAuthorizationTests(PostgreSqlWebApplicationFact
 
         // Positive control: the same block create, on a LocalGate host with the write flag on,
         // reaches the store — so the refusals above are the Staff boundary, not a broken request.
-        using var local = CreateHost(null, builder => builder.UseSetting("AdminCalendar:EnableUnauthenticatedWrite", "true"));
+        using var local = CreateHost(AdminCalendarAccessMode.LocalGate, builder => builder.UseSetting("AdminCalendar:EnableUnauthenticatedWrite", "true"));
         using var localClient = CreateHttpsClient(local);
         Assert.Equal(HttpStatusCode.Created, (await localClient.SendAsync(Post(writes[3].Path, writes[3].Body))).StatusCode);
         var (segments, blocks, _) = await CalendarRowCountsAsync();
@@ -361,7 +362,7 @@ public sealed class StaffCalendarAuthorizationTests(PostgreSqlWebApplicationFact
         var writeProbe = Json(new { marker = "cp04" });
 
         // LocalGate: each probe is open by its own means — anonymous, [Authorize] or the local gate.
-        using (var local = CreateHost(null, probes))
+        using (var local = CreateHost(AdminCalendarAccessMode.LocalGate, probes))
         {
             await CreateStaffAsync(local, seed);
             using var client = CreateHttpsClient(local);
@@ -419,14 +420,23 @@ public sealed class StaffCalendarAuthorizationTests(PostgreSqlWebApplicationFact
     }
 
     // ---------------------------------------------------------------
-    // 11–12. LocalGate stays the default; the mode is validated and frozen
+    // 11–12. Staff is the default (CP07); LocalGate is an explicit Development opt-in;
+    // the mode is validated and frozen
     // ---------------------------------------------------------------
 
     [Fact]
-    public async Task An_absent_or_explicit_local_gate_mode_keeps_the_local_gate_and_ignores_staff_sessions()
+    public async Task An_explicit_local_gate_mode_keeps_the_local_gate_and_ignores_staff_sessions_and_an_absent_mode_is_staff()
     {
         var seed = await SeedAsync();
-        foreach (var mode in new AdminCalendarAccessMode?[] { null, AdminCalendarAccessMode.LocalGate })
+
+        // CP07: no mode declared → Staff, chosen by the parser at startup.
+        using (var absent = CreateHost(null))
+        {
+            Assert.Equal(AdminCalendarAccessMode.Staff, absent.Services.GetRequiredService<AdminCalendarAccess>().Mode);
+            await AssertUnauthorizedAsync(await CreateHttpsClient(absent).SendAsync(Get(BoardUrl(seed.A))));
+        }
+
+        foreach (var mode in new AdminCalendarAccessMode?[] { AdminCalendarAccessMode.LocalGate })
         {
             using var host = CreateHost(mode);
             Assert.Equal(AdminCalendarAccessMode.LocalGate, host.Services.GetRequiredService<AdminCalendarAccess>().Mode);
@@ -486,7 +496,7 @@ public sealed class StaffCalendarAuthorizationTests(PostgreSqlWebApplicationFact
     /// CP04-C1: the mode as the real JSON configuration provider presents it, layered lowest
     /// priority first in a <see cref="ConfigurationManager"/>, as the host builds it. An empty
     /// object or array is a declared key with a null value; only a key no provider declares is
-    /// the LocalGate default.
+    /// the Staff default (CP07).
     /// </summary>
     public static TheoryData<string[], string> JsonAccessModes() => new()
     {
@@ -495,10 +505,10 @@ public sealed class StaffCalendarAuthorizationTests(PostgreSqlWebApplicationFact
         { ["""{"AdminCalendar":{"AccessMode":[]}}"""], Refused },
         { ["""{"AdminCalendar":{"AccessMode":null}}"""], Refused },
         { ["""{"AdminCalendar":{"AccessMode":""}}"""], Refused },
-        // Not declared anywhere: LocalGate.
-        { ["{}"], nameof(AdminCalendarAccessMode.LocalGate) },
-        { ["""{"AdminCalendar":{}}"""], nameof(AdminCalendarAccessMode.LocalGate) },
-        { ["""{"AdminCalendar":{"EnableUnauthenticatedRead":true}}"""], nameof(AdminCalendarAccessMode.LocalGate) },
+        // Not declared anywhere: Staff (CP07; LocalGate before).
+        { ["{}"], nameof(AdminCalendarAccessMode.Staff) },
+        { ["""{"AdminCalendar":{}}"""], nameof(AdminCalendarAccessMode.Staff) },
+        { ["""{"AdminCalendar":{"EnableUnauthenticatedRead":true}}"""], nameof(AdminCalendarAccessMode.Staff) },
         // Valid scalars, any key casing; the value itself is ordinal.
         { ["""{"AdminCalendar":{"AccessMode":"LocalGate"}}"""], nameof(AdminCalendarAccessMode.LocalGate) },
         { ["""{"AdminCalendar":{"AccessMode":"Staff"}}"""], nameof(AdminCalendarAccessMode.Staff) },
@@ -561,13 +571,21 @@ public sealed class StaffCalendarAuthorizationTests(PostgreSqlWebApplicationFact
     }
 
     [Fact]
-    public async Task The_same_json_source_selects_staff_and_leaves_an_undeclared_mode_on_local_gate()
+    public async Task The_same_json_source_selects_either_mode_and_an_undeclared_mode_is_staff()
     {
         var seed = await SeedAsync();
         var staffRoot = JsonContentRoot("""{"AdminCalendar":{"AccessMode":"Staff"}}""");
-        var localRoot = JsonContentRoot("""{"AdminCalendar":{"EnableUnauthenticatedRead":true}}""");
+        var localRoot = JsonContentRoot("""{"AdminCalendar":{"AccessMode":"LocalGate","EnableUnauthenticatedRead":true}}""");
+        var undeclaredRoot = JsonContentRoot("""{"AdminCalendar":{"EnableUnauthenticatedRead":true}}""");
         try
         {
+            // CP07: a file that does not declare the key is the Staff default, whatever local flag it sets.
+            using (var undeclared = CreateJsonHost(undeclaredRoot))
+            {
+                Assert.Equal(AdminCalendarAccessMode.Staff, undeclared.Services.GetRequiredService<AdminCalendarAccess>().Mode);
+                await AssertUnauthorizedAsync(await CreateHttpsClient(undeclared).SendAsync(Get(BoardUrl(seed.A))));
+            }
+
             // Positive controls through the same JSON file: it is read at startup...
             using (var staff = CreateJsonHost(staffRoot))
             {
@@ -575,7 +593,7 @@ public sealed class StaffCalendarAuthorizationTests(PostgreSqlWebApplicationFact
                 await AssertUnauthorizedAsync(await CreateHttpsClient(staff).SendAsync(Get(BoardUrl(seed.A))));
             }
 
-            // ...and a file that does not declare the key keeps the LocalGate board.
+            // ...and a file that declares LocalGate (a Development host) keeps the LocalGate board.
             using var local = CreateJsonHost(localRoot);
             Assert.Equal(AdminCalendarAccessMode.LocalGate, local.Services.GetRequiredService<AdminCalendarAccess>().Mode);
             Assert.Equal(HttpStatusCode.OK, (await CreateHttpsClient(local).SendAsync(Get(BoardUrl(seed.A)))).StatusCode);
@@ -584,7 +602,86 @@ public sealed class StaffCalendarAuthorizationTests(PostgreSqlWebApplicationFact
         {
             Directory.Delete(staffRoot, recursive: true);
             Directory.Delete(localRoot, recursive: true);
+            Directory.Delete(undeclaredRoot, recursive: true);
         }
+    }
+
+    // CP07: LocalGate is a Development-only opt-in — any other environment refuses to start with it.
+    [Theory]
+    [InlineData("Production")]
+    [InlineData("Staging")]
+    [InlineData("QA")]
+    public void A_non_development_host_refuses_to_start_with_local_gate(string environment)
+    {
+        using var host = factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseEnvironment(environment);
+            builder.UseSetting("DataProtection:KeysPath", Path.GetTempPath());
+            builder.UseSetting(AdminCalendarAccess.ModeKey, nameof(AdminCalendarAccessMode.LocalGate));
+        });
+
+        var root = RootCause(Assert.ThrowsAny<Exception>(() => host.CreateClient()));
+        Assert.Equal(
+            $"AdminCalendar:AccessMode=LocalGate is a Development-only opt-in; this host's environment is '{environment}'. " +
+            "Remove the setting to use Staff (the default).",
+            root.Message);
+    }
+
+    // CP07: a valid Production host starts in Staff with the mode missing or explicit, and serves
+    // nothing anonymously.
+    [Theory]
+    [InlineData(null)]
+    [InlineData("Staff")]
+    public async Task A_production_host_starts_in_staff_mode_when_the_mode_is_missing_or_staff(string? mode)
+    {
+        var seed = await SeedAsync();
+        using var host = factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseEnvironment("Production");
+            builder.UseSetting("DataProtection:KeysPath", Path.GetTempPath());
+            if (mode is not null)
+            {
+                builder.UseSetting(AdminCalendarAccess.ModeKey, mode);
+            }
+        });
+
+        Assert.Equal("Production", host.Services.GetRequiredService<IHostEnvironment>().EnvironmentName);
+        Assert.Equal(AdminCalendarAccessMode.Staff, host.Services.GetRequiredService<AdminCalendarAccess>().Mode);
+        await AssertUnauthorizedAsync(await CreateHttpsClient(host).SendAsync(Get(BoardUrl(seed.A))));
+    }
+
+    // CP07: either local flag still stops a Production host — in the Staff default too.
+    [Theory]
+    [InlineData("AdminCalendar:EnableUnauthenticatedRead", null)]
+    [InlineData("AdminCalendar:EnableUnauthenticatedRead", "Staff")]
+    [InlineData("AdminCalendar:EnableUnauthenticatedWrite", null)]
+    [InlineData("AdminCalendar:EnableUnauthenticatedWrite", "Staff")]
+    public void A_production_host_refuses_either_local_flag_in_staff_mode_too(string flag, string? mode)
+    {
+        using var host = factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseEnvironment("Production");
+            builder.UseSetting("DataProtection:KeysPath", Path.GetTempPath());
+            builder.UseSetting(flag, "true");
+            if (mode is not null)
+            {
+                builder.UseSetting(AdminCalendarAccess.ModeKey, mode);
+            }
+        });
+
+        var root = RootCause(Assert.ThrowsAny<Exception>(() => host.CreateClient()));
+        Assert.StartsWith($"{flag} must never be true in Production", root.Message, StringComparison.Ordinal);
+    }
+
+    private static Exception RootCause(Exception exception)
+    {
+        var current = exception;
+        while (current.InnerException is not null)
+        {
+            current = current.InnerException;
+        }
+
+        return current;
     }
 
     /// <summary>
@@ -709,7 +806,7 @@ public sealed class StaffCalendarAuthorizationTests(PostgreSqlWebApplicationFact
             await AssertUnauthorizedAsync(await client.SendAsync(Get(BoardUrl(seed.A), null, AdminOrigin)));
         }
 
-        using var local = CreateHost(null);
+        using var local = CreateHost(AdminCalendarAccessMode.LocalGate);
         using var localClient = CreateHttpsClient(local);
         var localPreflight = await localClient.SendAsync(Preflight(BoardUrl(seed.A), AdminOrigin, "GET"));
         Assert.Equal(AdminOrigin, Assert.Single(localPreflight.Headers.GetValues("Access-Control-Allow-Origin")));
@@ -766,7 +863,7 @@ public sealed class StaffCalendarAuthorizationTests(PostgreSqlWebApplicationFact
         foreach (var (mode, security, label) in new[]
                  {
                      ((AdminCalendarAccessMode?)AdminCalendarAccessMode.Staff, new[] { "StaffCookie" }, "AccessMode=Staff"),
-                     (null, Array.Empty<string>(), "AccessMode=LocalGate"),
+                     (AdminCalendarAccessMode.LocalGate, Array.Empty<string>(), "AccessMode=LocalGate"),
                  })
         {
             using var host = CreateHost(mode);

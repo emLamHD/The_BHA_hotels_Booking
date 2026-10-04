@@ -18,10 +18,13 @@ Admin Web hiện có một Reservation Board frontend prototype tương tác
 timeline, chuyển đổi demo giữa nhiều property, reservation đã/chưa gán
 phòng, operational block, và front-desk reservation workspace với lifecycle/
 folio/move demonstration — ban đầu chạy trên local deterministic mock state.
-Hiện chỉ Reservation Board đọc và ghi qua `Back_End/` (route local-only, xem
-CURRENT bên dưới); front-desk creation workspace và lifecycle/folio/move
-demonstration vẫn là mock. Chưa có Admin authentication/RBAC thật, chưa có OTA
-behavior thật; phần PMS/Admin backend còn lại vẫn TARGET, chưa implement.
+Hiện chỉ Reservation Board đọc và ghi qua `Back_End/` (xem CURRENT bên dưới),
+với Staff authentication, RBAC theo Property/role và audit Staff
+(`PMS-ADMIN-AUTH-001`); `Staff` là chế độ mặc định, `LocalGate` ẩn danh chỉ là
+opt-in Development. Front-desk creation workspace, lifecycle/folio/move
+demonstration và các module Admin mẫu khác vẫn là mock/template, ngoài phạm vi
+Staff session. Chưa có OTA behavior thật; phần PMS/Admin backend còn lại vẫn
+TARGET, chưa implement.
 
 Phạm vi onboarding hiện tại — TARGET, hai property đã được Owner duyệt, không
 phải khẳng định rằng cả hai đã tồn tại trong seed/schema hiện tại:
@@ -104,7 +107,19 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   nhân viên, phê duyệt hay Staff identity đã xác thực. Admin Reservation Board
   gọi create (CP03A/CP03B) và move/unassign. ADR 0006 §Amendments (2026-09-11,
   2026-09-15) ghi nhận đúng phần narration cũ bị thay thế; Decision của ADR
-  không đổi.
+  không đổi. (Mô tả gate ở trên là chế độ `LocalGate`; xem `PMS-ADMIN-AUTH-001`
+  bên dưới cho chế độ `Staff` mặc định.)
+- `PMS-ADMIN-AUTH-001` (ADR 0007; migration 9 là thay đổi schema duy nhất):
+  Staff identity riêng (`StaffAccounts`, `StaffPropertyMemberships`, vai trò
+  `FrontDesk`/`Manager` theo Property), bootstrap/grant/disable/reset chỉ qua
+  CLI, cookie session `.TheBha.Staff` (8 giờ tuyệt đối), `GET /api/admin/v1/me`.
+  `AdminCalendar:AccessMode`: `Staff` (mặc định từ CP07, mọi môi trường) yêu cầu
+  Staff session + permission kiểm tra trên server theo Property/role cho Board
+  read và năm route ghi, audit actor `staff:{id}` và evidence cross-RoomType của
+  Manager; `LocalGate` (gate ẩn danh ở trên) chỉ là opt-in Development, môi
+  trường khác từ chối khởi động. Admin_Web có `/signin`, gate `/calendar`,
+  selector từ memberships và UI theo quyền. Vận hành:
+  `docs/runbooks/PMS-ADMIN-AUTH-001-staff-calendar.md`. Chưa deploy Production.
 - `PMS-CAL-001.3-CP01` (không có migration mới) thêm endpoint **ghi** đầu tiên
   cho operational block sau đúng gate CP01 đó:
   `POST /api/admin/v1/properties/{propertyId}/operational-blocks`, adapter mỏng
@@ -153,14 +168,13 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   và Admin Reservation Board gọi cả hai từ CP03/CP04) —
   assignment split/batch, OperationalBlock *move/split* và multi-segment block
   create/supersede qua HTTP, frontend integration cho split/batch và cho
-  operational-block move/split, Admin authentication/RBAC
-  thật, và Staff identity thật để thay cho
-  `ActorReference`/`AuthorizationEvidence` opaque hiện tại, vẫn TARGET, chưa
-  implement.
-- Intentional cross-RoomType upgrade/downgrade **có authorization/reason/
-  audit thật qua Staff/RBAC** (opaque `AuthorizationEvidence`/`Reason` string
-  đã CURRENT ở mutation boundary trên, nhưng không phải permission check
-  thật), không reprice commercial record.
+  operational-block move/split vẫn TARGET, chưa implement. (Staff
+  authentication/RBAC và audit actor Staff đã CURRENT ở chế độ `Staff` —
+  `PMS-ADMIN-AUTH-001`; chế độ `LocalGate` vẫn dùng hằng số opaque.)
+- Intentional cross-RoomType upgrade/downgrade có authorization/reason/audit
+  qua Staff/RBAC — CURRENT ở chế độ `Staff` (permission
+  `AssignmentCrossRoomType` của Manager, evidence `staff-rbac:...`); không
+  reprice commercial record.
 - Calendar/Reservation Board là projection, không phải aggregate riêng.
 - `FolioEntries` là financial posting authority riêng biệt với booking
   snapshot; Guest identity document và Stay Declaration là hai concept có
@@ -169,8 +183,8 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   **cho mutation** (Admin Web hiện có một interactive Reservation Board
   frontend từ `ADMIN-002.1`/PR #32; phần đọc chính đã backend-integrated
   qua HTTPS từ `PMS-CAL-001.1`, và board gọi các route local-only assignment
-  create/move/unassign và operational-block create/cancel ở trên — chưa có
-  Admin authentication/RBAC thật.
+  create/move/unassign và operational-block create/cancel ở trên, với Staff
+  authentication/RBAC ở chế độ `Staff` mặc định.
   Front-desk creation workspace và lifecycle/folio/move demonstrations vẫn
   chạy hoàn toàn trên local mock state, chưa có mutation/persistence thật).
 
@@ -305,7 +319,8 @@ Xem [ADR 0003](../ADR/0003-model-hotel-stays-with-half-open-date-ranges.md).
   assignment create (`PMS-CAL-001.2` CP02), one-segment move/unassign
   (CP04B), single-segment operational-block create/cancel (`PMS-CAL-001.3`
   CP01/CP02) — các mutation còn lại (assignment split/batch, operational-block
-  move/split) và Staff/RBAC thật vẫn TARGET, chưa implement — xem
+  move/split) vẫn TARGET, chưa implement; Staff/RBAC của các route hiện có
+  đã CURRENT (`PMS-ADMIN-AUTH-001`) — xem
   [PMS-DATA-001-core-database-blueprint-v2](../design/PMS-DATA-001-core-database-blueprint-v2.md),
   [ADR 0005](../ADR/0005-separate-commercial-commitment-from-physical-allocation.md)
   và

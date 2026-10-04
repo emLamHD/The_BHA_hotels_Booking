@@ -26,8 +26,14 @@ namespace TheBha.IntegrationTests;
 /// Prompt's mandatory backend acceptance list end to end.
 /// </summary>
 [Collection(PostgreSqlCollection.Name)]
-public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactory factory)
+public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactory factory) : IDisposable
 {
+    // PMS-ADMIN-AUTH-001-CP07: these tests pin the LocalGate read. Staff is the default, so they
+    // select LocalGate explicitly; the non-Development tests below use the default host instead.
+    private readonly WebApplicationFactory<Program> localGate = factory.WithLocalGate();
+
+    public void Dispose() => localGate.Dispose();
+
     private static readonly DateTimeOffset Now = DateTimeOffset.Parse("2026-07-22T00:00:00Z");
 
     private static string BoardUrl(Guid propertyId, DateOnly from, DateOnly to) =>
@@ -58,7 +64,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         await factory.ResetDatabaseAsync();
         factory.Clock.UtcNow = Now;
         var propertyId = Guid.NewGuid();
-        using var client = CreateHttpsClient(factory);
+        using var client = CreateHttpsClient(localGate);
 
         var missingFrom = await client.GetAsync(
             $"/api/admin/v1/properties/{propertyId}/reservation-board?to=2026-09-05");
@@ -75,7 +81,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         await factory.ResetDatabaseAsync();
         factory.Clock.UtcNow = Now;
         var propertyId = Guid.NewGuid();
-        using var client = CreateHttpsClient(factory);
+        using var client = CreateHttpsClient(localGate);
 
         var response = await client.GetAsync(
             $"/api/admin/v1/properties/{propertyId}/reservation-board?from=not-a-date&to=2026-09-05");
@@ -91,7 +97,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         await factory.ResetDatabaseAsync();
         factory.Clock.UtcNow = Now;
         var propertyId = Guid.NewGuid();
-        using var client = CreateHttpsClient(factory);
+        using var client = CreateHttpsClient(localGate);
 
         var response = await client.GetAsync(
             $"/api/admin/v1/properties/{propertyId}/reservation-board?from={from}&to={to}");
@@ -106,7 +112,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         factory.Clock.UtcNow = Now;
         await using var context = factory.CreateDbContext();
         var fixture = await CreatePropertyAsync(context, "range-limits");
-        using var client = CreateHttpsClient(factory);
+        using var client = CreateHttpsClient(localGate);
 
         var oneNight = await client.GetAsync(BoardUrl(
             fixture.Property.Id, new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 2)));
@@ -133,7 +139,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         var property = await context.Properties.SingleAsync(p => p.Id == fixture.Property.Id);
         property.Deactivate(Now);
         await context.SaveChangesAsync();
-        using var client = CreateHttpsClient(factory);
+        using var client = CreateHttpsClient(localGate);
 
         var nonExistent = await client.GetAsync(
             BoardUrl(Guid.NewGuid(), new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 3)));
@@ -172,7 +178,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         context.Add(Assignment(fixture, fixture.StandardRooms[1], unitsBefore[0], from.AddDays(-4), from));
 
         await context.SaveChangesAsync();
-        using var client = CreateHttpsClient(factory);
+        using var client = CreateHttpsClient(localGate);
 
         var response = await client.GetAsync(BoardUrl(fixture.Property.Id, from, to));
         var board = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -206,7 +212,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         await context.SaveChangesAsync();
         cancelledSegment.Cancel();
         await context.SaveChangesAsync();
-        using var client = CreateHttpsClient(factory);
+        using var client = CreateHttpsClient(localGate);
 
         var response = await client.GetAsync(BoardUrl(fixture.Property.Id, from, to));
         var board = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -239,7 +245,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         await context.SaveChangesAsync();
         cancelledBlockSegment.Cancel();
         await context.SaveChangesAsync();
-        using var client = CreateHttpsClient(factory);
+        using var client = CreateHttpsClient(localGate);
 
         var response = await client.GetAsync(BoardUrl(fixture.Property.Id, from, to));
         var board = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -269,7 +275,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         var (_, units) = await CreateReservationAsync(context, fixture, fixture.Standard.Id, from, from.AddDays(3), "full");
         context.Add(Assignment(fixture, fixture.StandardRooms[0], units[0], from, from.AddDays(3)));
         await context.SaveChangesAsync();
-        using var client = CreateHttpsClient(factory);
+        using var client = CreateHttpsClient(localGate);
 
         var board = await client.GetFromJsonAsync<JsonElement>(BoardUrl(fixture.Property.Id, from, to));
         var stay = board.GetProperty("stays").EnumerateArray().Single();
@@ -289,7 +295,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         var to = new DateOnly(2026, 9, 5);
         await CreateReservationAsync(context, fixture, fixture.Standard.Id, from, from.AddDays(3), "unassigned");
         await context.SaveChangesAsync();
-        using var client = CreateHttpsClient(factory);
+        using var client = CreateHttpsClient(localGate);
 
         var board = await client.GetFromJsonAsync<JsonElement>(BoardUrl(fixture.Property.Id, from, to));
         var stay = board.GetProperty("stays").EnumerateArray().Single();
@@ -315,7 +321,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         var (_, units) = await CreateReservationAsync(context, fixture, fixture.Standard.Id, from, from.AddDays(6), "partial");
         context.Add(Assignment(fixture, fixture.StandardRooms[0], units[0], from.AddDays(2), from.AddDays(4)));
         await context.SaveChangesAsync();
-        using var client = CreateHttpsClient(factory);
+        using var client = CreateHttpsClient(localGate);
 
         var board = await client.GetFromJsonAsync<JsonElement>(BoardUrl(fixture.Property.Id, from, to));
         var stay = board.GetProperty("stays").EnumerateArray().Single();
@@ -346,7 +352,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         var (_, units) = await CreateReservationAsync(context, fixture, fixture.Standard.Id, from, from.AddDays(2), "cross");
         context.Add(Assignment(fixture, fixture.DeluxeRooms[0], units[0], from, from.AddDays(2)));
         await context.SaveChangesAsync();
-        using var client = CreateHttpsClient(factory);
+        using var client = CreateHttpsClient(localGate);
 
         var board = await client.GetFromJsonAsync<JsonElement>(BoardUrl(fixture.Property.Id, from, to));
         var stay = board.GetProperty("stays").EnumerateArray().Single();
@@ -379,7 +385,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         var cancelResult = await cancellationStore.CancelAsync(
             reservationEntity.Id, null, reservationEntity.GuestAccessTokenHash, "test cleanup", CancellationToken.None);
         Assert.Equal(ReservationCancellationStatus.Cancelled, cancelResult.Status);
-        using var client = CreateHttpsClient(factory);
+        using var client = CreateHttpsClient(localGate);
 
         var board = await client.GetFromJsonAsync<JsonElement>(BoardUrl(fixture.Property.Id, from, to));
 
@@ -406,7 +412,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         context.Add(blockA);
         context.Add(Block(propertyA, propertyA.DeluxeRooms[0], blockA, from, from.AddDays(1)));
         await context.SaveChangesAsync();
-        using var client = CreateHttpsClient(factory);
+        using var client = CreateHttpsClient(localGate);
 
         var boardB = await client.GetFromJsonAsync<JsonElement>(BoardUrl(propertyB.Property.Id, from, to));
 
@@ -436,7 +442,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         context.Add(Assignment(fixture, fixture.StandardRooms[1], unitsZ[0], from.AddDays(3), from.AddDays(5)));
         context.Add(Assignment(fixture, fixture.StandardRooms[0], unitsA[0], from, from.AddDays(2)));
         await context.SaveChangesAsync();
-        using var client = CreateHttpsClient(factory);
+        using var client = CreateHttpsClient(localGate);
 
         var board = await client.GetFromJsonAsync<JsonElement>(BoardUrl(fixture.Property.Id, from, to));
         var roomTypeNames = board.GetProperty("roomTypes").EnumerateArray()
@@ -467,7 +473,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         factory.Clock.UtcNow = DateTimeOffset.Parse("2026-09-01T17:30:00Z");
         await using var context = factory.CreateDbContext();
         var fixture = await CreatePropertyAsync(context, "local-today");
-        using var client = CreateHttpsClient(factory);
+        using var client = CreateHttpsClient(localGate);
 
         var board = await client.GetFromJsonAsync<JsonElement>(
             BoardUrl(fixture.Property.Id, new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 3)));
@@ -490,7 +496,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         var to = new DateOnly(2026, 9, 5);
         await CreateReservationAsync(context, fixture, fixture.Standard.Id, from, from.AddDays(2), "pii");
         await context.SaveChangesAsync();
-        using var client = CreateHttpsClient(factory);
+        using var client = CreateHttpsClient(localGate);
 
         var response = await client.GetAsync(BoardUrl(fixture.Property.Id, from, to));
         var payload = await response.Content.ReadAsStringAsync();
@@ -513,7 +519,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
     {
         await factory.ResetDatabaseAsync();
         factory.Clock.UtcNow = Now;
-        using var client = CreateHttpsClient(factory);
+        using var client = CreateHttpsClient(localGate);
 
         var notFound = await client.GetAsync(
             BoardUrl(Guid.NewGuid(), new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 3)));
@@ -534,8 +540,8 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         factory.Clock.UtcNow = Now;
         await using var context = factory.CreateDbContext();
         var fixture = await CreatePropertyAsync(context, "no-store");
-        using var enabledClient = CreateHttpsClient(factory);
-        await using var gatedFactory = factory.WithWebHostBuilder(builder =>
+        using var enabledClient = CreateHttpsClient(localGate);
+        await using var gatedFactory = factory.WithLocalGate(builder =>
             builder.ConfigureServices(services =>
                 services.Configure<AdminCalendarOptions>(options => options.EnableUnauthenticatedRead = false)));
         using var disabledClient = CreateHttpsClient(gatedFactory);
@@ -579,7 +585,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         factory.Clock.UtcNow = Now;
         await using var context = factory.CreateDbContext();
         var fixture = await CreatePropertyAsync(context, "cors");
-        using var client = CreateHttpsClient(factory);
+        using var client = CreateHttpsClient(localGate);
         var from = new DateOnly(2026, 9, 1);
         var to = new DateOnly(2026, 9, 3);
 
@@ -615,7 +621,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
     {
         await factory.ResetDatabaseAsync();
         factory.Clock.UtcNow = Now;
-        await using var gatedFactory = factory.WithWebHostBuilder(builder =>
+        await using var gatedFactory = factory.WithLocalGate(builder =>
             builder.ConfigureServices(services =>
                 services.Configure<AdminCalendarOptions>(options => options.EnableUnauthenticatedRead = false)));
         using var client = CreateHttpsClient(gatedFactory);
@@ -712,7 +718,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         // interceptor — the production registration is otherwise untouched, and this
         // exists solely inside this test-scoped factory.
         var barrier = new ReservationBoardSnapshotBarrierInterceptor(CandidateUnitsQueryTag);
-        await using var barrierFactory = factory.WithWebHostBuilder(builder =>
+        await using var barrierFactory = factory.WithLocalGate(builder =>
             builder.ConfigureServices(services =>
             {
                 services.RemoveAll<DbContextOptions<TheBhaDbContext>>();
@@ -789,7 +795,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         factory.Clock.UtcNow = Now;
         await using var context = factory.CreateDbContext();
         await new DevelopmentDataSeeder(context).SeedAsync(CancellationToken.None);
-        await using var gatedFactory = factory.WithWebHostBuilder(builder =>
+        await using var gatedFactory = factory.WithLocalGate(builder =>
             builder.ConfigureServices(services =>
                 services.Configure<AdminCalendarOptions>(options => options.EnableUnauthenticatedRead = false)));
         using var client = CreateHttpsClient(gatedFactory);
@@ -827,7 +833,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         await context.SaveChangesAsync();
 
         var spy = new RecordingReservationBoardQuery();
-        await using var spyFactory = factory.WithWebHostBuilder(builder =>
+        await using var spyFactory = factory.WithLocalGate(builder =>
             builder.ConfigureServices(services => services.AddScoped<IReservationBoardQuery>(_ => spy)));
 
         // Default BaseAddress is http://localhost — a genuine cleartext request
@@ -914,7 +920,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         var fixture = await CreatePropertyAsync(context, "http-spoof");
 
         var spy = new RecordingReservationBoardQuery();
-        await using var spyFactory = factory.WithWebHostBuilder(builder =>
+        await using var spyFactory = factory.WithLocalGate(builder =>
             builder.ConfigureServices(services => services.AddScoped<IReservationBoardQuery>(_ => spy)));
         using var httpClient = spyFactory.CreateClient(new WebApplicationFactoryClientOptions
         {
@@ -951,7 +957,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
             context, fixture, fixture.Standard.Id, from, to, "https-transport");
         context.Add(Assignment(fixture, fixture.StandardRooms[0], units[0], from, to));
         await context.SaveChangesAsync();
-        using var client = CreateHttpsClient(factory);
+        using var client = CreateHttpsClient(localGate);
 
         var ok = await client.GetAsync(BoardUrl(fixture.Property.Id, from, to));
         var board = await ok.Content.ReadFromJsonAsync<JsonElement>();
@@ -1041,10 +1047,12 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
     // materialized lazily, on the first Reservation Board request. A reloadable
     // configuration source could therefore be flipped to true *after* that
     // guard had already passed, and the pre-C5 filter would have honoured the
-    // late value and served guest data from a Production host. The gate is now
-    // environment-first, so the late value cannot matter.
+    // late value and served guest data from a Production host.
+    // PMS-ADMIN-AUTH-001-CP07: a Production host can no longer run LocalGate at
+    // all; it runs the Staff default, where the read flag is never consulted —
+    // so the late value still cannot matter, and an anonymous read is a 401.
     [Fact]
-    public async Task Production_gate_enabled_after_startup_still_returns_the_unavailable_404_without_reaching_the_board_query()
+    public async Task Production_default_staff_host_ignores_a_read_flag_enabled_after_startup_and_never_reaches_the_board_query()
     {
         await factory.ResetDatabaseAsync();
         factory.Clock.UtcNow = Now;
@@ -1066,6 +1074,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
             // change to how the environment is applied can never quietly turn
             // this into a Development test that passes for the wrong reason.
             Assert.Equal("Production", services.GetRequiredService<IHostEnvironment>().EnvironmentName);
+            Assert.Equal(AdminCalendarAccessMode.Staff, services.GetRequiredService<AdminCalendarAccess>().Mode);
             var configuration = services.GetRequiredService<IConfiguration>();
             Assert.Equal("False", configuration["AdminCalendar:EnableUnauthenticatedRead"], ignoreCase: true);
 
@@ -1085,8 +1094,8 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
             var response = await client.SendAsync(request);
             var body = await response.Content.ReadAsStringAsync();
 
-            // 5. Unavailable, non-cacheable, and the query/action never ran.
-            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+            // 5. Refused (no Staff session), non-cacheable, and the query/action never ran.
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
             Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
             Assert.Equal(0, spy.Invocations);
             Assert.DoesNotContain(RecordingReservationBoardQuery.SentinelGuest, body, StringComparison.Ordinal);
@@ -1099,8 +1108,10 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         }
     }
 
+    // CP07: a Staging host cannot select LocalGate either (startup refusal, pinned in
+    // StaffCalendarAuthorizationTests); it runs the Staff default with the read flag ignored.
     [Fact]
-    public async Task A_non_production_non_development_environment_with_the_gate_enabled_still_returns_the_unavailable_404()
+    public async Task A_non_production_non_development_environment_with_the_read_flag_enabled_runs_staff_and_refuses_anonymous_reads()
     {
         await factory.ResetDatabaseAsync();
         factory.Clock.UtcNow = Now;
@@ -1111,14 +1122,15 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         var keysPath = CreateDataProtectionKeysPath();
         try
         {
-            // Staging is not Production, so the startup guard deliberately does
-            // not fire — the host boots with the flag already true, and only the
-            // request-time environment check keeps it closed.
+            // Staging is not Production, so the flag guard deliberately does not
+            // fire — the host boots with the flag already true, and the Staff
+            // default never consults it.
             await using var stagingFactory = CreateNonDevelopmentFactory(
                 "Staging", spy, keysPath, enableGateAtStartup: true);
             Assert.Equal(
                 "Staging",
                 stagingFactory.Services.GetRequiredService<IHostEnvironment>().EnvironmentName);
+            Assert.Equal(AdminCalendarAccessMode.Staff, stagingFactory.Services.GetRequiredService<AdminCalendarAccess>().Mode);
             Assert.True(stagingFactory.Services.GetRequiredService<IOptions<AdminCalendarOptions>>()
                 .Value.EnableUnauthenticatedRead);
             using var client = CreateHttpsClient(stagingFactory);
@@ -1127,7 +1139,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
                 BoardUrl(fixture.Property.Id, new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 3)));
             var body = await response.Content.ReadAsStringAsync();
 
-            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
             Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
             Assert.Equal(0, spy.Invocations);
             Assert.DoesNotContain(RecordingReservationBoardQuery.SentinelGuest, body, StringComparison.Ordinal);
@@ -1138,8 +1150,9 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         }
     }
 
+    // CP07: the Production default is Staff — every board URL shape is refused before binding.
     [Fact]
-    public async Task Production_with_the_gate_off_is_uniformly_unavailable_and_leaves_an_unrelated_route_alone()
+    public async Task Production_default_staff_host_refuses_anonymous_board_reads_uniformly_and_leaves_an_unrelated_route_alone()
     {
         await factory.ResetDatabaseAsync();
         factory.Clock.UtcNow = Now;
@@ -1155,6 +1168,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
             Assert.Equal(
                 "Production",
                 productionFactory.Services.GetRequiredService<IHostEnvironment>().EnvironmentName);
+            Assert.Equal(AdminCalendarAccessMode.Staff, productionFactory.Services.GetRequiredService<AdminCalendarAccess>().Mode);
             using var client = CreateHttpsClient(productionFactory);
             var baseUrl = $"/api/admin/v1/properties/{propertyId}/reservation-board";
 
@@ -1169,14 +1183,14 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
             {
                 var response = await client.GetAsync(url);
                 Assert.True(
-                    HttpStatusCode.NotFound == response.StatusCode,
-                    $"case '{name}' expected 404, got {response.StatusCode}");
+                    HttpStatusCode.Unauthorized == response.StatusCode,
+                    $"case '{name}' expected 401, got {response.StatusCode}");
                 Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
             }
 
             Assert.Equal(0, spy.Invocations);
 
-            // The gate is scoped to this controller only.
+            // The refusal is scoped to the Admin route only.
             var unrelated = await client.GetAsync("/api/v1/properties");
             Assert.Equal(HttpStatusCode.OK, unrelated.StatusCode);
             Assert.NotEqual("no-store", unrelated.Headers.CacheControl?.ToString());
@@ -1195,7 +1209,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         await using var context = factory.CreateDbContext();
         var fixture = await CreatePropertyAsync(context, "dev-gate-on");
         Assert.Equal("Development", factory.Services.GetRequiredService<IHostEnvironment>().EnvironmentName);
-        using var client = CreateHttpsClient(factory);
+        using var client = CreateHttpsClient(localGate);
 
         var response = await client.GetAsync(
             BoardUrl(fixture.Property.Id, new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 3)));
@@ -1269,7 +1283,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         IPAddress? localAddress,
         IPAddress? remoteAddress,
         RecordingReservationBoardQuery spy) =>
-        factory.WithWebHostBuilder(builder =>
+        factory.WithLocalGate(builder =>
             builder.ConfigureServices(services =>
             {
                 services.AddSingleton(new TestConnectionAddresses
@@ -1455,7 +1469,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         await using var context = factory.CreateDbContext();
         var fixture = await CreatePropertyAsync(context, $"c9ok-{Guid.NewGuid():N}"[..24]);
 
-        await using var localFactory = factory.WithWebHostBuilder(builder =>
+        await using var localFactory = factory.WithLocalGate(builder =>
             builder.ConfigureServices(services => services.AddSingleton(new TestConnectionAddresses
             {
                 LocalIpAddress = IPAddress.Parse(localAddress),
@@ -1479,7 +1493,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         factory.Clock.UtcNow = Now;
         await using var context = factory.CreateDbContext();
         var fixture = await CreatePropertyAsync(context, "c9-validation");
-        using var client = CreateHttpsClient(factory);
+        using var client = CreateHttpsClient(localGate);
 
         // A malformed range on a permitted connection must still be a 400 with
         // no-store — the loopback rule tightens who may ask, not what the
@@ -1504,7 +1518,7 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
         var fixture = await CreatePropertyAsync(context, "c9-late-flip");
 
         var spy = new RecordingReservationBoardQuery();
-        await using var remoteFactory = factory.WithWebHostBuilder(builder =>
+        await using var remoteFactory = factory.WithLocalGate(builder =>
             builder.ConfigureServices(services =>
             {
                 services.AddSingleton(new TestConnectionAddresses
@@ -1548,37 +1562,38 @@ public sealed class AdminReservationBoardApiTests(PostgreSqlWebApplicationFactor
                 .Get<AdminCalendarOptions>()?.EnableUnauthenticatedRead ?? false);
     }
 
+    // PMS-ADMIN-AUTH-001-CP07: the default launch reflects the Staff default. No profile selects
+    // LocalGate or sets either local flag — a LocalGate run is an explicit local environment
+    // variable (README) — and the HTTPS profile stays bound to localhost.
     [Fact]
-    public void Only_the_local_https_launch_profile_opts_into_the_unauthenticated_board()
+    public void No_launch_profile_opts_into_local_gate_or_its_unauthenticated_flags()
     {
         using var document = JsonDocument.Parse(
             File.ReadAllText(Path.Combine(ApiContentRoot(), "Properties", "launchSettings.json")));
         var profiles = document.RootElement.GetProperty("profiles");
 
-        const string OptInKey = "AdminCalendar__EnableUnauthenticatedRead";
+        foreach (var profile in profiles.EnumerateObject())
+        {
+            if (profile.Value.TryGetProperty("environmentVariables", out var variables))
+            {
+                foreach (var key in new[]
+                         {
+                             "AdminCalendar__AccessMode",
+                             "AdminCalendar__EnableUnauthenticatedRead",
+                             "AdminCalendar__EnableUnauthenticatedWrite",
+                         })
+                {
+                    Assert.False(variables.TryGetProperty(key, out _), $"{profile.Name}: {key}");
+                }
+            }
+        }
 
         var https = profiles.GetProperty("https");
-        Assert.Equal(
-            "true",
-            https.GetProperty("environmentVariables").GetProperty(OptInKey).GetString());
-
-        // …and it must stay bound to localhost. A wildcard or external binding
-        // would put the opt-in on a reachable interface, which is exactly the
-        // shape this correction exists to prevent.
         var applicationUrl = https.GetProperty("applicationUrl").GetString() ?? string.Empty;
         Assert.NotEmpty(applicationUrl);
         foreach (var url in applicationUrl.Split(';', StringSplitOptions.RemoveEmptyEntries))
         {
             Assert.Equal("localhost", new Uri(url).Host);
-        }
-
-        // No other profile opts in — notably not the HTTP-only one.
-        foreach (var profile in profiles.EnumerateObject().Where(entry => entry.Name != "https"))
-        {
-            if (profile.Value.TryGetProperty("environmentVariables", out var variables))
-            {
-                Assert.False(variables.TryGetProperty(OptInKey, out _), profile.Name);
-            }
         }
     }
 

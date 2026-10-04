@@ -5,6 +5,8 @@ namespace TheBha.Api;
 /// local Development gates and their opt-in flags, unchanged. <see cref="Staff"/> is a Staff
 /// session plus a Property permission read from the database; the local gates and flags are not
 /// consulted, and an Admin route without a Staff permission is closed (404).
+/// CP07: <see cref="Staff"/> is the default, and <c>Program.cs</c> refuses to start a host that
+/// selects <see cref="LocalGate"/> outside Development.
 /// </summary>
 public enum AdminCalendarAccessMode
 {
@@ -22,8 +24,8 @@ public sealed record AdminCalendarAccess(AdminCalendarAccessMode Mode)
     public const string ModeKey = "AdminCalendar:AccessMode";
 
     /// <summary>
-    /// A key that no configuration source declares is <see cref="AdminCalendarAccessMode.LocalGate"/>
-    /// (the CP04 default). A declared key must be a scalar that is exactly <c>LocalGate</c> or
+    /// A key that no configuration source declares is <see cref="AdminCalendarAccessMode.Staff"/>
+    /// (CP07; it was LocalGate in CP04–CP06). A declared key must be a scalar that is exactly <c>LocalGate</c> or
     /// <c>Staff</c> (ordinal), with no child: an empty or null value, an empty JSON object or array,
     /// another spelling, a number or a nested section stops the host instead of falling back.
     ///
@@ -44,7 +46,7 @@ public sealed record AdminCalendarAccess(AdminCalendarAccessMode Mode)
             .FirstOrDefault(child => string.Equals(child.Key, ModeName, StringComparison.OrdinalIgnoreCase));
         if (mode is null)
         {
-            return new AdminCalendarAccess(AdminCalendarAccessMode.LocalGate);
+            return new AdminCalendarAccess(AdminCalendarAccessMode.Staff);
         }
 
         return mode.GetChildren().Any()
@@ -65,11 +67,13 @@ public sealed record AdminCalendarAccess(AdminCalendarAccessMode Mode)
 
 /// <summary>
 /// PMS-CAL-001.1: gates the unauthenticated Admin Reservation Board read
-/// endpoint, since Admin authentication/RBAC is explicitly deferred. Defaults
-/// to <c>false</c> everywhere, <em>including</em> Development (correction C9):
-/// the only supported way to turn it on is the local HTTPS launch profile,
-/// which sets <c>AdminCalendar__EnableUnauthenticatedRead=true</c> and binds
-/// to <c>localhost</c>. <c>Program.cs</c> makes it startup-fatal to run
+/// endpoint of <c>AccessMode=LocalGate</c>. Defaults to <c>false</c>
+/// everywhere, <em>including</em> Development (correction C9): the only
+/// supported way to turn it on is an explicit local environment variable,
+/// <c>AdminCalendar__EnableUnauthenticatedRead=true</c>, together with
+/// <c>AdminCalendar__AccessMode=LocalGate</c> on a Development host bound to
+/// <c>localhost</c> (CP07: no launch profile sets it any more, and in the
+/// default <c>Staff</c> mode it is not consulted). <c>Program.cs</c> makes it startup-fatal to run
 /// Production with this set to <c>true</c> — see the comment there.
 ///
 /// <para>
@@ -85,8 +89,8 @@ public sealed record AdminCalendarAccess(AdminCalendarAccessMode Mode)
 /// <para>
 /// Scope: same-machine development only. This endpoint must never be reachable
 /// through a LAN or public listener, or through an external-facing proxy.
-/// Admin authentication/RBAC remains deferred, so this is not production
-/// readiness.
+/// The LocalGate read has no authentication/RBAC, so it is never production
+/// readiness; Staff authentication/RBAC is <c>AccessMode=Staff</c> (CP03–CP07).
 /// </para>
 /// </summary>
 public sealed class AdminCalendarOptions
@@ -140,10 +144,10 @@ public sealed class AdminCalendarOptions
     /// </para>
     ///
     /// <para>
-    /// Scope: same-machine development only, and CP01 exposes no business
-    /// mutation endpoint at all — enabling this flag does not create an
-    /// assignment, move or block API. Admin authentication/RBAC remains
-    /// deferred, so this is not production readiness.
+    /// Scope: same-machine development only, and the flag itself creates no
+    /// endpoint. The LocalGate writes have no authentication/RBAC, so this is
+    /// never production readiness; Staff authorization of the writes is
+    /// <c>AccessMode=Staff</c> (CP05–CP07).
     /// </para>
     /// </summary>
     public bool EnableUnauthenticatedWrite { get; set; }
