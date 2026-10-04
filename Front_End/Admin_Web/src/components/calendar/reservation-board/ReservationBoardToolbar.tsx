@@ -8,6 +8,7 @@ import {
   InfoIcon,
   LockIcon,
 } from "@/icons";
+import { LOCAL_GATE_ACCESS, describeBoardAccess } from "./calendarAccess";
 import type {
   Property,
   PropertyId,
@@ -67,6 +68,8 @@ interface ReservationBoardToolbarProps {
   onCreateBlock?: () => void;
   /** Why Create operational block is unavailable now; `null` when it is available. */
   createBlockUnavailableReason?: string | null;
+  /** PMS-ADMIN-AUTH-001-CP06: what this board can do here, for the access mode and role in use. */
+  accessSummary?: string;
 }
 
 const ReservationBoardToolbar: React.FC<ReservationBoardToolbarProps> = ({
@@ -83,6 +86,7 @@ const ReservationBoardToolbar: React.FC<ReservationBoardToolbarProps> = ({
   onToggleFilter,
   onCreateBlock,
   createBlockUnavailableReason = null,
+  accessSummary = describeBoardAccess(LOCAL_GATE_ACCESS, null),
 }) => {
   return (
     <div className="flex flex-col gap-4 border-b border-gray-200 p-5 dark:border-gray-800 sm:p-6">
@@ -102,20 +106,15 @@ const ReservationBoardToolbar: React.FC<ReservationBoardToolbarProps> = ({
             read-only. It does not describe the local write opt-in as
             authentication or a permission grant, since it is neither.
             PMS-CAL-001.3-CP03: unassign (CP04D) and operational-block create
-            are now live too; block cancel and other lifecycle actions are not. */}
+            are now live too. PMS-ADMIN-AUTH-001-CP06: the text now comes from
+            `describeBoardAccess` — the mode in use and, in Staff mode, the
+            signed-in role at this Property; the server still decides. */}
         <span
           data-testid="reservation-board-capabilities"
           className="inline-flex max-w-full items-start gap-1.5 rounded-2xl bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600 dark:bg-white/[0.05] dark:text-gray-300"
         >
           <InfoIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-          <span>
-            Live data. Unassigned nights can be assigned to an Active room, of the same sold room type or, with
-            confirmation and a reason, a different one. An assigned segment can be moved to another Active room, of
-            the same sold room type or, with confirmation and a reason, a different one. It can also be unassigned.
-            An Active room can be blocked for a range of nights with a reason. Cancelling blocks and other lifecycle
-            actions are read-only. Writes need the local Development write opt-in — no production sign-in or
-            permissions yet.
-          </span>
+          <span>{accessSummary}</span>
         </span>
       </div>
 

@@ -52,6 +52,17 @@
  * left, and keep a lost-response room/night range locked until the server
  * shows the block. A pending re-read from either list holds every write on
  * that board.
+ *
+ * PMS-ADMIN-AUTH-001-CP06: `access` says how this board reaches the API. In
+ * `LocalGate` (the default, and every existing caller) nothing changes. In
+ * `Staff` mode the Properties are the signed-in Staff member's memberships
+ * (the public catalog is never read), each control and each submit handler is
+ * limited to what that membership's role allows (`calendarAccess.ts`), a `401`
+ * ends the session — but only once no write of this board is still on the wire,
+ * so every outcome and pending intent is settled first — and a `403` re-reads
+ * `me` to update roles without resending anything. The unconfirmed-write
+ * records in `uncertainWriteStorage.ts` are not tied to a Staff member, so a
+ * sign-out, an expiry or another Staff member signing in never drops them.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -111,6 +122,14 @@ import {
   type ReconciliationTarget,
 } from "./reconciliation";
 import { AlertIcon, CloseLineIcon } from "@/icons";
+import {
+  ACCESS_CHECK_MESSAGE,
+  LOCAL_GATE_ACCESS,
+  SIGNING_OUT_MESSAGE,
+  capabilitiesFor,
+  describeBoardAccess,
+  type BoardAccess,
+} from "./calendarAccess";
 import {
   buildVisibleRange,
   computeVisibleStartFromAnchor,
@@ -211,6 +230,18 @@ const STALE_MOVE_DIALOG_MESSAGE =
 const REJECTED_MOVE_THEN_BOARD_CHANGED_MESSAGE =
   "The server rejected the last move request, so nothing was changed. The board has changed; start the move again from the board on screen.";
 
+/** PMS-ADMIN-AUTH-001-CP06: a write the signed-in Staff member's role does not allow here. */
+const NOT_PERMITTED_MESSAGE =
+  "Your role at this Property does not allow this change. Nothing was sent.";
+
+/** CP06: a cross-RoomType confirmation by a role without that permission. */
+const CROSS_ROOM_TYPE_NOT_PERMITTED_MESSAGE =
+  "Placing a guest in a different room type needs a Manager at this Property. Nothing was sent.";
+
+/** CP06: a board read the server refused with 403. */
+const ACCESS_DENIED_MESSAGE =
+  "The server refused access to this Property's board for your Staff session. Your access is being checked again.";
+
 /** PMS-CAL-001.3-CP03-C2: a block dialog outlived the board it was opened from. */
 const STALE_BLOCK_DIALOG_MESSAGE =
   "The board changed after this dialog was opened. Nothing was sent; open Create operational block again from the board on screen.";
@@ -265,7 +296,40 @@ export function todayInTimeZone(timeZone: string, now: Date = new Date()): IsoDa
   }
 }
 
-const ReservationBoard: React.FC = () => {
+const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_GATE_ACCESS }) => {
+  const staffMode = access.mode === "Staff";
+  /** CP06: the live access, read by async continuations at the moment they resume. */
+  const accessRef = useRef(access);
+  useEffect(() => {
+    accessRef.current = access;
+  }, [access]);
+  /**
+   * CP06-C3: a re-read of `me` after a denial is under way, or could not answer:
+   * no new write may start (the ref for send-time checks, the state for
+   * rendering). Only the latest check that found the session reopens writes, in
+   * this effect — after the render carrying the re-read roles, which the effect
+   * above has already handed to `accessRef`.
+   */
+  const accessCheckRunRef = useRef(0);
+  const accessCheckPausedRef = useRef(false);
+  const [accessCheckPaused, setAccessCheckPaused] = useState(false);
+  const [accessCheckPassedRun, setAccessCheckPassedRun] = useState(0);
+  useEffect(() => {
+    if (accessCheckPassedRun !== 0 && accessCheckPassedRun === accessCheckRunRef.current) {
+      accessCheckPausedRef.current = false;
+    }
+  }, [accessCheckPassedRun]);
+  /**
+   * CP06-C3/C4: the check whose failure waits for this board's writes to settle,
+   * or `null`. It belongs to that check: a newer check (or the end of the
+   * session) drops it, and it is acted on at most once, only while still current.
+   */
+  const accessFailPendingRunRef = useRef<number | null>(null);
+  /** CP06: the session ended; nothing more is read or sent, and the board's data is gone. */
+  const [sessionEnded, setSessionEnded] = useState(false);
+  const sessionEndedRef = useRef(false);
+  /** CP06: the session ended while a write was on the wire; hand over once none is. */
+  const expirePendingRef = useRef(false);
   const [propertiesState, setPropertiesState] = useState<PropertiesState>({ status: "loading" });
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
   const [rangeLength, setRangeLength] = useState<ReservationBoardRangeLength>(INITIAL_RANGE_LENGTH);
@@ -471,6 +535,160 @@ const ReservationBoard: React.FC = () => {
       mountedRef.current = false;
     };
   }, []);
+
+  /**
+   * CP06: a write is on the wire from the moment its intent is recorded until its
+   * answer is in. CP06-C1: reported to the page synchronously — not from an
+   * effect — so Sign out, clicked in the same tick, already sees it.
+   */
+  const reportWriteActivity = useCallback(() => {
+    const current = accessRef.current;
+    if (current.mode === "Staff") current.onWriteActivityChange?.(inFlightTokensRef.current.size > 0);
+  }, []);
+
+  const trackWrite = useCallback(
+    (token: string) => {
+      inFlightTokensRef.current.add(token);
+      reportWriteActivity();
+    },
+    [reportWriteActivity]
+  );
+
+  const untrackWrite = useCallback(
+    (token: string) => {
+      inFlightTokensRef.current.delete(token);
+      reportWriteActivity();
+    },
+    [reportWriteActivity]
+  );
+
+  /**
+   * CP06-C1/C3: why no write may start right now — a sign-out waiting for the
+   * server, or access being checked again after a denial — read live at the
+   * moment a write would start; `null` when writes may start.
+   */
+  const writesPausedReason = useCallback((): "signing-out" | "checking-access" | null => {
+    const current = accessRef.current;
+    if (current.mode === "Staff" && current.isSigningOut?.() === true) return "signing-out";
+    return accessCheckPausedRef.current ? "checking-access" : null;
+  }, []);
+  const writesPausedNow = useCallback(() => writesPausedReason() !== null, [writesPausedReason]);
+
+  /** CP06: what the signed-in Staff member may do at one Property right now (LocalGate: everything, as before). */
+  const capabilitiesAt = useCallback(
+    (propertyId: string | null) => capabilitiesFor(accessRef.current, propertyId, sessionEndedRef.current, writesPausedNow()),
+    [writesPausedNow]
+  );
+
+  /** CP06-C1/C3: why a write the board refused at send time was not sent. */
+  const notPermittedMessage = useCallback(() => {
+    const paused = writesPausedReason();
+    return paused === "signing-out" ? SIGNING_OUT_MESSAGE : paused === "checking-access" ? ACCESS_CHECK_MESSAGE : NOT_PERMITTED_MESSAGE;
+  }, [writesPausedReason]);
+
+  /**
+   * CP06: the server said the Staff session is no longer valid. The board's data
+   * and every action on it close at once; the session itself is handed back to
+   * the page only when no write of this board is waiting for the server, so each
+   * outcome and pending intent is settled by its own handler first.
+   */
+  const expireSession = useCallback(() => {
+    const current = accessRef.current;
+    if (current.mode !== "Staff") return;
+    if (!sessionEndedRef.current) {
+      sessionEndedRef.current = true;
+      setSessionEnded(true);
+      setBoardState({ status: "idle" });
+      setSelection(null);
+    }
+    // CP06-C4: the session is over; a deferred access-check failure no longer applies.
+    accessFailPendingRunRef.current = null;
+    expirePendingRef.current = true;
+    if (inFlightTokensRef.current.size === 0) {
+      expirePendingRef.current = false;
+      current.onSessionExpired();
+    }
+  }, []);
+
+  /**
+   * CP06-C3: the re-read after a denial could not check access. The page closes
+   * access (error with Retry) only once no write of this board is on the wire, so
+   * each outcome and pending intent is settled by its own handler first.
+   */
+  const closeAccessAfterFailedCheck = useCallback((run: number) => {
+    const current = accessRef.current;
+    if (current.mode !== "Staff") return;
+    if (inFlightTokensRef.current.size === 0) {
+      current.onAccessCheckFailed?.();
+    } else {
+      accessFailPendingRunRef.current = run;
+    }
+  }, []);
+
+  /** CP06-C4: a write settled; the deferred failure is acted on once, and only if its check is still the latest. */
+  const settleDeferredAccessFailure = useCallback(() => {
+    const run = accessFailPendingRunRef.current;
+    if (run === null || inFlightTokensRef.current.size !== 0) return;
+    accessFailPendingRunRef.current = null;
+    const current = accessRef.current;
+    if (current.mode === "Staff" && run === accessCheckRunRef.current) current.onAccessCheckFailed?.();
+  }, []);
+
+  /**
+   * CP06: after a 403, re-read `me` once. Never resends anything. CP06-C3: no new
+   * write starts until the latest such check has answered; it reopens writes only
+   * on `authenticated`. `unauthenticated` ends the session; an error — or a check
+   * superseded with nothing newer to decide — closes access with Retry.
+   */
+  const refreshAfterDenial = useCallback(async () => {
+    const current = accessRef.current;
+    if (current.mode !== "Staff" || sessionEndedRef.current) return;
+    const run = ++accessCheckRunRef.current;
+    // CP06-C4: this check takes over; an older check's deferred failure no longer applies.
+    accessFailPendingRunRef.current = null;
+    accessCheckPausedRef.current = true;
+    setAccessCheckPaused(true);
+    const result = await current.refreshAccess();
+    if (run !== accessCheckRunRef.current) return; // a newer check decides
+    if (result === "authenticated") {
+      setAccessCheckPaused(false);
+      setAccessCheckPassedRun(run);
+    } else if (result === "unauthenticated") {
+      expireSession();
+    } else {
+      closeAccessAfterFailedCheck(run);
+    }
+  }, [expireSession, closeAccessAfterFailedCheck]);
+
+  /**
+   * CP06: the last step of every submit handler on a live page, after its
+   * outcome and intent are settled: a `401` ends the session, a `403` other than
+   * the cross-RoomType confirmation re-reads `me`, and a session that ended
+   * while this write was on the wire is handed over now if none is left.
+   */
+  const afterWrite = useCallback(
+    (outcome: { kind: string; status?: number; category?: string }) => {
+      const current = accessRef.current;
+      if (current.mode !== "Staff") return;
+      if (outcome.kind === "rejected" && outcome.status === 401) {
+        expireSession();
+        return;
+      }
+      if (
+        outcome.kind === "rejected" &&
+        outcome.status === 403 &&
+        outcome.category !== "cross-room-type-confirmation-required"
+      ) {
+        void refreshAfterDenial();
+      }
+      if (expirePendingRef.current && inFlightTokensRef.current.size === 0) {
+        expirePendingRef.current = false;
+        current.onSessionExpired();
+      }
+      settleDeferredAccessFailure();
+    },
+    [expireSession, refreshAfterDenial, settleDeferredAccessFailure]
+  );
 
   /**
    * CP03-C1: writes the tab's unconfirmed record from both lists and, only if
@@ -694,6 +912,8 @@ const ReservationBoard: React.FC = () => {
   // Initial load: real active Properties, then deterministically select the
   // first and derive the initial anchor from its own time zone.
   useEffect(() => {
+    // CP06: in Staff mode the memberships are the Properties; the public catalog is never read.
+    if (staffMode) return;
     const controller = new AbortController();
     setPropertiesState({ status: "loading" });
     fetchActiveProperties(controller.signal).then((result) => {
@@ -711,7 +931,20 @@ const ReservationBoard: React.FC = () => {
       }
     });
     return () => controller.abort();
-  }, []);
+  }, [staffMode]);
+
+  const memberships = access.mode === "Staff" ? access.memberships : null;
+  useEffect(() => {
+    if (memberships === null) return;
+    setPropertiesState({
+      status: "loaded",
+      properties: memberships.map((membership) => ({
+        id: membership.propertyId,
+        name: membership.propertyName,
+        timeZone: membership.timeZone,
+      })),
+    });
+  }, [memberships]);
 
   const rangeStart = anchorDate ? computeVisibleStartFromAnchor(anchorDate, rangeLength) : null;
   const range = rangeStart ? buildVisibleRange(rangeStart, rangeLength) : null;
@@ -720,8 +953,15 @@ const ReservationBoard: React.FC = () => {
   // protection: an AbortController per request, plus a monotonic sequence
   // number checked before committing results (belt-and-suspenders in case a
   // fetch polyfill/environment does not fully honor abort).
+  const boardReadAllowed = capabilitiesFor(access, selectedPropertyId, sessionEnded).boardRead;
+
   useEffect(() => {
     if (!selectedPropertyId || !range) return;
+    // CP06: no read without permission at this Property, and none after the session ended.
+    if (!boardReadAllowed) {
+      setBoardState({ status: "idle" });
+      return;
+    }
     const thisSeq = requestSeqRef.current + 1;
     requestSeqRef.current = thisSeq;
     const controller = new AbortController();
@@ -746,9 +986,17 @@ const ReservationBoard: React.FC = () => {
       if (controller.signal.aborted) return;
       if (!result.ok) {
         if (result.error.kind === "aborted") return;
-        setBoardState({ status: "error", error: result.error });
+        const status = result.error.status;
+        // CP06: a refused read shows none of this Property's data; the error replaces it.
+        setBoardState(
+          staffMode && status === 403
+            ? { status: "error", error: { ...result.error, message: ACCESS_DENIED_MESSAGE } }
+            : { status: "error", error: result.error }
+        );
         updateReconciliations((list) => settleReconciliations(list, requestKey, thisSeq, { kind: "failed" }));
         updateBlockReconciliations((list) => settleBlockReconciliations(list, requestKey, thisSeq, { kind: "failed" }));
+        if (staffMode && status === 401) expireSession();
+        else if (staffMode && status === 403) void refreshAfterDenial();
         return;
       }
       setBoardState({ status: "loaded", board: result.data });
@@ -761,7 +1009,7 @@ const ReservationBoard: React.FC = () => {
     });
     return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedPropertyId, range?.start, range?.endExclusive, retryToken]);
+  }, [selectedPropertyId, range?.start, range?.endExclusive, retryToken, boardReadAllowed]);
 
   /**
    * PMS-CAL-001.3-CP03-C1: every navigation records the board identity it is
@@ -860,6 +1108,54 @@ const ReservationBoard: React.FC = () => {
     [propertiesState, anchorDate, rangeLength, markNavigation, closeStaleBlockDialog, closeStaleBlockCancelDialog, moveTarget]
   );
 
+  /**
+   * CP06: in Staff mode the Property list follows the memberships. The first
+   * one is selected on arrival; when the selected one is no longer granted, the
+   * board moves to the first that is, or — with none — closes completely, so no
+   * Property of an earlier session or role stays selected.
+   */
+  useEffect(() => {
+    if (!staffMode || propertiesState.status !== "loaded") return;
+    const list = propertiesState.properties;
+    if (selectedPropertyId !== null && list.some((property) => property.id === selectedPropertyId)) return;
+    if (list.length > 0) {
+      if (selectedPropertyId === null) {
+        const first = list[0];
+        const anchor = todayInTimeZone(first.timeZone);
+        markNavigation(first.id, anchor, rangeLength);
+        setSelectedPropertyId(first.id);
+        setAnchorDate(anchor);
+      } else {
+        handleSelectProperty(list[0].id);
+      }
+      return;
+    }
+    if (selectedPropertyId === null) return;
+    currentBoardKeyRef.current = null;
+    setSelectedPropertyId(null);
+    setBoardState({ status: "idle" });
+    setSelection(null);
+    setAssignmentTarget(null);
+    setAssignmentNotice(null);
+    if (!moveRequestPendingRef.current) setMoveTarget(null);
+    setMoveNotice(null);
+    if (!unassignRequestPendingRef.current) setUnassignTarget(null);
+    setUnassignNotice(null);
+    if (!blockSubmittedRef.current) closeStaleBlockDialog();
+    setBlockNotice(null);
+    if (!blockCancelSubmittedRef.current) closeStaleBlockCancelDialog();
+    setBlockCancelNotice(null);
+  }, [
+    staffMode,
+    propertiesState,
+    selectedPropertyId,
+    rangeLength,
+    markNavigation,
+    handleSelectProperty,
+    closeStaleBlockDialog,
+    closeStaleBlockCancelDialog,
+  ]);
+
   const handlePrev = useCallback(() => {
     if (!anchorDate) return;
     const nextAnchor = addDaysIso(anchorDate, -rangeLength);
@@ -923,13 +1219,20 @@ const ReservationBoard: React.FC = () => {
       ) {
         return;
       }
-      const target = buildAssignmentTarget(boardState.board, selectedPropertyId, unassignedSelection);
-      if (!target) return;
+      // CP06: only a role that may assign opens the dialog, and without the
+      // cross-RoomType permission it offers rooms of the sold type only.
+      const capabilities = capabilitiesAt(boardState.board.property.id);
+      if (!capabilities.assignmentWrite) return;
+      const built = buildAssignmentTarget(boardState.board, selectedPropertyId, unassignedSelection);
+      if (!built) return;
+      const target = capabilities.crossRoomType
+        ? built
+        : { ...built, candidateRooms: built.candidateRooms.filter((room) => room.isSameSoldType) };
       setSelection(null);
       setDialogReconciliationId(null);
       setAssignmentTarget(target);
     },
-    [boardState, selectedPropertyId, isBoardAwaitingAnyWrite]
+    [boardState, selectedPropertyId, isBoardAwaitingAnyWrite, capabilitiesAt]
   );
 
   /**
@@ -969,6 +1272,12 @@ const ReservationBoard: React.FC = () => {
       // never send `confirmCrossRoomType: false` for a room that is not, in
       // fact, the Unit's sold RoomType.
       const isCrossRoomType = room.roomTypeId !== target.stay.soldRoomTypeId;
+      // CP06: re-checked at send time against the role as it is now.
+      const capabilities = capabilitiesAt(target.propertyId);
+      if (!capabilities.assignmentWrite) return { kind: "not-sent", message: notPermittedMessage() };
+      if (isCrossRoomType && !capabilities.crossRoomType) {
+        return { kind: "not-sent", message: CROSS_ROOM_TYPE_NOT_PERMITTED_MESSAGE };
+      }
       // PMS-CAL-001.3-CP03-C1: re-checked at send time, not only when the dialog opened.
       const unverified = refuseWhileStorageUnverified();
       if (unverified) return { kind: "not-sent", message: unverified };
@@ -992,7 +1301,7 @@ const ReservationBoard: React.FC = () => {
       // PMS-CAL-001.5-CP03: after every refusal above, immediately before the wire.
       const pendingToken = beginPendingWrite(tabStorage(), { kind: "assignment", entry: asUnansweredEntry(target, writeTarget) });
       if (pendingToken === null) return { kind: "not-sent", message: INTENT_NOT_RECORDED_MESSAGE };
-      inFlightTokensRef.current.add(pendingToken);
+      trackWrite(pendingToken);
 
       const outcome = await createReservationAssignment(target.propertyId, {
         reservationUnitId: target.stay.reservationUnitId,
@@ -1002,7 +1311,7 @@ const ReservationBoard: React.FC = () => {
         confirmCrossRoomType: isCrossRoomType,
         ...(isCrossRoomType && crossRoomType ? { reason: crossRoomType.reason } : {}),
       });
-      inFlightTokensRef.current.delete(pendingToken);
+      untrackWrite(pendingToken);
       // CP03: a page that is unloading is as good as gone — a reload aborts the
       // fetch before the board unmounts (verified live in Chrome).
       if (!mountedRef.current || isPageUnloading()) {
@@ -1042,14 +1351,27 @@ const ReservationBoard: React.FC = () => {
       // Only now: an unknown outcome is already in the tracked list, and the
       // intent goes only once that list is safely stored (CP03-C1).
       finishIntent(pendingToken, outcome.kind, describeAssignmentOutcome(outcome).reloadBoard);
+      afterWrite(outcome);
       return outcome;
     },
-    [updateReconciliations, keepReconciliation, isRoomLocked, refuseWhileStorageUnverified, finishIntent]
+    [
+      updateReconciliations,
+      keepReconciliation,
+      isRoomLocked,
+      refuseWhileStorageUnverified,
+      finishIntent,
+      capabilitiesAt,
+      notPermittedMessage,
+      trackWrite,
+      untrackWrite,
+      afterWrite,
+    ]
   );
 
   const handleMoveRoom = useCallback(
     (moveSelection: AssignedSegmentSelection) => {
       if (boardState.status !== "loaded") return;
+      if (!capabilitiesAt(boardState.board.property.id).assignmentWrite) return;
       const displayedKey = boardIdentityKey(
         boardState.board.property.id,
         boardState.board.from,
@@ -1085,7 +1407,7 @@ const ReservationBoard: React.FC = () => {
       moveDialogOutcomeRef.current = null;
       setMoveTarget(target);
     },
-    [boardState, selectedPropertyId, isBoardAwaitingAnyWrite, isRoomLocked]
+    [boardState, selectedPropertyId, isBoardAwaitingAnyWrite, isRoomLocked, capabilitiesAt]
   );
 
   /**
@@ -1106,6 +1428,13 @@ const ReservationBoard: React.FC = () => {
       const displayedKey = boardIdentityKey(board.property.id, board.from, board.to);
       if (physicalRoomId !== undefined && dragSourceBoardKeyRef.current !== displayedKey) {
         return "The board changed during the drag.";
+      }
+      const capabilities = capabilitiesAt(board.property.id);
+      if (!capabilities.assignmentWrite) {
+        const paused = writesPausedReason();
+        if (paused === "signing-out") return "Signing out — changes are paused.";
+        if (paused === "checking-access") return "Checking your access again — changes are paused.";
+        return "Your role at this Property cannot move stays.";
       }
       if (moveRequestPendingRef.current) return "Another move is still waiting for the server.";
       if (isBoardAwaitingAnyWrite(displayedKey)) return "Waiting for the board to be re-read after a change.";
@@ -1130,9 +1459,12 @@ const ReservationBoard: React.FC = () => {
       if (isRoomLocked(board.property.id, [room.id], dragged.segment)) {
         return `An earlier change to room ${room.roomNumber} on these nights is still unconfirmed.`;
       }
+      if (!capabilities.crossRoomType && !target.candidateRooms.some((candidate) => candidate.id === room.id && candidate.isSameSoldType)) {
+        return `Moving this stay to room ${room.roomNumber}, a different room type, needs a Manager.`;
+      }
       return null;
     },
-    [boardState, selectedPropertyId, isBoardAwaitingAnyWrite, isRoomLocked]
+    [boardState, selectedPropertyId, isBoardAwaitingAnyWrite, isRoomLocked, capabilitiesAt, writesPausedReason]
   );
 
   const handleAssignedSegmentDragStart = useCallback(
@@ -1177,6 +1509,7 @@ const ReservationBoard: React.FC = () => {
   const handleUnassignRoom = useCallback(
     (unassignSelection: AssignedSegmentSelection) => {
       if (boardState.status !== "loaded") return;
+      if (!capabilitiesAt(boardState.board.property.id).assignmentWrite) return;
       const displayedKey = boardIdentityKey(
         boardState.board.property.id,
         boardState.board.from,
@@ -1205,7 +1538,7 @@ const ReservationBoard: React.FC = () => {
       setDialogUnassignReconciliationId(null);
       setUnassignTarget(target);
     },
-    [boardState, selectedPropertyId, isBoardAwaitingAnyWrite, isRoomLocked]
+    [boardState, selectedPropertyId, isBoardAwaitingAnyWrite, isRoomLocked, capabilitiesAt]
   );
 
   /** C2: the open move dialog's latest result, read by a later Property switch. */
@@ -1235,6 +1568,12 @@ const ReservationBoard: React.FC = () => {
       // same-sold-RoomType — this is the line that turns that choice into
       // the request's own `confirmCrossRoomType`.
       const isCrossRoomType = room.roomTypeId !== target.stay.soldRoomTypeId;
+      // CP06: re-checked at send time against the role as it is now.
+      const capabilities = capabilitiesAt(target.propertyId);
+      if (!capabilities.assignmentWrite) return recordMoveOutcome({ kind: "not-sent", message: notPermittedMessage() });
+      if (isCrossRoomType && !capabilities.crossRoomType) {
+        return recordMoveOutcome({ kind: "not-sent", message: CROSS_ROOM_TYPE_NOT_PERMITTED_MESSAGE });
+      }
       // PMS-CAL-001.3-CP03-C1: a move changes both its source and its destination room.
       const unverified = refuseWhileStorageUnverified();
       if (unverified) return recordMoveOutcome({ kind: "not-sent", message: unverified });
@@ -1268,7 +1607,7 @@ const ReservationBoard: React.FC = () => {
       // PMS-CAL-001.5-CP03: after every refusal above, immediately before the wire.
       const pendingToken = beginPendingWrite(tabStorage(), { kind: "assignment", entry: asUnansweredEntry(target, writeTarget) });
       if (pendingToken === null) return recordMoveOutcome({ kind: "not-sent", message: INTENT_NOT_RECORDED_MESSAGE });
-      inFlightTokensRef.current.add(pendingToken);
+      trackWrite(pendingToken);
 
       moveRequestPendingRef.current = true;
       const outcome = await moveReservationAssignment(target.propertyId, target.segment.segmentId, {
@@ -1285,7 +1624,7 @@ const ReservationBoard: React.FC = () => {
       // proof that none did, even though it was called.
       if (outcome.kind !== "not-sent") moveDialogSentRef.current = true;
       recordMoveOutcome(outcome);
-      inFlightTokensRef.current.delete(pendingToken);
+      untrackWrite(pendingToken);
       // CP03: a page that is unloading is as good as gone — a reload aborts the
       // fetch before the board unmounts (verified live in Chrome).
       if (!mountedRef.current || isPageUnloading()) {
@@ -1337,9 +1676,22 @@ const ReservationBoard: React.FC = () => {
       // Only now: an unknown outcome is already in the tracked list, and the
       // intent goes only once that list is safely stored (CP03-C1).
       finishIntent(pendingToken, outcome.kind, describeMoveOutcome(outcome).reloadBoard);
+      afterWrite(outcome);
       return outcome;
     },
-    [updateReconciliations, keepReconciliation, isRoomLocked, refuseWhileStorageUnverified, recordMoveOutcome, finishIntent]
+    [
+      updateReconciliations,
+      keepReconciliation,
+      isRoomLocked,
+      refuseWhileStorageUnverified,
+      recordMoveOutcome,
+      finishIntent,
+      capabilitiesAt,
+      notPermittedMessage,
+      trackWrite,
+      untrackWrite,
+      afterWrite,
+    ]
   );
 
   /**
@@ -1352,6 +1704,7 @@ const ReservationBoard: React.FC = () => {
   const submitUnassign = useCallback(
     async (target: UnassignTarget, reason?: string): Promise<UnassignAssignmentOutcome> => {
       const { propertyId, segmentId, request } = buildUnassignRequest(target, reason);
+      if (!capabilitiesAt(propertyId).assignmentWrite) return { kind: "not-sent", message: notPermittedMessage() };
       const unverified = refuseWhileStorageUnverified();
       if (unverified) return { kind: "not-sent", message: unverified };
       if (isRoomLocked(propertyId, [target.segment.physicalRoomId], target.segment)) {
@@ -1361,12 +1714,12 @@ const ReservationBoard: React.FC = () => {
       const unanswered = planUnassignReconciliation(target, { kind: "unknown", reason: "network" }, { id: 0, afterSeq: 0 });
       const pendingToken = unanswered ? beginPendingWrite(tabStorage(), { kind: "assignment", entry: unanswered }) : null;
       if (pendingToken === null) return { kind: "not-sent", message: INTENT_NOT_RECORDED_MESSAGE };
-      inFlightTokensRef.current.add(pendingToken);
+      trackWrite(pendingToken);
 
       unassignRequestPendingRef.current = true;
       const outcome = await unassignReservationAssignment(propertyId, segmentId, request);
       unassignRequestPendingRef.current = false;
-      inFlightTokensRef.current.delete(pendingToken);
+      untrackWrite(pendingToken);
       // CP03: a page that is unloading is as good as gone — a reload aborts the
       // fetch before the board unmounts (verified live in Chrome).
       if (!mountedRef.current || isPageUnloading()) {
@@ -1405,9 +1758,21 @@ const ReservationBoard: React.FC = () => {
       // Only now: an unknown outcome is already in the tracked list, and the
       // intent goes only once that list is safely stored (CP03-C1).
       finishIntent(pendingToken, outcome.kind, reconciliation !== null);
+      afterWrite(outcome);
       return outcome;
     },
-    [updateReconciliations, keepReconciliation, isRoomLocked, refuseWhileStorageUnverified, finishIntent]
+    [
+      updateReconciliations,
+      keepReconciliation,
+      isRoomLocked,
+      refuseWhileStorageUnverified,
+      finishIntent,
+      capabilitiesAt,
+      notPermittedMessage,
+      trackWrite,
+      untrackWrite,
+      afterWrite,
+    ]
   );
 
   const currentBoardKey =
@@ -1437,6 +1802,7 @@ const ReservationBoard: React.FC = () => {
   const handleOpenCreateBlock = useCallback(() => {
     if (boardState.status !== "loaded" || blockRequestPendingRef.current) return;
     const board = boardState.board;
+    if (!capabilitiesAt(board.property.id).blockWrite) return;
     const key = boardIdentityKey(board.property.id, board.from, board.to);
     if (isBoardAwaitingAnyWrite(key)) return;
     const roomTypeNames = new Map(board.roomTypes.map((roomType) => [roomType.id, roomType.name]));
@@ -1459,7 +1825,7 @@ const ReservationBoard: React.FC = () => {
       boardTo: board.to,
       rooms,
     });
-  }, [boardState, isBoardAwaitingAnyWrite]);
+  }, [boardState, isBoardAwaitingAnyWrite, capabilitiesAt]);
 
   /**
    * PMS-CAL-001.3-CP04: opens the cancel dialog for one clicked block, but only
@@ -1472,6 +1838,7 @@ const ReservationBoard: React.FC = () => {
     (blockSelection: BlockSelection) => {
       if (boardState.status !== "loaded" || blockCancelRequestPendingRef.current) return;
       const board = boardState.board;
+      if (!capabilitiesAt(board.property.id).blockWrite) return;
       const key = boardIdentityKey(board.property.id, board.from, board.to);
       // The board on screen may already be contradicted by a write that has not
       // been re-read yet; nothing on it may start another one.
@@ -1485,7 +1852,7 @@ const ReservationBoard: React.FC = () => {
       setDialogBlockCancelReconciliationId(null);
       setBlockCancelTarget(target);
     },
-    [boardState, selectedPropertyId, isBoardAwaitingAnyWrite, isRoomLocked]
+    [boardState, selectedPropertyId, isBoardAwaitingAnyWrite, isRoomLocked, capabilitiesAt]
   );
 
   /**
@@ -1497,6 +1864,7 @@ const ReservationBoard: React.FC = () => {
   const submitBlockCancel = useCallback(
     async (target: BlockCancelTarget, reason?: string): Promise<OperationalBlockCancelOutcome> => {
       const { block } = target;
+      if (!capabilitiesAt(target.propertyId).blockWrite) return { kind: "not-sent", message: notPermittedMessage() };
       const unverified = refuseWhileStorageUnverified();
       if (unverified) return { kind: "not-sent", message: unverified };
       if (isRoomLocked(target.propertyId, [block.physicalRoomId], block)) {
@@ -1524,7 +1892,7 @@ const ReservationBoard: React.FC = () => {
       // PMS-CAL-001.5-CP03: after every refusal above, immediately before the wire.
       const pendingToken = beginPendingWrite(tabStorage(), { kind: "block", entry: asUnansweredEntry(target, writeTarget) });
       if (pendingToken === null) return { kind: "not-sent", message: INTENT_NOT_RECORDED_MESSAGE };
-      inFlightTokensRef.current.add(pendingToken);
+      trackWrite(pendingToken);
 
       blockCancelRequestPendingRef.current = true;
       blockCancelSubmittedRef.current = true;
@@ -1537,7 +1905,7 @@ const ReservationBoard: React.FC = () => {
       } finally {
         blockCancelRequestPendingRef.current = false;
       }
-      inFlightTokensRef.current.delete(pendingToken);
+      untrackWrite(pendingToken);
       // CP03: a page that is unloading is as good as gone — a reload aborts the
       // fetch before the board unmounts (verified live in Chrome).
       if (!mountedRef.current || isPageUnloading()) {
@@ -1584,9 +1952,22 @@ const ReservationBoard: React.FC = () => {
       // Only now: an unknown outcome is already in the tracked list, and the
       // intent goes only once that list is safely stored (CP03-C1).
       finishIntent(pendingToken, outcome.kind, view.reloadBoard);
+      afterWrite(outcome);
       return outcome;
     },
-    [updateBlockReconciliations, isRoomLocked, closeStaleBlockCancelDialog, keepBlockReconciliation, refuseWhileStorageUnverified, finishIntent]
+    [
+      updateBlockReconciliations,
+      isRoomLocked,
+      closeStaleBlockCancelDialog,
+      keepBlockReconciliation,
+      refuseWhileStorageUnverified,
+      finishIntent,
+      capabilitiesAt,
+      notPermittedMessage,
+      trackWrite,
+      untrackWrite,
+      afterWrite,
+    ]
   );
 
   const isBlockRangeLocked = useCallback(
@@ -1602,6 +1983,7 @@ const ReservationBoard: React.FC = () => {
       if (!room) {
         return { kind: "not-sent", message: "Choose one of the listed rooms." };
       }
+      if (!capabilitiesAt(target.propertyId).blockWrite) return { kind: "not-sent", message: notPermittedMessage() };
       const unverified = refuseWhileStorageUnverified();
       if (unverified) return { kind: "not-sent", message: unverified };
       if (isRoomLocked(target.propertyId, [room.id], request)) {
@@ -1626,7 +2008,7 @@ const ReservationBoard: React.FC = () => {
       // PMS-CAL-001.5-CP03: after every refusal above, immediately before the wire.
       const pendingToken = beginPendingWrite(tabStorage(), { kind: "block", entry: asUnansweredEntry(target, writeTarget) });
       if (pendingToken === null) return { kind: "not-sent", message: INTENT_NOT_RECORDED_MESSAGE };
-      inFlightTokensRef.current.add(pendingToken);
+      trackWrite(pendingToken);
 
       blockRequestPendingRef.current = true;
       blockSubmittedRef.current = true;
@@ -1641,7 +2023,7 @@ const ReservationBoard: React.FC = () => {
       } finally {
         blockRequestPendingRef.current = false;
       }
-      inFlightTokensRef.current.delete(pendingToken);
+      untrackWrite(pendingToken);
       // CP03: a page that is unloading is as good as gone — a reload aborts the
       // fetch before the board unmounts (verified live in Chrome).
       if (!mountedRef.current || isPageUnloading()) {
@@ -1690,9 +2072,22 @@ const ReservationBoard: React.FC = () => {
       // Only now: an unknown outcome is already in the tracked list, and the
       // intent goes only once that list is safely stored (CP03-C1).
       finishIntent(pendingToken, outcome.kind, view.reloadBoard);
+      afterWrite(outcome);
       return outcome;
     },
-    [updateBlockReconciliations, isRoomLocked, closeStaleBlockDialog, keepBlockReconciliation, refuseWhileStorageUnverified, finishIntent]
+    [
+      updateBlockReconciliations,
+      isRoomLocked,
+      closeStaleBlockDialog,
+      keepBlockReconciliation,
+      refuseWhileStorageUnverified,
+      finishIntent,
+      capabilitiesAt,
+      notPermittedMessage,
+      trackWrite,
+      untrackWrite,
+      afterWrite,
+    ]
   );
 
   const reconciliationStatus = (id: number | null): BoardReloadStatus => {
@@ -1819,9 +2214,20 @@ const ReservationBoard: React.FC = () => {
       isBoardAwaitingBlockReconciliation(blockReconciliations, displayedBoardKey));
 
   /** Why the toolbar's Create operational block is unavailable right now, or `null` when it is available. */
+  /** CP06-C1/C3: a sign-out or an access check is under way — the board stays readable, no write is offered. */
+  const signingOutNow = access.mode === "Staff" && access.signingOut === true;
+  const writesPaused = signingOutNow || accessCheckPaused;
+  const capabilities = capabilitiesFor(access, selectedPropertyId, sessionEnded, writesPaused);
+
   const createBlockUnavailableReason =
     boardState.status !== "loaded"
       ? "The board has not loaded."
+      : !capabilities.blockWrite
+        ? signingOutNow
+          ? "Signing out — changes are paused."
+          : accessCheckPaused
+            ? "Checking your access again — changes are paused."
+            : "Your role at this Property cannot block rooms."
       : displayedBoardAwaitingReconciliation
         ? "Waiting for the board to be re-read after a change."
         : !boardState.board.physicalRooms.some((room) => room.operationalStatus === "Active")
@@ -1991,6 +2397,13 @@ const ReservationBoard: React.FC = () => {
   const rangeLabel = range ? formatRangeLabel(range) : "";
 
   const body = useMemo(() => {
+    if (sessionEnded) {
+      return (
+        <CenteredMessage>
+          Your Staff session has ended, so this board is closed. Nothing more is sent from it; sign in again to continue.
+        </CenteredMessage>
+      );
+    }
     if (propertiesState.status === "loading") {
       return <CenteredMessage>Loading properties…</CenteredMessage>;
     }
@@ -2000,7 +2413,17 @@ const ReservationBoard: React.FC = () => {
       );
     }
     if (propertiesState.properties.length === 0) {
-      return <CenteredMessage>No active properties are available.</CenteredMessage>;
+      return staffMode ? (
+        <CenteredMessage>
+          You have not been granted access to any Property yet. Ask an administrator to add a Property membership for your
+          Staff account.
+        </CenteredMessage>
+      ) : (
+        <CenteredMessage>No active properties are available.</CenteredMessage>
+      );
+    }
+    if (!capabilities.boardRead) {
+      return <CenteredMessage>Your role at this Property does not include access to the Reservation Board.</CenteredMessage>;
     }
     if (boardState.status === "loading" || boardState.status === "idle") {
       return <CenteredMessage>Loading Reservation Board…</CenteredMessage>;
@@ -2046,7 +2469,7 @@ const ReservationBoard: React.FC = () => {
           assignedBarOpenerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
           setSelection({ kind: "block", value });
         }}
-        unassignedActionsBlocked={displayedBoardAwaitingReconciliation}
+        unassignedActionsBlocked={displayedBoardAwaitingReconciliation || !capabilities.assignmentWrite}
         isUnassignedRangeUnconfirmed={isRangeUnconfirmed}
         onAssignedSegmentDragStart={handleAssignedSegmentDragStart}
         getAssignedSegmentDropRefusal={moveDragRefusal}
@@ -2054,6 +2477,10 @@ const ReservationBoard: React.FC = () => {
       />
     );
   }, [
+    sessionEnded,
+    staffMode,
+    capabilities.boardRead,
+    capabilities.assignmentWrite,
     propertiesState,
     boardState,
     range,
@@ -2085,6 +2512,7 @@ const ReservationBoard: React.FC = () => {
         onToggleFilter={handleToggleFilter}
         onCreateBlock={handleOpenCreateBlock}
         createBlockUnavailableReason={createBlockUnavailableReason}
+        accessSummary={describeBoardAccess(access, selectedPropertyId)}
       />
       {blockNotice && (
         <AssignmentNotice
@@ -2237,19 +2665,19 @@ const ReservationBoard: React.FC = () => {
         <ReservationBoardStayPopover
           selection={selection}
           onClose={() => setSelection(null)}
-          onMoveRoom={handleMoveRoom}
+          onMoveRoom={capabilities.assignmentWrite ? handleMoveRoom : undefined}
           moveBlocked={
             selection.kind === "stay" && selection.value.segment
               ? isMoveBlockedForSegment(selection.value.segment.segmentId)
               : false
           }
-          onUnassignRoom={handleUnassignRoom}
+          onUnassignRoom={capabilities.assignmentWrite ? handleUnassignRoom : undefined}
           unassignBlocked={
             selection.kind === "stay" && selection.value.segment
               ? isUnassignBlockedForSegment(selection.value.segment.segmentId)
               : false
           }
-          onCancelBlock={selection.kind === "block" ? handleCancelBlock : undefined}
+          onCancelBlock={selection.kind === "block" && capabilities.blockWrite ? handleCancelBlock : undefined}
           cancelBlockBlocked={
             selection.kind === "block" ? isCancelBlockedForBlock(selection.value.block) : false
           }
@@ -2282,8 +2710,8 @@ const ReservationBoard: React.FC = () => {
           // PMS-CAL-001.2-CP04C.6B: live opt-in — this board now offers a
           // controlled cross-RoomType destination for a move, the same
           // contract CP04C.6A merged and CP03B already offers for a new
-          // assignment.
-          crossRoomTypeEnabled
+          // assignment. CP06: only for a role that may confirm it at this Property.
+          crossRoomTypeEnabled={capabilitiesFor(access, moveTarget.propertyId, sessionEnded, writesPaused).crossRoomType}
           boardReloadStatus={reconciliationStatus(dialogMoveReconciliationId)}
           uncertainResolution={
             dialogMoveReconciliation?.certainty === "uncertain" && dialogMoveReconciliation.resolution !== "settled"

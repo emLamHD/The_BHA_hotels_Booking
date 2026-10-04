@@ -694,15 +694,15 @@ describe("PMS-CAL-001.2-CP03A-C1 corrections", () => {
       "Unassigned nights can be assigned to an Active room, of the same sold room type or, with confirmation and a reason, a different one."
     );
     expect(capabilities).toHaveTextContent(
-      "An assigned segment can be moved to another Active room, of the same sold room type or, with confirmation and a reason, a different one."
+      "An assigned segment can be moved to another Active room the same way, or unassigned."
     );
-    expect(capabilities).toHaveTextContent("It can also be unassigned.");
-    expect(capabilities).toHaveTextContent("An Active room can be blocked for a range of nights with a reason.");
-    expect(capabilities).toHaveTextContent("Cancelling blocks and other lifecycle actions are read-only.");
-    expect(capabilities).not.toHaveTextContent(/unassign.{0,40}read-only/i);
-    expect(capabilities).not.toHaveTextContent(/operational blocks.{0,40}read-only/i);
-    expect(capabilities).toHaveTextContent("local Development write opt-in");
-    expect(capabilities).toHaveTextContent("no production sign-in or permissions yet");
+    // PMS-ADMIN-AUTH-001-CP06: block cancel has been live since PMS-CAL-001.3-CP04; it is no longer listed as read-only.
+    expect(capabilities).toHaveTextContent(
+      "An Active room can be blocked for a range of nights with a reason, and a block can be cancelled."
+    );
+    expect(capabilities).not.toHaveTextContent(/read-only/i);
+    expect(capabilities).toHaveTextContent("local Development write opt-in (AccessMode=LocalGate)");
+    expect(capabilities).toHaveTextContent("no Staff sign-in in this mode");
     expect(capabilities).not.toHaveTextContent(/no assignment/i);
     // Never claims every move is read-only (stale as of this checkpoint)...
     expect(capabilities).not.toHaveTextContent("Move, unassign, blocks and lifecycle actions are read-only.");

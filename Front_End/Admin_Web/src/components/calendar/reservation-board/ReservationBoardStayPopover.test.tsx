@@ -283,7 +283,8 @@ describe("ReservationBoardStayPopover", () => {
     it("10. PMS-CAL-001.2-CP04D-BOARD-WIRING: the live board now wires the callback, the same way it already wires Move room", () => {
       const source = readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), "ReservationBoard.tsx"), "utf8");
       expect(source).toContain("ReservationBoardStayPopover");
-      expect(source).toMatch(/onUnassignRoom={handleUnassignRoom}/);
+      // PMS-ADMIN-AUTH-001-CP06: wired for every role that may write assignments (LocalGate: always).
+      expect(source).toMatch(/onUnassignRoom=\{capabilities\.assignmentWrite \? handleUnassignRoom : undefined\}/);
       expect(source).toMatch(/unassignBlocked=\{/);
       expect(source).toContain("ReservationUnassignDialog");
     });

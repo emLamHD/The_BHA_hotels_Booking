@@ -61,11 +61,12 @@ describe("Calendar page layout preservation", () => {
     const source = read(pagePath);
     expect(source).toContain('import Calendar from "@/components/calendar/Calendar"');
     expect(source).toContain("<Calendar");
-    expect(source).toContain("<ReservationBoard");
+    // PMS-ADMIN-AUTH-001-CP06: the board is reached through its access gate.
+    expect(source).toContain("<CalendarAccessGate");
   });
 
-  it("renders ReservationBoard as a self-contained component taking no props", () => {
-    const source = read(pagePath);
-    expect(source).toMatch(/<ReservationBoard\s*\/>/);
+  it("in LocalGate mode the gate renders ReservationBoard as a self-contained component taking no props", () => {
+    const source = read("CalendarAccessGate.tsx");
+    expect(source).toMatch(/mode\.mode === "LocalGate"\) return <ReservationBoard\s*\/>;/);
   });
 });
