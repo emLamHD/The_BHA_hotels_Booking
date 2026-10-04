@@ -56,6 +56,11 @@ export type BoardAccess =
       /** Re-reads `me` after a 403, so roles and memberships reflect the server's. */
       refreshAccess: () => Promise<StaffRefreshResult>;
       /**
+       * CP06-C3: that re-read could not check access. Called only once no write of
+       * this board is on the wire; the page then closes access with Retry.
+       */
+      onAccessCheckFailed?: () => void;
+      /**
        * A write of this board is (or is no longer) waiting for the server. Called
        * synchronously as the write goes on the wire and when its answer is in, so
        * Sign out can never start in between (CP06-C1).
@@ -84,6 +89,9 @@ export function capabilitiesFor(
   const capabilities = capabilitiesForRole(access.memberships.find((membership) => membership.propertyId === propertyId)?.role);
   return writesPaused ? { ...NO_CAPABILITIES, boardRead: capabilities.boardRead } : capabilities;
 }
+
+/** CP06-C3: why a write was not sent while access is being checked again after a refusal. */
+export const ACCESS_CHECK_MESSAGE = "Checking your access again after a refusal — this change was not sent.";
 
 /** CP06-C1: why a write was not sent while a sign-out was waiting for the server. */
 export const SIGNING_OUT_MESSAGE = "Signing out — this change was not sent. If sign-out is not confirmed, try again.";

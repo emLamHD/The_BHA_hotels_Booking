@@ -47,7 +47,7 @@ export default function CalendarAccessGate() {
 }
 
 function StaffCalendar() {
-  const { state, refresh, retry, expire, signOut } = useStaffSession();
+  const { state, refresh, retry, expire, signOut, failAccessCheck } = useStaffSession();
   const router = useRouter();
   // Reported by the board, synchronously, as each write goes on the wire and gets its answer.
   const [writing, setWriting] = useState(false);
@@ -100,11 +100,12 @@ function StaffCalendar() {
             memberships,
             onSessionExpired: expire,
             refreshAccess: refresh,
+            onAccessCheckFailed: failAccessCheck,
             onWriteActivityChange: handleWriteActivity,
             signingOut,
             isSigningOut,
           },
-    [memberships, expire, refresh, handleWriteActivity, signingOut, isSigningOut]
+    [memberships, expire, refresh, failAccessCheck, handleWriteActivity, signingOut, isSigningOut]
   );
 
   if (state.status === "checking") {

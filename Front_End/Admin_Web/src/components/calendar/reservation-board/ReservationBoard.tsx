@@ -123,6 +123,7 @@ import {
 } from "./reconciliation";
 import { AlertIcon, CloseLineIcon } from "@/icons";
 import {
+  ACCESS_CHECK_MESSAGE,
   LOCAL_GATE_ACCESS,
   SIGNING_OUT_MESSAGE,
   capabilitiesFor,
@@ -302,6 +303,24 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
   useEffect(() => {
     accessRef.current = access;
   }, [access]);
+  /**
+   * CP06-C3: a re-read of `me` after a denial is under way, or could not answer:
+   * no new write may start (the ref for send-time checks, the state for
+   * rendering). Only the latest check that found the session reopens writes, in
+   * this effect — after the render carrying the re-read roles, which the effect
+   * above has already handed to `accessRef`.
+   */
+  const accessCheckRunRef = useRef(0);
+  const accessCheckPausedRef = useRef(false);
+  const [accessCheckPaused, setAccessCheckPaused] = useState(false);
+  const [accessCheckPassedRun, setAccessCheckPassedRun] = useState(0);
+  useEffect(() => {
+    if (accessCheckPassedRun !== 0 && accessCheckPassedRun === accessCheckRunRef.current) {
+      accessCheckPausedRef.current = false;
+    }
+  }, [accessCheckPassedRun]);
+  /** CP06-C3: the check could not answer while a write was on the wire; close access once none is. */
+  const accessFailPendingRef = useRef(false);
   /** CP06: the session ended; nothing more is read or sent, and the board's data is gone. */
   const [sessionEnded, setSessionEnded] = useState(false);
   const sessionEndedRef = useRef(false);
@@ -539,11 +558,17 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
     [reportWriteActivity]
   );
 
-  /** CP06-C1: a sign-out is waiting for the server, read live at the moment a write would start. */
-  const writesPausedNow = useCallback(() => {
+  /**
+   * CP06-C1/C3: why no write may start right now — a sign-out waiting for the
+   * server, or access being checked again after a denial — read live at the
+   * moment a write would start; `null` when writes may start.
+   */
+  const writesPausedReason = useCallback((): "signing-out" | "checking-access" | null => {
     const current = accessRef.current;
-    return current.mode === "Staff" && current.isSigningOut?.() === true;
+    if (current.mode === "Staff" && current.isSigningOut?.() === true) return "signing-out";
+    return accessCheckPausedRef.current ? "checking-access" : null;
   }, []);
+  const writesPausedNow = useCallback(() => writesPausedReason() !== null, [writesPausedReason]);
 
   /** CP06: what the signed-in Staff member may do at one Property right now (LocalGate: everything, as before). */
   const capabilitiesAt = useCallback(
@@ -551,11 +576,11 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
     [writesPausedNow]
   );
 
-  /** CP06-C1: why a write the board refused at send time was not sent. */
-  const notPermittedMessage = useCallback(
-    () => (writesPausedNow() ? SIGNING_OUT_MESSAGE : NOT_PERMITTED_MESSAGE),
-    [writesPausedNow]
-  );
+  /** CP06-C1/C3: why a write the board refused at send time was not sent. */
+  const notPermittedMessage = useCallback(() => {
+    const paused = writesPausedReason();
+    return paused === "signing-out" ? SIGNING_OUT_MESSAGE : paused === "checking-access" ? ACCESS_CHECK_MESSAGE : NOT_PERMITTED_MESSAGE;
+  }, [writesPausedReason]);
 
   /**
    * CP06: the server said the Staff session is no longer valid. The board's data
@@ -579,12 +604,44 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
     }
   }, []);
 
-  /** CP06: after a 403, re-read `me` once. Never resends anything. */
+  /**
+   * CP06-C3: the re-read after a denial could not check access. The page closes
+   * access (error with Retry) only once no write of this board is on the wire, so
+   * each outcome and pending intent is settled by its own handler first.
+   */
+  const closeAccessAfterFailedCheck = useCallback(() => {
+    const current = accessRef.current;
+    if (current.mode !== "Staff") return;
+    accessFailPendingRef.current = true;
+    if (inFlightTokensRef.current.size === 0) {
+      accessFailPendingRef.current = false;
+      current.onAccessCheckFailed?.();
+    }
+  }, []);
+
+  /**
+   * CP06: after a 403, re-read `me` once. Never resends anything. CP06-C3: no new
+   * write starts until the latest such check has answered; it reopens writes only
+   * on `authenticated`. `unauthenticated` ends the session; an error — or a check
+   * superseded with nothing newer to decide — closes access with Retry.
+   */
   const refreshAfterDenial = useCallback(async () => {
     const current = accessRef.current;
     if (current.mode !== "Staff" || sessionEndedRef.current) return;
-    if ((await current.refreshAccess()) === "unauthenticated") expireSession();
-  }, [expireSession]);
+    const run = ++accessCheckRunRef.current;
+    accessCheckPausedRef.current = true;
+    setAccessCheckPaused(true);
+    const result = await current.refreshAccess();
+    if (run !== accessCheckRunRef.current) return; // a newer check decides
+    if (result === "authenticated") {
+      setAccessCheckPaused(false);
+      setAccessCheckPassedRun(run);
+    } else if (result === "unauthenticated") {
+      expireSession();
+    } else {
+      closeAccessAfterFailedCheck();
+    }
+  }, [expireSession, closeAccessAfterFailedCheck]);
 
   /**
    * CP06: the last step of every submit handler on a live page, after its
@@ -610,6 +667,10 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
       if (expirePendingRef.current && inFlightTokensRef.current.size === 0) {
         expirePendingRef.current = false;
         current.onSessionExpired();
+      }
+      if (accessFailPendingRef.current && inFlightTokensRef.current.size === 0) {
+        accessFailPendingRef.current = false;
+        current.onAccessCheckFailed?.();
       }
     },
     [expireSession, refreshAfterDenial]
@@ -1356,7 +1417,10 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
       }
       const capabilities = capabilitiesAt(board.property.id);
       if (!capabilities.assignmentWrite) {
-        return writesPausedNow() ? "Signing out — changes are paused." : "Your role at this Property cannot move stays.";
+        const paused = writesPausedReason();
+        if (paused === "signing-out") return "Signing out — changes are paused.";
+        if (paused === "checking-access") return "Checking your access again — changes are paused.";
+        return "Your role at this Property cannot move stays.";
       }
       if (moveRequestPendingRef.current) return "Another move is still waiting for the server.";
       if (isBoardAwaitingAnyWrite(displayedKey)) return "Waiting for the board to be re-read after a change.";
@@ -1386,7 +1450,7 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
       }
       return null;
     },
-    [boardState, selectedPropertyId, isBoardAwaitingAnyWrite, isRoomLocked, capabilitiesAt, writesPausedNow]
+    [boardState, selectedPropertyId, isBoardAwaitingAnyWrite, isRoomLocked, capabilitiesAt, writesPausedReason]
   );
 
   const handleAssignedSegmentDragStart = useCallback(
@@ -2136,17 +2200,20 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
       isBoardAwaitingBlockReconciliation(blockReconciliations, displayedBoardKey));
 
   /** Why the toolbar's Create operational block is unavailable right now, or `null` when it is available. */
-  /** CP06-C1: a sign-out is waiting for the server — the board stays readable, no write is offered. */
-  const writesPaused = access.mode === "Staff" && access.signingOut === true;
+  /** CP06-C1/C3: a sign-out or an access check is under way — the board stays readable, no write is offered. */
+  const signingOutNow = access.mode === "Staff" && access.signingOut === true;
+  const writesPaused = signingOutNow || accessCheckPaused;
   const capabilities = capabilitiesFor(access, selectedPropertyId, sessionEnded, writesPaused);
 
   const createBlockUnavailableReason =
     boardState.status !== "loaded"
       ? "The board has not loaded."
       : !capabilities.blockWrite
-        ? writesPaused
+        ? signingOutNow
           ? "Signing out — changes are paused."
-          : "Your role at this Property cannot block rooms."
+          : accessCheckPaused
+            ? "Checking your access again — changes are paused."
+            : "Your role at this Property cannot block rooms."
       : displayedBoardAwaitingReconciliation
         ? "Waiting for the board to be re-read after a change."
         : !boardState.board.physicalRooms.some((room) => room.operationalStatus === "Active")

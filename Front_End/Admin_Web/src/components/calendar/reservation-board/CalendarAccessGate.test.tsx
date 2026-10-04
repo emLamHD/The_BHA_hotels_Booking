@@ -3,7 +3,7 @@
  * the Reservation Board on /calendar.
  */
 import React from "react";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StaffSessionResult } from "@/lib/api/staff";
@@ -602,6 +602,151 @@ describe("CP06-C2: an unconfirmed sign-out resumes writes only on roles checked 
     await act(async () => interrupted.resolve({ kind: "authenticated", session: sessionWith(["prop-a", "Manager"]) }));
     expect(replace).toHaveBeenCalledTimes(1);
     expect(mockedMe).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId("staff-identity")).not.toBeInTheDocument();
+  });
+});
+
+describe("CP06-C3: a permission re-read after a denial that cannot answer closes access with Retry", () => {
+  const ERRORS = [
+    ["network/CORS", "Could not reach the Admin API to check your Staff session."],
+    ["5xx", "The Admin API could not check your Staff session (HTTP 503)."],
+    ["unreadable 200", "The Admin API returned an unreadable Staff session."],
+  ] as const;
+  const notPermitted = { kind: "rejected", status: 403, category: "not-permitted" } as const;
+  const accessError = () => screen.findByTestId("staff-session-error");
+  const nextRange = () => screen.getByRole("button", { name: "Next date range" });
+
+  /** A Manager at prop-a (and prop-b) whose operational-block write is refused (403). */
+  async function blockWriteDenied(meAnswer: StaffSessionResult | Promise<StaffSessionResult>) {
+    const view = await renderStaff(sessionWith(["prop-a", "Manager"], ["prop-b", "Manager"]));
+    mockedBlockCreate.mockResolvedValueOnce(notPermitted);
+    if (meAnswer instanceof Promise) mockedMe.mockReturnValueOnce(meAnswer);
+    else mockedMe.mockResolvedValueOnce(meAnswer);
+    await view.user.click(await WRITES["create block"].open(view.user));
+    return view;
+  }
+
+  it.each(ERRORS)("operational-block write 403, then me fails (%s): access closes with Retry — no sign-in, nothing more sent", async (_kind, message) => {
+    const { user } = await blockWriteDenied({ kind: "error", message });
+    const panel = await accessError();
+    expect(panel).toHaveTextContent(`Your Staff access could not be checked again: ${message} Retry to check it.`);
+    expect(panel).not.toHaveTextContent(/Sign-out/);
+    expect(screen.queryByTestId("staff-identity")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Nguyen Van A — CNF-100")).not.toBeInTheDocument();
+    expect(replace).not.toHaveBeenCalled();
+    expect(mockedLogout).not.toHaveBeenCalled();
+    expect(mockedBlockCreate).toHaveBeenCalledTimes(1);
+
+    // Retry reads me again and opens only what the server grants now: a lower role, one Property fewer.
+    mockedMe.mockResolvedValueOnce({ kind: "authenticated", session: sessionWith(["prop-a", "FrontDesk"]) });
+    await user.click(within(panel).getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(stayBar()).toBeInTheDocument());
+    expect(capabilities()).toHaveTextContent("Signed in as FrontDesk");
+    expect(propertyOptions()).toEqual(["Property A"]);
+    expect(createBlockButton()).toBeEnabled();
+  });
+
+  it("board read 403, then me fails: the same — and Retry that fails again stays closed; Retry that finds no session goes to /signin once", async () => {
+    const { user } = await renderStaff(sessionWith(["prop-a", "Manager"], ["prop-b", "Manager"]));
+    mockedMe.mockResolvedValueOnce({ kind: "error", message: ERRORS[0][1] });
+    await user.selectOptions(screen.getByLabelText("Property"), "prop-b");
+    expect(await accessError()).toHaveTextContent("Your Staff access could not be checked again");
+    expect(replace).not.toHaveBeenCalled();
+
+    mockedMe.mockResolvedValueOnce({ kind: "error", message: ERRORS[1][1] });
+    await user.click(within(await accessError()).getByRole("button", { name: "Retry" }));
+    expect(await accessError()).toHaveTextContent(ERRORS[1][1]);
+    expect(screen.queryByTitle("Nguyen Van A — CNF-100")).not.toBeInTheDocument();
+
+    mockedMe.mockResolvedValueOnce({ kind: "unauthenticated" });
+    await user.click(within(await accessError()).getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/signin"));
+    expect(replace).toHaveBeenCalledTimes(1);
+  });
+
+  it("while the re-read is on the wire no write can start — controls closed, and a dialog opened before the denial sends nothing", async () => {
+    const { user, from } = await renderStaff(sessionWith(["prop-a", "Manager"]));
+    const submit = await WRITES["create assignment"].open(user, from); // open before the denial
+    const me = deferred<StaffSessionResult>();
+    mockedMe.mockReturnValueOnce(me.promise);
+    mockedBoard.mockResolvedValueOnce({ ok: false, error: { kind: "http", status: 403, message: "Access denied" } });
+    await user.click(nextRange()); // a board read refused while the dialog stays open
+    await waitFor(() => expect(mockedMe).toHaveBeenCalledTimes(2));
+
+    await user.click(submit);
+    expect(mockedCreate).not.toHaveBeenCalled();
+    expect(storedIntents()).toBe(0);
+    expect(await within(dialogNamed("Assign room")).findByText(/Checking your access again/)).toBeInTheDocument();
+    expect(createBlockButton()).toBeDisabled();
+
+    // Positive control: the re-read answers — the new role applies, then writes reopen on it.
+    await act(async () => me.resolve({ kind: "authenticated", session: sessionWith(["prop-a", "FrontDesk"]) }));
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Previous date range" }));
+    await waitFor(() => expect(stayBar()).toBeInTheDocument());
+    expect(capabilities()).toHaveTextContent("Signed in as FrontDesk");
+    expect(createBlockButton()).toBeEnabled();
+  });
+
+  it.each([
+    ["success", { kind: "created", segment: null } as const, 0],
+    ["unknown", { kind: "unknown", reason: "network" } as const, 1],
+  ])("a write already on the wire when the re-read fails is settled first (%s): its record kept, then access closes", async (_label, outcome, records) => {
+    const { user, from } = await renderStaff(sessionWith(["prop-a", "Manager"]));
+    const answer = deferred<Awaited<ReturnType<typeof createReservationAssignment>>>();
+    mockedCreate.mockReturnValueOnce(answer.promise);
+    await user.click(await WRITES["create assignment"].open(user, from));
+    mockedBoard.mockResolvedValueOnce({ ok: false, error: { kind: "http", status: 403, message: "Access denied" } });
+    mockedMe.mockResolvedValueOnce({ kind: "error", message: ERRORS[0][1] });
+    await user.click(nextRange()); // denial while the write is on the wire
+    await waitFor(() => expect(mockedMe).toHaveBeenCalledTimes(2));
+    expect(screen.queryByTestId("staff-session-error")).not.toBeInTheDocument(); // not before the write is settled
+    expect(restoreUncertainWrites(tabStorage(), 1).pendingTokens).toHaveLength(1);
+
+    await act(async () => answer.resolve(outcome));
+    expect(await accessError()).toHaveTextContent("Your Staff access could not be checked again");
+    const stored = restoreUncertainWrites(tabStorage(), 1);
+    expect(stored.pendingTokens).toHaveLength(0);
+    expect(stored.assignments).toHaveLength(records);
+    expect(mockedCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("an unconfirmed record already in the tab survives the error, Retry and a reload, and stays locked", async () => {
+    const { user, from } = await renderStaff(sessionWith(["prop-a", "Manager"]));
+    mockedCreate.mockResolvedValueOnce({ kind: "unknown", reason: "network" });
+    await user.click(await WRITES["create assignment"].open(user, from));
+    await waitFor(() => expect(restoreUncertainWrites(tabStorage(), 1).assignments).toHaveLength(1));
+    const before = sessionStorage.getItem("thebha.adminCalendar.uncertainWrites");
+    await user.keyboard("{Escape}");
+
+    mockedBlockCreate.mockResolvedValueOnce(notPermitted);
+    mockedMe.mockResolvedValueOnce({ kind: "error", message: ERRORS[0][1] });
+    await user.click(await WRITES["create block"].open(user));
+    await accessError();
+    expect(sessionStorage.getItem("thebha.adminCalendar.uncertainWrites")).toBe(before);
+
+    mockedMe.mockResolvedValue({ kind: "authenticated", session: sessionWith(["prop-a", "Manager"]) });
+    await user.click(within(await accessError()).getByRole("button", { name: "Retry" }));
+    expect(await screen.findByTestId("uncertain-write-notice")).toHaveTextContent(/Unconfirmed room assignment request/);
+    cleanup(); // a reload: the page goes, the tab's storage stays
+    render(<CalendarAccessGate />);
+    expect(await screen.findByTestId("uncertain-write-notice")).toHaveTextContent(/Unconfirmed room assignment request/);
+    expect(sessionStorage.getItem("thebha.adminCalendar.uncertainWrites")).toBe(before);
+    expect(mockedCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("an older re-read that answers after the newer one failed does not reopen access", async () => {
+    const { user } = await renderStaff(sessionWith(["prop-a", "Manager"], ["prop-b", "Manager"]));
+    const older = deferred<StaffSessionResult>();
+    mockedMe.mockReturnValueOnce(older.promise);
+    await user.selectOptions(screen.getByLabelText("Property"), "prop-b"); // first denial: re-read on the wire
+    await waitFor(() => expect(mockedMe).toHaveBeenCalledTimes(2));
+    mockedMe.mockResolvedValueOnce({ kind: "error", message: ERRORS[0][1] });
+    await user.selectOptions(screen.getByLabelText("Property"), "prop-a");
+    await user.selectOptions(screen.getByLabelText("Property"), "prop-b"); // second denial: its re-read fails
+    expect(await accessError()).toBeInTheDocument();
+    await act(async () => older.resolve({ kind: "authenticated", session: sessionWith(["prop-a", "Manager"], ["prop-b", "Manager"]) }));
+    expect(screen.getByTestId("staff-session-error")).toBeInTheDocument();
     expect(screen.queryByTestId("staff-identity")).not.toBeInTheDocument();
   });
 });

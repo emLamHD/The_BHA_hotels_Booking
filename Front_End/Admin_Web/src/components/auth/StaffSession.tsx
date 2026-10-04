@@ -26,6 +26,10 @@
  * re-read joins it instead of starting another. If the re-read finds no
  * session, the session ends; if it cannot check access, access closes as an
  * error with Retry — never left open on the roles it was meant to check.
+ *
+ * CP06-C3: the same holds outside sign-out. When a re-read after a denial
+ * cannot answer, the board asks `failAccessCheck` (once its own writes are
+ * settled): access closes as an error with Retry, carrying the reason.
  */
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
@@ -55,12 +59,15 @@ interface StaffSessionContextValue {
   expire: () => void;
   /** `POST logout`. Only a confirmed outcome (`204`/`401`) ends the session here. */
   signOut: () => Promise<StaffLogoutOutcome>;
+  /** CP06-C3: a re-read after a denial could not check access: close it as an error with Retry. */
+  failAccessCheck: () => void;
 }
 
 const StaffSessionContext = createContext<StaffSessionContextValue | null>(null);
 
 const SIGN_OUT_NOT_CONFIRMED = "Sign-out could not be confirmed. Your session may still be active.";
 const ACCESS_NOT_CHECKED = "Sign-out was not confirmed, and your access could not be checked again";
+const ACCESS_CHECK_FAILED = "Your Staff access could not be checked again";
 
 /** CP06-C1: a sign-out waiting for the server, and the refresh asked for while it waited. */
 interface PendingSignOut {
@@ -123,15 +130,19 @@ export function StaffSessionProvider({ children }: { children: React.ReactNode }
   const signOutRef = useRef<PendingSignOut | null>(null);
   /** CP06-C2: the public refresh on the wire, so a sign-out can take it over. */
   const refreshInFlightRef = useRef<RefreshInFlight | null>(null);
+  /** CP06-C3: why the last `me` read could not answer, for the access-check error. */
+  const lastReadErrorRef = useRef<string | null>(null);
 
   const readMe = useCallback(async (): Promise<MeRead> => {
     const generation = begin();
     const controller = new AbortController();
     controllerRef.current = controller;
+    lastReadErrorRef.current = null;
     setState((previous) => (previous.status === "authenticated" ? { ...previous, refreshing: true } : previous));
     const result = await fetchStaffSession(controller.signal);
     if (generationRef.current !== generation) return { result: "superseded" };
     controllerRef.current = null;
+    if (result.kind === "error") lastReadErrorRef.current = result.message;
     if (result.kind === "authenticated") {
       setState({ status: "authenticated", session: result.session, refreshing: false });
       return { result: "authenticated" };
@@ -208,13 +219,29 @@ export function StaffSessionProvider({ children }: { children: React.ReactNode }
     return promise;
   }, [begin, readMe]);
 
+  const failAccessCheck = useCallback(() => {
+    // A sign-out transition decides access itself (CP06-C2).
+    if (signOutRef.current) return;
+    const reason = lastReadErrorRef.current;
+    // Whatever `me` is still on the wire can no longer reopen access.
+    begin();
+    setState((previous) =>
+      previous.status === "authenticated"
+        ? { status: "error", message: `${ACCESS_CHECK_FAILED}${reason ? `: ${reason}` : "."} Retry to check it.` }
+        : previous
+    );
+  }, [begin]);
+
   const retry = useCallback(() => {
     if (signOutRef.current) return;
     setState({ status: "checking" });
     setCheckToken((token) => token + 1);
   }, []);
 
-  const value = useMemo(() => ({ state, refresh, retry, expire, signOut }), [state, refresh, retry, expire, signOut]);
+  const value = useMemo(
+    () => ({ state, refresh, retry, expire, signOut, failAccessCheck }),
+    [state, refresh, retry, expire, signOut, failAccessCheck]
+  );
   return <StaffSessionContext.Provider value={value}>{children}</StaffSessionContext.Provider>;
 }
 
