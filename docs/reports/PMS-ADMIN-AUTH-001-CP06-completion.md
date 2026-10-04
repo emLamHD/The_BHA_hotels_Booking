@@ -219,4 +219,46 @@ Browser acceptance (real Chrome, trusted mkcert certificate, TLS verification on
 
 Database afterwards: one audit row — the permitted block, `staff:{id}`; nothing from the refused write or the assignment that failed before sending. Secret scan (the throwaway password, `Set-Cookie`, the Staff cookie name) over API, web, migrate and seed logs: 0; browser storage: the unconfirmed record and `theme` only. Cleanup: processes stopped, container and its volume removed (`docker rm -fv`), secret files deleted, tab closed; `the-bha-postgres-1` untouched.
 
-`C2_REVIEW: RUN — 1 finding`. `C3_REVIEW: NOT RUN` (Owner invokes `/codex:review --base origin/develop`). CP07 NOT STARTED. Production NOT TOUCHED.
+`C2_REVIEW: RUN — 1 finding`. (C3 review status: see Correction C4.)
+
+## Correction C4 (`PMS-ADMIN-AUTH-001-CP06-C4`)
+
+Codex review of C3 (`/codex:review --base origin/develop`, invoked by Owner): RUN — 1 finding, P2. Reviewed SHA: UNVERIFIED. START_HEAD of C4: `e5da30cfbe0dfa3e3749438bcb150cccc2632fbb`.
+
+Root cause: the check's *answer* was already guarded by its run number, but the *side effect* it deferred was not. When check A failed while a write W was on the wire, C3 kept the failure as a plain boolean (`accessFailPendingRef`). A newer check B — started by navigating to another refused board — never cleared it, so when W settled `afterWrite()` called `onAccessCheckFailed` with A's failure, closing a session B had just verified.
+
+Fix (`ReservationBoard.tsx` only, +25 / −11): the deferred failure now records the run of the check that owns it (`accessFailPendingRunRef`). Starting a newer check drops it at once; ending the session (`expireSession`) drops it; when the last write settles it is acted on once, and only if its run is still the latest. Late answers of an older check still return before reaching it, so they cannot create one. Unchanged: the C3 pause (controls and send-time checks), the C1/C2 sign-out serialization, Retry, `LocalGate`, the cross-RoomType-confirmation exception, the write outcomes and `uncertainWriteStorage.ts`.
+
+| Order (gate with the real board, navigation) | Result |
+|---|---|
+| A fails, B succeeds, W settles (success / unknown) | B's roles (FrontDesk, one Property) stay; no error from A; one request for W; unknown keeps its record |
+| A fails, B on the wire, W settles | A's failure not applied; writes stay closed until B answers, then reopen on B's roles |
+| A fails, B fails, W settles | only B's failure closes access; its Retry works |
+| A fails, B finds no session, W settles | the session ends once — no access error; the record kept |
+| A fails, no B, W settles | A's failure closes access after W (the C3 test, unchanged and green) |
+| B takes over, A answers late with an error | A changes nothing |
+
+Red/green: 6 new tests in `CalendarAccessGate.test.tsx` (deferred promises only). On START_HEAD's board: **3 failed / 3 passed** — the three orders where B succeeded or was still pending failed exactly at `staff-session-error` appearing when W settled (A's stale failure applied); the other three hold on both. One test's order was corrected during development (the board was moved back to a readable Property before W settled: otherwise the re-read after W hits the refused Property again and starts a legitimate third check); the red/green above is from the final tests. On the fixed code all pass, with every C1/C2/C3 regression.
+
+| Command (final code) | Result |
+|---|---|
+| `npm test` | exit 0 — 36 files, 820 tests |
+| `npm run lint` | exit 0 |
+| `npx tsc --noEmit -p .` | exit 0 |
+| `npm run build` | exit 0 |
+| `git diff --check` | exit 0 |
+
+Browser acceptance (real Chrome, trusted mkcert certificate, TLS verification on; PostgreSQL 17 container `cp06c4-pg`, database `c4_accept`; API and Admin_Web in `Staff` mode from the corrected tree; Staff `lead` created by the CLI as Manager at both Properties). **Response order was simulated** in the tab (a request held before it was sent, or its answer held after the server replied, then released or failed as a transport error); **permission changes were real** (memberships removed in the throwaway database, roles set with the CLI); the backend was not modified.
+
+| Step | Result |
+|---|---|
+| W | assignment to Room 101: the server committed it (201, one segment); its answer held in the page — Sign out disabled |
+| check A | The BHA Hotel membership removed; next range → real 403; `me` failed → no panel yet (W on the wire), writes closed |
+| check B | CLI: The BHA Hotel back as FrontDesk; Second Hotel removed; select Second Hotel → real 403 → `me` 200 → selector only "The BHA Hotel", FrontDesk |
+| W settles | "Room 101 assigned …"; **no access error** — the session stays, FrontDesk on The BHA Hotel; one assignment request in total |
+| control: no B | W2 (second unit to Room 102) held before sending; membership removed; next range → 403; `me` failed (A2); W2 failed → unknown, record kept (439 chars); then A2 closed access with Retry |
+| Retry | The BHA Hotel back as FrontDesk; Retry → `me` 200 → board, FrontDesk; W2's unconfirmed notice and record still there; database: one segment (W only) |
+
+Audit: one row, `Created` by `staff:{id}` (W). Secret scan (the throwaway password, `Set-Cookie`, the Staff cookie name) over API, web, migrate and seed logs: 0; browser storage: the unconfirmed record and `theme` only. Cleanup: processes stopped, container and its volume removed (`docker rm -fv`), secret files deleted, tab closed; `the-bha-postgres-1` untouched.
+
+`C3_REVIEW: RUN — 1 finding`. `C4_REVIEW: NOT RUN` (Owner invokes `/codex:review --base origin/develop`). CP07 NOT STARTED. Production NOT TOUCHED.

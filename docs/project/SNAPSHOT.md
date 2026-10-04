@@ -22,7 +22,9 @@ logout bị refresh ghi đè; ghi mới trong lúc logout pending), Reviewed SHA
 correction C1 trên cùng PR #79 sửa cả hai. Review C1: RUN — 2 findings (P2: refresh bị
 logout ngắt bị mất; logout kết thúc trước recovery), Reviewed SHA: UNVERIFIED; correction C2
 trên cùng PR #79 sửa cả hai. Review C2: RUN — 1 finding (P2: permission refresh lỗi sau
-403 bị bỏ qua), Reviewed SHA: UNVERIFIED; correction C3 trên cùng PR #79 sửa. Review C3: NOT RUN.
+403 bị bỏ qua), Reviewed SHA: UNVERIFIED; correction C3 trên cùng PR #79 sửa. Review C3: RUN — 1 finding (P2: deferred access failure
+lỗi thời đóng Board sau check mới hơn), Reviewed SHA: UNVERIFIED; correction C4 trên cùng PR #79
+sửa. Review C4: NOT RUN.
 
 Bản cập nhật trước (2026-10-03, `PMS-ADMIN-AUTH-001-CP05`, viết khi PR #78 còn Draft; nay đã merged):
 `PMS-ADMIN-AUTH-001-CP04` (PR #77) đã **merged** (`2026-10-03T06:40:05Z`), merge commit
