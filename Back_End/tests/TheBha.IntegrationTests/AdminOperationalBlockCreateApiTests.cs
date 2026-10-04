@@ -65,8 +65,14 @@ public sealed class AdminOperationalBlockCreateApiTests(PostgreSqlWebApplication
     // ---------------------------------------------------------------
 
     private WebApplicationFactory<Program> CreateWriteHost() =>
-        factory.WithWebHostBuilder(builder =>
+        factory.WithLocalGate(builder =>
             builder.UseSetting("AdminCalendar:EnableUnauthenticatedWrite", "true"));
+
+    /// <summary>
+    /// CP07: the closed-gate case — LocalGate selected explicitly (Staff is the default), with
+    /// the shipped write opt-in left off.
+    /// </summary>
+    private WebApplicationFactory<Program> CreateClosedLocalGateHost() => factory.WithLocalGate();
 
     private static HttpClient CreateHttpsClient(WebApplicationFactory<Program> target) =>
         target.CreateClient(new WebApplicationFactoryClientOptions
@@ -528,7 +534,8 @@ public sealed class AdminOperationalBlockCreateApiTests(PostgreSqlWebApplication
     {
         var data = await SeedAsync("cp01-closed-gate");
         // The ordinary host: AdminCalendar:EnableUnauthenticatedWrite is false.
-        using var client = CreateHttpsClient(factory);
+        await using var closedHost = CreateClosedLocalGateHost();
+        using var client = CreateHttpsClient(closedHost);
 
         using var valid = CreatePost(data.Property.Id, RequestBody(data.RoomsA[0].Id, CheckIn, CheckOut));
         var validResponse = await client.SendAsync(valid);
@@ -818,7 +825,8 @@ public sealed class AdminOperationalBlockCreateApiTests(PostgreSqlWebApplication
         var body = CancelBody(block.Version);
 
         // Closed gate: a valid and a malformed body are answered identically.
-        using var closedClient = CreateHttpsClient(factory);
+        await using var closedHost = CreateClosedLocalGateHost();
+        using var closedClient = CreateHttpsClient(closedHost);
         using var closedValid = CancelPost(data.Property.Id, block.Id, body);
         using var closedMalformed = CancelPost(data.Property.Id, block.Id, "{ this is not json");
         Assert.Equal(HttpStatusCode.NotFound, (await closedClient.SendAsync(closedValid)).StatusCode);

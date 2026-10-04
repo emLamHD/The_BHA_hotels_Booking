@@ -58,8 +58,14 @@ public sealed class AdminCalendarAssignmentMoveUnassignApiTests(PostgreSqlWebApp
     // ---------------------------------------------------------------
 
     private WebApplicationFactory<Program> CreateWriteHost() =>
-        factory.WithWebHostBuilder(builder =>
+        factory.WithLocalGate(builder =>
             builder.UseSetting("AdminCalendar:EnableUnauthenticatedWrite", "true"));
+
+    /// <summary>
+    /// CP07: the closed-gate case — LocalGate selected explicitly (Staff is the default), with
+    /// the shipped write opt-in left off.
+    /// </summary>
+    private WebApplicationFactory<Program> CreateClosedLocalGateHost() => factory.WithLocalGate();
 
     private static HttpClient CreateHttpsClient(WebApplicationFactory<Program> target) =>
         target.CreateClient(new WebApplicationFactoryClientOptions
@@ -675,7 +681,8 @@ public sealed class AdminCalendarAssignmentMoveUnassignApiTests(PostgreSqlWebApp
         var original = await CreateAssignmentAsync(writeClient, data.Property.Id, data.UnitsA[0].Id, data.RoomsA[0].Id);
 
         // The ordinary host: AdminCalendar:EnableUnauthenticatedWrite is false.
-        using var closedClient = CreateHttpsClient(factory);
+        await using var closedHost = CreateClosedLocalGateHost();
+        using var closedClient = CreateHttpsClient(closedHost);
 
         using var moveRequest = CreateJsonPost(
             MoveUrl(data.Property.Id, original.Id),

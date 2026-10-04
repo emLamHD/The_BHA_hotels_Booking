@@ -96,10 +96,20 @@ if (builder.Environment.IsProduction() && adminCalendarOptions.EnableUnauthentic
 }
 
 // PMS-ADMIN-AUTH-001-CP04 (D7): the access mode is validated and frozen here, before anything
-// is registered. A missing key is LocalGate; an empty or unknown value stops the host. The
+// is registered. CP07: a missing key is Staff; an empty or unknown value stops the host. The
 // Production guards above still apply to the local flags in either mode.
 var adminCalendarAccess = AdminCalendarAccess.FromConfiguration(builder.Configuration);
 var staffCalendarMode = adminCalendarAccess.Mode == AdminCalendarAccessMode.Staff;
+
+// PMS-ADMIN-AUTH-001-CP07: LocalGate is an explicit Development-only opt-in. Production, Staging
+// and any other environment refuse to start with it, so the anonymous local gates can never be
+// a fallback (or a rollback) outside a developer's machine.
+if (!staffCalendarMode && !builder.Environment.IsDevelopment())
+{
+    throw new InvalidOperationException(
+        $"{AdminCalendarAccess.ModeKey}=LocalGate is a Development-only opt-in; this host's environment is " +
+        $"'{builder.Environment.EnvironmentName}'. Remove the setting to use Staff (the default).");
+}
 builder.Services.AddSingleton(adminCalendarAccess);
 builder.Services.AddScoped<IStaffAccessEvaluator, StaffAccessEvaluator>();
 

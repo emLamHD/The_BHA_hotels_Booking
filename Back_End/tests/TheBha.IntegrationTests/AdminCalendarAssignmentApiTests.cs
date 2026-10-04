@@ -65,13 +65,18 @@ public sealed class AdminCalendarAssignmentApiTests(PostgreSqlWebApplicationFact
     // ---------------------------------------------------------------
 
     /// <summary>
-    /// A host with the local write opt-in on. The shipped Development default
-    /// is <c>false</c>, so the ordinary <paramref name="factory"/> host is
-    /// already the closed-gate case and needs no override.
+    /// A LocalGate host (explicit, CP07) with the local write opt-in on. The
+    /// shipped Development default is <c>false</c>.
     /// </summary>
     private WebApplicationFactory<Program> CreateWriteHost() =>
-        factory.WithWebHostBuilder(builder =>
+        factory.WithLocalGate(builder =>
             builder.UseSetting("AdminCalendar:EnableUnauthenticatedWrite", "true"));
+
+    /// <summary>
+    /// CP07: the closed-gate case — LocalGate selected explicitly (Staff is the default), with
+    /// the shipped write opt-in left off.
+    /// </summary>
+    private WebApplicationFactory<Program> CreateClosedLocalGateHost() => factory.WithLocalGate();
 
     /// <summary>
     /// The gate refuses cleartext, so an HTTPS base address is what makes a
@@ -229,7 +234,8 @@ public sealed class AdminCalendarAssignmentApiTests(PostgreSqlWebApplicationFact
     {
         var data = await SeedAsync("cp02-closed-gate");
         // The ordinary host: AdminCalendar:EnableUnauthenticatedWrite is false.
-        using var client = CreateHttpsClient(factory);
+        await using var closedHost = CreateClosedLocalGateHost();
+        using var client = CreateHttpsClient(closedHost);
 
         using var valid = CreatePost(
             data.Property.Id,
