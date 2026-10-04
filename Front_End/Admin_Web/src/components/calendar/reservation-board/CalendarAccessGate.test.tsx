@@ -750,3 +750,117 @@ describe("CP06-C3: a permission re-read after a denial that cannot answer closes
     expect(screen.queryByTestId("staff-identity")).not.toBeInTheDocument();
   });
 });
+
+describe("CP06-C4: a failed check deferred behind a write belongs to that check — a newer check replaces it", () => {
+  const A_ERROR = "Could not reach the Admin API to check your Staff session.";
+  const B_ERROR = "The Admin API could not check your Staff session (HTTP 503).";
+  const nextRange = () => screen.getByRole("button", { name: "Next date range" });
+  /** W of the current test: an assignment on the wire, answered with `outcomeOf`. */
+  let currentW: ReturnType<typeof deferred<Awaited<ReturnType<typeof createReservationAssignment>>>> | null = null;
+  const outcomeOf = (outcome: Awaited<ReturnType<typeof createReservationAssignment>>) => currentW!.resolve(outcome);
+
+  /**
+   * W: an assignment on prop-a, on the wire. A: a board read refused (next range), its re-read fails — deferred
+   * behind W. B: the board moves to prop-b, refused too, so a newer re-read starts and answers `meB`.
+   */
+  async function failedCheckThenNewer(meB: StaffSessionResult | Promise<StaffSessionResult>) {
+    const { user, from } = await renderStaff(sessionWith(["prop-a", "Manager"], ["prop-b", "Manager"]));
+    currentW = deferred();
+    mockedCreate.mockReturnValueOnce(currentW.promise);
+    await user.click(await WRITES["create assignment"].open(user, from));
+
+    mockedBoard.mockResolvedValueOnce({ ok: false, error: { kind: "http", status: 403, message: "Access denied" } });
+    mockedMe.mockResolvedValueOnce({ kind: "error", message: A_ERROR });
+    await user.click(nextRange()); // check A fails while W is on the wire: its failure waits for W
+    await waitFor(() => expect(mockedMe).toHaveBeenCalledTimes(2));
+    expect(screen.queryByTestId("staff-session-error")).not.toBeInTheDocument();
+
+    if (meB instanceof Promise) mockedMe.mockReturnValueOnce(meB);
+    else mockedMe.mockResolvedValueOnce(meB);
+    await user.selectOptions(screen.getByLabelText("Property"), "prop-b"); // check B takes over
+    await waitFor(() => expect(mockedMe).toHaveBeenCalledTimes(3));
+    return { user };
+  }
+
+  it.each([
+    ["success", { kind: "created", segment: null } as const, 0],
+    ["unknown", { kind: "unknown", reason: "network" } as const, 1],
+  ])("A fails, B succeeds, W settles (%s): the board keeps the newly verified roles — no error from A", async (_label, outcome, records) => {
+    await failedCheckThenNewer({ kind: "authenticated", session: sessionWith(["prop-a", "FrontDesk"]) });
+    await waitFor(() => expect(propertyOptions()).toEqual(["Property A"])); // B's memberships, B's role
+    await act(async () => outcomeOf(outcome));
+
+    expect(screen.queryByTestId("staff-session-error")).not.toBeInTheDocument();
+    expect(screen.getByTestId("staff-identity")).toBeInTheDocument();
+    await waitFor(() => expect(stayBar()).toBeInTheDocument());
+    expect(capabilities()).toHaveTextContent("Signed in as FrontDesk");
+    expect(createBlockButton()).toBeEnabled();
+    expect(mockedCreate).toHaveBeenCalledTimes(1); // nothing resent
+    const stored = restoreUncertainWrites(tabStorage(), 1);
+    expect(stored.pendingTokens).toHaveLength(0);
+    expect(stored.assignments).toHaveLength(records);
+  });
+  it("A fails, B still on the wire, W settles: A's failure is not applied and writes stay closed until B answers", async () => {
+    const meB = deferred<StaffSessionResult>();
+    const { user } = await failedCheckThenNewer(meB.promise);
+    // Back to prop-a (readable) while B is on the wire, so the re-read after W is not refused again.
+    await user.selectOptions(screen.getByLabelText("Property"), "prop-a");
+    await waitFor(() => expect(stayBar()).toBeInTheDocument());
+    expect(createBlockButton()).toBeDisabled(); // still checking: nothing can be written on the old roles
+    await act(async () => outcomeOf({ kind: "unknown", reason: "network" }));
+    expect(screen.queryByTestId("staff-session-error")).not.toBeInTheDocument();
+    expect(createBlockButton()).toBeDisabled();
+    expect(restoreUncertainWrites(tabStorage(), 1).assignments).toHaveLength(1);
+
+    await act(async () => meB.resolve({ kind: "authenticated", session: sessionWith(["prop-a", "FrontDesk"]) }));
+    expect(screen.queryByTestId("staff-session-error")).not.toBeInTheDocument();
+    expect(capabilities()).toHaveTextContent("Signed in as FrontDesk");
+    expect(createBlockButton()).toBeEnabled();
+    expect(mockedCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("A fails, B fails, W settles: only B's failure closes access, and its Retry works", async () => {
+    const { user } = await failedCheckThenNewer({ kind: "error", message: B_ERROR });
+    expect(screen.queryByTestId("staff-session-error")).not.toBeInTheDocument(); // W is still on the wire
+    await act(async () => outcomeOf({ kind: "created", segment: null }));
+    const panel = await screen.findByTestId("staff-session-error");
+    expect(panel).toHaveTextContent(B_ERROR);
+    expect(panel).not.toHaveTextContent(A_ERROR);
+    mockedMe.mockResolvedValueOnce({ kind: "authenticated", session: sessionWith(["prop-a", "FrontDesk"]) });
+    await user.click(within(panel).getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(stayBar()).toBeInTheDocument());
+    expect(capabilities()).toHaveTextContent("Signed in as FrontDesk");
+  });
+
+  it("A fails, B finds no session, W settles: the session ends once — not an access error", async () => {
+    await failedCheckThenNewer({ kind: "unauthenticated" });
+    expect(replace).not.toHaveBeenCalled(); // the session waits for W
+    await act(async () => outcomeOf({ kind: "unknown", reason: "network" }));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/signin"));
+    expect(replace).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("staff-session-error")).not.toBeInTheDocument();
+    expect(screen.getByTestId("staff-session-required")).toHaveTextContent("Your Staff session has ended.");
+    expect(restoreUncertainWrites(tabStorage(), 1).assignments).toHaveLength(1);
+  });
+
+  it("B takes over while A is still on the wire, then A answers late with an error: A changes nothing", async () => {
+    const { user, from } = await renderStaff(sessionWith(["prop-a", "Manager"], ["prop-b", "Manager"]));
+    currentW = deferred();
+    mockedCreate.mockReturnValueOnce(currentW.promise);
+    await user.click(await WRITES["create assignment"].open(user, from));
+    const meA = deferred<StaffSessionResult>();
+    mockedMe.mockReturnValueOnce(meA.promise);
+    mockedBoard.mockResolvedValueOnce({ ok: false, error: { kind: "http", status: 403, message: "Access denied" } });
+    await user.click(nextRange()); // A on the wire
+    await waitFor(() => expect(mockedMe).toHaveBeenCalledTimes(2));
+    mockedMe.mockResolvedValueOnce({ kind: "authenticated", session: sessionWith(["prop-a", "FrontDesk"]) });
+    await user.selectOptions(screen.getByLabelText("Property"), "prop-b"); // B takes over and succeeds
+    await waitFor(() => expect(propertyOptions()).toEqual(["Property A"]));
+    await act(async () => meA.resolve({ kind: "error", message: A_ERROR })); // A, late
+    await act(async () => outcomeOf({ kind: "created", segment: null }));
+    expect(screen.queryByTestId("staff-session-error")).not.toBeInTheDocument();
+    await waitFor(() => expect(stayBar()).toBeInTheDocument());
+    expect(capabilities()).toHaveTextContent("Signed in as FrontDesk");
+    expect(createBlockButton()).toBeEnabled();
+  });
+});

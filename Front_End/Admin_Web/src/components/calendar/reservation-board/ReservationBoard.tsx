@@ -319,8 +319,12 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
       accessCheckPausedRef.current = false;
     }
   }, [accessCheckPassedRun]);
-  /** CP06-C3: the check could not answer while a write was on the wire; close access once none is. */
-  const accessFailPendingRef = useRef(false);
+  /**
+   * CP06-C3/C4: the check whose failure waits for this board's writes to settle,
+   * or `null`. It belongs to that check: a newer check (or the end of the
+   * session) drops it, and it is acted on at most once, only while still current.
+   */
+  const accessFailPendingRunRef = useRef<number | null>(null);
   /** CP06: the session ended; nothing more is read or sent, and the board's data is gone. */
   const [sessionEnded, setSessionEnded] = useState(false);
   const sessionEndedRef = useRef(false);
@@ -597,6 +601,8 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
       setBoardState({ status: "idle" });
       setSelection(null);
     }
+    // CP06-C4: the session is over; a deferred access-check failure no longer applies.
+    accessFailPendingRunRef.current = null;
     expirePendingRef.current = true;
     if (inFlightTokensRef.current.size === 0) {
       expirePendingRef.current = false;
@@ -609,14 +615,23 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
    * access (error with Retry) only once no write of this board is on the wire, so
    * each outcome and pending intent is settled by its own handler first.
    */
-  const closeAccessAfterFailedCheck = useCallback(() => {
+  const closeAccessAfterFailedCheck = useCallback((run: number) => {
     const current = accessRef.current;
     if (current.mode !== "Staff") return;
-    accessFailPendingRef.current = true;
     if (inFlightTokensRef.current.size === 0) {
-      accessFailPendingRef.current = false;
       current.onAccessCheckFailed?.();
+    } else {
+      accessFailPendingRunRef.current = run;
     }
+  }, []);
+
+  /** CP06-C4: a write settled; the deferred failure is acted on once, and only if its check is still the latest. */
+  const settleDeferredAccessFailure = useCallback(() => {
+    const run = accessFailPendingRunRef.current;
+    if (run === null || inFlightTokensRef.current.size !== 0) return;
+    accessFailPendingRunRef.current = null;
+    const current = accessRef.current;
+    if (current.mode === "Staff" && run === accessCheckRunRef.current) current.onAccessCheckFailed?.();
   }, []);
 
   /**
@@ -629,6 +644,8 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
     const current = accessRef.current;
     if (current.mode !== "Staff" || sessionEndedRef.current) return;
     const run = ++accessCheckRunRef.current;
+    // CP06-C4: this check takes over; an older check's deferred failure no longer applies.
+    accessFailPendingRunRef.current = null;
     accessCheckPausedRef.current = true;
     setAccessCheckPaused(true);
     const result = await current.refreshAccess();
@@ -639,7 +656,7 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
     } else if (result === "unauthenticated") {
       expireSession();
     } else {
-      closeAccessAfterFailedCheck();
+      closeAccessAfterFailedCheck(run);
     }
   }, [expireSession, closeAccessAfterFailedCheck]);
 
@@ -668,12 +685,9 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
         expirePendingRef.current = false;
         current.onSessionExpired();
       }
-      if (accessFailPendingRef.current && inFlightTokensRef.current.size === 0) {
-        accessFailPendingRef.current = false;
-        current.onAccessCheckFailed?.();
-      }
+      settleDeferredAccessFailure();
     },
-    [expireSession, refreshAfterDenial]
+    [expireSession, refreshAfterDenial, settleDeferredAccessFailure]
   );
 
   /**
