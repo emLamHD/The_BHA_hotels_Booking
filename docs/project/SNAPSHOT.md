@@ -1,10 +1,24 @@
 # THE BHA — SNAPSHOT
 
-> Ngày cập nhật: 2026-10-03 (`PMS-ADMIN-AUTH-001-CP06`; các phần cũ hơn giữ nguyên kèm SHA)
+> Ngày cập nhật: 2026-10-04 (`PMS-ADMIN-AUTH-001-CP07`; các phần cũ hơn giữ nguyên kèm SHA)
 >
 > Mục đích: phục hồi trạng thái hiện tại mà không cần nạp worklog lịch sử
 
-Cập nhật 2026-10-03 (`PMS-ADMIN-AUTH-001-CP06`, Draft PR, chưa merge):
+Cập nhật 2026-10-04 (`PMS-ADMIN-AUTH-001-CP07`, Draft PR, chưa merge):
+`PMS-ADMIN-AUTH-001-CP06` cùng correction C1–C4 (PR #79) đã **merged**
+(`2026-10-04T08:03:02Z`), merge commit `c62719b9fe8b947ef001cc2b20ea1a6a7d5e226e`. Review C4:
+RUN — no actionable regressions (Reviewed SHA: UNVERIFIED). CP07 là checkpoint cuối của
+milestone Staff auth: `AdminCalendar:AccessMode` không khai báo → `Staff` ở mọi môi trường
+(parser CP04-C1 giữ nguyên cho giá trị rỗng/không hợp lệ); `LocalGate` chỉ là opt-in
+Development — Production/Staging/môi trường khác từ chối khởi động; hai guard Production cho
+local flags giữ nguyên, kể cả ở `Staff`. Launch profile `https` không còn bật read flag.
+Admin_Web: `NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE` không đặt → `Staff`; `LocalGate` bị từ
+chối trong production build. Calendar có Staff authentication/RBAC/audit (CP03–CP06); các module
+Admin mẫu khác vẫn ngoài phạm vi. Runbook vận hành:
+`docs/runbooks/PMS-ADMIN-AUTH-001-staff-calendar.md`. **Chưa deploy Production.** Evidence:
+`docs/reports/PMS-ADMIN-AUTH-001-CP07-completion.md`. Review CP07: NOT RUN.
+
+Bản cập nhật trước (2026-10-03, `PMS-ADMIN-AUTH-001-CP06`, viết khi PR #79 còn Draft; nay đã merged):
 `PMS-ADMIN-AUTH-001-CP05` (PR #78) đã **merged** (`2026-10-03T08:23:15Z`), merge commit
 `8f6222984b8678027e71523f27274407f8eeeb35`. CP06 chỉ đổi Admin_Web (không backend, schema,
 dependency hay CI): `NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE` = `LocalGate` (mặc định khi
@@ -322,12 +336,10 @@ này sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
 
 ### Đang thực thi
 
-- Không có work item sản phẩm nào đang thực thi. `PMS-CAL-001.5-CP04` đã
-  merged (PR #72); `PMS-ADMIN-AUTH-001-CP00` là checkpoint thiết kế (Draft PR). `CP04B` (PR #48) đã merged: hai route
-  local-only `.../reservation-assignments/{segmentId}/move` và `/unassign`,
-  cùng CP01 write gate; Admin Reservation Board là caller (CP04C/CP04D).
-- Mọi mutation nghiệp vụ khác của `PMS-CAL-001.2` (CP05, CP06 trở đi) **chưa
-  kích hoạt**; Snapshot này không tự mở chúng.
+- `PMS-ADMIN-AUTH-001-CP07` (Staff mặc định, `LocalGate` chỉ Development) đang
+  ở Draft PR; CP00–CP06 đã merged (PR #73–#79).
+- Mọi mutation nghiệp vụ khác của `PMS-CAL-001.2` (assignment split/swap/batch,
+  operational-block move/split) **chưa kích hoạt**; Snapshot này không tự mở chúng.
 
 ### Quyết định đang hiệu lực
 
@@ -344,11 +356,12 @@ này sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
 - Owner đã thay kế hoạch một PR lớn cho `PMS-CAL-001.2` bằng các checkpoint
   độc lập. `CP01`–`CP04D` đã merge (PR #43–#63); `PMS-CAL-001.3`–`.5`
   cũng đã merge đến PR #71; các checkpoint sau chưa được kích hoạt.
-- Không checkpoint nào tuyên bố public deployment readiness: vẫn chưa có
-  Admin authentication/RBAC. Các route ghi hẹp — create (CP02), move và
-  unassign một segment (CP04B), tạo/hủy operational block — nằm sau cùng
-  write gate same-machine development only, mặc định tắt. Admin Reservation
-  Board là caller duy nhất của tất cả.
+- Admin Calendar (Board read và năm route ghi) có Staff authentication,
+  RBAC theo Property/role và audit `staff:{id}` (`PMS-ADMIN-AUTH-001` CP03–CP06,
+  merged); CP07 (Draft) làm `Staff` thành mặc định và giới hạn `LocalGate`
+  (write/read gate same-machine development, không auth) thành opt-in
+  Development. Chưa có Production deployment; các module Admin mẫu khác vẫn
+  ngoài phạm vi. Admin Reservation Board là caller duy nhất của các route.
 - Chỉ Owner được mark Ready, merge và branch cleanup. Claude không merge,
   không mark Ready, không xóa branch, và không tự invoke Codex.
 - Governance vẫn dùng đúng một checkout repository duy nhất cho execution
@@ -449,12 +462,14 @@ này sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
   local **và** remote của connection đều là loopback; và
   `AdminCalendar:EnableUnauthenticatedRead` là `true` — mà cờ này mặc định
   `false` **kể cả trong Development**, chỉ được bật bởi supported local
-  HTTPS launch profile (`AdminCalendar__EnableUnauthenticatedRead=true`,
+  HTTPS launch profile (từ CP07: biến môi trường local tường minh cùng
+  `AdminCalendar__AccessMode=LocalGate`; `AdminCalendar__EnableUnauthenticatedRead=true`,
   bind duy nhất vào `localhost`), và không thể bật ở Production
   (startup-fatal). Mọi request không thỏa mãn nhận `404` + `no-store`,
   không phân biệt được với route không tồn tại. Đây là endpoint
-  **same-machine development only** — không public production-ready, và
-  Admin authentication/RBAC vẫn deferred. Exact contract/coverage-
+  **same-machine development only** — không public production-ready; đó là
+  `AccessMode=LocalGate`. Mặc định (`Staff`, CP07) thay các điều kiện này bằng
+  Staff session + membership/role kiểm tra trên server (design §7). Exact contract/coverage-
   classification detail: `docs/reports/PMS-CAL-001.1-completion.md`.
 - The `ADMIN-002.1` frontend's Reservation Board (§5) now reads this real
   endpoint instead of browser-memory mock state (`PMS-CAL-001.1`, §2); the
@@ -603,8 +618,8 @@ evidence independently verified for this closeout via:
   hai đã hoạt động; phần HTTP exposure local-only của schedule authority đã
   CURRENT theo `PMS-CAL-001.1`/`PMS-CAL-001.2`/`PMS-CAL-001.3` CP01–CP02) và
   TARGET (multi-RoomType public request, phần HTTP/Admin/Calendar mutation
-  còn lại của schedule authority, Admin authentication/RBAC, OTA — chưa
-  implement).
+  còn lại của schedule authority, OTA — chưa implement; Staff
+  authentication/RBAC của Admin Calendar đã CURRENT qua `PMS-ADMIN-AUTH-001`).
 - Local Graphify tooling state (đọc/graph hoá source hiện có trên máy
   Claude, không commit vào Git) không được gộp với tracked repository
   state hay product/backend implementation state — nó không tạo, sửa hay
@@ -675,11 +690,12 @@ evidence independently verified for this closeout via:
 `e0f5a395aec15cc02e328433a97850e30e165675`, `2026-09-03T03:11:21Z`; §1,
 §2, §4). Không còn review gate hay merge nào đang chờ trên work item đó.
 
-Objective hiện tại là `PMS-ADMIN-AUTH-001-CP06` — tích hợp Staff session vào Admin_Web
-(login, gate `/calendar`, selector Property từ memberships, UI Calendar theo quyền, xử lý
-401/403) mà vẫn giữ các bảo vệ uncertain-write. Default vẫn `LocalGate`; Calendar chưa
-Production-ready (CP07). Review Codex chỉ do Owner gọi, OC quyết định, Owner giữ
-Ready/merge/branch cleanup. Không tự bắt đầu CP07 hay work item nào khác từ Snapshot này.
+Objective hiện tại là `PMS-ADMIN-AUTH-001-CP07` — `Staff` là mặc định của Admin Calendar,
+`LocalGate` chỉ là opt-in Development (API từ chối khởi động ở môi trường khác; Admin_Web từ
+chối trong production build), tài liệu vận hành và acceptance end-to-end. Production
+deployment chưa thực hiện và cần quyết định riêng của Owner. Review Codex chỉ do Owner gọi,
+OC quyết định, Owner giữ Ready/merge/branch cleanup. Không tự bắt đầu work item khác từ
+Snapshot này.
 
 ## 9. Main risks
 
@@ -696,10 +712,11 @@ Ready/merge/branch cleanup. Không tự bắt đầu CP07 hay work item nào kh�
   một segment (`.../{segmentId}/move`, `.../{segmentId}/unassign`), và
   `PMS-CAL-001.3` expose route tạo một OperationalBlock segment
   (`POST .../operational-blocks`, tối đa 366 đêm tại HTTP boundary; CP01) và
-  route hủy một segment (`.../{segmentId}/cancel`; CP02). Tất cả
-  chỉ chạy được trên host Development loopback đã bật
-  `AdminCalendar:EnableUnauthenticatedWrite` (mặc định tắt), không có Admin
-  authentication/RBAC. Caller duy nhất của create/move/unassign assignment
+  route hủy một segment (`.../{segmentId}/cancel`; CP02). Ở `Staff` mode
+  (mặc định từ CP07) mỗi route cần Staff session và permission theo
+  Property/role (CP05); ở `LocalGate` (chỉ Development) chúng chỉ chạy trên
+  host loopback đã bật `AdminCalendar:EnableUnauthenticatedWrite` (mặc định
+  tắt), không có authentication. Caller duy nhất của create/move/unassign assignment
   và tạo/hủy block là Admin Reservation Board. Assignment split/batch và
   OperationalBlock move/split vẫn chỉ tồn tại ở tầng application/persistence
   nội bộ (`PMS-BE-001.2`), không có route HTTP.
@@ -716,7 +733,8 @@ Ready/merge/branch cleanup. Không tự bắt đầu CP07 hay work item nào kh�
   `X-Forwarded-*`. Hai flag độc lập: bật read không bật write và ngược lại.
   Không được để lộ qua LAN/public listener hay external-facing proxy — việc
   không đặt proxy công khai trước API local là **điều kiện vận hành**, không
-  phải thứ code phát hiện được; Admin authentication/RBAC vẫn deferred.
+  phải thứ code phát hiện được. Từ CP07 hai flag chỉ có tác dụng với
+  `AccessMode=LocalGate` (chỉ Development); `Staff` mặc định không đọc chúng.
 - Nhầm database authority/internal mutation boundary của `RoomOccupancySegment`/
   `RoomBlock` (`PMS-BE-001.2`, đã CURRENT) với HTTP/Admin/Calendar
   integration đầy đủ, Staff identity, hoặc Admin RBAC thật — ngoài các

@@ -100,36 +100,61 @@ See [docs/BE-003-5-CANCELLATION-LIFECYCLE-HARDENING.md](docs/BE-003-5-CANCELLATI
 for the Hold read, Hold cancellation, and Reservation cancellation contract
 that closes the BE-003 reservation lifecycle.
 
-### Admin Calendar local gates
+### Admin Calendar access: Staff by default, LocalGate as a development opt-in
 
-The Admin Calendar surface has no authentication or RBAC yet, so both of its
-opt-ins are **same-machine development only**, default to `false` everywhere
-(including Development), and are fatal at startup in Production:
+`AdminCalendar:AccessMode` selects how the Admin Calendar (Reservation Board and
+its five writes) is opened. It is read once at startup — changing it needs a
+restart.
 
-| Environment variable | Opens |
+| `AccessMode` | Development | Any other environment |
+|---|---|---|
+| not set | `Staff` | `Staff` |
+| `Staff` | `Staff` | `Staff` |
+| `LocalGate` | the local gates below | **refuses to start** |
+| anything else (empty, `{}`, another spelling) | refuses to start | refuses to start |
+
+`Staff` is Staff sign-in with Property memberships and roles, checked by the
+server on every request and audited as `staff:{id}`. Operating it — HTTPS, CORS,
+Data Protection, Staff bootstrap with the CLI, roles, troubleshooting — is in
+[the Staff Calendar runbook](docs/runbooks/PMS-ADMIN-AUTH-001-staff-calendar.md).
+
+`LocalGate` is the anonymous same-machine development gate, with **no
+authentication or RBAC**. It is never a fallback and never a production
+rollback. Its two opt-ins default to `false` everywhere (including Development),
+are not consulted in `Staff` mode, and are fatal at startup in Production in
+either mode:
+
+| Environment variable | Opens (LocalGate only) |
 |---|---|
 | `AdminCalendar__EnableUnauthenticatedRead` | the Reservation Board read endpoint |
 | `AdminCalendar__EnableUnauthenticatedWrite` | the Admin Calendar write boundary |
 
-They are independent — turning one on never turns the other on — and neither
-is set by any checked-in `appsettings` file. The read opt-in is set by the
-`https` launch profile; the write opt-in is set only by an explicit local
-environment variable, and only for as long as you need it:
+They are independent — turning one on never turns the other on — and none of
+`AccessMode`, the read opt-in or the write opt-in is set by any checked-in
+`appsettings` file or launch profile. Select LocalGate and the opt-ins you need
+with explicit local environment variables, only for as long as you need them:
 
 ```powershell
-$env:AdminCalendar__EnableUnauthenticatedWrite = "true"
+$env:AdminCalendar__AccessMode = "LocalGate"
+$env:AdminCalendar__EnableUnauthenticatedRead = "true"
+$env:AdminCalendar__EnableUnauthenticatedWrite = "true"   # only if you need writes
 dotnet run --project Back_End/src/TheBha.Api/TheBha.Api.csproj --launch-profile https
 ```
 
 ```bash
+AdminCalendar__AccessMode=LocalGate \
+AdminCalendar__EnableUnauthenticatedRead=true \
 AdminCalendar__EnableUnauthenticatedWrite=true \
   dotnet run --project Back_End/src/TheBha.Api/TheBha.Api.csproj --launch-profile https
 ```
 
-Turn it back off by removing the variable (`Remove-Item Env:\AdminCalendar__EnableUnauthenticatedWrite`)
-and restarting the API. Both directions need a restart: the write gate reads
-this flag once, at startup, and never re-reads configuration per request, so
-changing it in a running process has no effect at all.
+Go back to Staff by removing the variables (`Remove-Item Env:\AdminCalendar__*`)
+and restarting the API. The Admin Web build must use the same mode
+(`NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE`, see `Front_End/Admin_Web/README.md`).
+
+Every change needs a restart: the mode and the write opt-in are read once, at
+startup, and never re-read per request, so changing them in a running process
+has no effect at all.
 
 Even with the flag on, a request reaches the write boundary only when it is
 HTTPS, on a Development host, loopback at both ends of the connection, free of
