@@ -174,4 +174,49 @@ Browser acceptance (real Chrome, trusted mkcert certificate, TLS verification on
 
 The recovery error message was later re-worded (punctuation only; the acceptance run showed it with parentheses). Database: 0 segments, 0 audit rows — nothing was written during any transition. Secret scan (the throwaway password, `Set-Cookie`, the Staff cookie name) over API, web, migrate and seed logs: 0; browser storage afterwards: `theme` only. Cleanup: processes stopped, container and its volume removed (`docker rm -fv`), secret files deleted, tab closed; `the-bha-postgres-1` untouched.
 
-`C1_REVIEW: RUN — 2 findings`. `C2_REVIEW: NOT RUN` (Owner invokes `/codex:review --base origin/develop`). CP07 NOT STARTED. Production NOT TOUCHED.
+`C1_REVIEW: RUN — 2 findings`. (C2 review status: see Correction C3.)
+
+## Correction C3 (`PMS-ADMIN-AUTH-001-CP06-C3`)
+
+Codex review of C2 (`/codex:review --base origin/develop`, invoked by Owner): RUN — 1 finding, P2. Reviewed SHA: UNVERIFIED. START_HEAD of C3: `0a03e3b55e6bbc513aeb0d9d9f8b8684f6a4316b`.
+
+Root cause: `ReservationBoard.refreshAfterDenial()` acted only on `unauthenticated`. After a board read or write `403`, a `me` re-read that failed (network/CORS, 5xx, unreadable) returned `error`, the board ignored it, and the provider kept the session — so the board stayed writable on the roles the denial had just called into question, with no error and no Retry. Nothing paused writes while the re-read was on the wire either.
+
+Final behaviour (one contract for every re-read after a denial):
+
+| Re-read result | Behaviour |
+|---|---|
+| `authenticated` | the re-read memberships/roles apply; writes reopen on them only after that render has committed |
+| `unauthenticated` | the session ends through the existing lifecycle (after in-flight writes are settled) |
+| `error` | access closes as an error with Retry: "Your Staff access could not be checked again: {reason} Retry to check it." — not a sign-out, no `/signin`, never `LocalGate` |
+| `superseded` | not a verification: a newer check decides; if none is newer, access closes as for `error` |
+
+While the re-read is under way no write starts — `capabilitiesFor` pauses every write control, and all five send-time checks refuse before recording an intent ("Checking your access again after a refusal — this change was not sent."). The board hands the failure to the page (`onAccessCheckFailed` → provider `failAccessCheck`) only once no write of its own is on the wire, so the refused write stays `rejected`, a write on the wire is settled as success/unknown by its own handler, and its record is kept. `failAccessCheck` acts only on an authenticated session outside a sign-out transition and invalidates any `me` still on the wire. Retry reads `me` again (existing provider path): authenticated → a fresh board on the current memberships; error → still closed; `401` → `/signin` once. C1/C2 serialization, `LocalGate`, the cross-RoomType-confirmation exception and `uncertainWriteStorage.ts` are unchanged.
+
+Files: `StaffSession.tsx` (`failAccessCheck`, last read error), `ReservationBoard.tsx` (check pause, latest-check decision, deferred handover), `CalendarAccessGate.tsx` and `calendarAccess.ts` (wiring, message).
+
+Red/green: 9 new gate tests with the real board (`CalendarAccessGate.test.tsx`), deferred promises only — block write `403` then `me` failing (network/CORS, 5xx, unreadable; with Retry to a lower role and one Property fewer), board read `403` then `me` failing (Retry failing again, then Retry `401` → `/signin` once), a dialog opened before the denial and the controls during the re-read, a write on the wire when the re-read fails (success and unknown), an unconfirmed record through error → Retry → reload, and an older re-read answering after a newer one failed. On START_HEAD's product code: **9 failed** — 7 at the missing access-check error (the board stays writable), 1 where the dialog's write was sent during the re-read (`createReservationAssignment` called), 1 at the missing error after the in-flight write settled. On the fixed code all pass, with every C1/C2 regression.
+
+| Command (final code) | Result |
+|---|---|
+| `npm test` | exit 0 — 36 files, 814 tests |
+| `npm run lint` | exit 0 |
+| `npx tsc --noEmit -p .` | exit 0 |
+| `npm run build` | exit 0 |
+| `git diff --check` | exit 0 |
+
+Browser acceptance (real Chrome, trusted mkcert certificate, TLS verification on; PostgreSQL 17 container `cp06c3-pg`, database `c3_accept`; API and Admin_Web in `Staff` mode from the corrected tree; Staff `lead` created by the CLI as Manager at both Properties). **Response order was simulated** in the tab by holding chosen requests before they were sent and then releasing or failing them (transport failure); **the permission changes were real** — memberships removed in the throwaway database, roles set with the CLI. The backend was not modified.
+
+| Step | Result |
+|---|---|
+| unconfirmed record first | assignment to Room 101 held and failed before sending → unknown, record (439 chars) and notice |
+| real denial | Create block dialog reviewed; The BHA Hotel membership removed in the DB; Create block → real `403`; `me` re-read held: Create operational block disabled while it was pending |
+| re-read fails | `me` failed (transport) → "Your Staff access could not be checked again: Could not reach the Admin API … Retry to check it."; board and identity gone; not on `/signin`; no further request; record unchanged |
+| Retry with new roles | CLI: The BHA Hotel back as FrontDesk; Second Hotel removed in the DB; Retry → `me` 200 → selector only "The BHA Hotel", FrontDesk, writes enabled; the unconfirmed notice and record (439 chars) back |
+| permitted write | FrontDesk block on Room 102 → 201 |
+| reload | the notice and record still there |
+| control: confirmed logout | one logout POST → `/signin`, `me` 401; the record kept |
+
+Database afterwards: one audit row — the permitted block, `staff:{id}`; nothing from the refused write or the assignment that failed before sending. Secret scan (the throwaway password, `Set-Cookie`, the Staff cookie name) over API, web, migrate and seed logs: 0; browser storage: the unconfirmed record and `theme` only. Cleanup: processes stopped, container and its volume removed (`docker rm -fv`), secret files deleted, tab closed; `the-bha-postgres-1` untouched.
+
+`C2_REVIEW: RUN — 1 finding`. `C3_REVIEW: NOT RUN` (Owner invokes `/codex:review --base origin/develop`). CP07 NOT STARTED. Production NOT TOUCHED.
