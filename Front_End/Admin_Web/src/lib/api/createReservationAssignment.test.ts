@@ -23,11 +23,14 @@ function problem(status: number, body: unknown) {
 describe("createReservationAssignment (PMS-CAL-001.2-CP03A/B)", () => {
   beforeEach(() => {
     process.env.NEXT_PUBLIC_API_BASE_URL = BASE_URL;
+    // CP07: this file pins the LocalGate wire contract, which is now an explicit opt-in (Staff is the default).
+    vi.stubEnv("NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE", "LocalGate");
   });
 
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
     vi.restoreAllMocks();
   });
 

@@ -88,13 +88,28 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("CalendarAccessGate", () => {
-  it("an invalid mode shows a configuration error and sends nothing", () => {
-    vi.stubEnv("NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE", "Staf");
+  it.each([
+    ["an invalid mode", "Staf", "development", /must be exactly Staff or LocalGate/],
+    ["LocalGate in a production build (CP07)", "LocalGate", "production", /refused in a production build/],
+  ] as const)("%s shows a configuration error and sends nothing", (_label, value, nodeEnv, message) => {
+    vi.stubEnv("NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE", value);
+    vi.stubEnv("NODE_ENV", nodeEnv);
     render(<CalendarAccessGate />);
-    expect(screen.getByTestId("calendar-config-error")).toHaveTextContent(/must be exactly LocalGate or Staff/);
+    expect(screen.getByTestId("calendar-config-error")).toHaveTextContent(message);
     expect(mockedMe).not.toHaveBeenCalled();
     expect(mockedCatalog).not.toHaveBeenCalled();
     expect(mockedBoard).not.toHaveBeenCalled();
+  });
+
+  it("with the variable unset (the CP07 default) it is the Staff gate: me first, no board or catalog, then /signin", async () => {
+    vi.stubEnv("NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE", undefined);
+    mockedMe.mockResolvedValue({ kind: "unauthenticated" });
+    render(<CalendarAccessGate />);
+    expect(screen.getByTestId("staff-session-checking")).toBeInTheDocument();
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/signin"));
+    expect(mockedMe).toHaveBeenCalledTimes(1);
+    expect(mockedBoard).not.toHaveBeenCalled();
+    expect(mockedCatalog).not.toHaveBeenCalled();
   });
 
   it("LocalGate: the board as before — public catalog, no session check", async () => {

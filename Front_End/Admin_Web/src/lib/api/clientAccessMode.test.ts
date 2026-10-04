@@ -55,8 +55,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("Staff mode", () => {
-  beforeEach(() => vi.stubEnv("NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE", "Staff"));
+describe.each([
+  ["Staff", "Staff"],
+  ["unset — the CP07 default", undefined],
+] as const)("Staff mode (%s)", (_label, value) => {
+  beforeEach(() => vi.stubEnv("NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE", value));
 
   it("reads the board with the Staff cookie", async () => {
     const fetchSpy = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
@@ -105,7 +108,9 @@ describe("Staff mode", () => {
   });
 });
 
-describe("LocalGate mode (unset)", () => {
+describe("LocalGate mode (explicit development opt-in)", () => {
+  beforeEach(() => vi.stubEnv("NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE", "LocalGate"));
+
   it.each(Object.keys(writes) as (keyof typeof writes)[])("keeps %s uncredentialed", async (name) => {
     const fetchSpy = vi.fn().mockResolvedValue(new Response("{}", { status: successStatus[name] }));
     vi.stubGlobal("fetch", fetchSpy);
@@ -122,8 +127,14 @@ describe("LocalGate mode (unset)", () => {
   });
 });
 
-describe("an invalid access mode", () => {
-  beforeEach(() => vi.stubEnv("NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE", "Stafff"));
+describe.each([
+  ["an invalid access mode", "Stafff", "development"],
+  ["LocalGate in a production build (CP07)", "LocalGate", "production"],
+] as const)("%s", (_label, value, nodeEnv) => {
+  beforeEach(() => {
+    vi.stubEnv("NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE", value);
+    vi.stubEnv("NODE_ENV", nodeEnv);
+  });
 
   it("sends no Calendar request at all", async () => {
     const fetchSpy = vi.fn();

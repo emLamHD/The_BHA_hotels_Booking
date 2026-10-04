@@ -152,7 +152,7 @@ describe("SignInForm in other modes", () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
     render(<SignInForm />);
-    expect(screen.getByTestId("signin-config-error")).toHaveTextContent(/must be exactly LocalGate or Staff/);
+    expect(screen.getByTestId("signin-config-error")).toHaveTextContent(/must be exactly Staff or LocalGate/);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

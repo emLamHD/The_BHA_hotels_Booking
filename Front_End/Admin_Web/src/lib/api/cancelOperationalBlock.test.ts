@@ -28,11 +28,14 @@ function problem(status: number, body: unknown) {
 describe("cancelOperationalBlock (PMS-CAL-001.3-CP04)", () => {
   beforeEach(() => {
     process.env.NEXT_PUBLIC_API_BASE_URL = BASE_URL;
+    // CP07: this file pins the LocalGate wire contract, which is now an explicit opt-in (Staff is the default).
+    vi.stubEnv("NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE", "LocalGate");
   });
 
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
     vi.restoreAllMocks();
   });
 
