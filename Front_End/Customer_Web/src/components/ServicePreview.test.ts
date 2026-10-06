@@ -28,7 +28,7 @@ describe("ServicePreview", () => {
 });
 
 describe("PreviewImage", () => {
-  it("renders a frame, never an <img> that would request a template or third-party picture", () => {
+  it("fetches nothing: a frame (fill) or an <img> whose source is an inline data URI", () => {
     const filled = renderToStaticMarkup(
       React.createElement("div", null, React.createElement(PreviewImage, { src: "https://images.pexels.com/x.jpg", fill: true, alt: "" }))
     );
@@ -36,12 +36,21 @@ describe("PreviewImage", () => {
       React.createElement(PreviewImage, { src: { src: "/x.png", width: 400, height: 300 }, alt: "" })
     );
     for (const html of [filled, intrinsic]) {
-      expect(html).not.toContain("<img");
       expect(html).not.toContain("pexels");
+      expect(html).not.toMatch(/src="(https?:|\/)/);
       expect(html).toContain('aria-hidden="true"');
     }
-    expect(intrinsic).toContain("aspect-ratio:400 / 300");
-    expect(intrinsic).toContain("width:400px"); // natural width, like next/image
+    expect(filled).not.toContain("<img");
+    expect(intrinsic).toContain('src="data:image/svg+xml');
+    expect(intrinsic).toContain('width="400"'); // natural size, like next/image
+    expect(intrinsic).toContain('height="300"');
+  });
+
+  it("keeps the caller's classes, so w-full / mx-auto lay it out as they did the picture", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PreviewImage, { src: { src: "/x.png", width: 100, height: 100 }, className: "w-full mx-auto rounded-2xl", alt: "" })
+    );
+    expect(html).toContain("w-full mx-auto rounded-2xl");
   });
 
   it("renders nothing for out-of-flow decoration", () => {
@@ -74,6 +83,6 @@ describe("sample section copy", () => {
     expect(html).not.toContain("The BHA");
     expect(html).not.toContain("Riverside");
     expect(html).not.toContain("Chisfis");
-    expect(html).not.toContain("<img");
+    expect(html).not.toMatch(/src="(https?:|\/)/); // no picture is requested, only inline placeholders
   });
 });
