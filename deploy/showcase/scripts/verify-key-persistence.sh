@@ -31,6 +31,7 @@ run_api() { # volume
     -e ASPNETCORE_ENVIRONMENT=Production \
     -e "ConnectionStrings__TheBhaDatabase=Host=postgres;Database=$scratch_db;Username=$SHOWCASE_DB_USER;Password=$SHOWCASE_DB_PASSWORD" \
     -e "Cors__AllowedOrigins__0=$CUSTOMER_ORIGIN" -e "Cors__AdminOrigins__0=$ADMIN_ORIGIN" \
+    -e DataProtection__KeysPath=/var/keys \
     -e Hosting__TrustedProxy__Enabled=true -e Hosting__TrustedProxy__KnownNetworks__0=172.28.0.0/24 \
     -v "$1:/var/keys" thebha-api:showcase >/dev/null
   for _ in $(seq 1 40); do
@@ -97,4 +98,17 @@ run_api "$vol_a"; client same-volume
 echo "== control: recreate on a fresh volume invalidates what was issued"
 run_api "$vol_a"; client issue
 run_api "$vol_b"; client fresh-volume
+echo "== guard: no key directory configured -> Production refuses to start"
+docker rm -f "$name" >/dev/null 2>&1 || true
+set +e
+out="$(docker run --rm --network "$net" -e ASPNETCORE_ENVIRONMENT=Production \
+  -e "ConnectionStrings__TheBhaDatabase=Host=postgres;Database=$scratch_db;Username=$SHOWCASE_DB_USER;Password=$SHOWCASE_DB_PASSWORD" \
+  -e "Cors__AllowedOrigins__0=$CUSTOMER_ORIGIN" -e "Cors__AdminOrigins__0=$ADMIN_ORIGIN" thebha-api:showcase 2>&1)"
+code=$?
+set -e
+if [[ $code -ne 0 && "$out" == *"DataProtection:KeysPath must point to durable shared storage"* ]]; then
+  echo "ok    image without DataProtection__KeysPath exits $code with the guard message"
+else
+  echo "FAIL  image started (or failed differently) without a key directory (exit $code)" >&2; exit 1
+fi
 echo "key persistence verified"

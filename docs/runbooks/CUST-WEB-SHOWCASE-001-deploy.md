@@ -40,7 +40,7 @@ Customer and Staff sessions are cookies set by the API and sent with `credential
 2. Owner sets repository variables `ECR_PUBLISH_ENABLED=true`, `AWS_ECR_ROLE_ARN`, `AWS_REGION`, `ECR_REPOSITORY` and optionally protects the `showcase-publish` environment.
 3. Run the workflow manually (`Actions → Backend image → Run workflow`, `publish = true`). The tag is the commit SHA.
 
-Manual alternative: `docker build -t thebha-api:<sha> Back_End` then push from an authenticated machine. Image properties (verified locally): non-root user `app`, port 8080, `ASPNETCORE_ENVIRONMENT=Production`, `/var/keys` owned by `app`, no secrets baked in.
+Manual alternative: `docker build -t thebha-api:<sha> Back_End` then push from an authenticated machine. Image properties (verified locally): non-root user `app`, port 8080, `ASPNETCORE_ENVIRONMENT=Production`, `/var/keys` created and owned by `app` (not configured: set `DataProtection__KeysPath`), no secrets baked in.
 
 ## 4. RDS and migrations
 
@@ -64,7 +64,7 @@ Environment variables (values from the secret store; none belong in Git):
 | `ConnectionStrings__TheBhaDatabase` | Npgsql connection string for the application role (SSL required on RDS) |
 | `Cors__AllowedOrigins__0` | `https://book.<domain>` |
 | `Cors__AdminOrigins__0` | `https://admin.<domain>` |
-| `DataProtection__KeysPath` | `/var/keys` (image default) — **must** be a durable volume shared by every task |
+| `DataProtection__KeysPath` | `/var/keys` — **required**: the image does not set it, so a task started without it (and without the volume) fails at startup instead of running on ephemeral keys. Mount a durable volume shared by every task there. |
 | `Hosting__TrustedProxy__Enabled` | `true` |
 | `Hosting__TrustedProxy__KnownNetworks__0` | CIDR of the ALB subnets (or the VPC range), e.g. `10.0.0.0/16`. No `/0`, nothing wider than `/8` (the API refuses to start). |
 | `Hosting__TrustedProxy__ForwardLimit` | `1` (one TLS terminator) |

@@ -24,19 +24,20 @@ RUN dotnet publish src/TheBha.Api/TheBha.Api.csproj \
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
 WORKDIR /app
 
-# The Data Protection key ring (Staff/Customer cookies, antiforgery) lives here and must be a
-# durable volume shared by every instance; DataProtection__KeysPath is set to it below.
-# Created and owned by the unprivileged user so a fresh named volume inherits that ownership.
+# The Data Protection key ring (Staff/Customer cookies, antiforgery) belongs here and must be a
+# durable volume shared by every instance. DataProtection__KeysPath is deliberately NOT set in the
+# image: Production refuses to start without it, so a task launched with no volume fails loudly
+# instead of running on ephemeral keys. The operator sets DataProtection__KeysPath=/var/keys and
+# mounts the volume. The directory exists and is owned by the unprivileged user so a fresh named
+# volume mounted there inherits that ownership.
 RUN mkdir -p /var/keys && chown app:app /var/keys
 
 COPY --from=build --chown=app:app /app/publish ./
 
 ENV ASPNETCORE_ENVIRONMENT=Production \
-    DataProtection__KeysPath=/var/keys \
     DOTNET_gcServer=0
 
 USER app
 # The aspnet:8.0 base image already binds ASPNETCORE_HTTP_PORTS=8080 (non-privileged).
 EXPOSE 8080
-VOLUME ["/var/keys"]
 ENTRYPOINT ["dotnet", "TheBha.Api.dll"]
