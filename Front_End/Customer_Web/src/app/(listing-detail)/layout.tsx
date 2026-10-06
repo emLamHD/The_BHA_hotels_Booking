@@ -7,7 +7,6 @@ import SectionSubscribe2 from "@/components/SectionSubscribe2";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import React, { ReactNode } from "react";
 import MobileFooterSticky from "./(components)/MobileFooterSticky";
-import { imageGallery as listingStayImageGallery } from "./listing-stay-detail/constant";
 import { imageGallery as listingCarImageGallery } from "./listing-car-detail/constant";
 import { imageGallery as listingExperienceImageGallery } from "./listing-experiences-detail/constant";
 import { Route } from "next";
@@ -25,9 +24,6 @@ const DetailtLayout = ({ children }: { children: ReactNode }) => {
   };
 
   const getImageGalleryListing = () => {
-    if (thisPathname?.includes("/listing-stay-detail")) {
-      return listingStayImageGallery;
-    }
     if (thisPathname?.includes("/listing-car-detail")) {
       return listingCarImageGallery;
     }
@@ -37,6 +33,17 @@ const DetailtLayout = ({ children }: { children: ReactNode }) => {
 
     return [];
   };
+
+  // CUST-WEB-SHOWCASE-001-CP02-C3: the stay room page is the live one. It renders its own gallery, booking
+  // panel and mobile bar from the API's data for the room, so this layout adds no template gallery,
+  // marketing section or reserve bar around it. The car and experience detail pages keep the template frame.
+  if (thisPathname?.startsWith("/listing-stay-detail")) {
+    return (
+      <div className="ListingDetailPage">
+        <div className="container ListingDetailPage__content">{children}</div>
+      </div>
+    );
+  }
 
   return (
     <div className="ListingDetailPage">

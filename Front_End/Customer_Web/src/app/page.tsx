@@ -5,6 +5,7 @@ import { TaxonomyType } from "@/data/types";
 import SectionSliderNewCategories from "@/components/SectionSliderNewCategories";
 import SectionOurFeatures from "@/components/SectionOurFeatures";
 import BackgroundSection from "@/components/BackgroundSection";
+import HomeFeaturedRooms from "./(home)/HomeFeaturedRooms";
 import SectionHowItWork from "@/components/SectionHowItWork";
 import SectionSubscribe2 from "@/components/SectionSubscribe2";
 import SectionGridAuthorBox from "@/components/SectionGridAuthorBox";
@@ -12,16 +13,7 @@ import SectionGridCategoryBox from "@/components/SectionGridCategoryBox";
 import SectionBecomeAnAuthor from "@/components/SectionBecomeAnAuthor";
 import SectionVideos from "@/components/SectionVideos";
 import SectionClientSay from "@/components/SectionClientSay";
-import ServicePreview from "@/components/ServicePreview";
-import HomeFeaturedRooms from "./(home)/HomeFeaturedRooms";
 
-/**
- * CUST-WEB-SHOWCASE-001-CP02-C2: the Chisfis home page composition, in the template's order. The
- * section that sells something real — Featured places to stay, now The BHA Riverside's room types —
- * is live. Every other section is the template's sample content kept as a layout preview inside a
- * ServicePreview (inert, labelled): there is no backend for those services yet. The sample place
- * names below are template data, not Riverside information.
- */
 const DEMO_CATS: TaxonomyType[] = [
   {
     id: "1",
@@ -154,7 +146,12 @@ const DEMO_CATS_2: TaxonomyType[] = [
   },
 ];
 
-
+/**
+ * CUST-WEB-SHOWCASE-001-CP02-C3: the Chisfis home page exactly as the template composes it, except that
+ * "Featured places to stay" shows the real room types of The BHA Riverside and the hero stay search is
+ * connected to it. Every other section is the template's own sample content, pictures and actions;
+ * the template images are the original references and their licence has not been verified.
+ */
 function PageHome() {
   return (
     <main className="nc-PageHome relative overflow-hidden">
@@ -165,60 +162,54 @@ function PageHome() {
         {/* SECTION HERO */}
         <SectionHero className="pt-10 lg:pt-16 lg:pb-16" />
 
-        <ServicePreview id="services" className="space-y-24 lg:space-y-28">
-          <SectionSliderNewCategories categories={DEMO_CATS} />
+        {/* SECTION 1 */}
+        <SectionSliderNewCategories categories={DEMO_CATS} />
 
-          <SectionOurFeatures />
-        </ServicePreview>
+        <SectionOurFeatures />
 
-        {/* LIVE: the room types of The BHA Riverside */}
         <HomeFeaturedRooms />
 
-        <ServicePreview>
-          <div className="space-y-24 lg:space-y-28">
-            <SectionHowItWork />
+        <SectionHowItWork />
 
-            <div className="relative py-16">
-              <BackgroundSection className="bg-orange-50 dark:bg-black/20" />
-              <SectionSliderNewCategories
-                categories={DEMO_CATS_2}
-                categoryCardType="card4"
-                itemPerRow={4}
-                heading="Suggestions for discovery"
-                subHeading="Popular places to stay recommended for you"
-                sliderStyle="style2"
-              />
-            </div>
+        <div className="relative py-16">
+          <BackgroundSection className="bg-orange-50 dark:bg-black/20" />
+          <SectionSliderNewCategories
+            categories={DEMO_CATS_2}
+            categoryCardType="card4"
+            itemPerRow={4}
+            heading="Suggestions for discovery"
+            subHeading="Popular places to stay that Chisfis recommends for you"
+            sliderStyle="style2"
+          />
+        </div>
 
-            <SectionSubscribe2 />
+        <SectionSubscribe2 />
 
-            <div className="relative py-16">
-              <BackgroundSection className="bg-orange-50 dark:bg-black dark:bg-opacity-20 " />
-              <SectionGridAuthorBox />
-            </div>
+        <div className="relative py-16">
+          <BackgroundSection className="bg-orange-50 dark:bg-black dark:bg-opacity-20 " />
+          <SectionGridAuthorBox />
+        </div>
 
-            <SectionGridCategoryBox />
+        <SectionGridCategoryBox />
 
-            <div className="relative py-16">
-              <BackgroundSection />
-              <SectionBecomeAnAuthor />
-            </div>
+        <div className="relative py-16">
+          <BackgroundSection />
+          <SectionBecomeAnAuthor />
+        </div>
 
-            <SectionSliderNewCategories
-              heading="Explore by types of stays"
-              subHeading="Explore houses based on 10 types of stays"
-              categoryCardType="card5"
-              itemPerRow={5}
-            />
+        <SectionSliderNewCategories
+          heading="Explore by types of stays"
+          subHeading="Explore houses based on 10 types of stays"
+          categoryCardType="card5"
+          itemPerRow={5}
+        />
 
-            <SectionVideos />
+        <SectionVideos />
 
-            <div className="relative py-16">
-              <BackgroundSection />
-              <SectionClientSay />
-            </div>
-          </div>
-        </ServicePreview>
+        <div className="relative py-16">
+          <BackgroundSection />
+          <SectionClientSay />
+        </div>
       </div>
     </main>
   );

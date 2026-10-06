@@ -1,38 +1,32 @@
 /**
- * CUST-WEB-SHOWCASE-001-CP01: which page paths the public Customer Web may
- * serve. Default deny: only the home page and (CP02-C2) one room's details
- * page are pages; the template routes that would present unfinished
- * features (listings, checkout, pay-done, login, accounts, blog, …) are
- * answered by the unavailable page.
+ * Which page paths the public Customer Web serves.
  *
- * Framework internals (`/_next/…`) never reach this function — the
- * middleware matcher excludes them — so a dotted path here is not trusted
- * just for having a dot.
+ * CP01 answered every template page with a 404 (default deny). CP02-C3 (Owner decision, 2026-10-08)
+ * restores the Chisfis template for the demo, so the template's pages are served again with their own
+ * demo content. What stays closed is the server side: `/api/*` (the template's NextAuth/hello stubs) is
+ * never a capability of this site. Two names are redirected: the old internal entry `/showcase` goes to
+ * `/`, and the template's `/pay-done` goes to the live receipt at `/paydone`.
+ *
+ * Framework internals (`/_next/…`) never reach this function — the middleware matcher excludes them.
  */
 
 /** Former internal page name, retained as a canonical redirect alias. */
 export const LIVE_ENTRY_PAGE = "/showcase";
-/** The internal page that answers every denied path with a 404. */
+/** The internal page that answers a denied path with a 404. */
 export const UNAVAILABLE_PAGE = "/showcase-unavailable";
 /** Same-fragment navigation has no native hashchange event; restart alignment explicitly. */
 export const SHOWCASE_SECTION_NAVIGATION_EVENT = "showcase:section-navigation";
+/** The room page (a template listing route made real). */
+export const ROOM_DETAILS_PAGE = "/listing-stay-detail";
+/** The live receipt after a hold; the template's `/pay-done` is an alias of it. */
+export const RECEIPT_PAGE = "/paydone";
+export const TEMPLATE_RECEIPT_ALIAS = "/pay-done";
 
 export type RouteDecision =
   | { kind: "live" }
-  | { kind: "redirect-home" }
+  | { kind: "redirect"; to: string }
   | { kind: "pass" }
   | { kind: "unavailable" };
-
-/** Old or internal names of the live entry: always sent to the one canonical `/`. */
-const ALIASES = new Set(["/home-2", LIVE_ENTRY_PAGE]);
-/**
- * CUST-WEB-SHOWCASE-001-CP02-C2: the one template listing route that is now real — a RoomType's page,
- * `/listing-stay-detail?propertyId=…&roomTypeId=…`. Allowing it opens nothing else of the listing group
- * (no `/listing-stay`, map, car, experience or other detail route).
- */
-export const ROOM_DETAILS_PAGE = "/listing-stay-detail";
-/** Files the live page itself needs (the app icon is the BHA Riverside logo). */
-const PASS = new Set(["/icon.jpg", UNAVAILABLE_PAGE, ROOM_DETAILS_PAGE]);
 
 /**
  * CUST-WEB-SHOWCASE-001-CP02: the controlled photograph namespace. One path segment under
@@ -42,11 +36,15 @@ const PASS = new Set(["/icon.jpg", UNAVAILABLE_PAGE, ROOM_DETAILS_PAGE]);
  */
 export const MEDIA_NAMESPACE_PATTERN = /^\/media\/the-bha-riverside\/[a-z0-9]+(?:-[a-z0-9]+)*\.webp$/;
 
+/** `/api` and everything under it. Case-insensitive, so `/API/x` is not a way around it. */
+const API_PREFIX = /^\/api(?:\/|$)/i;
+
 export function decideRoute(pathname: string): RouteDecision {
   if (MEDIA_NAMESPACE_PATTERN.test(pathname)) return { kind: "pass" };
   const path = pathname.length > 1 ? pathname.replace(/\/+$/, "") || "/" : pathname;
   if (path === "/") return { kind: "live" };
-  if (ALIASES.has(path)) return { kind: "redirect-home" };
-  if (PASS.has(path)) return { kind: "pass" };
-  return { kind: "unavailable" };
+  if (API_PREFIX.test(path)) return { kind: "unavailable" };
+  if (path === LIVE_ENTRY_PAGE) return { kind: "redirect", to: "/" };
+  if (path === TEMPLATE_RECEIPT_ALIAS) return { kind: "redirect", to: RECEIPT_PAGE };
+  return { kind: "pass" };
 }
