@@ -211,7 +211,7 @@ public sealed class RiversideDemoSeederTests(PostgreSqlWebApplicationFactory fac
             editedRateId = rate.Id;
             await edit.Database.ExecuteSqlRawAsync("UPDATE \"Properties\" SET \"Name\" = 'The BHA Riverside (edited)', \"Description\" = 'edited by an operator', \"City\" = 'Da Nang'");
             await edit.Database.ExecuteSqlRawAsync("UPDATE \"RoomTypes\" SET \"Description\" = 'edited type' WHERE \"Code\" = 'RIV-1BR'");
-            await edit.Database.ExecuteSqlRawAsync($"UPDATE \"DailyRoomRates\" SET \"Amount\" = 1234567 WHERE \"Id\" = '{rate.Id}'");
+            await edit.Database.ExecuteSqlAsync($"UPDATE \"DailyRoomRates\" SET \"Amount\" = 1234567 WHERE \"Id\" = {rate.Id}");
             await edit.Database.ExecuteSqlRawAsync("UPDATE \"PhysicalRooms\" SET \"OperationalStatus\" = 'Inactive' WHERE \"RoomNumber\" = 'DEMO-1BR-02'");
             await edit.Database.ExecuteSqlRawAsync("UPDATE \"RatePlans\" SET \"IsActive\" = false");
             // the operator makes their own photograph the cover and demotes ours

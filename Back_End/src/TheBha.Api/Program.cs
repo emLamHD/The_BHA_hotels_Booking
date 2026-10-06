@@ -48,6 +48,13 @@ if (!Enum.TryParse<SameSiteMode>(cookieSession.SameSite, true, out var cookieSam
         "Authentication:Cookie:SameSite must be Strict, Lax, or None.");
 }
 
+// CUST-WEB-SHOWCASE-001-CP02: forwarded headers are trusted only from an explicitly configured
+// TLS terminator. Validated here so a bad value stops the host before it listens.
+var trustedProxy = builder.Configuration
+    .GetSection(TrustedProxyOptions.SectionName)
+    .Get<TrustedProxyOptions>() ?? new TrustedProxyOptions();
+var forwardedHeaders = trustedProxy.Build();
+
 var cors = builder.Configuration
     .GetSection(CorsOptions.SectionName)
     .Get<CorsOptions>() ?? new CorsOptions();
@@ -441,6 +448,13 @@ if (args.Contains("--seed-development", StringComparer.Ordinal))
     var seeder = scope.ServiceProvider.GetRequiredService<DevelopmentDataSeeder>();
     await seeder.SeedAsync(app.Lifetime.ApplicationStopping);
     return;
+}
+
+// First in the pipeline: every later middleware (the cleartext Admin guard, HTTPS redirection,
+// cookies, the rate limiter) must see the client's address and scheme, not the proxy's.
+if (forwardedHeaders is not null)
+{
+    app.UseForwardedHeaders(forwardedHeaders);
 }
 
 if (app.Environment.IsDevelopment())
