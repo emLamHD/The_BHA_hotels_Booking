@@ -1,21 +1,32 @@
 {
-  "schema": 1,
+  "schema": 2,
   "urlPath": "/media/the-bha-riverside/",
   "maxEdge": 1600,
   "webpQuality": 80,
+  "evidenceLevel": "heuristic scan only; no C2PA signature validator was run (validation NOT_RUN)",
   "originalsAudited": 86,
   "originalsPublished": 13,
-  "originalsByProvenance": {
-    "camera": 23,
-    "ai": 62,
-    "unverified": 1
+  "originalsByClassification": {
+    "generator-markers-present": 62,
+    "content-credentials-detected": 0,
+    "editor-metadata-present": 23,
+    "no-metadata": 1
   },
   "published": [
     {
       "sourceGroup": "Các khu vực khác",
       "sourceFile": "san2.JPG",
       "sourceSha256": "a9d106403b0a9bca6dd6ce165701036fb48fef1807559186bbe34082132a633f",
-      "provenance": "photo editor/camera metadata present (Adobe Lightroom 11.5.1 (iOS)); no AI credentials",
+      "evidence": {
+        "classification": "editor-metadata-present",
+        "markers": [
+          "Adobe Lightroom",
+          "Photoshop"
+        ],
+        "editorSoftware": "Adobe Lightroom 11.5.1 (iOS)",
+        "validation": "NOT_RUN"
+      },
+      "evidenceNote": "editor/camera-software metadata present; camera origin and the depicted scene are not independently verified; no content-credential or generator marker found",
       "derivative": "entrance-logo.webp",
       "width": 1600,
       "height": 1067,
@@ -31,7 +42,16 @@
       "sourceGroup": "Các khu vực khác",
       "sourceFile": "IMG_7182.JPG",
       "sourceSha256": "49a384d6a0ac7540b9be4500e071c77c781a9a4dba1729943536a50760835959",
-      "provenance": "photo editor/camera metadata present (Adobe Lightroom 11.5.1 (iOS)); no AI credentials",
+      "evidence": {
+        "classification": "editor-metadata-present",
+        "markers": [
+          "Adobe Lightroom",
+          "Photoshop"
+        ],
+        "editorSoftware": "Adobe Lightroom 11.5.1 (iOS)",
+        "validation": "NOT_RUN"
+      },
+      "evidenceNote": "editor/camera-software metadata present; camera origin and the depicted scene are not independently verified; no content-credential or generator marker found",
       "derivative": "rooftop-pool-day.webp",
       "width": 1600,
       "height": 1067,
@@ -47,7 +67,16 @@
       "sourceGroup": "Các khu vực khác",
       "sourceFile": "IMG_7178.JPG",
       "sourceSha256": "bc49b16eb4eade12e194b9365e946ce865a40402fef088a2353f1163ca39f386",
-      "provenance": "photo editor/camera metadata present (Adobe Lightroom 11.5.1 (iOS)); no AI credentials",
+      "evidence": {
+        "classification": "editor-metadata-present",
+        "markers": [
+          "Adobe Lightroom",
+          "Photoshop"
+        ],
+        "editorSoftware": "Adobe Lightroom 11.5.1 (iOS)",
+        "validation": "NOT_RUN"
+      },
+      "evidenceNote": "editor/camera-software metadata present; camera origin and the depicted scene are not independently verified; no content-credential or generator marker found",
       "derivative": "rooftop-pool-night.webp",
       "width": 1600,
       "height": 1067,
@@ -63,7 +92,16 @@
       "sourceGroup": "Các khu vực khác",
       "sourceFile": "IMG_7181.JPG",
       "sourceSha256": "191492378a9d21d8dd13844920c14976357f001df73293b1129973f58bb0b1ed",
-      "provenance": "photo editor/camera metadata present (Adobe Lightroom 11.5.1 (iOS)); no AI credentials",
+      "evidence": {
+        "classification": "editor-metadata-present",
+        "markers": [
+          "Adobe Lightroom",
+          "Photoshop"
+        ],
+        "editorSoftware": "Adobe Lightroom 11.5.1 (iOS)",
+        "validation": "NOT_RUN"
+      },
+      "evidenceNote": "editor/camera-software metadata present; camera origin and the depicted scene are not independently verified; no content-credential or generator marker found",
       "derivative": "rooftop-pool-seating.webp",
       "width": 1600,
       "height": 1067,
@@ -79,7 +117,16 @@
       "sourceGroup": "Các khu vực khác",
       "sourceFile": "IMG_7180.JPG",
       "sourceSha256": "f21a5cc06a6386ba2f12502f22e27bf644c6d38a255301987a2133222edb50fe",
-      "provenance": "photo editor/camera metadata present (Adobe Lightroom 11.5.1 (iOS)); no AI credentials",
+      "evidence": {
+        "classification": "editor-metadata-present",
+        "markers": [
+          "Adobe Lightroom",
+          "Photoshop"
+        ],
+        "editorSoftware": "Adobe Lightroom 11.5.1 (iOS)",
+        "validation": "NOT_RUN"
+      },
+      "evidenceNote": "editor/camera-software metadata present; camera origin and the depicted scene are not independently verified; no content-credential or generator marker found",
       "derivative": "rooftop-pool-city-view.webp",
       "width": 1600,
       "height": 1067,
@@ -95,7 +142,16 @@
       "sourceGroup": "Các khu vực khác",
       "sourceFile": "IMG_7184.JPG",
       "sourceSha256": "cccc6e97dd978f2f312268db77e3f3fa03ce6b0a2243bfb3cc94481e64842054",
-      "provenance": "photo editor/camera metadata present (Adobe Lightroom 11.5.1 (iOS)); no AI credentials",
+      "evidence": {
+        "classification": "editor-metadata-present",
+        "markers": [
+          "Adobe Lightroom",
+          "Photoshop"
+        ],
+        "editorSoftware": "Adobe Lightroom 11.5.1 (iOS)",
+        "validation": "NOT_RUN"
+      },
+      "evidenceNote": "editor/camera-software metadata present; camera origin and the depicted scene are not independently verified; no content-credential or generator marker found",
       "derivative": "rooftop-pool-mural.webp",
       "width": 1600,
       "height": 1067,
@@ -111,7 +167,16 @@
       "sourceGroup": "Sảnh",
       "sourceFile": "sanh13.JPG",
       "sourceSha256": "2710f3b34577979bd4c71c0dee392b23915488b0e501499088626a7e55ab7862",
-      "provenance": "photo editor/camera metadata present (Adobe Lightroom 11.5.1 (iOS)); no AI credentials",
+      "evidence": {
+        "classification": "editor-metadata-present",
+        "markers": [
+          "Adobe Lightroom",
+          "Photoshop"
+        ],
+        "editorSoftware": "Adobe Lightroom 11.5.1 (iOS)",
+        "validation": "NOT_RUN"
+      },
+      "evidenceNote": "editor/camera-software metadata present; camera origin and the depicted scene are not independently verified; no content-credential or generator marker found",
       "derivative": "lobby-sofa.webp",
       "width": 1600,
       "height": 1067,
@@ -127,7 +192,16 @@
       "sourceGroup": "Sảnh",
       "sourceFile": "sanh12.JPG",
       "sourceSha256": "d96bc808b8dbc096ccff61592205bd0f07ca6d6861b7d66d14078ee9d2f06cf2",
-      "provenance": "photo editor/camera metadata present (Adobe Lightroom 11.5.1 (iOS)); no AI credentials",
+      "evidence": {
+        "classification": "editor-metadata-present",
+        "markers": [
+          "Adobe Lightroom",
+          "Photoshop"
+        ],
+        "editorSoftware": "Adobe Lightroom 11.5.1 (iOS)",
+        "validation": "NOT_RUN"
+      },
+      "evidenceNote": "editor/camera-software metadata present; camera origin and the depicted scene are not independently verified; no content-credential or generator marker found",
       "derivative": "lobby-logo-clocks.webp",
       "width": 1600,
       "height": 1067,
@@ -143,7 +217,16 @@
       "sourceGroup": "Sảnh",
       "sourceFile": "sanh14.JPG",
       "sourceSha256": "916e9b0fd15c6df1ad5863ebbf1b050a264bb9e05bdc39622f922471630ea1ee",
-      "provenance": "photo editor/camera metadata present (Adobe Lightroom 11.5.1 (iOS)); no AI credentials",
+      "evidence": {
+        "classification": "editor-metadata-present",
+        "markers": [
+          "Adobe Lightroom",
+          "Photoshop"
+        ],
+        "editorSoftware": "Adobe Lightroom 11.5.1 (iOS)",
+        "validation": "NOT_RUN"
+      },
+      "evidenceNote": "editor/camera-software metadata present; camera origin and the depicted scene are not independently verified; no content-credential or generator marker found",
       "derivative": "lobby-shelves.webp",
       "width": 1600,
       "height": 985,
@@ -159,7 +242,16 @@
       "sourceGroup": "Các khu vực khác",
       "sourceFile": "san1.JPG",
       "sourceSha256": "0e355efcaead817b884950f2b08578058028604b0150dbf1f450c16c61173cc9",
-      "provenance": "photo editor/camera metadata present (Adobe Lightroom 11.5.1 (iOS)); no AI credentials",
+      "evidence": {
+        "classification": "editor-metadata-present",
+        "markers": [
+          "Adobe Lightroom",
+          "Photoshop"
+        ],
+        "editorSoftware": "Adobe Lightroom 11.5.1 (iOS)",
+        "validation": "NOT_RUN"
+      },
+      "evidenceNote": "editor/camera-software metadata present; camera origin and the depicted scene are not independently verified; no content-credential or generator marker found",
       "derivative": "entrance-chairs.webp",
       "width": 1600,
       "height": 1079,
@@ -175,7 +267,16 @@
       "sourceGroup": "Căn hộ 2PN",
       "sourceFile": "2pnbcv2.JPG",
       "sourceSha256": "997b9fa5b15a5703c2a2d0d08016c6832b3d652af5a56dce44cd357197072016",
-      "provenance": "photo editor/camera metadata present (Adobe Lightroom 11.5.1 (iOS)); no AI credentials",
+      "evidence": {
+        "classification": "editor-metadata-present",
+        "markers": [
+          "Adobe Lightroom",
+          "Photoshop"
+        ],
+        "editorSoftware": "Adobe Lightroom 11.5.1 (iOS)",
+        "validation": "NOT_RUN"
+      },
+      "evidenceNote": "editor/camera-software metadata present; camera origin and the depicted scene are not independently verified; no content-credential or generator marker found",
       "derivative": "two-bedroom-balcony-view.webp",
       "width": 1600,
       "height": 1067,
@@ -191,7 +292,16 @@
       "sourceGroup": "Căn hộ 2PN",
       "sourceFile": "view 3.JPG",
       "sourceSha256": "25d79ec0e4fcf46bda981dc83a9c25f35ae650f9abb027e9777e31c5c4c1c790",
-      "provenance": "photo editor/camera metadata present (Adobe Lightroom 11.5.1 (iOS)); no AI credentials",
+      "evidence": {
+        "classification": "editor-metadata-present",
+        "markers": [
+          "Adobe Lightroom",
+          "Photoshop"
+        ],
+        "editorSoftware": "Adobe Lightroom 11.5.1 (iOS)",
+        "validation": "NOT_RUN"
+      },
+      "evidenceNote": "editor/camera-software metadata present; camera origin and the depicted scene are not independently verified; no content-credential or generator marker found",
       "derivative": "two-bedroom-skyline-1.webp",
       "width": 1600,
       "height": 1067,
@@ -207,7 +317,16 @@
       "sourceGroup": "Căn hộ 2PN",
       "sourceFile": "view1.JPG",
       "sourceSha256": "f70efac17f75bd2af387443b691f4a7c432b0015c0dc9fb8ea946cf7f8ab39ef",
-      "provenance": "photo editor/camera metadata present (Adobe Lightroom 11.5.1 (iOS)); no AI credentials",
+      "evidence": {
+        "classification": "editor-metadata-present",
+        "markers": [
+          "Adobe Lightroom",
+          "Photoshop"
+        ],
+        "editorSoftware": "Adobe Lightroom 11.5.1 (iOS)",
+        "validation": "NOT_RUN"
+      },
+      "evidenceNote": "editor/camera-software metadata present; camera origin and the depicted scene are not independently verified; no content-credential or generator marker found",
       "derivative": "two-bedroom-skyline-2.webp",
       "width": 1600,
       "height": 1067,
@@ -228,8 +347,18 @@
       "bytes": 2859627,
       "width": 1033,
       "height": 1523,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Các khu vực khác",
@@ -238,8 +367,18 @@
       "bytes": 2872337,
       "width": 1024,
       "height": 1536,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Các khu vực khác",
@@ -248,8 +387,18 @@
       "bytes": 2611318,
       "width": 1534,
       "height": 1025,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Các khu vực khác",
@@ -258,8 +407,18 @@
       "bytes": 3158960,
       "width": 1014,
       "height": 1551,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Các khu vực khác",
@@ -268,8 +427,18 @@
       "bytes": 2401504,
       "width": 1023,
       "height": 1537,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Các khu vực khác",
@@ -278,8 +447,18 @@
       "bytes": 2827405,
       "width": 1536,
       "height": 1024,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Các khu vực khác",
@@ -288,8 +467,18 @@
       "bytes": 2488609,
       "width": 1537,
       "height": 1023,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Các khu vực khác",
@@ -298,8 +487,18 @@
       "bytes": 2071923,
       "width": 1564,
       "height": 1006,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Các khu vực khác",
@@ -308,8 +507,18 @@
       "bytes": 2259445,
       "width": 1537,
       "height": 1023,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Các khu vực khác",
@@ -318,8 +527,18 @@
       "bytes": 2681952,
       "width": 1538,
       "height": 1022,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Các khu vực khác",
@@ -328,8 +547,14 @@
       "bytes": 2007300,
       "width": 2560,
       "height": 1701,
-      "provenance": "camera",
-      "reason": "not selected: camera photo kept out of the demo (duplicate, redundant or not needed)"
+      "classification": "editor-metadata-present",
+      "markers": [
+        "Adobe Lightroom",
+        "Photoshop"
+      ],
+      "editorSoftware": "Adobe Lightroom 11.5.1 (iOS)",
+      "validation": "NOT_RUN",
+      "reason": "not selected: not a picture of a room or area the demo needs (duplicate, close-up or redundant)"
     },
     {
       "group": "Các khu vực khác",
@@ -338,8 +563,14 @@
       "bytes": 1883584,
       "width": 2560,
       "height": 1707,
-      "provenance": "camera",
-      "reason": "not selected: camera photo kept out of the demo (duplicate, redundant or not needed)"
+      "classification": "editor-metadata-present",
+      "markers": [
+        "Adobe Lightroom",
+        "Photoshop"
+      ],
+      "editorSoftware": "Adobe Lightroom 11.5.1 (iOS)",
+      "validation": "NOT_RUN",
+      "reason": "not selected: not a picture of a room or area the demo needs (duplicate, close-up or redundant)"
     },
     {
       "group": "Các khu vực khác",
@@ -348,8 +579,14 @@
       "bytes": 1942285,
       "width": 2560,
       "height": 1707,
-      "provenance": "camera",
-      "reason": "not selected: camera photo kept out of the demo (duplicate, redundant or not needed)"
+      "classification": "editor-metadata-present",
+      "markers": [
+        "Adobe Lightroom",
+        "Photoshop"
+      ],
+      "editorSoftware": "Adobe Lightroom 11.5.1 (iOS)",
+      "validation": "NOT_RUN",
+      "reason": "not selected: not a picture of a room or area the demo needs (duplicate, close-up or redundant)"
     },
     {
       "group": "Các khu vực khác",
@@ -358,8 +595,14 @@
       "bytes": 2048192,
       "width": 2560,
       "height": 1713,
-      "provenance": "camera",
-      "reason": "not selected: camera photo kept out of the demo (duplicate, redundant or not needed)"
+      "classification": "editor-metadata-present",
+      "markers": [
+        "Adobe Lightroom",
+        "Photoshop"
+      ],
+      "editorSoftware": "Adobe Lightroom 11.5.1 (iOS)",
+      "validation": "NOT_RUN",
+      "reason": "not selected: not a picture of a room or area the demo needs (duplicate, close-up or redundant)"
     },
     {
       "group": "Các khu vực khác",
@@ -368,8 +611,14 @@
       "bytes": 3100971,
       "width": 2560,
       "height": 1815,
-      "provenance": "camera",
-      "reason": "not selected: camera photo kept out of the demo (duplicate, redundant or not needed)"
+      "classification": "editor-metadata-present",
+      "markers": [
+        "Adobe Lightroom",
+        "Photoshop"
+      ],
+      "editorSoftware": "Adobe Lightroom 11.5.1 (iOS)",
+      "validation": "NOT_RUN",
+      "reason": "not selected: not a picture of a room or area the demo needs (duplicate, close-up or redundant)"
     },
     {
       "group": "Các khu vực khác",
@@ -378,8 +627,11 @@
       "bytes": 1168048,
       "width": 2560,
       "height": 1707,
-      "provenance": "unverified",
-      "reason": "excluded: no camera metadata and no AI credentials (re-encoded by a messaging app); cannot be verified"
+      "classification": "no-metadata",
+      "markers": [],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: no editor metadata and no content credentials (for example re-encoded by a messaging app); nothing to verify"
     },
     {
       "group": "Căn hộ 1PN",
@@ -388,8 +640,14 @@
       "bytes": 549460,
       "width": 2560,
       "height": 1707,
-      "provenance": "camera",
-      "reason": "not selected: camera photo kept out of the demo (duplicate, redundant or not needed)"
+      "classification": "editor-metadata-present",
+      "markers": [
+        "Adobe Lightroom",
+        "Photoshop"
+      ],
+      "editorSoftware": "Adobe Lightroom 11.5.1 (iOS)",
+      "validation": "NOT_RUN",
+      "reason": "not selected: not a picture of a room or area the demo needs (duplicate, close-up or redundant)"
     },
     {
       "group": "Căn hộ 1PN",
@@ -398,8 +656,18 @@
       "bytes": 2125894,
       "width": 1592,
       "height": 988,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 1PN",
@@ -408,8 +676,18 @@
       "bytes": 2026288,
       "width": 1545,
       "height": 1018,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 1PN",
@@ -418,8 +696,18 @@
       "bytes": 1822727,
       "width": 1533,
       "height": 1026,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 1PN",
@@ -428,8 +716,18 @@
       "bytes": 1751920,
       "width": 1537,
       "height": 1023,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 1PN",
@@ -438,8 +736,18 @@
       "bytes": 1814759,
       "width": 1537,
       "height": 1023,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 1PN",
@@ -448,8 +756,18 @@
       "bytes": 2240164,
       "width": 1536,
       "height": 1024,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 1PN",
@@ -458,8 +776,18 @@
       "bytes": 1575102,
       "width": 1537,
       "height": 1023,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 1PN",
@@ -468,8 +796,18 @@
       "bytes": 1867031,
       "width": 1540,
       "height": 1021,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 1PN",
@@ -478,8 +816,18 @@
       "bytes": 1907848,
       "width": 1537,
       "height": 1023,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 1PN view thoáng",
@@ -488,8 +836,14 @@
       "bytes": 549460,
       "width": 2560,
       "height": 1707,
-      "provenance": "camera",
-      "reason": "not selected: camera photo kept out of the demo (duplicate, redundant or not needed)"
+      "classification": "editor-metadata-present",
+      "markers": [
+        "Adobe Lightroom",
+        "Photoshop"
+      ],
+      "editorSoftware": "Adobe Lightroom 11.5.1 (iOS)",
+      "validation": "NOT_RUN",
+      "reason": "not selected: not a picture of a room or area the demo needs (duplicate, close-up or redundant)"
     },
     {
       "group": "Căn hộ 1PN view thoáng",
@@ -498,8 +852,18 @@
       "bytes": 2072164,
       "width": 1522,
       "height": 1033,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 1PN view thoáng",
@@ -508,8 +872,18 @@
       "bytes": 1822727,
       "width": 1533,
       "height": 1026,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 1PN view thoáng",
@@ -518,8 +892,18 @@
       "bytes": 1751920,
       "width": 1537,
       "height": 1023,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 1PN view thoáng",
@@ -528,8 +912,18 @@
       "bytes": 1814759,
       "width": 1537,
       "height": 1023,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 1PN view thoáng",
@@ -538,8 +932,18 @@
       "bytes": 1803087,
       "width": 1570,
       "height": 1002,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 1PN view thoáng",
@@ -548,8 +952,18 @@
       "bytes": 2059364,
       "width": 1553,
       "height": 1013,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 1PN view thoáng",
@@ -558,8 +972,18 @@
       "bytes": 1944930,
       "width": 1568,
       "height": 1003,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 1PN view thoáng",
@@ -568,8 +992,18 @@
       "bytes": 1769322,
       "width": 1537,
       "height": 1023,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 1PN view thoáng",
@@ -578,8 +1012,18 @@
       "bytes": 1851054,
       "width": 1548,
       "height": 1016,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 1PN view thoáng",
@@ -588,8 +1032,18 @@
       "bytes": 2106591,
       "width": 1536,
       "height": 1024,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 1PN view thoáng",
@@ -598,8 +1052,18 @@
       "bytes": 2125894,
       "width": 1592,
       "height": 988,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 1PN view thoáng",
@@ -608,8 +1072,18 @@
       "bytes": 3174067,
       "width": 1601,
       "height": 982,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 1PN view thoáng",
@@ -618,8 +1092,18 @@
       "bytes": 1784442,
       "width": 1584,
       "height": 993,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 1PN view thoáng",
@@ -628,8 +1112,18 @@
       "bytes": 1991199,
       "width": 1535,
       "height": 1025,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 1PN view thoáng",
@@ -638,8 +1132,18 @@
       "bytes": 2297603,
       "width": 1537,
       "height": 1023,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 1PN view thoáng",
@@ -648,8 +1152,18 @@
       "bytes": 2035271,
       "width": 1539,
       "height": 1022,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 1PN view thoáng",
@@ -658,8 +1172,18 @@
       "bytes": 2023091,
       "width": 1537,
       "height": 1023,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 2PN",
@@ -668,8 +1192,14 @@
       "bytes": 1834504,
       "width": 2560,
       "height": 1707,
-      "provenance": "camera",
-      "reason": "not selected: camera photo kept out of the demo (duplicate, redundant or not needed)"
+      "classification": "editor-metadata-present",
+      "markers": [
+        "Adobe Lightroom",
+        "Photoshop"
+      ],
+      "editorSoftware": "Adobe Lightroom 11.5.1 (iOS)",
+      "validation": "NOT_RUN",
+      "reason": "not selected: not a picture of a room or area the demo needs (duplicate, close-up or redundant)"
     },
     {
       "group": "Căn hộ 2PN",
@@ -678,8 +1208,18 @@
       "bytes": 1803756,
       "width": 1537,
       "height": 1023,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 2PN",
@@ -688,8 +1228,18 @@
       "bytes": 1975871,
       "width": 1537,
       "height": 1023,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 2PN",
@@ -698,8 +1248,18 @@
       "bytes": 1759702,
       "width": 1537,
       "height": 1023,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 2PN",
@@ -708,8 +1268,18 @@
       "bytes": 1749839,
       "width": 1536,
       "height": 1024,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 2PN",
@@ -718,8 +1288,18 @@
       "bytes": 1519776,
       "width": 1537,
       "height": 1023,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 2PN",
@@ -728,8 +1308,18 @@
       "bytes": 1636702,
       "width": 1537,
       "height": 1023,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 2PN",
@@ -738,8 +1328,18 @@
       "bytes": 1916698,
       "width": 1536,
       "height": 1024,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 2PN",
@@ -748,8 +1348,18 @@
       "bytes": 1621999,
       "width": 1537,
       "height": 1023,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 2PN",
@@ -758,8 +1368,18 @@
       "bytes": 1588506,
       "width": 1535,
       "height": 1024,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 2PN",
@@ -768,8 +1388,18 @@
       "bytes": 1773246,
       "width": 1537,
       "height": 1023,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 2PN",
@@ -778,8 +1408,14 @@
       "bytes": 549460,
       "width": 2560,
       "height": 1707,
-      "provenance": "camera",
-      "reason": "not selected: camera photo kept out of the demo (duplicate, redundant or not needed)"
+      "classification": "editor-metadata-present",
+      "markers": [
+        "Adobe Lightroom",
+        "Photoshop"
+      ],
+      "editorSoftware": "Adobe Lightroom 11.5.1 (iOS)",
+      "validation": "NOT_RUN",
+      "reason": "not selected: not a picture of a room or area the demo needs (duplicate, close-up or redundant)"
     },
     {
       "group": "Căn hộ 2PN",
@@ -788,8 +1424,18 @@
       "bytes": 1891752,
       "width": 1533,
       "height": 1026,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 2PN",
@@ -798,8 +1444,18 @@
       "bytes": 2072164,
       "width": 1522,
       "height": 1033,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 2PN",
@@ -808,8 +1464,18 @@
       "bytes": 1822727,
       "width": 1533,
       "height": 1026,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 2PN",
@@ -818,8 +1484,18 @@
       "bytes": 1702429,
       "width": 1537,
       "height": 1023,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Căn hộ 2PN",
@@ -828,8 +1504,18 @@
       "bytes": 2059794,
       "width": 1536,
       "height": 1024,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Sảnh",
@@ -838,8 +1524,18 @@
       "bytes": 1951770,
       "width": 1573,
       "height": 1000,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Sảnh",
@@ -848,8 +1544,18 @@
       "bytes": 2611318,
       "width": 1534,
       "height": 1025,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Sảnh",
@@ -858,8 +1564,18 @@
       "bytes": 2317821,
       "width": 1536,
       "height": 1024,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Sảnh",
@@ -868,8 +1584,18 @@
       "bytes": 2463528,
       "width": 1536,
       "height": 1024,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Sảnh",
@@ -878,8 +1604,18 @@
       "bytes": 2065297,
       "width": 1537,
       "height": 1023,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Sảnh",
@@ -888,8 +1624,14 @@
       "bytes": 1222383,
       "width": 2560,
       "height": 1614,
-      "provenance": "camera",
-      "reason": "not selected: camera photo kept out of the demo (duplicate, redundant or not needed)"
+      "classification": "editor-metadata-present",
+      "markers": [
+        "Adobe Lightroom",
+        "Photoshop"
+      ],
+      "editorSoftware": "Adobe Lightroom 11.5.1 (iOS)",
+      "validation": "NOT_RUN",
+      "reason": "not selected: not a picture of a room or area the demo needs (duplicate, close-up or redundant)"
     },
     {
       "group": "Sảnh",
@@ -898,8 +1640,18 @@
       "bytes": 2336395,
       "width": 1536,
       "height": 1024,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Sảnh",
@@ -908,8 +1660,18 @@
       "bytes": 2009790,
       "width": 1536,
       "height": 1024,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Sảnh",
@@ -918,8 +1680,18 @@
       "bytes": 1800913,
       "width": 1533,
       "height": 1026,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Sảnh",
@@ -928,8 +1700,18 @@
       "bytes": 2264356,
       "width": 1556,
       "height": 1011,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Sảnh",
@@ -938,8 +1720,18 @@
       "bytes": 1849737,
       "width": 1550,
       "height": 1014,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     },
     {
       "group": "Sảnh",
@@ -948,8 +1740,18 @@
       "bytes": 2256116,
       "width": 1535,
       "height": 1024,
-      "provenance": "ai",
-      "reason": "excluded: content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
+      "classification": "generator-markers-present",
+      "markers": [
+        "trainedAlgorithmicMedia",
+        "gpt-image",
+        "OpenAI Media Service",
+        "c2pa",
+        "caBX",
+        "jumb"
+      ],
+      "editorSoftware": null,
+      "validation": "NOT_RUN",
+      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
     }
   ]
 }

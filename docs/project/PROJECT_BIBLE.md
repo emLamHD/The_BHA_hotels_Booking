@@ -489,11 +489,12 @@ work item riêng.
 
 - Ảnh MVP showcase là **file tĩnh trong `Front_End/Customer_Web/public/media/<property>/`** (phân phối bởi Vercel cùng ứng dụng); PostgreSQL
   giữ `Media.Url` tuyệt đối + alt text/sort/cover. Đây là lựa chọn tạm cho MVP, **không** thay quyết định object storage/CDN ở bảng trên.
-- Mọi ảnh phải qua **cổng provenance** trước khi publish: ảnh có content credentials sinh bởi AI (C2PA, `trainedAlgorithmicMedia`) hoặc không xác minh
-  được nguồn **không** được dùng như ảnh chụp chỗ nghỉ thật. Nới cổng là quyết định Owner, không phải cờ script.
+- Mọi ảnh được **quét provenance (heuristic, chưa validate chữ ký C2PA)** và ghi bằng chứng từng file vào manifest: ảnh có marker nêu dịch vụ sinh ảnh
+  hoặc không có metadata **không** được script publish; chỉ ảnh có editor metadata được publish, và mức bằng chứng đó là "nguồn camera chưa được xác minh độc lập"
+  — không phải xác nhận ảnh thật. Nới cổng là quyết định Owner, không phải cờ script.
 - Namespace route media của Customer_Web là chuỗi cố định `/media/<property>/<kebab>.webp`; mọi đường dẫn khác vẫn default-deny.
-- Hiện trạng Riverside: 13 ảnh camera; hai loại 1PN chưa có ảnh (placeholder).
+- Hiện trạng Riverside: 13 ảnh (editor metadata, nguồn chưa xác minh độc lập); hai loại 1PN chưa có ảnh (placeholder); `MEDIA: PARTIAL`.
 
-**Quyết định Owner đang chờ:** (1) cung cấp ảnh chụp thật cho 1PN và 1PN view thoáng, hoặc chấp nhận có điều kiện ảnh AI có gắn nhãn; (2) tên miền
-chung cho Customer/Admin/API (cookie Lax/Strict yêu cầu cùng registrable domain); (3) địa chỉ, mô tả, tiện nghi thật của Riverside; (4) runtime API
-(đề xuất ECS Fargate + EFS mã hóa) và nơi giữ Data Protection key ring; (5) bật/cấp quyền workflow publish ECR.
+**Quyết định Owner đang chờ:** (1) làm rõ ảnh 1PN và 1PN view thoáng là ảnh thật đã chỉnh hay ảnh sinh mới, và có publish hay không (nhãn AI không tự thay yêu cầu ảnh thật); (2) tên miền: Owner đã cung cấp
+`thebhariverside.com` / `admin.` / `api.` (cùng registrable domain cho cookie Lax/Strict; DNS/live `NOT_TESTED`); (3) địa chỉ, mô tả, tiện nghi thật của Riverside; (4) runtime API
+(đề xuất ECS Fargate + EFS mã hóa) và nơi giữ Data Protection key ring; (5) bật/cấp quyền publish ECR (biến `ECR_PUBLISH_ENABLED`, role OIDC; publish chỉ từ `develop`).

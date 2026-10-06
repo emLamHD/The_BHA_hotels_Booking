@@ -5,18 +5,20 @@
 > Mục đích: phục hồi trạng thái hiện tại mà không cần nạp worklog lịch sử
 
 Cập nhật 2026-10-07 (`CUST-WEB-SHOWCASE-001-CP02`, Draft PR, chưa merge; PR #82 đã merged, baseline
-`9ad8edce4171f9b26a3f274cd544758be21f9162`): PR thứ hai và cuối của showcase. **Phát hiện chính:** 62/86 ảnh trong thư mục
-Owner có C2PA của dịch vụ sinh ảnh (OpenAI gpt-image) — không phải ảnh chụp; chỉ 13 ảnh camera được publish (cổng provenance
-trong `Front_End/Customer_Web/scripts/riverside-media/`), hai loại 1PN **không có ảnh** (placeholder) — Owner quyết định. Backend có
+`9ad8edce4171f9b26a3f274cd544758be21f9162`): PR thứ hai và cuối của showcase. **Bằng chứng ảnh (đã chỉnh ở C1):** quét byte (heuristic, `validation: NOT_RUN`, không có
+validator C2PA): 62/86 PNG chứa marker nêu dịch vụ sinh ảnh (`trainedAlgorithmicMedia`, `gpt-image`, `OpenAI Media Service`) — dấu hiệu cần
+xác minh, chưa phải chứng minh; 23 JPEG có metadata editor (nguồn camera chưa được xác minh độc lập); 1 không metadata. 13 ảnh được publish
+(chỉ loại `editor-metadata-present`); hai loại 1PN chưa có ảnh (placeholder), chờ Owner làm rõ ảnh 1PN là ảnh thật đã chỉnh hay ảnh sinh mới;
+`MEDIA: PARTIAL`. Backend có
 seeder insert-only `RiversideDemoSeeder` + CLI `--seed-riverside-demo` (chỉ Development, `--expected-database` phải khớp và chứa
 `demo`/`showcase`, dry-run/apply, idempotent); `Hosting:TrustedProxy` (mặc định tắt) tin `X-Forwarded-For/-Proto` chỉ từ proxy liệt kê;
 `Back_End/Dockerfile`, `deploy/showcase/` (PostgreSQL 17 bền vững, API, nginx TLS, key ring bền vững, SQL migration idempotent),
-workflow `backend-image.yml` (build trên PR, publish ECR **tắt mặc định**, `PUBLISH: NOT_RUN`). Catalog Riverside 3 loại/11 phòng
+workflow `backend-image.yml` (build trên PR và push `develop`; publish ECR **tắt mặc định**, chỉ từ `develop` khi `ECR_PUBLISH_ENABLED=true`, tag = SHA nguồn, không rollout; `PUBLISH: NOT_RUN`). Catalog Riverside 3 loại/11 phòng
 (1PN 3 phòng ₫1.000.000, 1PN view thoáng 2 phòng ₫1.100.000, 2PN 6 phòng ₫1.600.000; max 2/2/4) đã seed vào DB demo local bền vững
 `thebha_showcase_demo` (cửa sổ 2026-10-07..2027-01-04, 316 dòng, rerun 0 insert) và chạy E2E trình duyệt + container + Admin Staff
 (`DATA_LOCAL/UI_LIVE/CONTAINER: PASS`, `MEDIA: PARTIAL`). Chưa làm: `CLOUD_DATA`, `DEPLOY_LIVE` (Owner deploy theo runbook
 `docs/runbooks/CUST-WEB-SHOWCASE-001-deploy.md`), Vercel `NOT_TESTED`, Safari `NOT_RUN`, `REVIEW: NOT_RUN`. Yêu cầu cứng: Customer, Admin
-và API phải cùng một registrable domain (cookie Lax/Strict) — `*.vercel.app` + hostname AWS mặc định sẽ không giữ được đăng nhập.
+và API cùng một registrable domain (cookie Lax/Strict); Owner cung cấp `thebhariverside.com` / `admin.` / `api.` (cấu hình dự kiến, DNS/live `NOT_TESTED`); `*.vercel.app` + hostname AWS mặc định sẽ không giữ được đăng nhập.
 Rủi ro mở: key ring Data Protection lưu không mã hóa trên volume; không có EF retry (request đầu sau restart DB trả 500); lỗi cookie
 khách cũ (401) vẫn mở. Evidence: `docs/reports/CUST-WEB-SHOWCASE-001-CP02-completion.md`.
 

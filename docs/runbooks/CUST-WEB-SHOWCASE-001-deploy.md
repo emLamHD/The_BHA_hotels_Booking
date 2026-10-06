@@ -5,42 +5,64 @@
 ## 0. Shape
 
 ```
-Browser ──https──> Vercel project A  (Customer_Web)   book.<domain>
-        ──https──> Vercel project B  (Admin_Web)      admin.<domain>
-        ──https──> ALB (TLS) ──http──> API container  api.<domain>   ──> RDS PostgreSQL 17
+Browser ──https──> Vercel project A  (Customer_Web)   thebhariverside.com
+        ──https──> Vercel project B  (Admin_Web)      admin.thebhariverside.com
+        ──https──> ALB (TLS) ──http──> API container  api.thebhariverside.com   ──> RDS PostgreSQL 17
                                         └─ /var/keys  (durable shared volume: Data Protection key ring)
 ```
 
 The API is one container image (`Back_End/Dockerfile`). Nothing is seeded at startup and migrations are not run at startup.
 
-## 1. Hard requirement: one registrable domain (custom domain is mandatory)
+## 1. Hard requirement: one registrable domain (planned: `thebhariverside.com`)
 
 Customer and Staff sessions are cookies set by the API and sent with `credentials: include` from the browser apps. The Customer cookie is `SameSite=Lax`, the Staff cookie is `SameSite=Strict`, and the antiforgery cookie rides with the Customer flow. Those rules are not changed by this work item.
 
 - Two Vercel projects on `*.vercel.app` plus an API on an AWS default hostname are **three different sites** (`vercel.app` is on the Public Suffix List, so each project is its own site). Browsers do not send `Lax` cookies on cross-site `fetch`/XHR and never send `Strict` ones, so Staff sign-in and the Customer session would fail. This is a property of the cookie rules, **not** a test result — it was not tested on Vercel.
-- Therefore: put all three under **one registrable domain you control**, e.g. `book.example.vn` (Customer), `admin.example.vn` (Admin), `api.example.vn` (API). Same-site holds across those subdomains.
+- Therefore all three live under the Owner's registrable domain: Customer `https://thebhariverside.com`, Admin `https://admin.thebhariverside.com`, API `https://api.thebhariverside.com` (planned configuration — DNS, certificates and live behavior are `NOT_TESTED`). Same-site holds across the apex and its subdomains.
 - CORS must list exactly those origins (§5). Wildcards are refused by the API at startup.
 
 ## 2. Decisions the Owner makes first
 
 | # | Decision | Notes |
 |---|---|---|
-| D1 | Domain and the three hostnames | Needed before anything else (§1). |
+| D1 | ~~Domain and hostnames~~ **Provided by the Owner:** Customer `https://thebhariverside.com`, Admin `https://admin.thebhariverside.com`, API `https://api.thebhariverside.com` | Planned configuration; DNS, certificates and the live sites are `NOT_TESTED`. |
 | D2 | RDS database name | Must contain `demo` or `showcase`; the seed CLI refuses any other target. |
 | D3 | API runtime | **Recommended: ECS on Fargate + encrypted EFS** (the key ring needs a durable volume shared by all tasks). App Runner has no durable shared volume, so it cannot satisfy §5 without a code change that is out of scope. |
-| D4 | Final Customer origin for the seed (`--media-base-url`) | = `https://book.<domain>`. Changing it later is **not** a rerun: new URLs insert 13 more Media rows and links (§6). |
-| D5 | Photo policy | Only 13 camera photographs are published; 62 originals carry AI-generation credentials and 1 is unverifiable. The 1PN and 1PN-view types therefore show a neutral placeholder. Replacing them with real photographs is an Owner/content task. |
+| D4 | Final Customer origin for the seed (`--media-base-url`) | = `https://thebhariverside.com` (decided). Changing it later is **not** a rerun: new URLs insert 13 more Media rows and links (§6). **The local demo database holds `https://localhost:3000` media URLs: never copy its rows to RDS — seed RDS fresh with this origin.** |
+| D5 | Photo evidence and the 1PN types | 13 photographs of the Owner's set are published (property 10, 2PN 3). The scan evidence for them is **"editor metadata present; camera origin not independently verified"** — a heuristic, no signature validation was run. 62 PNG originals contain markers that name a generative-image service (`trainedAlgorithmicMedia`, `gpt-image`, `OpenAI Media Service`; also generic `c2pa`/`caBX`/`jumb`), 1 JPEG has no metadata; the 1PN and 1PN-view types have no published photo and show a placeholder. Pending Owner factual clarification: are the 1PN images edited photographs of the real rooms, or newly generated? Publishing them (labelled or not) is a separate, explicit decision. |
 | D6 | Real property details | Address, city, description, amenities beyond pool/rooftop are placeholders ("Đang cập nhật") until the Owner supplies them. |
 
 ## 3. Build and publish the API image
 
-`.github/workflows/backend-image.yml` builds the image on every pull request touching `Back_End/**` (no push, no credentials). Publishing to ECR is **off by default**:
+Workflow: `.github/workflows/backend-image.yml`. Publishing is **off by default** and happens only from **`develop`**, never from a pull request or `main`.
 
-1. Owner creates the ECR repository and an IAM role trusted for GitHub OIDC (repo `emLamHD/The_BHA_hotels_Booking`, the `showcase-publish` environment) with push-only permissions on that repository.
-2. Owner sets repository variables `ECR_PUBLISH_ENABLED=true`, `AWS_ECR_ROLE_ARN`, `AWS_REGION`, `ECR_REPOSITORY` and optionally protects the `showcase-publish` environment.
-3. Run the workflow manually (`Actions → Backend image → Run workflow`, `publish = true`). The tag is the commit SHA.
+| Event | What happens |
+|---|---|
+| `pull_request` (touching `Back_End/**`, `deploy/showcase/**`, the workflow) | Builds the PR head, checks non-root + writable `/var/keys` + "Production refuses to start without `DataProtection__KeysPath`". No credentials, no AWS action, no publish. |
+| `push` to `develop` (same paths) | Always builds. Publishes **only if** the repository variable `ECR_PUBLISH_ENABLED` is `true`: first the backend build + tests run against real PostgreSQL on that exact commit (`verify`), then the `publish` job (environment `showcase-publish`, OIDC, `id-token: write` only there) pushes the image. |
+| `workflow_dispatch` | Same rules, and only when run on ref `develop`. **GitHub offers "Run workflow" only for a workflow file that exists on the default branch (`main`).** Until the Owner promotes the file there, use the push trigger; do not change the default branch just to get the button. Any other ref (including an old `main`) never publishes. |
 
-Manual alternative: `docker build -t thebha-api:<sha> Back_End` then push from an authenticated machine. Image properties (verified locally): non-root user `app`, port 8080, `ASPNETCORE_ENVIRONMENT=Production`, `/var/keys` created and owned by `app` (not configured: set `DataProtection__KeysPath`), no secrets baked in.
+Image tag = the exact source commit SHA (for a PR build, the PR head — never the synthetic merge commit). An existing tag is not overwritten. Publishing **does not deploy**: nothing rolls out an ECS service; a skipped `publish` job means "nothing published".
+
+Owner set-up (once, nothing is done for you):
+
+1. Create the ECR repository (enable tag immutability) and an IAM role trusted for GitHub OIDC (repo `emLamHD/The_BHA_hotels_Booking`, environment `showcase-publish`) with push-only permissions on that repository.
+2. Create the GitHub environment `showcase-publish` (optionally with a required reviewer).
+3. Set repository variables `AWS_ECR_ROLE_ARN`, `AWS_REGION`, `ECR_REPOSITORY`, then `ECR_PUBLISH_ENABLED=true`. If it is `true` but any of the three is missing, the run **fails** with a clear error instead of silently skipping.
+4. Merge to `develop` (or, once the file is on `main`, dispatch on `develop` with `publish = true`). The run summary lists the tag and digest.
+
+Manual alternative (from a checkout of the approved commit, e.g. `git switch --detach <sha>`; AWS CLI authenticated by the Owner):
+
+```bash
+SHA=$(git rev-parse HEAD)           # must be the approved develop commit
+REGISTRY=<account>.dkr.ecr.<region>.amazonaws.com
+docker build -t "$REGISTRY/<repository>:$SHA" Back_End
+aws ecr get-login-password --region <region> | docker login --username AWS --password-stdin "$REGISTRY"
+docker push "$REGISTRY/<repository>:$SHA"
+aws ecr describe-images --repository-name <repository> --image-ids imageTag=$SHA --query 'imageDetails[0].imageDigest' --output text
+```
+
+Rollback: point the service back at the previous image **digest or SHA tag** (record the digest of every release); never retag. Image properties (verified locally): non-root user `app`, port 8080, `ASPNETCORE_ENVIRONMENT=Production`, `/var/keys` created and owned by `app` (not configured: set `DataProtection__KeysPath`), no secrets baked in.
 
 ## 4. RDS and migrations
 
@@ -62,8 +84,8 @@ Environment variables (values from the secret store; none belong in Git):
 |---|---|
 | `ASPNETCORE_ENVIRONMENT` | `Production` (image default) |
 | `ConnectionStrings__TheBhaDatabase` | Npgsql connection string for the application role (SSL required on RDS) |
-| `Cors__AllowedOrigins__0` | `https://book.<domain>` |
-| `Cors__AdminOrigins__0` | `https://admin.<domain>` |
+| `Cors__AllowedOrigins__0` | `https://thebhariverside.com` |
+| `Cors__AdminOrigins__0` | `https://admin.thebhariverside.com` |
 | `DataProtection__KeysPath` | `/var/keys` — **required**: the image does not set it, so a task started without it (and without the volume) fails at startup instead of running on ephemeral keys. Mount a durable volume shared by every task there. |
 | `Hosting__TrustedProxy__Enabled` | `true` |
 | `Hosting__TrustedProxy__KnownNetworks__0` | CIDR of the ALB subnets (or the VPC range), e.g. `10.0.0.0/16`. No `/0`, nothing wider than `/8` (the API refuses to start). |
@@ -83,7 +105,7 @@ The seeder is a guarded operator command, not a startup step. It runs only with 
 export ASPNETCORE_ENVIRONMENT=Development
 export ConnectionStrings__TheBhaDatabase="<RDS connection string via SSM/secret, not typed into history>"
 dotnet Back_End/src/TheBha.Api/bin/Release/net8.0/TheBha.Api.dll --seed-riverside-demo \
-  --expected-database <D2 name> --media-base-url https://book.<domain> \
+  --expected-database <D2 name> --media-base-url https://thebhariverside.com \
   --from <YYYY-MM-DD, today or later in Vietnam time> --days 90 --dry-run
 # review the plan (expect: property 1, amenities 2, room types 3, rate plan 1, rooms 11, rates 3 x days, media 13, links 15)
 # then the same command with --apply; a rerun with the same options must report 0 inserts.
@@ -102,17 +124,17 @@ BHA_STAFF_PASSWORD='<from a secret store>' dotnet TheBha.Api.dll --staff-create 
 | | Customer project | Admin project |
 |---|---|---|
 | Root directory | `Front_End/Customer_Web` | `Front_End/Admin_Web` |
-| Domain | `book.<domain>` | `admin.<domain>` |
+| Domain | `thebhariverside.com` | `admin.thebhariverside.com` |
 | Node | 22 (`.nvmrc` 22.23.1) | 22 |
-| `NEXT_PUBLIC_API_BASE_URL` | `https://api.<domain>` (**https only, build-time**; rebuild after changing) | same |
+| `NEXT_PUBLIC_API_BASE_URL` | `https://api.thebhariverside.com` (**https only, build-time**; rebuild after changing) | same |
 | Other | — | leave `NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE` unset (Staff is the default; `LocalGate` is refused in a production build) |
 
-The Riverside photographs are static files in `Front_End/Customer_Web/public/media/the-bha-riverside/` and are served by the Customer project at `https://book.<domain>/media/the-bha-riverside/<name>.webp`; the seeded `Media.Url` values must therefore use that origin (D4). Only that exact path shape bypasses the template's default-deny routing. Hard reloads drop an in-memory hold (existing behavior).
+The Riverside photographs are static files in `Front_End/Customer_Web/public/media/the-bha-riverside/` and are served by the Customer project at `https://thebhariverside.com/media/the-bha-riverside/<name>.webp`; the seeded `Media.Url` values must therefore use that origin (D4). Only that exact path shape bypasses the template's default-deny routing. Hard reloads drop an in-memory hold (existing behavior).
 
 ## 8. Post-deploy verification
 
 ```bash
-API_BASE=https://api.<domain> MEDIA_BASE=https://book.<domain> deploy/showcase/scripts/smoke.sh
+API_BASE=https://api.thebhariverside.com MEDIA_BASE=https://thebhariverside.com deploy/showcase/scripts/smoke.sh
 ```
 
 It checks `/health/ready` 200, the public properties route, that the Staff session route answers 401 without a session (404 would mean the forwarded HTTPS scheme is **not** trusted — fix `Hosting__TrustedProxy__*`), and that every image URL the API returns answers `200 image/webp`. Then, in a real browser on the three real hostnames: Customer search → hold → confirm; Admin sign-in → `/calendar`. Safari/WebKit was not run in CP02.

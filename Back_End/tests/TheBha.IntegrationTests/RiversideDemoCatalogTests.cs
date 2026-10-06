@@ -8,7 +8,8 @@ namespace TheBha.IntegrationTests;
 /// <summary>
 /// CUST-WEB-SHOWCASE-001-CP02: the seeded catalog, the media manifest and the files Customer_Web
 /// serves must be the same thing. A missing file, a changed byte or a published original whose
-/// provenance is not a camera photograph fails here — it is never skipped.
+/// scan evidence is not "editor metadata present, no credentials, no generator marker" fails here — it
+/// is never skipped. The evidence is a heuristic scan; no signature is validated.
 /// </summary>
 public sealed partial class RiversideDemoCatalogTests
 {
@@ -101,23 +102,29 @@ public sealed partial class RiversideDemoCatalogTests
     }
 
     [Fact]
-    public void Only_camera_photographs_are_published_and_every_original_is_accounted_for()
+    public void Only_files_with_editor_metadata_and_no_credentials_are_published_and_every_original_is_accounted_for()
     {
         var manifest = Manifest();
         var published = manifest.GetProperty("published").EnumerateArray().ToList();
         var excluded = manifest.GetProperty("excluded").EnumerateArray().ToList();
 
-        Assert.All(published, entry => Assert.Contains("no AI credentials", entry.GetProperty("provenance").GetString()));
+        Assert.Contains("NOT_RUN", manifest.GetProperty("evidenceLevel").GetString());
+        Assert.All(published, entry =>
+        {
+            var evidence = entry.GetProperty("evidence");
+            Assert.Equal("editor-metadata-present", evidence.GetProperty("classification").GetString());
+            Assert.Equal("NOT_RUN", evidence.GetProperty("validation").GetString());
+            Assert.DoesNotContain(evidence.GetProperty("markers").EnumerateArray().Select(marker => marker.GetString()),
+                marker => marker is "c2pa" or "caBX" or "jumb" or "trainedAlgorithmicMedia" or "gpt-image" or "OpenAI Media Service");
+        });
         var publishedHashes = published.Select(entry => entry.GetProperty("sourceSha256").GetString()).ToHashSet();
-        Assert.All(excluded.Where(entry => entry.GetProperty("provenance").GetString() != "camera"),
-            entry => Assert.DoesNotContain(entry.GetProperty("sha256").GetString(), publishedHashes)); // no AI or unverified original is published
-        Assert.All(excluded.Where(entry => entry.GetProperty("provenance").GetString() == "ai"),
-            entry => Assert.Contains("C2PA", entry.GetProperty("reason").GetString()));
+        Assert.All(excluded.Where(entry => entry.GetProperty("classification").GetString() != "editor-metadata-present"),
+            entry => Assert.DoesNotContain(entry.GetProperty("sha256").GetString(), publishedHashes));
 
         Assert.Equal(manifest.GetProperty("originalsAudited").GetInt32(), published.Count + excluded.Count);
-        var byProvenance = manifest.GetProperty("originalsByProvenance");
+        var byClassification = manifest.GetProperty("originalsByClassification");
         Assert.Equal(
-            byProvenance.GetProperty("camera").GetInt32() + byProvenance.GetProperty("ai").GetInt32() + byProvenance.GetProperty("unverified").GetInt32(),
+            byClassification.EnumerateObject().Sum(item => item.Value.GetInt32()),
             manifest.GetProperty("originalsAudited").GetInt32());
     }
 }

@@ -11,12 +11,19 @@ Originals are read, never changed. Derivatives go to ../../public/media/the-bha-
 (max 1600 px on the long edge, never upscaled, EXIF/XMP stripped, converted to sRGB) and the
 manifest to ./manifest.json (kept out of public/ because it lists original file names).
 
-Provenance gate: every original is audited before anything is published. A file whose
-embedded content credentials say it was created by an image-generation model (C2PA, e.g.
-OpenAI gpt-image, digitalSourceType trainedAlgorithmicMedia) is EXCLUDED, and a file may be
-published only when it carries camera/editor metadata. The decision is recorded per file in
-the manifest. Publishing synthetic images as photographs of real rooms would mislead
-guests, so this gate is deliberate; widening it is an Owner decision, not a script flag.
+Provenance evidence and gate: every original is scanned (byte search plus EXIF Software) before
+anything is published, and the result is recorded per file in the manifest. This is a heuristic scan,
+NOT a validation: no C2PA signature is verified (validation status NOT_RUN) and nothing here proves a
+file is, or is not, a photograph of the real room. What it records:
+
+  generator-markers-present   a marker that names a generative-image service was found
+  content-credentials-detected  only a generic C2PA/JUMBF container marker (capture or edit; not AI by itself)
+  editor-metadata-present     Lightroom/Photoshop/EXIF Software metadata; camera origin NOT independently verified
+  no-metadata                 nothing to go on
+
+Only editor-metadata-present files may be published, so the selection below is the list of photos the
+Owner supplied for those rooms, at that evidence level. Files with generator markers or without
+metadata are not published; widening that is an Owner decision, not a script flag.
 """
 import hashlib
 import io
@@ -36,8 +43,10 @@ SOURCE = os.environ.get(
 MAX_EDGE = 1600
 QUALITY = 80
 
-AI_MARKERS = (b"c2pa", b"caBX", b"trainedAlgorithmicMedia", b"gpt-image", b"OpenAI Media Service")
-CAMERA_MARKERS = (b"Adobe Lightroom", b"Photoshop")
+GENERATOR_MARKERS = (b"trainedAlgorithmicMedia", b"gpt-image", b"OpenAI Media Service")
+CREDENTIAL_MARKERS = (b"c2pa", b"caBX", b"jumb")
+EDITOR_MARKERS = (b"Adobe Lightroom", b"Photoshop")
+PUBLISHABLE = "editor-metadata-present"
 
 # (source group, source file, derivative name, owner, order, cover, alt text in Vietnamese)
 # owner: ("property", "the-bha-riverside") or ("room-type", "<room type code>").
@@ -76,14 +85,33 @@ def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def provenance(data: bytes, image: Image.Image) -> tuple[str, str]:
-    """('ai' | 'camera' | 'unverified', human-readable reason)."""
-    if any(marker in data for marker in AI_MARKERS):
-        return "ai", "content credentials (C2PA) signed by an image-generation service: OpenAI gpt-image, trainedAlgorithmicMedia"
-    software = image.getexif().get(305)
-    if any(marker in data for marker in CAMERA_MARKERS) or software:
-        return "camera", f"photo editor/camera metadata present ({software or 'Adobe Lightroom/Photoshop XMP'}); no AI credentials"
-    return "unverified", "no camera metadata and no AI credentials (re-encoded by a messaging app); cannot be verified"
+def scan(data: bytes, software: str | None) -> dict:
+    """Heuristic evidence for one file. Pure function of the bytes and the EXIF Software tag."""
+    generator = [m.decode() for m in GENERATOR_MARKERS if m in data]
+    credentials = [m.decode() for m in CREDENTIAL_MARKERS if m in data]
+    editor = [m.decode() for m in EDITOR_MARKERS if m in data]
+    if generator:
+        classification = "generator-markers-present"
+    elif credentials:
+        classification = "content-credentials-detected"
+    elif editor or software:
+        classification = PUBLISHABLE
+    else:
+        classification = "no-metadata"
+    return {
+        "classification": classification,
+        "markers": generator + credentials + editor,
+        "editorSoftware": software or None,
+        "validation": "NOT_RUN",  # no C2PA signature validator was run
+    }
+
+
+NOTES = {
+    "generator-markers-present": "markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof",
+    "content-credentials-detected": "a generic C2PA/JUMBF container marker was found; it records capture or edits and is not evidence of AI by itself; signature not validated",
+    "editor-metadata-present": "editor/camera-software metadata present; camera origin and the depicted scene are not independently verified; no content-credential or generator marker found",
+    "no-metadata": "no editor metadata and no content credentials (for example re-encoded by a messaging app); nothing to verify",
+}
 
 
 def to_srgb(image: Image.Image) -> Image.Image:
@@ -110,10 +138,9 @@ def main() -> int:
             path = os.path.join(SOURCE, group, name)
             data = open(path, "rb").read()
             with Image.open(path) as image:
-                kind, reason = provenance(data, image)
                 audit[(group, name)] = {
                     "group": group, "file": name, "sha256": sha256(data), "bytes": len(data),
-                    "width": image.width, "height": image.height, "provenance": kind, "provenanceReason": reason,
+                    "width": image.width, "height": image.height, **scan(data, image.getexif().get(305)),
                 }
 
     published, selected = [], set()
@@ -122,8 +149,8 @@ def main() -> int:
         if record is None:
             print(f"selected original not found: {group}/{name}", file=sys.stderr)
             return 2
-        if record["provenance"] != "camera":
-            print(f"REFUSED {group}/{name}: provenance is {record['provenance']} ({record['provenanceReason']})", file=sys.stderr)
+        if record["classification"] != PUBLISHABLE:
+            print(f"REFUSED {group}/{name}: {record['classification']} ({NOTES[record['classification']]})", file=sys.stderr)
             return 3
         selected.add((group, name))
         with Image.open(os.path.join(SOURCE, group, name)) as image:
@@ -138,7 +165,8 @@ def main() -> int:
             width, height = check.size
         published.append({
             "sourceGroup": group, "sourceFile": name, "sourceSha256": record["sha256"],
-            "provenance": record["provenanceReason"],
+            "evidence": {k: record[k] for k in ("classification", "markers", "editorSoftware", "validation")},
+            "evidenceNote": NOTES[record["classification"]],
             "derivative": derivative + ".webp", "width": width, "height": height, "bytes": len(out), "sha256": sha256(out),
             "ownerType": owner[0], "ownerCode": owner[1], "sortOrder": order, "isCover": cover, "altText": alt,
         })
@@ -147,22 +175,21 @@ def main() -> int:
     for key, record in audit.items():
         if key in selected:
             continue
-        if record["provenance"] == "ai":
-            reason = "excluded: " + record["provenanceReason"]
-        elif record["provenance"] == "unverified":
-            reason = "excluded: " + record["provenanceReason"]
+        if record["classification"] == PUBLISHABLE:
+            reason = "not selected: not a picture of a room or area the demo needs (duplicate, close-up or redundant)"
         else:
-            reason = "not selected: camera photo kept out of the demo (duplicate, redundant or not needed)"
-        excluded.append({k: record[k] for k in ("group", "file", "sha256", "bytes", "width", "height", "provenance")} | {"reason": reason})
+            reason = "not published: " + NOTES[record["classification"]]
+        excluded.append({k: record[k] for k in ("group", "file", "sha256", "bytes", "width", "height", "classification", "markers", "editorSoftware", "validation")} | {"reason": reason})
 
     manifest = {
-        "schema": 1,
+        "schema": 2,
         "urlPath": "/media/the-bha-riverside/",
         "maxEdge": MAX_EDGE,
         "webpQuality": QUALITY,
+        "evidenceLevel": "heuristic scan only; no C2PA signature validator was run (validation NOT_RUN)",
         "originalsAudited": len(audit),
         "originalsPublished": len(published),
-        "originalsByProvenance": {kind: sum(1 for r in audit.values() if r["provenance"] == kind) for kind in ("camera", "ai", "unverified")},
+        "originalsByClassification": {kind: sum(1 for r in audit.values() if r["classification"] == kind) for kind in NOTES},
         "published": published,
         "excluded": sorted(excluded, key=lambda r: (r["group"], r["file"])),
     }
@@ -171,7 +198,7 @@ def main() -> int:
         handle.write("\n")
 
     total = sum(p["bytes"] for p in published)
-    print(f"audited {len(audit)} originals: {manifest['originalsByProvenance']}")
+    print(f"audited {len(audit)} originals: {manifest['originalsByClassification']}")
     print(f"published {len(published)} derivatives, {total} bytes -> {OUT_DIR}")
     return 0
 
