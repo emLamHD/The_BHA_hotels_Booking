@@ -5,7 +5,6 @@ import StaySearchForm from "./(stay-search-form)/StaySearchForm";
 import ExperiencesSearchForm from "./(experiences-search-form)/ExperiencesSearchForm";
 import RentalCarSearchForm from "./(car-search-form)/RentalCarSearchForm";
 import FlightSearchForm from "./(flight-search-form)/FlightSearchForm";
-import ServicePreview from "@/components/ServicePreview";
 
 export type SearchTab = "Stays" | "Experiences" | "Cars" | "Flights";
 
@@ -53,25 +52,12 @@ const HeroSearchForm: FC<HeroSearchFormProps> = ({
     switch (tabActive) {
       case "Stays":
         return <StaySearchForm />;
-      // Services without a backend: the template form stays as a preview and cannot be used.
       case "Experiences":
-        return (
-          <ServicePreview>
-            <ExperiencesSearchForm />
-          </ServicePreview>
-        );
+        return <ExperiencesSearchForm />;
       case "Cars":
-        return (
-          <ServicePreview>
-            <RentalCarSearchForm />
-          </ServicePreview>
-        );
+        return <RentalCarSearchForm />;
       case "Flights":
-        return (
-          <ServicePreview>
-            <FlightSearchForm />
-          </ServicePreview>
-        );
+        return <FlightSearchForm />;
 
       default:
         return null;

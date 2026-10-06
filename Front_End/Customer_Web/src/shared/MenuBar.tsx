@@ -67,8 +67,6 @@ const MenuBar: React.FC<MenuBarProps> = ({
   return (
     <>
       <button
-        type="button"
-        aria-label="Mở menu"
         onClick={handleOpenMenu}
         className={`focus:outline-none flex items-center justify-center ${className}`}
       >

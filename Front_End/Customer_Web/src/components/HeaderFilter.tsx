@@ -13,8 +13,6 @@ export interface HeaderFilterProps {
   heading: ReactNode;
   subHeading?: ReactNode;
   onClickTab?: (item: string) => void;
-  /** A real destination for the "View all" button; without it the button is not rendered. */
-  viewAll?: { label: string; href: string };
 }
 
 const HeaderFilter: FC<HeaderFilterProps> = ({
@@ -23,7 +21,6 @@ const HeaderFilter: FC<HeaderFilterProps> = ({
   subHeading = "",
   heading = "Latest Articles 🎈",
   onClickTab = () => {},
-  viewAll,
 }) => {
   const [tabActiveState, setTabActiveState] = useState(tabActive);
 
@@ -54,16 +51,14 @@ const HeaderFilter: FC<HeaderFilterProps> = ({
             </NavItem>
           ))}
         </Nav>
-        {viewAll && (
-          <span className="hidden sm:block flex-shrink-0">
-            <ButtonSecondary href={viewAll.href as never} className="!leading-none">
-              <div className="flex items-center justify-center">
-                <span>{viewAll.label}</span>
-                <ArrowRightIcon className="w-5 h-5 ml-3" />
-              </div>
-            </ButtonSecondary>
-          </span>
-        )}
+        <span className="hidden sm:block flex-shrink-0">
+          <ButtonSecondary href="/listing-stay" className="!leading-none">
+            <div className="flex items-center justify-center">
+              <span>View all</span>
+              <ArrowRightIcon className="w-5 h-5 ml-3" />
+            </div>
+          </ButtonSecondary>
+        </span>
       </div>
     </div>
   );

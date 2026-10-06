@@ -2,7 +2,7 @@ import React, { FC } from "react";
 import rightImgDemo from "@/images/BecomeAnAuthorImg.png";
 import ButtonPrimary from "@/shared/ButtonPrimary";
 import Logo from "@/shared/Logo";
-import Image from "@/components/PreviewImage";
+import Image from "next/image";
 
 export interface SectionBecomeAnAuthorProps {
   className?: string;
@@ -24,8 +24,9 @@ const SectionBecomeAnAuthor: FC<SectionBecomeAnAuthorProps> = ({
           Why did you choose us?
         </h2>
         <span className="block mt-6 text-neutral-500 dark:text-neutral-400">
-          Nội dung mẫu: phần giới thiệu dịch vụ sẽ được bổ sung khi dịch vụ
-          sẵn sàng.
+          Accompanying us, you have a trip full of experiences. With Chisfis,
+          booking accommodation, resort villas, hotels, private houses,
+          apartments... becomes fast, convenient and easy.
         </span>
         <ButtonPrimary className="mt-6 sm:mt-11">
           Become an author

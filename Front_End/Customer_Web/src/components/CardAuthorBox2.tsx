@@ -4,7 +4,7 @@ import { ArrowRightIcon } from "@heroicons/react/24/solid";
 import Avatar from "@/shared/Avatar";
 import convertNumbThousand from "@/utils/convertNumbThousand";
 import Link from "next/link";
-import Image from "@/components/PreviewImage";
+import Image from "next/image";
 
 export interface CardAuthorBox2Props {
   className?: string;
@@ -18,7 +18,6 @@ const CardAuthorBox2: FC<CardAuthorBox2Props> = ({
   const { displayName, href = "/", avatar, jobName, count, bgImage } = author;
   return (
     <Link
-      prefetch={false}
       href={href}
       className={`nc-CardAuthorBox2 flex flex-col overflow-hidden bg-white dark:bg-neutral-900 rounded-3xl hover:shadow-xl transition-shadow ${className}`}
       data-nc-id="CardAuthorBox2"

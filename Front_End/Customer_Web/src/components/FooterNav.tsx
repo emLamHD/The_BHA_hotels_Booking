@@ -1,13 +1,16 @@
 "use client";
 
-import { BuildingOffice2Icon, HomeIcon } from "@heroicons/react/24/outline";
+import {
+  HeartIcon,
+  MagnifyingGlassIcon,
+  UserCircleIcon,
+} from "@heroicons/react/24/outline";
 import React, { useEffect, useRef } from "react";
 import { PathName } from "@/routers/types";
 import MenuBar from "@/shared/MenuBar";
 import isInViewport from "@/utils/isInViewport";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import ShowcaseNavLink from "./ShowcaseNavLink";
 
 let WIN_PREV_POSITION = 0;
 if (typeof window !== "undefined") {
@@ -16,17 +19,30 @@ if (typeof window !== "undefined") {
 
 interface NavItem {
   name: string;
-  /** A real page path, or an anchor section of the home page. */
   link?: PathName;
-  section?: string;
   icon: any;
 }
 
-// CUST-WEB-SHOWCASE-001-CP02-C2: only destinations that exist (no wishlists/account/login).
 const NAV: NavItem[] = [
-  { name: "Trang chủ", link: "/", icon: HomeIcon },
-  { name: "Phòng nghỉ", section: "rooms", icon: BuildingOffice2Icon },
-  { name: "Menu", icon: MenuBar },
+  {
+    name: "Explore",
+    link: "/",
+    icon: MagnifyingGlassIcon,
+  },
+  {
+    name: "Wishlists",
+    link: "/account-savelists",
+    icon: HeartIcon,
+  },
+  {
+    name: "Log in",
+    link: "/account",
+    icon: UserCircleIcon,
+  },
+  {
+    name: "Menu",
+    icon: MenuBar,
+  },
 ];
 
 const FooterNav = () => {
@@ -81,19 +97,6 @@ const FooterNav = () => {
   const renderItem = (item: NavItem, index: number) => {
     const isActive = pathname === item.link;
 
-    if (item.section) {
-      return (
-        <ShowcaseNavLink
-          key={index}
-          section={item.section}
-          className="flex flex-col items-center justify-between text-neutral-500 dark:text-neutral-300/90"
-        >
-          <item.icon className="w-6 h-6" />
-          <span className="text-[11px] leading-none mt-1">{item.name}</span>
-        </ShowcaseNavLink>
-      );
-    }
-
     return item.link ? (
       <Link
         key={index}
@@ -123,9 +126,6 @@ const FooterNav = () => {
       </div>
     );
   };
-
-  // The room page has its own sticky booking bar at the bottom; the app bar would cover it.
-  if (pathname?.startsWith("/listing-stay-detail")) return null;
 
   return (
     <div

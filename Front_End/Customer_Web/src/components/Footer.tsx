@@ -1,63 +1,103 @@
 "use client";
 
 import Logo from "@/shared/Logo";
+import SocialsList1 from "@/shared/SocialsList1";
+import { CustomLink } from "@/data/types";
 import React from "react";
 import FooterNav from "./FooterNav";
-import ShowcaseNavLink from "./ShowcaseNavLink";
 
-/**
- * CUST-WEB-SHOWCASE-001-CP02-C2: the template's footer frame (logo column + link columns). The
- * template's placeholder menus (installation, release notes …) and social links are gone; the
- * links point at what exists, and the not-yet-built brands/services are stated as such. No contact
- * details are shown because none have been supplied.
- */
-const COLUMN_TITLE = "font-semibold text-neutral-700 dark:text-neutral-200";
-const LINK = "text-neutral-6000 dark:text-neutral-300 hover:text-black dark:hover:text-white";
-const SOON = "text-neutral-400 dark:text-neutral-500";
+export interface WidgetFooterMenu {
+  id: string;
+  title: string;
+  menus: CustomLink[];
+}
+
+const widgetMenus: WidgetFooterMenu[] = [
+  {
+    id: "5",
+    title: "Getting started",
+    menus: [
+      { href: "#", label: "Installation" },
+      { href: "#", label: "Release Notes" },
+      { href: "#", label: "Upgrade Guide" },
+      { href: "#", label: "Browser Support" },
+      { href: "#", label: "Editor Support" },
+    ],
+  },
+  {
+    id: "1",
+    title: "Explore",
+    menus: [
+      { href: "#", label: "Design features" },
+      { href: "#", label: "Prototyping" },
+      { href: "#", label: "Design systems" },
+      { href: "#", label: "Pricing" },
+      { href: "#", label: "Security" },
+    ],
+  },
+  {
+    id: "2",
+    title: "Resources",
+    menus: [
+      { href: "#", label: "Best practices" },
+      { href: "#", label: "Support" },
+      { href: "#", label: "Developers" },
+      { href: "#", label: "Learn design" },
+      { href: "#", label: "Releases" },
+    ],
+  },
+  {
+    id: "4",
+    title: "Community",
+    menus: [
+      { href: "#", label: "Discussion Forums" },
+      { href: "#", label: "Code of Conduct" },
+      { href: "#", label: "Community Resources" },
+      { href: "#", label: "Contributing" },
+      { href: "#", label: "Concurrent Mode" },
+    ],
+  },
+];
 
 const Footer: React.FC = () => {
+  const renderWidgetMenuItem = (menu: WidgetFooterMenu, index: number) => {
+    return (
+      <div key={index} className="text-sm">
+        <h2 className="font-semibold text-neutral-700 dark:text-neutral-200">
+          {menu.title}
+        </h2>
+        <ul className="mt-5 space-y-4">
+          {menu.menus.map((item, index) => (
+            <li key={index}>
+              <a
+                key={index}
+                className="text-neutral-6000 dark:text-neutral-300 hover:text-black dark:hover:text-white"
+                href={item.href}
+              >
+                {item.label}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  };
+
   return (
     <>
       <FooterNav />
 
       <div className="nc-Footer relative py-24 lg:py-28 border-t border-neutral-200 dark:border-neutral-700">
-        <div className="container grid grid-cols-2 gap-y-10 gap-x-5 sm:gap-x-8 md:grid-cols-4 lg:gap-x-10">
-          <div className="col-span-2 space-y-4">
-            <Logo />
-            <p className="max-w-xs text-sm text-neutral-6000 dark:text-neutral-300">
-              The BHA — đặt phòng trực tiếp. Bản demo: giá và tình trạng phòng là dữ liệu thử nghiệm, chưa có thanh toán
-              trực tuyến.
-            </p>
+        <div className="container grid grid-cols-2 gap-y-10 gap-x-5 sm:gap-x-8 md:grid-cols-4 lg:grid-cols-5 lg:gap-x-10 ">
+          <div className="grid grid-cols-4 gap-5 col-span-2 md:col-span-4 lg:md:col-span-1 lg:flex lg:flex-col">
+            <div className="col-span-2 md:col-span-1">
+              <Logo />
+            </div>
+            <div className="col-span-2 flex items-center md:col-span-3">
+              <SocialsList1 className="flex items-center space-x-3 lg:space-x-0 lg:flex-col lg:space-y-2.5 lg:items-start" />
+            </div>
           </div>
-
-          <div className="text-sm">
-            <h2 className={COLUMN_TITLE}>Thương hiệu</h2>
-            <ul className="mt-5 space-y-4">
-              <li>
-                <ShowcaseNavLink section="rooms" className={LINK}>
-                  The BHA Riverside
-                </ShowcaseNavLink>
-              </li>
-              <li className={SOON}>The BHA House · sắp ra mắt</li>
-              <li className={SOON}>The BHA Villa · sắp ra mắt</li>
-            </ul>
-          </div>
-
-          <div className="text-sm">
-            <h2 className={COLUMN_TITLE}>Khám phá</h2>
-            <ul className="mt-5 space-y-4">
-              <li>
-                <ShowcaseNavLink section="rooms" className={LINK}>
-                  Phòng nghỉ
-                </ShowcaseNavLink>
-              </li>
-              <li>
-                <ShowcaseNavLink section="services" className={LINK}>
-                  Dịch vụ (đang phát triển)
-                </ShowcaseNavLink>
-              </li>
-            </ul>
-          </div>
+          {widgetMenus.map(renderWidgetMenuItem)}
         </div>
       </div>
     </>

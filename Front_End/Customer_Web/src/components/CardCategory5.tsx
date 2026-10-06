@@ -2,7 +2,7 @@ import React, { FC } from "react";
 import { TaxonomyType } from "@/data/types";
 import convertNumbThousand from "@/utils/convertNumbThousand";
 import Link from "next/link";
-import Image from "@/components/PreviewImage";
+import Image from "next/image";
 
 export interface CardCategory5Props {
   className?: string;
@@ -16,7 +16,6 @@ const CardCategory5: FC<CardCategory5Props> = ({
   const { count, name, href = "/", thumbnail } = taxonomy;
   return (
     <Link
-      prefetch={false}
       href={href}
       className={`nc-CardCategory5 flex flex-col ${className}`}
       data-nc-id="CardCategory5"

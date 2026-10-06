@@ -13,7 +13,7 @@ import quotationImg from "@/images/quotation.png";
 import quotationImg2 from "@/images/quotation2.png";
 import { MapPinIcon } from "@heroicons/react/24/outline";
 import { AnimatePresence, motion, MotionConfig } from "framer-motion";
-import Image from "@/components/PreviewImage";
+import Image from "next/image";
 import { useSwipeable } from "react-swipeable";
 import { variants } from "@/utils/animationVariants";
 
@@ -25,24 +25,24 @@ export interface SectionClientSayProps {
 const DEMO_DATA = [
   {
     id: 1,
-    clientName: "Khách hàng mẫu",
-    clientAddress: "Địa điểm mẫu",
+    clientName: "Tiana Abie",
+    clientAddress: "Malaysia",
     content:
-      "Nội dung đánh giá mẫu — chưa phải ý kiến của khách thật.",
+      "This place is exactly like the picture posted on Chisfis. Great service, we had a great stay!",
   },
   {
     id: 2,
-    clientName: "Khách hàng mẫu",
-    clientAddress: "Địa điểm mẫu",
+    clientName: "Lennie Swiffan",
+    clientAddress: "London",
     content:
-      "Nội dung đánh giá mẫu — chưa phải ý kiến của khách thật.",
+      "This place is exactly like the picture posted on Chisfis. Great service, we had a great stay!",
   },
   {
     id: 3,
-    clientName: "Khách hàng mẫu",
-    clientAddress: "Địa điểm mẫu",
+    clientName: "Berta Emili",
+    clientAddress: "Tokyo",
     content:
-      "Nội dung đánh giá mẫu — chưa phải ý kiến của khách thật.",
+      "This place is exactly like the picture posted on Chisfis. Great service, we had a great stay!",
   },
 ];
 
@@ -117,7 +117,7 @@ const SectionClientSay: FC<SectionClientSayProps> = ({
 
   return (
     <div className={`nc-SectionClientSay relative ${className} `}>
-      <Heading desc="Nội dung mẫu — đánh giá của khách sẽ hiển thị tại đây" isCenter>
+      <Heading desc="Let's see what people think of Chisfis" isCenter>
         Good news from far away
       </Heading>
       <div className="relative md:mb-16 max-w-2xl mx-auto">
