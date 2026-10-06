@@ -11,7 +11,7 @@ availability/giá từng đêm → hold → confirm); mọi route template trả
 Correction C1 (cùng PR #82) sửa hai finding Codex: điều hướng header không làm mất guest hold;
 CTA tới form khi catalog đang tải. Correction C2 (cùng PR #82) làm `/` render live page trực tiếp,
 giữ alias an toàn trên loopback-IP và realign fragment khi catalog/RoomType đang settle; production
-loopback, browser booking và isolated DB regression đã chạy. Owner (06/10): work item này không còn target dòng, tối đa hai PR;
+loopback, browser booking và isolated DB regression đã chạy. Correction C3 (Claude, MEP mới) giữ nguyên thao tác cuộn của khách khi catalog về (controller `anchorAlignment` + 18 regression test; catalog về sau 5 giây không còn được căn lại — hệ quả chấp nhận được, ghi trong report). Owner (06/10): work item này không còn target dòng, tối đa hai PR;
 PR thứ hai (CP02) seed The BHA Riverside 3 RoomType / 11 PhysicalRoom (3/2/6), giá Owner, ảnh thật,
 database demo riêng — chỉ mở sau khi Owner merge PR #82. Chưa nghiệm thu: dữ liệu demo, xử lý/hiển thị
 ảnh, deploy Vercel (`NOT_TESTED`); lỗi cookie khách cũ (401) còn mở. Evidence:
