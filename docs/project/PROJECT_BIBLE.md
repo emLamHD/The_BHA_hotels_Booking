@@ -484,3 +484,16 @@ Development dataset dùng controlled mixture:
 Chỉ thêm field vào domain khi có yêu cầu bán phòng hoặc vận hành thật. Việc chọn
 nhà cung cấp object storage/CDN, upload UI, media manager và Admin CRUD thuộc
 work item riêng.
+
+### 14.1 Quyết định MVP về media (CUST-WEB-SHOWCASE-001-CP02, 2026-10-07)
+
+- Ảnh MVP showcase là **file tĩnh trong `Front_End/Customer_Web/public/media/<property>/`** (phân phối bởi Vercel cùng ứng dụng); PostgreSQL
+  giữ `Media.Url` tuyệt đối + alt text/sort/cover. Đây là lựa chọn tạm cho MVP, **không** thay quyết định object storage/CDN ở bảng trên.
+- Mọi ảnh phải qua **cổng provenance** trước khi publish: ảnh có content credentials sinh bởi AI (C2PA, `trainedAlgorithmicMedia`) hoặc không xác minh
+  được nguồn **không** được dùng như ảnh chụp chỗ nghỉ thật. Nới cổng là quyết định Owner, không phải cờ script.
+- Namespace route media của Customer_Web là chuỗi cố định `/media/<property>/<kebab>.webp`; mọi đường dẫn khác vẫn default-deny.
+- Hiện trạng Riverside: 13 ảnh camera; hai loại 1PN chưa có ảnh (placeholder).
+
+**Quyết định Owner đang chờ:** (1) cung cấp ảnh chụp thật cho 1PN và 1PN view thoáng, hoặc chấp nhận có điều kiện ảnh AI có gắn nhãn; (2) tên miền
+chung cho Customer/Admin/API (cookie Lax/Strict yêu cầu cùng registrable domain); (3) địa chỉ, mô tả, tiện nghi thật của Riverside; (4) runtime API
+(đề xuất ECS Fargate + EFS mã hóa) và nơi giữ Data Protection key ring; (5) bật/cấp quyền workflow publish ECR.

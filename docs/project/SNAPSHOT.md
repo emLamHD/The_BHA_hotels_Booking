@@ -1,8 +1,26 @@
 # THE BHA — SNAPSHOT
 
-> Ngày cập nhật: 2026-10-06 (`CUST-WEB-SHOWCASE-001-CP01`; các phần cũ hơn giữ nguyên kèm SHA)
+> Ngày cập nhật: 2026-10-07 (`CUST-WEB-SHOWCASE-001-CP02`; các phần cũ hơn giữ nguyên kèm SHA)
 >
 > Mục đích: phục hồi trạng thái hiện tại mà không cần nạp worklog lịch sử
+
+Cập nhật 2026-10-07 (`CUST-WEB-SHOWCASE-001-CP02`, Draft PR, chưa merge; PR #82 đã merged, baseline
+`9ad8edce4171f9b26a3f274cd544758be21f9162`): PR thứ hai và cuối của showcase. **Phát hiện chính:** 62/86 ảnh trong thư mục
+Owner có C2PA của dịch vụ sinh ảnh (OpenAI gpt-image) — không phải ảnh chụp; chỉ 13 ảnh camera được publish (cổng provenance
+trong `Front_End/Customer_Web/scripts/riverside-media/`), hai loại 1PN **không có ảnh** (placeholder) — Owner quyết định. Backend có
+seeder insert-only `RiversideDemoSeeder` + CLI `--seed-riverside-demo` (chỉ Development, `--expected-database` phải khớp và chứa
+`demo`/`showcase`, dry-run/apply, idempotent); `Hosting:TrustedProxy` (mặc định tắt) tin `X-Forwarded-For/-Proto` chỉ từ proxy liệt kê;
+`Back_End/Dockerfile`, `deploy/showcase/` (PostgreSQL 17 bền vững, API, nginx TLS, key ring bền vững, SQL migration idempotent),
+workflow `backend-image.yml` (build trên PR, publish ECR **tắt mặc định**, `PUBLISH: NOT_RUN`). Catalog Riverside 3 loại/11 phòng
+(1PN 3 phòng ₫1.000.000, 1PN view thoáng 2 phòng ₫1.100.000, 2PN 6 phòng ₫1.600.000; max 2/2/4) đã seed vào DB demo local bền vững
+`thebha_showcase_demo` (cửa sổ 2026-10-07..2027-01-04, 316 dòng, rerun 0 insert) và chạy E2E trình duyệt + container + Admin Staff
+(`DATA_LOCAL/UI_LIVE/CONTAINER: PASS`, `MEDIA: PARTIAL`). Chưa làm: `CLOUD_DATA`, `DEPLOY_LIVE` (Owner deploy theo runbook
+`docs/runbooks/CUST-WEB-SHOWCASE-001-deploy.md`), Vercel `NOT_TESTED`, Safari `NOT_RUN`, `REVIEW: NOT_RUN`. Yêu cầu cứng: Customer, Admin
+và API phải cùng một registrable domain (cookie Lax/Strict) — `*.vercel.app` + hostname AWS mặc định sẽ không giữ được đăng nhập.
+Rủi ro mở: key ring Data Protection lưu không mã hóa trên volume; không có EF retry (request đầu sau restart DB trả 500); lỗi cookie
+khách cũ (401) vẫn mở. Evidence: `docs/reports/CUST-WEB-SHOWCASE-001-CP02-completion.md`.
+
+Bản cập nhật trước (2026-10-06, `CUST-WEB-SHOWCASE-001-CP01`; PR #82 nay đã merged):
 
 Cập nhật 2026-10-06 (`CUST-WEB-SHOWCASE-001-CP01`, Draft PR, chưa merge): `PMS-CAL-002-CP00`
 đã merged (PR #81, `b6e28a6`); split-move **tạm dừng** theo quyết định Owner (thiết kế giữ nguyên,
