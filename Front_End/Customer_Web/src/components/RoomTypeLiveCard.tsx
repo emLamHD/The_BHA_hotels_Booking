@@ -1,9 +1,9 @@
 "use client";
 
-import React, { FC, useState } from "react";
+import React, { FC } from "react";
 import Badge from "@/shared/Badge";
 import { RoomTypeDto } from "@/lib/api/propertyTypes";
-import { selectCoverImage } from "@/lib/api/propertyPresentation";
+import MediaGallery from "@/components/MediaGallery";
 import {
   formatDesignedForOccupancy,
   formatMaxOccupancy,
@@ -18,35 +18,20 @@ const RoomTypeLiveCard: FC<RoomTypeLiveCardProps> = ({
   className = "",
   data,
 }) => {
-  const [apiImageFailed, setApiImageFailed] = useState(false);
-  const coverImage = selectCoverImage(data.media);
-  const useApiImage = !!coverImage && !apiImageFailed;
   const name = data.name ?? "Room type";
 
   return (
     <div
       className={`nc-RoomTypeLiveCard group relative bg-white dark:bg-neutral-900 border border-neutral-200/80 dark:border-neutral-700 rounded-3xl overflow-hidden ${className}`}
     >
-      <div className="relative w-full aspect-w-6 aspect-h-5 overflow-hidden bg-neutral-100 dark:bg-neutral-800">
-        {useApiImage ? (
-          // selectCoverImage already excludes reserved-example-host and malformed
-          // URLs, so this src is never a known-unusable request. onError stays as a
-          // defensive fallback for unexpected runtime failures (e.g. a genuine host
-          // returning 404), not as the primary filter.
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={coverImage!.url!}
-            alt={coverImage!.altText ?? `${name} photo`}
-            className="absolute inset-0 w-full h-full object-cover"
-            loading="lazy"
-            onError={() => setApiImageFailed(true)}
-          />
-        ) : (
-          // CUST-WEB-SHOWCASE-001-CP01: no bundled template bitmap without rights evidence.
-          <div className="absolute inset-0 flex items-center justify-center p-4 text-center text-xs text-neutral-500 dark:text-neutral-400">
-            Ảnh đang được cập nhật
-          </div>
-        )}
+      <div className="p-3 pb-0">
+        {/* CUST-WEB-SHOWCASE-001-CP02: every image the API has for this room type, never a stand-in. */}
+        <MediaGallery
+          media={data.media}
+          name={name}
+          emptyLabel="Ảnh đang được cập nhật"
+          aspectClass="aspect-[6/5]"
+        />
       </div>
 
       <div className="p-4 sm:p-5 space-y-3">

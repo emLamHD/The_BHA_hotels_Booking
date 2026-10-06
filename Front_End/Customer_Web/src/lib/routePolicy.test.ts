@@ -26,6 +26,46 @@ describe("decideRoute", () => {
   });
 
   it.each([
+    "/media/the-bha-riverside/entrance-logo.webp",
+    "/media/the-bha-riverside/rooftop-pool-day.webp",
+    "/media/the-bha-riverside/a1.webp",
+  ])("passes the controlled photograph %s", (path) => {
+    expect(decideRoute(path)).toEqual({ kind: "pass" });
+  });
+
+  it.each([
+    "/media/the-bha-riverside/entrance-logo.webp/", // trailing slash
+    "/media/the-bha-riverside/Entrance-Logo.webp", // uppercase
+    "/media/the-bha-riverside/entrance_logo.webp", // underscore
+    "/media/the-bha-riverside/-lead.webp",
+    "/media/the-bha-riverside/trail-.webp",
+    "/media/the-bha-riverside/a..b.webp",
+    "/media/the-bha-riverside/entrance.logo.webp",
+    "/media/the-bha-riverside/entrance-logo.jpg",
+    "/media/the-bha-riverside/entrance-logo.png",
+    "/media/the-bha-riverside/manifest.json",
+    "/media/the-bha-riverside/.webp",
+    "/media/the-bha-riverside/",
+    "/media/the-bha-riverside",
+    "/media/the-bha-riverside/sub/entrance-logo.webp", // nested
+    "/media/the-bha-riverside/../entrance-logo.webp",
+    "/media/the-bha-riverside/%2e%2e/entrance-logo.webp",
+    "/media/the-bha-riverside/entrance%2flogo.webp",
+    "/media/the-bha-riverside/entrance%2dlogo.webp",
+    "/media/the-bha-riverside/entrance-logo.webp%00",
+    "/media/the-bha-riverside//entrance-logo.webp",
+    "//media/the-bha-riverside/entrance-logo.webp",
+    "/media/other/entrance-logo.webp", // another namespace
+    "/media/the-bha-riverside-extra/entrance-logo.webp",
+    "/Media/the-bha-riverside/entrance-logo.webp",
+    "/public/media/the-bha-riverside/entrance-logo.webp",
+    "/images/entrance-logo.webp",
+    "/vercel.svg",
+  ])("still denies the lookalike %s", (path) => {
+    expect(decideRoute(path)).toEqual({ kind: "unavailable" });
+  });
+
+  it.each([
     "/checkout", "/checkout/", "/pay-done", "/login", "/signup", "/home-3",
     "/listing-stay", "/listing-stay-map", "/listing-stay-detail", "/listing-car", "/listing-car-map",
     "/listing-car-detail", "/listing-flights", "/listing-experiences", "/listing-experiences-map",
@@ -86,6 +126,14 @@ describe("middleware", () => {
       expect(rewrittenTo(path)).toBe("/showcase-unavailable");
     }
   );
+
+  it("lets a controlled photograph through untouched and refuses the manifest", () => {
+    const photo = run("/media/the-bha-riverside/entrance-logo.webp");
+    expect(photo.headers.get("x-middleware-next")).toBe("1");
+    expect(photo.headers.get("x-middleware-rewrite")).toBeNull();
+    expect(rewrittenTo("/media/the-bha-riverside/manifest.json")).toBe("/showcase-unavailable");
+    expect(rewrittenTo("/media/the-bha-riverside/%2e%2e/secret.webp")).toBe("/showcase-unavailable");
+  });
 
   it("lets the logo through untouched", () => {
     const response = run("/icon.jpg");

@@ -4,6 +4,7 @@ import React, { FC, useState } from "react";
 import ButtonPrimary from "@/shared/ButtonPrimary";
 import { AvailabilityOfferDto } from "@/lib/api/availabilityTypes";
 import { selectCoverImage } from "@/lib/api/propertyPresentation";
+import { coverHasFailed } from "@/lib/api/mediaPresentation";
 import { formatCurrencyAmount } from "@/lib/api/availabilityPresentation";
 
 export interface AvailabilityOfferCardProps {
@@ -21,9 +22,10 @@ const AvailabilityOfferCard: FC<AvailabilityOfferCardProps> = ({
   onHold,
   holdDisabled = false,
 }) => {
-  const [apiImageFailed, setApiImageFailed] = useState(false);
+  // The URL that failed, not a flag: a different cover is never judged by an old failure.
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const coverImage = selectCoverImage(data.media);
-  const useApiImage = !!coverImage && !apiImageFailed;
+  const useApiImage = !coverHasFailed(coverImage, failedUrl);
   const roomTypeName = data.roomTypeName ?? "Room type";
   const nightlyRates = data.nightlyRates ?? [];
 
@@ -42,7 +44,7 @@ const AvailabilityOfferCard: FC<AvailabilityOfferCardProps> = ({
             alt={coverImage!.altText ?? `${roomTypeName} photo`}
             className="absolute inset-0 w-full h-full object-cover"
             loading="lazy"
-            onError={() => setApiImageFailed(true)}
+            onError={() => setFailedUrl(coverImage!.url)}
           />
         ) : (
           // CUST-WEB-SHOWCASE-001-CP01: no bundled template bitmap without rights evidence.

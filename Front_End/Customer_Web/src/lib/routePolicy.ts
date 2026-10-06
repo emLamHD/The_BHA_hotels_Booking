@@ -27,7 +27,16 @@ const ALIASES = new Set(["/home-2", LIVE_ENTRY_PAGE]);
 /** Files the live page itself needs (the app icon is the BHA Riverside logo). */
 const PASS = new Set(["/icon.jpg", UNAVAILABLE_PAGE]);
 
+/**
+ * CUST-WEB-SHOWCASE-001-CP02: the controlled photograph namespace. One path segment under
+ * /media/the-bha-riverside/, a lowercase hyphenated name, `.webp` only — no subfolders, dots
+ * in the name, other extensions (the build manifest is `.json`) or trailing slash. Matched
+ * on the pathname as received, before any trailing-slash tolerance, so a lookalike never passes.
+ */
+export const MEDIA_NAMESPACE_PATTERN = /^\/media\/the-bha-riverside\/[a-z0-9]+(?:-[a-z0-9]+)*\.webp$/;
+
 export function decideRoute(pathname: string): RouteDecision {
+  if (MEDIA_NAMESPACE_PATTERN.test(pathname)) return { kind: "pass" };
   const path = pathname.length > 1 ? pathname.replace(/\/+$/, "") || "/" : pathname;
   if (path === "/") return { kind: "live" };
   if (ALIASES.has(path)) return { kind: "redirect-home" };
