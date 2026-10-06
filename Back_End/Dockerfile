@@ -32,11 +32,11 @@ RUN mkdir -p /var/keys && chown app:app /var/keys
 COPY --from=build --chown=app:app /app/publish ./
 
 ENV ASPNETCORE_ENVIRONMENT=Production \
-    ASPNETCORE_URLS=http://+:8080 \
     DataProtection__KeysPath=/var/keys \
     DOTNET_gcServer=0
 
 USER app
+# The aspnet:8.0 base image already binds ASPNETCORE_HTTP_PORTS=8080 (non-privileged).
 EXPOSE 8080
 VOLUME ["/var/keys"]
 ENTRYPOINT ["dotnet", "TheBha.Api.dll"]

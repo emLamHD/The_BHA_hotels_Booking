@@ -16,16 +16,32 @@ expect() { # description, expected, actual
 
 expect "health/ready" 200 "$(status "$api/health/ready")"
 expect "properties list" 200 "$(status "$api/api/v1/properties")"
-expect "admin board closed without a Staff session" 404 "$(status "$api/api/admin/v1/me")"
+expect "admin session route answers 401 without a Staff session" 401 "$(status "$api/api/admin/v1/me")"
 
-# Every media file the manifest publishes must be served as image/webp by the frontend origin.
-manifest="$(cd "$(dirname "$0")/../../.." && pwd)/Front_End/Customer_Web/scripts/riverside-media/manifest.json"
-python3 - "$manifest" <<'PY' | while read -r name; do
-import json, sys
-for item in json.load(open(sys.argv[1]))["published"]:
-    print(item["derivative"])
+# Every image URL the API hands the browser (property gallery and room-type galleries) must be
+# served as image/webp by the frontend origin it names. Read from the API, not from the manifest or
+# the database: this is exactly what a guest's browser requests, and needs no database credentials.
+# A 401 on the Staff session route through the TLS proxy (not 404) shows the forwarded scheme is trusted:
+# a cleartext request to that route would be refused with 404.
+urls="$(python3 - "$api" "${CA_CERT:-}" <<'PY'
+import json, ssl, sys, urllib.request
+api, ca = sys.argv[1], sys.argv[2]
+context = ssl.create_default_context(cafile=ca or None)
+get = lambda path: json.load(urllib.request.urlopen(api + path, context=context))
+seen = []
+for property in get("/api/v1/properties"):
+    seen += [m["url"] for m in property["media"]]
+    for room_type in get(f"/api/v1/properties/{property['id']}/room-types"):
+        seen += [m["url"] for m in room_type["media"]]
+print("\n".join(dict.fromkeys(seen)))
 PY
-  type="$(curl "${curl_opts[@]}" --output /dev/null --write-out '%{http_code} %{content_type}' "$media/media/the-bha-riverside/$name")"
-  expect "media $name" "200 image/webp" "$type"
-done
-echo "smoke passed"
+)"
+[[ -n "$urls" ]] || { echo "FAIL  the API returned no image URLs" >&2; exit 1; }
+count=0
+while read -r url; do
+  [[ "$url" == "$media"/media/the-bha-riverside/* ]] || { echo "FAIL  image URL outside $media: $url" >&2; exit 1; }
+  type="$(curl "${curl_opts[@]}" --output /dev/null --write-out '%{http_code} %{content_type}' "$url")"
+  expect "image ${url##*/}" "200 image/webp" "$type"
+  count=$((count + 1))
+done <<< "$urls"
+echo "smoke passed ($count distinct image URLs)"
