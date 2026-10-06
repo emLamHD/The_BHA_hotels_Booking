@@ -6,12 +6,15 @@ import PreviewImage from "./PreviewImage";
 
 describe("ServicePreview", () => {
   const markup = renderToStaticMarkup(
-    React.createElement(
-      ServicePreview,
-      { id: "services" },
-      React.createElement("a", { href: "/listing-stay-map" }, "Explore"),
-      React.createElement("button", null, "Become an author")
-    )
+    React.createElement(ServicePreview, {
+      id: "services",
+      children: React.createElement(
+        React.Fragment,
+        null,
+        React.createElement("a", { href: "/listing-stay-map" }, "Explore"),
+        React.createElement("button", null, "Become an author")
+      ),
+    })
   );
 
   it("makes its content inert so no sample link or button can be used", () => {
