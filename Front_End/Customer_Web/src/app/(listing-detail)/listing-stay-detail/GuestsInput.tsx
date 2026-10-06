@@ -8,7 +8,7 @@ import { UserPlusIcon } from "@heroicons/react/24/outline";
 export interface GuestsInputProps {
   className?: string;
   adults: number;
-  children: number;
+  childrenCount: number;
   rooms: number;
   onChange: (patch: { adults?: number; children?: number; rooms?: number }) => void;
   disabled?: boolean;
@@ -19,8 +19,8 @@ export interface GuestsInputProps {
  * draft. The booking API counts adults, children and rooms, so those are the counters; the template's
  * "Infants" counter is not offered (there is no infant count to send) and the popover says so.
  */
-const GuestsInput: FC<GuestsInputProps> = ({ className = "flex-1", adults, children, rooms, onChange, disabled }) => {
-  const totalGuests = adults + children;
+const GuestsInput: FC<GuestsInputProps> = ({ className = "flex-1", adults, childrenCount, rooms, onChange, disabled }) => {
+  const totalGuests = adults + childrenCount;
 
   return (
     <Popover className={`flex relative ${className}`}>
@@ -70,7 +70,7 @@ const GuestsInput: FC<GuestsInputProps> = ({ className = "flex-1", adults, child
               />
               <NcInputNumber
                 className="w-full mt-6"
-                value={children}
+                value={childrenCount}
                 onChange={(value) => onChange({ children: value })}
                 max={4}
                 label="Children"

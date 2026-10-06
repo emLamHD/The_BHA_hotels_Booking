@@ -292,7 +292,7 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
         <RoomGuestsInput
           className="flex-1"
           adults={asCount(draft.adults, 1)}
-          children={asCount(draft.children, 0)}
+          childrenCount={asCount(draft.children, 0)}
           rooms={asCount(draft.rooms, 1)}
           disabled={flowLocked}
           onChange={(patch) =>
