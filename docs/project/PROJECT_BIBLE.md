@@ -109,7 +109,8 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   2026-09-15) ghi nhận đúng phần narration cũ bị thay thế; Decision của ADR
   không đổi. (Mô tả gate ở trên là chế độ `LocalGate`; xem `PMS-ADMIN-AUTH-001`
   bên dưới cho chế độ `Staff` mặc định.)
-- `PMS-ADMIN-AUTH-001` (ADR 0007; migration 9 là thay đổi schema duy nhất):
+- `PMS-ADMIN-AUTH-001` (ADR 0007; migration 9 là thay đổi schema duy nhất; CP00–CP07
+  merged, PR #73–#80, milestone đóng):
   Staff identity riêng (`StaffAccounts`, `StaffPropertyMemberships`, vai trò
   `FrontDesk`/`Manager` theo Property), bootstrap/grant/disable/reset chỉ qua
   CLI, cookie session `.TheBha.Staff` (8 giờ tuyệt đối), `GET /api/admin/v1/me`.
@@ -168,7 +169,11 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   và Admin Reservation Board gọi cả hai từ CP03/CP04) —
   assignment split/batch, OperationalBlock *move/split* và multi-segment block
   create/supersede qua HTTP, frontend integration cho split/batch và cho
-  operational-block move/split vẫn TARGET, chưa implement. (Staff
+  operational-block move/split vẫn TARGET, chưa implement. Đổi phòng giữa kỳ bằng
+  split một segment (split-move, blueprint §15.4) có thiết kế đề xuất
+  `PMS-CAL-002-CP00` ([PMS-CAL-002-split-move](../design/PMS-CAL-002-split-move.md));
+  nó vẫn TARGET cho tới khi các checkpoint implementation merge, và các quyết định
+  Owner D1–D6 của thiết kế còn mở. (Staff
   authentication/RBAC và audit actor Staff đã CURRENT ở chế độ `Staff` —
   `PMS-ADMIN-AUTH-001`; chế độ `LocalGate` vẫn dùng hằng số opaque.)
 - Intentional cross-RoomType upgrade/downgrade có authorization/reason/audit
