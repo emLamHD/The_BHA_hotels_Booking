@@ -259,7 +259,7 @@ const RoomBookingSidebar: FC<{ property: PropertyDto; roomType: RoomTypeDto; sea
       <div>
         <span className="block text-2xl font-semibold">Đặt phòng</span>
         <span className="block mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-          {roomName} · Chọn ngày để xem giá
+          {roomName} · Giá theo ngày bạn chọn
         </span>
       </div>
 
