@@ -63,7 +63,6 @@ const Button: FC<ButtonProps> = ({
     return (
       <Link
         href={href}
-        prefetch={false}
         target={targetBlank ? "_blank" : undefined}
         className={`${CLASSES} `}
         onClick={onClick}

@@ -185,7 +185,7 @@ function PageHome() {
                 categoryCardType="card4"
                 itemPerRow={4}
                 heading="Suggestions for discovery"
-                subHeading="Popular places to stay that The BHA recommends for you"
+                subHeading="Popular places to stay recommended for you"
                 sliderStyle="style2"
               />
             </div>

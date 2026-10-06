@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import ServicePreview from "./ServicePreview";
@@ -42,5 +42,31 @@ describe("PreviewImage", () => {
       expect(html).toContain('aria-hidden="true"');
     }
     expect(intrinsic).toContain("aspect-ratio:400 / 300");
+  });
+});
+
+// The sample sections must not read as statements about The BHA or Riverside: no testimonial,
+// product-range claim or recommendation may carry the brand.
+vi.mock("@/shared/Logo", () => ({
+  default: () => React.createElement("span", null, "logo"),
+}));
+
+describe("sample section copy", () => {
+  it.each([
+    ["SectionClientSay", () => import("./SectionClientSay")],
+    ["SectionBecomeAnAuthor", () => import("./SectionBecomeAnAuthor")],
+    ["SectionOurFeatures", () => import("./SectionOurFeatures")],
+    ["SectionHowItWork", () => import("./SectionHowItWork")],
+    ["SectionSubscribe2", () => import("./SectionSubscribe2")],
+    ["SectionGridAuthorBox", () => import("./SectionGridAuthorBox")],
+    ["SectionGridCategoryBox", () => import("./SectionGridCategoryBox")],
+    ["SectionVideos", () => import("./SectionVideos")],
+  ])("%s carries no brand claim and no vendor name", async (_name, load) => {
+    const Section = (await load()).default as React.ComponentType;
+    const html = renderToStaticMarkup(React.createElement(Section));
+    expect(html).not.toContain("The BHA");
+    expect(html).not.toContain("Riverside");
+    expect(html).not.toContain("Chisfis");
+    expect(html).not.toContain("<img");
   });
 });

@@ -25,24 +25,24 @@ export interface SectionClientSayProps {
 const DEMO_DATA = [
   {
     id: 1,
-    clientName: "Tiana Abie",
-    clientAddress: "Malaysia",
+    clientName: "Khách hàng mẫu",
+    clientAddress: "Địa điểm mẫu",
     content:
-      "This place is exactly like the picture posted on The BHA. Great service, we had a great stay!",
+      "Nội dung đánh giá mẫu — chưa phải ý kiến của khách thật.",
   },
   {
     id: 2,
-    clientName: "Lennie Swiffan",
-    clientAddress: "London",
+    clientName: "Khách hàng mẫu",
+    clientAddress: "Địa điểm mẫu",
     content:
-      "This place is exactly like the picture posted on The BHA. Great service, we had a great stay!",
+      "Nội dung đánh giá mẫu — chưa phải ý kiến của khách thật.",
   },
   {
     id: 3,
-    clientName: "Berta Emili",
-    clientAddress: "Tokyo",
+    clientName: "Khách hàng mẫu",
+    clientAddress: "Địa điểm mẫu",
     content:
-      "This place is exactly like the picture posted on The BHA. Great service, we had a great stay!",
+      "Nội dung đánh giá mẫu — chưa phải ý kiến của khách thật.",
   },
 ];
 
@@ -117,7 +117,7 @@ const SectionClientSay: FC<SectionClientSayProps> = ({
 
   return (
     <div className={`nc-SectionClientSay relative ${className} `}>
-      <Heading desc="Let's see what people think of The BHA" isCenter>
+      <Heading desc="Nội dung mẫu — đánh giá của khách sẽ hiển thị tại đây" isCenter>
         Good news from far away
       </Heading>
       <div className="relative md:mb-16 max-w-2xl mx-auto">
