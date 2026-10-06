@@ -1,28 +1,34 @@
 import React, { FC, ReactNode } from "react";
+import Link from "next/link";
+import ShowcaseNavLink from "./ShowcaseNavLink";
 
 /**
  * CUST-WEB-SHOWCASE-001-CP01: the public frame of the Customer Web. Replaces
  * the template header, footer and mobile nav (demo switchers, account, login,
  * wishlist) with links that only point at what really works.
+ *
+ * CP01-C1 (F1): no link loads a new document. A document load would remount
+ * BookingHoldProvider and lose the guest's in-memory hold and access token,
+ * so the hold could no longer be confirmed.
  */
 const NAV = [
-  { href: "/#catalog", label: "Chỗ nghỉ" },
-  { href: "/#room-types", label: "Loại phòng" },
-  { href: "/#booking", label: "Đặt phòng" },
+  { section: "catalog", label: "Chỗ nghỉ" },
+  { section: "room-types", label: "Loại phòng" },
+  { section: "booking", label: "Đặt phòng" },
 ];
 
 const ShowcaseShell: FC<{ children: ReactNode }> = ({ children }) => (
   <div className="flex min-h-screen flex-col">
     <header className="sticky top-0 z-40 border-b border-neutral-200 bg-white/95 backdrop-blur dark:border-neutral-700 dark:bg-neutral-900/95">
       <div className="container flex flex-wrap items-center justify-between gap-x-6 gap-y-2 py-3">
-        <a href="/" className="text-xl font-semibold tracking-tight">
+        <Link href="/" className="text-xl font-semibold tracking-tight">
           The BHA
-        </a>
+        </Link>
         <nav aria-label="Chính" className="flex gap-4 text-sm font-medium sm:gap-6">
           {NAV.map((item) => (
-            <a key={item.href} href={item.href} className="py-2 hover:text-primary-6000">
+            <ShowcaseNavLink key={item.section} section={item.section} className="py-2 hover:text-primary-6000">
               {item.label}
-            </a>
+            </ShowcaseNavLink>
           ))}
         </nav>
       </div>

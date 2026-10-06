@@ -1,4 +1,5 @@
 import React from "react";
+import Link from "next/link";
 
 export default function Unavailable() {
   return (
@@ -7,12 +8,13 @@ export default function Unavailable() {
       <p className="text-neutral-600 dark:text-neutral-300">
         Bản demo này chỉ gồm xem chỗ nghỉ, tìm phòng trống, giữ phòng và xác nhận đặt phòng.
       </p>
-      <a
+      {/* CP01-C1 (F1): client navigation keeps an in-progress guest hold. */}
+      <Link
         href="/"
         className="inline-flex items-center justify-center rounded-full bg-primary-6000 px-6 py-3 font-medium text-neutral-50 hover:bg-primary-700"
       >
         Về trang đặt phòng
-      </a>
+      </Link>
     </div>
   );
 }
