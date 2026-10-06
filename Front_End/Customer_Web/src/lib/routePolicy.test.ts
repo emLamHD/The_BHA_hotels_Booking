@@ -58,13 +58,26 @@ describe("middleware", () => {
     expect(location.search).toBe(path.includes("ref=x") ? "?ref=x" : "");
   });
 
-  it("preserves an exact loopback authority without trusting arbitrary Host values", () => {
-    const loopback = runWithHost("/showcase?ref=x", "http://127.0.0.1:3000", "127.0.0.1:3000");
-    expect(loopback.headers.get("location")).toBe("http://127%2e0%2e0%2e1:3000/?ref=x");
-    expect(new URL(loopback.headers.get("location")!).origin).toBe("http://127.0.0.1:3000");
+  // The serialized header is two layers' business: this middleware encodes the
+  // dots of a literal loopback IP so Next's adapter does not rewrite it to
+  // localhost, and the running server then emits `Location` relative (observed
+  // on `next start -H 127.0.0.1`: `/?ref=x`). Only what the Location resolves to
+  // is the contract, so that is what is asserted — not the exact string.
+  it.each([
+    ["http://127.0.0.1:3000", "127.0.0.1:3000"],
+    ["http://localhost:3000", "localhost:3000"],
+  ])("keeps the %s authority: the redirect resolves to the same origin, path and query", (origin, host) => {
+    const response = runWithHost("/showcase?ref=x", origin, host);
+    const resolved = new URL(response.headers.get("location")!, origin);
+    expect(resolved.origin).toBe(origin);
+    expect(resolved.pathname).toBe("/");
+    expect(resolved.search).toBe("?ref=x");
+    expect(resolved.href).toBe(new URL("/?ref=x", origin).href); // same target as a relative Location
+  });
 
+  it("does not trust an arbitrary Host value for the redirect target", () => {
     const untrusted = runWithHost("/showcase", ORIGIN, "attacker.example");
-    expect(new URL(untrusted.headers.get("location")!).origin).toBe(ORIGIN);
+    expect(new URL(untrusted.headers.get("location")!, ORIGIN).origin).toBe(ORIGIN);
   });
 
   it.each(["/checkout?step=2", "/login", "/listing-stay-detail/", "/blog/post-1"])(

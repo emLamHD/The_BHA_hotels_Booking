@@ -11,6 +11,7 @@ import { PropertyDto } from "@/lib/api/propertyTypes";
 import { ApiConfigError, ApiHttpError, ApiNetworkError } from "@/lib/api/errors";
 import { isRequestCancelledError } from "@/lib/api/httpClient";
 import { SHOWCASE_SECTION_NAVIGATION_EVENT } from "@/lib/routePolicy";
+import { createAnchorAlignment } from "@/lib/anchorAlignment";
 
 export interface SectionGridFeaturePropertyProps {
   className?: string;
@@ -85,57 +86,31 @@ const SectionGridFeatureProperty: FC<SectionGridFeaturePropertyProps> = ({
 
   const ready = status === "success" && properties.length > 0;
 
-  // C2 F2: listen from mount so a fragment changed after catalog readiness
-  // starts tracking too. Each explicit fragment navigation (including a
-  // same-hash click) replaces the prior target/window; user input cancels it.
-  // The 5 s bound caps automatic scrolling latency while nested RoomType reads
-  // settle. Browsers without native scroll anchoring need this realignment.
+  // C3: keep a section the visitor jumped to in view while content above it
+  // settles (browsers without native scroll anchoring). The lifecycle lives in
+  // createAnchorAlignment; this effect deliberately has no dependency on
+  // `ready` or any data: loading content is not a navigation intent, so it can
+  // neither start alignment nor revive one the visitor already cancelled.
   const sectionRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    let observer: ResizeObserver | null = null;
-    let timeout: number | undefined;
-    const stopAlignment = () => {
-      observer?.disconnect();
-      observer = null;
-      if (timeout !== undefined) window.clearTimeout(timeout);
-      timeout = undefined;
-      USER_TAKEOVER_EVENTS.forEach((type) => window.removeEventListener(type, stopAlignment));
-    };
-
-    const alignCurrentHash = () => {
-      stopAlignment();
-
-      const section = window.location.hash.slice(1);
-      if (!ALIGNED_SECTIONS.has(section)) return;
-      const container = sectionRef.current;
-      const target = document.getElementById(section);
-      if (!container || !target || !container.contains(target)) return;
-
-      const align = () => {
-        // A queued ResizeObserver callback must not pull the visitor back to a
-        // previous target after a newer fragment intent.
-        if (window.location.hash.slice(1) === section && document.getElementById(section) === target) {
-          target.scrollIntoView({ block: "start" });
-        }
-      };
-      observer = new ResizeObserver(align);
-      observer.observe(container);
-      observer.observe(target);
-      timeout = window.setTimeout(stopAlignment, ALIGNMENT_WINDOW_MS);
-      USER_TAKEOVER_EVENTS.forEach((type) => window.addEventListener(type, stopAlignment, { passive: true }));
-      align();
-    };
-
-    const onNavigationIntent = () => alignCurrentHash();
-    window.addEventListener("hashchange", onNavigationIntent);
-    window.addEventListener(SHOWCASE_SECTION_NAVIGATION_EVENT, onNavigationIntent);
-    alignCurrentHash(); // Handles a hash already present at mount/readiness change.
-    return () => {
-      window.removeEventListener("hashchange", onNavigationIntent);
-      window.removeEventListener(SHOWCASE_SECTION_NAVIGATION_EVENT, onNavigationIntent);
-      stopAlignment();
-    };
-  }, [ready]);
+    const container = sectionRef.current;
+    if (!container) return;
+    const alignment = createAnchorAlignment<HTMLElement>({
+      container,
+      sections: ALIGNED_SECTIONS,
+      navigationEvent: SHOWCASE_SECTION_NAVIGATION_EVENT,
+      takeoverEvents: USER_TAKEOVER_EVENTS,
+      windowMs: ALIGNMENT_WINDOW_MS,
+      environment: {
+        window,
+        getElementById: (id) => document.getElementById(id),
+        createObserver: (onResize) => new ResizeObserver(onResize),
+        setTimeout: (callback, ms) => window.setTimeout(callback, ms),
+        clearTimeout: (handle) => window.clearTimeout(handle as number),
+      },
+    });
+    return () => alignment.dispose();
+  }, []);
 
   return (
     <div ref={sectionRef} id="catalog" className={`nc-SectionGridFeatureProperty relative scroll-mt-28 ${className}`}>
