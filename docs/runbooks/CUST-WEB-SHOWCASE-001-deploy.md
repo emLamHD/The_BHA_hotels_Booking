@@ -107,7 +107,7 @@ export ConnectionStrings__TheBhaDatabase="<RDS connection string via SSM/secret,
 dotnet Back_End/src/TheBha.Api/bin/Release/net8.0/TheBha.Api.dll --seed-riverside-demo \
   --expected-database <D2 name> --media-base-url https://thebhariverside.com \
   --from <YYYY-MM-DD, today or later in Vietnam time> --days 90 --dry-run
-# review the plan (expect: property 1, amenities 2, room types 3, rate plan 1, rooms 11, rates 3 x days, media 13, links 15)
+# review the plan (expect: property 1, amenities 2, room types 3, rate plan 1, rooms 11, rates 3 x days, media 31, links 33; on a database seeded before C3 the plan is media 13 existing + 18 insert, links 15 existing + 18 insert and 4 link order/cover migrations — a media-only patch that never touches other tables)
 # then the same command with --apply; a rerun with the same options must report 0 inserts.
 ```
 
@@ -139,7 +139,7 @@ API_BASE=https://api.thebhariverside.com MEDIA_BASE=https://thebhariverside.com 
 
 It checks `/health/ready` 200, the public properties route, that the Staff session route answers 401 without a session (404 would mean the forwarded HTTPS scheme is **not** trusted — fix `Hosting__TrustedProxy__*`), and that every image URL the API returns answers `200 image/webp`.
 
-Then, in a real browser on the three real hostnames, walk the demo path: **`/` (the Chisfis home page) → Featured places to stay → The BHA Riverside (default tab) → a room card → `/listing-stay-detail?propertyId=…&roomTypeId=…` → choose dates/guests/rooms → search → offer → contact → hold → confirm**, then Admin sign-in → `/calendar`. The Customer site serves exactly two pages (the home page and one room's page); every other template route answers 404 by design, and `/home-2`/`/showcase` redirect to `/`. House and Villa tabs are static "coming soon" panels. Safari/WebKit was not run.
+Then, in a real browser on the three real hostnames, walk the demo path: **`/` (the Chisfis home page) → Stays search: location The BHA Riverside, dates, guests → Search → a Featured room card (price from the API) → `/listing-stay-detail?propertyId=…&roomTypeId=…` (dates carried in the URL) → offer → contact → hold → `/paydone` ("Đã giữ chỗ", not yet confirmed) → "Xác nhận đặt phòng" → "Đặt phòng đã xác nhận"**, then Admin sign-in → `/calendar`. The Customer site serves the Chisfis template pages (demo content, no backend) except `/api/*`, which answers 404 by design; `/showcase` redirects to `/` and `/pay-done` to `/paydone`. Only The BHA Riverside rooms, prices and booking are real; House and Villa tabs are static "coming soon" panels; the currency dropdown is template-only. Opening `/paydone` directly (no hold in the tab) shows a recovery message, never a receipt. Safari/WebKit was not run.
 
 ## 9. Known risks (not fixed here)
 

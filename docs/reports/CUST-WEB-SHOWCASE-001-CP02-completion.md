@@ -2,6 +2,8 @@
 
 > Draft PR into `develop` (the second and last PR of the showcase work item). `IMPLEMENTER: CLAUDE`, `REVIEWER: CODEX_READ_ONLY` (Owner invokes). Baseline `9ad8edce4171f9b26a3f274cd544758be21f9162`, branch `feature/cust-web-showcase-001-cp02-riverside-demo`. FINAL_HEAD, PR number, PR size and CI on FINAL_HEAD are in the PR body. `REVIEW: NOT_RUN`.
 
+> **C3 supersedes C2 (§12).** Owner reversed the C2 inert-preview approach: the full Chisfis template is back, its pickers drive the real Riverside search, all three room types have photos, and a hold ends on a `/paydone` receipt. C2's browser evidence (§10) is history; C3 evidence is in §12 and was taken on the C3 build.
+
 > **C2 supersedes the UI of this report.** The browser/E2E results in §4 below (and the home/details parts of §5) were taken at `2bb70bb` against the *old single-page flow* (`/` was one booking page). Owner then decided on the Chisfis home page plus a room details page (see **§10, C2**). The old results are history; they are **not** credited to the new home or details pages — §10 has the evidence for those, taken on the C2 build. `DATA_LOCAL`, `MEDIA`, the container/proxy/key-ring evidence (§5) and the seeder/deploy results are unaffected by C2.
 
 ## 0. Media evidence — what the scan does and does not show (corrected in C1)
@@ -170,6 +172,54 @@ The node-environment tests cannot run effects, so tab switching, data rendering,
 - No cloud, DNS, Vercel or Safari testing; `PUBLISH`/`DEPLOY_LIVE` `NOT_RUN`. This is a local rehearsal, not a commercial-readiness certificate.
 - **REVIEW:** the Codex results above (and in C1) concern earlier heads. C2 needs a new review of the final head: `NOT_RUN`.
 
-## 11. Reviewer focus (requested)
+## 11. Reviewer focus (requested, C1/C2; C3 focus is at the end of §12)
 
 Seed target safety and idempotency; media mapping and provenance claims versus evidence (C1); proxy trust boundary; container key storage; deploy boundaries (nothing publishes or deploys by default); ECR trigger/default branch/source SHA/no privileged PR (C1); for C2: tab/RoomType identity, details query and races, gallery and group layout, sidebar/mobile sharing one draft, guest hold across navigation, exact retry, default-deny routes.
+
+## 12. Correction C3 (CP02-C3-TEMPLATE-RESTORE-PICKERS-MEDIA-PAYDONE, same PR #83)
+
+`START_HEAD 99b57aa`, template reference `b6e28a6` (read-only). Owner wants a tested, commercialization-ready showcase, not a draft. Every result below was taken **in this session on the C3 build** (production `next build`/`next start`, mkcert TLS proxy on `https://localhost:3000`, API container `https://localhost:7443`, PostgreSQL 17 `thebha_showcase_demo`); nothing from C2 is credited.
+
+### 12.1 What changed (by Owner decision)
+
+1. **Template restored**, not previewed: header (Travelers/Templates menus, language/currency switchers, notifications, account dropdown, mobile menu), hero, Suggestions for discovery, Benefits/Happening cities, How it work, Suggestions, newsletter, footer, template pages and images — restored byte-for-byte from `b6e28a6` where unchanged (`4d0b675`). Logo is The BHA. No secrets, NextAuth or `/api/*` were restored (`/api/*` is 404). The currency dropdown is template-only and never converts a VND amount. One slim notice states that Riverside rooms/prices/booking are real and everything else is template content; there are no per-section inert wrappers.
+2. **Hero Stays search is real** (desktop popovers and the mobile modal share one draft in `StaySearchProvider`): Location = The BHA House / The BHA Riverside / The BHA Villa; template two-month calendar and guest selector are controlled components (dates converted in local time, `dateToIso`/`isoToDate`, tested in three time zones). Other service tabs are the template's.
+3. **Featured places to stay**: three static brand tabs; Riverside is read from the API; cards use the template `StayCard2` markup (12:11 image, slider, heart, rating row). Price is the API quote for the chosen dates, else "Chọn ngày để xem giá". House/Villa say "Sắp ra mắt".
+4. **Room page** (`/listing-stay-detail?propertyId&roomTypeId[&checkIn&checkOut&adults&children&rooms]`): template 1 large + 4 small mosaic (honest empty slots when fewer photos), Share/Save, rating 4.5 (112) **labelled as sample** ("Đánh giá mẫu"), the same template pickers in the booking panel; dates/guests chosen on the home page carry through the URL and the quote runs automatically.
+5. **Contact validation** (name/email/phone, control characters rejected, first invalid field focused, nothing is sent while invalid) and **hold → `/paydone`**: a hold shows the receipt headed "Đã giữ chỗ" (explicitly *not* a confirmed reservation, not paid); only the real "Xác nhận đặt phòng" button calls the confirm API, after which the page reads "Đặt phòng đã xác nhận". A lost confirm response ends in an explicit "unknown" state with a manual "Gửi lại xác nhận" that replays with the same idempotency key. Token and contact never appear in the URL or in storage. `/pay-done` redirects to `/paydone`; `/paydone` opened directly shows a recovery message, never a fake receipt.
+6. **Media for all three room types** (details in 12.3).
+
+### 12.2 Evidence — A1–A7 (Chrome headless, production build; desktop 1440×900 and touch 390×844; screenshots opened and viewed)
+
+| Acceptance | Result |
+|---|---|
+| A1 template | Home viewed top to bottom: header, hero, Suggestions, Benefits, Featured, How it work, second Suggestions, newsletter, footer; menus Travelers/Templates/language+currency/account opened and viewed; 70 images on `/`, 0 broken. |
+| A2 pickers | Location lists 3 brands; calendar picks a range (Dec 21→23 shown "Dec 21 - Dec 23") and closes; guests popover +/−; adults min 1 / max 10; Escape closes, Enter opens (keyboard); outside click closes the calendar; a partial range plus Search shows "Chọn ngày nhận phòng và trả phòng." with **0** availability requests; House search says "Sắp ra mắt". Mobile modal: location auto-advances to dates, range, guests, Search → Featured quotes. |
+| A3 cards/media | All 3 Riverside room types show photos and the API price (₫1,600,000 / ₫1,000,000 / ₫1,100,000 per night) for in-window dates; "Chọn ngày để xem giá" without dates or out of window. |
+| A4 details | Mosaic 1+4 (1PN has 6 photos: "Xem tất cả 6 ảnh"), Share/Save, rating, pickers; no query → "Chưa chọn phòng"; malformed ids → "Liên kết phòng không hợp lệ"; unknown ids → "Không tìm thấy chỗ nghỉ"; no horizontal overflow at 390. |
+| A5 contact | Empty submit: 3 `role=alert` errors, focus on full name, **0** hold POST. |
+| A6 end to end | Desktop: `/` → Riverside + dates + guests → card → details (query carried) → offer ₫2,000,000 → hold → `/paydone` "Đã giữ chỗ" → "Xác nhận đặt phòng" → "Đặt phòng đã xác nhận": **1** hold POST (201) and **1** confirm POST (201); guest API reads with the token (never printed): hold `Confirmed`, reservation `Confirmed`, total 2,000,000, 2 nights, anonymous read 401; DB row `Confirmed`. Mobile: same journey, same counts. Lost response: the confirm response was dropped in the browser (status 0), page showed the unknown state, "Gửi lại xác nhận" returned 200 (replay); the DB holds exactly one Reservation for that hold. |
+| A7 sweep | 32 internal links from the home page, opened header menus and details: all 200/307; 58 distinct images all 200; `/showcase`→`/`, `/pay-done`→`/paydone` (query kept), `/api`, `/api/auth/session` 404; `localhost:3100` and `127.0.0.1:3100`: no redirect loop. |
+
+Automated: Customer_Web `npm test` 540 tests (31 files), lint, `tsc --noEmit`, `npm run build` all clean on the final source; `test_build_media.py` 13 OK; backend build 0 warnings/0 errors, unit 244 + integration 834 passed on a throwaway PostgreSQL 17 container.
+
+### 12.3 Media — MEDIA_COVERAGE and MEDIA_PROVENANCE reported separately
+
+- **MEDIA_COVERAGE: PASS.** 31 derivatives served (Property 10, 2BR 9, 1BR 6, 1BR view thoáng 6), every RoomType has a cover and a gallery; 31 files, 4,575,088 bytes (the 13 earlier derivatives and their media IDs are unchanged; the 18 new ones are appended, no image is cloned to reach five). Originals untouched: 86 files, 166,663,251 bytes, hashes verified.
+- **MEDIA_PROVENANCE: UNVERIFIED.** The scan is heuristic; C2PA validation `NOT_RUN`. The Owner (decision dated 2026-10-08 in the MEP) sorted the pictures per room type and authorized publishing them even where the scan shows generator markers or no metadata; the manifest records `decision: owner-authorized` and `provenanceStatus: UNVERIFIED` for each, and the report does not claim they are camera photographs or the real rooms.
+- **Seeder:** `--dry-run` showed 40 rows; `--apply` inserted 40 (18 Media, 18 links, 4 link order/cover migrations); the rerun and a following dry-run report 0. The migration is media-only (guarded raw `UPDATE "RoomTypeMedia"` matching exact old values, demotions before promotions, an operator-cover guard that warns and skips). Transactional tables were unchanged by the patch; the target was `thebha_showcase_demo` (host/name/container verified), never RDS or `the-bha-postgres-1`.
+
+### 12.4 State left in the persistent demo database
+
+Reservations 13 → 17 and 4 more holds from the four end-to-end runs above (one Reservation per run, including the lost-response run). `Media` 31 rows. No Reservation or hold was deleted. Customer web (`next start :3100` behind the TLS proxy on :3000) and the API/proxy/PostgreSQL containers are left running for the Owner.
+
+### 12.5 Deviations, risks, defects (not fixed)
+
+- Template content (Experiences/Cars/Flights tabs, sample cities, avatar menu "Eden Smith/Log out", listing pages) is demo content with no backend; the rating on cards and room pages is a sample.
+- The mobile booking bar and panel subtitle say "Giá theo ngày bạn chọn" (they carry no quote; the panel does). A reviewer may prefer lifting the quote into the bar.
+- `deploy/showcase/migrations/idempotent.sql` (generated in CP02, not changed by C3) ends with a blank line, so `git diff --check origin/develop...HEAD` reports it; the working-tree `git diff --check` is clean.
+- Still **OPEN**: stale-cookie 401, first-request 500 after a database restart, unencrypted key XML. `UI_LIVE` is Chrome headless only; Safari/WebKit, Vercel and cloud are `NOT_RUN`. `PUBLISH`/`DEPLOY_LIVE`/`CLOUD_DATA` `NOT_RUN`. `REVIEW: NOT_RUN` for the new FINAL_HEAD (earlier Codex reviews concern earlier heads).
+
+### 12.6 Reviewer focus for C3
+
+Controlled template pickers and local-date conversion; contact validation; hold → receipt distinction and the redirect trigger; query-carried search and token lifetime (memory only); media-only seed migration safety; template route boundaries and `/api/*` closure.

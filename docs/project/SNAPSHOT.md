@@ -1,9 +1,22 @@
 # THE BHA — SNAPSHOT
 
-> Ngày cập nhật: 2026-10-07 (`CUST-WEB-SHOWCASE-001-CP02`; các phần cũ hơn giữ nguyên kèm SHA)
+> Ngày cập nhật: 2026-10-07 (`CUST-WEB-SHOWCASE-001-CP02-C3`; các phần cũ hơn giữ nguyên kèm SHA)
 >
 > Mục đích: phục hồi trạng thái hiện tại mà không cần nạp worklog lịch sử
 
+Cập nhật 2026-10-07 (`CUST-WEB-SHOWCASE-001-CP02-C3`, cùng PR #83, Draft, chưa merge): Owner đảo quyết định C2 — **template Chisfis được khôi phục
+đầy đủ** (menu, dropdown, template/currency switcher, ảnh, mọi section, trang template; logo The BHA; không khôi phục secret/NextAuth/`/api/*`) và
+các route template mở lại, riêng `/api/*` vẫn 404, `/showcase`→`/`, `/pay-done`→`/paydone`. Hero Stays dùng popover template (Location: The BHA House /
+Riverside / Villa; lịch hai tháng; chọn khách) làm **component có kiểm soát** dùng chung cho desktop, modal mobile, Featured và trang phòng; Riverside
+lấy offer thật theo ngày, ba card `StayCard2` hiển thị giá API hoặc "Chọn ngày để xem giá". Trang phòng: mosaic 1+4, Share/Save, rating 4.5 (112) ghi rõ
+là mẫu, picker template trong panel đặt phòng; validate liên hệ trước khi gửi; giữ chỗ chuyển sang `/paydone` ("Đã giữ chỗ", chưa xác nhận, chưa thanh toán);
+chỉ nút "Xác nhận đặt phòng" gọi confirm. **Media:** 31 ảnh (Property 10, 2PN 9, 1PN 6, 1PN view thoáng 6) theo thư mục Owner phân loại, Owner cho phép publish
+dù quét thấy generator marker/không metadata — `MEDIA_COVERAGE: PASS`, `MEDIA_PROVENANCE: UNVERIFIED` (C2PA `NOT_RUN`); DB demo được patch bằng migration chỉ-media
+(40 dòng một lần, rerun 0). Bằng chứng C3 chạy trên build thật + API container + PostgreSQL demo, desktop và mobile touch, Safari `NOT_RUN`:
+`docs/reports/CUST-WEB-SHOWCASE-001-CP02-completion.md` §12; kết quả C2 (§10) chỉ còn là lịch sử. `REVIEW: NOT_RUN` cho head C3; lỗi cookie khách cũ (401),
+500 sau khi DB restart và key XML không mã hóa còn mở.
+
+Bản cập nhật trước (C2, bị C3 thay thế ở phần giao diện):
 Cập nhật 2026-10-07 (`CUST-WEB-SHOWCASE-001-CP02-C2`, cùng PR #83, Draft, chưa merge): Owner chốt giữ **homepage Chisfis** tại `/`
 (thay trang đặt phòng một trang của CP01) và đặt phòng ở **trang chi tiết phòng**. `Featured places to stay` có ba tab tĩnh
 The BHA Riverside / House / Villa: Riverside lấy Property theo slug `the-bha-riverside` và hiển thị **ba loại phòng** từ API, House/Villa
