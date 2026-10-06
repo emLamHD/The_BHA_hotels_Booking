@@ -9,10 +9,13 @@ Cập nhật 2026-10-06 (`CUST-WEB-SHOWCASE-001-CP01`, Draft PR, chưa merge): `
 CP01–CP05 không mở). Objective Customer: `/` của Customer_Web là luồng thật (Property → RoomType →
 availability/giá từng đêm → hold → confirm); mọi route template trả 404 "chưa có"; shell tối thiểu.
 Correction C1 (cùng PR #82) sửa hai finding Codex: điều hướng header không làm mất guest hold;
-CTA tới form khi catalog đang tải. Owner (06/10): work item này không còn target dòng, tối đa hai PR;
+CTA tới form khi catalog đang tải. Correction C2 (cùng PR #82) làm `/` render live page trực tiếp,
+giữ alias an toàn trên loopback-IP và realign fragment khi catalog/RoomType đang settle; production
+loopback, browser booking và isolated DB regression đã chạy. Owner (06/10): work item này không còn target dòng, tối đa hai PR;
 PR thứ hai (CP02) seed The BHA Riverside 3 RoomType / 11 PhysicalRoom (3/2/6), giá Owner, ảnh thật,
-database demo riêng — chỉ mở sau khi Owner merge PR #82. Chưa nghiệm thu: dữ liệu demo, ảnh, deploy
-Vercel; lỗi cookie khách cũ (401) còn mở. Evidence: `docs/reports/CUST-WEB-SHOWCASE-001-CP01-completion.md`.
+database demo riêng — chỉ mở sau khi Owner merge PR #82. Chưa nghiệm thu: dữ liệu demo, xử lý/hiển thị
+ảnh, deploy Vercel (`NOT_TESTED`); lỗi cookie khách cũ (401) còn mở. Evidence:
+`docs/reports/CUST-WEB-SHOWCASE-001-CP01-completion.md`.
 
 Bản cập nhật trước (2026-10-06, `PMS-CAL-002-CP00`, viết khi PR #81 còn Draft; nay đã merged):
 `PMS-ADMIN-AUTH-001-CP07` (PR #80) đã **merged** (`2026-10-04T09:32:21Z`), merge commit

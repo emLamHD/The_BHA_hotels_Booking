@@ -3,6 +3,7 @@
 import React, { FC, MouseEvent, ReactNode } from "react";
 import Link from "next/link";
 import type { Route } from "next";
+import { SHOWCASE_SECTION_NAVIGATION_EVENT } from "@/lib/routePolicy";
 
 /**
  * CUST-WEB-SHOWCASE-001-CP01-C1 (F1): a header link to one section of the
@@ -15,6 +16,8 @@ import type { Route } from "next";
  * itself — with or without a query string — the jump is a native fragment
  * change instead; from any other page the Link navigates client-side and
  * SectionGridFeatureProperty aligns the section once the catalog is ready.
+ * A same-fragment click has no native hashchange event, so it explicitly
+ * starts a fresh bounded alignment window.
  */
 const ShowcaseNavLink: FC<{ section: string; className?: string; children: ReactNode }> = ({
   section,
@@ -26,8 +29,12 @@ const ShowcaseNavLink: FC<{ section: string; className?: string; children: React
     const target = window.location.pathname === "/" ? document.getElementById(section) : null;
     if (!target) return;
     event.preventDefault();
-    if (window.location.hash === `#${section}`) target.scrollIntoView({ block: "start" });
-    else window.location.hash = section;
+    if (window.location.hash === `#${section}`) {
+      target.scrollIntoView({ block: "start" });
+      window.dispatchEvent(new Event(SHOWCASE_SECTION_NAVIGATION_EVENT));
+    } else {
+      window.location.hash = section;
+    }
   };
 
   return (

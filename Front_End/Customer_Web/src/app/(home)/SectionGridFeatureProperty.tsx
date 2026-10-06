@@ -10,6 +10,7 @@ import { getProperties } from "@/lib/api/propertyService";
 import { PropertyDto } from "@/lib/api/propertyTypes";
 import { ApiConfigError, ApiHttpError, ApiNetworkError } from "@/lib/api/errors";
 import { isRequestCancelledError } from "@/lib/api/httpClient";
+import { SHOWCASE_SECTION_NAVIGATION_EVENT } from "@/lib/routePolicy";
 
 export interface SectionGridFeaturePropertyProps {
   className?: string;
@@ -22,6 +23,7 @@ type LoadStatus = "loading" | "success" | "error";
 
 const ALIGNED_SECTIONS = new Set(["catalog", "room-types", "booking"]);
 const USER_TAKEOVER_EVENTS = ["wheel", "touchstart", "keydown", "mousedown"] as const;
+const ALIGNMENT_WINDOW_MS = 5000;
 
 function describeError(error: unknown): string {
   if (error instanceof ApiConfigError) {
@@ -83,31 +85,56 @@ const SectionGridFeatureProperty: FC<SectionGridFeaturePropertyProps> = ({
 
   const ready = status === "success" && properties.length > 0;
 
-  // CP01-C1 (F2): content above the anchors grows when the catalog arrives —
-  // and again when the room types load on their own — which would push a
-  // section the visitor already jumped to out of view (Next 13.4.3 also
-  // mis-scrolls a Link's hash target — see ShowcaseNavLink). Keep that section
-  // aligned while the content settles, until the visitor scrolls, taps or types
-  // (or 5 s pass); browsers without scroll anchoring (Safari) need this too.
+  // C2 F2: listen from mount so a fragment changed after catalog readiness
+  // starts tracking too. Each explicit fragment navigation (including a
+  // same-hash click) replaces the prior target/window; user input cancels it.
+  // The 5 s bound caps automatic scrolling latency while nested RoomType reads
+  // settle. Browsers without native scroll anchoring need this realignment.
   const sectionRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!ready) return;
-    const target = ALIGNED_SECTIONS.has(window.location.hash.slice(1))
-      ? document.getElementById(window.location.hash.slice(1))
-      : null;
-    if (!target || !sectionRef.current) return;
-    const align = () => target.scrollIntoView({ block: "start" });
-    align();
-    const observer = new ResizeObserver(align);
-    observer.observe(sectionRef.current);
-    const stop = () => {
-      observer.disconnect();
-      window.clearTimeout(timer);
-      USER_TAKEOVER_EVENTS.forEach((type) => window.removeEventListener(type, stop));
+    let observer: ResizeObserver | null = null;
+    let timeout: number | undefined;
+    const stopAlignment = () => {
+      observer?.disconnect();
+      observer = null;
+      if (timeout !== undefined) window.clearTimeout(timeout);
+      timeout = undefined;
+      USER_TAKEOVER_EVENTS.forEach((type) => window.removeEventListener(type, stopAlignment));
     };
-    const timer = window.setTimeout(stop, 5000);
-    USER_TAKEOVER_EVENTS.forEach((type) => window.addEventListener(type, stop, { passive: true }));
-    return stop;
+
+    const alignCurrentHash = () => {
+      stopAlignment();
+
+      const section = window.location.hash.slice(1);
+      if (!ALIGNED_SECTIONS.has(section)) return;
+      const container = sectionRef.current;
+      const target = document.getElementById(section);
+      if (!container || !target || !container.contains(target)) return;
+
+      const align = () => {
+        // A queued ResizeObserver callback must not pull the visitor back to a
+        // previous target after a newer fragment intent.
+        if (window.location.hash.slice(1) === section && document.getElementById(section) === target) {
+          target.scrollIntoView({ block: "start" });
+        }
+      };
+      observer = new ResizeObserver(align);
+      observer.observe(container);
+      observer.observe(target);
+      timeout = window.setTimeout(stopAlignment, ALIGNMENT_WINDOW_MS);
+      USER_TAKEOVER_EVENTS.forEach((type) => window.addEventListener(type, stopAlignment, { passive: true }));
+      align();
+    };
+
+    const onNavigationIntent = () => alignCurrentHash();
+    window.addEventListener("hashchange", onNavigationIntent);
+    window.addEventListener(SHOWCASE_SECTION_NAVIGATION_EVENT, onNavigationIntent);
+    alignCurrentHash(); // Handles a hash already present at mount/readiness change.
+    return () => {
+      window.removeEventListener("hashchange", onNavigationIntent);
+      window.removeEventListener(SHOWCASE_SECTION_NAVIGATION_EVENT, onNavigationIntent);
+      stopAlignment();
+    };
   }, [ready]);
 
   return (

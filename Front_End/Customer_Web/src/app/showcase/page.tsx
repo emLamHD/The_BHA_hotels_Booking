@@ -1,9 +1,10 @@
 import React from "react";
 import SectionGridFeatureProperty from "@/app/(home)/SectionGridFeatureProperty";
+import ShowcaseNavLink from "@/components/ShowcaseNavLink";
 
 /**
- * CUST-WEB-SHOWCASE-001-CP01: the live booking entry, served at `/` by the
- * middleware (a direct visit to /showcase redirects to `/`). Everything below
+ * CUST-WEB-SHOWCASE-001-CP01-C2: the live booking entry rendered directly at
+ * `/` (a direct visit to /showcase redirects to `/`). Everything below
  * the intro comes from the API: properties, room types, availability with
  * nightly prices, then the contact → hold → confirm panel.
  */
@@ -25,12 +26,12 @@ export default function ShowcasePage() {
             </li>
           ))}
         </ol>
-        <a
-          href="#booking"
+        <ShowcaseNavLink
+          section="booking"
           className="inline-flex items-center justify-center rounded-full bg-primary-6000 px-6 py-3 font-medium text-neutral-50 hover:bg-primary-700"
         >
           Tìm phòng trống
-        </a>
+        </ShowcaseNavLink>
       </section>
 
       <SectionGridFeatureProperty heading="Chỗ nghỉ" subHeading="Danh sách lấy trực tiếp từ hệ thống đặt phòng" />

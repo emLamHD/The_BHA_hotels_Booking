@@ -9,10 +9,12 @@
  * just for having a dot.
  */
 
-/** The internal page that renders the live entry; served only through `/`. */
+/** Former internal page name, retained as a canonical redirect alias. */
 export const LIVE_ENTRY_PAGE = "/showcase";
 /** The internal page that answers every denied path with a 404. */
 export const UNAVAILABLE_PAGE = "/showcase-unavailable";
+/** Same-fragment navigation has no native hashchange event; restart alignment explicitly. */
+export const SHOWCASE_SECTION_NAVIGATION_EVENT = "showcase:section-navigation";
 
 export type RouteDecision =
   | { kind: "live" }

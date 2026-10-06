@@ -5,6 +5,8 @@ import { decideRoute } from "./routePolicy";
 
 const ORIGIN = "https://localhost:3000";
 const run = (path: string) => middleware(new NextRequest(new URL(path, ORIGIN)));
+const runWithHost = (path: string, origin: string, host: string) =>
+  middleware(new NextRequest(new URL(path, origin), { headers: { host } }));
 const rewrittenTo = (path: string) => {
   const target = run(path).headers.get("x-middleware-rewrite");
   return target ? new URL(target).pathname + new URL(target).search : null;
@@ -38,14 +40,31 @@ describe("decideRoute", () => {
 });
 
 describe("middleware", () => {
-  it("rewrites / to the live entry and keeps the query (RSC navigation)", () => {
-    expect(rewrittenTo("/?_rsc=abc")).toBe("/showcase?_rsc=abc");
+  it.each(["/", "/?ref=demo", "/?_rsc=abc"])("serves %s directly without rewriting or redirecting home", (path) => {
+    const response = run(path);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(response.headers.get("x-middleware-rewrite")).toBeNull();
+    expect(response.headers.get("location")).toBeNull();
   });
 
-  it.each(["/home-2", "/home-2/?ref=x", "/showcase"])("redirects %s to / with 307", (path) => {
+  it.each(["/home-2", "/home-2/", "/home-2/?ref=x", "/showcase", "/showcase/?ref=x"])("redirects %s to / with 307", (path) => {
     const response = run(path);
     expect(response.status).toBe(307);
-    expect(new URL(response.headers.get("location")!).pathname).toBe("/");
+    const locationHeader = response.headers.get("location")!;
+    const location = new URL(locationHeader, ORIGIN);
+    expect(location.origin).toBe(ORIGIN);
+    expect(location.pathname).toBe("/");
+    expect(location.search).toBe(path.includes("ref=x") ? "?ref=x" : "");
+  });
+
+  it("preserves an exact loopback authority without trusting arbitrary Host values", () => {
+    const loopback = runWithHost("/showcase?ref=x", "http://127.0.0.1:3000", "127.0.0.1:3000");
+    expect(loopback.headers.get("location")).toBe("http://127%2e0%2e0%2e1:3000/?ref=x");
+    expect(new URL(loopback.headers.get("location")!).origin).toBe("http://127.0.0.1:3000");
+
+    const untrusted = runWithHost("/showcase", ORIGIN, "attacker.example");
+    expect(new URL(untrusted.headers.get("location")!).origin).toBe(ORIGIN);
   });
 
   it.each(["/checkout?step=2", "/login", "/listing-stay-detail/", "/blog/post-1"])(
