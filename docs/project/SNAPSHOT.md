@@ -1,10 +1,18 @@
 # THE BHA — SNAPSHOT
 
-> Ngày cập nhật: 2026-10-06 (`PMS-CAL-002-CP00`; các phần cũ hơn giữ nguyên kèm SHA)
+> Ngày cập nhật: 2026-10-06 (`CUST-WEB-SHOWCASE-001-CP01`; các phần cũ hơn giữ nguyên kèm SHA)
 >
 > Mục đích: phục hồi trạng thái hiện tại mà không cần nạp worklog lịch sử
 
-Cập nhật 2026-10-06 (`PMS-CAL-002-CP00`, docs-only, Draft PR, chưa merge):
+Cập nhật 2026-10-06 (`CUST-WEB-SHOWCASE-001-CP01`, Draft PR, chưa merge): `PMS-CAL-002-CP00`
+đã merged (PR #81, `b6e28a6`); split-move **tạm dừng** theo quyết định Owner (thiết kế giữ nguyên,
+CP01–CP05 không mở). Objective Customer: `/` của Customer_Web là luồng thật (Property → RoomType →
+availability/giá từng đêm → hold → confirm); mọi route template trả 404 "chưa có"; shell tối thiểu.
+Chưa nghiệm thu: dữ liệu demo (chưa có database demo được Owner chỉ định), ảnh thật (CP02), catalog
+1PN/2PN theo giá Owner (chưa có RoomType tương ứng), deploy Vercel (Owner). Evidence:
+`docs/reports/CUST-WEB-SHOWCASE-001-CP01-completion.md`.
+
+Bản cập nhật trước (2026-10-06, `PMS-CAL-002-CP00`, viết khi PR #81 còn Draft; nay đã merged):
 `PMS-ADMIN-AUTH-001-CP07` (PR #80) đã **merged** (`2026-10-04T09:32:21Z`), merge commit
 `38d4a9d964fde411aa4c03b46323f250fd54221b`; CI run `37192482384` `success` trên đúng
 commit đó. Milestone `PMS-ADMIN-AUTH-001` (CP00–CP07, PR #73–#80) là **PASS — CLOSED**:
@@ -355,9 +363,8 @@ này sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
 
 ### Đang thực thi
 
-- `PMS-CAL-002-CP00` — thiết kế contract split-move (docs-only, Draft PR):
-  `docs/design/PMS-CAL-002-split-move.md`. Không đổi source, test, schema hay API.
-  Quyết định D1–D6 **OPEN**, chờ Owner; CP01–CP05 **chưa kích hoạt**.
+- `CUST-WEB-SHOWCASE-001-CP01` — Customer Web thật ở `/`, route template bị chặn (Draft PR).
+- `PMS-CAL-002`: thiết kế split-move merged (PR #81); **tạm dừng**, D1–D6 OPEN, CP01–CP05 không mở.
 - Các mutation khác (assignment swap/batch, operational-block move/split) **chưa kích
   hoạt**; Snapshot này không tự mở chúng.
 
@@ -721,11 +728,9 @@ evidence independently verified for this closeout via:
 `38d4a9d964fde411aa4c03b46323f250fd54221b`). Production deployment chưa thực hiện và cần
 quyết định riêng của Owner.
 
-Objective hiện tại là `PMS-CAL-002-CP00` — thiết kế contract đổi phòng giữa kỳ bằng split
-assignment (một segment, một split date, một phòng đích cho phần sau):
-`docs/design/PMS-CAL-002-split-move.md`. Docs-only; split-move vẫn TARGET. Quyết định
-D1–D6 (§8 của design) còn OPEN; CP01 chỉ bắt đầu khi Owner chốt các quyết định nó phụ
-thuộc và phát Master Execution Prompt riêng. Review Codex chỉ do Owner gọi, OC quyết định,
+Objective hiện tại là `CUST-WEB-SHOWCASE-001` (CP01 Draft PR): Customer Web thật ở `/`, route
+template bị chặn. `PMS-CAL-002` (split-move, thiết kế merged PR #81) tạm dừng theo Owner;
+D1–D6 vẫn OPEN. Review Codex chỉ do Owner gọi, OC quyết định,
 Owner giữ Ready/merge/branch cleanup. Không tự bắt đầu work item khác từ Snapshot này.
 
 ## 9. Main risks
@@ -798,11 +803,8 @@ Chạy `git fetch --prune origin` và đọc `origin/develop` HEAD trực tiếp
 Git — **không** lấy SHA từ tài liệu này — trước khi dùng Snapshot này làm
 planning baseline.
 
-Work item đang thực thi là `PMS-CAL-002-CP00` (§2, §8), Draft PR docs-only trên
-branch `docs/pms-cal-002-cp00-split-move-design`. Owner đọc PR head còn sống từ
-GitHub rồi invoke `/codex:review --base origin/develop` trên đúng head đó (không suy
-ra `main`). Sau review và OC, Owner chốt D1–D6 của
-`docs/design/PMS-CAL-002-split-move.md` §8, quyết định Ready/merge/branch cleanup, và
-chỉ sau đó mới kích hoạt `PMS-CAL-002-CP01` bằng Master Execution Prompt riêng.
-Evidence: `docs/reports/PMS-CAL-002-CP00-completion.md`. (Đoạn First action cũ trỏ tới
+Work item đang thực thi là `CUST-WEB-SHOWCASE-001-CP01` (branch
+`feature/cust-web-showcase-001-cp01-live-entry`). Owner invoke `/codex:review --base
+origin/develop` trên đúng PR head, OC quyết định, Owner Ready/merge; CP02 (ảnh, dữ liệu demo)
+chỉ mở sau đó. Evidence: `docs/reports/CUST-WEB-SHOWCASE-001-CP01-completion.md`. (Đoạn First action cũ trỏ tới
 `PMS-CAL-001.2-CP04B` đã hết hiệu lực; CP04B merged trong PR #48.)

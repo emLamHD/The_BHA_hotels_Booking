@@ -79,7 +79,7 @@ const SectionGridFeatureProperty: FC<SectionGridFeaturePropertyProps> = ({
   }, [loadProperties]);
 
   return (
-    <div className={`nc-SectionGridFeatureProperty relative ${className}`}>
+    <div id="catalog" className={`nc-SectionGridFeatureProperty relative scroll-mt-28 ${className}`}>
       <Heading desc={subHeading}>{heading}</Heading>
 
       {status === "loading" && (
@@ -121,9 +121,13 @@ const SectionGridFeatureProperty: FC<SectionGridFeaturePropertyProps> = ({
             ))}
           </div>
 
-          <SectionGridRoomTypes className="mt-16" properties={properties} />
+          <div id="room-types" className="scroll-mt-28">
+            <SectionGridRoomTypes className="mt-16" properties={properties} />
+          </div>
 
-          <SectionAvailabilitySearch className="mt-16" properties={properties} />
+          <div id="booking" className="scroll-mt-28">
+            <SectionAvailabilitySearch className="mt-16" properties={properties} />
+          </div>
         </>
       )}
     </div>
