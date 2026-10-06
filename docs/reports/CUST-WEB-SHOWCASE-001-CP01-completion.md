@@ -7,7 +7,7 @@
 - `/` is the live flow: `src/middleware.ts` rewrites it to `src/app/showcase/page.tsx` (intro, steps, CTA to `#booking`, then the existing `SectionGridFeatureProperty` → room types → availability → hold → confirm). Chosen over editing `app/page.tsx` because that would delete 213 template lines and break the size cap; the template file stays unused.
 - `/home-2` and `/showcase` redirect (307) to `/`. Every other page path — listings, details, maps, `/checkout`, `/pay-done`, `/login`, `/signup`, accounts, add-listing, author, blog, subscription, about, contact, `/api/*`, public template SVGs, unknown paths — is default-denied: rewritten to `showcase-unavailable` (404, "Chức năng này chưa có trong bản hiện tại", link to `/`). Only `/_next/*` (runtime, chunks, fonts, image optimizer) bypasses the middleware; `/icon.jpg` (BHA Riverside logo) passes.
 - Root layout: template header, footer and mobile nav replaced by `ShowcaseShell` (text brand, three anchors, demo-data banner, plain footer). One `BookingHoldProvider` kept.
-- Live cards: the bundled template bitmap fallback is replaced by a neutral block ("Ảnh đang được cập nhật"). API media still render when usable.
+- Live cards and offer card: the bundled template bitmap fallback is replaced by a neutral block ("Ảnh đang được cập nhật"). API media still render when usable.
 - `.env.local.example`: the unused Cloudinary entries removed (values never printed). **Owner: check whether those keys are live and rotate them; Git history still contains them.**
 - No change to API contracts, CSRF, idempotency, guest-token lifecycle, backend, packages or CI.
 
@@ -17,7 +17,7 @@
 |---|---|
 | A1 | PASS — browser `/` desktop and mobile shows The BHA, live catalog, CTA reaches the form; `/home-2` no longer wraps the flow. |
 | A2 | PASS — loading, network error (API stopped: "We couldn't reach the property service", Retry), 0 offers ("No offers matched …"), invalid contact (no request sent) all observed; no fake fallback. |
-| A3 | **PARTIAL** — routes/nav/footer clean; but `AvailabilityOfferCard.tsx` (outside the allowlist) still uses the template `placeholder-large-h.png`. Not edited; needs an OC-authorised 1-file change. |
+| A3 | PASS — routes/nav/footer clean; production build: offers render the neutral block, 0 `<img>` on the page. `AvailabilityOfferCard.tsx` was outside the allowlist — see Deviations. |
 | A4 | PASS — `routePolicy.test.ts` 60 tests: allow/alias/deny table, nested, query, trailing slash, case, dotted paths, matcher for `/_next/*`; browser and HTTP evidence below. |
 | A5 | PASS — no contract change; full suite 383/383. |
 | A6 | See PR body for size and CI on FINAL_HEAD. |
@@ -47,4 +47,9 @@ Separate PostgreSQL 17 container (removed afterwards; `the-bha-postgres-1` untou
 - Mixed language: new chrome is Vietnamese; existing flow components stay English (CP02 candidate).
 - Hard reload drops the in-memory hold and guest token (CURRENT).
 
-`CHECKPOINT: BLOCKED` on A3 only (allowlist conflict). `CP02 NOT STARTED`. `Production/Vercel NOT TOUCHED`.
+## Deviations (Owner, 2026-10-06: 100–400 lines is a target, out-of-scope edits allowed with an explanation)
+
+- `src/components/AvailabilityOfferCard.tsx` (+4/−9), outside the MEP allowlist: same placeholder change as the two live cards. Why: it is the only component on the live surface still importing a template bitmap, so A3 could not pass without it. No behaviour, data or API change.
+- Not taken: the stale-cookie 401 defect. Its fix changes backend auth/session behaviour, which the MEP forbids and RULES treat as needing explicit authorisation. It also does not affect demo guests: the Customer Web has no login UI, so a guest's browser never gets `.TheBha.Customer`; only browsers that used `/api/v1/auth/*` directly (developers, Swagger) do. Recommended as its own work item.
+
+`CHECKPOINT: PASS` (A1–A6). `CP02 NOT STARTED`. `Production/Vercel NOT TOUCHED`.

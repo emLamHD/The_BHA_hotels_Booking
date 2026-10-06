@@ -1,8 +1,6 @@
 "use client";
 
 import React, { FC, useState } from "react";
-import Image from "next/image";
-import placeholderImage from "@/images/placeholder-large-h.png";
 import ButtonPrimary from "@/shared/ButtonPrimary";
 import { AvailabilityOfferDto } from "@/lib/api/availabilityTypes";
 import { selectCoverImage } from "@/lib/api/propertyPresentation";
@@ -47,13 +45,10 @@ const AvailabilityOfferCard: FC<AvailabilityOfferCardProps> = ({
             onError={() => setApiImageFailed(true)}
           />
         ) : (
-          <Image
-            src={placeholderImage}
-            alt={`${roomTypeName} photo placeholder`}
-            fill
-            sizes="(max-width: 640px) 100vw, 384px"
-            className="object-cover"
-          />
+          // CUST-WEB-SHOWCASE-001-CP01: no bundled template bitmap without rights evidence.
+          <div className="absolute inset-0 flex items-center justify-center p-4 text-center text-xs text-neutral-500 dark:text-neutral-400">
+            Ảnh đang được cập nhật
+          </div>
         )}
       </div>
 
