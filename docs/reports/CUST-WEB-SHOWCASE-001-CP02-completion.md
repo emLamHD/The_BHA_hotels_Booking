@@ -198,7 +198,7 @@ Seed target safety and idempotency; media mapping and provenance claims versus e
 | A3 cards/media | All 3 Riverside room types show photos and the API price (₫1,600,000 / ₫1,000,000 / ₫1,100,000 per night) for in-window dates; "Chọn ngày để xem giá" without dates or out of window. |
 | A4 details | Mosaic 1+4 (1PN has 6 photos: "Xem tất cả 6 ảnh"), Share/Save, rating, pickers; no query → "Chưa chọn phòng"; malformed ids → "Liên kết phòng không hợp lệ"; unknown ids → "Không tìm thấy chỗ nghỉ"; no horizontal overflow at 390. |
 | A5 contact | Empty submit: 3 `role=alert` errors, focus on full name, **0** hold POST. |
-| A6 end to end | Desktop: `/` → Riverside + dates + guests → card → details (query carried) → offer ₫2,000,000 → hold → `/paydone` "Đã giữ chỗ" → "Xác nhận đặt phòng" → "Đặt phòng đã xác nhận": **1** hold POST (201) and **1** confirm POST (201); guest API reads with the token (never printed): hold `Confirmed`, reservation `Confirmed`, total 2,000,000, 2 nights, anonymous read 401; DB row `Confirmed`. Mobile: same journey, same counts. Lost response: the confirm response was dropped in the browser (status 0), page showed the unknown state, "Gửi lại xác nhận" returned 200 (replay); the DB holds exactly one Reservation for that hold. |
+| A6 end to end | Desktop: `/` → Riverside + dates + guests → card → details (query carried) → offer ₫2,000,000 → hold → `/paydone` "Đã giữ chỗ" → "Xác nhận đặt phòng" → "Đặt phòng đã xác nhận": **1** hold POST (201) and **1** confirm POST (201); guest API reads with the token (never printed): hold `Confirmed`, reservation `Confirmed`, total 2,000,000, 2 nights, anonymous read 401; DB row `Confirmed`. Mobile: same journey, same counts. The desktop and mobile journeys were re-run on the final build (after the redirect-decision refactor): same counts and result. Lost response: the confirm response was dropped in the browser (status 0), page showed the unknown state, "Gửi lại xác nhận" returned 200 (replay); the DB holds exactly one Reservation for that hold. |
 | A7 sweep | 32 internal links from the home page, opened header menus and details: all 200/307; 58 distinct images all 200; `/showcase`→`/`, `/pay-done`→`/paydone` (query kept), `/api`, `/api/auth/session` 404; `localhost:3100` and `127.0.0.1:3100`: no redirect loop. |
 
 Automated: Customer_Web `npm test` 540 tests (31 files), lint, `tsc --noEmit`, `npm run build` all clean on the final source; `test_build_media.py` 13 OK; backend build 0 warnings/0 errors, unit 244 + integration 834 passed on a throwaway PostgreSQL 17 container.
@@ -211,7 +211,7 @@ Automated: Customer_Web `npm test` 540 tests (31 files), lint, `tsc --noEmit`, `
 
 ### 12.4 State left in the persistent demo database
 
-Reservations 13 → 17 and 4 more holds from the four end-to-end runs above (one Reservation per run, including the lost-response run). `Media` 31 rows. No Reservation or hold was deleted. Customer web (`next start :3100` behind the TLS proxy on :3000) and the API/proxy/PostgreSQL containers are left running for the Owner.
+Reservations 13 → 19 and 6 more holds from six end-to-end runs (desktop, two lost-response runs, mobile, and a final desktop + mobile re-run on the final build after the last source change); each hold produced exactly one Reservation. `Media` 31 rows. No Reservation or hold was deleted. Customer web (`next start :3100` behind the TLS proxy on :3000) and the API/proxy/PostgreSQL containers are left running for the Owner.
 
 ### 12.5 Deviations, risks, defects (not fixed)
 
