@@ -494,7 +494,7 @@ work item riêng.
   — không phải xác nhận ảnh thật. Nới cổng là quyết định Owner, không phải cờ script.
 - Namespace route media của Customer_Web là chuỗi cố định `/media/<property>/<kebab>.webp`; mọi đường dẫn khác vẫn default-deny. C2 từng giới hạn route công khai ở `/` và `/listing-stay-detail` và thay ảnh template bằng placeholder; **C3 đã thay thế** (xem bullet Template bên dưới): route template mở lại, `/api/*` vẫn default-deny.
 - Hiện trạng Riverside (từ CP02-C3): 31 ảnh — Property 10, 2PN 9, 1PN 6, 1PN view thoáng 6 — `MEDIA_COVERAGE: PASS`, `MEDIA_PROVENANCE: UNVERIFIED`.
-  **Quyết định Owner (C3, ghi trong MEP ngày 2026-10-08):** thư mục theo từng loại phòng do Owner phân loại; Owner cho phép publish ảnh dù quét byte thấy generator marker hoặc không có metadata.
+  **Quyết định Owner (C3, ghi trong MEP ngày 2026-10-07):** thư mục theo từng loại phòng do Owner phân loại; Owner cho phép publish ảnh dù quét byte thấy generator marker hoặc không có metadata.
   Manifest ghi `decision: owner-authorized`, `provenanceStatus: UNVERIFIED`, `validation: NOT_RUN` cho từng file; báo cáo **không** được khẳng định đó là ảnh chụp thật hay đúng phòng thật.
   Quyết định này thay đoạn "không publish" ở trên cho ảnh đã được Owner chọn; nó không phải cờ script chung.
 - **Template (C3, Owner):** giao diện khách là template Chisfis được khôi phục đầy đủ (không còn khung preview inert của C2). Chỉ dữ liệu The BHA Riverside (phòng, giá, đặt phòng) là thật;

@@ -5,7 +5,7 @@ import LocationInput from "../LocationInput";
 import GuestsInput from "../GuestsInput";
 import StayDatesRangeInput from "./StayDatesRangeInput";
 import { useStaySearch } from "@/components/StaySearchProvider";
-import { FEATURED_TAB_LABELS } from "@/lib/featuredBrands";
+import { LOCATION_OPTION_LABELS } from "@/lib/featuredBrands";
 import { dateToIso, isoToDate, todayLocal } from "@/lib/staySearch";
 
 const FORM_CLASS =
@@ -44,7 +44,7 @@ const LiveStaySearchForm: FC = () => {
       >
         <LocationInput
           className="flex-[1.5]"
-          options={FEATURED_TAB_LABELS}
+          options={LOCATION_OPTION_LABELS}
           value={draft.brand}
           onSelect={(brand) => updateDraft({ brand })}
           placeHolder="Location"

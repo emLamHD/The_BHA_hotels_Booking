@@ -4,7 +4,7 @@
   "maxEdge": 1600,
   "webpQuality": 80,
   "evidenceLevel": "heuristic scan only; no C2PA signature validator was run (validation NOT_RUN)",
-  "publicationPolicy": "SELECTION is the Owner's: pictures of the folders the Owner sorted per room type are published; Owner authorization (2026-10-08) covers files whose scan shows generator markers or no metadata. Provenance of every published file is UNVERIFIED.",
+  "publicationPolicy": "SELECTION is the Owner's: pictures of the folders the Owner sorted per room type are published; Owner authorization (2026-10-07) covers files whose scan shows generator markers or no metadata. Provenance of every published file is UNVERIFIED.",
   "originalsAudited": 86,
   "originalsPublished": 31,
   "originalsByClassification": {
@@ -383,7 +383,7 @@
         "validation": "NOT_RUN"
       },
       "evidenceNote": "markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof",
-      "decision": "owner-authorized 2026-10-08 (scan: generator-markers-present; provenance unverified)",
+      "decision": "owner-authorized 2026-10-07 (scan: generator-markers-present; provenance unverified)",
       "provenanceStatus": "UNVERIFIED",
       "derivative": "one-bedroom-living.webp",
       "width": 1536,
@@ -414,7 +414,7 @@
         "validation": "NOT_RUN"
       },
       "evidenceNote": "markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof",
-      "decision": "owner-authorized 2026-10-08 (scan: generator-markers-present; provenance unverified)",
+      "decision": "owner-authorized 2026-10-07 (scan: generator-markers-present; provenance unverified)",
       "provenanceStatus": "UNVERIFIED",
       "derivative": "one-bedroom-bedroom-1.webp",
       "width": 1537,
@@ -445,7 +445,7 @@
         "validation": "NOT_RUN"
       },
       "evidenceNote": "markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof",
-      "decision": "owner-authorized 2026-10-08 (scan: generator-markers-present; provenance unverified)",
+      "decision": "owner-authorized 2026-10-07 (scan: generator-markers-present; provenance unverified)",
       "provenanceStatus": "UNVERIFIED",
       "derivative": "one-bedroom-bedroom-2.webp",
       "width": 1540,
@@ -476,7 +476,7 @@
         "validation": "NOT_RUN"
       },
       "evidenceNote": "markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof",
-      "decision": "owner-authorized 2026-10-08 (scan: generator-markers-present; provenance unverified)",
+      "decision": "owner-authorized 2026-10-07 (scan: generator-markers-present; provenance unverified)",
       "provenanceStatus": "UNVERIFIED",
       "derivative": "one-bedroom-kitchen.webp",
       "width": 1533,
@@ -507,7 +507,7 @@
         "validation": "NOT_RUN"
       },
       "evidenceNote": "markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof",
-      "decision": "owner-authorized 2026-10-08 (scan: generator-markers-present; provenance unverified)",
+      "decision": "owner-authorized 2026-10-07 (scan: generator-markers-present; provenance unverified)",
       "provenanceStatus": "UNVERIFIED",
       "derivative": "one-bedroom-bathroom.webp",
       "width": 1537,
@@ -538,7 +538,7 @@
         "validation": "NOT_RUN"
       },
       "evidenceNote": "markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof",
-      "decision": "owner-authorized 2026-10-08 (scan: generator-markers-present; provenance unverified)",
+      "decision": "owner-authorized 2026-10-07 (scan: generator-markers-present; provenance unverified)",
       "provenanceStatus": "UNVERIFIED",
       "derivative": "one-bedroom-balcony.webp",
       "width": 1545,
@@ -569,7 +569,7 @@
         "validation": "NOT_RUN"
       },
       "evidenceNote": "markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof",
-      "decision": "owner-authorized 2026-10-08 (scan: generator-markers-present; provenance unverified)",
+      "decision": "owner-authorized 2026-10-07 (scan: generator-markers-present; provenance unverified)",
       "provenanceStatus": "UNVERIFIED",
       "derivative": "open-view-living.webp",
       "width": 1553,
@@ -600,7 +600,7 @@
         "validation": "NOT_RUN"
       },
       "evidenceNote": "markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof",
-      "decision": "owner-authorized 2026-10-08 (scan: generator-markers-present; provenance unverified)",
+      "decision": "owner-authorized 2026-10-07 (scan: generator-markers-present; provenance unverified)",
       "provenanceStatus": "UNVERIFIED",
       "derivative": "open-view-living-dining.webp",
       "width": 1537,
@@ -631,7 +631,7 @@
         "validation": "NOT_RUN"
       },
       "evidenceNote": "markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof",
-      "decision": "owner-authorized 2026-10-08 (scan: generator-markers-present; provenance unverified)",
+      "decision": "owner-authorized 2026-10-07 (scan: generator-markers-present; provenance unverified)",
       "provenanceStatus": "UNVERIFIED",
       "derivative": "open-view-bedroom-balcony.webp",
       "width": 1535,
@@ -662,7 +662,7 @@
         "validation": "NOT_RUN"
       },
       "evidenceNote": "markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof",
-      "decision": "owner-authorized 2026-10-08 (scan: generator-markers-present; provenance unverified)",
+      "decision": "owner-authorized 2026-10-07 (scan: generator-markers-present; provenance unverified)",
       "provenanceStatus": "UNVERIFIED",
       "derivative": "open-view-bedroom.webp",
       "width": 1584,
@@ -693,7 +693,7 @@
         "validation": "NOT_RUN"
       },
       "evidenceNote": "markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof",
-      "decision": "owner-authorized 2026-10-08 (scan: generator-markers-present; provenance unverified)",
+      "decision": "owner-authorized 2026-10-07 (scan: generator-markers-present; provenance unverified)",
       "provenanceStatus": "UNVERIFIED",
       "derivative": "open-view-balcony.webp",
       "width": 1600,
@@ -724,7 +724,7 @@
         "validation": "NOT_RUN"
       },
       "evidenceNote": "markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof",
-      "decision": "owner-authorized 2026-10-08 (scan: generator-markers-present; provenance unverified)",
+      "decision": "owner-authorized 2026-10-07 (scan: generator-markers-present; provenance unverified)",
       "provenanceStatus": "UNVERIFIED",
       "derivative": "open-view-bathroom.webp",
       "width": 1537,
@@ -755,7 +755,7 @@
         "validation": "NOT_RUN"
       },
       "evidenceNote": "markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof",
-      "decision": "owner-authorized 2026-10-08 (scan: generator-markers-present; provenance unverified)",
+      "decision": "owner-authorized 2026-10-07 (scan: generator-markers-present; provenance unverified)",
       "provenanceStatus": "UNVERIFIED",
       "derivative": "two-bedroom-living.webp",
       "width": 1537,
@@ -786,7 +786,7 @@
         "validation": "NOT_RUN"
       },
       "evidenceNote": "markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof",
-      "decision": "owner-authorized 2026-10-08 (scan: generator-markers-present; provenance unverified)",
+      "decision": "owner-authorized 2026-10-07 (scan: generator-markers-present; provenance unverified)",
       "provenanceStatus": "UNVERIFIED",
       "derivative": "two-bedroom-bedroom-1.webp",
       "width": 1537,
@@ -817,7 +817,7 @@
         "validation": "NOT_RUN"
       },
       "evidenceNote": "markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof",
-      "decision": "owner-authorized 2026-10-08 (scan: generator-markers-present; provenance unverified)",
+      "decision": "owner-authorized 2026-10-07 (scan: generator-markers-present; provenance unverified)",
       "provenanceStatus": "UNVERIFIED",
       "derivative": "two-bedroom-bedroom-2.webp",
       "width": 1536,
@@ -848,7 +848,7 @@
         "validation": "NOT_RUN"
       },
       "evidenceNote": "markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof",
-      "decision": "owner-authorized 2026-10-08 (scan: generator-markers-present; provenance unverified)",
+      "decision": "owner-authorized 2026-10-07 (scan: generator-markers-present; provenance unverified)",
       "provenanceStatus": "UNVERIFIED",
       "derivative": "two-bedroom-bedroom-night.webp",
       "width": 1535,
@@ -879,7 +879,7 @@
         "validation": "NOT_RUN"
       },
       "evidenceNote": "markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof",
-      "decision": "owner-authorized 2026-10-08 (scan: generator-markers-present; provenance unverified)",
+      "decision": "owner-authorized 2026-10-07 (scan: generator-markers-present; provenance unverified)",
       "provenanceStatus": "UNVERIFIED",
       "derivative": "two-bedroom-bedroom-tv.webp",
       "width": 1536,
@@ -910,7 +910,7 @@
         "validation": "NOT_RUN"
       },
       "evidenceNote": "markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof",
-      "decision": "owner-authorized 2026-10-08 (scan: generator-markers-present; provenance unverified)",
+      "decision": "owner-authorized 2026-10-07 (scan: generator-markers-present; provenance unverified)",
       "provenanceStatus": "UNVERIFIED",
       "derivative": "two-bedroom-bathroom.webp",
       "width": 1537,

@@ -22,7 +22,7 @@ real room. What it records:
   no-metadata                 nothing to go on
 
 Publication is decided by the SELECTION list below, i.e. by the Owner: the Owner sorted the originals into
-one folder per room type and, on 2026-10-08, authorized publishing the pictures of those folders in the
+one folder per room type and, on 2026-10-07, authorized publishing the pictures of those folders in the
 demo whatever the scan says (the earlier rule that only editor-metadata files could be published is
 lifted). The manifest keeps the scan result next to the decision, so an Owner-authorized file with
 generator markers or no metadata is recorded as exactly that: "owner-authorized", provenance
@@ -160,7 +160,7 @@ def decision_for(classification: str) -> str:
     """Why a file is published. Never a claim about what the picture is."""
     if classification == PUBLISHABLE:
         return "owner-selected (editor metadata present; camera origin not independently verified)"
-    return "owner-authorized 2026-10-08 (scan: " + classification + "; provenance unverified)"
+    return "owner-authorized 2026-10-07 (scan: " + classification + "; provenance unverified)"
 
 
 def to_srgb(image: Image.Image) -> Image.Image:
@@ -239,7 +239,7 @@ def main() -> int:
         "maxEdge": MAX_EDGE,
         "webpQuality": QUALITY,
         "evidenceLevel": "heuristic scan only; no C2PA signature validator was run (validation NOT_RUN)",
-        "publicationPolicy": "SELECTION is the Owner's: pictures of the folders the Owner sorted per room type are published; Owner authorization (2026-10-08) covers files whose scan shows generator markers or no metadata. Provenance of every published file is UNVERIFIED.",
+        "publicationPolicy": "SELECTION is the Owner's: pictures of the folders the Owner sorted per room type are published; Owner authorization (2026-10-07) covers files whose scan shows generator markers or no metadata. Provenance of every published file is UNVERIFIED.",
         "originalsAudited": len(audit),
         "originalsPublished": len(published),
         "originalsByClassification": {kind: sum(1 for r in audit.values() if r["classification"] == kind) for kind in NOTES},

@@ -4,6 +4,7 @@ import {
   DEFAULT_FEATURED_TAB,
   FEATURED_BRAND_TABS,
   FEATURED_TAB_LABELS,
+  LOCATION_OPTION_LABELS,
   featuredTabByLabel,
   findPropertyBySlug,
 } from "./featuredBrands";
@@ -47,5 +48,12 @@ describe("findPropertyBySlug", () => {
   it("returns undefined, never properties[0], when the slug is absent", () => {
     expect(findPropertyBySlug([property("a", "other-hotel")], "the-bha-riverside")).toBeUndefined();
     expect(findPropertyBySlug([], "the-bha-riverside")).toBeUndefined();
+  });
+});
+
+describe("LOCATION_OPTION_LABELS", () => {
+  it("lists House, Riverside, Villa in the Owner's order and names the same brands as the tabs", () => {
+    expect(LOCATION_OPTION_LABELS).toEqual(["The BHA House", "The BHA Riverside", "The BHA Villa"]);
+    expect([...LOCATION_OPTION_LABELS].sort()).toEqual([...FEATURED_TAB_LABELS].sort());
   });
 });

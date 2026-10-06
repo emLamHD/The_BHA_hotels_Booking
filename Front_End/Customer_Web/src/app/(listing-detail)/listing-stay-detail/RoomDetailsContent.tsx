@@ -140,7 +140,7 @@ const RoomDetailsContent: FC<RoomDetailsContentProps> = ({ property, roomType, r
             <h1 className="text-2xl sm:text-3xl lg:text-4xl font-semibold">{roomName}</h1>
             <div className="flex items-center space-x-4 text-neutral-500 dark:text-neutral-400">
               <span title="Đánh giá mẫu (không phải đánh giá của khách)">
-                <StartRating />
+                <StartRating sample="full" />
               </span>
               <span>·</span>
               <span>

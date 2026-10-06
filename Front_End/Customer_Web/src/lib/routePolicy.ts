@@ -1,7 +1,7 @@
 /**
  * Which page paths the public Customer Web serves.
  *
- * CP01 answered every template page with a 404 (default deny). CP02-C3 (Owner decision, 2026-10-08)
+ * CP01 answered every template page with a 404 (default deny). CP02-C3 (Owner decision, 2026-10-07)
  * restores the Chisfis template for the demo, so the template's pages are served again with their own
  * demo content. What stays closed is the server side: `/api/*` (the template's NextAuth/hello stubs) is
  * never a capability of this site. Two names are redirected: the old internal entry `/showcase` goes to

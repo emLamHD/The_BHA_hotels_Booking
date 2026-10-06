@@ -7,7 +7,7 @@ import GuestsInput from "../GuestsInput";
 import LocationInput from "../LocationInput";
 import DatesRangeInput from "../DatesRangeInput";
 import { useStaySearch } from "@/components/StaySearchProvider";
-import { FEATURED_TAB_LABELS } from "@/lib/featuredBrands";
+import { LOCATION_OPTION_LABELS } from "@/lib/featuredBrands";
 import { dateToIso, isoToDate, todayLocal } from "@/lib/staySearch";
 
 /**
@@ -68,7 +68,7 @@ const StaySearchForm = ({ live = false }: { live?: boolean }) => {
         ) : (
           <LocationInput
             defaultValue={locationInputTo}
-            options={shared ? FEATURED_TAB_LABELS : undefined}
+            options={shared ? LOCATION_OPTION_LABELS : undefined}
             headingText={shared ? "Which BHA?" : undefined}
             onChange={(value) => {
               if (shared) shared.updateDraft({ brand: value });

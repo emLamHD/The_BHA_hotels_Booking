@@ -152,7 +152,7 @@ const PayDoneReceipt: FC = () => {
               )}
               <div className="w-10 border-b border-neutral-200 dark:border-neutral-700"></div>
               <span title="Đánh giá mẫu (không phải đánh giá của khách)">
-                <StartRating />
+                <StartRating sample="full" />
               </span>
             </div>
           </div>

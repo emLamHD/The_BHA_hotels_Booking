@@ -20,6 +20,12 @@ export const FEATURED_BRAND_TABS: readonly FeaturedBrandTab[] = [
 ];
 
 export const FEATURED_TAB_LABELS: string[] = FEATURED_BRAND_TABS.map((tab) => tab.label);
+/**
+ * CUST-WEB-SHOWCASE-001-CP02-C3: the hero Location options, in the Owner's order (House, Riverside,
+ * Villa) — which differs on purpose from the Featured tab order above. Same three brand labels.
+ */
+export const LOCATION_OPTION_LABELS: string[] = ["The BHA House", "The BHA Riverside", "The BHA Villa"];
+
 export const DEFAULT_FEATURED_TAB: string = FEATURED_BRAND_TABS[0].label;
 
 export function featuredTabByLabel(label: string): FeaturedBrandTab | undefined {

@@ -136,8 +136,8 @@ const RoomTypeStayCard: FC<RoomTypeStayCardProps> = ({ className = "", property,
           <div className="w-14 border-b border-neutral-100 dark:border-neutral-800"></div>
           <div className="flex justify-between items-center">
             {renderPrice()}
-            <span title="Đánh giá mẫu (không phải đánh giá của khách)">
-              <StartRating />
+            <span className="shrink-0" title="Đánh giá mẫu (không phải đánh giá của khách)">
+              <StartRating sample="short" className="whitespace-nowrap" />
             </span>
           </div>
         </div>
