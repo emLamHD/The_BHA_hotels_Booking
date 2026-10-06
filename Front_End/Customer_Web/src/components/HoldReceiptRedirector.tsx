@@ -13,6 +13,10 @@ import { RECEIPT_PAGE } from "@/lib/routePolicy";
  * returns the existing hold arrives through the same transition and is shown as such. The flow state
  * stays in the provider; nothing about it goes through the URL or any storage.
  */
+export function shouldRedirectToReceipt(was: string, now: string, hasSession: boolean): boolean {
+  return was === "submitting" && now === "active-session" && hasSession;
+}
+
 export default function HoldReceiptRedirector() {
   const router = useRouter();
   const { state } = useBookingHoldFlow();
@@ -21,7 +25,7 @@ export default function HoldReceiptRedirector() {
   useEffect(() => {
     const was = previous.current;
     previous.current = state.phase;
-    if (was === "submitting" && state.phase === "active-session" && state.session) {
+    if (shouldRedirectToReceipt(was, state.phase, !!state.session)) {
       router.push(RECEIPT_PAGE as never);
     }
   }, [state.phase, state.session, router]);
