@@ -173,6 +173,8 @@ public sealed class RiversideDemoSeederTests(PostgreSqlWebApplicationFactory fac
         Assert.True(again.Applied);
         Assert.Equal(0, again.TotalInserts);
         Assert.Empty(again.Warnings);
+        // The report counts every link the first run staged (13 photographs + 2 amenities) as existing.
+        Assert.Equal(15, again.Tables.Single(table => table.Table == "Property/RoomType/Amenity links").Existing);
         Assert.Equal(rows, await TotalRowsAsync());
         Assert.Equal(snapshot, await SnapshotAsync());
         Assert.Equal(0, (await PlanAsync(Options(14))).TotalInserts);

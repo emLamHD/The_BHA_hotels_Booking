@@ -1,0 +1,94 @@
+# CUST-WEB-SHOWCASE-001-CP02: local rehearsal of the production shape — API container behind a
+# TLS-terminating proxy, PostgreSQL 17 with a durable volume, Data Protection keys on a durable
+# volume. It is the same arrangement the AWS runbook describes, minus the cloud.
+#
+#   cp .env.example .env     # fill the placeholders; .env is gitignored
+#   docker compose --env-file .env up -d --build
+#
+# Never `docker compose down -v`: that deletes the database and the key ring. `down` is safe.
+name: the-bha-showcase
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${SHOWCASE_DB:?Set SHOWCASE_DB in .env}
+      POSTGRES_USER: ${SHOWCASE_DB_USER:?Set SHOWCASE_DB_USER in .env}
+      POSTGRES_PASSWORD: ${SHOWCASE_DB_PASSWORD:?Set SHOWCASE_DB_PASSWORD in .env}
+    ports:
+      # Loopback only, for the operator's migration/seed commands. Not reachable from the network.
+      - "127.0.0.1:${SHOWCASE_DB_PORT:-55432}:5432"
+    volumes:
+      - showcase-pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks: [showcase]
+
+  api:
+    image: thebha-api:showcase
+    build:
+      context: ../../Back_End
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__TheBhaDatabase: Host=postgres;Port=5432;Database=${SHOWCASE_DB};Username=${SHOWCASE_DB_USER};Password=${SHOWCASE_DB_PASSWORD}
+      Cors__AllowedOrigins__0: ${CUSTOMER_ORIGIN:?Set CUSTOMER_ORIGIN in .env}
+      Cors__AdminOrigins__0: ${ADMIN_ORIGIN:?Set ADMIN_ORIGIN in .env}
+      DataProtection__KeysPath: /var/keys
+      # Trust X-Forwarded-For/-Proto from exactly the proxy below, and nothing else.
+      Hosting__TrustedProxy__Enabled: "true"
+      Hosting__TrustedProxy__KnownProxies__0: 172.28.0.10
+      Hosting__TrustedProxy__ForwardLimit: "1"
+    volumes:
+      - showcase-api-keys:/var/keys
+    # No published port: the only way in is the proxy, so no peer can reach Kestrel directly.
+    expose:
+      - "8080"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/8080 &&
+          printf 'GET /health/ready HTTP/1.0\r\nHost: localhost\r\n\r\n' >&3 &&
+          head -n 1 <&3 | grep -q ' 200 '
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    networks: [showcase]
+
+  proxy:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${SHOWCASE_API_HTTPS_PORT:-7443}:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      # A locally trusted certificate for localhost (e.g. mkcert). Paths come from .env; the files
+      # are never committed.
+      - ${SHOWCASE_TLS_CERT:?Set SHOWCASE_TLS_CERT in .env}:/etc/nginx/tls/tls.crt:ro
+      - ${SHOWCASE_TLS_KEY:?Set SHOWCASE_TLS_KEY in .env}:/etc/nginx/tls/tls.key:ro
+    networks:
+      showcase:
+        ipv4_address: 172.28.0.10
+
+networks:
+  showcase:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
+
+volumes:
+  showcase-pg-data:
+  showcase-api-keys:

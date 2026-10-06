@@ -1,0 +1,72 @@
+name: Backend image
+
+# CUST-WEB-SHOWCASE-001-CP02. Builds the API image on every relevant pull request (no push, no
+# credentials). Publishing to Amazon ECR is OFF by default: it runs only from a manual dispatch with
+# publish=true, and only when the repository variable ECR_PUBLISH_ENABLED is "true" and the Owner has
+# created the OIDC role named by AWS_ECR_ROLE_ARN. Without those, nothing leaves the runner.
+
+on:
+  pull_request:
+    branches: [develop, main]
+    paths:
+      - Back_End/**
+      - .github/workflows/backend-image.yml
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Push the image to ECR (needs ECR_PUBLISH_ENABLED=true and the Owner's OIDC role)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build image (no push)
+        run: docker build --tag thebha-api:${{ github.sha }} Back_End
+
+      - name: Image runs as a non-root user with the key directory writable
+        run: |
+          docker run --rm --entrypoint sh thebha-api:${{ github.sha }} -c \
+            'test "$(id -u)" != 0 && test -w /var/keys && echo "uid=$(id -u) keys writable"'
+
+  publish:
+    name: Publish to ECR
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && inputs.publish && vars.ECR_PUBLISH_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: showcase-publish
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC, no stored keys)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ECR_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Log in to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push (tag = commit SHA)
+        env:
+          IMAGE: ${{ steps.ecr.outputs.registry }}/${{ vars.ECR_REPOSITORY }}:${{ github.sha }}
+        run: |
+          docker build --tag "$IMAGE" Back_End
+          docker push "$IMAGE"

@@ -390,6 +390,7 @@ public sealed class RiversideDemoSeeder(TheBhaDbContext dbContext, TimeProvider 
                 : new RoomTypeMedia(ownerId, mediaId, definition.SortOrder, asCover));
         }
 
+        var existingAmenityLinks = 0;
         foreach (var definition in RiversideDemoCatalog.PropertyAmenities)
         {
             var amenityId = amenityIds[definition.Code];
@@ -398,11 +399,15 @@ public sealed class RiversideDemoSeeder(TheBhaDbContext dbContext, TimeProvider 
             {
                 stageLinks.Add(new PropertyAmenity(propertyId, amenityId));
             }
+            else
+            {
+                existingAmenityLinks++;
+            }
         }
 
         counts.Add(new("Media", existingMedia.Count, stageMedia.Count));
         counts.Add(new("Property/RoomType/Amenity links",
-            existingPropertyLinks.Count + existingTypeLinks.Count, stageLinks.Count));
+            existingPropertyLinks.Count + existingTypeLinks.Count + existingAmenityLinks, stageLinks.Count));
 
         var plan = new RiversideSeedPlan(
             options.From, options.ToExclusive, options.MediaOrigin, property is not null,
