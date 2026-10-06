@@ -5,16 +5,15 @@ import ServicePreview from "./ServicePreview";
 import PreviewImage from "./PreviewImage";
 
 describe("ServicePreview", () => {
+  // children are passed as arguments (react/no-children-prop); the cast only relaxes the required-children typing
+  const Preview = ServicePreview as React.FC<{ id?: string; children?: React.ReactNode }>;
   const markup = renderToStaticMarkup(
-    React.createElement(ServicePreview, {
-      id: "services",
-      children: React.createElement(
-        React.Fragment,
-        null,
-        React.createElement("a", { href: "/listing-stay-map" }, "Explore"),
-        React.createElement("button", null, "Become an author")
-      ),
-    })
+    React.createElement(
+      Preview,
+      { id: "services" },
+      React.createElement("a", { href: "/listing-stay-map" }, "Explore"),
+      React.createElement("button", null, "Become an author")
+    )
   );
 
   it("makes its content inert so no sample link or button can be used", () => {
