@@ -2,7 +2,7 @@ import React, { FC } from "react";
 import { TaxonomyType } from "@/data/types";
 import convertNumbThousand from "@/utils/convertNumbThousand";
 import Link from "next/link";
-import Image from "next/image";
+import Image from "@/components/PreviewImage";
 
 export interface CardCategory5Props {
   className?: string;

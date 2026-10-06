@@ -13,7 +13,7 @@ import quotationImg from "@/images/quotation.png";
 import quotationImg2 from "@/images/quotation2.png";
 import { MapPinIcon } from "@heroicons/react/24/outline";
 import { AnimatePresence, motion, MotionConfig } from "framer-motion";
-import Image from "next/image";
+import Image from "@/components/PreviewImage";
 import { useSwipeable } from "react-swipeable";
 import { variants } from "@/utils/animationVariants";
 
@@ -28,21 +28,21 @@ const DEMO_DATA = [
     clientName: "Tiana Abie",
     clientAddress: "Malaysia",
     content:
-      "This place is exactly like the picture posted on Chisfis. Great service, we had a great stay!",
+      "This place is exactly like the picture posted on The BHA. Great service, we had a great stay!",
   },
   {
     id: 2,
     clientName: "Lennie Swiffan",
     clientAddress: "London",
     content:
-      "This place is exactly like the picture posted on Chisfis. Great service, we had a great stay!",
+      "This place is exactly like the picture posted on The BHA. Great service, we had a great stay!",
   },
   {
     id: 3,
     clientName: "Berta Emili",
     clientAddress: "Tokyo",
     content:
-      "This place is exactly like the picture posted on Chisfis. Great service, we had a great stay!",
+      "This place is exactly like the picture posted on The BHA. Great service, we had a great stay!",
   },
 ];
 
@@ -117,7 +117,7 @@ const SectionClientSay: FC<SectionClientSayProps> = ({
 
   return (
     <div className={`nc-SectionClientSay relative ${className} `}>
-      <Heading desc="Let's see what people think of Chisfis" isCenter>
+      <Heading desc="Let's see what people think of The BHA" isCenter>
         Good news from far away
       </Heading>
       <div className="relative md:mb-16 max-w-2xl mx-auto">

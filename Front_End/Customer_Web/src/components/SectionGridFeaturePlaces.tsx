@@ -18,16 +18,27 @@ export interface SectionGridFeaturePlacesProps {
   headingIsCenter?: boolean;
   tabs?: string[];
   cardType?: "card1" | "card2";
+  /** Controlled tab selection; without it the first tab is shown. */
+  tabActive?: string;
+  onClickTab?: (tab: string) => void;
+  /** Replaces the demo grid (and its "Show me more" button) with real content for the active tab. */
+  children?: ReactNode;
+  /** Anchor id for links into the section. */
+  id?: string;
 }
 
 const SectionGridFeaturePlaces: FC<SectionGridFeaturePlacesProps> = ({
   stayListings = DEMO_DATA,
   gridClass = "",
   heading = "Featured places to stay",
-  subHeading = "Popular places to stay that Chisfis recommends for you",
+  subHeading = "Popular places to stay that The BHA recommends for you",
   headingIsCenter,
   tabs = ["New York", "Tokyo", "Paris", "London"],
   cardType = "card2",
+  tabActive,
+  onClickTab,
+  children,
+  id,
 }) => {
   const renderCard = (stay: StayDataType) => {
     let CardName = StayCard;
@@ -47,21 +58,28 @@ const SectionGridFeaturePlaces: FC<SectionGridFeaturePlacesProps> = ({
   };
 
   return (
-    <div className="nc-SectionGridFeaturePlaces relative">
+    <div id={id} className="nc-SectionGridFeaturePlaces relative scroll-mt-28">
       <HeaderFilter
-        tabActive={"New York"}
+        tabActive={tabActive ?? tabs[0]}
         subHeading={subHeading}
         tabs={tabs}
         heading={heading}
+        onClickTab={onClickTab}
       />
-      <div
-        className={`grid gap-6 md:gap-8 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 ${gridClass}`}
-      >
-        {stayListings.map((stay) => renderCard(stay))}
-      </div>
-      <div className="flex mt-16 justify-center items-center">
-        <ButtonPrimary loading>Show me more</ButtonPrimary>
-      </div>
+      {children !== undefined ? (
+        children
+      ) : (
+        <>
+          <div
+            className={`grid gap-6 md:gap-8 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 ${gridClass}`}
+          >
+            {stayListings.map((stay) => renderCard(stay))}
+          </div>
+          <div className="flex mt-16 justify-center items-center">
+            <ButtonPrimary loading>Show me more</ButtonPrimary>
+          </div>
+        </>
+      )}
     </div>
   );
 };

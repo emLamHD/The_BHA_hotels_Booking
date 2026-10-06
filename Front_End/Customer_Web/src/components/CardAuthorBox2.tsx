@@ -4,7 +4,7 @@ import { ArrowRightIcon } from "@heroicons/react/24/solid";
 import Avatar from "@/shared/Avatar";
 import convertNumbThousand from "@/utils/convertNumbThousand";
 import Link from "next/link";
-import Image from "next/image";
+import Image from "@/components/PreviewImage";
 
 export interface CardAuthorBox2Props {
   className?: string;

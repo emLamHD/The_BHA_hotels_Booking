@@ -3,7 +3,7 @@
 import Heading from "@/shared/Heading";
 import NcPlayIcon from "@/shared/NcPlayIcon";
 import NcPlayIcon2 from "@/shared/NcPlayIcon2";
-import Image from "next/image";
+import Image from "@/components/PreviewImage";
 import React, { FC, useState } from "react";
 
 export interface VideoType {

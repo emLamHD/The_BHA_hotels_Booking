@@ -3,7 +3,7 @@ import ButtonCircle from "@/shared/ButtonCircle";
 import rightImg from "@/images/SVG-subcribe2.png";
 import Badge from "@/shared/Badge";
 import Input from "@/shared/Input";
-import Image from "next/image";
+import Image from "@/components/PreviewImage";
 
 export interface SectionSubscribe2Props {
   className?: string;

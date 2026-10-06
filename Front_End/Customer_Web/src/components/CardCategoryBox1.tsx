@@ -3,7 +3,7 @@ import { TaxonomyType } from "@/data/types";
 import Badge from "@/shared/Badge";
 import convertNumbThousand from "@/utils/convertNumbThousand";
 import Link from "next/link";
-import Image from "next/image";
+import Image from "@/components/PreviewImage";
 
 export interface CardCategoryBox1Props {
   className?: string;

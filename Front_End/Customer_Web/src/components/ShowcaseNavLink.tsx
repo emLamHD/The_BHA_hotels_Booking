@@ -19,13 +19,16 @@ import { SHOWCASE_SECTION_NAVIGATION_EVENT } from "@/lib/routePolicy";
  * A same-fragment click has no native hashchange event, so it explicitly
  * starts a fresh bounded alignment window.
  */
-const ShowcaseNavLink: FC<{ section: string; className?: string; children: ReactNode }> = ({
-  section,
-  className,
-  children,
-}) => {
+const ShowcaseNavLink: FC<{
+  section: string;
+  className?: string;
+  children: ReactNode;
+  /** Called on a plain click, e.g. to close a menu that contains the link. */
+  onNavigate?: () => void;
+}> = ({ section, className, children, onNavigate }) => {
   const onClick = (event: MouseEvent<HTMLAnchorElement>) => {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    onNavigate?.();
     const target = window.location.pathname === "/" ? document.getElementById(section) : null;
     if (!target) return;
     event.preventDefault();

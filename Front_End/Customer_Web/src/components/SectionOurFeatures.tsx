@@ -1,6 +1,7 @@
 import React, { FC } from "react";
 import rightImgPng from "@/images/our-features.png";
-import Image, { StaticImageData } from "next/image";
+import type { StaticImageData } from "next/image";
+import Image from "@/components/PreviewImage";
 import Badge from "@/shared/Badge";
 
 export interface SectionOurFeaturesProps {
@@ -48,7 +49,7 @@ const SectionOurFeatures: FC<SectionOurFeaturesProps> = ({
           <li className="space-y-4">
             <Badge color="green" name="Exposure " />
             <span className="block text-xl font-semibold">
-              Reach millions with Chisfis
+              Reach millions with The BHA
             </span>
             <span className="block mt-5 text-neutral-500 dark:text-neutral-400">
               Millions of people are searching for unique places to stay around
