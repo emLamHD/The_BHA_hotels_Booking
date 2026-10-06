@@ -1,9 +1,7 @@
 "use client";
 
 import React, { FC, useState } from "react";
-import Image from "next/image";
 import Badge from "@/shared/Badge";
-import placeholderImage from "@/images/placeholder-large-h.png";
 import { RoomTypeDto } from "@/lib/api/propertyTypes";
 import { selectCoverImage } from "@/lib/api/propertyPresentation";
 import {
@@ -44,13 +42,10 @@ const RoomTypeLiveCard: FC<RoomTypeLiveCardProps> = ({
             onError={() => setApiImageFailed(true)}
           />
         ) : (
-          <Image
-            src={placeholderImage}
-            alt={`${name} photo placeholder`}
-            fill
-            sizes="(max-width: 640px) 100vw, 384px"
-            className="object-cover"
-          />
+          // CUST-WEB-SHOWCASE-001-CP01: no bundled template bitmap without rights evidence.
+          <div className="absolute inset-0 flex items-center justify-center p-4 text-center text-xs text-neutral-500 dark:text-neutral-400">
+            Ảnh đang được cập nhật
+          </div>
         )}
       </div>
 

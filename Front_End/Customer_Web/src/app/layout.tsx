@@ -1,12 +1,10 @@
 import { Poppins } from "next/font/google";
-import SiteHeader from "./(client-components)/(Header)/SiteHeader";
 import ClientCommons from "./ClientCommons";
 import "./globals.css";
 import "@/fonts/line-awesome-1.3.0/css/line-awesome.css";
 import "@/styles/index.scss";
 import "rc-slider/assets/index.css";
-import Footer from "@/components/Footer";
-import FooterNav from "@/components/FooterNav";
+import ShowcaseShell from "@/components/ShowcaseShell";
 import { BookingHoldProvider } from "./BookingHoldProvider";
 
 const poppins = Poppins({
@@ -14,6 +12,11 @@ const poppins = Poppins({
   display: "swap",
   weight: ["300", "400", "500", "600", "700"],
 });
+
+export const metadata = {
+  title: "The BHA — Đặt phòng trực tiếp",
+  description: "Tìm phòng trống, giữ phòng và xác nhận đặt phòng tại The BHA.",
+};
 
 export default function RootLayout({
   children,
@@ -23,14 +26,11 @@ export default function RootLayout({
   params: any;
 }) {
   return (
-    <html lang="en" className={poppins.className}>
+    <html lang="vi" className={poppins.className}>
       <body className="bg-white text-base dark:bg-neutral-900 text-neutral-900 dark:text-neutral-200">
         <BookingHoldProvider>
           <ClientCommons />
-          <SiteHeader />
-          {children}
-          <FooterNav />
-          <Footer />
+          <ShowcaseShell>{children}</ShowcaseShell>
         </BookingHoldProvider>
       </body>
     </html>
