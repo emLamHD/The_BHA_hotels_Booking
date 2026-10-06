@@ -102,29 +102,81 @@ public sealed partial class RiversideDemoCatalogTests
     }
 
     [Fact]
-    public void Only_files_with_editor_metadata_and_no_credentials_are_published_and_every_original_is_accounted_for()
+    public void Every_published_file_is_the_owners_selection_with_its_scan_evidence_recorded_and_no_original_twice()
     {
         var manifest = Manifest();
         var published = manifest.GetProperty("published").EnumerateArray().ToList();
         var excluded = manifest.GetProperty("excluded").EnumerateArray().ToList();
 
         Assert.Contains("NOT_RUN", manifest.GetProperty("evidenceLevel").GetString());
+        Assert.Contains("UNVERIFIED", manifest.GetProperty("publicationPolicy").GetString());
         Assert.All(published, entry =>
         {
+            // Publication is the Owner's decision; the scan result stays next to it, and provenance is never "verified".
             var evidence = entry.GetProperty("evidence");
-            Assert.Equal("editor-metadata-present", evidence.GetProperty("classification").GetString());
             Assert.Equal("NOT_RUN", evidence.GetProperty("validation").GetString());
-            Assert.DoesNotContain(evidence.GetProperty("markers").EnumerateArray().Select(marker => marker.GetString()),
-                marker => marker is "c2pa" or "caBX" or "jumb" or "trainedAlgorithmicMedia" or "gpt-image" or "OpenAI Media Service");
+            Assert.Equal("UNVERIFIED", entry.GetProperty("provenanceStatus").GetString());
+            Assert.StartsWith("owner-", entry.GetProperty("decision").GetString());
+            if (evidence.GetProperty("classification").GetString() != "editor-metadata-present")
+            {
+                Assert.StartsWith("owner-authorized", entry.GetProperty("decision").GetString());
+            }
         });
-        var publishedHashes = published.Select(entry => entry.GetProperty("sourceSha256").GetString()).ToHashSet();
-        Assert.All(excluded.Where(entry => entry.GetProperty("classification").GetString() != "editor-metadata-present"),
-            entry => Assert.DoesNotContain(entry.GetProperty("sha256").GetString(), publishedHashes));
+
+        // The same original is never published twice (an excluded file may be a duplicate of a published one:
+        // the Owner filed the same picture in several folders).
+        var publishedHashes = published.Select(entry => entry.GetProperty("sourceSha256").GetString()).ToList();
+        Assert.Equal(publishedHashes.Count, publishedHashes.Distinct().Count());
 
         Assert.Equal(manifest.GetProperty("originalsAudited").GetInt32(), published.Count + excluded.Count);
         var byClassification = manifest.GetProperty("originalsByClassification");
         Assert.Equal(
             byClassification.EnumerateObject().Sum(item => item.Value.GetInt32()),
             manifest.GetProperty("originalsAudited").GetInt32());
+    }
+
+    [Fact]
+    public void Every_room_type_has_an_interior_cover_and_at_least_five_pictures()
+    {
+        foreach (var type in RiversideDemoCatalog.RoomTypes)
+        {
+            var pictures = RiversideDemoCatalog.Media.Where(item => item.OwnerType == RiversideMediaOwner.RoomType && item.OwnerCode == type.Code).ToList();
+            Assert.True(pictures.Count >= 5, $"{type.Code} has {pictures.Count} pictures");
+            var cover = Assert.Single(pictures, item => item.IsCover);
+            // the cover is an interior picture, not the skyline or balcony view the 2BR type started with
+            Assert.DoesNotContain("balcony", cover.FileName);
+            Assert.DoesNotContain("skyline", cover.FileName);
+        }
+    }
+
+    [Fact]
+    public void Earlier_media_ids_and_files_keep_their_position_when_pictures_are_appended()
+    {
+        // The first 13 definitions are the CP02 seed; their ids are derived from their position.
+        var first = RiversideDemoCatalog.Media.Take(13).ToList();
+        Assert.Equal(
+            ["entrance-logo.webp", "rooftop-pool-day.webp", "rooftop-pool-night.webp", "rooftop-pool-seating.webp", "rooftop-pool-city-view.webp",
+             "rooftop-pool-mural.webp", "lobby-sofa.webp", "lobby-logo-clocks.webp", "lobby-shelves.webp", "entrance-chairs.webp",
+             "two-bedroom-balcony-view.webp", "two-bedroom-skyline-1.webp", "two-bedroom-skyline-2.webp"],
+            first.Select(item => item.FileName));
+        Assert.Equal(Guid.Parse("a5000000-0000-0000-0000-000000000011"), first[10].Id);
+        Assert.Equal(Guid.Parse("a5000000-0000-0000-0000-000000000013"), first[12].Id);
+        Assert.Equal(RiversideDemoCatalog.Media.Count, RiversideDemoCatalog.Media.Select(item => item.Id).Distinct().Count());
+    }
+
+    [Fact]
+    public void The_link_migrations_are_exactly_the_old_2BR_cover_and_order_moving_behind_the_interior_cover()
+    {
+        Assert.Equal(4, RiversideDemoCatalog.LinkMigrations.Count);
+        Assert.All(RiversideDemoCatalog.LinkMigrations, migration => Assert.Equal("RIV-2BR", migration.RoomTypeCode));
+        var byFile = RiversideDemoCatalog.LinkMigrations.ToDictionary(item => item.FileName);
+        Assert.Equal((0, true, 6, false), (byFile["two-bedroom-balcony-view.webp"].FromSortOrder, byFile["two-bedroom-balcony-view.webp"].FromIsCover, byFile["two-bedroom-balcony-view.webp"].ToSortOrder, byFile["two-bedroom-balcony-view.webp"].ToIsCover));
+        Assert.True(byFile["two-bedroom-living.webp"].ToIsCover);
+        // Each migration's target equals what the catalog now defines for that picture (so a fresh seed needs none).
+        foreach (var migration in RiversideDemoCatalog.LinkMigrations)
+        {
+            var definition = RiversideDemoCatalog.Media.Single(item => item.FileName == migration.FileName);
+            Assert.Equal((definition.SortOrder, definition.IsCover), (migration.ToSortOrder, migration.ToIsCover));
+        }
     }
 }

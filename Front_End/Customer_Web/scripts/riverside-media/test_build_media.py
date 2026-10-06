@@ -40,11 +40,16 @@ class ScanTests(unittest.TestCase):
         for data in (b"", b"c2pa", b"gpt-image", b"Photoshop"):
             self.assertEqual(bm.scan(data, None)["validation"], "NOT_RUN")
 
-    def test_only_editor_metadata_is_publishable(self):
-        for data in (b"gpt-image", b"c2pa", b""):
-            self.assertNotEqual(bm.scan(data, None)["classification"], bm.PUBLISHABLE)
-        # a generator marker wins over editor metadata
+    def test_a_generator_marker_wins_over_editor_metadata(self):
         self.assertEqual(bm.scan(b"Photoshop gpt-image", None)["classification"], "generator-markers-present")
+
+    def test_the_decision_never_claims_verification(self):
+        # Publication is the Owner's; the wording says so and never says the picture is a verified photograph.
+        for classification in ("editor-metadata-present", "generator-markers-present", "no-metadata", "content-credentials-detected"):
+            decision = bm.decision_for(classification)
+            self.assertTrue(decision.startswith("owner-"), decision)
+            self.assertNotIn("verified photo", decision.replace("not independently verified", ""))
+        self.assertIn("unverified", bm.decision_for("generator-markers-present"))
 
 
 class ManifestTests(unittest.TestCase):
@@ -58,18 +63,36 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual(len(m["published"]) + len(m["excluded"]), m["originalsAudited"])
         self.assertIn("NOT_RUN", m["evidenceLevel"])
 
-    def test_every_published_file_is_editor_metadata_without_credentials_or_generator_markers(self):
+    def test_every_published_file_records_its_scan_and_the_owners_decision_and_is_unverified(self):
         for entry in self.manifest["published"]:
-            evidence = entry["evidence"]
-            self.assertEqual(evidence["classification"], bm.PUBLISHABLE, entry["derivative"])
-            self.assertEqual(evidence["validation"], "NOT_RUN")
-            self.assertFalse({"c2pa", "caBX", "jumb", *(x.decode() for x in bm.GENERATOR_MARKERS)} & set(evidence["markers"]))
+            self.assertEqual(entry["evidence"]["validation"], "NOT_RUN", entry["derivative"])
+            self.assertEqual(entry["provenanceStatus"], "UNVERIFIED", entry["derivative"])
+            self.assertTrue(entry["decision"].startswith("owner-"), entry["derivative"])
+            if entry["evidence"]["classification"] != bm.PUBLISHABLE:
+                self.assertTrue(entry["decision"].startswith("owner-authorized"), entry["derivative"])
 
-    def test_no_excluded_file_shares_a_hash_with_a_published_one_unless_selected_elsewhere(self):
-        published = {e["sourceSha256"] for e in self.manifest["published"]}
-        for entry in self.manifest["excluded"]:
-            if entry["classification"] != bm.PUBLISHABLE:
-                self.assertNotIn(entry["sha256"], published)
+    def test_no_original_is_published_twice(self):
+        hashes = [e["sourceSha256"] for e in self.manifest["published"]]
+        self.assertEqual(len(hashes), len(set(hashes)))
+
+    def test_every_room_type_has_an_interior_cover_and_five_pictures(self):
+        by_owner = {}
+        for entry in self.manifest["published"]:
+            if entry["ownerType"] == "room-type":
+                by_owner.setdefault(entry["ownerCode"], []).append(entry)
+        self.assertEqual(sorted(by_owner), ["RIV-1BR", "RIV-1BR-OPEN", "RIV-2BR"])
+        for code, entries in by_owner.items():
+            self.assertGreaterEqual(len(entries), 5, code)
+            covers = [e for e in entries if e["isCover"]]
+            self.assertEqual(len(covers), 1, code)
+            self.assertNotIn("balcony", covers[0]["derivative"])
+            self.assertNotIn("skyline", covers[0]["derivative"])
+            self.assertEqual(len({e["sortOrder"] for e in entries}), len(entries), code)
+
+    def test_earlier_entries_keep_their_position_so_media_ids_stay_stable(self):
+        first = [e["derivative"] for e in self.manifest["published"][:13]]
+        self.assertEqual(first[0], "entrance-logo.webp")
+        self.assertEqual(first[10:], ["two-bedroom-balcony-view.webp", "two-bedroom-skyline-1.webp", "two-bedroom-skyline-2.webp"])
 
     def test_no_manifest_text_claims_verified_camera_provenance(self):
         text = json.dumps(self.manifest, ensure_ascii=False).lower()

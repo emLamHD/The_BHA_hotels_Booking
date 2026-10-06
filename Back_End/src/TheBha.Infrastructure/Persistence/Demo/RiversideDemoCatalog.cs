@@ -19,6 +19,15 @@ public sealed record RiversideRoomTypeDefinition(
     decimal NightlyRate,
     string RoomNumberPrefix);
 
+/// <summary>An old-to-new change of one RoomType media link's sort order / cover flag (see LinkMigrations).</summary>
+public sealed record RiversideLinkMigration(
+    string RoomTypeCode,
+    string FileName,
+    int FromSortOrder,
+    bool FromIsCover,
+    int ToSortOrder,
+    bool ToIsCover);
+
 public sealed record RiversideAmenityDefinition(Guid Id, string Code, string Name, string Category);
 
 /// <summary>One published photograph. The file lives in Customer_Web's controlled media namespace.</summary>
@@ -86,6 +95,23 @@ public static class RiversideDemoCatalog
 
     public static readonly IReadOnlyList<RiversideMediaDefinition> Media = BuildMedia();
 
+    /// <summary>
+    /// CUST-WEB-SHOWCASE-001-CP02-C3: the one change to links an earlier seed already wrote. RIV-2BR was seeded
+    /// with the balcony view as its cover (order 0) and the two skyline pictures at orders 1 and 2; the room's
+    /// interior is now its cover and those three move behind it. The patch touches only these links, only while
+    /// they still hold exactly the old values (<c>From*</c>); an operator's own edit is left alone and reported.
+    /// A link already at the new values is "applied" and silent, so a rerun changes nothing. Demotions run before
+    /// promotions because a room type may have only one cover.
+    /// </summary>
+    public static readonly IReadOnlyList<RiversideLinkMigration> LinkMigrations =
+    [
+        new("RIV-2BR", "two-bedroom-balcony-view.webp", FromSortOrder: 0, FromIsCover: true, ToSortOrder: 6, ToIsCover: false),
+        new("RIV-2BR", "two-bedroom-skyline-1.webp", FromSortOrder: 1, FromIsCover: false, ToSortOrder: 7, ToIsCover: false),
+        new("RIV-2BR", "two-bedroom-skyline-2.webp", FromSortOrder: 2, FromIsCover: false, ToSortOrder: 8, ToIsCover: false),
+        // The interior picture was inserted as a regular image (the room already had a cover); it becomes the cover.
+        new("RIV-2BR", "two-bedroom-living.webp", FromSortOrder: 0, FromIsCover: false, ToSortOrder: 0, ToIsCover: true),
+    ];
+
     private static IReadOnlyList<RiversideMediaDefinition> BuildMedia()
     {
         var items = new List<RiversideMediaDefinition>();
@@ -105,9 +131,27 @@ public static class RiversideDemoCatalog
         Add("lobby-logo-clocks.webp", "Logo The BHA Riverside và ba đồng hồ giờ quốc tế trên tường sảnh", property, PropertySlug, 7, false);
         Add("lobby-shelves.webp", "Kệ sách và bàn ăn nhỏ trong sảnh", property, PropertySlug, 8, false);
         Add("entrance-chairs.webp", "Lối vào có cây xanh và bộ bàn ghế trước cửa kính", property, PropertySlug, 9, false);
-        Add("two-bedroom-balcony-view.webp", "Ban công căn hộ hai phòng ngủ nhìn ra thành phố", roomType, "RIV-2BR", 0, true);
-        Add("two-bedroom-skyline-1.webp", "Khung cảnh khu dân cư nhìn từ trên cao", roomType, "RIV-2BR", 1, false);
-        Add("two-bedroom-skyline-2.webp", "Toàn cảnh khu dân cư và đồi núi phía xa nhìn từ trên cao", roomType, "RIV-2BR", 2, false);
+        Add("two-bedroom-balcony-view.webp", "Ban công căn hộ hai phòng ngủ nhìn ra thành phố", roomType, "RIV-2BR", 6, false);
+        Add("two-bedroom-skyline-1.webp", "Khung cảnh khu dân cư nhìn từ trên cao", roomType, "RIV-2BR", 7, false);
+        Add("two-bedroom-skyline-2.webp", "Toàn cảnh khu dân cư và đồi núi phía xa nhìn từ trên cao", roomType, "RIV-2BR", 8, false);
+        Add("one-bedroom-living.webp", "Phòng khách có ghế sofa và bàn trà, phía sau là giường ngủ", roomType, "RIV-1BR", 0, true);
+        Add("one-bedroom-bedroom-1.webp", "Phòng ngủ với giường đôi, tủ quần áo và tranh treo tường", roomType, "RIV-1BR", 1, false);
+        Add("one-bedroom-bedroom-2.webp", "Phòng ngủ nhìn về phía cửa kính ra ban công", roomType, "RIV-1BR", 2, false);
+        Add("one-bedroom-kitchen.webp", "Khu bếp nhỏ có bồn rửa, bếp và máy giặt", roomType, "RIV-1BR", 3, false);
+        Add("one-bedroom-bathroom.webp", "Phòng tắm có bồn rửa, bồn cầu và buồng tắm kính", roomType, "RIV-1BR", 4, false);
+        Add("one-bedroom-balcony.webp", "Ban công hẹp có bàn cao và nhìn thấy phòng ngủ phía sau", roomType, "RIV-1BR", 5, false);
+        Add("open-view-living.webp", "Phòng khách có ghế sofa, bàn ăn nhỏ và giường ngủ phía sau cửa kính", roomType, "RIV-1BR-OPEN", 0, true);
+        Add("open-view-living-dining.webp", "Phòng khách với sofa, bàn ăn, tivi và tủ lạnh", roomType, "RIV-1BR-OPEN", 1, false);
+        Add("open-view-bedroom-balcony.webp", "Phòng ngủ có cửa kính mở ra ban công nhìn cây xanh", roomType, "RIV-1BR-OPEN", 2, false);
+        Add("open-view-bedroom.webp", "Phòng ngủ với giường đôi, tủ quần áo và rèm trắng", roomType, "RIV-1BR-OPEN", 3, false);
+        Add("open-view-balcony.webp", "Ban công nhìn ra hàng cây và khu dân cư", roomType, "RIV-1BR-OPEN", 4, false);
+        Add("open-view-bathroom.webp", "Phòng tắm có vòi sen, bồn rửa và bồn cầu", roomType, "RIV-1BR-OPEN", 5, false);
+        Add("two-bedroom-living.webp", "Phòng khách có ghế sofa, bàn trà và tivi", roomType, "RIV-2BR", 0, true);
+        Add("two-bedroom-bedroom-1.webp", "Phòng ngủ thứ nhất với giường đôi và tủ quần áo", roomType, "RIV-2BR", 1, false);
+        Add("two-bedroom-bedroom-2.webp", "Phòng ngủ có cửa kính ra ban công", roomType, "RIV-2BR", 2, false);
+        Add("two-bedroom-bedroom-night.webp", "Phòng ngủ về đêm nhìn ra ánh đèn thành phố", roomType, "RIV-2BR", 3, false);
+        Add("two-bedroom-bedroom-tv.webp", "Phòng ngủ có tivi treo tường và cửa sổ", roomType, "RIV-2BR", 4, false);
+        Add("two-bedroom-bathroom.webp", "Phòng tắm có vòi sen, bồn rửa và bồn cầu", roomType, "RIV-2BR", 5, false);
         return items;
     }
 }

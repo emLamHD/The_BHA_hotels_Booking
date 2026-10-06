@@ -138,9 +138,16 @@ public sealed class RiversideDemoSeederTests(PostgreSqlWebApplicationFactory fac
         var propertyCover = Assert.Single(propertyLinks, link => link.IsCover);
         Assert.EndsWith("/entrance-logo.webp", media.Single(item => item.Id == propertyCover.MediaId).Url);
         var typeLinks = await context.RoomTypeMedia.AsNoTracking().ToListAsync();
-        Assert.Equal(3, typeLinks.Count);
-        Assert.All(typeLinks, link => Assert.Equal(types.Single(item => item.Code == "RIV-2BR").Id, link.RoomTypeId)); // 1BR types have no real photo yet
-        Assert.EndsWith("/two-bedroom-balcony-view.webp", media.Single(item => item.Id == Assert.Single(typeLinks, link => link.IsCover).MediaId).Url);
+        Assert.Equal(RiversideDemoCatalog.Media.Count - 10, typeLinks.Count); // every room type picture; the other ten belong to the property
+        foreach (var type in types)
+        {
+            var links = typeLinks.Where(link => link.RoomTypeId == type.Id).ToList();
+            Assert.True(links.Count >= 5, $"{type.Code} has {links.Count} pictures");
+            var cover = Assert.Single(links, link => link.IsCover);
+            Assert.DoesNotContain("balcony", media.Single(item => item.Id == cover.MediaId).Url);
+        }
+
+        Assert.EndsWith("/two-bedroom-living.webp", media.Single(item => item.Id == Assert.Single(typeLinks, link => link.IsCover && link.RoomTypeId == types.Single(item => item.Code == "RIV-2BR").Id).MediaId).Url);
     }
 
     [Fact]
@@ -154,8 +161,11 @@ public sealed class RiversideDemoSeederTests(PostgreSqlWebApplicationFactory fac
         Assert.False(plan.Applied);
         Assert.False(plan.HasConflicts);
         Assert.False(plan.PropertyExists);
-        // property 1, amenities 2, room types 3, rate plan 1, rooms 11, rates 3x14, media 13, links 10 + 3 + 2 amenities
-        Assert.Equal(1 + 2 + 3 + 1 + 11 + 42 + 13 + (10 + 3 + 2), plan.TotalInserts);
+        // property 1, amenities 2, room types 3, rate plan 1, rooms 11, rates 3x14, every picture and its link, 2 amenity links;
+        // a fresh database needs no link migration
+        var media = RiversideDemoCatalog.Media.Count;
+        Assert.Equal(1 + 2 + 3 + 1 + 11 + 42 + media + media + 2, plan.TotalInserts);
+        Assert.Equal(0, plan.Tables.Single(table => table.Table == "Link order/cover migrations").ToInsert);
         Assert.Equal(0, await TotalRowsAsync());
         Assert.Equal(before, await SnapshotAsync());
     }
@@ -173,8 +183,8 @@ public sealed class RiversideDemoSeederTests(PostgreSqlWebApplicationFactory fac
         Assert.True(again.Applied);
         Assert.Equal(0, again.TotalInserts);
         Assert.Empty(again.Warnings);
-        // The report counts every link the first run staged (13 photographs + 2 amenities) as existing.
-        Assert.Equal(15, again.Tables.Single(table => table.Table == "Property/RoomType/Amenity links").Existing);
+        // The report counts every link the first run staged (every photograph + 2 amenities) as existing.
+        Assert.Equal(RiversideDemoCatalog.Media.Count + 2, again.Tables.Single(table => table.Table == "Property/RoomType/Amenity links").Existing);
         Assert.Equal(rows, await TotalRowsAsync());
         Assert.Equal(snapshot, await SnapshotAsync());
         Assert.Equal(0, (await PlanAsync(Options(14))).TotalInserts);
@@ -422,5 +432,137 @@ public sealed class RiversideDemoSeederTests(PostgreSqlWebApplicationFactory fac
         Assert.True((await OffersAsync(adults: 12, rooms: 3)).ContainsKey("RIV-2BR"));
         Assert.False((await OffersAsync(adults: 28, rooms: 7)).ContainsKey("RIV-2BR")); // 7 two-bedrooms: only 6 exist
         Assert.False((await OffersAsync(adults: 5, rooms: 1)).ContainsKey("RIV-2BR")); // one two-bedroom holds at most 4 guests
+    }
+
+    // ---- CP02-C3: the media-only patch of an earlier seed ---------------------------------------
+
+    /// <summary>Puts a fresh seed back into the state the CP02 seed (13 pictures) left it in.</summary>
+    private async Task MakeLegacyAsync()
+    {
+        await using var context = factory.CreateDbContext();
+        var newIds = RiversideDemoCatalog.Media.Skip(13).Select(item => item.Id).ToArray();
+        await context.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM \"RoomTypeMedia\" WHERE \"MediaId\" = ANY({newIds})");
+        await context.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM \"Media\" WHERE \"Id\" = ANY({newIds})");
+        var balcony = RiversideDemoCatalog.Media.Single(item => item.FileName == "two-bedroom-balcony-view.webp").Id;
+        var skyline1 = RiversideDemoCatalog.Media.Single(item => item.FileName == "two-bedroom-skyline-1.webp").Id;
+        var skyline2 = RiversideDemoCatalog.Media.Single(item => item.FileName == "two-bedroom-skyline-2.webp").Id;
+        await context.Database.ExecuteSqlInterpolatedAsync($"UPDATE \"RoomTypeMedia\" SET \"SortOrder\" = 0, \"IsCover\" = true WHERE \"MediaId\" = {balcony}");
+        await context.Database.ExecuteSqlInterpolatedAsync($"UPDATE \"RoomTypeMedia\" SET \"SortOrder\" = 1 WHERE \"MediaId\" = {skyline1}");
+        await context.Database.ExecuteSqlInterpolatedAsync($"UPDATE \"RoomTypeMedia\" SET \"SortOrder\" = 2 WHERE \"MediaId\" = {skyline2}");
+    }
+
+    private async Task<List<(string File, int Order, bool Cover)>> TwoBedroomLinksAsync()
+    {
+        await using var context = factory.CreateDbContext();
+        var typeId = await context.RoomTypes.Where(item => item.Code == "RIV-2BR").Select(item => item.Id).SingleAsync();
+        return (await context.RoomTypeMedia.AsNoTracking().Where(link => link.RoomTypeId == typeId).Include(link => link.Media).ToListAsync())
+            .Select(link => (link.Media.Url[(link.Media.Url.LastIndexOf('/') + 1)..], link.SortOrder, link.IsCover))
+            .OrderBy(item => item.Item2).ThenBy(item => item.Item1, StringComparer.Ordinal).ToList();
+    }
+
+    [Fact]
+    public async Task A_database_seeded_with_the_earlier_catalog_gets_the_new_pictures_and_the_cover_move_and_a_rerun_changes_nothing()
+    {
+        await factory.ResetDatabaseAsync();
+        await ApplyAsync(Options(14));
+        await MakeLegacyAsync();
+        var before = await TwoBedroomLinksAsync();
+        Assert.Equal(("two-bedroom-balcony-view.webp", 0, true), before.Single(item => item.Cover));
+        var legacyRows = await TotalRowsAsync();
+
+        var plan = await PlanAsync(Options(14));
+        var migrations = plan.Tables.Single(table => table.Table == "Link order/cover migrations");
+        Assert.Equal((0, 4), (migrations.Existing, migrations.ToInsert));
+        Assert.Empty(plan.Warnings); // the interior cover going in as a regular image first is expected, not a warning
+        Assert.Equal(legacyRows, await TotalRowsAsync()); // dry-run wrote nothing
+        Assert.Equal(before, await TwoBedroomLinksAsync());
+
+        var applied = await ApplyAsync(Options(14));
+        Assert.True(applied.Applied);
+        Assert.Equal(legacyRows + 2 * (RiversideDemoCatalog.Media.Count - 13), await TotalRowsAsync()); // 18 media + 18 links, nothing else
+        var after = await TwoBedroomLinksAsync();
+        Assert.Equal(("two-bedroom-living.webp", 0, true), after.Single(item => item.Cover));
+        Assert.Equal(["two-bedroom-balcony-view.webp", "two-bedroom-skyline-1.webp", "two-bedroom-skyline-2.webp"],
+            after.Where(item => item.Order >= 6).OrderBy(item => item.Order).Select(item => item.File));
+        Assert.Equal((6, 7, 8), (after.Single(item => item.File == "two-bedroom-balcony-view.webp").Order,
+            after.Single(item => item.File == "two-bedroom-skyline-1.webp").Order, after.Single(item => item.File == "two-bedroom-skyline-2.webp").Order));
+
+        var snapshot = await SnapshotAsync();
+        var again = await ApplyAsync(Options(14));
+        Assert.Equal(0, again.TotalInserts);
+        Assert.Empty(again.Warnings);
+        Assert.Equal(snapshot, await SnapshotAsync());
+    }
+
+    [Fact]
+    public async Task A_cover_the_operator_changed_is_left_alone_and_reported_while_everything_else_is_added()
+    {
+        await factory.ResetDatabaseAsync();
+        await ApplyAsync(Options(14));
+        await MakeLegacyAsync();
+        var skyline1 = RiversideDemoCatalog.Media.Single(item => item.FileName == "two-bedroom-skyline-1.webp").Id;
+        await using (var edit = factory.CreateDbContext())
+        {
+            // the operator re-ordered one picture by hand
+            await edit.Database.ExecuteSqlInterpolatedAsync($"UPDATE \"RoomTypeMedia\" SET \"SortOrder\" = 5 WHERE \"MediaId\" = {skyline1}");
+        }
+
+        var applied = await ApplyAsync(Options(14));
+
+        Assert.True(applied.Applied);
+        Assert.Contains(applied.Warnings, warning => warning.Contains("two-bedroom-skyline-1.webp") && warning.Contains("left alone"));
+        var after = await TwoBedroomLinksAsync();
+        Assert.Equal(5, after.Single(item => item.File == "two-bedroom-skyline-1.webp").Order); // untouched
+        Assert.Equal(("two-bedroom-living.webp", 0, true), after.Single(item => item.Cover));
+        Assert.Equal(6, after.Single(item => item.File == "two-bedroom-balcony-view.webp").Order); // the guarded ones did move
+    }
+
+    [Fact]
+    public async Task An_operator_chosen_cover_is_never_replaced_by_the_migration()
+    {
+        await factory.ResetDatabaseAsync();
+        await ApplyAsync(Options(14));
+        await MakeLegacyAsync();
+        var skyline2 = RiversideDemoCatalog.Media.Single(item => item.FileName == "two-bedroom-skyline-2.webp").Id;
+        var balcony = RiversideDemoCatalog.Media.Single(item => item.FileName == "two-bedroom-balcony-view.webp").Id;
+        await using (var edit = factory.CreateDbContext())
+        {
+            // the operator made the second skyline the cover and demoted ours
+            await edit.Database.ExecuteSqlInterpolatedAsync($"UPDATE \"RoomTypeMedia\" SET \"IsCover\" = false WHERE \"MediaId\" = {balcony}");
+            await edit.Database.ExecuteSqlInterpolatedAsync($"UPDATE \"RoomTypeMedia\" SET \"IsCover\" = true WHERE \"MediaId\" = {skyline2}");
+        }
+
+        var applied = await ApplyAsync(Options(14));
+
+        Assert.True(applied.Applied);
+        var after = await TwoBedroomLinksAsync();
+        var cover = Assert.Single(after, item => item.Cover);
+        Assert.Equal("two-bedroom-skyline-2.webp", cover.File); // still the operator's choice
+        Assert.NotEmpty(applied.Warnings);
+    }
+
+    [Fact]
+    public async Task The_migration_never_touches_reservations_holds_rates_or_rooms()
+    {
+        await factory.ResetDatabaseAsync();
+        await ApplyAsync(Options(14));
+        await MakeLegacyAsync();
+        string Counts() => "";
+        await using (var before = factory.CreateDbContext())
+        {
+            var rates = await before.DailyRoomRates.AsNoTracking().OrderBy(item => item.Id).Select(item => new { item.Id, item.Amount }).ToListAsync();
+            var rooms = await before.PhysicalRooms.AsNoTracking().OrderBy(item => item.Id).Select(item => new { item.Id, item.OperationalStatus }).ToListAsync();
+            var reservations = await before.Reservations.CountAsync();
+            var holds = await before.InventoryHolds.CountAsync();
+
+            await ApplyAsync(Options(14));
+
+            await using var after = factory.CreateDbContext();
+            Assert.Equal(rates, await after.DailyRoomRates.AsNoTracking().OrderBy(item => item.Id).Select(item => new { item.Id, item.Amount }).ToListAsync());
+            Assert.Equal(rooms, await after.PhysicalRooms.AsNoTracking().OrderBy(item => item.Id).Select(item => new { item.Id, item.OperationalStatus }).ToListAsync());
+            Assert.Equal(reservations, await after.Reservations.CountAsync());
+            Assert.Equal(holds, await after.InventoryHolds.CountAsync());
+        }
+        _ = Counts();
     }
 }

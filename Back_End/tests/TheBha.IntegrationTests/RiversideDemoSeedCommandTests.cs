@@ -217,9 +217,11 @@ public sealed class RiversideDemoSeedCommandTests(PostgreSqlWebApplicationFactor
 
         var (applyExit, applied) = await RunAsync(Args("--apply", "--days", "30"));
         Assert.Equal(0, applyExit);
-        Assert.Contains("APPLIED — 136 rows inserted", applied); // 1 property, 2 amenities, 3 types, 1 plan, 11 rooms, 90 rates, 13 media, 15 links
+        var media = TheBha.Infrastructure.Persistence.Demo.RiversideDemoCatalog.Media.Count;
+        // 1 property, 2 amenities, 3 types, 1 plan, 11 rooms, 90 rates, every picture + its link, 2 amenity links
+        Assert.Contains($"APPLIED — {1 + 2 + 3 + 1 + 11 + 90 + media + media + 2} rows inserted", applied);
         var rows = await RowsAsync();
-        Assert.Equal(1 + 3 + 11 + 90 + 13, rows); // the tables RowsAsync counts
+        Assert.Equal(1 + 3 + 11 + 90 + media, rows); // the tables RowsAsync counts
 
         var (rerunExit, rerun) = await RunAsync(Args("--apply", "--days", "30"));
         Assert.Equal(0, rerunExit);

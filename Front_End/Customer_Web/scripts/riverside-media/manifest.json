@@ -4,8 +4,9 @@
   "maxEdge": 1600,
   "webpQuality": 80,
   "evidenceLevel": "heuristic scan only; no C2PA signature validator was run (validation NOT_RUN)",
+  "publicationPolicy": "SELECTION is the Owner's: pictures of the folders the Owner sorted per room type are published; Owner authorization (2026-10-08) covers files whose scan shows generator markers or no metadata. Provenance of every published file is UNVERIFIED.",
   "originalsAudited": 86,
-  "originalsPublished": 13,
+  "originalsPublished": 31,
   "originalsByClassification": {
     "generator-markers-present": 62,
     "content-credentials-detected": 0,
@@ -27,6 +28,8 @@
         "validation": "NOT_RUN"
       },
       "evidenceNote": "editor/camera-software metadata present; camera origin and the depicted scene are not independently verified; no content-credential or generator marker found",
+      "decision": "owner-selected (editor metadata present; camera origin not independently verified)",
+      "provenanceStatus": "UNVERIFIED",
       "derivative": "entrance-logo.webp",
       "width": 1600,
       "height": 1067,
@@ -52,6 +55,8 @@
         "validation": "NOT_RUN"
       },
       "evidenceNote": "editor/camera-software metadata present; camera origin and the depicted scene are not independently verified; no content-credential or generator marker found",
+      "decision": "owner-selected (editor metadata present; camera origin not independently verified)",
+      "provenanceStatus": "UNVERIFIED",
       "derivative": "rooftop-pool-day.webp",
       "width": 1600,
       "height": 1067,
@@ -77,6 +82,8 @@
         "validation": "NOT_RUN"
       },
       "evidenceNote": "editor/camera-software metadata present; camera origin and the depicted scene are not independently verified; no content-credential or generator marker found",
+      "decision": "owner-selected (editor metadata present; camera origin not independently verified)",
+      "provenanceStatus": "UNVERIFIED",
       "derivative": "rooftop-pool-night.webp",
       "width": 1600,
       "height": 1067,
@@ -102,6 +109,8 @@
         "validation": "NOT_RUN"
       },
       "evidenceNote": "editor/camera-software metadata present; camera origin and the depicted scene are not independently verified; no content-credential or generator marker found",
+      "decision": "owner-selected (editor metadata present; camera origin not independently verified)",
+      "provenanceStatus": "UNVERIFIED",
       "derivative": "rooftop-pool-seating.webp",
       "width": 1600,
       "height": 1067,
@@ -127,6 +136,8 @@
         "validation": "NOT_RUN"
       },
       "evidenceNote": "editor/camera-software metadata present; camera origin and the depicted scene are not independently verified; no content-credential or generator marker found",
+      "decision": "owner-selected (editor metadata present; camera origin not independently verified)",
+      "provenanceStatus": "UNVERIFIED",
       "derivative": "rooftop-pool-city-view.webp",
       "width": 1600,
       "height": 1067,
@@ -152,6 +163,8 @@
         "validation": "NOT_RUN"
       },
       "evidenceNote": "editor/camera-software metadata present; camera origin and the depicted scene are not independently verified; no content-credential or generator marker found",
+      "decision": "owner-selected (editor metadata present; camera origin not independently verified)",
+      "provenanceStatus": "UNVERIFIED",
       "derivative": "rooftop-pool-mural.webp",
       "width": 1600,
       "height": 1067,
@@ -177,6 +190,8 @@
         "validation": "NOT_RUN"
       },
       "evidenceNote": "editor/camera-software metadata present; camera origin and the depicted scene are not independently verified; no content-credential or generator marker found",
+      "decision": "owner-selected (editor metadata present; camera origin not independently verified)",
+      "provenanceStatus": "UNVERIFIED",
       "derivative": "lobby-sofa.webp",
       "width": 1600,
       "height": 1067,
@@ -202,6 +217,8 @@
         "validation": "NOT_RUN"
       },
       "evidenceNote": "editor/camera-software metadata present; camera origin and the depicted scene are not independently verified; no content-credential or generator marker found",
+      "decision": "owner-selected (editor metadata present; camera origin not independently verified)",
+      "provenanceStatus": "UNVERIFIED",
       "derivative": "lobby-logo-clocks.webp",
       "width": 1600,
       "height": 1067,
@@ -227,6 +244,8 @@
         "validation": "NOT_RUN"
       },
       "evidenceNote": "editor/camera-software metadata present; camera origin and the depicted scene are not independently verified; no content-credential or generator marker found",
+      "decision": "owner-selected (editor metadata present; camera origin not independently verified)",
+      "provenanceStatus": "UNVERIFIED",
       "derivative": "lobby-shelves.webp",
       "width": 1600,
       "height": 985,
@@ -252,6 +271,8 @@
         "validation": "NOT_RUN"
       },
       "evidenceNote": "editor/camera-software metadata present; camera origin and the depicted scene are not independently verified; no content-credential or generator marker found",
+      "decision": "owner-selected (editor metadata present; camera origin not independently verified)",
+      "provenanceStatus": "UNVERIFIED",
       "derivative": "entrance-chairs.webp",
       "width": 1600,
       "height": 1079,
@@ -277,6 +298,8 @@
         "validation": "NOT_RUN"
       },
       "evidenceNote": "editor/camera-software metadata present; camera origin and the depicted scene are not independently verified; no content-credential or generator marker found",
+      "decision": "owner-selected (editor metadata present; camera origin not independently verified)",
+      "provenanceStatus": "UNVERIFIED",
       "derivative": "two-bedroom-balcony-view.webp",
       "width": 1600,
       "height": 1067,
@@ -284,8 +307,8 @@
       "sha256": "511eca5bddf320cd03e6176c1af1b4ade3197972878cee1b0c3ec67a6c2e13b7",
       "ownerType": "room-type",
       "ownerCode": "RIV-2BR",
-      "sortOrder": 0,
-      "isCover": true,
+      "sortOrder": 6,
+      "isCover": false,
       "altText": "Ban công căn hộ hai phòng ngủ nhìn ra thành phố"
     },
     {
@@ -302,6 +325,8 @@
         "validation": "NOT_RUN"
       },
       "evidenceNote": "editor/camera-software metadata present; camera origin and the depicted scene are not independently verified; no content-credential or generator marker found",
+      "decision": "owner-selected (editor metadata present; camera origin not independently verified)",
+      "provenanceStatus": "UNVERIFIED",
       "derivative": "two-bedroom-skyline-1.webp",
       "width": 1600,
       "height": 1067,
@@ -309,7 +334,7 @@
       "sha256": "9b97d3f40a5161cdeea2794203c67cbae2dcd48d1ba9b42a40d1341b396b3d6a",
       "ownerType": "room-type",
       "ownerCode": "RIV-2BR",
-      "sortOrder": 1,
+      "sortOrder": 7,
       "isCover": false,
       "altText": "Khung cảnh khu dân cư nhìn từ trên cao"
     },
@@ -327,6 +352,8 @@
         "validation": "NOT_RUN"
       },
       "evidenceNote": "editor/camera-software metadata present; camera origin and the depicted scene are not independently verified; no content-credential or generator marker found",
+      "decision": "owner-selected (editor metadata present; camera origin not independently verified)",
+      "provenanceStatus": "UNVERIFIED",
       "derivative": "two-bedroom-skyline-2.webp",
       "width": 1600,
       "height": 1067,
@@ -334,9 +361,567 @@
       "sha256": "1110297773236fa2342f5dff9b7ff3f9ee19b864513068231f922f76b295f808",
       "ownerType": "room-type",
       "ownerCode": "RIV-2BR",
-      "sortOrder": 2,
+      "sortOrder": 8,
       "isCover": false,
       "altText": "Toàn cảnh khu dân cư và đồi núi phía xa nhìn từ trên cao"
+    },
+    {
+      "sourceGroup": "Căn hộ 1PN",
+      "sourceFile": "pk1.png",
+      "sourceSha256": "030f58d063594bfbd1e8e6258608946c71201c0a5afc8ac4645e7b368742a9d6",
+      "evidence": {
+        "classification": "generator-markers-present",
+        "markers": [
+          "trainedAlgorithmicMedia",
+          "gpt-image",
+          "OpenAI Media Service",
+          "c2pa",
+          "caBX",
+          "jumb"
+        ],
+        "editorSoftware": null,
+        "validation": "NOT_RUN"
+      },
+      "evidenceNote": "markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof",
+      "decision": "owner-authorized 2026-10-08 (scan: generator-markers-present; provenance unverified)",
+      "provenanceStatus": "UNVERIFIED",
+      "derivative": "one-bedroom-living.webp",
+      "width": 1536,
+      "height": 1024,
+      "bytes": 99096,
+      "sha256": "6cbdc224c0f2a5026170d99e3fa84606a3b64cbea8ff88ddf9614587833cc6c0",
+      "ownerType": "room-type",
+      "ownerCode": "RIV-1BR",
+      "sortOrder": 0,
+      "isCover": true,
+      "altText": "Phòng khách có ghế sofa và bàn trà, phía sau là giường ngủ"
+    },
+    {
+      "sourceGroup": "Căn hộ 1PN",
+      "sourceFile": "pn1.png",
+      "sourceSha256": "a8b8bcb395729fb4165cceaa55ec2844da2cd342e77e405ddc9b08d21103e29b",
+      "evidence": {
+        "classification": "generator-markers-present",
+        "markers": [
+          "trainedAlgorithmicMedia",
+          "gpt-image",
+          "OpenAI Media Service",
+          "c2pa",
+          "caBX",
+          "jumb"
+        ],
+        "editorSoftware": null,
+        "validation": "NOT_RUN"
+      },
+      "evidenceNote": "markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof",
+      "decision": "owner-authorized 2026-10-08 (scan: generator-markers-present; provenance unverified)",
+      "provenanceStatus": "UNVERIFIED",
+      "derivative": "one-bedroom-bedroom-1.webp",
+      "width": 1537,
+      "height": 1023,
+      "bytes": 39540,
+      "sha256": "d36c28f38607389cc8480829bb0a59a0118da3c6b04ee79cf74c0e59582eb486",
+      "ownerType": "room-type",
+      "ownerCode": "RIV-1BR",
+      "sortOrder": 1,
+      "isCover": false,
+      "altText": "Phòng ngủ với giường đôi, tủ quần áo và tranh treo tường"
+    },
+    {
+      "sourceGroup": "Căn hộ 1PN",
+      "sourceFile": "pn2.png",
+      "sourceSha256": "a9752f536f38e9c3df52deedd1b57c5e75e12381ef6aea4e1b94965a59032e95",
+      "evidence": {
+        "classification": "generator-markers-present",
+        "markers": [
+          "trainedAlgorithmicMedia",
+          "gpt-image",
+          "OpenAI Media Service",
+          "c2pa",
+          "caBX",
+          "jumb"
+        ],
+        "editorSoftware": null,
+        "validation": "NOT_RUN"
+      },
+      "evidenceNote": "markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof",
+      "decision": "owner-authorized 2026-10-08 (scan: generator-markers-present; provenance unverified)",
+      "provenanceStatus": "UNVERIFIED",
+      "derivative": "one-bedroom-bedroom-2.webp",
+      "width": 1540,
+      "height": 1021,
+      "bytes": 74424,
+      "sha256": "cb1a03117a09f3ede71533a300ec128a7e4ec55e6fd159c7b3390b4d4437da77",
+      "ownerType": "room-type",
+      "ownerCode": "RIV-1BR",
+      "sortOrder": 2,
+      "isCover": false,
+      "altText": "Phòng ngủ nhìn về phía cửa kính ra ban công"
+    },
+    {
+      "sourceGroup": "Căn hộ 1PN",
+      "sourceFile": "bepchung2.png",
+      "sourceSha256": "eea0ce858488f8672879122425ad33d1c1a58e2cfeb7116b5dfc00e3d2eef8cd",
+      "evidence": {
+        "classification": "generator-markers-present",
+        "markers": [
+          "trainedAlgorithmicMedia",
+          "gpt-image",
+          "OpenAI Media Service",
+          "c2pa",
+          "caBX",
+          "jumb"
+        ],
+        "editorSoftware": null,
+        "validation": "NOT_RUN"
+      },
+      "evidenceNote": "markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof",
+      "decision": "owner-authorized 2026-10-08 (scan: generator-markers-present; provenance unverified)",
+      "provenanceStatus": "UNVERIFIED",
+      "derivative": "one-bedroom-kitchen.webp",
+      "width": 1533,
+      "height": 1026,
+      "bytes": 69280,
+      "sha256": "d2ecbd8c1331af0bb9fd4c15f551e2db562f8770f0cb21e8b19ff616e76b6cf5",
+      "ownerType": "room-type",
+      "ownerCode": "RIV-1BR",
+      "sortOrder": 3,
+      "isCover": false,
+      "altText": "Khu bếp nhỏ có bồn rửa, bếp và máy giặt"
+    },
+    {
+      "sourceGroup": "Căn hộ 1PN",
+      "sourceFile": "nvs1.1.png",
+      "sourceSha256": "418bd25cc3845746ca7ddd99d4cec8aa0f16aee5dbb45ba8268cf22f159deb77",
+      "evidence": {
+        "classification": "generator-markers-present",
+        "markers": [
+          "trainedAlgorithmicMedia",
+          "gpt-image",
+          "OpenAI Media Service",
+          "c2pa",
+          "caBX",
+          "jumb"
+        ],
+        "editorSoftware": null,
+        "validation": "NOT_RUN"
+      },
+      "evidenceNote": "markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof",
+      "decision": "owner-authorized 2026-10-08 (scan: generator-markers-present; provenance unverified)",
+      "provenanceStatus": "UNVERIFIED",
+      "derivative": "one-bedroom-bathroom.webp",
+      "width": 1537,
+      "height": 1023,
+      "bytes": 43878,
+      "sha256": "70d627eee01e19e4174e14e55fbe18210042b881a9ddabfacad44ca5f190c25f",
+      "ownerType": "room-type",
+      "ownerCode": "RIV-1BR",
+      "sortOrder": 4,
+      "isCover": false,
+      "altText": "Phòng tắm có bồn rửa, bồn cầu và buồng tắm kính"
+    },
+    {
+      "sourceGroup": "Căn hộ 1PN",
+      "sourceFile": "bc1.png",
+      "sourceSha256": "bcf55dbd9bf9cc40b6c15ea5a7107a7d8546bbb033578abe5f2461557e058609",
+      "evidence": {
+        "classification": "generator-markers-present",
+        "markers": [
+          "trainedAlgorithmicMedia",
+          "gpt-image",
+          "OpenAI Media Service",
+          "c2pa",
+          "caBX",
+          "jumb"
+        ],
+        "editorSoftware": null,
+        "validation": "NOT_RUN"
+      },
+      "evidenceNote": "markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof",
+      "decision": "owner-authorized 2026-10-08 (scan: generator-markers-present; provenance unverified)",
+      "provenanceStatus": "UNVERIFIED",
+      "derivative": "one-bedroom-balcony.webp",
+      "width": 1545,
+      "height": 1018,
+      "bytes": 64792,
+      "sha256": "144e1329a1d45fdb0f078e7ba90ba94f896bd361602f35f70369578ca899de80",
+      "ownerType": "room-type",
+      "ownerCode": "RIV-1BR",
+      "sortOrder": 5,
+      "isCover": false,
+      "altText": "Ban công hẹp có bàn cao và nhìn thấy phòng ngủ phía sau"
+    },
+    {
+      "sourceGroup": "Căn hộ 1PN view thoáng",
+      "sourceFile": "pkv2.png",
+      "sourceSha256": "2edb502fca6cbb710442118b1bd95c98b10f8b13bc711abab359db7cc3624fa6",
+      "evidence": {
+        "classification": "generator-markers-present",
+        "markers": [
+          "trainedAlgorithmicMedia",
+          "gpt-image",
+          "OpenAI Media Service",
+          "c2pa",
+          "caBX",
+          "jumb"
+        ],
+        "editorSoftware": null,
+        "validation": "NOT_RUN"
+      },
+      "evidenceNote": "markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof",
+      "decision": "owner-authorized 2026-10-08 (scan: generator-markers-present; provenance unverified)",
+      "provenanceStatus": "UNVERIFIED",
+      "derivative": "open-view-living.webp",
+      "width": 1553,
+      "height": 1013,
+      "bytes": 108666,
+      "sha256": "46c91036b7ccca9a6007404facd2c528e9883d91d371365bf17e1935327592c6",
+      "ownerType": "room-type",
+      "ownerCode": "RIV-1BR-OPEN",
+      "sortOrder": 0,
+      "isCover": true,
+      "altText": "Phòng khách có ghế sofa, bàn ăn nhỏ và giường ngủ phía sau cửa kính"
+    },
+    {
+      "sourceGroup": "Căn hộ 1PN view thoáng",
+      "sourceFile": "pkv4.png",
+      "sourceSha256": "3eec7c3e641a6d3708e8968bf33727e0ffcb51a2b7dcc0ee8d23628fe5a8f231",
+      "evidence": {
+        "classification": "generator-markers-present",
+        "markers": [
+          "trainedAlgorithmicMedia",
+          "gpt-image",
+          "OpenAI Media Service",
+          "c2pa",
+          "caBX",
+          "jumb"
+        ],
+        "editorSoftware": null,
+        "validation": "NOT_RUN"
+      },
+      "evidenceNote": "markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof",
+      "decision": "owner-authorized 2026-10-08 (scan: generator-markers-present; provenance unverified)",
+      "provenanceStatus": "UNVERIFIED",
+      "derivative": "open-view-living-dining.webp",
+      "width": 1537,
+      "height": 1023,
+      "bytes": 69652,
+      "sha256": "5ecd91d443efd697fe38df4cc601072648ff07f3875878274eb92bdce16dbd3f",
+      "ownerType": "room-type",
+      "ownerCode": "RIV-1BR-OPEN",
+      "sortOrder": 1,
+      "isCover": false,
+      "altText": "Phòng khách với sofa, bàn ăn, tivi và tủ lạnh"
+    },
+    {
+      "sourceGroup": "Căn hộ 1PN view thoáng",
+      "sourceFile": "pnv11.png",
+      "sourceSha256": "2e954e46a3bbf6b253a98cb0702fc3c4d560b139cf4f766576ee96c8e8d0053f",
+      "evidence": {
+        "classification": "generator-markers-present",
+        "markers": [
+          "trainedAlgorithmicMedia",
+          "gpt-image",
+          "OpenAI Media Service",
+          "c2pa",
+          "caBX",
+          "jumb"
+        ],
+        "editorSoftware": null,
+        "validation": "NOT_RUN"
+      },
+      "evidenceNote": "markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof",
+      "decision": "owner-authorized 2026-10-08 (scan: generator-markers-present; provenance unverified)",
+      "provenanceStatus": "UNVERIFIED",
+      "derivative": "open-view-bedroom-balcony.webp",
+      "width": 1535,
+      "height": 1025,
+      "bytes": 99308,
+      "sha256": "8dfafe446413fd565312e74b2fa76f5c409b15f10ec8a5fddd54752deff8dfef",
+      "ownerType": "room-type",
+      "ownerCode": "RIV-1BR-OPEN",
+      "sortOrder": 2,
+      "isCover": false,
+      "altText": "Phòng ngủ có cửa kính mở ra ban công nhìn cây xanh"
+    },
+    {
+      "sourceGroup": "Căn hộ 1PN view thoáng",
+      "sourceFile": "pnv10.png",
+      "sourceSha256": "1ada2665ffc509ebc9a03eb032bb304679fc9aad53637a73ba0cd0617242fe01",
+      "evidence": {
+        "classification": "generator-markers-present",
+        "markers": [
+          "trainedAlgorithmicMedia",
+          "gpt-image",
+          "OpenAI Media Service",
+          "c2pa",
+          "caBX",
+          "jumb"
+        ],
+        "editorSoftware": null,
+        "validation": "NOT_RUN"
+      },
+      "evidenceNote": "markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof",
+      "decision": "owner-authorized 2026-10-08 (scan: generator-markers-present; provenance unverified)",
+      "provenanceStatus": "UNVERIFIED",
+      "derivative": "open-view-bedroom.webp",
+      "width": 1584,
+      "height": 993,
+      "bytes": 56034,
+      "sha256": "a7dacbba37b4c4729230529da849529adff00d798987c134ea86683f38e2b323",
+      "ownerType": "room-type",
+      "ownerCode": "RIV-1BR-OPEN",
+      "sortOrder": 3,
+      "isCover": false,
+      "altText": "Phòng ngủ với giường đôi, tủ quần áo và rèm trắng"
+    },
+    {
+      "sourceGroup": "Căn hộ 1PN view thoáng",
+      "sourceFile": "pkv8.png",
+      "sourceSha256": "628043afe8d3be5b9ad1c69f65278e004a3d5a7482e9ad1d0788a69db43455d6",
+      "evidence": {
+        "classification": "generator-markers-present",
+        "markers": [
+          "trainedAlgorithmicMedia",
+          "gpt-image",
+          "OpenAI Media Service",
+          "c2pa",
+          "caBX",
+          "jumb"
+        ],
+        "editorSoftware": null,
+        "validation": "NOT_RUN"
+      },
+      "evidenceNote": "markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof",
+      "decision": "owner-authorized 2026-10-08 (scan: generator-markers-present; provenance unverified)",
+      "provenanceStatus": "UNVERIFIED",
+      "derivative": "open-view-balcony.webp",
+      "width": 1600,
+      "height": 981,
+      "bytes": 370318,
+      "sha256": "3bea034e9dcfca2beb6e274271be36b1b0efa8f70e256152aa1fbc2ce2e6531f",
+      "ownerType": "room-type",
+      "ownerCode": "RIV-1BR-OPEN",
+      "sortOrder": 4,
+      "isCover": false,
+      "altText": "Ban công nhìn ra hàng cây và khu dân cư"
+    },
+    {
+      "sourceGroup": "Căn hộ 1PN view thoáng",
+      "sourceFile": "nvs1.2.png",
+      "sourceSha256": "4d2fdd78e91e836e1d4f19bfdf2e1cdfe83a4b484940730baac7c352be7cf1ac",
+      "evidence": {
+        "classification": "generator-markers-present",
+        "markers": [
+          "trainedAlgorithmicMedia",
+          "gpt-image",
+          "OpenAI Media Service",
+          "c2pa",
+          "caBX",
+          "jumb"
+        ],
+        "editorSoftware": null,
+        "validation": "NOT_RUN"
+      },
+      "evidenceNote": "markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof",
+      "decision": "owner-authorized 2026-10-08 (scan: generator-markers-present; provenance unverified)",
+      "provenanceStatus": "UNVERIFIED",
+      "derivative": "open-view-bathroom.webp",
+      "width": 1537,
+      "height": 1023,
+      "bytes": 46562,
+      "sha256": "7187cae3a158abef447c066ed20b60a1e43f521035f22a9c14eb440cc7c8fcab",
+      "ownerType": "room-type",
+      "ownerCode": "RIV-1BR-OPEN",
+      "sortOrder": 5,
+      "isCover": false,
+      "altText": "Phòng tắm có vòi sen, bồn rửa và bồn cầu"
+    },
+    {
+      "sourceGroup": "Căn hộ 2PN",
+      "sourceFile": "2pnkhach2.png",
+      "sourceSha256": "db30ed13b3053c558d84b3113bfecd74c329efb80be53b53c328148e47a81078",
+      "evidence": {
+        "classification": "generator-markers-present",
+        "markers": [
+          "trainedAlgorithmicMedia",
+          "gpt-image",
+          "OpenAI Media Service",
+          "c2pa",
+          "caBX",
+          "jumb"
+        ],
+        "editorSoftware": null,
+        "validation": "NOT_RUN"
+      },
+      "evidenceNote": "markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof",
+      "decision": "owner-authorized 2026-10-08 (scan: generator-markers-present; provenance unverified)",
+      "provenanceStatus": "UNVERIFIED",
+      "derivative": "two-bedroom-living.webp",
+      "width": 1537,
+      "height": 1023,
+      "bytes": 81328,
+      "sha256": "18c79c471e8d333b7fb8f0a013793cf9156798a99cb168c9f76cd1d166080d08",
+      "ownerType": "room-type",
+      "ownerCode": "RIV-2BR",
+      "sortOrder": 0,
+      "isCover": true,
+      "altText": "Phòng khách có ghế sofa, bàn trà và tivi"
+    },
+    {
+      "sourceGroup": "Căn hộ 2PN",
+      "sourceFile": "2pnv1.png",
+      "sourceSha256": "77c5ea497d37f51f1ded2da6e2e8ed1ddd9b604323a5b7eb3c9262b7037ae9d6",
+      "evidence": {
+        "classification": "generator-markers-present",
+        "markers": [
+          "trainedAlgorithmicMedia",
+          "gpt-image",
+          "OpenAI Media Service",
+          "c2pa",
+          "caBX",
+          "jumb"
+        ],
+        "editorSoftware": null,
+        "validation": "NOT_RUN"
+      },
+      "evidenceNote": "markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof",
+      "decision": "owner-authorized 2026-10-08 (scan: generator-markers-present; provenance unverified)",
+      "provenanceStatus": "UNVERIFIED",
+      "derivative": "two-bedroom-bedroom-1.webp",
+      "width": 1537,
+      "height": 1023,
+      "bytes": 50970,
+      "sha256": "0f8b54cf24a3612a4e13ad95bc82261c9c88f0689350c050fd468a9eed530ce6",
+      "ownerType": "room-type",
+      "ownerCode": "RIV-2BR",
+      "sortOrder": 1,
+      "isCover": false,
+      "altText": "Phòng ngủ thứ nhất với giường đôi và tủ quần áo"
+    },
+    {
+      "sourceGroup": "Căn hộ 2PN",
+      "sourceFile": "2pnv2.png",
+      "sourceSha256": "e63b2e7fe71ea85cfd52be90aedc3188b90f7ea97fbc9a08b12e09af6fd4a596",
+      "evidence": {
+        "classification": "generator-markers-present",
+        "markers": [
+          "trainedAlgorithmicMedia",
+          "gpt-image",
+          "OpenAI Media Service",
+          "c2pa",
+          "caBX",
+          "jumb"
+        ],
+        "editorSoftware": null,
+        "validation": "NOT_RUN"
+      },
+      "evidenceNote": "markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof",
+      "decision": "owner-authorized 2026-10-08 (scan: generator-markers-present; provenance unverified)",
+      "provenanceStatus": "UNVERIFIED",
+      "derivative": "two-bedroom-bedroom-2.webp",
+      "width": 1536,
+      "height": 1024,
+      "bytes": 53370,
+      "sha256": "efe8881eed39345e07f20fd1159cec889171d95455327255caac26e17cfcb433",
+      "ownerType": "room-type",
+      "ownerCode": "RIV-2BR",
+      "sortOrder": 2,
+      "isCover": false,
+      "altText": "Phòng ngủ có cửa kính ra ban công"
+    },
+    {
+      "sourceGroup": "Căn hộ 2PN",
+      "sourceFile": "2pnvnight2.png",
+      "sourceSha256": "6a555f7229facf89b3df9bd2dc3512b14a6ec11bba0f6bbcf62d8545a438b903",
+      "evidence": {
+        "classification": "generator-markers-present",
+        "markers": [
+          "trainedAlgorithmicMedia",
+          "gpt-image",
+          "OpenAI Media Service",
+          "c2pa",
+          "caBX",
+          "jumb"
+        ],
+        "editorSoftware": null,
+        "validation": "NOT_RUN"
+      },
+      "evidenceNote": "markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof",
+      "decision": "owner-authorized 2026-10-08 (scan: generator-markers-present; provenance unverified)",
+      "provenanceStatus": "UNVERIFIED",
+      "derivative": "two-bedroom-bedroom-night.webp",
+      "width": 1535,
+      "height": 1024,
+      "bytes": 46544,
+      "sha256": "7312005d00588a4e9afdf6b3141e26ea32efd214fa11eb5137968fa82989b113",
+      "ownerType": "room-type",
+      "ownerCode": "RIV-2BR",
+      "sortOrder": 3,
+      "isCover": false,
+      "altText": "Phòng ngủ về đêm nhìn ra ánh đèn thành phố"
+    },
+    {
+      "sourceGroup": "Căn hộ 2PN",
+      "sourceFile": "2pnv5.png",
+      "sourceSha256": "fedd87de5708e4b55d5dca2766093cadadca0880cf2afbe3abf23e15f62b872b",
+      "evidence": {
+        "classification": "generator-markers-present",
+        "markers": [
+          "trainedAlgorithmicMedia",
+          "gpt-image",
+          "OpenAI Media Service",
+          "c2pa",
+          "caBX",
+          "jumb"
+        ],
+        "editorSoftware": null,
+        "validation": "NOT_RUN"
+      },
+      "evidenceNote": "markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof",
+      "decision": "owner-authorized 2026-10-08 (scan: generator-markers-present; provenance unverified)",
+      "provenanceStatus": "UNVERIFIED",
+      "derivative": "two-bedroom-bedroom-tv.webp",
+      "width": 1536,
+      "height": 1024,
+      "bytes": 72424,
+      "sha256": "0f42d49967c13951530924ea231917a60b8023821164672f1af6b0a8827f8e6a",
+      "ownerType": "room-type",
+      "ownerCode": "RIV-2BR",
+      "sortOrder": 4,
+      "isCover": false,
+      "altText": "Phòng ngủ có tivi treo tường và cửa sổ"
+    },
+    {
+      "sourceGroup": "Căn hộ 2PN",
+      "sourceFile": "nvs2pn.png",
+      "sourceSha256": "4679b7122c458a4fadd9ff64e5283931c486d0f92eacbbefb5615ed144b19003",
+      "evidence": {
+        "classification": "generator-markers-present",
+        "markers": [
+          "trainedAlgorithmicMedia",
+          "gpt-image",
+          "OpenAI Media Service",
+          "c2pa",
+          "caBX",
+          "jumb"
+        ],
+        "editorSoftware": null,
+        "validation": "NOT_RUN"
+      },
+      "evidenceNote": "markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof",
+      "decision": "owner-authorized 2026-10-08 (scan: generator-markers-present; provenance unverified)",
+      "provenanceStatus": "UNVERIFIED",
+      "derivative": "two-bedroom-bathroom.webp",
+      "width": 1537,
+      "height": 1023,
+      "bytes": 46326,
+      "sha256": "b8343a0d0ff0dbe1a8ee13cf4f854c466e6c24342689c333b468c7f4f1632bae",
+      "ownerType": "room-type",
+      "ownerCode": "RIV-2BR",
+      "sortOrder": 5,
+      "isCover": false,
+      "altText": "Phòng tắm có vòi sen, bồn rửa và bồn cầu"
     }
   ],
   "excluded": [
@@ -671,131 +1256,11 @@
     },
     {
       "group": "Căn hộ 1PN",
-      "file": "bc1.png",
-      "sha256": "bcf55dbd9bf9cc40b6c15ea5a7107a7d8546bbb033578abe5f2461557e058609",
-      "bytes": 2026288,
-      "width": 1545,
-      "height": 1018,
-      "classification": "generator-markers-present",
-      "markers": [
-        "trainedAlgorithmicMedia",
-        "gpt-image",
-        "OpenAI Media Service",
-        "c2pa",
-        "caBX",
-        "jumb"
-      ],
-      "editorSoftware": null,
-      "validation": "NOT_RUN",
-      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
-    },
-    {
-      "group": "Căn hộ 1PN",
-      "file": "bepchung2.png",
-      "sha256": "eea0ce858488f8672879122425ad33d1c1a58e2cfeb7116b5dfc00e3d2eef8cd",
-      "bytes": 1822727,
-      "width": 1533,
-      "height": 1026,
-      "classification": "generator-markers-present",
-      "markers": [
-        "trainedAlgorithmicMedia",
-        "gpt-image",
-        "OpenAI Media Service",
-        "c2pa",
-        "caBX",
-        "jumb"
-      ],
-      "editorSoftware": null,
-      "validation": "NOT_RUN",
-      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
-    },
-    {
-      "group": "Căn hộ 1PN",
-      "file": "nvs1.1.png",
-      "sha256": "418bd25cc3845746ca7ddd99d4cec8aa0f16aee5dbb45ba8268cf22f159deb77",
-      "bytes": 1751920,
-      "width": 1537,
-      "height": 1023,
-      "classification": "generator-markers-present",
-      "markers": [
-        "trainedAlgorithmicMedia",
-        "gpt-image",
-        "OpenAI Media Service",
-        "c2pa",
-        "caBX",
-        "jumb"
-      ],
-      "editorSoftware": null,
-      "validation": "NOT_RUN",
-      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
-    },
-    {
-      "group": "Căn hộ 1PN",
       "file": "nvs1.2.png",
       "sha256": "4d2fdd78e91e836e1d4f19bfdf2e1cdfe83a4b484940730baac7c352be7cf1ac",
       "bytes": 1814759,
       "width": 1537,
       "height": 1023,
-      "classification": "generator-markers-present",
-      "markers": [
-        "trainedAlgorithmicMedia",
-        "gpt-image",
-        "OpenAI Media Service",
-        "c2pa",
-        "caBX",
-        "jumb"
-      ],
-      "editorSoftware": null,
-      "validation": "NOT_RUN",
-      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
-    },
-    {
-      "group": "Căn hộ 1PN",
-      "file": "pk1.png",
-      "sha256": "030f58d063594bfbd1e8e6258608946c71201c0a5afc8ac4645e7b368742a9d6",
-      "bytes": 2240164,
-      "width": 1536,
-      "height": 1024,
-      "classification": "generator-markers-present",
-      "markers": [
-        "trainedAlgorithmicMedia",
-        "gpt-image",
-        "OpenAI Media Service",
-        "c2pa",
-        "caBX",
-        "jumb"
-      ],
-      "editorSoftware": null,
-      "validation": "NOT_RUN",
-      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
-    },
-    {
-      "group": "Căn hộ 1PN",
-      "file": "pn1.png",
-      "sha256": "a8b8bcb395729fb4165cceaa55ec2844da2cd342e77e405ddc9b08d21103e29b",
-      "bytes": 1575102,
-      "width": 1537,
-      "height": 1023,
-      "classification": "generator-markers-present",
-      "markers": [
-        "trainedAlgorithmicMedia",
-        "gpt-image",
-        "OpenAI Media Service",
-        "c2pa",
-        "caBX",
-        "jumb"
-      ],
-      "editorSoftware": null,
-      "validation": "NOT_RUN",
-      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
-    },
-    {
-      "group": "Căn hộ 1PN",
-      "file": "pn2.png",
-      "sha256": "a9752f536f38e9c3df52deedd1b57c5e75e12381ef6aea4e1b94965a59032e95",
-      "bytes": 1867031,
-      "width": 1540,
-      "height": 1021,
       "classification": "generator-markers-present",
       "markers": [
         "trainedAlgorithmicMedia",
@@ -907,26 +1372,6 @@
     },
     {
       "group": "Căn hộ 1PN view thoáng",
-      "file": "nvs1.2.png",
-      "sha256": "4d2fdd78e91e836e1d4f19bfdf2e1cdfe83a4b484940730baac7c352be7cf1ac",
-      "bytes": 1814759,
-      "width": 1537,
-      "height": 1023,
-      "classification": "generator-markers-present",
-      "markers": [
-        "trainedAlgorithmicMedia",
-        "gpt-image",
-        "OpenAI Media Service",
-        "c2pa",
-        "caBX",
-        "jumb"
-      ],
-      "editorSoftware": null,
-      "validation": "NOT_RUN",
-      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
-    },
-    {
-      "group": "Căn hộ 1PN view thoáng",
       "file": "pkv1.png",
       "sha256": "d0b8423838145aeacc55cbdca12c0f8000116c412b297a183aa4f2fc2c422eec",
       "bytes": 1803087,
@@ -947,51 +1392,11 @@
     },
     {
       "group": "Căn hộ 1PN view thoáng",
-      "file": "pkv2.png",
-      "sha256": "2edb502fca6cbb710442118b1bd95c98b10f8b13bc711abab359db7cc3624fa6",
-      "bytes": 2059364,
-      "width": 1553,
-      "height": 1013,
-      "classification": "generator-markers-present",
-      "markers": [
-        "trainedAlgorithmicMedia",
-        "gpt-image",
-        "OpenAI Media Service",
-        "c2pa",
-        "caBX",
-        "jumb"
-      ],
-      "editorSoftware": null,
-      "validation": "NOT_RUN",
-      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
-    },
-    {
-      "group": "Căn hộ 1PN view thoáng",
       "file": "pkv3.png",
       "sha256": "97768bcbeb3a03c17b20c78923747d9e434f555513347f9b4b9cafe643e10dbd",
       "bytes": 1944930,
       "width": 1568,
       "height": 1003,
-      "classification": "generator-markers-present",
-      "markers": [
-        "trainedAlgorithmicMedia",
-        "gpt-image",
-        "OpenAI Media Service",
-        "c2pa",
-        "caBX",
-        "jumb"
-      ],
-      "editorSoftware": null,
-      "validation": "NOT_RUN",
-      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
-    },
-    {
-      "group": "Căn hộ 1PN view thoáng",
-      "file": "pkv4.png",
-      "sha256": "3eec7c3e641a6d3708e8968bf33727e0ffcb51a2b7dcc0ee8d23628fe5a8f231",
-      "bytes": 1769322,
-      "width": 1537,
-      "height": 1023,
       "classification": "generator-markers-present",
       "markers": [
         "trainedAlgorithmicMedia",
@@ -1052,66 +1457,6 @@
       "bytes": 2125894,
       "width": 1592,
       "height": 988,
-      "classification": "generator-markers-present",
-      "markers": [
-        "trainedAlgorithmicMedia",
-        "gpt-image",
-        "OpenAI Media Service",
-        "c2pa",
-        "caBX",
-        "jumb"
-      ],
-      "editorSoftware": null,
-      "validation": "NOT_RUN",
-      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
-    },
-    {
-      "group": "Căn hộ 1PN view thoáng",
-      "file": "pkv8.png",
-      "sha256": "628043afe8d3be5b9ad1c69f65278e004a3d5a7482e9ad1d0788a69db43455d6",
-      "bytes": 3174067,
-      "width": 1601,
-      "height": 982,
-      "classification": "generator-markers-present",
-      "markers": [
-        "trainedAlgorithmicMedia",
-        "gpt-image",
-        "OpenAI Media Service",
-        "c2pa",
-        "caBX",
-        "jumb"
-      ],
-      "editorSoftware": null,
-      "validation": "NOT_RUN",
-      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
-    },
-    {
-      "group": "Căn hộ 1PN view thoáng",
-      "file": "pnv10.png",
-      "sha256": "1ada2665ffc509ebc9a03eb032bb304679fc9aad53637a73ba0cd0617242fe01",
-      "bytes": 1784442,
-      "width": 1584,
-      "height": 993,
-      "classification": "generator-markers-present",
-      "markers": [
-        "trainedAlgorithmicMedia",
-        "gpt-image",
-        "OpenAI Media Service",
-        "c2pa",
-        "caBX",
-        "jumb"
-      ],
-      "editorSoftware": null,
-      "validation": "NOT_RUN",
-      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
-    },
-    {
-      "group": "Căn hộ 1PN view thoáng",
-      "file": "pnv11.png",
-      "sha256": "2e954e46a3bbf6b253a98cb0702fc3c4d560b139cf4f766576ee96c8e8d0053f",
-      "bytes": 1991199,
-      "width": 1535,
-      "height": 1025,
       "classification": "generator-markers-present",
       "markers": [
         "trainedAlgorithmicMedia",
@@ -1223,66 +1568,6 @@
     },
     {
       "group": "Căn hộ 2PN",
-      "file": "2pnkhach2.png",
-      "sha256": "db30ed13b3053c558d84b3113bfecd74c329efb80be53b53c328148e47a81078",
-      "bytes": 1975871,
-      "width": 1537,
-      "height": 1023,
-      "classification": "generator-markers-present",
-      "markers": [
-        "trainedAlgorithmicMedia",
-        "gpt-image",
-        "OpenAI Media Service",
-        "c2pa",
-        "caBX",
-        "jumb"
-      ],
-      "editorSoftware": null,
-      "validation": "NOT_RUN",
-      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
-    },
-    {
-      "group": "Căn hộ 2PN",
-      "file": "2pnv1.png",
-      "sha256": "77c5ea497d37f51f1ded2da6e2e8ed1ddd9b604323a5b7eb3c9262b7037ae9d6",
-      "bytes": 1759702,
-      "width": 1537,
-      "height": 1023,
-      "classification": "generator-markers-present",
-      "markers": [
-        "trainedAlgorithmicMedia",
-        "gpt-image",
-        "OpenAI Media Service",
-        "c2pa",
-        "caBX",
-        "jumb"
-      ],
-      "editorSoftware": null,
-      "validation": "NOT_RUN",
-      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
-    },
-    {
-      "group": "Căn hộ 2PN",
-      "file": "2pnv2.png",
-      "sha256": "e63b2e7fe71ea85cfd52be90aedc3188b90f7ea97fbc9a08b12e09af6fd4a596",
-      "bytes": 1749839,
-      "width": 1536,
-      "height": 1024,
-      "classification": "generator-markers-present",
-      "markers": [
-        "trainedAlgorithmicMedia",
-        "gpt-image",
-        "OpenAI Media Service",
-        "c2pa",
-        "caBX",
-        "jumb"
-      ],
-      "editorSoftware": null,
-      "validation": "NOT_RUN",
-      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
-    },
-    {
-      "group": "Căn hộ 2PN",
       "file": "2pnv3.png",
       "sha256": "f2cb4badce2118855a0722a9fa15228eb6ed6898150f429a8562d24af8f932cc",
       "bytes": 1519776,
@@ -1323,51 +1608,11 @@
     },
     {
       "group": "Căn hộ 2PN",
-      "file": "2pnv5.png",
-      "sha256": "fedd87de5708e4b55d5dca2766093cadadca0880cf2afbe3abf23e15f62b872b",
-      "bytes": 1916698,
-      "width": 1536,
-      "height": 1024,
-      "classification": "generator-markers-present",
-      "markers": [
-        "trainedAlgorithmicMedia",
-        "gpt-image",
-        "OpenAI Media Service",
-        "c2pa",
-        "caBX",
-        "jumb"
-      ],
-      "editorSoftware": null,
-      "validation": "NOT_RUN",
-      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
-    },
-    {
-      "group": "Căn hộ 2PN",
       "file": "2pnvnight1.png",
       "sha256": "495456f2e29e2758c672d59317e01fc8d2f574ea1c83cb212645b7cd4fe11c03",
       "bytes": 1621999,
       "width": 1537,
       "height": 1023,
-      "classification": "generator-markers-present",
-      "markers": [
-        "trainedAlgorithmicMedia",
-        "gpt-image",
-        "OpenAI Media Service",
-        "c2pa",
-        "caBX",
-        "jumb"
-      ],
-      "editorSoftware": null,
-      "validation": "NOT_RUN",
-      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
-    },
-    {
-      "group": "Căn hộ 2PN",
-      "file": "2pnvnight2.png",
-      "sha256": "6a555f7229facf89b3df9bd2dc3512b14a6ec11bba0f6bbcf62d8545a438b903",
-      "bytes": 1588506,
-      "width": 1535,
-      "height": 1024,
       "classification": "generator-markers-present",
       "markers": [
         "trainedAlgorithmicMedia",
@@ -1464,26 +1709,6 @@
       "bytes": 1822727,
       "width": 1533,
       "height": 1026,
-      "classification": "generator-markers-present",
-      "markers": [
-        "trainedAlgorithmicMedia",
-        "gpt-image",
-        "OpenAI Media Service",
-        "c2pa",
-        "caBX",
-        "jumb"
-      ],
-      "editorSoftware": null,
-      "validation": "NOT_RUN",
-      "reason": "not published: markers naming a generative-image service were found; signature not validated, so this is an indication to verify, not proof"
-    },
-    {
-      "group": "Căn hộ 2PN",
-      "file": "nvs2pn.png",
-      "sha256": "4679b7122c458a4fadd9ff64e5283931c486d0f92eacbbefb5615ed144b19003",
-      "bytes": 1702429,
-      "width": 1537,
-      "height": 1023,
       "classification": "generator-markers-present",
       "markers": [
         "trainedAlgorithmicMedia",

@@ -339,6 +339,8 @@ public sealed class RiversideDemoSeeder(TheBhaDbContext dbContext, TimeProvider 
         var stageLinks = new List<object>();
         var mediaIds = new Dictionary<string, Guid>();
         var coverTaken = new HashSet<string>();
+        // What each link will hold after this run's inserts, so a migration can be judged against it.
+        var stagedLinkValues = new Dictionary<(Guid OwnerId, Guid MediaId), (int SortOrder, bool IsCover)>();
         for (var index = 0; index < RiversideDemoCatalog.Media.Count; index++)
         {
             var definition = RiversideDemoCatalog.Media[index];
@@ -375,7 +377,11 @@ public sealed class RiversideDemoSeeder(TheBhaDbContext dbContext, TimeProvider 
                 ? existingPropertyLinks.Any(link => link.IsCover)
                 : existingTypeLinks.Any(link => link.RoomTypeId == ownerId && link.IsCover));
             var asCover = definition.IsCover && !ownerHasCover;
-            if (definition.IsCover && !asCover)
+            // A cover that an earlier seed's cover is being replaced by is linked as a regular image first and
+            // promoted by its link migration (see RiversideDemoCatalog.LinkMigrations): that is not a warning.
+            var promotedByMigration = RiversideDemoCatalog.LinkMigrations.Any(
+                migration => migration.FileName == definition.FileName && migration.ToIsCover);
+            if (definition.IsCover && !asCover && !promotedByMigration)
             {
                 warnings.Add($"{ownerKey} already has a cover image; {definition.FileName} was linked as a regular image.");
             }
@@ -385,10 +391,64 @@ public sealed class RiversideDemoSeeder(TheBhaDbContext dbContext, TimeProvider 
                 coverTaken.Add(ownerKey);
             }
 
+            stagedLinkValues[(ownerId, mediaId)] = (definition.SortOrder, asCover);
             stageLinks.Add(isProperty
                 ? new PropertyMedia(propertyId, mediaId, definition.SortOrder, asCover)
                 : new RoomTypeMedia(ownerId, mediaId, definition.SortOrder, asCover));
         }
+
+        // ---- Link migrations: judged now (dry-run shows them), written only on apply ---------------
+        var pendingMigrations = new List<(RiversideLinkMigration Migration, Guid RoomTypeId, Guid MediaId)>();
+        var migrationsApplied = 0;
+        foreach (var migration in RiversideDemoCatalog.LinkMigrations)
+        {
+            if (!typeIds.TryGetValue(migration.RoomTypeCode, out var migrationTypeId) ||
+                !mediaIds.TryGetValue(migration.FileName, out var migrationMediaId))
+            {
+                continue; // the room type or picture does not exist yet; nothing to migrate
+            }
+
+            var existingLink = existingTypeLinks.FirstOrDefault(
+                link => link.RoomTypeId == migrationTypeId && link.MediaId == migrationMediaId);
+            (int SortOrder, bool IsCover)? current = existingLink is not null
+                ? (existingLink.SortOrder, existingLink.IsCover)
+                : stagedLinkValues.TryGetValue((migrationTypeId, migrationMediaId), out var staged) ? staged : null;
+            if (current is null)
+            {
+                continue;
+            }
+
+            if (current == (migration.ToSortOrder, migration.ToIsCover))
+            {
+                migrationsApplied++;
+            }
+            else if (current == (migration.FromSortOrder, migration.FromIsCover))
+            {
+                // A picture may become the cover only if no other picture keeps the cover after this run's own
+                // demotions; a cover the operator chose is never taken away from them.
+                var operatorCover = migration.ToIsCover && existingTypeLinks.Any(link =>
+                    link.RoomTypeId == migrationTypeId && link.MediaId != migrationMediaId && link.IsCover &&
+                    !RiversideDemoCatalog.LinkMigrations.Any(other =>
+                        other.FromIsCover && !other.ToIsCover && other.RoomTypeCode == migration.RoomTypeCode &&
+                        mediaIds.TryGetValue(other.FileName, out var demotedId) && demotedId == link.MediaId));
+                if (operatorCover)
+                {
+                    warnings.Add(
+                        $"{migration.RoomTypeCode} has a cover image the Seed did not set; {migration.FileName} was not made the cover.");
+                }
+                else
+                {
+                    pendingMigrations.Add((migration, migrationTypeId, migrationMediaId));
+                }
+            }
+            else
+            {
+                warnings.Add(
+                    $"{migration.FileName} of {migration.RoomTypeCode} was edited by an operator (order {current.Value.SortOrder}, cover {current.Value.IsCover}); its order/cover change was left alone.");
+            }
+        }
+
+        counts.Add(new("Link order/cover migrations", migrationsApplied, pendingMigrations.Count));
 
         var existingAmenityLinks = 0;
         foreach (var definition in RiversideDemoCatalog.PropertyAmenities)
@@ -429,6 +489,23 @@ public sealed class RiversideDemoSeeder(TheBhaDbContext dbContext, TimeProvider 
             await dbContext.SaveChangesAsync(cancellationToken);
         }
 
+        // Guarded, per-link updates: each matches the exact old values or changes nothing, demotions first.
+        foreach (var (migration, roomTypeId, mediaId) in pendingMigrations.OrderByDescending(item => item.Migration.FromIsCover))
+        {
+            var changed = await dbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                UPDATE "RoomTypeMedia" SET "SortOrder" = {migration.ToSortOrder}, "IsCover" = {migration.ToIsCover}
+                WHERE "RoomTypeId" = {roomTypeId} AND "MediaId" = {mediaId}
+                  AND "SortOrder" = {migration.FromSortOrder} AND "IsCover" = {migration.FromIsCover}
+                """,
+                cancellationToken);
+            if (changed != 1)
+            {
+                throw new InvalidOperationException(
+                    $"link migration for {migration.FileName} of {migration.RoomTypeCode} matched {changed} rows; nothing was committed.");
+            }
+        }
+
         await VerifyAsync(propertyId, options, cancellationToken);
         await transaction!.CommitAsync(cancellationToken);
         dbContext.ChangeTracker.Clear();
@@ -448,6 +525,13 @@ public sealed class RiversideDemoSeeder(TheBhaDbContext dbContext, TimeProvider 
             var nights = await dbContext.DailyRoomRates.AsNoTracking().CountAsync(
                 item => item.PropertyId == propertyId && item.RoomTypeId == type.Id &&
                         item.StayDate >= options.From && item.StayDate < options.ToExclusive, cancellationToken);
+            var covers = await dbContext.RoomTypeMedia.AsNoTracking().CountAsync(
+                item => item.RoomTypeId == type.Id && item.IsCover, cancellationToken);
+            if (covers > 1)
+            {
+                throw new InvalidOperationException($"verification failed for {definition.Code}: {covers} cover images.");
+            }
+
             if (rooms != definition.Rooms || nights < options.Days)
             {
                 throw new InvalidOperationException(
