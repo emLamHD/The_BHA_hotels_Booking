@@ -33,14 +33,20 @@ const PreviewImage: FC<PreviewImageProps> = ({ src, fill, className = "", width,
     );
   }
 
+  // Out-of-flow decoration (scattered avatars, quotation marks) is dropped: a grey block there would
+  // only cover the sample text.
+  if (/\babsolute\b/.test(className)) return null;
+
   const w = width ?? (typeof src === "object" ? src.width : undefined);
   const h = height ?? (typeof src === "object" ? src.height : undefined);
   const ratio = w && h ? { aspectRatio: `${w} / ${h}` } : undefined;
+  // `next/image` shows a bundled picture at its natural width unless the class says otherwise.
+  const sizing = /\bw-/.test(className) ? undefined : { width: w ? `${w}px` : "100%", maxWidth: "100%" };
   return (
     <div
       aria-hidden="true"
-      className={`${FRAME} ${className.includes("w-") ? "" : "w-full"} ${className}`}
-      style={{ ...ratio, ...style }}
+      className={`${FRAME} ${className}`}
+      style={{ ...ratio, ...sizing, ...style }}
     >
       <PhotoIcon className="h-12 w-12" />
     </div>

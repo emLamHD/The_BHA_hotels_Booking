@@ -41,6 +41,14 @@ describe("PreviewImage", () => {
       expect(html).toContain('aria-hidden="true"');
     }
     expect(intrinsic).toContain("aspect-ratio:400 / 300");
+    expect(intrinsic).toContain("width:400px"); // natural width, like next/image
+  });
+
+  it("renders nothing for out-of-flow decoration", () => {
+    const decoration = renderToStaticMarkup(
+      React.createElement(PreviewImage, { src: { src: "/q.png", width: 50, height: 50 }, className: "absolute top-9 -left-20", alt: "" })
+    );
+    expect(decoration).toBe("");
   });
 });
 
