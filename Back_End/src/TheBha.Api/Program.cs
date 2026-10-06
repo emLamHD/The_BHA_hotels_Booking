@@ -13,6 +13,7 @@ using TheBha.Api;
 using TheBha.Api.Authentication;
 using TheBha.Api.Bookings;
 using TheBha.Api.Controllers;
+using TheBha.Api.Seeding;
 using TheBha.Application.Customers;
 using TheBha.Infrastructure.Identity;
 using TheBha.Infrastructure.Persistence;
@@ -415,6 +416,16 @@ if (StaffBootstrapCommand.IsStaffCommand(args))
 {
     Environment.ExitCode = await StaffBootstrapCommand.RunAsync(
         args, app.Services, Console.Out, StaffBootstrapCommand.ReadPassword, app.Lifetime.ApplicationStopping);
+    return;
+}
+
+// CUST-WEB-SHOWCASE-001-CP02: the Riverside demo seed is an explicit operator command that exits
+// when done. Its own guard decides whether this process may touch this database; it is refused
+// outside Development and never runs as a startup step.
+if (RiversideDemoSeedCommand.IsCommand(args))
+{
+    Environment.ExitCode = await RiversideDemoSeedCommand.RunAsync(
+        args, app.Services, app.Environment.EnvironmentName, Console.Out, app.Lifetime.ApplicationStopping);
     return;
 }
 

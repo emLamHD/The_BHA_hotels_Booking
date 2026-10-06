@@ -62,6 +62,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<IReservationBoardDataSource, ReservationBoardDataLoader>();
         services.AddScoped<IReservationBoardQuery, ReservationBoardQuery>();
         services.AddScoped<DevelopmentDataSeeder>();
+        services.AddScoped<TheBha.Infrastructure.Persistence.Demo.RiversideDemoSeeder>();
 
         services
             .AddHealthChecks()
