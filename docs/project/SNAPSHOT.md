@@ -1,10 +1,23 @@
 # THE BHA — SNAPSHOT
 
-> Ngày cập nhật: 2026-10-04 (`PMS-ADMIN-AUTH-001-CP07`; các phần cũ hơn giữ nguyên kèm SHA)
+> Ngày cập nhật: 2026-10-06 (`PMS-CAL-002-CP00`; các phần cũ hơn giữ nguyên kèm SHA)
 >
 > Mục đích: phục hồi trạng thái hiện tại mà không cần nạp worklog lịch sử
 
-Cập nhật 2026-10-04 (`PMS-ADMIN-AUTH-001-CP07`, Draft PR, chưa merge):
+Cập nhật 2026-10-06 (`PMS-CAL-002-CP00`, docs-only, Draft PR, chưa merge):
+`PMS-ADMIN-AUTH-001-CP07` (PR #80) đã **merged** (`2026-10-04T09:32:21Z`), merge commit
+`38d4a9d964fde411aa4c03b46323f250fd54221b`; CI run `37192482384` `success` trên đúng
+commit đó. Milestone `PMS-ADMIN-AUTH-001` (CP00–CP07, PR #73–#80) là **PASS — CLOSED**:
+Calendar mặc định `Staff` ở mọi môi trường, `LocalGate` chỉ là opt-in Development. Kết quả
+review của CP07 không được ghi trong repository (report CP07 ghi `REVIEW: NOT RUN` tại thời
+điểm viết). **Chưa deploy Production.** Objective mới là `PMS-CAL-002-CP00` — thiết kế
+contract cho đổi phòng giữa kỳ bằng split assignment (split-move):
+`docs/design/PMS-CAL-002-split-move.md`, evidence
+`docs/reports/PMS-CAL-002-CP00-completion.md`. Đó là **đề xuất**, chưa phải CURRENT và
+chưa được Owner duyệt: split-move vẫn **TARGET**, chưa có route/UI; quyết định D1–D6 còn
+**OPEN**; CP01–CP05 chưa được kích hoạt.
+
+Bản cập nhật trước (2026-10-04, `PMS-ADMIN-AUTH-001-CP07`, viết khi PR #80 còn Draft; nay đã merged):
 `PMS-ADMIN-AUTH-001-CP06` cùng correction C1–C4 (PR #79) đã **merged**
 (`2026-10-04T08:03:02Z`), merge commit `c62719b9fe8b947ef001cc2b20ea1a6a7d5e226e`. Review C4:
 RUN — no actionable regressions (Reviewed SHA: UNVERIFIED). CP07 là checkpoint cuối của
@@ -203,7 +216,7 @@ này sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
 |---|---|
 | Repository | `emLamHD/The_BHA_hotels_Booking` |
 | Base branch | `develop` |
-| `develop` HEAD | `e0f5a395aec15cc02e328433a97850e30e165675` (merge commit của PR #41; đọc lại từ Git sau `git fetch --prune origin` trước khi dùng làm baseline) |
+| `develop` HEAD | `38d4a9d964fde411aa4c03b46323f250fd54221b` (merge commit của PR #80, xác minh 2026-10-06; đọc lại từ Git sau `git fetch --prune origin` trước khi dùng làm baseline) |
 | PR #31 | merged — `docs(pms): record core database blueprint v2`, merge commit `bfb3377b701e9309d3cbbea22bb18159bc37a2e0`, merged `2026-08-19T10:56:01Z`. Persists PMS blueprint documentation foundation (`docs/design/PMS-DATA-001-core-database-blueprint-v2.md`, ADR 0005, ADR 0006). |
 | PR #32 | merged — `feat(admin): add PMS reservation board UI baseline`, merge commit `17e929d7c1f82941599223344b5f4cdc3aa34307`, merged `2026-08-22T14:42:31Z`. Closes `ADMIN-002.1`. |
 | PR #33 | merged — `docs(project): close ADMIN-002.1 and record next sequence`, merge commit `2c38face7cf51d7271c361e6d684adea466edcf9`, merged `2026-08-22T15:38:25Z`. Closes `ADMIN-002.1-DOCS-CLOSEOUT`. |
@@ -221,7 +234,8 @@ này sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
 | PR #45 | merged — `feat(admin): same-RoomType reservation assignment from the board (PMS-CAL-001.2-CP03A)`, merge commit `261f75595042d9549ac3133b503cd09a66ed193a`, merged `2026-09-14T17:09:04Z`. CI run `34872986691` `success` trên đúng merge commit. Remote feature branch đã xóa. |
 | PR #46 | merged — `feat(admin): controlled cross-RoomType reservation assignment (PMS-CAL-001.2-CP03B)`, merge commit `16303edd472e4b960db8b765f69b394f58411246`, merged `2026-09-14T18:02:54Z`. CI run `34878420882` `success` trên đúng merge commit. Remote feature branch đã xóa. |
 | PR #47 | merged — `fix(backend): record SupersedeAsync authorization evidence per audit event (PMS-CAL-001.2-CP04A)`, merge commit `2fefb6295e4b772411dc2c63c270e298253690db`, merged `2026-09-14T18:58:06Z`. CI run `34884020638` `success` trên đúng merge commit. Remote feature branch đã xóa. |
-| PR #48–#71 | merged (2026-09 → 2026-09-30); CI của từng PR nằm trong mô tả PR đó, riêng merge #71 (`3d7eb12`) là run `36690121585` `success`: CP04B route move/unassign (#48, `b898c39`); CP04C–D move/unassign trên board (#49–#63); `PMS-CAL-001.3` block create/cancel API và board (#64–#67, `21240aa`); `PMS-CAL-001.4-CP01` kéo-để-mở-dialog-move (#68, `27c962d`); `PMS-CAL-001.5` CP01 (#69, `56eff1c`), CP02 (#70, `80f582e`), CP03 (#71, merge `3d7eb12b09286bbb2aa79590442f4ace69321563`). Không còn PR thực thi nào mở. |
+| PR #48–#71 | merged (2026-09 → 2026-09-30); CI của từng PR nằm trong mô tả PR đó, riêng merge #71 (`3d7eb12`) là run `36690121585` `success`: CP04B route move/unassign (#48, `b898c39`); CP04C–D move/unassign trên board (#49–#63); `PMS-CAL-001.3` block create/cancel API và board (#64–#67, `21240aa`); `PMS-CAL-001.4-CP01` kéo-để-mở-dialog-move (#68, `27c962d`); `PMS-CAL-001.5` CP01 (#69, `56eff1c`), CP02 (#70, `80f582e`), CP03 (#71, merge `3d7eb12b09286bbb2aa79590442f4ace69321563`). |
+| PR #72–#80 | merged: `PMS-CAL-001.5-CP04` (#72, `0952e1b`); `PMS-ADMIN-AUTH-001` CP00 (#73, `874f148`), CP01 (#74, `3c1eefd`), CP02 (#75, `6baefe9`), CP03 (#76, `c89efc2`), CP04 (#77, `f3f705f`), CP05 (#78, `8f62229`), CP06 (#79, `c62719b`), CP07 (#80, merge `38d4a9d964fde411aa4c03b46323f250fd54221b`, `2026-10-04T09:32:21Z`, CI run `37192482384` `success`). PR thực thi đang mở duy nhất: Draft PR của `PMS-CAL-002-CP00` (docs-only). |
 
 ## 2. Work item state
 
@@ -328,7 +342,7 @@ này sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
   RoomType; CP03B mở rộng cùng dialog sang cross-RoomType có xác nhận thao
   tác và reason bắt buộc. Evidence nằm trong mô tả của từng PR.
 
-### Đang thực thi
+### Hoàn tất (tiếp)
 
 - `PMS-CAL-001.2-CP04A` (PR #47) — merged. `SupersedeAsync` ghi
   `AuthorizationEvidence` per audit event, không còn copy nguyên command
@@ -336,14 +350,20 @@ này sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
 
 ### Đang thực thi
 
-- `PMS-ADMIN-AUTH-001-CP07` (Staff mặc định, `LocalGate` chỉ Development) đang
-  ở Draft PR; CP00–CP06 đã merged (PR #73–#79).
-- Mọi mutation nghiệp vụ khác của `PMS-CAL-001.2` (assignment split/swap/batch,
-  operational-block move/split) **chưa kích hoạt**; Snapshot này không tự mở chúng.
+- `PMS-ADMIN-AUTH-001` — Staff authentication/RBAC cho Admin Calendar: `PASS — CLOSED`.
+  CP00–CP07 merged (PR #73–#80, CP07 merge `38d4a9d`). Chưa deploy Production.
+
+### Đang thực thi
+
+- `PMS-CAL-002-CP00` — thiết kế contract split-move (docs-only, Draft PR):
+  `docs/design/PMS-CAL-002-split-move.md`. Không đổi source, test, schema hay API.
+  Quyết định D1–D6 **OPEN**, chờ Owner; CP01–CP05 **chưa kích hoạt**.
+- Các mutation khác (assignment swap/batch, operational-block move/split) **chưa kích
+  hoạt**; Snapshot này không tự mở chúng.
 
 ### Quyết định đang hiệu lực
 
-`PMS_CAL_001_5_CP04_MERGED__ADMIN_AUTH_CP00_DESIGN_ACTIVE`
+`PMS_ADMIN_AUTH_001_CLOSED__PMS_CAL_002_CP00_DESIGN_ACTIVE`
 
 Ý nghĩa:
 
@@ -358,7 +378,7 @@ này sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
   cũng đã merge đến PR #71; các checkpoint sau chưa được kích hoạt.
 - Admin Calendar (Board read và năm route ghi) có Staff authentication,
   RBAC theo Property/role và audit `staff:{id}` (`PMS-ADMIN-AUTH-001` CP03–CP06,
-  merged); CP07 (Draft) làm `Staff` thành mặc định và giới hạn `LocalGate`
+  merged); CP07 (PR #80, merged) làm `Staff` thành mặc định và giới hạn `LocalGate`
   (write/read gate same-machine development, không auth) thành opt-in
   Development. Chưa có Production deployment; các module Admin mẫu khác vẫn
   ngoài phạm vi. Admin Reservation Board là caller duy nhất của các route.
@@ -376,11 +396,12 @@ này sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
   `PMS-CAL-001.1` (Organization, multi-RoomType Hold/Reservation
   **request** shape, HTTP/Admin/Calendar exposure của
   `RoomOccupancySegments`/`RoomBlock` vượt ngoài `PMS-CAL-001.1` và
-  `PMS-CAL-001.2`'s exact scope, Admin authentication/RBAC, Staff identity,
-  `FolioEntries`, OTA
+  `PMS-CAL-001.2`'s exact scope, `FolioEntries`, OTA
   adapter/inbox/outbox): **locked** — documented as TARGET/APPROVED by
   `PMS-DATA-DOCS-001`, not authorized for implementation until its own
   Master Execution Prompt.
+  Staff identity và Admin Calendar authentication/RBAC không còn locked: chúng
+  CURRENT qua `PMS-ADMIN-AUTH-001` (PR #73–#80).
 - Payments/refunds, full housekeeping/maintenance modules, production
   migrations for any remaining PMS TARGET entity, and adapter-specific OTA
   design: locked, unrelated separately authorized future work.
@@ -426,7 +447,9 @@ này sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
   Whole-Reservation cancellation atomically cancels its assignment segments.
   Assignment/OperationalBlock mutation commands live behind the
   application/persistence boundary. Trên `develop` các operation được expose
-  qua HTTP — tất cả local Development only, sau write gate của CP01 (PR #43) —
+  qua HTTP — từ `PMS-ADMIN-AUTH-001-CP07` mặc định cần Staff session và permission
+  theo Property/role (`AccessMode=Staff`); `LocalGate` (write gate của CP01, PR #43)
+  chỉ còn là opt-in Development —
   là: `CreateAsync` qua
   `POST /api/admin/v1/properties/{propertyId}/reservation-assignments` (CP02,
   PR #44; được Admin Reservation Board gọi qua PR #45/#46), `SupersedeAsync`
@@ -441,9 +464,12 @@ này sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
   Admin Reservation Board gọi từ CP04 — block bar → popover → dialog xác nhận
   hiển thị đúng toàn bộ nights của segment và `expectedVersion` từ board, rồi
   đọc lại board). `SupersedeAsync` dạng split/batch và
-  OperationalBlock move/split/multi-segment supersede **vẫn** internal-only. Không có Staff identity hay Admin RBAC model; cross-RoomType
-  assignment requires an opaque `AuthorizationEvidence`/`Reason` pair, not a
-  real permission check. A
+  OperationalBlock move/split/multi-segment supersede **vẫn** internal-only (thiết kế
+  split-move một-segment: `PMS-CAL-002-CP00`, TARGET). Cross-RoomType assignment
+  requires an `AuthorizationEvidence`/`Reason` pair: ở `Staff` mode evidence là
+  `staff-rbac:{role}:{propertyId}:cross-room-type-confirmed` từ authorization
+  server-side (permission `AssignmentCrossRoomType`, Manager) và actor là
+  `staff:{id}`; ở `LocalGate` vẫn là hằng số opaque. A
   shared `AdvisoryLockCoordinator` is now used by every advisory-lock-taking
   writer. Exact constraint names, SQLSTATEs, lock order, and error mapping
   are recorded in ADR 0006 and `docs/reports/PMS-BE-001.2-completion.md`,
@@ -602,7 +628,8 @@ evidence independently verified for this closeout via:
   **vẫn** chỉ chạy trên local deterministic mock state — không có backend
   call, không có persistence, không có Admin authentication/RBAC thật và
   không có OTA behavior thật. Riêng Admin Reservation Board là caller thật
-  của các route assignment local-only: create của CP02 (CP03A/CP03B, merged),
+  của các route assignment (Staff-authorized mặc định từ `PMS-ADMIN-AUTH-001`;
+  `LocalGate` chỉ là opt-in Development): create của CP02 (CP03A/CP03B, merged),
   move một segment (CP04C, PR #53/#55) và unassign một segment (CP04D, PR
   #63) của CP04B, và của route tạo một OperationalBlock segment
   (`PMS-CAL-001.3-CP01`) qua dialog trên toolbar từ CP03 — khoảng đêm nằm
@@ -610,12 +637,12 @@ evidence independently verified for this closeout via:
   (CP02) được board gọi từ CP04. Assignment split/batch và OperationalBlock
   move/split vẫn chưa có route HTTP.
 - `PROJECT_BIBLE.md`, `docs/design/PMS-DATA-001-core-database-blueprint-v2.md`,
-  ADR (0001–0006), test baseline và source code là nguồn sự thật sản phẩm/
+  ADR (0001–0007), test baseline và source code là nguồn sự thật sản phẩm/
   kiến trúc. Chúng phân biệt rõ CURRENT frontend prototype (mock-only),
   CURRENT backend (`PMS-BE-001.1` normalized Item/Unit authority, một
   RoomType/RatePlan mỗi public request; `PMS-BE-001.2` physical-room
   schedule database authority/availability/internal mutation boundary — cả
-  hai đã hoạt động; phần HTTP exposure local-only của schedule authority đã
+  hai đã hoạt động; phần HTTP exposure của schedule authority (Staff mặc định) đã
   CURRENT theo `PMS-CAL-001.1`/`PMS-CAL-001.2`/`PMS-CAL-001.3` CP01–CP02) và
   TARGET (multi-RoomType public request, phần HTTP/Admin/Calendar mutation
   còn lại của schedule authority, OTA — chưa implement; Staff
@@ -690,12 +717,16 @@ evidence independently verified for this closeout via:
 `e0f5a395aec15cc02e328433a97850e30e165675`, `2026-09-03T03:11:21Z`; §1,
 §2, §4). Không còn review gate hay merge nào đang chờ trên work item đó.
 
-Objective hiện tại là `PMS-ADMIN-AUTH-001-CP07` — `Staff` là mặc định của Admin Calendar,
-`LocalGate` chỉ là opt-in Development (API từ chối khởi động ở môi trường khác; Admin_Web từ
-chối trong production build), tài liệu vận hành và acceptance end-to-end. Production
-deployment chưa thực hiện và cần quyết định riêng của Owner. Review Codex chỉ do Owner gọi,
-OC quyết định, Owner giữ Ready/merge/branch cleanup. Không tự bắt đầu work item khác từ
-Snapshot này.
+`PMS-ADMIN-AUTH-001` đã đóng (`PASS — CLOSED`, CP07 = PR #80 merged, merge commit
+`38d4a9d964fde411aa4c03b46323f250fd54221b`). Production deployment chưa thực hiện và cần
+quyết định riêng của Owner.
+
+Objective hiện tại là `PMS-CAL-002-CP00` — thiết kế contract đổi phòng giữa kỳ bằng split
+assignment (một segment, một split date, một phòng đích cho phần sau):
+`docs/design/PMS-CAL-002-split-move.md`. Docs-only; split-move vẫn TARGET. Quyết định
+D1–D6 (§8 của design) còn OPEN; CP01 chỉ bắt đầu khi Owner chốt các quyết định nó phụ
+thuộc và phát Master Execution Prompt riêng. Review Codex chỉ do Owner gọi, OC quyết định,
+Owner giữ Ready/merge/branch cleanup. Không tự bắt đầu work item khác từ Snapshot này.
 
 ## 9. Main risks
 
@@ -737,13 +768,15 @@ Snapshot này.
   `AccessMode=LocalGate` (chỉ Development); `Staff` mặc định không đọc chúng.
 - Nhầm database authority/internal mutation boundary của `RoomOccupancySegment`/
   `RoomBlock` (`PMS-BE-001.2`, đã CURRENT) với HTTP/Admin/Calendar
-  integration đầy đủ, Staff identity, hoặc Admin RBAC thật — ngoài các
-  endpoint local-only sau write gate CP01 (assignment create của
+  integration đầy đủ — ngoài năm route ghi (assignment create của
   `PMS-CAL-001.2` CP02, one-segment move/unassign của CP04B, và
   single-segment operational-block create/cancel của `PMS-CAL-001.3`
-  CP01/CP02), những
-  thứ này vẫn TARGET, chưa implement; `ActorReference`/`AuthorizationEvidence`
-  chỉ là opaque string, không phải permission check thật.
+  CP01/CP02), các mutation khác (split, swap/batch, block move/split) vẫn
+  TARGET, chưa implement. Staff identity/RBAC và audit actor Staff đã CURRENT
+  (`PMS-ADMIN-AUTH-001`); chỉ ở `LocalGate` `ActorReference`/`AuthorizationEvidence`
+  mới là hằng số opaque.
+- Coi thiết kế `PMS-CAL-002-CP00` (split-move) là CURRENT hoặc đã được Owner duyệt
+  — không đúng: chưa có route/UI, D1–D6 còn OPEN.
 - Nhầm foundation normalized Item/Unit (`PMS-BE-001.1`, single-RoomType
   public request) với multi-RoomType public request TARGET đã implement —
   vẫn chưa implement.
@@ -765,13 +798,11 @@ Chạy `git fetch --prune origin` và đọc `origin/develop` HEAD trực tiếp
 Git — **không** lấy SHA từ tài liệu này — trước khi dùng Snapshot này làm
 planning baseline.
 
-Work item đang thực thi là `PMS-CAL-001.2-CP04B` (§2, §8). Khi
-implementation của nó dừng ở checkpoint ổn định, Owner đọc PR head còn sống
-từ GitHub rồi invoke review trên đúng head đó với explicit base
-`origin/develop` (không suy ra `main`). Nếu review không có actionable
-finding và CI mới xanh trên đúng head đó, Owner mark Ready, squash-merge và
-branch cleanup; sau khi merge, xác nhận merge SHA trước khi ghi checkpoint
-là đóng, rồi Owner/Control Tower quyết định có kích hoạt `CP04C` hay không.
-Bối cảnh đầy đủ: `docs/daily/2026-09/2026-09-11-worklog.md`,
-`docs/reports/PMS-CAL-001.2-CP01-completion.md` và
-`docs/reports/PMS-CAL-001.1-completion.md`.
+Work item đang thực thi là `PMS-CAL-002-CP00` (§2, §8), Draft PR docs-only trên
+branch `docs/pms-cal-002-cp00-split-move-design`. Owner đọc PR head còn sống từ
+GitHub rồi invoke `/codex:review --base origin/develop` trên đúng head đó (không suy
+ra `main`). Sau review và OC, Owner chốt D1–D6 của
+`docs/design/PMS-CAL-002-split-move.md` §8, quyết định Ready/merge/branch cleanup, và
+chỉ sau đó mới kích hoạt `PMS-CAL-002-CP01` bằng Master Execution Prompt riêng.
+Evidence: `docs/reports/PMS-CAL-002-CP00-completion.md`. (Đoạn First action cũ trỏ tới
+`PMS-CAL-001.2-CP04B` đã hết hiệu lực; CP04B merged trong PR #48.)
