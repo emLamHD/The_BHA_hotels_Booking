@@ -25,6 +25,19 @@ describe("decideRoute", () => {
     expect(decideRoute(path)).toEqual({ kind: "pass" });
   });
 
+  // CP02-C2: exactly one template listing route is real now — a room's page.
+  it.each(["/listing-stay-detail", "/listing-stay-detail/"])("passes the room details route %s", (path) => {
+    expect(decideRoute(path)).toEqual({ kind: "pass" });
+  });
+
+  it.each([
+    "/listing-stay-detail/x", "/listing-stay-detail-x", "/listing-stay-details", "/Listing-Stay-Detail",
+    "/listing-stay-detail/../checkout", "/listing-stay-detail%2f", "/x/listing-stay-detail",
+    "/listing-car-detail", "/listing-experiences-detail", "/listing-stay", "/listing-stay-map",
+  ])("does not open the rest of the listing group through %s", (path) => {
+    expect(decideRoute(path)).toEqual({ kind: "unavailable" });
+  });
+
   it.each([
     "/media/the-bha-riverside/entrance-logo.webp",
     "/media/the-bha-riverside/rooftop-pool-day.webp",
@@ -67,7 +80,7 @@ describe("decideRoute", () => {
 
   it.each([
     "/checkout", "/checkout/", "/pay-done", "/login", "/signup", "/home-3",
-    "/listing-stay", "/listing-stay-map", "/listing-stay-detail", "/listing-car", "/listing-car-map",
+    "/listing-stay", "/listing-stay-map", "/listing-car", "/listing-car-map",
     "/listing-car-detail", "/listing-flights", "/listing-experiences", "/listing-experiences-map",
     "/listing-experiences-detail", "/listing-real-estate", "/listing-real-estate-map",
     "/account", "/account-password", "/account-savelists", "/account-billing",
@@ -120,12 +133,25 @@ describe("middleware", () => {
     expect(new URL(untrusted.headers.get("location")!, ORIGIN).origin).toBe(ORIGIN);
   });
 
-  it.each(["/checkout?step=2", "/login", "/listing-stay-detail/", "/blog/post-1"])(
+  it.each(["/checkout?step=2", "/login", "/listing-stay-detail/x", "/blog/post-1"])(
     "rewrites %s to the unavailable page without its query",
     (path) => {
       expect(rewrittenTo(path)).toBe("/showcase-unavailable");
     }
   );
+
+  it.each([
+    "/listing-stay-detail",
+    "/listing-stay-detail/",
+    "/listing-stay-detail?propertyId=a1000000-0000-0000-0000-000000000001&roomTypeId=a3000000-0000-0000-0000-000000000001",
+    "/listing-stay-detail?propertyId=a&roomTypeId=b&modal=PHOTO_TOUR_SCROLLABLE&photoId=2",
+  ])("serves the room details route %s directly, query untouched", (path) => {
+    const response = run(path);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(response.headers.get("x-middleware-rewrite")).toBeNull();
+    expect(response.headers.get("location")).toBeNull();
+  });
 
   it("lets a controlled photograph through untouched and refuses the manifest", () => {
     const photo = run("/media/the-bha-riverside/entrance-logo.webp");

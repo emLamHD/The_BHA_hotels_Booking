@@ -115,3 +115,16 @@ export function inProgressBookingTarget(state: BookingHoldFlowState): BookingTar
   if (!source) return null;
   return { propertyId: source.propertyId, roomTypeId: source.roomTypeId, phase: state.phase };
 }
+
+/**
+ * The room the app-level booking flow currently refers to, in any phase that carries one (a selected
+ * offer, a Hold session or a Reservation). Used to decide whether a room's page may show the flow.
+ */
+export function bookingFlowRoomTypeId(state: BookingHoldFlowState): string | null {
+  return (
+    state.reservationResult?.reservation.roomTypeId ??
+    state.session?.hold.roomTypeId ??
+    state.offer?.roomTypeId ??
+    null
+  );
+}

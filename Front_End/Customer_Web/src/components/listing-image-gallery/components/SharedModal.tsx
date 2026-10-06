@@ -12,7 +12,6 @@ import { AnimatePresence, motion, MotionConfig } from "framer-motion";
 import Image from "next/image";
 import { useState } from "react";
 import { useSwipeable } from "react-swipeable";
-import { DEMO_IMAGE } from "../ListingImageGallery";
 import { variants } from "@/utils/animationVariants";
 import downloadPhoto from "../utils/downloadPhoto";
 import { range } from "../utils/range";
@@ -31,7 +30,7 @@ interface SharedModalProps {
 
 export default function SharedModal({
   index,
-  images = DEMO_IMAGE,
+  images = [],
   changePhotoId,
   closeModal,
   navigation,
@@ -89,7 +88,8 @@ export default function SharedModal({
                   width={navigation ? 1280 : 1920}
                   height={navigation ? 853 : 1280}
                   priority
-                  alt="Chisfis listing gallery"
+                  alt={currentImage?.alt ?? ""}
+                  unoptimized
                   onLoadingComplete={() => setLoaded(true)}
                   sizes="(max-width: 1025px) 100vw, 1280px"
                 />
@@ -202,7 +202,8 @@ export default function SharedModal({
                       } relative inline-block w-full shrink-0 transform-gpu overflow-hidden focus:outline-none`}
                     >
                       <Image
-                        alt="small photos on the bottom"
+                        alt=""
+                        unoptimized
                         width={180}
                         height={120}
                         className={`${

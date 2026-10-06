@@ -1,8 +1,9 @@
 /**
  * CUST-WEB-SHOWCASE-001-CP01: which page paths the public Customer Web may
- * serve. Default deny: only the live booking entry is a page; the template
- * routes that would present unfinished features (listings, checkout,
- * pay-done, login, accounts, blog, …) are answered by the unavailable page.
+ * serve. Default deny: only the home page and (CP02-C2) one room's details
+ * page are pages; the template routes that would present unfinished
+ * features (listings, checkout, pay-done, login, accounts, blog, …) are
+ * answered by the unavailable page.
  *
  * Framework internals (`/_next/…`) never reach this function — the
  * middleware matcher excludes them — so a dotted path here is not trusted
@@ -24,8 +25,14 @@ export type RouteDecision =
 
 /** Old or internal names of the live entry: always sent to the one canonical `/`. */
 const ALIASES = new Set(["/home-2", LIVE_ENTRY_PAGE]);
+/**
+ * CUST-WEB-SHOWCASE-001-CP02-C2: the one template listing route that is now real — a RoomType's page,
+ * `/listing-stay-detail?propertyId=…&roomTypeId=…`. Allowing it opens nothing else of the listing group
+ * (no `/listing-stay`, map, car, experience or other detail route).
+ */
+export const ROOM_DETAILS_PAGE = "/listing-stay-detail";
 /** Files the live page itself needs (the app icon is the BHA Riverside logo). */
-const PASS = new Set(["/icon.jpg", UNAVAILABLE_PAGE]);
+const PASS = new Set(["/icon.jpg", UNAVAILABLE_PAGE, ROOM_DETAILS_PAGE]);
 
 /**
  * CUST-WEB-SHOWCASE-001-CP02: the controlled photograph namespace. One path segment under

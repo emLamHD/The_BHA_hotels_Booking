@@ -14,6 +14,8 @@ export interface AvailabilityOfferCardProps {
   onHold?: () => void;
   /** True once an active Hold already exists, or another offer is mid-selection; disables this CTA. */
   holdDisabled?: boolean;
+  /** Sidebar use: the room's own page already shows its photographs, so the card omits them. */
+  hideMedia?: boolean;
 }
 
 const AvailabilityOfferCard: FC<AvailabilityOfferCardProps> = ({
@@ -21,6 +23,7 @@ const AvailabilityOfferCard: FC<AvailabilityOfferCardProps> = ({
   data,
   onHold,
   holdDisabled = false,
+  hideMedia = false,
 }) => {
   // The URL that failed, not a flag: a different cover is never judged by an old failure.
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
@@ -33,6 +36,7 @@ const AvailabilityOfferCard: FC<AvailabilityOfferCardProps> = ({
     <div
       className={`nc-AvailabilityOfferCard group relative bg-white dark:bg-neutral-900 border border-neutral-200/80 dark:border-neutral-700 rounded-3xl overflow-hidden ${className}`}
     >
+      {!hideMedia && (
       <div className="relative w-full aspect-w-6 aspect-h-5 overflow-hidden bg-neutral-100 dark:bg-neutral-800">
         {useApiImage ? (
           // selectCoverImage already excludes reserved-example-host and malformed
@@ -53,6 +57,7 @@ const AvailabilityOfferCard: FC<AvailabilityOfferCardProps> = ({
           </div>
         )}
       </div>
+      )}
 
       <div className="p-4 sm:p-5 space-y-3">
         <h3 className="text-lg font-medium capitalize">
