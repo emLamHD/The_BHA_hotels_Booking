@@ -9,9 +9,17 @@ import { useTimeoutFn } from "react-use";
 import StaySearchForm from "./(stay-search-form)/StaySearchForm";
 import CarsSearchForm from "./(car-search-form)/CarsSearchForm";
 import FlightSearchForm from "./(flight-search-form)/FlightSearchForm";
+import { describeDraftProblem, useStaySearch } from "@/components/StaySearchProvider";
+import { validateAvailabilityDraft } from "@/lib/api/availabilityValidation";
+import { DEFAULT_FEATURED_TAB } from "@/lib/featuredBrands";
+import { initialStayDraft, toAvailabilityDraft } from "@/lib/staySearch";
 
 const HeroSearchForm2Mobile = () => {
   const [showModal, setShowModal] = useState(false);
+  // CP02-C3: the first tab (Stay) is the live search of The BHA's stays; the others are the template's demo forms.
+  const stay = useStaySearch();
+  const [tabIndex, setTabIndex] = useState(0);
+  const [stayProblem, setStayProblem] = useState<string | null>(null);
 
   // FOR RESET ALL DATA WHEN CLICK CLEAR BUTTON
   const [showDialog, setShowDialog] = useState(false);
@@ -80,7 +88,7 @@ const HeroSearchForm2Mobile = () => {
               >
                 <Dialog.Panel className="relative h-full overflow-hidden flex-1 flex flex-col justify-between ">
                   {showDialog && (
-                    <Tab.Group manual>
+                    <Tab.Group manual onChange={setTabIndex}>
                       <div className="absolute left-4 top-4">
                         <button className="" onClick={closeModal}>
                           <XMarkIcon className="w-5 h-5 text-black dark:text-white" />
@@ -115,7 +123,7 @@ const HeroSearchForm2Mobile = () => {
                         <Tab.Panels className="flex-1 overflow-y-auto hiddenScrollbar py-4">
                           <Tab.Panel>
                             <div className="transition-opacity animate-[myblur_0.4s_ease-in-out]">
-                              <StaySearchForm />
+                              <StaySearchForm live />
                             </div>
                           </Tab.Panel>
                           <Tab.Panel>
@@ -135,11 +143,17 @@ const HeroSearchForm2Mobile = () => {
                           </Tab.Panel>
                         </Tab.Panels>
                       </div>
+                      {tabIndex === 0 && stayProblem && (
+                        <p role="alert" className="px-4 py-2 text-sm text-red-600 bg-white dark:bg-neutral-900 dark:text-red-400">
+                          {stayProblem}
+                        </p>
+                      )}
                       <div className="px-4 py-3 bg-white dark:bg-neutral-900 border-t border-neutral-200 dark:border-neutral-700 flex justify-between">
                         <button
                           type="button"
                           className="underline font-semibold flex-shrink-0"
                           onClick={() => {
+                            if (tabIndex === 0) stay?.updateDraft(initialStayDraft());
                             setShowDialog(false);
                             resetIsShowingDialog();
                           }}
@@ -148,6 +162,16 @@ const HeroSearchForm2Mobile = () => {
                         </button>
                         <ButtonSubmit
                           onClick={() => {
+                            if (tabIndex === 0 && stay) {
+                              // An unsearchable Riverside draft keeps the modal open and says why (the hero's own message is not on screen here).
+                              const checked = validateAvailabilityDraft(toAvailabilityDraft(stay.draft));
+                              if (stay.draft.brand === DEFAULT_FEATURED_TAB && !checked.ok) {
+                                setStayProblem(describeDraftProblem(checked.errors));
+                                return;
+                              }
+                              setStayProblem(null);
+                              stay.submit();
+                            }
                             closeModal();
                           }}
                         />

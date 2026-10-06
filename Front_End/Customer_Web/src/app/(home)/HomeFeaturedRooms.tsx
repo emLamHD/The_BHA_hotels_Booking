@@ -1,119 +1,38 @@
 "use client";
 
-import React, { FC, useCallback, useEffect, useRef, useState } from "react";
+import React, { FC, useEffect, useRef } from "react";
 import Link from "next/link";
 import type { Route } from "next";
 import SectionGridFeaturePlaces from "@/components/SectionGridFeaturePlaces";
-import RoomTypeStayCard from "@/components/RoomTypeStayCard";
+import RoomTypeStayCard, { RoomCardPrice } from "@/components/RoomTypeStayCard";
 import ButtonSecondary from "@/shared/ButtonSecondary";
 import { useBookingHoldFlow } from "@/app/BookingHoldProvider";
-import { getProperties } from "@/lib/api/propertyService";
-import { getRoomTypes } from "@/lib/api/roomTypeService";
-import { PropertyDto, RoomTypeDto } from "@/lib/api/propertyTypes";
-import { ApiConfigError, ApiHttpError, ApiNetworkError } from "@/lib/api/errors";
-import { isRequestCancelledError } from "@/lib/api/httpClient";
-import {
-  DEFAULT_FEATURED_TAB,
-  FEATURED_TAB_LABELS,
-  featuredTabByLabel,
-  findPropertyBySlug,
-} from "@/lib/featuredBrands";
+import { useStaySearch } from "@/components/StaySearchProvider";
+import { DEFAULT_FEATURED_TAB, FEATURED_TAB_LABELS } from "@/lib/featuredBrands";
 import { bookingStatusCopy, buildRoomDetailsHref, inProgressBookingTarget } from "@/lib/roomDetailsRoute";
+import { quoteForRoomType } from "@/lib/roomQuote";
 import { SHOWCASE_SECTION_NAVIGATION_EVENT } from "@/lib/routePolicy";
 import { createAnchorAlignment } from "@/lib/anchorAlignment";
-
-type LoadStatus = "loading" | "success" | "error";
 
 const ALIGNED_SECTIONS = new Set(["rooms"]);
 const USER_TAKEOVER_EVENTS = ["wheel", "touchstart", "keydown", "mousedown"] as const;
 const ALIGNMENT_WINDOW_MS = 5000;
 
-function describeError(error: unknown, what: string): string {
-  if (error instanceof ApiConfigError) return `Dịch vụ ${what} chưa được cấu hình đúng.`;
-  if (error instanceof ApiNetworkError) {
-    return `Không kết nối được tới dịch vụ ${what}. Kiểm tra kết nối rồi thử lại.`;
-  }
-  if (error instanceof ApiHttpError) return error.problem.detail ?? error.problem.title;
-  return `Đã có lỗi khi tải ${what}.`;
-}
-
 /**
- * CUST-WEB-SHOWCASE-001-CP02-C2: the home page's "Featured places to stay". Three static brand tabs;
- * The BHA Riverside (default) lists the room TYPES of the Property whose slug is `the-bha-riverside`,
- * House and Villa say they are coming and call nothing. Each card opens /listing-stay-detail for its
- * own RoomType; searching, holding and confirming happen there.
+ * CUST-WEB-SHOWCASE-001-CP02-C3: the home page's "Featured places to stay". The template's section and
+ * StayCard2 cards, three static brand tabs; The BHA Riverside (default) lists the room TYPES of the
+ * Property whose slug is `the-bha-riverside`, House and Villa say they are coming and call nothing.
+ * The hero's search (shared draft) puts real offers on the cards; each card opens /listing-stay-detail
+ * for its own RoomType, carrying a valid search, and searching, holding and confirming go on there.
  */
 const HomeFeaturedRooms: FC = () => {
-  const [activeTab, setActiveTab] = useState<string>(DEFAULT_FEATURED_TAB);
-
-  const [propsStatus, setPropsStatus] = useState<LoadStatus>("loading");
-  const [properties, setProperties] = useState<PropertyDto[]>([]);
-  const [propsError, setPropsError] = useState<string | null>(null);
-  const propsRequest = useRef<AbortController | null>(null);
-
-  const [roomsStatus, setRoomsStatus] = useState<LoadStatus>("loading");
-  const [roomTypes, setRoomTypes] = useState<RoomTypeDto[]>([]);
-  const [roomsError, setRoomsError] = useState<string | null>(null);
-  const roomsRequest = useRef<AbortController | null>(null);
-
-  const riversideSlug = featuredTabByLabel(DEFAULT_FEATURED_TAB)?.slug ?? "";
-  const riverside =
-    propsStatus === "success" ? findPropertyBySlug(properties, riversideSlug) : undefined;
-  const riversideId = riverside?.id;
-
-  const loadProperties = useCallback(() => {
-    propsRequest.current?.abort();
-    const controller = new AbortController();
-    propsRequest.current = controller;
-    setPropsStatus("loading");
-    setPropsError(null);
-    getProperties({ signal: controller.signal })
-      .then((data) => {
-        if (controller.signal.aborted) return;
-        setProperties(data);
-        setPropsStatus("success");
-      })
-      .catch((error) => {
-        if (isRequestCancelledError(error) || controller.signal.aborted) return;
-        setPropsError(describeError(error, "chỗ nghỉ"));
-        setPropsStatus("error");
-      });
-  }, []);
-
-  const loadRoomTypes = useCallback((propertyId: string) => {
-    roomsRequest.current?.abort();
-    const controller = new AbortController();
-    roomsRequest.current = controller;
-    setRoomsStatus("loading");
-    setRoomsError(null);
-    getRoomTypes(propertyId, { signal: controller.signal })
-      .then((data) => {
-        if (controller.signal.aborted) return;
-        setRoomTypes(data);
-        setRoomsStatus("success");
-      })
-      .catch((error) => {
-        if (isRequestCancelledError(error) || controller.signal.aborted) return;
-        setRoomsError(describeError(error, "loại phòng"));
-        setRoomsStatus("error");
-      });
-  }, []);
+  const ctx = useStaySearch();
+  const { state: holdState } = useBookingHoldFlow();
 
   useEffect(() => {
-    loadProperties();
-    return () => propsRequest.current?.abort();
-  }, [loadProperties]);
-
-  // Room types follow the Riverside Property's id; a different id (or none) drops the old list.
-  useEffect(() => {
-    if (!riversideId) {
-      roomsRequest.current?.abort();
-      setRoomTypes([]);
-      return;
-    }
-    loadRoomTypes(riversideId);
-    return () => roomsRequest.current?.abort();
-  }, [riversideId, loadRoomTypes]);
+    ctx?.ensureCatalog();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Keep the section a visitor jumped to (#rooms) in view while content settles (see anchorAlignment).
   const sectionRef = useRef<HTMLDivElement>(null);
@@ -137,16 +56,27 @@ const HomeFeaturedRooms: FC = () => {
     return () => alignment.dispose();
   }, []);
 
-  const { state: holdState } = useBookingHoldFlow();
   const inProgress = inProgressBookingTarget(holdState);
+  const activeTab = ctx?.activeTab ?? DEFAULT_FEATURED_TAB;
+
+  const priceFor = (roomTypeId: string): RoomCardPrice => {
+    if (!ctx) return { state: "none" };
+    const { search } = ctx;
+    if (search.status === "loading") return { state: "loading" };
+    if (search.status !== "success") return { state: "none" };
+    const quote = quoteForRoomType(search.offers, roomTypeId);
+    return quote ? { state: "quoted", quote } : { state: "unavailable" };
+  };
 
   const renderRiverside = () => {
-    if (propsStatus === "loading") return <Notice role="status">Đang tải phòng…</Notice>;
+    if (!ctx) return null;
+    const { propsStatus, propsError, riverside, roomsStatus, roomsError, roomTypes, search } = ctx;
+    if (propsStatus === "idle" || propsStatus === "loading") return <Notice role="status">Đang tải phòng…</Notice>;
     if (propsStatus === "error") {
       return (
         <Notice role="alert">
           <p>{propsError}</p>
-          <ButtonSecondary onClick={loadProperties}>Thử lại</ButtonSecondary>
+          <ButtonSecondary onClick={ctx.retryProperties}>Thử lại</ButtonSecondary>
         </Notice>
       );
     }
@@ -157,12 +87,12 @@ const HomeFeaturedRooms: FC = () => {
         </Notice>
       );
     }
-    if (roomsStatus === "loading") return <Notice role="status">Đang tải loại phòng…</Notice>;
+    if (roomsStatus === "idle" || roomsStatus === "loading") return <Notice role="status">Đang tải loại phòng…</Notice>;
     if (roomsStatus === "error") {
       return (
         <Notice role="alert">
           <p>{roomsError}</p>
-          <ButtonSecondary onClick={() => loadRoomTypes(riverside.id)}>Thử lại</ButtonSecondary>
+          <ButtonSecondary onClick={ctx.retryRoomTypes}>Thử lại</ButtonSecondary>
         </Notice>
       );
     }
@@ -170,11 +100,41 @@ const HomeFeaturedRooms: FC = () => {
       return <Notice role="status">The BHA Riverside chưa có loại phòng nào đang mở đặt.</Notice>;
     }
     return (
-      <div className="grid gap-6 md:gap-8 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-        {roomTypes.map((roomType) => (
-          <RoomTypeStayCard key={roomType.id} property={riverside} roomType={roomType} />
-        ))}
-      </div>
+      <>
+        {search.query && (
+          <p aria-live="polite" className="mb-6 text-sm text-neutral-600 dark:text-neutral-300">
+            {search.status === "loading" && "Đang tìm phòng…"}
+            {search.status === "error" && (
+              <span role="alert" className="text-red-600 dark:text-red-400">
+                {search.message}{" "}
+                <button type="button" onClick={ctx.submit} className="underline underline-offset-2">
+                  Thử lại
+                </button>
+              </span>
+            )}
+            {search.status === "success" && (
+              <>
+                Kết quả cho {search.query.checkIn} → {search.query.checkOut} · {search.query.adults} người lớn
+                {Number(search.query.children) > 0 ? `, ${search.query.children} trẻ em` : ""} · {search.query.rooms} phòng
+              </>
+            )}
+          </p>
+        )}
+        <div className="grid gap-6 md:gap-8 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {roomTypes.map((roomType) => (
+            <RoomTypeStayCard
+              key={roomType.id}
+              property={riverside}
+              roomType={roomType}
+              href={buildRoomDetailsHref(
+                { propertyId: riverside.id, roomTypeId: roomType.id },
+                search.status === "success" ? search.query : null
+              )}
+              price={priceFor(roomType.id)}
+            />
+          ))}
+        </div>
+      </>
     );
   };
 
@@ -183,10 +143,10 @@ const HomeFeaturedRooms: FC = () => {
       <SectionGridFeaturePlaces
         id="rooms"
         heading="Featured places to stay"
-        subHeading="Chọn thương hiệu rồi chọn loại phòng — ngày, giá và đặt phòng ở trang chi tiết."
+        subHeading="Chọn thương hiệu rồi chọn loại phòng — giá và đặt phòng theo ngày bạn chọn."
         tabs={FEATURED_TAB_LABELS}
         tabActive={activeTab}
-        onClickTab={setActiveTab}
+        onClickTab={ctx?.setActiveTab}
       >
         {inProgress && (
           <div

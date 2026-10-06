@@ -1,4 +1,6 @@
 import type { AvailabilityOfferDto } from "@/lib/api/availabilityTypes";
+import type { AvailabilityDraft } from "@/lib/api/availabilityValidation";
+import { searchQueryParams } from "@/lib/staySearch";
 import type { BookingHoldFlowState } from "@/lib/api/bookingHoldFlow";
 import type { PropertyDto, RoomTypeDto } from "@/lib/api/propertyTypes";
 
@@ -19,8 +21,13 @@ export function isGuid(value: string | null | undefined): value is string {
   return !!value && GUID.test(value);
 }
 
-export function buildRoomDetailsHref(ids: RoomIdentity): string {
+/**
+ * The room page's URL. When the visitor already ran a valid stay search its dates and party ride along
+ * (the page re-validates them); nothing about the guest ever does.
+ */
+export function buildRoomDetailsHref(ids: RoomIdentity, search?: AvailabilityDraft | null): string {
   const query = new URLSearchParams({ propertyId: ids.propertyId, roomTypeId: ids.roomTypeId });
+  if (search) searchQueryParams(search).forEach((value, key) => query.set(key, value));
   return `${ROOM_DETAILS_PATH}?${query.toString()}`;
 }
 

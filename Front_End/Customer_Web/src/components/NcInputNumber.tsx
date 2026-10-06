@@ -6,6 +6,8 @@ import { MinusIcon, PlusIcon } from "@heroicons/react/24/solid";
 export interface NcInputNumberProps {
   className?: string;
   defaultValue?: number;
+  /** Controlled value: when given it is what is shown, and `onChange` is how the owner updates it. */
+  value?: number;
   min?: number;
   max?: number;
   onChange?: (value: number) => void;
@@ -16,30 +18,29 @@ export interface NcInputNumberProps {
 const NcInputNumber: FC<NcInputNumberProps> = ({
   className = "w-full",
   defaultValue = 0,
+  value: controlledValue,
   min = 0,
   max,
   onChange,
   label,
   desc,
 }) => {
-  const [value, setValue] = useState(defaultValue);
+  const [state, setValue] = useState(defaultValue);
 
   useEffect(() => {
     setValue(defaultValue);
   }, [defaultValue]);
 
+  const value = controlledValue ?? state;
+
   const handleClickDecrement = () => {
     if (min >= value) return;
-    setValue((state) => {
-      return state - 1;
-    });
+    setValue(value - 1);
     onChange && onChange(value - 1);
   };
   const handleClickIncrement = () => {
     if (max && max <= value) return;
-    setValue((state) => {
-      return state + 1;
-    });
+    setValue(value + 1);
     onChange && onChange(value + 1);
   };
 

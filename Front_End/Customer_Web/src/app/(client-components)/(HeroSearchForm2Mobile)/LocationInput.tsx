@@ -9,6 +9,8 @@ interface Props {
   className?: string;
   defaultValue?: string;
   headingText?: string;
+  /** CP02-C3: a fixed list (The BHA House / Riverside / Villa); no free text. */
+  options?: string[];
 }
 
 const LocationInput: FC<Props> = ({
@@ -16,6 +18,7 @@ const LocationInput: FC<Props> = ({
   className = "",
   defaultValue = "United States",
   headingText = "Where to?",
+  options,
 }) => {
   const [value, setValue] = useState("");
   const containerRef = useRef(null);
@@ -62,6 +65,39 @@ const LocationInput: FC<Props> = ({
       </>
     );
   };
+
+  if (options) {
+    return (
+      <div className={`${className}`} ref={containerRef}>
+        <div className="p-5">
+          <span className="block font-semibold text-xl sm:text-2xl">{headingText}</span>
+          <ul className="mt-5" role="listbox" aria-label={headingText}>
+            {options.map((item) => (
+              <li
+                key={item}
+                role="option"
+                aria-selected={item === defaultValue}
+                tabIndex={0}
+                className={`py-3 px-2 mb-1 flex items-center space-x-3 text-sm rounded-xl cursor-pointer focus:outline-none focus-visible:bg-neutral-100 ${
+                  item === defaultValue ? "bg-neutral-100 dark:bg-neutral-700 font-semibold" : ""
+                }`}
+                onClick={() => handleSelectLocation(item)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    handleSelectLocation(item);
+                  }
+                }}
+              >
+                <MapPinIcon className="w-5 h-5 text-neutral-500 dark:text-neutral-400" />
+                <span>{item}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`${className}`} ref={containerRef}>

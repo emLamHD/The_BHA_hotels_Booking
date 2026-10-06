@@ -11,19 +11,39 @@ import ClearDataButton from "../ClearDataButton";
 export interface StayDatesRangeInputProps {
   className?: string;
   fieldClassName?: string;
+  /**
+   * CP02-C3: controlled range. When `onDatesChange` is given the dates come from `startDate`/`endDate`
+   * (the shared stay search draft); otherwise the field keeps its own state like the template.
+   */
+  startDate?: Date | null;
+  endDate?: Date | null;
+  onDatesChange?: (dates: [Date | null, Date | null]) => void;
+  /** Earliest selectable day (the live search cannot start in the past). */
+  minDate?: Date;
+  disabled?: boolean;
 }
 
 const StayDatesRangeInput: FC<StayDatesRangeInputProps> = ({
   className = "[ lg:nc-flex-2 ]",
   fieldClassName = "[ nc-hero-field-padding ]",
+  startDate: controlledStart,
+  endDate: controlledEnd,
+  onDatesChange,
+  minDate,
+  disabled,
 }) => {
-  const [startDate, setStartDate] = useState<Date | null>(
-    new Date("2023/02/06")
-  );
-  const [endDate, setEndDate] = useState<Date | null>(new Date("2023/02/23"));
+  const [ownStart, setStartDate] = useState<Date | null>(null);
+  const [ownEnd, setEndDate] = useState<Date | null>(null);
+  const controlled = !!onDatesChange;
+  const startDate = controlled ? controlledStart ?? null : ownStart;
+  const endDate = controlled ? controlledEnd ?? null : ownEnd;
   //
 
   const onChangeDate = (dates: [Date | null, Date | null]) => {
+    if (onDatesChange) {
+      onDatesChange(dates);
+      return;
+    }
     const [start, end] = dates;
     setStartDate(start);
     setEndDate(end);
@@ -62,6 +82,7 @@ const StayDatesRangeInput: FC<StayDatesRangeInputProps> = ({
       {({ open }) => (
         <>
           <Popover.Button
+            disabled={disabled}
             className={`flex-1 z-10 flex relative ${fieldClassName} items-center space-x-3 focus:outline-none ${
               open ? "nc-hero-field-focused" : ""
             }`}
@@ -92,6 +113,7 @@ const StayDatesRangeInput: FC<StayDatesRangeInputProps> = ({
                   onChange={onChangeDate}
                   startDate={startDate}
                   endDate={endDate}
+                  minDate={minDate}
                   selectsRange
                   monthsShown={2}
                   showPopperArrow={false}
