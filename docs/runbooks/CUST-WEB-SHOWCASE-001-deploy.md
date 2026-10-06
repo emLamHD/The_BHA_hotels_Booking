@@ -137,7 +137,9 @@ The Riverside photographs are static files in `Front_End/Customer_Web/public/med
 API_BASE=https://api.thebhariverside.com MEDIA_BASE=https://thebhariverside.com deploy/showcase/scripts/smoke.sh
 ```
 
-It checks `/health/ready` 200, the public properties route, that the Staff session route answers 401 without a session (404 would mean the forwarded HTTPS scheme is **not** trusted — fix `Hosting__TrustedProxy__*`), and that every image URL the API returns answers `200 image/webp`. Then, in a real browser on the three real hostnames: Customer search → hold → confirm; Admin sign-in → `/calendar`. Safari/WebKit was not run in CP02.
+It checks `/health/ready` 200, the public properties route, that the Staff session route answers 401 without a session (404 would mean the forwarded HTTPS scheme is **not** trusted — fix `Hosting__TrustedProxy__*`), and that every image URL the API returns answers `200 image/webp`.
+
+Then, in a real browser on the three real hostnames, walk the demo path: **`/` (the Chisfis home page) → Featured places to stay → The BHA Riverside (default tab) → a room card → `/listing-stay-detail?propertyId=…&roomTypeId=…` → choose dates/guests/rooms → search → offer → contact → hold → confirm**, then Admin sign-in → `/calendar`. The Customer site serves exactly two pages (the home page and one room's page); every other template route answers 404 by design, and `/home-2`/`/showcase` redirect to `/`. House and Villa tabs are static "coming soon" panels. Safari/WebKit was not run.
 
 ## 9. Known risks (not fixed here)
 

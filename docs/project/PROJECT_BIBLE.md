@@ -492,7 +492,7 @@ work item riêng.
 - Mọi ảnh được **quét provenance (heuristic, chưa validate chữ ký C2PA)** và ghi bằng chứng từng file vào manifest: ảnh có marker nêu dịch vụ sinh ảnh
   hoặc không có metadata **không** được script publish; chỉ ảnh có editor metadata được publish, và mức bằng chứng đó là "nguồn camera chưa được xác minh độc lập"
   — không phải xác nhận ảnh thật. Nới cổng là quyết định Owner, không phải cờ script.
-- Namespace route media của Customer_Web là chuỗi cố định `/media/<property>/<kebab>.webp`; mọi đường dẫn khác vẫn default-deny.
+- Namespace route media của Customer_Web là chuỗi cố định `/media/<property>/<kebab>.webp`; mọi đường dẫn khác vẫn default-deny. Từ C2, route trang công khai của Customer_Web chỉ gồm `/` và `/listing-stay-detail` (một RoomType); ảnh template/stock trong các section dịch vụ preview được thay bằng khung placeholder cho đến khi có bằng chứng quyền sử dụng.
 - Hiện trạng Riverside: 13 ảnh (editor metadata, nguồn chưa xác minh độc lập); hai loại 1PN chưa có ảnh (placeholder); `MEDIA: PARTIAL`.
 
 **Quyết định Owner đang chờ:** (1) làm rõ ảnh 1PN và 1PN view thoáng là ảnh thật đã chỉnh hay ảnh sinh mới, và có publish hay không (nhãn AI không tự thay yêu cầu ảnh thật); (2) tên miền: Owner đã cung cấp

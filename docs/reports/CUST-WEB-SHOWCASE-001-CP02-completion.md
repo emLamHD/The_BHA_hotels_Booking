@@ -2,6 +2,8 @@
 
 > Draft PR into `develop` (the second and last PR of the showcase work item). `IMPLEMENTER: CLAUDE`, `REVIEWER: CODEX_READ_ONLY` (Owner invokes). Baseline `9ad8edce4171f9b26a3f274cd544758be21f9162`, branch `feature/cust-web-showcase-001-cp02-riverside-demo`. FINAL_HEAD, PR number, PR size and CI on FINAL_HEAD are in the PR body. `REVIEW: NOT_RUN`.
 
+> **C2 supersedes the UI of this report.** The browser/E2E results in §4 below (and the home/details parts of §5) were taken at `2bb70bb` against the *old single-page flow* (`/` was one booking page). Owner then decided on the Chisfis home page plus a room details page (see **§10, C2**). The old results are history; they are **not** credited to the new home or details pages — §10 has the evidence for those, taken on the C2 build. `DATA_LOCAL`, `MEDIA`, the container/proxy/key-ring evidence (§5) and the seeder/deploy results are unaffected by C2.
+
 ## 0. Media evidence — what the scan does and does not show (corrected in C1)
 
 The first version of this report called 62 originals "AI-signed" and 13 "camera photographs". That overstated what a byte scan can show. The accurate statement, from `build_media.py` re-run on the originals (86 files, hashes unchanged, originals never modified):
@@ -37,7 +39,7 @@ The first version of this report called 62 originals "AI-signed" and 13 "camera 
 | Real address, description, amenities | — | **NOT PROVIDED**: placeholders ("Đang cập nhật"); amenities limited to pool and rooftop, which are visible in published photos |
 | Deploy topology Vercel ×2 + API on AWS/RDS | Owner | **NOT_TESTED** (Owner executes; runbook only) |
 
-## 3. Status lines
+## 3. Status lines (as of CP02/C1; `UI_LIVE` and `END_TO_END` are restated for C2 in §10)
 
 | Line | Status | Evidence |
 |---|---|---|
@@ -52,7 +54,7 @@ The first version of this report called 62 originals "AI-signed" and 13 "camera 
 | Vercel | **NOT_TESTED** | |
 | Stale-cookie 401 (CP01 defect) | **OPEN** | Not fixed (backend auth change). |
 
-## 4. Browser/E2E evidence (production builds against the containerized API, own DB)
+## 4. Browser/E2E evidence — SUPERSEDED by §10 (old single-page flow at `2bb70bb`; production builds against the containerized API, own DB)
 
 - **Occupancy/quantity searches** (2 nights, 2026-10-18→20): 2 adults/1 room → 3 offers (₫2.0M, ₫2.2M, ₫3.2M); 3 adults → 2BR only; 5 adults/1 room → no offers (UI explains); 2 adults/4 rooms → 2BR only ₫12.8M; 7 rooms → none; 6 adults/2 rooms → 2BR ₫6.4M; a window past the seeded range → none; a past range → "checkIn cannot be earlier than the Property local date".
 - **Happy path (1PN, 2026-10-11→13):** double-click Create Hold = **1** POST (201), double-click Confirm = **1** POST (201); header/brand navigation kept the same hold; guest GET with the token: hold `Confirmed`, reservation `Confirmed` total 2,000,000, nights 1,000,000 ×2; anonymous read 401. DB reconciliation: reservation `Confirmed` 2,000,000.00, 1 reservation unit, 2 nights ×1,000,000.00, hold `Confirmed`.
@@ -101,6 +103,73 @@ The first version of this report called 62 originals "AI-signed" and 13 "camera 
 - Review recorded earlier: Codex `/codex:review --base origin/develop` at `2bb70bb`: RUN, "no actionable defects" (Owner-forwarded). That result concerns the pre-C1 version; **C1 needs a new review** (`REVIEW: NOT_RUN` for the C1 head).
 - Known limits unchanged: DB-restart first-request 500, unencrypted key XML, stale-cookie 401.
 
-## 10. Reviewer focus (requested)
+## 10. Correction C2 (CP02-C2-R2, same PR #83) — Chisfis home page and room details
 
-Seed target safety and idempotency; media mapping and provenance claims versus evidence (C1); proxy trust boundary; container key storage; deploy boundaries (nothing publishes or deploys by default); ECR trigger/default branch/source SHA/no privileged PR (C1).
+- **Range / traceability:** start `2e3c231face5a662c5cc04ef114a2432becadeb0`; all UI evidence below was taken on the build of commit `1b7e581dfe85526b7075924147b56de5394e3a6a` (`NEXT_PUBLIC_API_BASE_URL=https://localhost:7443`, `next start` behind a mkcert TLS proxy at `https://localhost:3000`, API container + the persistent demo DB). Commits after it are documentation only. FINAL_HEAD and CI are in the PR body.
+- **Scope:** `Front_End/Customer_Web/` only (the whole C2 range touches no other directory): 62 files, +2,331/−1,792; **binary files changed: 0** (`git diff --name-only 2e3c231..HEAD -- '*.webp' '*.png' '*.jpg' '*.svg'` is empty; the 13 published photographs are untouched). No backend, seed, deploy, workflow, auth/session/CSRF/idempotency/CORS, provider lifetime, coordinator or anchor-engine change.
+
+### What the Owner asked for, and what exists now
+
+| Area | Result |
+|---|---|
+| `/` | The Chisfis home composition again, in the template's order: hero, categories slider, features, **Featured places to stay**, how-it-works, discovery slider, newsletter, authors, categories box, become-an-author, types slider, videos, testimonials, footer. `app/page.tsx` composes it; `app/layout.tsx` is the template layout (sticky header, footer + mobile app bar) with `BookingHoldProvider` above everything. `/showcase` and `/home-2` still redirect to `/`. |
+| Featured places to stay | `SectionGridFeaturePlaces` + `HeaderFilter` (template) with three static tabs in order **The BHA Riverside / The BHA House / The BHA Villa**; Riverside default. Riverside: `GET /api/v1/properties` → the Property with slug `the-bha-riverside` (no `properties[0]` fallback) → `GET …/room-types` → **three room-type cards** (`RoomTypeStayCard`, StayCard2 markup with `GallerySlider`). House/Villa: "Sắp ra mắt — chưa hỗ trợ đặt phòng trực tuyến", no API call. Loading / error+retry / not-found / empty are separate states; no demo listing, no endless spinner button, no mock "View all". |
+| Cards | Gallery, title and price row all link to `/listing-stay-detail?propertyId=<id>&roomTypeId=<id>` for **their own** RoomType (3 distinct ids, 1 property id). No price is shown: the catalog has none, so the row says "Chọn ngày để xem giá". No "còn N phòng" claim. |
+| `/listing-stay-detail` | The template route, now one RoomType: validated query, resolved against the API (property, then room type of that property), loading/error/retry, explanations for missing / malformed / duplicated / unknown-property / unknown-or-mismatched room, never a default room. Template layout kept: top mosaic gallery (API images; 0 images → neutral block; 1PN has none), `listingSection__wrap` content blocks (room info, amenities, "Không gian chung" = property photographs labelled as shared, other room types, check-in/out times), sticky sidebar. |
+| Booking | The sidebar is the **single** booking panel for desktop and mobile: dates/guests/rooms → availability locked to this room (only this RoomType's offers) → offer → contact → hold (CSRF + idempotency as before) → confirm → confirmation number and nightly snapshot, all on the details page. A fixed mobile bar (replaces the template's checkout modal) scrolls to that panel and states whether a booking is in progress. |
+| Hold across navigation | `BookingHoldProvider` unchanged at the root; links to `/#rooms` are client navigations. A booking in progress shows a "Tiếp tục đặt phòng" link on the home page and on any other room, which has no form while it is in progress. |
+| Routing | `/listing-stay-detail` is now `pass`; the rest of the listing group, checkout, pay-done, login, signup, account, car/flight/experience/real-estate pages, `/api/*` stay 404. |
+
+### Template reuse, preview and removed content
+
+| Item | Treatment |
+|---|---|
+| Reused as is / with small props: `SectionHero`, `BgGlassmorphism`, `SectionGridFeaturePlaces`, `HeaderFilter`, `StayCard2` markup, `GallerySlider`, `listingSection__wrap`/`listingSectionSidebar__wrap` layout, `ListingImageGallery` + modal, `Footer`, `FooterNav`, `MenuBar`, `Logo`, header frame (`MainNav2`) | live or structural |
+| Service preview (inert, labelled "Dịch vụ đang được phát triển · Nội dung mẫu", placeholder frames, no request): categories slider, our-features, how-it-works, discovery slider, newsletter, authors, categories box, become-an-author, types slider, videos, testimonials; hero tabs Experiences/Cars/Flights | `ServicePreview` makes the block `inert`; images are `PreviewImage` (neutral frame/inline SVG, no template or Pexels request, 0 external requests measured); sample copy carries no brand claim (tests assert no "The BHA"/"Riverside"/vendor name) |
+| Removed from the public site | header demo "Customize" panel (header/home-demo switchers), template dropdowns, language/notification/account controls, "List your property", "Get Template", social links, footer placeholder menus, wishlist/login in the mobile bar, `LikeSaveBtns`, CP01 demo banner (the footer note remains) |
+| Removed from the details route | `PHOTOS`/`Amenities_demos`/USD prices/rating/Beach House/host Kevin Francis/reviews/Google-Maps embed/rates table/cancellation text, `SectionDateRange` (not mounted), "Reserve → /checkout", `ModalReserveMobile` (checkout `PageMain`), `MobileFooterSticky` (2023 dates, $311), the layout's template gallery and extra marketing sections |
+| Hero | right picture is the published Riverside photograph `rooftop-pool-day.webp` (template illustration has no rights evidence); search form is a pill that goes to the room section |
+
+### Evidence (C2 build `1b7e581`, Chrome headless, desktop 1440×900 and touch emulation 390×844, production build)
+
+| | Result |
+|---|---|
+| **H1 HOME** | 3 tabs in order; Riverside renders 3 room-type cards (Căn hộ hai phòng ngủ, một phòng ngủ, một phòng ngủ view thoáng) from the API; House/Villa show "Sắp ra mắt", 0 API calls while on them; back to Riverside renders the same 3; mobile: same, `scrollWidth` 390 = viewport; 0 requests to Pexels/Unsplash/etc. Screenshots below. |
+| **H2 LINKS** | 3 distinct `roomTypeId`, 1 `propertyId`; each card opens its own room (title/URL checked); direct URL, reload, and the photo modal (`modal`, `photoId`) keep the identity: open → `…&modal=PHOTO_TOUR_SCROLLABLE`, photo → `…&photoId=0`, Esc closes the photo only, back arrow closes the tour → identity only; 390 px touch the same. Missing / one id / malformed / duplicated / unknown property / unknown room → explanatory page, 0 POST, no Beach House, no form, no `$`. |
+| **D1 DETAILS** | API data only; 2BR gallery 3 photographs (mosaic), 1PN neutral block; property photographs under "Không gian chung"; Property amenities (pool, rooftop) labelled as shared; no beds/baths/area/address/map/reviews/host/price table; picture failures drop the picture (probe + `onError`), never swap it. |
+| **D2 AVAILABILITY** (dates 50 nights ahead, API values) | 1PN 2 adults → ₫2,000,000 (3 available); 1PN view thoáng → ₫2,200,000 (2); 2PN 4 adults → ₫3,200,000 (6); 2PN 2 rooms → ₫6,400,000. Over occupancy (1PN 3 adults, 2PN 5), over inventory (2PN 7 rooms, 1PN 4 rooms), outside the seeded window → "No offers for <room> …"; past date → server validation message. 0 POST. Only the viewed room's offers ever appear. Prices come from the response, none are hard-coded. |
+| **D3 END-TO-END** (desktop and touch) | `/` → Riverside card → details → search → offer → contact → hold → confirm: **1 POST** `booking-holds` (201) and **1 POST** `confirm` (201) despite double-click on each; same document throughout (marker kept). Guest GET with the one-time token (never printed): hold `Confirmed`, reservation `Confirmed`, total 2,000,000, nights 1,000,000 ×2; anonymous read 401. **DB:** Reservation `Confirmed` 2,000,000.00 with a confirmation number, `SourceHoldId` = the hold, exactly 1 reservation per hold, 1 unit, 2 nights ×1,000,000.00, hold `Confirmed`. |
+| **D4 RACES** | Hold kept through the brand link, "← Tất cả phòng" (`/#rooms` client navigation), the header "Phòng nghỉ" link and the mobile-menu item; "Tiếp tục đặt phòng" returns to the same hold. Opening room B while A's hold is active: B shows the notice + link to A, **no form**, no A hold shown under B, 1 hold POST in total, 0 availability searches on B, A's hold intact. Room A → B (same pathname, B's catalog response held) → Back to A → B's late response released: page stays A (aborted request cannot overwrite), 0 POST. **Lost response:** confirm response dropped after the server committed (Fetch interception of the POST *response*, not a preflight): UI "couldn't confirm", no auto-retry (1 confirm POST after 6 s), manual exact retry → `200` replay → "Reservation confirmed"; DB: the hold has exactly 1 Reservation (`Confirmed`, 3,200,000.00). |
+| **D5 MOBILE** | 390×844 touch: tabs (incl. Villa) and cards usable, no overflow (`scrollWidth` 390); details gallery/modal open+close; one panel for both viewports; the fixed bar's top is at 783 of 844 px; focused full name / email / phone / submit all end above the bar (rect bottom < bar top 783); keyboard Tab through the hold form shows a visible focus indicator on every stop. **Safari/WebKit: NOT_RUN.** |
+| **R1 ROUTES** | `next start -H 127.0.0.1`: `/`, `/?ref=demo`, details 200; `/home-2`, `/showcase` 307 to the same origin keeping the query; `/login /checkout /listing-stay /listing-stay-map /listing-car-detail /pay-done /signup /author /api/x` 404; media 200 / wrong extension 404; JS/CSS/font/`icon.jpg` 200; also on `https://localhost:3000`. Link sweep desktop+mobile (+menu open): every non-inert link answers 200; the 41–44 template links are inside inert previews; clicking sample CTAs changes nothing and sends no request (prefetch disabled on sample cards). No `/checkout` link on the details page. |
+
+Screenshots (opened and read in this session, scratchpad `…/scratchpad/cp02run/final/`): `home-desktop-full.png` (+`-upper`, `-lower`), `journey-desktop-offers.png`, `journey-desktop-hold.png`, `journey-desktop-confirmed.png`, `journey-mobile-offers.png`, `journey-mobile-hold.png`, `journey-mobile-confirmed.png`; earlier checkpoint views `…/shots2/home-desktop-rooms.png`, `home-mobile-pair.png`, `detail-trio.png`. Raw evidence JSON: `…/scratchpad/cp02run/evidence/`.
+
+### Automated checks (Customer_Web, Node 22.23.2)
+
+`npm ci` ok · `npm run lint` 0 · `npx tsc --noEmit` 0 · `npm test` **30 files, 539/539** (new: `featuredBrands`, `roomDetailsRoute` incl. query/mismatch/offer filter/booking status, `routePolicy` 114 incl. the details allowlist and lookalikes, home section first render, `ServicePreview`/`PreviewImage`/brand-free sample sections, details root without a room, public navigation links) · `npm run build` ok with no prerender warning. Backend and Admin were not touched by C2 (CI runs both on FINAL_HEAD).
+The node-environment tests cannot run effects, so tab switching, data rendering, query handling at runtime and the races were verified in the browser (above), not by a fake DOM.
+
+### State left in the persistent demo database
+
+11 `Reservation` rows in total, all `Confirmed` (2 from CP02, 9 from C2 E2E runs: 1PN and 2PN stays, check-in dates between 2026-10-11 and 2027-01-02), several `Active` holds that expire on their own (15 min) from the other-room and aborted runs, no customer accounts, the Staff account still disabled. The demo stack is the one from CP02 (`the-bha-showcase-*`, volumes kept).
+
+### Deviations (scope notes the MEP asked to disclose)
+
+- Files edited **outside** the MEP's edit list, each because the listed file could not meet the requirement on its own: `CardCategory3/4/5`, `CardCategoryBox1`, `CardAuthorBox`, `CardAuthorBox2`, `shared/Avatar.tsx` (they render the sample pictures, so the placeholder frames needed them to use `PreviewImage`; the cards also got `prefetch={false}` so sample links do not prefetch denied routes); `shared/MenuBar.tsx` (accessible label on the menu button); `shared/Navigation/NavMobile.tsx` (rewritten: it carried "Get Template", language and social controls); `components/listing-image-gallery/*` (API images, `unoptimized`, no trailing-slash push that lost the query); `components/GallerySlider.tsx` (`unoptimized`, `onImageError`); `app/(client-components)/(HeroSearchForm)/*` (stay form, preview wrapping); `routePolicy.test.ts`. The site-wide `shared/Button` change considered earlier was **not** kept.
+- New files: `PreviewImage`, `ServicePreview`, `RoomTypeStayCard`, `featuredBrands`, `roomDetailsRoute` (the MEP allowed this helper), `HomeFeaturedRooms`, `RoomDetails{Root,Content}`, `RoomHeaderGallery`, `MobileBookingBar`, six test files. Deleted template files: `showcase/page.tsx`, `ShowcaseShell`, the stay detail's `StayDatesRangeInput`, `GuestsInput`, `constant.ts`, `MobileFooterSticky`, `ModalReserveMobile`.
+- **Date inputs are the native date inputs** of the existing availability form, laid out in the template's sidebar card, not the template's pop-over date/guest pickers (one draft/one coordinator, testable, accessible); the guest counts are the existing number inputs.
+- An extra "Loại phòng khác" block links the other room types of the Property (needed for same-pathname navigation and the race test).
+
+### Known leftovers / visible changes (not fixed)
+
+- Dead components still compiled through the template `home-2` page (`SectionGridFeatureProperty`, `SectionGridRoomTypes`, `PropertyLiveCard`, `RoomTypeLiveCard`); they are unreachable (the route redirects).
+- Booking-flow labels stay English (Search availability, Hold this room …); Vietnamese is used in the new chrome. The offer card's `capitalize` class title-cases Vietnamese names there.
+- Hard reload still drops the in-memory hold and token (unchanged); stale-cookie 401 still **OPEN**; DB-restart first-request 500, unencrypted key XML unchanged.
+- `MEDIA: PARTIAL` unchanged: 1PN rooms have no published photograph (placeholder); provenance policy untouched.
+- No cloud, DNS, Vercel or Safari testing; `PUBLISH`/`DEPLOY_LIVE` `NOT_RUN`. This is a local rehearsal, not a commercial-readiness certificate.
+- **REVIEW:** the Codex results above (and in C1) concern earlier heads. C2 needs a new review of the final head: `NOT_RUN`.
+
+## 11. Reviewer focus (requested)
+
+Seed target safety and idempotency; media mapping and provenance claims versus evidence (C1); proxy trust boundary; container key storage; deploy boundaries (nothing publishes or deploys by default); ECR trigger/default branch/source SHA/no privileged PR (C1); for C2: tab/RoomType identity, details query and races, gallery and group layout, sidebar/mobile sharing one draft, guest hold across navigation, exact retry, default-deny routes.

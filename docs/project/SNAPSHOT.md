@@ -4,6 +4,18 @@
 >
 > Mục đích: phục hồi trạng thái hiện tại mà không cần nạp worklog lịch sử
 
+Cập nhật 2026-10-07 (`CUST-WEB-SHOWCASE-001-CP02-C2`, cùng PR #83, Draft, chưa merge): Owner chốt giữ **homepage Chisfis** tại `/`
+(thay trang đặt phòng một trang của CP01) và đặt phòng ở **trang chi tiết phòng**. `Featured places to stay` có ba tab tĩnh
+The BHA Riverside / House / Villa: Riverside lấy Property theo slug `the-bha-riverside` và hiển thị **ba loại phòng** từ API, House/Villa
+"Sắp ra mắt" (không gọi API); mỗi card mở `/listing-stay-detail?propertyId=&roomTypeId=` (route template có sẵn, nay là route thật duy
+nhất của nhóm listing; các route template khác vẫn 404). Trang chi tiết: dữ liệu RoomType/Property từ API, một panel đặt phòng duy nhất
+(tìm offer đúng phòng → liên hệ → hold → confirm) cho desktop và mobile, hold vẫn giữ qua điều hướng; các section dịch vụ của homepage
+là preview inert có nhãn, ảnh mẫu thay bằng khung placeholder (không gọi ảnh template/Pexels). Đường demo: `/` → card phòng → chi tiết →
+đặt phòng (không còn "Showcase" một trang). Bằng chứng C2 chạy trên build thật + API container + PostgreSQL demo (desktop và mobile touch;
+Safari `NOT_RUN`): `docs/reports/CUST-WEB-SHOWCASE-001-CP02-completion.md` §10. Kết quả E2E cũ ở `2bb70bb` thuộc luồng một trang và
+**không** được tính cho giao diện mới. `MEDIA: PARTIAL` (1PN chưa có ảnh), `REVIEW: NOT_RUN` cho head C2, lỗi cookie khách cũ (401) còn mở.
+
+Bản cập nhật trước (CP02, trước C2; phần mô tả "luồng đặt phòng một trang" bên dưới đã bị C2 thay thế):
 Cập nhật 2026-10-07 (`CUST-WEB-SHOWCASE-001-CP02`, Draft PR, chưa merge; PR #82 đã merged, baseline
 `9ad8edce4171f9b26a3f274cd544758be21f9162`): PR thứ hai và cuối của showcase. **Bằng chứng ảnh (đã chỉnh ở C1):** quét byte (heuristic, `validation: NOT_RUN`, không có
 validator C2PA): 62/86 PNG chứa marker nêu dịch vụ sinh ảnh (`trainedAlgorithmicMedia`, `gpt-image`, `OpenAI Media Service`) — dấu hiệu cần
