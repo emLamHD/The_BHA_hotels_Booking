@@ -16,7 +16,13 @@ vi.mock("@/shared/Logo", () => ({
  * the home page and its sections — never to a template route the middleware answers with 404, and
  * never to account, login, notification, template-purchase or social controls.
  */
-const hrefs = (html: string) => [...html.matchAll(/href="([^"]*)"/g)].map((match) => match[1]);
+const hrefs = (html: string): string[] => {
+  const found: string[] = [];
+  const pattern = /href="([^"]*)"/g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(html)) !== null) found.push(match[1]);
+  return found;
+};
 const allowed = new Set(["/", "/#rooms", "/#services"]);
 
 describe.each([
