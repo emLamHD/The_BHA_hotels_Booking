@@ -18,7 +18,7 @@ import {
   featuredTabByLabel,
   findPropertyBySlug,
 } from "@/lib/featuredBrands";
-import { buildRoomDetailsHref, inProgressBookingTarget } from "@/lib/roomDetailsRoute";
+import { bookingStatusCopy, buildRoomDetailsHref, inProgressBookingTarget } from "@/lib/roomDetailsRoute";
 import { SHOWCASE_SECTION_NAVIGATION_EVENT } from "@/lib/routePolicy";
 import { createAnchorAlignment } from "@/lib/anchorAlignment";
 
@@ -193,12 +193,12 @@ const HomeFeaturedRooms: FC = () => {
             role="status"
             className="mb-6 flex flex-col gap-3 rounded-2xl border border-primary-200 bg-primary-50 px-4 py-3 text-sm text-primary-700 sm:flex-row sm:items-center sm:justify-between dark:border-neutral-700 dark:bg-neutral-800 dark:text-primary-300"
           >
-            <span>Bạn đang có một đặt phòng đang thực hiện.</span>
+            <span>{bookingStatusCopy(inProgress.phase).message}</span>
             <Link
               href={buildRoomDetailsHref(inProgress) as Route}
               className="font-medium underline underline-offset-2"
             >
-              Tiếp tục đặt phòng
+              {bookingStatusCopy(inProgress.phase).action}
             </Link>
           </div>
         )}

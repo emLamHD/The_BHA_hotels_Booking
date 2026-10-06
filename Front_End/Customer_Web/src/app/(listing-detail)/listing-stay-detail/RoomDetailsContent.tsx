@@ -16,6 +16,7 @@ import { selectGalleryImages, visibleImages } from "@/lib/api/mediaPresentation"
 import { formatTime } from "@/lib/api/propertyPresentation";
 import { formatDesignedForOccupancy, formatMaxOccupancy } from "@/lib/api/roomTypePresentation";
 import {
+  bookingStatusCopy,
   buildRoomDetailsHref,
   inProgressBookingTarget,
   sameId,
@@ -247,11 +248,11 @@ const RoomBookingSidebar: FC<{ property: PropertyDto; roomType: RoomTypeDto }> =
           className="space-y-3 rounded-2xl border border-primary-200 bg-primary-50 p-4 text-sm text-primary-700 dark:border-neutral-700 dark:bg-neutral-800 dark:text-primary-300"
         >
           <p>
-            Bạn đang có một đặt phòng đang thực hiện cho một phòng khác. Hãy tiếp tục hoặc hoàn tất đặt phòng đó
-            trước khi đặt phòng này.
+            {bookingStatusCopy(inProgress.phase).message} Đó là một phòng khác, nên chưa thể đặt phòng này trong lúc
+            đó.
           </p>
           <Link href={buildRoomDetailsHref(inProgress) as Route} className="font-medium underline underline-offset-2">
-            Tiếp tục đặt phòng
+            {bookingStatusCopy(inProgress.phase).action}
           </Link>
         </div>
       ) : (

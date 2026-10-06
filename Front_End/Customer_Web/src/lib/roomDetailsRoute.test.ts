@@ -4,6 +4,7 @@ import { initialBookingHoldFlowState } from "@/lib/api/bookingHoldFlow";
 import type { BookingHoldFlowState } from "@/lib/api/bookingHoldFlow";
 import type { PropertyDto, RoomTypeDto } from "@/lib/api/propertyTypes";
 import {
+  bookingStatusCopy,
   buildRoomDetailsHref,
   filterOffersForRoomType,
   inProgressBookingTarget,
@@ -187,4 +188,23 @@ describe("inProgressBookingTarget", () => {
   it("is null when a locked phase carries no room (nothing to continue)", () => {
     expect(inProgressBookingTarget(state({ phase: "active-session" }))).toBeNull();
   });
+});
+
+describe("bookingStatusCopy", () => {
+  it("calls a confirmed reservation done, not in progress", () => {
+    const copy = bookingStatusCopy("reservation-result");
+    expect(copy.message).toContain("hoàn tất");
+    expect(copy.action).toBe("Xem xác nhận");
+    expect(copy.barText).not.toContain("đang thực hiện");
+  });
+
+  it.each(["submitting", "uncertain", "active-session", "confirming", "confirm-known-error", "confirm-uncertain"] as const)(
+    "calls %s an order in progress with a way to continue it",
+    (phase) => {
+      const copy = bookingStatusCopy(phase);
+      expect(copy.message).toContain("đang thực hiện");
+      expect(copy.action).toBe("Tiếp tục đặt phòng");
+      expect(copy.barAction).toBe("Tiếp tục");
+    }
+  );
 });

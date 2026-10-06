@@ -128,3 +128,31 @@ export function bookingFlowRoomTypeId(state: BookingHoldFlowState): string | nul
     null
   );
 }
+
+export interface BookingStatusCopy {
+  /** Sentence shown where the visitor is told about the booking. */
+  message: string;
+  /** Label of the link/button that leads back to the room of that booking. */
+  action: string;
+  /** Short status for the mobile bar. */
+  barText: string;
+  barAction: string;
+}
+
+/** What to tell the visitor about a booking that is in progress or has just been confirmed. */
+export function bookingStatusCopy(phase: BookingHoldFlowState["phase"]): BookingStatusCopy {
+  if (phase === "reservation-result") {
+    return {
+      message: "Bạn vừa hoàn tất một đặt phòng.",
+      action: "Xem xác nhận",
+      barText: "Đặt phòng đã xác nhận",
+      barAction: "Xem",
+    };
+  }
+  return {
+    message: "Bạn đang có một đặt phòng đang thực hiện.",
+    action: "Tiếp tục đặt phòng",
+    barText: "Đặt phòng đang thực hiện",
+    barAction: "Tiếp tục",
+  };
+}

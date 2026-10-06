@@ -18,6 +18,7 @@ const CardAuthorBox2: FC<CardAuthorBox2Props> = ({
   const { displayName, href = "/", avatar, jobName, count, bgImage } = author;
   return (
     <Link
+      prefetch={false}
       href={href}
       className={`nc-CardAuthorBox2 flex flex-col overflow-hidden bg-white dark:bg-neutral-900 rounded-3xl hover:shadow-xl transition-shadow ${className}`}
       data-nc-id="CardAuthorBox2"

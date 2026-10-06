@@ -17,6 +17,7 @@ const CardCategoryBox1: FC<CardCategoryBox1Props> = ({
   const { count, name, thumbnail, href = "/" } = taxonomy;
   return (
     <Link
+      prefetch={false}
       href={href}
       className={`nc-CardCategoryBox1 relative flex items-center p-3 sm:p-6 [ nc-box-has-hover ] [ nc-dark-box-bg-has-hover ]  ${className}`}
     >
