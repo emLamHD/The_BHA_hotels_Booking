@@ -5,6 +5,9 @@ import Link from "next/link";
 import type { Route } from "next";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Badge from "@/shared/Badge";
+import LikeSaveBtns from "@/components/LikeSaveBtns";
+import StartRating from "@/components/StartRating";
+import type { AvailabilityDraft } from "@/lib/api/availabilityValidation";
 import ShowcaseNavLink from "@/components/ShowcaseNavLink";
 import MediaGallery from "@/components/MediaGallery";
 import ListingImageGallery from "@/components/listing-image-gallery/ListingImageGallery";
@@ -32,6 +35,8 @@ export interface RoomDetailsContentProps {
   roomType: RoomTypeDto;
   /** All of the Property's room types, for the links to the other rooms. */
   roomTypes: RoomTypeDto[];
+  /** A valid search that came in the URL; it fills the booking panel and runs once. */
+  searchDraft?: AvailabilityDraft | null;
 }
 
 const Section: FC<{ title: string; hint?: string; children: React.ReactNode }> = ({ title, hint, children }) => (
@@ -51,7 +56,7 @@ const Section: FC<{ title: string; hint?: string; children: React.ReactNode }> =
  * and RoomType the API returned. What the API does not say (beds, baths, area, address, map,
  * reviews, host, cancellation terms, rates tables) is not shown at all.
  */
-const RoomDetailsContent: FC<RoomDetailsContentProps> = ({ property, roomType, roomTypes }) => {
+const RoomDetailsContent: FC<RoomDetailsContentProps> = ({ property, roomType, roomTypes, searchDraft }) => {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -107,6 +112,11 @@ const RoomDetailsContent: FC<RoomDetailsContentProps> = ({ property, roomType, r
   }, []);
 
   const amenities = (roomType.amenities ?? []).length > 0 ? roomType.amenities ?? [] : [];
+  // What "Share" sends: the room and, when there is one, the valid search — nothing about the guest.
+  const shareUrl =
+    typeof window === "undefined"
+      ? undefined
+      : `${window.location.origin}${buildRoomDetailsHref({ propertyId: property.id, roomTypeId: roomType.id }, searchDraft ?? null)}`;
   const propertyAmenities = property.amenities ?? [];
 
   return (
@@ -125,11 +135,18 @@ const RoomDetailsContent: FC<RoomDetailsContentProps> = ({ property, roomType, r
           <div className="listingSection__wrap !space-y-6">
             <div className="flex justify-between items-center">
               <Badge name={propertyName} />
+              <LikeSaveBtns shareUrl={shareUrl} shareTitle={`${roomName} — ${propertyName}`} saveKey={roomType.id} />
             </div>
             <h1 className="text-2xl sm:text-3xl lg:text-4xl font-semibold">{roomName}</h1>
-            <div className="flex items-center text-neutral-500 dark:text-neutral-400">
-              <i className="las la-map-marker-alt"></i>
-              <span className="ml-1">{propertyName}</span>
+            <div className="flex items-center space-x-4 text-neutral-500 dark:text-neutral-400">
+              <span title="Đánh giá mẫu (không phải đánh giá của khách)">
+                <StartRating />
+              </span>
+              <span>·</span>
+              <span>
+                <i className="las la-map-marker-alt"></i>
+                <span className="ml-1">{propertyName}</span>
+              </span>
             </div>
             <div className="w-full border-b border-neutral-100 dark:border-neutral-700" />
             <div className="flex flex-wrap items-center gap-x-8 gap-y-3 text-sm text-neutral-700 dark:text-neutral-300">
@@ -215,7 +232,7 @@ const RoomDetailsContent: FC<RoomDetailsContentProps> = ({ property, roomType, r
             className="scroll-mt-28 lg:sticky lg:top-28 lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto"
           >
             <div className="listingSectionSidebar__wrap shadow-xl">
-              <RoomBookingSidebar property={property} roomType={roomType} />
+              <RoomBookingSidebar property={property} roomType={roomType} searchDraft={searchDraft} />
             </div>
           </div>
         </div>
@@ -228,7 +245,11 @@ const RoomDetailsContent: FC<RoomDetailsContentProps> = ({ property, roomType, r
 };
 
 /** The booking panel for this room, or a pointer back to the room whose booking is under way. */
-const RoomBookingSidebar: FC<{ property: PropertyDto; roomType: RoomTypeDto }> = ({ property, roomType }) => {
+const RoomBookingSidebar: FC<{ property: PropertyDto; roomType: RoomTypeDto; searchDraft?: AvailabilityDraft | null }> = ({
+  property,
+  roomType,
+  searchDraft,
+}) => {
   const { state } = useBookingHoldFlow();
   const inProgress = inProgressBookingTarget(state);
   const roomName = roomType.name ?? "Room type";
@@ -256,7 +277,12 @@ const RoomBookingSidebar: FC<{ property: PropertyDto; roomType: RoomTypeDto }> =
           </Link>
         </div>
       ) : (
-        <SectionAvailabilitySearch properties={[property]} lockedRoomType={{ id: roomType.id, name: roomName }} />
+        <SectionAvailabilitySearch
+          properties={[property]}
+          lockedRoomType={{ id: roomType.id, name: roomName }}
+          initialDraft={searchDraft}
+          autoSearch={!!searchDraft}
+        />
       )}
     </>
   );

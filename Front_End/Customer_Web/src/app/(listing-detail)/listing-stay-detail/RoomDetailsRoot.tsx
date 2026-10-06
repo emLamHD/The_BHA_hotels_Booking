@@ -15,6 +15,8 @@ import {
   resolveProperty,
   resolveRoomType,
 } from "@/lib/roomDetailsRoute";
+import { parseSearchQuery } from "@/lib/staySearch";
+import type { AvailabilityDraft } from "@/lib/api/availabilityValidation";
 import RoomDetailsContent from "./RoomDetailsContent";
 
 function describeError(error: unknown, what: string): string {
@@ -69,7 +71,15 @@ const RoomDetailsRoot: FC = () => {
   }
 
   const { propertyId, roomTypeId } = parsed.ids;
-  return <RoomDetailsLoader key={`${propertyId.toLowerCase()}:${roomTypeId.toLowerCase()}`} ids={parsed.ids} />;
+  // A search that came with the URL (the home page's) is used only when it is complete and valid.
+  const searchDraft = parseSearchQuery(searchParams);
+  return (
+    <RoomDetailsLoader
+      key={`${propertyId.toLowerCase()}:${roomTypeId.toLowerCase()}`}
+      ids={parsed.ids}
+      searchDraft={searchDraft}
+    />
+  );
 };
 
 type Loaded =
@@ -79,7 +89,7 @@ type Loaded =
   | { kind: "unknown-room-type"; property: PropertyDto }
   | { kind: "ready"; property: PropertyDto; roomType: RoomTypeDto; roomTypes: RoomTypeDto[] };
 
-const RoomDetailsLoader: FC<{ ids: RoomIdentity }> = ({ ids }) => {
+const RoomDetailsLoader: FC<{ ids: RoomIdentity; searchDraft: AvailabilityDraft | null }> = ({ ids, searchDraft }) => {
   const [loaded, setLoaded] = useState<Loaded>({ kind: "loading" });
   const request = useRef<AbortController | null>(null);
 
@@ -141,7 +151,14 @@ const RoomDetailsLoader: FC<{ ids: RoomIdentity }> = ({ ids }) => {
         </Message>
       );
     case "ready":
-      return <RoomDetailsContent property={loaded.property} roomType={loaded.roomType} roomTypes={loaded.roomTypes} />;
+      return (
+        <RoomDetailsContent
+          property={loaded.property}
+          roomType={loaded.roomType}
+          roomTypes={loaded.roomTypes}
+          searchDraft={searchDraft}
+        />
+      );
   }
 };
 

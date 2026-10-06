@@ -16,6 +16,9 @@ import { AvailabilityOfferDto, AvailabilityQuery } from "@/lib/api/availabilityT
 import { AvailabilityDraft, AvailabilityFieldErrors } from "@/lib/api/availabilityValidation";
 import { PropertyDto } from "@/lib/api/propertyTypes";
 import { bookingFlowRoomTypeId, filterOffersForRoomType, sameId } from "@/lib/roomDetailsRoute";
+import StayDatesRangeInput from "@/app/(listing-detail)/listing-stay-detail/StayDatesRangeInput";
+import RoomGuestsInput from "@/app/(listing-detail)/listing-stay-detail/GuestsInput";
+import { dateToIso, isoToDate, todayLocal } from "@/lib/staySearch";
 import {
   ApiConfigError,
   ApiHttpError,
@@ -34,6 +37,12 @@ export interface SectionAvailabilitySearchProps {
    * this room.
    */
   lockedRoomType?: { id: string; name: string };
+  /**
+   * CP02-C3: a validated search that came with the page (the home page's search, carried in the URL).
+   * It fills the form; with `autoSearch` the read-only availability request for it runs once on arrival.
+   */
+  initialDraft?: AvailabilityDraft | null;
+  autoSearch?: boolean;
 }
 
 type SearchStatus = "initial" | "loading" | "success" | "empty" | "error";
@@ -75,17 +84,26 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
   className = "",
   properties,
   lockedRoomType,
+  initialDraft,
+  autoSearch = false,
 }) => {
   const compact = !!lockedRoomType;
   const lockedRoomTypeId = lockedRoomType?.id;
   const [propertyId, setPropertyId] = useState<string>(properties[0]?.id ?? "");
-  const [draft, setDraft] = useState<AvailabilityDraft>(() => ({
-    checkIn: localDateIso(0),
-    checkOut: localDateIso(1),
-    adults: "1",
-    children: "0",
-    rooms: "1",
-  }));
+  const [draft, setDraft] = useState<AvailabilityDraft>(() =>
+    initialDraft
+      ? initialDraft
+      : compact
+        ? // the template's field says "Add dates" until the visitor picks some
+          { checkIn: "", checkOut: "", adults: "2", children: "0", rooms: "1" }
+        : {
+            checkIn: localDateIso(0),
+            checkOut: localDateIso(1),
+            adults: "1",
+            children: "0",
+            rooms: "1",
+          }
+  );
   const [fieldErrors, setFieldErrors] = useState<AvailabilityFieldErrors>({});
   const [status, setStatus] = useState<SearchStatus>("initial");
   const [offers, setOffers] = useState<AvailabilityOfferDto[]>([]);
@@ -188,8 +206,8 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
     }
   }, [properties, propertyId]);
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const handleSubmit = (event?: FormEvent<HTMLFormElement>) => {
+    event?.preventDefault();
     // The authoritative same-tick Hold-flow lock is consulted first, inside
     // `runAvailabilityFormSubmit`, *before* draft validation or any
     // field-error state change — never the React-rendered `flowLocked`
@@ -234,9 +252,71 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
     );
   };
 
+  // Arriving with a valid search (from the home page): run it once. It is a read-only availability
+  // request; the Hold flow's own gate still decides whether it may start.
+  const autoSearched = useRef(false);
+  useEffect(() => {
+    if (!autoSearch || !initialDraft || autoSearched.current || properties.length === 0) return;
+    autoSearched.current = true;
+    handleSubmit();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   if (properties.length === 0) {
     return null;
   }
+
+  const asCount = (value: string, fallback: number) => {
+    const parsed = parseInt(value, 10);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+
+  const renderCompactForm = () => (
+    <form onSubmit={handleSubmit} noValidate className="space-y-4">
+      <div className="flex flex-col border border-neutral-200 dark:border-neutral-700 rounded-3xl">
+        <StayDatesRangeInput
+          className="flex-1 z-[11]"
+          startDate={isoToDate(draft.checkIn)}
+          endDate={isoToDate(draft.checkOut)}
+          minDate={todayLocal()}
+          disabled={flowLocked}
+          onDatesChange={([start, end]) =>
+            setDraft((current) => ({
+              ...current,
+              checkIn: start ? dateToIso(start) : "",
+              checkOut: end ? dateToIso(end) : "",
+            }))
+          }
+        />
+        <div className="w-full border-b border-neutral-200 dark:border-neutral-700"></div>
+        <RoomGuestsInput
+          className="flex-1"
+          adults={asCount(draft.adults, 1)}
+          children={asCount(draft.children, 0)}
+          rooms={asCount(draft.rooms, 1)}
+          disabled={flowLocked}
+          onChange={(patch) =>
+            setDraft((current) => ({
+              ...current,
+              adults: patch.adults !== undefined ? String(patch.adults) : current.adults,
+              children: patch.children !== undefined ? String(patch.children) : current.children,
+              rooms: patch.rooms !== undefined ? String(patch.rooms) : current.rooms,
+            }))
+          }
+        />
+      </div>
+      {(fieldErrors.checkIn || fieldErrors.checkOut || fieldErrors.adults || fieldErrors.children || fieldErrors.rooms) && (
+        <p role="alert" className="text-xs text-red-600 dark:text-red-400">
+          {fieldErrors.checkIn ?? fieldErrors.checkOut ?? fieldErrors.adults ?? fieldErrors.children ?? fieldErrors.rooms}
+        </p>
+      )}
+      <div>
+        <ButtonPrimary type="submit" className="w-full" disabled={flowLocked}>
+          Search availability
+        </ButtonPrimary>
+      </div>
+    </form>
+  );
 
   return (
     <div className={`nc-SectionAvailabilitySearch relative ${className}`}>
@@ -246,6 +326,9 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
         </Heading>
       )}
 
+      {compact ? (
+        renderCompactForm()
+      ) : (
       <form onSubmit={handleSubmit} noValidate className="space-y-4">
         <div
           className={
@@ -439,6 +522,7 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
           </ButtonPrimary>
         </div>
       </form>
+      )}
 
       <div className={compact ? "mt-6" : "mt-8"}>
         {status === "initial" && (
