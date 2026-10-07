@@ -1,0 +1,206 @@
+name: Backend image
+
+# CUST-WEB-SHOWCASE-001-CP02 (+C1). The API image is built, and published to Amazon ECR, from `develop`.
+#
+#   pull_request  -> builds the PR head (no credentials, no publish, no AWS action).
+#   push develop  -> builds; publishes ONLY when the repository variable ECR_PUBLISH_ENABLED is "true",
+#                    after the backend suite passed against real PostgreSQL on the same commit.
+#   workflow_dispatch -> same publish rules, only for ref `develop`. GitHub shows "Run workflow" only for
+#                    a workflow file that exists on the default branch (main); until the Owner promotes
+#                    this file there, the push trigger is the way to publish. Any other ref never publishes.
+#
+# Publishing is OFF by default. It pushes an image tagged with the exact source commit SHA and does
+# NOT roll out any service. When ECR_PUBLISH_ENABLED=true but AWS_ECR_ROLE_ARN, AWS_REGION or
+# ECR_REPOSITORY is missing, the run fails (it never pretends to have published). A skipped publish
+# job means "nothing was published", not "deployed".
+
+on:
+  pull_request:
+    branches: [develop, main]
+    paths:
+      - Back_End/**
+      - deploy/showcase/**
+      - .github/workflows/backend-image.yml
+  push:
+    branches: [develop]
+    paths:
+      - Back_End/**
+      - deploy/showcase/**
+      - .github/workflows/backend-image.yml
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish to ECR (ref must be develop; needs ECR_PUBLISH_ENABLED=true and the Owner's OIDC role)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-image-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    outputs:
+      source_sha: ${{ steps.plan.outputs.source_sha }}
+      publish: ${{ steps.plan.outputs.publish }}
+    steps:
+      - name: Decide source SHA and whether to publish
+        id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          # A pull_request run has a synthetic merge commit in github.sha; release provenance is the PR head.
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          DISPATCH_PUBLISH: ${{ inputs.publish }}
+          PUBLISH_ENABLED: ${{ vars.ECR_PUBLISH_ENABLED }}
+          ROLE_ARN: ${{ vars.AWS_ECR_ROLE_ARN }}
+          REGION: ${{ vars.AWS_REGION }}
+          REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+        run: |
+          set -euo pipefail
+          publish=false
+          wanted=false
+          if [ "$EVENT" = "push" ]; then wanted=true; fi
+          if [ "$EVENT" = "workflow_dispatch" ] && [ "$DISPATCH_PUBLISH" = "true" ]; then wanted=true; fi
+          if [ "$wanted" = "true" ] && [ "$REF" != "refs/heads/develop" ]; then
+            echo "::notice::Publishing is only allowed from develop (ref is $REF); building only."
+            wanted=false
+          fi
+          if [ "$wanted" = "true" ] && [ "$PUBLISH_ENABLED" = "true" ]; then
+            for name in ROLE_ARN REGION REPOSITORY; do
+              if [ -z "${!name}" ]; then
+                echo "::error::ECR_PUBLISH_ENABLED is true but the repository variable for $name is missing; nothing was published."
+                exit 1
+              fi
+            done
+            publish=true
+          elif [ "$wanted" = "true" ]; then
+            echo "::notice::ECR_PUBLISH_ENABLED is not 'true'; build only. PUBLISH: NOT_RUN."
+          fi
+          echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "source=$SOURCE_SHA publish=$publish"
+
+  build:
+    name: Build image
+    needs: plan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the exact source commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.source_sha }}
+
+      - name: Build image (no push)
+        run: docker build --tag thebha-api:${{ needs.plan.outputs.source_sha }} Back_End
+
+      - name: Image runs as a non-root user with the key directory writable
+        run: |
+          docker run --rm --entrypoint sh thebha-api:${{ needs.plan.outputs.source_sha }} -c \
+            'test "$(id -u)" != 0 && test -w /var/keys && echo "uid=$(id -u) keys writable"'
+
+      - name: Production refuses to start without a key directory
+        run: |
+          set +e
+          out="$(docker run --rm -e ASPNETCORE_ENVIRONMENT=Production \
+            -e 'ConnectionStrings__TheBhaDatabase=Host=none;Database=none;Username=none;Password=none' \
+            thebha-api:${{ needs.plan.outputs.source_sha }} 2>&1)"
+          code=$?
+          set -e
+          echo "$out" | grep -q 'DataProtection:KeysPath must point to durable shared storage' && [ "$code" -ne 0 ]
+
+  verify:
+    name: Backend suite on the source commit
+    # Gate for publishing: the same backend build/tests as ci.yml, on real PostgreSQL, on this exact SHA.
+    # Runs only when a publish will follow, so a skipped publish costs nothing extra.
+    needs: plan
+    if: needs.plan.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    env:
+      ConnectionStrings__TheBhaDatabase: Host=localhost;Port=5432;Database=thebha_ci;Username=thebha_ci;Password=ci-only-password
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: thebha_ci
+          POSTGRES_USER: thebha_ci
+          POSTGRES_PASSWORD: ci-only-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U thebha_ci -d thebha_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout the exact source commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.source_sha }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore Back_End/TheBha.Booking.sln
+
+      - name: Build
+        run: dotnet build Back_End/TheBha.Booking.sln --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test Back_End/TheBha.Booking.sln --configuration Release --no-build
+
+  publish:
+    name: Publish to ECR
+    needs: [plan, build, verify]
+    if: needs.plan.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    environment: showcase-publish
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      IMAGE_SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+    steps:
+      - name: Checkout the exact source commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.source_sha }}
+
+      - name: Configure AWS credentials (OIDC, no stored keys)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ECR_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Log in to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push (immutable tag = source commit SHA)
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+        run: |
+          set -euo pipefail
+          image="$REGISTRY/$REPOSITORY:$IMAGE_SOURCE_SHA"
+          if aws ecr describe-images --repository-name "$REPOSITORY" --image-ids imageTag="$IMAGE_SOURCE_SHA" >/dev/null 2>&1; then
+            echo "::notice::$IMAGE_SOURCE_SHA is already published; not overwriting the tag."
+          else
+            docker build --tag "$image" Back_End
+            docker push "$image"
+          fi
+          digest="$(aws ecr describe-images --repository-name "$REPOSITORY" --image-ids imageTag="$IMAGE_SOURCE_SHA" --query 'imageDetails[0].imageDigest' --output text)"
+          {
+            echo "### Published (not deployed)"
+            echo "- tag: \`$IMAGE_SOURCE_SHA\`"
+            echo "- digest: \`$digest\`"
+            echo "No service was rolled out by this workflow."
+          } >> "$GITHUB_STEP_SUMMARY"

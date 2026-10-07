@@ -1,0 +1,505 @@
+# PROJECT BIBLE — The BHA Hotels Booking
+
+- **Status:** Active
+- **Document type:** Stable project knowledge
+
+File này mô tả dự án và các nguyên tắc thiết kế tương đối ổn định. Trạng thái
+task/PR hiện tại nằm trong `docs/project/SNAPSHOT.md`.
+
+## 1. Tầm nhìn kinh doanh
+
+The BHA Hotels Booking đang mở rộng từ một website đặt phòng trực tiếp thành
+một nền tảng hospitality dùng chung cho nhiều cơ sở: Customer Web (đặt phòng
+trực tiếp cho khách) và Admin PMS (vận hành nội bộ), cùng chia sẻ một backend
+ASP.NET Core và một PostgreSQL source of truth (TARGET — xem
+[PMS-DATA-001-core-database-blueprint-v2](../design/PMS-DATA-001-core-database-blueprint-v2.md)).
+Admin Web hiện có một Reservation Board frontend prototype tương tác
+(`ADMIN-002.1`, PR #32, trên nền template baseline PR #30): room/date
+timeline, chuyển đổi demo giữa nhiều property, reservation đã/chưa gán
+phòng, operational block, và front-desk reservation workspace với lifecycle/
+folio/move demonstration — ban đầu chạy trên local deterministic mock state.
+Hiện chỉ Reservation Board đọc và ghi qua `Back_End/` (xem CURRENT bên dưới),
+với Staff authentication, RBAC theo Property/role và audit Staff
+(`PMS-ADMIN-AUTH-001`); `Staff` là chế độ mặc định, `LocalGate` ẩn danh chỉ là
+opt-in Development. Front-desk creation workspace, lifecycle/folio/move
+demonstration và các module Admin mẫu khác vẫn là mock/template, ngoài phạm vi
+Staff session. Chưa có OTA behavior thật; phần PMS/Admin backend còn lại vẫn
+TARGET, chưa implement.
+
+Phạm vi onboarding hiện tại — TARGET, hai property đã được Owner duyệt, không
+phải khẳng định rằng cả hai đã tồn tại trong seed/schema hiện tại:
+
+- The BHA House — 79 Mộc Sơn 5, Đà Nẵng.
+- The BHA Riverside — 162 Nghiêm Xuân Yêm, Đà Nẵng.
+
+Nền tảng phải mở rộng được cho nhiều property hơn mà không cần backend/
+database riêng cho từng property (TARGET).
+
+Mục tiêu:
+
+- Xây dựng bộ mặt trực tuyến chính thức của khách sạn và một nền tảng vận
+  hành PMS nội bộ dùng chung dữ liệu.
+- Cho phép khách tìm phòng và đặt trực tiếp.
+- Giảm phụ thuộc và chi phí hoa hồng từ OTA.
+- Tạo nền tảng có thể mở rộng cho quản lý giá, tồn phòng, booking, physical-
+  room allocation và tích hợp vận hành trong tương lai.
+- Cải thiện khả năng xuất hiện khi khách tìm kiếm thương hiệu The BHA Hotel.
+
+Mọi TARGET/APPROVED architecture chi tiết (Organization/Property scoping,
+multi-RoomType Hold/Reservation, physical allocation, occupancy segment,
+Calendar projection, OTA boundary) được ghi đầy đủ trong
+[PMS-DATA-001-core-database-blueprint-v2](../design/PMS-DATA-001-core-database-blueprint-v2.md),
+[ADR 0005](../ADR/0005-separate-commercial-commitment-from-physical-allocation.md)
+và
+[ADR 0006](../ADR/0006-schedule-physical-rooms-with-occupancy-segments.md).
+Không có bảng/entity/schema TARGET nào trong các tài liệu đó đã được
+implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
+
+## 2. Phạm vi sản phẩm
+
+### Năng lực cốt lõi của MVP hiện tại (CURRENT)
+
+- Public property/room catalog.
+- Room type và physical room inventory foundation.
+- Rate plan.
+- Giá theo từng đêm.
+- Daily sellable limit và stop-sell.
+- Availability search và stay pricing.
+- Booking commitment/hold/reservation: `BE-003.1`–`BE-003.5` đã cung cấp
+  atomic Hold/Reservation concurrency và expiry-aware committed demand; đây
+  là capability riêng, không trộn vào lớp availability chỉ đọc.
+- `PMS-BE-001.1` (migration 7, `CommercialCommitmentV2Foundation`) đã thay
+  commercial authority bằng schema normalized theo ADR 0005:
+  `InventoryHold → InventoryHoldItem → InventoryHoldItemNight`,
+  `Reservation → ReservationUnit → ReservationUnitNight` — mỗi Item/Unit
+  persisted đại diện đúng một phòng, mỗi night row mang `RatePlanId` riêng.
+  Public `/api/v1` contract KHÔNG đổi: request vẫn chỉ nhận một
+  `RoomTypeId`, một `RatePlanId` và `rooms = Q`; transaction tạo Hold normalize
+  atomically thành `Q` Item độc lập, và `BookingHoldDto`/`ReservationDto`
+  được project từ các row normalized đó (CURRENT).
+- `PMS-BE-001.2` (migration 8) đã implement database authority cho
+  physical-room allocation độc lập với commercial commitment
+  (`RoomOccupancySegments`/`RoomBlock`, database-enforced invariants — xem
+  ADR 0006). Availability đã block-adjusted và assignment-attributed; hủy
+  Reservation tự động hủy mọi assignment liên quan cùng transaction.
+  Internal-only mutation commands tồn tại ở application/persistence boundary
+  — tại thời điểm work item đó, **không có HTTP controller hay Admin/Calendar
+  endpoint nào** expose chúng, không có Staff identity, không có Admin RBAC
+  model (exposure hiện tại: xem `PMS-CAL-001.2` bên dưới). Chi tiết đầy đủ
+  trong `docs/reports/PMS-BE-001.2-completion.md`.
+- `PMS-CAL-001.1` (không có migration mới) đã thêm HTTP **read-only**
+  projection đầu tiên của authority trên: `GET
+  /api/admin/v1/properties/{propertyId}/reservation-board`, gated sau
+  `AdminCalendar:EnableUnauthenticatedRead` (mặc định `false`, không thể
+  bật ở Production), HTTPS-only/non-wildcard `Cors:AdminOrigins`. Admin
+  Reservation Board frontend (`Front_End/Admin_Web`) đọc endpoint này thay
+  vì mock data. Bản thân work item đó **không** thêm mutation endpoint HTTP
+  nào, và không có Admin authentication/RBAC hay Staff identity thật. Chi tiết
+  đầy đủ trong `docs/reports/PMS-CAL-001.1-completion.md`.
+- `PMS-CAL-001.2` (không có migration mới) thêm ranh giới **ghi** local đầu
+  tiên: CP01 (merged) là opt-in/gate/CORS policy riêng, không endpoint nào;
+  CP02 (merged) là endpoint đầu tiên sau gate đó,
+  `POST /api/admin/v1/properties/{propertyId}/reservation-assignments`, adapter
+  mỏng cho `IAssignmentMutationStore.CreateAsync`; CP04B (merged) thêm hai
+  route một-segment `POST .../reservation-assignments/{segmentId}/move` và
+  `.../unassign` trên `SupersedeAsync`. Tất cả chỉ chạy trên host Development
+  loopback đã bật opt-in. Audit dùng hằng số do server sở hữu — không phải
+  nhân viên, phê duyệt hay Staff identity đã xác thực. Admin Reservation Board
+  gọi create (CP03A/CP03B) và move/unassign. ADR 0006 §Amendments (2026-09-11,
+  2026-09-15) ghi nhận đúng phần narration cũ bị thay thế; Decision của ADR
+  không đổi. (Mô tả gate ở trên là chế độ `LocalGate`; xem `PMS-ADMIN-AUTH-001`
+  bên dưới cho chế độ `Staff` mặc định.)
+- `PMS-ADMIN-AUTH-001` (ADR 0007; migration 9 là thay đổi schema duy nhất; CP00–CP07
+  merged, PR #73–#80, milestone đóng):
+  Staff identity riêng (`StaffAccounts`, `StaffPropertyMemberships`, vai trò
+  `FrontDesk`/`Manager` theo Property), bootstrap/grant/disable/reset chỉ qua
+  CLI, cookie session `.TheBha.Staff` (8 giờ tuyệt đối), `GET /api/admin/v1/me`.
+  `AdminCalendar:AccessMode`: `Staff` (mặc định từ CP07, mọi môi trường) yêu cầu
+  Staff session + permission kiểm tra trên server theo Property/role cho Board
+  read và năm route ghi, audit actor `staff:{id}` và evidence cross-RoomType của
+  Manager; `LocalGate` (gate ẩn danh ở trên) chỉ là opt-in Development, môi
+  trường khác từ chối khởi động. Admin_Web có `/signin`, gate `/calendar`,
+  selector từ memberships và UI theo quyền. Vận hành:
+  `docs/runbooks/PMS-ADMIN-AUTH-001-staff-calendar.md`. Chưa deploy Production.
+- `PMS-CAL-001.3-CP01` (không có migration mới) thêm endpoint **ghi** đầu tiên
+  cho operational block sau đúng gate CP01 đó:
+  `POST /api/admin/v1/properties/{propertyId}/operational-blocks`, adapter mỏng
+  cho `IOperationalBlockMutationStore.CreateBlockAsync`, tạo **đúng một**
+  OperationalBlock segment dưới một RoomBlock header mới, chỉ chạy trên host
+  Development loopback đã bật opt-in. Audit actor là cùng hằng số do server sở
+  hữu; request không mang actor/authorization evidence. Từ
+  `PMS-CAL-001.3-CP03`, Admin Reservation Board gọi nó qua dialog trên
+  toolbar (một phòng Active, khoảng đêm đã xác nhận nằm trong board đang hiển
+  thị, rồi đọc lại board từ server). ADR 0006 §Amendments (2026-09-24) ghi
+  nhận phần exposure này.
+- `PMS-CAL-001.3-CP02` (không có migration mới) thêm
+  `POST .../operational-blocks/{segmentId}/cancel` sau cùng gate: hủy **đúng
+  một** OperationalBlock segment Effective qua
+  `IOperationalBlockMutationStore.SupersedeSegmentsAsync` với danh sách thay
+  thế rỗng và `expectedVersion` bắt buộc; RoomBlock header và audit được giữ.
+  ADR 0006 §Amendments (2026-09-25).
+- `PMS-CAL-001.3-CP04` (không có migration mới) đưa Admin Reservation Board
+  thành caller đầu tiên của route cancel: chọn một block bar trên timeline,
+  popover hiển thị **toàn bộ `[startDate, endDate)` của segment** (không phải
+  phần bar bị cắt theo cửa sổ đang xem), xác nhận với lý do tùy chọn, gửi đúng
+  một request kèm `expectedVersion` đọc từ board, rồi đọc lại board — block chỉ
+  biến mất từ dữ liệu GET. Lost response không bao giờ được gửi lại và giữ khóa
+  phòng/đêm cho mọi loại ghi.
+- `PMS-CAL-001.4-CP01` (frontend) cho kéo một assigned segment sang phòng khác
+  chỉ để **mở dialog Move** với phòng đã chọn; ngày và `expectedVersion` lấy
+  từ segment, chỉ confirm mới gửi. `PMS-CAL-001.5` (CP01–CP03, PR #69–#71)
+  giữ write chưa rõ kết quả và khóa phòng/đêm qua reload **cùng tab** bằng
+  `sessionStorage`, kể cả request còn in-flight; đây không phải idempotency
+  phía server và không bảo vệ qua tab/thiết bị khác. Evidence live:
+  `docs/reports/PMS-CAL-001.5-CP04-completion.md`.
+
+### Target/approved, chưa implement (TARGET)
+
+- Multi-RoomType public Hold/Reservation request (một Hold/Reservation chứa
+  nhiều RoomType khác nhau trong cùng một request) — nền tảng normalized
+  Item/Unit cho việc này đã CURRENT (`PMS-BE-001.1` ở trên), nhưng public API
+  vẫn giới hạn đúng một RoomType/RatePlan mỗi request; mở rộng lên
+  multi-RoomType request là TARGET riêng, chưa implement — xem ADR 0005.
+- HTTP/Admin/Calendar **mutation** integration còn lại của physical-room
+  schedule authority (`RoomOccupancySegments`/`RoomBlock`, đã CURRENT ở trên;
+  read projection CURRENT từ `PMS-CAL-001.1`, assignment *create* CURRENT ở
+  mức local-only từ `PMS-CAL-001.2` CP02, one-segment *move*/*unassign*
+  CURRENT ở mức local-only từ CP04B, single-segment operational-block
+  *create*/*cancel* CURRENT ở mức local-only từ `PMS-CAL-001.3` CP01/CP02,
+  và Admin Reservation Board gọi cả hai từ CP03/CP04) —
+  assignment split/batch, OperationalBlock *move/split* và multi-segment block
+  create/supersede qua HTTP, frontend integration cho split/batch và cho
+  operational-block move/split vẫn TARGET, chưa implement. Đổi phòng giữa kỳ bằng
+  split một segment (split-move, blueprint §15.4) có thiết kế đề xuất
+  `PMS-CAL-002-CP00` ([PMS-CAL-002-split-move](../design/PMS-CAL-002-split-move.md));
+  nó vẫn TARGET cho tới khi các checkpoint implementation merge, và các quyết định
+  Owner D1–D6 của thiết kế còn mở. (Staff
+  authentication/RBAC và audit actor Staff đã CURRENT ở chế độ `Staff` —
+  `PMS-ADMIN-AUTH-001`; chế độ `LocalGate` vẫn dùng hằng số opaque.)
+- Intentional cross-RoomType upgrade/downgrade có authorization/reason/audit
+  qua Staff/RBAC — CURRENT ở chế độ `Staff` (permission
+  `AssignmentCrossRoomType` của Manager, evidence `staff-rbac:...`); không
+  reprice commercial record.
+- Calendar/Reservation Board là projection, không phải aggregate riêng.
+- `FolioEntries` là financial posting authority riêng biệt với booking
+  snapshot; Guest identity document và Stay Declaration là hai concept có
+  lifecycle riêng.
+- Admin PMS/Calendar UI thật, tức backend-integrated, server-authoritative
+  **cho mutation** (Admin Web hiện có một interactive Reservation Board
+  frontend từ `ADMIN-002.1`/PR #32; phần đọc chính đã backend-integrated
+  qua HTTPS từ `PMS-CAL-001.1`, và board gọi các route local-only assignment
+  create/move/unassign và operational-block create/cancel ở trên, với Staff
+  authentication/RBAC ở chế độ `Staff` mặc định.
+  Front-desk creation workspace và lifecycle/folio/move demonstrations vẫn
+  chạy hoàn toàn trên local mock state, chưa có mutation/persistence thật).
+
+Mixed-RoomType allocation không còn nằm trong danh sách "ngoài phạm vi" bên
+dưới — nó là TARGET/APPROVED, chưa implement, theo đúng nghĩa ở trên.
+
+### Ngoài phạm vi nền tảng hiện tại hoặc phải có Epic riêng (DEFERRED)
+
+- OTA/channel manager (adapter-specific schema/behavior deferred; boundary
+  nguyên tắc đã ghi trong blueprint §13).
+- Payment và refund.
+- Promotion/coupon/discount.
+- Tax và service charge phức tạp.
+- Meal plan.
+- Multi-currency conversion.
+- Guest profile nâng cao.
+- Check-in/check-out, housekeeping và maintenance scheduling đầy đủ (ngoài
+  `RoomBlock`/`OperationalBlock` boundary đã nêu trong ADR 0006).
+- `DATA-001.2` (dormant/deferred, không liên quan work item này).
+
+Các capability này không được triển khai “tiện tay” trong Epic khác.
+
+## 3. Tech stack
+
+### Backend
+
+- .NET 8.
+- ASP.NET Core Web API.
+- Clean Architecture.
+- Entity Framework Core 8.
+- PostgreSQL 17.
+- Npgsql.
+- Swagger/OpenAPI và health checks.
+
+### Frontend
+
+- Next.js Customer Web.
+- Frontend và backend được thay đổi theo phạm vi riêng; task backend không mặc
+  định được phép sửa frontend.
+
+### Delivery
+
+- GitHub repository:
+  `https://github.com/emLamHD/The_BHA_hotels_Booking`
+- GitHub Actions cho verification.
+- `develop` là integration branch.
+- `main` không nhận thay đổi trực tiếp từ task phát triển thông thường.
+
+## 4. Kiến trúc và dependency
+
+- Domain không phụ thuộc Application, Infrastructure hoặc API.
+- Application không phụ thuộc Infrastructure hoặc API.
+- Infrastructure triển khai persistence và tích hợp kỹ thuật.
+- API chỉ chịu trách nhiệm transport/composition.
+- Không expose EF Core entity trực tiếp qua public API.
+- Không thêm generic repository chỉ để bọc `DbContext`.
+- Không thêm abstraction hoặc framework nếu chưa có nhu cầu nghiệp vụ rõ ràng.
+- Read path phải tránh N+1, hỗ trợ `CancellationToken` và dùng read-only query
+  convention phù hợp.
+
+## 5. Domain model cốt lõi
+
+### Catalog và inventory vật lý
+
+- `Property`: khách sạn/cơ sở; sở hữu timezone và dữ liệu catalog.
+- `RoomType`: loại phòng thuộc một Property.
+- `PhysicalRoom`: phòng vật lý cụ thể thuộc RoomType.
+- `Amenity`: tiện nghi.
+- `Media`: nội dung hình ảnh/media của catalog.
+
+`PhysicalRoom` là dữ liệu nội bộ. Public API không được lộ ID hoặc room number
+của phòng vật lý.
+
+### Rate và availability
+
+- `RatePlan`: kế hoạch giá thuộc một Property và sở hữu currency.
+- `DailyRoomRate`: giá của một RoomType theo RatePlan cho một `StayDate`.
+- `DailyInventoryControl`: sellable limit/stop-sell của RoomType theo ngày.
+- Availability offer: projection chỉ đọc kết hợp catalog, giá và tồn hiệu lực.
+
+Quan hệ cùng Property phải được bảo vệ ở cả domain và PostgreSQL khi khả thi.
+
+## 6. Quy tắc ngày lưu trú
+
+- Dùng `DateOnly` trong domain/application.
+- PostgreSQL dùng kiểu `date`.
+- Ngày được diễn giải theo `Property.TimeZone`.
+- Khoảng lưu trú là nửa mở:
+  `checkIn <= stayDate < checkOut`.
+- Checkout không bị tính giá và không tiêu thụ room-night.
+- Không dùng UTC timestamp để đại diện cho một đêm khách sạn.
+- Logic “ngày hiện tại” phải có clock/time provider để test được.
+
+Xem [ADR 0003](../ADR/0003-model-hotel-stays-with-half-open-date-ranges.md).
+
+## 7. Quy tắc tiền và giá
+
+- Giá dùng `decimal`; không dùng `float`/`double`.
+- Persistence dùng `numeric(18,2)` hoặc convention tương đương.
+- Amount phải lớn hơn 0.
+- `CurrencyCode` thuộc RatePlan và được chuẩn hóa theo mã ISO 4217 ba chữ cái.
+- DailyRoomRate không lặp lại CurrencyCode.
+- Một offer chỉ hợp lệ khi có giá cho mọi đêm.
+- Không dùng fallback price, giá 0 hoặc giá mặc định ẩn.
+- Tổng giá:
+  `sum(nightlyRates) × requestedRooms`.
+- Không tự động quy đổi tiền tệ.
+
+## 8. Quy tắc tồn và availability
+
+- Base inventory là số `PhysicalRoom` có `OperationalStatus = Active`.
+- `Inactive` và `OutOfService` không được tính.
+- Nếu không có daily control, effective inventory bằng base inventory.
+- Nếu stop-sell, effective inventory bằng 0.
+- Nếu có sellable limit, effective inventory không vượt base inventory.
+- Tồn của cả kỳ nghỉ là giá trị nhỏ nhất của các đêm.
+- Availability là snapshot tại thời điểm truy vấn.
+- `BE-003.1`–`BE-003.5` đã cung cấp Hold/Reservation với atomic PostgreSQL
+  advisory-lock concurrency protection và expiry-aware committed demand —
+  chống overbooking đã hoạt động, không còn là việc "phải bổ sung".
+  `PMS-BE-001.1` (CURRENT) đã chuyển commercial authority sang schema
+  normalized theo ADR 0005 (`InventoryHold → InventoryHoldItem →
+  InventoryHoldItemNight`, `Reservation → ReservationUnit →
+  ReservationUnitNight`); committed demand đếm mỗi `InventoryHoldItemNight`
+  của Hold `Active`/chưa hết hạn và mỗi `ReservationUnitNight` của Unit
+  `Committed`, đúng một lần. Public request vẫn chỉ nhận một RoomType/
+  RatePlan; multi-RoomType public request vẫn TARGET, chưa implement.
+  Physical-room allocation độc lập (`RoomOccupancySegments`/`RoomBlock`) đã
+  CURRENT ở database authority/availability/internal mutation boundary
+  (`PMS-BE-001.2`, migration 8); HTTP exposure hiện có là read projection
+  (`PMS-CAL-001.1`) cùng các endpoint ghi local-only sau write gate CP01:
+  assignment create (`PMS-CAL-001.2` CP02), one-segment move/unassign
+  (CP04B), single-segment operational-block create/cancel (`PMS-CAL-001.3`
+  CP01/CP02) — các mutation còn lại (assignment split/batch, operational-block
+  move/split) vẫn TARGET, chưa implement; Staff/RBAC của các route hiện có
+  đã CURRENT (`PMS-ADMIN-AUTH-001`) — xem
+  [PMS-DATA-001-core-database-blueprint-v2](../design/PMS-DATA-001-core-database-blueprint-v2.md),
+  [ADR 0005](../ADR/0005-separate-commercial-commitment-from-physical-allocation.md)
+  và
+  [ADR 0006](../ADR/0006-schedule-physical-rooms-with-occupancy-segments.md).
+- CURRENT (`PMS-BE-001.2`): `Effective OperationalBlock` (§9, ADR 0006) làm
+  giảm usable physical capacity trước khi daily control
+  (`SellableLimit`/`IsStopSell`, ADR 0004) và operational demand được áp
+  dụng — phòng bị block để bảo trì không còn được coi là sellable, tránh
+  oversell trên capacity không còn tồn tại thật. `RoomTypeDailyInventory`
+  như một bảng materialized projection riêng vẫn TARGET, chưa implement;
+  công thức được tính on-read trong `AvailabilityDataSource`.
+- CURRENT (`PMS-BE-001.2`): Hold và Reservation night chưa được assign vật
+  lý tính demand vào RoomType đã bán (sold); night có `Effective
+  ReservationAssignment` tính demand vào RoomType thật của PhysicalRoom được
+  gán, đúng một lần, không tính cả hai — nhờ vậy một phòng vật lý đã bị
+  occupy qua cross-RoomType assignment không thể tiếp tục bán được, mà không
+  ghi đè commercial record (RoomType/giá đã bán không đổi). Assignment
+  *mutation* chỉ được validate với `UsablePhysicalCapacity` thô, không bao
+  giờ với `ControlledCapacity`/`SellableLimit`/`IsStopSell` (các quy tắc đó
+  chỉ chi phối demand thương mại *mới*). Công thức chính xác và quy tắc
+  atomic locking nằm trong blueprint §7 và ADR 0006 Decision item 10.
+- CURRENT (`PMS-BE-001.1`): `RatePlanId` được lưu ở cấp nightly trên cả
+  `InventoryHoldItemNight` và `ReservationUnitNight`, không chỉ ở cấp
+  aggregate; Hold confirmation copy đúng `RatePlanId` này 1:1, không suy
+  diễn từ giá (hai RatePlan có thể cùng giá) và không re-read rate hiện tại
+  — xem blueprint §6 và ADR 0005 Decision item 1-2.
+- CURRENT (`PMS-BE-001.2`): mỗi `RoomOccupancySegment` và mọi reference nó
+  populate (PhysicalRoom, ReservationUnit, RoomBlock) phải cùng một
+  Property, database-enforced qua composite alternate-key foreign key chứ
+  không chỉ authorization/UI check; một `RoomBlock` không bao giờ span nhiều
+  Property; cross-RoomType assignment chỉ hợp lệ trong cùng một Property —
+  xem blueprint §9/§11/§12 và ADR 0006 Decision item 3.
+- CURRENT (`PMS-BE-001.1`): `ReservationUnit.CommitmentStatus = Committed |
+  Cancelled` là lifecycle chính thức của unit. Chỉ night thuộc unit
+  `Committed` mới tính demand; `Cancelled` giữ nguyên toàn bộ row/snapshot
+  làm bằng chứng lịch sử, không xóa, không tạo fallback demand ở bucket
+  khác. Work item này chỉ cung cấp whole-Reservation cancellation (không có
+  endpoint hủy từng Unit riêng lẻ): hủy Reservation chuyển atomically mọi
+  Unit còn `Committed` sang `Cancelled` trong cùng transaction. CURRENT
+  (`PMS-BE-001.2`): hủy Reservation tự động hủy mọi `Effective`
+  `RoomOccupancySegment` assignment của các Unit bị hủy, trong cùng
+  transaction — xem blueprint §6 item 13, §7 và ADR 0005 Decision item 7.
+  Independent per-Unit cancellation endpoint (tách rời hủy cả Reservation)
+  vẫn TARGET, chưa implement.
+- CURRENT (`PMS-BE-001.2`): cross-RoomType assignment mang tính operationally
+  binding, không tự động reversible — unassign hoặc reassign chỉ thành công
+  khi capacity đích/fallback đủ ở final state (một lần evaluate final state,
+  không sequential-validate từng bước trong batch move/swap); mutation
+  không đủ capacity bị reject nguyên transaction, giữ nguyên assignment cũ.
+  Không có hidden rollback reserve, không double-bucket, không overbooking
+  override — xem blueprint §7 rules 20–26, §12 và ADR 0006 Decision item 5.
+
+Xem [ADR 0004](../ADR/0004-compute-effective-inventory-with-daily-controls.md).
+
+## 9. Quy tắc occupancy MVP
+
+- Request tối thiểu: check-in, check-out, adults, children và rooms.
+- Adults > 0; children >= 0; rooms > 0.
+- Người lớn và trẻ em đều tính là một người khi kiểm tra `MaxOccupancy`.
+- Điều kiện:
+  `adults + children <= MaxOccupancy × rooms`.
+- Một offer chỉ gồm các phòng cùng một RoomType (CURRENT — availability/
+  offer computation hiện tại).
+- Chưa có child pricing hoặc surcharge.
+- Mixed-RoomType allocation trong một Hold/Reservation là TARGET/APPROVED,
+  chưa implement — xem §1 và
+  [PMS-DATA-001-core-database-blueprint-v2](../design/PMS-DATA-001-core-database-blueprint-v2.md).
+
+## 10. Quy ước public API
+
+- Endpoint được version hóa theo convention `/api/v1/...`.
+- Validation error dùng error format thống nhất của dự án.
+- Resource không tồn tại/không public trả 404 theo convention.
+- DTO công khai không expose domain/EF entity.
+- Kết quả collection phải có thứ tự ổn định.
+- Swagger/OpenAPI phải phản ánh đúng contract thực tế.
+
+Availability contract hiện hành:
+
+`GET /api/v1/properties/{propertyId}/availability`
+
+Query:
+
+- `checkIn=YYYY-MM-DD`
+- `checkOut=YYYY-MM-DD`
+- `adults`
+- `children`
+- `rooms`
+
+## 11. Persistence và migration
+
+- PostgreSQL phải bảo vệ invariant quan trọng, không chỉ dựa vào C#.
+- Integration test dùng PostgreSQL thật; không thay bằng EF InMemory hoặc SQLite.
+- Mỗi task thay đổi schema có migration riêng.
+- Không sửa hoặc viết lại migration đã merge.
+- Không dùng `EnsureCreated()`.
+- Không tự chạy migration khi API startup.
+- Development seed phải idempotent, không chạy trong Production và không tự
+  chạy trong startup bình thường.
+- Không commit secret hoặc connection string thật.
+
+## 12. Branch strategy
+
+- Epic được chia thành các task theo business behavior.
+- Một task = một branch = một PR = một squash commit.
+- Task phụ thuộc nhau được thực hiện và merge tuần tự.
+- Branch task tạo từ `origin/develop` mới nhất.
+- PR ban đầu ở Draft.
+- Không push trực tiếp vào `develop`/`main`.
+- Không stacked PR nếu chưa được Control Tower phê duyệt.
+
+## 13. Definition of Done tổng quát
+
+Một task chỉ `DONE` khi:
+
+1. Business behavior và invariant đúng phạm vi.
+2. Domain/database cùng bảo vệ ràng buộc quan trọng.
+3. Migration/seed áp dụng được và an toàn nếu có.
+4. Unit, PostgreSQL integration, architecture, health và OpenAPI tests liên
+   quan PASS.
+5. Restore/build PASS.
+6. Diff chỉ chứa một behavior, không chứa task kế tiếp.
+7. Không có secret, automatic migration hoặc frontend ngoài scope.
+8. Documentation phản ánh chức năng thực tế.
+9. PR/CI PASS và merge được xác nhận trên `origin/develop`.
+10. Feature branch được xử lý theo merge protocol.
+
+## 14. Content, sellable catalog và media ownership
+
+Content phải được phân loại theo source of truth; không sao chép toàn bộ field
+hoặc ảnh của template vào database chỉ để lấp đầy giao diện.
+
+| Nhóm dữ liệu | Source of truth | Quy tắc |
+| --- | --- | --- |
+| Transactional/operational | PostgreSQL qua domain/API | RatePlan, giá, inventory, availability và booking rules do server sở hữu; frontend không tự tính hoặc hard-code |
+| Sellable catalog | PostgreSQL qua domain/API | Property, RoomType, occupancy, amenities, mô tả bán hàng và media metadata; phải có thể được Admin quản lý trong capability tương lai |
+| Media binaries | Object storage do dự án kiểm soát, phân phối qua CDN | PostgreSQL chỉ giữ asset key/path và metadata như alt text, type, sort order, cover flag; không lưu image bytes |
+| Marketing/editorial | Frontend configuration trong MVP hoặc content domain/CMS riêng về sau | Hero copy, brand story, FAQ, local guide và promotion không được ép vào Property/RoomType nếu chưa có quyết định content-domain |
+| Template/demo | Không có production source of truth | Fake review, fake host, unsupported badge/CTA và field chưa được nghiệp vụ xác nhận phải bị loại bỏ hoặc để unused |
+
+Development dataset dùng controlled mixture:
+
+- dữ liệu thật của The BHA khi đã được xác nhận;
+- synthetic Development-only cho price, inventory hoặc availability khi chưa có
+  nguồn vận hành;
+- không dùng dữ liệu khách hàng thật;
+- asset phải có quyền sử dụng phù hợp, không hotlink từ OTA;
+- mọi asset đi kèm template hiện tại được xem là **chưa xác minh quyền sử dụng**
+  nếu chưa có license/provenance evidence cụ thể; chỉ được dùng làm
+  Development/reference và không được promote sang production;
+- Owner phải xác nhận rights review trước khi một template asset được coi là
+  production-eligible;
+- seed phải explicit, deterministic, idempotent, Development-only và không phá
+  rate/inventory đã được developer tùy chỉnh.
+
+Chỉ thêm field vào domain khi có yêu cầu bán phòng hoặc vận hành thật. Việc chọn
+nhà cung cấp object storage/CDN, upload UI, media manager và Admin CRUD thuộc
+work item riêng.
+
+### 14.1 Quyết định MVP về media (CUST-WEB-SHOWCASE-001-CP02, 2026-10-07)
+
+- Ảnh MVP showcase là **file tĩnh trong `Front_End/Customer_Web/public/media/<property>/`** (phân phối bởi Vercel cùng ứng dụng); PostgreSQL
+  giữ `Media.Url` tuyệt đối + alt text/sort/cover. Đây là lựa chọn tạm cho MVP, **không** thay quyết định object storage/CDN ở bảng trên.
+- Mọi ảnh được **quét provenance (heuristic, chưa validate chữ ký C2PA)** và ghi bằng chứng từng file vào manifest. Mặc định của script (CP02/C1): ảnh có marker nêu dịch vụ sinh ảnh
+  hoặc không có metadata **không** được publish; chỉ ảnh có editor metadata được publish (C3 ghi đè mặc định này bằng quyết định Owner cho các ảnh đã chọn, xem bên dưới), và mức bằng chứng đó là "nguồn camera chưa được xác minh độc lập"
+  — không phải xác nhận ảnh thật. Nới cổng là quyết định Owner, không phải cờ script.
+- Namespace route media của Customer_Web là chuỗi cố định `/media/<property>/<kebab>.webp`; mọi đường dẫn khác vẫn default-deny. C2 từng giới hạn route công khai ở `/` và `/listing-stay-detail` và thay ảnh template bằng placeholder; **C3 đã thay thế** (xem bullet Template bên dưới): route template mở lại, `/api/*` vẫn default-deny.
+- Hiện trạng Riverside (từ CP02-C3): 31 ảnh — Property 10, 2PN 9, 1PN 6, 1PN view thoáng 6 — `MEDIA_COVERAGE: PASS`, `MEDIA_PROVENANCE: UNVERIFIED`.
+  **Quyết định Owner (C3, ghi trong MEP ngày 2026-10-07):** thư mục theo từng loại phòng do Owner phân loại; Owner cho phép publish ảnh dù quét byte thấy generator marker hoặc không có metadata.
+  Manifest ghi `decision: owner-authorized`, `provenanceStatus: UNVERIFIED`, `validation: NOT_RUN` cho từng file; báo cáo **không** được khẳng định đó là ảnh chụp thật hay đúng phòng thật.
+  Quyết định này thay đoạn "không publish" ở trên cho ảnh đã được Owner chọn; nó không phải cờ script chung.
+- **Template (C3, Owner):** giao diện khách là template Chisfis được khôi phục đầy đủ (không còn khung preview inert của C2). Chỉ dữ liệu The BHA Riverside (phòng, giá, đặt phòng) là thật;
+  phần còn lại là nội dung mẫu, có một dòng ghi chú. Route template mở lại; `/api/*` vẫn đóng; currency dropdown chỉ là template (không quy đổi VND).
+
+**Quyết định Owner đang chờ:** (1) ~~làm rõ ảnh 1PN~~ — đã giải quyết ở C3: Owner cho publish, provenance vẫn `UNVERIFIED` (cần Owner/pháp lý xác nhận nguồn và quyền sử dụng trước khi công bố thương mại); (2) tên miền: Owner đã cung cấp
+`thebhariverside.com` / `admin.` / `api.` (cùng registrable domain cho cookie Lax/Strict; DNS/live `NOT_TESTED`); (3) địa chỉ, mô tả, tiện nghi thật của Riverside; (4) runtime API
+(đề xuất ECS Fargate + EFS mã hóa) và nơi giữ Data Protection key ring; (5) bật/cấp quyền publish ECR (biến `ECR_PUBLISH_ENABLED`, role OIDC; publish chỉ từ `develop`).

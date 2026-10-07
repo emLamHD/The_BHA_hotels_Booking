@@ -1,0 +1,76 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+using TheBha.Application.Bookings;
+using TheBha.Application.Properties;
+using TheBha.Application.Scheduling;
+
+namespace TheBha.Infrastructure.Persistence;
+
+public static class InfrastructureServiceCollectionExtensions
+{
+    public const string DatabaseConnectionStringName = "TheBhaDatabase";
+    public const string DatabaseReadinessTag = "database-ready";
+
+    public static IServiceCollection AddInfrastructure(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        var connectionString = configuration.GetConnectionString(DatabaseConnectionStringName);
+
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            throw new InvalidOperationException(
+                "Connection string 'ConnectionStrings:TheBhaDatabase' is not configured.");
+        }
+
+        services.AddDbContext<TheBhaDbContext>(options =>
+            options.UseNpgsql(
+                connectionString,
+                npgsqlOptions => npgsqlOptions.MigrationsAssembly("TheBha.Infrastructure")));
+
+        services.AddScoped<IPropertyCatalogQueries, PropertyCatalogQueries>();
+        services.AddSingleton(TimeProvider.System);
+        services.AddScoped<IDailyRoomRateStore, DailyRoomRateStore>();
+        services.AddScoped<IDailyRoomRatePricing, DailyRoomRatePricing>();
+        services.AddScoped<IDailyRoomRateQueries, DailyRoomRateQueries>();
+        services.AddScoped<IDailyInventoryControlStore, DailyInventoryControlStore>();
+        services.AddScoped<IDailyInventoryControlCommands, DailyInventoryControlCommands>();
+        services.AddScoped<IDailyInventoryQueries, DailyInventoryQueries>();
+        services.AddScoped<IAvailabilityDataSource, AvailabilityDataSource>();
+        services.AddScoped<IAvailabilitySearch, AvailabilitySearch>();
+        services.AddScoped<IBookingHoldCreationStore, BookingHoldCreationStore>();
+        services.AddScoped<IBookingHoldCreation, BookingHoldCreation>();
+        services.AddScoped<IBookingHoldConfirmationStore, BookingHoldConfirmationStore>();
+        services.AddScoped<IBookingHoldConfirmation, BookingHoldConfirmation>();
+        services.AddSingleton<IReservationIdGenerator, CryptographicReservationIdGenerator>();
+        services.AddScoped<IReservationReadStore, ReservationReadStore>();
+        services.AddScoped<IReservationRead, ReservationRead>();
+        services.AddScoped<IBookingHoldReadStore, BookingHoldReadStore>();
+        services.AddScoped<IBookingHoldRead, BookingHoldRead>();
+        services.AddScoped<IBookingHoldCancellationStore, BookingHoldCancellationStore>();
+        services.AddScoped<IBookingHoldCancellation, BookingHoldCancellation>();
+        services.AddScoped<IReservationCancellationStore, ReservationCancellationStore>();
+        services.AddScoped<IReservationCancellation, ReservationCancellation>();
+        services.AddSingleton<IGuestAccessTokenGenerator, CryptographicGuestAccessTokenGenerator>();
+        services.AddScoped<IAssignmentMutationStore, AssignmentMutationStore>();
+        services.AddScoped<IOperationalBlockMutationStore, OperationalBlockMutationStore>();
+        services.AddScoped<IReservationBoardDataSource, ReservationBoardDataLoader>();
+        services.AddScoped<IReservationBoardQuery, ReservationBoardQuery>();
+        services.AddScoped<DevelopmentDataSeeder>();
+        services.AddScoped<TheBha.Infrastructure.Persistence.Demo.RiversideDemoSeeder>();
+
+        services
+            .AddHealthChecks()
+            .AddDbContextCheck<TheBhaDbContext>(
+                name: "postgresql",
+                failureStatus: HealthStatus.Unhealthy,
+                tags: [DatabaseReadinessTag]);
+
+        return services;
+    }
+}

@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - main
+  push:
+    branches:
+      - develop
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Front_End/Customer_Web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: Front_End/Customer_Web/.nvmrc
+          cache: npm
+          cache-dependency-path: Front_End/Customer_Web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+  admin:
+    name: Admin
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Front_End/Admin_Web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: Front_End/Admin_Web/.nvmrc
+          cache: npm
+          cache-dependency-path: Front_End/Admin_Web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    env:
+      ConnectionStrings__TheBhaDatabase: Host=localhost;Port=5432;Database=thebha_ci;Username=thebha_ci;Password=ci-only-password
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: thebha_ci
+          POSTGRES_USER: thebha_ci
+          POSTGRES_PASSWORD: ci-only-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U thebha_ci -d thebha_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore Back_End/TheBha.Booking.sln
+
+      - name: Build
+        run: dotnet build Back_End/TheBha.Booking.sln --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test Back_End/TheBha.Booking.sln --configuration Release --no-build

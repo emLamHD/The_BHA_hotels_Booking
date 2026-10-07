@@ -1,0 +1,275 @@
+# TailAdmin Next.js - Free Next.js Tailwind Admin Dashboard Template
+
+TailAdmin is a free and open-source admin dashboard template built on **Next.js and Tailwind CSS** providing developers with everything they need to create a feature-rich and data-driven: back-end, dashboard, or admin panel solution for any sort of web project.
+
+![TailAdmin - Next.js Dashboard Preview](./banner.png)
+
+With TailAdmin Next.js, you get access to all the necessary dashboard UI components, elements, and pages required to build a high-quality and complete dashboard or admin panel. Whether you're building a dashboard or admin panel for a complex web application or a simple website.
+
+TailAdmin utilizes the powerful features of **Next.js 16** and common features of Next.js such as server-side rendering (SSR), static site generation (SSG), and seamless API route integration. Combined with the advancements of **React 19** and the robustness of **TypeScript**, TailAdmin is the perfect solution to help get your project up and running quickly.
+
+## Monorepo baseline note
+
+This directory is the imported TailAdmin Next.js baseline for The BHA Hotels Booking Admin Web application. The Reservation Board (`/calendar`) and the Staff sign-in (`/signin`) are integrated with the backend API (Staff authentication, Property memberships and roles, PMS-ADMIN-AUTH-001). The other template pages and modules (dashboard, forms, tables, charts, user profile, the template calendar below the board) remain template-only and are not covered by the Staff session.
+
+## Deploying beside the Customer site (CUST-WEB-SHOWCASE-001)
+
+The Staff session cookie is `SameSite=Strict` and is set by the API, so the Admin site, the Customer site and the API must share one registrable domain (for example `admin.<domain>`, `book.<domain>`, `api.<domain>`); `*.vercel.app` plus an AWS default hostname are different sites and sign-in would not hold. Set `NEXT_PUBLIC_API_BASE_URL` to the API's `https://` origin at build time and leave `NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE` unset (Staff). The API must list this site's exact origin in `Cors:AdminOrigins`. Full plan: `docs/runbooks/CUST-WEB-SHOWCASE-001-deploy.md`. This was rehearsed locally only (same-site, TLS proxy, container API); Vercel is not tested.
+
+## Reservation Board: HTTPS development setup
+
+The Reservation Board reads from and writes to the real Admin API
+(`/api/admin/v1/...`) over HTTPS. The API base URL must be `https://`; plain
+`http://` (including `http://localhost`) is rejected by `src/lib/api/env.ts`.
+
+`NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE` selects how `/calendar` talks to the
+API. It is read at build time, so rebuild or restart `next` after changing it,
+and it must match the backend's `AdminCalendar:AccessMode`.
+
+| Value | Behaviour |
+| --- | --- |
+| unset or `Staff` (default) | `/calendar` checks `GET /api/admin/v1/me`; without a session it sends you to `/signin`. Properties come from your memberships, and the Calendar actions follow your role at the selected Property (FrontDesk: assign/move/unassign within the sold room type, create/cancel blocks; Manager: also a confirmed cross-room-type placement with a reason). The server still checks every request. |
+| `LocalGate` | Local development only: no Staff sign-in; the board and writes use the backend's anonymous local gates (the API must run `AdminCalendar__AccessMode=LocalGate` with its read/write opt-ins — see the repository README). **Refused as a configuration error in a production build** (`next build`/`next start`). |
+| anything else, including empty | A configuration error on `/calendar`; no request is sent. There is no fallback between modes. |
+
+1. Copy the example env file and adjust if your backend port differs
+   (`NEXT_PUBLIC_API_BASE_URL`; leave the access-mode line commented out for
+   Staff):
+
+   ```bash
+   cp .env.local.example .env.local
+   ```
+
+2. Use certificates the browser already trusts, for both origins. The API can
+   use the ASP.NET Core development certificate (`dotnet dev-certs https --trust`)
+   or a locally-trusted certificate passed to Kestrel; `npm run dev:https`
+   (`next dev --experimental-https`) creates a certificate for
+   `https://localhost:3001` signed by a local CA. If the browser warns about a
+   certificate, make the local CA trusted on your machine instead of clicking
+   through the warning — never bypass TLS verification. The Staff cookie is
+   `SameSite=Strict` with path `/api/admin`, so the two `localhost` origins must
+   both be HTTPS and same-site.
+
+3. Run the backend on its `https` launch profile (`https://localhost:7145`).
+   It runs the Staff default; `Cors:AdminOrigins` must include
+   `https://localhost:3001` (it does in `appsettings.Development.json`). Create
+   a Staff account with the backend CLI and sign in at `/signin` — see
+   [the Staff Calendar runbook](../../docs/runbooks/PMS-ADMIN-AUTH-001-staff-calendar.md).
+
+4. Run the Admin Web dev server over HTTPS on port 3001:
+
+   ```bash
+   npm run dev:https
+   ```
+
+In Staff mode the browser sends the HttpOnly session cookie
+(`credentials: "include"`) for sign-in, sign-out, `me`, the board and the five
+writes. The frontend never stores the password, the cookie or the session in
+browser storage, the URL or logs.
+
+> **LocalGate is same-machine development only.** It has no authentication or
+> RBAC. The API refuses to start with it outside Development, and refuses each
+> request unless it is HTTPS, on a Development host, loopback at both ends, and
+> the matching opt-in is on. It must never be reached through a LAN or public
+> listener or an external-facing proxy, and it is never a production fallback.
+
+## Overview
+
+TailAdmin provides essential UI components and layouts for building feature-rich, data-driven admin dashboards and control panels. It's built on:
+
+* Next.js 16.x
+* React 19
+* TypeScript
+* Tailwind CSS V4
+
+### Quick Links
+
+* [✨ Visit Website](https://tailadmin.com)
+* [📄 Documentation](https://tailadmin.com/docs)
+* [⬇️ Download](https://tailadmin.com/download)
+* [🖌️ Figma Design File (Community Edition)](https://www.figma.com/community/file/1463141366275764364)
+* [⚡ Get PRO Version](https://tailadmin.com/pricing)
+
+### Demos
+
+* [Free Version](https://nextjs-free-demo.tailadmin.com)
+* [Pro Version](https://nextjs-demo.tailadmin.com)
+
+### Other Versions
+
+- [Next.js Version](https://github.com/TailAdmin/free-nextjs-admin-dashboard)
+- [React.js Version](https://github.com/TailAdmin/free-react-tailwind-admin-dashboard)
+- [Vue.js Version](https://github.com/TailAdmin/vue-tailwind-admin-dashboard)
+- [Angular Version](https://github.com/TailAdmin/free-angular-tailwind-dashboard)
+- [Laravel Version](https://github.com/TailAdmin/tailadmin-laravel)
+
+## Installation
+
+### Prerequisites
+
+To get started with TailAdmin, ensure you have the following prerequisites installed and set up:
+
+* Next.js 16 requires Node.js `20.9.0` or later (see the [Next.js 16 upgrade guide](https://nextjs.org/docs/app/guides/upgrading/version-16))
+* This repository pins the Admin Web runtime to Node.js `22.23.1` (see `.nvmrc`) for local/CI reproducibility
+* npm with the committed `package-lock.json` is the supported installation path (`npm ci`)
+
+### Cloning the Repository
+
+Clone the repository using the following command:
+
+```bash
+git clone https://github.com/TailAdmin/free-nextjs-admin-dashboard.git
+```
+
+> Windows Users: place the repository near the root of your drive if you face issues while cloning.
+
+1. Install dependencies:
+
+   ```bash
+   npm install
+   # or
+   yarn install
+   ```
+
+   > Use `--legacy-peer-deps` flag if you face peer-dependency error during installation.
+
+2. Start the development server:
+
+   ```bash
+   npm run dev
+   # or
+   yarn dev
+   ```
+
+## Components
+
+TailAdmin is a pre-designed starting point for building a web-based dashboard using Next.js and Tailwind CSS. The template includes:
+
+* Sophisticated and accessible sidebar
+* Data visualization components
+* Profile management and custom 404 page
+* Tables and Charts(Line and Bar)
+* Authentication forms and input elements
+* Alerts, Dropdowns, Modals, Buttons and more
+* Can't forget Dark Mode 🕶️
+
+All components are built with React and styled using Tailwind CSS for easy customization.
+
+## Feature Comparison
+
+### Free Version
+
+* 1 Unique Dashboard
+* 30+ dashboard components
+* 50+ UI elements
+* Basic Figma design files
+* Community support
+
+### Pro Version
+
+* 7 Unique Dashboards: Analytics, Ecommerce, Marketing, CRM, SaaS, Stocks, Logistics (more coming soon)
+* 500+ dashboard components and UI elements
+* Complete Figma design file
+* Email support
+
+To learn more about pro version features and pricing, visit our [pricing page](https://tailadmin.com/pricing).
+
+## Changelog
+
+### Version 2.3.0 - [April 28, 2026]
+
+- **New Feature**: Added **AI Dashboard** with token usage and revenue tracking.
+- **New Feature**: Added **Sales Dashboard** with retention and multi-channel analytics.
+- **New Feature**: Added **Finance Dashboard** with cashflow and balance management.
+- **New Feature**: Introduced **6 New Layout variations** for improved UI flexibility.
+- **Enhancement**: Integrated **Advanced Data Visualization** with 7+ new chart types.
+
+### Version 2.2.3 - [March 15, 2026]
+
+* update ESLint configuration and dependencies; upgrade Next.js to version 16.1.6
+
+### Version 2.2.2 - [December 30, 2025]
+
+* Fixed date picker positioning and functionality in Statistics Chart.
+
+
+### Version 2.1.0 - [November 15, 2025]
+
+* Updated to Next.js 16.x
+* Fixed all reported minor bugs
+
+### Version 2.0.2 - [March 25, 2025]
+
+* Upgraded to Next.js 16.x for [CVE-2025-29927](https://nextjs.org/blog/cve-2025-29927) concerns
+* Included overrides vectormap for packages to prevent peer dependency errors during installation.
+* Migrated from react-flatpickr to flatpickr package for React 19 support
+
+### Version 2.0.1 - [February 27, 2025]
+
+#### Update Overview
+
+* Upgraded to Tailwind CSS v4 for better performance and efficiency.
+* Updated class usage to match the latest syntax and features.
+* Replaced deprecated class and optimized styles.
+
+#### Next Steps
+
+* Run npm install or yarn install to update dependencies.
+* Check for any style changes or compatibility issues.
+* Refer to the Tailwind CSS v4 [Migration Guide](https://tailwindcss.com/docs/upgrade-guide) on this release. if needed.
+* This update keeps the project up to date with the latest Tailwind improvements. 🚀
+
+### v2.0.0 (February 2025)
+
+A major update focused on Next.js 16 implementation and comprehensive redesign.
+
+#### Major Improvements
+
+* Complete redesign using Next.js 16 App Router and React Server Components
+* Enhanced user interface with Next.js-optimized components
+* Improved responsiveness and accessibility
+* New features including collapsible sidebar, chat screens, and calendar
+* Redesigned authentication using Next.js App Router and server actions
+* Updated data visualization using ApexCharts for React
+
+#### Breaking Changes
+
+* Migrated from Next.js 14 to Next.js 16
+* Chart components now use ApexCharts for React
+* Authentication flow updated to use Server Actions and middleware
+
+[Read more](https://tailadmin.com/docs/update-logs/nextjs) on this release.
+
+### v1.3.4 (July 01, 2024)
+
+* Fixed JSvectormap rendering issues
+
+### v1.3.3 (June 20, 2024)
+
+* Fixed build error related to Loader component
+
+### v1.3.2 (June 19, 2024)
+
+* Added ClickOutside component for dropdown menus
+* Refactored sidebar components
+* Updated Jsvectormap package
+
+### v1.3.1 (Feb 12, 2024)
+
+* Fixed layout naming consistency
+* Updated styles
+
+### v1.3.0 (Feb 05, 2024)
+
+* Upgraded to Next.js 14
+* Added Flatpickr integration
+* Improved form elements
+* Enhanced multiselect functionality
+* Added default layout component
+
+## License
+
+TailAdmin Next.js Free Version is released under the MIT License.
+
+## Support
+If you find this project helpful, please consider giving it a star on GitHub. Your support helps us continue developing and maintaining this template.

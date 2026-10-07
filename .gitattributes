@@ -1,0 +1,2 @@
+# Preserve the relocated upstream theme README byte-for-byte.
+Front_End/Customer_Web/README.md -whitespace

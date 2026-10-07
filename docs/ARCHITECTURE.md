@@ -1,0 +1,176 @@
+# Architecture
+
+## Overview
+
+The repository separates deployable applications under `Front_End` and `Back_End`. `Admin_Web` (`Front_End/Admin_Web`) is the imported TailAdmin 2.3.0 template on Next.js 16.1.6, React/React DOM 19.2.1, and TypeScript 5.9.3 (PR #30), on top of which `ADMIN-002.1` (PR #32) added an interactive PMS Reservation Board frontend prototype and a front-desk reservation-creation workspace on the `/calendar` page.
+
+CURRENT frontend (PR #32, updated by `PMS-CAL-001.1`): a room/date timeline with multi-property switching, assigned/unassigned reservations, operational blocks, reservation hover/detail views, a reservation-creation workspace, and a front-desk lifecycle/folio/notes/activity workspace. `PMS-CAL-001.1` reconnected the timeline's main read path (`ReservationBoard.tsx`/`ReservationBoardServerTimeline.tsx`/`ReservationBoardStayPopover.tsx`) to the real, read-only Admin Calendar API (below) — it no longer reads `mockData.ts`. Everything else — the prototype timeline's drag-and-drop room moves, date shifting, negotiated pricing, the reservation-creation workspace, and the front-desk lifecycle/folio/notes/activity workspace — remains on deterministic local mock state (`mockData.ts`, a fixed demo-clock anchor): reservation-board durable mutations (lifecycle, folio, moves) still go through the `reservationRuntimeReducer` in `reservationRuntime.ts`; the reservation-creation workflow still has its own `formReducer` in `CreateReservationForm.tsx`. None of that mock-driven part reads or writes real data — no backend call, no persistence, every reload resets to the same mock baseline. The server-backed board has its own, separate drag-to-move (`PMS-CAL-001.4-CP01`): an assigned bar dropped on another Active room's row only preselects that room in the real Move room dialog for review — it never changes dates and never writes until the operator confirms.
+
+CURRENT backend (`PMS-BE-001.2` + `PMS-CAL-001.1`, migration 8 — no new migration): the normalized commercial-commitment authority from `PMS-BE-001.1` — `InventoryHold → InventoryHoldItem → InventoryHoldItemNight` and `Reservation → ReservationUnit → ReservationUnitNight` (ADR 0005), one `RoomTypeId`/`RatePlanId` per public request — plus the physical-room schedule authority added by `PMS-BE-001.2`: `RoomOccupancySegment`/`RoomBlock` (ADR 0006), the assignment-aware and block-adjusted availability formula, and internal-only assignment/block mutation commands. `PMS-CAL-001.1` adds the first HTTP read exposure of that schedule authority — see "Admin Calendar read API" below. `PMS-CAL-001.2` adds the first HTTP *write* exposure — a local-Development-only write gate (CP01) plus assignment create (CP02) and one-segment move/unassign (CP04B) — and `PMS-CAL-001.3` adds single-segment operational-block create (CP01) and cancel (CP02) endpoints behind the same gate; see "Admin Calendar write boundary" below. There is still no Admin authentication/RBAC, no OTA integration, and no HTTP endpoint for any other mutation (assignment split/swap/batch, and operational-block move/split, remain internal-only).
+
+TARGET architecture (unimplemented): Customer Web and Admin Web as separate clients of one shared ASP.NET Core backend and one shared PostgreSQL database, with the full multi-RoomType public request shape, Admin authentication/RBAC, HTTP/Admin/Calendar integration of the physical-room schedule authority, and OTA behavior. See [`docs/design/PMS-DATA-001-core-database-blueprint-v2.md`](design/PMS-DATA-001-core-database-blueprint-v2.md), [ADR 0005](ADR/0005-separate-commercial-commitment-from-physical-allocation.md), and [ADR 0006](ADR/0006-schedule-physical-rooms-with-occupancy-segments.md) for the full target PMS design; this document does not duplicate it, and the CURRENT frontend prototype described above is not authoritative persistence or concurrency evidence for that TARGET design.
+
+The backend targets .NET 8 and uses Clean Architecture project boundaries. The
+Domain contains catalog, pricing/inventory-control, and transactional
+Hold/Reservation structures. BE-003.3 adds the first booking workflow:
+Application-level Hold request normalization and hashing, an API creation
+endpoint, and Infrastructure-owned atomic PostgreSQL persistence.
+
+## Backend dependency direction
+
+```text
+TheBha.Api ------------> TheBha.Application
+    |                            |
+    `--> TheBha.Infrastructure --+--> TheBha.Domain
+
+TheBha.UnitTests ------> TheBha.Application + TheBha.Domain
+TheBha.IntegrationTests -> TheBha.Api
+```
+
+Project reference rules:
+
+- `TheBha.Domain` has no internal project references.
+- `TheBha.Application` references only `TheBha.Domain`.
+- `TheBha.Infrastructure` references `TheBha.Application` and `TheBha.Domain`.
+- `TheBha.Api` references `TheBha.Application` and `TheBha.Infrastructure`.
+- `TheBha.UnitTests` references `TheBha.Domain` and `TheBha.Application`.
+- `TheBha.IntegrationTests` references `TheBha.Api`.
+
+## API foundation
+
+`TheBha.Api` uses ASP.NET Core controllers with nullable reference types and implicit usings enabled. Swagger/OpenAPI is available in the Development environment. `GET /health` provides a lightweight process-health endpoint, while `GET /health/ready` checks PostgreSQL connectivity through EF Core. Versioned customer catalog controllers depend on Application query contracts and return DTOs rather than EF entities. BE-003.1 composes customer cookie authentication, antiforgery, credentialed CORS, and authentication rate limits in this API layer. `POST /api/v1/booking-holds` permits guest or cookie-authenticated callers while retaining the global antiforgery policy and returns only customer-safe Application DTOs. BE-003.5 completes the ownership-protected booking lifecycle with `GET /api/v1/booking-holds/{holdId}`, `POST /api/v1/booking-holds/{holdId}/cancel`, and `POST /api/v1/reservations/{reservationId}/cancel`; the two cancellation endpoints remain under the global antiforgery policy, while the GET endpoints do not require it.
+
+## Persistence foundation
+
+`TheBha.Infrastructure/Persistence` owns `TheBhaDbContext`, entity configurations,
+read-query implementations, ASP.NET Core Identity Core and transactional booking
+persistence, the explicit development seeder, and EF Core migrations. The API
+supplies `ConnectionStrings:TheBhaDatabase` through external
+configuration. PostgreSQL is the sole source of catalog and booking data.
+Atomic Hold creation uses explicit transactions and parameterized
+`pg_advisory_xact_lock` calls in Infrastructure; Application and Domain contain
+no PostgreSQL dependency. BE-003.5 extends this same transaction/advisory-lock
+contract to Hold cancellation and Reservation cancellation, reusing the
+existing Hold-transition and per-night inventory lock keys in the same
+lifecycle-then-inventory order. `PMS-BE-001.2` introduces a shared,
+deterministic `AdvisoryLockCoordinator` (`Infrastructure/Persistence/AdvisoryLockCoordinator.cs`)
+that every advisory-lock-taking writer, old and new, now goes through
+instead of its own ad hoc lock-key handling, without changing prior lock
+semantics — exact lock-class order is recorded in
+`docs/reports/PMS-BE-001.2-completion.md`. The API does not
+apply migrations or seed data during normal startup.
+
+PostgreSQL 17 runs locally through Docker Compose with a named volume and is also used by the backend integration-test job in GitHub Actions. The API does not call `EnsureCreated()` or apply migrations during startup.
+
+## Physical-room schedule authority (`PMS-BE-001.2`)
+
+`TheBha.Domain/Scheduling` and `TheBha.Infrastructure/Persistence` add the
+sole PhysicalRoom schedule authority — `RoomOccupancySegment`/`RoomBlock`,
+persisted by migration 8 — with PostgreSQL-enforced overlap, booked-night-
+coverage, and same-Property invariants (ADR 0006). `Application/Properties/PhysicalCapacityFormula.cs`
+extends ADR 0004's availability formula to be block-adjusted and
+assignment-attributed; `IReservationCancellationStore` atomically cancels
+any still-`Effective` assignment segments alongside Reservation
+cancellation. `IAssignmentMutationStore` and `IOperationalBlockMutationStore`
+(`Infrastructure/Persistence/AssignmentMutationStore.cs`,
+`OperationalBlockMutationStore.cs`) are application/persistence boundary
+services. `IAssignmentMutationStore.CreateAsync` and a narrow, single-segment
+slice of `SupersedeAsync` — one-segment move and one-segment unassign only,
+never split/swap/batch — have HTTP callers, all through the
+local-Development-only endpoints described under "Admin Calendar write
+boundary" below (`PMS-CAL-001.2` CP02/CP04B). `IOperationalBlockMutationStore.CreateBlockAsync`
+has one too, restricted to a single segment per request
+(`PMS-CAL-001.3-CP01`), and so does a single-segment, zero-replacement slice of
+`IOperationalBlockMutationStore.SupersedeSegmentsAsync` — one-block cancel only
+(`PMS-CAL-001.3-CP02`). Block move/split, multi-segment block creation or
+supersede, and every other `SupersedeAsync` shape remain internal-only, with
+**no HTTP controller or Admin/Calendar endpoint exposing them**, and no Staff
+identity or Admin RBAC model exists. Exact invariants, the availability formula, mutation semantics, and error mapping
+are recorded in ADR 0006 and `docs/reports/PMS-BE-001.2-completion.md`, not
+duplicated here.
+
+## Admin Calendar read API (`PMS-CAL-001.1`)
+
+`TheBha.Application/Scheduling/ReservationBoard.cs` and
+`TheBha.Infrastructure/Persistence/ReservationBoardDataLoader.cs` project the
+physical-room schedule authority above into one frozen, read-only JSON
+contract, served by `AdminReservationBoardController` at `GET
+/api/admin/v1/properties/{propertyId}/reservation-board?from=&to=`
+(half-open date range, max 31 nights). The endpoint is gated behind
+`AdminCalendar:EnableUnauthenticatedRead` (default `false`; a Production
+startup guard makes it impossible to enable there), served over a
+CORS-restricted, HTTPS-only, non-wildcard `Cors:AdminOrigins` origin list
+separate from the customer-facing credentialed CORS policy, and returns
+`Cache-Control: no-store`. This read contract is unchanged by the write
+boundary below and shares nothing with it — separate opt-in, separate CORS
+policy, separate gate. `Front_End/Admin_Web/src/lib/api/{env,types,client}.ts` is
+the frontend's typed, HTTPS-only client for this endpoint and the shared
+`GET /api/v1/properties` catalog read (which required adding a second,
+uncredentialed, `GET`-only CORS policy — `properties-catalog-read` — to
+that one Customer-facing controller action, alongside its unchanged
+Customer_Web policy). Exact contract shape, coverage-classification
+semantics, and acceptance evidence:
+`docs/reports/PMS-CAL-001.1-completion.md`.
+
+
+## Admin Calendar write boundary (`PMS-CAL-001.2`, `PMS-CAL-001.3`)
+
+`PMS-CAL-001.2` CP01 adds the write half of the boundary and no endpoint: the
+separate `AdminCalendar:EnableUnauthenticatedWrite` opt-in (default `false`,
+Production startup-fatal), `AdminCalendarWriteGateFilter`, and the
+uncredentialed `admin-calendar-write` CORS policy.
+
+Five endpoints now sit behind that one gate, each a thin adapter over an
+already-accepted mutation command, and each reachable only from a Development
+loopback host with the write opt-in on:
+
+- `POST /api/admin/v1/properties/{propertyId}/reservation-assignments` —
+  `IAssignmentMutationStore.CreateAsync` (`PMS-CAL-001.2` CP02).
+- `POST .../reservation-assignments/{segmentId}/move` and
+  `.../unassign` — a single-segment slice of `SupersedeAsync`
+  (`PMS-CAL-001.2` CP04B).
+- `POST /api/admin/v1/properties/{propertyId}/operational-blocks` —
+  `IOperationalBlockMutationStore.CreateBlockAsync`, creating exactly one
+  OperationalBlock segment under one new RoomBlock header
+  (`PMS-CAL-001.3-CP01`).
+- `POST .../operational-blocks/{segmentId}/cancel` — a single-segment,
+  zero-replacement slice of `IOperationalBlockMutationStore.SupersedeSegmentsAsync`
+  (`PMS-CAL-001.3-CP02`): the segment becomes Cancelled, the RoomBlock header
+  and audit history stay. The Admin Reservation Board calls the create route
+  (`PMS-CAL-001.3-CP03`: one Active room, a confirmed range within the visible
+  board, then an authoritative re-read) and the cancel route
+  (`PMS-CAL-001.3-CP04`: one block bar, a confirmation showing the segment's
+  own full nights and the `expectedVersion` read from the board, then the same
+  authoritative re-read — a lost response is never retried and keeps that
+  room's nights locked).
+
+The audit actor — and, where an operation can carry one, the authorization
+evidence — are fixed server-owned constants naming this local boundary: not a
+person, not an approval, not an authenticated Staff identity. A cleartext Admin
+mutation verb is answered `404` + `Cache-Control: no-store` by a guard placed
+ahead of `UseHttpsRedirection`, because a 307 preserves method and body and
+would otherwise let a redirect-following client complete a write that never
+reached the gate; the gate repeats the HTTPS check as defence in depth.
+Assignment split/swap/batch, operational-block move/split, multi-segment
+block creation or supersede, Admin authentication/RBAC, real Staff identity and OTA behavior
+remain TARGET.
+
+## Deliberately deferred decisions
+
+MediatR, AutoMapper, FluentValidation, customer verification
+and recovery, MFA, administration authentication, payment integrations,
+housekeeping, and maintenance workflows remain deliberately deferred. Hold
+read, Hold confirmation, Reservation read, Hold cancellation, and Reservation
+cancellation are delivered (BE-003.3–BE-003.5); a persisted `Expired` Hold
+status and background expiry cleanup remain deliberately deferred, since
+logical expiry is already correct without them.
+
+## Current operational scope
+
+The current targets are local development and local production simulation. GitHub Actions CI is the automated quality gate for frontend installation/build and backend restore/build/test.
+
+Vercel, public hosting, custom domains, hosting secrets, and continuous deployment are deliberately deferred. This foundation does not define or run a deployment workflow.
+
+## Front-end provenance
+
+The customer web theme was relocated without changing its source or dependencies. Original theme attribution remains in `Front_End/Customer_Web/README.md` and must be preserved when the application evolves.
