@@ -13,6 +13,9 @@ dotnet ef migrations script --idempotent --configuration Release \
   --startup-project "$root/Back_End/src/TheBha.Api/TheBha.Api.csproj" \
   --output "$out" >/dev/null
 sed -i '1s/^\xEF\xBB\xBF//' "$out"
+# EF ends the script with a blank line; keep exactly one newline at EOF so `git diff --check` is clean
+# and --check cannot drift on whitespace. Only trailing empty/blank lines go; no statement changes.
+sed -i -e :a -e '/^[[:space:]]*$/{$d;N;ba' -e '}' "$out"
 
 if [[ "${1:-}" == "--check" ]]; then
   if diff -q "$out" "$target" >/dev/null; then echo "idempotent.sql is up to date"; rm -f "$out"; exit 0; fi
