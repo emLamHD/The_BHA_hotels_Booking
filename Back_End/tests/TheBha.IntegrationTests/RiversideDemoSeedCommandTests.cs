@@ -119,6 +119,57 @@ public sealed class RiversideDemoSeedCommandTests(PostgreSqlWebApplicationFactor
     }
 
     [Theory]
+    [InlineData("--dry-run", "9999-12-31", "1")]
+    [InlineData("--apply", "9999-12-31", "1")]
+    [InlineData("--dry-run", "9999-12-30", "2")]
+    [InlineData("--apply", "9999-12-30", "2")]
+    [InlineData("--apply", "9999-01-01", "366")]
+    public async Task A_range_whose_end_is_not_representable_is_a_usage_error_before_any_database_access(string mode, string from, string days)
+    {
+        var provider = new FailOnAccessProvider();
+        string[] args = ["--seed-riverside-demo", "--expected-database", _databaseName, "--media-base-url", "https://demo.example.test:3000", "--from", from, "--days", days, mode];
+        var (exit, output) = await RunAsync(args, "Development", provider);
+        Assert.Equal(RiversideDemoSeedCommand.UsageError, exit);
+        Assert.Contains("riverside-seed:", output);
+        Assert.Contains("not representable", output);
+        Assert.Equal(0, provider.Accesses); // no scope, no DbContext, no query, no write
+        Assert.Equal(0, await RowsAsync());
+    }
+
+    [Theory]
+    [InlineData("--dry-run")]
+    [InlineData("--apply")]
+    public async Task The_last_representable_exclusive_end_is_accepted_past_validation(string mode)
+    {
+        // 9999-12-30 + 1 day ends exactly at DateOnly.MaxValue: validation passes, so the command goes on to the
+        // database (here the provider refuses the access, which proves the usage check did not stop it).
+        var provider = new FailOnAccessProvider();
+        string[] args = ["--seed-riverside-demo", "--expected-database", _databaseName, "--media-base-url", "https://demo.example.test:3000", "--from", "9999-12-30", "--days", "1", mode];
+        await Assert.ThrowsAsync<ProviderAccessed>(() => RunAsync(args, "Development", provider));
+        Assert.True(provider.Accesses > 0);
+    }
+
+    /// <summary>A service provider that fails the test, and counts, if anything asks it for a service or a scope.</summary>
+    private sealed class ProviderAccessed : Exception;
+
+    private sealed class FailOnAccessProvider : IServiceProvider, IServiceScopeFactory
+    {
+        public int Accesses { get; private set; }
+
+        public object? GetService(Type serviceType)
+        {
+            Accesses++;
+            throw new ProviderAccessed();
+        }
+
+        public IServiceScope CreateScope()
+        {
+            Accesses++;
+            throw new ProviderAccessed();
+        }
+    }
+
+    [Theory]
     [MemberData(nameof(BadArguments))]
     public async Task Bad_arguments_are_a_usage_error_and_write_nothing(string[] args, string reason)
     {

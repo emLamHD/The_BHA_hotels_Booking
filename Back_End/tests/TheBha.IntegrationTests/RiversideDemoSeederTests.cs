@@ -393,6 +393,31 @@ public sealed class RiversideDemoSeederTests(PostgreSqlWebApplicationFactory fac
     public void Days_are_bounded(int days, bool valid) =>
         Assert.Equal(valid, RiversideSeedOptions.TryCreate(Origin, From, days, out _, out _));
 
+    [Theory]
+    [InlineData(9999, 12, 31, 1, false)] // the exclusive end would be 10000-01-01
+    [InlineData(9999, 12, 30, 2, false)]
+    [InlineData(9999, 12, 30, 1, true)]  // the exclusive end is exactly DateOnly.MaxValue
+    [InlineData(9999, 1, 1, 366, false)]
+    [InlineData(2026, 10, 7, 90, true)]
+    public void The_exclusive_end_of_the_range_must_be_representable(int year, int month, int day, int days, bool valid)
+    {
+        var from = new DateOnly(year, month, day);
+        var created = RiversideSeedOptions.TryCreate(Origin, from, days, out var options, out var error);
+        Assert.Equal(valid, created);
+        if (valid)
+        {
+            Assert.NotNull(options);
+            Assert.Null(error);
+            Assert.Equal(DateOnly.FromDayNumber(from.DayNumber + days), options!.ToExclusive); // no throw, no clamp
+            Assert.Equal(days, options.Days);
+        }
+        else
+        {
+            Assert.Null(options);
+            Assert.Contains("not representable", error);
+        }
+    }
+
     [Fact]
     public async Task The_real_availability_api_reports_3_2_6_and_the_owner_prices_from_stock()
     {

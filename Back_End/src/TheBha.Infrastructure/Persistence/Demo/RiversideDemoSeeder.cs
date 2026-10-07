@@ -28,6 +28,14 @@ public sealed record RiversideSeedOptions
             return false;
         }
 
+        // The exclusive end (from + days) must itself be a DateOnly; checked on day numbers so that the
+        // seeder never has to find out through an ArgumentOutOfRangeException. Nothing is clamped.
+        if (from.DayNumber + days > DateOnly.MaxValue.DayNumber)
+        {
+            error = $"the range is not representable: --from {from:yyyy-MM-dd} plus {days} day(s) ends after {DateOnly.MaxValue:yyyy-MM-dd}.";
+            return false;
+        }
+
         if (string.IsNullOrWhiteSpace(mediaBaseUrl) ||
             !Uri.TryCreate(mediaBaseUrl.Trim(), UriKind.Absolute, out var uri) ||
             uri.Scheme != Uri.UriSchemeHttps ||
