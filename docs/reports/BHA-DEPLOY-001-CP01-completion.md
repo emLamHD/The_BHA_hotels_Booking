@@ -2,6 +2,8 @@
 
 > `IMPLEMENTER: CLAUDE`, `REVIEWER: CODEX_READ_ONLY` (Owner invokes). Branch `ops/bha-deploy-001-cp01-rds-demo`, `BASELINE_SHA = RELEASE_SHA = 6ae3fdd3306c50736c734712df5a0f2a1ab5054a` (`origin/develop`, merge of PR #83). This is the Owner's 2026-10-07 replacement of the earlier CP01: **the Owner performs every AWS, Vercel, DNS and database write; Claude prepares, checks and guides.** The earlier permission to create `thebha_showcase_demo` on RDS and seed it is withdrawn and was not used. `REVIEW: NOT_RUN`. Files: this report, the runbook (new §11 packet and corrections), SNAPSHOT, worklog — no code, schema, workflow, Dockerfile, package or local data was changed.
 
+> **C1 (§11) supersedes the target facts of §2 and the bootstrap/ordering of the packet (§6): the Owner's instance is PostgreSQL 18.3 with an existing empty database `thebha`, and the runbook §11 was rewritten with two starting points. The PostgreSQL 17.10 evidence in §3 and §5 is kept as history and is not relabelled.**
+
 ## 0. Status
 
 | Line | Status |
@@ -32,7 +34,7 @@ AWS read-only inventory could not run (no CLI/profile; nothing was installed or 
 | AWS account id, region | Owner | `OWNER_INPUT` |
 | RDS identifier | `the-bha-db` | **unverified** |
 | Endpoint (host:port) | from the console; must match the identifier | `OWNER_INPUT` |
-| Engine / version / status | PostgreSQL **17.x**, `available`, encrypted, not publicly accessible | unverified |
+| Engine / version / status | ~~PostgreSQL 17.x~~ **superseded by C1: PostgreSQL 18.3** (Owner-reported); `available`, encrypted, not publicly accessible | version `OWNER_VERIFIED`; the rest unverified |
 | Operational database name | chosen by the Owner (not `thebha_showcase_demo`; the seeder's "demo/showcase" naming rule does not apply because the seeder is not used) | `OWNER_DECISION` |
 | Roles | an owner/operator role for migrations (owns the database) and a separate application role | `OWNER_DECISION` |
 | Network path | SSM port forward or bastion for the operator; API security group → RDS 5432; **do not** open 5432 to all IPs or make RDS public | `OWNER_INPUT` |
@@ -124,3 +126,62 @@ I started the local showcase PostgreSQL container only to run SELECTs and stoppe
 ## 10. Reviewer focus
 
 SQL/data-statement statements in §3 against the source; that the packet never routes the Development seeder or `apply-migration-sql.sh` at RDS; target guards (database/user/host checked before apply, empty-database precondition, snapshot first); the import order, rerun behavior and media-origin rewrite; the claims marked `NOT_RUN`/`unverified`.
+
+## 11. Correction C1 — bootstrap ordering and PostgreSQL 18.3
+
+`START_HEAD bfd79dab24e2f847ed32246f802af5cd70194505`, release/base `6ae3fdd3306c50736c734712df5a0f2a1ab5054a` (unchanged). Branch `ops/bha-deploy-001-cp01-rds-demo`, Draft PR #84. Only the four allowed documents were edited; no code, SQL, Dockerfile, workflow, package, local data or hero commit was touched. The Owner's target facts are `OWNER_VERIFIED` (supplied by the Owner, not read by Claude): RDS `the-bha-db`, `ap-southeast-2`, endpoint `the-bha-db.cpesw6uoopkp.ap-southeast-2.rds.amazonaws.com:5432`, PostgreSQL 18.3, client `psql` 18.4; the Owner created `thebha` as `postgres`, connected over TLS 1.3 and saw `current_database() = thebha`, `current_user = postgres`, 0 public tables. Not applied: migrations, import, operator/application roles. `AWS_INVENTORY` stays `NOT_RUN` (no `aws` CLI/profile).
+
+### 11.1 F1 — the finding and the fix
+
+- **Finding (reported twice, one defect):** the first checks of §11 set `PGDATABASE`/`PGUSER` to the target database and operator role before step 3 created them, so a fresh deployment could not connect.
+- **RED (reproduced locally on PostgreSQL 18.3 with TLS `verify-full`):** the previous packet's first command on a target where neither role nor database existed failed immediately — `FATAL: password authentication failed for user "bha_operator"` (exit 2).
+- **Fix:** §11 now starts from the always-existing database `postgres` with the RDS master only (inventory, role-collision check, master capability), then creates roles and either creates the database (Path A) or hands the existing `thebha` to the operator role (Path B), and only then connects as the operator to `thebha`. Three identities are separated (master = bootstrap only, `bha_operator` = owner/migration/import, `bha_app` = API and Staff CLI, never `postgres`). Other dependency repairs: the image is built (step 2, from `git archive` of `6ae3fdd`, no branch switch) before the Staff CLI uses it (step 10); `smoke.sh` moved after the Customer deployment (step 15); the password file is created only if absent (an existing file is never truncated); `psql` meta-commands are on their own lines; release SHA vs docs head is explicit (`git diff --quiet 6ae3fdd HEAD -- Back_End Front_End deploy .github`); every `<…>` line is declared a template; `verify-full` is kept everywhere and `Require` is explicitly not an accepted shortcut; the integration tests must never be pointed at RDS (the factory issues `CREATE/DROP DATABASE … WITH (FORCE)` and `TRUNCATE` on the server it is given).
+- **GREEN:** both paths below were run from the runbook's own blocks.
+
+### 11.2 Rehearsal environment (local, isolated, all removed afterwards)
+
+Docker image `postgres:18.3` = `sha256:7e32e9833a6fb1c92c32552794cb6ed569d51b445a54907d35fc112ef39684db` (server `PostgreSQL 18.3 (Debian 18.3-1.pgdg13+1)`), client `psql` 18.4; two containers named after a random run id and labelled `bha.c1.run=<id>` (one with TLS from a local test CA, one plain for the test suite), published on random loopback ports; no fixed names, no Owner stack, no RDS. The "RDS master" was a **non-superuser role with CREATEROLE/CREATEDB** (the closest local stand-in for a managed-service master; RDS's `rds_superuser` has extra abilities that are untested); a real superuser was used only to create that role. TLS 1.3 `sslmode=verify-full` with the test CA worked and a wrong CA was refused. The `\password` prompt lines were replaced by an equivalent `ALTER ROLE … PASSWORD` fed from private files because a script cannot answer a prompt; the Staff CLI/API containers used `--network host` because the database was on this host. Nothing else differed from the runbook text.
+
+### 11.3 Results
+
+| Check | Result |
+|---|---|
+| Release SQL | SHA-256 `d7d38722dee4ac0c2cc6412df8fbdda22286f28e3a918531881117da7019b406` (from `git show 6ae3fdd:…` and from the working file); `regenerate-migration-sql.sh --check` → up to date (exit 0); `Back_End`, `Front_End`, `deploy`, `.github` identical between `6ae3fdd` and the branch head |
+| **Path A** (database absent) | block order 1,4,7,8,10,11,12,13,14,15,16: master inventory → roles → `CREATE DATABASE … OWNER bha_operator` → ownership `thebha_patha\|bha_operator`, `public\|pg_database_owner` → gate `t\|t\|f`, 0 tables → extension gate `BEGIN/CREATE EXTENSION/ROLLBACK`, 0 left → apply exit 0 → 9 history rows, 28 tables, `btree_gist,plpgsql`, 5 triggers, 0 tables not owned by the operator → application privileges → second apply: "already exists, skipping", still 9 / 28 |
+| **Path B** (database pre-created by the master, empty) | same sequence with `ALTER DATABASE … OWNER TO bha_operator` instead of `CREATE DATABASE`; the database **oid was identical before and after** and a `COMMENT ON DATABASE` set by the master survived — it was neither dropped nor recreated; `GRANT bha_operator TO CURRENT_USER` followed by the ownership change worked with a non-superuser master; the `btree_gist` read-only query returned `btree_gist\|1.8\|t\|-` |
+| Stop signals | role-collision query returns `bha_app` and `bha_operator` once they exist; the emptiness gate on the migrated database returns 28 tables and the history table (stop); the application role: `has_schema_privilege('public','CREATE') = f`, not a member of the operator role, `CREATE TABLE` → `permission denied for schema public`, read of `"Properties"` works |
+| Password file | pre-existing line kept (`keep-me` count 1), mode 600; absent file created |
+| Catalog import (Path B database) | export 352 `INSERT`s, 0 `localhost`, 0 personal-data strings; import as operator exit 0 (Amenities 2, Properties 1, RatePlans 1, RoomTypes 3, PhysicalRooms 11, PropertyAmenities 2, Media 31, PropertyMedia 10, RoomTypeMedia 21, DailyRoomRates 270; Reservations/Holds/Staff 0; media only `https://thebhariverside.com`); rerun exit 3 on `PK_Amenities`, 270 rates unchanged |
+| Staff CLI (release image `bha-api:6ae3fdd` built from `git archive`, user `app`) | connects as `bha_app` with `SSL Mode=VerifyFull;Root Certificate=<mounted multi-certificate bundle>`: "created Staff … with Manager membership"; with a wrong CA: failed, nothing changed |
+| API as `bha_app` over VerifyFull | ready 200; customer register → login → CSRF → availability → hold 201 → confirm 201 → reservation read (2,000,000 VND, Confirmed); Staff login 200 only with the approved `Origin`, `/me` 200, reservation-board read 200 |
+| `PG18_COMPATIBILITY` | **PARTIAL** — migration SQL and runtime flows pass; three integration assertions fail (below) |
+| `MIGRATION_SQL_LOCAL18` | **PASS** (both paths, applied twice) |
+| `BACKEND_INTEGRATION_LOCAL18` | **FAIL, 3 of 846** — `dotnet build -c Release` 0 errors; `dotnet test -c Release --no-build` exit 1: unit **244/244 passed**, integration **843 passed, 3 failed**. Target (redacted): `Host=127.0.0.1;Port=<random>;Database=thebha;Username=bha_test;Password=<redacted>` on the dedicated plain PostgreSQL 18.3 container; the factory connects to that container's `postgres` database and only creates/drops `thebha_integration_<guid>` databases (0 left afterwards) |
+
+**The three failures (no code, test or package was changed to make them pass):**
+1. `PropertyInventoryPersistenceTests.Migration_applies_to_clean_postgresql_17_database` — `Assert.StartsWith("17.", version)`: a version pin to PostgreSQL 17, so it fails by construction on 18.3 (the same test asserts 9 applied migrations and none pending, which it reached).
+2. `BookingPersistenceTests.Nullable_customer_linkage_and_restrictive_history_deletes_are_enforced` and 3. `StaffIdentityPersistenceTests.Memberships_enforce_key_role_and_restricting_foreign_keys` — both expect SQLSTATE `23503` for deleting a parent row guarded by `ON DELETE RESTRICT` and got `23001` (`restrict_violation`). Isolated on bare temporary tables: PostgreSQL **18.3** reports `23001` for `ON DELETE RESTRICT`, PostgreSQL **17.10** reports `23503`; `NO ACTION` deletes and child inserts/updates report `23503` on both. The constraint is still enforced on 18.3 (the delete is refused); only the error code changed. The only production use of `ForeignKeyViolation` (`RoomOccupancySegmentMutationSupport`) handles child-side write conflicts, which keep `23503`; no production path was found that deletes a parent row under RESTRICT and depends on the code. This is an assessment from reading the source plus the 843 passing tests, not a proof.
+
+Consequence: PostgreSQL 18 support of the **test suite** is not green, and the PostgreSQL 17.10 results (C4: 244 + 846) are not substituted for it. Making those tests version-aware (accept `23001` and drop the `17.` pin) needs a separate code/test work item and was not done here. Whether the Owner applies the schema to RDS before that decision is for OC/Owner; this correction stops short of any cloud migration.
+
+### 11.4 Status lines
+
+`OWNER_RDS_CONNECTION: OWNER_VERIFIED` · `PG18_COMPATIBILITY: PARTIAL` · `MIGRATION_SQL_LOCAL18: PASS` · `BACKEND_INTEGRATION_LOCAL18: FAIL (3/846, assertions)` · `RDS_EXTENSION_PERMISSION: NOT_RUN` (no result from the Owner yet; local `btree_gist` creation by a non-owner role/DB owner is not evidence for RDS) · `AWS_INVENTORY`, `CLOUD_MIGRATION`, `CLOUD_DATA`, `PUBLISH`, `DEPLOY_API`, `DEPLOY_ADMIN`, `DEPLOY_CUSTOMER`, `END_TO_END_LIVE: NOT_RUN` · `REVIEW: NOT_RUN` for the new FINAL_HEAD. Nothing in this report calls the system production-ready.
+
+### 11.5 Still missing from the Owner / pending
+
+Operator and application role names and passwords (`bha_operator`/`bha_app` proposed; neither exists), the RDS CA bundle path and its delivery to the API task, the network/security-group/public-access inventory, API runtime/IAM/ECR/ALB/DNS, the two Vercel projects, the confirmed catalog fields (`DEMO-*` room numbers, rate plan name, description/address/city), the rate window past 2027-01-04, Staff accounts, and the decision on the three PostgreSQL 18 test assertions.
+
+### 11.6 Local state and cleanup
+
+Created and removed by exact name/id/label: the two `bha-c1-…` containers with their anonymous volumes, the locally built image `bha-api:6ae3fdd`, and the temporary certificates, password files and logs in the session scratchpad (secrets shredded). Kept: the pulled base image `postgres:18.3` (cache), everything of the Owner's stack, `postgres:17*` images and `thebha-api:showcase`. The local showcase PostgreSQL container was started for the read-only catalog export and stopped again. No AWS/RDS/Vercel/DNS action, no secret requested or stored, nothing committed except the four documents.
+
+### 11.7 The one next step for the Owner
+
+A read-only query, run in `thebha` as `postgres` over `verify-full` (runbook §11 step 3, last block) — nothing else yet:
+
+```bash
+psql "host=the-bha-db.cpesw6uoopkp.ap-southeast-2.rds.amazonaws.com port=5432 dbname=thebha user=postgres sslmode=verify-full sslrootcert=<RDS CA bundle path>" -At -c "select v.name, v.version, v.trusted, coalesce(e.installed_version,'-') from pg_available_extension_versions v join pg_available_extensions e on e.name = v.name where v.name = 'btree_gist' and v.version = e.default_version"
+```
+
+Send the output (no secrets). The `<RDS CA bundle path>` is a template to fill in.

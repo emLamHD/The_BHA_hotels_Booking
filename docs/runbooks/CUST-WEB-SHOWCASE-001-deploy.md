@@ -1,13 +1,13 @@
 # CUST-WEB-SHOWCASE-001 — deploy runbook (Owner executes)
 
-> Status: **Owner-led deployment (`BHA-DEPLOY-001-CP01`, 2026-10-07): nothing here has been executed in any cloud.** The Owner performs every step that touches AWS, Vercel, DNS or a real database and enters credentials on their own machine; Claude prepares, checks and guides. The release is `develop` at `6ae3fdd3306c50736c734712df5a0f2a1ab5054a` (merge of PR #83). The **operational database name is not chosen yet**, the **API runtime is undecided**, and **importing the catalog is a different operation from applying migrations** (§6, §11). Evidence: `docs/reports/BHA-DEPLOY-001-CP01-completion.md` (rehearsal on a local scratch PostgreSQL only). Statuses: `CLOUD_DATA`, `DEPLOY_API`, `DEPLOY_ADMIN`, `DEPLOY_CUSTOMER`, `END_TO_END_LIVE`, `PUBLISH`: `NOT_RUN`.
+> Status: **Owner-led deployment (`BHA-DEPLOY-001-CP01`, 2026-10-07): nothing here has been executed in any cloud.** The Owner performs every step that touches AWS, Vercel, DNS or a real database and enters credentials on their own machine; Claude prepares, checks and guides. The release is `develop` at `6ae3fdd3306c50736c734712df5a0f2a1ab5054a` (merge of PR #83). The operational database is **`thebha` on RDS `the-bha-db` (`ap-southeast-2`, PostgreSQL 18.3), created empty by the Owner (Owner-verified, §11); the operator/application roles do not exist yet**, the **API runtime is undecided**, and **importing the catalog is a different operation from applying migrations** (§6, §11). Evidence: `docs/reports/BHA-DEPLOY-001-CP01-completion.md` (rehearsal on a local scratch PostgreSQL only). Statuses: `CLOUD_DATA`, `DEPLOY_API`, `DEPLOY_ADMIN`, `DEPLOY_CUSTOMER`, `END_TO_END_LIVE`, `PUBLISH`: `NOT_RUN`.
 
 ## 0. Shape
 
 ```
 Browser ──https──> Vercel project A  (Customer_Web)   thebhariverside.com
         ──https──> Vercel project B  (Admin_Web)      admin.thebhariverside.com
-        ──https──> ALB (TLS) ──http──> API container  api.thebhariverside.com   ──> RDS PostgreSQL 17
+        ──https──> ALB (TLS) ──http──> API container  api.thebhariverside.com   ──> RDS PostgreSQL 18.3
                                         └─ /var/keys  (durable shared volume: Data Protection key ring)
 ```
 
@@ -26,11 +26,11 @@ Customer and Staff sessions are cookies set by the API and sent with `credential
 | # | Decision | Notes |
 |---|---|---|
 | D1 | ~~Domain and hostnames~~ **Provided by the Owner:** Customer `https://thebhariverside.com`, Admin `https://admin.thebhariverside.com`, API `https://api.thebhariverside.com` | Planned configuration; DNS, certificates and the live sites are `NOT_TESTED`. |
-| D2 | Operational RDS database name (+ an owner/operator role and a separate application role) | **Chosen by the Owner, not yet chosen.** Do not reuse `thebha_showcase_demo`. The seeder's "must contain `demo`/`showcase`" rule is irrelevant because the seeder is **not** used on the operational database (§6). |
+| D2 | Operational RDS database and roles | **Database `thebha` exists** (created by the Owner as `postgres`, 0 tables). Roles still to create: an operator role that owns it (`bha_operator`) and a runtime role (`bha_app`) — §11 steps 3–5. Do not reuse `thebha_showcase_demo`. The seeder's "must contain `demo`/`showcase`" rule is irrelevant because the seeder is **not** used on the operational database (§6). |
 | D3 | API runtime | **Recommended: ECS on Fargate + encrypted EFS** (the key ring needs a durable volume shared by all tasks). App Runner has no durable shared volume, so it cannot satisfy §5 without a code change that is out of scope. |
-| D4 | Final Customer origin for the catalog media URLs | = `https://thebhariverside.com` (decided). **The local database holds `https://localhost:3000` media URLs in all 31 Media rows: they must be rewritten during the catalog import (§11 step 7), never copied as they are.** |
+| D4 | Final Customer origin for the catalog media URLs | = `https://thebhariverside.com` (decided). **The local database holds `https://localhost:3000` media URLs in all 31 Media rows: they must be rewritten during the catalog import (§11 step 9), never copied as they are.** |
 | D5 | Photographs | 31 derivatives are published (Property 10, 2PN 9, 1PN 6, 1PN view thoáng 6; Owner-selected per room type). The Owner authorized publishing them although the byte scan found generator markers or no metadata on some originals; **provenance is `UNVERIFIED`** (heuristic scan, C2PA validation `NOT_RUN`) and no document may call them verified camera photographs. Media bytes and ids are not changed by this work item. |
-| D6 | Real property details | Address, city, description, amenities beyond pool/rooftop, the rate plan name "Giá tiêu chuẩn (demo)" and the room numbers `DEMO-*` are placeholders until the Owner supplies real values; they must be confirmed **before** the catalog import (§11 step 7). |
+| D6 | Real property details | Address, city, description, amenities beyond pool/rooftop, the rate plan name "Giá tiêu chuẩn (demo)" and the room numbers `DEMO-*` are placeholders until the Owner supplies real values; they must be confirmed **before** the catalog import (§11 step 9). |
 
 ## 3. Build and publish the API image
 
@@ -68,8 +68,8 @@ Rollback: point the service back at the previous image **digest or SHA tag** (re
 
 ## 4. RDS and migrations
 
-1. RDS for PostgreSQL **17**, encrypted, in private subnets. Security group: inbound 5432 only from the API task's security group and from the operator's access path (SSM port forward or bastion). Create a role for the application (not the master user) and the database named per D2.
-2. Apply the schema with the checked-in idempotent script — safe to run twice, nothing is applied at startup. **Use the exact command, guards and checks of §11 steps 3–6**; `deploy/showcase/scripts/apply-migration-sql.sh` is for the local compose stack only and must never be pointed at RDS:
+1. RDS for PostgreSQL **18.3** (the Owner's instance `the-bha-db`, `ap-southeast-2`; Owner-verified, see §11), encrypted, in private subnets. Security group: inbound 5432 only from the API task's security group and from the operator's access path (SSM port forward or bastion). Create a role for the application (not the master user) and the database named per D2.
+2. Apply the schema with the checked-in idempotent script — safe to run twice, nothing is applied at startup. **Use the exact commands, guards and checks of §11 steps 3–8** (two starting points: a database that does not exist yet, or the existing `thebha`); `deploy/showcase/scripts/apply-migration-sql.sh` is for the local compose stack only and must never be pointed at RDS:
 
    ```bash
    psql "<connection string from a secret store, via env var>" -v ON_ERROR_STOP=1 -f deploy/showcase/migrations/idempotent.sql
@@ -107,7 +107,7 @@ Single instance recommended for the showcase: the rate limiter is in-process, so
 
 For the operational database the schema comes from the migrations (§4) and the catalog is a **separate, reviewed import** of exactly the tables `Amenities, Properties, RatePlans, RoomTypes, PhysicalRooms, PropertyAmenities, RoomTypeAmenities, Media, PropertyMedia, RoomTypeMedia, DailyRoomRates` — never the local reservations, holds, blocks, audit rows, Staff or customer accounts (they are E2E test data). §11 step 7 has the procedure; it was rehearsed on a scratch database.
 
-Staff accounts are created on the target with the existing CLI (§11 step 8), password only via environment/`--env-file` or the hidden prompt:
+Staff accounts are created on the target with the existing CLI (§11 step 10), password only via `--env-file`/environment or the hidden prompt:
 
 ```bash
 BHA_STAFF_PASSWORD='<from a secret store>' dotnet TheBha.Api.dll --staff-create --email <staff email> --property-id <property id> --role Manager   # role: Manager or FrontDesk
@@ -143,83 +143,212 @@ Then, in a real browser on the three real hostnames, walk the demo path: **`/` (
 - **No EF retry strategy.** Observed locally: after the database was restarted, the first request on a pooled connection returned 500 (`57P01`), later ones succeeded. Expect the same for the first requests after an RDS failover or maintenance restart.
 - `/_next/static/<missing>` returns 500 under `next start` on Node 22 locally (framework behavior, not served by Vercel's static layer).
 - **Nightly rates end on 2027-01-04 and nothing in Production can extend them** (only the Development seeder writes rates; Admin has no rate management): after that date the API offers no rooms. Decide an extension route before launch.
+- **The backend integration suite is not fully green on PostgreSQL 18.3** (C1 rehearsal: 843 of 846; unit 244 of 244). The three failures are assertions, not schema or runtime problems: one pins the server version to `17.`, two expect SQLSTATE `23503` where PostgreSQL 18 reports `23001` for `ON DELETE RESTRICT` (inserts/updates and `NO ACTION` still report `23503`). The migration SQL itself applied twice on 18.3 and the booking/Staff flows worked; making the tests version-aware is a separate work item (report C1).
 - **No RDS CA bundle in the image**: `SSL Mode=VerifyFull` needs the bundle delivered to the task; `SSL Mode=Require` encrypts but does not verify the server certificate.
 - Key ring unencrypted at rest (§5). In-process rate limiter (§5). Placeholder property details (D6). Two room types have no photographs (D5).
 
 ## 10. Rollback
 
-Redeploy the previous image tag/digest. Migrations are forward-only: before applying them take an RDS snapshot (§11 step 4) and restore it if the schema must go back; there is no down-migration script for production use. The catalog import is one transaction, so a failed run changes nothing; removing imported rows afterwards is a deliberate Owner decision — there is no blanket delete script.
+Redeploy the previous image tag/digest. Migrations are forward-only: before applying them take an RDS snapshot (§11 step 6) and restore it if the schema must go back; there is no down-migration script for production use. The catalog import is one transaction, so a failed run changes nothing; removing imported rows afterwards is a deliberate Owner decision — there is no blanket delete script.
 
-## 11. Owner-led run packet (`BHA-DEPLOY-001-CP01`)
+## 11. Owner-led run packet (`BHA-DEPLOY-001-CP01`, correction C1)
 
-Every step is performed by the Owner. Commands containing `<…>` are **templates**: they are not ready to run until the value is supplied, and the missing inputs are listed in the report §6. Never put a password, connection string or token on a command line, in shell history or in chat. **Stop and do not continue** if any "expected" result below differs.
+Rehearsal: both paths below, the roles/privileges, the migration (twice), the catalog import, the Staff CLI and the API (as `bha_app` over `sslmode=verify-full`/`SSL Mode=VerifyFull`) were exercised by running these very command blocks (with only the host, port, database, master role name and CA path substituted) against an isolated local PostgreSQL 18.3 — see `docs/reports/BHA-DEPLOY-001-CP01-completion.md` §11. That proves the ordering and the SQL; it does **not** prove anything about RDS permissions, network or the RDS CA.
 
-**Operator machine set-up (once).** Use a private password file and environment variables instead of arguments:
+Every step is performed by the Owner on the Owner's machine; Claude has not run, and does not run, anything against AWS, RDS, Vercel or DNS. **Never** put a password, connection string or token on a command line, in shell history or in chat.
 
-```bash
-install -m 600 /dev/null ~/.bha-pgpass         # then add ONE line with an editor, not echo:  <endpoint>:5432:<db>:<operator_role>:<password>
-export PGPASSFILE=~/.bha-pgpass PGSSLMODE=verify-full PGSSLROOTCERT=<path to the RDS CA bundle you downloaded from AWS>
-export PGHOST=<RDS endpoint>  PGPORT=5432  PGDATABASE=<operational database>  PGUSER=<operator_role>
-```
+**Target facts supplied by the Owner (`OWNER_VERIFIED`, not checked by Claude — no `aws` CLI/profile on Claude's machine):** RDS instance `the-bha-db`, region `ap-southeast-2`, endpoint `the-bha-db.cpesw6uoopkp.ap-southeast-2.rds.amazonaws.com:5432`, engine **PostgreSQL 18.3**, client `psql` 18.4; the Owner created the database `thebha` as the RDS master user `postgres`, connected over TLS 1.3 and read `current_database() = thebha`, `current_user = postgres`, **0** public base tables. **Not done yet:** migrations, catalog import, the operator and application roles. **Not verified by anyone:** whether the master may create `btree_gist` on RDS, security-group/public-access settings, CA validation of the endpoint, API runtime, IAM, ECR, Vercel, DNS.
 
-**Step 1 — verify the release you deploy.**
+**Two starting points — pick by what actually exists** (step 3 tells you):
 
-```bash
-git fetch --prune origin && git switch --detach 6ae3fdd3306c50736c734712df5a0f2a1ab5054a && git status --short   # expect: no output
-sha256sum deploy/showcase/migrations/idempotent.sql      # expect d7d38722dee4ac0c2cc6412df8fbdda22286f28e3a918531881117da7019b406
-```
+- **Path A — the database does not exist yet.** The master creates the roles, then creates the database *owned by the operator role*.
+- **Path B — `thebha` already exists, created by `postgres` (the Owner's current state).** Keep it: do **not** DROP, recreate, truncate or re-`CREATE` it. The master creates the roles and then *hands the existing database to the operator role* (an explicit ownership change that has **not** been executed).
 
-Optional re-check of the generator (needs `dotnet-ef`): `deploy/showcase/scripts/regenerate-migration-sql.sh --check` → `idempotent.sql is up to date`.
+**Three identities, never mixed:**
 
-**Step 2 — confirm the target (read-only).** In the console or with the AWS CLI on the right account: instance `the-bha-db` (unverified — confirm it is the intended one), engine PostgreSQL **17.x**, status `available`, storage encrypted, **not** publicly accessible, security group allows 5432 only from the API's security group and your operator path (SSM port forward or bastion). Then, through that path:
+| Identity | Used for | Never used for |
+|---|---|---|
+| bootstrap = RDS master `postgres` | step 3–4 only: inventory, roles, database creation/ownership | migrations, import, the API, the Staff CLI |
+| operator `bha_operator` | owns database `thebha` and its objects: migration, privilege grants, catalog import | the API |
+| application `bha_app` | runtime: API and Staff CLI — `SELECT/INSERT/UPDATE/DELETE` only, no DDL, not an owner | migrations |
 
-```bash
-psql -At -c "select current_database(), current_user, inet_server_addr(), split_part(version(),' ',2)"
-psql -At -c "select count(*) from information_schema.tables where table_schema='public'"
-psql -At -c "select to_regclass('public.\"__EFMigrationsHistory\"')"
-```
-
-Expect: the database name you chose, your operator role (not the master user, not a superuser), the RDS address, `17.x`; **0** tables and an empty last result on a fresh database. **If the table count is not 0 or the history table exists: stop** — the database is not new; take a snapshot and compare the schema before anything is applied (migration 7 converts legacy booking rows).
-
-**Step 3 — create the database and roles (master user, once).** Use `\password` inside psql so passwords are prompted, not typed into history: create the operator role (owns the database), the application role, `CREATE DATABASE <db> OWNER <operator_role>`, `REVOKE ALL ON DATABASE <db> FROM PUBLIC`. The extension `btree_gist` is created by migration 8 as the database owner: this worked for a non-superuser owner on local PostgreSQL 17 (trusted extension) but is **untested on RDS**; if it fails with a permission error, ask for `rds_superuser` membership for that one step rather than changing the SQL.
-
-**Step 4 — snapshot, then apply.** Take a manual RDS snapshot (console or `aws rds create-db-snapshot`) and wait for `available`. Re-run the two guard queries of step 2 (name/user/host/version/table count) and then:
+**Conventions.** A line that still contains `<…>` is a **template — do not paste it until every `<…>` is replaced**; this includes `<RDS CA bundle path>` and `<image>`. `psql` meta-commands (`\password`) are written on their own lines for an interactive session. Verification ("Expect") lines are results to compare; stop if one differs.
 
 ```bash
-psql -v ON_ERROR_STOP=1 -f deploy/showcase/migrations/idempotent.sql
+# --- once per shell: no secrets here ---
+export BHA_HOST=the-bha-db.cpesw6uoopkp.ap-southeast-2.rds.amazonaws.com
+export BHA_PORT=5432
+export BHA_DB=thebha
+export BHA_MASTER=postgres
+export BHA_CA=<RDS CA bundle path>            # TEMPLATE: the PEM bundle you downloaded from AWS
+export PGPASSFILE="$HOME/.bha-pgpass"
+
+pgas() {   # pgas <database> <role> [psql options]   — always verify-full; the password comes from PGPASSFILE
+  local db="$1" role="$2"; shift 2
+  psql "host=$BHA_HOST port=$BHA_PORT dbname=$db user=$role sslmode=verify-full sslrootcert=$BHA_CA" -v ON_ERROR_STOP=1 "$@"
+}
 ```
 
-Expected: no `ERROR`; exit 0. (Rehearsed locally.)
-
-**Step 5 — verify the schema.**
+Password file — **keep what is already in it**: the first line creates the file only if it does not exist (it never truncates an existing one). Add the lines with an editor, not with `echo` into shell history:
 
 ```bash
-psql -At -c 'select "MigrationId" from "__EFMigrationsHistory" order by 1'       # expect 9 rows: 20260721175848_… through 20261001141847_AddStaffIdentityFoundation
-psql -At -c "select count(*) from information_schema.tables where table_schema='public'"   # expect 28 (27 tables + history)
-psql -At -c "select extname from pg_extension order by 1"                          # expect btree_gist and plpgsql
-psql -At -c "select count(*) from pg_trigger where not tgisinternal"               # expect 5
+test -e "$PGPASSFILE" || install -m 600 /dev/null "$PGPASSFILE"
+chmod 600 "$PGPASSFILE"
+stat -c '%a' "$PGPASSFILE"     # expect: 600
+# add (editor), one line per identity — '*' matches any database; the operator/app lines may use thebha instead of '*':
+#   <BHA_HOST>:5432:*:postgres:<master password>
+#   <BHA_HOST>:5432:thebha:bha_operator:<operator password>      (after step 4)
+#   <BHA_HOST>:5432:thebha:bha_app:<application password>        (after step 4)
 ```
 
-Rerun the same `psql -f` once: expect exit 0, only the notice `relation "__EFMigrationsHistory" already exists, skipping`, and the history still 9 rows.
+**Step 1 — verify the release and this packet's checkout (no branch switch needed).**
 
-**Step 6 — application role.** As the operator role, after step 5 (replace the names):
+```bash
+git fetch --prune origin
+git show 6ae3fdd3306c50736c734712df5a0f2a1ab5054a:deploy/showcase/migrations/idempotent.sql | sha256sum   # expect d7d38722dee4ac0c2cc6412df8fbdda22286f28e3a918531881117da7019b406
+sha256sum deploy/showcase/migrations/idempotent.sql                                                    # the file you will apply: expect the same hash
+git diff --quiet 6ae3fdd3306c50736c734712df5a0f2a1ab5054a HEAD -- Back_End Front_End deploy .github && echo "application source identical to the release"
+```
+
+`6ae3fdd` is the approved **application release**; the head of PR #84 (documentation only) is a different commit — the last command proves the two have the same application source. Optional: `deploy/showcase/scripts/regenerate-migration-sql.sh --check` (needs `dotnet-ef`) → `idempotent.sql is up to date`.
+
+**Step 2 — build the image for exactly `6ae3fdd` (needed by step 10 and by the API; nothing is pushed here).** Built from an archive of the release into a temporary directory, so your checkout stays where it is:
+
+```bash
+tmp="$(mktemp -d)" && git archive 6ae3fdd3306c50736c734712df5a0f2a1ab5054a Back_End | tar -x -C "$tmp"
+docker build -t bha-api:6ae3fdd -f "$tmp/Back_End/Dockerfile" "$tmp/Back_End"
+docker image inspect bha-api:6ae3fdd --format '{{.Id}} user={{.Config.User}}'   # expect: an image id and user=app; note the id
+rm -rf "$tmp"
+```
+
+**Step 3 — bootstrap connection and inventory (identity: master, database `postgres` — which always exists; read-only).** Do not connect to `thebha` or as `bha_operator` yet (the one read-only `btree_gist` question below is the only exception, and only for Path B): on a fresh target they may not exist.
+
+```bash
+pgas postgres "$BHA_MASTER" -At -c "select current_database(), current_user, split_part(version(),' ',2), s.ssl, s.version from pg_stat_ssl s where s.pid = pg_backend_pid()"
+pgas postgres "$BHA_MASTER" -At -c "select datname, pg_get_userbyid(datdba) from pg_database where not datistemplate order by 1"
+pgas postgres "$BHA_MASTER" -At -c "select rolname from pg_roles where rolname in ('bha_operator','bha_app')"
+pgas postgres "$BHA_MASTER" -At -c "select rolsuper, rolcreaterole, rolcreatedb, (select pg_has_role(current_user, r2.oid, 'member') from pg_roles r2 where r2.rolname = 'rds_superuser') from pg_roles where rolname = current_user"
+```
+
+Expect: `postgres|<master>|18.3|t|TLSv1.3`; a database list that either contains `thebha|postgres` (**Path B**) or does not contain `thebha` (**Path A**); **no rows** for the third query (if `bha_operator`/`bha_app` already exist, stop — they were not created by this packet; do not reset them blindly); on RDS the last query should show the master as a member of `rds_superuser` (`f|t|t|t`); on a server without that role the last column is empty (as in the local rehearsal). The query is written so that a missing `rds_superuser` role gives an empty value, not an error. If the endpoint, version or TLS result differs from the Owner's facts above, stop.
+
+*The single read-only question to answer before anything else* — can this server create `btree_gist` (a trusted extension on PostgreSQL ≥ 13)? Run it **in `thebha` as the master** (Path B) — it only reads:
+
+```bash
+pgas "$BHA_DB" "$BHA_MASTER" -At -c "select v.name, v.version, v.trusted, coalesce(e.installed_version,'-') from pg_available_extension_versions v join pg_available_extensions e on e.name = v.name where v.name = 'btree_gist' and v.version = e.default_version"
+```
+
+Expect `btree_gist|<version>|t|-`. Report the output; it tells nothing yet about RDS permissions beyond availability (that is gate 5).
+
+**Step 4 — roles and database ownership (identity: master; database `postgres`; the Owner's explicit changes, none executed yet).** Open an interactive session — passwords are typed at the prompts, never in the statement:
+
+```bash
+pgas postgres "$BHA_MASTER"
+```
 
 ```sql
-GRANT CONNECT ON DATABASE <db> TO <app_role>;
-GRANT USAGE ON SCHEMA public TO <app_role>;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO <app_role>;
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO <app_role>;
-ALTER DEFAULT PRIVILEGES FOR ROLE <operator_role> IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO <app_role>;
-ALTER DEFAULT PRIVILEGES FOR ROLE <operator_role> IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO <app_role>;
+CREATE ROLE bha_operator LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE;
+\password bha_operator
+CREATE ROLE bha_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE;
+\password bha_app
+GRANT bha_operator TO CURRENT_USER;
 ```
 
-A role with exactly these rights ran the whole customer booking flow (hold → confirm → read) and Staff login/board read in the rehearsal. The API connects as `<app_role>`, never as the operator or master user.
+`GRANT bha_operator TO CURRENT_USER` lets the master hand a database to that role (the RDS master is not a real superuser; this ordering was rehearsed with a non-superuser master and is **untested on RDS**). Then exactly one of:
 
-**Step 7 — import the confirmed catalog (after the Owner confirms the report §4.1 fields).**
+```sql
+-- Path A (thebha does not exist):
+CREATE DATABASE thebha OWNER bha_operator;
+```
 
-7a. Decide, in writing, the real values for: room numbers (currently `DEMO-*`), rate plan name, property description/address/city, and the rate window to sell (the local window ends 2027-01-04). Anything that is still a placeholder is imported as a placeholder.
+```sql
+-- Path B (thebha exists, created by the master; keep it, change only its owner):
+ALTER DATABASE thebha OWNER TO bha_operator;
+```
 
-7b. Produce the file from the **local** database (start only its PostgreSQL container; this reads, writes nothing):
+and, for both:
+
+```sql
+REVOKE ALL ON DATABASE thebha FROM PUBLIC;
+GRANT CONNECT ON DATABASE thebha TO bha_app;
+```
+
+Verify (master, `postgres` database for the first, `thebha` for the second):
+
+```bash
+pgas postgres "$BHA_MASTER" -At -c "select datname, pg_get_userbyid(datdba) from pg_database where datname = 'thebha'"                  # expect: thebha|bha_operator
+pgas "$BHA_DB" "$BHA_MASTER" -At -c "select nspname, pg_get_userbyid(nspowner) from pg_namespace where nspname = 'public'"            # expect: public|pg_database_owner
+```
+
+If the schema owner is not `pg_database_owner` (for example `postgres`), the operator cannot create tables in `public`: the master must run `ALTER SCHEMA public OWNER TO bha_operator;` in `thebha` — another explicit ownership change; record it. Add the operator and application lines to the password file now.
+
+**Step 5 — gates before any migration (identity: operator; database `thebha`).** First use of the connection that will apply the SQL — it proves the role, password, TLS and database exist (Path A and B alike):
+
+```bash
+pgas "$BHA_DB" bha_operator -At -c "select current_database(), current_user, inet_server_addr(), split_part(version(),' ',2)"
+pgas "$BHA_DB" bha_operator -At -c "select count(*) from information_schema.tables where table_schema='public'"
+pgas "$BHA_DB" bha_operator -At -c "select to_regclass('public.\"__EFMigrationsHistory\"')"
+pgas "$BHA_DB" bha_operator -At -c "select pg_get_userbyid(d.datdba) = current_user, has_schema_privilege('public','CREATE'), r.rolsuper from pg_database d, pg_roles r where d.datname = current_database() and r.rolname = current_user"
+pgas "$BHA_DB" bha_operator -At -c "select count(*) from pg_extension where extname = 'btree_gist'"
+```
+
+Expect: `thebha|bha_operator|<RDS address>|18.3`; **`0`** tables; an empty line; `t|t|f` (owns the database, may create in `public`, not a superuser); `0`. **If the table count is not 0 or the history table exists, stop**: the database is not empty — take a snapshot, have the Owner compare the schema, and do not apply (migration 7 converts legacy booking rows).
+
+Extension permission gate (a write attempt that is rolled back; nothing remains):
+
+```bash
+pgas "$BHA_DB" bha_operator <<'SQL'
+BEGIN;
+CREATE EXTENSION btree_gist;
+ROLLBACK;
+SQL
+pgas "$BHA_DB" bha_operator -At -c "select count(*) from pg_extension where extname = 'btree_gist'"
+```
+
+Expect `BEGIN`, `CREATE EXTENSION`, `ROLLBACK` with no `ERROR`, then `0`. **If it fails with a permission error: stop and report the exact message.** Do not grant `rds_superuser` to `bha_operator` or `bha_app`. If the Owner decides the master should create the extension once (`CREATE EXTENSION btree_gist;` run as master in `thebha`), migration 8's `IF NOT EXISTS` then skips it — that route is untested; decide it explicitly. `RDS_EXTENSION_PERMISSION` stays `NOT_RUN` until you send the real result.
+
+**Step 6 — snapshot, then apply (identity: operator).** Take a manual RDS snapshot (console or `aws rds create-db-snapshot`) and wait for `available`. Repeat the first and second query of step 5, then:
+
+```bash
+pgas "$BHA_DB" bha_operator -f deploy/showcase/migrations/idempotent.sql
+```
+
+Expect: exit 0 and no `ERROR` (psql stops at the first error and the script is transactional per migration).
+
+**Step 7 — verify the schema, then rerun once.**
+
+```bash
+pgas "$BHA_DB" bha_operator -At -c 'select "MigrationId" from "__EFMigrationsHistory" order by 1'   # expect 9 rows: 20260721175848_… through 20261001141847_AddStaffIdentityFoundation
+pgas "$BHA_DB" bha_operator -At -c "select count(*) from information_schema.tables where table_schema='public'"   # expect 28 (27 tables + history)
+pgas "$BHA_DB" bha_operator -At -c "select extname from pg_extension order by 1"                  # expect btree_gist and plpgsql
+pgas "$BHA_DB" bha_operator -At -c "select count(*) from pg_trigger where not tgisinternal"        # expect 5
+pgas "$BHA_DB" bha_operator -At -c "select count(*) from pg_tables where schemaname='public' and tableowner <> 'bha_operator'"   # expect 0
+pgas "$BHA_DB" bha_operator -f deploy/showcase/migrations/idempotent.sql
+```
+
+Rerun expectation: exit 0, only the notice `relation "__EFMigrationsHistory" already exists, skipping`; repeat the first two queries: still 9 rows and 28 tables.
+
+**Step 8 — application role privileges (identity: operator).**
+
+```bash
+pgas "$BHA_DB" bha_operator <<'SQL'
+ALTER DEFAULT PRIVILEGES FOR ROLE bha_operator IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO bha_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE bha_operator IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO bha_app;
+GRANT USAGE ON SCHEMA public TO bha_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO bha_app;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO bha_app;
+SQL
+pgas "$BHA_DB" bha_app -At -c "select current_user, has_schema_privilege('public','CREATE'), pg_has_role(current_user,'bha_operator','member'), (select count(*) from \"Properties\")"
+pgas "$BHA_DB" bha_app -c "CREATE TABLE public.bha_app_must_not_create (id int)"
+```
+
+Expect `bha_app|f|f|0`, and the last command to fail with `permission denied for schema public`. The application role owns nothing and cannot change the schema; a role with exactly these rights completed the whole customer booking flow and Staff login in the rehearsal.
+
+**Step 9 — catalog import (identity: operator; only after the Owner confirms the report §4.1 fields).**
+
+9a. Decide, in writing, the real values for: room numbers (currently `DEMO-*`), rate plan name, property description/address/city, and the rate window to sell (the local window ends 2027-01-04). Anything still a placeholder is imported as a placeholder.
+
+9b. Produce the file from the **local** database (start only its PostgreSQL container; this reads, writes nothing):
 
 ```bash
 docker exec the-bha-showcase-postgres-1 pg_dump -U thebha_showcase -d thebha_showcase_demo --data-only --column-inserts --no-owner --no-privileges \
@@ -228,34 +357,39 @@ docker exec the-bha-showcase-postgres-1 pg_dump -U thebha_showcase -d thebha_sho
 sed 's#https://localhost:3000#https://thebhariverside.com#g' catalog-export.sql > catalog-import.sql
 ```
 
-Check before using it: `grep -c "^INSERT INTO" catalog-import.sql` → **352** (Amenities 2, Properties 1, RatePlans 1, RoomTypes 3, PhysicalRooms 11, PropertyAmenities 2, Media 31, PropertyMedia 10, RoomTypeMedia 21, DailyRoomRates 270); `grep -c localhost catalog-import.sql` → **0**; `grep -ci "email\|phone\|password" catalog-import.sql` → **0**; and edit the file (or apply `UPDATE`s after the import) for the values decided in 7a. Keep the file private and out of Git.
+Check before using it: `grep -c "^INSERT INTO" catalog-import.sql` → **352** (Amenities 2, Properties 1, RatePlans 1, RoomTypes 3, PhysicalRooms 11, PropertyAmenities 2, Media 31, PropertyMedia 10, RoomTypeMedia 21, DailyRoomRates 270); `grep -c localhost catalog-import.sql` → **0**; `grep -ci "email\|phone\|password" catalog-import.sql` → **0**; edit the file (or run `UPDATE`s after the import) for the values of 9a. Keep it private and out of Git. Never dump the reservation, hold, block, audit, Staff or customer tables.
 
-7c. Import into the operational database as the operator role, one transaction:
-
-```bash
-psql --single-transaction -v ON_ERROR_STOP=1 -f catalog-import.sql
-```
-
-Expected: exit 0. Rerunning the same file fails on the first primary key (`PK_Amenities`) with exit 3 and changes nothing. Check: row counts as in 7b for those tables and **0** in `Reservations`, `InventoryHolds`, `StaffAccounts`; `select substring("Url" from '^https?://[^/]+'), count(*) from "Media" group by 1` → only `https://thebhariverside.com` (31).
-
-**Step 8 — Staff accounts (existing CLI; the Production image, not the seeder).** Password in a private env file (`chmod 600`), not on the command line:
+9c. Import as the operator, one transaction:
 
 ```bash
-docker run --rm --env-file <private env file> -e ASPNETCORE_ENVIRONMENT=Production -e DataProtection__KeysPath=/tmp/keys \
-  -e Logging__LogLevel__Microsoft.EntityFrameworkCore=Warning <image> \
-  --staff-create --email <staff email> --property-id a1000000-0000-0000-0000-000000000001 --role Manager
+pgas "$BHA_DB" bha_operator --single-transaction -f catalog-import.sql
 ```
 
-The env file holds `ConnectionStrings__TheBhaDatabase=<application-role Npgsql string for the operational database>` and `BHA_STAFF_PASSWORD=<…>`. The CLI needs `DataProtection__KeysPath` only to pass Production startup validation (a scratch directory is enough; it does not touch the production key ring). Expected: `staff: target database <host>/<db>` then `staff: created Staff <id> with Manager membership.` (roles: `Manager` or `FrontDesk`); an existing email → "already exists; nothing was changed". Check the host/database in the first line is the operational RDS before entering a password.
+Expected: exit 0. Rerunning the same file fails on the first primary key (`PK_Amenities`), exit 3, and changes nothing. Check the row counts of 9b for those tables and **0** in `Reservations`, `InventoryHolds`, `StaffAccounts`, and `select substring("Url" from '^https?://[^/]+'), count(*) from "Media" group by 1` → only `https://thebhariverside.com` (31).
 
-**Step 9 — build and publish the image for exactly `6ae3fdd`** (no automatic publish exists for it, see §3): from the clean checkout of step 1, `docker build -t <registry>/<repository>:6ae3fdd3306c50736c734712df5a0f2a1ab5054a Back_End`, push, then record the digest with `aws ecr describe-images …`. Deploy by digest. Expect the image to run as user `app`, port 8080, and to exit at startup without `DataProtection__KeysPath`.
+**Step 10 — Staff accounts (existing CLI in the Production image of step 2; identity: application role).** Needs the image from step 2 and the schema from step 7. The environment file is private (`chmod 600`) and holds `ConnectionStrings__TheBhaDatabase` and `BHA_STAFF_PASSWORD`; the connection string keeps certificate verification and mounts your CA file (no image change needed):
 
-**Step 10 — API runtime (decision pending).** Proposal: ECS on Fargate + encrypted EFS access point (uid 1654) at `/var/keys`, ALB with ACM certificate, health check `GET /health/ready` = 200. Environment: §5 table. Connection string for the application role with SSL: `SSL Mode=Require` works without extra files; `SSL Mode=VerifyFull;Root Certificate=<path>` requires delivering the RDS CA bundle to the task (not in the image). The API must serve **Production** with `AdminCalendar` access mode left at its default **Staff**; never `LocalGate`. `Cors__AdminOrigins__0` must equal `https://admin.thebhariverside.com` exactly: Staff requests without that `Origin` get 403. A task started without the key volume must fail (guard) — do not point `KeysPath` at ephemeral disk to make it start.
+```bash
+# env file contents (TEMPLATE — fill in with an editor):
+#   ConnectionStrings__TheBhaDatabase=Host=<BHA_HOST>;Port=5432;Database=thebha;Username=bha_app;Password=<application password>;SSL Mode=VerifyFull;Root Certificate=/certs/rds-ca.pem
+#   BHA_STAFF_PASSWORD=<staff password>
+docker run --rm --env-file <private env file> -v "$BHA_CA":/certs/rds-ca.pem:ro \
+  -e ASPNETCORE_ENVIRONMENT=Production -e DataProtection__KeysPath=/tmp/keys -e Logging__LogLevel__Microsoft.EntityFrameworkCore=Warning \
+  bha-api:6ae3fdd --staff-create --email <staff email> --property-id a1000000-0000-0000-0000-000000000001 --role Manager
+```
 
-**Step 11 — DNS and API checks.** `api.thebhariverside.com` → ALB. Then: `API_BASE=https://api.thebhariverside.com MEDIA_BASE=https://thebhariverside.com deploy/showcase/scripts/smoke.sh` (the media check needs step 13 done; before that expect only its image check to fail). Independent checks: `/health/ready` 200; `/api/v1/properties` lists one property `the-bha-riverside`; `/api/admin/v1/me` without a session 401 (404 means the forwarded HTTPS scheme is not trusted → fix `Hosting__TrustedProxy__*`); availability for a future in-window range returns 3 / 2 / 6 rooms at 1,000,000 / 1,100,000 / 1,600,000 VND per night.
+Expected first line `staff: target database <host>/thebha` (check it before any password matters), then `staff: created Staff <id> with Manager membership.` (roles `Manager` or `FrontDesk`); an existing email → "already exists; nothing was changed". The Property must exist, so this step comes **after** step 9 (or after any other way the Property was created). `DataProtection__KeysPath` only satisfies Production startup validation; use a scratch directory, not the production key ring. If a multi-certificate RDS bundle is rejected by the connection string, use the single-CA PEM for the region (untested with the real bundle).
 
-**Step 12 — Admin (Vercel project B).** Root `Front_End/Admin_Web`, Node 22, `NEXT_PUBLIC_API_BASE_URL=https://api.thebhariverside.com` (HTTPS, build-time — rebuild after any change), domain `admin.thebhariverside.com`, do not set `NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE`. Check: sign in with the Staff account of step 8, `/calendar` shows the Riverside board from the API, sign out. Only the calendar is backed by the API; the other Admin template modules are mock/template and must not be reported as live. One write with audit (for example an operational block, then cancel it) is a separate Owner decision on live data.
+**Step 11 — publish the image for exactly `6ae3fdd` (no automatic publish exists for it, see §3).** Create the ECR repository (immutable tags) first; then, with the image of step 2: `docker tag bha-api:6ae3fdd <registry>/<repository>:6ae3fdd3306c50736c734712df5a0f2a1ab5054a`, log in with `aws ecr get-login-password`, `docker push`, and record the digest with `aws ecr describe-images --repository-name <repository> --image-ids imageTag=6ae3fdd3306c50736c734712df5a0f2a1ab5054a --query 'imageDetails[0].imageDigest' --output text`. Deploy by digest.
 
-**Step 13 — Customer (Vercel project A).** Root `Front_End/Customer_Web`, Node 22 / npm 10, same `NEXT_PUBLIC_API_BASE_URL`, domain `thebhariverside.com`. Check on the real hostnames: `/` → Stays search (Riverside, dates inside the rate window, guests) → Featured card with the API price → room page → offer → contact → hold → `/paydone` ("Đã giữ chỗ") → "Xác nhận đặt phòng" → confirmed. Then verify in the database as the operator role: one row each in `InventoryHolds` and `Reservations` (`Confirmed`) for that booking, and decide how to treat/cancel the test booking — it is real data in the operational database. Customer sign-in pages of the template are not a real customer auth UI; Staff login is the real login.
+**Step 12 — API runtime (decision pending).** Proposal: ECS on Fargate + encrypted EFS access point (uid 1654) at `/var/keys`, ALB with ACM certificate, health check `GET /health/ready` = 200. Environment: §5 table; `ConnectionStrings__TheBhaDatabase` for **`bha_app`** (never `postgres`), `SSL Mode=VerifyFull;Root Certificate=<path inside the task>` — **delivering the RDS CA bundle to the task is a dependency of this phase** (the image does not contain it; changing the image is a separate work item), and `SSL Mode=Require` is not an accepted shortcut. The API must serve **Production** with the `AdminCalendar` access mode left at its default **Staff**; never `LocalGate`. `Cors__AdminOrigins__0` must equal `https://admin.thebhariverside.com` exactly: Staff requests without that `Origin` get 403. A task started without the key volume must fail (guard) — do not point `KeysPath` at ephemeral disk to make it start.
 
-**Stop conditions.** Wrong account/region/endpoint; database name or user differs from the plan; the database is not empty at step 2; any step's expected output differs; the API would need an ephemeral key directory; 5432 would have to be opened to the internet. Report the exact output (without secrets) back for review before continuing.
+**Step 13 — DNS and API checks.** `api.thebhariverside.com` → ALB. Independent checks: `/health/ready` 200; `/api/v1/properties` lists one property `the-bha-riverside`; `/api/admin/v1/me` without a session 401 (404 means the forwarded HTTPS scheme is not trusted → fix `Hosting__TrustedProxy__*`); availability for a future in-window range returns 3 / 2 / 6 rooms at 1,000,000 / 1,100,000 / 1,600,000 VND per night. **Do not run `smoke.sh` yet**: its image check requests `https://thebhariverside.com/media/...`, which exists only after step 15.
+
+**Step 14 — Admin (Vercel project B).** Root `Front_End/Admin_Web`, Node 22, `NEXT_PUBLIC_API_BASE_URL=https://api.thebhariverside.com` (HTTPS, build-time — rebuild after any change), domain `admin.thebhariverside.com`, do not set `NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE`. Check: sign in with the Staff account of step 10, `/calendar` shows the Riverside board from the API, sign out. Only the calendar is backed by the API; the other Admin template modules are mock/template and must not be reported as live. One write with audit (for example an operational block, then cancel it) is a separate Owner decision on live data.
+
+**Step 15 — Customer (Vercel project A), then the smoke script.** Root `Front_End/Customer_Web`, Node 22 / npm 10, same `NEXT_PUBLIC_API_BASE_URL`, domain `thebhariverside.com`. When it is live: `API_BASE=https://api.thebhariverside.com MEDIA_BASE=https://thebhariverside.com deploy/showcase/scripts/smoke.sh` (health, properties, Staff route 401, every image URL `200 image/webp`). Then on the real hostnames: `/` → Stays search (Riverside, dates inside the rate window, guests) → Featured card with the API price → room page → offer → contact → hold → `/paydone` ("Đã giữ chỗ") → "Xác nhận đặt phòng" → confirmed. Verify in the database as the operator: one row each in `InventoryHolds` and `Reservations` (`Confirmed`) for that booking; the test booking is real data in the operational database — decide how to treat or cancel it. Customer sign-in pages of the template are not a real customer auth UI; Staff login is the real login.
+
+**Never** run the integration tests (`dotnet test` of `TheBha.IntegrationTests`) with `ConnectionStrings__TheBhaDatabase` pointing at RDS: the test factory connects to the `postgres` database of the server it is given and issues `CREATE DATABASE`, `DROP DATABASE … WITH (FORCE)` and `TRUNCATE` for its own throw-away databases. Also never use `deploy/showcase/scripts/apply-migration-sql.sh` or the Development seeders against RDS.
+
+**Stop conditions.** Wrong account/region/endpoint; version or TLS result differs from the Owner's facts; `bha_operator`/`bha_app` already exist unexpectedly; the database is not empty at step 5; the extension gate fails; any "Expect" differs; the API would need an ephemeral key directory or `SSL Mode=Require`; 5432 would have to be opened to the internet. Report the exact output (without secrets) before continuing.
