@@ -13,6 +13,7 @@ using TheBha.Api;
 using TheBha.Api.Authentication;
 using TheBha.Api.Bookings;
 using TheBha.Api.Controllers;
+using TheBha.Api.Seeding;
 using TheBha.Application.Customers;
 using TheBha.Infrastructure.Identity;
 using TheBha.Infrastructure.Persistence;
@@ -46,6 +47,13 @@ if (!Enum.TryParse<SameSiteMode>(cookieSession.SameSite, true, out var cookieSam
     throw new InvalidOperationException(
         "Authentication:Cookie:SameSite must be Strict, Lax, or None.");
 }
+
+// CUST-WEB-SHOWCASE-001-CP02: forwarded headers are trusted only from an explicitly configured
+// TLS terminator. Validated here so a bad value stops the host before it listens.
+var trustedProxy = builder.Configuration
+    .GetSection(TrustedProxyOptions.SectionName)
+    .Get<TrustedProxyOptions>() ?? new TrustedProxyOptions();
+var forwardedHeaders = trustedProxy.Build();
 
 var cors = builder.Configuration
     .GetSection(CorsOptions.SectionName)
@@ -418,6 +426,16 @@ if (StaffBootstrapCommand.IsStaffCommand(args))
     return;
 }
 
+// CUST-WEB-SHOWCASE-001-CP02: the Riverside demo seed is an explicit operator command that exits
+// when done. Its own guard decides whether this process may touch this database; it is refused
+// outside Development and never runs as a startup step.
+if (RiversideDemoSeedCommand.IsCommand(args))
+{
+    Environment.ExitCode = await RiversideDemoSeedCommand.RunAsync(
+        args, app.Services, app.Environment.EnvironmentName, Console.Out, app.Lifetime.ApplicationStopping);
+    return;
+}
+
 if (args.Contains("--seed-development", StringComparer.Ordinal))
 {
     if (!app.Environment.IsDevelopment())
@@ -430,6 +448,13 @@ if (args.Contains("--seed-development", StringComparer.Ordinal))
     var seeder = scope.ServiceProvider.GetRequiredService<DevelopmentDataSeeder>();
     await seeder.SeedAsync(app.Lifetime.ApplicationStopping);
     return;
+}
+
+// First in the pipeline: every later middleware (the cleartext Admin guard, HTTPS redirection,
+// cookies, the rate limiter) must see the client's address and scheme, not the proxy's.
+if (forwardedHeaders is not null)
+{
+    app.UseForwardedHeaders(forwardedHeaders);
 }
 
 if (app.Environment.IsDevelopment())

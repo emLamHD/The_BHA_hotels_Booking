@@ -484,3 +484,22 @@ Development dataset dùng controlled mixture:
 Chỉ thêm field vào domain khi có yêu cầu bán phòng hoặc vận hành thật. Việc chọn
 nhà cung cấp object storage/CDN, upload UI, media manager và Admin CRUD thuộc
 work item riêng.
+
+### 14.1 Quyết định MVP về media (CUST-WEB-SHOWCASE-001-CP02, 2026-10-07)
+
+- Ảnh MVP showcase là **file tĩnh trong `Front_End/Customer_Web/public/media/<property>/`** (phân phối bởi Vercel cùng ứng dụng); PostgreSQL
+  giữ `Media.Url` tuyệt đối + alt text/sort/cover. Đây là lựa chọn tạm cho MVP, **không** thay quyết định object storage/CDN ở bảng trên.
+- Mọi ảnh được **quét provenance (heuristic, chưa validate chữ ký C2PA)** và ghi bằng chứng từng file vào manifest. Mặc định của script (CP02/C1): ảnh có marker nêu dịch vụ sinh ảnh
+  hoặc không có metadata **không** được publish; chỉ ảnh có editor metadata được publish (C3 ghi đè mặc định này bằng quyết định Owner cho các ảnh đã chọn, xem bên dưới), và mức bằng chứng đó là "nguồn camera chưa được xác minh độc lập"
+  — không phải xác nhận ảnh thật. Nới cổng là quyết định Owner, không phải cờ script.
+- Namespace route media của Customer_Web là chuỗi cố định `/media/<property>/<kebab>.webp`; mọi đường dẫn khác vẫn default-deny. C2 từng giới hạn route công khai ở `/` và `/listing-stay-detail` và thay ảnh template bằng placeholder; **C3 đã thay thế** (xem bullet Template bên dưới): route template mở lại, `/api/*` vẫn default-deny.
+- Hiện trạng Riverside (từ CP02-C3): 31 ảnh — Property 10, 2PN 9, 1PN 6, 1PN view thoáng 6 — `MEDIA_COVERAGE: PASS`, `MEDIA_PROVENANCE: UNVERIFIED`.
+  **Quyết định Owner (C3, ghi trong MEP ngày 2026-10-07):** thư mục theo từng loại phòng do Owner phân loại; Owner cho phép publish ảnh dù quét byte thấy generator marker hoặc không có metadata.
+  Manifest ghi `decision: owner-authorized`, `provenanceStatus: UNVERIFIED`, `validation: NOT_RUN` cho từng file; báo cáo **không** được khẳng định đó là ảnh chụp thật hay đúng phòng thật.
+  Quyết định này thay đoạn "không publish" ở trên cho ảnh đã được Owner chọn; nó không phải cờ script chung.
+- **Template (C3, Owner):** giao diện khách là template Chisfis được khôi phục đầy đủ (không còn khung preview inert của C2). Chỉ dữ liệu The BHA Riverside (phòng, giá, đặt phòng) là thật;
+  phần còn lại là nội dung mẫu, có một dòng ghi chú. Route template mở lại; `/api/*` vẫn đóng; currency dropdown chỉ là template (không quy đổi VND).
+
+**Quyết định Owner đang chờ:** (1) ~~làm rõ ảnh 1PN~~ — đã giải quyết ở C3: Owner cho publish, provenance vẫn `UNVERIFIED` (cần Owner/pháp lý xác nhận nguồn và quyền sử dụng trước khi công bố thương mại); (2) tên miền: Owner đã cung cấp
+`thebhariverside.com` / `admin.` / `api.` (cùng registrable domain cho cookie Lax/Strict; DNS/live `NOT_TESTED`); (3) địa chỉ, mô tả, tiện nghi thật của Riverside; (4) runtime API
+(đề xuất ECS Fargate + EFS mã hóa) và nơi giữ Data Protection key ring; (5) bật/cấp quyền publish ECR (biến `ECR_PUBLISH_ENABLED`, role OIDC; publish chỉ từ `develop`).

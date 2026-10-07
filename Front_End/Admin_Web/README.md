@@ -12,6 +12,10 @@ TailAdmin utilizes the powerful features of **Next.js 16** and common features o
 
 This directory is the imported TailAdmin Next.js baseline for The BHA Hotels Booking Admin Web application. The Reservation Board (`/calendar`) and the Staff sign-in (`/signin`) are integrated with the backend API (Staff authentication, Property memberships and roles, PMS-ADMIN-AUTH-001). The other template pages and modules (dashboard, forms, tables, charts, user profile, the template calendar below the board) remain template-only and are not covered by the Staff session.
 
+## Deploying beside the Customer site (CUST-WEB-SHOWCASE-001)
+
+The Staff session cookie is `SameSite=Strict` and is set by the API, so the Admin site, the Customer site and the API must share one registrable domain (for example `admin.<domain>`, `book.<domain>`, `api.<domain>`); `*.vercel.app` plus an AWS default hostname are different sites and sign-in would not hold. Set `NEXT_PUBLIC_API_BASE_URL` to the API's `https://` origin at build time and leave `NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE` unset (Staff). The API must list this site's exact origin in `Cors:AdminOrigins`. Full plan: `docs/runbooks/CUST-WEB-SHOWCASE-001-deploy.md`. This was rehearsed locally only (same-site, TLS proxy, container API); Vercel is not tested.
+
 ## Reservation Board: HTTPS development setup
 
 The Reservation Board reads from and writes to the real Admin API

@@ -10,6 +10,14 @@ export interface LocationInputProps {
   className?: string;
   divHideVerticalLineClass?: string;
   autoFocus?: boolean;
+  /**
+   * CP02-C3: a fixed list of places to pick from (The BHA House / Riverside / Villa). The popover then
+   * lists exactly these, `value` is the chosen one and `onSelect` receives it; typing is not offered.
+   */
+  options?: string[];
+  value?: string;
+  onSelect?: (value: string) => void;
+  optionsHeading?: string;
 }
 
 const LocationInput: FC<LocationInputProps> = ({
@@ -18,11 +26,16 @@ const LocationInput: FC<LocationInputProps> = ({
   desc = "Where are you going?",
   className = "nc-flex-1.5",
   divHideVerticalLineClass = "left-10 -right-0.5",
+  options,
+  value: controlledValue,
+  onSelect,
+  optionsHeading = "Choose a stay",
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const [value, setValue] = useState("");
+  const [ownValue, setValue] = useState("");
+  const value = options ? controlledValue ?? "" : ownValue;
   const [showPopover, setShowPopover] = useState(autoFocus);
 
   useEffect(() => {
@@ -58,8 +71,42 @@ const LocationInput: FC<LocationInputProps> = ({
 
   const handleSelectLocation = (item: string) => {
     setValue(item);
+    onSelect?.(item);
     setShowPopover(false);
   };
+
+  const renderOptions = () => (
+    <>
+      <h3 className="block mt-2 sm:mt-0 px-4 sm:px-8 font-semibold text-base sm:text-lg text-neutral-800 dark:text-neutral-100">
+        {optionsHeading}
+      </h3>
+      <ul className="mt-2" role="listbox" aria-label={optionsHeading}>
+        {(options ?? []).map((item) => (
+          <li
+            key={item}
+            role="option"
+            aria-selected={item === value}
+            tabIndex={0}
+            onClick={() => handleSelectLocation(item)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                handleSelectLocation(item);
+              }
+            }}
+            className={`flex px-4 sm:px-8 items-center space-x-3 sm:space-x-4 py-4 hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer focus:outline-none focus-visible:bg-neutral-100 ${
+              item === value ? "bg-neutral-50 dark:bg-neutral-700/50" : ""
+            }`}
+          >
+            <span className="block text-neutral-400">
+              <MapPinIcon className="h-4 sm:h-6 w-4 sm:w-6" />
+            </span>
+            <span className="block font-medium text-neutral-700 dark:text-neutral-200">{item}</span>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
 
   const renderRecentSearches = () => {
     return (
@@ -135,6 +182,7 @@ const LocationInput: FC<LocationInputProps> = ({
             placeholder={placeHolder}
             value={value}
             autoFocus={showPopover}
+            readOnly={!!options}
             onChange={(e) => {
               setValue(e.currentTarget.value);
             }}
@@ -143,7 +191,7 @@ const LocationInput: FC<LocationInputProps> = ({
           <span className="block mt-0.5 text-sm text-neutral-400 font-light ">
             <span className="line-clamp-1">{!!value ? placeHolder : desc}</span>
           </span>
-          {value && showPopover && (
+          {!options && value && showPopover && (
             <ClearDataButton
               onClick={() => {
                 setValue("");
@@ -161,7 +209,7 @@ const LocationInput: FC<LocationInputProps> = ({
 
       {showPopover && (
         <div className="absolute left-0 z-40 w-full min-w-[300px] sm:min-w-[500px] bg-white dark:bg-neutral-800 top-full mt-3 py-3 sm:py-6 rounded-3xl shadow-xl max-h-96 overflow-y-auto">
-          {value ? renderSearchValue() : renderRecentSearches()}
+          {options ? renderOptions() : value ? renderSearchValue() : renderRecentSearches()}
         </div>
       )}
     </div>

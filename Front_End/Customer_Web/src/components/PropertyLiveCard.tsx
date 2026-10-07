@@ -3,6 +3,7 @@
 import React, { FC, useState } from "react";
 import Badge from "@/shared/Badge";
 import { PropertyDto } from "@/lib/api/propertyTypes";
+import { coverHasFailed } from "@/lib/api/mediaPresentation";
 import {
   formatLocation,
   formatTime,
@@ -18,9 +19,10 @@ const PropertyLiveCard: FC<PropertyLiveCardProps> = ({
   className = "",
   data,
 }) => {
-  const [apiImageFailed, setApiImageFailed] = useState(false);
+  // The URL that failed, not a flag: a different cover is never judged by an old failure.
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const coverImage = selectCoverImage(data.media);
-  const useApiImage = !!coverImage && !apiImageFailed;
+  const useApiImage = !coverHasFailed(coverImage, failedUrl);
   const location = formatLocation(data);
   const name = data.name ?? "Property";
 
@@ -42,7 +44,7 @@ const PropertyLiveCard: FC<PropertyLiveCardProps> = ({
                 alt={coverImage!.altText ?? `${name} photo`}
                 className="absolute inset-0 w-full h-full object-cover"
                 loading="lazy"
-                onError={() => setApiImageFailed(true)}
+                onError={() => setFailedUrl(coverImage!.url)}
               />
             ) : (
               // CUST-WEB-SHOWCASE-001-CP01: no bundled template bitmap without rights evidence.

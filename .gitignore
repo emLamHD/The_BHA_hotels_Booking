@@ -41,3 +41,8 @@ Thumbs.db
 
 # Local GitNexus index
 .gitnexus/
+
+# Showcase deploy rehearsal: never commit certificates or keys
+deploy/showcase/**/*.pem
+deploy/showcase/**/*.key
+deploy/showcase/**/*.crt

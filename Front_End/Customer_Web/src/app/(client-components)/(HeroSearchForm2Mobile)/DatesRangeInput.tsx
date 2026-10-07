@@ -7,17 +7,30 @@ import DatePickerCustomDay from "@/components/DatePickerCustomDay";
 
 export interface StayDatesRangeInputProps {
   className?: string;
+  /** CP02-C3: controlled range (the shared stay search draft); without `onDatesChange` the field is the template's own. */
+  startDate?: Date | null;
+  endDate?: Date | null;
+  onDatesChange?: (dates: [Date | null, Date | null]) => void;
+  minDate?: Date;
 }
 
 const StayDatesRangeInput: FC<StayDatesRangeInputProps> = ({
   className = "",
+  startDate: controlledStart,
+  endDate: controlledEnd,
+  onDatesChange,
+  minDate,
 }) => {
-  const [startDate, setStartDate] = useState<Date | null>(
-    new Date("2023/02/06")
-  );
-  const [endDate, setEndDate] = useState<Date | null>(new Date("2023/02/23"));
+  const [ownStart, setStartDate] = useState<Date | null>(null);
+  const [ownEnd, setEndDate] = useState<Date | null>(null);
+  const startDate = onDatesChange ? controlledStart ?? null : ownStart;
+  const endDate = onDatesChange ? controlledEnd ?? null : ownEnd;
 
   const onChangeDate = (dates: [Date | null, Date | null]) => {
+    if (onDatesChange) {
+      onDatesChange(dates);
+      return;
+    }
     const [start, end] = dates;
     setStartDate(start);
     setEndDate(end);
@@ -38,6 +51,7 @@ const StayDatesRangeInput: FC<StayDatesRangeInputProps> = ({
           onChange={onChangeDate}
           startDate={startDate}
           endDate={endDate}
+          minDate={minDate}
           selectsRange
           monthsShown={2}
           showPopperArrow={false}

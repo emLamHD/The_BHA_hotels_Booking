@@ -38,6 +38,57 @@ describe("normalizeContact", () => {
   });
 });
 
+describe("validateContact (C3 additions)", () => {
+  it.each([
+    ["Vietnamese diacritics", "Nguyễn Thị Ánh Hồng"],
+    ["Chinese", "王小明"],
+    ["Cyrillic", "Иван Петров"],
+    ["Arabic", "محمد علي"],
+    ["apostrophe and hyphen", "Mary-Jane O'Neil"],
+    ["a single character", "A"],
+  ])("accepts a %s full name (the check is not ASCII-only)", (_label, fullName) => {
+    expect(validateContact({ ...VALID_CONTACT, fullName })?.fullName).toBeUndefined();
+  });
+
+  it.each([
+    ["a line break", "Jane\nDoe"],
+    ["a tab", "Jane\tDoe"],
+    ["a carriage return", "Jane\rDoe"],
+    ["NUL", "Jane\u0000Doe"],
+    ["a C1 control", "Jane\u0085Doe"],
+    ["DEL", "Jane\u007fDoe"],
+  ])("rejects a full name containing %s", (_label, fullName) => {
+    expect(validateContact({ ...VALID_CONTACT, fullName })?.fullName).toMatch(/control/i);
+  });
+
+  it.each(["", " ", "\u00a0\u2003", "\n"])("rejects a blank full name %j", (fullName) => {
+    expect(validateContact({ ...VALID_CONTACT, fullName })?.fullName).toBeTruthy();
+  });
+
+  it.each(["jane@", "@example.com", "jane@example", "jane doe@example.com", "jane@exa mple.com", "jane@@example.com"])(
+    "rejects the email %j",
+    (email) => {
+      expect(validateContact({ ...VALID_CONTACT, email })?.email).toBeTruthy();
+    }
+  );
+
+  it.each(["0912 345 678", "+84 912 345 678", "(028) 3822-1234", "1234567"])(
+    "accepts the phone %j (no Vietnam-only rule: the server has none)",
+    (phone) => {
+      expect(validateContact({ ...VALID_CONTACT, phone })?.phone).toBeUndefined();
+    }
+  );
+
+  it("reports every invalid field at once, so the first one can be focused", () => {
+    const errors = validateContact({ fullName: "", email: "x", phone: "1" });
+    expect(Object.keys(errors ?? {}).sort()).toEqual(["email", "fullName", "phone"]);
+  });
+
+  it("reports nothing for a clean contact, so a valid submit is not blocked", () => {
+    expect(validateContact({ fullName: "Nguyễn Văn A", email: "a@example.vn", phone: "0912345678" })).toBeNull();
+  });
+});
+
 describe("validateContact", () => {
   it("accepts a valid, already-trimmed contact", () => {
     expect(validateContact(VALID_CONTACT)).toBeNull();

@@ -1,8 +1,60 @@
 # THE BHA — SNAPSHOT
 
-> Ngày cập nhật: 2026-10-06 (`CUST-WEB-SHOWCASE-001-CP01`; các phần cũ hơn giữ nguyên kèm SHA)
+> Ngày cập nhật: 2026-10-07 (`CUST-WEB-SHOWCASE-001-CP02-C4-SAFE-TOOLS`; các phần cũ hơn giữ nguyên kèm SHA)
 >
 > Mục đích: phục hồi trạng thái hiện tại mà không cần nạp worklog lịch sử
+
+Cập nhật 2026-10-07 (`CUST-WEB-SHOWCASE-001-CP02-C4-SAFE-TOOLS`, cùng PR #83, Draft, chưa merge): sửa hai finding của Codex trên head C3 — (F1) `deploy/showcase/scripts/verify-key-persistence.sh`
+dùng tên scratch cố định rồi DROP/xóa nên có thể xóa tài nguyên có sẵn; nay mỗi lần chạy có run id ngẫu nhiên, tài nguyên scratch (DB/container/2 volume) mang run id, không DROP để chuẩn bị, từ chối khi tên đã tồn tại,
+chỉ xóa thứ mình đã tạo (xác minh bằng label), cổng do Docker cấp; có harness Python `deploy/showcase/scripts/tests/test_verify_key_persistence.py` (RED 12/15 trên script cũ, GREEN 15/15) và một lượt chạy thật với canary tên cũ (before/after giống hệt);
+(F2) seed CLI từ chối `--from`/`--days` có ngày kết thúc exclusive không biểu diễn được bằng `DateOnly` bằng usage error 2 trước khi mở DB (test options + CLI). Cũng: generator SQL giữ đúng một newline cuối file (diff chỉ một dòng trống, `git diff --check` toàn PR sạch);
+và theo yêu cầu Owner, panel đặt phòng trang chi tiết không còn là sticky scroll-container nên calendar/guest popover không bị cắt. Backend C4: unit 244 + integration 846. Bằng chứng UI/booking C3 giữ nguyên là bằng chứng C3; `REVIEW: NOT_RUN` cho head C4. Chi tiết: report §13.
+
+Bản cập nhật trước (C3):
+Cập nhật 2026-10-07 (`CUST-WEB-SHOWCASE-001-CP02-C3`, cùng PR #83, Draft, chưa merge): Owner đảo quyết định C2 — **template Chisfis được khôi phục
+đầy đủ** (menu, dropdown, template/currency switcher, ảnh, mọi section, trang template; logo The BHA; không khôi phục secret/NextAuth/`/api/*`) và
+các route template mở lại, riêng `/api/*` vẫn 404, `/showcase`→`/`, `/pay-done`→`/paydone`. Hero Stays dùng popover template (Location: The BHA House /
+Riverside / Villa; lịch hai tháng; chọn khách) làm **component có kiểm soát** dùng chung cho desktop, modal mobile, Featured và trang phòng; Riverside
+lấy offer thật theo ngày, ba card `StayCard2` hiển thị giá API hoặc "Chọn ngày để xem giá". Trang phòng: mosaic 1+4, Share/Save, rating 4.5 (112) ghi rõ
+là mẫu, picker template trong panel đặt phòng; validate liên hệ trước khi gửi; giữ chỗ chuyển sang `/paydone` ("Đã giữ chỗ", chưa xác nhận, chưa thanh toán);
+chỉ nút "Xác nhận đặt phòng" gọi confirm. **Media:** 31 ảnh (Property 10, 2PN 9, 1PN 6, 1PN view thoáng 6) theo thư mục Owner phân loại, Owner cho phép publish
+dù quét thấy generator marker/không metadata — `MEDIA_COVERAGE: PASS`, `MEDIA_PROVENANCE: UNVERIFIED` (C2PA `NOT_RUN`); DB demo được patch bằng migration chỉ-media
+(40 dòng một lần, rerun 0). Bằng chứng C3 chạy trên build thật + API container + PostgreSQL demo, desktop và mobile touch, Safari `NOT_RUN`:
+`docs/reports/CUST-WEB-SHOWCASE-001-CP02-completion.md` §12; kết quả C2 (§10) chỉ còn là lịch sử. `REVIEW: NOT_RUN` cho head C3; lỗi cookie khách cũ (401),
+500 sau khi DB restart và key XML không mã hóa còn mở.
+
+Bản cập nhật trước (C2, bị C3 thay thế ở phần giao diện):
+Cập nhật 2026-10-07 (`CUST-WEB-SHOWCASE-001-CP02-C2`, cùng PR #83, Draft, chưa merge): Owner chốt giữ **homepage Chisfis** tại `/`
+(thay trang đặt phòng một trang của CP01) và đặt phòng ở **trang chi tiết phòng**. `Featured places to stay` có ba tab tĩnh
+The BHA Riverside / House / Villa: Riverside lấy Property theo slug `the-bha-riverside` và hiển thị **ba loại phòng** từ API, House/Villa
+"Sắp ra mắt" (không gọi API); mỗi card mở `/listing-stay-detail?propertyId=&roomTypeId=` (route template có sẵn, nay là route thật duy
+nhất của nhóm listing; các route template khác vẫn 404). Trang chi tiết: dữ liệu RoomType/Property từ API, một panel đặt phòng duy nhất
+(tìm offer đúng phòng → liên hệ → hold → confirm) cho desktop và mobile, hold vẫn giữ qua điều hướng; các section dịch vụ của homepage
+là preview inert có nhãn, ảnh mẫu thay bằng khung placeholder (không gọi ảnh template/Pexels). Đường demo: `/` → card phòng → chi tiết →
+đặt phòng (không còn "Showcase" một trang). Bằng chứng C2 chạy trên build thật + API container + PostgreSQL demo (desktop và mobile touch;
+Safari `NOT_RUN`): `docs/reports/CUST-WEB-SHOWCASE-001-CP02-completion.md` §10. Kết quả E2E cũ ở `2bb70bb` thuộc luồng một trang và
+**không** được tính cho giao diện mới. `MEDIA: PARTIAL` (1PN chưa có ảnh), `REVIEW: NOT_RUN` cho head C2, lỗi cookie khách cũ (401) còn mở.
+
+Bản cập nhật trước (CP02, trước C2; phần mô tả "luồng đặt phòng một trang" bên dưới đã bị C2 thay thế):
+Cập nhật 2026-10-07 (`CUST-WEB-SHOWCASE-001-CP02`, Draft PR, chưa merge; PR #82 đã merged, baseline
+`9ad8edce4171f9b26a3f274cd544758be21f9162`): PR thứ hai và cuối của showcase. **Bằng chứng ảnh (đã chỉnh ở C1):** quét byte (heuristic, `validation: NOT_RUN`, không có
+validator C2PA): 62/86 PNG chứa marker nêu dịch vụ sinh ảnh (`trainedAlgorithmicMedia`, `gpt-image`, `OpenAI Media Service`) — dấu hiệu cần
+xác minh, chưa phải chứng minh; 23 JPEG có metadata editor (nguồn camera chưa được xác minh độc lập); 1 không metadata. 13 ảnh được publish
+(chỉ loại `editor-metadata-present`); hai loại 1PN chưa có ảnh (placeholder), chờ Owner làm rõ ảnh 1PN là ảnh thật đã chỉnh hay ảnh sinh mới;
+`MEDIA: PARTIAL`. Backend có
+seeder insert-only `RiversideDemoSeeder` + CLI `--seed-riverside-demo` (chỉ Development, `--expected-database` phải khớp và chứa
+`demo`/`showcase`, dry-run/apply, idempotent); `Hosting:TrustedProxy` (mặc định tắt) tin `X-Forwarded-For/-Proto` chỉ từ proxy liệt kê;
+`Back_End/Dockerfile`, `deploy/showcase/` (PostgreSQL 17 bền vững, API, nginx TLS, key ring bền vững, SQL migration idempotent),
+workflow `backend-image.yml` (build trên PR và push `develop`; publish ECR **tắt mặc định**, chỉ từ `develop` khi `ECR_PUBLISH_ENABLED=true`, tag = SHA nguồn, không rollout; `PUBLISH: NOT_RUN`). Catalog Riverside 3 loại/11 phòng
+(1PN 3 phòng ₫1.000.000, 1PN view thoáng 2 phòng ₫1.100.000, 2PN 6 phòng ₫1.600.000; max 2/2/4) đã seed vào DB demo local bền vững
+`thebha_showcase_demo` (cửa sổ 2026-10-07..2027-01-04, 316 dòng, rerun 0 insert) và chạy E2E trình duyệt + container + Admin Staff
+(`DATA_LOCAL/UI_LIVE/CONTAINER: PASS`, `MEDIA: PARTIAL`). Chưa làm: `CLOUD_DATA`, `DEPLOY_LIVE` (Owner deploy theo runbook
+`docs/runbooks/CUST-WEB-SHOWCASE-001-deploy.md`), Vercel `NOT_TESTED`, Safari `NOT_RUN`, `REVIEW: NOT_RUN`. Yêu cầu cứng: Customer, Admin
+và API cùng một registrable domain (cookie Lax/Strict); Owner cung cấp `thebhariverside.com` / `admin.` / `api.` (cấu hình dự kiến, DNS/live `NOT_TESTED`); `*.vercel.app` + hostname AWS mặc định sẽ không giữ được đăng nhập.
+Rủi ro mở: key ring Data Protection lưu không mã hóa trên volume; không có EF retry (request đầu sau restart DB trả 500); lỗi cookie
+khách cũ (401) vẫn mở. Evidence: `docs/reports/CUST-WEB-SHOWCASE-001-CP02-completion.md`.
+
+Bản cập nhật trước (2026-10-06, `CUST-WEB-SHOWCASE-001-CP01`; PR #82 nay đã merged):
 
 Cập nhật 2026-10-06 (`CUST-WEB-SHOWCASE-001-CP01`, Draft PR, chưa merge): `PMS-CAL-002-CP00`
 đã merged (PR #81, `b6e28a6`); split-move **tạm dừng** theo quyết định Owner (thiết kế giữ nguyên,

@@ -15,6 +15,10 @@ import { searchAvailability } from "@/lib/api/availabilityService";
 import { AvailabilityOfferDto, AvailabilityQuery } from "@/lib/api/availabilityTypes";
 import { AvailabilityDraft, AvailabilityFieldErrors } from "@/lib/api/availabilityValidation";
 import { PropertyDto } from "@/lib/api/propertyTypes";
+import { bookingFlowRoomTypeId, filterOffersForRoomType, sameId } from "@/lib/roomDetailsRoute";
+import StayDatesRangeInput from "@/app/(listing-detail)/listing-stay-detail/StayDatesRangeInput";
+import RoomGuestsInput from "@/app/(listing-detail)/listing-stay-detail/GuestsInput";
+import { dateToIso, isoToDate, todayLocal } from "@/lib/staySearch";
 import {
   ApiConfigError,
   ApiHttpError,
@@ -26,6 +30,19 @@ import { isRequestCancelledError } from "@/lib/api/httpClient";
 export interface SectionAvailabilitySearchProps {
   className?: string;
   properties: PropertyDto[];
+  /**
+   * CUST-WEB-SHOWCASE-001-CP02-C2: set on a room's own page. The search is then fixed to that room:
+   * only offers for this RoomType are shown (never another room's), the layout is the compact
+   * sidebar one, and the Hold panel is shown only when the booking in the app-level flow belongs to
+   * this room.
+   */
+  lockedRoomType?: { id: string; name: string };
+  /**
+   * CP02-C3: a validated search that came with the page (the home page's search, carried in the URL).
+   * It fills the form; with `autoSearch` the read-only availability request for it runs once on arrival.
+   */
+  initialDraft?: AvailabilityDraft | null;
+  autoSearch?: boolean;
 }
 
 type SearchStatus = "initial" | "loading" | "success" | "empty" | "error";
@@ -66,15 +83,27 @@ function describeError(error: unknown): string {
 const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
   className = "",
   properties,
+  lockedRoomType,
+  initialDraft,
+  autoSearch = false,
 }) => {
+  const compact = !!lockedRoomType;
+  const lockedRoomTypeId = lockedRoomType?.id;
   const [propertyId, setPropertyId] = useState<string>(properties[0]?.id ?? "");
-  const [draft, setDraft] = useState<AvailabilityDraft>(() => ({
-    checkIn: localDateIso(0),
-    checkOut: localDateIso(1),
-    adults: "1",
-    children: "0",
-    rooms: "1",
-  }));
+  const [draft, setDraft] = useState<AvailabilityDraft>(() =>
+    initialDraft
+      ? initialDraft
+      : compact
+        ? // the template's field says "Add dates" until the visitor picks some
+          { checkIn: "", checkOut: "", adults: "2", children: "0", rooms: "1" }
+        : {
+            checkIn: localDateIso(0),
+            checkOut: localDateIso(1),
+            adults: "1",
+            children: "0",
+            rooms: "1",
+          }
+  );
   const [fieldErrors, setFieldErrors] = useState<AvailabilityFieldErrors>({});
   const [status, setStatus] = useState<SearchStatus>("initial");
   const [offers, setOffers] = useState<AvailabilityOfferDto[]>([]);
@@ -131,8 +160,9 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
             if (requestId !== latestRequestId.current || controller.signal.aborted) {
               return;
             }
-            setOffers(data);
-            setStatus(data.length === 0 ? "empty" : "success");
+            const shown = lockedRoomTypeId ? filterOffersForRoomType(data, lockedRoomTypeId) : data;
+            setOffers(shown);
+            setStatus(shown.length === 0 ? "empty" : "success");
           })
           .catch((error) => {
             if (isRequestCancelledError(error) || controller.signal.aborted) {
@@ -147,7 +177,7 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
           });
       });
     },
-    [tryBeginAvailabilitySearch]
+    [tryBeginAvailabilitySearch, lockedRoomTypeId]
   );
 
   useEffect(() => {
@@ -176,8 +206,8 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
     }
   }, [properties, propertyId]);
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const handleSubmit = (event?: FormEvent<HTMLFormElement>) => {
+    event?.preventDefault();
     // The authoritative same-tick Hold-flow lock is consulted first, inside
     // `runAvailabilityFormSubmit`, *before* draft validation or any
     // field-error state change — never the React-rendered `flowLocked`
@@ -222,38 +252,113 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
     );
   };
 
+  // Arriving with a valid search (from the home page): run it once. It is a read-only availability
+  // request; the Hold flow's own gate still decides whether it may start.
+  const autoSearched = useRef(false);
+  useEffect(() => {
+    if (!autoSearch || !initialDraft || autoSearched.current || properties.length === 0) return;
+    autoSearched.current = true;
+    handleSubmit();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   if (properties.length === 0) {
     return null;
   }
 
+  const asCount = (value: string, fallback: number) => {
+    const parsed = parseInt(value, 10);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+
+  const renderCompactForm = () => (
+    <form onSubmit={handleSubmit} noValidate className="space-y-4">
+      <div className="flex flex-col border border-neutral-200 dark:border-neutral-700 rounded-3xl">
+        <StayDatesRangeInput
+          className="flex-1 z-[11]"
+          startDate={isoToDate(draft.checkIn)}
+          endDate={isoToDate(draft.checkOut)}
+          minDate={todayLocal()}
+          disabled={flowLocked}
+          onDatesChange={([start, end]) =>
+            setDraft((current) => ({
+              ...current,
+              checkIn: start ? dateToIso(start) : "",
+              checkOut: end ? dateToIso(end) : "",
+            }))
+          }
+        />
+        <div className="w-full border-b border-neutral-200 dark:border-neutral-700"></div>
+        <RoomGuestsInput
+          className="flex-1"
+          adults={asCount(draft.adults, 1)}
+          childrenCount={asCount(draft.children, 0)}
+          rooms={asCount(draft.rooms, 1)}
+          disabled={flowLocked}
+          onChange={(patch) =>
+            setDraft((current) => ({
+              ...current,
+              adults: patch.adults !== undefined ? String(patch.adults) : current.adults,
+              children: patch.children !== undefined ? String(patch.children) : current.children,
+              rooms: patch.rooms !== undefined ? String(patch.rooms) : current.rooms,
+            }))
+          }
+        />
+      </div>
+      {(fieldErrors.checkIn || fieldErrors.checkOut || fieldErrors.adults || fieldErrors.children || fieldErrors.rooms) && (
+        <p role="alert" className="text-xs text-red-600 dark:text-red-400">
+          {fieldErrors.checkIn ?? fieldErrors.checkOut ?? fieldErrors.adults ?? fieldErrors.children ?? fieldErrors.rooms}
+        </p>
+      )}
+      <div>
+        <ButtonPrimary type="submit" className="w-full" disabled={flowLocked}>
+          Search availability
+        </ButtonPrimary>
+      </div>
+    </form>
+  );
+
   return (
     <div className={`nc-SectionAvailabilitySearch relative ${className}`}>
-      <Heading desc="Search real stay offers with live nightly rates and inventory">
-        Check availability
-      </Heading>
+      {!compact && (
+        <Heading desc="Search real stay offers with live nightly rates and inventory">
+          Check availability
+        </Heading>
+      )}
 
+      {compact ? (
+        renderCompactForm()
+      ) : (
       <form onSubmit={handleSubmit} noValidate className="space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
-          <div>
-            <label
-              htmlFor="availability-property"
-              className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1"
-            >
-              Property
-            </label>
-            <Select
-              id="availability-property"
-              value={propertyId}
-              disabled={flowLocked}
-              onChange={(event) => setPropertyId(event.target.value)}
-            >
-              {properties.map((property) => (
-                <option key={property.id} value={property.id}>
-                  {property.name ?? "Property"}
-                </option>
-              ))}
-            </Select>
-          </div>
+        <div
+          className={
+            compact
+              ? "grid grid-cols-2 gap-4"
+              : "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4"
+          }
+        >
+          {!compact && (
+            <div>
+              <label
+                htmlFor="availability-property"
+                className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1"
+              >
+                Property
+              </label>
+              <Select
+                id="availability-property"
+                value={propertyId}
+                disabled={flowLocked}
+                onChange={(event) => setPropertyId(event.target.value)}
+              >
+                {properties.map((property) => (
+                  <option key={property.id} value={property.id}>
+                    {property.name ?? "Property"}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          )}
 
           <div>
             <label
@@ -417,8 +522,9 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
           </ButtonPrimary>
         </div>
       </form>
+      )}
 
-      <div className="mt-8">
+      <div className={compact ? "mt-6" : "mt-8"}>
         {status === "initial" && (
           <p className="text-sm text-neutral-500 dark:text-neutral-400">
             Enter your dates and guests, then search to see real stay offers.
@@ -452,33 +558,43 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
             role="status"
             className="py-10 text-center text-neutral-500 dark:text-neutral-400"
           >
-            No offers matched {submittedQuery.checkIn} → {submittedQuery.checkOut} for{" "}
-            {submittedQuery.adults} adult(s), {submittedQuery.children} child(ren),{" "}
-            {submittedQuery.rooms} room(s) at {submittedQuery.propertyName}.
+            No offers{lockedRoomType ? ` for ${lockedRoomType.name}` : ""} matched {submittedQuery.checkIn} →{" "}
+            {submittedQuery.checkOut} for {submittedQuery.adults} adult(s), {submittedQuery.children}{" "}
+            child(ren), {submittedQuery.rooms} room(s) at {submittedQuery.propertyName}.
           </div>
         )}
 
         {status === "success" && submittedQuery && (
           <>
             <p className="text-sm text-neutral-500 dark:text-neutral-400 mb-4">
-              Showing offers for {submittedQuery.propertyName}: {submittedQuery.checkIn} →{" "}
+              Showing offers for {lockedRoomType?.name ?? submittedQuery.propertyName}: {submittedQuery.checkIn} →{" "}
               {submittedQuery.checkOut} · {submittedQuery.adults} adult(s),{" "}
               {submittedQuery.children} child(ren) · {submittedQuery.rooms} room(s)
             </p>
-            <div className="grid gap-6 md:gap-8 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
+            <div
+              className={
+                compact
+                  ? "grid gap-4 grid-cols-1"
+                  : "grid gap-6 md:gap-8 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3"
+              }
+            >
               {offers.map((offer) => (
                 <AvailabilityOfferCard
                   key={`${offer.roomTypeId}:${offer.ratePlanId}`}
                   data={offer}
                   onHold={() => handleSelectOffer(offer)}
                   holdDisabled={flowLocked}
+                  hideMedia={compact}
                 />
               ))}
             </div>
           </>
         )}
 
-        {holdPhase !== "idle" && <BookingHoldPanel className="mt-8" />}
+        {holdPhase !== "idle" &&
+          (!lockedRoomType || sameId(bookingFlowRoomTypeId(holdFlowState), lockedRoomType.id)) && (
+            <BookingHoldPanel className="mt-8" />
+          )}
       </div>
     </div>
   );

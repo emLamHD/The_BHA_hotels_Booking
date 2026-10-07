@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Fragment, useState, FC } from "react";
+import React, { Fragment, FC } from "react";
 import { Popover, Transition } from "@headlessui/react";
 import { CalendarIcon } from "@heroicons/react/24/outline";
 import DatePickerCustomHeaderTwoMonth from "@/components/DatePickerCustomHeaderTwoMonth";
@@ -10,23 +10,26 @@ import ClearDataButton from "@/app/(client-components)/(HeroSearchForm)/ClearDat
 
 export interface StayDatesRangeInputProps {
   className?: string;
+  /** The range, owned by the booking panel's draft. */
+  startDate: Date | null;
+  endDate: Date | null;
+  onDatesChange: (dates: [Date | null, Date | null]) => void;
+  minDate?: Date;
+  disabled?: boolean;
 }
 
+/**
+ * The template's sidebar date field (popover with the two-month calendar), controlled by the booking
+ * panel's draft. CP02-C3 restored it from the template and removed its hard-coded 2023 dates.
+ */
 const StayDatesRangeInput: FC<StayDatesRangeInputProps> = ({
   className = "flex-1",
+  startDate,
+  endDate,
+  onDatesChange,
+  minDate,
+  disabled,
 }) => {
-  const [startDate, setStartDate] = useState<Date | null>(
-    new Date("2023/02/06")
-  );
-  const [endDate, setEndDate] = useState<Date | null>(new Date("2023/02/23"));
-  //
-
-  const onChangeDate = (dates: [Date | null, Date | null]) => {
-    const [start, end] = dates;
-    setStartDate(start);
-    setEndDate(end);
-  };
-
   const renderInput = () => {
     return (
       <>
@@ -60,13 +63,14 @@ const StayDatesRangeInput: FC<StayDatesRangeInputProps> = ({
       {({ open }) => (
         <>
           <Popover.Button
-            className={`flex-1 flex relative p-3 items-center space-x-3 focus:outline-none ${
+            disabled={disabled}
+            className={`flex-1 flex relative p-3 items-center space-x-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-6000 rounded-t-3xl ${
               open ? "shadow-lg" : ""
-            }`}
+            } disabled:opacity-60`}
           >
             {renderInput()}
             {startDate && open && (
-              <ClearDataButton onClick={() => onChangeDate([null, null])} />
+              <ClearDataButton onClick={() => onDatesChange([null, null])} />
             )}
           </Popover.Button>
 
@@ -83,9 +87,10 @@ const StayDatesRangeInput: FC<StayDatesRangeInputProps> = ({
               <div className="overflow-hidden rounded-3xl shadow-lg ring-1 ring-black ring-opacity-5 bg-white dark:bg-neutral-800 p-8">
                 <DatePicker
                   selected={startDate}
-                  onChange={onChangeDate}
+                  onChange={onDatesChange}
                   startDate={startDate}
                   endDate={endDate}
+                  minDate={minDate}
                   selectsRange
                   monthsShown={2}
                   showPopperArrow={false}

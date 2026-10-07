@@ -1,43 +1,26 @@
 "use client";
 
-import React, { Fragment, FC, useState } from "react";
+import React, { Fragment, FC } from "react";
 import { Popover, Transition } from "@headlessui/react";
 import NcInputNumber from "@/components/NcInputNumber";
 import { UserPlusIcon } from "@heroicons/react/24/outline";
-import ClearDataButton from "@/app/(client-components)/(HeroSearchForm)/ClearDataButton";
-import { GuestsObject } from "@/app/(client-components)/type";
 
 export interface GuestsInputProps {
   className?: string;
+  adults: number;
+  childrenCount: number;
+  rooms: number;
+  onChange: (patch: { adults?: number; children?: number; rooms?: number }) => void;
+  disabled?: boolean;
 }
 
-const GuestsInput: FC<GuestsInputProps> = ({ className = "flex-1" }) => {
-  const [guestAdultsInputValue, setGuestAdultsInputValue] = useState(2);
-  const [guestChildrenInputValue, setGuestChildrenInputValue] = useState(1);
-  const [guestInfantsInputValue, setGuestInfantsInputValue] = useState(1);
-
-  const handleChangeData = (value: number, type: keyof GuestsObject) => {
-    let newValue = {
-      guestAdults: guestAdultsInputValue,
-      guestChildren: guestChildrenInputValue,
-      guestInfants: guestInfantsInputValue,
-    };
-    if (type === "guestAdults") {
-      setGuestAdultsInputValue(value);
-      newValue.guestAdults = value;
-    }
-    if (type === "guestChildren") {
-      setGuestChildrenInputValue(value);
-      newValue.guestChildren = value;
-    }
-    if (type === "guestInfants") {
-      setGuestInfantsInputValue(value);
-      newValue.guestInfants = value;
-    }
-  };
-
-  const totalGuests =
-    guestChildrenInputValue + guestAdultsInputValue + guestInfantsInputValue;
+/**
+ * The template's sidebar guest field (popover with +/- counters), controlled by the booking panel's
+ * draft. The booking API counts adults, children and rooms, so those are the counters; the template's
+ * "Infants" counter is not offered (there is no infant count to send) and the popover says so.
+ */
+const GuestsInput: FC<GuestsInputProps> = ({ className = "flex-1", adults, childrenCount, rooms, onChange, disabled }) => {
+  const totalGuests = adults + childrenCount;
 
   return (
     <Popover className={`flex relative ${className}`}>
@@ -49,29 +32,20 @@ const GuestsInput: FC<GuestsInputProps> = ({ className = "flex-1" }) => {
             }`}
           >
             <Popover.Button
-              className={`relative z-10 flex-1 flex text-left items-center p-3 space-x-3 focus:outline-none`}
+              disabled={disabled}
+              className={`relative z-10 flex-1 flex text-left items-center p-3 space-x-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-6000 rounded-b-3xl disabled:opacity-60`}
             >
               <div className="text-neutral-300 dark:text-neutral-400">
                 <UserPlusIcon className="w-5 h-5 lg:w-7 lg:h-7" />
               </div>
               <div className="flex-grow">
                 <span className="block xl:text-lg font-semibold">
-                  {totalGuests || ""} Guests
+                  {totalGuests} Guests
                 </span>
                 <span className="block mt-1 text-sm text-neutral-400 leading-none font-light">
-                  {totalGuests ? "Guests" : "Add guests"}
+                  {rooms} {rooms === 1 ? "room" : "rooms"}
                 </span>
               </div>
-
-              {!!totalGuests && open && (
-                <ClearDataButton
-                  onClick={() => {
-                    setGuestAdultsInputValue(0);
-                    setGuestChildrenInputValue(0);
-                    setGuestInfantsInputValue(0);
-                  }}
-                />
-              )}
             </Popover.Button>
           </div>
 
@@ -87,8 +61,8 @@ const GuestsInput: FC<GuestsInputProps> = ({ className = "flex-1" }) => {
             <Popover.Panel className="absolute right-0 z-10 w-full sm:min-w-[340px] max-w-sm bg-white dark:bg-neutral-800 top-full mt-3 py-5 sm:py-6 px-4 sm:px-8 rounded-3xl shadow-xl ring-1 ring-black ring-opacity-5 ">
               <NcInputNumber
                 className="w-full"
-                defaultValue={guestAdultsInputValue}
-                onChange={(value) => handleChangeData(value, "guestAdults")}
+                value={adults}
+                onChange={(value) => onChange({ adults: value })}
                 max={10}
                 min={1}
                 label="Adults"
@@ -96,21 +70,24 @@ const GuestsInput: FC<GuestsInputProps> = ({ className = "flex-1" }) => {
               />
               <NcInputNumber
                 className="w-full mt-6"
-                defaultValue={guestChildrenInputValue}
-                onChange={(value) => handleChangeData(value, "guestChildren")}
+                value={childrenCount}
+                onChange={(value) => onChange({ children: value })}
                 max={4}
                 label="Children"
                 desc="Ages 2–12"
               />
-
               <NcInputNumber
                 className="w-full mt-6"
-                defaultValue={guestInfantsInputValue}
-                onChange={(value) => handleChangeData(value, "guestInfants")}
-                max={4}
-                label="Infants"
-                desc="Ages 0–2"
+                value={rooms}
+                onChange={(value) => onChange({ rooms: value })}
+                max={10}
+                min={1}
+                label="Rooms"
+                desc="Number of apartments"
               />
+              <p className="mt-5 text-xs text-neutral-500 dark:text-neutral-400">
+                Trẻ dưới 2 tuổi chưa có lựa chọn riêng khi đặt phòng.
+              </p>
             </Popover.Panel>
           </Transition>
         </>

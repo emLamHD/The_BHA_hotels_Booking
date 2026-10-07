@@ -122,6 +122,16 @@ const BookingHoldPanel: FC<BookingHoldPanelProps> = ({ className = "" }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, offer?.roomTypeId, offer?.ratePlanId]);
 
+  // An invalid submit moves focus to the first field with an error (the errors are also read out via
+  // aria-describedby), so the keyboard and screen-reader user lands where the problem is.
+  useEffect(() => {
+    if (!fieldErrors) return;
+    const firstInvalid = (["fullName", "email", "phone"] as const).find((field) => fieldErrors[field]);
+    if (firstInvalid) {
+      document.getElementById(`hold-${firstInvalid === "fullName" ? "full-name" : firstInvalid}`)?.focus();
+    }
+  }, [fieldErrors]);
+
   const locked = phase === "submitting" || phase === "uncertain";
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {

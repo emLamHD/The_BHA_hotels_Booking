@@ -6,26 +6,42 @@ import { GuestsObject } from "../../type";
 import GuestsInput from "../GuestsInput";
 import LocationInput from "../LocationInput";
 import DatesRangeInput from "../DatesRangeInput";
+import { useStaySearch } from "@/components/StaySearchProvider";
+import { LOCATION_OPTION_LABELS } from "@/lib/featuredBrands";
+import { dateToIso, isoToDate, todayLocal } from "@/lib/staySearch";
 
-const StaySearchForm = () => {
+/**
+ * `live` (CP02-C3) connects the form to the shared stay search: location is one of the three BHA
+ * brands, dates and party are the draft. Without it (or without the provider) it is the template's
+ * own demo form with local state.
+ */
+const StaySearchForm = ({ live = false }: { live?: boolean }) => {
+  const ctx = useStaySearch();
+  const shared = live ? ctx : null;
   //
   const [fieldNameShow, setFieldNameShow] = useState<
     "location" | "dates" | "guests"
   >("location");
   //
-  const [locationInputTo, setLocationInputTo] = useState("");
+  const [ownLocation, setLocationInputTo] = useState("");
+  const locationInputTo = shared ? shared.draft.brand : ownLocation;
   const [guestInput, setGuestInput] = useState<GuestsObject>({
     guestAdults: 0,
     guestChildren: 0,
     guestInfants: 0,
   });
-  const [startDate, setStartDate] = useState<Date | null>(
-    new Date("2023/02/06")
-  );
-  const [endDate, setEndDate] = useState<Date | null>(new Date("2023/02/23"));
+  const [ownStart, setStartDate] = useState<Date | null>(null);
+  const [ownEnd, setEndDate] = useState<Date | null>(null);
+  const startDate = shared ? isoToDate(shared.draft.checkIn) : ownStart;
+  const endDate = shared ? isoToDate(shared.draft.checkOut) : ownEnd;
   //
 
   const onChangeDate = (dates: [Date | null, Date | null]) => {
+    if (shared) {
+      const [start, end] = dates;
+      shared.updateDraft({ checkIn: start ? dateToIso(start) : "", checkOut: end ? dateToIso(end) : "" });
+      return;
+    }
     const [start, end] = dates;
     setStartDate(start);
     setEndDate(end);
@@ -52,8 +68,11 @@ const StaySearchForm = () => {
         ) : (
           <LocationInput
             defaultValue={locationInputTo}
+            options={shared ? LOCATION_OPTION_LABELS : undefined}
+            headingText={shared ? "Which BHA?" : undefined}
             onChange={(value) => {
-              setLocationInputTo(value);
+              if (shared) shared.updateDraft({ brand: value });
+              else setLocationInputTo(value);
               setFieldNameShow("dates");
             }}
           />
@@ -86,7 +105,12 @@ const StaySearchForm = () => {
             </span>
           </button>
         ) : (
-          <DatesRangeInput />
+          <DatesRangeInput
+            startDate={startDate}
+            endDate={endDate}
+            onDatesChange={shared ? onChangeDate : undefined}
+            minDate={shared ? todayLocal() : undefined}
+          />
         )}
       </div>
     );
@@ -95,13 +119,16 @@ const StaySearchForm = () => {
   const renderInputGuests = () => {
     const isActive = fieldNameShow === "guests";
     let guestSelected = "";
-    if (guestInput.guestAdults || guestInput.guestChildren) {
+    if (shared) {
+      const total = shared.draft.adults + shared.draft.children;
+      guestSelected = `${total} guests, ${shared.draft.rooms} ${shared.draft.rooms === 1 ? "room" : "rooms"}`;
+    } else if (guestInput.guestAdults || guestInput.guestChildren) {
       const guest =
         (guestInput.guestAdults || 0) + (guestInput.guestChildren || 0);
       guestSelected += `${guest} guests`;
     }
 
-    if (guestInput.guestInfants) {
+    if (!shared && guestInput.guestInfants) {
       guestSelected += `, ${guestInput.guestInfants} infants`;
     }
 
@@ -122,7 +149,20 @@ const StaySearchForm = () => {
             <span>{guestSelected || `Add guests`}</span>
           </button>
         ) : (
-          <GuestsInput defaultValue={guestInput} onChange={setGuestInput} />
+          <GuestsInput
+            defaultValue={guestInput}
+            onChange={setGuestInput}
+            live={
+              shared
+                ? {
+                    adults: shared.draft.adults,
+                    children: shared.draft.children,
+                    rooms: shared.draft.rooms,
+                    onChange: (patch) => shared.updateDraft(patch),
+                  }
+                : undefined
+            }
+          />
         )}
       </div>
     );

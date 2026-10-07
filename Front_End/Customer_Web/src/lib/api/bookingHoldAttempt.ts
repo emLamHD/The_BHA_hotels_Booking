@@ -40,6 +40,8 @@ export interface BookingHoldConfirmationAttemptSnapshot {
   guestAccessToken: string | null;
 }
 
+// C0 and C1 control characters (includes tab, line feed, carriage return, DEL).
+const CONTROL_CHARACTERS = /[\u0000-\u001F\u007F-\u009F]/;
 const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const PHONE_PATTERN = /^[0-9+(). -]{7,32}$/;
 
@@ -58,6 +60,10 @@ export function validateContact(input: ContactInput): ContactFieldErrors | null 
 
   if (!normalized.fullName || normalized.fullName.length > BookingFieldLimits.FullName) {
     errors.fullName = `Full name is required and cannot exceed ${BookingFieldLimits.FullName} characters.`;
+  } else if (CONTROL_CHARACTERS.test(normalized.fullName)) {
+    // Stricter than the server, which only requires a non-blank name: a name with a control character
+    // (a pasted line break or tab) is never a name. Unicode letters of any script remain valid.
+    errors.fullName = "Full name cannot contain line breaks or control characters.";
   }
 
   if (

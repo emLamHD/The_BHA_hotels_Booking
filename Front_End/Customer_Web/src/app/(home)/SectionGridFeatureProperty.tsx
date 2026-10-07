@@ -4,6 +4,8 @@ import React, { FC, useCallback, useEffect, useRef, useState } from "react";
 import Heading from "@/shared/Heading";
 import ButtonSecondary from "@/shared/ButtonSecondary";
 import PropertyLiveCard from "@/components/PropertyLiveCard";
+import MediaGallery from "@/components/MediaGallery";
+import { selectGalleryImages } from "@/lib/api/mediaPresentation";
 import SectionGridRoomTypes from "./SectionGridRoomTypes";
 import SectionAvailabilitySearch from "./SectionAvailabilitySearch";
 import { getProperties } from "@/lib/api/propertyService";
@@ -154,6 +156,17 @@ const SectionGridFeatureProperty: FC<SectionGridFeaturePropertyProps> = ({
           ))}
         </div>
       )}
+
+      {/* CP02: the rest of each property's photographs, from the API. */}
+      {ready &&
+        properties
+          .filter((property) => selectGalleryImages(property.media).length > 1)
+          .map((property) => (
+            <div key={`gallery-${property.id}`} className="mt-8">
+              <h3 className="mb-3 text-lg font-medium">Hình ảnh {property.name ?? "chỗ nghỉ"}</h3>
+              <MediaGallery media={property.media} name={property.name ?? "Property"} aspectClass="aspect-[16/9]" />
+            </div>
+          ))}
 
       {/* CP01-C1 (F2): both anchors exist in every state, so a header or hero
           link clicked while the catalog is loading lands here; the real

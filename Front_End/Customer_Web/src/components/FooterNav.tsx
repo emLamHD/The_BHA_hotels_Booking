@@ -127,6 +127,9 @@ const FooterNav = () => {
     );
   };
 
+  // CP02-C3: the room page has its own sticky booking bar at the bottom; the app bar would cover it.
+  if (pathname?.startsWith("/listing-stay-detail")) return null;
+
   return (
     <div
       ref={containerRef}

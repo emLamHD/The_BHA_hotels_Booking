@@ -18,6 +18,10 @@ export interface GallerySliderProps {
   imageClass?: string;
   galleryClass?: string;
   navigation?: boolean;
+  /** Serve the image as-is (API media on our own origin); skips the Next image optimizer. */
+  unoptimized?: boolean;
+  /** Called with the image that failed to load, so the caller can drop it from the set. */
+  onImageError?: (image: StaticImageData | string) => void;
 }
 
 export default function GallerySlider({
@@ -29,6 +33,8 @@ export default function GallerySlider({
   galleryClass = "rounded-xl",
   href = "/listing-stay-detail",
   navigation = true,
+  unoptimized = false,
+  onImageError,
 }: GallerySliderProps) {
   const [loaded, setLoaded] = useState(false);
   const [index, setIndex] = useState(0);
@@ -58,7 +64,8 @@ export default function GallerySlider({
     trackMouse: true,
   });
 
-  let currentImage = images[index];
+  const safeIndex = Math.min(index, Math.max(images.length - 1, 0));
+  let currentImage = images[safeIndex];
 
   return (
     <MotionConfig
@@ -93,6 +100,8 @@ export default function GallerySlider({
                   alt="listing card gallery"
                   className={`object-cover ${imageClass}`}
                   onLoadingComplete={() => setLoaded(true)}
+                  onError={() => onImageError?.(currentImage)}
+                  unoptimized={unoptimized}
                   sizes="(max-width: 1025px) 100vw, 300px"
                 />
               </motion.div>
