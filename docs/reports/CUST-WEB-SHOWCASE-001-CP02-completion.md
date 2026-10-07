@@ -2,6 +2,8 @@
 
 > Draft PR into `develop` (the second and last PR of the showcase work item). `IMPLEMENTER: CLAUDE`, `REVIEWER: CODEX_READ_ONLY` (Owner invokes). Baseline `9ad8edce4171f9b26a3f274cd544758be21f9162`, branch `feature/cust-web-showcase-001-cp02-riverside-demo`. FINAL_HEAD, PR number, PR size and CI on FINAL_HEAD are in the PR body. `REVIEW: NOT_RUN`.
 
+> **C4 (§13) fixes the two Codex findings on the C3 head (scratch-resource safety of `verify-key-persistence.sh`, DateOnly overflow of the seed CLI), the SQL EOF whitespace, and, at the Owner's request, the clipped date pop-over on the room page.** UI/booking evidence in §12 stays C3 evidence.
+
 > **C3 supersedes C2 (§12).** Owner reversed the C2 inert-preview approach: the full Chisfis template is back, its pickers drive the real Riverside search, all three room types have photos, and a hold ends on a `/paydone` receipt. C2's browser evidence (§10) is history; C3 evidence is in §12 and was taken on the C3 build.
 
 > **C2 supersedes the UI of this report.** The browser/E2E results in §4 below (and the home/details parts of §5) were taken at `2bb70bb` against the *old single-page flow* (`/` was one booking page). Owner then decided on the Chisfis home page plus a room details page (see **§10, C2**). The old results are history; they are **not** credited to the new home or details pages — §10 has the evidence for those, taken on the C2 build. `DATA_LOCAL`, `MEDIA`, the container/proxy/key-ring evidence (§5) and the seeder/deploy results are unaffected by C2.
@@ -223,3 +225,44 @@ Reservations 13 → 21 and 8 more holds from eight end-to-end runs (desktop, two
 ### 12.6 Reviewer focus for C3
 
 Controlled template pickers and local-date conversion; contact validation; hold → receipt distinction and the redirect trigger; query-carried search and token lifetime (memory only); media-only seed migration safety; template route boundaries and `/api/*` closure.
+
+## 13. Correction C4 (CP02-C4-SAFE-TOOLS, same PR #83)
+
+`START_HEAD d1dc78e`. Fixes the two findings of the Codex review of the C3 head and removes the one known `git diff --check` item. The room-page calendar fix is an Owner request made in chat with the C4 prompt (see 13.5).
+
+### 13.1 F1 — `verify-key-persistence.sh` scratch resources (P2)
+- **Before:** fixed names `${SHOWCASE_DB}_keytest`, container `the-bha-showcase-keytest`, volumes `the-bha-showcase-keytest-keys-a/b`; `DROP DATABASE IF EXISTS` before `CREATE`, `docker rm -f` by name and `volume rm` in the EXIT trap — an existing resource with those names would have been reused and then deleted.
+- **After:** per-run random id (12 hex from `/dev/urandom`) → database `bha_kt_<id>` (19 chars), container `bha-kt-<id>`, volumes `bha-kt-<id>-keys-a/-b`, plus a `bha.keytest.run=<id>` label. No DROP to prepare; `CREATE DATABASE` fails on an existing name; each volume is pre-checked (`volume inspect` must fail) and verified by label after `volume create`; ownership is recorded only after a creation succeeded; the container is removed by id and only if its label matches; cleanup removes owned resources by exact name/id (never prefix/wildcard/process scans), reports leftovers by name and exits non-zero without masking the first failure; the state file is a private temp file removed on exit; the API port is Docker-assigned (`-p 127.0.0.1::8080`, read with `docker port` from the owned container), so no other service is contacted or killed; SIGINT/SIGTERM/SIGHUP run the same cleanup. The three proofs (same volume reuses cookie and antiforgery, fresh volume refuses them, Production without `KeysPath` refuses to start) are unchanged; `KEYTEST_IMAGE` selects the image.
+- **Regression harness:** `deploy/showcase/scripts/tests/test_verify_key_persistence.py` (Python `unittest`, stdlib only) runs the real script with stub `docker`/`curl`/`python3`/`od` that keep a model of databases, volumes and containers and log every command: canaries with the old fixed names survive; namespace shape/length; two runs get different namespaces; a collision on the database or a volume (including a foreign label) is refused and the pre-existing resource is kept; failures before any creation, at `CREATE DATABASE`, at migration, between the two volume creations, at the second container start and in the client each clean only what exists; SIGTERM cleans and exits 143; a cleanup failure is reported by name and does not hide the main failure. **RED** against the previous script copy (stubs only, no real resource touched): 12 of 15 fail. **GREEN** on the patched script: 15 of 15.
+- **Real run** (Docker + the showcase PostgreSQL, API image `thebha-api:c4-keytest-2d4dc8d` = `sha256:c45d4c1d14e1…`, built from the clean tree at commit `2d4dc8d`; the Owner's `thebha-api:showcase` image `sha256:63c062ed1f6c…` was not touched or retagged): I first created my own canaries with the **old fixed names** (database `thebha_showcase_demo_keytest`, volumes `the-bha-showcase-keytest-keys-a/b`, a stopped container `the-bha-showcase-keytest`, each labelled `c4.canary=1`). Run id `3e5c4d4bcf51`: same-volume issue/reuse `ok` (200, logout 204), fresh-volume `ok` (401, logout refused), missing `KeysPath` `ok` (exit 139 with the guard message), exit 0. The database, volume and container listings before and after the run are **identical** (canaries kept, scratch gone, Owner's `thebha_showcase_demo`, `the-bha-showcase_showcase-pg-data`, `the-bha-showcase_showcase-api-keys` and the three stack containers untouched). Afterwards I removed only my own canaries, after checking their label.
+
+### 13.2 F2 — seed CLI date range (P3)
+- **Before:** `--from 9999-12-31 --days 1` passed `TryCreate` and `ToExclusive` (`From.AddDays(Days)`) threw `ArgumentOutOfRangeException` outside the CLI contract.
+- **After:** `RiversideSeedOptions.TryCreate` rejects a range whose exclusive end is not representable (`from.DayNumber + days > DateOnly.MaxValue.DayNumber`) with "the range is not representable …"; `Parse` already used it, so `RunAsync` returns usage error **2** before the scope/DbContext is created. No clamping, no catch-all; `9999-12-30 --days 1` (exclusive end `9999-12-31`) is still accepted.
+- **Tests (in the repo):** options theory — `9999-12-31/1` and `9999-12-30/2` and `9999-01-01/366` invalid, `9999-12-30/1` valid with `ToExclusive == 9999-12-31`, a normal range valid; CLI — five invalid cases for `--dry-run` and `--apply` return exit 2, print the usage prefix and no credentials, and a fail-on-access service provider records **0** accesses and the database has 0 rows; the last representable range goes past validation (the provider is reached). Existing bounds (`days` 0/367) and media-origin guards unchanged. **RED** with the previous seeder: the new CLI cases fail (usage error not returned); **GREEN**: the Riverside seeder + command suites pass (83 tests) on a throwaway PostgreSQL 17.10 (`cust-web-c4-test-pg17`, own database names, no RDS/Owner DB). No data was applied to `thebha_showcase_demo` for this.
+
+### 13.3 SQL EOF whitespace
+`regenerate-migration-sql.sh` now strips trailing blank lines after the BOM step (one newline stays). `--check` on the old file reported out of date; regenerating changed **one line** (the extra blank line at EOF); the non-whitespace content hash is identical before and after; `--check` passes and a re-run leaves the file byte-identical. `git diff --check origin/develop...HEAD` and the working-tree check are both clean. The SQL was not applied anywhere.
+
+### 13.4 Checks (this session, on the C4 tree)
+| Check | Result |
+|---|---|
+| `python3 -m unittest discover -s deploy/showcase/scripts/tests` | 15 OK |
+| `bash -n` both scripts; ShellCheck | OK; ShellCheck not installed (`NOT_RUN`, not installed to widen scope) |
+| `dotnet build Back_End/TheBha.Booking.sln -c Release` | 0 warnings, 0 errors |
+| Seeder + command tests (PostgreSQL 17.10, throwaway) | 83 passed |
+| Backend suite | unit 244 + integration 846 passed (C4 numbers; not C3's 834) |
+| Real key-persistence run | PASS (13.1) |
+| Customer `tsc --noEmit`, lint, `npm run build` after the panel change; desktop E2E + popover/reachability check | clean / pass (13.5) |
+| `git diff --check` (working tree and `origin/develop...HEAD`) | clean |
+
+### 13.5 Room-page calendar (Owner request, outside the C4 write scope)
+The prompt forbids frontend edits; the Owner asked separately in chat to fix the date pop-over that was cut off by its wrapper. Cause: the booking-panel wrapper was `lg:sticky … lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto`, so the absolutely positioned two-month calendar was clipped. Fix (one line in `RoomDetailsContent.tsx`, commit `2d4dc8d`): the wrapper is plain flow — not sticky, not a scroll container — because a sticky panel taller than the viewport cannot be reached and a scroll container clips pop-overs. Checked on the production build at 1440×900 and 1280×720: all nine probe points of the calendar panel and the guests panel hit the panel itself (not the wrapper), screenshot viewed; the end-to-end journey still passes (1 hold POST + 1 confirm POST, `/paydone`, guest API `Confirmed`). Side effect: the panel no longer follows the scroll on desktop. Not re-run: mobile, Safari; the full frontend suite (C4 prompt) — CI runs it.
+
+### 13.6 State, limits, attribution
+- Demo DB: Reservations 21 → 23 (one from my desktop journey; the other is a manual test at a time no C4 script ran). No Reservation or hold deleted; no seed applied.
+- **UI_LIVE_C4 / END_TO_END_C4 not claimed** beyond 13.5: the booking/UI evidence in §12 is C3 evidence; `MEDIA_PROVENANCE` stays UNVERIFIED; cloud, Vercel, Safari `NOT_RUN`; stale-cookie 401, DB-restart 500, unencrypted key XML, the template's "Get Template" link and the Google Fonts build-time fetch stay **OPEN**.
+- `REVIEW: NOT_RUN` for the C4 FINAL_HEAD.
+
+### 13.7 Reviewer focus for C4
+Scratch ownership, collision and partial cleanup (`verify-key-persistence.sh` and its harness); DateOnly bounds checked before any DB access; SQL regeneration (whitespace only).

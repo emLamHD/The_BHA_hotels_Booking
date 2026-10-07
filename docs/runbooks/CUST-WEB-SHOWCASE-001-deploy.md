@@ -73,7 +73,7 @@ Rollback: point the service back at the previous image **digest or SHA tag** (re
    psql "<connection string from a secret store, via env var>" -v ON_ERROR_STOP=1 -f deploy/showcase/migrations/idempotent.sql
    ```
 
-   Expect 9 rows in `"__EFMigrationsHistory"`. Regenerate/verify the file after any migration change: `deploy/showcase/scripts/regenerate-migration-sql.sh [--check]`.
+   Expect 9 rows in `"__EFMigrationsHistory"`. Regenerate/verify the file after any migration change: `deploy/showcase/scripts/regenerate-migration-sql.sh [--check]`. The generator keeps exactly one newline at EOF, so `--check` and `git diff --check` stay clean.
 3. Never commit or print the connection string. Never copy rows from a local database to RDS.
 
 ## 5. API runtime configuration
@@ -95,6 +95,8 @@ TLS terminator rules: terminate TLS at the ALB; target group protocol HTTP to po
 
 Data Protection key ring: keys are written to `/var/keys` **unencrypted at rest** (the ASP.NET Core warning "No XML encryptor configured"; adding key encryption needs packages or certificates, which this work item may not add). Mitigation to require: encrypted EFS, an access point restricted to the container user (uid 1654), no other mounts, backup excluded or encrypted. Losing the directory logs every user out and invalidates antiforgery tokens; sharing it across tasks is what keeps sessions valid. Verified locally: recreating the container on the same volume keeps Customer sessions and antiforgery tokens valid; a fresh volume does not (`deploy/showcase/scripts/verify-key-persistence.sh`).
 
+Key persistence check (local stack only, needs the showcase stack up and the image): `KEYTEST_IMAGE=<image tag> deploy/showcase/scripts/verify-key-persistence.sh` (default image `thebha-api:showcase`). Each run draws a random run id and creates its own scratch database `bha_kt_<id>`, container `bha-kt-<id>` and volumes `bha-kt-<id>-keys-a/-b`; it never drops, reuses or removes anything that existed before (CREATE DATABASE and a volume pre-check refuse an existing name; ownership is verified by a `bha.keytest.run` label), the API port is chosen by Docker, and cleanup removes only what the run created, also on failure or SIGINT/SIGTERM. If cleanup cannot finish it names the leftover scratch resources on stderr and exits non-zero; remove those exact names by hand. Older runs of the previous script may have left `<db>_keytest` or `the-bha-showcase-keytest*` resources: they are not touched by this script and must be inspected and removed manually. Regression tests (stubbed Docker, no daemon needed): `python3 -m unittest discover -s deploy/showcase/scripts/tests -p "test_*.py" -v`.
+
 Single instance recommended for the showcase: the rate limiter is in-process, so N tasks multiply the effective limits.
 
 ## 6. Seed the demo catalog (operator machine, Development mode on purpose)
@@ -111,7 +113,7 @@ dotnet Back_End/src/TheBha.Api/bin/Release/net8.0/TheBha.Api.dll --seed-riversid
 # then the same command with --apply; a rerun with the same options must report 0 inserts.
 ```
 
-Exit codes: 0 ok, 1 failure, 2 usage, 3 target refused (environment/database name), 4 conflict (data that must not be overwritten). Extend the window later by re-running with a larger `--days`; only the missing nights are inserted. **Do not change `--media-base-url` on a rerun** (it would insert a second set of Media rows).
+Exit codes: 0 ok, 1 failure, 2 usage (including a `--from`/`--days` pair whose exclusive end is not a representable date, e.g. `--from 9999-12-31 --days 1`; refused before the database is opened), 3 target refused (environment/database name), 4 conflict (data that must not be overwritten). Extend the window later by re-running with a larger `--days`; only the missing nights are inserted. **Do not change `--media-base-url` on a rerun** (it would insert a second set of Media rows).
 
 Staff accounts (Admin sign-in) are created with the Staff CLI, password only via environment or hidden prompt:
 

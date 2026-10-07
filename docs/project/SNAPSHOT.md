@@ -1,9 +1,16 @@
 # THE BHA — SNAPSHOT
 
-> Ngày cập nhật: 2026-10-07 (`CUST-WEB-SHOWCASE-001-CP02-C3`; các phần cũ hơn giữ nguyên kèm SHA)
+> Ngày cập nhật: 2026-10-07 (`CUST-WEB-SHOWCASE-001-CP02-C4-SAFE-TOOLS`; các phần cũ hơn giữ nguyên kèm SHA)
 >
 > Mục đích: phục hồi trạng thái hiện tại mà không cần nạp worklog lịch sử
 
+Cập nhật 2026-10-07 (`CUST-WEB-SHOWCASE-001-CP02-C4-SAFE-TOOLS`, cùng PR #83, Draft, chưa merge): sửa hai finding của Codex trên head C3 — (F1) `deploy/showcase/scripts/verify-key-persistence.sh`
+dùng tên scratch cố định rồi DROP/xóa nên có thể xóa tài nguyên có sẵn; nay mỗi lần chạy có run id ngẫu nhiên, tài nguyên scratch (DB/container/2 volume) mang run id, không DROP để chuẩn bị, từ chối khi tên đã tồn tại,
+chỉ xóa thứ mình đã tạo (xác minh bằng label), cổng do Docker cấp; có harness Python `deploy/showcase/scripts/tests/test_verify_key_persistence.py` (RED 12/15 trên script cũ, GREEN 15/15) và một lượt chạy thật với canary tên cũ (before/after giống hệt);
+(F2) seed CLI từ chối `--from`/`--days` có ngày kết thúc exclusive không biểu diễn được bằng `DateOnly` bằng usage error 2 trước khi mở DB (test options + CLI). Cũng: generator SQL giữ đúng một newline cuối file (diff chỉ một dòng trống, `git diff --check` toàn PR sạch);
+và theo yêu cầu Owner, panel đặt phòng trang chi tiết không còn là sticky scroll-container nên calendar/guest popover không bị cắt. Backend C4: unit 244 + integration 846. Bằng chứng UI/booking C3 giữ nguyên là bằng chứng C3; `REVIEW: NOT_RUN` cho head C4. Chi tiết: report §13.
+
+Bản cập nhật trước (C3):
 Cập nhật 2026-10-07 (`CUST-WEB-SHOWCASE-001-CP02-C3`, cùng PR #83, Draft, chưa merge): Owner đảo quyết định C2 — **template Chisfis được khôi phục
 đầy đủ** (menu, dropdown, template/currency switcher, ảnh, mọi section, trang template; logo The BHA; không khôi phục secret/NextAuth/`/api/*`) và
 các route template mở lại, riêng `/api/*` vẫn 404, `/showcase`→`/`, `/pay-done`→`/paydone`. Hero Stays dùng popover template (Location: The BHA House /
