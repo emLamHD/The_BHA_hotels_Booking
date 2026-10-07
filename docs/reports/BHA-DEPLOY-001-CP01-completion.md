@@ -2,6 +2,8 @@
 
 > `IMPLEMENTER: CLAUDE`, `REVIEWER: CODEX_READ_ONLY` (Owner invokes). Branch `ops/bha-deploy-001-cp01-rds-demo`, `BASELINE_SHA = RELEASE_SHA = 6ae3fdd3306c50736c734712df5a0f2a1ab5054a` (`origin/develop`, merge of PR #83). This is the Owner's 2026-10-07 replacement of the earlier CP01: **the Owner performs every AWS, Vercel, DNS and database write; Claude prepares, checks and guides.** The earlier permission to create `thebha_showcase_demo` on RDS and seed it is withdrawn and was not used. `REVIEW: NOT_RUN`. Files: this report, the runbook (new §11 packet and corrections), SNAPSHOT, worklog — no code, schema, workflow, Dockerfile, package or local data was changed.
 
+> **BHA-PG18-001 (separate work item, `docs/reports/BHA-PG18-001-completion.md`) supersedes the §11.3 result "BACKEND_INTEGRATION_LOCAL18: FAIL (3/846)" and "PG18_COMPATIBILITY: PARTIAL" for the corrected head; those C1 figures stay below as the history of the old head `bfd79da`/`28772f4` and are not rewritten. It also records the Owner's later RDS evidence (roles, ownership, `btree_gist` gate).**
+
 > **C1 (§11) supersedes the target facts of §2 and the bootstrap/ordering of the packet (§6): the Owner's instance is PostgreSQL 18.3 with an existing empty database `thebha`, and the runbook §11 was rewritten with two starting points. The PostgreSQL 17.10 evidence in §3 and §5 is kept as history and is not relabelled.**
 
 ## 0. Status

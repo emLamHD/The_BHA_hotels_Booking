@@ -11,7 +11,7 @@ public sealed class PropertyInventoryPersistenceTests(PostgreSqlWebApplicationFa
     private static readonly DateTimeOffset Now = DateTimeOffset.Parse("2026-07-22T00:00:00Z");
 
     [Fact]
-    public async Task Migration_applies_to_clean_postgresql_17_database()
+    public async Task Migration_applies_to_clean_postgresql_database_on_a_supported_major()
     {
         await using var context = factory.CreateDbContext();
         var applied = await context.Database.GetAppliedMigrationsAsync();
@@ -32,7 +32,10 @@ public sealed class PropertyInventoryPersistenceTests(PostgreSqlWebApplicationFa
         Assert.Contains(applied, migration => migration.EndsWith("_AddStaffIdentityFoundation"));
         Assert.Equal(9, applied.Count());
         Assert.Empty(pending);
-        Assert.StartsWith("17.", version, StringComparison.Ordinal);
+        var major = await PostgresVersionSupport.ServerMajorAsync(factory.ConnectionString);
+        Assert.True(
+            PostgresVersionSupport.SupportedMajors.Contains(major),
+            $"PostgreSQL {version} is not a verified major for this suite (supported: 17, 18).");
     }
 
     [Fact]

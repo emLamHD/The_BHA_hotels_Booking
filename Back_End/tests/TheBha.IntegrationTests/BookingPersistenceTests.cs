@@ -154,22 +154,35 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
         context.InventoryHolds.Add(hold);
         await context.SaveChangesAsync();
 
+        // Parent deletes blocked by ON DELETE RESTRICT: the SQLSTATE depends on the PostgreSQL major (BHA-PG18-001).
+        var restricted = PostgresVersionSupport.RestrictedParentDelete(
+            await PostgresVersionSupport.ServerMajorAsync(factory.ConnectionString));
         await AssertPostgresErrorAsync(
             () => context.Database.ExecuteSqlInterpolatedAsync(
                 $"DELETE FROM \"AspNetUsers\" WHERE \"Id\" = {references.Customer.Id}"),
-            PostgresErrorCodes.ForeignKeyViolation);
+            restricted);
         await AssertPostgresErrorAsync(
             () => context.Database.ExecuteSqlInterpolatedAsync(
                 $"DELETE FROM \"RoomTypes\" WHERE \"Id\" = {references.RoomType.Id}"),
-            PostgresErrorCodes.ForeignKeyViolation);
+            restricted);
         await AssertPostgresErrorAsync(
             () => context.Database.ExecuteSqlInterpolatedAsync(
                 $"DELETE FROM \"RatePlans\" WHERE \"Id\" = {references.RatePlan.Id}"),
-            PostgresErrorCodes.ForeignKeyViolation);
+            restricted);
         await AssertPostgresErrorAsync(
             () => context.Database.ExecuteSqlInterpolatedAsync(
                 $"DELETE FROM \"Properties\" WHERE \"Id\" = {references.Property.Id}"),
-            PostgresErrorCodes.ForeignKeyViolation);
+            restricted);
+
+        await using (var check = factory.CreateDbContext())
+        {
+            // The refused deletes changed nothing: every parent row and the hold are still there.
+            Assert.True(await check.Users.AnyAsync(user => user.Id == references.Customer.Id));
+            Assert.True(await check.RoomTypes.AnyAsync(type => type.Id == references.RoomType.Id));
+            Assert.True(await check.RatePlans.AnyAsync(plan => plan.Id == references.RatePlan.Id));
+            Assert.True(await check.Properties.AnyAsync(property => property.Id == references.Property.Id));
+            Assert.True(await check.InventoryHolds.AnyAsync(existing => existing.Id == hold.Id));
+        }
 
         var reservation = CreateReservation(
             references,
@@ -181,7 +194,11 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
         await AssertPostgresErrorAsync(
             () => context.Database.ExecuteSqlInterpolatedAsync(
                 $"DELETE FROM \"InventoryHolds\" WHERE \"Id\" = {hold.Id}"),
-            PostgresErrorCodes.ForeignKeyViolation);
+            restricted);
+
+        await using var after = factory.CreateDbContext();
+        Assert.True(await after.InventoryHolds.AnyAsync(existing => existing.Id == hold.Id));
+        Assert.True(await after.Reservations.AnyAsync(existing => existing.Id == reservation.Id));
     }
 
     [Fact]

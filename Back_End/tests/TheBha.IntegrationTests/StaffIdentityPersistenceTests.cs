@@ -130,12 +130,20 @@ public sealed class StaffIdentityPersistenceTests(PostgreSqlWebApplicationFactor
         Assert.Equal(
             ("23503", "FK_StaffPropertyMemberships_Properties_PropertyId"),
             await ExecuteAsync(Insert(staffId, Guid.NewGuid(), StaffRole.Manager)));
+        // Parent deletes blocked by ON DELETE RESTRICT: the SQLSTATE depends on the PostgreSQL major (BHA-PG18-001).
+        var restricted = PostgresVersionSupport.RestrictedParentDelete(
+            await PostgresVersionSupport.ServerMajorAsync(factory.ConnectionString));
         Assert.Equal(
-            ("23503", "FK_StaffPropertyMemberships_Properties_PropertyId"),
+            (restricted, "FK_StaffPropertyMemberships_Properties_PropertyId"),
             await ExecuteAsync($"DELETE FROM \"Properties\" WHERE \"Id\" = '{PropertyId}'"));
         Assert.Equal(
-            ("23503", "FK_StaffPropertyMemberships_StaffAccounts_StaffAccountId"),
+            (restricted, "FK_StaffPropertyMemberships_StaffAccounts_StaffAccountId"),
             await ExecuteAsync($"DELETE FROM \"StaffAccounts\" WHERE \"Id\" = '{staffId}'"));
+        // The refused deletes changed nothing: the parent rows and the membership are all still there.
+        Assert.Equal(1L, await ScalarAsync($"SELECT count(*) FROM \"Properties\" WHERE \"Id\" = '{PropertyId}'"));
+        Assert.Equal(1L, await ScalarAsync($"SELECT count(*) FROM \"StaffAccounts\" WHERE \"Id\" = '{staffId}'"));
+        Assert.Equal(1L, await ScalarAsync(
+            $"SELECT count(*) FROM \"StaffPropertyMemberships\" WHERE \"StaffAccountId\" = '{staffId}' AND \"PropertyId\" = '{PropertyId}'"));
         Assert.Equal(
             ("23514", "CK_StaffAccounts_DisabledAtUtc"),
             await ExecuteAsync($"UPDATE \"StaffAccounts\" SET \"IsActive\" = false WHERE \"Id\" = '{staffId}'"));
@@ -170,6 +178,14 @@ public sealed class StaffIdentityPersistenceTests(PostgreSqlWebApplicationFactor
         var result = await staff.CreateAsync(account, Password);
         Assert.True(result.Succeeded, string.Join(", ", result.Errors.Select(error => error.Code)));
         return account;
+    }
+
+    private async Task<long> ScalarAsync(string sql)
+    {
+        await using var connection = new NpgsqlConnection(factory.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand(sql, connection);
+        return (long)(await command.ExecuteScalarAsync())!;
     }
 
     private async Task<(string SqlState, string? Constraint)?> ExecuteAsync(string sql)
