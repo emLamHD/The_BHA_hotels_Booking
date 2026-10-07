@@ -225,11 +225,12 @@ const RoomDetailsContent: FC<RoomDetailsContentProps> = ({ property, roomType, r
           </Section>
         </div>
 
-        {/* SIDEBAR: the one booking panel, for desktop and mobile alike */}
+        {/* SIDEBAR: the one booking panel, for desktop and mobile alike. Not sticky and not a scroll container: the
+            panel grows with the offers and the hold form, and the date/guest pop-overs must not be clipped. */}
         <div className="block flex-grow mt-14 lg:mt-0">
           <div
             id={BOOKING_PANEL_ID}
-            className="scroll-mt-28 lg:sticky lg:top-28 lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto"
+            className="scroll-mt-28"
           >
             <div className="listingSectionSidebar__wrap shadow-xl">
               <RoomBookingSidebar property={property} roomType={roomType} searchDraft={searchDraft} />
