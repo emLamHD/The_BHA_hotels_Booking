@@ -1,6 +1,6 @@
 # CUST-WEB-SHOWCASE-001 — deploy runbook (Owner executes)
 
-> Status: **Owner-led deployment (`BHA-DEPLOY-001-CP01`, 2026-10-07): nothing here has been executed in any cloud.** The Owner performs every step that touches AWS, Vercel, DNS or a real database and enters credentials on their own machine; Claude prepares, checks and guides. The release is `develop` at `6ae3fdd3306c50736c734712df5a0f2a1ab5054a` (merge of PR #83). The operational database is **`thebha` on RDS `the-bha-db` (`ap-southeast-2`, PostgreSQL 18.3), created empty by the Owner; the Owner has since created `bha_operator` and `bha_app`, handed the database to `bha_operator` and passed the `btree_gist` permission gate (all Owner-verified, §11) — no migration, import or table grant has run yet**, the **API runtime is undecided**, and **importing the catalog is a different operation from applying migrations** (§6, §11). Evidence: `docs/reports/BHA-DEPLOY-001-CP01-completion.md` and `docs/reports/BHA-PG18-001-completion.md` (rehearsals and test suites on local scratch PostgreSQL only). Statuses: `CLOUD_DATA`, `DEPLOY_API`, `DEPLOY_ADMIN`, `DEPLOY_CUSTOMER`, `END_TO_END_LIVE`, `PUBLISH`: `NOT_RUN`.
+> Status: **Owner-led deployment (`BHA-DEPLOY-001-CP01`, 2026-10-07): nothing here has been executed in any cloud.** The Owner performs every step that touches AWS, Vercel, DNS or a real database and enters credentials on their own machine; Claude prepares, checks and guides. The release is `develop` at `6ae3fdd3306c50736c734712df5a0f2a1ab5054a` (merge of PR #83). The operational database is **`thebha` on RDS `the-bha-db` (`ap-southeast-2`, PostgreSQL 18.3), created empty by the Owner; the Owner has since created `bha_operator` and `bha_app`, handed the database to `bha_operator` and passed the `btree_gist` permission gate (all Owner-verified, §11); the database-level hardening, snapshot, migration, import and table grants are still pending**, the **API runtime is undecided**, and **importing the catalog is a different operation from applying migrations** (§6, §11). Evidence: `docs/reports/BHA-DEPLOY-001-CP01-completion.md` and `docs/reports/BHA-PG18-001-completion.md` (rehearsals and test suites on local scratch PostgreSQL only). Statuses: `CLOUD_DATA`, `DEPLOY_API`, `DEPLOY_ADMIN`, `DEPLOY_CUSTOMER`, `END_TO_END_LIVE`, `PUBLISH`: `NOT_RUN`.
 
 ## 0. Shape
 
@@ -69,7 +69,7 @@ Rollback: point the service back at the previous image **digest or SHA tag** (re
 ## 4. RDS and migrations
 
 1. RDS for PostgreSQL **18.3** (the Owner's instance `the-bha-db`, `ap-southeast-2`; Owner-verified, see §11), encrypted, in private subnets. Security group: inbound 5432 only from the API task's security group and from the operator's access path (SSM port forward or bastion). Create a role for the application (not the master user) and the database named per D2.
-2. Apply the schema with the checked-in idempotent script — safe to run twice, nothing is applied at startup. **Use the exact commands, guards and checks of §11 steps 3–8** (two starting points: a database that does not exist yet, or the existing `thebha`); `deploy/showcase/scripts/apply-migration-sql.sh` is for the local compose stack only and must never be pointed at RDS:
+2. Apply the schema with the checked-in idempotent script — safe to run twice, nothing is applied at startup. **Use the exact commands, guards and checks of §11 steps 3–8** (three routes: a fresh database, an existing database that is not bootstrapped yet, or the Owner's resume state — §11 table); `deploy/showcase/scripts/apply-migration-sql.sh` is for the local compose stack only and must never be pointed at RDS:
 
    ```bash
    psql "<connection string from a secret store, via env var>" -v ON_ERROR_STOP=1 -f deploy/showcase/migrations/idempotent.sql
@@ -153,23 +153,31 @@ Redeploy the previous image tag/digest. Migrations are forward-only: before appl
 
 ## 11. Owner-led run packet (`BHA-DEPLOY-001-CP01`, correction C1)
 
-Rehearsal: both paths below, the roles/privileges, the migration (twice), the catalog import, the Staff CLI and the API (as `bha_app` over `sslmode=verify-full`/`SSL Mode=VerifyFull`) were exercised by running these very command blocks (with only the host, port, database, master role name and CA path substituted) against an isolated local PostgreSQL 18.3 — see `docs/reports/BHA-DEPLOY-001-CP01-completion.md` §11. That proves the ordering and the SQL; it does **not** prove anything about RDS permissions, network or the RDS CA.
+Rehearsal: routes A and B below (C1 of the earlier work item) and route R (`BHA-PG18-001` correction C1, evidence in `docs/reports/BHA-PG18-001-completion.md`), the roles/privileges, the migration (twice), the catalog import, the Staff CLI and the API (as `bha_app` over `sslmode=verify-full`/`SSL Mode=VerifyFull`) were exercised by running these very command blocks (with only the host, port, database, master role name and CA path substituted) against an isolated local PostgreSQL 18.3 — see `docs/reports/BHA-DEPLOY-001-CP01-completion.md` §11. That proves the ordering and the SQL; it does **not** prove anything about RDS permissions, network or the RDS CA.
 
 Every step is performed by the Owner on the Owner's machine; Claude has not run, and does not run, anything against AWS, RDS, Vercel or DNS. **Never** put a password, connection string or token on a command line, in shell history or in chat.
 
-**Target facts supplied by the Owner (`OWNER_VERIFIED`, not checked by Claude — no `aws` CLI/profile on Claude's machine):** RDS instance `the-bha-db`, region `ap-southeast-2`, endpoint `the-bha-db.cpesw6uoopkp.ap-southeast-2.rds.amazonaws.com:5432`, engine **PostgreSQL 18.3**, client `psql` 18.4. The Owner created the database `thebha` as the RDS master `postgres` (0 public base tables at that time) and then, in this order (**Path B steps 3–5 below are therefore already done by the Owner**): `rds.allowed_extensions = *` and `btree_gist` default version 1.8, `trusted = true`, not installed; created `bha_operator` and `bha_app` (both `LOGIN`, not `SUPERUSER`/`CREATEDB`/`CREATEROLE`/`REPLICATION`/`BYPASSRLS`, passwords set with `\password`); moved ownership of `thebha` to `bha_operator` and revoked the temporary membership; logged in as `bha_operator` over TLS 1.3 (`session_user = current_user = bha_operator`); and as `bha_operator` ran `BEGIN; CREATE EXTENSION btree_gist; ROLLBACK;` successfully (`installed_version` still empty afterwards) — `OWNER_RDS_ROLE_BOOTSTRAP` and `RDS_EXTENSION_PERMISSION`: `OWNER_VERIFIED_PASS`. **Not done yet:** snapshot, migrations (step 6), table privileges for `bha_app` (step 8), `bha_app` login check, catalog import, Staff accounts. **Not verified by anyone:** security-group/public-access settings, CA validation as used by the API, API runtime, IAM, ECR, Vercel, DNS. Before step 6 repeat the emptiness gate of step 5 (the first five queries), because the Owner's earlier observation of 0 tables is not a substitute for it.
+**Target facts supplied by the Owner (`OWNER_VERIFIED`, not checked by Claude — no `aws` CLI/profile on Claude's machine):** RDS instance `the-bha-db`, region `ap-southeast-2`, endpoint `the-bha-db.cpesw6uoopkp.ap-southeast-2.rds.amazonaws.com:5432`, engine **PostgreSQL 18.3**, client `psql` 18.4. The Owner has, as evidenced: created the database `thebha` as the RDS master `postgres` (0 public base tables observed at that time); read `rds.allowed_extensions = *` and `btree_gist` default 1.8, `trusted = true`, not installed; created `bha_operator` and `bha_app` (both `LOGIN`; `NOSUPERUSER`, `NOCREATEDB`, `NOCREATEROLE`, `NOREPLICATION`, `NOBYPASSRLS`; passwords set with `\password`); moved ownership of `thebha` to `bha_operator` and revoked the temporary membership `bha_operator → postgres`; logged in directly as `bha_operator` over TLS 1.3 (`session_user = current_user = bha_operator`); and, as `bha_operator`, run `BEGIN; CREATE EXTENSION btree_gist; ROLLBACK;` successfully (`installed_version` empty afterwards) — `OWNER_RDS_ROLE_BOOTSTRAP` and `RDS_EXTENSION_PERMISSION`: `OWNER_VERIFIED_PASS`.
 
-**Two starting points — pick by what actually exists** (step 3 tells you):
+**Not evidenced / still pending — none of it may be assumed done:** `REVOKE ALL ON DATABASE thebha FROM PUBLIC` and `GRANT CONNECT ON DATABASE thebha TO bha_app` (the last two statements of step 4; this packet keeps them as pending hardening, step 4R), a fresh emptiness check (the 0 tables were seen *before* migration and are not a substitute), the RDS snapshot, migration, table privileges and default privileges for `bha_app`, a `bha_app` login, catalog import, Staff accounts, deployment. **Not verified by anyone:** security-group/public-access settings, CA validation as used by the API, API runtime, IAM, ECR, Vercel, DNS.
 
-- **Path A — the database does not exist yet.** The master creates the roles, then creates the database *owned by the operator role*.
-- **Path B — `thebha` already exists, created by `postgres` (the Owner's current state).** Keep it: do **not** DROP, recreate, truncate or re-`CREATE` it. The master creates the roles and then *hands the existing database to the operator role* (an explicit ownership change that has **not** been executed).
+**Which route? Read the table; the read-only checks decide, not memory.** The Owner's evidenced state is the last row but one (route **R**).
+
+| What is actually on the target | Route | Steps |
+|---|---|---|
+| database `thebha` does not exist, and `bha_operator`/`bha_app` do not exist | **A — fresh** | 1, 2, 3, 4 (create roles, `CREATE DATABASE … OWNER bha_operator`), 5, 6 … |
+| `thebha` exists, owned by the master, and the roles do not exist (the state before the Owner's bootstrap) | **B — existing, not yet bootstrapped** | 1, 2, 3, 4 (create roles, `ALTER DATABASE … OWNER TO bha_operator`; never drop/recreate/truncate), 5, 6 … |
+| `thebha` is owned by `bha_operator`, both roles exist with the evidenced flags and no stray memberships (**the Owner's evidenced state**) | **R — resume** | 1, 2, **3R** (read-only verification), **4R** (pending hardening), 5, 6 … — **skip steps 3 and 4 entirely**: no `CREATE ROLE`, no password reset, no `CREATE DATABASE`, no `ALTER DATABASE … OWNER`, no membership grant to the master |
+| anything else: roles with those names but different flags, unexpected memberships, a database owned by another role, or a role of unknown origin | **stop** | report the exact output (no secrets) and decide with the Owner/OC; do not proceed and do not "fix" it by resetting or dropping |
+
+Whatever the route, nothing may `DROP`, recreate, truncate or seed `thebha`, and the Development seeders are never used.
 
 **Three identities, never mixed:**
 
 | Identity | Used for | Never used for |
 |---|---|---|
-| bootstrap = RDS master `postgres` | step 3–4 only: inventory, roles, database creation/ownership | migrations, import, the API, the Staff CLI |
-| operator `bha_operator` | owns database `thebha` and its objects: migration, privilege grants, catalog import | the API |
+| bootstrap = RDS master `postgres` | routes A/B, steps 3–4 only: inventory, roles, database creation/ownership (route R does not need it: that bootstrap is already evidenced) | migrations, import, the API, the Staff CLI |
+| operator `bha_operator` | owns database `thebha` and its objects: pending hardening (step 4R), migration, privilege grants, catalog import | the API |
 | application `bha_app` | runtime: API and Staff CLI — `SELECT/INSERT/UPDATE/DELETE` only, no DDL, not an owner | migrations |
 
 **Conventions.** A line that still contains `<…>` is a **template — do not paste it until every `<…>` is replaced**; this includes `<RDS CA bundle path>` and `<image>`. `psql` meta-commands (`\password`) are written on their own lines for an interactive session. Verification ("Expect") lines are results to compare; stop if one differs.
@@ -197,8 +205,8 @@ chmod 600 "$PGPASSFILE"
 stat -c '%a' "$PGPASSFILE"     # expect: 600
 # add (editor), one line per identity — '*' matches any database; the operator/app lines may use thebha instead of '*':
 #   <BHA_HOST>:5432:*:postgres:<master password>
-#   <BHA_HOST>:5432:thebha:bha_operator:<operator password>      (after step 4)
-#   <BHA_HOST>:5432:thebha:bha_app:<application password>        (after step 4)
+#   <BHA_HOST>:5432:thebha:bha_operator:<operator password>      (routes A/B: after step 4; route R: needed for step 3R — keep an existing line)
+#   <BHA_HOST>:5432:thebha:bha_app:<application password>        (routes A/B: after step 4; route R: needed from step 8 — keep an existing line)
 ```
 
 **Step 1 — verify the release and this packet's checkout (no branch switch needed).**
@@ -207,10 +215,15 @@ stat -c '%a' "$PGPASSFILE"     # expect: 600
 git fetch --prune origin
 git show 6ae3fdd3306c50736c734712df5a0f2a1ab5054a:deploy/showcase/migrations/idempotent.sql | sha256sum   # expect d7d38722dee4ac0c2cc6412df8fbdda22286f28e3a918531881117da7019b406
 sha256sum deploy/showcase/migrations/idempotent.sql                                                    # the file you will apply: expect the same hash
-git diff --quiet 6ae3fdd3306c50736c734712df5a0f2a1ab5054a HEAD -- Back_End Front_End deploy .github && echo "application source identical to the release"
+if git diff --quiet 6ae3fdd3306c50736c734712df5a0f2a1ab5054a HEAD -- Back_End Front_End deploy .github ':(exclude)Back_End/tests'; then
+  echo "runtime source, Dockerfile, deploy files and workflows identical to the release (Back_End/tests excluded on purpose)"
+else
+  echo "STOP: the runtime source differs from the release 6ae3fdd" >&2; false
+fi
+git diff --name-only 6ae3fdd3306c50736c734712df5a0f2a1ab5054a HEAD -- Back_End/tests
 ```
 
-`6ae3fdd` is the approved **application release**; the head of PR #84 (documentation only) is a different commit — the last command proves the two have the same application source. Optional: `deploy/showcase/scripts/regenerate-migration-sql.sh --check` (needs `dotnet-ef`) → `idempotent.sql is up to date`.
+Three different commits are involved — do not confuse them: **`6ae3fdd`** is the approved *application release* (what step 2 builds); **`17c15e7`** is the `develop` commit that merged the earlier documentation-only packet; your checkout's **HEAD** additionally contains the `BHA-PG18-001` test changes and later documentation. The `if` exits non-zero and prints `STOP` if any runtime file, Dockerfile, deployment file or workflow differs from `6ae3fdd`; it deliberately excludes `Back_End/tests`, because the test project changed on purpose. The last command lists exactly those changes — expect these five files: `BookingPersistenceTests.cs`, `PostgresVersionSupport.cs`, `PostgresVersionSupportTests.cs`, `PropertyInventoryPersistenceTests.cs`, `StaffIdentityPersistenceTests.cs` (all under `Back_End/tests/TheBha.IntegrationTests/`). Optional: `deploy/showcase/scripts/regenerate-migration-sql.sh --check` (needs `dotnet-ef`) → `idempotent.sql is up to date`.
 
 **Step 2 — build the image for exactly `6ae3fdd` (needed by step 10 and by the API; nothing is pushed here).** Built from an archive of the release into a temporary directory, so your checkout stays where it is:
 
@@ -221,7 +234,7 @@ docker image inspect bha-api:6ae3fdd --format '{{.Id}} user={{.Config.User}}'   
 rm -rf "$tmp"
 ```
 
-**Step 3 — bootstrap connection and inventory (identity: master, database `postgres` — which always exists; read-only).** Do not connect to `thebha` or as `bha_operator` yet (the one read-only `btree_gist` question below is the only exception, and only for Path B): on a fresh target they may not exist.
+**Step 3 — bootstrap connection and inventory (routes A and B only — route R skips to step 3R; identity: master, database `postgres` — which always exists; read-only).** Do not connect to `thebha` or as `bha_operator` yet (the one read-only `btree_gist` question below is the only exception, and only for route B): on a fresh target they may not exist.
 
 ```bash
 pgas postgres "$BHA_MASTER" -At -c "select current_database(), current_user, split_part(version(),' ',2), s.ssl, s.version from pg_stat_ssl s where s.pid = pg_backend_pid()"
@@ -230,9 +243,9 @@ pgas postgres "$BHA_MASTER" -At -c "select rolname from pg_roles where rolname i
 pgas postgres "$BHA_MASTER" -At -c "select rolsuper, rolcreaterole, rolcreatedb, (select pg_has_role(current_user, r2.oid, 'member') from pg_roles r2 where r2.rolname = 'rds_superuser') from pg_roles where rolname = current_user"
 ```
 
-Expect: `postgres|<master>|18.3|t|TLSv1.3`; a database list that either contains `thebha|postgres` (**Path B**) or does not contain `thebha` (**Path A**); **no rows** for the third query (if `bha_operator`/`bha_app` already exist, stop — they were not created by this packet; do not reset them blindly); on RDS the last query should show the master as a member of `rds_superuser` (`f|t|t|t`); on a server without that role the last column is empty (as in the local rehearsal). The query is written so that a missing `rds_superuser` role gives an empty value, not an error. If the endpoint, version or TLS result differs from the Owner's facts above, stop.
+Expect: `postgres|<master>|18.3|t|TLSv1.3`; a database list that either contains `thebha|postgres` (**route B**) or does not contain `thebha` (**route A**); **no rows** for the third query (if `bha_operator`/`bha_app` already exist, stop — they were not created by this packet; do not reset them blindly); on RDS the last query should show the master as a member of `rds_superuser` (`f|t|t|t`); on a server without that role the last column is empty (as in the local rehearsal). The query is written so that a missing `rds_superuser` role gives an empty value, not an error. If the endpoint, version or TLS result differs from the Owner's facts above, stop.
 
-*The single read-only question to answer before anything else* — can this server create `btree_gist` (a trusted extension on PostgreSQL ≥ 13)? Run it **in `thebha` as the master** (Path B) — it only reads:
+*The single read-only question to answer before anything else* — can this server create `btree_gist` (a trusted extension on PostgreSQL ≥ 13)? Run it **in `thebha` as the master** (route B) — it only reads:
 
 ```bash
 pgas "$BHA_DB" "$BHA_MASTER" -At -c "select v.name, v.version, v.trusted, coalesce(e.installed_version,'-') from pg_available_extension_versions v join pg_available_extensions e on e.name = v.name where v.name = 'btree_gist' and v.version = e.default_version"
@@ -240,7 +253,19 @@ pgas "$BHA_DB" "$BHA_MASTER" -At -c "select v.name, v.version, v.trusted, coales
 
 Expect `btree_gist|<version>|t|-`. Report the output; it tells nothing yet about RDS permissions beyond availability (that is gate 5).
 
-**Step 4 — roles and database ownership (identity: master; database `postgres`; the Owner's explicit changes, none executed yet).** Open an interactive session — passwords are typed at the prompts, never in the statement:
+**Step 3R — route R only: verify the evidenced bootstrap, read-only (identity: `bha_operator`, database `thebha`).** The master is not used. These queries re-read what the Owner reported; any mismatch means *stop*, not *repair*:
+
+```bash
+pgas "$BHA_DB" bha_operator -At -c "select current_database(), current_user, session_user, split_part(version(),' ',2), s.ssl, s.version from pg_stat_ssl s where s.pid = pg_backend_pid()"
+pgas "$BHA_DB" bha_operator -At -c "select rolname, rolcanlogin, rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls, rolvaliduntil is null from pg_roles where rolname in ('bha_operator','bha_app') order by 1"
+pgas "$BHA_DB" bha_operator -At -c "select datname, pg_get_userbyid(datdba) from pg_database where datname = current_database()"
+pgas "$BHA_DB" bha_operator -At -c "select r.rolname, m.rolname, am.admin_option, am.inherit_option, am.set_option from pg_auth_members am join pg_roles r on r.oid = am.roleid join pg_roles m on m.oid = am.member where r.rolname in ('bha_operator','bha_app') or m.rolname in ('bha_operator','bha_app') order by 1, 2"
+pgas "$BHA_DB" bha_operator -At -c "select nspname, pg_get_userbyid(nspowner) from pg_namespace where nspname = 'public'"
+```
+
+Expect: `thebha|bha_operator|bha_operator|18.3|t|TLSv1.3`; exactly two role rows `bha_app|t|f|f|f|f|f|t` and `bha_operator|t|f|f|f|f|f|t` (can log in; not superuser/createdb/createrole/replication/bypassrls; no expiry); `thebha|bha_operator`; for memberships, **either no rows or only** the automatic administrative entries that PostgreSQL 16+ gives the creating master for each role it created — `bha_app|postgres|t|f|f` and/or `bha_operator|postgres|t|f|f` (admin option only: it can *manage* the role but cannot use its privileges: no inherit, no `SET`; revoking the Owner's temporary membership may or may not have removed such an entry — both outcomes are acceptable). The Owner's temporary membership was a different, usable entry (inherit/`SET`) and must be gone: **any row with `inherit_option` or `set_option` true, any member other than the master, or any membership of `bha_operator`/`bha_app` in another role is a mismatch**; `public|pg_database_owner`. **Stop and report** if a role is missing or has other flags, if a membership differs from that, if the owner is someone else, or if the TLS result differs — do not reset a password, recreate a role or change ownership to make it match. The extension gate is already `OWNER_VERIFIED_PASS` for exactly this database and role, so it is not run again on this route (step 5 says when to repeat it).
+
+**Step 4 — roles and database ownership (routes A and B only — route R skips to step 4R; identity: master; database `postgres`; the Owner's explicit changes).** Open an interactive session — passwords are typed at the prompts, never in the statement:
 
 ```bash
 pgas postgres "$BHA_MASTER"
@@ -257,12 +282,12 @@ GRANT bha_operator TO CURRENT_USER;
 `GRANT bha_operator TO CURRENT_USER` lets the master hand a database to that role (the RDS master is not a real superuser; rehearsed locally with a non-superuser master, and the Owner has since performed this sequence on RDS — `OWNER_VERIFIED`; the temporary membership was revoked afterwards). Then exactly one of:
 
 ```sql
--- Path A (thebha does not exist):
+-- route A (thebha does not exist):
 CREATE DATABASE thebha OWNER bha_operator;
 ```
 
 ```sql
--- Path B (thebha exists, created by the master; keep it, change only its owner):
+-- route B (thebha exists, created by the master and not yet bootstrapped; keep it, change only its owner):
 ALTER DATABASE thebha OWNER TO bha_operator;
 ```
 
@@ -280,21 +305,42 @@ pgas postgres "$BHA_MASTER" -At -c "select datname, pg_get_userbyid(datdba) from
 pgas "$BHA_DB" "$BHA_MASTER" -At -c "select nspname, pg_get_userbyid(nspowner) from pg_namespace where nspname = 'public'"            # expect: public|pg_database_owner
 ```
 
-If the schema owner is not `pg_database_owner` (for example `postgres`), the operator cannot create tables in `public`: the master must run `ALTER SCHEMA public OWNER TO bha_operator;` in `thebha` — another explicit ownership change; record it. Add the operator and application lines to the password file now.
+If the schema owner is not `pg_database_owner` (for example `postgres`), the operator cannot create tables in `public`: the master must run `ALTER SCHEMA public OWNER TO bha_operator;` in `thebha` — another explicit ownership change; record it. Add the operator and application lines to the password file now. After the `REVOKE ALL ON DATABASE thebha FROM PUBLIC` above, the master has no `CONNECT` right on `thebha` unless it holds one through the roles it belongs to — in the local rehearsal a non-superuser master lost access; whether the RDS master keeps it was not tested. Nothing in this packet needs the master in `thebha` after step 4 (everything runs as `bha_operator`), so do not grant it back just to look around.
 
-**Step 5 — gates before any migration (identity: operator; database `thebha`).** First use of the connection that will apply the SQL — it proves the role, password, TLS and database exist (Path A and B alike):
+**Step 4R — route R only: the database hardening that is still pending (identity: `bha_operator`, the database owner; database `thebha`).** Step 4's last two statements were **not** evidenced as run, and they are not skipped just because the roles exist. The owner of a database may revoke and grant on it, so the master is not needed and no membership is granted back to it. Run as an interactive session:
 
 ```bash
-pgas "$BHA_DB" bha_operator -At -c "select current_database(), current_user, inet_server_addr(), split_part(version(),' ',2)"
+pgas "$BHA_DB" bha_operator
+```
+
+```sql
+REVOKE ALL ON DATABASE thebha FROM PUBLIC;
+GRANT CONNECT ON DATABASE thebha TO bha_app;
+```
+
+Verify:
+
+```bash
+pgas "$BHA_DB" bha_operator -At -c "select datacl::text from pg_database where datname = current_database()"
+pgas "$BHA_DB" bha_operator -At -c "select has_database_privilege('bha_app', current_database(), 'CONNECT'), has_database_privilege('bha_operator', current_database(), 'CONNECT')"
+```
+
+Expect the ACL to list `bha_operator` (with its own privileges) and `bha_app=c/bha_operator` and **no** `=…` entry for PUBLIC, then `t|t`. Dependency: this must be done before the first `bha_app` login (step 8) and is independent of the migration. It changes who may connect, not any data. Stop if the owner is not `bha_operator`, or the `REVOKE`/`GRANT` is refused — report the message.
+
+**Step 5 — gates before any migration (all routes; identity: operator; database `thebha`).** The connection that will apply the SQL (routes A/B: its first use; route R: already read in step 3R). The earlier observation of 0 tables was made before any of this and is not accepted in its place — run it now:
+
+```bash
+pgas "$BHA_DB" bha_operator -At -c "select current_database(), current_user, session_user, inet_server_addr(), split_part(version(),' ',2)"
+pgas "$BHA_DB" bha_operator -At -c "select ssl, version from pg_stat_ssl where pid = pg_backend_pid()"
 pgas "$BHA_DB" bha_operator -At -c "select count(*) from information_schema.tables where table_schema='public'"
 pgas "$BHA_DB" bha_operator -At -c "select to_regclass('public.\"__EFMigrationsHistory\"')"
 pgas "$BHA_DB" bha_operator -At -c "select pg_get_userbyid(d.datdba) = current_user, has_schema_privilege('public','CREATE'), r.rolsuper from pg_database d, pg_roles r where d.datname = current_database() and r.rolname = current_user"
 pgas "$BHA_DB" bha_operator -At -c "select count(*) from pg_extension where extname = 'btree_gist'"
 ```
 
-Expect: `thebha|bha_operator|<RDS address>|18.3`; **`0`** tables; an empty line; `t|t|f` (owns the database, may create in `public`, not a superuser); `0`. **If the table count is not 0 or the history table exists, stop**: the database is not empty — take a snapshot, have the Owner compare the schema, and do not apply (migration 7 converts legacy booking rows).
+Expect: `thebha|bha_operator|bha_operator|<RDS address>|18.3`; `t|TLSv1.3`; **`0`** tables; an empty line; `t|t|f` (owns the database, may create in `public`, not a superuser); `0`. **If the table count is not 0, the history table exists or `btree_gist` is already installed, stop**: the database is not empty or not in the evidenced state — take a snapshot, have the Owner compare the schema, and do not apply (migration 7 converts legacy booking rows). Never `DROP`, recreate, truncate or seed to get back to 0.
 
-Extension permission gate (a write attempt that is rolled back; nothing remains):
+Extension permission gate (a write attempt that is rolled back; nothing remains). **Routes A and B: run it once. Route R: do not run it — the Owner already ran exactly this as `bha_operator` on `thebha` (`OWNER_VERIFIED_PASS`); repeat it only if the database, the role, its privileges or the server configuration changed since, or you need to check a new difference.**
 
 ```bash
 pgas "$BHA_DB" bha_operator <<'SQL'
@@ -307,7 +353,7 @@ pgas "$BHA_DB" bha_operator -At -c "select count(*) from pg_extension where extn
 
 Expect `BEGIN`, `CREATE EXTENSION`, `ROLLBACK` with no `ERROR`, then `0`. **If it fails with a permission error: stop and report the exact message.** Do not grant `rds_superuser` to `bha_operator` or `bha_app`. If the Owner decides the master should create the extension once (`CREATE EXTENSION btree_gist;` run as master in `thebha`), migration 8's `IF NOT EXISTS` then skips it — that route is untested; decide it explicitly. `RDS_EXTENSION_PERMISSION` is `OWNER_VERIFIED_PASS` for `bha_operator` on `thebha` (the Owner ran this very rolled-back test); repeat it only if the database or role changes.
 
-**Step 6 — snapshot, then apply (identity: operator).** Take a manual RDS snapshot (console or `aws rds create-db-snapshot`) and wait for `available`. Repeat the first and second query of step 5, then:
+**Step 6 — snapshot, then apply (identity: operator).** Take a manual RDS snapshot (console or `aws rds create-db-snapshot`) and wait for `available`. Right before applying, repeat the identity, table-count, history-table and extension-count queries of step 5 (not the rolled-back extension test), then:
 
 ```bash
 pgas "$BHA_DB" bha_operator -f deploy/showcase/migrations/idempotent.sql
@@ -328,7 +374,7 @@ pgas "$BHA_DB" bha_operator -f deploy/showcase/migrations/idempotent.sql
 
 Rerun expectation: exit 0, only the notice `relation "__EFMigrationsHistory" already exists, skipping`; repeat the first two queries: still 9 rows and 28 tables.
 
-**Step 8 — application role privileges (identity: operator).**
+**Step 8 — application role privileges and first `bha_app` login (identity: operator for the grants; routes A/B did the `CONNECT` grant in step 4, route R in step 4R — it must exist before the login below).**
 
 ```bash
 pgas "$BHA_DB" bha_operator <<'SQL'
