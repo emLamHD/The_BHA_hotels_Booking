@@ -11,7 +11,7 @@ Branch `feat/bha-admin-proxy-001` from `origin/develop` = baseline `f3c96160aa4e
 | LOCAL_TRANSPORT | PASS — fixture HTTPS upstream, fake data |
 | LOCAL_STAFF_AUTH | PASS — real API image + PostgreSQL 18.3, curl cookie jar (no browser) |
 | BUILD / lint / tests (local) | PASS; CI result in the Owner-facing chat report and the PR checks |
-| REVIEW | RUN by Owner on `7952fe9` — no findings (verbatim, Review section). Correction C1 (EC2 packet mounts): NOT_RUN, awaiting Owner |
+| REVIEW | RUN by Owner on `7952fe9` — no findings (verbatim, Review section). Correction C1 (EC2 packet mounts): RUN by Owner on `11a1e6c` — no findings (verbatim, Correction C1 section) |
 | VERCEL_CONFIG_APPLY, ADMIN_REDEPLOY, EC2_ADMIN_ORIGINS_APPLY, ADMIN_LOGIN_LIVE, ADMIN_CALENDAR_READ_LIVE, ADMIN_CALENDAR_WRITE_LIVE | NOT_RUN |
 
 Customer live, CSRF 200/no-store, guest booking written to RDS, RDS migration/import, the Staff Manager and Caddy/sslip.io are `OWNER_VERIFIED` history and were not re-tested or reset.
@@ -115,6 +115,16 @@ This review record is a documentation-only commit after the reviewed head; no co
 
 ## Correction C1 (EC2 packet mounts)
 
-Scope: runbook §7b C and this report only; no proxy code, no cloud. Start `f59eef94147b7c9ae1ad0ed7b3f408921ffaeb40`. The packet now supports the two bind mounts the Owner actually uses (above) and was exercised with exactly that `--mount` configuration, including a successful run and rollbacks. The Codex result above covers `7952fe9`; this correction is **not yet reviewed**.
+Scope: runbook §7b C and this report only; no proxy code, no cloud. Start `f59eef94147b7c9ae1ad0ed7b3f408921ffaeb40`. The packet now supports the two bind mounts the Owner actually uses (above) and was exercised with exactly that `--mount` configuration, including a successful run and rollbacks. The first Codex result above covers `7952fe9`. The correction was then reviewed:
 
-`READY_FOR_CODEX_REVIEW` — Owner must invoke `/codex:review --base origin/develop` (limit: 1 invocation per correction completion).
+Reviewer: `CODEX_READ_ONLY`, invoked by Owner (one invocation for this correction completion) as `/codex:review --base origin/develop`, against PR head `11a1e6c66549b30e2007e422c084856747ee8cd6` (diff `origin/develop...HEAD`: 9 files, +552/−20). Result: **no findings**. Its output reports no test run of its own (reviewer checks `NOT_RUN` as far as this record shows); the PASS results are Claude's local checks, including the exercises of the exact `--mount` configuration above. Codex output, verbatim as forwarded by Owner:
+
+```text
+# Codex Review
+
+Target: branch diff against origin/develop
+
+The Admin proxy is opt-in, validates its upstream, and rewrites only the Staff API namespace. I found no definite regressions in the changed code or deployment guidance.
+```
+
+This record is a documentation-only commit after the reviewed head. No finding was left to fix. `EC2_ADMIN_ORIGINS_APPLY` and every other cloud status remain `NOT_RUN`.
