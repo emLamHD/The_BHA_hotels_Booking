@@ -173,7 +173,7 @@ How it works: with `API_PROXY_ORIGIN` set at build time, `Front_End/Admin_Web/ne
 
 `API_PROXY_ORIGIN` is server/build-time only and never `NEXT_PUBLIC_`. Both variables and the rewrite are fixed at build: **redeploy Production after setting them or after any code change**. A Preview build would keep the Production hostname as its API base and is not a working proxy — do not report Preview as working. The `sslip.io` host embeds the EC2 public IP (same limit as §7a).
 
-**C. EC2: allow the Admin origin on the API (apply this before Vercel is redeployed)** — run on the EC2 host. Nothing below prints a secret; `/etc/the-bha/api.env` is only ever appended to, after a backup that is never replaced. No value in this block is a placeholder. Save it as a file and run it with `bash <file>` (it uses `set -e`: a STOP ends the script, not your login shell). Set `D="sudo docker"` if your user cannot run `docker` directly. The script is **create-before-stop**: the new container is created and checked first, the old one is stopped only then, and any failure after that point runs a rollback file that it wrote beforehand with literal values (path printed). It only ever uses the settings it reads back from the running container; it STOPs, changing nothing, if that container is not shaped as expected.
+**C. EC2: allow the Admin origin on the API (apply this before Vercel is redeployed)** — run on the EC2 host. Nothing below prints a secret; `/etc/the-bha/api.env` is only ever appended to, after a backup that is never replaced. No value in this block is a placeholder. Save it as a file and run it with `bash <file>` (it uses `set -e`: a STOP ends the script, not your login shell). Set `D="sudo docker"` if your user cannot run `docker` directly. The script is **create-before-stop**: the new container is created and checked first, the old one is stopped only then, and any failure after that point runs a rollback file that it wrote beforehand with literal values (path printed). It supports exactly the two bind mounts in use — `/var/lib/the-bha/keys` → `/var/keys` (read-write) and `/opt/the-bha/certs/rds-ca.pem` → `/certs/rds-ca.pem` (read-only), created with `--mount` (a container created with `-v` has a different `HostConfig` shape and stops at the settings comparison, before anything is stopped) — and recreates them with `--mount`; every other setting it reads back from the running container. It STOPs, changing nothing, if the container is not shaped as expected (image, network, port binding, exactly those two mounts with those modes, variable names, empty key directory).
 
 ```bash
 set -euo pipefail
@@ -185,22 +185,32 @@ OLD=the-bha-api
 IMG=944850790466.dkr.ecr.ap-southeast-2.amazonaws.com/the-bha-api@sha256:d01c7d9d2b9d6cd311f77dcd8a1e49daae12a101efb6c8e1db50c9a07d98b4b6
 CPORT=8080
 HPORT=8080
-KEYS_SRC=/var/lib/the-bha/keys
+KEYS_SRC=/var/lib/the-bha/keys          # -> /var/keys, read-write (Data Protection key ring = session/antiforgery keys)
+CA_SRC=/opt/the-bha/certs/rds-ca.pem    # -> /certs/rds-ca.pem, read-only (RDS CA bundle)
 fail() { echo "STOP: $*" >&2; exit 1; }
+# As the container's own user: the key ring is readable and writable, the CA readable but NOT writable.
+mount_check() { $D exec "$1" sh -c 'test -r /var/keys && test -w /var/keys && test -r /certs/rds-ca.pem && ! test -w /certs/rds-ca.pem'; }
 
 # C1. Read-only: the running container must be the approved image, shaped as the brief describes.
 test "$($D inspect -f '{{.Config.Image}}' $OLD)" = "$IMG" || fail "$OLD is not the approved image reference"
 case "$($D inspect -f '{{.HostConfig.NetworkMode}}' $OLD)" in default|bridge) ;; *) fail "not the default bridge network" ;; esac
 test "$($D inspect -f '{{json .HostConfig.PortBindings}}' $OLD)" = "{\"$CPORT/tcp\":[{\"HostIp\":\"127.0.0.1\",\"HostPort\":\"$HPORT\"}]}" || fail "port bindings are not 127.0.0.1:$HPORT:$CPORT"
-test "$($D inspect -f '{{len .HostConfig.Mounts}}' $OLD)" = 0 || fail "the container uses --mount; this script rebuilds -v binds only (adapt it first)"
-BINDLIST=$($D inspect -f '{{range .HostConfig.Binds}}{{println .}}{{end}}' $OLD)
-printf '%s\n' "$BINDLIST" | grep -q "^$KEYS_SRC:/var/keys\(:\|$\)" || fail "bind $KEYS_SRC -> /var/keys not found"
-printf '%s\n' "$BINDLIST" | grep -qE ':ro(,|$)' || fail "no read-only (CA) bind found"
+# Exactly the two bind mounts the Owner uses (created with --mount): the keys directory
+# (read-write) and the RDS CA file (read-only). Source, destination and read/write mode of each are asserted.
+test "$($D inspect -f '{{len .Mounts}}' $OLD)" = 2 || fail "expected exactly 2 mounts (keys, RDS CA)"
+MOUNTS=$($D inspect -f '{{range .Mounts}}{{.Type}}|{{.Source}}|{{.Destination}}|{{.RW}}{{println}}{{end}}' $OLD)
+printf '%s\n' "$MOUNTS" | grep -qxF "bind|$KEYS_SRC|/var/keys|true" || fail "keys mount must be: bind $KEYS_SRC -> /var/keys, read-write"
+printf '%s\n' "$MOUNTS" | grep -qxF "bind|$CA_SRC|/certs/rds-ca.pem|false" || fail "CA mount must be: bind $CA_SRC -> /certs/rds-ca.pem, read-only"
+sudo test -d "$KEYS_SRC" || fail "$KEYS_SRC is not a directory on this host"
+sudo test -f "$CA_SRC" || fail "$CA_SRC is not a file on this host"
+sudo stat -c '%n owner=%u:%g mode=%a' "$KEYS_SRC" "$CA_SRC"     # information for you to read
+KEYS_BEFORE=$(sudo ls -A "$KEYS_SRC" | wc -l)
+[ "$KEYS_BEFORE" -gt 0 ] || fail "$KEYS_SRC is empty: there is no key ring to preserve (wrong directory?)"
+mount_check $OLD || fail "inside $OLD the keys are not read-write or the CA is not read-only-readable"
 RESTART=$($D inspect -f '{{.HostConfig.RestartPolicy.Name}}' $OLD)
 LOGDRV=$($D inspect -f '{{.HostConfig.LogConfig.Type}}' $OLD)
 LOGOPTS=$($D inspect -f '{{range $k,$v := .HostConfig.LogConfig.Config}}--log-opt {{$k}}={{$v}} {{end}}' $OLD)
-BINDS=$($D inspect -f '{{range .HostConfig.Binds}}-v {{.}} {{end}}' $OLD)
-echo "restart=$RESTART logdriver=$LOGDRV logopts=$LOGOPTS"; printf '%s\n' "$BINDLIST"
+echo "restart=$RESTART logdriver=$LOGDRV logopts=$LOGOPTS keyfiles=$KEYS_BEFORE"
 
 # C2. Variable NAMES (never values) the container has that are in neither the env file nor the image defaults.
 $D inspect -f '{{range .Config.Env}}{{println .}}{{end}}' $OLD | cut -d= -f1 | sort -u > /tmp/bha-names-container
@@ -244,10 +254,11 @@ chmod 700 "$RB"; echo "rollback file: $RB"
 rollback() { bash "$RB" || echo "ROLLBACK FILE FAILED - run it by hand: bash $RB" >&2; }
 
 # C4. Create the new container first (nothing is stopped yet; docker reads the env file here).
-$D create --name ${OLD}-new --restart "$RESTART" --log-driver "$LOGDRV" $LOGOPTS -p 127.0.0.1:$HPORT:$CPORT --env-file "$ENVF" $BINDS "$IMG" >/dev/null \
+$D create --name ${OLD}-new --restart "$RESTART" --log-driver "$LOGDRV" $LOGOPTS -p 127.0.0.1:$HPORT:$CPORT --env-file "$ENVF" \
+  --mount type=bind,src="$KEYS_SRC",dst=/var/keys --mount type=bind,src="$CA_SRC",dst=/certs/rds-ca.pem,readonly "$IMG" >/dev/null \
   || { rollback; fail "docker create failed (env file unreadable by this user? set D=\"sudo docker\"); rolled back"; }
 # Same settings as the running one? (mounts included). Differences end the run before anything is stopped.
-F='{{json .HostConfig.Binds}} {{json .HostConfig.Mounts}} {{range .Mounts}}{{.Type}}:{{.Destination}}:{{.RW}} {{end}} {{json .HostConfig.PortBindings}} {{json .HostConfig.RestartPolicy}} {{json .HostConfig.LogConfig}} {{.HostConfig.NetworkMode}} {{json .HostConfig.CapAdd}} {{json .HostConfig.CapDrop}} {{json .HostConfig.SecurityOpt}} {{json .HostConfig.ReadonlyRootfs}} {{json .Config.User}} {{json .Config.Entrypoint}} {{json .Config.Cmd}}'
+F='{{json .HostConfig.Binds}} {{json .HostConfig.Mounts}} {{range .Mounts}}{{.Type}}:{{.Source}}:{{.Destination}}:{{.RW}} {{end}} {{json .HostConfig.PortBindings}} {{json .HostConfig.RestartPolicy}} {{json .HostConfig.LogConfig}} {{.HostConfig.NetworkMode}} {{json .HostConfig.CapAdd}} {{json .HostConfig.CapDrop}} {{json .HostConfig.SecurityOpt}} {{json .HostConfig.ReadonlyRootfs}} {{json .Config.User}} {{json .Config.Entrypoint}} {{json .Config.Cmd}}'
 diff <($D inspect -f "$F" $OLD) <($D inspect -f "$F" ${OLD}-new) || { rollback; fail "container settings differ (see the diff above); rolled back"; }
 echo "container settings identical"
 
@@ -260,6 +271,10 @@ for i in $(seq 1 60); do
   sleep 1
 done
 [ "$OK" = yes ] || { rollback; fail "/health/ready was not 200 within 60 s; rolled back"; }
+mount_check ${OLD}-new || { rollback; fail "in the new container the keys are not read-write or the CA is not readable/read-only; rolled back"; }
+KEYS_AFTER=$(sudo ls -A "$KEYS_SRC" | wc -l)
+[ "$KEYS_AFTER" -ge "$KEYS_BEFORE" ] || { rollback; fail "key ring files went from $KEYS_BEFORE to $KEYS_AFTER; rolled back"; }
+echo "key ring files: $KEYS_BEFORE before, $KEYS_AFTER after (the same directory, so existing sessions stay valid)"
 $D rename $OLD ${OLD}-prev
 $D update --restart=no ${OLD}-prev >/dev/null
 $D rename ${OLD}-new $OLD
