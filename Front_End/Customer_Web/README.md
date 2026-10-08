@@ -93,6 +93,29 @@ certificate errors when verifying behaviour.
 `npm run build` and `npm run start` are unchanged and use the standard Next
 commands.
 
+### Same-origin API proxy (optional, Vercel demo)
+
+By default the browser calls the API directly (`NEXT_PUBLIC_API_BASE_URL`). When Customer Web is deployed on
+a `*.vercel.app` URL and the API lives on another host, the API's `SameSite=Lax` cookies are cross-site and
+the browser will not send them on `fetch`. Setting `API_PROXY_ORIGIN` makes the Customer origin itself
+forward `/api/*` to the API (`rewrites()` in `next.config.js`), so the browser only ever talks to the
+Customer origin.
+
+| Mode | `API_PROXY_ORIGIN` | `NEXT_PUBLIC_API_BASE_URL` |
+| ---- | ------------------ | -------------------------- |
+| Direct (local, default) | empty / unset | the API origin, e.g. `https://localhost:7145` |
+| Proxy (Vercel Production demo) | `https://the-bha-api.52-65-145-145.sslip.io` | the Customer's own origin, `https://the-bha-hotels-booking-p5rj.vercel.app` |
+
+- `API_PROXY_ORIGIN` is server-only (never `NEXT_PUBLIC_`), a bare `https://` origin (no credentials, path,
+  query or fragment), and must not equal the Customer origin; anything else fails `next build`/`next dev`
+  at config load, without printing the value. There is no http fallback and TLS verification stays on.
+- `/api/*` is rewritten (not redirected) with its path suffix and query; the `/api` prefix is kept. In a
+  build without `API_PROXY_ORIGIN`, `/api/*` still answers 404 (`src/middleware.ts`).
+- `NEXT_PUBLIC_API_BASE_URL` is compiled into the browser bundle and `rewrites()` is fixed at build, so
+  **change either variable and redeploy**. On Vercel set both for **Production only**: a Preview build would
+  call the Production hostname and is not a working proxy.
+- The demo upstream is an `sslip.io` name derived from the EC2 public IP; it changes if that IP changes.
+
 ## 📦 In The Box
 
 - Full source code of the theme.
