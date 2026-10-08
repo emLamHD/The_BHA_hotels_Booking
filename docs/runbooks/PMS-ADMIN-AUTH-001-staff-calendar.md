@@ -32,19 +32,27 @@ not deploy anything.
   warning, and never disable TLS verification.
 - **Same site.** The Staff cookie `.TheBha.Staff` is `HttpOnly`, `Secure`
   (outside Development), `SameSite=Strict`, path `/api/admin`, 8 hours absolute.
-  The Admin Web origin and the API must be the same site (same registrable
-  domain), or the browser will not send it.
+  The browser must send it to the host that set it: either the Admin Web origin
+  and the API are the same site (same registrable domain), or the Admin Web
+  proxies `/api/admin/v1/*` to the API from its own server so the cookie is
+  first-party on the Admin origin (`BHA-ADMIN-PROXY-001`, `API_PROXY_ORIGIN`;
+  deployment packet in `docs/runbooks/CUST-WEB-SHOWCASE-001-deploy.md` §7b). The
+  cookie attributes do not change in either mode.
 - **`Cors:AdminOrigins`**: the exact HTTPS origin(s) of the Admin Web, nothing
   else (no wildcard, no `http://`). Staff `POST`s (login, logout, the five
   writes) must carry exactly one `Origin` from this list; with the list empty
-  every Staff write — login included — is refused.
+  every Staff write — login included — is refused. This is a server-side
+  `Origin` check, not CORS response headers, and it applies in proxy mode too: the
+  browser's same-origin POST carries the Admin origin.
 - **Data Protection keys**: `DataProtection:KeysPath` must point to durable
   storage shared by every API instance (Production refuses to start without
   it). Losing or not sharing the keys signs every Staff out.
-- **Proxies**: no forwarded-header trust is configured. Do not add a
-  "trust any proxy" setting to make a deployment work; a reverse proxy in front
-  of the API needs its own design decision first. The rate limiter partitions by
-  the remote address the API sees.
+- **Proxies**: forwarded headers are trusted only from the configured
+  `Hosting:TrustedProxy` network/addresses (`ForwardLimit` 1), never "any proxy"
+  — see the deployment runbook §5. Behind a reverse proxy, or when the Admin Web
+  proxies `/api/admin/v1/*` from Vercel, the API sees that proxy's address as the
+  client, so the rate limiter, which partitions by that address, is shared by all
+  users behind it.
 
 ## 3. Staff accounts (CLI on the API host)
 
