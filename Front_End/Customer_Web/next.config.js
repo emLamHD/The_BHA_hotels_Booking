@@ -8,8 +8,10 @@ const apiProxyOrigin = resolveApiProxyOrigin(process.env);
 const nextConfig = {
   reactStrictMode: false,
   // Build-time flag read by src/middleware.ts: `/api/*` stays closed (404) unless this build also baked
-  // the rewrite below, so the middleware and the rewrite can never disagree. A boolean, not the origin.
-  ...(apiProxyOrigin ? { env: { BHA_API_PROXY_ENABLED: "true" } } : {}),
+  // the rewrite below, so the middleware and the rewrite can never disagree. Always defined, so a runtime
+  // environment variable of the same name cannot open `/api/*` in a build without the proxy. A boolean,
+  // not the origin.
+  env: { BHA_API_PROXY_ENABLED: apiProxyOrigin ? "true" : "false" },
   experimental: {
     appDir: true,
     typedRoutes: true,

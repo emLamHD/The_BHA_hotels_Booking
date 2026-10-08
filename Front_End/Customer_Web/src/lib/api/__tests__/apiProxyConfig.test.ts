@@ -87,10 +87,10 @@ describe("next.config.js", () => {
     };
   }
 
-  it("adds no proxy and no flag when API_PROXY_ORIGIN is unset", async () => {
+  it("adds no proxy and bakes the flag as false when API_PROXY_ORIGIN is unset", async () => {
     const config = await loadConfig({ NEXT_PUBLIC_API_BASE_URL: "https://localhost:7145" });
     expect(await config.rewrites()).toEqual([]);
-    expect(config.env).toBeUndefined();
+    expect(config.env).toEqual({ BHA_API_PROXY_ENABLED: "false" });
   });
 
   it("rewrites /api/:path* to the upstream, keeping the /api prefix, and bakes the flag", async () => {
