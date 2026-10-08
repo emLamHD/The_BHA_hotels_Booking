@@ -11,7 +11,7 @@ Branch `feat/bha-admin-proxy-001` from `origin/develop` = baseline `f3c96160aa4e
 | LOCAL_TRANSPORT | PASS — fixture HTTPS upstream, fake data |
 | LOCAL_STAFF_AUTH | PASS — real API image + PostgreSQL 18.3, curl cookie jar (no browser) |
 | BUILD / lint / tests (local) | PASS; CI result in the Owner-facing chat report and the PR checks |
-| REVIEW | NOT_RUN (Owner invokes) |
+| REVIEW | RUN by Owner — no findings (verbatim result in Review section) |
 | VERCEL_CONFIG_APPLY, ADMIN_REDEPLOY, EC2_ADMIN_ORIGINS_APPLY, ADMIN_LOGIN_LIVE, ADMIN_CALENDAR_READ_LIVE, ADMIN_CALENDAR_WRITE_LIVE | NOT_RUN |
 
 Customer live, CSRF 200/no-store, guest booking written to RDS, RDS migration/import, the Staff Manager and Caddy/sslip.io are `OWNER_VERIFIED` history and were not re-tested or reset.
@@ -100,4 +100,14 @@ Skills: none invoked. `diagnosing-bugs` NOT triggered (no unexpected behavior to
 
 ## Review
 
-`READY_FOR_CODEX_REVIEW` — Owner must invoke `/codex:review --base origin/develop` (limit: 1 invocation per implementation/correction completion). Result: `NOT_RUN`; to be inserted verbatim if Owner forwards it.
+Reviewer: `CODEX_READ_ONLY`, invoked by Owner (one invocation for this implementation completion) as `/codex:review --base origin/develop`, against PR head `7952fe9c2cf8bd7a890fe6d6a7fba8d987026e69` (diff `origin/develop...HEAD`: 9 files, +520/−20). Result: **no findings**. Its output reports no test run of its own, so its checks are **NOT_RUN** as far as this record shows; the PASS results above (Admin vitest 867/867, lint, builds, local transport, local Staff auth, packet exercise) are Claude's local checks. Codex output, verbatim as forwarded by Owner:
+
+```text
+# Codex Review
+
+Target: branch diff against origin/develop
+
+The proxy is opt-in, forwards only the Admin Staff API namespace, and validates the upstream origin before configuring rewrites. I found no actionable regressions in the diff.
+```
+
+This review record is a documentation-only commit after the reviewed head; no code, test or packet content changed in it. No finding was left to fix.
