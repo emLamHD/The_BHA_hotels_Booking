@@ -12,9 +12,19 @@ TailAdmin utilizes the powerful features of **Next.js 16** and common features o
 
 This directory is the imported TailAdmin Next.js baseline for The BHA Hotels Booking Admin Web application. The Reservation Board (`/calendar`) and the Staff sign-in (`/signin`) are integrated with the backend API (Staff authentication, Property memberships and roles, PMS-ADMIN-AUTH-001). The other template pages and modules (dashboard, forms, tables, charts, user profile, the template calendar below the board) remain template-only and are not covered by the Staff session.
 
-## Deploying beside the Customer site (CUST-WEB-SHOWCASE-001)
+## Deploying beside the Customer site (CUST-WEB-SHOWCASE-001, BHA-ADMIN-PROXY-001)
 
-The Staff session cookie is `SameSite=Strict` and is set by the API, so the Admin site, the Customer site and the API must share one registrable domain (for example `admin.<domain>`, `book.<domain>`, `api.<domain>`); `*.vercel.app` plus an AWS default hostname are different sites and sign-in would not hold. Set `NEXT_PUBLIC_API_BASE_URL` to the API's `https://` origin at build time and leave `NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE` unset (Staff). The API must list this site's exact origin in `Cors:AdminOrigins`. Full plan: `docs/runbooks/CUST-WEB-SHOWCASE-001-deploy.md`. This was rehearsed locally only (same-site, TLS proxy, container API); Vercel is not tested.
+The Staff session cookie is `SameSite=Strict` and is set by the API, so the browser must only ever talk to a host the cookie is first-party for. Two supported ways:
+
+| Mode | `API_PROXY_ORIGIN` | `NEXT_PUBLIC_API_BASE_URL` | Requirement |
+| ---- | ------------------ | -------------------------- | ----------- |
+| Direct (local, or a purchased domain) | empty / unset | the API's `https://` origin | Admin, Customer and API share one registrable domain (for example `admin.<domain>`, `book.<domain>`, `api.<domain>`) |
+| Same-origin proxy (Vercel `*.vercel.app` demo) | `https://the-bha-api.52-65-145-145.sslip.io` | this Admin site's own origin, `https://the-bha-hotels-booking.vercel.app` | no shared domain needed |
+
+- With `API_PROXY_ORIGIN` set, `next.config.ts` rewrites **only** `/api/admin/v1/:path*` to `<API_PROXY_ORIGIN>/api/admin/v1/:path*` (a rewrite, not a redirect; prefix, suffix and query kept). Customer `/api/v1/*`, `/health/*` and every other path are not forwarded. The value is server-only (never `NEXT_PUBLIC_`), must be a bare `https://` origin (no credentials, path, query or fragment) and must not equal this site's origin; anything else fails `next build`/`next dev` at config load without printing the value. There is no http fallback and TLS verification stays on.
+- Leave `NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE` unset or `Staff`. `NEXT_PUBLIC_API_BASE_URL` is compiled into the browser bundle and `rewrites()` is fixed at build, so **change either variable and redeploy**. On Vercel set them for **Production only**; a Preview build would call the Production hostname and is not a working proxy.
+- The API must list this site's exact origin in `Cors:AdminOrigins` in both modes (every Staff `POST`, login included, requires it). The demo upstream is an `sslip.io` name derived from the EC2 public IP; it changes if that IP changes.
+- Full plan and the Owner's step-by-step packet: `docs/runbooks/CUST-WEB-SHOWCASE-001-deploy.md` (§7b). Local rehearsal only so far (transport fixture and a real API image with a temporary Staff account); Vercel and the live site are not tested. Only `/signin` and `/calendar` are backed by the API; the other pages are TailAdmin template content, not production features.
 
 ## Reservation Board: HTTPS development setup
 

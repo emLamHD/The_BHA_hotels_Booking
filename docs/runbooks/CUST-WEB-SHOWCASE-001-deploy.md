@@ -20,6 +20,7 @@ Customer and Staff sessions are cookies set by the API and sent with `credential
 - Two Vercel projects on `*.vercel.app` plus an API on an AWS default hostname are **three different sites** (`vercel.app` is on the Public Suffix List, so each project is its own site). Browsers do not send `Lax` cookies on cross-site `fetch`/XHR and never send `Strict` ones, so Staff sign-in and the Customer session would fail. This is a property of the cookie rules, **not** a test result — it was not tested on Vercel.
 - Therefore all three live under the Owner's registrable domain: Customer `https://thebhariverside.com`, Admin `https://admin.thebhariverside.com`, API `https://api.thebhariverside.com` (planned configuration — DNS, certificates and live behavior are `NOT_TESTED`). Same-site holds across the apex and its subdomains.
 - CORS must list exactly those origins (§5). Wildcards are refused by the API at startup.
+- **Interim alternative without a purchased domain (same-origin proxy).** Each Vercel project forwards its API namespace to the API from its own server, so the browser only talks to its own origin and the API's cookies are first-party there: Customer `/api/*` (`BHA-WEB-PROXY-001`, §7a) and Admin `/api/admin/v1/*` (`BHA-ADMIN-PROXY-001`, §7b). The cookie rules above are unchanged (Staff stays `SameSite=Strict`, `HttpOnly`, `Secure`, path `/api/admin`); the domain requirement applies only to the direct mode.
 
 ## 2. Decisions the Owner makes first
 
@@ -121,7 +122,7 @@ BHA_STAFF_PASSWORD='<from a secret store>' dotnet TheBha.Api.dll --staff-create 
 | Domain | `thebhariverside.com` | `admin.thebhariverside.com` |
 | Node | 22 (`.nvmrc` 22.23.1) | 22 |
 | `NEXT_PUBLIC_API_BASE_URL` | `https://api.thebhariverside.com` (**https only, build-time**; rebuild after changing) | same |
-| Other | — | leave `NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE` unset (Staff is the default; `LocalGate` is refused in a production build) |
+| Other | — | leave `NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE` unset (Staff is the default; `LocalGate` is refused in a production build). Proxy demo on `*.vercel.app` (no purchased domain): see §7b instead of the direct values above |
 
 Customer: Node 22.x, npm 10.x (`engines`, `.nvmrc` 22.23.1), lockfile v3. Admin: no `engines` field; use Node 22 (Next 16), lockfile v3. `Front_End/Customer_Web/.env.local` on the Owner's machine also holds Cloudinary variable names (`NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`, `CLOUDINARY_FOLDER`): **no code reads them — do not copy them to Vercel**; the only variable either project needs is `NEXT_PUBLIC_API_BASE_URL`.
 
@@ -149,6 +150,99 @@ curl -sS -o /dev/null -w '%{http_code}\n' "<CUSTOMER>/API/v1/auth/csrf"    # 404
 ```
 
 Then, in a browser on the Vercel URL, DevTools → Network: the API calls must go to the Vercel hostname (`/api/v1/...`), never to `sslip.io`.
+
+### 7b. Admin on its own Vercel project, same-origin proxy (`BHA-ADMIN-PROXY-001`, Owner executes)
+
+Status: **code and local rehearsal only.** `VERCEL_CONFIG_APPLY`, `ADMIN_REDEPLOY`, `EC2_ADMIN_ORIGINS_APPLY`, `ADMIN_LOGIN_LIVE`, `ADMIN_CALENDAR_READ_LIVE`, `ADMIN_CALENDAR_WRITE_LIVE`: `NOT_RUN`. Owner-provided Admin production origin: `https://the-bha-hotels-booking.vercel.app` (no trailing `/`); that the project exists with that URL, its Root Directory and its Production branch are **not verified by Claude** (checklist A). Customer stays at `https://the-bha-hotels-booking-p5rj.vercel.app`. Cloud facts below (API behind Caddy at `https://the-bha-api.52-65-145-145.sslip.io`, image digest `sha256:d01c7d9d2b9d6cd311f77dcd8a1e49daae12a101efb6c8e1db50c9a07d98b4b6`, RDS data, the existing Staff Manager of Riverside `a1000000-0000-0000-0000-000000000001`) are `OWNER_VERIFIED`, not re-tested.
+
+How it works: with `API_PROXY_ORIGIN` set at build time, `Front_End/Admin_Web/next.config.ts` rewrites exactly `/api/admin/v1/:path*` to `<upstream>/api/admin/v1/:path*` (prefix, suffix and query kept). Customer `/api/v1/*`, `/health/*` and every other path are **not** forwarded. `NEXT_PUBLIC_API_BASE_URL` is the Admin origin itself, so Staff sign-in, `me`, the board and the five writes are same-origin calls and the Staff cookie (`HttpOnly`, `Secure`, `SameSite=Strict`, `Path=/api/admin`) is first-party on the Vercel host. The API still requires, for every Staff `POST` (login, logout, the writes), exactly one `Origin` that is in `Cors:AdminOrigins` (`StaffRequestBoundaryFilter`) — the browser sends the Admin origin on those same-origin POSTs, so the allowlist change in **C** is mandatory, and CORS headers are irrelevant to it.
+
+**A. Vercel checklist (confirm before applying anything)**
+1. The Admin project is separate from the Customer project, connected to this repository, **Root Directory `Front_End/Admin_Web`**, framework Next.js, **Production Branch `main`**, Node.js **22.x**, install `npm ci`, build `npm run build`. Do not use a Preview URL.
+2. The code of this work item is on `main` (promotion is the Owner's; see D).
+
+**B. Vercel Production environment (Production only; no database password or secret belongs here)**
+
+| Variable | Value |
+|---|---|
+| `API_PROXY_ORIGIN` | `https://the-bha-api.52-65-145-145.sslip.io` |
+| `NEXT_PUBLIC_API_BASE_URL` | `https://the-bha-hotels-booking.vercel.app` |
+| `NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE` | `Staff` |
+
+`API_PROXY_ORIGIN` is server/build-time only and never `NEXT_PUBLIC_`. Both variables and the rewrite are fixed at build: **redeploy Production after setting them or after any code change**. A Preview build would keep the Production hostname as its API base and is not a working proxy — do not report Preview as working. The `sslip.io` host embeds the EC2 public IP (same limit as §7a).
+
+**C. EC2: allow the Admin origin on the API (apply this before Vercel is redeployed)** — run on the EC2 host. Nothing below prints a secret; `/etc/the-bha/api.env` is only ever appended to, after an unreplaced backup. Set `D="sudo docker"` instead if your user cannot run `docker` directly. No value in this block is a placeholder. Save it as a file and run it with `bash <file>` (it uses `set -e`, so a STOP ends the script, not your login shell), and read the output of C1–C3 before you let C4 proceed: to review first, run the file once with the `C4`/`C5` part removed.
+
+```bash
+set -euo pipefail
+D="docker"
+ENVF=/etc/the-bha/api.env
+ADMIN=https://the-bha-hotels-booking.vercel.app
+OLD=the-bha-api
+IMG=944850790466.dkr.ecr.ap-southeast-2.amazonaws.com/the-bha-api@sha256:d01c7d9d2b9d6cd311f77dcd8a1e49daae12a101efb6c8e1db50c9a07d98b4b6
+
+# C1. Read-only: the running container must be the approved image, on the default bridge, as the brief describes.
+test "$($D inspect -f '{{.Config.Image}}' $OLD)" = "$IMG" || { echo "STOP: $OLD is not the approved image reference" >&2; exit 1; }
+test "$($D inspect -f '{{.HostConfig.NetworkMode}}' $OLD)" = "default" || { echo "STOP: not the default bridge network" >&2; exit 1; }
+$D inspect -f '{{json .HostConfig.PortBindings}}' $OLD       # expect {"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"8080"}]}
+$D inspect -f '{{range .HostConfig.Binds}}{{println .}}{{end}}' $OLD   # expect the keys dir -> /var/keys and the CA mount ending :ro
+$D inspect -f 'restart={{.HostConfig.RestartPolicy.Name}} logdriver={{.HostConfig.LogConfig.Type}}' $OLD
+
+# C2. Names (never values) of the variables the running container has beyond the image defaults and the env file.
+$D inspect -f '{{range .Config.Env}}{{println .}}{{end}}' $OLD | cut -d= -f1 | sort -u > /tmp/bha-container-env-names
+sudo sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' "$ENVF" | sort -u > /tmp/bha-file-env-names
+comm -23 /tmp/bha-container-env-names /tmp/bha-file-env-names   # review: PATH/DOTNET_*/ASPNETCORE_*/APP_UID-style image defaults are fine; anything else was set by hand and must be carried over
+
+# C3. Existing admin origins (public values) and the next free index.
+sudo grep -E '^Cors__AdminOrigins__[0-9]+=' "$ENVF" || echo "(no Cors__AdminOrigins entries yet)"
+if sudo grep -E '^Cors__AdminOrigins__[0-9]+=' "$ENVF" | cut -d= -f2- | grep -qxF "$ADMIN"; then
+  echo "already present: nothing to add"; ADDED=no
+else
+  IDX=$(sudo sed -n 's/^Cors__AdminOrigins__\([0-9][0-9]*\)=.*/\1/p' "$ENVF" | sort -n | tail -1)
+  IDX=$(( ${IDX:--1} + 1 ))
+  BK="$ENVF.bak-$(date -u +%Y%m%dT%H%M%SZ)"
+  sudo cp --preserve=all -n "$ENVF" "$BK"          # -n: never replaces an existing backup
+  echo "backup: $BK"
+  [ -z "$(sudo tail -c1 "$ENVF")" ] || echo | sudo tee -a "$ENVF" >/dev/null
+  printf 'Cors__AdminOrigins__%s=%s\n' "$IDX" "$ADMIN" | sudo tee -a "$ENVF" >/dev/null
+  ADDED=yes
+fi
+sudo grep -E '^Cors__AdminOrigins__[0-9]+=' "$ENVF"     # exact origin present, other origins untouched; Cors__AllowedOrigins__* untouched
+
+# C4. Recreate (docker restart does NOT re-read --env-file). The old container is kept stopped, renamed, for rollback.
+RESTART=$($D inspect -f '{{.HostConfig.RestartPolicy.Name}}' $OLD)
+LOGDRV=$($D inspect -f '{{.HostConfig.LogConfig.Type}}' $OLD)
+LOGOPTS=$($D inspect -f '{{range $k,$v := .HostConfig.LogConfig.Config}}--log-opt {{$k}}={{$v}} {{end}}' $OLD)
+BINDS=$($D inspect -f '{{range .HostConfig.Binds}}-v {{.}} {{end}}' $OLD)
+$D rename $OLD ${OLD}-prev
+$D update --restart=no ${OLD}-prev >/dev/null
+$D stop ${OLD}-prev
+$D run -d --name $OLD --restart "$RESTART" --log-driver "$LOGDRV" $LOGOPTS -p 127.0.0.1:8080:8080 --env-file "$ENVF" $BINDS "$IMG"
+
+# C5. The two containers must differ only by name/id/env: review this diff before going on.
+F='{{json .HostConfig.Binds}} {{json .HostConfig.PortBindings}} {{json .HostConfig.RestartPolicy}} {{json .HostConfig.LogConfig}} {{.HostConfig.NetworkMode}} {{json .HostConfig.CapAdd}} {{json .HostConfig.CapDrop}} {{json .HostConfig.SecurityOpt}} {{json .HostConfig.ReadonlyRootfs}} {{json .Config.User}} {{json .Config.Entrypoint}} {{json .Config.Cmd}}'
+diff <($D inspect -f "$F" ${OLD}-prev) <($D inspect -f "$F" $OLD) && echo "container settings identical"
+```
+
+Rollback (C): `$D stop $OLD && $D rm $OLD && $D rename ${OLD}-prev $OLD && $D update --restart="$RESTART" $OLD && $D start $OLD`; if the env file was changed, first `sudo cp --preserve=all "$BK" "$ENVF"` (`BK` is the backup path printed in C3). Never delete `/var/lib/the-bha/keys`, never change the image, the Caddy config or `Hosting__TrustedProxy__*`. Remove `${OLD}-prev` only after the verification below passes and you decide to.
+
+Verify after the recreate (from any machine; no cookie/password involved; `<ADMIN>` = `https://the-bha-hotels-booking.vercel.app`, `<API>` = `https://the-bha-api.52-65-145-145.sslip.io`):
+
+```bash
+curl -sS -o /dev/null -w '%{http_code}\n' <API>/health/ready                      # 200
+curl -sS -D - -o /dev/null <API>/api/v1/auth/csrf | head -n 12                    # Customer CSRF: 200, Cache-Control no-store
+# Origin gate: a fake-credential login from the Admin origin must now be 401 (credentials refused), not 403 (Origin refused). Writes nothing; counts toward the login rate limit.
+curl -sS -o /dev/null -w '%{http_code}\n' -X POST <API>/api/admin/v1/auth/login -H 'Content-Type: application/json' -H 'Origin: https://the-bha-hotels-booking.vercel.app' --data '{"email":"nobody@example.invalid","password":"x"}'
+```
+
+**After the Vercel redeploy (B):**
+```bash
+curl -sS -D - -o /dev/null <ADMIN>/api/admin/v1/me | head -n 12                   # not signed in: 401, Cache-Control no-store
+curl -sS -o /dev/null -w '%{http_code}\n' <ADMIN>/api/v1/properties               # 404: the Customer namespace is not proxied by Admin
+```
+Browser (DevTools → Network, "Preserve log"): open `<ADMIN>/signin`, sign in with the existing Staff Manager (you type the credentials; never paste them anywhere); `GET /api/admin/v1/me` → 200 with the Riverside membership; `/calendar` shows the board; reload keeps the session; Sign out, then `me` → 401. Every API call must go to `<ADMIN>` (never to `sslip.io`); the cookie `.TheBha.Staff` shows `HttpOnly`, `Secure`, `SameSite=Strict`, path `/api/admin`. Compare the board with the real booking `e659d463-4a07-20b0-3ce9-8f0588491394` on 15–17/10/2026. Do not assign, cancel or block anything for this check; `ADMIN_CALENDAR_WRITE_LIVE` is `PASS` only if you perform a write separately and keep the evidence. Do not copy cookies or passwords into any report.
+
+**D. Promotion to `main` (Owner).** `main` and `develop` are different squash histories with the same tree, so a `develop` → `main` merge/PR conflicts. After this work item is squash-merged into `develop`, the release approach is: branch from `origin/main`, apply the new squash commit from `develop` (cherry-pick), open a PR into `main`, and check tree equality (`git rev-parse origin/main^{tree} origin/develop^{tree}` must match after the merge). Concrete commands are issued only once the new SHAs exist. Claude does not perform the promotion.
 
 ## 8. Post-deploy verification
 
@@ -238,17 +332,19 @@ stat -c '%a' "$PGPASSFILE"     # expect: 600
 git fetch --prune origin
 git show 6ae3fdd3306c50736c734712df5a0f2a1ab5054a:deploy/showcase/migrations/idempotent.sql | sha256sum   # expect d7d38722dee4ac0c2cc6412df8fbdda22286f28e3a918531881117da7019b406
 sha256sum deploy/showcase/migrations/idempotent.sql                                                    # the file you will apply: expect the same hash
-if git diff --quiet 6ae3fdd3306c50736c734712df5a0f2a1ab5054a HEAD -- Back_End Front_End deploy .github ':(exclude)Back_End/tests' ':(exclude)Front_End/Customer_Web'; then
-  echo "runtime source, Dockerfile, deploy files and workflows identical to the release (Back_End/tests and Front_End/Customer_Web excluded on purpose)"
+if git diff --quiet 6ae3fdd3306c50736c734712df5a0f2a1ab5054a HEAD -- Back_End deploy .github ':(exclude)Back_End/tests'; then
+  echo "API source (Back_End minus tests), Dockerfile, deploy files and workflows identical to the release; Back_End/tests and Front_End are not part of the API image (listed below)"
 else
-  echo "STOP: the runtime source differs from the release 6ae3fdd" >&2; false
+  echo "STOP: the API runtime source differs from the release 6ae3fdd" >&2; false
 fi
-git diff --name-only 6ae3fdd3306c50736c734712df5a0f2a1ab5054a HEAD -- Back_End/tests Front_End/Customer_Web
+git diff --name-only 6ae3fdd3306c50736c734712df5a0f2a1ab5054a HEAD -- Back_End/tests Front_End
 ```
 
-`Front_End/Customer_Web` is excluded from the `if` because the API image does not contain it. `BHA-WEB-PROXY-001` changes only the Customer project (proxy rewrite, its middleware gate, the validator, tests, docs); that code is deployed by its own Vercel build and does not alter the API release `6ae3fdd` / digest `sha256:d01c7d9d…98b4b6`. The Customer release is a different thing: it is the `main` commit Vercel Production builds after the Owner promotes this work, identified by that commit, not by `6ae3fdd`.
+The API image contains only `Back_End`, so the `if` guards the **API release** and nothing else: it exits non-zero and prints `STOP` if anything under `Back_End` other than `Back_End/tests`, under `deploy`, or under `.github` differs from `6ae3fdd`. `Front_End` is deliberately outside the `if`: Customer_Web and Admin_Web are deployed by their own Vercel builds and cannot change the API release `6ae3fdd` / digest `sha256:d01c7d9d…98b4b6`. The guard is not "every runtime file of the repository" and it does not always pass: any backend, Dockerfile, deploy-artifact or workflow change still trips it.
 
-Three different commits are involved — do not confuse them: **`6ae3fdd`** is the approved *application release* (what step 2 builds); **`17c15e7`** is the `develop` commit that merged the earlier documentation-only packet; your checkout's **HEAD** additionally contains the `BHA-PG18-001` test changes and later documentation. The `if` checks the **API release** only: it exits non-zero and prints `STOP` if anything under `Back_End` other than `Back_End/tests`, under `Front_End` other than `Front_End/Customer_Web` (i.e. `Admin_Web`), under `deploy`, or under `.github` differs from `6ae3fdd`. It is not a check of "every runtime file" of the repository: `Back_End/tests` is excluded because the test project changed on purpose, and `Front_End/Customer_Web` because it is not part of the API image. The last command lists the excluded paths that differ, and what you see depends on the checkout: the `BHA-PG18-001` test changes are five files under `Back_End/tests/TheBha.IntegrationTests/` (`BookingPersistenceTests.cs`, `PostgresVersionSupport.cs`, `PostgresVersionSupportTests.cs`, `PropertyInventoryPersistenceTests.cs`, `StaffIdentityPersistenceTests.cs`), and a checkout that includes the `BHA-WEB-PROXY-001` branch additionally lists its eight `Front_End/Customer_Web` files (`.env.local.example`, `README.md`, `next.config.js`, `scripts/api-proxy-origin.cjs`, `src/lib/api/__tests__/apiProxyConfig.test.ts`, `src/lib/routePolicy.test.ts`, `src/lib/routePolicy.ts`, `src/middleware.ts`). Any other path in that list is unexpected: stop and report it. Optional: `deploy/showcase/scripts/regenerate-migration-sql.sh --check` (needs `dotnet-ef`) → `idempotent.sql is up to date`.
+Do not confuse the releases. **`6ae3fdd`** is the approved *API application release* (what step 2 builds). The **Customer and Admin source releases** are the `main` commit each Vercel project builds, recorded per deployment; they are not `6ae3fdd`. `17c15e7` is the earlier documentation-only `develop` commit; your checkout's HEAD additionally contains the `BHA-PG18-001` test changes, the Customer/Admin proxy work and later documentation.
+
+The last command lists the excluded paths that differ, and what you see depends on the checkout. Expected: the five `BHA-PG18-001` test files under `Back_End/tests/TheBha.IntegrationTests/` (`BookingPersistenceTests.cs`, `PostgresVersionSupport.cs`, `PostgresVersionSupportTests.cs`, `PropertyInventoryPersistenceTests.cs`, `StaffIdentityPersistenceTests.cs`); the eight `Front_End/Customer_Web` files of `BHA-WEB-PROXY-001` (`.env.local.example`, `README.md`, `next.config.js`, `scripts/api-proxy-origin.cjs`, `src/lib/api/__tests__/apiProxyConfig.test.ts`, `src/lib/routePolicy.test.ts`, `src/lib/routePolicy.ts`, `src/middleware.ts`); and, on a checkout that includes `BHA-ADMIN-PROXY-001`, its five `Front_End/Admin_Web` files (`.env.local.example`, `README.md`, `next.config.ts`, `scripts/api-proxy-origin.ts`, `src/lib/api/apiProxyConfig.test.ts`). Any other path is unexpected: stop and report it. Optional: `deploy/showcase/scripts/regenerate-migration-sql.sh --check` (needs `dotnet-ef`) → `idempotent.sql is up to date`.
 
 **Step 2 — build the image for exactly `6ae3fdd` (needed by step 10 and by the API; nothing is pushed here).** Built from an archive of the release into a temporary directory, so your checkout stays where it is:
 
@@ -457,7 +553,7 @@ Expected first line `staff: target database <host>/thebha` (check it before any 
 
 **Step 13 — DNS and API checks.** `api.thebhariverside.com` → ALB. Independent checks: `/health/ready` 200; `/api/v1/properties` lists one property `the-bha-riverside`; `/api/admin/v1/me` without a session 401 (404 means the forwarded HTTPS scheme is not trusted → fix `Hosting__TrustedProxy__*`); availability for a future in-window range returns 3 / 2 / 6 rooms at 1,000,000 / 1,100,000 / 1,600,000 VND per night. **Do not run `smoke.sh` yet**: its image check requests `https://thebhariverside.com/media/...`, which exists only after step 15.
 
-**Step 14 — Admin (Vercel project B).** Root `Front_End/Admin_Web`, Node 22, `NEXT_PUBLIC_API_BASE_URL=https://api.thebhariverside.com` (HTTPS, build-time — rebuild after any change), domain `admin.thebhariverside.com`, do not set `NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE`. Check: sign in with the Staff account of step 10, `/calendar` shows the Riverside board from the API, sign out. Only the calendar is backed by the API; the other Admin template modules are mock/template and must not be reported as live. One write with audit (for example an operational block, then cancel it) is a separate Owner decision on live data.
+**Step 14 — Admin (Vercel project B).** Root `Front_End/Admin_Web`, Node 22, `NEXT_PUBLIC_API_BASE_URL=https://api.thebhariverside.com` (HTTPS, build-time — rebuild after any change), domain `admin.thebhariverside.com`, do not set `NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE`. Check: sign in with the Staff account of step 10, `/calendar` shows the Riverside board from the API, sign out. Only the calendar is backed by the API; the other Admin template modules are mock/template and must not be reported as live. One write with audit (for example an operational block, then cancel it) is a separate Owner decision on live data. With the interim same-origin proxy (no purchased domain) use §7b instead: its EC2 `Cors__AdminOrigins__<index>` change and recreate come first.
 
 **Step 15 — Customer (Vercel project A), then the smoke script.** Root `Front_End/Customer_Web`, Node 22 / npm 10, same `NEXT_PUBLIC_API_BASE_URL`, domain `thebhariverside.com`. When it is live: `API_BASE=https://api.thebhariverside.com MEDIA_BASE=https://thebhariverside.com deploy/showcase/scripts/smoke.sh` (health, properties, Staff route 401, every image URL `200 image/webp`). Then on the real hostnames: `/` → Stays search (Riverside, dates inside the rate window, guests) → Featured card with the API price → room page → offer → contact → hold → `/paydone` ("Đã giữ chỗ") → "Xác nhận đặt phòng" → confirmed. Verify in the database as the operator: one row each in `InventoryHolds` and `Reservations` (`Confirmed`) for that booking; the test booking is real data in the operational database — decide how to treat or cancel it. Customer sign-in pages of the template are not a real customer auth UI; Staff login is the real login.
 
