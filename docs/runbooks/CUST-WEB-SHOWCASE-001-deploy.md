@@ -1,5 +1,7 @@
 # CUST-WEB-SHOWCASE-001 — deploy runbook (Owner executes)
 
+> **Update 2026-10-08 (`BHA-WEB-PROXY-001`, `BHA-ADMIN-PROXY-001`).** Since the paragraph below was written, the Owner has verified (`OWNER_VERIFIED`; Claude did not re-test the cloud): the API runs on EC2 behind Caddy at `https://the-bha-api.52-65-145-145.sslip.io` (image digest `sha256:d01c7d9d…98b4b6`), RDS `thebha` (PostgreSQL 18.3) is migrated and the catalog imported, the Staff Manager exists, and the Customer site `https://the-bha-hotels-booking-p5rj.vercel.app` is live (CSRF 200/no-store; a guest booking was written to RDS). The paragraph below is the 2026-10-07 state of this packet and is kept as history. Admin on its own Vercel project, the EC2 Admin origin and Admin login/calendar live are **not** done: `NOT_RUN` (§7b).
+>
 > Status: **Owner-led deployment (`BHA-DEPLOY-001-CP01`, 2026-10-07): nothing here has been executed in any cloud.** The Owner performs every step that touches AWS, Vercel, DNS or a real database and enters credentials on their own machine; Claude prepares, checks and guides. The release is `develop` at `6ae3fdd3306c50736c734712df5a0f2a1ab5054a` (merge of PR #83). The operational database is **`thebha` on RDS `the-bha-db` (`ap-southeast-2`, PostgreSQL 18.3), created empty by the Owner; the Owner has since created `bha_operator` and `bha_app`, handed the database to `bha_operator` and passed the `btree_gist` permission gate (all Owner-verified, §11); the database-level hardening, snapshot, migration, import and table grants are still pending**, the **API runtime is undecided**, and **importing the catalog is a different operation from applying migrations** (§6, §11). Evidence: `docs/reports/BHA-DEPLOY-001-CP01-completion.md` and `docs/reports/BHA-PG18-001-completion.md` (rehearsals and test suites on local scratch PostgreSQL only). Statuses: `CLOUD_DATA`, `DEPLOY_API`, `DEPLOY_ADMIN`, `DEPLOY_CUSTOMER`, `END_TO_END_LIVE`, `PUBLISH`: `NOT_RUN`.
 
 ## 0. Shape
@@ -13,7 +15,7 @@ Browser ──https──> Vercel project A  (Customer_Web)   thebhariverside.co
 
 The API is one container image (`Back_End/Dockerfile`). Nothing is seeded at startup and migrations are not run at startup.
 
-## 1. Hard requirement: one registrable domain (planned: `thebhariverside.com`)
+## 1. Direct mode needs one registrable domain (planned: `thebhariverside.com`); the interim proxy mode does not
 
 Customer and Staff sessions are cookies set by the API and sent with `credentials: include` from the browser apps. The Customer cookie is `SameSite=Lax`, the Staff cookie is `SameSite=Strict`, and the antiforgery cookie rides with the Customer flow. Those rules are not changed by this work item.
 
@@ -171,32 +173,47 @@ How it works: with `API_PROXY_ORIGIN` set at build time, `Front_End/Admin_Web/ne
 
 `API_PROXY_ORIGIN` is server/build-time only and never `NEXT_PUBLIC_`. Both variables and the rewrite are fixed at build: **redeploy Production after setting them or after any code change**. A Preview build would keep the Production hostname as its API base and is not a working proxy — do not report Preview as working. The `sslip.io` host embeds the EC2 public IP (same limit as §7a).
 
-**C. EC2: allow the Admin origin on the API (apply this before Vercel is redeployed)** — run on the EC2 host. Nothing below prints a secret; `/etc/the-bha/api.env` is only ever appended to, after an unreplaced backup. Set `D="sudo docker"` instead if your user cannot run `docker` directly. No value in this block is a placeholder. Save it as a file and run it with `bash <file>` (it uses `set -e`, so a STOP ends the script, not your login shell), and read the output of C1–C3 before you let C4 proceed: to review first, run the file once with the `C4`/`C5` part removed.
+**C. EC2: allow the Admin origin on the API (apply this before Vercel is redeployed)** — run on the EC2 host. Nothing below prints a secret; `/etc/the-bha/api.env` is only ever appended to, after a backup that is never replaced. No value in this block is a placeholder. Save it as a file and run it with `bash <file>` (it uses `set -e`: a STOP ends the script, not your login shell). Set `D="sudo docker"` if your user cannot run `docker` directly. The script is **create-before-stop**: the new container is created and checked first, the old one is stopped only then, and any failure after that point runs a rollback file that it wrote beforehand with literal values (path printed). It only ever uses the settings it reads back from the running container; it STOPs, changing nothing, if that container is not shaped as expected.
 
 ```bash
 set -euo pipefail
+export LC_ALL=C          # sort and comm must agree on the collation
 D="docker"
 ENVF=/etc/the-bha/api.env
 ADMIN=https://the-bha-hotels-booking.vercel.app
 OLD=the-bha-api
 IMG=944850790466.dkr.ecr.ap-southeast-2.amazonaws.com/the-bha-api@sha256:d01c7d9d2b9d6cd311f77dcd8a1e49daae12a101efb6c8e1db50c9a07d98b4b6
+CPORT=8080
+HPORT=8080
+KEYS_SRC=/var/lib/the-bha/keys
+fail() { echo "STOP: $*" >&2; exit 1; }
 
-# C1. Read-only: the running container must be the approved image, on the default bridge, as the brief describes.
-test "$($D inspect -f '{{.Config.Image}}' $OLD)" = "$IMG" || { echo "STOP: $OLD is not the approved image reference" >&2; exit 1; }
-test "$($D inspect -f '{{.HostConfig.NetworkMode}}' $OLD)" = "default" || { echo "STOP: not the default bridge network" >&2; exit 1; }
-$D inspect -f '{{json .HostConfig.PortBindings}}' $OLD       # expect {"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"8080"}]}
-$D inspect -f '{{range .HostConfig.Binds}}{{println .}}{{end}}' $OLD   # expect the keys dir -> /var/keys and the CA mount ending :ro
-$D inspect -f 'restart={{.HostConfig.RestartPolicy.Name}} logdriver={{.HostConfig.LogConfig.Type}}' $OLD
+# C1. Read-only: the running container must be the approved image, shaped as the brief describes.
+test "$($D inspect -f '{{.Config.Image}}' $OLD)" = "$IMG" || fail "$OLD is not the approved image reference"
+case "$($D inspect -f '{{.HostConfig.NetworkMode}}' $OLD)" in default|bridge) ;; *) fail "not the default bridge network" ;; esac
+test "$($D inspect -f '{{json .HostConfig.PortBindings}}' $OLD)" = "{\"$CPORT/tcp\":[{\"HostIp\":\"127.0.0.1\",\"HostPort\":\"$HPORT\"}]}" || fail "port bindings are not 127.0.0.1:$HPORT:$CPORT"
+test "$($D inspect -f '{{len .HostConfig.Mounts}}' $OLD)" = 0 || fail "the container uses --mount; this script rebuilds -v binds only (adapt it first)"
+BINDLIST=$($D inspect -f '{{range .HostConfig.Binds}}{{println .}}{{end}}' $OLD)
+printf '%s\n' "$BINDLIST" | grep -q "^$KEYS_SRC:/var/keys\(:\|$\)" || fail "bind $KEYS_SRC -> /var/keys not found"
+printf '%s\n' "$BINDLIST" | grep -qE ':ro(,|$)' || fail "no read-only (CA) bind found"
+RESTART=$($D inspect -f '{{.HostConfig.RestartPolicy.Name}}' $OLD)
+LOGDRV=$($D inspect -f '{{.HostConfig.LogConfig.Type}}' $OLD)
+LOGOPTS=$($D inspect -f '{{range $k,$v := .HostConfig.LogConfig.Config}}--log-opt {{$k}}={{$v}} {{end}}' $OLD)
+BINDS=$($D inspect -f '{{range .HostConfig.Binds}}-v {{.}} {{end}}' $OLD)
+echo "restart=$RESTART logdriver=$LOGDRV logopts=$LOGOPTS"; printf '%s\n' "$BINDLIST"
 
-# C2. Names (never values) of the variables the running container has beyond the image defaults and the env file.
-$D inspect -f '{{range .Config.Env}}{{println .}}{{end}}' $OLD | cut -d= -f1 | sort -u > /tmp/bha-container-env-names
-sudo sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' "$ENVF" | sort -u > /tmp/bha-file-env-names
-comm -23 /tmp/bha-container-env-names /tmp/bha-file-env-names   # review: PATH/DOTNET_*/ASPNETCORE_*/APP_UID-style image defaults are fine; anything else was set by hand and must be carried over
+# C2. Variable NAMES (never values) the container has that are in neither the env file nor the image defaults.
+$D inspect -f '{{range .Config.Env}}{{println .}}{{end}}' $OLD | cut -d= -f1 | sort -u > /tmp/bha-names-container
+sudo sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' "$ENVF" | sort -u > /tmp/bha-names-file
+$D image inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$IMG" | cut -d= -f1 | sort -u > /tmp/bha-names-image
+EXTRA=$(comm -23 /tmp/bha-names-container <(sort -u /tmp/bha-names-file /tmp/bha-names-image))
+[ -z "$EXTRA" ] || fail "variables set by hand on the container, not in $ENVF or the image: $(echo $EXTRA) — add them to the env file first"
 
-# C3. Existing admin origins (public values) and the next free index.
+# C3. Existing admin origins (public values), next free index, backup, append.
 sudo grep -E '^Cors__AdminOrigins__[0-9]+=' "$ENVF" || echo "(no Cors__AdminOrigins entries yet)"
+BK=""
 if sudo grep -E '^Cors__AdminOrigins__[0-9]+=' "$ENVF" | cut -d= -f2- | grep -qxF "$ADMIN"; then
-  echo "already present: nothing to add"; ADDED=no
+  echo "already present: nothing to add to $ENVF"
 else
   IDX=$(sudo sed -n 's/^Cors__AdminOrigins__\([0-9][0-9]*\)=.*/\1/p' "$ENVF" | sort -n | tail -1)
   IDX=$(( ${IDX:--1} + 1 ))
@@ -205,26 +222,51 @@ else
   echo "backup: $BK"
   [ -z "$(sudo tail -c1 "$ENVF")" ] || echo | sudo tee -a "$ENVF" >/dev/null
   printf 'Cors__AdminOrigins__%s=%s\n' "$IDX" "$ADMIN" | sudo tee -a "$ENVF" >/dev/null
-  ADDED=yes
 fi
-sudo grep -E '^Cors__AdminOrigins__[0-9]+=' "$ENVF"     # exact origin present, other origins untouched; Cors__AllowedOrigins__* untouched
+sudo grep -E '^Cors__AdminOrigins__[0-9]+=' "$ENVF"     # the exact origin is present; other origins and Cors__AllowedOrigins__* untouched
 
-# C4. Recreate (docker restart does NOT re-read --env-file). The old container is kept stopped, renamed, for rollback.
-RESTART=$($D inspect -f '{{.HostConfig.RestartPolicy.Name}}' $OLD)
-LOGDRV=$($D inspect -f '{{.HostConfig.LogConfig.Type}}' $OLD)
-LOGOPTS=$($D inspect -f '{{range $k,$v := .HostConfig.LogConfig.Config}}--log-opt {{$k}}={{$v}} {{end}}' $OLD)
-BINDS=$($D inspect -f '{{range .HostConfig.Binds}}-v {{.}} {{end}}' $OLD)
+# The rollback file, written NOW with literal values (no shell variable is needed to run it later).
+RB="$HOME/bha-admin-origin-rollback-$(date -u +%Y%m%dT%H%M%SZ).sh"
+cat > "$RB" <<EOF
+#!/bin/bash
+set -x
+if $D inspect ${OLD}-prev >/dev/null 2>&1; then
+  $D rm -f $OLD
+  $D rename ${OLD}-prev $OLD
+  $D update --restart=$RESTART $OLD
+else
+  $D rm -f ${OLD}-new || true
+fi
+$D start $OLD
+$( [ -n "$BK" ] && echo "sudo cp --preserve=all '$BK' '$ENVF'" || echo "# env file was not changed" )
+EOF
+chmod 700 "$RB"; echo "rollback file: $RB"
+rollback() { bash "$RB" || echo "ROLLBACK FILE FAILED - run it by hand: bash $RB" >&2; }
+
+# C4. Create the new container first (nothing is stopped yet; docker reads the env file here).
+$D create --name ${OLD}-new --restart "$RESTART" --log-driver "$LOGDRV" $LOGOPTS -p 127.0.0.1:$HPORT:$CPORT --env-file "$ENVF" $BINDS "$IMG" >/dev/null \
+  || { rollback; fail "docker create failed (env file unreadable by this user? set D=\"sudo docker\"); rolled back"; }
+# Same settings as the running one? (mounts included). Differences end the run before anything is stopped.
+F='{{json .HostConfig.Binds}} {{json .HostConfig.Mounts}} {{range .Mounts}}{{.Type}}:{{.Destination}}:{{.RW}} {{end}} {{json .HostConfig.PortBindings}} {{json .HostConfig.RestartPolicy}} {{json .HostConfig.LogConfig}} {{.HostConfig.NetworkMode}} {{json .HostConfig.CapAdd}} {{json .HostConfig.CapDrop}} {{json .HostConfig.SecurityOpt}} {{json .HostConfig.ReadonlyRootfs}} {{json .Config.User}} {{json .Config.Entrypoint}} {{json .Config.Cmd}}'
+diff <($D inspect -f "$F" $OLD) <($D inspect -f "$F" ${OLD}-new) || { rollback; fail "container settings differ (see the diff above); rolled back"; }
+echo "container settings identical"
+
+# C5. Swap: stop the old, start the new, wait for /health/ready = 200, then rename. Any failure rolls back.
+$D stop $OLD >/dev/null || { rollback; fail "could not stop $OLD; rolled back"; }
+$D start ${OLD}-new >/dev/null || { rollback; fail "new container did not start; rolled back"; }
+OK=no
+for i in $(seq 1 60); do
+  [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$HPORT/health/ready || true)" = 200 ] && { OK=yes; break; }
+  sleep 1
+done
+[ "$OK" = yes ] || { rollback; fail "/health/ready was not 200 within 60 s; rolled back"; }
 $D rename $OLD ${OLD}-prev
 $D update --restart=no ${OLD}-prev >/dev/null
-$D stop ${OLD}-prev
-$D run -d --name $OLD --restart "$RESTART" --log-driver "$LOGDRV" $LOGOPTS -p 127.0.0.1:8080:8080 --env-file "$ENVF" $BINDS "$IMG"
-
-# C5. The two containers must differ only by name/id/env: review this diff before going on.
-F='{{json .HostConfig.Binds}} {{json .HostConfig.PortBindings}} {{json .HostConfig.RestartPolicy}} {{json .HostConfig.LogConfig}} {{.HostConfig.NetworkMode}} {{json .HostConfig.CapAdd}} {{json .HostConfig.CapDrop}} {{json .HostConfig.SecurityOpt}} {{json .HostConfig.ReadonlyRootfs}} {{json .Config.User}} {{json .Config.Entrypoint}} {{json .Config.Cmd}}'
-diff <($D inspect -f "$F" ${OLD}-prev) <($D inspect -f "$F" $OLD) && echo "container settings identical"
+$D rename ${OLD}-new $OLD
+echo "done: $OLD is the new container; ${OLD}-prev (stopped, restart=no) is kept for rollback"
 ```
 
-Rollback (C): `$D stop $OLD && $D rm $OLD && $D rename ${OLD}-prev $OLD && $D update --restart="$RESTART" $OLD && $D start $OLD`; if the env file was changed, first `sudo cp --preserve=all "$BK" "$ENVF"` (`BK` is the backup path printed in C3). Never delete `/var/lib/the-bha/keys`, never change the image, the Caddy config or `Hosting__TrustedProxy__*`. Remove `${OLD}-prev` only after the verification below passes and you decide to.
+Rollback (C): run the file the script printed (`bash <the rollback file>`): it removes the new container (or swaps the names back if the swap had completed), re-applies the original restart policy, starts the old container and, if the env file was changed, restores it from the backup. Never delete `/var/lib/the-bha/keys`, never change the image, the Caddy config or `Hosting__TrustedProxy__*`. Remove `${OLD}-prev` and the backup only after the verification below passes and you decide to.
 
 Verify after the recreate (from any machine; no cookie/password involved; `<ADMIN>` = `https://the-bha-hotels-booking.vercel.app`, `<API>` = `https://the-bha-api.52-65-145-145.sslip.io`):
 

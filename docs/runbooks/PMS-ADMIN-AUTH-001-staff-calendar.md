@@ -47,10 +47,12 @@ not deploy anything.
 - **Data Protection keys**: `DataProtection:KeysPath` must point to durable
   storage shared by every API instance (Production refuses to start without
   it). Losing or not sharing the keys signs every Staff out.
-- **Proxies**: no forwarded-header trust is configured. Do not add a
-  "trust any proxy" setting to make a deployment work; a reverse proxy in front
-  of the API needs its own design decision first. The rate limiter partitions by
-  the remote address the API sees.
+- **Proxies**: forwarded headers are trusted only from the configured
+  `Hosting:TrustedProxy` network/addresses (`ForwardLimit` 1), never "any proxy"
+  — see the deployment runbook §5. Behind a reverse proxy, or when the Admin Web
+  proxies `/api/admin/v1/*` from Vercel, the API sees that proxy's address as the
+  client, so the rate limiter, which partitions by that address, is shared by all
+  users behind it.
 
 ## 3. Staff accounts (CLI on the API host)
 
