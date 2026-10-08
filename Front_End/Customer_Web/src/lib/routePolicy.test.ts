@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { middleware, config } from "@/middleware";
 import { decideRoute } from "./routePolicy";
@@ -125,6 +125,39 @@ describe("middleware", () => {
 
   it.each(["/api/hello", "/api/hello/auth/x", "/API/x"])("rewrites %s to the unavailable page, without its query", (path) => {
     expect(rewrittenTo(`${path}?a=1`)).toBe("/showcase-unavailable");
+  });
+
+  describe("with the API proxy enabled (BHA-WEB-PROXY-001)", () => {
+    afterEach(() => vi.unstubAllEnvs());
+
+    it("lets /api/* through for the rewrite only when this build baked the proxy flag", () => {
+      for (const path of ["/api", "/api/", "/api/v1/auth/csrf", "/api/admin/v1/me"]) {
+        expect(decideRoute(path)).toEqual({ kind: "unavailable" });
+        expect(decideRoute(path, { apiProxyEnabled: false })).toEqual({ kind: "unavailable" });
+        expect(decideRoute(path, { apiProxyEnabled: true })).toEqual({ kind: "pass" });
+      }
+    });
+
+    it("keeps the exact-case prefix: /API/x is not forwarded and stays closed", () => {
+      for (const path of ["/API/x", "/Api/v1/x"]) {
+        expect(decideRoute(path, { apiProxyEnabled: true })).toEqual({ kind: "unavailable" });
+      }
+    });
+
+    it("does not widen any other decision", () => {
+      for (const path of ["/", "/showcase", "/pay-done", "/apix", "/listing-stay-detail"]) {
+        expect(decideRoute(path, { apiProxyEnabled: true })).toEqual(decideRoute(path));
+      }
+    });
+
+    it("middleware passes /api/v1/* untouched, query kept, only when the flag is baked", () => {
+      expect(rewrittenTo("/api/v1/auth/csrf?x=1")).toBe("/showcase-unavailable");
+      vi.stubEnv("BHA_API_PROXY_ENABLED", "true");
+      const response = run("/api/v1/auth/csrf?x=1");
+      expect(response.headers.get("x-middleware-next")).toBe("1");
+      expect(response.headers.get("x-middleware-rewrite")).toBeNull();
+      expect(rewrittenTo("/API/v1/auth/csrf")).toBe("/showcase-unavailable");
+    });
   });
 
   it("never runs for the Next runtime, fonts, chunks or the image optimizer", () => {

@@ -127,6 +127,29 @@ Customer: Node 22.x, npm 10.x (`engines`, `.nvmrc` 22.23.1), lockfile v3. Admin:
 
 The Riverside photographs are static files in `Front_End/Customer_Web/public/media/the-bha-riverside/` and are served by the Customer project at `https://thebhariverside.com/media/the-bha-riverside/<name>.webp`; the seeded `Media.Url` values must therefore use that origin (D4). Only that exact path shape bypasses the template's default-deny routing. Hard reloads drop an in-memory hold (existing behavior).
 
+### 7a. Demo on the Vercel URL, API on `sslip.io` (`BHA-WEB-PROXY-001`)
+
+Interim demo (Owner decision: keep `https://the-bha-hotels-booking-p5rj.vercel.app`, no domain purchased yet). §1's cookie analysis still holds, so the browser must never call the API cross-site: the Customer project proxies `/api/*` to the API (`rewrites()` in `Front_End/Customer_Web/next.config.js`, opt-in via `API_PROXY_ORIGIN`), and the API's cookies are then first-party to the Vercel hostname. Owner-verified before this work item (`OWNER_VERIFIED`, not re-tested): API behind Caddy at `https://the-bha-api.52-65-145-145.sslip.io`, `/health/ready` 200, `/api/v1/auth/csrf` 200, Let's Encrypt certificate, image `6ae3fdd…` (digest above). Not verified anywhere yet: cookies through Vercel, login, live booking.
+
+Vercel Customer project, **Production only** (then rebuild/redeploy — `NEXT_PUBLIC_*` is compiled into the bundle and `rewrites()` is fixed at build; the proxy code must be on `main`, which Vercel Production builds):
+
+| Variable | Value |
+|---|---|
+| `API_PROXY_ORIGIN` | `https://the-bha-api.52-65-145-145.sslip.io` |
+| `NEXT_PUBLIC_API_BASE_URL` | `https://the-bha-hotels-booking-p5rj.vercel.app` |
+
+A Preview deployment keeps the Production hostname as its API base, so it is not a working proxy; do not report Preview as working. The `sslip.io` host embeds the EC2 public IP: if it changes, the name, certificate and `API_PROXY_ORIGIN` all change (an Elastic IP or a real domain removes the limit; neither is done here). The browser's `Origin` (the Vercel URL) is forwarded unchanged to the API. Read-only source check (not run against the live API): the Customer routes are behind `app.UseCors("customer-web")` (`Back_End/src/TheBha.Api/Program.cs:513`), which only decides whether CORS response headers are added — it does not reject a request — and a server-side `Origin` check exists only for Staff/Admin routes (`Authentication/StaffRequestBoundaryFilter.cs:47`, against `Cors:AdminOrigins`). So no `Cors__AllowedOrigins__0` change is expected for proxied Customer calls, and nothing here treats CORS as the source of a 403 (CORS does not return one). If a proxied Customer call fails unexpectedly, first identify the endpoint and where the error comes from (the API response body and logs, Caddy, or Vercel) before changing any configuration; do not change `Cors__*` on a guess. Also: the API sees Vercel's egress addresses as the client IP, so the in-process per-IP `auth-register`/`auth-login` rate limits (`Program.cs:559`) are shared by every demo user. The API sends `Cache-Control`/`CDN-Cache-Control`/`Vercel-CDN-Cache-Control: no-store`; nothing on the frontend adds caching for auth, availability or booking.
+
+Read-only checks after the redeploy (no data written; `<CUSTOMER>` = the Vercel URL):
+
+```bash
+curl -sS -D - -o /dev/null "<CUSTOMER>/api/v1/auth/csrf"                  # expect 200 and Cache-Control: no-store; note whether a Set-Cookie arrives for the Vercel host (not yet observed)
+curl -sS -o /dev/null -w '%{http_code}\n' "<CUSTOMER>/health/ready"        # 404 expected: only /api/* is proxied, health is not
+curl -sS -o /dev/null -w '%{http_code}\n' "<CUSTOMER>/API/v1/auth/csrf"    # 404 expected: only the exact-case /api prefix is forwarded
+```
+
+Then, in a browser on the Vercel URL, DevTools → Network: the API calls must go to the Vercel hostname (`/api/v1/...`), never to `sslip.io`.
+
 ## 8. Post-deploy verification
 
 ```bash
@@ -215,15 +238,17 @@ stat -c '%a' "$PGPASSFILE"     # expect: 600
 git fetch --prune origin
 git show 6ae3fdd3306c50736c734712df5a0f2a1ab5054a:deploy/showcase/migrations/idempotent.sql | sha256sum   # expect d7d38722dee4ac0c2cc6412df8fbdda22286f28e3a918531881117da7019b406
 sha256sum deploy/showcase/migrations/idempotent.sql                                                    # the file you will apply: expect the same hash
-if git diff --quiet 6ae3fdd3306c50736c734712df5a0f2a1ab5054a HEAD -- Back_End Front_End deploy .github ':(exclude)Back_End/tests'; then
-  echo "runtime source, Dockerfile, deploy files and workflows identical to the release (Back_End/tests excluded on purpose)"
+if git diff --quiet 6ae3fdd3306c50736c734712df5a0f2a1ab5054a HEAD -- Back_End Front_End deploy .github ':(exclude)Back_End/tests' ':(exclude)Front_End/Customer_Web'; then
+  echo "runtime source, Dockerfile, deploy files and workflows identical to the release (Back_End/tests and Front_End/Customer_Web excluded on purpose)"
 else
   echo "STOP: the runtime source differs from the release 6ae3fdd" >&2; false
 fi
-git diff --name-only 6ae3fdd3306c50736c734712df5a0f2a1ab5054a HEAD -- Back_End/tests
+git diff --name-only 6ae3fdd3306c50736c734712df5a0f2a1ab5054a HEAD -- Back_End/tests Front_End/Customer_Web
 ```
 
-Three different commits are involved — do not confuse them: **`6ae3fdd`** is the approved *application release* (what step 2 builds); **`17c15e7`** is the `develop` commit that merged the earlier documentation-only packet; your checkout's **HEAD** additionally contains the `BHA-PG18-001` test changes and later documentation. The `if` exits non-zero and prints `STOP` if any runtime file, Dockerfile, deployment file or workflow differs from `6ae3fdd`; it deliberately excludes `Back_End/tests`, because the test project changed on purpose. The last command lists exactly those changes — expect these five files: `BookingPersistenceTests.cs`, `PostgresVersionSupport.cs`, `PostgresVersionSupportTests.cs`, `PropertyInventoryPersistenceTests.cs`, `StaffIdentityPersistenceTests.cs` (all under `Back_End/tests/TheBha.IntegrationTests/`). Optional: `deploy/showcase/scripts/regenerate-migration-sql.sh --check` (needs `dotnet-ef`) → `idempotent.sql is up to date`.
+`Front_End/Customer_Web` is excluded from the `if` because the API image does not contain it. `BHA-WEB-PROXY-001` changes only the Customer project (proxy rewrite, its middleware gate, the validator, tests, docs); that code is deployed by its own Vercel build and does not alter the API release `6ae3fdd` / digest `sha256:d01c7d9d…98b4b6`. The Customer release is a different thing: it is the `main` commit Vercel Production builds after the Owner promotes this work, identified by that commit, not by `6ae3fdd`.
+
+Three different commits are involved — do not confuse them: **`6ae3fdd`** is the approved *application release* (what step 2 builds); **`17c15e7`** is the `develop` commit that merged the earlier documentation-only packet; your checkout's **HEAD** additionally contains the `BHA-PG18-001` test changes and later documentation. The `if` checks the **API release** only: it exits non-zero and prints `STOP` if anything under `Back_End` other than `Back_End/tests`, under `Front_End` other than `Front_End/Customer_Web` (i.e. `Admin_Web`), under `deploy`, or under `.github` differs from `6ae3fdd`. It is not a check of "every runtime file" of the repository: `Back_End/tests` is excluded because the test project changed on purpose, and `Front_End/Customer_Web` because it is not part of the API image. The last command lists the excluded paths that differ, and what you see depends on the checkout: the `BHA-PG18-001` test changes are five files under `Back_End/tests/TheBha.IntegrationTests/` (`BookingPersistenceTests.cs`, `PostgresVersionSupport.cs`, `PostgresVersionSupportTests.cs`, `PropertyInventoryPersistenceTests.cs`, `StaffIdentityPersistenceTests.cs`), and a checkout that includes the `BHA-WEB-PROXY-001` branch additionally lists its eight `Front_End/Customer_Web` files (`.env.local.example`, `README.md`, `next.config.js`, `scripts/api-proxy-origin.cjs`, `src/lib/api/__tests__/apiProxyConfig.test.ts`, `src/lib/routePolicy.test.ts`, `src/lib/routePolicy.ts`, `src/middleware.ts`). Any other path in that list is unexpected: stop and report it. Optional: `deploy/showcase/scripts/regenerate-migration-sql.sh --check` (needs `dotnet-ef`) → `idempotent.sql is up to date`.
 
 **Step 2 — build the image for exactly `6ae3fdd` (needed by step 10 and by the API; nothing is pushed here).** Built from an archive of the release into a temporary directory, so your checkout stays where it is:
 
