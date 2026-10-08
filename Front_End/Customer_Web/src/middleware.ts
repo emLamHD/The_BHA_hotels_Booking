@@ -8,7 +8,10 @@ import { decideRoute, UNAVAILABLE_PAGE } from "@/lib/routePolicy";
  */
 export function middleware(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
-  switch (decideRoute(pathname).kind) {
+  // BHA-WEB-PROXY-001: inlined by next.config.js `env` at build time, only when the API proxy rewrite
+  // was configured. Written as a literal `process.env.X` so Next can replace it in the edge bundle.
+  const apiProxyEnabled = process.env.BHA_API_PROXY_ENABLED === "true";
+  switch (decideRoute(pathname, { apiProxyEnabled }).kind) {
     case "live":
       // Rewriting home to /showcase can make Next 13.4.3 normalize a loopback
       // request to localhost and re-run middleware. The real page now lives at

@@ -38,11 +38,22 @@ export const MEDIA_NAMESPACE_PATTERN = /^\/media\/the-bha-riverside\/[a-z0-9]+(?
 
 /** `/api` and everything under it. Case-insensitive, so `/API/x` is not a way around it. */
 const API_PREFIX = /^\/api(?:\/|$)/i;
+/** The exact-case prefix the same-origin API proxy rewrite (next.config.js) matches. */
+const API_PROXY_PREFIX = /^\/api(?:\/|$)/;
 
-export function decideRoute(pathname: string): RouteDecision {
+export interface RoutePolicyOptions {
+  /**
+   * BHA-WEB-PROXY-001: true only in a build that configured `API_PROXY_ORIGIN`. Then `/api/*` is let
+   * through so the rewrite can forward it to the API; otherwise (the default) it stays closed.
+   */
+  apiProxyEnabled?: boolean;
+}
+
+export function decideRoute(pathname: string, options: RoutePolicyOptions = {}): RouteDecision {
   if (MEDIA_NAMESPACE_PATTERN.test(pathname)) return { kind: "pass" };
   const path = pathname.length > 1 ? pathname.replace(/\/+$/, "") || "/" : pathname;
   if (path === "/") return { kind: "live" };
+  if (options.apiProxyEnabled && API_PROXY_PREFIX.test(path)) return { kind: "pass" };
   if (API_PREFIX.test(path)) return { kind: "unavailable" };
   if (path === LIVE_ENTRY_PAGE) return { kind: "redirect", to: "/" };
   if (path === TEMPLATE_RECEIPT_ALIAS) return { kind: "redirect", to: RECEIPT_PAGE };

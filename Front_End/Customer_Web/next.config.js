@@ -1,6 +1,15 @@
+const { resolveApiProxyOrigin } = require("./scripts/api-proxy-origin.cjs");
+
+// BHA-WEB-PROXY-001: opt-in same-origin API proxy. Unset/blank keeps the direct mode; a malformed value
+// throws here, at config load, so a bad deployment fails its build instead of proxying somewhere else.
+const apiProxyOrigin = resolveApiProxyOrigin(process.env);
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: false,
+  // Build-time flag read by src/middleware.ts: `/api/*` stays closed (404) unless this build also baked
+  // the rewrite below, so the middleware and the rewrite can never disagree. A boolean, not the origin.
+  ...(apiProxyOrigin ? { env: { BHA_API_PROXY_ENABLED: "true" } } : {}),
   experimental: {
     appDir: true,
     typedRoutes: true,
@@ -32,6 +41,21 @@ const nextConfig = {
         pathname: "/**",
       },
     ],
+  },
+  async rewrites() {
+    if (!apiProxyOrigin) {
+      return [];
+    }
+    // A rewrite, never a redirect: the browser keeps talking to the Customer origin, so the API's
+    // cookies stay first-party. The /api prefix, the rest of the path and the query string are kept.
+    return {
+      beforeFiles: [
+        {
+          source: "/api/:path*",
+          destination: `${apiProxyOrigin}/api/:path*`,
+        },
+      ],
+    };
   },
 };
 
