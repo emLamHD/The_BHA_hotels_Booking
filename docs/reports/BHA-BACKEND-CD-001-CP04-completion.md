@@ -181,7 +181,7 @@ Sections 1–9 keep their attribution (`b69bba4`, `2a93c43` C1, `609cb11` C2). T
 
 ### 10.2 Identity
 
-START_HEAD = `609cb11307969882be97cc168f38a29ab4693dae` (= local = `origin/<feature>` = PR #96 head; Draft; `origin/develop` = baseline `1f039b5…`; clean tree). FINAL_HEAD, GitHub additions/deletions and CI on it are in the handoff. The PR stays outside the 100–400 target because C2 already carried the D/E/F/B packets; C3 adds about 90 lines (E, one template, one test, this section).
+START_HEAD = `609cb11307969882be97cc168f38a29ab4693dae` (= local = `origin/<feature>` = PR #96 head; Draft; `origin/develop` = baseline `1f039b5…`; clean tree). FINAL_HEAD, GitHub additions/deletions and CI on it are in the handoff. The PR stays outside the 100–400 target because C2 already carried the D/E/F/B packets; C3 adds about 130 lines (E, one template, one test, this section).
 
 ### 10.3 Root cause and fix
 
