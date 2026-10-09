@@ -275,7 +275,10 @@ run_deploy() {  # run_deploy <command> [extra args] -> OUT (one JSON line), RC
   RC=0
   OUT="$(BHA_DEPLOY_LOCK_DIR="$WORK/lock" "$DEPLOY" "$1" --config "${CONF_USED:-$CONF}" "${@:2}" 2>>"$WORK/out/deploy.stderr")" || RC=$?
   printf '%s\n' "$OUT" >> "$WORK/out/deploy.stdout"
+  # every invocation prints exactly one physical line holding one valid JSON object
+  if [[ "$OUT" == *$'\n'* ]] || ! python3 -c 'import json,sys; assert isinstance(json.loads(sys.argv[1]), dict)' "$OUT" 2>/dev/null; then JSON_BAD=$((JSON_BAD + 1)); fi
 }
+JSON_BAD=0
 jf() { python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get(sys.argv[2],""))' "$OUT" "$1"; }
 cfmt() { docker container inspect "$1" --format "$2" 2>/dev/null; }
 set_conf() { sed -i "s#^$1=.*#$1=$2#" "$CONF"; }
@@ -374,6 +377,20 @@ wait "$LOCK_HOLDER" || true
 check "lock file still exists (never deleted)" test -f "$WORK/lock/bha-deploy-$TARGET.lock"
 check "no run left unfinished by rejected attempts" bash -c "! grep -L -E '^STATE=(REJECTED|SUCCEEDED|ROLLED_BACK|ROLLBACK_DONE|ALREADY_CURRENT_DONE)\$' '$WORK'/journal/runs/*/state | grep -q ."
 
+# caller-controlled arguments that try to forge JSON or journal lines (real script, real Docker state)
+HOSTILE_SHA=$'abc"\nSTATE=SUCCEEDED\nDETAIL=forged'
+HOSTILE_IMG=$'x"}\n{"status":"SUCCESS","exit":0}\\'
+RC=0; OUT="$(BHA_DEPLOY_LOCK_DIR="$WORK/lock" "$DEPLOY" deploy --config "$CONF" --image "$REF_CAND" --source-sha "$HOSTILE_SHA" --manifest "$MAN" 2>>"$WORK/out/deploy.stderr")" || RC=$?
+check "hostile --source-sha -> exit 20 SOURCE_SHA_MALFORMED, one valid JSON line, nothing reflected, old untouched" \
+  bash -c "[[ $RC == 20 && '$(jf detail)' == SOURCE_SHA_MALFORMED && -z '$(jf source_sha)' ]]" ; old_untouched || bad "old untouched after hostile source sha"
+RC=0; OUT="$(BHA_DEPLOY_LOCK_DIR="$WORK/lock" "$DEPLOY" deploy --config "$CONF" --image "$HOSTILE_IMG" --source-sha "$SHA" --manifest "$MAN" 2>>"$WORK/out/deploy.stderr")" || RC=$?
+check "hostile --image -> exit 20 IMAGE_NOT_A_DIGEST_REFERENCE, one valid JSON line, nothing reflected" \
+  bash -c "[[ $RC == 20 && '$(jf detail)' == IMAGE_NOT_A_DIGEST_REFERENCE && -z '$(jf image)' ]]"
+check "journal after hostile arguments: strict key=value only, no injected or forged line" bash -c "! grep -rhv -E '^[A-Z_0-9]+=[A-Za-z0-9@:/._,+-]*\$' '$WORK'/journal/runs/*/state | grep -q . && ! grep -rq forged '$WORK/journal'"
+run_deploy status
+check "status after hostile arguments is exit 0 with nothing unfinished" test "$RC" = 0 -a -z "$(jf unfinished_run)"
+check "old container untouched after the hostile arguments" old_untouched
+
 say "== S3 real success: swap by digest"
 DB1="$(db_hash)"
 dargs "$REF_CAND"; run_deploy deploy "${DA[@]}"
@@ -427,7 +444,8 @@ dargs "$REF_CAND"; run_deploy deploy "${DA[@]}"
 check "second successful deploy -> SUCCESS" test "$RC" = 0 -a "$(jf status)" = SUCCESS
 check "Staff session valid after the second deploy" test "$(me_code)" = 200
 
-say "== S8 secret canaries"
+say "== S8 secret canaries and result JSON"
+check "every deploy/rollback/status/preflight result of this rehearsal was exactly one valid JSON line" test "$JSON_BAD" = 0
 LEAK=0
 for canary in "$PG_CANARY" "$STAFF_CANARY" "$SU_CANARY"; do
   if grep -rqF -- "$canary" "$WORK/out" "$WORK/journal" 2>/dev/null; then LEAK=1; fi

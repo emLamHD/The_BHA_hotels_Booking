@@ -19,7 +19,7 @@ import time
 import unittest
 from pathlib import Path
 
-SCRIPTS = Path(__file__).resolve().parents[1]
+SCRIPTS = Path(os.environ.get("SCRIPTS_UNDER_TEST") or Path(__file__).resolve().parents[1])   # override = RED run against an older copy
 DEPLOY = SCRIPTS / "backend-deploy.sh"
 PREFLIGHT = SCRIPTS / "backend-migration-preflight.sh"
 MANIFEST = SCRIPTS / "backend-migration-manifest.py"
@@ -241,6 +241,18 @@ if db.get("has_history", True):
 '''
 
 
+def strict_json_line(text):
+    """The whole stdout must be exactly one physical line holding exactly one JSON object (no extra or injected lines)."""
+    if text == "":
+        return {}
+    if not text.endswith("\n") or text.count("\n") != 1:
+        raise AssertionError("stdout is not exactly one physical line: %r" % text[:300])
+    value = json.loads(text, parse_constant=lambda c: (_ for _ in ()).throw(ValueError(c)))
+    if not isinstance(value, dict):
+        raise AssertionError("stdout is not a JSON object")
+    return value
+
+
 def write(path, text, mode=0o600):
     Path(path).write_text(text)
     os.chmod(path, mode)
@@ -333,9 +345,8 @@ class Host:
         if cmd in ("deploy", "preflight"):
             argv += ["--image", image, "--source-sha", sha, "--manifest", str(manifest or self.manifest)]
         p = subprocess.run(argv + list(extra), env=self.env_for(), capture_output=True, text=True, timeout=timeout)
-        out = p.stdout.strip().splitlines()
-        self.last = json.loads(out[-1]) if out and out[-1].startswith("{") else {}
         self.proc = p
+        self.last = strict_json_line(p.stdout)
         return p.returncode
 
     def log(self):
@@ -567,6 +578,132 @@ class PreStopRejections(Base):
         write(self.h.conf, "UNKNOWN_KEY=1\n")
         self.assertEqual(self.h.run(), 2)
         self.assertFalse(Path("/tmp/should-not-exist-bha").exists())
+
+
+HOSTILE = {
+    "double quote": 'a"b', "backslash": "a\\b", "newline": "a\nb", "carriage return": "a\rb", "tab": "a\tb", "control": "a\x01b\x1fc",
+    "forged json": 'x"}\n{"status":"SUCCESS","exit":0}', "forged state line": "abc\nSTATE=SUCCEEDED\nDETAIL=forged",
+    "valid digest then newline": REF_CAND + "\n", "valid sha then newline": SHA + "\n", "canary": "x\n" + CANARY, "unicode": "caf\u00e9\u2028x",
+}
+
+
+class HostileInput(Base):
+    """Caller-controlled --image / --source-sha must never reach stdout, result.json, the journal or the records unescaped."""
+
+    def results(self):
+        return list(self.h.journal.rglob("result.json"))
+
+    def assert_clean(self, label):
+        out, err = self.h.proc.stdout, self.h.proc.stderr
+        self.assertEqual(strict_json_line(out), self.h.last, label)
+        for key, typ in (("exit", int), ("downtime_seconds", int)):
+            if key in self.h.last:
+                self.assertIs(type(self.h.last[key]), typ, (label, key))
+        self.assertNotIn(CANARY, out + err)
+        mine = [f for f in self.results() if f.parent.name == self.h.last.get("run_id")]
+        for f in mine:
+            self.assertEqual(f.read_text(), out, label)                                           # result.json is the same serialized object
+            self.assertEqual(stat.S_IMODE(f.stat().st_mode) & 0o077, 0, label)
+        for f in self.results():
+            json.loads(f.read_text())                                                             # every persisted result stays valid JSON
+        for state in self.h.journal.rglob("state"):
+            for line in state.read_text().splitlines():
+                self.assertRegex(line, r"^[A-Z_0-9]+=[A-Za-z0-9@:/._,+-]*$", label)               # strict key=value only
+            self.assertEqual(state.read_text().count("STATE="), 1, label)
+        for f in self.h.journal.rglob("*"):
+            if f.is_file():
+                self.assertNotIn(CANARY, f.read_text(errors="replace"), label)
+                self.assertNotIn("forged", f.read_text(errors="replace"), label)
+
+    def test_hostile_source_sha_and_image_are_rejected_with_valid_json_and_a_clean_journal(self):
+        for label, payload in HOSTILE.items():
+            for which in ("source_sha", "image"):
+                with self.subTest((label, which)):
+                    kw = {"sha": payload} if which == "source_sha" else {"image": payload}
+                    rc = self.h.run(**kw)
+                    self.assertEqual(rc, 20, (label, which, self.h.proc.stdout, self.h.proc.stderr))
+                    self.assertEqual(self.h.last["status"], "REJECTED_BEFORE_STOP")
+                    self.assertIn(self.h.last["detail"], ("SOURCE_SHA_MALFORMED", "IMAGE_NOT_A_DIGEST_REFERENCE"))
+                    self.assertEqual(self.h.last["image" if which == "image" else "source_sha"], "")   # raw input is not reflected
+                    self.assert_clean((label, which))
+                    self.assert_old_untouched()
+                    self.assertEqual(self.h.run("status"), 0, "a rejected run must leave a readable, finished journal")
+                    self.assertEqual(self.h.last["unfinished_run"], "")
+                    self.assertEqual(self.h.run("recover"), 0)
+                    self.assertEqual(self.h.last["detail"], "NOTHING_TO_RECOVER")
+
+    def test_hostile_values_combined_with_early_errors_still_give_one_json_object(self):
+        for label, payload in HOSTILE.items():
+            for args in (["--image", payload, "--source-sha", payload, "--bogus"], ["--source-sha", payload, "--unknown-flag", "x"]):
+                with self.subTest((label, args[-1])):
+                    argv = [str(DEPLOY), "deploy", "--config", str(self.h.conf)] + args
+                    p = subprocess.run(argv, env=self.h.env_for(), capture_output=True, text=True)
+                    self.h.proc, self.h.last = p, strict_json_line(p.stdout)
+                    self.assertEqual((p.returncode, self.h.last["status"], self.h.last["detail"]), (2, "CONFIG_INVALID", "UNKNOWN_ARGUMENT"))
+                    self.assert_clean(label)
+            for config in (str(self.h.d / "does-not-exist"), ""):
+                argv = [str(DEPLOY), "deploy", "--config", config, "--image", payload, "--source-sha", payload]
+                p = subprocess.run(argv, env=self.h.env_for(), capture_output=True, text=True)
+                self.h.proc, self.h.last = p, strict_json_line(p.stdout)
+                self.assertEqual(p.returncode, 2, (label, config))
+                self.assert_clean(label)
+
+    def test_other_commands_accept_and_never_reflect_hostile_arguments(self):
+        for cmd in ("status", "rollback", "recover", "preflight"):
+            with self.subTest(cmd):
+                argv = [str(DEPLOY), cmd, "--config", str(self.h.conf), "--image", HOSTILE["forged json"], "--source-sha", HOSTILE["forged state line"],
+                        "--manifest", str(self.h.manifest)]
+                p = subprocess.run(argv, env=self.h.env_for(), capture_output=True, text=True)
+                self.h.proc, self.h.last = p, strict_json_line(p.stdout)
+                self.assertTrue(self.h.last)
+                self.assert_clean(cmd)
+
+    def test_accepted_identities_and_json_types_are_preserved(self):
+        self.assertEqual(self.h.run(), 0)
+        last = self.h.last
+        self.assertEqual((last["image"], last["source_sha"]), (REF_CAND, SHA))
+        self.assertEqual([type(last[k]) for k in ("exit", "downtime_seconds")], [int, int])
+        self.assertEqual(list(last), ["status", "detail", "exit", "command", "run_id", "target", "image", "source_sha", "candidate_id", "previous_id", "downtime_seconds"])
+        self.assertEqual((self.h.journal / "runs" / last["run_id"] / "result.json").read_text(), self.h.proc.stdout)
+        self.assertEqual(self.h.run("status"), 0)
+        self.assertIs(self.h.last["running"], True)
+        self.assertEqual(list(self.h.last), ["status", "target", "container_id", "running", "unfinished_run", "unfinished_state", "record_run", "record_state"])
+        self.assertEqual(self.h.run("rollback"), 0)
+        self.assertEqual(self.h.last["status"], "ROLLED_BACK")
+
+    def tools_without_python(self):
+        tools = self.h.d / "tools"; tools.mkdir()
+        for name in ("bash", "env", "dirname", "date", "stat", "mkdir", "sort", "sed", "head", "tr", "od", "cat", "cp", "mv", "rm", "chmod", "mktemp", "timeout",
+                     "flock", "sha256sum", "cmp", "comm", "wc", "grep", "diff", "sleep", "basename", "ls", "id"):
+            src = shutil.which(name)
+            if src: os.symlink(src, tools / name)
+        return tools
+
+    def test_missing_python_is_a_documented_prerequisite_failure_with_valid_json(self):
+        tools = self.tools_without_python()
+        env = self.h.env_for(); env["PATH"] = "%s:%s" % (self.h.bin, tools)
+        argv = [str(DEPLOY), "deploy", "--config", str(self.h.conf), "--image", HOSTILE["forged json"], "--source-sha", HOSTILE["newline"], "--manifest", str(self.h.manifest)]
+        p = subprocess.run(argv, env=env, capture_output=True, text=True)
+        last = strict_json_line(p.stdout)
+        self.assertEqual((p.returncode, last["status"], last["detail"], last["exit"]), (3, "PREREQUISITE_MISSING", "MISSING_python3", 3), p.stdout + p.stderr)
+        self.assertEqual((last["image"], last["source_sha"]), ("", ""))
+        self.assertEqual([l for l in (self.h.d / "docker.log").read_text().splitlines() if l.split()[0] != "version"] if (self.h.d / "docker.log").exists() else [], [])
+
+    def test_a_failing_serializer_never_turns_a_failure_into_success_and_keeps_failure_exit_codes(self):
+        shim = self.h.d / "shim"; shim.mkdir()
+        real = shutil.which("python3")
+        write(shim / "python3", '#!/bin/bash\nfor a in "$@"; do case "$a" in *ensure_ascii*) exit 1;; esac; done\nexec %s "$@"\n' % real, 0o755)
+        env = self.h.env_for(); env["PATH"] = "%s:%s" % (shim, env["PATH"])
+        # a would-be success (status) must not be reported as exit 0 when the result cannot be serialised
+        p = subprocess.run([str(DEPLOY), "status", "--config", str(self.h.conf)], env=env, capture_output=True, text=True)
+        last = strict_json_line(p.stdout)
+        self.assertEqual((p.returncode, last["status"], last["detail"]), (3, "PREREQUISITE_MISSING", "SERIALIZER_UNAVAILABLE"), p.stdout)
+        # a rejection keeps its own status and exit code, from trusted constants only
+        p = subprocess.run([str(DEPLOY), "deploy", "--config", str(self.h.conf), "--image", HOSTILE["forged json"], "--source-sha", SHA, "--manifest", str(self.h.manifest)],
+                           env=env, capture_output=True, text=True)
+        last = strict_json_line(p.stdout)
+        self.assertEqual((p.returncode, last["status"], last["exit"]), (20, "REJECTED_BEFORE_STOP", 20), p.stdout)
+        self.assertEqual((last["image"], last["source_sha"]), ("", ""))
 
 
 class MigrationGate(Base):

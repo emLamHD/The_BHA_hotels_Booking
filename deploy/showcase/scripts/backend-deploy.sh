@@ -51,13 +51,29 @@ export LC_ALL=C
 exec 3>&1 4>&2
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CMD="" CONFIG="" IMAGE="" SOURCE_SHA="" MANIFEST_FILE=""
+CMD="" CONFIG="" IMAGE="" SOURCE_SHA="" MANIFEST_FILE="" BAD_IMAGE=false BAD_SHA=false
 declare -A CFG=() J=()
 RUN_ID="" RUN_DIR="" EV="" FINALIZED=false INTERRUPTED=false DOWNTIME=0
 CAND_ID="" OLD_ID=""
 TERMINAL_STATES=" SUCCEEDED REJECTED ROLLED_BACK ROLLBACK_DONE ALREADY_CURRENT_DONE "
 
-# ------------------------------------------------------------------------------------------------ embedded JSON tool
+# ------------------------------------------------------------------------------------------------ JSON serializer
+# Every dynamic field reaches the output through json.dumps: values are passed as argv (never interpolated into code or
+# into a printf format), control characters and quotes are escaped, the line is exactly one physical line.
+read -r -d '' JSON_TOOL <<'PY' || true
+import json, sys
+a = sys.argv[1:]
+v = a[1:]
+if a[0] == "result":
+    d = {"status": v[0], "detail": v[1], "exit": int(v[2]), "command": v[3], "run_id": v[4], "target": v[5], "image": v[6],
+         "source_sha": v[7], "candidate_id": v[8], "previous_id": v[9], "downtime_seconds": int(v[10])}
+else:
+    d = {"status": "STATUS", "target": v[0], "container_id": v[1], "running": v[2] == "true", "unfinished_run": v[3],
+         "unfinished_state": v[4], "record_run": v[5], "record_state": v[6]}
+sys.stdout.write(json.dumps(d, ensure_ascii=True, separators=(",", ":")) + "\n")
+PY
+
+# ------------------------------------------------------------------------------------------------ embedded inspect tool
 read -r -d '' PYTOOL <<'PY' || true
 import json, os, re, sys
 
@@ -332,17 +348,26 @@ pyget() { py get "$1" "$2"; }
 
 emit() {  # emit <STATUS> <DETAIL> <exit>
   FINALIZED=true
-  local line detail="${2//[^A-Za-z0-9_.:,-]/_}"
-  line="$(printf '{"status":"%s","detail":"%s","exit":%s,"command":"%s","run_id":"%s","target":"%s","image":"%s","source_sha":"%s","candidate_id":"%s","previous_id":"%s","downtime_seconds":%s}' \
-    "$1" "$detail" "$3" "$CMD" "$RUN_ID" "${CFG[TARGET_CONTAINER]:-}" "$IMAGE" "$SOURCE_SHA" "${CAND_ID:-}" "${OLD_ID:-}" "$DOWNTIME")"
+  local status="$1" detail="${2//[^A-Za-z0-9_.:,-]/_}" code="$3" line
+  [[ "$status" =~ ^[A-Z_]+$ ]] || status=UNKNOWN
+  [[ "$code" =~ ^[0-9]{1,3}$ ]] || code=3
+  if ! line="$(python3 -I -c "$JSON_TOOL" result "$status" "$detail" "$code" "$CMD" "$RUN_ID" "${CFG[TARGET_CONTAINER]:-}" "$IMAGE" \
+        "$SOURCE_SHA" "${CAND_ID:-}" "${OLD_ID:-}" "$DOWNTIME" 2>/dev/null)" || [[ -z "$line" ]]; then
+    # Serializer unavailable: a static line built only from trusted constants (status and detail are our own codes, sanitised
+    # above; nothing caller-controlled is interpolated). It can never report a success it could not serialise.
+    if [[ "$code" == 0 ]]; then status=PREREQUISITE_MISSING; detail=SERIALIZER_UNAVAILABLE; code=3; fi
+    line="{\"status\":\"$status\",\"detail\":\"$detail\",\"exit\":$code,\"command\":\"\",\"run_id\":\"\",\"target\":\"\",\"image\":\"\",\"source_sha\":\"\",\"candidate_id\":\"\",\"previous_id\":\"\",\"downtime_seconds\":0}"
+  fi
   printf '%s\n' "$line" >&3
-  if [[ -n "$RUN_DIR" && -d "$RUN_DIR" ]]; then printf '%s\n' "$line" > "$RUN_DIR/result.json"; fi
+  if [[ -n "$RUN_DIR" && -d "$RUN_DIR" ]]; then   # the same object, private, atomic: never a partial or stale result
+    { printf '%s\n' "$line" > "$RUN_DIR/.result.tmp" && mv -f "$RUN_DIR/.result.tmp" "$RUN_DIR/result.json"; } 2>/dev/null || true
+  fi
   # Raw `docker inspect` output carries the environment (secrets): it never outlives the run that needed it.
   if [[ -n "$EV" && -d "$EV" ]]; then
     rm -f "$EV"/old.json "$EV"/new.json "$EV"/cand.json "$EV"/cand-final.json "$EV"/cand-remove.json "$EV"/restore.json \
       "$EV"/verify.json "$EV"/.field.json "$EV"/env.snapshot "$EV"/env.verify
   fi
-  exit "$3"
+  exit "$code"
 }
 config_invalid() { emit CONFIG_INVALID "$1" 2; }
 need() { command -v "$1" >/dev/null 2>&1 || emit PREREQUISITE_MISSING "MISSING_$1" 3; }
@@ -643,9 +668,10 @@ on_signal() { INTERRUPTED=true; exit 143; }
 
 # ------------------------------------------------------------------------------------------------ pre-stop gates
 reject() {  # reject <CODE>: a gate failed; nothing has been stopped
+  local code="${1//[^A-Za-z0-9_.:,-]/_}"     # codes can carry names taken from the inspected container: persist a safe form only
   remove_candidate_if_ours
-  if [[ -n "$RUN_DIR" ]]; then j_set STATE REJECTED DETAIL "$1"; fi
-  emit REJECTED_BEFORE_STOP "$1" 20
+  if [[ -n "$RUN_DIR" ]]; then j_set STATE REJECTED DETAIL "$code"; fi
+  emit REJECTED_BEFORE_STOP "$code" 20
 }
 
 reject_from() {  # reject_from <file with a "REJECT CODE..." line from the JSON tool>
@@ -654,22 +680,29 @@ reject_from() {  # reject_from <file with a "REJECT CODE..." line from the JSON 
   reject "${c:-UNKNOWN_REJECTION}"
 }
 
+# --image and --source-sha are caller-controlled: they are checked against their exact grammar HERE, before they can reach the
+# journal, the events log, the records or any output. A malformed value is never stored (the variable stays empty, the flag is
+# set and gate_inputs rejects with the documented code), so nothing hostile is ever persisted or reflected.
 parse_run_args() {
   while (( $# )); do
     case "$1" in
-      --config) CONFIG="${2:-}"; shift 2 ;;
-      --image) IMAGE="${2:-}"; shift 2 ;;
-      --source-sha) SOURCE_SHA="${2:-}"; shift 2 ;;
-      --manifest) MANIFEST_FILE="${2:-}"; shift 2 ;;
+      --config|--image|--source-sha|--manifest) (( $# >= 2 )) || emit CONFIG_INVALID ARGUMENT_VALUE_MISSING 2 ;;
+    esac
+    case "$1" in
+      --config) CONFIG="$2" ;;
+      --image) if [[ "$2" =~ ^[A-Za-z0-9._:/-]+@sha256:[0-9a-f]{64}$ ]]; then IMAGE="$2"; else IMAGE=""; BAD_IMAGE=true; fi ;;
+      --source-sha) if [[ "$2" =~ ^[0-9a-f]{40}$ ]]; then SOURCE_SHA="$2"; else SOURCE_SHA=""; BAD_SHA=true; fi ;;
+      --manifest) MANIFEST_FILE="$2" ;;
       *) emit CONFIG_INVALID UNKNOWN_ARGUMENT 2 ;;
     esac
+    shift 2
   done
 }
 
 gate_inputs() {
-  [[ "$IMAGE" =~ ^[A-Za-z0-9._:/-]+@sha256:[0-9a-f]{64}$ ]] || { IMAGE=""; reject IMAGE_NOT_A_DIGEST_REFERENCE; }
+  [[ "$BAD_IMAGE" == false && -n "$IMAGE" ]] || reject IMAGE_NOT_A_DIGEST_REFERENCE
   [[ "${IMAGE%@*}" == "${CFG[ALLOWED_IMAGE_REPOSITORY]}" ]] || reject IMAGE_REPOSITORY_NOT_ALLOWED
-  [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || reject SOURCE_SHA_MALFORMED
+  [[ "$BAD_SHA" == false && -n "$SOURCE_SHA" ]] || reject SOURCE_SHA_MALFORMED
   [[ -n "$MANIFEST_FILE" && -f "$MANIFEST_FILE" ]] || reject MANIFEST_MISSING
   python3 -I "$SCRIPT_DIR/backend-migration-manifest.py" ids --manifest "$MANIFEST_FILE" --source-sha "$SOURCE_SHA" > "$EV/expected.ids" 2> "$EV/manifest.err" || reject MANIFEST_INVALID_OR_FOR_ANOTHER_SHA
   J[HISTORY_SHA256]="$(hash_file "$EV/expected.ids")"
@@ -908,7 +941,7 @@ cmd_recover() {
 
 cmd_status() {
   parse_run_args "$@"; load_config; check_prerequisites
-  local id cid="" run_state="none" rec_state="none" running="false" rec_run=""
+  local id cid="" run_state="none" rec_state="none" running="false" rec_run="" line
   EV="$(mktemp -d "${CFG[JOURNAL_DIR]}/tmp/status.XXXXXX")"
   trap 'rm -rf "$EV"' EXIT
   c_json "${CFG[TARGET_CONTAINER]}" "$EV/c.json" && { cid="$(pyget "$EV/c.json" Id)"; running="$(pyget "$EV/c.json" State.Running)"; }
@@ -916,8 +949,9 @@ cmd_status() {
   [[ -z "$id" ]] || { RUN_ID="$id"; run_state="$(sed -n 's/^STATE=//p' "${CFG[JOURNAL_DIR]}/runs/$id/state" 2>/dev/null)"; }
   if read_record; then rec_state="${R[RECORD_STATE]:-}" rec_run="${R[RECORD_RUN_ID]:-}"; fi
   OLD_ID="$cid"
-  printf '{"status":"STATUS","target":"%s","container_id":"%s","running":%s,"unfinished_run":"%s","unfinished_state":"%s","record_run":"%s","record_state":"%s"}\n' \
-    "${CFG[TARGET_CONTAINER]}" "$cid" "${running:-false}" "$id" "$run_state" "$rec_run" "$rec_state" >&3
+  line="$(python3 -I -c "$JSON_TOOL" status "${CFG[TARGET_CONTAINER]}" "$cid" "${running:-false}" "$id" "$run_state" "$rec_run" "$rec_state" 2>/dev/null)" \
+    && [[ -n "$line" ]] || emit PREREQUISITE_MISSING SERIALIZER_UNAVAILABLE 3
+  printf '%s\n' "$line" >&3
   [[ -z "$id" ]] || { FINALIZED=true; exit 60; }
   FINALIZED=true
   exit 0
