@@ -46,6 +46,9 @@
 set -euo pipefail
 umask 077
 export LC_ALL=C
+# Keep the caller's stdout/stderr: a signal handler runs inside whatever redirection the interrupted command had
+# (e.g. `>/dev/null`), and the result line must still reach the caller.
+exec 3>&1 4>&2
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CMD="" CONFIG="" IMAGE="" SOURCE_SHA="" MANIFEST_FILE=""
@@ -317,7 +320,7 @@ emit() {  # emit <STATUS> <DETAIL> <exit>
   local line
   line="$(printf '{"status":"%s","detail":"%s","exit":%s,"command":"%s","run_id":"%s","target":"%s","image":"%s","source_sha":"%s","candidate_id":"%s","previous_id":"%s","downtime_seconds":%s}' \
     "$1" "$2" "$3" "$CMD" "$RUN_ID" "${CFG[TARGET_CONTAINER]:-}" "$IMAGE" "$SOURCE_SHA" "${CAND_ID:-}" "${OLD_ID:-}" "$DOWNTIME")"
-  printf '%s\n' "$line"
+  printf '%s\n' "$line" >&3
   if [[ -n "$RUN_DIR" && -d "$RUN_DIR" ]]; then printf '%s\n' "$line" > "$RUN_DIR/result.json"; fi
   # Raw `docker inspect` output carries the environment (secrets): it never outlives the run that needed it.
   if [[ -n "$EV" && -d "$EV" ]]; then
@@ -548,7 +551,9 @@ restore_previous() {
   j_set STATE RESTORING
   if [[ "$failed" =~ ^[0-9a-f]{64}$ ]] && c_json "$failed" "$f"; then
     if [[ "$(pyget "$f" State.Running)" == true ]]; then dk stop -t 10 "$failed" >/dev/null 2>&1 || { RESTORE_CODE=FAILED_STOP; return 1; }; fi
-    dk update --restart=no "$failed" >/dev/null 2>&1 || { RESTORE_CODE=FAILED_RESTART_POLICY; return 1; }
+    if [[ "$(py restart "$f")" != no ]]; then   # already no while the policy is only applied at the very end
+      dk update --restart=no "$failed" >/dev/null 2>&1 || { RESTORE_CODE=FAILED_RESTART_POLICY; return 1; }
+    fi
     if [[ "$(pyget "$f" Name)" == "/$target" ]]; then
       dk rename "$failed" "${target}-failed-$RUN_ID" >/dev/null 2>&1 || { RESTORE_CODE=FAILED_RENAME; return 1; }
     fi
@@ -592,6 +597,7 @@ after_stop_failure() {  # after_stop_failure <detail>
 # Backstop for signals and unexpected errors: pre-stop -> reject; from STOP_INTENT on -> restore the previous container.
 on_exit() {
   local rc=$? st
+  exec 1>&3 2>&4
   trap '' INT TERM HUP
   trap - EXIT
   [[ "$FINALIZED" == true || -z "$RUN_DIR" || ! -d "$RUN_DIR" ]] && exit "$rc"
@@ -894,7 +900,7 @@ cmd_status() {
   if read_record; then rec_state="${R[RECORD_STATE]:-}" rec_run="${R[RECORD_RUN_ID]:-}"; fi
   OLD_ID="$cid"
   printf '{"status":"STATUS","target":"%s","container_id":"%s","running":%s,"unfinished_run":"%s","unfinished_state":"%s","record_run":"%s","record_state":"%s"}\n' \
-    "${CFG[TARGET_CONTAINER]}" "$cid" "${running:-false}" "$id" "$run_state" "$rec_run" "$rec_state"
+    "${CFG[TARGET_CONTAINER]}" "$cid" "${running:-false}" "$id" "$run_state" "$rec_run" "$rec_state" >&3
   [[ -z "$id" ]] || { FINALIZED=true; exit 60; }
   FINALIZED=true
   exit 0

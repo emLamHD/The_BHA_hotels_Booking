@@ -149,8 +149,9 @@ APPLIED_N="$(grep -c . "$TMP/applied" || true)"
 if cmp -s "$TMP/applied" "$IDS"; then
   result PASS EXACT_MATCH 0
 fi
-pending="$(LC_ALL=C comm -23 "$IDS" "$TMP/applied" | grep -c . || true)"
-extra="$(LC_ALL=C comm -13 "$IDS" "$TMP/applied" | grep -c . || true)"
+LC_ALL=C sort "$TMP/applied" > "$TMP/applied.sorted"   # comm needs sorted input even if the server ever returned another order
+pending="$(LC_ALL=C comm -23 "$IDS" "$TMP/applied.sorted" | grep -c . || true)"
+extra="$(LC_ALL=C comm -13 "$IDS" "$TMP/applied.sorted" | grep -c . || true)"
 if (( pending > 0 && extra > 0 )); then result FAIL PENDING_AND_UNKNOWN_MIGRATIONS 20
 elif (( pending > 0 )); then result FAIL PENDING_MIGRATIONS 20
 elif (( extra > 0 )); then result FAIL UNKNOWN_APPLIED_MIGRATIONS 20
