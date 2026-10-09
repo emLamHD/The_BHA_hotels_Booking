@@ -75,3 +75,77 @@ Backend suite: a scratch `postgres:18.3` container on its own name/port and `Con
 * Actions are referenced by version tag (`actions/*@v4`, `aws-actions/*@v4|v2`), as before; SHA pinning is not part of CP01.
 * `develop` lane behavior changes (deliberate): the publish job no longer rebuilds, an existing tag now fails instead of being reused silently, tag-lookup errors are no longer swallowed, config is validated in the publish job instead of the plan job, and the backend suite now runs on every event.
 * A `pull_request` image is built from the PR head, not from the merge result.
+
+## 9. CP02 — EC2 deploy / rollback engine (isolated rehearsal only)
+
+> Status 2026-10-09. `backend-deploy.sh`, `backend-migration-preflight.sh` and `backend-migration-manifest.py` exist and were rehearsed on a **local isolated** Docker + PostgreSQL 18.3 stack. They were **not** run on the EC2 host, against RDS, ECR or SSM. `DEPLOY_LIVE`, `ROLLBACK_LIVE`, `SSM_LIVE`, `CLOUD_WRITES`: `NOT_RUN`. CP03 (SSM/IAM/workflow wiring) and CP04 (Owner live activation) have not started; backend CD is not complete. Every production path below is the **documented contract** (runbook `CUST-WEB-SHOWCASE-001` §7b/§11), not something inspected in this session.
+
+### 9.1 CLI
+
+```
+backend-deploy.sh preflight --config F --image REPO@sha256:DIGEST --source-sha FULLSHA --manifest FILE
+backend-deploy.sh deploy    --config F --image REPO@sha256:DIGEST --source-sha FULLSHA --manifest FILE
+backend-deploy.sh rollback  --config F      # previous release, from the latest protected record
+backend-deploy.sh recover   --config F      # finish/undo an interrupted run (always returns to the PREVIOUS release)
+backend-deploy.sh status    --config F      # read-only, no lock
+backend-migration-manifest.py generate --repo DIR --source-sha SHA [--output F]   # at release time, from a clean checkout of SHA
+backend-migration-preflight.sh ...                                               # called by deploy/preflight; usable alone
+```
+
+`preflight` runs every pre-stop gate (it pulls the digest, but creates/stops/changes no container and touches no env, key, CA or database state). `deploy` = the same gates, then create-before-stop, a bounded-downtime swap, checks and rollback on failure.
+
+Exit codes (each run also prints one JSON line `{"status","detail","exit","command","run_id","target","image","source_sha","candidate_id","previous_id","downtime_seconds"}`; `detail` is a code, never a value):
+
+| Exit | Status | Meaning |
+|---|---|---|
+| 0 | `PREFLIGHT_PASS` `SUCCESS` `ALREADY_CURRENT` `ROLLED_BACK` `ALREADY_ROLLED_BACK` `RECOVERED` `STATUS` | `ALREADY_CURRENT` still runs readiness, API, schema-history, env and preservation checks |
+| 2 | `CONFIG_INVALID` | arguments, host config or manifest malformed |
+| 3 | `PREREQUISITE_MISSING` | a host tool, the Docker daemon, the lock directory or psql is missing |
+| 20 | `REJECTED_BEFORE_STOP` | a gate failed; the old container was not touched (or the run aborted before the stop) |
+| 30 | `DEPLOY_FAILED_ROLLED_BACK` | failure after the stop; the previous container serves again and was re-verified. Never a success |
+| 40 | `ROLLBACK_FAILED` | evidence and identities kept; run `recover` or follow §9.6 |
+| 50 | `LOCK_BUSY` | another deploy/rollback/recover holds the per-target host lock |
+| 60 | `INTERRUPTED_STATE` | an unfinished journal run, or a container labelled for the target that no finished journal accounts for |
+
+### 9.2 Host config (data file, never sourced)
+
+Private (`0600`/`0400`, owned by the caller), `KEY=VALUE`, unknown/duplicate keys refused. Required: `TARGET_CONTAINER ALLOWED_IMAGE_REPOSITORY EXPECTED_SOURCE_URL EXPECTED_CURRENT_IMAGE LOOPBACK_PORT ENV_FILE KEYS_DIR CA_FILE JOURNAL_DIR PG_SERVICE_FILE PG_PASS_FILE PG_SERVICE PG_EXPECT_HOST PG_EXPECT_DB PG_EXPECT_USER API_BASE_URL`. Optional: `API_CA_FILE PSQL_BIN READY_TIMEOUT_SECONDS(60) REQUEST_TIMEOUT_SECONDS(5) LOCK_WAIT_SECONDS(20) STOP_TIMEOUT_SECONDS(30) DOCKER_TIMEOUT_SECONDS(120) PREFLIGHT_TIMEOUT_SECONDS(30)`. The old production digest is not hardcoded: `EXPECTED_CURRENT_IMAGE` is supplied per release and its local image ID must equal the running container's image ID (IDs are compared with IDs, never with digests). It must be updated after every deploy or rollback (the CP03 release packet's job).
+
+Release inputs bind together: `--image` must be `ALLOWED_IMAGE_REPOSITORY@sha256:…` (no tag); `--source-sha` is the full SHA; the manifest's `source_sha` must equal it; the image's `org.opencontainers.image.revision` must equal it and `…source` must equal `EXPECTED_SOURCE_URL`; the image must not run as root.
+
+Supported runtime shape of `TARGET_CONTAINER` (anything else is refused before the stop): default/bridge network; `127.0.0.1:LOOPBACK_PORT → 8080/tcp`; exactly two bind mounts, created with `--mount` (`KEYS_DIR → /var/keys` rw, `CA_FILE → /certs/rds-ca.pem` ro), canonical paths; env = image defaults + `ENV_FILE`; image entrypoint/cmd/user/working dir; log driver/options; restart policy; caps, security options, read-only rootfs, memory/swap/cpus/pids. After `docker create` the **full HostConfig and Config** of the candidate are compared with the old container's (null/false/0/empty are the same value); only the restart policy is excluded, because the candidate is created with `--restart=no` and the original policy is applied and re-verified after every check passed. A container that was created with `-v` (Binds instead of Mounts) is refused, by design.
+
+### 9.3 Gates before the old container is stopped
+
+1. config + prerequisites; per-target `flock` lock (`/run/lock/bha-deploy-<target>.lock`, never deleted, independent of the config file; `BHA_DEPLOY_LOCK_DIR` exists for tests only); no unfinished journal run; no unaccounted labelled container (refuse only, never delete by scanning).
+2. image/SHA/manifest binding (above); `docker pull` of the digest; the digest must appear in the image's `RepoDigests`.
+3. current container: running, ID recorded, image ID equals `EXPECTED_CURRENT_IMAGE`'s.
+4. **migration-history gate** (`backend-migration-preflight.sh`): application identity through a libpq service file + passfile (private), `sslmode=verify-full` against the same CA file that is mounted into the API container, sanitised `PG*` environment (no inherited variables, no system `pg_service.conf`), `BEGIN READ ONLY` with statement/lock timeouts. In-session assertions: database, session user, TLS in use, `transaction_read_only = on`. The full ordered list of applied IDs must equal the manifest exactly. Pending, unknown, missing history, permission, TLS, connection, timeout and query failures all stop the run. Nothing is migrated, repaired, seeded or altered — not even in a rolled-back transaction. History equality proves migration compatibility only, not the absence of manual schema drift; a release that needs a schema change is refused until a separate Owner migration procedure has run. Container rollback never rolls back the database.
+5. runtime shape (above), env check (every `ENV_FILE` value equals the running container's value; no variable that is in neither the file nor the old image defaults; base-image version variables `DOTNET_VERSION ASPNET_VERSION DOTNET_SDK_VERSION` may differ, any other image-default change is refused; `ENV_FILE` is parsed strictly — leading whitespace, BOM, CR, lines without `=` and duplicate names are refused, dotted names are valid, the value is everything after the first `=`), key ring present and hashed **inside the container** (owner uid 1654, mode 0600), CA read-only, `ENV_FILE`/`CA_FILE` sha256 and stat recorded.
+6. candidate created (not started) under a unique run name with run/target labels, from a private copy of the env file that is parsed and passed to docker, then deleted; its identity, labels, runtime profile and env are compared before the stop.
+
+`/health/ready` is an `AddDbContextCheck` on PostgreSQL: it proves database connectivity only, not schema compatibility. The release checks are readiness **plus** the history gate **plus** the API GETs.
+
+### 9.4 Swap, checks, rollback
+
+State machine (journal `JOURNAL_DIR/runs/<run>/state`, rewritten atomically before each destructive step): `STARTED → GATES_PASSED → STOP_INTENT → OLD_STOPPED → NAMES_SWAPPED → CANDIDATE_STARTED → VERIFIED → SUCCEEDED`; failure: `REJECTED` (before the stop) or `RESTORING → ROLLED_BACK | ROLLBACK_FAILED`; explicit rollback ends in `ROLLBACK_DONE`. Terminal states: `SUCCEEDED REJECTED ROLLED_BACK ROLLBACK_DONE ALREADY_CURRENT_DONE`; anything else blocks the next run (exit 60).
+
+Sequence: record the original restart policy → `docker update --restart=no` on the old container → `docker stop` → rename old to `<target>-prev-<run>` → rename the candidate to `<target>` → `docker start` the candidate → checks → apply the original restart policy to the candidate and re-read it → write the record. The old container is never removed and stays stopped with `restart=no`. The shared host port makes this **bounded downtime**, not zero downtime (3–4 s measured in the rehearsal).
+
+Checks after the start: container running with the expected ID/image ID; `/health/ready` = 200 and body `Healthy` within `READY_TIMEOUT_SECONDS` (no redirect followed); `GET /api/v1/properties` = 200 with the JSON contract; unauthenticated `GET /api/admin/v1/me` = 401 through `API_BASE_URL` (HTTPS via the trusted proxy; a 404 means the forwarded scheme is not trusted — never fix that by faking headers); mount access as the container user; every pre-existing key file still present with identical content; effective env = candidate image defaults + env file; `ENV_FILE`/`CA_FILE` unchanged. No login, booking or other write is attempted; no `curl -k`.
+
+Any failure after `STOP_INTENT` runs `restore_previous`, which **inspects what Docker actually shows** and performs only the missing steps (stop the failed container, rename it to `<target>-failed-<run>`, rename the previous one back, restore its restart policy, start it, re-verify it). The failed candidate is kept stopped as evidence. A name held by an unrelated container is never taken over (`ROLLBACK_FAILED`, `TARGET_NAME_OCCUPIED`).
+
+`rollback` works from `records/latest` only and refuses (20) when the record is stale — the container named after the target is not the recorded one — when the previous container is not in its recorded state, when the database history no longer equals the recorded manifest, or when the previous container no longer matches the current env file (all checked **before** anything is stopped). A second `rollback` reports `ALREADY_ROLLED_BACK` after re-verifying the serving container.
+
+### 9.5 Prerequisites (documented contracts, not live inspections)
+
+bash ≥ 4.4, python3 ≥ 3.8, docker, flock, timeout, curl, sha256sum, and a libpq `psql` ≥ 10 (the gate uses `\if`) on the host; `/run/lock` exists; the host reaches its own public HTTPS name (hairpin) for the API checks; `bha_app` has `SELECT` on `public."__EFMigrationsHistory"` (runbook `CUST-WEB-SHOWCASE-001` §11 step 8 grants `SELECT` on all tables in `public`; not verified live — if it is missing the gate fails closed with `PERMISSION_DENIED` and CP04 must fix the grant, not the gate); private service file + passfile + CA for the read connection (templates in the rehearsal harness). Nothing is installed by these scripts.
+
+### 9.6 Interrupted runs and recovery
+
+`EXIT/INT/TERM/HUP` are handled with bounded time: before the stop the run is rejected; after it, the previous container is restored. A `SIGKILL`, kernel panic or power loss cannot be handled: the journal is left in a non-terminal state, every later run refuses with exit 60, and `status` shows it. `recover` then inspects Docker, undoes the run (it never *completes* a deploy) and exits 0 only when the previous release serves again and was re-verified. **A reboot during the deploy window leaves the service down**: both containers have `restart=no` until the original policy is applied at the end, so nothing restarts by itself — run `recover`. If `recover` reports `ROLLBACK_FAILED`, the identities in the journal (`state` file) and the retained containers are the recovery material: `docker start` the previous container ID after renaming it back to the target name and restoring its recorded restart policy by hand. A crash between `STATE=SUCCEEDED` and the record write leaves the earlier record in place: a later `rollback` then refuses as stale (safe, but the tool cannot roll that deployment back).
+
+### 9.7 Limitations
+
+Rollback uses the latest record only; each successful deploy leaves one more stopped `-prev-<run>` container that nothing removes; the rehearsal ran on a containerd image store whereas the EC2 host probably uses the classic store (the scripts compare image IDs with image IDs on the same host only); the release manifest/packet transfer, provenance validation and SSM orchestration are CP03; the live runtime shape is unverified until CP04.
