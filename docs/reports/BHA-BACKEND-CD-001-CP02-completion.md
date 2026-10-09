@@ -1,5 +1,7 @@
 # BHA-BACKEND-CD-001-CP02 — completion report (EC2_DEPLOY_ROLLBACK)
 
+> **CP02-C1 (SAFE_RESULT_SERIALIZATION) is a correction on top of this report.** Sections 1–7 describe CP02 before C1 (head `b5eda8f`) and stay as that evidence; section 8 covers the correction. Counts and rehearsal results in sections 3–4 are the pre-C1 ones and are not attributed to the C1 head.
+
 Date: 2026-10-09 (Asia/Saigon). **Checkpoint 2 only. Backend CD is not complete.** CP03 (SSM/IAM/workflow wiring) and CP04 (Owner live activation) are NOT_STARTED. Nothing here ran on the EC2 host, RDS, ECR, SSM or any AWS API.
 
 ## 1. Identity
@@ -70,3 +72,34 @@ Rehearsal identities: scratch PostgreSQL `18.3 (Debian 18.3-1.pgdg13+1)` (`postg
 * REVIEW_CP02: NOT_RUN — OWNER_ONLY
 * PUBLISH_LIVE / DEPLOY_LIVE / ROLLBACK_LIVE / SSM_LIVE / CLOUD_WRITES: NOT_RUN
 * CP03 / CP04: NOT_STARTED. Backend CD is not complete.
+
+## 8. CP02-C1 — SAFE_RESULT_SERIALIZATION (correction, 2026-10-09)
+
+| | |
+|---|---|
+| Roles | `IMPLEMENTER: CLAUDE`, `REVIEWER: CODEX_READ_ONLY` (Owner invokes) |
+| Finding (Codex review of `b5eda8f`, forwarded by the Owner) | **[P2] Escape untrusted fields before emitting JSON — `backend-deploy.sh:336-337`**: `emit()` inserted `--image` / `--source-sha` into a `printf` format, so a rejected malformed argument could corrupt the stdout line and `result.json`. Codex could not run the tests (read-only temporary-directory limit): that is not a PASS or FAIL of the suite. OC added: `new_run` wrote the raw values to the key=value `state`/`events` files before the gates ran |
+| REVIEW_CP02 before the correction | RUN by the Owner on `b5eda8f`: one P2 finding (above). It is not a review of C1 |
+| C1 START_HEAD | `b5eda8f8145ea40dee0d959a9b0fae29ca65f7b5` (= local = remote = PR #94 head, clean tree, base `develop`/`56c8b77`) |
+| C1 validation SHA | `541f86b209a93154da1a7bf5f783c7810652f916` — the committed source that the full suite and the real rehearsal below ran on; this report/runbook/SNAPSHOT commit and FINAL_HEAD are in the final handoff |
+| PR | https://github.com/emLamHD/The_BHA_hotels_Booking/pull/94 (same Draft PR); actual GitHub additions/deletions and CI runs are in the final handoff. Size reasons are unchanged (section 2): the correction adds one serializer, argument validation and tests |
+
+**Root cause.** Two weaknesses with one source: (1) `emit()` built its JSON with `printf` and the raw `IMAGE` / `SOURCE_SHA` values, which are only validated later by `gate_inputs`; (2) `new_run`, called before the gates, persisted the same raw values into the strict key=value journal, so a value containing a newline could forge journal fields (`STATE=…`) and break `status`/`recover`. The status JSON had the same `printf` pattern.
+
+**Fix (only `backend-deploy.sh`, tests, harness, docs).**
+* A real JSON serializer (`json.dumps`, Python already a prerequisite) produces every result and the `status` line; values are passed as argv, never interpolated; same field names, order and types (`exit`, `downtime_seconds` numbers; `running` boolean).
+* `result.json` is the same line, written to a private temp file and moved atomically.
+* `--image` and `--source-sha` are checked against their exact grammar **in the argument parser**: a malformed value is never stored (variable empty + a flag), the run is rejected by `gate_inputs` with the same documented codes, and the journal, events, records and outputs only ever see validated values or `none`/`""`. A missing option value (`--image` as last argument) now returns a JSON `CONFIG_INVALID/ARGUMENT_VALUE_MISSING` instead of exiting silently.
+* `reject` persists a reduced code (`[A-Za-z0-9_.:,-]`).
+* Serializer unavailable (python3 missing): a static line from trusted constants; failures keep their own status/exit code; a would-be success becomes `PREREQUISITE_MISSING/SERIALIZER_UNAVAILABLE` exit 3. No recursion into the traps; fd 3/4 handling unchanged.
+
+**RED / GREEN.**
+* RED, same tests against the `b5eda8f` scripts (`SCRIPTS_UNDER_TEST` points the suite at an archive of that commit): `test_backend_deploy.HostileInput` 6 tests → **18 failures + 14 errors**; e.g. `--source-sha 'a"b'` printed invalid JSON, and a forged value printed a second physical stdout line.
+* GREEN on `541f86b`: the 6 tests pass. They exercise, for `--source-sha` and `--image` independently, double quote, backslash, newline, CR, tab, control characters, forged JSON, forged `STATE=` line, a valid digest/SHA followed by a newline, a secret canary and non-ASCII separators; each combined with an unknown flag, a missing/non-existent `--config`, and the `status/rollback/recover/preflight` commands. Assertions: the **whole** stdout is exactly one physical line and one strict JSON object; `image`/`source_sha` are `""` and nothing is reflected; `result.json` equals stdout and is private; every `state` line matches the strict grammar and has a single `STATE=`; no canary or forged text in any journal file; `status` exits 0 with nothing unfinished and `recover` says `NOTHING_TO_RECOVER`; Docker log shows no stop/start/rename/update and the old container keeps its ID, state and policy. Also: accepted identities are preserved exactly with the published field order and types; python3 missing → valid JSON, exit 3, `MISSING_python3`; serializer failing (python shim) → status as exit 3 and a rejection keeping exit 20.
+* The harness now parses every command's stdout strictly (one line, one JSON object), which re-checks all 41 earlier mock tests.
+
+**Checks.** `python3 -m unittest discover -s deploy/showcase/scripts/tests -p "test_*.py"` (Python 3.14.4): **117 tests OK** (53 in `test_backend_deploy.py`, 49 release, 15 existing); `bash -n`, ShellCheck v0.10.0 `-x` (pinned image from the CP01 report): exit 0 for every shell script; `py_compile`: ok; `git diff --check`: clean. Workflows were not changed (no actionlint needed).
+
+**Real isolated rehearsal on the committed source `541f86b`** (Docker 29.8.1, PostgreSQL `18.3 (Debian 18.3-1.pgdg13+1)`, loopback registry pinned by digest, API images from `git archive`): **67 checks PASS, 0 FAIL**. Actual success by digest (downtime 3 s), `ALREADY_CURRENT`, explicit rollback to the original container ID and its idempotent repeat, failure after the stop with restore, second success, Staff session continuity through every transition, database dump hash unchanged, no secret canary in any capture, and every command result of the run exactly one valid JSON line (`JSON_BAD=0`). New real checks: hostile `--source-sha` and `--image` (quote, newline, forged `STATE=`/JSON) → exit 20 with one valid JSON line, nothing reflected, strict journal, `status` exit 0, old container untouched. Mock-only: serializer unavailable, python3 missing, signals, and the rest as in section 6. All rehearsal resources were removed by exact ID/tag; no AWS/ECR/SSM/EC2/RDS call.
+
+**Status lines (C1).** IMPLEMENTATION_CP02_C1: **PASS** (local acceptance and checks above; final-head CI in the handoff) · REVIEW_CP02_C1: NOT_RUN — OWNER_ONLY · DEPLOY_ISOLATED: PASS · ROLLBACK_ISOLATED: PASS (both from the C1 rehearsal) · PUBLISH_LIVE / DEPLOY_LIVE / ROLLBACK_LIVE / SSM_LIVE / CLOUD_WRITES: NOT_RUN · CP03 / CP04: NOT_STARTED · backend CD is not complete.
