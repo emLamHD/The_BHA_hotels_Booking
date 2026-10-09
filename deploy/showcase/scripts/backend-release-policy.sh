@@ -2,9 +2,10 @@
 # BHA-BACKEND-CD-001-CP01: release policy for .github/workflows/backend-image.yml.
 # Decisions and checks live here (not inline in YAML) so tests/test_backend_release.py can run them.
 #
-#   plan                      EVENT REF SOURCE_SHA GITHUB_SHA [MAIN_PUBLISH_ENABLED DEVELOP_PUBLISH_ENABLED ...]
-#                             -> source_sha, lane (main|develop|none), publish (true|false) outputs
-#   require-config <lane>     ROLE_ARN REGION REPOSITORY (+ REPO_LEVEL_*) -> fails before any AWS call
+#   plan                      EVENT REF SOURCE_SHA GITHUB_SHA [MAIN_PUBLISH_ENABLED DEVELOP_PUBLISH_ENABLED INHERITED_*]
+#                             -> source_sha, lane (main|develop|none), publish (true|false), inherited_*_set outputs
+#   require-config <lane>     ROLE_ARN REGION REPOSITORY (+ INHERITED_*_SET for main) -> fails before any AWS call;
+#                             on success exports role_arn, region, repository: the one validated set later steps use
 #   check-image <image>       EXPECT_SOURCE_SHA EXPECT_SOURCE_URL [EXPECT_IMAGE_ID] -> image_id output
 #   pack <image> <dir>        docker save + metadata.json + tar_sha256/image_id outputs
 #   unpack <dir> <image>      verify tar integrity + metadata, docker load, check-image
@@ -42,21 +43,33 @@ plan() {
   out source_sha "$sha"
   out lane "$lane"
   out publish "$publish"
-  # The publish job runs inside an Environment, where a missing variable silently falls back to the
-  # repository-level one. Only this job sees the repository level, so it hands the values over.
-  out repo_level_region "${REPO_LEVEL_REGION:-}"
-  out repo_level_repository "${REPO_LEVEL_REPOSITORY:-}"
-  out repo_level_role_arn_set "$([[ -n "${REPO_LEVEL_ROLE_ARN:-}" ]] && echo true || echo false)"
+  # The main release names (BACKEND_RELEASE_AWS_ROLE_ARN/_AWS_REGION/_ECR_REPOSITORY) must be owned by the
+  # backend-production environment. This job runs outside any environment, so a non-empty value here was inherited
+  # from the repository or organization. Only booleans leave this step, never the values.
+  out inherited_role_arn_set "$([[ -n "${INHERITED_ROLE_ARN:-}" ]] && echo true || echo false)"
+  out inherited_region_set "$([[ -n "${INHERITED_REGION:-}" ]] && echo true || echo false)"
+  out inherited_repository_set "$([[ -n "${INHERITED_REPOSITORY:-}" ]] && echo true || echo false)"
   echo "source=$sha lane=$lane publish=$publish"
 }
 
 require_config() {
-  local lane="${1:?lane}" role_name region_name=AWS_REGION repo_name=ECR_REPOSITORY missing=()
+  local lane="${1:?lane}" role_name region_name repo_name missing=() inherited=()
   case "$lane" in
-    main) role_name=AWS_ROLE_ARN ;;
-    develop) role_name=AWS_ECR_ROLE_ARN ;;
+    # Main uses its own names only: no fallback to AWS_ROLE_ARN, AWS_ECR_ROLE_ARN, AWS_REGION or ECR_REPOSITORY.
+    main) role_name=BACKEND_RELEASE_AWS_ROLE_ARN; region_name=BACKEND_RELEASE_AWS_REGION; repo_name=BACKEND_RELEASE_ECR_REPOSITORY ;;
+    develop) role_name=AWS_ECR_ROLE_ARN; region_name=AWS_REGION; repo_name=ECR_REPOSITORY ;;
     *) fail "Unknown publish lane." ;;
   esac
+  if [[ "$lane" == main ]]; then
+    # Inside the environment, `vars` silently falls back to repository/organization values. The plan job saw only those
+    # outer scopes, so anything other than an explicit "false" (including missing information) is refused.
+    [[ "${INHERITED_ROLE_ARN_SET:-}" == false ]] || inherited+=("$role_name")
+    [[ "${INHERITED_REGION_SET:-}" == false ]] || inherited+=("$region_name")
+    [[ "${INHERITED_REPOSITORY_SET:-}" == false ]] || inherited+=("$repo_name")
+    if (( ${#inherited[@]} )); then
+      fail "${inherited[*]} must be defined only in the backend-production environment; a value at organization/repository scope (or unknown scope) is refused. Nothing was published."
+    fi
+  fi
   [[ -n "${ROLE_ARN:-}" ]] || missing+=("$role_name")
   [[ -n "${REGION:-}" ]] || missing+=("$region_name")
   [[ -n "${REPOSITORY:-}" ]] || missing+=("$repo_name")
@@ -66,12 +79,9 @@ require_config() {
   [[ "$ROLE_ARN" =~ ^arn:aws(-[a-z]+)*:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]{1,512}$ ]] || fail "$role_name is not an IAM role ARN."
   [[ "$REGION" =~ ^[a-z]{2}(-[a-z]+)+-[0-9]+$ ]] || fail "$region_name is not an AWS region name."
   [[ "${#REPOSITORY}" -le 256 && "$REPOSITORY" =~ ^[a-z0-9]+([._-][a-z0-9]+)*(/[a-z0-9]+([._-][a-z0-9]+)*)*$ ]] || fail "$repo_name is not a valid ECR repository name."
-  if [[ "$lane" == main ]]; then
-    [[ "${REPO_LEVEL_ROLE_ARN_SET:-false}" != "true" ]] || fail "AWS_ROLE_ARN must be defined only in the backend-production environment, not as a repository variable."
-    # Cannot be told apart from a deliberate identical value, so it is a warning, not a failure.
-    [[ -z "${REPO_LEVEL_REGION:-}" || "$REGION" != "$REPO_LEVEL_REGION" ]] || echo "::warning::AWS_REGION equals the repository-level variable; confirm it is defined in the backend-production environment (a missing environment value falls back silently)."
-    [[ -z "${REPO_LEVEL_REPOSITORY:-}" || "$REPOSITORY" != "$REPO_LEVEL_REPOSITORY" ]] || echo "::warning::ECR_REPOSITORY equals the repository-level variable; confirm it is defined in the backend-production environment (a missing environment value falls back silently)."
-  fi
+  out role_arn "$ROLE_ARN"
+  out region "$REGION"
+  out repository "$REPOSITORY"
   echo "release configuration present and well-formed for lane $lane"
 }
 

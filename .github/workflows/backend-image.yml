@@ -11,6 +11,9 @@ name: Backend image
 #                    BACKEND_RELEASE_PUBLISH_ENABLED is exactly "true" (unset/empty/false = disabled; it must be a
 #                    REPOSITORY variable: the plan job runs outside any environment). ECR_PUBLISH_ENABLED never
 #                    controls main.
+#                    Main's AWS settings are BACKEND_RELEASE_AWS_ROLE_ARN / _AWS_REGION / _ECR_REPOSITORY, defined ONLY in the
+#                    backend-production environment; a value for any of them at organization/repository scope is refused
+#                    before any AWS authentication, and main never falls back to the develop names.
 #   other events/refs never publish. There is no workflow_dispatch: retry a failed publish with "Re-run failed
 #   jobs" on the same run (same github.sha), never with an arbitrary ref/SHA/digest.
 #
@@ -56,9 +59,9 @@ jobs:
       source_sha: ${{ steps.plan.outputs.source_sha }}
       lane: ${{ steps.plan.outputs.lane }}
       publish: ${{ steps.plan.outputs.publish }}
-      repo_level_region: ${{ steps.plan.outputs.repo_level_region }}
-      repo_level_repository: ${{ steps.plan.outputs.repo_level_repository }}
-      repo_level_role_arn_set: ${{ steps.plan.outputs.repo_level_role_arn_set }}
+      inherited_role_arn_set: ${{ steps.plan.outputs.inherited_role_arn_set }}
+      inherited_region_set: ${{ steps.plan.outputs.inherited_region_set }}
+      inherited_repository_set: ${{ steps.plan.outputs.inherited_repository_set }}
     steps:
       - name: Checkout the policy script at the source commit
         uses: actions/checkout@v4
@@ -76,9 +79,10 @@ jobs:
           SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           MAIN_PUBLISH_ENABLED: ${{ vars.BACKEND_RELEASE_PUBLISH_ENABLED }}
           DEVELOP_PUBLISH_ENABLED: ${{ vars.ECR_PUBLISH_ENABLED }}
-          REPO_LEVEL_REGION: ${{ vars.AWS_REGION }}
-          REPO_LEVEL_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
-          REPO_LEVEL_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+          # This job has no environment: whatever these resolve to is inherited from repository/organization scope.
+          INHERITED_ROLE_ARN: ${{ vars.BACKEND_RELEASE_AWS_ROLE_ARN }}
+          INHERITED_REGION: ${{ vars.BACKEND_RELEASE_AWS_REGION }}
+          INHERITED_REPOSITORY: ${{ vars.BACKEND_RELEASE_ECR_REPOSITORY }}
         run: bash "$POLICY" plan
 
   verify:
@@ -248,13 +252,14 @@ jobs:
         run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
 
       - name: Release configuration (before any AWS authentication)
+        id: config
         env:
-          ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
-          REGION: ${{ vars.AWS_REGION }}
-          REPOSITORY: ${{ vars.ECR_REPOSITORY }}
-          REPO_LEVEL_REGION: ${{ needs.plan.outputs.repo_level_region }}
-          REPO_LEVEL_REPOSITORY: ${{ needs.plan.outputs.repo_level_repository }}
-          REPO_LEVEL_ROLE_ARN_SET: ${{ needs.plan.outputs.repo_level_role_arn_set }}
+          ROLE_ARN: ${{ vars.BACKEND_RELEASE_AWS_ROLE_ARN }}
+          REGION: ${{ vars.BACKEND_RELEASE_AWS_REGION }}
+          REPOSITORY: ${{ vars.BACKEND_RELEASE_ECR_REPOSITORY }}
+          INHERITED_ROLE_ARN_SET: ${{ needs.plan.outputs.inherited_role_arn_set }}
+          INHERITED_REGION_SET: ${{ needs.plan.outputs.inherited_region_set }}
+          INHERITED_REPOSITORY_SET: ${{ needs.plan.outputs.inherited_repository_set }}
         run: bash "$POLICY" require-config main
 
       - name: Download the image built by this run
@@ -269,8 +274,8 @@ jobs:
       - name: Configure AWS credentials (OIDC, no stored keys)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
+          role-to-assume: ${{ steps.config.outputs.role_arn }}
+          aws-region: ${{ steps.config.outputs.region }}
           # The registry host contains the account ID; a masked value would be dropped from the job outputs.
           mask-aws-account-id: false
 
@@ -282,7 +287,7 @@ jobs:
         id: publish
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
-          REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+          REPOSITORY: ${{ steps.config.outputs.repository }}
           IMAGE_ID: ${{ needs.build.outputs.image_id }}
           SUMMARY_TITLE: Release image published
         run: bash deploy/showcase/scripts/backend-ecr-publish.sh

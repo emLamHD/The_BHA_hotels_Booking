@@ -175,52 +175,83 @@ class PlanMatrix(unittest.TestCase):
             r = self.e.run(POLICY, ["plan"], EVENT="push", REF="refs/heads/main", SOURCE_SHA=bad or "x", GITHUB_SHA=bad or "x")
             self.assertNotEqual(r.returncode, 0, bad)
 
-    def test_repo_level_values_are_handed_to_the_publish_job(self):
-        self.plan("push", "refs/heads/main", MAIN_PUBLISH_ENABLED="true", REPO_LEVEL_REGION="ap-southeast-2",
-                  REPO_LEVEL_REPOSITORY="the-bha-api", REPO_LEVEL_ROLE_ARN="")
+    def test_inherited_scope_is_reported_as_booleans_never_as_values(self):
+        self.plan("push", "refs/heads/main", MAIN_PUBLISH_ENABLED="true", INHERITED_REGION="ap-southeast-2",
+                  INHERITED_REPOSITORY="secret-looking-name", INHERITED_ROLE_ARN="")
         o = self.e.outputs()
-        self.assertEqual((o["repo_level_region"], o["repo_level_repository"], o["repo_level_role_arn_set"]),
-                         ("ap-southeast-2", "the-bha-api", "false"))
+        self.assertEqual((o["inherited_role_arn_set"], o["inherited_region_set"], o["inherited_repository_set"]),
+                         ("false", "true", "true"))
+        self.assertNotIn("secret-looking-name", self.e.out.read_text())
+
+    def test_plan_never_fails_because_of_production_scope(self):
+        # PR, develop and main-disabled must not depend on production configuration at all
+        every = dict(INHERITED_ROLE_ARN="x", INHERITED_REGION="x", INHERITED_REPOSITORY="x")
+        self.assertEqual(self.plan("push", "refs/heads/main", **every)[:2], ("main", "false"))
+        self.assertEqual(self.plan("push", "refs/heads/develop", DEVELOP_PUBLISH_ENABLED="true", **every)[:2], ("develop", "true"))
+
+
+MAIN_NAMES = ("BACKEND_RELEASE_AWS_ROLE_ARN", "BACKEND_RELEASE_AWS_REGION", "BACKEND_RELEASE_ECR_REPOSITORY")
+LEGACY_NAMES = ("AWS_ROLE_ARN", "AWS_ECR_ROLE_ARN", "AWS_REGION", "ECR_REPOSITORY")
 
 
 class RequireConfig(unittest.TestCase):
     GOOD = dict(ROLE_ARN="arn:aws:iam::123456789012:role/bha-release", REGION="ap-southeast-2", REPOSITORY="the-bha/api")
+    CLEAN = dict(INHERITED_ROLE_ARN_SET="false", INHERITED_REGION_SET="false", INHERITED_REPOSITORY_SET="false")
 
     def setUp(self):
         self.e = Env()
         self.addCleanup(self.e.cleanup)
 
     def check(self, lane="main", **over):
-        env = dict(self.GOOD)
+        env = dict(self.GOOD, **self.CLEAN)
         env.update(over)
         return self.e.run(POLICY, ["require-config", lane], **env)
 
-    def test_good_config_passes_and_never_touches_aws(self):
+    def test_good_config_passes_never_touches_aws_and_exports_the_validated_values(self):
         r = self.check()
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertEqual(self.e.log(), "")
+        o = self.e.outputs()
+        self.assertEqual((o["role_arn"], o["region"], o["repository"]), tuple(self.GOOD[k] for k in ("ROLE_ARN", "REGION", "REPOSITORY")))
 
-    def test_each_missing_value_fails_naming_the_variable_only(self):
-        for field, name in (("ROLE_ARN", "AWS_ROLE_ARN"), ("REGION", "AWS_REGION"), ("REPOSITORY", "ECR_REPOSITORY")):
+    def test_each_missing_main_value_fails_naming_the_release_variable_only(self):
+        for field, name in zip(("ROLE_ARN", "REGION", "REPOSITORY"), MAIN_NAMES):
             r = self.check(**{field: ""})
-            self.assertNotEqual(r.returncode, 0)
+            self.assertNotEqual(r.returncode, 0, field)
             self.assertIn(name, r.stdout)
             self.assertNotIn(self.GOOD[field], r.stdout)
+            self.assertEqual(self.e.outputs(), {}, field)  # nothing validated is handed on
+            for legacy in LEGACY_NAMES:
+                self.assertNotRegex(r.stdout, rf"(?<![A-Z_]){legacy}\b", (field, legacy))  # no fallback to the develop names
         self.assertIn("AWS_ECR_ROLE_ARN", self.check("develop", ROLE_ARN="").stdout)
+
+    def test_each_inherited_main_name_is_refused_even_when_the_effective_values_are_valid(self):
+        for flag, name in zip(("INHERITED_ROLE_ARN_SET", "INHERITED_REGION_SET", "INHERITED_REPOSITORY_SET"), MAIN_NAMES):
+            r = self.check(**{flag: "true"})
+            self.assertNotEqual(r.returncode, 0, flag)
+            self.assertIn(name, r.stdout)
+            self.assertEqual(self.e.outputs(), {}, flag)
+            for value in self.GOOD.values():
+                self.assertNotIn(value, r.stdout)
+
+    def test_unknown_scope_information_fails_closed(self):
+        for flag in self.CLEAN:
+            for bad in ("", "TRUE", "maybe", "1"):
+                self.assertNotEqual(self.check(**{flag: bad}).returncode, 0, (flag, bad))
+        env = dict(self.GOOD)  # scope booleans not passed at all
+        self.assertNotEqual(self.e.run(POLICY, ["require-config", "main"], **env).returncode, 0)
+
+    def test_develop_lane_keeps_its_contract_and_ignores_the_main_scope_guard(self):
+        r = self.check("develop", INHERITED_ROLE_ARN_SET="true", INHERITED_REGION_SET="true", INHERITED_REPOSITORY_SET="true")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        env = dict(self.GOOD)  # develop needs no scope information
+        self.assertEqual(self.e.run(POLICY, ["require-config", "develop"], **env).returncode, 0)
 
     def test_malformed_values_fail(self):
         for over in ({"ROLE_ARN": "not-an-arn"}, {"ROLE_ARN": "arn:aws:iam::123:role/x"}, {"REGION": "Sydney"},
                      {"REGION": "ap-southeast-2; id"}, {"REPOSITORY": "Upper/Case"}, {"REPOSITORY": "a b"}, {"REPOSITORY": "x$(id)"}):
             self.assertNotEqual(self.check(**over).returncode, 0, over)
-
-    def test_a_repository_level_role_arn_is_refused_for_main_only(self):
-        self.assertNotEqual(self.check(REPO_LEVEL_ROLE_ARN_SET="true").returncode, 0)
-        self.assertEqual(self.check("develop", REPO_LEVEL_ROLE_ARN_SET="true").returncode, 0)
-
-    def test_value_equal_to_the_repo_level_one_is_flagged_not_failed(self):
-        r = self.check(REPO_LEVEL_REPOSITORY="the-bha/api", REPO_LEVEL_REGION="ap-southeast-2")
-        self.assertEqual(r.returncode, 0)
-        self.assertEqual(r.stdout.count("::warning::"), 2)
+            self.assertNotEqual(self.check("develop", **over).returncode, 0, over)
 
 
 class ImageTransfer(unittest.TestCase):
@@ -440,7 +471,34 @@ class WorkflowShape(unittest.TestCase):
             self.assertLess(unpack, cred, name)
             self.assertIs(steps[cred]["with"]["mask-aws-account-id"], False, name)
         main_creds = next(s for s in self.jobs["publish-main"]["steps"] if "configure-aws-credentials" in s.get("uses", ""))
-        self.assertEqual(main_creds["with"]["role-to-assume"], "${{ vars.AWS_ROLE_ARN }}")
+        self.assertEqual(main_creds["with"]["role-to-assume"], "${{ steps.config.outputs.role_arn }}")
+        self.assertEqual(main_creds["with"]["aws-region"], "${{ steps.config.outputs.region }}")
+
+    def test_main_validator_oidc_and_ecr_helper_share_one_validated_set_of_release_names(self):
+        steps = self.jobs["publish-main"]["steps"]
+        cfg = next(s for s in steps if s.get("id") == "config")
+        self.assertEqual(cfg["env"]["ROLE_ARN"], "${{ vars.BACKEND_RELEASE_AWS_ROLE_ARN }}")
+        self.assertEqual(cfg["env"]["REGION"], "${{ vars.BACKEND_RELEASE_AWS_REGION }}")
+        self.assertEqual(cfg["env"]["REPOSITORY"], "${{ vars.BACKEND_RELEASE_ECR_REPOSITORY }}")
+        publish = next(s for s in steps if s.get("id") == "publish")
+        self.assertEqual(publish["env"]["REPOSITORY"], "${{ steps.config.outputs.repository }}")
+        # after the validator, the main job reads no variable at all, and never a develop/generic name
+        later = yaml.safe_dump(steps[steps.index(cfg) + 1:])
+        self.assertNotIn("vars.", later)
+        main_text = yaml.safe_dump(self.jobs["publish-main"])
+        for legacy in LEGACY_NAMES:
+            self.assertNotRegex(main_text, rf"vars\.{legacy}\b", legacy)
+
+    def test_scope_inputs_come_from_the_plan_job_that_runs_outside_any_environment(self):
+        plan = self.jobs["plan"]
+        self.assertNotIn("environment", plan)
+        env = plan["steps"][1]["env"]
+        self.assertEqual(env["INHERITED_ROLE_ARN"], "${{ vars.BACKEND_RELEASE_AWS_ROLE_ARN }}")
+        self.assertEqual(env["INHERITED_REGION"], "${{ vars.BACKEND_RELEASE_AWS_REGION }}")
+        self.assertEqual(env["INHERITED_REPOSITORY"], "${{ vars.BACKEND_RELEASE_ECR_REPOSITORY }}")
+        cfg = next(s for s in self.jobs["publish-main"]["steps"] if s.get("id") == "config")
+        for k in ("ROLE_ARN", "REGION", "REPOSITORY"):
+            self.assertEqual(cfg["env"][f"INHERITED_{k}_SET"], f"${{{{ needs.plan.outputs.inherited_{k.lower()}_set }}}}")
 
     def test_publish_job_outputs_are_the_contract(self):
         for name in ("publish-main", "publish-develop"):
@@ -481,6 +539,104 @@ class WorkflowShape(unittest.TestCase):
             joined = "\n".join(run_blocks(job))
             self.assertIn("show server_version", joined)
             self.assertIn("18.3", joined)
+
+
+BASE_VARS = dict(ECR_PUBLISH_ENABLED="false", AWS_ECR_ROLE_ARN="arn:aws:iam::123456789012:role/bha-develop",
+                 AWS_REGION="ap-southeast-2", ECR_REPOSITORY="the-bha-api-dev")  # a complete develop setup, repository scope
+PROD = dict(BACKEND_RELEASE_AWS_ROLE_ARN="arn:aws:iam::123456789012:role/bha-release",
+            BACKEND_RELEASE_AWS_REGION="ap-southeast-2", BACKEND_RELEASE_ECR_REPOSITORY="the-bha-api")
+
+
+@unittest.skipIf(yaml is None, "PyYAML is not installed")
+class ProductionScopeSimulation(unittest.TestCase):
+    """Replays the real workflow's `vars` wiring the way GitHub resolves it, then runs the real policy script.
+
+    GitHub semantics modelled: a job without an environment sees organization + repository variables (repository wins);
+    a job with an environment additionally sees that environment's variables, which win over the other scopes.
+    """
+
+    def setUp(self):
+        self.e = Env()
+        self.addCleanup(self.e.cleanup)
+        self.jobs = load(WORKFLOW)["jobs"]
+
+    @staticmethod
+    def resolve(env_block, variables, outputs=None):
+        def sub(m):
+            expr = m.group(1).strip()
+            if expr.startswith("vars."):
+                return variables.get(expr[5:], "")
+            if expr.startswith("needs.plan.outputs."):
+                return (outputs or {}).get(expr.rsplit(".", 1)[1], "")
+            if expr.startswith("github."):
+                return ""  # event/ref/SHA are supplied by run_pipeline, not by variables
+            raise AssertionError(f"unmodelled expression: {expr}")
+        return {k: re.sub(r"\$\{\{(.*?)\}\}", sub, str(v)) for k, v in env_block.items()}
+
+    def run_pipeline(self, event="push", ref="refs/heads/main", org=None, repo=None, environment=None, enabled=True):
+        outside = {**(org or {}), **(repo or {})}
+        if enabled:
+            outside["BACKEND_RELEASE_PUBLISH_ENABLED"] = "true"
+        plan_env = self.resolve(self.jobs["plan"]["steps"][1]["env"], outside)
+        plan_env.update(EVENT=event, REF=ref, SOURCE_SHA=SHA, GITHUB_SHA=SHA if event == "push" else OTHER_SHA)
+        self.e.out.write_text("")
+        r = self.e.run(POLICY, ["plan"], **plan_env)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        plan_out = self.e.outputs()
+        job = self.jobs["publish-main"]
+        runs = plan_out["lane"] == "main" and plan_out["publish"] == "true"  # the job-level `if`, evaluated by the plan outputs
+        if not runs:
+            return plan_out, None, None
+        effective = {**outside, **(environment or {})}
+        cfg = next(s for s in job["steps"] if s.get("id") == "config")
+        cfg_env = self.resolve(cfg["env"], effective, plan_out)
+        self.e.out.write_text("")
+        return plan_out, self.e.run(POLICY, ["require-config", "main"], **cfg_env), self.e.outputs()
+
+    def test_pr_with_every_variable_inherited_never_reaches_publish(self):
+        for event, ref in (("pull_request", "refs/pull/3/merge"),):
+            plan, r, _ = self.run_pipeline(event, ref, repo={**BASE_VARS, **PROD})
+            self.assertEqual((plan["lane"], plan["publish"], r), ("none", "false", None))
+        self.assertEqual(self.e.log(), "")
+
+    def test_main_disabled_and_develop_do_not_depend_on_production_setup(self):
+        plan, r, _ = self.run_pipeline(repo=BASE_VARS, enabled=False)
+        self.assertEqual((plan["lane"], plan["publish"], r), ("main", "false", None))
+        plan, r, _ = self.run_pipeline(ref="refs/heads/develop", repo={**BASE_VARS, "ECR_PUBLISH_ENABLED": "true"}, enabled=False)
+        self.assertEqual((plan["lane"], plan["publish"], r), ("develop", "true", None))
+
+    def test_each_missing_environment_field_fails_while_develop_config_is_complete(self):
+        for missing in PROD:
+            env = {k: v for k, v in PROD.items() if k != missing}
+            plan, r, outs = self.run_pipeline(repo=BASE_VARS, environment=env)
+            self.assertNotEqual(r.returncode, 0, missing)
+            self.assertIn(missing, r.stdout)
+            self.assertEqual(outs, {}, missing)
+
+    def test_each_inherited_release_field_is_refused_with_or_without_an_environment_override(self):
+        for name in PROD:
+            for scope in ("repo", "org"):
+                for override in (False, True):
+                    kw = {scope: {**BASE_VARS, name: PROD[name]}}
+                    env = dict(PROD) if override else {k: v for k, v in PROD.items() if k != name}
+                    plan, r, outs = self.run_pipeline(environment=env, **kw)
+                    self.assertNotEqual(r.returncode, 0, (name, scope, override))
+                    self.assertIn(name, r.stdout)
+                    self.assertEqual(outs, {}, (name, scope, override))
+
+    def test_environment_only_configuration_passes_and_hands_the_new_values_on(self):
+        plan, r, outs = self.run_pipeline(repo=BASE_VARS, environment=PROD)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual(outs, {"role_arn": PROD["BACKEND_RELEASE_AWS_ROLE_ARN"], "region": PROD["BACKEND_RELEASE_AWS_REGION"],
+                                "repository": PROD["BACKEND_RELEASE_ECR_REPOSITORY"]})
+        self.assertNotEqual(outs["repository"], BASE_VARS["ECR_REPOSITORY"])  # never the develop repository
+        self.assertEqual(self.e.log(), "")
+
+    def test_old_generic_names_in_the_environment_are_not_a_substitute(self):
+        legacy_env = dict(AWS_ROLE_ARN=PROD["BACKEND_RELEASE_AWS_ROLE_ARN"], AWS_REGION="ap-southeast-2", ECR_REPOSITORY="the-bha-api")
+        plan, r, outs = self.run_pipeline(repo=BASE_VARS, environment=legacy_env)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(outs, {})
 
 
 def extract_line(needle):
