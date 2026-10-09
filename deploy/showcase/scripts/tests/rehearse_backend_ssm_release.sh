@@ -20,7 +20,7 @@ GH_REPO="emLamHD/The_BHA_hotels_Booking"
 FAKE="$WORK/fakebin"; SSM_DIR="$WORK/ssm"; STAGE_ROOT="$WORK/stage-root"; RELLOCK="$WORK/lock"
 mkdir -p "$FAKE" "$SSM_DIR" "$STAGE_ROOT"; chmod 700 "$STAGE_ROOT"
 ECR_TOKEN="CANARY-ecr-token-$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')"
-REAL_CURL="$(command -v curl)"; REAL_PY="$(command -v python3)"
+REAL_CURL="$(command -v curl)"; REAL_PY="$(command -v python3)"; PSQL_DIR="$(dirname "$(command -v psql)")"   # the SSM script gets a fixed PATH: psql is on the host in /usr/bin, here in a user directory
 INSTANCE="i-0123456789abcdef0"; REGION_X="ap-southeast-2"
 CLIENT="$SCRIPTS/backend-ssm-release.py"; PACKETGEN="$SCRIPTS/backend-release-packet.py"
 
@@ -48,7 +48,7 @@ if a[:2] == ["ssm", "send-command"]:
     cid = str(uuid.uuid4())
     params = json.load(open(arg("--parameters")[len("file://"):]))
     script = os.path.join(D, cid + ".sh"); open(script, "w").write("\n".join(params["commands"]) + "\n")
-    env = dict(os.environ, PATH="$FAKE:" + os.environ["PATH"], BHA_RELEASE_PATH_PREFIX="$FAKE", BHA_RELEASE_STAGE_ROOT="$STAGE_ROOT", BHA_RELEASE_LOCK_DIR="$RELLOCK",
+    env = dict(os.environ, PATH="$FAKE:" + os.environ["PATH"], BHA_RELEASE_PATH_PREFIX="$FAKE:$PSQL_DIR", BHA_RELEASE_STAGE_ROOT="$STAGE_ROOT", BHA_RELEASE_LOCK_DIR="$RELLOCK",
                BHA_DEPLOY_LOCK_DIR="$RELLOCK", BHA_RELEASE_ALLOW_LOOPBACK_REGISTRY="1")
     subprocess.Popen(["bash", "-c", 'bash "\$0" > "\$1.out" 2> "\$1.err"; echo \$? > "\$1.rc"', script, os.path.join(D, cid)], env=env, start_new_session=True,
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
