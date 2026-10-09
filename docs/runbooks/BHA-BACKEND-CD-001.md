@@ -279,15 +279,49 @@ gh api repos/<OWNER>/<REPO>/actions/permissions/selected-actions      # patterns
 ```
 Do not define any `BACKEND_RELEASE_*` variable yet. Required reviewers on the environment are optional (they add a click per deployment).
 
-**C — promotion of reviewed source to `main`, both flags still unset (Owner; Claude does not promote).** `main` and `develop` are different histories (the trees differ by the work of CP01–CP04). After the probe PR is merged into `develop`:
+**C — promotion of reviewed source to `main`, both flags still unset (Owner; Claude does not promote).** `main` and `develop` are different histories (the trees differ by the work of CP01–CP04). After the probe PR is merged into `develop`, run this **in the project's one checkout, which must be clean** (no staged, unstaged or untracked path; do not stash, clean or reset to make it so — resolve your own changes first). It is a self-contained script: any failing command or refused guard ends it (nonzero, a `PROMOTION_STOP:` or `DIRTY_WORKTREE_STOP` code on stderr) before the next step, without closing your shell. An unreadable `git status` is a refusal, never "clean". It pins the fetched `main` and `develop` commits once (never over an existing local or remote branch), builds the promotion commit from git objects only — parent = pinned `main`, tree = the pinned `develop` tree, so additions, changes and deletions are exact and `main`'s history is not rewritten — and checks it out with `git switch --no-overwrite-ignore`, which refuses (changing nothing) when a local change, an untracked file or even an **ignored** file stands in the way; it never overwrites, stashes or cleans. It re-checks cleanliness right before and right after the switch, asserts the resulting tree and parent, and only then pushes (no force).
 ```bash
-git fetch --prune origin && git switch -c promote/backend-cd-001-to-main origin/main
-git read-tree -u --reset origin/develop          # index and worktree := develop's tree, including deletions
-git commit -m "chore(release): promote develop to main (BHA-BACKEND-CD-001)"
-test "$(git rev-parse HEAD^{tree})" = "$(git rev-parse origin/develop^{tree})" && echo TREES_EQUAL
-git push -u origin promote/backend-cd-001-to-main   # open a PR into main, merge it yourself (merge-commit or squash, per your ruleset)
+bash -s <<'PROMOTE'
+set -euo pipefail
+stop() { echo "PROMOTION_STOP: $1" >&2; exit 1; }
+clean_or_stop() {   # staged, unstaged and untracked paths all count; the status text itself is never printed
+  local state
+  state="$(git status --porcelain=v1 --untracked-files=all 2>/dev/null)" || stop GIT_STATUS_FAILED
+  if [ -n "$state" ]; then echo "DIRTY_WORKTREE_STOP" >&2; exit 1; fi
+}
+BRANCH=promote/backend-cd-001-to-main
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || stop NOT_IN_A_GIT_CHECKOUT
+cd "$ROOT"
+clean_or_stop
+START="$(git symbolic-ref -q --short HEAD || git rev-parse --verify HEAD)"
+git fetch --prune origin >/dev/null 2>&1 || stop FETCH_FAILED
+MAIN="$(git rev-parse --verify --quiet "refs/remotes/origin/main^{commit}")" || stop MAIN_REF_MISSING
+DEVELOP="$(git rev-parse --verify --quiet "refs/remotes/origin/develop^{commit}")" || stop DEVELOP_REF_MISSING
+MAIN_TREE="$(git rev-parse --verify --quiet "$MAIN^{tree}")" || stop MAIN_TREE_MISSING
+DEV_TREE="$(git rev-parse --verify --quiet "$DEVELOP^{tree}")" || stop DEVELOP_TREE_MISSING
+[ "$MAIN_TREE" != "$DEV_TREE" ] || stop NOTHING_TO_PROMOTE
+if git show-ref --verify --quiet "refs/heads/$BRANCH"; then stop LOCAL_BRANCH_EXISTS; fi
+rc=0; git ls-remote --exit-code --heads origin "refs/heads/$BRANCH" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || stop REMOTE_BRANCH_EXISTS_OR_UNREADABLE
+NEW="$(git commit-tree "$DEV_TREE" -p "$MAIN" -m "chore(release): promote develop to main (BHA-BACKEND-CD-001)")" || stop COMMIT_TREE_FAILED
+{ [ "$(git rev-parse "$NEW^{tree}")" = "$DEV_TREE" ] && [ "$(git rev-parse "$NEW^")" = "$MAIN" ]; } || stop PROMOTION_COMMIT_MISMATCH
+clean_or_stop
+git switch --no-overwrite-ignore -c "$BRANCH" "$NEW" || stop SWITCH_REFUSED
+clean_or_stop
+{ [ "$(git rev-parse HEAD)" = "$NEW" ] && [ "$(git rev-parse "HEAD^{tree}")" = "$DEV_TREE" ]; } || stop PROMOTION_TREE_MISMATCH
+git push -u origin "$BRANCH" || stop PUSH_FAILED
+echo "PROMOTION_PUSHED branch=$BRANCH promotion_commit=$(git rev-parse HEAD)"
+echo "PINNED_MAIN=$MAIN"
+echo "PINNED_DEVELOP=$DEVELOP"
+echo "PINNED_DEVELOP_TREE=$DEV_TREE"
+echo "return to your previous branch with: git switch $START"
+PROMOTE
 ```
-After the merge: `git rev-parse origin/main^{tree} origin/develop^{tree}` must still be equal (a squash/merge of a tree-identical commit keeps the tree). The merge triggers `backend-image.yml` on `main` with flags unset: expect plan `publish=false deploy=false`, `publish-main` and `deploy-main` **skipped** (record the run).
+Keep the printed `PINNED_*` lines. Open a PR from `promote/backend-cd-001-to-main` into `main` and merge it yourself (merge commit or squash, per your ruleset). After the merge, **fetch again** and compare with the pinned tree, not with whatever `develop` is by then:
+```bash
+git fetch --prune origin && test "$(git rev-parse "refs/remotes/origin/main^{tree}")" = "<PINNED_DEVELOP_TREE printed above>" && echo MAIN_TREE_IS_THE_PINNED_DEVELOP_TREE
+```
+Anything else (another commit reached `main`, the tree differs) is a stop: do not continue with D until the difference is explained. The merge triggers `backend-image.yml` on `main` with flags unset: expect plan `publish=false deploy=false`, `publish-main` and `deploy-main` **skipped** (record the run).
 
 **D — the real OIDC subject (Owner).** The probe lives in `.github/workflows/backend-oidc-probe.yml`: `workflow_dispatch` only, `main` only, environment `backend-production`, no checkout, no AWS call, masks the token and prints only the listed claims.
 ```bash
