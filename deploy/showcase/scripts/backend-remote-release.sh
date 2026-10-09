@@ -271,7 +271,7 @@ reconcile() {
   [[ "$ACTION" == recover || ( "$RUNNING" == true && "$CIMAGE" == "$IID" ) ]] || finish STATE_RECONCILE_REQUIRED RUNNING_CONTAINER_IS_NOT_THE_EXPECTED_IMAGE
   CUR_REF="$EXPECTED_REF"
 }
-pending_set() { write_state "PENDING=$1|$CORR|$2|$3" || finish STATE_RECONCILE_REQUIRED STATE_WRITE_FAILED; }   
+pending_set() { write_state "PENDING=$1|$CORR|$2|$3" || finish STATE_RECONCILE_REQUIRED STATE_WRITE_FAILED; }
 pending_clear() { write_state "PENDING=" || return 1; }
 
 # ----------------------------------------------------------------------------------------------- registry login (instance profile)
