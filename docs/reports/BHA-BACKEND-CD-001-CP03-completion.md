@@ -8,9 +8,9 @@ Date: 2026-10-09 (Asia/Saigon). **Checkpoint 3 only. Backend CD is not complete;
 |---|---|
 | Work item / roles | `BHA-BACKEND-CD-001-CP03` — `IMPLEMENTER: CLAUDE`, `REVIEWER: CODEX_READ_ONLY` (Owner invokes) |
 | Branch / base / baseline | `feature/bha-backend-cd-001-cp03-ssm-release-wiring` → `develop`; baseline = START_HEAD = `f385f52ba68248accb031b2d5f858b542914b610` (= local `develop` = `origin/develop` after `git fetch --prune origin`, clean tree; PR #93 and #94 merged, their feature branches gone) |
-| Validation SHA | `4b3a2f673ececae6a358a44c59b3d5cff9652639`: every script, test, template and the workflow are byte-identical from here to FINAL_HEAD; only this report followed |
+| Validation SHA | `31aae4ac189537bbda644f7c25db849b25207f19`: the SSM-path rehearsal, the wrapper, client and packet tests ran on it; code after it changed only in this report. Earlier points, attributed exactly: the full suite (192) and the validators ran on `6ab922f` (differs from the validation SHA by one trailing space in the wrapper); the CP02 rehearsal (71 checks) ran on `4b3a2f6`, and `git diff 4b3a2f6..HEAD` is empty for the engine, the preflight, the manifest generator, the CP02 harness, the CP02 tests and the workflow |
 | FINAL_HEAD | A commit cannot contain its own hash: FINAL_HEAD, the GitHub additions/deletions and the CI runs on it are in the final handoff |
-| Commits | Five `wip(cp03)` checkpoints (the rehearsal packs git objects of a committed HEAD, so the code had to be committed first; AGENTS.md forbids squashing; they carry no `Co-Authored-By` trailer), then the report commit with the trailer |
+| Commits | Five `wip(cp03)` checkpoints (the rehearsal packs git objects of a committed HEAD, so the code had to be committed first; AGENTS.md forbids squashing; they carry no `Co-Authored-By` trailer), then, with the trailer: the report, a fix that stops the client from writing bytecode and removes a stray `.pyc` that a `git add -A` had picked up (first CI run was on the head that still carried it), a whitespace fix, and the report update |
 | Draft PR | stated in the final handoff |
 
 ## 2. Files and size
@@ -39,13 +39,13 @@ Client tests (17): exactly one `send-command` (one instance, `AWS-RunShellScript
 
 | Check | Result |
 |---|---|
-| `python3 -m unittest discover -s deploy/showcase/scripts/tests -p "test_*.py"` (Python 3.14.4) | **192 tests OK** (65 new in this work item: release +14, packet 8, client 17, wrapper 26; CP02 63, CP01 49 → 63 total in `test_backend_release.py`, 15 existing); 0 failures, 0 skips |
+| `python3 -m unittest discover -s deploy/showcase/scripts/tests -p "test_*.py"` (Python 3.14.4), on `6ab922f` (wrapper, client and packet suites re-run on the validation SHA) | **192 tests OK** (65 new in this work item: release +14, packet 8, client 17, wrapper 26; CP02 63, CP01 49 → 63 total in `test_backend_release.py`, 15 existing); 0 failures, 0 skips |
 | `rhysd/actionlint:1.7.7` (`@sha256:887a259a5a534f3c4f36cb02dca341673c6089431057242cdc931e9f133147e9`) on `ci.yml`, `backend-image.yml`; PyYAML parse | exit 0; ok |
 | `koalaman/shellcheck:v0.10.0` `-x` (`@sha256:2097951f02e735b613f4a34de20c40f937a6c8f18ecb170612c88c34517221fb`) on every shell script; `py_compile` of the new Python | exit 0; ok |
 | IAM templates: JSON, placeholders `<UPPER_CASE>` only, no account ID, trust = `aud`/`sub` `StringEquals` only, `SendCommand` scoped to the document and one instance ARN, pull-only ECR policy | in the suite (`IamTemplates`); no IAM/cloud simulator called |
-| Real rehearsal `tests/rehearse_backend_ssm_release.sh` on `4b3a2f6` (Docker 29.8.1, PostgreSQL `18.3 (Debian 18.3-1.pgdg13+1)`, loopback registry pinned `registry@sha256:a3d8aaa6…415373`, TLS proxy, images from `git archive` of the commit; digests old `sha256:d41d7c4a…`, candidate `sha256:24929567…`, fault `sha256:74a1cfab…`; packet sha256 `8ea8d12b519e53695412e2100cccc40d277d049ef4803737132b44598482c410`) | **40 checks PASS, 0 FAIL** |
-| CP02 rehearsal `tests/rehearse_backend_deploy.sh` on the same commit (the fixture hook was added) | **71 checks PASS, 0 FAIL** |
-| `git diff --check` | clean |
+| Real rehearsal `tests/rehearse_backend_ssm_release.sh` on `31aae4a` (Docker 29.8.1, PostgreSQL `18.3 (Debian 18.3-1.pgdg13+1)`, loopback registry pinned `registry@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373`, TLS proxy, images from `git archive` of the commit; candidate image `sha256:f62af90f2905a92247ce3c5ebefa8d359bca479d5c4ea41e7d6f0266e1ebf01b` as reported by the packet; packet sha256 `ac93cab2418c0588056836b91fa95d4eab45834e89ca6356a1bc98afb7c9cdc8`; the same 40 checks also passed on `4b3a2f6` and `6ab922f`) | **40 checks PASS, 0 FAIL** |
+| CP02 rehearsal `tests/rehearse_backend_deploy.sh` on `4b3a2f6` (the fixture hook was added; bytes unchanged since) | **71 checks PASS, 0 FAIL** |
+| `git diff --check origin/develop...HEAD` | clean |
 | Backend product suite / image build | not re-run locally: no product, Dockerfile or image input changed; CI runs them on the final head |
 
 Fixtures vs real in the rehearsal. Real: the client, the packet generator on git objects, the bootstrap script, the wrapper, the CP02 engine, Docker, PostgreSQL 18.3 over `verify-full` TLS, the registry, the TLS proxy, the Staff session, the database hash. Mock: AWS only — `ssm send-command`, `ssm get-command-invocation` (the SSM script is run as the current user), `ecr get-login-password` (a synthetic token piped to `docker login` of the loopback registry), and the raw.githubusercontent.com download (served from `git show` of the same commit). Mock-only in unit tests: send ambiguity, polling errors, timeouts, signals, status/ResponseCode inconsistencies, state-write failures, concurrent edits. No cloud result is claimed from any of it.
