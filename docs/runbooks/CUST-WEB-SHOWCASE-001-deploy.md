@@ -1,5 +1,7 @@
 # CUST-WEB-SHOWCASE-001 — deploy runbook (Owner executes)
 
+> **Current status, 2026-10-09 (`BHA-BACKEND-CD-001-CP01`).** `OWNER_VERIFIED` (the Owner's statement; Claude did not re-test the cloud): the Customer Web, the Admin Web and the backend are all deployed and tested successfully. Both frontends have CI/CD (Vercel); the backend has CI and a **manual** deployment (EC2 + Docker + Caddy, RDS PostgreSQL 18.3, ECR). This does not mean every Admin template module is wired to the backend — only the Staff calendar surface listed in §7b/§11 step 14 is. The dated updates and the 2026-10-07 status paragraph below are history, kept as written. Backend continuous delivery is **not** complete: CP01 only prepares the release artifact (workflow, ECR publish helper, runbook `docs/runbooks/BHA-BACKEND-CD-001.md`); CP02 (EC2 deploy/rollback), CP03 (SSM/IAM wiring) and CP04 (Owner live activation) are not implemented. `PUBLISH_LIVE`, `DEPLOY_LIVE`, `ROLLBACK_LIVE`: `NOT_RUN`.
+>
 > **Update 2026-10-08 (`BHA-WEB-PROXY-001`, `BHA-ADMIN-PROXY-001`).** Since the paragraph below was written, the Owner has verified (`OWNER_VERIFIED`; Claude did not re-test the cloud): the API runs on EC2 behind Caddy at `https://the-bha-api.52-65-145-145.sslip.io` (image digest `sha256:d01c7d9d…98b4b6`), RDS `thebha` (PostgreSQL 18.3) is migrated and the catalog imported, the Staff Manager exists, and the Customer site `https://the-bha-hotels-booking-p5rj.vercel.app` is live (CSRF 200/no-store; a guest booking was written to RDS). The paragraph below is the 2026-10-07 state of this packet and is kept as history. Admin on its own Vercel project, the EC2 Admin origin and Admin login/calendar live are **not** done: `NOT_RUN` (§7b).
 >
 > Status: **Owner-led deployment (`BHA-DEPLOY-001-CP01`, 2026-10-07): nothing here has been executed in any cloud.** The Owner performs every step that touches AWS, Vercel, DNS or a real database and enters credentials on their own machine; Claude prepares, checks and guides. The release is `develop` at `6ae3fdd3306c50736c734712df5a0f2a1ab5054a` (merge of PR #83). The operational database is **`thebha` on RDS `the-bha-db` (`ap-southeast-2`, PostgreSQL 18.3), created empty by the Owner; the Owner has since created `bha_operator` and `bha_app`, handed the database to `bha_operator` and passed the `btree_gist` permission gate (all Owner-verified, §11); the database-level hardening, snapshot, migration, import and table grants are still pending**, the **API runtime is undecided**, and **importing the catalog is a different operation from applying migrations** (§6, §11). Evidence: `docs/reports/BHA-DEPLOY-001-CP01-completion.md` and `docs/reports/BHA-PG18-001-completion.md` (rehearsals and test suites on local scratch PostgreSQL only). Statuses: `CLOUD_DATA`, `DEPLOY_API`, `DEPLOY_ADMIN`, `DEPLOY_CUSTOMER`, `END_TO_END_LIVE`, `PUBLISH`: `NOT_RUN`.
@@ -37,24 +39,25 @@ Customer and Staff sessions are cookies set by the API and sent with `credential
 
 ## 3. Build and publish the API image
 
-Workflow: `.github/workflows/backend-image.yml`. Publishing is **off by default** and happens only from **`develop`**, never from a pull request or `main`.
+Workflow: `.github/workflows/backend-image.yml` (since `BHA-BACKEND-CD-001-CP01`, 2026-10-09; the contract is in `docs/runbooks/BHA-BACKEND-CD-001.md`). Publishing is **off by default**, never happens from a pull request, and has two separate lanes: `develop` (`ECR_PUBLISH_ENABLED`, environment `showcase-publish`, not a production release) and `main` (`BACKEND_RELEASE_PUBLISH_ENABLED`, environment `backend-production`). The paragraphs below up to "State at the release commit" describe the 2026-10-07 develop-only behavior; where they differ, `BHA-BACKEND-CD-001.md` wins.
 
 | Event | What happens |
 |---|---|
-| `pull_request` (touching `Back_End/**`, `deploy/showcase/**`, the workflow) | Builds the PR head, checks non-root + writable `/var/keys` + "Production refuses to start without `DataProtection__KeysPath`". No credentials, no AWS action, no publish. |
-| `push` to `develop` (same paths) | Always builds. Publishes **only if** the repository variable `ECR_PUBLISH_ENABLED` is `true`: first the backend build + tests run against real PostgreSQL on that exact commit (`verify`), then the `publish` job (environment `showcase-publish`, OIDC, `id-token: write` only there) pushes the image. |
-| `workflow_dispatch` | Same rules, and only when run on ref `develop`. **GitHub offers "Run workflow" only for a workflow file that exists on the default branch (`main`).** Until the Owner promotes the file there, use the push trigger; do not change the default branch just to get the button. Any other ref (including an old `main`) never publishes. |
+| `pull_request` (touching `Back_End/**`, `deploy/showcase/**`, the workflow, `ci.yml`) | Verifies the PR head (backend suite on PostgreSQL 18.3), builds the image once, checks non-root + writable `/var/keys` + "Production refuses to start without `DataProtection__KeysPath`". No credentials, no AWS action, no publish. |
+| `push` to `develop` (same paths) | Always verifies and builds. Publishes **only if** the repository variable `ECR_PUBLISH_ENABLED` is `true` (environment `showcase-publish`, OIDC, `id-token: write` only in that job). Not a production release; nothing is deployed. |
+| `push` to `main` (same paths) | Always verifies and builds. Publishes **only if** the repository variable `BACKEND_RELEASE_PUBLISH_ENABLED` is exactly `true` (environment `backend-production`). Never controlled by `ECR_PUBLISH_ENABLED`. |
+| `workflow_dispatch` | **Removed** by CP01. Retry a failed publish with "Re-run failed jobs" of the same run. |
 
 **State at the release commit `6ae3fdd`:** its `push` run built the image with publishing off (no repository variables are set, the environment `showcase-publish` does not exist, the workflow file is not on the default branch `main`), so **nothing is in ECR**. To publish exactly `6ae3fdd` use the manual alternative below from a checkout of that commit; setting the variables only affects later `develop` pushes (a different SHA).
 
-Image tag = the exact source commit SHA (for a PR build, the PR head — never the synthetic merge commit). An existing tag is not overwritten. Publishing **does not deploy**: nothing rolls out an ECS service; a skipped `publish` job means "nothing published".
+Image tag = the exact source commit SHA (for a PR build, the PR head — never the synthetic merge commit). An existing tag fails the run (it is never overwritten, re-tagged or reused). Publishing **does not deploy**: nothing rolls out an ECS service; a skipped `publish` job means "nothing published".
 
 Owner set-up (once, nothing is done for you):
 
 1. Create the ECR repository (enable tag immutability) and an IAM role trusted for GitHub OIDC (repo `emLamHD/The_BHA_hotels_Booking`, environment `showcase-publish`) with push-only permissions on that repository.
 2. Create the GitHub environment `showcase-publish` (optionally with a required reviewer).
 3. Set repository variables `AWS_ECR_ROLE_ARN`, `AWS_REGION`, `ECR_REPOSITORY`, then `ECR_PUBLISH_ENABLED=true`. If it is `true` but any of the three is missing, the run **fails** with a clear error instead of silently skipping.
-4. Merge to `develop` (or, once the file is on `main`, dispatch on `develop` with `publish = true`). The run summary lists the tag and digest.
+4. Merge to `develop`. The run summary lists the tag and digest. (The `workflow_dispatch` trigger no longer exists.)
 
 Manual alternative (from a checkout of the approved commit, e.g. `git switch --detach <sha>`; AWS CLI authenticated by the Owner):
 
