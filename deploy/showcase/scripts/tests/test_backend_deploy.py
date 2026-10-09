@@ -33,6 +33,7 @@ ID_OLD, ID_CAND, ID_BAD = ("sha256:" + c * 64 for c in "abc")
 REF_OLD, REF_CAND, REF_BAD = (REPO + "@" + d for d in (D_OLD, D_CAND, D_BAD))
 TARGET = "the-bha-api"
 CANARY = "CANARY-secret-7f3a91"
+IMG_CANARY = "CANARY-image-env-5d2c08"          # lives ONLY in the images' Config.Env, never in an env file, passfile or argument
 IDS = ["20260721175848_InitialPropertyRoomInventory", "20260722102552_AddRatePlanFoundation", "20261001141847_AddStaffIdentityFoundation"]
 
 DOCKER_STUB = r'''#!/usr/bin/env python3
@@ -304,7 +305,7 @@ class Host:
     def fresh_state(self):
         def image(i, labels, env):
             return {"Id": i, "RepoDigests": [], "Env": env, "Labels": labels, "User": "app", "Entrypoint": ["dotnet", "TheBha.Api.dll"]}
-        base = ["PATH=/usr/bin", "ASPNETCORE_ENVIRONMENT=Production", "DOTNET_gcServer=0"]
+        base = ["PATH=/usr/bin", "ASPNETCORE_ENVIRONMENT=Production", "DOTNET_gcServer=0", "IMAGE_SECRET_DEFAULT=" + IMG_CANARY]
         old = image(ID_OLD, {"org.opencontainers.image.revision": OLD_SHA, "org.opencontainers.image.source": URL}, base + ["DOTNET_VERSION=8.0.1"])
         cand = image(ID_CAND, {"org.opencontainers.image.revision": SHA, "org.opencontainers.image.source": URL}, base + ["DOTNET_VERSION=8.0.2"])
         bad = image(ID_BAD, {"org.opencontainers.image.revision": SHA, "org.opencontainers.image.source": URL}, base + ["DOTNET_VERSION=8.0.2"])
@@ -704,6 +705,158 @@ class HostileInput(Base):
         last = strict_json_line(p.stdout)
         self.assertEqual((p.returncode, last["status"], last["exit"]), (20, "REJECTED_BEFORE_STOP", 20), p.stdout)
         self.assertEqual((last["image"], last["source_sha"]), ("", ""))
+
+
+RAW_EVIDENCE = ["old.json", "new.json", "cand.json", "cand-final.json", "cand-remove.json", "restore.json", "verify.json", ".field.json", "c.json",
+                "old-image.json", "cand-image.json", "verify-image.json", "env.snapshot", "env.verify"]
+
+
+class EvidenceCleanup(Base):
+    """Raw `docker inspect` / `docker image inspect` output carries environment values: it must be gone when a run ends,
+    while everything recovery needs (state, events, records, result, hashes, keys.pre, profiles) stays."""
+
+    def journal_blob(self):
+        blob = ""
+        for f in self.h.journal.rglob("*"):
+            if f.is_file():
+                blob += f.read_text(errors="replace")
+        return blob
+
+    def assert_scrubbed(self, label, keep=("state", "events", "result.json")):
+        raw = [str(f) for f in self.h.journal.rglob("*") if f.name in RAW_EVIDENCE]
+        self.assertEqual(raw, [], label)                                       # file absence, names only
+        blob = self.journal_blob()
+        self.assertNotIn(IMG_CANARY, blob, label)                              # pass/fail only: the value is never printed
+        self.assertNotIn(CANARY, blob, label)
+        runs = [d for d in (self.h.journal / "runs").iterdir() if d.is_dir()]
+        self.assertTrue(runs)
+        for d in runs:
+            for name in keep:
+                self.assertTrue((d / name).exists(), (label, name))
+
+    def test_success_and_already_current_leave_no_raw_inspect_but_keep_recovery_state(self):
+        self.assertEqual(self.h.run(), 0)
+        self.assert_scrubbed("success")
+        run = self.h.journal / "runs" / self.h.last["run_id"]
+        for name in ("evidence/expected.ids", "evidence/keys.pre", "evidence/profile.old", "evidence/profile.cand"):
+            self.assertTrue((run / name).exists(), name)
+        self.assertIn("RECORD_STATE=SUCCEEDED", (self.h.journal / "records" / "latest").read_text())
+        self.assertIn(self.h.old_cid(), (run / "state").read_text())
+        s = self.h.load(); s["registry"][REF_CAND] = ID_CAND; self.h.state = s; self.h.save()
+        self.h.write_conf(EXPECTED_CURRENT_IMAGE=REF_CAND)
+        s = self.h.load(); s["images"][REF_CAND] = s["images_by_id"][ID_CAND]; self.h.state = s; self.h.save()
+        self.assertEqual(self.h.run(), 0)
+        self.assertEqual(self.h.last["status"], "ALREADY_CURRENT")
+        self.assert_scrubbed("already current")
+
+    def test_rejections_after_image_inspection_are_scrubbed(self):
+        write(self.h.d / "db.json", json.dumps({"ids": IDS[:-1]}), 0o644)             # rejected by the history gate AFTER both images were inspected
+        self.assertEqual(self.h.run(), 20)
+        self.assert_scrubbed("history gate")
+        self.setUp()
+        self.h.env_lines.append("Added__NotInContainer=1"); self.h.write_env()          # rejected by the env gate
+        self.assertEqual(self.h.run(), 20)
+        self.assert_scrubbed("env gate")
+        self.setUp()
+        self.h.fault("create")
+        self.assertEqual(self.h.run(), 20)
+        self.assert_scrubbed("create failure")
+
+    def test_failure_after_the_stop_rollback_explicit_rollback_and_repeat_are_scrubbed(self):
+        self.h.fault("start image=CAND")
+        self.assertEqual(self.h.run(), 30)
+        self.assert_scrubbed("rolled back")
+        self.setUp()
+        self.assertEqual(self.h.run(), 0)
+        self.assertEqual(self.h.run("rollback"), 0)
+        self.assert_scrubbed("explicit rollback")
+        self.assertEqual(self.h.run("rollback"), 0)
+        self.assertEqual(self.h.last["status"], "ALREADY_ROLLED_BACK")
+        self.assert_scrubbed("repeat rollback")
+
+    def test_rollback_failed_keeps_the_recovery_state_but_no_raw_inspect_and_recover_works(self):
+        self.h.fault("start image=CAND", "start image=OLD")
+        self.assertEqual(self.h.run(), 40)
+        self.assert_scrubbed("rollback failed", keep=("state", "events", "result.json"))
+        run = self.h.journal / "runs" / self.h.last["run_id"]
+        self.assertTrue((run / "evidence" / "keys.pre").exists())                 # recovery prerequisites are not raw environment
+        os.remove(self.h.d / "faults")
+        self.assertEqual(self.h.run("recover"), 0, self.h.proc.stdout)
+        self.assert_scrubbed("after recover")
+        cid, c = self.h.by_name(TARGET)
+        self.assertEqual((cid, c["running"]), (self.h.old_cid(), True))
+
+    def test_recover_scrubs_the_raw_evidence_a_killed_run_left_behind(self):
+        run, cand_id = SignalsAndRecovery.crash_after_the_old_was_stopped(self, "OLD_STOPPED")
+        ev = self.h.journal / "runs" / run / "evidence"
+        for name in ("old.json", "old-image.json", "cand-image.json", "verify-image.json", "env.snapshot"):
+            write(ev / name, "RAW %s %s\n" % (IMG_CANARY, CANARY))
+        text = (self.h.journal / "runs" / run / "state").read_text()
+        import hashlib
+        for key, path in (("ENV_SHA", self.h.env), ("CA_SHA", self.h.ca)):
+            text = text.replace(key + "=" + "0" * 64, key + "=" + hashlib.sha256(Path(path).read_bytes()).hexdigest())
+        for key, path, old in (("ENV_STAT", self.h.env, "0-0-600-1-1"), ("CA_STAT", self.h.ca, "0-0-644-1-1")):
+            st = os.stat(path)
+            text = text.replace(key + "=" + old, "%s=%d-%d-%o-%d-%d" % (key, st.st_uid, st.st_gid, stat.S_IMODE(st.st_mode), st.st_size, int(st.st_mtime)))
+        write(self.h.journal / "runs" / run / "state", text)
+        self.assertEqual(self.h.run("recover"), 0, self.h.proc.stdout)
+        self.assert_scrubbed("recovered killed run")
+        self.assertTrue((ev / "keys.pre").exists())
+
+    def test_status_and_preflight_temporary_directories_are_gone(self):
+        self.assertEqual(self.h.run("preflight"), 0)
+        self.assertEqual(self.h.run("status"), 0)
+        self.assertEqual(list((self.h.journal / "tmp").iterdir()), [])
+        self.assertNotIn(IMG_CANARY, self.journal_blob())
+
+    def test_signal_and_serializer_fallback_paths_scrub_too(self):
+        shim = self.h.d / "shim"; shim.mkdir()
+        write(shim / "python3", '#!/bin/bash\nfor a in "$@"; do case "$a" in *ensure_ascii*) exit 1;; esac; done\nexec %s "$@"\n' % shutil.which("python3"), 0o755)
+        write(self.h.d / "db.json", json.dumps({"ids": IDS[:-1]}), 0o644)
+        env = self.h.env_for(); env["PATH"] = "%s:%s" % (shim, env["PATH"])
+        p = subprocess.run([str(DEPLOY), "deploy", "--config", str(self.h.conf), "--image", REF_CAND, "--source-sha", SHA, "--manifest", str(self.h.manifest)],
+                           env=env, capture_output=True, text=True)
+        self.assertEqual((p.returncode, strict_json_line(p.stdout)["status"]), (20, "REJECTED_BEFORE_STOP"))
+        self.assert_scrubbed("serializer fallback")
+
+    def test_cleanup_failure_is_reported_without_changing_the_deployment_outcome(self):
+        shim = self.h.d / "rmshim"; shim.mkdir()
+        write(shim / "rm", '#!/bin/bash\nfor a in "$@"; do case "$a" in *verify-image.json) exit 1;; esac; done\nexec %s "$@"\n' % shutil.which("rm"), 0o755)
+        env = self.h.env_for(); env["PATH"] = "%s:%s" % (shim, env["PATH"])
+        p = subprocess.run([str(DEPLOY), "deploy", "--config", str(self.h.conf), "--image", REF_CAND, "--source-sha", SHA, "--manifest", str(self.h.manifest)],
+                           env=env, capture_output=True, text=True)
+        last = strict_json_line(p.stdout)
+        self.assertEqual((p.returncode, last["status"]), (0, "SUCCESS"))                      # the release really succeeded
+        self.assertTrue(last["detail"].endswith("__EVIDENCE_CLEANUP_FAILED"), last["detail"])  # ... and the leftover is NOT hidden
+        self.assertIn("WARNING", p.stderr)
+        self.assertNotIn(IMG_CANARY, p.stdout + p.stderr)
+        self.assertIn("EVIDENCE_CLEANUP=FAILED", (self.h.journal / "runs" / last["run_id"] / "state").read_text())
+        self.assertEqual((self.h.journal / "runs" / last["run_id"] / "result.json").read_text(), p.stdout)
+        left = [f.name for f in (self.h.journal / "runs" / last["run_id"] / "evidence").iterdir() if f.name in RAW_EVIDENCE]
+        self.assertEqual(left, ["verify-image.json"])                                       # only the one that could not be removed
+
+    def test_scrub_is_limited_to_the_exact_files_of_the_owned_evidence_directory(self):
+        other = self.h.journal / "runs" / "20260101T000000Z-aaaaaaaa" / "evidence"
+        other.mkdir(parents=True); os.chmod(other.parent, 0o700)
+        write(other.parent / "state", "STATE=SUCCEEDED\n")
+        write(other / "old.json", "UNRELATED")
+        outside = self.h.d / "outside"; outside.mkdir(); write(outside / "keep.txt", "sentinel")
+        self.assertEqual(self.h.run(), 0)
+        self.assertEqual((other / "old.json").read_text(), "UNRELATED")                      # another run's evidence is untouched
+        self.assertEqual((outside / "keep.txt").read_text(), "sentinel")
+        # an evidence directory that is a symlink is never followed
+        self.setUp()
+        run, _ = SignalsAndRecovery.crash_after_the_old_was_stopped(self, "STOP_INTENT")
+        ev = self.h.journal / "runs" / run / "evidence"
+        keys = (ev / "keys.pre").read_text(); shutil.rmtree(ev)
+        target = self.h.d / "elsewhere"; target.mkdir(); write(target / "old.json", "SENTINEL-RAW"); write(target / "keys.pre", keys)
+        os.symlink(target, ev)
+        self.h.run("recover")
+        self.assertEqual((target / "old.json").read_text(), "SENTINEL-RAW")                  # not followed, not deleted
+
+    def test_hostile_run_has_nothing_raw_to_scrub_and_stays_clean(self):
+        self.assertEqual(self.h.run(sha=HOSTILE["forged state line"]), 20)
+        self.assert_scrubbed("hostile")
 
 
 class MigrationGate(Base):

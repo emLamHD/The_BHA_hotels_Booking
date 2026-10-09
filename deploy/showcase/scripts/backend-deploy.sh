@@ -346,9 +346,45 @@ pyget() { py get "$1" "$2"; }
 
 # ------------------------------------------------------------------------------------------------ output / logging
 
+# Transient evidence: raw `docker inspect` / `docker image inspect` output (container and image Config.Env can hold secrets)
+# and private copies of the env file. They exist only while a run needs them. Persistent, sanitised state is everything else
+# in the run directory: state, events, result.json, evidence/{expected.ids,keys.pre,profile.*,preflight.json,*.err}, records/.
+# (evidence/candidate.log, the last log lines of a candidate that failed its checks, is kept privately for diagnosis; it is not
+# inspect output.) Removal is by exact file name inside the verified, owned evidence directory of THIS run: no wildcard, no
+# recursion, no symlink followed. A SIGKILL/reboot cannot run it; `recover` scrubs the recovered run's directory the same way.
+TRANSIENT_EVIDENCE=(old.json new.json cand.json cand-final.json cand-remove.json restore.json verify.json .field.json c.json
+  old-image.json cand-image.json verify-image.json env.snapshot env.verify)
+SCRUB_FAILED=false
+scrub_transient_evidence() {
+  local f jd="${CFG[JOURNAL_DIR]:-/nonexistent}"
+  SCRUB_FAILED=false
+  [[ -n "$EV" ]] || return 0
+  if [[ -L "$EV" || ( -e "$EV" && ! -d "$EV" ) ]]; then SCRUB_FAILED=true
+  elif [[ -d "$EV" ]]; then
+    case "$EV" in
+      "$jd"/runs/[0-9]*/evidence|"$jd"/tmp/preflight.*|"$jd"/tmp/status.*) [[ -O "$EV" ]] || SCRUB_FAILED=true ;;
+      *) SCRUB_FAILED=true ;;
+    esac
+    if [[ "$SCRUB_FAILED" == false ]]; then
+      for f in "${TRANSIENT_EVIDENCE[@]}"; do
+        rm -f -- "$EV/$f" 2>/dev/null || SCRUB_FAILED=true
+        [[ ! -e "$EV/$f" && ! -L "$EV/$f" ]] || SCRUB_FAILED=true
+      done
+    fi
+  fi
+  if [[ "$SCRUB_FAILED" == true ]]; then
+    printf '[backend-deploy] WARNING: raw inspection evidence was NOT fully removed from %s; remove the transient files listed in the runbook by hand.\n' "$EV" >&4
+    if [[ -n "$RUN_DIR" && -d "$RUN_DIR" && ! -L "$RUN_DIR" ]]; then { j_set EVIDENCE_CLEANUP FAILED; } 2>/dev/null || true; fi
+  fi
+  return 0
+}
+
 emit() {  # emit <STATUS> <DETAIL> <exit>
   FINALIZED=true
+  scrub_transient_evidence       # every consumer of the raw files is done: emit is always the last step of a run
   local status="$1" detail="${2//[^A-Za-z0-9_.:,-]/_}" code="$3" line
+  # a leftover is reported next to the real outcome; status and exit code keep describing the deployment, not the cleanup
+  [[ "$SCRUB_FAILED" == false ]] || detail="${detail}__EVIDENCE_CLEANUP_FAILED"
   [[ "$status" =~ ^[A-Z_]+$ ]] || status=UNKNOWN
   [[ "$code" =~ ^[0-9]{1,3}$ ]] || code=3
   if ! line="$(python3 -I -c "$JSON_TOOL" result "$status" "$detail" "$code" "$CMD" "$RUN_ID" "${CFG[TARGET_CONTAINER]:-}" "$IMAGE" \
@@ -361,11 +397,6 @@ emit() {  # emit <STATUS> <DETAIL> <exit>
   printf '%s\n' "$line" >&3
   if [[ -n "$RUN_DIR" && -d "$RUN_DIR" ]]; then   # the same object, private, atomic: never a partial or stale result
     { printf '%s\n' "$line" > "$RUN_DIR/.result.tmp" && mv -f "$RUN_DIR/.result.tmp" "$RUN_DIR/result.json"; } 2>/dev/null || true
-  fi
-  # Raw `docker inspect` output carries the environment (secrets): it never outlives the run that needed it.
-  if [[ -n "$EV" && -d "$EV" ]]; then
-    rm -f "$EV"/old.json "$EV"/new.json "$EV"/cand.json "$EV"/cand-final.json "$EV"/cand-remove.json "$EV"/restore.json \
-      "$EV"/verify.json "$EV"/.field.json "$EV"/env.snapshot "$EV"/env.verify
   fi
   exit "$code"
 }

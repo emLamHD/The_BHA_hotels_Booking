@@ -28,6 +28,7 @@ SETUP_ONLY=false
 PG_CANARY="CANARY-pg-$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')"
 STAFF_CANARY="CANARY-staff-$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')Aa1!"
 SU_CANARY="CANARY-su-$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')"
+IMG_CANARY="CANARY-image-env-$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')"    # lives only in the images' Config.Env
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/bha-cp02-$RID.XXXXXX")"
 mkdir -p "$WORK"/{certs,keys,journal,out,lock} && chmod 700 "$WORK/journal" "$WORK/lock"
@@ -137,8 +138,15 @@ build() {  # build <tag> <revision-label>
   CREATED_IMAGES+=("$1")
 }
 IMG_BASE="bha-cp02-$RID-api"
-build "$IMG_BASE:cand" "$SHA"
-build "$IMG_BASE:old" "$OLD_SHA"
+add_image_canary() {  # one extra ENV layer: a synthetic secret in the image defaults, no change to what the API does
+  docker build -q --tag "$1" -f - "$WORK/src/Back_End" >/dev/null <<DOCKERFILE
+FROM $2
+ENV IMAGE_SECRET_DEFAULT=$IMG_CANARY
+DOCKERFILE
+  CREATED_IMAGES+=("$1")
+}
+build "$IMG_BASE:cand0" "$SHA";  add_image_canary "$IMG_BASE:cand" "$IMG_BASE:cand0"
+build "$IMG_BASE:old0" "$OLD_SHA"; add_image_canary "$IMG_BASE:old" "$IMG_BASE:old0"
 # TEST_ONLY fixture: same entrypoint/user/env defaults, so it passes every pre-stop gate, but it cannot start (invalid appsettings.json).
 docker build -q --tag "$IMG_BASE:fault" -f - "$WORK/src/Back_End" >/dev/null <<EOF
 FROM $IMG_BASE:cand
@@ -377,6 +385,19 @@ wait "$LOCK_HOLDER" || true
 check "lock file still exists (never deleted)" test -f "$WORK/lock/bha-deploy-$TARGET.lock"
 check "no run left unfinished by rejected attempts" bash -c "! grep -L -E '^STATE=(REJECTED|SUCCEEDED|ROLLED_BACK|ROLLBACK_DONE|ALREADY_CURRENT_DONE)\$' '$WORK'/journal/runs/*/state | grep -q ."
 
+RAW_NAMES=(old.json new.json cand.json cand-final.json cand-remove.json restore.json verify.json .field.json c.json old-image.json cand-image.json verify-image.json env.snapshot env.verify)
+evidence_clean() {  # evidence_clean <label>: no raw inspect/env copies anywhere in the journal, no canary, recovery state still there
+  local leftover=0 n d
+  for n in "${RAW_NAMES[@]}"; do
+    [[ -z "$(find "$WORK/journal" -name "$n" -print -quit)" ]] || leftover=1
+  done
+  grep -rqF -e "$IMG_CANARY" -e "$PG_CANARY" -e "$STAFF_CANARY" "$WORK/journal" "$WORK/out" 2>/dev/null && leftover=1
+  for d in "$WORK"/journal/runs/*/; do
+    [[ -f "$d/state" && -f "$d/events" ]] || leftover=1
+  done
+  check "$1: no raw inspect/env file and no canary (incl. the image-default one) left; state and events kept" test "$leftover" = 0
+}
+
 # caller-controlled arguments that try to forge JSON or journal lines (real script, real Docker state)
 HOSTILE_SHA=$'abc"\nSTATE=SUCCEEDED\nDETAIL=forged'
 HOSTILE_IMG=$'x"}\n{"status":"SUCCESS","exit":0}\\'
@@ -410,6 +431,8 @@ check "Staff session issued BEFORE the swap still reads /me = 200" test "$(me_co
 check "without the cookie /me = 401" test "$(curl_api -o /dev/null -w '%{http_code}' "https://localhost:$TLSPORT/api/admin/v1/me")" = 401
 check "database identical after the deploy (no migration, no repair)" test "$(db_hash)" = "$DB1"
 check "journal: run SUCCEEDED and latest record written" bash -c "grep -q '^STATE=SUCCEEDED' '$WORK/journal/runs/$(jf run_id)/state' && grep -q '^RECORD_STATE=SUCCEEDED' '$WORK/journal/records/latest'"
+evidence_clean "after the real success"
+check "success run keeps its recovery files (expected ids, key hashes, profiles, result, record)" bash -c "r='$WORK/journal/runs/$(jf run_id)'; [[ -s \$r/evidence/expected.ids && -s \$r/evidence/keys.pre && -s \$r/evidence/profile.old && -f \$r/result.json && -s '$WORK/journal/records/latest' ]]"
 set_conf EXPECTED_CURRENT_IMAGE "$REF_CAND"     # the next release packet carries the new expected-current identity (CP03)
 
 say "== S4 same release again: no bypass of the gates"
@@ -425,6 +448,7 @@ check "Staff session still valid after the rollback" test "$(me_code)" = 200
 check "database identical after the rollback (container rollback never touches it)" test "$(db_hash)" = "$DB1"
 run_deploy rollback
 check "second rollback is idempotent -> ALREADY_ROLLED_BACK exit 0" test "$RC" = 0 -a "$(jf status)" = ALREADY_ROLLED_BACK
+evidence_clean "after the explicit rollback and its repeat"
 set_conf EXPECTED_CURRENT_IMAGE "$REF_OLD"
 OLD_STARTED="$(cfmt "$TARGET" '{{.State.StartedAt}}')"
 
@@ -436,6 +460,7 @@ check "restart policy restored on the original" test "$(cfmt "$OLD_CID" '{{.Host
 check "failed candidate kept stopped as evidence with restart=no (not removed)" bash -c "[[ \"$(cfmt "$(jf candidate_id)" '{{.State.Running}}')\" == false && \"$(cfmt "$(jf candidate_id)" '{{.HostConfig.RestartPolicy.Name}}')\" == no ]]"
 check "Staff session valid after the failed deploy and rollback" test "$(me_code)" = 200
 check "journal: ROLLED_BACK and nothing unfinished" bash -c "grep -q '^STATE=ROLLED_BACK' '$WORK/journal/runs/$(jf run_id)/state' && [[ -z \"\$(grep -L -E '^STATE=(REJECTED|SUCCEEDED|ROLLED_BACK|ROLLBACK_DONE|ALREADY_CURRENT_DONE)\$' '$WORK'/journal/runs/*/state)\" ]]"
+evidence_clean "after the failed deploy and its rollback"
 run_deploy status
 check "status reports a healthy, finished state (exit 0)" test "$RC" = 0
 
