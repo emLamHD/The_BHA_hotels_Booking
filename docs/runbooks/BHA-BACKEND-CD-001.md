@@ -220,13 +220,13 @@ Timeout budget (seconds, one place: `backend-ssm-release.py`): remote overhead 2
 Placeholders are in `<ANGLE_CAPS>`; every value is the Owner's. Order matters; flags stay off until step 10.
 
 1. **GitHub environment and rules.** Environment `backend-production`: deployment branches = `main` only; add required reviewers if wanted. Branch protection on `main`. Do not create any of the new variables at repository or organization level.
-2. **Verify the real OIDC subject** before writing the trust. Default for an environment job: `repo:<OWNER>/<REPO>:environment:backend-production`; a customised subject template or the immutable-ID format (`repo:<OWNER>@<ID>/<REPO>@<ID>:environment:…`, repositories created after the GitHub cut-over or opted in) changes it. Capture a real token's `sub` from a throw-away workflow run in that environment (never print other claims) and put exactly that string in `<VERIFIED_SUB_CLAIM>`. AWS only supports `aud` and `sub` for GitHub in trust conditions (the GitHub doc: custom claims are unavailable in AWS) — the template uses nothing else. The environment subject does not replace the `main`-only branch rule of step 1; the existing `showcase-publish` trust does not cover this role.
+2. **Verify the real OIDC subject** before writing the trust. Default for an environment job: `repo:<OWNER>/<REPO>:environment:backend-production`; a customised subject template or the immutable-ID format (`repo:<OWNER>@<ID>/<REPO>@<ID>:environment:…`, repositories created after the GitHub cut-over or opted in) changes it. Capture a real token's `sub` with the CP04 probe (§11.4, step P1-D) — a throw-away run in that environment (never print other claims) and put exactly that string in `<VERIFIED_SUB_CLAIM>`. AWS only supports `aud` and `sub` for GitHub in trust conditions (the GitHub doc: custom claims are unavailable in AWS) — the template uses nothing else. The environment subject does not replace the `main`-only branch rule of step 1; the existing `showcase-publish` trust does not cover this role.
 3. **Deploy role** (`deploy/showcase/iam/backend-release-deploy-trust.json` + `backend-release-deploy-policy.json`): create the role `<DEPLOY_ROLE_NAME>` with that trust and inline policy; fill `<ACCOUNT_ID>`, `<REGION>`, `<INSTANCE_ID>`. `SendCommand` is limited to the `AWS-RunShellScript` document ARN and the one instance ARN; the three read actions are `Resource: "*"` (see 10.5). No ECR, no publish, no DB permission.
 4. **Instance profile** of `<INSTANCE_ID>`: keep `AmazonSSMManagedInstanceCore` (SSM Agent running and registered; the node must be a managed node) and attach `backend-release-instance-ecr-policy.json` (pull of `<ECR_REPOSITORY>` + `GetAuthorizationToken` on `*`; no `PutImage`, no upload actions). Egress from the instance to the SSM endpoints, ECR (`<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com` and S3 layers), `raw.githubusercontent.com:443` and the RDS endpoint; `/run/lock` and `/var/lib/the-bha` writable by root.
 5. **Host prerequisites** (documented contract, audit them): bash ≥ 4.4, python3 ≥ 3.8, docker, flock, timeout, curl, sha256sum, `aws` CLI v2 (for the ECR login), `psql` ≥ 10; the engine's own prerequisites in §9.5.
 6. **Host config and libpq files** (private, root, mode 600): the CP02 host config (§9.2) at `<HOST_CONFIG_PATH>`, with `EXPECTED_CURRENT_IMAGE=<BOOTSTRAP_DIGEST_REFERENCE>` — the digest reference of the container that serves **now**, verified by you: `docker inspect -f '{{.Image}} {{.Config.Image}}' the-bha-api` against `docker image inspect <reference> -f '{{.Id}}'`. `EXPECTED_SOURCE_URL=https://github.com/<OWNER>/<REPO>` must equal the repository of the packet. Also the libpq service file, passfile and CA of §9.3 step 4.
 7. **Runtime audit before the first release** (read-only): `backend-deploy.sh status`; container name/port/mounts/env file/restart policy/log driver as in §9.2; keys directory non-empty; `docker image inspect` of the bootstrap digest works locally.
-8. **Environment variables** in `backend-production`: the four CP01 names (`BACKEND_RELEASE_AWS_ROLE_ARN`, `BACKEND_RELEASE_AWS_REGION`, `BACKEND_RELEASE_ECR_REPOSITORY`) and the three CP03 names above.
+8. **Environment variables** in `backend-production`: the six names in total: the three CP01 names (`BACKEND_RELEASE_AWS_ROLE_ARN`, `BACKEND_RELEASE_AWS_REGION`, `BACKEND_RELEASE_ECR_REPOSITORY`) and the three CP03 names above (`BACKEND_RELEASE_DEPLOY_AWS_ROLE_ARN`, `BACKEND_RELEASE_EC2_INSTANCE_ID`, `BACKEND_RELEASE_HOST_CONFIG_PATH`); the two on/off switches are repository variables, not environment ones.
 9. **Disabled verification:** with both flags still unset, merge a release-path change to `main` (or inspect a PR run): plan reports `publish=false deploy=false`; `publish-main` and `deploy-main` are skipped.
 10. **Activation order:** set `BACKEND_RELEASE_PUBLISH_ENABLED=true`, release once (CP01 publish only) and check the digest in ECR; then set `BACKEND_RELEASE_DEPLOY_ENABLED=true`; the next release publishes and deploys. Never set the deploy flag alone.
 11. **First release checks:** the client summary says `PASS`; `docker inspect` shows the new digest; `EXPECTED_CURRENT_IMAGE` in `<HOST_CONFIG_PATH>` equals it; `release-state` and `records/latest` agree; `/health/ready` 200; one read-only Staff session check in the browser; the previous container is retained stopped.
@@ -236,3 +236,100 @@ Placeholders are in `<ANGLE_CAPS>`; every value is the Owner's. Order matters; f
 ### 10.7 Local verification (what CP03 ran; no cloud)
 
 `python3 -m unittest discover -s deploy/showcase/scripts/tests -p "test_*.py"`; actionlint 1.7.7 and ShellCheck 0.10.0 (pinned images, §7); `tests/rehearse_backend_ssm_release.sh` (real client → mocked SSM → real bootstrap/wrapper → real CP02 engine on Docker, PostgreSQL 18.3, loopback registry, TLS proxy). The rehearsal mocks only AWS: `ssm send-command`, `ssm get-command-invocation`, `ecr get-login-password` and the raw.githubusercontent.com download; everything else is real. Test-only switches in the scripts (all of them can only relax toward loopback or a non-root test user, none is reachable from the workflow): `BHA_RELEASE_PATH_PREFIX`, `BHA_RELEASE_STAGE_ROOT`, `BHA_RELEASE_LOCK_DIR`, `BHA_RELEASE_LOCK_WAIT`, `BHA_RELEASE_ALLOW_LOOPBACK_REGISTRY`.
+
+## 11. CP04 — Owner live activation (guide and evidence ledger; nothing below is live until a dated Owner entry says so)
+
+Claude guides, monitors and verifies read-only; **the Owner executes every cloud, GitHub-setting, host and flag write.** Evidence is labelled `OWNER_EXECUTED` / `OWNER_VERIFIED` (the Owner did or saw it) or `CLAUDE_VERIFIED_READ_ONLY` (a read check by Claude); isolated rehearsal evidence (§7, §9, §10.7) is never counted as live evidence. Account-specific values stay in the Owner's shell variables and in private temp files outside Git; no secret, token, cookie, password or raw `docker inspect` goes into a chat, a commit or a report.
+
+### 11.1 Observed state at the start of CP04 (2026-10-09)
+
+| Item | Observed (label) | Expected | Pending |
+|---|---|---|---|
+| ECR `the-bha-api` | exists, tag immutability `IMMUTABLE`, no repository policy; tag `6ae3fdd3…` is the bootstrap digest `sha256:d01c7d9d…98b4b6` (`CLAUDE_VERIFIED_READ_ONLY`) | IMMUTABLE | P2 adds the first `main` SHA tag |
+| EC2 | exactly one running instance `the-bha-api`, IMDSv2 required, an instance profile attached (`CLAUDE_VERIFIED_READ_ONLY`) | one managed node | SSM registration, profile contents and host prerequisites: **not readable by the audit user** → Owner packet A |
+| GitHub variables / environments | no repository variable; no `backend-production` environment; ruleset `protect-main` active (PR required, no force-push/deletion, no bypass) (`CLAUDE_VERIFIED_READ_ONLY`) | environment `main`-only, six env names, two flags unset | P1 |
+| Actions policy | "selected actions": GitHub-owned and verified-creator allowed, no patterns | `aws-actions/configure-aws-credentials` and `aws-actions/amazon-ecr-login` runnable | confirm in P1-B; add the two patterns if the first run is refused |
+| OIDC `sub` of a `backend-production` job | **no evidence** | read from a real token | P1-D (probe) |
+| IAM roles / OIDC provider | not readable by the audit user | publish role, deploy role, provider | P1-E |
+| Live publish / deploy / SSM / rollback | none | — | P2–P4 |
+
+### 11.2 Workflow of the work item
+
+P1 setup with **both flags off** → P2 publish only → P3 first automatic deploy → P4 explicit rollback drill, then restoration through a **new** `main` release. Stop at any `WAITING_OWNER` row. Release commits are real commits on `main` that touch `deploy/showcase/**` (the path filter of `backend-image.yml`); CP04 uses the small non-executable marker `deploy/showcase/releases/BHA-BACKEND-CD-001-activation.json`, created in P2 and changed once per release. Nothing is re-run to simulate a release: an existing SHA tag fails closed.
+
+### 11.3 Owner packets (copy-paste; `<…>` values are the Owner's)
+
+**A — audit with an admin profile (read-only, anywhere).** Set `ACCOUNT_ID`, `REGION`, `INSTANCE_ID` in the shell first.
+```bash
+aws sts get-caller-identity --query Account --output text            # must equal $ACCOUNT_ID
+aws iam list-open-id-connect-providers                               # token.actions.githubusercontent.com present?
+aws ssm describe-instance-information --region "$REGION" --filters "Key=InstanceIds,Values=$INSTANCE_ID" \
+  --query 'InstanceInformationList[].[InstanceId,PingStatus,AgentVersion]' --output text   # expect: Online
+aws ec2 describe-instances --region "$REGION" --instance-ids "$INSTANCE_ID" --query 'Reservations[].Instances[].IamInstanceProfile.Arn' --output text
+```
+Stop if the account differs, the node is not `Online`, or you cannot read these (then grant the read or run them as the account owner).
+
+**B — GitHub environment (Owner, GitHub UI or `gh`).** The probe job names `backend-production`; GitHub **auto-creates** a missing environment **without** branch rules, so create it first:
+```bash
+gh api -X PUT repos/<OWNER>/<REPO>/environments/backend-production --input - <<'JSON'
+{"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}
+JSON
+gh api -X POST repos/<OWNER>/<REPO>/environments/backend-production/deployment-branch-policies -f name=main -f type=branch
+gh api repos/<OWNER>/<REPO>/actions/permissions/selected-actions      # patterns must allow aws-actions/* if GitHub refuses the AWS actions
+```
+Do not define any `BACKEND_RELEASE_*` variable yet. Required reviewers on the environment are optional (they add a click per deployment).
+
+**C — promotion of reviewed source to `main`, both flags still unset (Owner; Claude does not promote).** `main` and `develop` are different histories (the trees differ by the work of CP01–CP04). After the probe PR is merged into `develop`:
+```bash
+git fetch --prune origin && git switch -c promote/backend-cd-001-to-main origin/main
+git read-tree -u --reset origin/develop          # index and worktree := develop's tree, including deletions
+git commit -m "chore(release): promote develop to main (BHA-BACKEND-CD-001)"
+test "$(git rev-parse HEAD^{tree})" = "$(git rev-parse origin/develop^{tree})" && echo TREES_EQUAL
+git push -u origin promote/backend-cd-001-to-main   # open a PR into main, merge it yourself (merge-commit or squash, per your ruleset)
+```
+After the merge: `git rev-parse origin/main^{tree} origin/develop^{tree}` must still be equal (a squash/merge of a tree-identical commit keeps the tree). The merge triggers `backend-image.yml` on `main` with flags unset: expect plan `publish=false deploy=false`, `publish-main` and `deploy-main` **skipped** (record the run).
+
+**D — the real OIDC subject (Owner).** The probe lives in `.github/workflows/backend-oidc-probe.yml`: `workflow_dispatch` only, `main` only, environment `backend-production`, no checkout, no AWS call, masks the token and prints only the listed claims.
+```bash
+gh workflow run backend-oidc-probe.yml --ref main
+gh run watch "$(gh run list --workflow backend-oidc-probe.yml --limit 1 --json databaseId -q '.[0].databaseId')"
+gh run view --log "$(gh run list --workflow backend-oidc-probe.yml --limit 1 --json databaseId -q '.[0].databaseId')" | grep -E 'claim (sub|aud|environment|ref|repository) '
+```
+Expected: `aud = "sts.amazonaws.com"`, `sub` is exactly the string you will put in the trust (normally `repo:<OWNER>/<REPO>:environment:backend-production`; a different format changes the trust, never guess it). Keep that line for the report; delete the probe later through a reviewed change if it is no longer wanted.
+
+**E — IAM roles (Owner; render from the templates into private files).**
+```bash
+umask 077; T="$(mktemp -d)"; echo "private render dir: $T"
+SUB='<exact sub from D>'
+r() { sed -e "s/<ACCOUNT_ID>/$ACCOUNT_ID/g" -e "s/<REGION>/$REGION/g" -e "s/<INSTANCE_ID>/$INSTANCE_ID/g" -e "s/<ECR_REPOSITORY>/the-bha-api/g" -e "s|<VERIFIED_SUB_CLAIM>|$SUB|g" "$1"; }
+r deploy/showcase/iam/backend-release-deploy-trust.json        > "$T/trust.json"
+r deploy/showcase/iam/backend-release-deploy-policy.json       > "$T/deploy-policy.json"
+r deploy/showcase/iam/backend-release-instance-ecr-policy.json > "$T/instance-ecr.json"
+for f in "$T"/*.json; do python3 -m json.tool "$f" >/dev/null && ! grep -q '<' "$f" && echo "ok $f"; done
+```
+Create the **deploy role** (`trust.json` + `deploy-policy.json`) and attach `instance-ecr.json` to the instance profile's role. The **publish role** uses the same trust (same `sub`; the publish and deploy jobs both run in the environment) and the ECR actions of §6 step 4 on the `the-bha-api` repository ARN, `ecr:GetAuthorizationToken` on `*`; keep it a **separate** role from the deploy role. Never use a wildcard `sub`, and do not widen the `showcase-publish` trust.
+
+**F — host (Owner, on the instance through Session Manager).** Read-only audit first; each line prints one fact:
+```bash
+for c in docker python3 flock timeout curl sha256sum aws psql; do command -v "$c" >/dev/null && echo "have $c" || echo "MISSING $c"; done
+python3 -c 'import sys; print("python", sys.version_info[:2] >= (3, 8))'; psql --version; aws --version
+sudo docker ps --filter name=the-bha-api --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+# proof that the digest reference names the container that serves NOW (compare image IDs, never the tag in Config.Image):
+REF='<ECR_URI>@sha256:<BOOTSTRAP_DIGEST>'
+test "$(sudo docker inspect -f '{{.Image}}' the-bha-api)" = "$(sudo docker image inspect "$REF" -f '{{.Id}}')" && echo BOOTSTRAP_MATCH
+curl -fsS -o /dev/null --max-time 10 https://raw.githubusercontent.com/<OWNER>/<REPO>/main/README.md && echo RAW_OK
+```
+A missing `psql` leaves a `STARTED` engine journal run (§10.5): install it **before** the first release. Then create the private host config of §9.2 at `<HOST_CONFIG_PATH>` (root, `0600`) with `EXPECTED_CURRENT_IMAGE=$REF`, plus the libpq files of §9.3 step 4; run `backend-deploy.sh status` from a checkout of the promoted commit and expect a clean state. Do not edit the live Caddy, app environment file, key ring or CA.
+
+**G — variables, flags and releases (Owner, GitHub UI or `gh`).** In the environment `backend-production`: `BACKEND_RELEASE_AWS_ROLE_ARN`, `BACKEND_RELEASE_AWS_REGION`, `BACKEND_RELEASE_ECR_REPOSITORY`, `BACKEND_RELEASE_DEPLOY_AWS_ROLE_ARN`, `BACKEND_RELEASE_EC2_INSTANCE_ID`, `BACKEND_RELEASE_HOST_CONFIG_PATH` (never at repository/organization level). Repository variables: `BACKEND_RELEASE_PUBLISH_ENABLED=true` for P2, and only after P2 is verified `BACKEND_RELEASE_DEPLOY_ENABLED=true` for P3 (never the deploy flag alone). Each release is a reviewed PR into `main` that changes the marker; the Owner merges it.
+
+### 11.4 Phases and what counts as evidence
+
+* **P1 setup (flags off):** A–F done; D's `sub` recorded; roles created from the observed `sub`; disabled run on `main` recorded. Status `SETUP_LIVE` needs the Owner's evidence for each, not Claude's belief.
+* **P2 publish only:** publish flag on, deploy flag unset. Evidence: the run on the **actual `main` merge SHA**; `publish-main` success; ECR tag = that full SHA, digest recorded, tag immutability still `IMMUTABLE`; `deploy-main` skipped; the API still serves the bootstrap digest (`docker ps` / `/health/ready`). Claude re-reads ECR and the run read-only.
+* **P3 first deploy:** deploy flag on, a new marker commit on `main`. `PASS` needs the client `PASS` **and** the SSM invocation identity/status/`ResponseCode`, engine `SUCCESS`/`ALREADY_CURRENT`, `state_sync` OK, `reverified` true, `cleanup` OK, the live container's image ID, `RepoDigest` and revision label equal to the published digest/SHA, `EXPECTED_CURRENT_IMAGE`, `release-state` and `records/latest` in agreement, the previous container retained **stopped**; then `/health/ready` 200, the public properties read, the unauthenticated Staff `me` read answers 401, and an Owner browser read-only smoke. Downtime is reported as measured or `NOT_MEASURED`.
+* **P4 rollback drill and restoration:** the packet for the rollback is generated with `--no-image` from the **immutable deployed commit** (detach-checkout of that SHA with a clean tree, then back to the working branch), the Owner runs the client with deploy-role credentials, **latest record only**, no DB rollback, **no fault injection on production**. Evidence as in P3 but for `ROLLED_BACK` and the restored previous digest. Then restore with a **new** `main` release (a new marker commit → new SHA, tag, digest, deploy); the old publish is never re-run. A fault or `recover` drill is `NOT_RUN` unless the Owner explicitly decides otherwise.
+
+### 11.5 Failure policy
+
+`FAILED_ROLLED_BACK` is a failed release (the old service was restored). `REMOTE_RESULT_UNKNOWN`, an ambiguous send, a poll deadline or a cancelled job: **stop mutating**, keep the CommandId and correlation, reconcile read-only (§10.5), and never resend, re-run, roll back or recover blindly. An existing SHA tag fails closed; GitHub re-run semantics are unproven. A result that needs a change to CP01–CP03 code is `BLOCKED` with a concrete proposal and an OC correction prompt; it is never fixed inline.
