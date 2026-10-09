@@ -36,6 +36,7 @@ import sys
 import time
 import uuid
 
+sys.dont_write_bytecode = True          # importing the packet module must never leave bytecode in a checkout or on a host
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 OVERHEAD, WATCHDOG, GRACE = 240, 900, 300
