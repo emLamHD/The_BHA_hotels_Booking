@@ -13,7 +13,7 @@
 # short codes only. Exit 0 only for a release outcome the caller accepts.
 #
 # Test-only switches, honoured only because they can only RELAX toward loopback / a non-root test user:
-#   BHA_RELEASE_LOCK_DIR (default /run/lock), BHA_RELEASE_LOCK_WAIT (seconds, at most 30), BHA_RELEASE_ALLOW_LOOPBACK_REGISTRY=1 (accept 127.0.0.1:PORT as the registry).
+#   BHA_RELEASE_PATH_PREFIX (bootstrap only), BHA_RELEASE_LOCK_DIR (default /run/lock), BHA_RELEASE_LOCK_WAIT (seconds, at most 30), BHA_RELEASE_ALLOW_LOOPBACK_REGISTRY=1 (accept 127.0.0.1:PORT as the registry).
 # shellcheck disable=SC2015  # `A && B || fail` is the gate idiom used throughout
 set -euo pipefail
 umask 077

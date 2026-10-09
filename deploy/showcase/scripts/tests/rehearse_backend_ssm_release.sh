@@ -48,7 +48,7 @@ if a[:2] == ["ssm", "send-command"]:
     cid = str(uuid.uuid4())
     params = json.load(open(arg("--parameters")[len("file://"):]))
     script = os.path.join(D, cid + ".sh"); open(script, "w").write("\n".join(params["commands"]) + "\n")
-    env = dict(os.environ, PATH="$FAKE:" + os.environ["PATH"], BHA_RELEASE_STAGE_ROOT="$STAGE_ROOT", BHA_RELEASE_LOCK_DIR="$RELLOCK",
+    env = dict(os.environ, PATH="$FAKE:" + os.environ["PATH"], BHA_RELEASE_PATH_PREFIX="$FAKE", BHA_RELEASE_STAGE_ROOT="$STAGE_ROOT", BHA_RELEASE_LOCK_DIR="$RELLOCK",
                BHA_DEPLOY_LOCK_DIR="$RELLOCK", BHA_RELEASE_ALLOW_LOOPBACK_REGISTRY="1")
     subprocess.Popen(["bash", "-c", 'bash "\$0" > "\$1.out" 2> "\$1.err"; echo \$? > "\$1.rc"', script, os.path.join(D, cid)], env=env, start_new_session=True,
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

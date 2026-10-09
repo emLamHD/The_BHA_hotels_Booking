@@ -93,7 +93,7 @@ def check_budget(watchdog=WATCHDOG, grace=GRACE, overhead=OVERHEAD, execution=EX
 
 BOOTSTRAP = r'''set -euo pipefail
 umask 077
-export LC_ALL=C PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export LC_ALL=C PATH="${BHA_RELEASE_PATH_PREFIX:+$BHA_RELEASE_PATH_PREFIX:}/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"   # prefix: test shims only
 CORR='@CORR@'; SHA='@SHA@'; REPO='@REPO@'; PACKET_SHA='@PACKET_SHA@'; HCFG='@HCFG@'; ACTION='@ACTION@'; REGION='@REGION@'
 fail() { printf '{"v":1,"correlation":"%s","command":"%s","source_sha":"%s","release":"BOOTSTRAP_FAILED","detail":"%s"}\n' "$CORR" "$ACTION" "$SHA" "$1"; exit 1; }
 ROOT="${BHA_RELEASE_STAGE_ROOT:-/var/lib/the-bha/release-staging}"
