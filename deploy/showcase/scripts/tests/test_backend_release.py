@@ -433,7 +433,7 @@ class WorkflowShape(unittest.TestCase):
         self.assertEqual(self.wf["permissions"], {"contents": "read"})
         for name, job in self.jobs.items():
             perms = job.get("permissions", {})
-            if name.startswith("publish-"):
+            if name.startswith(("publish-", "deploy-")):
                 self.assertEqual(perms.get("id-token"), "write", name)
             else:
                 self.assertNotIn("id-token", perms, name)
@@ -644,6 +644,214 @@ def extract_line(needle):
         if needle in line:
             return line
     raise AssertionError(f"runbook no longer contains: {needle}")
+
+
+DEPLOY_NAMES = ("BACKEND_RELEASE_DEPLOY_AWS_ROLE_ARN", "BACKEND_RELEASE_EC2_INSTANCE_ID", "BACKEND_RELEASE_HOST_CONFIG_PATH")
+D_ROLE = "arn:aws:iam::123456789012:role/bha-release-deploy"
+D_URI = "123456789012.dkr.ecr.ap-southeast-2.amazonaws.com/the-bha-api:" + SHA
+D_DIGEST = "sha256:" + "d" * 64
+
+
+class DeployGating(unittest.TestCase):
+    """CP03: the deploy switch, its configuration gate and the stale-run guard, through the real policy script."""
+
+    def setUp(self):
+        self.e = Env()
+        self.addCleanup(self.e.cleanup)
+
+    def plan(self, event="push", ref="refs/heads/main", **flags):
+        self.e.out.write_text("")
+        env = dict(EVENT=event, REF=ref, SOURCE_SHA=SHA, GITHUB_SHA=SHA if event == "push" else OTHER_SHA)
+        env.update(flags)
+        r = self.e.run(POLICY, ["plan"], **env)
+        return r, self.e.outputs()
+
+    def test_deploy_requires_the_exact_flag_a_main_push_and_a_publishing_run(self):
+        both = dict(MAIN_PUBLISH_ENABLED="true", MAIN_DEPLOY_ENABLED="true")
+        r, o = self.plan(**both)
+        self.assertEqual((r.returncode, o["lane"], o["publish"], o["deploy"]), (0, "main", "true", "true"))
+        for value in (None, "", "false", "TRUE", "1", "yes", " true"):
+            flags = dict(MAIN_PUBLISH_ENABLED="true")
+            if value is not None: flags["MAIN_DEPLOY_ENABLED"] = value
+            r, o = self.plan(**flags)
+            self.assertEqual((r.returncode, o["publish"], o["deploy"]), (0, "true", "false"), repr(value))
+
+    def test_deploy_enabled_without_publish_fails_clearly_before_any_aws_step(self):
+        for pub in (None, "false", "1"):
+            flags = dict(MAIN_DEPLOY_ENABLED="true")
+            if pub is not None: flags["MAIN_PUBLISH_ENABLED"] = pub
+            r, _ = self.plan(**flags)
+            self.assertNotEqual(r.returncode, 0, repr(pub))
+            self.assertIn("BACKEND_RELEASE_DEPLOY_ENABLED", r.stdout)
+        self.assertEqual(self.e.log(), "")
+
+    def test_pr_develop_and_other_refs_ignore_the_deploy_switch(self):
+        flags = dict(MAIN_PUBLISH_ENABLED="true", MAIN_DEPLOY_ENABLED="true", DEVELOP_PUBLISH_ENABLED="true")
+        for event, ref in (("pull_request", "refs/pull/3/merge"), ("push", "refs/heads/develop"), ("push", "refs/heads/feature/x"), ("schedule", "refs/heads/main")):
+            r, o = self.plan(event, ref, **flags)
+            self.assertEqual((r.returncode, o["deploy"]), (0, "false"), (event, ref))
+
+    def test_inherited_deploy_values_are_reported_as_booleans_only(self):
+        r, o = self.plan(MAIN_PUBLISH_ENABLED="true", INHERITED_INSTANCE_ID="i-0123456789abcdef0", INHERITED_DEPLOY_ROLE_ARN="", INHERITED_HOST_CONFIG="/x")
+        self.assertEqual((o["inherited_deploy_role_arn_set"], o["inherited_instance_id_set"], o["inherited_host_config_set"]), ("false", "true", "true"))
+        self.assertNotIn("i-0123456789abcdef0", self.e.out.read_text())
+
+    def check(self, **over):
+        env = dict(DEPLOY_ROLE_ARN=D_ROLE, INSTANCE_ID="i-0123456789abcdef0", HOST_CONFIG_PATH="/etc/the-bha/host.conf", REGION="ap-southeast-2",
+                   PUBLISH_ROLE_ARN="arn:aws:iam::123456789012:role/bha-release", SOURCE_SHA=SHA, PUBLISHED_SHA=SHA, IMAGE_URI=D_URI, IMAGE_DIGEST=D_DIGEST,
+                   INHERITED_DEPLOY_ROLE_ARN_SET="false", INHERITED_INSTANCE_ID_SET="false", INHERITED_HOST_CONFIG_SET="false")
+        env.update(over)
+        self.e.out.write_text("")
+        return self.e.run(POLICY, ["require-deploy-config"], **env)
+
+    def test_valid_configuration_passes_and_exports_the_single_validated_set(self):
+        r = self.check()
+        self.assertEqual(r.returncode, 0, r.stdout)
+        o = self.e.outputs()
+        self.assertEqual((o["deploy_role_arn"], o["instance_id"], o["host_config_path"], o["deploy_region"]), (D_ROLE, "i-0123456789abcdef0", "/etc/the-bha/host.conf", "ap-southeast-2"))
+        self.assertEqual(self.e.log(), "")
+
+    def test_each_missing_value_and_each_inherited_value_is_refused_naming_the_variable_only(self):
+        for field, name in zip(("DEPLOY_ROLE_ARN", "INSTANCE_ID", "HOST_CONFIG_PATH"), DEPLOY_NAMES):
+            r = self.check(**{field: ""})
+            self.assertNotEqual(r.returncode, 0, field); self.assertIn(name, r.stdout)
+        for flag, name in zip(("INHERITED_DEPLOY_ROLE_ARN_SET", "INHERITED_INSTANCE_ID_SET", "INHERITED_HOST_CONFIG_SET"), DEPLOY_NAMES):
+            for bad in ("true", "", "maybe", "TRUE"):
+                r = self.check(**{flag: bad})                          # even with a valid environment override the effective values are fine
+                self.assertNotEqual(r.returncode, 0, (flag, bad)); self.assertIn(name, r.stdout)
+                self.assertNotIn("i-0123456789abcdef0", r.stdout)
+        self.assertNotEqual(self.check(REGION="").returncode, 0)
+
+    def test_malformed_values_and_account_or_region_mismatches_are_refused(self):
+        for over in ({"DEPLOY_ROLE_ARN": "nope"}, {"INSTANCE_ID": "i-123"}, {"INSTANCE_ID": "i-0123456789ABCDEF0"}, {"INSTANCE_ID": "mi-0123456789abcdef0"},
+                     {"HOST_CONFIG_PATH": "relative.conf"}, {"HOST_CONFIG_PATH": "/etc/../x"}, {"HOST_CONFIG_PATH": "/etc/the bha"}, {"REGION": "Sydney"},
+                     {"PUBLISH_ROLE_ARN": "arn:aws:iam::999999999999:role/x"},
+                     {"IMAGE_URI": "999999999999.dkr.ecr.ap-southeast-2.amazonaws.com/the-bha-api:" + SHA},
+                     {"IMAGE_URI": "123456789012.dkr.ecr.us-east-1.amazonaws.com/the-bha-api:" + SHA},
+                     {"IMAGE_URI": D_URI.replace(SHA, OTHER_SHA)}, {"PUBLISHED_SHA": OTHER_SHA}, {"IMAGE_DIGEST": "latest"}, {"IMAGE_DIGEST": "sha256:xyz"}):
+            self.assertNotEqual(self.check(**over).returncode, 0, over)
+
+    def test_a_run_that_is_not_the_tip_of_main_never_deploys(self):
+        remote = self.e.dir / "remote.git"; work = self.e.dir / "work"
+        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(remote)], check=True)
+        subprocess.run(["git", "init", "-q", "-b", "main", str(work)], check=True)
+        g = lambda *a: subprocess.run(["git", "-C", str(work), "-c", "user.name=t", "-c", "user.email=t@example.invalid"] + list(a), check=True, capture_output=True, text=True).stdout.strip()
+        (work / "a").write_text("1"); g("add", "-A"); g("commit", "-q", "-m", "one"); first = g("rev-parse", "HEAD")
+        g("remote", "add", "origin", str(remote)); g("push", "-q", "origin", "main")
+        ok = self.e.run(POLICY, ["check-main-head"], MAIN_REMOTE_URL=str(remote), SOURCE_SHA=first)
+        self.assertEqual(ok.returncode, 0, ok.stdout)
+        (work / "a").write_text("2"); g("commit", "-q", "-am", "two"); g("push", "-q", "origin", "main")
+        stale = self.e.run(POLICY, ["check-main-head"], MAIN_REMOTE_URL=str(remote), SOURCE_SHA=first)
+        self.assertNotEqual(stale.returncode, 0)
+        self.assertIn("STALE_RUN", stale.stdout)
+        unreadable = self.e.run(POLICY, ["check-main-head"], MAIN_REMOTE_URL=str(self.e.dir / "missing.git"), SOURCE_SHA=first)
+        self.assertNotEqual(unreadable.returncode, 0)                  # an unreadable remote is never "fresh enough"
+
+    def test_deploy_job_wiring_in_the_real_workflow(self):
+        wf = load(WORKFLOW); jobs = wf["jobs"]; job = jobs["deploy-main"]
+        self.assertEqual(wf["on"].keys(), {"pull_request", "push"})                   # still no workflow_dispatch
+        self.assertEqual(job["environment"], "backend-production")
+        self.assertEqual(set(job["needs"]), {"plan", "publish-main"})
+        for part in ("needs.plan.outputs.lane == 'main'", "needs.plan.outputs.publish == 'true'", "needs.plan.outputs.deploy == 'true'"):
+            self.assertIn(part, job["if"])
+        self.assertEqual(job["permissions"], {"contents": "read", "id-token": "write"})
+        self.assertIs(job["concurrency"]["cancel-in-progress"], False)
+        self.assertEqual(job["timeout-minutes"], 40)
+        env = job["env"]
+        self.assertEqual(env["IMAGE_URI"], "${{ needs.publish-main.outputs.image_uri }}")        # this run's own publish outputs only
+        self.assertEqual(env["IMAGE_DIGEST"], "${{ needs.publish-main.outputs.image_digest }}")
+        steps = job["steps"]
+        cfg = next(s for s in steps if s.get("id") == "deployconfig")
+        for k, n, flag, out in (("DEPLOY_ROLE_ARN", DEPLOY_NAMES[0], "INHERITED_DEPLOY_ROLE_ARN_SET", "inherited_deploy_role_arn_set"),
+                                ("INSTANCE_ID", DEPLOY_NAMES[1], "INHERITED_INSTANCE_ID_SET", "inherited_instance_id_set"),
+                                ("HOST_CONFIG_PATH", DEPLOY_NAMES[2], "INHERITED_HOST_CONFIG_SET", "inherited_host_config_set")):
+            self.assertEqual(cfg["env"][k], "${{ vars.%s }}" % n)
+            self.assertEqual(cfg["env"][flag], "${{ needs.plan.outputs.%s }}" % out)
+        plan_env = jobs["plan"]["steps"][1]["env"]
+        self.assertEqual(plan_env["MAIN_DEPLOY_ENABLED"], "${{ vars.BACKEND_RELEASE_DEPLOY_ENABLED }}")
+        for k, n in (("INHERITED_DEPLOY_ROLE_ARN", DEPLOY_NAMES[0]), ("INHERITED_INSTANCE_ID", DEPLOY_NAMES[1]), ("INHERITED_HOST_CONFIG", DEPLOY_NAMES[2])):
+            self.assertEqual(plan_env[k], "${{ vars.%s }}" % n)
+        names = [s.get("name", "") for s in steps]
+        i_cfg = names.index(cfg["name"]); i_cred = next(i for i, s in enumerate(steps) if "configure-aws-credentials" in s.get("uses", ""))
+        i_head = next(i for i, s in enumerate(steps) if "check-main-head" in s.get("run", ""))
+        i_send = next(i for i, s in enumerate(steps) if "backend-ssm-release.py" in s.get("run", ""))
+        i_pkt = next(i for i, s in enumerate(steps) if "backend-release-packet.py" in s.get("run", ""))
+        self.assertLess(i_cfg, i_head); self.assertLess(i_head, i_cred); self.assertLess(i_pkt, i_cred); self.assertLess(i_cred, i_send)
+        creds = steps[i_cred]["with"]
+        self.assertEqual(creds["role-to-assume"], "${{ steps.deployconfig.outputs.deploy_role_arn }}")
+        self.assertIs(creds["mask-aws-account-id"], False)
+        after = yaml.safe_dump(steps[i_cfg + 1:])
+        self.assertNotIn("vars.", after)                                          # downstream reads only the validated outputs
+        for forbidden in ("docker build", "docker push", "aws ecr", ":latest", "download-artifact", "workflow_dispatch"):
+            self.assertNotIn(forbidden, yaml.safe_dump(job))
+        self.assertNotRegex(yaml.safe_dump(job), r"github\.event\.|inputs\.")
+
+    def test_pr_develop_and_publish_jobs_are_unaffected_by_the_deploy_names(self):
+        jobs = load(WORKFLOW)["jobs"]
+        text = yaml.safe_dump({k: v for k, v in jobs.items() if k != "deploy-main" and k != "plan"})
+        for name in DEPLOY_NAMES + ("BACKEND_RELEASE_DEPLOY_ENABLED",):
+            self.assertNotIn(name, text)
+
+
+IAM_DIR = ROOT / "deploy" / "showcase" / "iam"
+
+
+class IamTemplates(unittest.TestCase):
+    """CP03 cloud templates: validated locally only (JSON, placeholders, scope). Nothing is applied and no IAM simulator is called."""
+
+    def load(self, name):
+        text = (IAM_DIR / name).read_text()
+        self.assertNotRegex(text, r"[0-9]{12}", name)                                       # no hardcoded account ID
+        return json.loads(text), text
+
+    @staticmethod
+    def statements(doc):
+        st = doc["Statement"]
+        return st if isinstance(st, list) else [st]
+
+    def test_every_template_is_valid_json_with_explicit_placeholders_only(self):
+        for f in sorted(IAM_DIR.glob("*.json")):
+            doc, text = self.load(f.name)
+            self.assertEqual(doc["Version"], "2012-10-17")
+            for token in re.findall(r"<[^>]*>", text):
+                self.assertRegex(token, r"^<[A-Z][A-Z_]*>$", f.name)
+        self.assertEqual({f.name for f in IAM_DIR.glob("*.json")},
+                         {"backend-release-deploy-trust.json", "backend-release-deploy-policy.json", "backend-release-instance-ecr-policy.json"})
+
+    def test_trust_uses_only_the_condition_keys_aws_supports_and_no_wildcard_subject(self):
+        doc, _ = self.load("backend-release-deploy-trust.json")
+        (st,) = self.statements(doc)
+        self.assertEqual((st["Effect"], st["Action"]), ("Allow", "sts:AssumeRoleWithWebIdentity"))
+        self.assertTrue(st["Principal"]["Federated"].endswith(":oidc-provider/token.actions.githubusercontent.com"))
+        self.assertEqual(set(st["Condition"]), {"StringEquals"})                           # exact match: no StringLike
+        cond = st["Condition"]["StringEquals"]
+        self.assertEqual(set(cond), {"token.actions.githubusercontent.com:aud", "token.actions.githubusercontent.com:sub"})
+        self.assertEqual(cond["token.actions.githubusercontent.com:aud"], "sts.amazonaws.com")
+        self.assertEqual(cond["token.actions.githubusercontent.com:sub"], "<VERIFIED_SUB_CLAIM>")    # the Owner verifies the real format first
+        self.assertNotIn("*", json.dumps(st))
+
+    def test_deploy_policy_sends_to_one_instance_and_one_document_and_reads_results_only(self):
+        doc, _ = self.load("backend-release-deploy-policy.json")
+        send, read = self.statements(doc)
+        self.assertEqual(send["Action"], "ssm:SendCommand")
+        self.assertEqual(send["Resource"], ["arn:aws:ssm:<REGION>::document/AWS-RunShellScript", "arn:aws:ec2:<REGION>:<ACCOUNT_ID>:instance/<INSTANCE_ID>"])
+        self.assertNotIn("Condition", send)
+        self.assertEqual(sorted(read["Action"]), ["ssm:GetCommandInvocation", "ssm:ListCommandInvocations", "ssm:ListCommands"])
+        self.assertEqual(read["Resource"], "*")                                              # AWS documents these list/read actions with Resource "*"
+        everything = json.dumps(doc)
+        for forbidden in ("CancelCommand", "ecr:", "iam:", "sts:", "s3:", "rds", "ssm:*", "ssm:StartSession", "ssm:PutParameter"):
+            self.assertNotIn(forbidden, everything)
+        self.assertEqual(everything.count("ec2:"), everything.count("arn:aws:ec2:"))                 # "ec2:" only inside the instance ARN, never as an action
+
+    def test_instance_profile_policy_can_pull_one_repository_and_nothing_else(self):
+        doc, _ = self.load("backend-release-instance-ecr-policy.json")
+        token, pull = self.statements(doc)
+        self.assertEqual((token["Action"], token["Resource"]), ("ecr:GetAuthorizationToken", "*"))
+        self.assertEqual(sorted(pull["Action"]), ["ecr:BatchCheckLayerAvailability", "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"])
+        self.assertEqual(pull["Resource"], "arn:aws:ecr:<REGION>:<ACCOUNT_ID>:repository/<ECR_REPOSITORY>")
+        for forbidden in ("PutImage", "InitiateLayerUpload", "UploadLayerPart", "CompleteLayerUpload", "CreateRepository", "DeleteRepository", "BatchDeleteImage",
+                          "SetRepositoryPolicy", "PutLifecyclePolicy", "ecr:*", "rds", "secretsmanager"):
+            self.assertNotIn(forbidden, json.dumps(doc))
 
 
 class EnvNameParser(unittest.TestCase):

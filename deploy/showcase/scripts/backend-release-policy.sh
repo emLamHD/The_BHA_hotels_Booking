@@ -20,7 +20,7 @@ out() { if [[ -n "${GITHUB_OUTPUT:-}" ]]; then echo "$1=$2" >> "$GITHUB_OUTPUT";
 plan() {
   local event="${EVENT:?EVENT is required}" ref="${REF:?REF is required}"
   local sha="${SOURCE_SHA:?SOURCE_SHA is required}" github_sha="${GITHUB_SHA:?GITHUB_SHA is required}"
-  local lane=none publish=false
+  local lane=none publish=false deploy=false
   [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || fail "SOURCE_SHA is not a full lowercase 40-character commit SHA."
   case "$event" in
     push)
@@ -40,16 +40,26 @@ plan() {
     pull_request) notice "Pull request: verify and build the PR head only. No AWS, no publish." ;;
     *) notice "Event does not publish; verify and build only." ;;
   esac
+  # Deploy (CP03) is a second, independent switch that only exists on a main push. Enabled without publishing is a
+  # configuration error reported here, before any job could reach AWS; every other event/ref ignores the switch.
+  if [[ "$lane" == main && "${MAIN_DEPLOY_ENABLED:-}" == "true" ]]; then
+    [[ "$publish" == true ]] || fail "BACKEND_RELEASE_DEPLOY_ENABLED is true but BACKEND_RELEASE_PUBLISH_ENABLED is not: a release is deployed only from the image this run publishes. Nothing was published or deployed."
+    deploy=true
+  elif [[ "$lane" == main ]]; then notice "BACKEND_RELEASE_DEPLOY_ENABLED is not exactly 'true'; no deployment. DEPLOY: NOT_RUN."; fi
   out source_sha "$sha"
   out lane "$lane"
   out publish "$publish"
+  out deploy "$deploy"
+  out inherited_deploy_role_arn_set "$([[ -n "${INHERITED_DEPLOY_ROLE_ARN:-}" ]] && echo true || echo false)"
+  out inherited_instance_id_set "$([[ -n "${INHERITED_INSTANCE_ID:-}" ]] && echo true || echo false)"
+  out inherited_host_config_set "$([[ -n "${INHERITED_HOST_CONFIG:-}" ]] && echo true || echo false)"
   # The main release names (BACKEND_RELEASE_AWS_ROLE_ARN/_AWS_REGION/_ECR_REPOSITORY) must be owned by the
   # backend-production environment. This job runs outside any environment, so a non-empty value here was inherited
   # from the repository or organization. Only booleans leave this step, never the values.
   out inherited_role_arn_set "$([[ -n "${INHERITED_ROLE_ARN:-}" ]] && echo true || echo false)"
   out inherited_region_set "$([[ -n "${INHERITED_REGION:-}" ]] && echo true || echo false)"
   out inherited_repository_set "$([[ -n "${INHERITED_REPOSITORY:-}" ]] && echo true || echo false)"
-  echo "source=$sha lane=$lane publish=$publish"
+  echo "source=$sha lane=$lane publish=$publish deploy=$deploy"
 }
 
 require_config() {
@@ -83,6 +93,62 @@ require_config() {
   out region "$REGION"
   out repository "$REPOSITORY"
   echo "release configuration present and well-formed for lane $lane"
+}
+
+# CP03: the deployment configuration. Same pattern as the release configuration: the three deploy names belong to the
+# backend-production environment only (the plan job reports booleans for inherited values), nothing downstream reads `vars`
+# again, and the gate runs before any OIDC/SSM call. Role, registry (from the image this run published) and the publish role
+# must name one AWS account; the region comes from the already validated release configuration.
+account_of_arn() { local a="${1#arn:}"; a="${a#*:}"; a="${a#*:}"; a="${a#*:}"; printf '%s' "${a%%:*}"; }
+require_deploy_config() {
+  local d_role=BACKEND_RELEASE_DEPLOY_AWS_ROLE_ARN d_inst=BACKEND_RELEASE_EC2_INSTANCE_ID d_cfg=BACKEND_RELEASE_HOST_CONFIG_PATH bad=() missing=()
+  [[ "${INHERITED_DEPLOY_ROLE_ARN_SET:-}" == false ]] || bad+=("$d_role")
+  [[ "${INHERITED_INSTANCE_ID_SET:-}" == false ]] || bad+=("$d_inst")
+  [[ "${INHERITED_HOST_CONFIG_SET:-}" == false ]] || bad+=("$d_cfg")
+  if (( ${#bad[@]} )); then
+    fail "${bad[*]} must be defined only in the backend-production environment; a value at organization/repository scope (or unknown scope) is refused. Nothing was deployed."
+  fi
+  [[ -n "${DEPLOY_ROLE_ARN:-}" ]] || missing+=("$d_role")
+  [[ -n "${INSTANCE_ID:-}" ]] || missing+=("$d_inst")
+  [[ -n "${HOST_CONFIG_PATH:-}" ]] || missing+=("$d_cfg")
+  [[ -n "${REGION:-}" ]] || missing+=(BACKEND_RELEASE_AWS_REGION)
+  if (( ${#missing[@]} )); then fail "Deployment is enabled but the variable(s) ${missing[*]} are missing; nothing was deployed."; fi
+  [[ "$DEPLOY_ROLE_ARN" =~ ^arn:aws(-[a-z]+)*:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]{1,512}$ ]] || fail "$d_role is not an IAM role ARN."
+  [[ "$INSTANCE_ID" =~ ^i-[0-9a-f]{17}$ ]] || fail "$d_inst is not an EC2 instance ID."
+  [[ "$HOST_CONFIG_PATH" =~ ^/[A-Za-z0-9_./+-]{1,200}$ && "$HOST_CONFIG_PATH" != *..* && "$HOST_CONFIG_PATH" != *//* ]] || fail "$d_cfg is not a canonical absolute path."
+  [[ "$REGION" =~ ^[a-z]{2}(-[a-z]+)+-[0-9]+$ ]] || fail "BACKEND_RELEASE_AWS_REGION is not an AWS region name."
+  # The only thing that may be deployed is the image the publish job of THIS run produced for THIS commit.
+  if [[ -n "${IMAGE_URI:-}" || -n "${IMAGE_DIGEST:-}" || -n "${PUBLISHED_SHA:-}" ]]; then
+    [[ "${SOURCE_SHA:-}" =~ ^[0-9a-f]{40}$ && "${PUBLISHED_SHA:-}" == "$SOURCE_SHA" ]] || fail "The published source SHA is not the SHA of this run."
+    [[ "${IMAGE_URI:-}" == *":$SOURCE_SHA" ]] || fail "The published image URI does not carry this run's full SHA tag."
+    [[ "${IMAGE_DIGEST:-}" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "The published image digest is not a sha256 digest."
+  fi
+  local d_acct p_acct i_acct
+  d_acct="$(account_of_arn "$DEPLOY_ROLE_ARN")"
+  [[ -z "${PUBLISH_ROLE_ARN:-}" ]] || { p_acct="$(account_of_arn "$PUBLISH_ROLE_ARN")"; [[ "$d_acct" == "$p_acct" ]] || fail "The deploy role and the release (publish) role belong to different AWS accounts."; }
+  if [[ -n "${IMAGE_URI:-}" ]]; then
+    i_acct="${IMAGE_URI%%.dkr.ecr.*}"
+    [[ "$IMAGE_URI" =~ ^[0-9]{12}\.dkr\.ecr\.${REGION}\.amazonaws\.com/ ]] || fail "The published image is not in an ECR registry of the configured region."
+    [[ "$i_acct" == "$d_acct" ]] || fail "The deploy role and the registry of the published image belong to different AWS accounts."
+  fi
+  out deploy_role_arn "$DEPLOY_ROLE_ARN"
+  out instance_id "$INSTANCE_ID"
+  out host_config_path "$HOST_CONFIG_PATH"
+  out deploy_region "$REGION"
+  echo "deployment configuration present and well-formed"
+}
+
+# CP03: a run that is no longer the tip of main must not deploy (an older run re-run later would otherwise act as an
+# implicit rollback). Race limit: main can still advance between this read and the remote swap; the host lock and
+# the engine's exact-history/expected-current gates remain the control for that window.
+check_main_head() {
+  local url="${MAIN_REMOTE_URL:?MAIN_REMOTE_URL}" sha="${SOURCE_SHA:?SOURCE_SHA}" head line
+  [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || fail "SOURCE_SHA is not a full lowercase 40-character commit SHA."
+  line="$(timeout 60 git ls-remote "$url" refs/heads/main)" || fail "Could not read refs/heads/main; nothing was deployed (STALE_CHECK_FAILED)."
+  head="${line%%[[:space:]]*}"
+  [[ "$head" =~ ^[0-9a-f]{40}$ ]] || fail "refs/heads/main did not resolve (STALE_CHECK_FAILED)."
+  [[ "$head" == "$sha" ]] || fail "This run's commit is not the current tip of main (STALE_RUN); a stale run never deploys. Nothing was sent."
+  echo "this run's commit is the tip of main"
 }
 
 check_image() {
@@ -130,6 +196,8 @@ unpack() {
 case "${1:-}" in
   plan) plan ;;
   require-config) require_config "${2:-}" ;;
+  require-deploy-config) require_deploy_config ;;
+  check-main-head) check_main_head ;;
   check-image) check_image "${2:-}" ;;
   pack) pack "${2:-}" "${3:-}" ;;
   unpack) unpack "${2:-}" "${3:-}" ;;

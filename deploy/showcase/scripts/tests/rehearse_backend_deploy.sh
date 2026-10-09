@@ -312,6 +312,30 @@ ENV_SHA0="$(sha256sum "$ENVF" | cut -d' ' -f1)"; CA_SHA0="$(sha256sum "$WORK/rds
 KEYS0="$(keys_list "$OLD_CID")"
 check "key ring exists before any deploy (login created it)" test -n "$KEYS0"
 
+RAW_NAMES=(old.json new.json cand.json cand-final.json cand-remove.json restore.json verify.json .field.json c.json old-image.json cand-image.json verify-image.json env.snapshot env.verify)
+evidence_clean() {  # evidence_clean <label>: no raw inspect/env copies anywhere in the journal, no canary, recovery state still there
+  local leftover=0 n d
+  for n in "${RAW_NAMES[@]}"; do
+    [[ -z "$(find "$WORK/journal" -name "$n" -print -quit)" ]] || leftover=1
+  done
+  grep -rqF -e "$IMG_CANARY" -e "$PG_CANARY" -e "$STAFF_CANARY" "$WORK/journal" "$WORK/out" 2>/dev/null && leftover=1
+  for d in "$WORK"/journal/runs/*/; do
+    [[ -f "$d/state" && -f "$d/events" ]] || leftover=1
+  done
+  check "$1: no raw inspect/env file and no canary (incl. the image-default one) left; state and events kept" test "$leftover" = 0
+}
+
+
+# CP03 reuse: another rehearsal can run its own scenarios on this exact isolated fixture (PostgreSQL 18.3 with TLS, loopback
+# registry, TLS proxy, old/candidate/fault images from the committed source, Staff session) instead of copying it.
+if [[ -n "${REHEARSE_SETUP_HOOK:-}" ]]; then
+  # shellcheck source=/dev/null
+  source "$REHEARSE_SETUP_HOOK"
+  say "== summary  PASS=$PASS FAIL=$FAILS  postgres=$PGVER"
+  [[ "$FAILS" -eq 0 ]]
+  exit $?
+fi
+
 say "== S1 preflight: every pre-stop gate, read-only"
 DB0="$(db_hash)"
 dargs "$REF_CAND"; run_deploy preflight "${DA[@]}"
@@ -384,19 +408,6 @@ check "rollback while the lock is held -> exit 50 as well" test "$RC" = 50
 wait "$LOCK_HOLDER" || true
 check "lock file still exists (never deleted)" test -f "$WORK/lock/bha-deploy-$TARGET.lock"
 check "no run left unfinished by rejected attempts" bash -c "! grep -L -E '^STATE=(REJECTED|SUCCEEDED|ROLLED_BACK|ROLLBACK_DONE|ALREADY_CURRENT_DONE)\$' '$WORK'/journal/runs/*/state | grep -q ."
-
-RAW_NAMES=(old.json new.json cand.json cand-final.json cand-remove.json restore.json verify.json .field.json c.json old-image.json cand-image.json verify-image.json env.snapshot env.verify)
-evidence_clean() {  # evidence_clean <label>: no raw inspect/env copies anywhere in the journal, no canary, recovery state still there
-  local leftover=0 n d
-  for n in "${RAW_NAMES[@]}"; do
-    [[ -z "$(find "$WORK/journal" -name "$n" -print -quit)" ]] || leftover=1
-  done
-  grep -rqF -e "$IMG_CANARY" -e "$PG_CANARY" -e "$STAFF_CANARY" "$WORK/journal" "$WORK/out" 2>/dev/null && leftover=1
-  for d in "$WORK"/journal/runs/*/; do
-    [[ -f "$d/state" && -f "$d/events" ]] || leftover=1
-  done
-  check "$1: no raw inspect/env file and no canary (incl. the image-default one) left; state and events kept" test "$leftover" = 0
-}
 
 # caller-controlled arguments that try to forge JSON or journal lines (real script, real Docker state)
 HOSTILE_SHA=$'abc"\nSTATE=SUCCEEDED\nDETAIL=forged'
