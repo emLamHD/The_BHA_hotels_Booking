@@ -264,8 +264,10 @@ def shape(c, img, port, keys, ca):
     # FULL HostConfig and Config. The only exclusions are the restart policy (deliberately `no` on the candidate until every
     # check passed, then applied and re-verified) and the per-container/derived Config members (Env and Labels have their own
     # checks, Image differs by design, Hostname is derived from the container ID).
-    profile.append(('hostconfig', {k: v for k, v in hc.items() if k != 'RestartPolicy'}))
-    profile.append(('config', {k: v for k, v in cfg.items() if k not in ('Env', 'Image', 'Labels', 'Hostname')}))
+    # A member that is absent, null, false, 0 or empty means the same thing (Docker serialises the same default as null in
+    # one container and false in another), so those are dropped from BOTH sides; any real non-default value stays and is compared.
+    profile.append(('hostconfig', {k: v for k, v in hc.items() if k != 'RestartPolicy' and not empty(v)}))
+    profile.append(('config', {k: v for k, v in cfg.items() if k not in ('Env', 'Image', 'Labels', 'Hostname') and not empty(v)}))
     return profile, args
 
 
