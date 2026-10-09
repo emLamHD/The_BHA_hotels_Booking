@@ -59,6 +59,10 @@ jobs:
       source_sha: ${{ steps.plan.outputs.source_sha }}
       lane: ${{ steps.plan.outputs.lane }}
       publish: ${{ steps.plan.outputs.publish }}
+      deploy: ${{ steps.plan.outputs.deploy }}
+      inherited_deploy_role_arn_set: ${{ steps.plan.outputs.inherited_deploy_role_arn_set }}
+      inherited_instance_id_set: ${{ steps.plan.outputs.inherited_instance_id_set }}
+      inherited_host_config_set: ${{ steps.plan.outputs.inherited_host_config_set }}
       inherited_role_arn_set: ${{ steps.plan.outputs.inherited_role_arn_set }}
       inherited_region_set: ${{ steps.plan.outputs.inherited_region_set }}
       inherited_repository_set: ${{ steps.plan.outputs.inherited_repository_set }}
@@ -78,11 +82,15 @@ jobs:
           REF: ${{ github.ref }}
           SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           MAIN_PUBLISH_ENABLED: ${{ vars.BACKEND_RELEASE_PUBLISH_ENABLED }}
+          MAIN_DEPLOY_ENABLED: ${{ vars.BACKEND_RELEASE_DEPLOY_ENABLED }}
           DEVELOP_PUBLISH_ENABLED: ${{ vars.ECR_PUBLISH_ENABLED }}
           # This job has no environment: whatever these resolve to is inherited from repository/organization scope.
           INHERITED_ROLE_ARN: ${{ vars.BACKEND_RELEASE_AWS_ROLE_ARN }}
           INHERITED_REGION: ${{ vars.BACKEND_RELEASE_AWS_REGION }}
           INHERITED_REPOSITORY: ${{ vars.BACKEND_RELEASE_ECR_REPOSITORY }}
+          INHERITED_DEPLOY_ROLE_ARN: ${{ vars.BACKEND_RELEASE_DEPLOY_AWS_ROLE_ARN }}
+          INHERITED_INSTANCE_ID: ${{ vars.BACKEND_RELEASE_EC2_INSTANCE_ID }}
+          INHERITED_HOST_CONFIG: ${{ vars.BACKEND_RELEASE_HOST_CONFIG_PATH }}
         run: bash "$POLICY" plan
 
   verify:
@@ -291,6 +299,77 @@ jobs:
           IMAGE_ID: ${{ needs.build.outputs.image_id }}
           SUMMARY_TITLE: Release image published
         run: bash deploy/showcase/scripts/backend-ecr-publish.sh
+
+  deploy-main:
+    name: Deploy the published release image to EC2 through SSM (main)
+    # Only the digest this run just published, only from the tip of main, only with BACKEND_RELEASE_DEPLOY_ENABLED=true.
+    # There is no workflow_dispatch and no input: nothing but this run's own outputs can reach the host.
+    needs: [plan, publish-main]
+    if: needs.plan.outputs.lane == 'main' && needs.plan.outputs.publish == 'true' && needs.plan.outputs.deploy == 'true'
+    runs-on: ubuntu-latest
+    environment: backend-production
+    # 40 min: the client polls at most 1740 s (delivery 120 + execution 1500 + margin 120) plus packet/credentials/report margin.
+    timeout-minutes: 40
+    concurrency:
+      group: backend-release-deploy-main
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+      PUBLISHED_SHA: ${{ needs.publish-main.outputs.source_sha }}
+      IMAGE_URI: ${{ needs.publish-main.outputs.image_uri }}
+      IMAGE_DIGEST: ${{ needs.publish-main.outputs.image_digest }}
+    steps:
+      - name: Checkout the exact source commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.source_sha }}
+          persist-credentials: false
+
+      - name: HEAD is the source commit
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+
+      - name: Deployment configuration (before any AWS authentication)
+        id: deployconfig
+        env:
+          DEPLOY_ROLE_ARN: ${{ vars.BACKEND_RELEASE_DEPLOY_AWS_ROLE_ARN }}
+          INSTANCE_ID: ${{ vars.BACKEND_RELEASE_EC2_INSTANCE_ID }}
+          HOST_CONFIG_PATH: ${{ vars.BACKEND_RELEASE_HOST_CONFIG_PATH }}
+          REGION: ${{ vars.BACKEND_RELEASE_AWS_REGION }}
+          PUBLISH_ROLE_ARN: ${{ vars.BACKEND_RELEASE_AWS_ROLE_ARN }}
+          INHERITED_DEPLOY_ROLE_ARN_SET: ${{ needs.plan.outputs.inherited_deploy_role_arn_set }}
+          INHERITED_INSTANCE_ID_SET: ${{ needs.plan.outputs.inherited_instance_id_set }}
+          INHERITED_HOST_CONFIG_SET: ${{ needs.plan.outputs.inherited_host_config_set }}
+        run: bash "$POLICY" require-deploy-config
+
+      - name: This commit is still the tip of main
+        env:
+          MAIN_REMOTE_URL: ${{ github.server_url }}/${{ github.repository }}.git
+        run: bash "$POLICY" check-main-head
+
+      - name: Build the release packet from the commit's git objects
+        run: |
+          python3 deploy/showcase/scripts/backend-release-packet.py generate --repo . --source-sha "$SOURCE_SHA" \
+            --github-repository "$GITHUB_REPOSITORY" --image-uri "$IMAGE_URI" --image-digest "$IMAGE_DIGEST" \
+            --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --out "$RUNNER_TEMP/packet"
+
+      - name: Configure AWS credentials for the deploy role (OIDC, no stored keys)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ steps.deployconfig.outputs.deploy_role_arn }}
+          aws-region: ${{ steps.deployconfig.outputs.deploy_region }}
+          mask-aws-account-id: false
+
+      - name: Deploy through SSM and confirm the remote result
+        env:
+          INSTANCE_ID: ${{ steps.deployconfig.outputs.instance_id }}
+          HOST_CONFIG_PATH: ${{ steps.deployconfig.outputs.host_config_path }}
+          REGION: ${{ steps.deployconfig.outputs.deploy_region }}
+        run: |
+          python3 deploy/showcase/scripts/backend-ssm-release.py deploy --packet "$RUNNER_TEMP/packet/packet.json" \
+            --instance-id "$INSTANCE_ID" --region "$REGION" --host-config "$HOST_CONFIG_PATH" --out "$RUNNER_TEMP/release-result"
 
   publish-develop:
     name: Publish develop image to ECR (not a release)
