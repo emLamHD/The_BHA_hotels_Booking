@@ -220,7 +220,7 @@ Timeout budget (seconds, one place: `backend-ssm-release.py`): remote overhead 2
 Placeholders are in `<ANGLE_CAPS>`; every value is the Owner's. Order matters; flags stay off until step 10.
 
 1. **GitHub environment and rules.** Environment `backend-production`: deployment branches = `main` only; add required reviewers if wanted. Branch protection on `main`. Do not create any of the new variables at repository or organization level.
-2. **Verify the real OIDC subject** before writing the trust. Default for an environment job: `repo:<OWNER>/<REPO>:environment:backend-production`; a customised subject template or the immutable-ID format (`repo:<OWNER>@<ID>/<REPO>@<ID>:environment:…`, repositories created after the GitHub cut-over or opted in) changes it. Capture a real token's `sub` with the CP04 probe (§11.4, step P1-D) — a throw-away run in that environment (never print other claims) and put exactly that string in `<VERIFIED_SUB_CLAIM>`. AWS only supports `aud` and `sub` for GitHub in trust conditions (the GitHub doc: custom claims are unavailable in AWS) — the template uses nothing else. The environment subject does not replace the `main`-only branch rule of step 1; the existing `showcase-publish` trust does not cover this role.
+2. **Verify the real OIDC subject** before writing the trust. Default for an environment job: `repo:<OWNER>/<REPO>:environment:backend-production`; a customised subject template or the immutable-ID format (`repo:<OWNER>@<ID>/<REPO>@<ID>:environment:…`, repositories created after the GitHub cut-over or opted in) changes it. Capture a real token's `sub` with the CP04 probe (§11.3 packet D) — a throw-away run in that environment (never print other claims) and put exactly that string in `<VERIFIED_SUB_CLAIM>`. AWS only supports `aud` and `sub` for GitHub in trust conditions (the GitHub doc: custom claims are unavailable in AWS) — the template uses nothing else. The environment subject does not replace the `main`-only branch rule of step 1; the existing `showcase-publish` trust does not cover this role.
 3. **Deploy role** (`deploy/showcase/iam/backend-release-deploy-trust.json` + `backend-release-deploy-policy.json`): create the role `<DEPLOY_ROLE_NAME>` with that trust and inline policy; fill `<ACCOUNT_ID>`, `<REGION>`, `<INSTANCE_ID>`. `SendCommand` is limited to the `AWS-RunShellScript` document ARN and the one instance ARN; the three read actions are `Resource: "*"` (see 10.5). No ECR, no publish, no DB permission.
 4. **Instance profile** of `<INSTANCE_ID>`: keep `AmazonSSMManagedInstanceCore` (SSM Agent running and registered; the node must be a managed node) and attach `backend-release-instance-ecr-policy.json` (pull of `<ECR_REPOSITORY>` + `GetAuthorizationToken` on `*`; no `PutImage`, no upload actions). Egress from the instance to the SSM endpoints, ECR (`<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com` and S3 layers), `raw.githubusercontent.com:443` and the RDS endpoint; `/run/lock` and `/var/lib/the-bha` writable by root.
 5. **Host prerequisites** (documented contract, audit them): bash ≥ 4.4, python3 ≥ 3.8, docker, flock, timeout, curl, sha256sum, `aws` CLI v2 (for the ECR login), `psql` ≥ 10; the engine's own prerequisites in §9.5.
@@ -269,13 +269,34 @@ aws ec2 describe-instances --region "$REGION" --instance-ids "$INSTANCE_ID" --qu
 ```
 Stop if the account differs, the node is not `Online`, or you cannot read these (then grant the read or run them as the account owner).
 
-**B — GitHub environment (Owner, GitHub UI or `gh`).** The probe job names `backend-production`; GitHub **auto-creates** a missing environment **without** branch rules, so create it first:
+**B — GitHub environment (Owner; `gh` authenticated with environment admin).** The probe job names `backend-production`; GitHub **auto-creates** a missing environment **without** branch rules, so it must exist, main-only, before D. The packet never writes to an environment that already exists (the PUT documentation does not say what an omitted `reviewers`/`wait_timer` becomes, so it is not used to "update"); it creates the environment only when it is absent, and in both cases it reads the result back and stops unless the environment is restricted to the single branch policy `main`. Set `BHA_REPO=<OWNER>/<REPO>` first.
 ```bash
-gh api -X PUT repos/<OWNER>/<REPO>/environments/backend-production --input - <<'JSON'
+bash -s <<'ENVSETUP'
+set -euo pipefail
+stop() { echo "ENV_SETUP_STOP: $1" >&2; exit 1; }
+re_repo='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
+[[ ${BHA_REPO:-} =~ $re_repo ]] || stop BHA_REPO_INVALID
+EP="repos/$BHA_REPO/environments/backend-production"
+rc=0; err="$(gh api "$EP" --silent 2>&1)" || rc=$?
+if [ "$rc" -eq 0 ]; then
+  echo "ENVIRONMENT_EXISTS: left unchanged (reviewers, wait timer and protections are preserved)"
+elif [[ $err == *"HTTP 404"* ]]; then
+  gh api -X PUT "$EP" --input - >/dev/null <<'JSON' || stop ENVIRONMENT_CREATE_FAILED
 {"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}
 JSON
-gh api -X POST repos/<OWNER>/<REPO>/environments/backend-production/deployment-branch-policies -f name=main -f type=branch
-gh api repos/<OWNER>/<REPO>/actions/permissions/selected-actions      # patterns must allow aws-actions/* if GitHub refuses the AWS actions
+  gh api -X POST "$EP/deployment-branch-policies" -f name=main -f type=branch >/dev/null || stop BRANCH_POLICY_CREATE_FAILED
+  echo "ENVIRONMENT_CREATED"
+else
+  stop ENVIRONMENT_READ_FAILED
+fi
+custom="$(gh api "$EP" --jq '.deployment_branch_policy.custom_branch_policies')" || stop ENVIRONMENT_READ_FAILED
+policies="$(gh api "$EP/deployment-branch-policies" --jq '[.branch_policies[] | "\(.type):\(.name)"] | join(",")')" || stop ENVIRONMENT_READ_FAILED
+if [ "$custom" != true ] || [ "$policies" != "branch:main" ]; then
+  stop "ENVIRONMENT_NOT_MAIN_ONLY (fix it in Settings > Environments > backend-production > Deployment branches: Selected branches = main only; keep any reviewers)"
+fi
+echo ENVIRONMENT_MAIN_ONLY_VERIFIED
+gh api "repos/$BHA_REPO/actions/permissions/selected-actions" || stop ACTIONS_POLICY_READ_FAILED   # observation: patterns must allow aws-actions/* if GitHub later refuses the AWS actions
+ENVSETUP
 ```
 Do not define any `BACKEND_RELEASE_*` variable yet. Required reviewers on the environment are optional (they add a click per deployment).
 
@@ -323,37 +344,344 @@ git fetch --prune origin && test "$(git rev-parse "refs/remotes/origin/main^{tre
 ```
 Anything else (another commit reached `main`, the tree differs) is a stop: do not continue with D until the difference is explained. The merge triggers `backend-image.yml` on `main` with flags unset: expect plan `publish=false deploy=false`, `publish-main` and `deploy-main` **skipped** (record the run).
 
-**D — the real OIDC subject (Owner).** The probe lives in `.github/workflows/backend-oidc-probe.yml`: `workflow_dispatch` only, `main` only, environment `backend-production`, no checkout, no AWS call, masks the token and prints only the listed claims.
+**D — the real OIDC subject (Owner).** The probe lives in `.github/workflows/backend-oidc-probe.yml`: `workflow_dispatch` only, `main` only, environment `backend-production`, no checkout, no AWS call, masks the token and prints only the listed claims. Dispatching "the latest run" is not evidence of **your** dispatch (an older run, or another dispatch of the same SHA, can be the latest), so this packet binds everything to the run ID that the dispatch call itself returns. Set `BHA_REPO=<OWNER>/<REPO>` (exact `OWNER/REPO`) in the shell first; it needs an authenticated `gh` (Actions read/write, Variables read, Environments read) and `python3` ≥ 3.8. It uses only `gh api` (REST, `X-GitHub-Api-Version: 2026-03-10`, whose dispatch call answers `200` with `workflow_run_id`, `run_url`, `html_url`); `gh run watch` is deliberately not used (it does not support fine-grained tokens), and nothing selects a run with `gh run list`.
 ```bash
-gh workflow run backend-oidc-probe.yml --ref main
-gh run watch "$(gh run list --workflow backend-oidc-probe.yml --limit 1 --json databaseId -q '.[0].databaseId')"
-gh run view --log "$(gh run list --workflow backend-oidc-probe.yml --limit 1 --json databaseId -q '.[0].databaseId')" | grep -E 'claim (sub|aud|environment|ref|repository) '
-```
-Expected: `aud = "sts.amazonaws.com"`, `sub` is exactly the string you will put in the trust (normally `repo:<OWNER>/<REPO>:environment:backend-production`; a different format changes the trust, never guess it). Keep that line for the report; delete the probe later through a reviewed change if it is no longer wanted.
+python3 -I - <<'PROBE'
+import json, os, re, subprocess, sys, tempfile, time, datetime
+from urllib.parse import urlparse
 
-**E — IAM roles (Owner; render from the templates into private files).**
-```bash
-umask 077; T="$(mktemp -d)"; echo "private render dir: $T"
-SUB='<exact sub from D>'
-r() { sed -e "s/<ACCOUNT_ID>/$ACCOUNT_ID/g" -e "s/<REGION>/$REGION/g" -e "s/<INSTANCE_ID>/$INSTANCE_ID/g" -e "s/<ECR_REPOSITORY>/the-bha-api/g" -e "s|<VERIFIED_SUB_CLAIM>|$SUB|g" "$1"; }
-r deploy/showcase/iam/backend-release-deploy-trust.json        > "$T/trust.json"
-r deploy/showcase/iam/backend-release-deploy-policy.json       > "$T/deploy-policy.json"
-r deploy/showcase/iam/backend-release-instance-ecr-policy.json > "$T/instance-ecr.json"
-for f in "$T"/*.json; do python3 -m json.tool "$f" >/dev/null && ! grep -q '<' "$f" && echo "ok $f"; done
-```
-Create the **deploy role** (`trust.json` + `deploy-policy.json`) and attach `instance-ecr.json` to the instance profile's role. The **publish role** uses the same trust (same `sub`; the publish and deploy jobs both run in the environment) and the ECR actions of §6 step 4 on the `the-bha-api` repository ARN, `ecr:GetAuthorizationToken` on `*`; keep it a **separate** role from the deploy role. Never use a wildcard `sub`, and do not widen the `showcase-publish` trust.
+VERSION, WF_FILE, ENV = "2026-03-10", "backend-oidc-probe.yml", "backend-production"
+WF_PATH = ".github/workflows/" + WF_FILE
+CLAIMS = ("iss", "aud", "sub", "repository", "repository_id", "repository_owner", "repository_owner_id", "ref", "ref_type", "sha",
+          "environment", "event_name", "workflow_ref", "job_workflow_ref", "run_id", "run_attempt")
+FLAGS = ("BACKEND_RELEASE_PUBLISH_ENABLED", "BACKEND_RELEASE_DEPLOY_ENABLED")
+REPO = os.environ.get("BHA_REPO", "")
+T0 = time.monotonic()
 
-**F — host (Owner, on the instance through Session Manager).** Read-only audit first; each line prints one fact:
-```bash
-for c in docker python3 flock timeout curl sha256sum aws psql; do command -v "$c" >/dev/null && echo "have $c" || echo "MISSING $c"; done
-python3 -c 'import sys; print("python", sys.version_info[:2] >= (3, 8))'; psql --version; aws --version
-sudo docker ps --filter name=the-bha-api --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
-# proof that the digest reference names the container that serves NOW (compare image IDs, never the tag in Config.Image):
-REF='<ECR_URI>@sha256:<BOOTSTRAP_DIGEST>'
-test "$(sudo docker inspect -f '{{.Image}}' the-bha-api)" = "$(sudo docker image inspect "$REF" -f '{{.Id}}')" && echo BOOTSTRAP_MATCH
-curl -fsS -o /dev/null --max-time 10 https://raw.githubusercontent.com/<OWNER>/<REPO>/main/README.md && echo RAW_OK
+
+def _unexpected(kind, value, trace):                             # a bug or odd answer ends the packet with a code, never with a traceback or a value
+    print("PROBE_STOP: UNEXPECTED_" + kind.__name__, file=sys.stderr)
+    os._exit(1)
+
+
+sys.excepthook = _unexpected
+
+
+def stop(code, status=1):
+    print("PROBE_STOP: " + code, file=sys.stderr)
+    sys.exit(status)
+
+
+def number(name, default, low, high):
+    try:
+        value = float(os.environ.get(name, default))
+    except ValueError:
+        stop("BAD_TUNING_" + name)
+    return value if low <= value <= high else stop("BAD_TUNING_" + name)
+
+
+INTERVAL, DEADLINE = number("PROBE_POLL_INTERVAL", "10", 0, 60), number("PROBE_DEADLINE_SECONDS", "600", 1, 1800)
+posint = lambda v: isinstance(v, int) and not isinstance(v, bool) and v > 0
+if not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}", REPO):
+    stop("BHA_REPO_INVALID")
+
+
+def gh(path, method="GET", fields=()):
+    cmd = ["gh", "api", "-X", method, "-H", "Accept: application/vnd.github+json", "-H", "X-GitHub-Api-Version: " + VERSION, path]
+    for field in fields:
+        cmd += ["-f", field]
+    try:
+        p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=90)
+    except (OSError, subprocess.TimeoutExpired):
+        return 99, "", None
+    m = re.search(r"HTTP (\d{3})", p.stderr)
+    return p.returncode, p.stdout, int(m.group(1)) if m else None
+
+
+def read(path, wait_404=False, text=False):
+    """GET with bounded retries, only for transient evidence (network, 5xx, 429, and 404 while a fresh run/log becomes visible)."""
+    for attempt in range(6):
+        rc, out, status = gh(path)
+        if rc == 0:
+            break
+        if not (status is None or status >= 500 or status == 429 or (wait_404 and status == 404)) or attempt == 5:
+            stop("API_READ_FAILED_%s" % (status or "NETWORK"))
+        time.sleep(INTERVAL)
+    if text:
+        return out
+    try:
+        doc = json.loads(out)
+    except ValueError:
+        doc = None
+    return doc if isinstance(doc, dict) else stop("API_RESPONSE_INVALID")
+
+
+run_id, pinned = os.environ.get("PROBE_RUN_ID"), os.environ.get("PROBE_PINNED_SHA")
+resume = run_id is not None or pinned is not None
+if resume and not (run_id and run_id.isdigit() and int(run_id) > 0 and pinned and re.fullmatch(r"[0-9a-f]{40}", pinned)):
+    stop("RESUME_NEEDS_PROBE_RUN_ID_AND_PROBE_PINNED_SHA")
+repo_doc = read("repos/" + REPO)
+if str(repo_doc.get("full_name", "")).lower() != REPO.lower() or repo_doc.get("default_branch") != "main":
+    stop("REPOSITORY_MISMATCH")
+wf = read("repos/%s/actions/workflows/%s" % (REPO, WF_FILE))
+if wf.get("path") != WF_PATH or wf.get("state") != "active" or not posint(wf.get("id")):
+    stop("WORKFLOW_MISMATCH")
+env_doc = read("repos/%s/environments/%s" % (REPO, ENV))
+policy = read("repos/%s/environments/%s/deployment-branch-policies" % (REPO, ENV))
+if (env_doc.get("deployment_branch_policy") or {}).get("custom_branch_policies") is not True or \
+        sorted((str(p.get("type")), str(p.get("name"))) for p in policy.get("branch_policies", [])) != [("branch", "main")]:
+    stop("ENVIRONMENT_NOT_MAIN_ONLY")
+for flag in FLAGS:
+    rc, out, status = gh("repos/%s/actions/variables/%s" % (REPO, flag))
+    if rc == 0:
+        try:
+            value = json.loads(out).get("value")
+        except (ValueError, AttributeError):
+            value = None
+        if value not in ("", "false"):
+            stop("FLAG_NOT_OFF_" + flag)
+    elif status != 404:
+        stop("FLAG_READ_FAILED_" + flag)
+if not resume:
+    pinned = (read("repos/%s/git/ref/heads/main" % REPO).get("object") or {}).get("sha")
+    if not isinstance(pinned, str) or not re.fullmatch(r"[0-9a-f]{40}", pinned):
+        stop("MAIN_SHA_UNREADABLE")
+out_dir = tempfile.mkdtemp(prefix="bha-cp04-probe.")          # private (0700), unique per run
+anchor = {"repo": REPO, "workflow": WF_PATH, "workflow_id": wf["id"], "pinned_main_sha": pinned, "api_version": VERSION}
+
+if not resume:                                                  # exactly ONE dispatch; it is never repeated by this packet
+    rc, out, status = gh("repos/%s/actions/workflows/%s/dispatches" % (REPO, WF_FILE), "POST", ["ref=main"])
+    if rc != 0 and status in (401, 403, 404, 422):
+        stop("DISPATCH_REFUSED_BY_API_%d (nothing was dispatched; fix the cause, then run the packet again)" % status)
+    try:
+        doc = json.loads(out) if rc == 0 else None
+        run_id = doc["workflow_run_id"]
+        api_ok = urlparse(doc["run_url"]), urlparse(doc["html_url"])
+        good = posint(run_id) and (api_ok[0].netloc, api_ok[0].path) == ("api.github.com", "/repos/%s/actions/runs/%d" % (REPO, run_id)) \
+            and (api_ok[1].netloc, api_ok[1].path) == ("github.com", "/%s/actions/runs/%d" % (REPO, run_id))
+    except (ValueError, KeyError, TypeError, AttributeError):
+        good = False
+    if not good:
+        print("PROBE_STOP: DISPATCH_RESULT_UNKNOWN - do NOT dispatch again. Look in the repository's Actions tab for the workflow run you started "
+              "just now, then resume it with PROBE_RUN_ID=<id> PROBE_PINNED_SHA=%s" % pinned, file=sys.stderr)
+        sys.exit(20)
+    anchor.update(run_id=run_id, run_url=doc["run_url"], html_url=doc["html_url"],
+                  dispatched_at_utc=datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+else:
+    run_id = int(run_id)
+    anchor.update(run_id=run_id, resumed=True)
+with open(os.path.join(out_dir, "anchor.json"), "w") as handle:
+    json.dump(anchor, handle, indent=1)
+print("PROBE_ANCHOR run_id=%d pinned_main_sha=%s dir=%s" % (run_id, pinned, out_dir))
+RUN = "repos/%s/actions/runs/%d" % (REPO, run_id)
+
+
+def check_run(doc, attempt=None):                                # every read of the run is checked against the pinned identity
+    path_ok = str(doc.get("path", "")).split("@")[0] == WF_PATH
+    if not (doc.get("id") == run_id and str((doc.get("repository") or {}).get("full_name", "")).lower() == REPO.lower() and
+            doc.get("workflow_id") == wf["id"] and path_ok and doc.get("event") == "workflow_dispatch" and doc.get("head_branch") == "main" and
+            doc.get("head_sha") == pinned and posint(doc.get("run_attempt")) and (attempt is None or doc["run_attempt"] == attempt)):
+        stop("RUN_METADATA_MISMATCH")
+    return doc
+
+
+first = check_run(read(RUN, wait_404=True))
+attempt = first["run_attempt"]
+if not resume and attempt != 1:
+    stop("RUN_METADATA_MISMATCH")
+while True:
+    cur = check_run(read("%s/attempts/%d" % (RUN, attempt), wait_404=True), attempt)
+    if cur.get("status") == "completed":
+        break
+    if time.monotonic() - T0 > DEADLINE:
+        print("PROBE_STOP: RUN_NOT_COMPLETED_BEFORE_DEADLINE - no evidence; resume with PROBE_RUN_ID=%d PROBE_PINNED_SHA=%s" % (run_id, pinned), file=sys.stderr)
+        sys.exit(20)
+    time.sleep(INTERVAL)
+if cur.get("conclusion") != "success":
+    stop("RUN_NOT_SUCCESSFUL")
+jobs = read("%s/attempts/%d/jobs?per_page=100" % (RUN, attempt))
+listed = jobs.get("jobs")
+job = listed[0] if isinstance(listed, list) and len(listed) == 1 and isinstance(listed[0], dict) else {}
+if jobs.get("total_count") != 1 or not posint(job.get("id")) or job.get("run_id") != run_id or job.get("run_attempt") != attempt or \
+        job.get("head_sha") != pinned or job.get("status") != "completed" or job.get("conclusion") != "success":
+    stop("JOB_MISMATCH")
+log = read("repos/%s/actions/jobs/%d/logs" % (REPO, job["id"]), wait_404=True, text=True)
+if not log or len(log) > 2000000:
+    stop("LOGS_UNAVAILABLE")
+claims = {}
+for line in log.splitlines():                                    # only the probe's own "claim NAME = JSON" lines are read; the raw log is never printed
+    m = re.match(r"^(?:\d{4}-\d\d-\d\dT[0-9:.]+Z )?claim ([a-z_]+) = (.*)$", line.rstrip("\r"))
+    if m:
+        name, raw = m.groups()
+        if name not in CLAIMS:
+            stop("LOG_UNEXPECTED_CLAIM")
+        if name in claims:
+            stop("LOG_DUPLICATE_CLAIM_" + name)
+        try:
+            claims[name] = json.loads(raw)
+        except ValueError:
+            stop("LOG_CLAIM_MALFORMED_" + name)
+want = {"iss": "https://token.actions.githubusercontent.com", "repository": None, "ref": "refs/heads/main", "sha": pinned, "run_id": str(run_id),
+        "run_attempt": str(attempt), "environment": ENV, "event_name": "workflow_dispatch"}
+for name in list(want) + ["aud", "sub"]:
+    if name not in claims:
+        stop("LOG_CLAIM_MISSING_" + name)
+if claims["aud"] not in ("sts.amazonaws.com", ["sts.amazonaws.com"]):
+    stop("LOG_CONTEXT_MISMATCH_aud")
+if not isinstance(claims["repository"], str) or claims["repository"].lower() != REPO.lower():
+    stop("LOG_CONTEXT_MISMATCH_repository")
+for name, value in want.items():
+    if value is not None and claims[name] != value:
+        stop("LOG_CONTEXT_MISMATCH_" + name)
+sub = claims["sub"]
+if not isinstance(sub, str) or not sub.strip() or len(sub) > 1024 or any(ord(c) < 32 or ord(c) == 127 for c in sub):
+    stop("LOG_CLAIM_MALFORMED_sub")
+last = check_run(read(RUN), attempt)                             # a re-run or a new attempt between the checks is detected here
+if last.get("status") != "completed" or last.get("conclusion") != "success":
+    stop("RUN_CHANGED_DURING_READ")
+evidence = {"format": 1, "status": "verified", "repo": REPO, "workflow": WF_PATH, "workflow_id": wf["id"], "run_id": run_id, "run_attempt": attempt,
+            "head_sha": pinned, "run_url": cur.get("url"), "html_url": cur.get("html_url"), "aud": "sts.amazonaws.com", "sub": sub}
+fd = os.open(os.path.join(out_dir, "evidence.json"), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+with os.fdopen(fd, "w") as handle:
+    json.dump(evidence, handle, indent=1)
+print("PROBE_EVIDENCE_VERIFIED repo=%s workflow=%s (id %d) run_id=%d attempt=%d head_sha=%s" % (REPO, WF_PATH, wf["id"], run_id, attempt, pinned))
+print("run_url=%s\naud=sts.amazonaws.com\nsub=%s\nEVIDENCE_DIR=%s" % (cur.get("html_url"), json.dumps(sub), out_dir))
+PROBE
 ```
-A missing `psql` leaves a `STARTED` engine journal run (§10.5): install it **before** the first release. Then create the private host config of §9.2 at `<HOST_CONFIG_PATH>` (root, `0600`) with `EXPECTED_CURRENT_IMAGE=$REF`, plus the libpq files of §9.3 step 4; run `backend-deploy.sh status` from a checkout of the promoted commit and expect a clean state. Do not edit the live Caddy, app environment file, key ring or CA.
+Success prints `PROBE_EVIDENCE_VERIFIED` (the repository, workflow, run ID, attempt, head SHA, run URL, `aud`, `sub` and the private `EVIDENCE_DIR`); any other outcome ends nonzero with a `PROBE_STOP:` code and writes **no** `evidence.json`, so packet E has nothing to read. Exit 20 (`DISPATCH_RESULT_UNKNOWN`, `RUN_NOT_COMPLETED_BEFORE_DEADLINE`) means the outcome is not known: **never dispatch again**; the anchor line already printed carries the run ID, so resume the same run with `PROBE_RUN_ID=<id> PROBE_PINNED_SHA=<sha> BHA_REPO=… python3 …` (same block). A mismatch because `main` advanced between the read and the dispatch is `RUN_METADATA_MISMATCH`: the evidence is refused, explain why `main` moved before trying again. `sub` is normally `repo:<OWNER>/<REPO>:environment:backend-production`, but whatever the probe printed (and the packet verified came from this exact run) is what goes into the trust — never a guessed format. Keep the printed lines for the report; delete the probe later through a reviewed change if it is no longer wanted.
+
+**E — IAM roles (Owner; render from the templates into private files).** Run from the root of the checkout of the promoted commit. Inputs: `ACCOUNT_ID`, `REGION`, `INSTANCE_ID`, `ECR_REPOSITORY` and `EVIDENCE_DIR` (the directory D printed; the `sub` is read from the `evidence.json` that D wrote only after it verified the run, never typed by hand). The renderer parses and re-serialises the JSON templates (so a `sub` with `&`, `|`, `\`, quotes or `/` is inserted literally and exactly), refuses a missing or invalid input, an unreadable template, an unknown or leftover placeholder, a `sub` with `*`/`?`, and then **re-reads each of the three written files** and checks its content (trust: the exact `aud`, the exact `sub`, the account's OIDC provider; deploy policy: the two exact `SendCommand` resources; instance policy: the one repository ARN). It prints `RENDER_ALL_VALID` and the private directory only when all three pass; otherwise it deletes the files of this run, prints the failing file names and exits nonzero.
+```bash
+python3 -I - <<'RENDER'
+import json, os, re, shutil, sys, tempfile
+
+SRC = "deploy/showcase/iam/"
+NAMES = {"trust.json": "backend-release-deploy-trust.json", "deploy-policy.json": "backend-release-deploy-policy.json",
+         "instance-ecr.json": "backend-release-instance-ecr-policy.json"}
+PLACEHOLDER = re.compile(r"<([A-Z][A-Z_]*)>")
+
+
+def stop(code):
+    print("RENDER_STOP: " + code, file=sys.stderr)
+    sys.exit(1)
+
+
+def need(name, pattern):
+    value = os.environ.get(name, "")
+    return value if re.fullmatch(pattern, value) else stop(name + "_INVALID")
+
+
+ACCOUNT, INSTANCE = need("ACCOUNT_ID", r"[0-9]{12}"), need("INSTANCE_ID", r"i-[0-9a-f]{17}")
+REGION, ECR = need("REGION", r"[a-z]{2}(-[a-z]+)+-[0-9]"), need("ECR_REPOSITORY", r"[a-z0-9][a-z0-9._/-]{1,255}")
+try:
+    with open(os.path.join(os.environ.get("EVIDENCE_DIR", ""), "evidence.json")) as handle:
+        evidence = json.load(handle)
+except (OSError, ValueError):
+    stop("EVIDENCE_UNREADABLE")
+sub = evidence.get("sub") if isinstance(evidence, dict) else None
+if not (isinstance(sub, str) and sub.strip() and len(sub) <= 1024 and evidence.get("format") == 1 and evidence.get("status") == "verified" and
+        evidence.get("aud") == "sts.amazonaws.com" and not any(ord(c) < 32 or ord(c) == 127 or c in "*?" for c in sub)):
+    stop("EVIDENCE_INVALID")
+VALUES = {"ACCOUNT_ID": ACCOUNT, "REGION": REGION, "INSTANCE_ID": INSTANCE, "ECR_REPOSITORY": ECR, "VERIFIED_SUB_CLAIM": sub}
+
+
+def render(node):
+    if isinstance(node, str):                                   # one pass: inserted values are never scanned or expanded again
+        return PLACEHOLDER.sub(lambda m: VALUES[m.group(1)] if m.group(1) in VALUES else stop("UNKNOWN_PLACEHOLDER_" + m.group(1)), node)
+    if isinstance(node, list):
+        return [render(item) for item in node]
+    return {key: render(value) for key, value in node.items()} if isinstance(node, dict) else node
+
+
+rendered = {}
+for out_name, template in NAMES.items():
+    try:
+        with open(SRC + template) as handle:
+            rendered[out_name] = render(json.load(handle))
+    except (OSError, ValueError):
+        stop("TEMPLATE_UNREADABLE_" + out_name)
+TOKEN = "token.actions.githubusercontent.com"
+ECR_READ = ["ecr:BatchCheckLayerAvailability", "ecr:GetDownloadUrlForLayer", "ecr:BatchGetImage"]
+
+
+def v_trust(d):
+    s = d.get("Statement")
+    s0 = s[0] if isinstance(s, list) and len(s) == 1 else {}
+    return s0.get("Effect") == "Allow" and s0.get("Action") == "sts:AssumeRoleWithWebIdentity" and \
+        s0.get("Principal") == {"Federated": "arn:aws:iam::%s:oidc-provider/%s" % (ACCOUNT, TOKEN)} and \
+        s0.get("Condition") == {"StringEquals": {TOKEN + ":aud": "sts.amazonaws.com", TOKEN + ":sub": sub}}
+
+
+def v_deploy(d):
+    s = d.get("Statement")
+    return isinstance(s, list) and len(s) == 2 and all(x.get("Effect") == "Allow" for x in s) and s[0].get("Action") == "ssm:SendCommand" and \
+        s[0].get("Resource") == ["arn:aws:ssm:%s::document/AWS-RunShellScript" % REGION, "arn:aws:ec2:%s:%s:instance/%s" % (REGION, ACCOUNT, INSTANCE)] and \
+        s[1].get("Action") == ["ssm:GetCommandInvocation", "ssm:ListCommandInvocations", "ssm:ListCommands"] and s[1].get("Resource") == "*"
+
+
+def v_ecr(d):
+    s = d.get("Statement")
+    return isinstance(s, list) and len(s) == 2 and all(x.get("Effect") == "Allow" for x in s) and s[0].get("Action") == "ecr:GetAuthorizationToken" and \
+        s[0].get("Resource") == "*" and s[1].get("Action") == ECR_READ and s[1].get("Resource") == "arn:aws:ecr:%s:%s:repository/%s" % (REGION, ACCOUNT, ECR)
+
+
+CHECKS = {"trust.json": v_trust, "deploy-policy.json": v_deploy, "instance-ecr.json": v_ecr}
+out_dir = tempfile.mkdtemp(prefix="bha-cp04-iam.")               # private (0700), unique per run: no file of another run is touched
+failed = []
+for out_name, doc in rendered.items():
+    path = os.path.join(out_dir, out_name)
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w") as handle:
+            json.dump(doc, handle, indent=2)
+            handle.write("\n")
+        with open(path) as handle:
+            text = handle.read()
+        leftover = PLACEHOLDER.search(text.replace(json.dumps(sub)[1:-1], ""))
+        if leftover or not CHECKS[out_name](json.loads(text)):
+            failed.append(out_name)
+    except Exception:                                            # any render, write, parse or check problem makes the whole result invalid
+        failed.append(out_name)
+if failed:
+    shutil.rmtree(out_dir, ignore_errors=True)
+    print("RENDER_REFUSED: " + ",".join(failed), file=sys.stderr)
+    sys.exit(1)
+print("RENDER_ALL_VALID dir=%s files=%s" % (out_dir, ",".join(sorted(rendered))))
+RENDER
+```
+Only after `RENDER_ALL_VALID` (exit 0): create the **deploy role** (`trust.json` + `deploy-policy.json`) and attach `instance-ecr.json` to the instance profile's role. The **publish role** uses the same trust (same `sub`; the publish and deploy jobs both run in the environment) and the ECR actions of §6 step 4 on the `the-bha-api` repository ARN, `ecr:GetAuthorizationToken` on `*` (this policy has no template and is not rendered here); keep it a **separate** role from the deploy role. Never use a wildcard `sub`, and do not widen the `showcase-publish` trust.
+
+**F — host (Owner, on the instance through Session Manager; as root or with passwordless `sudo`).** One read-only script: it prints facts and codes only (no environment, no raw `docker inspect`), changes nothing, never pulls an image or touches a container, and any failed check ends it with a `HOST_CHECK_STOP:` code. Set `REF=<ECR_URI>@sha256:<BOOTSTRAP_DIGEST>` and `BHA_REPO=<OWNER>/<REPO>` first (`TARGET_CONTAINER` defaults to `the-bha-api`). `BOOTSTRAP_MATCH` is printed only when both inspections succeeded, both returned a well-formed `sha256:` image ID, the target is running, and the two IDs are equal (IDs are compared with IDs, never a tag from `Config.Image`).
+```bash
+bash -s <<'HOSTCHECK'
+set -euo pipefail
+stop() { echo "HOST_CHECK_STOP: $1" >&2; exit 1; }
+: "${REF:?set REF=<ECR_URI>@sha256:<BOOTSTRAP_DIGEST> first}"
+re_ref='^[A-Za-z0-9][A-Za-z0-9._/:-]*@sha256:[0-9a-f]{64}$'
+[[ $REF =~ $re_ref ]] || stop REF_INVALID
+NAME="${TARGET_CONTAINER:-the-bha-api}"
+re_name='^[A-Za-z0-9][A-Za-z0-9_.-]*$'
+[[ $NAME =~ $re_name ]] || stop TARGET_NAME_INVALID
+for tool in docker python3 flock timeout curl sha256sum aws psql; do command -v "$tool" >/dev/null 2>&1 || stop "MISSING_TOOL_$tool"; done
+python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 8) else 1)' || stop PYTHON_TOO_OLD
+psql_major="$(psql --version | sed -n 's/^psql (PostgreSQL) \([0-9][0-9]*\).*/\1/p')"
+if ! [[ $psql_major =~ ^[0-9]+$ ]] || [ "$psql_major" -lt 10 ]; then stop PSQL_TOO_OLD_OR_UNREADABLE; fi
+[[ "$(aws --version 2>&1)" == aws-cli/2.* ]] || stop AWS_CLI_NOT_V2
+if [ "$(id -u)" -eq 0 ]; then dk=(docker); else dk=(sudo -n docker); fi
+running="$("${dk[@]}" inspect -f '{{.State.Running}}' "$NAME" 2>/dev/null)" || stop TARGET_INSPECT_FAILED
+[ "$running" = true ] || stop TARGET_NOT_RUNNING
+target_id="$("${dk[@]}" inspect -f '{{.Image}}' "$NAME" 2>/dev/null)" || stop TARGET_INSPECT_FAILED
+ref_id="$("${dk[@]}" image inspect -f '{{.Id}}' "$REF" 2>/dev/null)" || stop REF_IMAGE_INSPECT_FAILED
+re_id='^sha256:[0-9a-f]{64}$'
+[[ $target_id =~ $re_id ]] || stop TARGET_IMAGE_ID_MALFORMED
+[[ $ref_id =~ $re_id ]] || stop REF_IMAGE_ID_MALFORMED
+[ "$target_id" = "$ref_id" ] || stop IMAGE_IDS_DIFFER
+echo BOOTSTRAP_MATCH
+curl -fsS -o /dev/null --max-time 10 "https://raw.githubusercontent.com/${BHA_REPO:?set BHA_REPO=<OWNER>/<REPO>}/main/README.md" || stop RAW_GITHUB_UNREACHABLE
+echo HOST_PREREQUISITES_OK
+HOSTCHECK
+```
+A missing `psql` leaves a `STARTED` engine journal run (§10.5): install it **before** the first release. Then create the private host config of §9.2 at `<HOST_CONFIG_PATH>` (root, `0600`) with `EXPECTED_CURRENT_IMAGE=$REF`, plus the libpq files of §9.3 step 4; run `backend-deploy.sh status` from a checkout of the promoted commit and expect a clean state. Do not edit the live Caddy, app environment file, key ring or CA, and never change `REF` or the running container to make the check pass.
 
 **G — variables, flags and releases (Owner, GitHub UI or `gh`).** In the environment `backend-production`: `BACKEND_RELEASE_AWS_ROLE_ARN`, `BACKEND_RELEASE_AWS_REGION`, `BACKEND_RELEASE_ECR_REPOSITORY`, `BACKEND_RELEASE_DEPLOY_AWS_ROLE_ARN`, `BACKEND_RELEASE_EC2_INSTANCE_ID`, `BACKEND_RELEASE_HOST_CONFIG_PATH` (never at repository/organization level). Repository variables: `BACKEND_RELEASE_PUBLISH_ENABLED=true` for P2, and only after P2 is verified `BACKEND_RELEASE_DEPLOY_ENABLED=true` for P3 (never the deploy flag alone). Each release is a reviewed PR into `main` that changes the marker; the Owner merges it.
 
