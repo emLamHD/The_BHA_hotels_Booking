@@ -2,6 +2,8 @@
 
 Date: 2026-10-09 (Asia/Saigon). **This is checkpoint 1 only. Backend CD is not complete** (CP02 EC2 deploy/rollback, CP03 SSM/IAM wiring, CP04 Owner live activation are not implemented).
 
+> **CP01-C1 (production config fail-closed) is a correction on top of this report.** Sections 1–7 describe CP01 **before C1** (head `e4eb699`) and are kept as that evidence; the pre-C1 A3 "PASS" is superseded by section 8. Config names in sections 3 and 5 for `main` (`AWS_ROLE_ARN`, `AWS_REGION`, `ECR_REPOSITORY`) are the pre-C1 names.
+
 ## 1. Identity
 
 | | |
@@ -36,7 +38,7 @@ Real PR #93 run (`Backend image` run `37890225017`): `Plan`, `Backend suite on t
 * Proven on the real runner (build job `113689284136`): image built once; non-root (`uid=1654 keys writable`); Production key-path guard; OCI `revision`/`source` labels equal the SHA/URL; image ID `sha256:03271ca5c11303b522c2087f3370905f7e55e1f30f8e17c742ad04e7dd647d86` **unchanged across `docker save` → `docker rmi` → `docker load`** (tar sha256 `dcfb38715e07c407a05623af8b273a98d00efe685d618768dd430b594ac83c22`).
 * **NOT proven by any real run** (publish is disabled, correctly): `upload-artifact`/`download-artifact` handoff between jobs, `amazon-ecr-login`, and real ECR `describe-*`/`push` behavior. Those were exercised only through `aws`/`docker` stubs and YAML-shape tests. That the publish job pushes the very image the build job checked is established by construction (no `docker build` in publish jobs; tar SHA-256 compared to the build job's output, image ID and labels compared after load), not by a live run.
 
-**A3 — main disabled by default; old flag does not enable main; enabled with missing config fails; PR/non-main never main-publish: PASS.** Tests: `BACKEND_RELEASE_PUBLISH_ENABLED` is enabled only by the exact string `true` (unset/empty/`false`/`TRUE`/`1`/`yes`/padded all disabled); `ECR_PUBLISH_ENABLED=true` does not enable main and the main flag does not enable develop; PR with both flags true → `lane none`, `publish false`, source = PR head; other refs/events never publish; enabled with a missing `AWS_ROLE_ARN`/`AWS_REGION`/`ECR_REPOSITORY` fails naming the variable, before `configure-aws-credentials` (step order asserted) and without any AWS call; malformed ARN/region/repository fail. **Limit (not claimed as fail-closed):** a missing *environment* `AWS_REGION`/`ECR_REPOSITORY` silently falls back to the repository variable of the same name in GitHub; mitigations (repo-level `AWS_ROLE_ARN` refused for main, equality warning, role IAM scope) are in the runbook §2.
+**A3 — (pre-C1 assessment, SUPERSEDED by C1, section 8).** At `e4eb699` the flag matrix, PR/non-main behavior and missing-value failures were tested, but the claim that main could not use an inherited `AWS_REGION`/`ECR_REPOSITORY` was **not** met: a warning plus IAM scope did not make a missing production value fail before AWS authentication. The text previously recorded here as PASS is withdrawn; the flag/PR/non-main results below section 8 remain valid and are re-tested there.
 
 **A4 — ECR never overwrites or swallows errors; outputs complete and validated: PASS (stubbed, not live).** Stub tests: `AccessDenied`, `RepositoryNotFoundException`, network error, and `ImageNotFoundException` with a non-254 exit all fail with **no** `docker push`; only exit 254 + `(ImageNotFoundException) … DescribeImages` proceeds; an existing tag fails with no `docker tag`/`push` (no reuse — no trusted provenance mechanism exists yet); repository `MUTABLE`, `*_WITH_EXCLUSIONS`, describe errors, or a foreign registry URI fail before lookup; a push rejected for immutability fails and is not re-read into success; empty/`None`/malformed/mismatching digests fail; invalid inputs fail before any AWS call. Outputs `source_sha`, `ecr_repository` (name), `image_uri` (full-SHA tag), `image_digest`; summary adds the by-digest URI, run ID/attempt and local image ID. Mutation checks on the scripts: swallowing all describe errors (caught), accepting MUTABLE (caught), truthy instead of exact `true` (caught), skipping the tar-vs-build-output checksum (caught after adding a test that rewrites tar and metadata together). Skipping the digest regex alone is **not** caught by its own test because the pushed-vs-read-back equality check already rejects the same inputs; both guards stay.
 
@@ -62,7 +64,7 @@ Validator images: the Owner approved (in this session, via the question tool) ru
 
 ## 5. Contract summary (details: `docs/runbooks/BHA-BACKEND-CD-001.md`)
 
-* Variables: repository `BACKEND_RELEASE_PUBLISH_ENABLED` (main), `ECR_PUBLISH_ENABLED` (develop only); environment `backend-production` with `AWS_ROLE_ARN`, `AWS_REGION`, `ECR_REPOSITORY`; develop keeps `showcase-publish` + `AWS_ECR_ROLE_ARN`/`AWS_REGION`/`ECR_REPOSITORY`.
+* Variables (pre-C1; main names changed in C1, see section 8): repository `BACKEND_RELEASE_PUBLISH_ENABLED` (main), `ECR_PUBLISH_ENABLED` (develop only); environment `backend-production` with `AWS_ROLE_ARN`, `AWS_REGION`, `ECR_REPOSITORY`; develop keeps `showcase-publish` + `AWS_ECR_ROLE_ARN`/`AWS_REGION`/`ECR_REPOSITORY`.
 * Read-only state check (`gh variable list`, `gh api …/environments`): the repository has **no** Actions variables and no `showcase-publish`/`backend-production` environments (only Vercel's); so both publish flags are unset and merging this PR to `develop` publishes nothing.
 * Path filters (PR and push): `Back_End/**`, `deploy/showcase/**`, `.github/workflows/backend-image.yml`, `.github/workflows/ci.yml`.
 * Single workflow (no `backend-release.yml`): one production publishing path (`publish-main`); two publish jobs because environments, variables and concurrency differ per lane while sharing the same helper.
@@ -77,10 +79,45 @@ Validator images: the Owner approved (in this session, via the question tool) ru
 
 ## 7. Status lines
 
-* IMPLEMENTATION_CP01: **PASS** (A1, A3, A4 (stub-level), A5 PASS; A2 PASS except that the publish handoff and registry behavior have never run live — by design, not part of CP01 acceptance; A6 completed in the final handoff)
-* REVIEW: NOT_RUN — OWNER_ONLY
+* IMPLEMENTATION_CP01 (pre-C1): A3 not met, fixed by C1 (section 8); A1, A4 (stub-level), A5 PASS; A2 PASS except that the publish handoff and registry behavior have never run live — by design, not part of CP01 acceptance; A6 completed in the final handoff)
+* REVIEW (pre-C1 head `e4eb699`): Codex ran once (Owner) and returned no actionable findings; it did not cover the A3 gap or C1.
+* REVIEW_C1: NOT_RUN — OWNER_ONLY
 * CLOUD_WRITES: NOT_RUN
 * PUBLISH_LIVE: NOT_RUN
 * DEPLOY_LIVE: NOT_RUN
 * ROLLBACK_LIVE: NOT_RUN
 * Backend CD is **not** complete; CP02–CP04 remain.
+
+## 8. CP01-C1 — PRODUCTION_CONFIG_FAIL_CLOSED (correction, 2026-10-09)
+
+| | |
+|---|---|
+| Roles | `IMPLEMENTER: CLAUDE`, `REVIEWER: CODEX_READ_ONLY` (Owner invokes) |
+| C1 START_HEAD | `e4eb699ef744420d73d44ef33343ef33fc949a62` (= local = remote = PR #93 head; clean tree; `origin/develop` still `a6d45bf`) |
+| C1 implementation commit | `34ae0dd8405e40242f2ac6936124f44a3469a43b` (workflow, policy script, tests, runbook) |
+| Validation SHA in this file | `34ae0dd…`; this report/SNAPSHOT commit and the actual FINAL_HEAD (with the CI runs on it) are stated in the final handoff |
+| PR | https://github.com/emLamHD/The_BHA_hotels_Booking/pull/93 (same Draft PR, base `develop`) |
+| Correction diff (`e4eb699..34ae0dd`) | 4 files, +227 / −56 (workflow +/−35, policy script 44, tests 196, runbook 8). Total PR size is stated in the final handoff from GitHub; it stays above the 100–400 target for the reasons in section 2 (the tests and the fail-closed logic are the deliverable) |
+
+**Defect.** With the pre-C1 names, `publish-main` ran inside `backend-production`, where `vars.AWS_REGION`/`vars.ECR_REPOSITORY` silently resolve to the repository values used by `develop` when the environment lacks them. Reproduced on the C1 START code (fake values, no cloud): environment defines only the role, region/repository inherited → `require-config main` exit **0** with two warnings (RED).
+
+**Fix.**
+* New main-only names, valid only in `backend-production`: `BACKEND_RELEASE_AWS_ROLE_ARN`, `BACKEND_RELEASE_AWS_REGION`, `BACKEND_RELEASE_ECR_REPOSITORY`. No fallback to `AWS_ROLE_ARN`, `AWS_ECR_ROLE_ARN`, `AWS_REGION`, `ECR_REPOSITORY`; no alias or default. `develop` and the flags are unchanged (`ECR_PUBLISH_ENABLED`, `showcase-publish`, `AWS_ECR_ROLE_ARN`, `AWS_REGION`, `ECR_REPOSITORY`; `BACKEND_RELEASE_PUBLISH_ENABLED` stays a repository variable); job outputs unchanged.
+* `plan` (no environment, no OIDC) reads the three release names and emits only booleans `inherited_*_set` (values never leave the step).
+* `publish-main` step `config` (before `configure-aws-credentials`, ECR login or any ECR call) refuses: any inherited name — even if the environment also has a valid override —, any missing value, anything other than an exact `false` scope boolean, and malformed ARN/region/repository. Messages name the variable and the policy, never a value.
+* On success `config` exports `role_arn`, `region`, `repository`; `configure-aws-credentials` and the ECR helper read only those outputs, and no `vars.*` appears in `publish-main` after the validator.
+* PR, `develop` and main-with-flag-off never evaluate the guard.
+
+**Evidence (all local, no cloud; Python 3.14.4, PyYAML 6.0.3).**
+* RED on the C1 START code: the rewritten tests failed — 10 failures + 4 errors of 49 (`python3 -m unittest discover -s deploy/showcase/scripts/tests -p "test_backend_release.py"`).
+* GREEN on `34ae0dd`: `python3 -m unittest discover -s deploy/showcase/scripts/tests -p "test_*.py"` → **64 tests OK** (49 in this module + the 15 existing), no failures/skips.
+* The new `ProductionScopeSimulation` class replays the **real workflow's** `vars` expressions with GitHub scope semantics (job without environment: organization+repository; job with environment: environment wins) and runs the real policy script, so wiring is tested, not just strings passed to the helper. Covered: PR with every variable inherited → no publish, no AWS; main-disabled and `develop` independent of production setup; each of the three environment fields missing while the full develop config exists → fail naming that field; each release name inherited at repository **and** at organization scope, with and without an environment override (3×2×2) → fail; environment-only valid config → pass and the new role/region/repository (not the develop repository) are handed on; the old generic names in the environment are not a substitute; unknown/uppercase/empty scope flags fail closed; no AWS or docker call on any rejected path.
+* Wiring tests: validator env, `configure-aws-credentials` (`role-to-assume`, `aws-region`) and the ECR helper all take the same validated outputs; `publish-main` contains no legacy `vars.*` name; the scope inputs come from `plan`, which has no environment.
+* Mutation checks (each restored afterwards): plan guard reading the generic `AWS_REGION` (caught, 3 failures); main validator falling back to `ECR_REPOSITORY` (4); OIDC bypassing the validated output (2); script ignoring an inherited flag (3).
+* `rhysd/actionlint:1.7.7` (bundles ShellCheck 0.10.0) on `ci.yml`, `backend-image.yml`: exit 0. `koalaman/shellcheck:v0.10.0 -x` on both scripts and `bash -n`: exit 0 (same pinned images as section 4).
+
+**Not re-run, evidence reused from the pre-C1 head (not attributed to the C1 head):** the local backend suite on PostgreSQL 18.3 (244 + 847), the local image build, the save/load rehearsal and the key-path guard result (section 4) — no product source, Dockerfile, migration or image input changed in C1. The CI runs on the C1 head execute the backend suite and the image build again; their run IDs are in the final handoff.
+
+**Unchanged and still true:** exact-SHA checkout and HEAD assertion, build-once, tar/ID/label verification, ECR immutability/`ImageNotFoundException`-only/existing-tag fail-closed/digest checks (`backend-ecr-publish.sh` untouched), outputs, `develop` contract. Remaining limits from section 5 stand (retry after a successful publish, artifact download across attempts untested, concurrency not a queue); the fallback limit is replaced by: the guard sees organization/repository variables only through `vars`, so it cannot prove the environment itself holds the right account/region/repository — IAM scope remains the control.
+
+**Status lines (C1).** IMPLEMENTATION_CP01_C1: **PASS** (local acceptance and checks above; final-head CI in the handoff) · REVIEW_C1: NOT_RUN — OWNER_ONLY (the earlier Codex review of `e4eb699` is not a review of this correction) · CLOUD_WRITES / PUBLISH_LIVE / DEPLOY_LIVE / ROLLBACK_LIVE: NOT_RUN (no AWS API called; no GitHub/Vercel/AWS configuration, variable or environment changed) · CP02–CP04 not started · backend CD is **not** complete.
