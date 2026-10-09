@@ -214,7 +214,7 @@ echo "restart=$RESTART logdriver=$LOGDRV logopts=$LOGOPTS keyfiles=$KEYS_BEFORE"
 
 # C2. Variable NAMES (never values) the container has that are in neither the env file nor the image defaults.
 $D inspect -f '{{range .Config.Env}}{{println .}}{{end}}' $OLD | cut -d= -f1 | sort -u > /tmp/bha-names-container
-sudo sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' "$ENVF" | sort -u > /tmp/bha-names-file
+sudo sed -n 's/^\([A-Za-z_][A-Za-z0-9_.]*\)=.*/\1/p' "$ENVF" | sort -u > /tmp/bha-names-file
 $D image inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$IMG" | cut -d= -f1 | sort -u > /tmp/bha-names-image
 EXTRA=$(comm -23 /tmp/bha-names-container <(sort -u /tmp/bha-names-file /tmp/bha-names-image))
 [ -z "$EXTRA" ] || fail "variables set by hand on the container, not in $ENVF or the image: $(echo $EXTRA) — add them to the env file first"

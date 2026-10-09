@@ -1,18 +1,26 @@
 name: Backend image
 
-# CUST-WEB-SHOWCASE-001-CP02 (+C1). The API image is built, and published to Amazon ECR, from `develop`.
+# CUST-WEB-SHOWCASE-001-CP02 (+C1), BHA-BACKEND-CD-001-CP01. The API image is verified, built ONCE per run and,
+# only when explicitly enabled, published to Amazon ECR. Nothing here deploys: a skipped publish job means
+# "nothing was published", a successful one means "an immutable image exists", never "rolled out".
 #
-#   pull_request  -> builds the PR head (no credentials, no publish, no AWS action).
-#   push develop  -> builds; publishes ONLY when the repository variable ECR_PUBLISH_ENABLED is "true",
-#                    after the backend suite passed against real PostgreSQL on the same commit.
-#   workflow_dispatch -> same publish rules, only for ref `develop`. GitHub shows "Run workflow" only for
-#                    a workflow file that exists on the default branch (main); until the Owner promotes
-#                    this file there, the push trigger is the way to publish. Any other ref never publishes.
+#   pull_request (develop|main) -> verify + build the PR head. No credentials, no AWS, no publish.
+#   push develop  -> verify + build; publishes (lane `develop`, NOT a production release) only when the repository
+#                    variable ECR_PUBLISH_ENABLED is exactly "true".
+#   push main     -> verify + build; publishes (lane `main`, the release image) only when the repository variable
+#                    BACKEND_RELEASE_PUBLISH_ENABLED is exactly "true" (unset/empty/false = disabled; it must be a
+#                    REPOSITORY variable: the plan job runs outside any environment). ECR_PUBLISH_ENABLED never
+#                    controls main.
+#   other events/refs never publish. There is no workflow_dispatch: retry a failed publish with "Re-run failed
+#   jobs" on the same run (same github.sha), never with an arbitrary ref/SHA/digest.
 #
-# Publishing is OFF by default. It pushes an image tagged with the exact source commit SHA and does
-# NOT roll out any service. When ECR_PUBLISH_ENABLED=true but AWS_ECR_ROLE_ARN, AWS_REGION or
-# ECR_REPOSITORY is missing, the run fails (it never pretends to have published). A skipped publish
-# job means "nothing was published", not "deployed".
+# Source: a push builds github.sha, checked out by exact full SHA with HEAD asserted. The image is built once,
+# checked (non-root, Production key-path guard, OCI labels), saved/loaded to prove identity, and that same image is
+# what the publish job loads and pushes. Tag = full source SHA (the repository must be IMMUTABLE).
+#
+# Concurrency: pushes never cancel a running workflow (only PR runs are superseded) and the main publish job has
+# cancel-in-progress: false. This is not a queue: a run waiting behind another may be replaced by a newer one, so
+# not every intermediate main SHA is built or published and the order is not guaranteed FIFO.
 
 on:
   pull_request:
@@ -21,18 +29,14 @@ on:
       - Back_End/**
       - deploy/showcase/**
       - .github/workflows/backend-image.yml
+      - .github/workflows/ci.yml
   push:
-    branches: [develop]
+    branches: [develop, main]
     paths:
       - Back_End/**
       - deploy/showcase/**
       - .github/workflows/backend-image.yml
-  workflow_dispatch:
-    inputs:
-      publish:
-        description: Publish to ECR (ref must be develop; needs ECR_PUBLISH_ENABLED=true and the Owner's OIDC role)
-        type: boolean
-        default: false
+      - .github/workflows/ci.yml
 
 permissions:
   contents: read
@@ -41,91 +45,54 @@ concurrency:
   group: backend-image-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  POLICY: deploy/showcase/scripts/backend-release-policy.sh
+
 jobs:
   plan:
     name: Plan
     runs-on: ubuntu-latest
     outputs:
       source_sha: ${{ steps.plan.outputs.source_sha }}
+      lane: ${{ steps.plan.outputs.lane }}
       publish: ${{ steps.plan.outputs.publish }}
+      repo_level_region: ${{ steps.plan.outputs.repo_level_region }}
+      repo_level_repository: ${{ steps.plan.outputs.repo_level_repository }}
+      repo_level_role_arn_set: ${{ steps.plan.outputs.repo_level_role_arn_set }}
     steps:
+      - name: Checkout the policy script at the source commit
+        uses: actions/checkout@v4
+        with:
+          # A pull_request run has a synthetic merge commit in github.sha; provenance is the PR head.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          sparse-checkout: deploy/showcase/scripts
+          persist-credentials: false
+
       - name: Decide source SHA and whether to publish
         id: plan
         env:
           EVENT: ${{ github.event_name }}
           REF: ${{ github.ref }}
-          # A pull_request run has a synthetic merge commit in github.sha; release provenance is the PR head.
           SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-          DISPATCH_PUBLISH: ${{ inputs.publish }}
-          PUBLISH_ENABLED: ${{ vars.ECR_PUBLISH_ENABLED }}
-          ROLE_ARN: ${{ vars.AWS_ECR_ROLE_ARN }}
-          REGION: ${{ vars.AWS_REGION }}
-          REPOSITORY: ${{ vars.ECR_REPOSITORY }}
-        run: |
-          set -euo pipefail
-          publish=false
-          wanted=false
-          if [ "$EVENT" = "push" ]; then wanted=true; fi
-          if [ "$EVENT" = "workflow_dispatch" ] && [ "$DISPATCH_PUBLISH" = "true" ]; then wanted=true; fi
-          if [ "$wanted" = "true" ] && [ "$REF" != "refs/heads/develop" ]; then
-            echo "::notice::Publishing is only allowed from develop (ref is $REF); building only."
-            wanted=false
-          fi
-          if [ "$wanted" = "true" ] && [ "$PUBLISH_ENABLED" = "true" ]; then
-            for name in ROLE_ARN REGION REPOSITORY; do
-              if [ -z "${!name}" ]; then
-                echo "::error::ECR_PUBLISH_ENABLED is true but the repository variable for $name is missing; nothing was published."
-                exit 1
-              fi
-            done
-            publish=true
-          elif [ "$wanted" = "true" ]; then
-            echo "::notice::ECR_PUBLISH_ENABLED is not 'true'; build only. PUBLISH: NOT_RUN."
-          fi
-          echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
-          echo "publish=$publish" >> "$GITHUB_OUTPUT"
-          echo "source=$SOURCE_SHA publish=$publish"
-
-  build:
-    name: Build image
-    needs: plan
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout the exact source commit
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.plan.outputs.source_sha }}
-
-      - name: Build image (no push)
-        run: docker build --tag thebha-api:${{ needs.plan.outputs.source_sha }} Back_End
-
-      - name: Image runs as a non-root user with the key directory writable
-        run: |
-          docker run --rm --entrypoint sh thebha-api:${{ needs.plan.outputs.source_sha }} -c \
-            'test "$(id -u)" != 0 && test -w /var/keys && echo "uid=$(id -u) keys writable"'
-
-      - name: Production refuses to start without a key directory
-        run: |
-          set +e
-          out="$(docker run --rm -e ASPNETCORE_ENVIRONMENT=Production \
-            -e 'ConnectionStrings__TheBhaDatabase=Host=none;Database=none;Username=none;Password=none' \
-            thebha-api:${{ needs.plan.outputs.source_sha }} 2>&1)"
-          code=$?
-          set -e
-          echo "$out" | grep -q 'DataProtection:KeysPath must point to durable shared storage' && [ "$code" -ne 0 ]
+          MAIN_PUBLISH_ENABLED: ${{ vars.BACKEND_RELEASE_PUBLISH_ENABLED }}
+          DEVELOP_PUBLISH_ENABLED: ${{ vars.ECR_PUBLISH_ENABLED }}
+          REPO_LEVEL_REGION: ${{ vars.AWS_REGION }}
+          REPO_LEVEL_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+          REPO_LEVEL_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+        run: bash "$POLICY" plan
 
   verify:
     name: Backend suite on the source commit
-    # Gate for publishing: the same backend build/tests as ci.yml, on real PostgreSQL, on this exact SHA.
-    # Runs only when a publish will follow, so a skipped publish costs nothing extra.
+    # Gate for publishing and, on every event, evidence for the exact commit that is built: the same backend
+    # build/tests as ci.yml, on real PostgreSQL 18.3 (the version RDS runs).
     needs: plan
-    if: needs.plan.outputs.publish == 'true'
     runs-on: ubuntu-latest
     env:
+      SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
       ConnectionStrings__TheBhaDatabase: Host=localhost;Port=5432;Database=thebha_ci;Username=thebha_ci;Password=ci-only-password
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres:18.3
         env:
           POSTGRES_DB: thebha_ci
           POSTGRES_USER: thebha_ci
@@ -142,6 +109,17 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.plan.outputs.source_sha }}
+          persist-credentials: false
+
+      - name: HEAD is the source commit
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+
+      - name: PostgreSQL server version is 18.3
+        run: |
+          version="$(docker exec "${{ job.services.postgres.id }}" psql -U thebha_ci -d thebha_ci -Atc 'show server_version')"
+          echo "server_version=$version"
+          echo "PostgreSQL server_version: $version" >> "$GITHUB_STEP_SUMMARY"
+          case "$version" in 18.3|"18.3 "*) ;; *) echo "::error::Expected PostgreSQL 18.3."; exit 1 ;; esac
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -157,50 +135,221 @@ jobs:
       - name: Test
         run: dotnet test Back_End/TheBha.Booking.sln --configuration Release --no-build
 
-  publish:
-    name: Publish to ECR
-    needs: [plan, build, verify]
-    if: needs.plan.outputs.publish == 'true'
+  build:
+    name: Build image
+    needs: plan
     runs-on: ubuntu-latest
-    environment: showcase-publish
-    permissions:
-      contents: read
-      id-token: write
     env:
-      IMAGE_SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+      SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+      IMAGE: thebha-api:${{ needs.plan.outputs.source_sha }}
+      EXPECT_SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+      EXPECT_SOURCE_URL: ${{ github.server_url }}/${{ github.repository }}
+    outputs:
+      image_id: ${{ steps.pack.outputs.image_id }}
+      tar_sha256: ${{ steps.pack.outputs.tar_sha256 }}
+      artifact_name: ${{ steps.name.outputs.artifact_name }}
     steps:
       - name: Checkout the exact source commit
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.plan.outputs.source_sha }}
+          persist-credentials: false
+
+      - name: HEAD is the source commit
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+
+      - name: Build the image (once, no push)
+        run: |
+          docker build --tag "$IMAGE" \
+            --label "org.opencontainers.image.revision=$SOURCE_SHA" \
+            --label "org.opencontainers.image.source=$EXPECT_SOURCE_URL" Back_End
+
+      - name: Image runs as a non-root user with the key directory writable
+        run: |
+          docker run --rm --entrypoint sh "$IMAGE" -c \
+            'test "$(id -u)" != 0 && test -w /var/keys && echo "uid=$(id -u) keys writable"'
+
+      - name: Production refuses to start without a key directory
+        run: |
+          set +e
+          out="$(docker run --rm -e ASPNETCORE_ENVIRONMENT=Production \
+            -e 'ConnectionStrings__TheBhaDatabase=Host=none;Database=none;Username=none;Password=none' \
+            "$IMAGE" 2>&1)"
+          code=$?
+          set -e
+          echo "$out" | grep -q 'DataProtection:KeysPath must point to durable shared storage' && [ "$code" -ne 0 ]
+
+      - name: Image identity and OCI labels
+        run: bash "$POLICY" check-image "$IMAGE"
+
+      - name: Save, remove and reload the image (identity must survive)
+        id: pack
+        run: |
+          bash "$POLICY" pack "$IMAGE" "$RUNNER_TEMP/image"
+          docker rmi "$IMAGE" > /dev/null
+          EXPECT_TAR_SHA256="$(jq -r .tar_sha256 "$RUNNER_TEMP/image/metadata.json")" \
+          EXPECT_IMAGE_ID="$(jq -r .image_id "$RUNNER_TEMP/image/metadata.json")" \
+            bash "$POLICY" unpack "$RUNNER_TEMP/image" "$IMAGE"
+
+      - name: Name the artifact after the commit, run and attempt
+        id: name
+        run: echo "artifact_name=backend-image-$SOURCE_SHA-${{ github.run_id }}-${{ github.run_attempt }}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the image for the publish job of this run
+        if: needs.plan.outputs.publish == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.name.outputs.artifact_name }}
+          path: ${{ runner.temp }}/image
+          retention-days: 3
+          if-no-files-found: error
+
+      - name: Summary
+        run: |
+          {
+            echo "### Image built (not published, not deployed)"
+            echo "- tested source SHA: \`$SOURCE_SHA\` (event: ${{ github.event_name }}; a pull_request builds the PR head, not a merge result)"
+            echo "- Docker image ID: \`${{ steps.pack.outputs.image_id }}\`"
+            echo "- run: \`${{ github.run_id }}\` attempt \`${{ github.run_attempt }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  publish-main:
+    name: Publish release image to ECR (main)
+    needs: [plan, verify, build]
+    if: needs.plan.outputs.lane == 'main' && needs.plan.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    environment: backend-production
+    concurrency:
+      group: backend-release-publish-main
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      source_sha: ${{ steps.publish.outputs.source_sha }}
+      ecr_repository: ${{ steps.publish.outputs.ecr_repository }}
+      image_uri: ${{ steps.publish.outputs.image_uri }}
+      image_digest: ${{ steps.publish.outputs.image_digest }}
+    env:
+      SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+      IMAGE: thebha-api:${{ needs.plan.outputs.source_sha }}
+      EXPECT_SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+      EXPECT_SOURCE_URL: ${{ github.server_url }}/${{ github.repository }}
+      EXPECT_IMAGE_ID: ${{ needs.build.outputs.image_id }}
+      EXPECT_TAR_SHA256: ${{ needs.build.outputs.tar_sha256 }}
+    steps:
+      - name: Checkout the exact source commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.source_sha }}
+          persist-credentials: false
+
+      - name: HEAD is the source commit
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+
+      - name: Release configuration (before any AWS authentication)
+        env:
+          ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+          REGION: ${{ vars.AWS_REGION }}
+          REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+          REPO_LEVEL_REGION: ${{ needs.plan.outputs.repo_level_region }}
+          REPO_LEVEL_REPOSITORY: ${{ needs.plan.outputs.repo_level_repository }}
+          REPO_LEVEL_ROLE_ARN_SET: ${{ needs.plan.outputs.repo_level_role_arn_set }}
+        run: bash "$POLICY" require-config main
+
+      - name: Download the image built by this run
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build.outputs.artifact_name }}
+          path: ${{ runner.temp }}/image
+
+      - name: Load the image and verify tar, image ID and labels
+        run: bash "$POLICY" unpack "$RUNNER_TEMP/image" "$IMAGE"
+
+      - name: Configure AWS credentials (OIDC, no stored keys)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          # The registry host contains the account ID; a masked value would be dropped from the job outputs.
+          mask-aws-account-id: false
+
+      - name: Log in to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Push the checked image (immutable tag = source commit SHA)
+        id: publish
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+          IMAGE_ID: ${{ needs.build.outputs.image_id }}
+          SUMMARY_TITLE: Release image published
+        run: bash deploy/showcase/scripts/backend-ecr-publish.sh
+
+  publish-develop:
+    name: Publish develop image to ECR (not a release)
+    needs: [plan, verify, build]
+    if: needs.plan.outputs.lane == 'develop' && needs.plan.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    environment: showcase-publish
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      source_sha: ${{ steps.publish.outputs.source_sha }}
+      ecr_repository: ${{ steps.publish.outputs.ecr_repository }}
+      image_uri: ${{ steps.publish.outputs.image_uri }}
+      image_digest: ${{ steps.publish.outputs.image_digest }}
+    env:
+      SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+      IMAGE: thebha-api:${{ needs.plan.outputs.source_sha }}
+      EXPECT_SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+      EXPECT_SOURCE_URL: ${{ github.server_url }}/${{ github.repository }}
+      EXPECT_IMAGE_ID: ${{ needs.build.outputs.image_id }}
+      EXPECT_TAR_SHA256: ${{ needs.build.outputs.tar_sha256 }}
+    steps:
+      - name: Checkout the exact source commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.source_sha }}
+          persist-credentials: false
+
+      - name: HEAD is the source commit
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+
+      - name: Publish configuration (before any AWS authentication)
+        env:
+          ROLE_ARN: ${{ vars.AWS_ECR_ROLE_ARN }}
+          REGION: ${{ vars.AWS_REGION }}
+          REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+        run: bash "$POLICY" require-config develop
+
+      - name: Download the image built by this run
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build.outputs.artifact_name }}
+          path: ${{ runner.temp }}/image
+
+      - name: Load the image and verify tar, image ID and labels
+        run: bash "$POLICY" unpack "$RUNNER_TEMP/image" "$IMAGE"
 
       - name: Configure AWS credentials (OIDC, no stored keys)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_ECR_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
+          mask-aws-account-id: false
 
       - name: Log in to ECR
         id: ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build and push (immutable tag = source commit SHA)
+      - name: Push the checked image (immutable tag = source commit SHA)
+        id: publish
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
           REPOSITORY: ${{ vars.ECR_REPOSITORY }}
-        run: |
-          set -euo pipefail
-          image="$REGISTRY/$REPOSITORY:$IMAGE_SOURCE_SHA"
-          if aws ecr describe-images --repository-name "$REPOSITORY" --image-ids imageTag="$IMAGE_SOURCE_SHA" >/dev/null 2>&1; then
-            echo "::notice::$IMAGE_SOURCE_SHA is already published; not overwriting the tag."
-          else
-            docker build --tag "$image" Back_End
-            docker push "$image"
-          fi
-          digest="$(aws ecr describe-images --repository-name "$REPOSITORY" --image-ids imageTag="$IMAGE_SOURCE_SHA" --query 'imageDetails[0].imageDigest' --output text)"
-          {
-            echo "### Published (not deployed)"
-            echo "- tag: \`$IMAGE_SOURCE_SHA\`"
-            echo "- digest: \`$digest\`"
-            echo "No service was rolled out by this workflow."
-          } >> "$GITHUB_STEP_SUMMARY"
+          IMAGE_ID: ${{ needs.build.outputs.image_id }}
+          SUMMARY_TITLE: Develop image published (not a production release)
+        run: bash deploy/showcase/scripts/backend-ecr-publish.sh
