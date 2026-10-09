@@ -143,7 +143,7 @@ fi
 
 identity="$(grep -m1 '^identity|' "$TMP/out" || true)"
 [[ "$identity" == "identity|$EXPECT_DB|$EXPECT_USER|true|on" ]] || result FAIL IDENTITY_DIFFERS_FROM_CONTRACT 22
-grep -q '^history|true$' "$TMP/out" || result FAIL HISTORY_TABLE_MISSING 20
+grep -q '^history|t$' "$TMP/out" || result FAIL HISTORY_TABLE_MISSING 20
 sed -n 's/^id|//p' "$TMP/out" > "$TMP/applied"
 APPLIED_N="$(grep -c . "$TMP/applied" || true)"
 if cmp -s "$TMP/applied" "$IDS"; then
