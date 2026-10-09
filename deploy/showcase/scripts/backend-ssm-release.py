@@ -95,13 +95,18 @@ BOOTSTRAP = r'''set -euo pipefail
 umask 077
 export LC_ALL=C PATH="${BHA_RELEASE_PATH_PREFIX:+$BHA_RELEASE_PATH_PREFIX:}/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"   # prefix: test shims only
 CORR='@CORR@'; SHA='@SHA@'; REPO='@REPO@'; PACKET_SHA='@PACKET_SHA@'; HCFG='@HCFG@'; ACTION='@ACTION@'; REGION='@REGION@'
-fail() { printf '{"v":1,"correlation":"%s","command":"%s","source_sha":"%s","release":"BOOTSTRAP_FAILED","detail":"%s"}\n' "$CORR" "$ACTION" "$SHA" "$1"; exit 1; }
+STAGE_MADE=0
+fail() {   # a failed bootstrap removes what it staged: unverified bytes never stay on the host
+  [[ "$STAGE_MADE" == 1 ]] && rm -rf -- "$STAGE"
+  printf '{"v":1,"correlation":"%s","command":"%s","source_sha":"%s","release":"BOOTSTRAP_FAILED","detail":"%s"}\n' "$CORR" "$ACTION" "$SHA" "$1"; exit 1
+}
 ROOT="${BHA_RELEASE_STAGE_ROOT:-/var/lib/the-bha/release-staging}"
 mkdir -p "$ROOT" 2>/dev/null || fail STAGE_ROOT_UNUSABLE
 [[ -d "$ROOT" && ! -L "$ROOT" && -O "$ROOT" ]] || fail STAGE_ROOT_NOT_OWNED
 chmod 700 "$ROOT"
 STAGE="$ROOT/$CORR"
 mkdir "$STAGE" 2>/dev/null || fail STAGE_EXISTS
+STAGE_MADE=1
 mkdir "$STAGE/bin"
 printf '%s' '@PACKET_B64@' | base64 -d > "$STAGE/packet.json" 2>/dev/null || fail PACKET_DECODE
 [[ "$(sha256sum "$STAGE/packet.json" | cut -d' ' -f1)" == "$PACKET_SHA" ]] || fail PACKET_SHA256_MISMATCH
