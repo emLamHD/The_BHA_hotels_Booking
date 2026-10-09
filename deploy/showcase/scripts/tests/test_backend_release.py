@@ -793,6 +793,67 @@ class DeployGating(unittest.TestCase):
             self.assertNotIn(name, text)
 
 
+IAM_DIR = ROOT / "deploy" / "showcase" / "iam"
+
+
+class IamTemplates(unittest.TestCase):
+    """CP03 cloud templates: validated locally only (JSON, placeholders, scope). Nothing is applied and no IAM simulator is called."""
+
+    def load(self, name):
+        text = (IAM_DIR / name).read_text()
+        self.assertNotRegex(text, r"[0-9]{12}", name)                                       # no hardcoded account ID
+        return json.loads(text), text
+
+    @staticmethod
+    def statements(doc):
+        st = doc["Statement"]
+        return st if isinstance(st, list) else [st]
+
+    def test_every_template_is_valid_json_with_explicit_placeholders_only(self):
+        for f in sorted(IAM_DIR.glob("*.json")):
+            doc, text = self.load(f.name)
+            self.assertEqual(doc["Version"], "2012-10-17")
+            for token in re.findall(r"<[^>]*>", text):
+                self.assertRegex(token, r"^<[A-Z][A-Z_]*>$", f.name)
+        self.assertEqual({f.name for f in IAM_DIR.glob("*.json")},
+                         {"backend-release-deploy-trust.json", "backend-release-deploy-policy.json", "backend-release-instance-ecr-policy.json"})
+
+    def test_trust_uses_only_the_condition_keys_aws_supports_and_no_wildcard_subject(self):
+        doc, _ = self.load("backend-release-deploy-trust.json")
+        (st,) = self.statements(doc)
+        self.assertEqual((st["Effect"], st["Action"]), ("Allow", "sts:AssumeRoleWithWebIdentity"))
+        self.assertTrue(st["Principal"]["Federated"].endswith(":oidc-provider/token.actions.githubusercontent.com"))
+        self.assertEqual(set(st["Condition"]), {"StringEquals"})                           # exact match: no StringLike
+        cond = st["Condition"]["StringEquals"]
+        self.assertEqual(set(cond), {"token.actions.githubusercontent.com:aud", "token.actions.githubusercontent.com:sub"})
+        self.assertEqual(cond["token.actions.githubusercontent.com:aud"], "sts.amazonaws.com")
+        self.assertEqual(cond["token.actions.githubusercontent.com:sub"], "<VERIFIED_SUB_CLAIM>")    # the Owner verifies the real format first
+        self.assertNotIn("*", json.dumps(st))
+
+    def test_deploy_policy_sends_to_one_instance_and_one_document_and_reads_results_only(self):
+        doc, _ = self.load("backend-release-deploy-policy.json")
+        send, read = self.statements(doc)
+        self.assertEqual(send["Action"], "ssm:SendCommand")
+        self.assertEqual(send["Resource"], ["arn:aws:ssm:<REGION>::document/AWS-RunShellScript", "arn:aws:ec2:<REGION>:<ACCOUNT_ID>:instance/<INSTANCE_ID>"])
+        self.assertNotIn("Condition", send)
+        self.assertEqual(sorted(read["Action"]), ["ssm:GetCommandInvocation", "ssm:ListCommandInvocations", "ssm:ListCommands"])
+        self.assertEqual(read["Resource"], "*")                                              # AWS documents these list/read actions with Resource "*"
+        everything = json.dumps(doc)
+        for forbidden in ("CancelCommand", "ecr:", "iam:", "sts:", "s3:", "rds", "ssm:*", "ssm:StartSession", "ssm:PutParameter"):
+            self.assertNotIn(forbidden, everything)
+        self.assertEqual(everything.count("ec2:"), everything.count("arn:aws:ec2:"))                 # "ec2:" only inside the instance ARN, never as an action
+
+    def test_instance_profile_policy_can_pull_one_repository_and_nothing_else(self):
+        doc, _ = self.load("backend-release-instance-ecr-policy.json")
+        token, pull = self.statements(doc)
+        self.assertEqual((token["Action"], token["Resource"]), ("ecr:GetAuthorizationToken", "*"))
+        self.assertEqual(sorted(pull["Action"]), ["ecr:BatchCheckLayerAvailability", "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"])
+        self.assertEqual(pull["Resource"], "arn:aws:ecr:<REGION>:<ACCOUNT_ID>:repository/<ECR_REPOSITORY>")
+        for forbidden in ("PutImage", "InitiateLayerUpload", "UploadLayerPart", "CompleteLayerUpload", "CreateRepository", "DeleteRepository", "BatchDeleteImage",
+                          "SetRepositoryPolicy", "PutLifecyclePolicy", "ecr:*", "rds", "secretsmanager"):
+            self.assertNotIn(forbidden, json.dumps(doc))
+
+
 class EnvNameParser(unittest.TestCase):
     """The EC2 packet (C2/C3 of the Admin proxy block) is run from the real runbook text with fake data."""
 
