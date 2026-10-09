@@ -149,9 +149,9 @@ push_digest() {  # push_digest <local tag> <registry tag> -> echoes repo@sha256:
 }
 D_CAND="$(push_digest "$IMG_BASE:cand" cand)"; D_OLD="$(push_digest "$IMG_BASE:old" old)"; D_FAULT="$(push_digest "$IMG_BASE:fault" fault)"
 REF_CAND="$REPO_PATH@$D_CAND"; REF_OLD="$REPO_PATH@$D_OLD"; REF_FAULT="$REPO_PATH@$D_FAULT"
+CREATED_IMAGES+=("$REF_CAND" "$REF_OLD" "$REF_FAULT")   # pulled by digest later; removal is by exact reference
 # Remove every local reference so that the deploy script's `docker pull` by digest is a real pull.
 for t in "$IMG_BASE:cand" "$IMG_BASE:old" "$IMG_BASE:fault" "$REPO_PATH:cand" "$REPO_PATH:old" "$REPO_PATH:fault"; do docker rmi "$t" >/dev/null 2>&1 || true; done
-CREATED_IMAGES=()
 say "digests: old=$D_OLD cand=$D_CAND fault=$D_FAULT"
 check "candidate digest ref is NOT present locally before the pull" bash -c "! docker image inspect '$REF_CAND' >/dev/null 2>&1"
 
@@ -261,3 +261,172 @@ if $SETUP_ONLY; then
   [[ "$FAILS" -eq 0 ]]
   exit $?
 fi
+
+# ================================================================ scenarios (real Docker, real PostgreSQL, real API)
+MAN="$WORK/manifest.json"
+python3 -I "$MANIFEST" generate --repo "$REPO" --source-sha "$SHA" --output "$MAN"
+OUT="" RC=0
+run_deploy() {  # run_deploy <command> [extra args] -> OUT (one JSON line), RC
+  RC=0
+  OUT="$(BHA_DEPLOY_LOCK_DIR="$WORK/lock" "$DEPLOY" "$1" --config "${CONF_USED:-$CONF}" "${@:2}" 2>>"$WORK/out/deploy.stderr")" || RC=$?
+  printf '%s\n' "$OUT" >> "$WORK/out/deploy.stdout"
+}
+jf() { python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get(sys.argv[2],""))' "$OUT" "$1"; }
+cfmt() { docker container inspect "$1" --format "$2" 2>/dev/null; }
+set_conf() { sed -i "s#^$1=.*#$1=$2#" "$CONF"; }
+db_hash() { docker exec "$PG_CID" pg_dump -U postgres -d thebha 2>/dev/null | sha256sum | cut -d' ' -f1; }
+keys_list() { docker exec "$1" find /var/keys -maxdepth 1 -type f -exec sha256sum {} + 2>/dev/null | sort; }
+count_target_containers() { docker ps -aq --filter "label=com.thebha.deploy.target=$TARGET" | wc -l; }
+deploy_args() { printf '%s\n' --image "$1" --source-sha "${2:-$SHA}" --manifest "${3:-$MAN}"; }
+dargs() { mapfile -t DA < <(deploy_args "$@"); }
+env_matches() {  # the container's effective env contains every env-file line byte for byte (nothing printed)
+  docker container inspect "$1" | python3 -c '
+import json, sys
+env = set(json.load(sys.stdin)[0]["Config"]["Env"])
+lines = [l for l in open(sys.argv[1], encoding="utf-8").read().split("\n") if l and not l.startswith("#")]
+sys.exit(0 if all(l in env for l in lines) else 1)' "$ENVF"
+}
+old_untouched() {
+  [[ "$(cfmt "$TARGET" '{{.Id}}')" == "$OLD_CID" && "$(cfmt "$TARGET" '{{.State.Running}}')" == true && "$(cfmt "$TARGET" '{{.State.StartedAt}}')" == "$OLD_STARTED" ]]
+}
+OLD_STARTED="$(cfmt "$TARGET" '{{.State.StartedAt}}')"
+ENV_SHA0="$(sha256sum "$ENVF" | cut -d' ' -f1)"; CA_SHA0="$(sha256sum "$WORK/rds-ca.pem" | cut -d' ' -f1)"
+KEYS0="$(keys_list "$OLD_CID")"
+check "key ring exists before any deploy (login created it)" test -n "$KEYS0"
+
+say "== S1 preflight: every pre-stop gate, read-only"
+DB0="$(db_hash)"
+dargs "$REF_CAND"; run_deploy preflight "${DA[@]}"
+check "preflight passes (exit $RC status $(jf status))" test "$RC" = 0 -a "$(jf status)" = PREFLIGHT_PASS
+check "preflight created/stopped nothing: old untouched, no labelled containers" bash -c "[[ $(count_target_containers) -eq 0 ]]"
+check "old container untouched by preflight" old_untouched
+check "database dump (schema+data+history) identical after preflight" test "$(db_hash)" = "$DB0"
+check "image is now present locally by digest (pull happened)" docker image inspect "$REF_CAND" >/dev/null
+
+say "== S2 gates that must fail BEFORE the old container is stopped"
+expect_reject() {  # expect_reject <why> <detail substring> <command...>
+  local why="$1" want="$2"; shift 2
+  RC=0; "$@" || true
+  if [[ "$RC" == 20 && "$(jf status)" == REJECTED_BEFORE_STOP && "$(jf detail)" == *"$want"* ]] && old_untouched && [[ "$(count_target_containers)" -eq 0 ]]; then
+    ok "$why -> exit 20 $(jf detail); old untouched"
+  else bad "$why (rc=$RC status=$(jf status) detail=$(jf detail))"; fi
+}
+python3 - "$MAN" "$WORK" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1]))
+pending = dict(m, migrations=m["migrations"] + ["20270101000000_PendingFixture"], count=m["count"] + 1)
+missing = dict(m, migrations=m["migrations"][:-1], count=m["count"] - 1)
+other = dict(m, source_sha="2" * 40)
+for name, doc in (("pending", pending), ("missing", missing), ("othersha", other)):
+    json.dump(doc, open("%s/manifest-%s.json" % (sys.argv[2], name), "w"))
+PY
+dargs "$REF_CAND" "$SHA" "$WORK/manifest-pending.json"; expect_reject "pending migration in manifest" PENDING_MIGRATIONS run_deploy deploy "${DA[@]}"
+dargs "$REF_CAND" "$SHA" "$WORK/manifest-missing.json"; expect_reject "manifest lacks an applied migration (unknown applied)" UNKNOWN_APPLIED_MIGRATIONS run_deploy deploy "${DA[@]}"
+dargs "$REF_CAND" "$SHA" "$WORK/manifest-othersha.json"; expect_reject "manifest for another release SHA" MANIFEST_INVALID run_deploy deploy "${DA[@]}"
+dargs "$REF_CAND" "$(printf '3%.0s' $(seq 40))"; expect_reject "OCI revision label differs from the requested SHA (manifest/sha consistent)" MANIFEST_INVALID run_deploy deploy "${DA[@]}"
+python3 - "$MAN" "$WORK" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1])); m["source_sha"] = "3" * 40
+json.dump(m, open("%s/manifest-sha3.json" % sys.argv[2], "w"))
+PY
+dargs "$REF_CAND" "$(printf '3%.0s' $(seq 40))" "$WORK/manifest-sha3.json"; expect_reject "OCI revision label differs from the requested SHA" IMAGE_REVISION_LABEL_DIFFERS run_deploy deploy "${DA[@]}"
+dargs "$REPO_PATH:cand"; expect_reject "mutable tag instead of a digest" IMAGE_NOT_A_DIGEST_REFERENCE run_deploy deploy "${DA[@]}"
+dargs "127.0.0.1:$REGPORT/other/api@$D_CAND"; expect_reject "image from another repository" IMAGE_REPOSITORY_NOT_ALLOWED run_deploy deploy "${DA[@]}"
+dargs "$REPO_PATH@sha256:$(printf '0%.0s' $(seq 64))"; expect_reject "digest that does not exist in the registry (pull fails)" IMAGE_PULL_FAILED run_deploy deploy "${DA[@]}"
+# env value mismatch: an entry in the env file that the running container does not have
+cp "$ENVF" "$WORK/env.keep"; printf 'Cors__AllowedOrigins__1=https://not-in-container.invalid\n' >> "$ENVF"
+dargs "$REF_CAND"; expect_reject "env file has a value the running container lacks" ENV_VALUE_MISMATCH:Cors__AllowedOrigins__1 run_deploy deploy "${DA[@]}"
+cp "$WORK/env.keep" "$ENVF"; chmod 600 "$ENVF"
+check "env file restored byte for byte" test "$(sha256sum "$ENVF" | cut -d' ' -f1)" = "$ENV_SHA0"
+# database history: an applied migration unknown to the release (privileged fixture write, then removed)
+su_psql -d thebha -c "INSERT INTO \"__EFMigrationsHistory\" (\"MigrationId\",\"ProductVersion\") VALUES ('20270202000000_UnknownFixture','0')" >/dev/null
+dargs "$REF_CAND"; expect_reject "extra applied migration in the database" UNKNOWN_APPLIED_MIGRATIONS run_deploy deploy "${DA[@]}"
+su_psql -d thebha -c "DELETE FROM \"__EFMigrationsHistory\" WHERE \"MigrationId\"='20270202000000_UnknownFixture'" >/dev/null
+# history table missing
+su_psql -d thebha -c 'ALTER TABLE "__EFMigrationsHistory" RENAME TO "__EFMigrationsHistory_hidden"' >/dev/null
+dargs "$REF_CAND"; expect_reject "history table missing" HISTORY_TABLE_MISSING run_deploy deploy "${DA[@]}"
+su_psql -d thebha -c 'ALTER TABLE "__EFMigrationsHistory_hidden" RENAME TO "__EFMigrationsHistory"' >/dev/null
+# TLS failure: a CA that did not sign the server certificate
+openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=bha-cp02-wrong-ca" -keyout "$WORK/wrong.key" -out "$WORK/wrong-ca.pem" 2>/dev/null
+sed "s#sslrootcert=.*#sslrootcert=$WORK/wrong-ca.pem#" "$PGSVC" > "$WORK/svc-wrong"; chmod 600 "$WORK/svc-wrong"
+sed -e "s#^CA_FILE=.*#CA_FILE=$WORK/wrong-ca.pem#" -e "s#^PG_SERVICE_FILE=.*#PG_SERVICE_FILE=$WORK/svc-wrong#" "$CONF" > "$WORK/conf-wrongca"; chmod 600 "$WORK/conf-wrongca"
+CONF_USED="$WORK/conf-wrongca"; dargs "$REF_CAND"; expect_reject "TLS verify-full against the wrong CA" TLS_FAILURE run_deploy deploy "${DA[@]}"; unset CONF_USED
+sed "s#^port=.*#port=$(free_port)#" "$PGSVC" > "$WORK/svc-port"; chmod 600 "$WORK/svc-port"
+sed "s#^PG_SERVICE_FILE=.*#PG_SERVICE_FILE=$WORK/svc-port#" "$CONF" > "$WORK/conf-port"; chmod 600 "$WORK/conf-port"
+CONF_USED="$WORK/conf-port"; dargs "$REF_CAND"; expect_reject "database unreachable" CONNECTION_FAILED run_deploy deploy "${DA[@]}"; unset CONF_USED
+# lock contention: another writer holds the per-target host lock
+( exec 8>>"$WORK/lock/bha-deploy-$TARGET.lock"; flock 8; sleep 8 ) & LOCK_HOLDER=$!
+sleep 1
+sed "s#^READY_TIMEOUT_SECONDS=.*#READY_TIMEOUT_SECONDS=60\nLOCK_WAIT_SECONDS=2#" "$CONF" > "$WORK/conf-lock"; chmod 600 "$WORK/conf-lock"
+CONF_USED="$WORK/conf-lock"; dargs "$REF_CAND"; run_deploy deploy "${DA[@]}"; unset CONF_USED
+check "deploy while the lock is held -> exit 50 LOCK_BUSY, nothing changed" bash -c "[[ $RC == 50 && '$(jf status)' == LOCK_BUSY ]]"
+check "old untouched after lock contention" old_untouched
+CONF_USED="$WORK/conf-lock"; run_deploy rollback; unset CONF_USED
+check "rollback while the lock is held -> exit 50 as well" test "$RC" = 50
+wait "$LOCK_HOLDER" || true
+check "lock file still exists (never deleted)" test -f "$WORK/lock/bha-deploy-$TARGET.lock"
+check "no run left unfinished by rejected attempts" bash -c "! grep -L -E '^STATE=(REJECTED|SUCCEEDED|ROLLED_BACK|ROLLBACK_DONE|ALREADY_CURRENT_DONE)\$' '$WORK'/journal/runs/*/state | grep -q ."
+
+say "== S3 real success: swap by digest"
+DB1="$(db_hash)"
+dargs "$REF_CAND"; run_deploy deploy "${DA[@]}"
+NEW_CID="$(jf candidate_id)"
+check "deploy -> exit 0 SUCCESS (status $(jf status) detail $(jf detail), downtime $(jf downtime_seconds)s)" test "$RC" = 0 -a "$(jf status)" = SUCCESS
+DOWNTIME_S="$(jf downtime_seconds)"
+check "the TARGET name now belongs to the new container, running, on the candidate image" bash -c "[[ \"$(cfmt "$TARGET" '{{.Id}}')\" == $NEW_CID && \"$(cfmt "$TARGET" '{{.State.Running}}')\" == true ]]"
+check "new container runs exactly the digest-pulled image" test "$(cfmt "$NEW_CID" '{{.Config.Image}}')" = "$REF_CAND"
+check "previous container retained: stopped, restart=no, renamed, same ID as before" bash -c "[[ \"$(cfmt "$OLD_CID" '{{.State.Running}}')\" == false && \"$(cfmt "$OLD_CID" '{{.HostConfig.RestartPolicy.Name}}')\" == no && \"$(cfmt "$OLD_CID" '{{.Name}}')\" == /${TARGET}-prev-* ]]"
+check "original restart policy applied to the new container" test "$(cfmt "$NEW_CID" '{{.HostConfig.RestartPolicy.Name}}')" = unless-stopped
+check "log driver/options preserved" test "$(cfmt "$NEW_CID" '{{.HostConfig.LogConfig.Type}}:{{index .HostConfig.LogConfig.Config "max-size"}}')" = "json-file:10m"
+check "mounts preserved (keys rw, CA ro) and loopback binding preserved" bash -c "[[ \"$(cfmt "$NEW_CID" '{{range .Mounts}}{{.Destination}}={{.RW}} {{end}}')\" == *'/var/keys=true'* && \"$(cfmt "$NEW_CID" '{{range .Mounts}}{{.Destination}}={{.RW}} {{end}}')\" == *'/certs/rds-ca.pem=false'* && \"$(cfmt "$NEW_CID" '{{json .HostConfig.PortBindings}}')\" == *'127.0.0.1'* ]]"
+check "every env-file line (dotted key, values with '=') is in the new container's env" env_matches "$NEW_CID"
+check "existing key files preserved byte for byte" bash -c "[[ -z \"\$(comm -23 <(printf '%s\n' '$KEYS0') <(docker exec $NEW_CID find /var/keys -maxdepth 1 -type f -exec sha256sum {} + | sort))\" ]]"
+check "env file and CA unchanged" test "$(sha256sum "$ENVF" | cut -d' ' -f1)" = "$ENV_SHA0" -a "$(sha256sum "$WORK/rds-ca.pem" | cut -d' ' -f1)" = "$CA_SHA0"
+check "Staff session issued BEFORE the swap still reads /me = 200" test "$(me_code)" = 200
+check "without the cookie /me = 401" test "$(curl_api -o /dev/null -w '%{http_code}' "https://localhost:$TLSPORT/api/admin/v1/me")" = 401
+check "database identical after the deploy (no migration, no repair)" test "$(db_hash)" = "$DB1"
+check "journal: run SUCCEEDED and latest record written" bash -c "grep -q '^STATE=SUCCEEDED' '$WORK/journal/runs/$(jf run_id)/state' && grep -q '^RECORD_STATE=SUCCEEDED' '$WORK/journal/records/latest'"
+set_conf EXPECTED_CURRENT_IMAGE "$REF_CAND"     # the next release packet carries the new expected-current identity (CP03)
+
+say "== S4 same release again: no bypass of the gates"
+dargs "$REF_CAND"; run_deploy deploy "${DA[@]}"
+check "same digest -> ALREADY_CURRENT after verification, container untouched" test "$RC" = 0 -a "$(jf status)" = ALREADY_CURRENT -a "$(cfmt "$TARGET" '{{.Id}}')" = "$NEW_CID"
+
+say "== S5 explicit rollback from the protected record"
+run_deploy rollback
+check "rollback -> exit 0 ROLLED_BACK" test "$RC" = 0 -a "$(jf status)" = ROLLED_BACK
+check "the ORIGINAL container (same ID) serves again under the target name with its original policy" bash -c "[[ \"$(cfmt "$TARGET" '{{.Id}}')\" == $OLD_CID && \"$(cfmt "$TARGET" '{{.State.Running}}')\" == true && \"$(cfmt "$OLD_CID" '{{.HostConfig.RestartPolicy.Name}}')\" == unless-stopped ]]"
+check "the rolled-back release is stopped with restart=no and kept" bash -c "[[ \"$(cfmt "$NEW_CID" '{{.State.Running}}')\" == false && \"$(cfmt "$NEW_CID" '{{.HostConfig.RestartPolicy.Name}}')\" == no ]]"
+check "Staff session still valid after the rollback" test "$(me_code)" = 200
+check "database identical after the rollback (container rollback never touches it)" test "$(db_hash)" = "$DB1"
+run_deploy rollback
+check "second rollback is idempotent -> ALREADY_ROLLED_BACK exit 0" test "$RC" = 0 -a "$(jf status)" = ALREADY_ROLLED_BACK
+set_conf EXPECTED_CURRENT_IMAGE "$REF_OLD"
+OLD_STARTED="$(cfmt "$TARGET" '{{.State.StartedAt}}')"
+
+say "== S6 real failure AFTER the stop (TEST_ONLY candidate that cannot start)"
+dargs "$REF_FAULT"; run_deploy deploy "${DA[@]}"
+check "failed candidate -> exit 30 DEPLOY_FAILED_ROLLED_BACK (never success): status=$(jf status) detail=$(jf detail)" test "$RC" = 30 -a "$(jf status)" = DEPLOY_FAILED_ROLLED_BACK
+check "the original container serves again, verified, under the target name" bash -c "[[ \"$(cfmt "$TARGET" '{{.Id}}')\" == $OLD_CID && \"$(cfmt "$TARGET" '{{.State.Running}}')\" == true ]]"
+check "restart policy restored on the original" test "$(cfmt "$OLD_CID" '{{.HostConfig.RestartPolicy.Name}}')" = unless-stopped
+check "failed candidate kept stopped as evidence with restart=no (not removed)" bash -c "[[ \"$(cfmt "$(jf candidate_id)" '{{.State.Running}}')\" == false && \"$(cfmt "$(jf candidate_id)" '{{.HostConfig.RestartPolicy.Name}}')\" == no ]]"
+check "Staff session valid after the failed deploy and rollback" test "$(me_code)" = 200
+check "journal: ROLLED_BACK and nothing unfinished" bash -c "grep -q '^STATE=ROLLED_BACK' '$WORK/journal/runs/$(jf run_id)/state' && [[ -z \"\$(grep -L -E '^STATE=(REJECTED|SUCCEEDED|ROLLED_BACK|ROLLBACK_DONE|ALREADY_CURRENT_DONE)\$' '$WORK'/journal/runs/*/state)\" ]]"
+run_deploy status
+check "status reports a healthy, finished state (exit 0)" test "$RC" = 0
+
+say "== S7 deploy succeeds again after a rolled-back failure"
+dargs "$REF_CAND"; run_deploy deploy "${DA[@]}"
+check "second successful deploy -> SUCCESS" test "$RC" = 0 -a "$(jf status)" = SUCCESS
+check "Staff session valid after the second deploy" test "$(me_code)" = 200
+
+say "== S8 secret canaries"
+LEAK=0
+for canary in "$PG_CANARY" "$STAFF_CANARY" "$SU_CANARY"; do
+  if grep -rqF -- "$canary" "$WORK/out" "$WORK/journal" 2>/dev/null; then LEAK=1; fi
+done
+check "no canary in deploy stdout/stderr, harness log, journal, records or evidence" test "$LEAK" = 0
+
+say "== summary  PASS=$PASS FAIL=$FAILS  postgres=$PGVER  downtime_seconds(first success)=$DOWNTIME_S"
+{ echo "downtime_seconds=$DOWNTIME_S"; echo "pass=$PASS"; echo "fail=$FAILS"; } > "${REHEARSAL_SUMMARY:-/dev/null}"
+[[ "$FAILS" -eq 0 ]]
