@@ -236,6 +236,13 @@ def shape(c, img, port, keys, ca):
         profile.append((key, values))
         for v in values:
             args += [flag, str(v)]
+    if (cfg.get('Hostname') or '') not in ('', (c.get('Id') or '')[:12]):
+        raise Reject('SHAPE_HOSTNAME_OVERRIDDEN')
+    if cfg.get('MacAddress'):
+        raise Reject('SHAPE_MAC_ADDRESS_SET')
+    for key in ('ExposedPorts', 'Volumes'):
+        if (cfg.get(key) or None) != (icfg.get(key) or None):
+            raise Reject('SHAPE_OVERRIDES_IMAGE_' + key.upper())
     ro = bool(hc.get('ReadonlyRootfs'))
     profile.append(('readonly', ro))
     if ro:
@@ -253,6 +260,12 @@ def shape(c, img, port, keys, ca):
     profile.append(('NanoCpus', nano))
     if nano:
         args += ['--cpus', '%d.%09d' % (nano // 10**9, nano % 10**9)]
+    # Fields no list above knows about must not be silently dropped when the candidate is created with defaults: compare the
+    # FULL HostConfig and Config. The only exclusions are the restart policy (deliberately `no` on the candidate until every
+    # check passed, then applied and re-verified) and the per-container/derived Config members (Env and Labels have their own
+    # checks, Image differs by design, Hostname is derived from the container ID).
+    profile.append(('hostconfig', {k: v for k, v in hc.items() if k != 'RestartPolicy'}))
+    profile.append(('config', {k: v for k, v in cfg.items() if k not in ('Env', 'Image', 'Labels', 'Hostname')}))
     return profile, args
 
 
@@ -317,9 +330,9 @@ pyget() { py get "$1" "$2"; }
 
 emit() {  # emit <STATUS> <DETAIL> <exit>
   FINALIZED=true
-  local line
+  local line detail="${2//[^A-Za-z0-9_.:,-]/_}"
   line="$(printf '{"status":"%s","detail":"%s","exit":%s,"command":"%s","run_id":"%s","target":"%s","image":"%s","source_sha":"%s","candidate_id":"%s","previous_id":"%s","downtime_seconds":%s}' \
-    "$1" "$2" "$3" "$CMD" "$RUN_ID" "${CFG[TARGET_CONTAINER]:-}" "$IMAGE" "$SOURCE_SHA" "${CAND_ID:-}" "${OLD_ID:-}" "$DOWNTIME")"
+    "$1" "$detail" "$3" "$CMD" "$RUN_ID" "${CFG[TARGET_CONTAINER]:-}" "$IMAGE" "$SOURCE_SHA" "${CAND_ID:-}" "${OLD_ID:-}" "$DOWNTIME")"
   printf '%s\n' "$line" >&3
   if [[ -n "$RUN_DIR" && -d "$RUN_DIR" ]]; then printf '%s\n' "$line" > "$RUN_DIR/result.json"; fi
   # Raw `docker inspect` output carries the environment (secrets): it never outlives the run that needed it.
@@ -839,6 +852,12 @@ cmd_rollback() {
   [[ "$(pyget "$EV/old.json" State.Running)" == false && "$(pyget "$EV/old.json" Image)" == "${R[OLD_IMAGE_ID]}" && "$(pyget "$EV/old.json" Name)" == "/${R[PREV_NAME]}" ]] \
     || reject ROLLBACK_PREVIOUS_CONTAINER_STATE_UNEXPECTED
   c_json "$target" "$EV/new.json" && [[ "$(pyget "$EV/new.json" Image)" == "${R[CAND_IMAGE_ID]}" ]] || reject ROLLBACK_CURRENT_IMAGE_DIFFERS
+  # Predictable failures must be rejected BEFORE the serving release is stopped: the previous container has to match the
+  # CURRENT env file and its image has to be there, exactly what restore_previous verifies after the stop.
+  i_json "${R[OLD_IMAGE_ID]}" "$EV/old-image.json" || reject ROLLBACK_PREVIOUS_IMAGE_MISSING
+  snapshot_env "$EV/env.verify"
+  py env-post "$EV/old.json" "$EV/old-image.json" "$EV/env.verify" 2>"$EV/env.err" || { rm -f "$EV/env.verify"; reject_from "$EV/env.err"; }
+  rm -f "$EV/env.verify"
   gate_migration_history
   keys_hash "$CAND_ID" "$EV/keys.pre"      # every key the current release holds must survive the rollback
   [[ -s "$EV/keys.pre" ]] || reject KEYS_DIRECTORY_EMPTY_OR_UNREADABLE
@@ -875,10 +894,6 @@ cmd_recover() {
     *)
       [[ -s "$EV/keys.pre" ]] || emit ROLLBACK_FAILED KEYS_PRE_EVIDENCE_MISSING 40
       [[ "$kind" == deploy ]] && J[FAILED_ID]="${J[CAND_ID]:-}"
-      if [[ "$st" == SUCCEEDED ]]; then
-        J[RECORD_RUN_ID]="$RUN_ID" J[RECORD_STATE]=SUCCEEDED; write_record
-        emit RECOVERED SUCCEEDED_RUN_RECORD_REWRITTEN 0
-      fi
       j_set STATE STOP_INTENT
       if restore_previous; then
         if [[ "$kind" == rollback ]]; then j_set STATE ROLLBACK_DONE; else j_set STATE ROLLED_BACK; fi

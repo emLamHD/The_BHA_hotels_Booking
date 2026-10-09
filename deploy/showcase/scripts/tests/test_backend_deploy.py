@@ -77,7 +77,8 @@ def inspect_c(s, cid):
           "Memory": 0, "MemorySwap": 0, "NanoCpus": 0, "PidsLimit": None, "Privileged": False}
     hc.update(c.get("hc_extra", {}))
     labels = dict(im["Labels"]); labels.update(c["labels"])
-    cfg = {"Image": c["config_image"], "Env": c["env"], "Labels": labels, "Entrypoint": im["Entrypoint"], "Cmd": None, "User": im["User"], "WorkingDir": "/app", "StopSignal": ""}
+    cfg = {"Image": c["config_image"], "Env": c["env"], "Labels": labels, "Entrypoint": im["Entrypoint"], "Cmd": None, "User": im["User"], "WorkingDir": "/app", "StopSignal": "",
+           "ExposedPorts": {"8080/tcp": {}}, "Volumes": None}
     cfg.update(c.get("cfg_extra", {}))
     return {"Id": cid, "Name": "/" + c["name"], "Image": c["image_id"], "State": {"Running": c["running"], "Status": "running" if c["running"] else c["status"]},
             "Config": cfg, "HostConfig": hc, "Mounts": c["mounts"]}
@@ -536,6 +537,23 @@ class PreStopRejections(Base):
         creates = [l for l in self.h.log() if l.startswith("create ")]
         self.assertIn("--memory 536870912", creates[0])                 # the supported limit was passed on to docker create
 
+    def test_any_hostconfig_field_the_candidate_does_not_reproduce_is_refused(self):
+        # Not in any hard-coded list: the generic full-HostConfig comparison must catch it before the stop.
+        for extra in ({"OomScoreAdj": 500}, {"MemoryReservation": 1048576}, {"MemorySwappiness": 10}, {"BlkioDeviceReadBps": [{"Path": "/dev/sda", "Rate": 1}]},
+                      {"StorageOpt": {"size": "1G"}}, {"ReadonlyPaths": ["/proc/x"]}):
+            with self.subTest(extra):
+                self.setUp()
+                s = self.h.load(); s["containers"][self.h.old_cid()]["hc_extra"] = extra; self.h.state = s; self.h.save()
+                self.reject("CANDIDATE_RUNTIME_DIFFERS_FROM_CAPTURED")
+
+    def test_config_level_overrides_are_refused(self):
+        for name, extra, code in (("hostname", {"Hostname": "custom-host"}, "SHAPE_HOSTNAME_OVERRIDDEN"), ("mac", {"MacAddress": "02:42:ac:11:00:02"}, "SHAPE_MAC_ADDRESS_SET"),
+                                  ("expose", {"ExposedPorts": {"9999/tcp": {}}}, "SHAPE_OVERRIDES_IMAGE_EXPOSEDPORTS"), ("volumes", {"Volumes": {"/x": {}}}, "SHAPE_OVERRIDES_IMAGE_VOLUMES")):
+            with self.subTest(name):
+                self.setUp()
+                s = self.h.load(); s["containers"][self.h.old_cid()]["cfg_extra"] = extra; self.h.state = s; self.h.save()
+                self.reject(code)
+
     def test_a_missing_or_malformed_config_is_refused_with_exit_2(self):
         self.h.write_conf(LOOPBACK_PORT="80")
         self.assertEqual(self.h.run(), 2)
@@ -773,6 +791,22 @@ class SignalsAndRecovery(Base):
                 self.assertEqual(self.h.last["detail"], "NOTHING_TO_RECOVER")
                 self.assertEqual(self.h.run("status"), 0)
 
+    def test_recover_never_takes_over_a_name_held_by_an_unrelated_container(self):
+        run, cand_id = self.crash_after_the_old_was_stopped("OLD_STOPPED")
+        s = self.h.load()
+        s["containers"][self.h.old_cid()]["name"] = TARGET + "-prev-" + run        # renamed away, the candidate not yet renamed ...
+        s["containers"]["4" * 64] = dict(s["containers"][self.h.old_cid()], name=TARGET, running=False, ports={}, labels={}, image_id=ID_BAD)   # a squatter
+        self.h.state = s; self.h.save()
+        text = (self.h.journal / "runs" / run / "state").read_text()
+        self.assertEqual(self.h.run("recover"), 40, self.h.proc.stdout)
+        self.assertEqual(self.h.last["status"], "ROLLBACK_FAILED")
+        self.assertIn("TARGET_NAME_OCCUPIED", self.h.last["detail"])
+        names = {c["name"] for c in self.h.containers().values()}
+        self.assertIn(TARGET, names)                                   # the squatter keeps its name
+        self.assertEqual(len(self.h.containers()), 3)                  # nothing removed
+        self.assertEqual([l for l in self.h.log() if l.split()[0] in ("rm", "rename")], [])
+        self.assertEqual(text.count("STATE=OLD_STOPPED"), 1)
+
     def test_an_unaccounted_labelled_container_blocks_new_runs(self):
         s = self.h.load()
         s["containers"]["6" * 64] = dict(s["containers"][self.h.old_cid()], name="stray", running=False, ports={},
@@ -842,6 +876,18 @@ class LocksAndRollback(Base):
         self.assertEqual(self.h.run("rollback"), 20)
         self.assertEqual(self.h.last["detail"], "ROLLBACK_RECORD_MISSING_OR_MALFORMED")
 
+    def test_rollback_that_could_not_succeed_is_rejected_before_stopping_anything(self):
+        # the env file changed after the deploy: the old container no longer matches it, which restore would only find out AFTER the stop
+        self.assertEqual(self.h.run(), 0)
+        before = self.h.mutating()
+        self.h.env_lines.append("Added__AfterDeploy=1"); self.h.write_env()
+        self.assertEqual(self.h.run("rollback"), 20, self.h.proc.stdout)
+        self.assertIn("ENV_DIFFERS:Added__AfterDeploy", self.h.last["detail"])
+        self.assertEqual(self.h.mutating(), before)
+        cid, c = self.h.by_name(TARGET)
+        self.assertNotEqual(cid, self.h.old_cid())
+        self.assertTrue(c["running"])
+
     def test_rollback_refuses_when_the_database_history_changed(self):
         self.assertEqual(self.h.run(), 0)
         write(self.h.d / "db.json", json.dumps({"ids": IDS + ["20270101000000_Later"]}), 0o644)
@@ -864,6 +910,12 @@ class SecretsAndOutput(Base):
         self.assertNotIn(CANARY, blob)
         # raw inspect output never outlives a run
         self.assertEqual(list(self.h.journal.rglob("old.json")) + list(self.h.journal.rglob("cand.json")), [])
+
+    def test_result_json_stays_valid_whatever_a_detail_contains(self):
+        s = self.h.load(); s["containers"][self.h.old_cid()]["env"].append('EVIL"NAME=1'); self.h.state = s; self.h.save()
+        rc = self.h.run()
+        self.assertEqual(rc, 20)
+        self.assertTrue(self.h.last)                                    # the line parsed as JSON
 
     def test_journal_files_and_directories_are_private(self):
         self.assertEqual(self.h.run(), 0)

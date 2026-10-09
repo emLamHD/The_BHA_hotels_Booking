@@ -94,10 +94,12 @@ openssl x509 -req -in "$WORK/certs/server.csr" -CA "$WORK/certs/ca.pem" -CAkey "
 chmod 644 "$WORK/certs/"*.pem "$WORK/certs/server.crt"; chmod 600 "$WORK/certs/server.key"
 cp "$WORK/certs/ca.pem" "$WORK/rds-ca.pem" && chmod 644 "$WORK/rds-ca.pem"
 
+REG_PRESENT=false; docker image inspect registry:2 >/dev/null 2>&1 && REG_PRESENT=true
 docker pull -q registry:2 >/dev/null
 REG_DIGEST="$(docker image inspect registry:2 --format '{{index .RepoDigests 0}}')"
-say "registry image: $REG_DIGEST"
-id="$(docker run -d --name "bha-cp02-$RID-registry" --label "$LABEL" -p "127.0.0.1:$REGPORT:5000" registry:2)"; track_container "$id"
+$REG_PRESENT || CREATED_IMAGES+=("registry:2" "$REG_DIGEST")      # only removed if this run is what brought it in
+say "registry image (pinned by digest): $REG_DIGEST  pre-existing=$REG_PRESENT"
+id="$(docker run -d --name "bha-cp02-$RID-registry" --label "$LABEL" -p "127.0.0.1:$REGPORT:5000" "$REG_DIGEST")"; track_container "$id"
 
 id="$(docker create --name "bha-cp02-$RID-pg" --label "$LABEL" -e "POSTGRES_PASSWORD=$SU_CANARY" -p "$GW:$PGPORT:5432" \
   -v "$WORK/certs:/certsrc:ro" --entrypoint sh postgres:18.3 -c \
@@ -127,15 +129,18 @@ SQL
 PROPERTY_ID="a1000000-0000-0000-0000-000000000001"
 
 # ---------------------------------------------------------------- images: exact committed source, distinct identities
-build() {  # build <tag> <revision-label> [dockerfile-on-stdin]
-  docker build -q --tag "$1" --label "org.opencontainers.image.revision=$2" --label "org.opencontainers.image.source=$SRC_URL" "$REPO/Back_End" >/dev/null
+# The build context is an archive of the committed tree (no working-tree leftovers such as bin/ obj/), like runbook step 2.
+mkdir -p "$WORK/src"
+git -C "$REPO" archive "$SHA" Back_End | tar -x -C "$WORK/src"
+build() {  # build <tag> <revision-label>
+  docker build -q --tag "$1" --label "org.opencontainers.image.revision=$2" --label "org.opencontainers.image.source=$SRC_URL" "$WORK/src/Back_End" >/dev/null
   CREATED_IMAGES+=("$1")
 }
 IMG_BASE="bha-cp02-$RID-api"
 build "$IMG_BASE:cand" "$SHA"
 build "$IMG_BASE:old" "$OLD_SHA"
 # TEST_ONLY fixture: same entrypoint/user/env defaults, so it passes every pre-stop gate, but it cannot start (invalid appsettings.json).
-docker build -q --tag "$IMG_BASE:fault" -f - "$REPO/Back_End" >/dev/null <<EOF
+docker build -q --tag "$IMG_BASE:fault" -f - "$WORK/src/Back_End" >/dev/null <<EOF
 FROM $IMG_BASE:cand
 LABEL com.thebha.test-only="true"
 RUN echo '{ this is not json' > /app/appsettings.json
