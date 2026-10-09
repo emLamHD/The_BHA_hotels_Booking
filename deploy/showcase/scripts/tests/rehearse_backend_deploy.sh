@@ -274,7 +274,12 @@ run_deploy() {  # run_deploy <command> [extra args] -> OUT (one JSON line), RC
 jf() { python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get(sys.argv[2],""))' "$OUT" "$1"; }
 cfmt() { docker container inspect "$1" --format "$2" 2>/dev/null; }
 set_conf() { sed -i "s#^$1=.*#$1=$2#" "$CONF"; }
-db_hash() { docker exec "$PG_CID" pg_dump -U postgres -d thebha 2>/dev/null | sha256sum | cut -d' ' -f1; }
+DUMPN=0
+db_hash() {  # schema + data + history of the application database; dumps stay in the private work dir for diagnosis
+  DUMPN=$((DUMPN + 1))
+  docker exec "$PG_CID" pg_dump -U postgres -d thebha 2>/dev/null > "$WORK/out/dump.$DUMPN"
+  sha256sum < "$WORK/out/dump.$DUMPN" | cut -d' ' -f1
+}
 keys_list() { docker exec "$1" find /var/keys -maxdepth 1 -type f -exec sha256sum {} + 2>/dev/null | sort; }
 count_target_containers() { docker ps -aq --filter "label=com.thebha.deploy.target=$TARGET" | wc -l; }
 deploy_args() { printf '%s\n' --image "$1" --source-sha "${2:-$SHA}" --manifest "${3:-$MAN}"; }
