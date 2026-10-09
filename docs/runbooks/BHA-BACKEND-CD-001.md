@@ -56,7 +56,7 @@ Main uses these three names only. It never falls back to `AWS_ROLE_ARN`, `AWS_EC
 1. GitHub: environment `backend-production` with **deployment branches restricted to `main`**; branch protection on `main`; environment variables `BACKEND_RELEASE_AWS_ROLE_ARN`, `BACKEND_RELEASE_AWS_REGION`, `BACKEND_RELEASE_ECR_REPOSITORY` — defined **only** there, not at organization or repository scope (a value there blocks the release). Keep `BACKEND_RELEASE_PUBLISH_ENABLED` unset until the Owner chooses to enable it (repository variable).
 2. ECR repository with tag immutability `IMMUTABLE`.
 3. IAM role for GitHub OIDC (`token.actions.githubusercontent.com`, audience `sts.amazonaws.com`). Ordinary subject for the environment: `repo:emLamHD/The_BHA_hotels_Booking:environment:backend-production`. **Verify the actual `sub` of a real token** (a customised subject template or immutable repository/owner IDs change its format) before writing the condition. The environment subject does not by itself restrict the branch: add the `main` restriction on the environment (above) and, where the claims allow, a `job_workflow_ref`/`ref` condition. The existing `showcase-publish` trust does not cover `main`; do not widen it.
-4. Role permissions, scoped to that one repository ARN: `ecr:DescribeRepositories`, `ecr:DescribeImages`, `ecr:BatchCheckLayerAvailability`, `ecr:InitiateLayerUpload`, `ecr:UploadLayerPart`, `ecr:CompleteLayerUpload`, `ecr:PutImage`; plus `ecr:GetAuthorizationToken` on `*`. No delete/batch-delete, no `ecr:PutImageTagMutability`. IAM/SSM wiring for deployment is CP03.
+4. Role permissions, scoped to that one repository ARN: `ecr:DescribeRepositories`, `ecr:DescribeImages`, `ecr:BatchCheckLayerAvailability`, `ecr:InitiateLayerUpload`, `ecr:UploadLayerPart`, `ecr:CompleteLayerUpload`, `ecr:PutImage`, `ecr:BatchGetImage` (the last one is in AWS's own push policy example, <https://docs.aws.amazon.com/AmazonECR/latest/userguide/image-push-iam.html>); plus `ecr:GetAuthorizationToken` on `*`. This is the template `deploy/showcase/iam/backend-release-publish-policy.json`, for the publish role only. No delete/batch-delete, no `ecr:PutImageTagMutability`. IAM/SSM wiring for deployment is CP03.
 
 ## 7. Local checks (what CP01 ran; no cloud)
 
@@ -550,15 +550,17 @@ PROBE
 ```
 Success prints `PROBE_EVIDENCE_VERIFIED` (the repository, workflow, run ID, attempt, head SHA, run URL, `aud`, `sub` and the private `EVIDENCE_DIR`); any other outcome ends nonzero with a `PROBE_STOP:` code and writes **no** `evidence.json`, so packet E has nothing to read. Exit 20 (`DISPATCH_RESULT_UNKNOWN`, `RUN_NOT_COMPLETED_BEFORE_DEADLINE`) means the outcome is not known: **never dispatch again**; the anchor line already printed carries the run ID, so resume the same run with `PROBE_RUN_ID=<id> PROBE_PINNED_SHA=<sha> BHA_REPO=… python3 …` (same block). A mismatch because `main` advanced between the read and the dispatch is `RUN_METADATA_MISMATCH`: the evidence is refused, explain why `main` moved before trying again. `sub` is normally `repo:<OWNER>/<REPO>:environment:backend-production`, but whatever the probe printed (and the packet verified came from this exact run) is what goes into the trust — never a guessed format. Keep the printed lines for the report; delete the probe later through a reviewed change if it is no longer wanted.
 
-**E — IAM roles (Owner; render from the templates into private files).** Run from the root of the checkout of the promoted commit. Inputs: `ACCOUNT_ID`, `REGION`, `INSTANCE_ID`, `ECR_REPOSITORY` and `EVIDENCE_DIR` (the directory D printed; the `sub` is read from the `evidence.json` that D wrote only after it verified the run, never typed by hand). The renderer parses and re-serialises the JSON templates (so a `sub` with `&`, `|`, `\`, quotes or `/` is inserted literally and exactly), refuses a missing or invalid input, an unreadable template, an unknown or leftover placeholder, a `sub` with `*`/`?`, and then **re-reads each of the three written files** and checks its content (trust: the exact `aud`, the exact `sub`, the account's OIDC provider; deploy policy: the two exact `SendCommand` resources; instance policy: the one repository ARN). It prints `RENDER_ALL_VALID` and the private directory only when all three pass; otherwise it deletes the files of this run, prints the failing file names and exits nonzero.
+**E — IAM roles (Owner; render from the templates into private files).** Run from the root of the checkout of the promoted commit. Every input is required and has no default: `BHA_REPO` (must be this project's `emLamHD/The_BHA_hotels_Booking`, compared case-insensitively), `ACCOUNT_ID`, `REGION`, `INSTANCE_ID`, `ECR_REPOSITORY`, and the **identity of the one probe run you chose**, copied by hand from the lines that a successful D printed (`PROBE_EVIDENCE_VERIFIED repo=… workflow=… (id N) run_id=… attempt=… head_sha=…` and `EVIDENCE_DIR=…`; none of it is secret): `PROBE_WORKFLOW_ID` (the `N`), `PROBE_RUN_ID`, `PROBE_RUN_ATTEMPT`, `PROBE_PINNED_SHA` (the `head_sha`) and `EVIDENCE_DIR` (the absolute path of **that** run's directory — never the current directory, never "the latest"). The packet takes the **expected** identity from these inputs and its own constants, not from the file it is checking, and refuses (nonzero, a code, before anything is rendered) evidence that is not an object with exactly the D schema, whose `format` is not the integer 1, `status` not `verified`, `aud` not `sts.amazonaws.com`, whose `repo` differs from `BHA_REPO`, `workflow` is not exactly `.github/workflows/backend-oidc-probe.yml`, `workflow_id`/`run_id`/`run_attempt` are not real positive JSON integers (a bool, float, string or null is refused) equal to your inputs, `head_sha` differs from `PROBE_PINNED_SHA`, or whose `run_url`/`html_url` are not exactly `https://api.github.com/repos/<repo>/actions/runs/<run id>` and `https://github.com/<repo>/actions/runs/<run id>` (another host, repo or run, userinfo, port, query or fragment fail). The `sub` is checked as before (non-empty string, at most 1024 characters, no control character, no `*`/`?`) and inserted **verbatim**: it is not required to look like `repo:…` and no repository is inferred from it, so a customised subject template still works. The renderer parses and re-serialises the JSON templates (an inserted value is never expanded again, so `&`, `|`, `\`, quotes or `/` are literal), refuses an unreadable template, an unknown or leftover placeholder, then **re-reads each of the four written files** and checks its content (trust: the exact `aud`, the exact `sub`, the account's OIDC provider; deploy policy: the two exact `SendCommand` resources; instance policy and publish policy: `Version`, `Effect`, the exact action set and the one repository ARN, no other key). It prints `RENDER_ALL_VALID` and the private directory only when all four pass; otherwise it deletes only the files of this run, prints the failing file names and exits nonzero. Limits: matching the identity keeps a stale or foreign evidence directory out; a JSON file somebody wrote by hand with the right schema is **not** OIDC evidence because it parses — the trust anchor is a successful D run, its private directory and the identity lines you saved. `RENDER_ALL_VALID` shows the rendered content passed these checks; it does not show that IAM authorises anything.
 ```bash
 python3 -I - <<'RENDER'
 import json, os, re, shutil, sys, tempfile
 
 SRC = "deploy/showcase/iam/"
 NAMES = {"trust.json": "backend-release-deploy-trust.json", "deploy-policy.json": "backend-release-deploy-policy.json",
-         "instance-ecr.json": "backend-release-instance-ecr-policy.json"}
+         "publish-policy.json": "backend-release-publish-policy.json", "instance-ecr.json": "backend-release-instance-ecr-policy.json"}
 PLACEHOLDER = re.compile(r"<([A-Z][A-Z_]*)>")
+PROJECT, PROBE = "emlamhd/the_bha_hotels_booking", ".github/workflows/backend-oidc-probe.yml"
+EVIDENCE_KEYS = {"format", "status", "repo", "workflow", "workflow_id", "run_id", "run_attempt", "head_sha", "run_url", "html_url", "aud", "sub"}
 
 
 def stop(code):
@@ -571,16 +573,41 @@ def need(name, pattern):
     return value if re.fullmatch(pattern, value) else stop(name + "_INVALID")
 
 
+REPO = need("BHA_REPO", r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}")
+if REPO.lower() != PROJECT:
+    stop("BHA_REPO_NOT_THIS_PROJECT")
 ACCOUNT, INSTANCE = need("ACCOUNT_ID", r"[0-9]{12}"), need("INSTANCE_ID", r"i-[0-9a-f]{17}")
 REGION, ECR = need("REGION", r"[a-z]{2}(-[a-z]+)+-[0-9]"), need("ECR_REPOSITORY", r"[a-z0-9][a-z0-9._/-]{1,255}")
+WORKFLOW_ID, RUN_ID, ATTEMPT = (int(need(n, r"[1-9][0-9]{0,17}")) for n in ("PROBE_WORKFLOW_ID", "PROBE_RUN_ID", "PROBE_RUN_ATTEMPT"))
+PINNED = need("PROBE_PINNED_SHA", r"[0-9a-f]{40}")
+EVIDENCE_DIR = os.environ.get("EVIDENCE_DIR", "")
+if not EVIDENCE_DIR or not os.path.isabs(EVIDENCE_DIR) or not os.path.isdir(EVIDENCE_DIR):
+    stop("EVIDENCE_DIR_INVALID")
 try:
-    with open(os.path.join(os.environ.get("EVIDENCE_DIR", ""), "evidence.json")) as handle:
+    with open(os.path.join(EVIDENCE_DIR, "evidence.json")) as handle:
         evidence = json.load(handle)
 except (OSError, ValueError):
     stop("EVIDENCE_UNREADABLE")
-sub = evidence.get("sub") if isinstance(evidence, dict) else None
-if not (isinstance(sub, str) and sub.strip() and len(sub) <= 1024 and evidence.get("format") == 1 and evidence.get("status") == "verified" and
-        evidence.get("aud") == "sts.amazonaws.com" and not any(ord(c) < 32 or ord(c) == 127 or c in "*?" for c in sub)):
+if not isinstance(evidence, dict) or set(evidence) != EVIDENCE_KEYS:
+    stop("EVIDENCE_SCHEMA")
+if type(evidence["format"]) is not int or evidence["format"] != 1 or evidence["status"] != "verified" or evidence["aud"] != "sts.amazonaws.com":
+    stop("EVIDENCE_INVALID")
+for field, expected in (("workflow_id", WORKFLOW_ID), ("run_id", RUN_ID), ("run_attempt", ATTEMPT)):
+    if type(evidence[field]) is not int or evidence[field] <= 0:                  # a bool, float, string or null is not an ID
+        stop("EVIDENCE_FIELD_TYPE_" + field)
+    if evidence[field] != expected:
+        stop("EVIDENCE_IDENTITY_MISMATCH_" + field)
+if not isinstance(evidence["repo"], str) or evidence["repo"].lower() != REPO.lower():
+    stop("EVIDENCE_IDENTITY_MISMATCH_repo")
+if evidence["workflow"] != PROBE:
+    stop("EVIDENCE_IDENTITY_MISMATCH_workflow")
+if evidence["head_sha"] != PINNED:
+    stop("EVIDENCE_IDENTITY_MISMATCH_head_sha")
+for field, url in (("run_url", "https://api.github.com/repos/%s/actions/runs/%d" % (REPO, RUN_ID)), ("html_url", "https://github.com/%s/actions/runs/%d" % (REPO, RUN_ID))):
+    if not isinstance(evidence[field], str) or evidence[field].lower() != url.lower():
+        stop("EVIDENCE_IDENTITY_MISMATCH_" + field)
+sub = evidence["sub"]
+if not (isinstance(sub, str) and sub.strip() and len(sub) <= 1024 and not any(ord(c) < 32 or ord(c) == 127 or c in "*?" for c in sub)):
     stop("EVIDENCE_INVALID")
 VALUES = {"ACCOUNT_ID": ACCOUNT, "REGION": REGION, "INSTANCE_ID": INSTANCE, "ECR_REPOSITORY": ECR, "VERIFIED_SUB_CLAIM": sub}
 
@@ -602,6 +629,9 @@ for out_name, template in NAMES.items():
         stop("TEMPLATE_UNREADABLE_" + out_name)
 TOKEN = "token.actions.githubusercontent.com"
 ECR_READ = ["ecr:BatchCheckLayerAvailability", "ecr:GetDownloadUrlForLayer", "ecr:BatchGetImage"]
+PUBLISH = ["ecr:BatchCheckLayerAvailability", "ecr:BatchGetImage", "ecr:CompleteLayerUpload", "ecr:DescribeImages", "ecr:DescribeRepositories",
+           "ecr:InitiateLayerUpload", "ecr:PutImage", "ecr:UploadLayerPart"]
+REPOSITORY_ARN = "arn:aws:ecr:%s:%s:repository/%s" % (REGION, ACCOUNT, ECR)
 
 
 def v_trust(d):
@@ -622,10 +652,17 @@ def v_deploy(d):
 def v_ecr(d):
     s = d.get("Statement")
     return isinstance(s, list) and len(s) == 2 and all(x.get("Effect") == "Allow" for x in s) and s[0].get("Action") == "ecr:GetAuthorizationToken" and \
-        s[0].get("Resource") == "*" and s[1].get("Action") == ECR_READ and s[1].get("Resource") == "arn:aws:ecr:%s:%s:repository/%s" % (REGION, ACCOUNT, ECR)
+        s[0].get("Resource") == "*" and s[1].get("Action") == ECR_READ and s[1].get("Resource") == REPOSITORY_ARN
 
 
-CHECKS = {"trust.json": v_trust, "deploy-policy.json": v_deploy, "instance-ecr.json": v_ecr}
+def v_publish(d):
+    s = d.get("Statement")
+    return isinstance(s, list) and len(s) == 2 and all(isinstance(x, dict) and set(x) == {"Sid", "Effect", "Action", "Resource"} and x["Effect"] == "Allow" for x in s) and \
+        s[0]["Action"] == "ecr:GetAuthorizationToken" and s[0]["Resource"] == "*" and \
+        isinstance(s[1]["Action"], list) and sorted(s[1]["Action"]) == PUBLISH and s[1]["Resource"] == REPOSITORY_ARN
+
+
+CHECKS = {"trust.json": v_trust, "deploy-policy.json": v_deploy, "publish-policy.json": v_publish, "instance-ecr.json": v_ecr}
 out_dir = tempfile.mkdtemp(prefix="bha-cp04-iam.")               # private (0700), unique per run: no file of another run is touched
 failed = []
 for out_name, doc in rendered.items():
@@ -638,7 +675,8 @@ for out_name, doc in rendered.items():
         with open(path) as handle:
             text = handle.read()
         leftover = PLACEHOLDER.search(text.replace(json.dumps(sub)[1:-1], ""))
-        if leftover or not CHECKS[out_name](json.loads(text)):
+        parsed = json.loads(text)
+        if leftover or set(parsed) != {"Version", "Statement"} or parsed["Version"] != "2012-10-17" or not CHECKS[out_name](parsed):
             failed.append(out_name)
     except Exception:                                            # any render, write, parse or check problem makes the whole result invalid
         failed.append(out_name)
@@ -649,7 +687,7 @@ if failed:
 print("RENDER_ALL_VALID dir=%s files=%s" % (out_dir, ",".join(sorted(rendered))))
 RENDER
 ```
-Only after `RENDER_ALL_VALID` (exit 0): create the **deploy role** (`trust.json` + `deploy-policy.json`) and attach `instance-ecr.json` to the instance profile's role. The **publish role** uses the same trust (same `sub`; the publish and deploy jobs both run in the environment) and the ECR actions of §6 step 4 on the `the-bha-api` repository ARN, `ecr:GetAuthorizationToken` on `*` (this policy has no template and is not rendered here); keep it a **separate** role from the deploy role. Never use a wildcard `sub`, and do not widen the `showcase-publish` trust.
+Only after `RENDER_ALL_VALID` (exit 0), and only by the Owner (nothing is applied by Claude or by this packet), create two **independent** roles with the same trust: the **publish role** = `trust.json` + `publish-policy.json`; the **deploy role** = `trust.json` + `deploy-policy.json`; and attach `instance-ecr.json` to the instance profile's role. Never attach the publish policy to the deploy role or the instance role, never use a wildcard `sub`, and do not widen the `showcase-publish` trust. The `sub` you verified came from the **probe** workflow; the publish and deploy jobs run in the same environment, so with the default environment subject the three are identical — but if the organization or repository customises the OIDC subject template with workflow-specific claims, they may differ: stop and compare the real publish/deploy subjects before creating the trusts, do not guess or widen.
 
 **F — host (Owner, on the instance through Session Manager; as root or with passwordless `sudo`).** One read-only script: it prints facts and codes only (no environment, no raw `docker inspect`), changes nothing, never pulls an image or touches a container, and any failed check ends it with a `HOST_CHECK_STOP:` code. Set `REF=<ECR_URI>@sha256:<BOOTSTRAP_DIGEST>` and `BHA_REPO=<OWNER>/<REPO>` first (`TARGET_CONTAINER` defaults to `the-bha-api`). `BOOTSTRAP_MATCH` is printed only when both inspections succeeded, both returned a well-formed `sha256:` image ID, the target is running, and the two IDs are equal (IDs are compared with IDs, never a tag from `Config.Image`).
 ```bash

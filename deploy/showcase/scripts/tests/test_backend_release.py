@@ -816,7 +816,8 @@ class IamTemplates(unittest.TestCase):
             for token in re.findall(r"<[^>]*>", text):
                 self.assertRegex(token, r"^<[A-Z][A-Z_]*>$", f.name)
         self.assertEqual({f.name for f in IAM_DIR.glob("*.json")},
-                         {"backend-release-deploy-trust.json", "backend-release-deploy-policy.json", "backend-release-instance-ecr-policy.json"})
+                         {"backend-release-deploy-trust.json", "backend-release-deploy-policy.json", "backend-release-instance-ecr-policy.json",
+                          "backend-release-publish-policy.json"})
 
     def test_trust_uses_only_the_condition_keys_aws_supports_and_no_wildcard_subject(self):
         doc, _ = self.load("backend-release-deploy-trust.json")
@@ -851,6 +852,18 @@ class IamTemplates(unittest.TestCase):
         self.assertEqual(pull["Resource"], "arn:aws:ecr:<REGION>:<ACCOUNT_ID>:repository/<ECR_REPOSITORY>")
         for forbidden in ("PutImage", "InitiateLayerUpload", "UploadLayerPart", "CompleteLayerUpload", "CreateRepository", "DeleteRepository", "BatchDeleteImage",
                           "SetRepositoryPolicy", "PutLifecyclePolicy", "ecr:*", "rds", "secretsmanager"):
+            self.assertNotIn(forbidden, json.dumps(doc))
+
+    def test_publish_policy_can_push_one_repository_and_nothing_else(self):
+        """BHA-BACKEND-CD-001-CP04-C3: the publish role's own policy (never attached to the deploy or instance role)."""
+        doc, _ = self.load("backend-release-publish-policy.json")
+        token, push = self.statements(doc)
+        self.assertEqual((token["Effect"], token["Action"], token["Resource"]), ("Allow", "ecr:GetAuthorizationToken", "*"))
+        self.assertEqual(push["Effect"], "Allow")
+        self.assertEqual(sorted(push["Action"]), sorted(["ecr:DescribeRepositories", "ecr:DescribeImages", "ecr:BatchCheckLayerAvailability", "ecr:InitiateLayerUpload",
+                                                         "ecr:UploadLayerPart", "ecr:CompleteLayerUpload", "ecr:PutImage", "ecr:BatchGetImage"]))
+        self.assertEqual(push["Resource"], "arn:aws:ecr:<REGION>:<ACCOUNT_ID>:repository/<ECR_REPOSITORY>")
+        for forbidden in ("Delete", "BatchDeleteImage", "PutImageTagMutability", "SetRepositoryPolicy", "PutLifecyclePolicy", "CreateRepository", "ecr:*", "ssm", "iam:", "sts:", "rds"):
             self.assertNotIn(forbidden, json.dumps(doc))
 
 
