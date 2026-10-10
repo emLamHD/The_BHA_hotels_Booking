@@ -344,7 +344,7 @@ git fetch --prune origin && test "$(git rev-parse "refs/remotes/origin/main^{tre
 ```
 Anything else (another commit reached `main`, the tree differs) is a stop: do not continue with D until the difference is explained. The merge triggers `backend-image.yml` on `main` with flags unset: expect plan `publish=false deploy=false`, `publish-main` and `deploy-main` **skipped** (record the run).
 
-**D — the real OIDC subject (Owner).** The probe lives in `.github/workflows/backend-oidc-probe.yml`: `workflow_dispatch` only, `main` only, environment `backend-production`, no checkout, no AWS call, masks the token and prints only the listed claims. Dispatching "the latest run" is not evidence of **your** dispatch (an older run, or another dispatch of the same SHA, can be the latest), so this packet binds everything to the run ID that the dispatch call itself returns. Set `BHA_REPO=<OWNER>/<REPO>` (exact `OWNER/REPO`) in the shell first; it needs an authenticated `gh` (Actions read/write, Variables read, Environments read) and `python3` ≥ 3.8. It uses only `gh api` (REST, `X-GitHub-Api-Version: 2026-03-10`, whose dispatch call answers `200` with `workflow_run_id`, `run_url`, `html_url`); `gh run watch` is deliberately not used (it does not support fine-grained tokens), and nothing selects a run with `gh run list`.
+**D — the real OIDC subject (Owner).** The probe lives in `.github/workflows/backend-oidc-probe.yml`: `workflow_dispatch` only, `main` only, environment `backend-production`, no checkout, no AWS call, masks the token and prints only the listed claims. Dispatching "the latest run" is not evidence of **your** dispatch (an older run, or another dispatch of the same SHA, can be the latest), so this packet binds everything to the run ID that the dispatch call itself returns. Set `BHA_REPO=<OWNER>/<REPO>` (exact `OWNER/REPO`) in the shell first; it needs an authenticated `gh` (Actions read/write, Variables read, Environments read) and `python3` ≥ 3.8. It uses only `gh api` (REST, `X-GitHub-Api-Version: 2026-03-10`, whose dispatch call answers `200` with `workflow_run_id`, `run_url`, `html_url`); `gh run watch` is deliberately not used (it does not support fine-grained tokens), and nothing selects a run with `gh run list`. The log is read from the selected job's own endpoint (`GET /repos/{repo}/actions/jobs/{job_id}/logs`, which GitHub documents as a redirect to a plain text file; the *run* logs endpoint is the one that returns a ZIP archive, and it is not used). Only that one GET passes `--allow-escape-sequences` (without it `gh` refuses a response that contains terminal escape sequences); the dispatch and every metadata request do not. Every `gh` output is captured as bytes and never forwarded or printed. The log is decoded once, as strict UTF-8 regardless of the locale (one leading BOM and CRLF are accepted; any other invalid byte stops with `LOGS_NOT_UTF8`; the 2,000,000 size limit counts raw bytes), and metadata and dispatch answers are decoded as strict UTF-8 too. Before any API call the packet requires `gh api --help` to list the flag (`GH_FLAG_UNSUPPORTED_allow_escape_sequences` otherwise), so an old `gh` cannot spend the single dispatch.
 ```bash
 python3 -I - <<'PROBE'
 import json, os, re, subprocess, sys, tempfile, time, datetime
@@ -384,33 +384,46 @@ INTERVAL, DEADLINE = number("PROBE_POLL_INTERVAL", "10", 0, 60), number("PROBE_D
 posint = lambda v: isinstance(v, int) and not isinstance(v, bool) and v > 0
 if not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}", REPO):
     stop("BHA_REPO_INVALID")
+try:                                                             # before any API call, so an old gh cannot burn the single dispatch
+    helped = subprocess.run(["gh", "api", "--help"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+except (OSError, subprocess.TimeoutExpired):
+    stop("GH_NOT_RUNNABLE")
+if helped.returncode != 0 or b"--allow-escape-sequences" not in helped.stdout:
+    stop("GH_FLAG_UNSUPPORTED_allow_escape_sequences (upgrade gh; nothing was dispatched)")
 
 
-def gh(path, method="GET", fields=()):
-    cmd = ["gh", "api", "-X", method, "-H", "Accept: application/vnd.github+json", "-H", "X-GitHub-Api-Version: " + VERSION, path]
+def gh(path, method="GET", fields=(), log=False):
+    """Returns (exit code, stdout BYTES, HTTP status or None). stdout and stderr are always captured, never forwarded; stderr is only searched."""
+    cmd = ["gh", "api", "-X", method, "-H", "Accept: application/vnd.github+json", "-H", "X-GitHub-Api-Version: " + VERSION]
+    if log:                                                      # the job-log GET only: the log carries terminal escape sequences, which gh refuses to output without it
+        cmd.append("--allow-escape-sequences")
+    cmd.append(path)
     for field in fields:
         cmd += ["-f", field]
     try:
-        p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=90)
+        p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=90)
     except (OSError, subprocess.TimeoutExpired):
-        return 99, "", None
-    m = re.search(r"HTTP (\d{3})", p.stderr)
+        return 99, b"", None
+    err = p.stderr.decode("utf-8", "replace")                    # classification only, never printed
+    if log and "unknown flag" in err:
+        stop("GH_FLAG_UNSUPPORTED_allow_escape_sequences (the run was dispatched: resume it with PROBE_RUN_ID and PROBE_PINNED_SHA after upgrading gh)")
+    m = re.search(r"HTTP (\d{3})", err)
     return p.returncode, p.stdout, int(m.group(1)) if m else None
 
 
-def read(path, wait_404=False, text=False):
+def read(path, wait_404=False, log=False):
     """GET with bounded retries, only for transient evidence (network, 5xx, 429, and 404 while a fresh run/log becomes visible)."""
     for attempt in range(6):
-        rc, out, status = gh(path)
+        rc, out, status = gh(path, log=log)
         if rc == 0:
             break
         if not (status is None or status >= 500 or status == 429 or (wait_404 and status == 404)) or attempt == 5:
             stop("API_READ_FAILED_%s" % (status or "NETWORK"))
         time.sleep(INTERVAL)
-    if text:
-        return out
+    if log:
+        return out                                               # raw bytes: the caller decodes them once, strictly
     try:
-        doc = json.loads(out)
+        doc = json.loads(out.decode("utf-8"))                    # UnicodeDecodeError is a ValueError: invalid UTF-8 is an invalid response
     except ValueError:
         doc = None
     return doc if isinstance(doc, dict) else stop("API_RESPONSE_INVALID")
@@ -435,7 +448,7 @@ for flag in FLAGS:
     rc, out, status = gh("repos/%s/actions/variables/%s" % (REPO, flag))
     if rc == 0:
         try:
-            value = json.loads(out).get("value")
+            value = json.loads(out.decode("utf-8")).get("value")
         except (ValueError, AttributeError):
             value = None
         if value not in ("", "false"):
@@ -454,7 +467,7 @@ if not resume:                                                  # exactly ONE di
     if rc != 0 and status in (401, 403, 404, 422):
         stop("DISPATCH_REFUSED_BY_API_%d (nothing was dispatched; fix the cause, then run the packet again)" % status)
     try:
-        doc = json.loads(out) if rc == 0 else None
+        doc = json.loads(out.decode("utf-8")) if rc == 0 else None
         run_id = doc["workflow_run_id"]
         api_ok = urlparse(doc["run_url"]), urlparse(doc["html_url"])
         good = posint(run_id) and (api_ok[0].netloc, api_ok[0].path) == ("api.github.com", "/repos/%s/actions/runs/%d" % (REPO, run_id)) \
@@ -505,16 +518,24 @@ job = listed[0] if isinstance(listed, list) and len(listed) == 1 and isinstance(
 if jobs.get("total_count") != 1 or not posint(job.get("id")) or job.get("run_id") != run_id or job.get("run_attempt") != attempt or \
         job.get("head_sha") != pinned or job.get("status") != "completed" or job.get("conclusion") != "success":
     stop("JOB_MISMATCH")
-log = read("repos/%s/actions/jobs/%d/logs" % (REPO, job["id"]), wait_404=True, text=True)
-if not log or len(log) > 2000000:
+log = read("repos/%s/actions/jobs/%d/logs" % (REPO, job["id"]), wait_404=True, log=True)
+if not log or len(log) > 2000000:                                # raw bytes, checked before anything is decoded or parsed
     stop("LOGS_UNAVAILABLE")
+try:
+    text = log.decode("utf-8-sig")                               # strict UTF-8; one leading BOM is accepted; no locale, no errors="replace"
+except UnicodeDecodeError:
+    stop("LOGS_NOT_UTF8")
 claims = {}
-for line in log.splitlines():                                    # only the probe's own "claim NAME = JSON" lines are read; the raw log is never printed
-    m = re.match(r"^(?:\d{4}-\d\d-\d\dT[0-9:.]+Z )?claim ([a-z_]+) = (.*)$", line.rstrip("\r"))
+for line in text.split("\n"):                                    # "\n" only (str.splitlines() would also cut at VT, FF, FS-US, NEL, LS and PS); the raw log is never printed
+    if line.endswith("\r"):
+        line = line[:-1]
+    m = re.match(r"^(?:\d{4}-\d\d-\d\dT[0-9:.]+Z )?claim ([a-z_]+) = (.*)$", line)   # only the probe's own plain claim lines are read; a line with anything in front is noise
     if m:
         name, raw = m.groups()
         if name not in CLAIMS:
             stop("LOG_UNEXPECTED_CLAIM")
+        if any(ord(c) < 32 or 127 <= ord(c) < 160 for c in line):    # C0, DEL and C1 (incl. U+009B): the line is refused, never cleaned up
+            stop("LOG_CLAIM_CONTROL_" + name)
         if name in claims:
             stop("LOG_DUPLICATE_CLAIM_" + name)
         try:
@@ -548,7 +569,7 @@ print("PROBE_EVIDENCE_VERIFIED repo=%s workflow=%s (id %d) run_id=%d attempt=%d 
 print("run_url=%s\naud=sts.amazonaws.com\nsub=%s\nEVIDENCE_DIR=%s" % (cur.get("html_url"), json.dumps(sub), out_dir))
 PROBE
 ```
-Success prints `PROBE_EVIDENCE_VERIFIED` (the repository, workflow, run ID, attempt, head SHA, run URL, `aud`, `sub` and the private `EVIDENCE_DIR`); any other outcome ends nonzero with a `PROBE_STOP:` code and writes **no** `evidence.json`, so packet E has nothing to read. Exit 20 (`DISPATCH_RESULT_UNKNOWN`, `RUN_NOT_COMPLETED_BEFORE_DEADLINE`) means the outcome is not known: **never dispatch again**; the anchor line already printed carries the run ID, so resume the same run with `PROBE_RUN_ID=<id> PROBE_PINNED_SHA=<sha> BHA_REPO=… python3 …` (same block). A mismatch because `main` advanced between the read and the dispatch is `RUN_METADATA_MISMATCH`: the evidence is refused, explain why `main` moved before trying again. `sub` is normally `repo:<OWNER>/<REPO>:environment:backend-production`, but whatever the probe printed (and the packet verified came from this exact run) is what goes into the trust — never a guessed format. Keep the printed lines for the report; delete the probe later through a reviewed change if it is no longer wanted.
+Success prints `PROBE_EVIDENCE_VERIFIED` (the repository, workflow, run ID, attempt, head SHA, run URL, `aud`, `sub` and the private `EVIDENCE_DIR`); any other outcome ends nonzero with a `PROBE_STOP:` code and writes **no** `evidence.json`, so packet E has nothing to read. Exit 20 (`DISPATCH_RESULT_UNKNOWN`, `RUN_NOT_COMPLETED_BEFORE_DEADLINE`) means the outcome is not known: **never dispatch again**; the anchor line already printed carries the run ID, so resume the same run with `PROBE_RUN_ID=<id> PROBE_PINNED_SHA=<sha> BHA_REPO=… python3 …` (same block). A mismatch because `main` advanced between the read and the dispatch is `RUN_METADATA_MISMATCH`: the evidence is refused, explain why `main` moved before trying again. `sub` is normally `repo:<OWNER>/<REPO>:environment:backend-production`, but whatever the probe printed (and the packet verified came from this exact run) is what goes into the trust — never a guessed format. Only a line that begins (after an optional timestamp) with `claim NAME = ` is a claim line: escape sequences or any other text in front of it make the line noise, and noise lines may contain anything. A claim line that itself contains a C0, DEL or C1 control character stops with `LOG_CLAIM_CONTROL_<name>`; nothing is stripped, trimmed, normalised or decoded with replacement to make a claim valid, and the log is split on `\n` only. Limit: a CI job log that was read earlier (UTF-8 with a BOM and escape sequences, not a ZIP) is the only observation behind this transport; it is not a log of this probe, and the first real dispatch can still differ. Keep the printed lines for the report; delete the probe later through a reviewed change if it is no longer wanted.
 
 **E — IAM roles (Owner; render from the templates into private files).** Run from the root of the checkout of the promoted commit. Every input is required and has no default: `BHA_REPO` (must be this project's `emLamHD/The_BHA_hotels_Booking`, compared case-insensitively), `ACCOUNT_ID`, `REGION`, `INSTANCE_ID`, `ECR_REPOSITORY`, and the **identity of the one probe run you chose**, copied by hand from the lines that a successful D printed (`PROBE_EVIDENCE_VERIFIED repo=… workflow=… (id N) run_id=… attempt=… head_sha=…` and `EVIDENCE_DIR=…`; none of it is secret): `PROBE_WORKFLOW_ID` (the `N`), `PROBE_RUN_ID`, `PROBE_RUN_ATTEMPT`, `PROBE_PINNED_SHA` (the `head_sha`) and `EVIDENCE_DIR` (the absolute path of **that** run's directory — never the current directory, never "the latest"). The packet takes the **expected** identity from these inputs and its own constants, not from the file it is checking, and refuses (nonzero, a code, before anything is rendered) evidence that is not an object with exactly the D schema, whose `format` is not the integer 1, `status` not `verified`, `aud` not `sts.amazonaws.com`, whose `repo` differs from `BHA_REPO`, `workflow` is not exactly `.github/workflows/backend-oidc-probe.yml`, `workflow_id`/`run_id`/`run_attempt` are not real positive JSON integers (a bool, float, string or null is refused) equal to your inputs, `head_sha` differs from `PROBE_PINNED_SHA`, or whose `run_url`/`html_url` are not exactly `https://api.github.com/repos/<repo>/actions/runs/<run id>` and `https://github.com/<repo>/actions/runs/<run id>` (another host, repo or run, userinfo, port, query or fragment fail). The `sub` is checked as before (non-empty string, at most 1024 characters, no control character, no `*`/`?`) and inserted **verbatim**: it is not required to look like `repo:…` and no repository is inferred from it, so a customised subject template still works. The renderer parses and re-serialises the JSON templates (an inserted value is never expanded again, so `&`, `|`, `\`, quotes or `/` are literal), refuses an unreadable template, an unknown or leftover placeholder, then **re-reads each of the four written files** and checks its content (trust: the exact `aud`, the exact `sub`, the account's OIDC provider; deploy policy: the two exact `SendCommand` resources; instance policy and publish policy: `Version`, `Effect`, the exact action set and the one repository ARN, no other key). It prints `RENDER_ALL_VALID` and the private directory only when all four pass; otherwise it deletes only the files of this run, prints the failing file names and exits nonzero. Limits: matching the identity keeps a stale or foreign evidence directory out; a JSON file somebody wrote by hand with the right schema is **not** OIDC evidence because it parses — the trust anchor is a successful D run, its private directory and the identity lines you saved. `RENDER_ALL_VALID` shows the rendered content passed these checks; it does not show that IAM authorises anything.
 ```bash
