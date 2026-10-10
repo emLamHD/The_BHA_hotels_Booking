@@ -46,6 +46,30 @@ public sealed record SupersedeAssignmentsCommand(
     string? AuthorizationEvidence,
     string? Reason);
 
+/// <summary>
+/// PMS-CAL-002-CP01: moves the later nights of one Effective ReservationAssignment
+/// segment to another PhysicalRoom — "the guest keeps the room until
+/// <see cref="SplitDate"/>, then sleeps in <see cref="DestinationPhysicalRoomId"/>".
+/// The store reads the segment's own room and nights and composes the two
+/// successors itself (source room <c>[start, SplitDate)</c>, destination room
+/// <c>[SplitDate, end)</c>); the caller supplies no dates of the segment, no
+/// replacement list and no price. <see cref="SplitDate"/> is the first night in the
+/// destination room and must lie strictly inside the segment's nights; the
+/// destination must differ from the segment's room. Evidence and reason are judged
+/// per successor by <see cref="IAssignmentMutationStore.SupersedeAsync"/>: the
+/// prefix is a new placement too, so a source that is already outside the sold
+/// RoomType needs them even when the destination is the sold type.
+/// </summary>
+public sealed record SplitMoveAssignmentCommand(
+    Guid PropertyId,
+    Guid SegmentId,
+    uint ExpectedVersion,
+    DateOnly SplitDate,
+    Guid DestinationPhysicalRoomId,
+    string ActorReference,
+    string? AuthorizationEvidence,
+    string? Reason);
+
 public interface IAssignmentMutationStore
 {
     Task<SegmentMutationResult> CreateAsync(
@@ -54,5 +78,9 @@ public interface IAssignmentMutationStore
 
     Task<SegmentMutationResult> SupersedeAsync(
         SupersedeAssignmentsCommand command,
+        CancellationToken cancellationToken);
+
+    Task<SegmentMutationResult> SplitMoveAsync(
+        SplitMoveAssignmentCommand command,
         CancellationToken cancellationToken);
 }

@@ -884,6 +884,9 @@ public sealed class StaffCalendarWriteAuthorizationTests(PostgreSqlWebApplicatio
         public Task<SegmentMutationResult> SupersedeAsync(SupersedeAssignmentsCommand command, CancellationToken cancellationToken) =>
             Record(command.ActorReference);
 
+        public Task<SegmentMutationResult> SplitMoveAsync(SplitMoveAssignmentCommand command, CancellationToken cancellationToken) =>
+            Record(command.ActorReference);
+
         private Task<SegmentMutationResult> Record(string actor)
         {
             Interlocked.Increment(ref Calls);
