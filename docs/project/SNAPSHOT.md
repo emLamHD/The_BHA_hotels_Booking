@@ -1,8 +1,10 @@
 # THE BHA — SNAPSHOT
 
-> Ngày cập nhật: 2026-10-10 (`PMS-CAL-002-CP01`, `BHA-BACKEND-CD-001-CP04`; 2026-10-09: `-CP03`, `-CP02`, `-CP01`; các phần cũ hơn giữ nguyên kèm SHA)
+> Ngày cập nhật: 2026-10-10 (`PMS-CAL-002-CP02`, `PMS-CAL-002-CP01`, `BHA-BACKEND-CD-001-CP04`; 2026-10-09: `-CP03`, `-CP02`, `-CP01`; các phần cũ hơn giữ nguyên kèm SHA)
 >
 > Mục đích: phục hồi trạng thái hiện tại mà không cần nạp worklog lịch sử
+
+Cập nhật 2026-10-10 (`PMS-CAL-002-CP02`, HTTP_SPLIT_MOVE_STAFF_AUDIT, branch `feature/pms-cal-002-cp02-http-split-move-staff-audit` từ `develop` `81acab8`, Draft PR vào `develop`, implementer Claude / reviewer Codex read-only do Owner gọi): PR #97 (`PMS-CAL-002-CP01`) đã merged (merge `81acab8`). Owner chốt thêm D3 (reason tùy chọn khi cả hai successor cùng RoomType đã bán, bắt buộc khi prefix hoặc suffix khác loại) và D5 (route/response/`LocalGate`); D4 và D6 còn OPEN. Mở **đúng một** route `POST /api/admin/v1/properties/{propertyId}/reservation-assignments/{segmentId}/split-move`, mỏng trên `SplitMoveAsync` của CP01, cùng attribute Staff/`LocalGate` như `move`/`unassign`: body 5 trường, `200` với `[source Cancelled, prefix, suffix]`, actor/evidence do server quyết định (Staff: `staff:{id}` + `staff-rbac:…`). Không đổi store, auth, schema hay Admin_Web; `UI_SPLIT_MOVE` vẫn `NOT_IMPLEMENTED`, CP03–CP05 chưa bắt đầu. Chi tiết: `docs/reports/PMS-CAL-002-CP02-completion.md`, `docs/design/PMS-CAL-002-split-move.md`. Backend CD AWS vẫn `PAUSED / NOT_COMPLETE`: hai biến repository `BACKEND_RELEASE_PUBLISH_ENABLED` và `BACKEND_RELEASE_DEPLOY_ENABLED` do Owner ghi `false` ở bước trước (đọc lại `false`); checkpoint CP02 không gọi cloud, không đổi cờ, không chạy workflow release.
 
 Cập nhật 2026-10-10 (`PMS-CAL-002-CP01`, SPLIT_MOVE_STORE_COMMAND, branch `feature/pms-cal-002-cp01-split-move-store` từ `develop` `841b4b7`, Draft PR vào `develop`, implementer Claude / reviewer Codex read-only do Owner gọi): Owner chốt D1 (nguồn khác RoomType đã bán vẫn cần Manager + xác nhận + lý do cho prefix, không kế thừa evidence cũ) và D2 (phòng đích trùng phòng nguồn bị từ chối); D3–D6 còn OPEN. Thêm **chỉ** entry point nội bộ `SplitMoveAssignmentCommand` + `IAssignmentMutationStore.SplitMoveAsync`: đọc room/đêm thật của segment, kiểm `start < splitDate < end` và đích ≠ nguồn (`Invalid`), dựng đúng một supersession prefix/suffix rồi gọi `SupersedeAsync` nguyên trạng (lock, version, capacity, audit theo successor). Không route HTTP, không UI, không schema; `HTTP_SPLIT_MOVE`/`UI_SPLIT_MOVE` vẫn `NOT_IMPLEMENTED`, CP02–CP05 chưa bắt đầu. Kiểm trên PostgreSQL 18.3 scratch: 27 test mới, unit 244 + integration 873. Chi tiết: `docs/reports/PMS-CAL-002-CP01-completion.md`, `docs/design/PMS-CAL-002-split-move.md`. Backend CD AWS: Owner **tạm dừng** `BHA-BACKEND-CD-001-CP04` P1 và kế hoạch CD AWS (dự kiến chuyển hosting sau); code CD đã merge được giữ nguyên, không đổi pipeline. Owner đã ghi hai biến repository `BACKEND_RELEASE_PUBLISH_ENABLED=false` và `BACKEND_RELEASE_DEPLOY_ENABLED=false` (Claude đọc lại chỉ-đọc 2026-10-10T07:37Z: cả hai `false`; chưa có environment `backend-production`; `main` vẫn `0243160`). P1 mới có đọc chỉ-đọc, chưa promote/probe/IAM/host; `SETUP_LIVE`, `PUBLISH_LIVE`, `DEPLOY_LIVE`, `ROLLBACK_LIVE`: không chạy; `BACKEND_CD`: `PAUSED / NOT_COMPLETE`.
 
@@ -447,7 +449,7 @@ này sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
 ### Đang thực thi
 
 - `CUST-WEB-SHOWCASE-001-CP01` — Customer Web thật ở `/`, route template bị chặn (Draft PR).
-- `PMS-CAL-002`: thiết kế split-move merged (PR #81); **tạm dừng**, D1–D6 OPEN, CP01–CP05 không mở.
+- `PMS-CAL-002`: thiết kế merged (PR #81), CP01 store command merged (PR #97); CP02 route HTTP split-move ở Draft PR; D1/D2/D3/D5 APPROVED, D4/D6 OPEN; CP03–CP05 chưa bắt đầu.
 - Các mutation khác (assignment swap/batch, operational-block move/split) **chưa kích
   hoạt**; Snapshot này không tự mở chúng.
 
@@ -812,8 +814,8 @@ evidence independently verified for this closeout via:
 quyết định riêng của Owner.
 
 Objective hiện tại là `CUST-WEB-SHOWCASE-001` (CP01 Draft PR): Customer Web thật ở `/`, route
-template bị chặn. `PMS-CAL-002` (split-move, thiết kế merged PR #81) tạm dừng theo Owner;
-D1–D6 vẫn OPEN. Review Codex chỉ do Owner gọi, OC quyết định,
+template bị chặn. `PMS-CAL-002` (split-move): thiết kế merged PR #81, store command merged PR #97,
+route HTTP CP02 ở Draft PR; D4/D6 vẫn OPEN. Review Codex chỉ do Owner gọi, OC quyết định,
 Owner giữ Ready/merge/branch cleanup. Không tự bắt đầu work item khác từ Snapshot này.
 
 ## 9. Main risks
