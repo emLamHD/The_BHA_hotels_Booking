@@ -56,7 +56,7 @@ Main uses these three names only. It never falls back to `AWS_ROLE_ARN`, `AWS_EC
 1. GitHub: environment `backend-production` with **deployment branches restricted to `main`**; branch protection on `main`; environment variables `BACKEND_RELEASE_AWS_ROLE_ARN`, `BACKEND_RELEASE_AWS_REGION`, `BACKEND_RELEASE_ECR_REPOSITORY` — defined **only** there, not at organization or repository scope (a value there blocks the release). Keep `BACKEND_RELEASE_PUBLISH_ENABLED` unset until the Owner chooses to enable it (repository variable).
 2. ECR repository with tag immutability `IMMUTABLE`.
 3. IAM role for GitHub OIDC (`token.actions.githubusercontent.com`, audience `sts.amazonaws.com`). Ordinary subject for the environment: `repo:emLamHD/The_BHA_hotels_Booking:environment:backend-production`. **Verify the actual `sub` of a real token** (a customised subject template or immutable repository/owner IDs change its format) before writing the condition. The environment subject does not by itself restrict the branch: add the `main` restriction on the environment (above) and, where the claims allow, a `job_workflow_ref`/`ref` condition. The existing `showcase-publish` trust does not cover `main`; do not widen it.
-4. Role permissions, scoped to that one repository ARN: `ecr:DescribeRepositories`, `ecr:DescribeImages`, `ecr:BatchCheckLayerAvailability`, `ecr:InitiateLayerUpload`, `ecr:UploadLayerPart`, `ecr:CompleteLayerUpload`, `ecr:PutImage`; plus `ecr:GetAuthorizationToken` on `*`. No delete/batch-delete, no `ecr:PutImageTagMutability`. IAM/SSM wiring for deployment is CP03.
+4. Role permissions, scoped to that one repository ARN: `ecr:DescribeRepositories`, `ecr:DescribeImages`, `ecr:BatchCheckLayerAvailability`, `ecr:InitiateLayerUpload`, `ecr:UploadLayerPart`, `ecr:CompleteLayerUpload`, `ecr:PutImage`, `ecr:BatchGetImage` (the last one is in AWS's own push policy example, <https://docs.aws.amazon.com/AmazonECR/latest/userguide/image-push-iam.html>); plus `ecr:GetAuthorizationToken` on `*`. This is the template `deploy/showcase/iam/backend-release-publish-policy.json`, for the publish role only. No delete/batch-delete, no `ecr:PutImageTagMutability`. IAM/SSM wiring for deployment is CP03.
 
 ## 7. Local checks (what CP01 ran; no cloud)
 
@@ -220,13 +220,13 @@ Timeout budget (seconds, one place: `backend-ssm-release.py`): remote overhead 2
 Placeholders are in `<ANGLE_CAPS>`; every value is the Owner's. Order matters; flags stay off until step 10.
 
 1. **GitHub environment and rules.** Environment `backend-production`: deployment branches = `main` only; add required reviewers if wanted. Branch protection on `main`. Do not create any of the new variables at repository or organization level.
-2. **Verify the real OIDC subject** before writing the trust. Default for an environment job: `repo:<OWNER>/<REPO>:environment:backend-production`; a customised subject template or the immutable-ID format (`repo:<OWNER>@<ID>/<REPO>@<ID>:environment:…`, repositories created after the GitHub cut-over or opted in) changes it. Capture a real token's `sub` from a throw-away workflow run in that environment (never print other claims) and put exactly that string in `<VERIFIED_SUB_CLAIM>`. AWS only supports `aud` and `sub` for GitHub in trust conditions (the GitHub doc: custom claims are unavailable in AWS) — the template uses nothing else. The environment subject does not replace the `main`-only branch rule of step 1; the existing `showcase-publish` trust does not cover this role.
+2. **Verify the real OIDC subject** before writing the trust. Default for an environment job: `repo:<OWNER>/<REPO>:environment:backend-production`; a customised subject template or the immutable-ID format (`repo:<OWNER>@<ID>/<REPO>@<ID>:environment:…`, repositories created after the GitHub cut-over or opted in) changes it. Capture a real token's `sub` with the CP04 probe (§11.3 packet D) — a throw-away run in that environment (never print other claims) and put exactly that string in `<VERIFIED_SUB_CLAIM>`. AWS only supports `aud` and `sub` for GitHub in trust conditions (the GitHub doc: custom claims are unavailable in AWS) — the template uses nothing else. The environment subject does not replace the `main`-only branch rule of step 1; the existing `showcase-publish` trust does not cover this role.
 3. **Deploy role** (`deploy/showcase/iam/backend-release-deploy-trust.json` + `backend-release-deploy-policy.json`): create the role `<DEPLOY_ROLE_NAME>` with that trust and inline policy; fill `<ACCOUNT_ID>`, `<REGION>`, `<INSTANCE_ID>`. `SendCommand` is limited to the `AWS-RunShellScript` document ARN and the one instance ARN; the three read actions are `Resource: "*"` (see 10.5). No ECR, no publish, no DB permission.
 4. **Instance profile** of `<INSTANCE_ID>`: keep `AmazonSSMManagedInstanceCore` (SSM Agent running and registered; the node must be a managed node) and attach `backend-release-instance-ecr-policy.json` (pull of `<ECR_REPOSITORY>` + `GetAuthorizationToken` on `*`; no `PutImage`, no upload actions). Egress from the instance to the SSM endpoints, ECR (`<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com` and S3 layers), `raw.githubusercontent.com:443` and the RDS endpoint; `/run/lock` and `/var/lib/the-bha` writable by root.
 5. **Host prerequisites** (documented contract, audit them): bash ≥ 4.4, python3 ≥ 3.8, docker, flock, timeout, curl, sha256sum, `aws` CLI v2 (for the ECR login), `psql` ≥ 10; the engine's own prerequisites in §9.5.
 6. **Host config and libpq files** (private, root, mode 600): the CP02 host config (§9.2) at `<HOST_CONFIG_PATH>`, with `EXPECTED_CURRENT_IMAGE=<BOOTSTRAP_DIGEST_REFERENCE>` — the digest reference of the container that serves **now**, verified by you: `docker inspect -f '{{.Image}} {{.Config.Image}}' the-bha-api` against `docker image inspect <reference> -f '{{.Id}}'`. `EXPECTED_SOURCE_URL=https://github.com/<OWNER>/<REPO>` must equal the repository of the packet. Also the libpq service file, passfile and CA of §9.3 step 4.
 7. **Runtime audit before the first release** (read-only): `backend-deploy.sh status`; container name/port/mounts/env file/restart policy/log driver as in §9.2; keys directory non-empty; `docker image inspect` of the bootstrap digest works locally.
-8. **Environment variables** in `backend-production`: the four CP01 names (`BACKEND_RELEASE_AWS_ROLE_ARN`, `BACKEND_RELEASE_AWS_REGION`, `BACKEND_RELEASE_ECR_REPOSITORY`) and the three CP03 names above.
+8. **Environment variables** in `backend-production`: the six names in total: the three CP01 names (`BACKEND_RELEASE_AWS_ROLE_ARN`, `BACKEND_RELEASE_AWS_REGION`, `BACKEND_RELEASE_ECR_REPOSITORY`) and the three CP03 names above (`BACKEND_RELEASE_DEPLOY_AWS_ROLE_ARN`, `BACKEND_RELEASE_EC2_INSTANCE_ID`, `BACKEND_RELEASE_HOST_CONFIG_PATH`); the two on/off switches are repository variables, not environment ones.
 9. **Disabled verification:** with both flags still unset, merge a release-path change to `main` (or inspect a PR run): plan reports `publish=false deploy=false`; `publish-main` and `deploy-main` are skipped.
 10. **Activation order:** set `BACKEND_RELEASE_PUBLISH_ENABLED=true`, release once (CP01 publish only) and check the digest in ECR; then set `BACKEND_RELEASE_DEPLOY_ENABLED=true`; the next release publishes and deploys. Never set the deploy flag alone.
 11. **First release checks:** the client summary says `PASS`; `docker inspect` shows the new digest; `EXPECTED_CURRENT_IMAGE` in `<HOST_CONFIG_PATH>` equals it; `release-state` and `records/latest` agree; `/health/ready` 200; one read-only Staff session check in the browser; the previous container is retained stopped.
@@ -236,3 +236,521 @@ Placeholders are in `<ANGLE_CAPS>`; every value is the Owner's. Order matters; f
 ### 10.7 Local verification (what CP03 ran; no cloud)
 
 `python3 -m unittest discover -s deploy/showcase/scripts/tests -p "test_*.py"`; actionlint 1.7.7 and ShellCheck 0.10.0 (pinned images, §7); `tests/rehearse_backend_ssm_release.sh` (real client → mocked SSM → real bootstrap/wrapper → real CP02 engine on Docker, PostgreSQL 18.3, loopback registry, TLS proxy). The rehearsal mocks only AWS: `ssm send-command`, `ssm get-command-invocation`, `ecr get-login-password` and the raw.githubusercontent.com download; everything else is real. Test-only switches in the scripts (all of them can only relax toward loopback or a non-root test user, none is reachable from the workflow): `BHA_RELEASE_PATH_PREFIX`, `BHA_RELEASE_STAGE_ROOT`, `BHA_RELEASE_LOCK_DIR`, `BHA_RELEASE_LOCK_WAIT`, `BHA_RELEASE_ALLOW_LOOPBACK_REGISTRY`.
+
+## 11. CP04 — Owner live activation (guide and evidence ledger; nothing below is live until a dated Owner entry says so)
+
+Claude guides, monitors and verifies read-only; **the Owner executes every cloud, GitHub-setting, host and flag write.** Evidence is labelled `OWNER_EXECUTED` / `OWNER_VERIFIED` (the Owner did or saw it) or `CLAUDE_VERIFIED_READ_ONLY` (a read check by Claude); isolated rehearsal evidence (§7, §9, §10.7) is never counted as live evidence. Account-specific values stay in the Owner's shell variables and in private temp files outside Git; no secret, token, cookie, password or raw `docker inspect` goes into a chat, a commit or a report.
+
+### 11.1 Observed state at the start of CP04 (2026-10-09)
+
+| Item | Observed (label) | Expected | Pending |
+|---|---|---|---|
+| ECR `the-bha-api` | exists, tag immutability `IMMUTABLE`, no repository policy; tag `6ae3fdd3…` is the bootstrap digest `sha256:d01c7d9d…98b4b6` (`CLAUDE_VERIFIED_READ_ONLY`) | IMMUTABLE | P2 adds the first `main` SHA tag |
+| EC2 | exactly one running instance `the-bha-api`, IMDSv2 required, an instance profile attached (`CLAUDE_VERIFIED_READ_ONLY`) | one managed node | SSM registration, profile contents and host prerequisites: **not readable by the audit user** → Owner packet A |
+| GitHub variables / environments | no repository variable; no `backend-production` environment; ruleset `protect-main` active (PR required, no force-push/deletion, no bypass) (`CLAUDE_VERIFIED_READ_ONLY`) | environment `main`-only, six env names, two flags unset | P1 |
+| Actions policy | "selected actions": GitHub-owned and verified-creator allowed, no patterns | `aws-actions/configure-aws-credentials` and `aws-actions/amazon-ecr-login` runnable | confirm in P1-B; add the two patterns if the first run is refused |
+| OIDC `sub` of a `backend-production` job | **no evidence** | read from a real token | P1-D (probe) |
+| IAM roles / OIDC provider | not readable by the audit user | publish role, deploy role, provider | P1-E |
+| Live publish / deploy / SSM / rollback | none | — | P2–P4 |
+
+### 11.2 Workflow of the work item
+
+P1 setup with **both flags off** → P2 publish only → P3 first automatic deploy → P4 explicit rollback drill, then restoration through a **new** `main` release. Stop at any `WAITING_OWNER` row. Release commits are real commits on `main` that touch `deploy/showcase/**` (the path filter of `backend-image.yml`); CP04 uses the small non-executable marker `deploy/showcase/releases/BHA-BACKEND-CD-001-activation.json`, created in P2 and changed once per release. Nothing is re-run to simulate a release: an existing SHA tag fails closed.
+
+### 11.3 Owner packets (copy-paste; `<…>` values are the Owner's)
+
+**A — audit with an admin profile (read-only, anywhere).** Set `ACCOUNT_ID`, `REGION`, `INSTANCE_ID` in the shell first.
+```bash
+aws sts get-caller-identity --query Account --output text            # must equal $ACCOUNT_ID
+aws iam list-open-id-connect-providers                               # token.actions.githubusercontent.com present?
+aws ssm describe-instance-information --region "$REGION" --filters "Key=InstanceIds,Values=$INSTANCE_ID" \
+  --query 'InstanceInformationList[].[InstanceId,PingStatus,AgentVersion]' --output text   # expect: Online
+aws ec2 describe-instances --region "$REGION" --instance-ids "$INSTANCE_ID" --query 'Reservations[].Instances[].IamInstanceProfile.Arn' --output text
+```
+Stop if the account differs, the node is not `Online`, or you cannot read these (then grant the read or run them as the account owner).
+
+**B — GitHub environment (Owner; `gh` authenticated with environment admin).** The probe job names `backend-production`; GitHub **auto-creates** a missing environment **without** branch rules, so it must exist, main-only, before D. The packet never writes to an environment that already exists (the PUT documentation does not say what an omitted `reviewers`/`wait_timer` becomes, so it is not used to "update"); it creates the environment only when it is absent, and in both cases it reads the result back and stops unless the environment is restricted to the single branch policy `main`. Set `BHA_REPO=<OWNER>/<REPO>` first.
+```bash
+bash -s <<'ENVSETUP'
+set -euo pipefail
+stop() { echo "ENV_SETUP_STOP: $1" >&2; exit 1; }
+re_repo='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
+[[ ${BHA_REPO:-} =~ $re_repo ]] || stop BHA_REPO_INVALID
+EP="repos/$BHA_REPO/environments/backend-production"
+rc=0; err="$(gh api "$EP" --silent 2>&1)" || rc=$?
+if [ "$rc" -eq 0 ]; then
+  echo "ENVIRONMENT_EXISTS: left unchanged (reviewers, wait timer and protections are preserved)"
+elif [[ $err == *"HTTP 404"* ]]; then
+  gh api -X PUT "$EP" --input - >/dev/null <<'JSON' || stop ENVIRONMENT_CREATE_FAILED
+{"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}
+JSON
+  gh api -X POST "$EP/deployment-branch-policies" -f name=main -f type=branch >/dev/null || stop BRANCH_POLICY_CREATE_FAILED
+  echo "ENVIRONMENT_CREATED"
+else
+  stop ENVIRONMENT_READ_FAILED
+fi
+custom="$(gh api "$EP" --jq '.deployment_branch_policy.custom_branch_policies')" || stop ENVIRONMENT_READ_FAILED
+policies="$(gh api "$EP/deployment-branch-policies" --jq '[.branch_policies[] | "\(.type):\(.name)"] | join(",")')" || stop ENVIRONMENT_READ_FAILED
+if [ "$custom" != true ] || [ "$policies" != "branch:main" ]; then
+  stop "ENVIRONMENT_NOT_MAIN_ONLY (fix it in Settings > Environments > backend-production > Deployment branches: Selected branches = main only; keep any reviewers)"
+fi
+echo ENVIRONMENT_MAIN_ONLY_VERIFIED
+gh api "repos/$BHA_REPO/actions/permissions/selected-actions" || stop ACTIONS_POLICY_READ_FAILED   # observation: patterns must allow aws-actions/* if GitHub later refuses the AWS actions
+ENVSETUP
+```
+Do not define any `BACKEND_RELEASE_*` variable yet. Required reviewers on the environment are optional (they add a click per deployment).
+
+**C — promotion of reviewed source to `main`, both flags still unset (Owner; Claude does not promote).** `main` and `develop` are different histories (the trees differ by the work of CP01–CP04). After the probe PR is merged into `develop`, run this **in the project's one checkout, which must be clean** (no staged, unstaged or untracked path; do not stash, clean or reset to make it so — resolve your own changes first). It is a self-contained script: any failing command or refused guard ends it (nonzero, a `PROMOTION_STOP:` or `DIRTY_WORKTREE_STOP` code on stderr) before the next step, without closing your shell. An unreadable `git status` is a refusal, never "clean". It pins the fetched `main` and `develop` commits once (never over an existing local or remote branch), builds the promotion commit from git objects only — parent = pinned `main`, tree = the pinned `develop` tree, so additions, changes and deletions are exact and `main`'s history is not rewritten — and checks it out with `git switch --no-overwrite-ignore`, which refuses (changing nothing) when a local change, an untracked file or even an **ignored** file stands in the way; it never overwrites, stashes or cleans. It re-checks cleanliness right before and right after the switch, asserts the resulting tree and parent, and only then pushes (no force).
+```bash
+bash -s <<'PROMOTE'
+set -euo pipefail
+stop() { echo "PROMOTION_STOP: $1" >&2; exit 1; }
+clean_or_stop() {   # staged, unstaged and untracked paths all count; the status text itself is never printed
+  local state
+  state="$(git status --porcelain=v1 --untracked-files=all 2>/dev/null)" || stop GIT_STATUS_FAILED
+  if [ -n "$state" ]; then echo "DIRTY_WORKTREE_STOP" >&2; exit 1; fi
+}
+BRANCH=promote/backend-cd-001-to-main
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || stop NOT_IN_A_GIT_CHECKOUT
+cd "$ROOT"
+clean_or_stop
+START="$(git symbolic-ref -q --short HEAD || git rev-parse --verify HEAD)"
+git fetch --prune origin >/dev/null 2>&1 || stop FETCH_FAILED
+MAIN="$(git rev-parse --verify --quiet "refs/remotes/origin/main^{commit}")" || stop MAIN_REF_MISSING
+DEVELOP="$(git rev-parse --verify --quiet "refs/remotes/origin/develop^{commit}")" || stop DEVELOP_REF_MISSING
+MAIN_TREE="$(git rev-parse --verify --quiet "$MAIN^{tree}")" || stop MAIN_TREE_MISSING
+DEV_TREE="$(git rev-parse --verify --quiet "$DEVELOP^{tree}")" || stop DEVELOP_TREE_MISSING
+[ "$MAIN_TREE" != "$DEV_TREE" ] || stop NOTHING_TO_PROMOTE
+if git show-ref --verify --quiet "refs/heads/$BRANCH"; then stop LOCAL_BRANCH_EXISTS; fi
+rc=0; git ls-remote --exit-code --heads origin "refs/heads/$BRANCH" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || stop REMOTE_BRANCH_EXISTS_OR_UNREADABLE
+NEW="$(git commit-tree "$DEV_TREE" -p "$MAIN" -m "chore(release): promote develop to main (BHA-BACKEND-CD-001)")" || stop COMMIT_TREE_FAILED
+{ [ "$(git rev-parse "$NEW^{tree}")" = "$DEV_TREE" ] && [ "$(git rev-parse "$NEW^")" = "$MAIN" ]; } || stop PROMOTION_COMMIT_MISMATCH
+clean_or_stop
+git switch --no-overwrite-ignore -c "$BRANCH" "$NEW" || stop SWITCH_REFUSED
+clean_or_stop
+{ [ "$(git rev-parse HEAD)" = "$NEW" ] && [ "$(git rev-parse "HEAD^{tree}")" = "$DEV_TREE" ]; } || stop PROMOTION_TREE_MISMATCH
+git push -u origin "$BRANCH" || stop PUSH_FAILED
+echo "PROMOTION_PUSHED branch=$BRANCH promotion_commit=$(git rev-parse HEAD)"
+echo "PINNED_MAIN=$MAIN"
+echo "PINNED_DEVELOP=$DEVELOP"
+echo "PINNED_DEVELOP_TREE=$DEV_TREE"
+echo "return to your previous branch with: git switch $START"
+PROMOTE
+```
+Keep the printed `PINNED_*` lines. Open a PR from `promote/backend-cd-001-to-main` into `main` and merge it yourself (merge commit or squash, per your ruleset). After the merge, **fetch again** and compare with the pinned tree, not with whatever `develop` is by then:
+```bash
+git fetch --prune origin && test "$(git rev-parse "refs/remotes/origin/main^{tree}")" = "<PINNED_DEVELOP_TREE printed above>" && echo MAIN_TREE_IS_THE_PINNED_DEVELOP_TREE
+```
+Anything else (another commit reached `main`, the tree differs) is a stop: do not continue with D until the difference is explained. The merge triggers `backend-image.yml` on `main` with flags unset: expect plan `publish=false deploy=false`, `publish-main` and `deploy-main` **skipped** (record the run).
+
+**D — the real OIDC subject (Owner).** The probe lives in `.github/workflows/backend-oidc-probe.yml`: `workflow_dispatch` only, `main` only, environment `backend-production`, no checkout, no AWS call, masks the token and prints only the listed claims. Dispatching "the latest run" is not evidence of **your** dispatch (an older run, or another dispatch of the same SHA, can be the latest), so this packet binds everything to the run ID that the dispatch call itself returns. Set `BHA_REPO=<OWNER>/<REPO>` (exact `OWNER/REPO`) in the shell first; it needs an authenticated `gh` (Actions read/write, Variables read, Environments read) and `python3` ≥ 3.8. It uses only `gh api` (REST, `X-GitHub-Api-Version: 2026-03-10`, whose dispatch call answers `200` with `workflow_run_id`, `run_url`, `html_url`); `gh run watch` is deliberately not used (it does not support fine-grained tokens), and nothing selects a run with `gh run list`. The log is read from the selected job's own endpoint (`GET /repos/{repo}/actions/jobs/{job_id}/logs`, which GitHub documents as a redirect to a plain text file; the *run* logs endpoint is the one that returns a ZIP archive, and it is not used). Only that one GET passes `--allow-escape-sequences` (without it `gh` refuses a response that contains terminal escape sequences); the dispatch and every metadata request do not. Every `gh` output is captured as bytes and never forwarded or printed. The log is decoded once, as strict UTF-8 regardless of the locale (one leading BOM and CRLF are accepted; any other invalid byte stops with `LOGS_NOT_UTF8`; the 2,000,000 size limit counts raw bytes), and metadata and dispatch answers are decoded as strict UTF-8 too. Before any API call the packet requires `gh api --help` to list the flag (`GH_FLAG_UNSUPPORTED_allow_escape_sequences` otherwise), so an old `gh` cannot spend the single dispatch.
+```bash
+python3 -I - <<'PROBE'
+import json, os, re, subprocess, sys, tempfile, time, datetime
+from urllib.parse import urlparse
+
+VERSION, WF_FILE, ENV = "2026-03-10", "backend-oidc-probe.yml", "backend-production"
+WF_PATH = ".github/workflows/" + WF_FILE
+CLAIMS = ("iss", "aud", "sub", "repository", "repository_id", "repository_owner", "repository_owner_id", "ref", "ref_type", "sha",
+          "environment", "event_name", "workflow_ref", "job_workflow_ref", "run_id", "run_attempt")
+FLAGS = ("BACKEND_RELEASE_PUBLISH_ENABLED", "BACKEND_RELEASE_DEPLOY_ENABLED")
+REPO = os.environ.get("BHA_REPO", "")
+T0 = time.monotonic()
+
+
+def _unexpected(kind, value, trace):                             # a bug or odd answer ends the packet with a code, never with a traceback or a value
+    print("PROBE_STOP: UNEXPECTED_" + kind.__name__, file=sys.stderr)
+    os._exit(1)
+
+
+sys.excepthook = _unexpected
+
+
+def stop(code, status=1):
+    print("PROBE_STOP: " + code, file=sys.stderr)
+    sys.exit(status)
+
+
+def number(name, default, low, high):
+    try:
+        value = float(os.environ.get(name, default))
+    except ValueError:
+        stop("BAD_TUNING_" + name)
+    return value if low <= value <= high else stop("BAD_TUNING_" + name)
+
+
+INTERVAL, DEADLINE = number("PROBE_POLL_INTERVAL", "10", 0, 60), number("PROBE_DEADLINE_SECONDS", "600", 1, 1800)
+posint = lambda v: isinstance(v, int) and not isinstance(v, bool) and v > 0
+if not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}", REPO):
+    stop("BHA_REPO_INVALID")
+try:                                                             # before any API call, so an old gh cannot burn the single dispatch
+    helped = subprocess.run(["gh", "api", "--help"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+except (OSError, subprocess.TimeoutExpired):
+    stop("GH_NOT_RUNNABLE")
+if helped.returncode != 0 or b"--allow-escape-sequences" not in helped.stdout:
+    stop("GH_FLAG_UNSUPPORTED_allow_escape_sequences (upgrade gh; nothing was dispatched)")
+
+
+def gh(path, method="GET", fields=(), log=False):
+    """Returns (exit code, stdout BYTES, HTTP status or None). stdout and stderr are always captured, never forwarded; stderr is only searched."""
+    cmd = ["gh", "api", "-X", method, "-H", "Accept: application/vnd.github+json", "-H", "X-GitHub-Api-Version: " + VERSION]
+    if log:                                                      # the job-log GET only: the log carries terminal escape sequences, which gh refuses to output without it
+        cmd.append("--allow-escape-sequences")
+    cmd.append(path)
+    for field in fields:
+        cmd += ["-f", field]
+    try:
+        p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=90)
+    except (OSError, subprocess.TimeoutExpired):
+        return 99, b"", None
+    err = p.stderr.decode("utf-8", "replace")                    # classification only, never printed
+    if log and "unknown flag" in err:
+        stop("GH_FLAG_UNSUPPORTED_allow_escape_sequences (the run was dispatched: resume it with PROBE_RUN_ID and PROBE_PINNED_SHA after upgrading gh)")
+    m = re.search(r"HTTP (\d{3})", err)
+    return p.returncode, p.stdout, int(m.group(1)) if m else None
+
+
+def read(path, wait_404=False, log=False):
+    """GET with bounded retries, only for transient evidence (network, 5xx, 429, and 404 while a fresh run/log becomes visible)."""
+    for attempt in range(6):
+        rc, out, status = gh(path, log=log)
+        if rc == 0:
+            break
+        if not (status is None or status >= 500 or status == 429 or (wait_404 and status == 404)) or attempt == 5:
+            stop("API_READ_FAILED_%s" % (status or "NETWORK"))
+        time.sleep(INTERVAL)
+    if log:
+        return out                                               # raw bytes: the caller decodes them once, strictly
+    try:
+        doc = json.loads(out.decode("utf-8"))                    # UnicodeDecodeError is a ValueError: invalid UTF-8 is an invalid response
+    except ValueError:
+        doc = None
+    return doc if isinstance(doc, dict) else stop("API_RESPONSE_INVALID")
+
+
+run_id, pinned = os.environ.get("PROBE_RUN_ID"), os.environ.get("PROBE_PINNED_SHA")
+resume = run_id is not None or pinned is not None
+if resume and not (run_id and run_id.isdigit() and int(run_id) > 0 and pinned and re.fullmatch(r"[0-9a-f]{40}", pinned)):
+    stop("RESUME_NEEDS_PROBE_RUN_ID_AND_PROBE_PINNED_SHA")
+repo_doc = read("repos/" + REPO)
+if str(repo_doc.get("full_name", "")).lower() != REPO.lower() or repo_doc.get("default_branch") != "main":
+    stop("REPOSITORY_MISMATCH")
+wf = read("repos/%s/actions/workflows/%s" % (REPO, WF_FILE))
+if wf.get("path") != WF_PATH or wf.get("state") != "active" or not posint(wf.get("id")):
+    stop("WORKFLOW_MISMATCH")
+env_doc = read("repos/%s/environments/%s" % (REPO, ENV))
+policy = read("repos/%s/environments/%s/deployment-branch-policies" % (REPO, ENV))
+if (env_doc.get("deployment_branch_policy") or {}).get("custom_branch_policies") is not True or \
+        sorted((str(p.get("type")), str(p.get("name"))) for p in policy.get("branch_policies", [])) != [("branch", "main")]:
+    stop("ENVIRONMENT_NOT_MAIN_ONLY")
+for flag in FLAGS:
+    rc, out, status = gh("repos/%s/actions/variables/%s" % (REPO, flag))
+    if rc == 0:
+        try:
+            value = json.loads(out.decode("utf-8")).get("value")
+        except (ValueError, AttributeError):
+            value = None
+        if value not in ("", "false"):
+            stop("FLAG_NOT_OFF_" + flag)
+    elif status != 404:
+        stop("FLAG_READ_FAILED_" + flag)
+if not resume:
+    pinned = (read("repos/%s/git/ref/heads/main" % REPO).get("object") or {}).get("sha")
+    if not isinstance(pinned, str) or not re.fullmatch(r"[0-9a-f]{40}", pinned):
+        stop("MAIN_SHA_UNREADABLE")
+out_dir = tempfile.mkdtemp(prefix="bha-cp04-probe.")          # private (0700), unique per run
+anchor = {"repo": REPO, "workflow": WF_PATH, "workflow_id": wf["id"], "pinned_main_sha": pinned, "api_version": VERSION}
+
+if not resume:                                                  # exactly ONE dispatch; it is never repeated by this packet
+    rc, out, status = gh("repos/%s/actions/workflows/%s/dispatches" % (REPO, WF_FILE), "POST", ["ref=main"])
+    if rc != 0 and status in (401, 403, 404, 422):
+        stop("DISPATCH_REFUSED_BY_API_%d (nothing was dispatched; fix the cause, then run the packet again)" % status)
+    try:
+        doc = json.loads(out.decode("utf-8")) if rc == 0 else None
+        run_id = doc["workflow_run_id"]
+        api_ok = urlparse(doc["run_url"]), urlparse(doc["html_url"])
+        good = posint(run_id) and (api_ok[0].netloc, api_ok[0].path) == ("api.github.com", "/repos/%s/actions/runs/%d" % (REPO, run_id)) \
+            and (api_ok[1].netloc, api_ok[1].path) == ("github.com", "/%s/actions/runs/%d" % (REPO, run_id))
+    except (ValueError, KeyError, TypeError, AttributeError):
+        good = False
+    if not good:
+        print("PROBE_STOP: DISPATCH_RESULT_UNKNOWN - do NOT dispatch again. Look in the repository's Actions tab for the workflow run you started "
+              "just now, then resume it with PROBE_RUN_ID=<id> PROBE_PINNED_SHA=%s" % pinned, file=sys.stderr)
+        sys.exit(20)
+    anchor.update(run_id=run_id, run_url=doc["run_url"], html_url=doc["html_url"],
+                  dispatched_at_utc=datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+else:
+    run_id = int(run_id)
+    anchor.update(run_id=run_id, resumed=True)
+with open(os.path.join(out_dir, "anchor.json"), "w") as handle:
+    json.dump(anchor, handle, indent=1)
+print("PROBE_ANCHOR run_id=%d pinned_main_sha=%s dir=%s" % (run_id, pinned, out_dir))
+RUN = "repos/%s/actions/runs/%d" % (REPO, run_id)
+
+
+def check_run(doc, attempt=None):                                # every read of the run is checked against the pinned identity
+    path_ok = str(doc.get("path", "")).split("@")[0] == WF_PATH
+    if not (doc.get("id") == run_id and str((doc.get("repository") or {}).get("full_name", "")).lower() == REPO.lower() and
+            doc.get("workflow_id") == wf["id"] and path_ok and doc.get("event") == "workflow_dispatch" and doc.get("head_branch") == "main" and
+            doc.get("head_sha") == pinned and posint(doc.get("run_attempt")) and (attempt is None or doc["run_attempt"] == attempt)):
+        stop("RUN_METADATA_MISMATCH")
+    return doc
+
+
+first = check_run(read(RUN, wait_404=True))
+attempt = first["run_attempt"]
+if not resume and attempt != 1:
+    stop("RUN_METADATA_MISMATCH")
+while True:
+    cur = check_run(read("%s/attempts/%d" % (RUN, attempt), wait_404=True), attempt)
+    if cur.get("status") == "completed":
+        break
+    if time.monotonic() - T0 > DEADLINE:
+        print("PROBE_STOP: RUN_NOT_COMPLETED_BEFORE_DEADLINE - no evidence; resume with PROBE_RUN_ID=%d PROBE_PINNED_SHA=%s" % (run_id, pinned), file=sys.stderr)
+        sys.exit(20)
+    time.sleep(INTERVAL)
+if cur.get("conclusion") != "success":
+    stop("RUN_NOT_SUCCESSFUL")
+jobs = read("%s/attempts/%d/jobs?per_page=100" % (RUN, attempt))
+listed = jobs.get("jobs")
+job = listed[0] if isinstance(listed, list) and len(listed) == 1 and isinstance(listed[0], dict) else {}
+if jobs.get("total_count") != 1 or not posint(job.get("id")) or job.get("run_id") != run_id or job.get("run_attempt") != attempt or \
+        job.get("head_sha") != pinned or job.get("status") != "completed" or job.get("conclusion") != "success":
+    stop("JOB_MISMATCH")
+log = read("repos/%s/actions/jobs/%d/logs" % (REPO, job["id"]), wait_404=True, log=True)
+if not log or len(log) > 2000000:                                # raw bytes, checked before anything is decoded or parsed
+    stop("LOGS_UNAVAILABLE")
+try:
+    text = log.decode("utf-8-sig")                               # strict UTF-8; one leading BOM is accepted; no locale, no errors="replace"
+except UnicodeDecodeError:
+    stop("LOGS_NOT_UTF8")
+claims = {}
+for line in text.split("\n"):                                    # "\n" only (str.splitlines() would also cut at VT, FF, FS-US, NEL, LS and PS); the raw log is never printed
+    if line.endswith("\r"):
+        line = line[:-1]
+    m = re.match(r"^(?:\d{4}-\d\d-\d\dT[0-9:.]+Z )?claim ([a-z_]+) = (.*)$", line)   # only the probe's own plain claim lines are read; a line with anything in front is noise
+    if m:
+        name, raw = m.groups()
+        if name not in CLAIMS:
+            stop("LOG_UNEXPECTED_CLAIM")
+        if any(ord(c) < 32 or 127 <= ord(c) < 160 for c in line):    # C0, DEL and C1 (incl. U+009B): the line is refused, never cleaned up
+            stop("LOG_CLAIM_CONTROL_" + name)
+        if name in claims:
+            stop("LOG_DUPLICATE_CLAIM_" + name)
+        try:
+            claims[name] = json.loads(raw)
+        except ValueError:
+            stop("LOG_CLAIM_MALFORMED_" + name)
+want = {"iss": "https://token.actions.githubusercontent.com", "repository": None, "ref": "refs/heads/main", "sha": pinned, "run_id": str(run_id),
+        "run_attempt": str(attempt), "environment": ENV, "event_name": "workflow_dispatch"}
+for name in list(want) + ["aud", "sub"]:
+    if name not in claims:
+        stop("LOG_CLAIM_MISSING_" + name)
+if claims["aud"] not in ("sts.amazonaws.com", ["sts.amazonaws.com"]):
+    stop("LOG_CONTEXT_MISMATCH_aud")
+if not isinstance(claims["repository"], str) or claims["repository"].lower() != REPO.lower():
+    stop("LOG_CONTEXT_MISMATCH_repository")
+for name, value in want.items():
+    if value is not None and claims[name] != value:
+        stop("LOG_CONTEXT_MISMATCH_" + name)
+sub = claims["sub"]
+if not isinstance(sub, str) or not sub.strip() or len(sub) > 1024 or any(ord(c) < 32 or ord(c) == 127 for c in sub):
+    stop("LOG_CLAIM_MALFORMED_sub")
+last = check_run(read(RUN), attempt)                             # a re-run or a new attempt between the checks is detected here
+if last.get("status") != "completed" or last.get("conclusion") != "success":
+    stop("RUN_CHANGED_DURING_READ")
+evidence = {"format": 1, "status": "verified", "repo": REPO, "workflow": WF_PATH, "workflow_id": wf["id"], "run_id": run_id, "run_attempt": attempt,
+            "head_sha": pinned, "run_url": cur.get("url"), "html_url": cur.get("html_url"), "aud": "sts.amazonaws.com", "sub": sub}
+fd = os.open(os.path.join(out_dir, "evidence.json"), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+with os.fdopen(fd, "w") as handle:
+    json.dump(evidence, handle, indent=1)
+print("PROBE_EVIDENCE_VERIFIED repo=%s workflow=%s (id %d) run_id=%d attempt=%d head_sha=%s" % (REPO, WF_PATH, wf["id"], run_id, attempt, pinned))
+print("run_url=%s\naud=sts.amazonaws.com\nsub=%s\nEVIDENCE_DIR=%s" % (cur.get("html_url"), json.dumps(sub), out_dir))
+PROBE
+```
+Success prints `PROBE_EVIDENCE_VERIFIED` (the repository, workflow, run ID, attempt, head SHA, run URL, `aud`, `sub` and the private `EVIDENCE_DIR`); any other outcome ends nonzero with a `PROBE_STOP:` code and writes **no** `evidence.json`, so packet E has nothing to read. Exit 20 (`DISPATCH_RESULT_UNKNOWN`, `RUN_NOT_COMPLETED_BEFORE_DEADLINE`) means the outcome is not known: **never dispatch again**; the anchor line already printed carries the run ID, so resume the same run with `PROBE_RUN_ID=<id> PROBE_PINNED_SHA=<sha> BHA_REPO=… python3 …` (same block). A mismatch because `main` advanced between the read and the dispatch is `RUN_METADATA_MISMATCH`: the evidence is refused, explain why `main` moved before trying again. `sub` is normally `repo:<OWNER>/<REPO>:environment:backend-production`, but whatever the probe printed (and the packet verified came from this exact run) is what goes into the trust — never a guessed format. Only a line that begins (after an optional timestamp) with `claim NAME = ` is a claim line: escape sequences or any other text in front of it make the line noise, and noise lines may contain anything. A claim line that itself contains a C0, DEL or C1 control character stops with `LOG_CLAIM_CONTROL_<name>`; nothing is stripped, trimmed, normalised or decoded with replacement to make a claim valid, and the log is split on `\n` only. Limit: a CI job log that was read earlier (UTF-8 with a BOM and escape sequences, not a ZIP) is the only observation behind this transport; it is not a log of this probe, and the first real dispatch can still differ. Keep the printed lines for the report; delete the probe later through a reviewed change if it is no longer wanted.
+
+**E — IAM roles (Owner; render from the templates into private files).** Run from the root of the checkout of the promoted commit. Every input is required and has no default: `BHA_REPO` (must be this project's `emLamHD/The_BHA_hotels_Booking`, compared case-insensitively), `ACCOUNT_ID`, `REGION`, `INSTANCE_ID`, `ECR_REPOSITORY`, and the **identity of the one probe run you chose**, copied by hand from the lines that a successful D printed (`PROBE_EVIDENCE_VERIFIED repo=… workflow=… (id N) run_id=… attempt=… head_sha=…` and `EVIDENCE_DIR=…`; none of it is secret): `PROBE_WORKFLOW_ID` (the `N`), `PROBE_RUN_ID`, `PROBE_RUN_ATTEMPT`, `PROBE_PINNED_SHA` (the `head_sha`) and `EVIDENCE_DIR` (the absolute path of **that** run's directory — never the current directory, never "the latest"). The packet takes the **expected** identity from these inputs and its own constants, not from the file it is checking, and refuses (nonzero, a code, before anything is rendered) evidence that is not an object with exactly the D schema, whose `format` is not the integer 1, `status` not `verified`, `aud` not `sts.amazonaws.com`, whose `repo` differs from `BHA_REPO`, `workflow` is not exactly `.github/workflows/backend-oidc-probe.yml`, `workflow_id`/`run_id`/`run_attempt` are not real positive JSON integers (a bool, float, string or null is refused) equal to your inputs, `head_sha` differs from `PROBE_PINNED_SHA`, or whose `run_url`/`html_url` are not exactly `https://api.github.com/repos/<repo>/actions/runs/<run id>` and `https://github.com/<repo>/actions/runs/<run id>` (another host, repo or run, userinfo, port, query or fragment fail). The `sub` is checked as before (non-empty string, at most 1024 characters, no control character, no `*`/`?`) and inserted **verbatim**: it is not required to look like `repo:…` and no repository is inferred from it, so a customised subject template still works. The renderer parses and re-serialises the JSON templates (an inserted value is never expanded again, so `&`, `|`, `\`, quotes or `/` are literal), refuses an unreadable template, an unknown or leftover placeholder, then **re-reads each of the four written files** and checks its content (trust: the exact `aud`, the exact `sub`, the account's OIDC provider; deploy policy: the two exact `SendCommand` resources; instance policy and publish policy: `Version`, `Effect`, the exact action set and the one repository ARN, no other key). It prints `RENDER_ALL_VALID` and the private directory only when all four pass; otherwise it deletes only the files of this run, prints the failing file names and exits nonzero. Limits: matching the identity keeps a stale or foreign evidence directory out; a JSON file somebody wrote by hand with the right schema is **not** OIDC evidence because it parses — the trust anchor is a successful D run, its private directory and the identity lines you saved. `RENDER_ALL_VALID` shows the rendered content passed these checks; it does not show that IAM authorises anything.
+```bash
+python3 -I - <<'RENDER'
+import json, os, re, shutil, sys, tempfile
+
+SRC = "deploy/showcase/iam/"
+NAMES = {"trust.json": "backend-release-deploy-trust.json", "deploy-policy.json": "backend-release-deploy-policy.json",
+         "publish-policy.json": "backend-release-publish-policy.json", "instance-ecr.json": "backend-release-instance-ecr-policy.json"}
+PLACEHOLDER = re.compile(r"<([A-Z][A-Z_]*)>")
+PROJECT, PROBE = "emlamhd/the_bha_hotels_booking", ".github/workflows/backend-oidc-probe.yml"
+EVIDENCE_KEYS = {"format", "status", "repo", "workflow", "workflow_id", "run_id", "run_attempt", "head_sha", "run_url", "html_url", "aud", "sub"}
+
+
+def stop(code):
+    print("RENDER_STOP: " + code, file=sys.stderr)
+    sys.exit(1)
+
+
+def need(name, pattern):
+    value = os.environ.get(name, "")
+    return value if re.fullmatch(pattern, value) else stop(name + "_INVALID")
+
+
+REPO = need("BHA_REPO", r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}")
+if REPO.lower() != PROJECT:
+    stop("BHA_REPO_NOT_THIS_PROJECT")
+ACCOUNT, INSTANCE = need("ACCOUNT_ID", r"[0-9]{12}"), need("INSTANCE_ID", r"i-[0-9a-f]{17}")
+REGION, ECR = need("REGION", r"[a-z]{2}(-[a-z]+)+-[0-9]"), need("ECR_REPOSITORY", r"[a-z0-9][a-z0-9._/-]{1,255}")
+WORKFLOW_ID, RUN_ID, ATTEMPT = (int(need(n, r"[1-9][0-9]{0,17}")) for n in ("PROBE_WORKFLOW_ID", "PROBE_RUN_ID", "PROBE_RUN_ATTEMPT"))
+PINNED = need("PROBE_PINNED_SHA", r"[0-9a-f]{40}")
+EVIDENCE_DIR = os.environ.get("EVIDENCE_DIR", "")
+if not EVIDENCE_DIR or not os.path.isabs(EVIDENCE_DIR) or not os.path.isdir(EVIDENCE_DIR):
+    stop("EVIDENCE_DIR_INVALID")
+try:
+    with open(os.path.join(EVIDENCE_DIR, "evidence.json")) as handle:
+        evidence = json.load(handle)
+except (OSError, ValueError):
+    stop("EVIDENCE_UNREADABLE")
+if not isinstance(evidence, dict) or set(evidence) != EVIDENCE_KEYS:
+    stop("EVIDENCE_SCHEMA")
+if type(evidence["format"]) is not int or evidence["format"] != 1 or evidence["status"] != "verified" or evidence["aud"] != "sts.amazonaws.com":
+    stop("EVIDENCE_INVALID")
+for field, expected in (("workflow_id", WORKFLOW_ID), ("run_id", RUN_ID), ("run_attempt", ATTEMPT)):
+    if type(evidence[field]) is not int or evidence[field] <= 0:                  # a bool, float, string or null is not an ID
+        stop("EVIDENCE_FIELD_TYPE_" + field)
+    if evidence[field] != expected:
+        stop("EVIDENCE_IDENTITY_MISMATCH_" + field)
+if not isinstance(evidence["repo"], str) or evidence["repo"].lower() != REPO.lower():
+    stop("EVIDENCE_IDENTITY_MISMATCH_repo")
+if evidence["workflow"] != PROBE:
+    stop("EVIDENCE_IDENTITY_MISMATCH_workflow")
+if evidence["head_sha"] != PINNED:
+    stop("EVIDENCE_IDENTITY_MISMATCH_head_sha")
+for field, url in (("run_url", "https://api.github.com/repos/%s/actions/runs/%d" % (REPO, RUN_ID)), ("html_url", "https://github.com/%s/actions/runs/%d" % (REPO, RUN_ID))):
+    if not isinstance(evidence[field], str) or evidence[field].lower() != url.lower():
+        stop("EVIDENCE_IDENTITY_MISMATCH_" + field)
+sub = evidence["sub"]
+if not (isinstance(sub, str) and sub.strip() and len(sub) <= 1024 and not any(ord(c) < 32 or ord(c) == 127 or c in "*?" for c in sub)):
+    stop("EVIDENCE_INVALID")
+VALUES = {"ACCOUNT_ID": ACCOUNT, "REGION": REGION, "INSTANCE_ID": INSTANCE, "ECR_REPOSITORY": ECR, "VERIFIED_SUB_CLAIM": sub}
+
+
+def render(node):
+    if isinstance(node, str):                                   # one pass: inserted values are never scanned or expanded again
+        return PLACEHOLDER.sub(lambda m: VALUES[m.group(1)] if m.group(1) in VALUES else stop("UNKNOWN_PLACEHOLDER_" + m.group(1)), node)
+    if isinstance(node, list):
+        return [render(item) for item in node]
+    return {key: render(value) for key, value in node.items()} if isinstance(node, dict) else node
+
+
+rendered = {}
+for out_name, template in NAMES.items():
+    try:
+        with open(SRC + template) as handle:
+            rendered[out_name] = render(json.load(handle))
+    except (OSError, ValueError):
+        stop("TEMPLATE_UNREADABLE_" + out_name)
+TOKEN = "token.actions.githubusercontent.com"
+ECR_READ = ["ecr:BatchCheckLayerAvailability", "ecr:GetDownloadUrlForLayer", "ecr:BatchGetImage"]
+PUBLISH = ["ecr:BatchCheckLayerAvailability", "ecr:BatchGetImage", "ecr:CompleteLayerUpload", "ecr:DescribeImages", "ecr:DescribeRepositories",
+           "ecr:InitiateLayerUpload", "ecr:PutImage", "ecr:UploadLayerPart"]
+REPOSITORY_ARN = "arn:aws:ecr:%s:%s:repository/%s" % (REGION, ACCOUNT, ECR)
+
+
+def v_trust(d):
+    s = d.get("Statement")
+    s0 = s[0] if isinstance(s, list) and len(s) == 1 else {}
+    return s0.get("Effect") == "Allow" and s0.get("Action") == "sts:AssumeRoleWithWebIdentity" and \
+        s0.get("Principal") == {"Federated": "arn:aws:iam::%s:oidc-provider/%s" % (ACCOUNT, TOKEN)} and \
+        s0.get("Condition") == {"StringEquals": {TOKEN + ":aud": "sts.amazonaws.com", TOKEN + ":sub": sub}}
+
+
+def v_deploy(d):
+    s = d.get("Statement")
+    return isinstance(s, list) and len(s) == 2 and all(x.get("Effect") == "Allow" for x in s) and s[0].get("Action") == "ssm:SendCommand" and \
+        s[0].get("Resource") == ["arn:aws:ssm:%s::document/AWS-RunShellScript" % REGION, "arn:aws:ec2:%s:%s:instance/%s" % (REGION, ACCOUNT, INSTANCE)] and \
+        s[1].get("Action") == ["ssm:GetCommandInvocation", "ssm:ListCommandInvocations", "ssm:ListCommands"] and s[1].get("Resource") == "*"
+
+
+def v_ecr(d):
+    s = d.get("Statement")
+    return isinstance(s, list) and len(s) == 2 and all(x.get("Effect") == "Allow" for x in s) and s[0].get("Action") == "ecr:GetAuthorizationToken" and \
+        s[0].get("Resource") == "*" and s[1].get("Action") == ECR_READ and s[1].get("Resource") == REPOSITORY_ARN
+
+
+def v_publish(d):
+    s = d.get("Statement")
+    return isinstance(s, list) and len(s) == 2 and all(isinstance(x, dict) and set(x) == {"Sid", "Effect", "Action", "Resource"} and x["Effect"] == "Allow" for x in s) and \
+        s[0]["Action"] == "ecr:GetAuthorizationToken" and s[0]["Resource"] == "*" and \
+        isinstance(s[1]["Action"], list) and sorted(s[1]["Action"]) == PUBLISH and s[1]["Resource"] == REPOSITORY_ARN
+
+
+CHECKS = {"trust.json": v_trust, "deploy-policy.json": v_deploy, "publish-policy.json": v_publish, "instance-ecr.json": v_ecr}
+out_dir = tempfile.mkdtemp(prefix="bha-cp04-iam.")               # private (0700), unique per run: no file of another run is touched
+failed = []
+for out_name, doc in rendered.items():
+    path = os.path.join(out_dir, out_name)
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w") as handle:
+            json.dump(doc, handle, indent=2)
+            handle.write("\n")
+        with open(path) as handle:
+            text = handle.read()
+        leftover = PLACEHOLDER.search(text.replace(json.dumps(sub)[1:-1], ""))
+        parsed = json.loads(text)
+        if leftover or set(parsed) != {"Version", "Statement"} or parsed["Version"] != "2012-10-17" or not CHECKS[out_name](parsed):
+            failed.append(out_name)
+    except Exception:                                            # any render, write, parse or check problem makes the whole result invalid
+        failed.append(out_name)
+if failed:
+    shutil.rmtree(out_dir, ignore_errors=True)
+    print("RENDER_REFUSED: " + ",".join(failed), file=sys.stderr)
+    sys.exit(1)
+print("RENDER_ALL_VALID dir=%s files=%s" % (out_dir, ",".join(sorted(rendered))))
+RENDER
+```
+Only after `RENDER_ALL_VALID` (exit 0), and only by the Owner (nothing is applied by Claude or by this packet), create two **independent** roles with the same trust: the **publish role** = `trust.json` + `publish-policy.json`; the **deploy role** = `trust.json` + `deploy-policy.json`; and attach `instance-ecr.json` to the instance profile's role. Never attach the publish policy to the deploy role or the instance role, never use a wildcard `sub`, and do not widen the `showcase-publish` trust. The `sub` you verified came from the **probe** workflow; the publish and deploy jobs run in the same environment, so with the default environment subject the three are identical — but if the organization or repository customises the OIDC subject template with workflow-specific claims, they may differ: stop and compare the real publish/deploy subjects before creating the trusts, do not guess or widen.
+
+**F — host (Owner, on the instance through Session Manager; as root or with passwordless `sudo`).** One read-only script: it prints facts and codes only (no environment, no raw `docker inspect`), changes nothing, never pulls an image or touches a container, and any failed check ends it with a `HOST_CHECK_STOP:` code. Set `REF=<ECR_URI>@sha256:<BOOTSTRAP_DIGEST>` and `BHA_REPO=<OWNER>/<REPO>` first (`TARGET_CONTAINER` defaults to `the-bha-api`). `BOOTSTRAP_MATCH` is printed only when both inspections succeeded, both returned a well-formed `sha256:` image ID, the target is running, and the two IDs are equal (IDs are compared with IDs, never a tag from `Config.Image`).
+```bash
+bash -s <<'HOSTCHECK'
+set -euo pipefail
+stop() { echo "HOST_CHECK_STOP: $1" >&2; exit 1; }
+: "${REF:?set REF=<ECR_URI>@sha256:<BOOTSTRAP_DIGEST> first}"
+re_ref='^[A-Za-z0-9][A-Za-z0-9._/:-]*@sha256:[0-9a-f]{64}$'
+[[ $REF =~ $re_ref ]] || stop REF_INVALID
+NAME="${TARGET_CONTAINER:-the-bha-api}"
+re_name='^[A-Za-z0-9][A-Za-z0-9_.-]*$'
+[[ $NAME =~ $re_name ]] || stop TARGET_NAME_INVALID
+for tool in docker python3 flock timeout curl sha256sum aws psql; do command -v "$tool" >/dev/null 2>&1 || stop "MISSING_TOOL_$tool"; done
+python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 8) else 1)' || stop PYTHON_TOO_OLD
+psql_major="$(psql --version | sed -n 's/^psql (PostgreSQL) \([0-9][0-9]*\).*/\1/p')"
+if ! [[ $psql_major =~ ^[0-9]+$ ]] || [ "$psql_major" -lt 10 ]; then stop PSQL_TOO_OLD_OR_UNREADABLE; fi
+[[ "$(aws --version 2>&1)" == aws-cli/2.* ]] || stop AWS_CLI_NOT_V2
+if [ "$(id -u)" -eq 0 ]; then dk=(docker); else dk=(sudo -n docker); fi
+running="$("${dk[@]}" inspect -f '{{.State.Running}}' "$NAME" 2>/dev/null)" || stop TARGET_INSPECT_FAILED
+[ "$running" = true ] || stop TARGET_NOT_RUNNING
+target_id="$("${dk[@]}" inspect -f '{{.Image}}' "$NAME" 2>/dev/null)" || stop TARGET_INSPECT_FAILED
+ref_id="$("${dk[@]}" image inspect -f '{{.Id}}' "$REF" 2>/dev/null)" || stop REF_IMAGE_INSPECT_FAILED
+re_id='^sha256:[0-9a-f]{64}$'
+[[ $target_id =~ $re_id ]] || stop TARGET_IMAGE_ID_MALFORMED
+[[ $ref_id =~ $re_id ]] || stop REF_IMAGE_ID_MALFORMED
+[ "$target_id" = "$ref_id" ] || stop IMAGE_IDS_DIFFER
+echo BOOTSTRAP_MATCH
+curl -fsS -o /dev/null --max-time 10 "https://raw.githubusercontent.com/${BHA_REPO:?set BHA_REPO=<OWNER>/<REPO>}/main/README.md" || stop RAW_GITHUB_UNREACHABLE
+echo HOST_PREREQUISITES_OK
+HOSTCHECK
+```
+A missing `psql` leaves a `STARTED` engine journal run (§10.5): install it **before** the first release. Then create the private host config of §9.2 at `<HOST_CONFIG_PATH>` (root, `0600`) with `EXPECTED_CURRENT_IMAGE=$REF`, plus the libpq files of §9.3 step 4; run `backend-deploy.sh status` from a checkout of the promoted commit and expect a clean state. Do not edit the live Caddy, app environment file, key ring or CA, and never change `REF` or the running container to make the check pass.
+
+**G — variables, flags and releases (Owner, GitHub UI or `gh`).** In the environment `backend-production`: `BACKEND_RELEASE_AWS_ROLE_ARN`, `BACKEND_RELEASE_AWS_REGION`, `BACKEND_RELEASE_ECR_REPOSITORY`, `BACKEND_RELEASE_DEPLOY_AWS_ROLE_ARN`, `BACKEND_RELEASE_EC2_INSTANCE_ID`, `BACKEND_RELEASE_HOST_CONFIG_PATH` (never at repository/organization level). Repository variables: `BACKEND_RELEASE_PUBLISH_ENABLED=true` for P2, and only after P2 is verified `BACKEND_RELEASE_DEPLOY_ENABLED=true` for P3 (never the deploy flag alone). Each release is a reviewed PR into `main` that changes the marker; the Owner merges it.
+
+### 11.4 Phases and what counts as evidence
+
+* **P1 setup (flags off):** A–F done; D's `sub` recorded; roles created from the observed `sub`; disabled run on `main` recorded. Status `SETUP_LIVE` needs the Owner's evidence for each, not Claude's belief.
+* **P2 publish only:** publish flag on, deploy flag unset. Evidence: the run on the **actual `main` merge SHA**; `publish-main` success; ECR tag = that full SHA, digest recorded, tag immutability still `IMMUTABLE`; `deploy-main` skipped; the API still serves the bootstrap digest (`docker ps` / `/health/ready`). Claude re-reads ECR and the run read-only.
+* **P3 first deploy:** deploy flag on, a new marker commit on `main`. `PASS` needs the client `PASS` **and** the SSM invocation identity/status/`ResponseCode`, engine `SUCCESS`/`ALREADY_CURRENT`, `state_sync` OK, `reverified` true, `cleanup` OK, the live container's image ID, `RepoDigest` and revision label equal to the published digest/SHA, `EXPECTED_CURRENT_IMAGE`, `release-state` and `records/latest` in agreement, the previous container retained **stopped**; then `/health/ready` 200, the public properties read, the unauthenticated Staff `me` read answers 401, and an Owner browser read-only smoke. Downtime is reported as measured or `NOT_MEASURED`.
+* **P4 rollback drill and restoration:** the packet for the rollback is generated with `--no-image` from the **immutable deployed commit** (detach-checkout of that SHA with a clean tree, then back to the working branch), the Owner runs the client with deploy-role credentials, **latest record only**, no DB rollback, **no fault injection on production**. Evidence as in P3 but for `ROLLED_BACK` and the restored previous digest. Then restore with a **new** `main` release (a new marker commit → new SHA, tag, digest, deploy); the old publish is never re-run. A fault or `recover` drill is `NOT_RUN` unless the Owner explicitly decides otherwise.
+
+### 11.5 Failure policy
+
+`FAILED_ROLLED_BACK` is a failed release (the old service was restored). `REMOTE_RESULT_UNKNOWN`, an ambiguous send, a poll deadline or a cancelled job: **stop mutating**, keep the CommandId and correlation, reconcile read-only (§10.5), and never resend, re-run, roll back or recover blindly. An existing SHA tag fails closed; GitHub re-run semantics are unproven. A result that needs a change to CP01–CP03 code is `BLOCKED` with a concrete proposal and an OC correction prompt; it is never fixed inline.
