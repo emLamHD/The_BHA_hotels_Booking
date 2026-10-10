@@ -697,3 +697,18 @@ and audit history stay, as Decision items 4 and 5 already require. Block
 move/split, multi-segment supersede, Admin authentication/RBAC and real Staff
 identity remain TARGET, and no Admin frontend calls this endpoint yet. Current
 state is tracked in `docs/project/PROJECT_BIBLE.md`, not here.
+
+### 2026-10-10 — one assignment split-move endpoint is exposed (`PMS-CAL-002-CP02`)
+
+`POST /api/admin/v1/properties/{propertyId}/reservation-assignments/{segmentId}/split-move`
+exposes `IAssignmentMutationStore.SplitMoveAsync` (`PMS-CAL-002-CP01`) behind the
+same Staff authorization and the same Development-only `LocalGate` as `move` and
+`unassign`. The caller supplies only `expectedVersion`, `splitDate`,
+`destinationPhysicalRoomId`, an optional `confirmCrossRoomType` and an optional
+`reason`; the source's room and nights come from the database, and the store
+still decides ownership, status, version, destination, capacity, locking,
+cross-RoomType evidence per successor and audit. The segment is superseded as
+Decision item 5 already requires, and the response is `[source Cancelled,
+prefix, suffix]`. The Decision is unchanged. A generic assignment split, swap or
+batch, operational-block move/split and Admin_Web use of this endpoint remain
+TARGET. Current state is tracked in `docs/project/PROJECT_BIBLE.md`, not here.
