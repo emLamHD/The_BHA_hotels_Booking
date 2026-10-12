@@ -712,3 +712,22 @@ Decision item 5 already requires, and the response is `[source Cancelled,
 prefix, suffix]`. The Decision is unchanged. A generic assignment split, swap or
 batch, operational-block move/split and Admin_Web use of this endpoint remain
 TARGET. Current state is tracked in `docs/project/PROJECT_BIBLE.md`, not here.
+
+### 2026-10-12 — one operational-block move endpoint is exposed (`PMS-CAL-003-CP01`)
+
+`POST /api/admin/v1/properties/{propertyId}/operational-blocks/{segmentId}/move`
+exposes a narrow adapter, `IOperationalBlockMutationStore.MoveAsync`, behind the
+same Staff authorization (`BlockWrite`) and the same Development-only
+`LocalGate` as block create and cancel. The caller supplies only
+`expectedVersion`, `destinationPhysicalRoomId` and an optional `reason`; the
+adapter reads the segment's own room and nights from the database and delegates
+one single-replacement supersession to the unchanged `SupersedeSegmentsAsync`
+(Decision item 5, and the block case of item 4), which still decides ownership,
+status, version, destination, overlap, final capacity, locking and audit. The
+`RoomBlock` header is preserved; the response is `[source Cancelled, successor
+Effective]`. A block has no sold RoomType, so no cross-RoomType confirmation or
+authorization evidence applies. The adapter refuses a source longer than 366
+nights as a resource bound. The Decision is unchanged. Block split, resize,
+batch and swap, and Admin_Web use of this endpoint, remain TARGET. Current state
+is tracked in `docs/project/PROJECT_BIBLE.md`, not here; the design is
+`docs/design/PMS-CAL-003-operational-block-move.md`.

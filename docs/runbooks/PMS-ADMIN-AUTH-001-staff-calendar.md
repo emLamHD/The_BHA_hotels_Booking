@@ -1,6 +1,6 @@
 # Runbook — Staff access to the Admin Calendar (PMS-ADMIN-AUTH-001)
 
-Operating the Reservation Board (`/calendar`) and its six writes with Staff
+Operating the Reservation Board (`/calendar`) and its seven writes with Staff
 sign-in. Design: `docs/design/PMS-ADMIN-AUTH-001-staff-auth-rbac.md`; decisions:
 ADR 0007. This runbook describes configuration and operator steps only; it does
 not deploy anything.
@@ -39,7 +39,7 @@ not deploy anything.
   deployment packet in `docs/runbooks/CUST-WEB-SHOWCASE-001-deploy.md` §7b). The
   cookie attributes do not change in either mode.
 - **`Cors:AdminOrigins`**: the exact HTTPS origin(s) of the Admin Web, nothing
-  else (no wildcard, no `http://`). Staff `POST`s (login, logout, the six
+  else (no wildcard, no `http://`). Staff `POST`s (login, logout, the seven
   writes) must carry exactly one `Origin` from this list; with the list empty
   every Staff write — login included — is refused. This is a server-side
   `Origin` check, not CORS response headers, and it applies in proxy mode too: the
@@ -102,9 +102,13 @@ dotnet TheBha.Api.dll --staff-disable --email desk@example.com
 
 ### Split-move (`Move from a date…`) — what operators and acceptance should know
 
-- The six writes are: assignment create, move, unassign and split-move
+- The seven writes are: assignment create, move, unassign and split-move
   (`POST …/reservation-assignments`, `…/{segmentId}/move`, `…/unassign`,
-  `…/{segmentId}/split-move`) and operational-block create and cancel.
+  `…/{segmentId}/split-move`) and operational-block create, cancel and move
+  (`POST …/operational-blocks`, `…/{segmentId}/cancel`, `…/{segmentId}/move`).
+  The block move (`PMS-CAL-003-CP01`) is an API only: the Admin board has no
+  action for it yet, and it needs only `BlockWrite` (FrontDesk and Manager) —
+  no cross-room-type confirmation, because a block has no sold room type.
 - Split-move keeps the earlier nights `[start, splitDate)` in the segment's own
   room and gives `[splitDate, end)` to another Active room. It changes the room
   assignment only: stay dates, price and booking are untouched, and it is not a
