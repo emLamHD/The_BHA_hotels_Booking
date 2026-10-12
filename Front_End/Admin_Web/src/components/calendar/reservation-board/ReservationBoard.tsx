@@ -3080,7 +3080,9 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
           target={blockTarget}
           boardReloadStatus={blockReconciliationStatus(dialogBlockReconciliationId)}
           uncertainResolution={
-            dialogBlockReconciliation?.certainty === "uncertain" && dialogBlockReconciliation.resolution !== "settled"
+            dialogBlockReconciliation?.certainty === "uncertain" &&
+            dialogBlockReconciliation.resolution !== "settled" &&
+            dialogBlockReconciliation.resolution !== "changed" // a move-only verdict (PMS-CAL-003-CP02)
               ? dialogBlockReconciliation.resolution
               : undefined
           }
@@ -3103,7 +3105,8 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
           boardReloadStatus={blockReconciliationStatus(dialogBlockCancelReconciliationId)}
           uncertainResolution={
             dialogBlockCancelReconciliation?.certainty === "uncertain" &&
-            dialogBlockCancelReconciliation.resolution !== "settled"
+            dialogBlockCancelReconciliation.resolution !== "settled" &&
+            dialogBlockCancelReconciliation.resolution !== "changed" // a move-only verdict (PMS-CAL-003-CP02)
               ? dialogBlockCancelReconciliation.resolution
               : undefined
           }
@@ -3126,6 +3129,15 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
  * the same room over exactly the same nights; for a cancel (CP04), the
  * targeted segment no longer at the version that was sent. Check again only
  * re-reads the board; it never re-sends the POST.
+ *
+ * PMS-CAL-003-CP02: the same notice describes a restored (or, once CP03 wires a
+ * send, a live) block move: the block keeps its nights and header and changes
+ * room, so it is worded as a move between two rooms. `observed` means the source
+ * is no longer shown and a successor of the same block holds those nights in the
+ * destination; `changed` means the nights changed some other way and this
+ * request can no longer take effect — neither says what the lost request did,
+ * and `changed` is never worded as saved. Nothing can create such an entry yet; it
+ * exists to restore (and describe) a record faithfully.
  */
 const UncertainBlockNotice: React.FC<{
   entry: BlockCreateReconciliation;
@@ -3140,6 +3152,8 @@ const UncertainBlockNotice: React.FC<{
   const { target } = entry;
   const range = `[${target.startDate}, ${target.endDate})`;
   const observed = entry.resolution === "observed";
+  const changed = entry.resolution === "changed";
+  const resolved = observed || changed;
   // PMS-CAL-001.3-CP04-C1: the two directions observe opposite things, so
   // neither may borrow the other's wording. For a cancel, `observed` means the
   // targeted segment/version is no longer on the board (gone or re-versioned);
@@ -3147,13 +3161,23 @@ const UncertainBlockNotice: React.FC<{
   // facts about the schedule, never about what this lost request did. The
   // block's own reason is labelled as such: a cancel's optional reason is not
   // tracked here, and the block's reason must not read as the cancel's.
+  const moveRooms = target.operation === "move" ? `from room ${target.sourceRoomNumber} to room ${target.roomNumber}` : null;
   const title = entry.restored
-    ? `Unconfirmed block ${target.operation === "cancel" ? "cancel" : "create"} request ${entry.restored === "in-flight" ? "sent just" : "from"} before this page was reloaded or left: room ${target.roomNumber}, ${range}.`
-    : target.operation === "cancel"
-      ? `Unconfirmed cancel request: block on room ${target.roomNumber}, ${range} · original block reason: ${target.reason}`
-      : `Unconfirmed block request: room ${target.roomNumber}, ${range} — ${target.reason}`;
+    ? target.operation === "move"
+      ? `Unconfirmed block move request ${entry.restored === "in-flight" ? "sent just" : "from"} before this page was reloaded or left: ${moveRooms}, ${range}.`
+      : `Unconfirmed block ${target.operation === "cancel" ? "cancel" : "create"} request ${entry.restored === "in-flight" ? "sent just" : "from"} before this page was reloaded or left: room ${target.roomNumber}, ${range}.`
+    : target.operation === "move"
+      ? `Unconfirmed block move request: ${moveRooms}, ${range}.`
+      : target.operation === "cancel"
+        ? `Unconfirmed cancel request: block on room ${target.roomNumber}, ${range} · original block reason: ${target.reason}`
+        : `Unconfirmed block request: room ${target.roomNumber}, ${range} — ${target.reason}`;
   let detail: string;
-  if (observed) {
+  if (target.operation === "move" && observed) {
+    detail = `The block is no longer shown in room ${target.sourceRoomNumber}, and the same block is now shown in room ${target.roomNumber} over ${range}. That shows the schedule; it does not prove this request moved it.`;
+  } else if (target.operation === "move" && changed) {
+    detail =
+      "These nights have since changed on the server, so this request can no longer take effect. Its own result was never confirmed; this is not a record that the move was saved.";
+  } else if (observed) {
     detail =
       target.operation === "cancel"
         ? `This block is no longer shown at version ${target.expectedVersion}, the version this request targeted. That shows the schedule changed; it does not prove this request cancelled it.`
@@ -3163,9 +3187,14 @@ const UncertainBlockNotice: React.FC<{
   } else if (readStatus === "failed") {
     detail = "The board could not be reloaded, so the result is still unknown. Use Retry on the board.";
   } else if (!canCheckHere) {
-    detail = `The result is still unknown and this room stays locked for these nights. Open a view of this Property that overlaps ${range} to check again.`;
+    detail =
+      target.operation === "move"
+        ? `The result is still unknown and rooms ${target.sourceRoomNumber} and ${target.roomNumber} stay locked for these nights. Open a view of this Property that overlaps ${range} to check again.`
+        : `The result is still unknown and this room stays locked for these nights. Open a view of this Property that overlaps ${range} to check again.`;
   } else if (checking) {
     detail = "Checking the board on the server again…";
+  } else if (target.operation === "move") {
+    detail = `The board was checked and the block is still shown in room ${target.sourceRoomNumber} exactly as it was, so the result is still unknown. Rooms ${target.sourceRoomNumber} and ${target.roomNumber} stay locked for these nights and the request will not be sent again.`;
   } else if (target.operation === "cancel") {
     detail = `The board was checked and this block is still shown at version ${target.expectedVersion}, the version this request targeted. That does not prove the cancel failed. This room stays locked for these nights and the request will not be sent again.`;
   } else {
@@ -3179,7 +3208,7 @@ const UncertainBlockNotice: React.FC<{
       role="status"
       data-testid="uncertain-block-notice"
       className={`mx-2 mt-2 flex items-start justify-between gap-3 rounded-lg px-3 py-2 text-sm sm:mx-4 ${
-        observed
+        resolved
           ? "bg-gray-100 text-gray-700 dark:bg-white/5 dark:text-gray-200"
           : "bg-warning-50 text-warning-800 dark:bg-warning-500/10 dark:text-warning-300"
       }`}
@@ -3193,7 +3222,7 @@ const UncertainBlockNotice: React.FC<{
         )}
         <p className="mt-0.5 text-xs">{detail}</p>
       </div>
-      {observed ? (
+      {resolved ? (
         <button
           type="button"
           onClick={() => onDismiss(rootRef.current?.contains(document.activeElement) ?? false)}

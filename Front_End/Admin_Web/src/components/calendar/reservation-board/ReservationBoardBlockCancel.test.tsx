@@ -11,7 +11,7 @@
  */
 
 import React from "react";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -21,6 +21,9 @@ import ReservationBoard from "./ReservationBoard";
 import type { OperationalBlockCancelOutcome } from "@/lib/api/client";
 import type { ApiProperty, ReservationBoardOperationalBlock, ReservationBoardResponse } from "@/lib/api/types";
 import { addDaysIso } from "./dateMath";
+import { boardIdentityKey } from "./assignmentTarget";
+import { persistUncertainWrites } from "./uncertainWriteStorage";
+import type { BlockCreateReconciliation } from "./blockCreateReconciliation";
 
 vi.mock("@/lib/api/client", () => ({
   fetchActiveProperties: vi.fn(),
@@ -600,5 +603,59 @@ describe("ReservationBoard — a lock outstanding from another range (PMS-CAL-00
     await user.click(screen.getByTitle(REASON));
     expect(within(popover()).getByRole("button", { name: "Cancel block" })).toBeDisabled();
     expect(mockedCancel).not.toHaveBeenCalled();
+  });
+});
+
+describe("ReservationBoard — a restored block move and block cancel (PMS-CAL-003-CP02 regression)", () => {
+  const restoredMove = (from: string, to: string, overrides: Partial<BlockCreateReconciliation> = {}): BlockCreateReconciliation => ({
+    id: 1,
+    key: boardIdentityKey("prop-a", from, to),
+    propertyId: "prop-a",
+    from,
+    to,
+    afterSeq: 0,
+    certainty: "uncertain",
+    status: "pending",
+    resolution: "unresolved",
+    target: {
+      operation: "move",
+      roomBlockId: "block-1",
+      segmentId: SEGMENT_ID,
+      expectedVersion: VERSION,
+      sourcePhysicalRoomId: "room-101",
+      sourceRoomNumber: "101",
+      physicalRoomId: "room-102",
+      roomNumber: "102",
+      startDate: addDaysIso(from, -1),
+      endDate: addDaysIso(to, 1),
+    },
+    ...overrides,
+  });
+
+  it("holds the block's Cancel unavailable while its move is unresolved, whatever the view, and sends nothing", async () => {
+    const user = userEvent.setup();
+    serveBoards();
+    const first = await renderLoadedBoard();
+    cleanup();
+    // The record was made from another board window of the same Property: the segment id alone locks it.
+    persistUncertainWrites(sessionStorage, [], [restoredMove(first.from, first.to, { key: "prop-a|2030-01-01|2030-01-15", from: "2030-01-01", to: "2030-01-15" })]);
+    await renderLoadedBoard();
+
+    await user.click(blockBar());
+    expect(within(popover()).getByRole("button", { name: "Cancel block" })).toBeDisabled();
+    expect(mockedCancel).not.toHaveBeenCalled();
+    expect(first.from).toBeTruthy();
+  });
+
+  it("a resolved move no longer holds Cancel, and an unresolved cancel of another segment never did", async () => {
+    const user = userEvent.setup();
+    serveBoards();
+    const first = await renderLoadedBoard();
+    cleanup();
+    persistUncertainWrites(sessionStorage, [], [restoredMove(first.from, first.to, { resolution: "observed" })]);
+    await renderLoadedBoard();
+
+    await user.click(blockBar());
+    expect(within(popover()).getByRole("button", { name: "Cancel block" })).toBeEnabled();
   });
 });

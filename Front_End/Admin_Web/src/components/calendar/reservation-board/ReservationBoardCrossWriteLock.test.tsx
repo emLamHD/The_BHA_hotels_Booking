@@ -2439,3 +2439,65 @@ describe("ReservationBoard — move, unassign and split-move share one source lo
     expect(mockedBlock).not.toHaveBeenCalled();
   });
 });
+
+describe("ReservationBoard — a restored block move locks assignment writes into both of its rooms (PMS-CAL-003-CP02)", () => {
+  const restoredBlockMove = (from: string, to: string): BlockCreateReconciliation => ({
+    id: 1,
+    key: `prop-a|${from}|${to}`,
+    propertyId: "prop-a",
+    from,
+    to,
+    afterSeq: 0,
+    certainty: "uncertain",
+    status: "pending",
+    resolution: "unresolved",
+    target: {
+      operation: "move",
+      roomBlockId: "header-x",
+      segmentId: "seg-x",
+      expectedVersion: 5,
+      sourcePhysicalRoomId: "room-201",
+      sourceRoomNumber: "201",
+      physicalRoomId: "room-102",
+      roomNumber: "102",
+      startDate: from,
+      endDate: addDaysIso(from, 2),
+    },
+  });
+
+  it("refuses an assignment into the destination or the source room over the move's nights, and still allows another room", async () => {
+    const user = userEvent.setup();
+    // The server still shows the moved block in its source room, exactly as it was, so the move stays unresolved.
+    const withSource = (propertyId: string, from: string, to: string) => ({
+      ...boardFor(propertyId, from, to),
+      operationalBlocks: [
+        { roomBlockId: "header-x", segmentId: "seg-x", segmentVersion: 5, physicalRoomId: "room-201", startDate: from, endDate: addDaysIso(from, 2), reason: "Paint" },
+      ],
+    });
+    mockedBoard.mockImplementation((propertyId, from, to) => Promise.resolve({ ok: true, data: withSource(propertyId, from, to) }));
+    const first = await renderLoadedBoard();
+    cleanup();
+    persistUncertainWrites(sessionStorage, [], [restoredBlockMove(first.from, first.to)]);
+    await renderLoadedBoard();
+
+    // The unassigned range [from, from+2) is exactly the moved block's nights.
+    for (const room of [/Room 102/, /Room 201/]) {
+      await user.click(firstRangeBar(first.from));
+      await user.click(within(assignDialog()).getByLabelText(room));
+      if (room.source.includes("201")) {
+        await user.click(within(assignDialog()).getByLabelText(/deliberately chosen a room of a different room type/));
+        await user.type(within(assignDialog()).getByLabelText("Reason"), "Upgrade");
+      }
+      await user.click(within(assignDialog()).getByRole("button", { name: /^Assign room/ }));
+      expect(await within(assignDialog()).findByRole("alert")).toHaveTextContent("still unconfirmed");
+      await closeDialog(user, assignDialog());
+    }
+    expect(mockedCreate).not.toHaveBeenCalled();
+
+    mockedCreate.mockResolvedValue({ kind: "rejected", status: 400, category: "validation" });
+    await user.click(firstRangeBar(first.from));
+    await user.click(within(assignDialog()).getByLabelText(/Room 101/));
+    await user.click(within(assignDialog()).getByRole("button", { name: "Assign room 101" }));
+    await waitFor(() => expect(mockedCreate).toHaveBeenCalledTimes(1));
+  });
+});

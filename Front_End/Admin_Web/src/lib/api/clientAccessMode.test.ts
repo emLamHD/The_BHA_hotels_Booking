@@ -11,6 +11,7 @@ import {
   createReservationAssignment,
   fetchActiveProperties,
   fetchReservationBoard,
+  moveOperationalBlock,
   moveReservationAssignment,
   splitMoveReservationAssignment,
   unassignReservationAssignment,
@@ -48,6 +49,7 @@ const writes = {
   blockCreate: () =>
     createOperationalBlock("prop-a", { physicalRoomId: "room-101", startDate: "2026-10-01", endDate: "2026-10-03", reason: "Repair" }),
   blockCancel: () => cancelOperationalBlock("prop-a", "seg-2", { expectedVersion: 1 }),
+  blockMove: () => moveOperationalBlock("prop-a", "seg-2", { expectedVersion: 1, destinationPhysicalRoomId: "room-102", reason: "Repair" }),
 };
 
 const successStatus: Record<keyof typeof writes, number> = {
@@ -57,6 +59,7 @@ const successStatus: Record<keyof typeof writes, number> = {
   unassign: 200,
   blockCreate: 201,
   blockCancel: 200,
+  blockMove: 200,
 };
 
 beforeEach(() => vi.stubEnv("NEXT_PUBLIC_API_BASE_URL", BASE_URL));

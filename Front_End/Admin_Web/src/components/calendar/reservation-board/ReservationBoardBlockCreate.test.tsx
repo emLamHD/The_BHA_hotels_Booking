@@ -6,7 +6,7 @@
  */
 
 import React from "react";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -16,6 +16,9 @@ import ReservationBoard from "./ReservationBoard";
 import type { OperationalBlockCreateOutcome } from "@/lib/api/client";
 import type { ApiProperty, ReservationBoardOperationalBlock, ReservationBoardResponse } from "@/lib/api/types";
 import { addDaysIso } from "./dateMath";
+import { boardIdentityKey } from "./assignmentTarget";
+import { persistUncertainWrites } from "./uncertainWriteStorage";
+import type { BlockCreateReconciliation } from "./blockCreateReconciliation";
 
 vi.mock("@/lib/api/client", () => ({
   fetchActiveProperties: vi.fn(),
@@ -343,5 +346,59 @@ describe("ReservationBoard — create operational block (PMS-CAL-001.3-CP03)", (
     await user.click(within(blockDialog()).getAllByRole("button", { name: "Close" }).at(-1)!);
     expect(createButton()).toBeDisabled();
     expect(createButton()).toHaveAttribute("title", "Waiting for the board to be re-read after a change.");
+  });
+});
+
+describe("ReservationBoard — a restored block move and block create (PMS-CAL-003-CP02 regression)", () => {
+  /**
+   * A move of the block the board shows (seg-block-1, header block-1, room 101, its first night) to room 199, restored after a
+   * reload. The source is still shown exactly as it was, so the record stays unresolved and locks both rooms for that night.
+   */
+  const restoredMove = (from: string, to: string): BlockCreateReconciliation => ({
+    id: 1,
+    key: boardIdentityKey("prop-a", from, to),
+    propertyId: "prop-a",
+    from,
+    to,
+    afterSeq: 0,
+    certainty: "uncertain",
+    status: "pending",
+    resolution: "unresolved",
+    target: {
+      operation: "move",
+      roomBlockId: "block-1",
+      segmentId: "seg-block-1",
+      expectedVersion: 1,
+      sourcePhysicalRoomId: "room-101",
+      sourceRoomNumber: "101",
+      physicalRoomId: "room-oos",
+      roomNumber: "199",
+      startDate: from,
+      endDate: addDaysIso(from, 1),
+    },
+  });
+
+  it("refuses a create for the moved block's nights in its source room while the move is unresolved, and allows it once the move is resolved", async () => {
+    const user = userEvent.setup();
+    serveBoards(() => true);
+    const first = await renderLoadedBoard();
+    cleanup();
+    persistUncertainWrites(sessionStorage, [], [restoredMove(first.from, first.to)]);
+    await renderLoadedBoard();
+
+    await openAndReview(user);
+    expect(within(blockDialog()).getByRole("alert")).toHaveTextContent("still unconfirmed");
+    expect(mockedCreateBlock).not.toHaveBeenCalled();
+    await user.click(within(blockDialog()).getAllByRole("button", { name: "Close" }).at(-1)!);
+    cleanup();
+
+    // The same record, once resolved, is not even kept in the tab, so it locks nothing.
+    sessionStorage.clear();
+    persistUncertainWrites(sessionStorage, [], [{ ...restoredMove(first.from, first.to), resolution: "changed" }]);
+    expect(sessionStorage.getItem("thebha.adminCalendar.uncertainWrites")).toBeNull();
+    await renderLoadedBoard();
+    await openAndReview(user);
+    expect(within(blockDialog()).queryByRole("alert")).not.toBeInTheDocument();
+    expect(within(blockDialog()).getByRole("button", { name: "Create block" })).toBeInTheDocument();
   });
 });

@@ -53,7 +53,7 @@
  */
 
 import type { ReservationBoardResponse, ReservationBoardUnassignedRange } from "@/lib/api/types";
-import type { BlockCreateReconciliation } from "./blockCreateReconciliation";
+import { blockRoomsTouchedBy, type BlockCreateReconciliation } from "./blockCreateReconciliation";
 
 interface ReconciliationTargetBase {
   reservationUnitId: string;
@@ -491,7 +491,8 @@ export function isRoomRangeUnresolved(
       (entry) =>
         entry.resolution === "unresolved" &&
         entry.propertyId === propertyId &&
-        physicalRoomIds.includes(entry.target.physicalRoomId) &&
+        // PMS-CAL-003-CP02: both rooms of an unresolved block move, over its full range.
+        blockRoomsTouchedBy(entry.target).some((roomId) => physicalRoomIds.includes(roomId)) &&
         overlapsRange(entry.target, range)
     )
   );

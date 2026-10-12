@@ -16,6 +16,7 @@ import {
   type SplitMoveReconciliationTarget,
   type UnassignReconciliationTarget,
 } from "./reconciliation";
+import type { BlockCreateReconciliation } from "./blockCreateReconciliation";
 import type { ReservationBoardResponse, ReservationBoardStay } from "@/lib/api/types";
 
 const A = "prop-a|2026-09-07|2026-09-21";
@@ -924,5 +925,78 @@ describe("split-move reconciliation (PMS-CAL-002-CP03)", () => {
       expect(isSegmentMoveUnresolved([splitEntry()], "prop-a", "seg-1")).toBe(false);
       expect(isSegmentUnassignUnresolved([splitEntry()], "prop-a", "seg-1")).toBe(false);
     });
+  });
+});
+
+describe("isRoomRangeUnresolved — an unresolved block move locks both rooms (PMS-CAL-003-CP02)", () => {
+  const nights = { startDate: "2026-11-01", endDate: "2026-11-04" };
+  const base = { id: 1, key: "k", propertyId: "prop-a", from: "2026-10-25", to: "2026-11-08", afterSeq: 1, certainty: "uncertain" as const };
+  // Re-read already completed (`done`), yet still unresolved: must keep locking, and only `resolution` counts.
+  const blockMove = (overrides: Partial<BlockCreateReconciliation> = {}): BlockCreateReconciliation => ({
+    ...base,
+    status: "done",
+    resolution: "unresolved",
+    target: {
+      operation: "move",
+      roomBlockId: "H",
+      segmentId: "S",
+      expectedVersion: 42,
+      sourcePhysicalRoomId: "room-A",
+      sourceRoomNumber: "A",
+      physicalRoomId: "room-B",
+      roomNumber: "B",
+      ...nights,
+    },
+    ...overrides,
+  });
+  const lockedFor = (list: BlockCreateReconciliation[], rooms: string[], range = nights, property = "prop-a") =>
+    isRoomRangeUnresolved([], list, property, rooms, range);
+
+  it("locks the source AND the destination over the full source range, from any view of the Property", () => {
+    expect(lockedFor([blockMove()], ["room-A"])).toBe(true);
+    expect(lockedFor([blockMove()], ["room-B"])).toBe(true);
+    expect(lockedFor([blockMove()], ["room-A", "room-B"])).toBe(true);
+    // The entry was made from another board window; a write for these nights still meets the lock.
+    expect(lockedFor([blockMove({ key: "other|2030-01-01|2030-01-15", from: "2030-01-01", to: "2030-01-15" })], ["room-B"], { startDate: "2026-11-03", endDate: "2026-11-09" })).toBe(true);
+    // A multi-room check hits it if any room is touched.
+    expect(lockedFor([blockMove()], ["room-Z", "room-B"])).toBe(true);
+  });
+
+  it("keeps half-open adjacency: nights that merely touch the range, other rooms and other Properties are free", () => {
+    expect(lockedFor([blockMove()], ["room-A"], { startDate: "2026-10-30", endDate: "2026-11-01" })).toBe(false);
+    expect(lockedFor([blockMove()], ["room-B"], { startDate: "2026-11-04", endDate: "2026-11-06" })).toBe(false);
+    expect(lockedFor([blockMove()], ["room-A"], { startDate: "2026-11-03", endDate: "2026-11-04" })).toBe(true);
+    expect(lockedFor([blockMove()], ["room-C"])).toBe(false);
+    expect(lockedFor([blockMove()], ["room-A", "room-B"], nights, "prop-b")).toBe(false);
+  });
+
+  it("only an unresolved entry locks: observed, changed and settled release both rooms", () => {
+    for (const resolution of ["observed", "changed", "settled"] as const) {
+      expect(lockedFor([blockMove({ resolution })], ["room-A"]), resolution).toBe(false);
+      expect(lockedFor([blockMove({ resolution })], ["room-B"]), resolution).toBe(false);
+    }
+  });
+
+  it("a block create or cancel still locks only its own room, as before", () => {
+    const create: BlockCreateReconciliation = { ...base, status: "done", resolution: "unresolved", target: { operation: "create", physicalRoomId: "room-A", roomNumber: "A", ...nights, reason: "Leak" } };
+    const cancel: BlockCreateReconciliation = { ...base, status: "done", resolution: "unresolved", target: { operation: "cancel", physicalRoomId: "room-A", roomNumber: "A", ...nights, reason: "Leak", segmentId: "S", expectedVersion: 1 } };
+    for (const list of [[create], [cancel]]) {
+      expect(lockedFor(list, ["room-A"])).toBe(true);
+      expect(lockedFor(list, ["room-B"])).toBe(false);
+    }
+  });
+
+  it("assignment and block locks meet each other: a block move blocks an assignment write into either room, and an unresolved assignment blocks the move's rooms", () => {
+    const assignmentMove = uncertain({
+      target: {
+        operation: "move", reservationUnitId: "unit-1", physicalRoomId: "room-B", ...nights, roomNumber: "B", guestDisplayName: "G", confirmationNumber: "C",
+        segmentId: "seg", expectedVersion: 1, sourcePhysicalRoomId: "room-Q",
+      },
+    });
+    // One list of each kind, as the board holds them.
+    expect(isRoomRangeUnresolved([], [blockMove()], "prop-a", ["room-A"], nights)).toBe(true);
+    expect(isRoomRangeUnresolved([], [blockMove()], "prop-a", ["room-B"], nights)).toBe(true);
+    expect(isRoomRangeUnresolved([assignmentMove], [], "prop-a", ["room-B"], nights)).toBe(true);
+    expect(isRoomRangeUnresolved([assignmentMove], [blockMove({ resolution: "changed" })], "prop-a", ["room-A"], nights)).toBe(false);
   });
 });
