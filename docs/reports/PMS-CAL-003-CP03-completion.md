@@ -123,4 +123,3 @@ Stopped and removed: Kestrel, `next start`, the TLS terminator and fault proxy (
 ## 10. Follow-up (2026-10-12, appended later)
 
 The Finding 1 qualifier above (§5 case 6 PARTIAL, §7) is unchanged at this report's validation SHA `93b3e2f2e957d814f7517e63115c960828d200ba`. `PMS-CAL-004-CP01` (`docs/reports/PMS-CAL-004-CP01-completion.md`) addresses it by exposing a non-Active room that holds an Effective block in the board read, and records the qualifier as resolved only by its own evidence: a real browser saw the inactive status from the GET before opening the dialog, and the move and cancel succeeded. Nothing in this report's other acceptance is attributed to that head.
-

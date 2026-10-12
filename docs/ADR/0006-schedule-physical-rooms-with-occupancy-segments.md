@@ -745,4 +745,3 @@ destination of any placement must be Active, and capacity, overlap, locking and 
 with the existing mutation engine. The Decision is unchanged. The design is
 `docs/design/PMS-CAL-004-inactive-room-block-visibility.md`; current state is tracked in
 `docs/project/PROJECT_BIBLE.md`, not here.
-
