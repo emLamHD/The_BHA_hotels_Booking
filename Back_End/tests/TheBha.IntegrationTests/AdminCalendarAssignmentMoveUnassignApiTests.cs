@@ -767,9 +767,14 @@ public sealed class AdminCalendarAssignmentMoveUnassignApiTests(PostgreSqlWebApp
 
         // No generic split/swap/batch surface: no path anywhere accepts more
         // than one segment id or more than one replacement per request — the
-        // schemas above are the whole of what CP04B exposes.
+        // schemas above are the whole of what CP04B exposes. PMS-CAL-002-CP02
+        // allows exactly one split-like path, the fixed-shape split-move route
+        // (asserted in full by AdminCalendarAssignmentSplitMoveApiTests); any
+        // other path containing "split" still fails here.
         var allPaths = swagger.GetProperty("paths").EnumerateObject().Select(p => p.Name).ToArray();
-        Assert.DoesNotContain(allPaths, p => p.Contains("split", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(
+            [$"{BasePath}/{{segmentId}}/split-move"],
+            allPaths.Where(p => p.Contains("split", StringComparison.OrdinalIgnoreCase)).ToArray());
         Assert.DoesNotContain(allPaths, p => p.Contains("swap", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(allPaths, p => p.Contains("batch", StringComparison.OrdinalIgnoreCase));
     }

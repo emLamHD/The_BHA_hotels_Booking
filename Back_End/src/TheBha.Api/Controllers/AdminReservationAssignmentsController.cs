@@ -150,6 +150,45 @@ public sealed class UnassignReservationAssignmentRequest
 }
 
 /// <summary>
+/// One Admin Calendar split-move request (PMS-CAL-002-CP02): ends the segment named in the route and
+/// replaces it with a prefix <c>[start, splitDate)</c> in the segment's own room and a suffix
+/// <c>[splitDate, end)</c> in <see cref="DestinationPhysicalRoomId"/>. The source's room and nights
+/// are read by the store from the database, never taken from the request: there is no source
+/// StartDate/EndDate, no Unit id, no replacement list, no price, no actor and no authorization
+/// evidence here, and unknown JSON properties are ignored exactly as for
+/// <see cref="MoveReservationAssignmentRequest"/>. The first three properties are required for
+/// the reason documented on <see cref="CreateReservationAssignmentRequest"/> (a plain type, not a
+/// positional record, so <see cref="JsonRequiredAttribute"/> and <see cref="RequiredAttribute"/>
+/// describe presence to the runtime and to Swagger alike).
+/// </summary>
+public sealed class SplitMoveReservationAssignmentRequest
+{
+    /// <summary>The optimistic-concurrency token last observed for the source segment.</summary>
+    [JsonRequired]
+    [Required]
+    public uint ExpectedVersion { get; init; }
+
+    /// <summary>The first night in the destination room; the store requires it strictly inside the source's nights.</summary>
+    [JsonRequired]
+    [Required]
+    public DateOnly SplitDate { get; init; }
+
+    [JsonRequired]
+    [Required]
+    public Guid DestinationPhysicalRoomId { get; init; }
+
+    /// <summary>
+    /// Same meaning as <see cref="CreateReservationAssignmentRequest.ConfirmCrossRoomType"/>, and
+    /// required to be <c>true</c> when either successor — the prefix kept in the source room
+    /// included — would sit outside the sold RoomType. The server never turns it on by itself.
+    /// </summary>
+    public bool ConfirmCrossRoomType { get; init; }
+
+    /// <summary>Optional; required by the store when either successor crosses RoomTypes (D3).</summary>
+    public string? Reason { get; init; }
+}
+
+/// <summary>
 /// PMS-CAL-001.2-CP02: the first Admin Calendar <em>write</em> endpoint, and a
 /// thin adapter over the already-accepted
 /// <see cref="IAssignmentMutationStore.CreateAsync"/> — every reservation,
@@ -208,6 +247,16 @@ public sealed class UnassignReservationAssignmentRequest
 /// <c>staff-rbac:{role}:{propertyId}:cross-room-type-confirmed</c>, both from
 /// <see cref="StaffCalendarWriteContext"/>; whether a row keeps that evidence is still decided by
 /// the store (cross-type <c>Created</c> rows only).
+/// </para>
+///
+/// <para>
+/// PMS-CAL-002-CP02: <see cref="SplitMove"/> is the same adapter pattern applied to
+/// <see cref="IAssignmentMutationStore.SplitMoveAsync"/> (CP01), which builds the two-successor
+/// partition from the source it reads and supersedes through the same transaction. This controller
+/// adds no pre-read, range or capacity logic. Both successors are judged against the Unit's sold
+/// RoomType by the store, so <c>confirmCrossRoomType</c> must be sent whenever either one crosses,
+/// and in Staff mode it needs <see cref="StaffPermission.AssignmentCrossRoomType"/> like create and
+/// move. The same no-idempotency caveat applies.
 /// </para>
 /// </summary>
 [ApiController]
@@ -408,6 +457,52 @@ public sealed class AdminReservationAssignmentsController(
     }
 
     /// <summary>
+    /// Splits one existing Effective segment at <c>splitDate</c>: the nights before it stay in the
+    /// segment's own room and the nights from it on move to the destination room (PMS-CAL-002-CP02).
+    /// The response is the store's three segments — the Cancelled source, the prefix, the suffix —
+    /// each with its version after commit; there is no <c>Location</c>, and the board stays the
+    /// authoritative read.
+    /// </summary>
+    /// <remarks>
+    /// Published metadata mirrors <see cref="Move"/> for the same reasons (Correction C3).
+    /// </remarks>
+    [HttpPost("{segmentId:guid}/split-move")]
+    [StaffCalendarPermission(StaffPermission.AssignmentWrite, typeof(AdminCalendarWriteGateFilter))]
+    [ProducesResponseType(typeof(IReadOnlyList<RoomOccupancySegmentDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(void), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status415UnsupportedMediaType)]
+    public async Task<ActionResult<IReadOnlyList<RoomOccupancySegmentDto>>> SplitMove(
+        Guid propertyId,
+        Guid segmentId,
+        [FromBody] SplitMoveReservationAssignmentRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!TryResolveActor(propertyId, request.ConfirmCrossRoomType, out var actorReference, out var evidence))
+        {
+            return Forbid(StaffAuthentication.Scheme);
+        }
+
+        var reason = string.IsNullOrWhiteSpace(request.Reason) ? null : request.Reason.Trim();
+
+        var result = await store.SplitMoveAsync(
+            new SplitMoveAssignmentCommand(
+                propertyId,
+                segmentId,
+                request.ExpectedVersion,
+                request.SplitDate,
+                request.DestinationPhysicalRoomId,
+                actorReference,
+                evidence,
+                reason),
+            cancellationToken);
+
+        return MapSupersedeResult(result);
+    }
+
+    /// <summary>
     /// PMS-ADMIN-AUTH-001-CP05: the audit actor and cross-RoomType evidence for this request. In
     /// LocalGate, the local constants (evidence only when confirmed, as before). In Staff mode,
     /// only the verified <see cref="StaffCalendarWriteContext"/> for this Property — missing or for
@@ -442,7 +537,7 @@ public sealed class AdminReservationAssignmentsController(
     }
 
     /// <summary>
-    /// The status mapping <see cref="Move"/> and <see cref="Unassign"/> share —
+    /// The status mapping <see cref="Move"/>, <see cref="Unassign"/> and <see cref="SplitMove"/> share —
     /// deliberately the same shape as <see cref="Create"/>'s switch, so the two
     /// write surfaces never disagree about what one <see cref="SegmentMutationStatus"/>
     /// means to a caller.
