@@ -12,7 +12,14 @@ namespace TheBha.Infrastructure.Persistence;
 /// Development-only single-segment adapters in AdminOperationalBlocksController:
 /// create over <c>CreateBlockAsync</c> (PMS-CAL-001.3-CP01) and cancel over a
 /// zero-replacement <c>SupersedeSegmentsAsync</c> (PMS-CAL-001.3-CP02). Multi-segment
-/// create, block move/split and multi-segment supersede remain internal-only.
+/// create, block split and multi-segment supersede remain internal-only.
+///
+/// <para>
+/// PMS-CAL-003-CP01 adds a third narrow adapter, <c>MoveAsync</c>: it reads the source's own
+/// room and range, then delegates one single-replacement supersession to the unchanged
+/// <c>SupersedeSegmentsAsync</c>, which still owns the transaction, version check, locks,
+/// capacity, overlap and audit. No engine body was edited.
+/// </para>
 /// </summary>
 internal sealed class OperationalBlockMutationStore(
     TheBhaDbContext dbContext,
@@ -362,6 +369,79 @@ internal sealed class OperationalBlockMutationStore(
 
         return SegmentMutationResult.Succeeded(
             mutatedSegments.Select(segment => RoomOccupancySegmentMutationSupport.ToDto(dbContext, segment)).ToList());
+    }
+
+    /// <summary>
+    /// PMS-CAL-003-CP01: the longest range <see cref="MoveAsync"/> will hand to the supersession
+    /// engine, in nights. The same resource bound as the HTTP block-create budget: the engine
+    /// materializes every night of the range and takes one advisory lock per night, so the span
+    /// of a move must not be caller-controlled load. Existing longer segments (internal create
+    /// has no such bound) can still be cancelled or superseded through the unchanged engine;
+    /// they just cannot be moved through this narrow adapter.
+    /// </summary>
+    private const int MaximumMoveNights = 366;
+
+    public async Task<SegmentMutationResult> MoveAsync(
+        MoveOperationalBlockCommand command,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(command.ActorReference))
+        {
+            return SegmentMutationResult.Invalid("actorReference is required.");
+        }
+
+        // Refused before any read or lock: the audit rows would reject it after the engine had
+        // already taken its locks, and the limit is the Domain's own constant.
+        if (command.Reason?.Trim().Length > SchedulingFieldLimits.Reason)
+        {
+            return SegmentMutationResult.Invalid(
+                $"reason must be at most {SchedulingFieldLimits.Reason} characters.");
+        }
+
+        // PMS-CAL-003-CP01. This read only learns the source's own room and nights so the one
+        // replacement can be composed; it decides nothing about versions or availability. A
+        // segment's room and dates never change (only its status and version do), and
+        // SupersedeSegmentsAsync re-reads status, version, destination, capacity and overlap
+        // under its locks, so a source cancelled or re-versioned in between is the same
+        // Conflict as for any other superseding command.
+        var source = await dbContext.RoomOccupancySegments
+            .AsNoTracking()
+            .Where(s =>
+                s.Id == command.SegmentId &&
+                s.PropertyId == command.PropertyId &&
+                s.Type == RoomOccupancySegmentType.OperationalBlock)
+            .Select(s => new { s.PhysicalRoomId, s.StartDate, s.EndDate })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (source is null)
+        {
+            return SegmentMutationResult.NotFound("The requested operational block segment does not exist in this Property.");
+        }
+
+        if (command.DestinationPhysicalRoomId == source.PhysicalRoomId)
+        {
+            return SegmentMutationResult.Invalid("The destination PhysicalRoom must differ from the block's current room.");
+        }
+
+        // Bounded before the engine enumerates a single night. DayNumber is an int, so this
+        // difference cannot overflow even for DateOnly.MinValue … DateOnly.MaxValue.
+        if (source.EndDate.DayNumber - source.StartDate.DayNumber > MaximumMoveNights)
+        {
+            return SegmentMutationResult.Invalid(
+                $"A block longer than {MaximumMoveNights} nights cannot be moved in one request.");
+        }
+
+        return await SupersedeSegmentsAsync(
+            new SupersedeBlockSegmentsCommand(
+                command.PropertyId,
+                [
+                    new BlockSegmentSupersession(
+                        command.SegmentId,
+                        command.ExpectedVersion,
+                        [new BlockSegmentSpec(command.DestinationPhysicalRoomId, source.StartDate, source.EndDate)])
+                ],
+                command.ActorReference,
+                command.Reason),
+            cancellationToken);
     }
 
     private static Dictionary<(Guid RoomTypeId, DateOnly StayDate), int> ComputeBlockedRoomDeltas(

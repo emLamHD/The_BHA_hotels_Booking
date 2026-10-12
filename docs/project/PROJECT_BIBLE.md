@@ -116,7 +116,7 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   CLI, cookie session `.TheBha.Staff` (8 giờ tuyệt đối), `GET /api/admin/v1/me`.
   `AdminCalendar:AccessMode`: `Staff` (mặc định từ CP07, mọi môi trường) yêu cầu
   Staff session + permission kiểm tra trên server theo Property/role cho Board
-  read và sáu route ghi (assignment create/move/unassign/split-move, block create/cancel), audit actor `staff:{id}` và evidence cross-RoomType của
+  read và bảy route ghi (assignment create/move/unassign/split-move, block create/cancel/move), audit actor `staff:{id}` và evidence cross-RoomType của
   Manager; `LocalGate` (gate ẩn danh ở trên) chỉ là opt-in Development, môi
   trường khác từ chối khởi động. Admin_Web có `/signin`, gate `/calendar`,
   selector từ memberships và UI theo quyền. Vận hành:
@@ -167,18 +167,27 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   CURRENT ở mức local-only từ CP04B, single-segment operational-block
   *create*/*cancel* CURRENT ở mức local-only từ `PMS-CAL-001.3` CP01/CP02,
   và Admin Reservation Board gọi cả hai từ CP03/CP04) —
-  assignment *batch*, OperationalBlock *move/split* và multi-segment block
+  assignment *batch*, OperationalBlock *split* và multi-segment block
   create/supersede qua HTTP, frontend integration cho batch và cho
-  operational-block move/split vẫn TARGET, chưa implement. Đổi phòng giữa kỳ bằng
+  operational-block split vẫn TARGET, chưa implement; OperationalBlock *move* của
+  một segment đã có route backend (`PMS-CAL-003-CP01`, xem dưới) nhưng **chưa có**
+  client, dialog hay action trên board. Đổi phòng giữa kỳ bằng
   split một segment (split-move, blueprint §15.4,
   [PMS-CAL-002-split-move](../design/PMS-CAL-002-split-move.md); Owner đã chốt D1–D6)
   nay **CURRENT ở mức local/Staff**: store `SplitMoveAsync` (CP01), route
   `POST …/reservation-assignments/{segmentId}/split-move` (CP02), client/target/
   reconciliation/storage (CP03), dialog (CP04) và action `Move from a date…` trên
-  Admin Reservation Board (CP05, `PMS-CAL-002`, chờ Owner review/merge). Đây là
+  Admin Reservation Board (CP05; PR #102 đã merge sau review của Owner, milestone
+  `PMS-CAL-002` **đóng**). Đây là
   thao tác **phân bổ phòng** trên segment: nó không đổi ngày lưu trú, giá hay
   booking (D6), và **không** có check-in/check-out, lifecycle, folio hay template
-  nối backend — các phần đó vẫn mock/TARGET. Chưa deploy Production; Backend CD vẫn
+  nối backend — các phần đó vẫn mock/TARGET. `PMS-CAL-003-CP01` thêm route
+  ghi thứ bảy: `POST …/operational-blocks/{segmentId}/move`
+  ([PMS-CAL-003-operational-block-move](../design/PMS-CAL-003-operational-block-move.md)),
+  chuyển đúng một OperationalBlock segment Effective sang phòng Active khác của cùng
+  Property trên toàn bộ đêm của nó, giữ RoomBlock header; chỉ cần `BlockWrite`
+  (FrontDesk và Manager, kể cả khác RoomType: block không có sold RoomType nên không
+  có xác nhận cross-RoomType hay evidence). Chưa deploy Production; Backend CD vẫn
   `PAUSED / NOT_COMPLETE`. (Staff
   authentication/RBAC và audit actor Staff đã CURRENT ở chế độ `Staff` —
   `PMS-ADMIN-AUTH-001`; chế độ `LocalGate` vẫn dùng hằng số opaque.)
