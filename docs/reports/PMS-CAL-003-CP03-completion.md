@@ -119,3 +119,8 @@ Stopped and removed: Kestrel, `next start`, the TLS terminator and fault proxy (
 ## 9. Status
 
 `IMPLEMENTATION_CP03: PASS` (acceptance qualified as above) · `UI_OPERATIONAL_BLOCK_MOVE: IMPLEMENTED` · `BLOCK_MOVE_ISOLATED_REAL_API: PASS (qualified — inactive-source row PARTIAL, §7 Finding 1, OC decision)` · `REVIEW_CP03: NOT_RUN — OWNER_ONLY` · `PMS_CAL_003: IMPLEMENTED_AWAITING_OWNER_REVIEW_MERGE` · `OLD_BUILD_DOWNGRADE_RUNTIME: NOT_VERIFIED` · `CLOUD_CALLS_CP03 / LIVE_DEPLOY_CP03: NOT_RUN` · `BACKEND_CD: PAUSED / NOT_COMPLETE` (the two release flags were not read or changed; the `false` readbacks of 2026-10-10 are earlier evidence).
+
+## 10. Follow-up (2026-10-12, appended later)
+
+The Finding 1 qualifier above (§5 case 6 PARTIAL, §7) is unchanged at this report's validation SHA `93b3e2f2e957d814f7517e63115c960828d200ba`. `PMS-CAL-004-CP01` (`docs/reports/PMS-CAL-004-CP01-completion.md`) addresses it by exposing a non-Active room that holds an Effective block in the board read, and records the qualifier as resolved only by its own evidence: a real browser saw the inactive status from the GET before opening the dialog, and the move and cancel succeeded. Nothing in this report's other acceptance is attributed to that head.
+

@@ -174,8 +174,15 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   (`PMS-CAL-003-CP02`: client, target chính xác, reconciliation observed/unresolved/changed,
   khóa hai phòng, record storage v1) và nay cả dialog + action `Move block…` trên board
   (`PMS-CAL-003-CP03`, đã chạy trên Chrome thật + API Staff thật + PostgreSQL 18.3 cô lập; PR chờ
-  review/merge của Owner), một request, không retry, kết quả mất phản hồi giữ `unknown` và khóa hai
-  phòng. Đổi phòng giữa kỳ bằng
+  review/merge của Owner; PR #105 đã merge, milestone `PMS-CAL-003` **đóng** với qualifier lịch sử:
+  block ở phòng không Active khi đó chưa hiện trên board), một request, không retry, kết quả mất phản
+  hồi giữ `unknown` và khóa hai phòng. `PMS-CAL-004-CP01` sửa chỗ hiển thị đó: read
+  `reservation-board` trả mọi phòng Active **cộng** phòng Inactive/OutOfService của cùng Property có
+  Effective block giao với window (kèm `operationalStatus` thật; không mở danh sách phòng inactive hay lịch
+  sử), để Staff dùng `Move block…`/`Cancel block` hiện hữu trên block đó; mọi destination vẫn Active-only,
+  inventory/sellability vẫn Active-only, không đổi status phòng
+  ([PMS-CAL-004](../design/PMS-CAL-004-inactive-room-block-visibility.md); PR chờ review/merge của Owner).
+  Đổi phòng giữa kỳ bằng
   split một segment (split-move, blueprint §15.4,
   [PMS-CAL-002-split-move](../design/PMS-CAL-002-split-move.md); Owner đã chốt D1–D6)
   nay **CURRENT ở mức local/Staff**: store `SplitMoveAsync` (CP01), route
