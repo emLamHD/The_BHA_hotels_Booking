@@ -21,6 +21,11 @@
  * panel: the parent decides the transition and owns focus restoration. No
  * caller passes it yet, so nothing is offered on the live board.
  *
+ * PMS-CAL-002-CP05: `onSplitMove` is the same opt-in contract for "Move from a date…": it reports the
+ * exact clicked `{ stay, segment }` and nothing else. The popover decides nothing about nights, dates or
+ * rooms — the board passes the action only for a segment with at least two nights and a role that may
+ * change assignments, and `splitMoveUnavailableReason` only says why it is disabled right now.
+ *
  * PMS-CAL-001.3-CP04: `onCancelBlock` is the same opt-in contract for the block
  * branch — it reports back the exact `BlockSelection` that was clicked and
  * nothing else, and the parent decides whether that selection still matches the
@@ -49,6 +54,10 @@ interface ReservationBoardStayPopoverProps {
   onUnassignRoom?: (selection: AssignedSegmentSelection) => void;
   /** True while the board is stale or this exact segment already has an unresolved write. Independent of `moveBlocked`. */
   unassignBlocked?: boolean;
+  /** Present only when this selection came from an assigned bar of at least two nights. */
+  onSplitMove?: (selection: AssignedSegmentSelection) => void;
+  /** Why the split-move cannot start right now (stale board, unresolved write, role); `null` when it can. */
+  splitMoveUnavailableReason?: string | null;
   /** Present only when this selection came from an operational-block bar. */
   onCancelBlock?: (selection: BlockSelection) => void;
   /** True while the board is stale or this exact block already has an unresolved write. */
@@ -62,10 +71,13 @@ const ReservationBoardStayPopover: React.FC<ReservationBoardStayPopoverProps> = 
   moveBlocked = false,
   onUnassignRoom,
   unassignBlocked = false,
+  onSplitMove,
+  splitMoveUnavailableReason = null,
   onCancelBlock,
   cancelBlockBlocked = false,
 }) => {
   const unassignBlockedId = useId();
+  const splitMoveBlockedId = useId();
   const cancelBlockBlockedId = useId();
   return (
     <div
@@ -128,6 +140,25 @@ const ReservationBoardStayPopover: React.FC<ReservationBoardStayPopoverProps> = 
                   <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
                     Refreshing from the server, or this segment already has an unresolved move — try again once it
                     settles.
+                  </p>
+                )}
+              </div>
+            )}
+            {selection.value.segment && onSplitMove && (
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={() => onSplitMove({ stay: selection.value.stay, segment: selection.value.segment! })}
+                  disabled={splitMoveUnavailableReason !== null}
+                  aria-disabled={splitMoveUnavailableReason !== null}
+                  aria-describedby={splitMoveUnavailableReason !== null ? splitMoveBlockedId : undefined}
+                  className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-white/5"
+                >
+                  Move from a date…
+                </button>
+                {splitMoveUnavailableReason !== null && (
+                  <p id={splitMoveBlockedId} className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                    {splitMoveUnavailableReason}
                   </p>
                 )}
               </div>

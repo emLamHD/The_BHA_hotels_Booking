@@ -32,6 +32,7 @@ vi.mock("@/lib/api/client", () => ({
   createReservationAssignment: vi.fn(),
   moveReservationAssignment: vi.fn(),
   unassignReservationAssignment: vi.fn(),
+  splitMoveReservationAssignment: vi.fn(),
   createOperationalBlock: vi.fn(),
   cancelOperationalBlock: vi.fn(),
 }));
@@ -41,11 +42,13 @@ import {
   fetchActiveProperties,
   fetchReservationBoard,
   moveReservationAssignment,
+  splitMoveReservationAssignment,
 } from "@/lib/api/client";
 
 const mockedProperties = vi.mocked(fetchActiveProperties);
 const mockedBoard = vi.mocked(fetchReservationBoard);
 const mockedMove = vi.mocked(moveReservationAssignment);
+const mockedSplit = vi.mocked(splitMoveReservationAssignment);
 const mockedCreateBlock = vi.mocked(createOperationalBlock);
 
 const propertyA: ApiProperty = { id: "prop-a", name: "Property A", timeZone: "Asia/Ho_Chi_Minh" };
@@ -216,7 +219,7 @@ const STALE_TEXT =
   "The board changed after this move was opened. Nothing was sent; start the move again from the board on screen.";
 
 beforeEach(() => {
-  for (const mock of [mockedProperties, mockedBoard, mockedMove, mockedCreateBlock]) mock.mockReset();
+  for (const mock of [mockedProperties, mockedBoard, mockedMove, mockedSplit, mockedCreateBlock]) mock.mockReset();
   mockedProperties.mockResolvedValue({ ok: true, data: [propertyA, propertyB] });
   serveBoards();
 });
@@ -766,5 +769,30 @@ describe("ReservationBoard — a Property switch after a move was sent (PMS-CAL-
     expect(queryMoveDialog()).not.toBeInTheDocument();
     expect(screen.getByTestId("move-refusal-notice")).toHaveTextContent(STALE_TEXT);
     expect(document.activeElement).not.toBe(document.body);
+  });
+});
+
+describe("ReservationBoard — a lost split-move locks dragging the same segment (PMS-CAL-002-CP05)", () => {
+  it("move, unassign and split-move consume the same version: after an unconfirmed split-move the segment cannot be dragged", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    mockedSplit.mockResolvedValue({ kind: "unknown", reason: "timeout" });
+
+    await user.click(bar());
+    await user.click(within(screen.getByRole("dialog", { name: "Reservation details" })).getByRole("button", { name: /^Move from a date/ }));
+    const split = screen.getByRole("dialog", { name: "Move from a date" });
+    fireEvent.change(within(split).getByLabelText("Destination room takes over from"), { target: { value: addDaysIso(from, 1) } });
+    fireEvent.click(within(split).getByLabelText(/Room 102/));
+    await user.click(within(split).getByRole("button", { name: /^Split and move/ }));
+    await waitFor(() => expect(mockedSplit).toHaveBeenCalledTimes(1));
+    await within(split).findByRole("alert");
+    await user.click(within(split).getAllByRole("button", { name: "Close" }).at(-1)!);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Create operational block" })).toBeEnabled());
+
+    const started = fireEvent.dragStart(bar(), { dataTransfer: dataTransfer() });
+    expect(started).toBe(false);
+    expect(feedback()).toHaveTextContent("still unconfirmed");
+    expect(queryMoveDialog()).not.toBeInTheDocument();
+    expect(mockedMove).not.toHaveBeenCalled();
   });
 });

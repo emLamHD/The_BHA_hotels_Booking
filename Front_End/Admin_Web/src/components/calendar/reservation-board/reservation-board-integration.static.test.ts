@@ -70,3 +70,32 @@ describe("Calendar page layout preservation", () => {
     expect(source).toMatch(/mode\.mode === "LocalGate"\) return <ReservationBoard\s*\/>;/);
   });
 });
+
+describe("split-move wiring boundaries (PMS-CAL-002-CP05)", () => {
+  it("the board is the only caller of the split-move client function; the seam, popover and dialog import no client function", () => {
+    const importsOf = (file: string) =>
+      read(file)
+        .split("\n")
+        .filter((line) => /^\s*import\b/.test(line))
+        .join("\n");
+    expect(read("ReservationBoard.tsx")).toContain("splitMoveReservationAssignment(");
+    for (const file of ["splitMoveSubmission.ts", "ReservationBoardStayPopover.tsx", "ReservationSplitMoveDialog.tsx"]) {
+      expect(importsOf(file)).not.toMatch(/import \{[^}]*splitMoveReservationAssignment/);
+      expect(read(file)).not.toMatch(/\bfetch\(/);
+    }
+  });
+
+  it("the past-date acknowledgement is a UI fact: it is never part of the request the board sends", () => {
+    const seam = read("splitMoveSubmission.ts");
+    const request = seam.slice(seam.indexOf("request: {"), seam.indexOf("target,", seam.indexOf("request: {")));
+    expect(request).toContain("expectedVersion: target.segment.segmentVersion");
+    expect(request).not.toMatch(/pastDate|acknowledg/i);
+  });
+
+  it("the three source-consuming operations are gated by one predicate, not by their own operation-specific ones", () => {
+    const source = read("ReservationBoard.tsx");
+    expect(source).toContain("isSegmentAssignmentWriteUnresolved");
+    expect(source).not.toContain("isSegmentMoveUnresolved");
+    expect(source).not.toContain("isSegmentUnassignUnresolved");
+  });
+});

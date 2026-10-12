@@ -231,6 +231,21 @@ describe("Staff mode: controls and handlers follow the role (groups 7, 8)", () =
     });
   });
 
+  it("PMS-CAL-002-CP05: the summary mentions the split-move; FrontDesk and Manager are offered it, a stay in another type than sold needs a Manager", async () => {
+    const user = userEvent.setup();
+    const desk = await renderStaffBoard([membership("prop-a", "FrontDesk")]);
+    expect(screen.getByTestId("reservation-board-capabilities")).toHaveTextContent("split from a chosen date");
+    desk.unmount();
+    // The fixture's segment is two nights long, so the split is offered by both roles and sends nothing by itself.
+    for (const role of ["FrontDesk", "Manager"]) {
+      const view = await renderStaffBoard([membership("prop-a", role)]);
+      await user.click(screen.getByTitle("Nguyen Van A — CNF-100"));
+      expect(within(screen.getByRole("dialog", { name: "Reservation details" })).getByRole("button", { name: /^Move from a date/ })).toBeEnabled();
+      view.unmount();
+    }
+    expect(mockedMove).not.toHaveBeenCalled();
+  });
+
   it("FrontDesk can block and cancel blocks; the popover offers Cancel block", async () => {
     const user = userEvent.setup();
     await renderStaffBoard([membership("prop-a", "FrontDesk")]);

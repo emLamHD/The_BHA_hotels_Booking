@@ -53,6 +53,14 @@
  * shows the block. A pending re-read from either list holds every write on
  * that board.
  *
+ * PMS-CAL-002-CP05: the popover's `Move from a date…` opens `ReservationSplitMoveDialog` for one
+ * assigned segment of at least two nights. `submitSplitMove` follows `submitMove`'s rules — one request,
+ * never a retry, the intent recorded before the wire, the board the only evidence — and re-checks
+ * everything against the board as it is *at send time* through `splitMoveSubmission.ts`, not against the
+ * snapshot the dialog was opened with. A move, an unassign and a split-move of the same source segment
+ * now see each other's unresolved entries (`isSegmentAssignmentWriteUnresolved`), because all three
+ * consume the same `expectedVersion`.
+ *
  * PMS-ADMIN-AUTH-001-CP06: `access` says how this board reaches the API. In
  * `LocalGate` (the default, and every existing caller) nothing changes. In
  * `Staff` mode the Properties are the signed-in Staff member's memberships
@@ -80,6 +88,7 @@ import ReservationAssignmentDialog, {
 } from "./ReservationAssignmentDialog";
 import ReservationMoveDialog from "./ReservationMoveDialog";
 import ReservationUnassignDialog from "./ReservationUnassignDialog";
+import ReservationSplitMoveDialog, { type SplitMoveIntent } from "./ReservationSplitMoveDialog";
 import ReservationBlockCancelDialog, { describeBlockCancelOutcome } from "./ReservationBlockCancelDialog";
 import ReservationBlockCreateDialog, {
   describeBlockCreateOutcome,
@@ -108,13 +117,21 @@ import {
   uncertainWriteIdentity,
 } from "./uncertainWriteStorage";
 import { buildUnassignTarget, type UnassignTarget } from "./unassignTarget";
+import type { SplitMoveTarget } from "./splitMoveTarget";
+import {
+  REJECTED_SPLIT_MOVE_THEN_BOARD_CHANGED_MESSAGE,
+  SPLIT_MOVE_ALREADY_SENDING_MESSAGE,
+  STALE_SPLIT_MOVE_DIALOG_MESSAGE,
+  evaluateSplitMoveOffer,
+  planSplitMoveSend,
+  segmentCanBeSplit,
+} from "./splitMoveSubmission";
 import { buildUnassignRequest, planUnassignReconciliation } from "./unassignSubmission";
-import { describeAssignmentOutcome, describeMoveOutcome } from "./assignmentOutcome";
+import { describeAssignmentOutcome, describeMoveOutcome, describeSplitMoveOutcome } from "./assignmentOutcome";
 import {
   boardCanEvaluate,
   isBoardAwaitingReconciliation,
-  isSegmentMoveUnresolved,
-  isSegmentUnassignUnresolved,
+  isSegmentAssignmentWriteUnresolved,
   isRoomRangeUnresolved,
   isUnassignedRangeUnresolved,
   settleReconciliations,
@@ -145,12 +162,14 @@ import {
   fetchActiveProperties,
   fetchReservationBoard,
   moveReservationAssignment,
+  splitMoveReservationAssignment,
   unassignReservationAssignment,
   type ApiError,
   type AssignmentCreateOutcome,
   type MoveAssignmentOutcome,
   type OperationalBlockCancelOutcome,
   type OperationalBlockCreateOutcome,
+  type SplitMoveAssignmentOutcome,
   type UnassignAssignmentOutcome,
 } from "@/lib/api/client";
 import type {
@@ -335,6 +354,16 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
   const [rangeLength, setRangeLength] = useState<ReservationBoardRangeLength>(INITIAL_RANGE_LENGTH);
   const [anchorDate, setAnchorDate] = useState<IsoDate | null>(null);
   const [boardState, setBoardState] = useState<BoardState>({ status: "idle" });
+  /**
+   * PMS-CAL-002-CP05: the same state, assigned in the same call, so a handler that runs before React
+   * has re-rendered (a Confirm that lands right after a board read) still sees the board on screen.
+   * Every change goes through `commitBoardState`.
+   */
+  const boardStateRef = useRef<BoardState>({ status: "idle" });
+  const commitBoardState = useCallback((next: BoardState) => {
+    boardStateRef.current = next;
+    setBoardState(next);
+  }, []);
   const [retryToken, setRetryToken] = useState(0);
   const [filters, setFilters] = useState<ReservationBoardFilters>({
     showAssigned: true,
@@ -404,6 +433,20 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
   const unassignNoticeRef = useRef<HTMLDivElement>(null);
   const unassignRequestPendingRef = useRef(false);
   /**
+   * PMS-CAL-002-CP05: the split-move counterpart of the move state above — its own dialog, notice and
+   * flags. The refusal shown when its dialog is closed by a board change reuses `moveRefusal`, which is
+   * just a focusable alert with a dismiss button.
+   */
+  const [splitTarget, setSplitTarget] = useState<SplitMoveTarget | null>(null);
+  const [dialogSplitReconciliationId, setDialogSplitReconciliationId] = useState<number | null>(null);
+  const [splitNotice, setSplitNotice] = useState<{ text: string; reconciliationId: number } | null>(null);
+  const splitNoticeRef = useRef<HTMLDivElement>(null);
+  /** A split-move handler is running or its request is on the wire: set synchronously, so a second call is refused. */
+  const splitRequestPendingRef = useRef(false);
+  /** What the open split dialog has actually done, reset whenever one opens (see `moveDialogSentRef`). */
+  const splitDialogSentRef = useRef(false);
+  const splitDialogOutcomeRef = useRef<SplitMoveAssignmentOutcome | null>(null);
+  /**
    * PMS-CAL-001.2-CP04C.5-C2: the assigned-bar element that opened the
    * current stay popover, captured the moment it is selected — before the
    * popover (and, if the operator goes on to Move room, the move dialog)
@@ -448,6 +491,8 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
     moveNotice: number | null;
     unassignDialog: number | null;
     unassignNotice: number | null;
+    splitDialog: number | null;
+    splitNotice: number | null;
   }>({
     dialog: null,
     notice: null,
@@ -455,6 +500,8 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
     moveNotice: null,
     unassignDialog: null,
     unassignNotice: null,
+    splitDialog: null,
+    splitNotice: null,
   });
   const noticeRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef(true);
@@ -598,7 +645,7 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
     if (!sessionEndedRef.current) {
       sessionEndedRef.current = true;
       setSessionEnded(true);
-      setBoardState({ status: "idle" });
+      commitBoardState({ status: "idle" });
       setSelection(null);
     }
     // CP06-C4: the session is over; a deferred access-check failure no longer applies.
@@ -608,7 +655,7 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
       expirePendingRef.current = false;
       current.onSessionExpired();
     }
-  }, []);
+  }, [commitBoardState]);
 
   /**
    * CP06-C3: the re-read after a denial could not check access. The page closes
@@ -899,6 +946,8 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
       moveNotice: moveNotice?.reconciliationId ?? null,
       unassignDialog: dialogUnassignReconciliationId,
       unassignNotice: unassignNotice?.reconciliationId ?? null,
+      splitDialog: dialogSplitReconciliationId,
+      splitNotice: splitNotice?.reconciliationId ?? null,
     };
   }, [
     dialogReconciliationId,
@@ -907,6 +956,8 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
     moveNotice,
     dialogUnassignReconciliationId,
     unassignNotice,
+    dialogSplitReconciliationId,
+    splitNotice,
   ]);
 
   // Initial load: real active Properties, then deterministically select the
@@ -959,7 +1010,7 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
     if (!selectedPropertyId || !range) return;
     // CP06: no read without permission at this Property, and none after the session ended.
     if (!boardReadAllowed) {
-      setBoardState({ status: "idle" });
+      commitBoardState({ status: "idle" });
       return;
     }
     const thisSeq = requestSeqRef.current + 1;
@@ -973,11 +1024,12 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
     // Any other key — a different Property or date range — still clears to the
     // loading state, so a previous Property's or range's data is never shown
     // under a new selection.
-    setBoardState((previous) =>
+    const previous = boardStateRef.current;
+    commitBoardState(
       previous.status === "loaded" &&
-      previous.board.property.id === selectedPropertyId &&
-      previous.board.from === rangeStartIso &&
-      previous.board.to === rangeEndIso
+        previous.board.property.id === selectedPropertyId &&
+        previous.board.from === rangeStartIso &&
+        previous.board.to === rangeEndIso
         ? { ...previous, refreshing: true }
         : { status: "loading" }
     );
@@ -988,7 +1040,7 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
         if (result.error.kind === "aborted") return;
         const status = result.error.status;
         // CP06: a refused read shows none of this Property's data; the error replaces it.
-        setBoardState(
+        commitBoardState(
           staffMode && status === 403
             ? { status: "error", error: { ...result.error, message: ACCESS_DENIED_MESSAGE } }
             : { status: "error", error: result.error }
@@ -999,7 +1051,7 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
         else if (staffMode && status === 403) void refreshAfterDenial();
         return;
       }
-      setBoardState({ status: "loaded", board: result.data });
+      commitBoardState({ status: "loaded", board: result.data });
       updateReconciliations((list) =>
         settleReconciliations(list, requestKey, thisSeq, { kind: "loaded", board: result.data })
       );
@@ -1097,6 +1149,7 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
         }
       }
       setMoveNotice(null);
+      setSplitNotice(null);
       if (!unassignRequestPendingRef.current) setUnassignTarget(null);
       setUnassignNotice(null);
       if (!blockSubmittedRef.current) closeStaleBlockDialog();
@@ -1133,12 +1186,13 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
     if (selectedPropertyId === null) return;
     currentBoardKeyRef.current = null;
     setSelectedPropertyId(null);
-    setBoardState({ status: "idle" });
+    commitBoardState({ status: "idle" });
     setSelection(null);
     setAssignmentTarget(null);
     setAssignmentNotice(null);
     if (!moveRequestPendingRef.current) setMoveTarget(null);
     setMoveNotice(null);
+    setSplitNotice(null);
     if (!unassignRequestPendingRef.current) setUnassignTarget(null);
     setUnassignNotice(null);
     if (!blockSubmittedRef.current) closeStaleBlockDialog();
@@ -1154,6 +1208,7 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
     handleSelectProperty,
     closeStaleBlockDialog,
     closeStaleBlockCancelDialog,
+    commitBoardState,
   ]);
 
   const handlePrev = useCallback(() => {
@@ -1251,7 +1306,9 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
       entry.id === referenced.moveDialog ||
       entry.id === referenced.moveNotice ||
       entry.id === referenced.unassignDialog ||
-      entry.id === referenced.unassignNotice
+      entry.id === referenced.unassignNotice ||
+      entry.id === referenced.splitDialog ||
+      entry.id === referenced.splitNotice
     );
   }, []);
 
@@ -1382,10 +1439,11 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
       if (isBoardAwaitingAnyWrite(displayedKey)) {
         return;
       }
-      // This exact segment already has an uncertain move outstanding — its
+      // This exact segment already has an uncertain move, unassign or split-move
+      // outstanding (PMS-CAL-002-CP05: all three consume the same version) — its
       // eventual effect is still unknown, so a second move on it must not be offered.
       if (
-        isSegmentMoveUnresolved(
+        isSegmentAssignmentWriteUnresolved(
           reconciliationsRef.current,
           boardState.board.property.id,
           moveSelection.segment.segmentId
@@ -1439,7 +1497,7 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
       if (moveRequestPendingRef.current) return "Another move is still waiting for the server.";
       if (isBoardAwaitingAnyWrite(displayedKey)) return "Waiting for the board to be re-read after a change.";
       if (
-        isSegmentMoveUnresolved(reconciliationsRef.current, board.property.id, dragged.segment.segmentId) ||
+        isSegmentAssignmentWriteUnresolved(reconciliationsRef.current, board.property.id, dragged.segment.segmentId) ||
         isRoomLocked(board.property.id, [dragged.segment.physicalRoomId], dragged.segment)
       ) {
         return "An earlier change to this room on these nights is still unconfirmed.";
@@ -1518,10 +1576,10 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
       if (isBoardAwaitingAnyWrite(displayedKey)) {
         return;
       }
-      // This exact segment already has an uncertain unassign outstanding — its
-      // eventual effect is still unknown, so a second unassign must not be offered.
+      // This exact segment already has an uncertain move, unassign or split-move
+      // outstanding — its eventual effect is still unknown, so a second unassign must not be offered.
       if (
-        isSegmentUnassignUnresolved(
+        isSegmentAssignmentWriteUnresolved(
           reconciliationsRef.current,
           boardState.board.property.id,
           unassignSelection.segment.segmentId
@@ -1539,6 +1597,39 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
       setUnassignTarget(target);
     },
     [boardState, selectedPropertyId, isBoardAwaitingAnyWrite, isRoomLocked, capabilitiesAt]
+  );
+
+  /**
+   * PMS-CAL-002-CP05: opens the split-move dialog for one clicked assigned segment, but only when the
+   * board on screen still shows that exact segment and nothing unresolved touches it. The target is
+   * rebuilt from that board, never taken from the popover's selection. Nothing is sent.
+   */
+  const handleSplitMove = useCallback(
+    (splitSelection: AssignedSegmentSelection) => {
+      const current = boardStateRef.current;
+      if (current.status !== "loaded" || splitRequestPendingRef.current) return;
+      const board = current.board;
+      // A navigation made since this board was read has already moved the view away from it.
+      if (currentBoardKeyRef.current !== boardIdentityKey(board.property.id, board.from, board.to)) return;
+      const capabilities = capabilitiesAt(board.property.id);
+      if (!capabilities.assignmentWrite) return;
+      const offer = evaluateSplitMoveOffer({
+        board,
+        selectedPropertyId,
+        selection: splitSelection,
+        assignments: reconciliationsRef.current,
+        blocks: blockReconciliationsRef.current,
+        canConfirmCrossRoomType: capabilities.crossRoomType,
+      });
+      if (offer.target === null || offer.unavailableReason !== null) return;
+      setSelection(null);
+      setDialogSplitReconciliationId(null);
+      splitDialogSentRef.current = false;
+      splitDialogOutcomeRef.current = null;
+      setMoveRefusal(null);
+      setSplitTarget(offer.target);
+    },
+    [selectedPropertyId, capabilitiesAt]
   );
 
   /** C2: the open move dialog's latest result, read by a later Property switch. */
@@ -1775,8 +1866,163 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
     ]
   );
 
+  /**
+   * PMS-CAL-002-CP05: the one split-move request. Everything that can refuse it is decided before the
+   * intent is recorded, from the board as it is now (`planSplitMoveSend`); after the refusals the
+   * intent is recorded, the write tracked, and exactly one request sent. A throw from the client is an
+   * unconfirmed result, never "not sent". The board is the only evidence of what happened: nothing is
+   * drawn from the response, and a result is never painted onto a board the operator has left.
+   */
+  const submitSplitMove = useCallback(
+    async (opened: SplitMoveTarget, intent: SplitMoveIntent): Promise<SplitMoveAssignmentOutcome> => {
+      // Set before anything else, so a second call in the same tick finds it (the dialog guards this too).
+      if (splitRequestPendingRef.current) return { kind: "not-sent", message: SPLIT_MOVE_ALREADY_SENDING_MESSAGE };
+      splitRequestPendingRef.current = true;
+      const refuse = (message: string): SplitMoveAssignmentOutcome => {
+        const outcome: SplitMoveAssignmentOutcome = { kind: "not-sent", message };
+        splitDialogOutcomeRef.current = outcome;
+        return outcome;
+      };
+      try {
+        // CP06: re-checked at send time against the role as it is now.
+        const capabilities = capabilitiesAt(opened.propertyId);
+        if (!capabilities.assignmentWrite) return refuse(notPermittedMessage());
+        const unverified = refuseWhileStorageUnverified();
+        if (unverified) return refuse(unverified);
+
+        const current = boardStateRef.current;
+        const planned = planSplitMoveSend({
+          opened,
+          intent,
+          board: current.status === "loaded" ? current.board : null,
+          currentBoardKey: currentBoardKeyRef.current,
+          canConfirmCrossRoomType: capabilities.crossRoomType,
+          assignments: reconciliationsRef.current,
+          blocks: blockReconciliationsRef.current,
+        });
+        if (!planned.ok) {
+          if (planned.stale) {
+            // The dialog can never Confirm this target again; the refusal moves to the board and takes
+            // the focus the dialog held.
+            setSplitTarget(null);
+            setMoveRefusal({ text: STALE_SPLIT_MOVE_DIALOG_MESSAGE, focus: true });
+          }
+          return refuse(planned.message);
+        }
+        const { plan } = planned;
+
+        // After every refusal above, immediately before the wire.
+        const pendingToken = beginPendingWrite(tabStorage(), {
+          kind: "assignment",
+          entry: asUnansweredEntry(plan.target, plan.writeTarget),
+        });
+        if (pendingToken === null) return refuse(INTENT_NOT_RECORDED_MESSAGE);
+        trackWrite(pendingToken);
+
+        let outcome: SplitMoveAssignmentOutcome;
+        try {
+          outcome = await splitMoveReservationAssignment(plan.propertyId, plan.segmentId, plan.request);
+        } catch {
+          // A client that throws after the request may have left proves nothing about the server.
+          outcome = { kind: "unknown", reason: "network" };
+        } finally {
+          untrackWrite(pendingToken);
+        }
+        // Only the outcome says whether a request left the browser (see `submitMove`).
+        if (outcome.kind !== "not-sent") splitDialogSentRef.current = true;
+        splitDialogOutcomeRef.current = outcome;
+        // A page that is unloading is as good as gone — a reload aborts the fetch before the board unmounts.
+        if (!mountedRef.current || isPageUnloading()) {
+          // An unknown outcome on a page that is gone stays recorded for the next one.
+          if (outcome.kind !== "unknown") discardPendingWrite(tabStorage(), pendingToken);
+          return outcome;
+        }
+
+        const view = describeSplitMoveOutcome(outcome, { crossRoomTypeEnabled: capabilitiesAt(plan.propertyId).crossRoomType });
+        if (view.allowResubmit && currentBoardKeyRef.current !== opened.boardKey) {
+          // Nothing was written and the form is only correctable on the board it was opened from. If the
+          // view moved on while the request was pending, the navigation effect has already passed over
+          // this dialog, so it is closed here.
+          setSplitTarget(null);
+          setMoveRefusal({
+            text: outcome.kind === "not-sent" ? STALE_SPLIT_MOVE_DIALOG_MESSAGE : REJECTED_SPLIT_MOVE_THEN_BOARD_CHANGED_MESSAGE,
+            focus: true,
+          });
+        }
+
+        if (view.reloadBoard) {
+          const uncertain = outcome.kind === "unknown";
+          const reconciliation: Reconciliation = {
+            id: nextReconciliationIdRef.current++,
+            key: opened.boardKey,
+            propertyId: plan.propertyId,
+            from: opened.boardFrom,
+            to: opened.boardTo,
+            // Any board request already issued may have been answered before the write.
+            afterSeq: requestSeqRef.current,
+            // 200 and 409 are decided before the response; a lost response is not.
+            certainty: uncertain ? "uncertain" : "settled",
+            target: plan.writeTarget,
+            status: "pending",
+            resolution: uncertain ? "unresolved" : "settled",
+            intent: pendingToken,
+          };
+          updateReconciliations((list) => [...list.filter(keepReconciliation), reconciliation]);
+          // This dialog owns the request even when the visible Property/range changes before the response.
+          setDialogSplitReconciliationId(reconciliation.id);
+          // The notice belongs to the board on screen: never paint a completed split onto another one.
+          if (currentBoardKeyRef.current === opened.boardKey && outcome.kind === "split") {
+            setSplitTarget(null);
+            setSplitNotice({
+              text: `Room split-move saved for ${plan.target.stay.guestDisplayName} (${plan.target.stay.confirmationNumber}): room ${plan.target.currentRoomNumber} keeps [${plan.writeTarget.startDate}, ${plan.writeTarget.splitDate}) and room ${plan.destination.roomNumber} takes [${plan.writeTarget.splitDate}, ${plan.writeTarget.endDate}).`,
+              reconciliationId: reconciliation.id,
+            });
+          }
+          setRetryToken((token) => token + 1);
+        }
+        // Only now: an unknown outcome is already in the tracked list, and the intent goes only once that
+        // list is safely stored (CP03-C1).
+        finishIntent(pendingToken, outcome.kind, view.reloadBoard);
+        afterWrite(outcome);
+        return outcome;
+      } finally {
+        splitRequestPendingRef.current = false;
+      }
+    },
+    [
+      updateReconciliations,
+      keepReconciliation,
+      refuseWhileStorageUnverified,
+      finishIntent,
+      capabilitiesAt,
+      notPermittedMessage,
+      trackWrite,
+      untrackWrite,
+      afterWrite,
+    ]
+  );
+
   const currentBoardKey =
     selectedPropertyId && range ? boardIdentityKey(selectedPropertyId, range.start, range.endExclusive) : null;
+
+  // PMS-CAL-002-CP05: a split dialog offers the nights and rooms of the board it was opened from. Once
+  // the view shows another board, one that is not waiting for an answer and is not reporting a result
+  // is stale and closes; one that sent a request stays open to report its own result.
+  useEffect(() => {
+    if (splitTarget === null || splitTarget.boardKey === currentBoardKey || splitRequestPendingRef.current) return;
+    const outcome = splitDialogOutcomeRef.current;
+    if (
+      outcome !== null &&
+      !describeSplitMoveOutcome(outcome, { crossRoomTypeEnabled: capabilitiesAt(splitTarget.propertyId).crossRoomType }).allowResubmit
+    ) {
+      return;
+    }
+    setMoveRefusal({
+      text: splitDialogSentRef.current ? REJECTED_SPLIT_MOVE_THEN_BOARD_CHANGED_MESSAGE : STALE_SPLIT_MOVE_DIALOG_MESSAGE,
+      focus: false,
+    });
+    setSplitTarget(null);
+  }, [currentBoardKey, splitTarget, capabilitiesAt]);
 
   useEffect(() => {
     currentBoardKeyRef.current = currentBoardKey;
@@ -2155,6 +2401,11 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
       ? null
       : reconciliations.find((entry) => entry.id === dialogUnassignReconciliationId) ?? null;
 
+  const dialogSplitReconciliation =
+    dialogSplitReconciliationId === null
+      ? null
+      : reconciliations.find((entry) => entry.id === dialogSplitReconciliationId) ?? null;
+
   const handleCheckAgain = useCallback(() => setRetryToken((token) => token + 1), []);
 
   const dismissReconciliation = useCallback(
@@ -2198,6 +2449,9 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
 
   const noticeMoveReconciliation =
     moveNotice === null ? null : reconciliations.find((entry) => entry.id === moveNotice.reconciliationId) ?? null;
+
+  const noticeSplitReconciliation =
+    splitNotice === null ? null : reconciliations.find((entry) => entry.id === splitNotice.reconciliationId) ?? null;
 
   const noticeUnassignReconciliation =
     unassignNotice === null
@@ -2253,7 +2507,7 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
 
   const isMoveBlockedForSegment = (segmentId: string) =>
     displayedBoardAwaitingReconciliation ||
-    (selectedPropertyId !== null && isSegmentMoveUnresolved(reconciliations, selectedPropertyId, segmentId)) ||
+    (selectedPropertyId !== null && isSegmentAssignmentWriteUnresolved(reconciliations, selectedPropertyId, segmentId)) ||
     isSegmentRoomLocked(segmentId);
 
   /** PMS-CAL-001.2-CP04D-BOARD-WIRING: the unassign counterpart of `isMoveBlockedForSegment` above, independent of it. */
@@ -2270,7 +2524,7 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
 
   const isUnassignBlockedForSegment = (segmentId: string) =>
     displayedBoardAwaitingReconciliation ||
-    (selectedPropertyId !== null && isSegmentUnassignUnresolved(reconciliations, selectedPropertyId, segmentId)) ||
+    (selectedPropertyId !== null && isSegmentAssignmentWriteUnresolved(reconciliations, selectedPropertyId, segmentId)) ||
     isSegmentRoomLocked(segmentId);
 
   /**
@@ -2320,6 +2574,10 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
   useEffect(() => {
     if (unassignNotice) unassignNoticeRef.current?.focus();
   }, [unassignNotice]);
+
+  useEffect(() => {
+    if (splitNotice) splitNoticeRef.current?.focus();
+  }, [splitNotice]);
 
   useEffect(() => {
     if (blockNotice) blockNoticeRef.current?.focus();
@@ -2385,6 +2643,15 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
     }
   }, []);
 
+  /** PMS-CAL-002-CP05: the split-move counterpart of `dismissMoveNotice` — same rule. */
+  const dismissSplitNotice = useCallback(() => {
+    const noticeOwnedFocus = splitNoticeRef.current?.contains(document.activeElement) ?? false;
+    setSplitNotice(null);
+    if (noticeOwnedFocus) {
+      document.getElementById("reservation-board-property")?.focus();
+    }
+  }, []);
+
   /** PMS-CAL-001.2-CP04D-BOARD-WIRING-C1: the unassign counterpart of `dismissMoveNotice` above — same rule. */
   const dismissUnassignNotice = useCallback(() => {
     const noticeOwnedFocus = unassignNoticeRef.current?.contains(document.activeElement) ?? false;
@@ -2393,6 +2660,25 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
       document.getElementById("reservation-board-property")?.focus();
     }
   }, []);
+
+  /**
+   * PMS-CAL-002-CP05: the split-move action exists only for an assigned bar of at least two nights and
+   * a role that may change assignments; whether it can start right now is `evaluateSplitMoveOffer`'s
+   * answer, drawn from the same state the board shows.
+   */
+  const splitSegment = selection?.kind === "stay" ? selection.value.segment : undefined;
+  const splitMoveOffered = splitSegment !== undefined && capabilities.assignmentWrite && segmentCanBeSplit(splitSegment);
+  const splitMoveUnavailableReason =
+    splitMoveOffered && selection?.kind === "stay"
+      ? evaluateSplitMoveOffer({
+          board: boardState.status === "loaded" ? boardState.board : null,
+          selectedPropertyId,
+          selection: { stay: selection.value.stay, segment: splitSegment },
+          assignments: reconciliations,
+          blocks: blockReconciliations,
+          canConfirmCrossRoomType: capabilities.crossRoomType,
+        }).unavailableReason
+      : null;
 
   const rangeLabel = range ? formatRangeLabel(range) : "";
 
@@ -2608,6 +2894,17 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
           onDismiss={dismissUnassignNotice}
         />
       )}
+      {splitNotice && (
+        <AssignmentNotice
+          ref={splitNoticeRef}
+          text={splitNotice.text}
+          reloadStatus={reconciliationStatus(splitNotice.reconciliationId)}
+          writtenRange={
+            noticeSplitReconciliation ? { from: noticeSplitReconciliation.from, to: noticeSplitReconciliation.to } : null
+          }
+          onDismiss={dismissSplitNotice}
+        />
+      )}
       {uncertainWrites.map((entry) => (
         <UncertainWriteNotice
           key={entry.id}
@@ -2677,6 +2974,8 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
               ? isUnassignBlockedForSegment(selection.value.segment.segmentId)
               : false
           }
+          onSplitMove={splitMoveOffered ? handleSplitMove : undefined}
+          splitMoveUnavailableReason={splitMoveUnavailableReason}
           onCancelBlock={selection.kind === "block" && capabilities.blockWrite ? handleCancelBlock : undefined}
           cancelBlockBlocked={
             selection.kind === "block" ? isCancelBlockedForBlock(selection.value.block) : false
@@ -2748,6 +3047,29 @@ const ReservationBoard: React.FC<{ access?: BoardAccess }> = ({ access = LOCAL_G
             setUnassignTarget(null);
             // Same rule as the move dialog's own onClose above: success
             // instead clears `unassignTarget` from `submitUnassign` itself.
+            restoreBoardFocus();
+          }}
+        />
+      )}
+      {splitTarget && (
+        <ReservationSplitMoveDialog
+          // A different segment/version is a different dialog: never carry one stay's date, room,
+          // acknowledgements, result or submit lock over to another.
+          key={`${splitTarget.segment.segmentId}:${splitTarget.segment.segmentVersion}`}
+          target={splitTarget}
+          assignmentWriteEnabled={capabilitiesFor(access, splitTarget.propertyId, sessionEnded, writesPaused).assignmentWrite}
+          crossRoomTypeEnabled={capabilitiesFor(access, splitTarget.propertyId, sessionEnded, writesPaused).crossRoomType}
+          boardReloadStatus={reconciliationStatus(dialogSplitReconciliationId)}
+          uncertainResolution={
+            dialogSplitReconciliation?.certainty === "uncertain" && dialogSplitReconciliation.resolution !== "settled"
+              ? dialogSplitReconciliation.resolution
+              : undefined
+          }
+          onSubmit={(intent) => submitSplitMove(splitTarget, intent)}
+          onClose={() => {
+            setSplitTarget(null);
+            // Only reached when the operator closes the dialog directly; a saved split-move instead
+            // clears the target from `submitSplitMove` itself and hands focus to its notice.
             restoreBoardFocus();
           }}
         />
