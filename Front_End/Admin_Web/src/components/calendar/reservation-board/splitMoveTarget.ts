@@ -8,7 +8,10 @@
  * - The target carries the segment's own full `[startDate, endDate)`, never the
  *   visible window and never the booked stay: the server reads the same range
  *   and the split date is only meaningful inside it.
- * - The source needs at least two nights, because both successors need one.
+ * - The source needs at least two nights, because both successors need one. The
+ *   count is taken on real Gregorian dates 0001–9999 with the arithmetic below, not
+ *   with `dateMath.diffDaysIso`: that helper goes through `Date.UTC`, which maps
+ *   years 0–99 onto 1900–1999. The server's strings are carried unchanged.
  * - `localToday` is carried as a fact of the board and nothing more. This module
  *   has no default split date, no past-date rule and no acknowledgement; those
  *   are Owner decision D4 and are not made here.
@@ -22,8 +25,39 @@
 
 import type { ReservationBoardResponse } from "@/lib/api/types";
 import { boardIdentityKey, selectAssignableRoomCandidates, type AssignmentRoomCandidate } from "./assignmentTarget";
-import { diffDaysIso } from "./dateMath";
 import type { AssignedSegmentSelection } from "./ReservationBoardServerTimeline";
+
+const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+const DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+const isLeapYear = (year: number): boolean => (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+
+/**
+ * Proleptic-Gregorian day number of a zero-padded `YYYY-MM-DD` string (0001-01-01 is day 1), or
+ * `null` for anything that is not an existing calendar day of years 0001–9999. Pure integer
+ * arithmetic: no `Date`, no clock, no timezone.
+ */
+function gregorianDayNumber(iso: string): number | null {
+  const match = ISO_DATE.exec(iso);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (year < 1 || month < 1 || month > 12 || day < 1) return null;
+  const leap = isLeapYear(year);
+  if (day > DAYS_IN_MONTH[month - 1] + (month === 2 && leap ? 1 : 0)) return null;
+  const priorYears = year - 1;
+  let dayNumber = priorYears * 365 + Math.floor(priorYears / 4) - Math.floor(priorYears / 100) + Math.floor(priorYears / 400);
+  for (let earlier = 0; earlier < month - 1; earlier += 1) dayNumber += DAYS_IN_MONTH[earlier];
+  return dayNumber + (month > 2 && leap ? 1 : 0) + day;
+}
+
+/** True only when both dates exist and `endDate` is at least two days after `startDate`. */
+function spansAtLeastTwoNights(startDate: string, endDate: string): boolean {
+  const start = gregorianDayNumber(startDate);
+  const end = gregorianDayNumber(endDate);
+  return start !== null && end !== null && end - start >= 2;
+}
 
 export interface SplitMoveTarget {
   propertyId: string;
@@ -77,7 +111,7 @@ export function buildSplitMoveTarget(
   );
   if (!segment) return null;
 
-  if (diffDaysIso(segment.startDate, segment.endDate) < 2) return null;
+  if (!spansAtLeastTwoNights(segment.startDate, segment.endDate)) return null;
 
   const currentRoom = board.physicalRooms.find((room) => room.id === segment.physicalRoomId);
   if (!currentRoom) return null;
