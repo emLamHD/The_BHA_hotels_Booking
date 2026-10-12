@@ -171,7 +171,9 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   create/supersede qua HTTP, frontend integration cho batch và cho
   operational-block split vẫn TARGET, chưa implement; OperationalBlock *move* của
   một segment đã có route backend (`PMS-CAL-003-CP01`, xem dưới) nhưng **chưa có**
-  client, dialog hay action trên board. Đổi phòng giữa kỳ bằng
+  dialog hay action trên board; nền Admin_Web (client `moveOperationalBlock`, target chính xác,
+  reconciliation observed/unresolved/changed, khóa hai phòng, record storage v1) có từ
+  `PMS-CAL-003-CP02`, chưa có đường gửi. Đổi phòng giữa kỳ bằng
   split một segment (split-move, blueprint §15.4,
   [PMS-CAL-002-split-move](../design/PMS-CAL-002-split-move.md); Owner đã chốt D1–D6)
   nay **CURRENT ở mức local/Staff**: store `SplitMoveAsync` (CP01), route
