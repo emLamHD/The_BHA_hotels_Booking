@@ -47,7 +47,7 @@ Date: 2026-10-12 (Asia/Saigon). Scope: the Admin_Web foundation for the merged H
 | 5 | v1 storage; notice does not mislabel; nothing resent | `uncertainWriteStorage.test.ts` (81, +38): round-trip of outcome and in-flight records (both rooms, full range, `splitDate`, no guest/confirmation/reason/localToday/actor), same-write dedup and owned-token cleanup, **literal pre-CP03 v1 fixtures** (create/move/unassign/in-flight/block/pending) read as before and re-persisted beside a split-move with `v: 1`, 27 damaged variants (each field missing/wrong type, uint bounds, same room, split at/outside endpoints, non-existent day/month 00/13/day 00, 29 Feb in 2026 and 2100, year 0000) → unreadable beside valid siblings, 10 accepted boundaries (leap days, year ends, 0001, 0004-02-29, 9999, outside the mock 2020–2035), damaged pending intent refuses new writes without overwriting, set/read-back/delete failure, read failure = incomplete. `ReservationBoardCrossWriteLock.test.tsx` (98, +8): synthetic unknown-outcome and in-flight records show "room split-move", prefix and suffix ranges, never "unassign" or a full-range destination assignment, locks on prefix and suffix windows, Check again only reads, a Move or Unassign of the source is refused with 0 POST, `observed` says it does not prove this request made it, `changed` says it can no longer take effect, a non-overlapping view says where to look; no write method is called by any restore |
 | 6 | Scope, docs, PR, CI | Allowlist only (§6). HTTP route already existed; action/dialog UI not built; D4/D6 OPEN; CD paused. Draft PR, size and final-head CI: handoff |
 
-Old-build compatibility (design §7.7): an older build is said to fail closed on a `split-move` record **by source inspection** of the baseline `readAssignment` (every unknown `operation` falls to `return null`, which marks the record unreadable and makes `beginPendingWrite` refuse). It was not run against baseline code. What is tested is the current parser's identical fall-through for an operation it does not know (`"split-move-v2"`: unreadable beside valid siblings; pending write refused with the stored text byte-identical).
+Old-build compatibility (design §7.7) — **corrected in C1, see §9:** the older-build behaviour is `NOT_VERIFIED`. Reading the baseline `readAssignment` (every unknown `operation` falls to `return null`) shows the *expected* parse path only; no old client or old parser was run. What the tests prove: (a) the current parser reads literal pre-CP03 v1 fixtures unchanged (forward compatibility); (b) the current parser's own fall-through for an operation it does not know (`"split-move-v2"`: unreadable beside valid siblings; pending write refused with the stored text byte-identical) — current behaviour, not a build that predates CP03.
 
 ## 5. Commands and outcomes (Front_End/Admin_Web, Node 22.23.2 / npm 10.9.8)
 
@@ -74,7 +74,7 @@ Mutation spot-checks (reverted): widening the straddle test to `<=` fails the tw
 ## 7. Limits and risks
 
 * **Size.** The PR exceeds the 100–400 line target (`docs/governance/WORKFLOW.md` §6): about 491 source lines (client 144, target 104, reconciliation ~165, storage 47, notice ~40), ~1,154 test lines and ~110 lines of docs and this report. The roadmap estimated ~480 for CP03 and named the window matrix and storage invariants as the safety case; no test was compressed. Owner may ask for a client+target / reconciliation+storage split.
-* `buildSplitMoveTarget` measures "at least two nights" with `diffDaysIso` (`Date.UTC`), which maps years 0000–0099 onto 1900–1999; a source crossing year 99/100 could be misjudged. Unrealistic for server data; `dateMath.ts` is outside the allowlist and was not changed. Storage uses its own arithmetic and is not affected.
+* ~~`buildSplitMoveTarget` measures "at least two nights" with `diffDaysIso`~~ — **defect, corrected in C1 (§9).** At the initial head (`dc8a634`) the guard used `diffDaysIso` (`Date.UTC`, years 0–99 mapped onto 1900–1999), so a valid source `[0099-12-31, 0100-01-02)` was refused. "Unrealistic for server data" was not a bound Owner had set, and was wrong to rely on.
 * `observed` shows the schedule matches the request, which another operator could also have produced; only a `200` proves this request committed.
 * No idempotency; cross-tab/device duplicates stay possible; tab storage is not protection across tabs, devices or a closed session.
 * NOT_REQUIRED/NOT_RUN: backend, local .NET/PostgreSQL, Chrome acceptance against a live API (no UI exists), any cloud call, live deploy, release workflow dispatch. No backend totals from CP02 are claimed for this head.
@@ -82,3 +82,40 @@ Mutation spot-checks (reverted): widening the straddle test to `<=` fails the tw
 ## 8. Status
 
 `IMPLEMENTATION_CP03: PASS` (mandatory local checks above; final-head CI in the handoff). `REVIEW_CP03: NOT_RUN — OWNER_ONLY`. `CLIENT_TARGET_RECONCILIATION_STORAGE: IMPLEMENTED`. `HTTP_SPLIT_MOVE: ALREADY_IMPLEMENTED`. `UI_SPLIT_MOVE_ACTION_DIALOG: NOT_IMPLEMENTED`. `CP04/CP05: NOT_STARTED`. `D4/D6: OPEN`. `BACKEND_CD: PAUSED / NOT_COMPLETE`. `CLOUD_CALLS_CP03`, `LIVE_DEPLOY_CP03`: `NOT_RUN`. The two release flags were written `false` by Owner at an earlier step and were not read again; this checkpoint called no cloud and changed no flag.
+
+## 9. Correction C1 — `PMS-CAL-002-CP03-C1` (TARGET_CALENDAR_RANGE_AND_EVIDENCE)
+
+Sections 1–8 above are the evidence for the initial head `dc8a634` and keep their attribution (their CI and the Codex review of `dc8a634` do **not** cover C1).
+
+**Branch situation (deviation from the prompt).** PR #99 was merged into `develop` (merge `999cb595f0dbd249ea5fa0d52bdb1e88c5792be6`, `2026-10-12T02:55:43Z`) and its feature branch deleted locally and on the remote before C1 started, so the prompt's START_HEAD/branch/"update Draft PR #99" could not hold. By Owner instruction C1 starts from `origin/develop` = `999cb59` on a new branch `feature/pms-cal-002-cp03-c1-target-calendar-range-evidence`, with its own Draft PR into `develop`. `git diff dc8a634 999cb59` is empty (the merge changed no content), so the code under correction is byte-identical to `dc8a634`.
+
+**Finding F1 (OC).** `diffDaysIso("0099-12-31", "0100-01-02")` = -693958 (`Date.UTC` maps years 0–99 onto 1900–1999), so the `< 2` guard refused a valid two-night source; an unparsable range yields `NaN`, for which `NaN < 2` is false, so the guard passed it. **Fix** (`splitMoveTarget.ts` only): `gregorianDayNumber` — a strict `YYYY-MM-DD` parse, year 0001–9999, real month lengths and the Gregorian leap rule, integer day number (no `Date`, clock or timezone) — and `spansAtLeastTwoNights` (`null` for any invalid date, else `end - start >= 2`). The server's strings are carried verbatim in `target.segment`. Not changed: board identity, exact selection match, current room/RoomType, candidates, `localToday`; no default date, past-date rule or acknowledgement; `dateMath.ts` untouched.
+
+**Finding E1 (OC) — evidence attribution.** §4 and design §7.7 reworded: old-build/downgrade runtime is `NOT_VERIFIED`; source inspection shows the expected path only. Unknown **pending intent** (expected: `beginPendingWrite` refuses, by source inspection) is kept apart from unknown **outcome record** (expected: "could not be restored" warning; nothing is claimed about locks being recovered or all writes staying closed). Literal pre-CP03 v1 fixtures prove forward compatibility with the current parser; the `"split-move-v2"` tests prove current-parser behaviour only. No old build was run and no downgrade safety is claimed.
+
+### C1 acceptance
+
+| # | Acceptance | Evidence |
+|---|---|---|
+| 1 | Valid ≥ 2 nights on 0001–9999 incl. 0099/0100; reject 1 night / invalid | `splitMoveTarget.test.ts` +36 cases through the real `buildSplitMoveTarget` with exact board + selection: 14 accepted (0099/0100, 0099, 0050, 0001, 9999, 0004/0400/2028 leap Feb, 0100 and 1900 non-leap Feb, modern, ancient→modern), 8 one-night refused (same boundaries incl. 28→29 Feb 0004, 29 Feb→1 Mar 0400, 28 Feb→1 Mar 0100), 14 invalid refused (year 0000, 30 Feb, 29 Feb 0100, 31 Apr, month 13, day 00, reversed, empty range, not zero-padded, text, empty string, 5-digit year). Expected values are hand-written Gregorian facts; accepted cases assert the strings are unchanged |
+| 2 | Range/match/candidates/`localToday`, D4/D6 OPEN unchanged | All 14 pre-existing tests unchanged and passing; no D4/D6 text changed |
+| 3 | RED/GREEN + mutation; Admin regressions pass | below |
+| 4 | Docs claim no unproven old-build guarantee; pending/outcome and current/old parser separated | §4 note, §7, this section, design §7.7, Snapshot |
+| 5 | Narrow scope, same base, clean/aligned head, final-head CI | handoff (needs the pushed head) |
+
+### C1 actual checks (Front_End/Admin_Web, Node 22.23.2 / npm 10.9.8)
+
+| Check | Outcome |
+|---|---|
+| RED: `npx vitest run src/components/calendar/reservation-board/splitMoveTarget.test.ts` with the new tests on the unchanged `dc8a634` source | 13 failed / 37 passed. `accepts … crossing the 0099/0100 year boundary` failed (guard refused a valid source: target `null`); 12 of the 14 invalid-range cases failed (the plain reversed and empty ranges were already refused) — (year 0000, non-existent days/months, reversed 0100→0099, malformed, empty, 5-digit year all produced a target) |
+| GREEN: same command after the fix | 50 passed, in `TZ` = UTC, Asia/Ho_Chi_Minh, America/Los_Angeles, Pacific/Kiritimati |
+| Mutation (reverted; file hash restored and compared): `end - start >= 2` → `>= 1` | 9 failed / 41 passed (the one-night cases incl. the pre-existing "refuses a one-night source"); restored → 50 passed |
+| Exhaustive cross-check (scratchpad script, not committed) of `gregorianDayNumber` against every `YYYY-MM-DD` with year 0001–9999, month 1–12, day 1–31 | 3,652,059 valid dates accepted, numbered consecutively 1…3,652,059 with 0 mismatches — the count of days 0001-01-01…9999-12-31 per Python `datetime.date.toordinal()`; every non-existent day returned `null` |
+| `npm test` (full) | 39 files, **1029 passed**, 0 failed (was 993; +36) |
+| `npm run lint` / `npx tsc --noEmit` / `npm run build` | 0 problems / exit 0 / compiled successfully |
+| `git diff --check` | clean |
+| `dateMath.ts`, `uncertainWriteStorage.ts`, `reconciliation.ts`, `ReservationBoard.tsx`, `client.ts` and their tests, `package*.json`, backend: `git diff --stat` against START_HEAD `999cb59` | empty |
+
+`npm ci` was not needed (dependencies present, lockfile untouched). `.NET`/PostgreSQL/browser/live API: `NOT_REQUIRED` (backend and action UI unchanged). Skill: `diagnosing-bugs` not triggered (root cause known; no unexplained failure). `GRAPHIFY_POLICY: NOT_APPLICABLE`. Secret scan of diff and docs: none.
+
+**Status.** `IMPLEMENTATION_CP03_C1: PASS` (local mandatory checks). `REVIEW_CP03_C1: NOT_RUN — OWNER_ONLY`; the review of `dc8a634` does not cover C1. `CP04/CP05: NOT_STARTED`. `D4/D6: OPEN`. `BACKEND_CD: PAUSED / NOT_COMPLETE`. `CLOUD_CALLS_CP03_C1`, `LIVE_DEPLOY_CP03_C1`: `NOT_RUN`. Commits, PR, FINAL_HEAD, GitHub size and final-head CI run IDs are in the handoff, taken after the last push.
