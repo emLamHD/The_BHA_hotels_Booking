@@ -107,6 +107,8 @@ interface Fixture {
   onlyOneActiveRoom: boolean;
   /** A stay on room 201 so a stay popover can be opened. */
   withStay: boolean;
+  /** A second, unrelated block (room 103) so another write can be made while a move's notice is shown. */
+  withSecondBlock: boolean;
 }
 
 const defaults = (): Fixture => ({
@@ -117,6 +119,7 @@ const defaults = (): Fixture => ({
   room102Status: "Active",
   onlyOneActiveRoom: false,
   withStay: true,
+  withSecondBlock: false,
 });
 
 let fixture: Fixture = defaults();
@@ -196,7 +199,15 @@ function boardFor(propertyId: string, from: string, to: string): ReservationBoar
             },
           ]
         : [],
-    operationalBlocks: propertyId === "prop-a" ? blocks : [],
+    operationalBlocks:
+      propertyId === "prop-a"
+        ? [
+            ...blocks,
+            ...(fixture.withSecondBlock
+              ? [{ roomBlockId: "header-2", segmentId: "seg-block-2", segmentVersion: 5, physicalRoomId: "room-103", startDate: at(8), endDate: at(9), reason: "Second block" }]
+              : []),
+          ]
+        : [],
   };
 }
 
@@ -720,6 +731,56 @@ describe("refused before sending: zero requests and no orphan intent", () => {
     await user.click(confirmButton()!);
     await waitFor(() => expect(mockedMove).toHaveBeenCalledTimes(1));
     expect(at(0)).toBeTruthy();
+  });
+});
+
+describe("send-time authority that no opener closure can grant", () => {
+  it("a stale popover callback opens no dialog while a sign-out is waiting for the server, even though the board stays readable", async () => {
+    const user = userEvent.setup();
+    const desk = staffAccess("FrontDesk");
+    await renderBoard(desk.access());
+    await openPopover(user);
+    const staleOpen = popoverProbe.props!.onMoveBlock!;
+    const selection = popoverProbe.props!.selection.value as BlockSelection;
+    desk.state.signingOut = true;
+    act(() => staleOpen(selection));
+    expect(queryMoveDialog()).not.toBeInTheDocument();
+    expect(screen.getAllByTitle(REASON).length).toBeGreaterThan(0);
+  });
+
+  it("a correctable dialog (400) closes as soon as the view moves to another board, because its form is only correctable where it was opened", async () => {
+    const user = userEvent.setup();
+    await renderBoard();
+    mockedMove.mockResolvedValue({ kind: "rejected", status: 400, category: "validation", detail: "Same room." });
+    await openMove(user);
+    pick("102");
+    await user.click(confirmButton()!);
+    await within(moveDialog()).findByRole("alert");
+    expect(confirmButton()).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Next date range" }));
+    await waitFor(() => expect(queryMoveDialog()).not.toBeInTheDocument());
+    expect(mockedMove).toHaveBeenCalledTimes(1);
+  });
+
+  it("a move's notice keeps its re-read status while another write of the same list is made", async () => {
+    const user = userEvent.setup();
+    fixture.withSecondBlock = true;
+    await renderBoard();
+    fixture.scene = "moved";
+    await confirmMove(user);
+    const notice = (await screen.findByText(/^Block moved from room 101 to room 102/)).closest("[role=status]")!;
+    await waitFor(() => expect(notice).toHaveTextContent("The board has been reloaded from the server."));
+
+    // A different block write in the same list: it must not drop the move notice's entry.
+    mockedCancel.mockResolvedValue({ kind: "cancelled", segment: null });
+    await user.click(screen.getByTitle("Second block"));
+    await user.click(within(popover()).getByRole("button", { name: "Cancel block" }));
+    await user.click(within(screen.getByRole("dialog", { name: "Cancel operational block" })).getByRole("button", { name: /^Cancel block on room/ }));
+    await waitFor(() => expect(mockedCancel).toHaveBeenCalledTimes(1));
+    await flush();
+    const stillThere = screen.getByText(/^Block moved from room 101 to room 102/).closest("[role=status]")!;
+    expect(stillThere).toHaveTextContent("The board has been reloaded from the server.");
+    expect(stillThere).not.toHaveTextContent("Reloading the board…");
   });
 });
 

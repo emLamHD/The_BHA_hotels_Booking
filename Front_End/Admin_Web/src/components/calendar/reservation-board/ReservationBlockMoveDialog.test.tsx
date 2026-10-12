@@ -411,6 +411,27 @@ describe("ReservationBlockMoveDialog — outcomes", () => {
   });
 });
 
+describe("ReservationBlockMoveDialog — a submit that lands between the answer and the re-render", () => {
+  it("is refused after a terminal outcome: the guard is a ref, not the state the form last rendered with", async () => {
+    const user = userEvent.setup();
+    const write = deferred<OperationalBlockMoveOutcome>();
+    const onSubmit = vi.fn().mockImplementation(() => write.promise);
+    render(element({ onSubmit }));
+    await user.click(room("102"));
+    await user.click(confirm());
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    const form = dialog().querySelector("form")!;
+    // The answer arrives and, before React has committed the result, another submit event is dispatched.
+    await act(async () => {
+      write.resolve({ kind: "moved", segments: null });
+      await Promise.resolve();
+      await Promise.resolve();
+      fireEvent.submit(form);
+    });
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("ReservationBlockMoveDialog — when nothing can be sent", () => {
   it("without the permission, says so and offers no Confirm", async () => {
     const onSubmit = vi.fn();
