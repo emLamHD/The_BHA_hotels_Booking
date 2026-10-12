@@ -36,8 +36,11 @@ const isLeapYear = (year: number): boolean => (year % 4 === 0 && year % 100 !== 
  * Proleptic-Gregorian day number of a zero-padded `YYYY-MM-DD` string (0001-01-01 is day 1), or
  * `null` for anything that is not an existing calendar day of years 0001–9999. Pure integer
  * arithmetic: no `Date`, no clock, no timezone.
+ *
+ * Exported (PMS-CAL-002-CP04) so `splitMoveDates.ts` counts and bounds split dates with this one
+ * implementation; the target guard above is unchanged.
  */
-function gregorianDayNumber(iso: string): number | null {
+export function gregorianDayNumber(iso: string): number | null {
   const match = ISO_DATE.exec(iso);
   if (!match) return null;
   const year = Number(match[1]);
