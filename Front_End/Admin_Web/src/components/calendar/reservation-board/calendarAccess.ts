@@ -104,6 +104,7 @@ export function describeBoardAccess(access: BoardAccess, propertyId: string | nu
       "and a reason, a different one. An assigned segment can be moved to another Active room the same way, or " +
       "unassigned. A segment of at least two nights can also be split from a chosen date, moving the later nights to " +
       "another Active room. An Active room can be blocked for a range of nights with a reason, and a block can be cancelled. " +
+      "A block can also be moved to another Active room, keeping its nights and reason. " +
       "Writes need the local Development write opt-in (AccessMode=LocalGate) — no Staff sign-in in this mode."
     );
   }
@@ -118,7 +119,7 @@ export function describeBoardAccess(access: BoardAccess, propertyId: string | nu
   return (
     `Live data. Signed in as ${role} at this Property. Unassigned nights can be assigned to an Active room ${placement}; ` +
     "an assigned segment can be moved the same way, or unassigned. A segment of at least two nights can also be split " +
-    "from a chosen date, moving the later nights to another Active room. Rooms can be blocked and blocks cancelled. " +
+    "from a chosen date, moving the later nights to another Active room. Rooms can be blocked, and a block can be cancelled or moved to another Active room. " +
     "The server checks your permission on every request."
   );
 }

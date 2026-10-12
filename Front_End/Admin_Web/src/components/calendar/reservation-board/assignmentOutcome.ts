@@ -18,6 +18,7 @@
 import type {
   AssignmentCreateOutcome,
   MoveAssignmentOutcome,
+  OperationalBlockMoveOutcome,
   SplitMoveAssignmentOutcome,
   UnassignAssignmentOutcome,
 } from "@/lib/api/client";
@@ -442,6 +443,106 @@ export function describeSplitMoveOutcome(
         tone: "warning",
         title:
           "The result could not be confirmed — the split-move may or may not have been saved. It was not retried automatically. Check the reloaded board before trying again.",
+        detail: `${cause} Closing this dialog does not stop or undo a request that was already sent.`,
+        reloadBoard: true,
+        allowResubmit: false,
+      };
+    }
+  }
+}
+
+/**
+ * PMS-CAL-003-CP03: what the operator is told after one operational-block move attempt, sharing the two
+ * rules of every outcome above and the same {@link AssignmentOutcomeView} shape.
+ *
+ * - `moved` is success whether or not its `200` body could be read; the words never describe the two
+ *   resulting segments, because the board re-read — not this text — decides what is drawn. It says the
+ *   block keeps its nights and reason, which is what the endpoint guarantees, not what the body held.
+ * - Only a request that provably wrote nothing and that a different choice could fix (`not-sent`, a
+ *   `400`) can be sent again. A `409` and any unconfirmed result return the operator to the reloaded board.
+ * - A `403`/`404`/`401` is a refusal of this write, never a statement about the block: a `404` is also what
+ *   a closed gate, another Property's segment and a missing destination room answer, so it is never
+ *   worded as "the block was deleted". Only the `401` carries its session-ended detail.
+ * - Unlike a stay, a block has no sold room type: there is no confirmation to ask for and no
+ *   cross-room-type branch here. A `409` may still be a capacity refusal in the destination's room type,
+ *   and the words say so without claiming to know which reason applied.
+ */
+export function describeBlockMoveOutcome(outcome: OperationalBlockMoveOutcome): AssignmentOutcomeView {
+  switch (outcome.kind) {
+    case "moved":
+      return {
+        tone: "success",
+        title: "Operational block moved.",
+        detail:
+          "The block keeps its nights and its reason; only the room changed. The board shows the new room once it has been reloaded.",
+        reloadBoard: true,
+        allowResubmit: false,
+      };
+
+    case "not-sent":
+      return {
+        tone: "error",
+        title: "The request was not sent. Nothing was changed.",
+        detail: outcome.message,
+        reloadBoard: false,
+        allowResubmit: true,
+      };
+
+    case "rejected":
+      switch (outcome.category) {
+        case "validation":
+          return {
+            tone: "error",
+            title: "The server did not accept this move. Nothing was changed.",
+            detail: outcome.detail,
+            reloadBoard: false,
+            allowResubmit: true,
+          };
+        case "not-permitted":
+          return {
+            tone: "error",
+            title: "Moving operational blocks is not available from this Admin session. Nothing was changed.",
+            detail:
+              outcome.status === 404
+                ? "Writes may be disabled on this API host, or this segment or the destination room is not part of this Property. The block has not been reported as moved or removed."
+                : "The server refused this write.",
+            reloadBoard: false,
+            allowResubmit: false,
+          };
+        case "conflict":
+          return {
+            tone: "warning",
+            title:
+              "This block was not moved: it has changed on the server since the board was read, or the destination room cannot take it for these nights (it may be in use, or its room type may have no capacity left). Review the reloaded board before trying again.",
+            detail: outcome.detail,
+            reloadBoard: true,
+            allowResubmit: false,
+          };
+        case "refused":
+        default:
+          return {
+            tone: "error",
+            title: `The server refused the request (HTTP ${outcome.status}). Nothing was changed.`,
+            detail: outcome.detail,
+            reloadBoard: false,
+            allowResubmit: false,
+          };
+      }
+
+    case "unknown":
+    default: {
+      const cause =
+        outcome.reason === "timeout"
+          ? "The server did not respond in time."
+          : outcome.reason === "server-error"
+            ? `The server returned an unexpected response${outcome.status ? ` (HTTP ${outcome.status})` : ""}.`
+            : outcome.reason === "aborted"
+              ? "The request was interrupted after it was sent."
+              : "The connection to the Admin API could not be completed.";
+      return {
+        tone: "warning",
+        title:
+          "The result could not be confirmed — the block may or may not have been moved. It was not sent again, and both rooms stay locked for these nights until the board shows what happened.",
         detail: `${cause} Closing this dialog does not stop or undo a request that was already sent.`,
         reloadBoard: true,
         allowResubmit: false,

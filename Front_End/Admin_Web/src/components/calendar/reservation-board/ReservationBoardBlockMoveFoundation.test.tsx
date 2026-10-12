@@ -1,15 +1,14 @@
 /**
  * PMS-CAL-003-CP02: the board's side of the block-move foundation — what a RESTORED move looks like and
- * what it locks. There is deliberately no action, dialog or send path for a block move yet (CP03): these
- * tests seed the tab's records the way a lost response or a reload leaves them, and prove the board words
- * them honestly, keeps the rooms locked while they are unresolved, resolves them only on evidence, lets a
- * resolved notice be dismissed without touching any other record, and never calls the move client.
+ * what it locks. These tests seed the tab's records the way a lost response or a reload leaves them, and
+ * prove the board words them honestly, keeps the rooms locked while they are unresolved, resolves them
+ * only on evidence, lets a resolved notice be dismissed without touching any other record, and that
+ * restoring, re-reading or resolving a record never calls the move client (only a deliberate confirm in the
+ * dialog does — see `ReservationBoardBlockMove.test.tsx`, PMS-CAL-003-CP03).
  * The API client is mocked; none of this is a real-browser acceptance.
  */
 
 import React from "react";
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -215,16 +214,19 @@ describe("a restored block move on the board", () => {
     expect(mockedMove).not.toHaveBeenCalled();
   });
 
-  it("holds the source block's Cancel unavailable while unresolved, and offers no move action at all", async () => {
+  it("holds the source block's Cancel and Move block… unavailable while unresolved, and opens no dialog", async () => {
     const user = userEvent.setup();
     await renderWith((win) => persistUncertainWrites(sessionStorage, [], [moveEntry(win)]));
 
     await user.click(moveBar());
     const popover = within(screen.getByRole("dialog", { name: "Operational block details" }));
     expect(popover.getByRole("button", { name: "Cancel block" })).toBeDisabled();
-    // CP02 is a foundation only: no block-move action, no dialog, no client call.
-    expect(popover.queryByRole("button", { name: /move/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("dialog", { name: /move/i })).not.toBeInTheDocument();
+    // CP03: the move action is offered but disabled, with a reason; clicking it opens nothing and sends nothing.
+    const moveButton = popover.getByRole("button", { name: "Move block…" });
+    expect(moveButton).toBeDisabled();
+    expect(moveButton).toHaveAccessibleDescription(/still unconfirmed/);
+    await user.click(moveButton);
+    expect(screen.queryByRole("dialog", { name: "Move operational block" })).not.toBeInTheDocument();
     expect(mockedMove).not.toHaveBeenCalled();
     expect(mockedCancel).not.toHaveBeenCalled();
   });
@@ -360,7 +362,7 @@ describe("a restored block move resolves only on evidence", () => {
   });
 });
 
-describe("the foundation adds no send path", () => {
+describe("restoring and resolving a record is never a send", () => {
   it("never calls the move client, whatever is restored or resolved", async () => {
     for (const kind of ["intact", "moved", "gone"] as const) {
       sessionStorage.clear();
@@ -370,14 +372,5 @@ describe("the foundation adds no send path", () => {
       cleanup();
     }
     expect(mockedMove).not.toHaveBeenCalled();
-  });
-
-  it("ReservationBoard.tsx neither imports nor calls moveOperationalBlock, and mounts no block-move dialog", () => {
-    const source = readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), "ReservationBoard.tsx"), "utf8");
-    const imports = source.split("\n").filter((line) => /^\s*(import\b|moveOperationalBlock,|type OperationalBlockMoveOutcome)/.test(line)).join("\n");
-    expect(imports).not.toContain("moveOperationalBlock");
-    expect(imports).not.toContain("OperationalBlockMoveOutcome");
-    expect(imports).not.toMatch(/blockMoveTarget|BlockMoveDialog/);
-    expect(source).not.toMatch(/moveOperationalBlock\(|buildBlockMoveTarget|BlockMoveDialog|onMoveBlock/);
   });
 });

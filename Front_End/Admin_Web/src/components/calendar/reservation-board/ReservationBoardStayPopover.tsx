@@ -30,6 +30,12 @@
  * branch — it reports back the exact `BlockSelection` that was clicked and
  * nothing else, and the parent decides whether that selection still matches the
  * authoritative board (`buildBlockCancelTarget`) before any dialog opens.
+ *
+ * PMS-CAL-003-CP03: `onMoveBlock` is the same opt-in contract for moving the block to another room: it reports
+ * back the exact `BlockSelection` and nothing else, and the board decides — through `blockMoveSubmission.ts`
+ * — whether that selection still matches the authoritative board. `moveBlockUnavailableReason` only says why
+ * the action is disabled right now (stale board, unresolved write, no candidate room, an overlong range);
+ * the cancel action beside it keeps its own rule, so a block that cannot be moved can still be cancelled.
  */
 
 import React, { useId } from "react";
@@ -62,6 +68,10 @@ interface ReservationBoardStayPopoverProps {
   onCancelBlock?: (selection: BlockSelection) => void;
   /** True while the board is stale or this exact block already has an unresolved write. */
   cancelBlockBlocked?: boolean;
+  /** Present only when this selection came from an operational-block bar and the role may change blocks. */
+  onMoveBlock?: (selection: BlockSelection) => void;
+  /** Why the block move cannot start right now (stale board, unresolved write, no room, range); `null` when it can. */
+  moveBlockUnavailableReason?: string | null;
 }
 
 const ReservationBoardStayPopover: React.FC<ReservationBoardStayPopoverProps> = ({
@@ -75,10 +85,13 @@ const ReservationBoardStayPopover: React.FC<ReservationBoardStayPopoverProps> = 
   splitMoveUnavailableReason = null,
   onCancelBlock,
   cancelBlockBlocked = false,
+  onMoveBlock,
+  moveBlockUnavailableReason = null,
 }) => {
   const unassignBlockedId = useId();
   const splitMoveBlockedId = useId();
   const cancelBlockBlockedId = useId();
+  const moveBlockBlockedId = useId();
   return (
     <div
       role="dialog"
@@ -192,6 +205,25 @@ const ReservationBoardStayPopover: React.FC<ReservationBoardStayPopoverProps> = 
               value={`${formatDisplayDate(selection.value.block.startDate)} – ${formatDisplayDate(selection.value.block.endDate)}`}
             />
             <Row label="Reason" value={selection.value.block.reason} />
+            {onMoveBlock && (
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={() => onMoveBlock(selection.value)}
+                  disabled={moveBlockUnavailableReason !== null}
+                  aria-disabled={moveBlockUnavailableReason !== null}
+                  aria-describedby={moveBlockUnavailableReason !== null ? moveBlockBlockedId : undefined}
+                  className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-white/5"
+                >
+                  Move block…
+                </button>
+                {moveBlockUnavailableReason !== null && (
+                  <p id={moveBlockBlockedId} className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                    {moveBlockUnavailableReason}
+                  </p>
+                )}
+              </div>
+            )}
             {onCancelBlock && (
               <div className="pt-1">
                 <button

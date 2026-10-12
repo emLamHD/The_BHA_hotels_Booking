@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   describeAssignmentOutcome,
+  describeBlockMoveOutcome,
   describeMoveOutcome,
   describeSplitMoveOutcome,
   describeUnassignOutcome,
@@ -8,6 +9,7 @@ import {
 import type {
   AssignmentCreateOutcome,
   MoveAssignmentOutcome,
+  OperationalBlockMoveOutcome,
   SplitMoveAssignmentOutcome,
   UnassignAssignmentOutcome,
 } from "@/lib/api/client";
@@ -414,5 +416,98 @@ describe("describeSplitMoveOutcome (PMS-CAL-002-CP04)", () => {
     expect(describeAssignmentOutcome({ kind: "created", segment: null }).title).toBe("Room assigned.");
     expect(describeMoveOutcome({ kind: "moved", segments: null }).title).toBe("Room moved.");
     expect(describeUnassignOutcome({ kind: "unassigned", segments: null }).title).toBe("Room assignment removed.");
+  });
+});
+
+describe("describeBlockMoveOutcome (PMS-CAL-003-CP03)", () => {
+  const table: Array<[string, OperationalBlockMoveOutcome, { tone: string; reloadBoard: boolean; allowResubmit: boolean }]> = [
+    ["moved", { kind: "moved", segments: null }, { tone: "success", reloadBoard: true, allowResubmit: false }],
+    ["moved with a readable body", { kind: "moved", segments: [] }, { tone: "success", reloadBoard: true, allowResubmit: false }],
+    ["not-sent", { kind: "not-sent", message: "not configured" }, { tone: "error", reloadBoard: false, allowResubmit: true }],
+    ["400", { kind: "rejected", status: 400, category: "validation", detail: "same room" }, { tone: "error", reloadBoard: false, allowResubmit: true }],
+    ["403", { kind: "rejected", status: 403, category: "not-permitted" }, { tone: "error", reloadBoard: false, allowResubmit: false }],
+    ["404", { kind: "rejected", status: 404, category: "not-permitted" }, { tone: "error", reloadBoard: false, allowResubmit: false }],
+    ["409", { kind: "rejected", status: 409, category: "conflict", detail: "overlap" }, { tone: "warning", reloadBoard: true, allowResubmit: false }],
+    ["401", { kind: "rejected", status: 401, category: "refused", detail: "Your session has ended." }, { tone: "error", reloadBoard: false, allowResubmit: false }],
+    ["415", { kind: "rejected", status: 415, category: "refused" }, { tone: "error", reloadBoard: false, allowResubmit: false }],
+    ["network", { kind: "unknown", reason: "network" }, { tone: "warning", reloadBoard: true, allowResubmit: false }],
+    ["timeout", { kind: "unknown", reason: "timeout" }, { tone: "warning", reloadBoard: true, allowResubmit: false }],
+    ["aborted", { kind: "unknown", reason: "aborted" }, { tone: "warning", reloadBoard: true, allowResubmit: false }],
+    ["server-error", { kind: "unknown", reason: "server-error", status: 502 }, { tone: "warning", reloadBoard: true, allowResubmit: false }],
+  ];
+
+  it.each(table)("%s: tone, re-read and re-submit", (_name, outcome, expected) => {
+    const view = describeBlockMoveOutcome(outcome);
+    expect({ tone: view.tone, reloadBoard: view.reloadBoard, allowResubmit: view.allowResubmit }).toEqual(expected);
+  });
+
+  it("only a request that provably wrote nothing and that a different choice could fix may be sent again", () => {
+    const resubmittable = table.filter(([, outcome]) => describeBlockMoveOutcome(outcome).allowResubmit).map(([name]) => name);
+    expect(resubmittable).toEqual(["not-sent", "400"]);
+  });
+
+  it("every outcome that may have changed the schedule asks for a re-read, and none that provably did not", () => {
+    for (const [name, outcome] of table) {
+      const view = describeBlockMoveOutcome(outcome);
+      const mayHaveWritten = outcome.kind === "moved" || outcome.kind === "unknown" || (outcome.kind === "rejected" && outcome.status === 409);
+      expect(view.reloadBoard, name).toBe(mayHaveWritten);
+    }
+  });
+
+  it("success never describes the resulting segments and says the block keeps its nights and reason", () => {
+    const view = describeBlockMoveOutcome({ kind: "moved", segments: null });
+    expect(view.title).toBe("Operational block moved.");
+    expect(view.detail).toMatch(/keeps its nights and its reason/);
+    expect(`${view.title} ${view.detail}`).not.toMatch(/seg-|successor|cancelled|version/i);
+  });
+
+  it("an unconfirmed result is never worded as a failure or as a success, and says both rooms stay locked and it was not sent again", () => {
+    for (const reason of ["network", "timeout", "aborted", "server-error"] as const) {
+      const view = describeBlockMoveOutcome({ kind: "unknown", reason });
+      expect(view.title).toMatch(/may or may not have been moved/);
+      expect(view.title).toMatch(/not sent again/);
+      expect(view.title).toMatch(/both rooms stay locked/);
+      expect(view.title).not.toMatch(/failed|was moved\.|saved/i);
+    }
+    expect(describeBlockMoveOutcome({ kind: "unknown", reason: "server-error", status: 502 }).detail).toContain("(HTTP 502)");
+    expect(describeBlockMoveOutcome({ kind: "unknown", reason: "server-error" }).detail).not.toContain("HTTP");
+  });
+
+  it("a 409 says the block was not moved and may be a capacity refusal, without claiming which reason applied", () => {
+    const view = describeBlockMoveOutcome({ kind: "rejected", status: 409, category: "conflict", detail: "x" });
+    expect(view.title).toMatch(/was not moved/);
+    expect(view.title).toMatch(/capacity/);
+    expect(view.title).toMatch(/Review the reloaded board/);
+    expect(view.detail).toBe("x");
+  });
+
+  it("a 403/404/401/415 is a refusal of this write, never a statement about the block", () => {
+    for (const outcome of [
+      { kind: "rejected", status: 403, category: "not-permitted" },
+      { kind: "rejected", status: 404, category: "not-permitted" },
+      { kind: "rejected", status: 401, category: "refused", detail: "Your Staff session has ended." },
+      { kind: "rejected", status: 415, category: "refused" },
+    ] as OperationalBlockMoveOutcome[]) {
+      const view = describeBlockMoveOutcome(outcome);
+      expect(view.title).toMatch(/Nothing was changed/);
+      expect(`${view.title} ${view.detail ?? ""}`).not.toMatch(/has been moved|was moved|deleted|no longer exists/i);
+    }
+    expect(describeBlockMoveOutcome({ kind: "rejected", status: 404, category: "not-permitted" }).detail).toMatch(/not been reported as moved or removed/);
+    expect(describeBlockMoveOutcome({ kind: "rejected", status: 401, category: "refused", detail: "Your Staff session has ended." }).detail).toBe(
+      "Your Staff session has ended."
+    );
+    expect(describeBlockMoveOutcome({ kind: "rejected", status: 418, category: "refused" }).title).toContain("HTTP 418");
+  });
+
+  it("has no cross-room-type branch: no wording asks for a confirmation or a Manager", () => {
+    for (const [, outcome] of table) {
+      const view = describeBlockMoveOutcome(outcome);
+      expect(`${view.title} ${view.detail ?? ""}`).not.toMatch(/Manager|confirm the placement|different room type than sold/i);
+    }
+  });
+
+  it("existing block outcome wording is unchanged", () => {
+    expect(describeAssignmentOutcome({ kind: "created", segment: null }).title).toBe("Room assigned.");
+    expect(describeSplitMoveOutcome({ kind: "split", segments: null }, { crossRoomTypeEnabled: true }).title).toBe("Room split-move saved.");
   });
 });

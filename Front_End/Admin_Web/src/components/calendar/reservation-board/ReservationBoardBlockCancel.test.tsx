@@ -658,4 +658,104 @@ describe("ReservationBoard — a restored block move and block cancel (PMS-CAL-0
     await user.click(blockBar());
     expect(within(popover()).getByRole("button", { name: "Cancel block" })).toBeEnabled();
   });
+
+describe("ReservationBoard — a cancel and a move of one block segment gate each other (PMS-CAL-003-CP03)", () => {
+  /** An unresolved move of this very segment whose rooms and nights overlap nothing else on the board. */
+  async function seedFarAwayMove() {
+    const { from, to } = await renderLoadedBoard();
+    cleanup();
+    const entry: BlockCreateReconciliation = {
+      id: 1,
+      key: boardIdentityKey("prop-a", from, to),
+      propertyId: "prop-a",
+      from,
+      to,
+      afterSeq: 0,
+      certainty: "uncertain",
+      status: "pending",
+      resolution: "unresolved",
+      target: {
+        operation: "move",
+        roomBlockId: "block-1",
+        segmentId: SEGMENT_ID,
+        expectedVersion: VERSION,
+        sourcePhysicalRoomId: "room-103",
+        sourceRoomNumber: "103",
+        physicalRoomId: "room-104",
+        roomNumber: "104",
+        startDate: "2031-05-01",
+        endDate: "2031-05-03",
+      },
+    };
+    persistUncertainWrites(sessionStorage, [], [entry]);
+    mockedBoard.mockClear();
+    render(<ReservationBoard />);
+    await waitFor(() => expect(screen.getByTitle(REASON)).toBeInTheDocument());
+    await act(async () => {
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+    });
+    return { from, to };
+  }
+
+  it("Cancel block is unavailable at open while an unresolved move of this segment exists, whatever rooms and nights it names", async () => {
+    const user = userEvent.setup();
+    await seedFarAwayMove();
+    await user.click(blockBar());
+    expect(within(popover()).getByRole("button", { name: "Cancel block" })).toBeDisabled();
+    await user.click(within(popover()).getByRole("button", { name: "Cancel block" }));
+    expect(queryCancelDialog()).not.toBeInTheDocument();
+    expect(mockedCancel).not.toHaveBeenCalled();
+  });
+
+  it("a stale open callback cannot open the cancel dialog either", async () => {
+    const user = userEvent.setup();
+    await seedFarAwayMove();
+    await user.click(blockBar());
+    // The popover's Cancel is disabled; the board's own handler must refuse as well.
+    const button = within(popover()).getByRole("button", { name: "Cancel block" });
+    fireEvent.click(button);
+    expect(queryCancelDialog()).not.toBeInTheDocument();
+    expect(mockedCancel).not.toHaveBeenCalled();
+  });
+
+  it("an open cancel dialog is refused at send time when such a record appears afterwards", async () => {
+    const user = userEvent.setup();
+    const { from, to } = await renderLoadedBoard();
+    const dialog = await openCancelDialog(user);
+    persistUncertainWrites(sessionStorage, [], [
+      {
+        id: 1,
+        key: boardIdentityKey("prop-a", from, to),
+        propertyId: "prop-a",
+        from,
+        to,
+        afterSeq: 0,
+        certainty: "uncertain",
+        status: "pending",
+        resolution: "unresolved",
+        target: {
+          operation: "move",
+          roomBlockId: "block-1",
+          segmentId: SEGMENT_ID,
+          expectedVersion: VERSION,
+          sourcePhysicalRoomId: "room-103",
+          sourceRoomNumber: "103",
+          physicalRoomId: "room-104",
+          roomNumber: "104",
+          startDate: "2031-05-01",
+          endDate: "2031-05-03",
+        },
+      },
+    ]);
+    const event = new Event("pageshow");
+    Object.defineProperty(event, "persisted", { value: true });
+    await act(async () => {
+      window.dispatchEvent(event);
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+    });
+    await user.click(within(dialog).getByRole("button", { name: /^Cancel block on room/ }));
+    expect(mockedCancel).not.toHaveBeenCalled();
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("still unconfirmed");
+  });
+});
 });
