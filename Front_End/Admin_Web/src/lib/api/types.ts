@@ -226,3 +226,22 @@ export interface CancelOperationalBlockRequest {
   /** Optional; already-trimmed when present. Never required. */
   reason?: string;
 }
+
+/**
+ * PMS-CAL-003-CP02: body of
+ * `POST /api/admin/v1/properties/{propertyId}/operational-blocks/{segmentId}/move`,
+ * mirroring the backend's `MoveOperationalBlockRequest` (PMS-CAL-003-CP01). The
+ * segment named in the URL keeps its own nights and its RoomBlock header and is
+ * placed in another Active room of the same Property. There is no date range and
+ * no replacement list to carry — the server reads the segment's own range — and,
+ * like every Admin Calendar write, no actor, no authorization evidence and no
+ * cross-RoomType confirmation: a block has no sold RoomType.
+ */
+export interface MoveOperationalBlockRequest {
+  /** The segment's `Version` as last read from the board projection. */
+  expectedVersion: number;
+  /** Must differ from the segment's current room; Active and in the same Property. */
+  destinationPhysicalRoomId: string;
+  /** Optional; already-trimmed when present, at most 500 characters. Never required. */
+  reason?: string;
+}
