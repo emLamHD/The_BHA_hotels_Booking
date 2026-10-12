@@ -2132,3 +2132,210 @@ describe("ReservationBoard — known outcomes, mixed restores and damaged record
     });
   });
 });
+
+describe("ReservationBoard — a restored split-move is described and locked as what it is (PMS-CAL-002-CP03)", () => {
+  /**
+   * The mounted board's `seg-existing` (room 101, `[from+2, from+4)`) is the
+   * source, split at `from+3`: room 101 keeps night `from+2`, room 102 takes
+   * night `from+3`. A synthetic record stands in for a write from a previous
+   * page — nothing in this build can create one yet.
+   */
+  async function probeRange() {
+    const range = await renderLoadedBoard();
+    cleanup();
+    return range;
+  }
+
+  const splitMoveEntry = (from: string, to: string): Reconciliation => ({
+    id: 0,
+    key: `prop-a|${from}|${to}`,
+    propertyId: "prop-a",
+    from,
+    to,
+    afterSeq: 0,
+    certainty: "uncertain",
+    status: "pending",
+    resolution: "unresolved",
+    target: {
+      operation: "split-move",
+      reservationUnitId: "unit-1",
+      physicalRoomId: "room-102",
+      startDate: addDaysIso(from, 2),
+      endDate: addDaysIso(from, 4),
+      roomNumber: "102",
+      guestDisplayName: "",
+      confirmationNumber: "",
+      segmentId: "seg-existing",
+      expectedVersion: 1,
+      sourcePhysicalRoomId: "room-101",
+      splitDate: addDaysIso(from, 3),
+    },
+  });
+
+  const expectNoWriteSent = () => {
+    for (const write of [mockedCreate, mockedMove, mockedUnassign, mockedBlock, mockedCancel]) expect(write).not.toHaveBeenCalled();
+  };
+
+  async function expectBlockLocked(user: ReturnType<typeof userEvent.setup>, room: string, start: string, end: string) {
+    await reviewBlock(user, room, start, end);
+    expect(within(blockDialog()).getByRole("alert")).toHaveTextContent("still unconfirmed");
+    await closeDialog(user, blockDialog());
+  }
+
+  async function expectBlockAllowed(user: ReturnType<typeof userEvent.setup>, room: string, start: string, end: string) {
+    await reviewBlock(user, room, start, end);
+    expect(within(blockDialog()).queryByRole("alert")).not.toBeInTheDocument();
+    expect(within(blockDialog()).getByRole("button", { name: "Create block" })).toBeInTheDocument();
+    await closeDialog(user, blockDialog());
+  }
+
+  /** The record a previous page left, a reload of the same tab, and the page as the operator meets it. */
+  async function restoreFromUnknownOutcome() {
+    const { from, to } = await probeRange();
+    persistUncertainWrites(sessionStorage, [splitMoveEntry(from, to)], []);
+    await renderLoadedBoard();
+    return { from, to };
+  }
+
+  it("an unknown-outcome record says room split-move with both parts, never an unassign or one full-range assignment, and sends nothing", async () => {
+    const { from } = await restoreFromUnknownOutcome();
+
+    const notice = await screen.findByTestId("uncertain-write-notice");
+    const keeps = `[${addDaysIso(from, 2)}, ${addDaysIso(from, 3)})`;
+    const takes = `[${addDaysIso(from, 3)}, ${addDaysIso(from, 4)})`;
+    expect(notice).toHaveTextContent("Unconfirmed room split-move request from before this page was reloaded or left");
+    expect(notice).toHaveTextContent(`the source room keeps ${keeps} and room 102 takes ${takes}`);
+    expect(notice).toHaveTextContent("may already have been saved");
+    expect(notice).not.toHaveTextContent(/unassign/i);
+    expect(notice).not.toHaveTextContent(`room 102, [${addDaysIso(from, 2)}, ${addDaysIso(from, 4)})`);
+    // The first read after the reload already counts: the source is still shown, so the result stays unknown.
+    await waitFor(() => expect(screen.getByTestId("uncertain-write-notice")).toHaveTextContent("the original room assignment is still shown unchanged"));
+    expect(screen.getByTestId("uncertain-write-notice")).toHaveTextContent("will not be sent again");
+    expect(screen.getByTestId("uncertain-write-notice")).not.toHaveTextContent(/saved on the server|was saved/i);
+    expectNoWriteSent();
+  });
+
+  it("locks the source room over every night and the destination room only from the split date", async () => {
+    const user = userEvent.setup();
+    const { from } = await restoreFromUnknownOutcome();
+    await screen.findByTestId("uncertain-write-notice");
+    const night = (offset: number) => [addDaysIso(from, offset), addDaysIso(from, offset + 1)] as const;
+
+    await expectBlockLocked(user, "room-101", ...night(2));
+    await expectBlockLocked(user, "room-101", ...night(3));
+    await expectBlockLocked(user, "room-102", ...night(3));
+    // The destination's prefix night, other nights and other rooms are free.
+    await expectBlockAllowed(user, "room-102", ...night(2));
+    await expectBlockAllowed(user, "room-101", ...night(4));
+    await expectBlockAllowed(user, "room-201", ...night(3));
+    expectNoWriteSent();
+  });
+
+  it("while it is unresolved, a move or an unassign of the same source segment is refused and nothing is sent", async () => {
+    const user = userEvent.setup();
+    await restoreFromUnknownOutcome();
+    await screen.findByTestId("uncertain-write-notice");
+
+    // The source room is locked over the segment's nights, so neither dialog opens.
+    await user.click(screen.getByTitle("Nguyen Van A — CNF-100"));
+    const popover = screen.getByRole("dialog", { name: "Reservation details" });
+    await user.click(within(popover).getByRole("button", { name: "Move room" }));
+    expect(screen.queryByRole("dialog", { name: "Move room" })).not.toBeInTheDocument();
+    await user.click(within(popover).getByRole("button", { name: "Remove room assignment" }));
+    expect(screen.queryByRole("dialog", { name: "Remove room assignment" })).not.toBeInTheDocument();
+    expectNoWriteSent();
+  });
+
+  it("Check again only reads the board", async () => {
+    const user = userEvent.setup();
+    await restoreFromUnknownOutcome();
+    await waitFor(() => expect(screen.getByTestId("uncertain-write-notice")).toHaveTextContent("still shown unchanged"));
+    const boardCalls = mockedBoard.mock.calls.length;
+
+    await user.click(within(screen.getByTestId("uncertain-write-notice")).getByRole("button", { name: "Check again" }));
+
+    await waitFor(() => expect(mockedBoard.mock.calls.length).toBe(boardCalls + 1));
+    expect(screen.getByTestId("uncertain-write-notice")).toHaveTextContent("still shown unchanged");
+    expectNoWriteSent();
+  });
+
+  it("an in-flight intent is restored the same way, worded as sent just before the reload", async () => {
+    const user = userEvent.setup();
+    const { from, to } = await probeRange();
+    beginPendingWrite(sessionStorage, { kind: "assignment", entry: splitMoveEntry(from, to) });
+
+    await renderLoadedBoard();
+
+    const notice = await screen.findByTestId("uncertain-write-notice");
+    expect(notice).toHaveTextContent("Unconfirmed room split-move request sent just before this page was reloaded or left");
+    expect(notice).toHaveTextContent(`room 102 takes [${addDaysIso(from, 3)}, ${addDaysIso(from, 4)})`);
+    await expectBlockLocked(user, "room-101", addDaysIso(from, 2), addDaysIso(from, 3));
+    await expectBlockAllowed(user, "room-102", addDaysIso(from, 2), addDaysIso(from, 3));
+    expectNoWriteSent();
+  });
+
+  it("when the schedule shows both parts, it says so without claiming this request made them, and the record clears", async () => {
+    const { from, to } = await probeRange();
+    persistUncertainWrites(sessionStorage, [splitMoveEntry(from, to)], []);
+    mockedBoard.mockImplementation((propertyId, boardFrom, boardTo) => {
+      const board = boardFor(propertyId, boardFrom, boardTo);
+      const [stay] = board.stays;
+      return Promise.resolve({
+        ok: true,
+        data: {
+          ...board,
+          stays: [
+            {
+              ...stay,
+              assignments: [
+                { segmentId: "seg-prefix", segmentVersion: 2, physicalRoomId: "room-101", actualRoomTypeId: "type-standard", startDate: addDaysIso(from, 2), endDate: addDaysIso(from, 3) },
+                { segmentId: "seg-suffix", segmentVersion: 2, physicalRoomId: "room-102", actualRoomTypeId: "type-standard", startDate: addDaysIso(from, 3), endDate: addDaysIso(from, 4) },
+              ],
+            },
+          ],
+        },
+      });
+    });
+
+    await renderLoadedBoard();
+
+    await waitFor(() => expect(screen.getByTestId("uncertain-write-notice")).toHaveTextContent("The schedule now shows both parts"));
+    const notice = screen.getByTestId("uncertain-write-notice");
+    expect(notice).toHaveTextContent("does not prove this request made it");
+    expect(within(notice).getByRole("button", { name: "Dismiss notice" })).toBeInTheDocument();
+    expect(sessionStorage.getItem(UNCERTAIN_WRITES_STORAGE_KEY)).toBeNull();
+    expectNoWriteSent();
+  });
+
+  it("when the source has since changed, it says the request can no longer take effect, not that it was saved", async () => {
+    const { from, to } = await probeRange();
+    persistUncertainWrites(sessionStorage, [splitMoveEntry(from, to)], []);
+    mockedBoard.mockImplementation((propertyId, boardFrom, boardTo) => {
+      const board = boardFor(propertyId, boardFrom, boardTo);
+      const [stay] = board.stays;
+      return Promise.resolve({ ok: true, data: { ...board, stays: [{ ...stay, assignments: [] }] } });
+    });
+
+    await renderLoadedBoard();
+
+    await waitFor(() => expect(screen.getByTestId("uncertain-write-notice")).toHaveTextContent("can no longer take effect"));
+    // The restored explanation's own "may already have been saved" is a doubt; nothing here may claim a success.
+    expect(screen.getByTestId("uncertain-write-notice")).not.toHaveTextContent(/both parts|was saved|saved on the server|succeeded/i);
+    expectNoWriteSent();
+  });
+
+  it("a view that does not overlap the source's nights keeps the lock and says where to look, using the shared window rule", async () => {
+    const user = userEvent.setup();
+    const { from } = await restoreFromUnknownOutcome();
+    await screen.findByTestId("uncertain-write-notice");
+
+    await user.click(screen.getByRole("button", { name: "Next date range" }));
+    await waitFor(() => expect(mockedBoard.mock.calls.at(-1)![1]).toBe(addDaysIso(from, 14)));
+
+    const notice = await screen.findByTestId("uncertain-write-notice");
+    expect(notice).toHaveTextContent(`Open a view of this Property that overlaps [${addDaysIso(from, 2)}, ${addDaysIso(from, 4)}) to check again.`);
+    expect(within(notice).queryByRole("button", { name: "Check again" })).not.toBeInTheDocument();
+    expect(sessionStorage.getItem(UNCERTAIN_WRITES_STORAGE_KEY)).not.toBeNull();
+    expectNoWriteSent();
+  });
+});

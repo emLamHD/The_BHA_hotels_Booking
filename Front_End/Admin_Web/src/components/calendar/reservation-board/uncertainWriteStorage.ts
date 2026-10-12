@@ -129,6 +129,7 @@ function assignmentRecord(entry: Reconciliation) {
             sourcePhysicalRoomId: target.sourcePhysicalRoomId,
           }
         : {}),
+      ...(target.operation === "split-move" ? { splitDate: target.splitDate } : {}),
     },
   };
 }
@@ -191,7 +192,26 @@ export function persistUncertainWrites(
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const isText = (value: unknown): value is string => typeof value === "string" && value.length > 0;
 const isOptionalText = (value: unknown) => value === undefined || isText(value);
+/** The backend's `uint` version (`xmin`); only a split-move record is bounded by it. */
+const MAX_UINT32 = 4_294_967_295;
 const isVersion = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value >= 0;
+/**
+ * PMS-CAL-002-CP03: a real calendar day (Gregorian, years 0001–9999), checked by
+ * arithmetic rather than by `Date`, which maps years 0–99 onto 1900–1999 and
+ * rolls an impossible day over to the next month. The server's dates are not
+ * bounded by the mock board's years, so no narrower range is applied.
+ */
+function isRealIsoDate(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  if (year < 1 || month < 1 || month > 12 || day < 1) return false;
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = month === 2 ? (leap ? 29 : 28) : [4, 6, 9, 11].includes(month) ? 30 : 31;
+  return day <= daysInMonth;
+}
+
 const isNights = (start: unknown, end: unknown) =>
   typeof start === "string" && typeof end === "string" && ISO_DATE.test(start) && ISO_DATE.test(end) && start < end;
 
@@ -220,6 +240,33 @@ function readAssignment(value: unknown, id: number): Reconciliation | null {
   if (raw.operation === "create") {
     if (!isText(raw.physicalRoomId)) return null;
     target = { ...base, operation: "create", physicalRoomId: raw.physicalRoomId };
+  } else if (raw.operation === "split-move") {
+    // PMS-CAL-002-CP03: every identity field, the three dates real and ordered
+    // `start < splitDate < end`, and two different rooms — else the record is
+    // damaged and reported as such, never guessed at.
+    if (
+      !isText(raw.segmentId) ||
+      !isVersion(raw.expectedVersion) ||
+      raw.expectedVersion > MAX_UINT32 ||
+      !isText(raw.sourcePhysicalRoomId) ||
+      !isText(raw.physicalRoomId) ||
+      raw.sourcePhysicalRoomId === raw.physicalRoomId ||
+      !isRealIsoDate(raw.startDate) ||
+      !isRealIsoDate(raw.endDate) ||
+      !isRealIsoDate(raw.splitDate) ||
+      !(raw.startDate < raw.splitDate && raw.splitDate < raw.endDate)
+    ) {
+      return null;
+    }
+    target = {
+      ...base,
+      operation: "split-move",
+      segmentId: raw.segmentId,
+      expectedVersion: raw.expectedVersion,
+      sourcePhysicalRoomId: raw.sourcePhysicalRoomId,
+      physicalRoomId: raw.physicalRoomId,
+      splitDate: raw.splitDate,
+    };
   } else if (raw.operation === "move" || raw.operation === "unassign") {
     if (!isText(raw.segmentId) || !isVersion(raw.expectedVersion) || !isText(raw.sourcePhysicalRoomId)) return null;
     const source = { segmentId: raw.segmentId, expectedVersion: raw.expectedVersion, sourcePhysicalRoomId: raw.sourcePhysicalRoomId };
