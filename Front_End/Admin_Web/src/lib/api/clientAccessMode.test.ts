@@ -12,6 +12,7 @@ import {
   fetchActiveProperties,
   fetchReservationBoard,
   moveReservationAssignment,
+  splitMoveReservationAssignment,
   unassignReservationAssignment,
 } from "./client";
 
@@ -35,6 +36,14 @@ const writes = {
       endDate: "2026-10-03",
       confirmCrossRoomType: false,
     }),
+  splitMove: () =>
+    splitMoveReservationAssignment("prop-a", "seg-1", {
+      expectedVersion: 1,
+      splitDate: "2026-10-02",
+      destinationPhysicalRoomId: "room-102",
+      confirmCrossRoomType: true,
+      reason: "Repair",
+    }),
   unassign: () => unassignReservationAssignment("prop-a", "seg-1", { expectedVersion: 1 }),
   blockCreate: () =>
     createOperationalBlock("prop-a", { physicalRoomId: "room-101", startDate: "2026-10-01", endDate: "2026-10-03", reason: "Repair" }),
@@ -44,6 +53,7 @@ const writes = {
 const successStatus: Record<keyof typeof writes, number> = {
   create: 201,
   move: 200,
+  splitMove: 200,
   unassign: 200,
   blockCreate: 201,
   blockCancel: 200,

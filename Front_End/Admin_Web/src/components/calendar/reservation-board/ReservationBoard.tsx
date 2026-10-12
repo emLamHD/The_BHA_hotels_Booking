@@ -2940,10 +2940,25 @@ const AssignmentNotice = React.forwardRef<
   );
 });
 
+/** Exhaustive over the target union: a new operation does not compile until it has its own wording. */
+const OPERATION_LABELS: Record<ReconciliationTarget["operation"], string> = {
+  create: "room assignment",
+  move: "room move",
+  unassign: "room unassign",
+  "split-move": "room split-move",
+};
+
 /**
  * PMS-CAL-001.2-CP03A-C2: one create whose response was lost. It stays on the
  * board — and its nights stay locked — until the server's data resolves it;
  * checking again only re-reads the board and never re-sends the create.
+ *
+ * PMS-CAL-002-CP03: the same notice describes a restored split-move. Its
+ * `startDate`/`endDate` are the SOURCE's full range and `roomNumber` is the
+ * destination's, so it is worded as two parts — the source room keeps
+ * `[start, split)`, the destination takes `[split, end)` — never as an unassign
+ * or as one destination assignment over the full range. Nothing can create such
+ * an entry yet; it exists only to restore (and describe) a record faithfully.
  */
 const UncertainWriteNotice: React.FC<{
   entry: Reconciliation;
@@ -2958,9 +2973,15 @@ const UncertainWriteNotice: React.FC<{
   const { target } = entry;
   const range = `[${target.startDate}, ${target.endDate})`;
   const resolved = entry.resolution === "observed" || entry.resolution === "changed";
-  const operationLabel = target.operation === "create" ? "room assignment" : target.operation === "move" ? "room move" : "room unassign";
+  const operationLabel = OPERATION_LABELS[target.operation];
+  const splitParts =
+    target.operation === "split-move"
+      ? `the source room keeps [${target.startDate}, ${target.splitDate}) and room ${target.roomNumber} takes [${target.splitDate}, ${target.endDate})`
+      : null;
   let detail: string;
-  if (entry.resolution === "observed") {
+  if (entry.resolution === "observed" && splitParts !== null) {
+    detail = `The schedule now shows both parts — ${splitParts}. That shows the schedule; it does not prove this request made it.`;
+  } else if (entry.resolution === "observed") {
     detail = `An assignment matching this request — room ${target.roomNumber} for ${range} — is now shown on the server.`;
   } else if (entry.resolution === "changed") {
     detail =
@@ -2974,11 +2995,15 @@ const UncertainWriteNotice: React.FC<{
     // containment for create, overlap for move and unassign (CP04C.3-C1/C2,
     // CP04D.3) — so the guidance text must match it exactly.
     detail =
-      target.operation === "move" || target.operation === "unassign"
+      target.operation !== "create"
         ? `The result is still unknown and this segment stays locked. Open a view of this Property that overlaps ${range} to check again.`
         : `The result is still unknown and these nights stay locked. Open a view of this Property that includes ${range} to check again.`;
   } else if (checking) {
     detail = "Checking the board on the server again…";
+  } else if (splitParts !== null) {
+    // PMS-CAL-002-CP03: "unresolved" for a split-move means the source is still
+    // shown unchanged. Both parts of the request stay locked, none is resent.
+    detail = `The board was checked and the original room assignment is still shown unchanged, so the result is still unknown. The nights of both parts (${splitParts}) stay locked and the request will not be sent again.`;
   } else if (target.operation === "unassign") {
     // PMS-CAL-001.2-CP04D-BOARD-WIRING-C1: an unassign's "unresolved" state
     // means the *source* room assignment is still shown, unchanged — never
@@ -3004,9 +3029,13 @@ const UncertainWriteNotice: React.FC<{
     >
       <div>
         <p className="font-medium">
-          {entry.restored
-            ? `Unconfirmed ${operationLabel} request ${entry.restored === "in-flight" ? "sent just" : "from"} before this page was reloaded or left: room ${target.roomNumber}, ${range}.`
-            : `Unconfirmed request: room ${target.roomNumber} for ${target.guestDisplayName} (${target.confirmationNumber}), ${range}.`}
+          {splitParts !== null
+            ? entry.restored
+              ? `Unconfirmed ${operationLabel} request ${entry.restored === "in-flight" ? "sent just" : "from"} before this page was reloaded or left: ${splitParts}.`
+              : `Unconfirmed ${operationLabel} request for ${target.guestDisplayName} (${target.confirmationNumber}): ${splitParts}.`
+            : entry.restored
+              ? `Unconfirmed ${operationLabel} request ${entry.restored === "in-flight" ? "sent just" : "from"} before this page was reloaded or left: room ${target.roomNumber}, ${range}.`
+              : `Unconfirmed request: room ${target.roomNumber} for ${target.guestDisplayName} (${target.confirmationNumber}), ${range}.`}
         </p>
         {entry.restored && (
           <p className="mt-0.5 text-xs">

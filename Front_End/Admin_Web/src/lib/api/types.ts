@@ -152,6 +152,28 @@ export interface MoveReservationAssignmentRequest {
 }
 
 /**
+ * PMS-CAL-002-CP03: body of
+ * `POST /api/admin/v1/properties/{propertyId}/reservation-assignments/{segmentId}/split-move`,
+ * mirroring the backend's `SplitMoveReservationAssignmentRequest`. The segment
+ * named in the URL keeps its own room for `[start, splitDate)` and the
+ * destination room takes `[splitDate, end)`. The server reads the segment's own
+ * range; the browser sends neither it nor a replacement list, and — like every
+ * Admin Calendar write — no actor and no authorization evidence.
+ */
+export interface SplitMoveReservationAssignmentRequest {
+  /** Optimistic-concurrency token last observed for the source segment. */
+  expectedVersion: number;
+  /** First night in the destination room (`YYYY-MM-DD`); strictly inside the source segment's nights. */
+  splitDate: string;
+  /** Must differ from the source segment's current room. */
+  destinationPhysicalRoomId: string;
+  /** Needed when the prefix or the suffix is not the sold RoomType. Absent means `false`. */
+  confirmCrossRoomType?: boolean;
+  /** Already trimmed; required with `confirmCrossRoomType`, otherwise absent. */
+  reason?: string;
+}
+
+/**
  * PMS-CAL-001.2-CP04D.1: body of
  * `POST /api/admin/v1/properties/{propertyId}/reservation-assignments/{segmentId}/unassign`,
  * mirroring the backend's `UnassignReservationAssignmentRequest`. Supersedes

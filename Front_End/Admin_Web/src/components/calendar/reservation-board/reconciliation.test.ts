@@ -4,13 +4,16 @@ import {
   boardCanEvaluate,
   evaluateUncertainWrite,
   isBoardAwaitingReconciliation,
+  isSegmentAssignmentWriteUnresolved,
   isSegmentMoveUnresolved,
+  isSegmentSplitMoveUnresolved,
   isSegmentUnassignUnresolved,
   isUnassignedRangeUnresolved,
   settleReconciliations,
   type CreateReconciliationTarget,
   type MoveReconciliationTarget,
   type Reconciliation,
+  type SplitMoveReconciliationTarget,
   type UnassignReconciliationTarget,
 } from "./reconciliation";
 import type { ReservationBoardResponse, ReservationBoardStay } from "@/lib/api/types";
@@ -658,5 +661,268 @@ describe("isRoomRangeUnresolved (PMS-CAL-001.3-CP03-C1)", () => {
     expect(isRoomRangeUnresolved([{ ...move, resolution: "changed" }], [], "prop-a", ["room-101"], nights)).toBe(false);
     expect(isRoomRangeUnresolved([{ ...move, resolution: "observed" }], [], "prop-a", ["room-102"], nights)).toBe(false);
     expect(isRoomRangeUnresolved([], [{ ...block, resolution: "observed" }], "prop-a", ["room-201"], nights)).toBe(false);
+  });
+});
+
+describe("split-move reconciliation (PMS-CAL-002-CP03)", () => {
+  // Source room-101 holds [09-10, 09-20); from 09-15 the stay should be in room-102.
+  const SRC = { startDate: "2026-09-10", endDate: "2026-09-20" };
+  const SPLIT = "2026-09-15";
+
+  function splitEntry(overrides: Partial<SplitMoveReconciliationTarget> = {}, entryOverrides: Partial<Reconciliation> = {}): Reconciliation {
+    const target: SplitMoveReconciliationTarget = {
+      operation: "split-move",
+      reservationUnitId: "unit-1",
+      physicalRoomId: "room-102", // destination
+      ...SRC,
+      roomNumber: "102",
+      guestDisplayName: "Guest",
+      confirmationNumber: "CNF-1",
+      segmentId: "seg-1",
+      expectedVersion: 3,
+      sourcePhysicalRoomId: "room-101",
+      splitDate: SPLIT,
+      ...overrides,
+    };
+    return entry({ certainty: "uncertain", resolution: "unresolved", target, ...entryOverrides });
+  }
+
+  const seg = (segmentId: string, version: number, room: string, startDate: string, endDate: string) => ({
+    segmentId,
+    segmentVersion: version,
+    physicalRoomId: room,
+    actualRoomTypeId: "type-std",
+    startDate,
+    endDate,
+  });
+  const source = seg("seg-1", 3, "room-101", SRC.startDate, SRC.endDate);
+  const prefix = seg("seg-2", 4, "room-101", SRC.startDate, SPLIT);
+  const suffix = seg("seg-3", 4, "room-102", SPLIT, SRC.endDate);
+  const read = (assignments: ReturnType<typeof seg>[], window = {}) => board({ assignments, unassignedRanges: [] }, window);
+  const verdict = (b: ReservationBoardResponse, e = splitEntry()) => evaluateUncertainWrite(e, b);
+
+  describe("a window that straddles the split date", () => {
+    it("observes the result only when BOTH successors are there, in the right rooms and over exactly the right nights", () => {
+      expect(verdict(read([prefix, suffix]))).toBe("observed");
+    });
+
+    it("keeps the source intact as unresolved", () => {
+      expect(verdict(read([source]))).toBe("unresolved");
+    });
+
+    it("never takes one successor for the result — the source is gone, so the verdict is changed", () => {
+      expect(verdict(read([prefix]))).toBe("changed");
+      expect(verdict(read([suffix]))).toBe("changed");
+    });
+
+    it("does not take a destination assignment over the whole range for the result", () => {
+      expect(verdict(read([seg("seg-9", 1, "room-102", SRC.startDate, SRC.endDate)]))).toBe("changed");
+    });
+
+    it.each([
+      ["prefix in another room", [seg("p", 4, "room-103", SRC.startDate, SPLIT), suffix]],
+      ["suffix in another room", [prefix, seg("s", 4, "room-103", SPLIT, SRC.endDate)]],
+      ["prefix one night short", [seg("p", 4, "room-101", SRC.startDate, "2026-09-14"), suffix]],
+      ["suffix starting a night late", [prefix, seg("s", 4, "room-102", "2026-09-16", SRC.endDate)]],
+      ["suffix ending early", [prefix, seg("s", 4, "room-102", SPLIT, "2026-09-19")]],
+      ["prefix and suffix swapped between rooms", [seg("p", 4, "room-102", SRC.startDate, SPLIT), seg("s", 4, "room-101", SPLIT, SRC.endDate)]],
+    ])("does not observe %s", (_name, assignments) => {
+      expect(verdict(read(assignments))).toBe("changed");
+    });
+
+    it("judges only the target's own Unit — successors of another Unit prove nothing", () => {
+      const other = read([prefix, suffix]);
+      other.stays[0] = { ...other.stays[0], reservationUnitId: "unit-2" };
+      expect(verdict(other)).toBe("changed");
+      expect(verdict(board(null))).toBe("changed");
+    });
+
+    it.each([
+      ["a different version", seg("seg-1", 4, "room-101", SRC.startDate, SRC.endDate)],
+      ["a different id", seg("seg-x", 3, "room-101", SRC.startDate, SRC.endDate)],
+      ["a different room", seg("seg-1", 3, "room-103", SRC.startDate, SRC.endDate)],
+      ["a different end", seg("seg-1", 3, "room-101", SRC.startDate, "2026-09-21")],
+    ])("treats a source with %s as changed — its expectedVersion can never commit", (_name, changedSource) => {
+      expect(verdict(read([changedSource]))).toBe("changed");
+    });
+
+    it("prefers observed over an intact source only when the successors are really there", () => {
+      expect(verdict(read([source, prefix, suffix]))).toBe("observed");
+    });
+  });
+
+  describe("a window that does not straddle the split date", () => {
+    it("window ending exactly at the split date returns the prefix only and can never observe", () => {
+      const window = { from: "2026-09-07", to: SPLIT };
+      expect(verdict(read([prefix], window))).toBe("changed");
+      expect(verdict(read([source], window))).toBe("unresolved");
+      // Even a board that (unrealistically) listed both successors cannot be taken as proof.
+      expect(verdict(read([prefix, suffix], window))).not.toBe("observed");
+    });
+
+    it("window starting exactly at the split date returns the suffix only and can never observe", () => {
+      const window = { from: SPLIT, to: "2026-09-25" };
+      expect(verdict(read([suffix], window))).toBe("changed");
+      expect(verdict(read([source], window))).toBe("unresolved");
+      expect(verdict(read([prefix, suffix], window))).not.toBe("observed");
+    });
+
+    it("a window inside the prefix nights, with the source gone, is changed — never observed", () => {
+      expect(verdict(read([prefix], { from: "2026-09-11", to: "2026-09-13" }))).toBe("changed");
+    });
+
+    it("a window one night either side of the split date straddles", () => {
+      expect(verdict(read([prefix, suffix], { from: "2026-09-14", to: "2026-09-16" }))).toBe("observed");
+    });
+  });
+
+  describe("which boards may say anything (the shared boardCanEvaluate)", () => {
+    const can = (propertyId: string, from: string, to: string) => boardCanEvaluate(splitEntry(), { propertyId, from, to });
+
+    it("needs the same Property and a window that overlaps the source's full range, not one that contains it", () => {
+      expect(can("prop-a", "2026-09-07", "2026-09-21")).toBe(true);
+      expect(can("prop-a", "2026-09-12", "2026-09-13")).toBe(true);
+      expect(can("prop-a", "2026-09-19", "2026-10-03")).toBe(true);
+      expect(can("prop-a", "2026-09-01", "2026-09-11")).toBe(true);
+    });
+
+    it("refuses another Property and windows that merely touch the half-open edges", () => {
+      expect(can("prop-b", "2026-09-07", "2026-09-21")).toBe(false);
+      expect(can("prop-a", "2026-09-01", SRC.startDate)).toBe(false);
+      expect(can("prop-a", SRC.endDate, "2026-09-30")).toBe(false);
+      expect(can("prop-a", "2026-08-01", "2026-08-10")).toBe(false);
+    });
+
+    it("gives no verdict at all for a board it cannot evaluate", () => {
+      expect(verdict(read([prefix, suffix], { propertyId: "prop-b" }))).toBeNull();
+      expect(verdict(read([source], { from: SRC.endDate, to: "2026-09-30" }))).toBeNull();
+      expect(verdict(read([source], { from: "2026-09-01", to: SRC.startDate }))).toBeNull();
+    });
+  });
+
+  describe("a source longer than the board window", () => {
+    // 09-01 .. 10-31 split at 09-15: the board returns the un-clipped successors because they overlap its window.
+    const LONG = { startDate: "2026-09-01", endDate: "2026-10-31" };
+    const long = splitEntry(LONG);
+    it("observes un-clipped successors from a window that is inside neither of them", () => {
+      const successors = [seg("p", 4, "room-101", LONG.startDate, SPLIT), seg("s", 4, "room-102", SPLIT, LONG.endDate)];
+      expect(verdict(read(successors), long)).toBe("observed");
+    });
+    it("keeps the un-clipped source unresolved and refuses a clipped copy of a successor", () => {
+      expect(verdict(read([seg("seg-1", 3, "room-101", LONG.startDate, LONG.endDate)]), long)).toBe("unresolved");
+      const clipped = [seg("p", 4, "room-101", "2026-09-07", SPLIT), seg("s", 4, "room-102", SPLIT, "2026-09-21")];
+      expect(verdict(read(clipped), long)).toBe("changed");
+    });
+  });
+
+  describe("settleReconciliations", () => {
+    it("resolves on a loaded read issued after the write, keeping the sequence gate", () => {
+      const list = [splitEntry({}, { afterSeq: 5 })];
+      expect(settleReconciliations(list, A, 5, loaded(read([prefix, suffix])))).toBe(list);
+      expect(settleReconciliations(list, A, 6, loaded(read([prefix, suffix])))[0]).toMatchObject({ status: "done", resolution: "observed" });
+      expect(settleReconciliations(list, A, 6, loaded(read([prefix])))[0].resolution).toBe("changed");
+    });
+
+    it("never resolves on a failed read, and a source still intact stays unresolved with a stable reference once done", () => {
+      const list = [splitEntry()];
+      const failed = settleReconciliations(list, A, 6, { kind: "failed" });
+      expect(failed[0]).toMatchObject({ status: "failed", resolution: "unresolved" });
+      const intact = settleReconciliations(failed, A, 7, loaded(read([source])));
+      expect(intact[0]).toMatchObject({ status: "done", resolution: "unresolved" });
+      expect(settleReconciliations(intact, A, 8, loaded(read([source])))).toBe(intact);
+    });
+
+    it("leaves a board that cannot evaluate it unresolved, and never turns a resolved or settled entry back", () => {
+      const list = [splitEntry()];
+      const elsewhere = settleReconciliations(list, B, 9, loaded(board({ assignments: [], unassignedRanges: [] }, { from: "2026-09-21", to: "2026-10-05" })));
+      expect(elsewhere).toBe(list);
+      const observed = settleReconciliations(list, A, 6, loaded(read([prefix, suffix])));
+      expect(settleReconciliations(observed, A, 7, loaded(read([source])))[0].resolution).toBe("observed");
+    });
+  });
+
+  describe("locks", () => {
+    const locked = (rooms: string[], range: { startDate: string; endDate: string }, e = splitEntry(), property = "prop-a") =>
+      isRoomRangeUnresolved([e], [], property, rooms, range);
+    const nights = (startDate: string, endDate: string) => ({ startDate, endDate });
+
+    it("locks the source room over its whole range — prefix and suffix nights alike", () => {
+      expect(locked(["room-101"], nights("2026-09-10", "2026-09-11"))).toBe(true);
+      expect(locked(["room-101"], nights("2026-09-14", "2026-09-15"))).toBe(true);
+      expect(locked(["room-101"], nights("2026-09-15", "2026-09-16"))).toBe(true);
+      expect(locked(["room-101"], nights("2026-09-19", "2026-09-20"))).toBe(true);
+    });
+
+    it("locks the destination room only from the split date, so its prefix nights stay free", () => {
+      expect(locked(["room-102"], nights("2026-09-15", "2026-09-16"))).toBe(true);
+      expect(locked(["room-102"], nights("2026-09-19", "2026-09-20"))).toBe(true);
+      expect(locked(["room-102"], nights("2026-09-14", "2026-09-15"))).toBe(false);
+      expect(locked(["room-102"], nights("2026-09-10", "2026-09-15"))).toBe(false);
+      expect(locked(["room-102"], nights("2026-09-12", "2026-09-16"))).toBe(true);
+    });
+
+    it("honours half-open edges", () => {
+      expect(locked(["room-101"], nights("2026-09-05", "2026-09-10"))).toBe(false);
+      expect(locked(["room-101"], nights("2026-09-20", "2026-09-25"))).toBe(false);
+      expect(locked(["room-102"], nights("2026-09-20", "2026-09-25"))).toBe(false);
+    });
+
+    it("ignores other rooms, another Property, and every resolution but unresolved — even a done one is still locked", () => {
+      expect(locked(["room-103"], nights("2026-09-10", "2026-09-20"))).toBe(false);
+      expect(locked(["room-101"], nights("2026-09-10", "2026-09-20"), splitEntry(), "prop-b")).toBe(false);
+      for (const resolution of ["settled", "observed", "changed"] as const) {
+        expect(locked(["room-101"], nights("2026-09-10", "2026-09-20"), splitEntry({}, { resolution }))).toBe(false);
+      }
+      expect(locked(["room-101"], nights("2026-09-10", "2026-09-20"), splitEntry({}, { status: "done" }))).toBe(true);
+    });
+
+    it("locks the Unit over the whole source range on any board, and only that Unit", () => {
+      const list = [splitEntry()];
+      const prefixNights = nights("2026-09-10", "2026-09-12");
+      expect(isUnassignedRangeUnresolved(list, "prop-a", "unit-1", prefixNights)).toBe(true);
+      expect(isUnassignedRangeUnresolved(list, "prop-a", "unit-1", nights("2026-09-18", "2026-09-19"))).toBe(true);
+      expect(isUnassignedRangeUnresolved(list, "prop-a", "unit-2", prefixNights)).toBe(false);
+      expect(isUnassignedRangeUnresolved(list, "prop-b", "unit-1", prefixNights)).toBe(false);
+      expect(isUnassignedRangeUnresolved(list, "prop-a", "unit-1", nights("2026-09-20", "2026-09-22"))).toBe(false);
+    });
+
+    it("keeps the older operations' room locks exactly as they were", () => {
+      const move = moveEntry();
+      expect(isRoomRangeUnresolved([move], [], "prop-a", ["room-102"], nights("2026-09-10", "2026-09-11"))).toBe(true);
+      expect(isRoomRangeUnresolved([move], [], "prop-a", ["room-101"], nights("2026-09-12", "2026-09-13"))).toBe(true);
+      expect(isRoomRangeUnresolved([move], [], "prop-a", ["room-101"], nights("2026-09-13", "2026-09-14"))).toBe(false);
+      const create = uncertain();
+      expect(isRoomRangeUnresolved([create], [], "prop-a", ["room-101"], nights("2026-09-12", "2026-09-14"))).toBe(true);
+      expect(isRoomRangeUnresolved([create], [], "prop-a", ["room-102"], nights("2026-09-12", "2026-09-14"))).toBe(false);
+    });
+  });
+
+  describe("segment predicates", () => {
+    const unassign = uncertain({
+      target: { operation: "unassign", reservationUnitId: "unit-1", ...TARGET, roomNumber: "101", guestDisplayName: "G", confirmationNumber: "C", segmentId: "seg-1", expectedVersion: 3, sourcePhysicalRoomId: "room-101" },
+    });
+
+    it("the split-move predicate matches on the segment id of an unresolved split-move only", () => {
+      expect(isSegmentSplitMoveUnresolved([splitEntry()], "prop-a", "seg-1")).toBe(true);
+      expect(isSegmentSplitMoveUnresolved([splitEntry()], "prop-a", "seg-other")).toBe(false);
+      expect(isSegmentSplitMoveUnresolved([splitEntry()], "prop-b", "seg-1")).toBe(false);
+      expect(isSegmentSplitMoveUnresolved([splitEntry({}, { resolution: "changed" })], "prop-a", "seg-1")).toBe(false);
+      expect(isSegmentSplitMoveUnresolved([moveEntry(), unassign], "prop-a", "seg-1")).toBe(false);
+    });
+
+    it("the shared predicate matches a move, an unassign or a split-move of that segment id — never a create, version or room", () => {
+      for (const unresolved of [moveEntry(), unassign, splitEntry()]) {
+        expect(isSegmentAssignmentWriteUnresolved([unresolved], "prop-a", "seg-1")).toBe(true);
+        expect(isSegmentAssignmentWriteUnresolved([unresolved], "prop-a", "seg-other")).toBe(false);
+        expect(isSegmentAssignmentWriteUnresolved([unresolved], "prop-b", "seg-1")).toBe(false);
+        expect(isSegmentAssignmentWriteUnresolved([{ ...unresolved, resolution: "observed" }], "prop-a", "seg-1")).toBe(false);
+      }
+      expect(isSegmentAssignmentWriteUnresolved([uncertain()], "prop-a", "seg-1")).toBe(false);
+    });
+
+    it("leaves the move and unassign predicates meaning exactly what they did", () => {
+      expect(isSegmentMoveUnresolved([splitEntry()], "prop-a", "seg-1")).toBe(false);
+      expect(isSegmentUnassignUnresolved([splitEntry()], "prop-a", "seg-1")).toBe(false);
+    });
   });
 });
