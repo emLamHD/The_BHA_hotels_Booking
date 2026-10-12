@@ -148,10 +148,15 @@ dotnet TheBha.Api.dll --staff-disable --email desk@example.com
   (`observed`, not proof of cause) or that these nights *changed* (`changed`, not
   a record that the move was saved). A reload, sign-out and sign-in keep the
   record; nothing is resent.
-- A block in a room that is no longer Active is not listed by the board
-  projection (it returns Active rooms only) and so cannot be reached from the
-  board; how operators should manage such a block is pending an OC decision
-  (`docs/reports/PMS-CAL-003-CP03-completion.md` §7).
+- A block in a room that is not Active (`Inactive` or `OutOfService`) is shown
+  since `PMS-CAL-004-CP01`: the board read lists a non-Active room of the
+  Property only while an Effective block overlapping the visible range sits in it,
+  with the room's status written in its row, and `Move block…` / `Cancel block`
+  work on that block as on any other. The room is never offered as a destination,
+  its status is not changed by anything on the board, and its row disappears from
+  the next read once its last block in the range is moved or cancelled. A room
+  with no such block (or only a cancelled one, or one outside the range) is not
+  listed (`docs/design/PMS-CAL-004-inactive-room-block-visibility.md`).
 - Local acceptance (not a deployment), same stack as the split-move above plus a
   task-owned fault proxy (outside the repository) in front of the API: compare the
   segments, audit rows and a commercial hash before and after each case; a move

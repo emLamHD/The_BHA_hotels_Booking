@@ -731,3 +731,17 @@ nights as a resource bound. The Decision is unchanged. Block split, resize,
 batch and swap, and Admin_Web use of this endpoint, remain TARGET. Current state
 is tracked in `docs/project/PROJECT_BIBLE.md`, not here; the design is
 `docs/design/PMS-CAL-003-operational-block-move.md`.
+
+### 2026-10-12 — the Admin read lists a non-Active room that holds an Effective block (`PMS-CAL-004-CP01`)
+
+The Admin Reservation Board read (`GET …/reservation-board`) now returns, besides every
+Active room of the Property, a non-Active (`Inactive`/`OutOfService`) room of that
+Property that an Effective OperationalBlock segment overlapping the requested window sits
+in, with the room's real `OperationalStatus`, so a block already in such a room can be
+shown and managed. This is a read-exposure change only: rooms are listed for display, not
+counted as sellable inventory, and base inventory and sellability remain Active-only. The
+write rules are unchanged — a source segment may be in a room that is not Active, a
+destination of any placement must be Active, and capacity, overlap, locking and audit stay
+with the existing mutation engine. The Decision is unchanged. The design is
+`docs/design/PMS-CAL-004-inactive-room-block-visibility.md`; current state is tracked in
+`docs/project/PROJECT_BIBLE.md`, not here.

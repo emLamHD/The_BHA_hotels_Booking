@@ -27,6 +27,13 @@
  * request. Header and Unassigned rows carry no room and are never targets.
  * Clicking a bar still opens its details, whose Move room action remains the
  * keyboard/touch way to do the same thing.
+ *
+ * PMS-CAL-004-CP01: the API lists every Active room plus a non-Active room that an Effective operational
+ * block sits in, each with its real `operationalStatus`. Such a room is drawn like any other row — so its
+ * block can be opened, moved and cancelled — with its status written in the row label; it is still never a
+ * drop target for a stay (the board refuses it) and never a placement candidate. A RoomType header is drawn
+ * for any listed room, but the empty Unassigned lane a RoomType always keeps is only for a type with at
+ * least one *Active* room: an inactive-only type adds no lane of its own.
  */
 
 import React from "react";
@@ -195,6 +202,11 @@ function dropRoomIdOf(target: EventTarget | null): string | null {
 
 const LABEL_COLUMN = "220px";
 
+/** The words for a room status the board lists (an Active room needs none). */
+function describeRoomStatus(status: string): string {
+  return status === "OutOfService" ? "Out of service" : status;
+}
+
 const DRAGGING_MESSAGE = "Drop on another room's row to review a move. The stay dates will not change.";
 
 const ReservationBoardServerTimeline: React.FC<ReservationBoardServerTimelineProps> = ({
@@ -246,7 +258,12 @@ const ReservationBoardServerTimeline: React.FC<ReservationBoardServerTimelinePro
     return map;
   }, [physicalRooms]);
 
-  const activeRoomTypeIds = new Set(physicalRooms.map((room) => room.roomTypeId));
+  // Every listed room shows its RoomType header; only a type with a room that is really Active keeps the
+  // always-present (empty) Unassigned lane. A room listed only because a block sits in it does neither.
+  const listedRoomTypeIds = new Set(physicalRooms.map((room) => room.roomTypeId));
+  const activeRoomTypeIds = new Set(
+    physicalRooms.filter((room) => room.operationalStatus === "Active").map((room) => room.roomTypeId)
+  );
 
   // Pack the visible unassigned ranges into lanes first: how many lanes each
   // sold RoomType needs is what decides its rows below. Only clipped, actually
@@ -290,7 +307,7 @@ const ReservationBoardServerTimeline: React.FC<ReservationBoardServerTimelinePro
   // silently dropped below. Gated by showUnassigned so hiding that filter
   // still hides these rows, same as the always-active room types.
   const orderedRoomTypes = roomTypes.filter(
-    (roomType) => activeRoomTypeIds.has(roomType.id) || (laneCountByRoomType.get(roomType.id) ?? 0) > 0
+    (roomType) => listedRoomTypeIds.has(roomType.id) || (laneCountByRoomType.get(roomType.id) ?? 0) > 0
   );
 
   const rows: RowSpec[] = [];
@@ -575,6 +592,12 @@ const ReservationBoardServerTimeline: React.FC<ReservationBoardServerTimelinePro
                 className="z-10 m-1 flex items-center overflow-hidden rounded-md border border-amber-500 [contain:inline-size] bg-[repeating-linear-gradient(45deg,#fcd34d_0,#fcd34d_2px,transparent_2px,transparent_6px)] px-2 text-left text-xs font-medium text-amber-900 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500/60 dark:bg-[repeating-linear-gradient(45deg,#b45309_0,#b45309_2px,transparent_2px,transparent_6px)] dark:text-amber-100"
                 style={{ gridColumn: `${clipped.startCol + 2} / span ${clipped.span}`, gridRow: rowIndex + 2 }}
                 title={block.reason}
+                // PMS-CAL-004-CP01: a block in a room that is not Active says so; an Active room's bar is unchanged.
+                aria-label={
+                  room && room.operationalStatus !== "Active"
+                    ? `${block.reason} — room ${room.roomNumber}, ${describeRoomStatus(room.operationalStatus)}`
+                    : undefined
+                }
               >
                 <span className="truncate">{block.reason}</span>
               </button>
@@ -644,6 +667,15 @@ const RowLabelAndCells: React.FC<{
         style={{ gridColumn: 1, gridRow: rowIndex + 2 }}
       >
         {label}
+        {row.kind === "room" && row.room.operationalStatus !== "Active" && (
+          // PMS-CAL-004-CP01: listed only because a block sits in it; the status is read from the API, never assumed.
+          <span
+            data-testid={`room-status-${row.room.id}`}
+            className="ml-2 rounded-full bg-warning-50 px-1.5 py-0.5 text-[10px] font-medium text-warning-700 dark:bg-warning-500/15 dark:text-warning-300"
+          >
+            {describeRoomStatus(row.room.operationalStatus)}
+          </span>
+        )}
       </div>
       {dates.map((date, columnIndex) => (
         <div
