@@ -106,9 +106,9 @@ dotnet TheBha.Api.dll --staff-disable --email desk@example.com
   (`POST …/reservation-assignments`, `…/{segmentId}/move`, `…/unassign`,
   `…/{segmentId}/split-move`) and operational-block create, cancel and move
   (`POST …/operational-blocks`, `…/{segmentId}/cancel`, `…/{segmentId}/move`).
-  The block move (`PMS-CAL-003-CP01`) is an API only: the Admin board has no
-  action for it yet, and it needs only `BlockWrite` (FrontDesk and Manager) —
-  no cross-room-type confirmation, because a block has no sold room type.
+  The block move (`PMS-CAL-003-CP01`, board action since `PMS-CAL-003-CP03`)
+  needs only `BlockWrite` (FrontDesk and Manager) — no cross-room-type
+  confirmation, because a block has no sold room type.
 - Split-move keeps the earlier nights `[start, splitDate)` in the segment's own
   room and gives `[splitDate, end)` to another Active room. It changes the room
   assignment only: stay dates, price and booking are untouched, and it is not a
@@ -130,6 +130,33 @@ dotnet TheBha.Api.dll --staff-disable --email desk@example.com
   before and after each case; a split writes one mutation group (source
   `Cancelled`, a `Created` prefix and suffix) and evidence only on the part that
   crosses room types.
+
+### Block move (`Move block…`) — what operators and acceptance should know
+
+- The popover of an operational block offers `Move block…` beside `Cancel block`.
+  The whole block moves to another Active room of the same Property over exactly
+  its own nights (all of them, also the ones outside the visible range; at most
+  366); its header, reason and creator stay. The optional reason is recorded in the
+  audit of this move only. A room of another room type is an ordinary choice;
+  whether that room type still has capacity is the server's answer — a `409`
+  ("Insufficient usable physical capacity…") can happen although the room is free.
+- A block longer than 366 nights, or one whose board is out of date or waiting to
+  be re-read, shows the action disabled with the reason; cancelling still works.
+- "Unconfirmed block move request …" is handled like the other writes: never
+  retried, both rooms locked for those nights in that tab, `Check again` only
+  re-reads. After a re-read the notice says the schedule *matches* the move
+  (`observed`, not proof of cause) or that these nights *changed* (`changed`, not
+  a record that the move was saved). A reload, sign-out and sign-in keep the
+  record; nothing is resent.
+- A block in a room that is no longer Active is not listed by the board
+  projection (it returns Active rooms only) and so cannot be reached from the
+  board — manage it through the API or by restoring the room's status.
+- Local acceptance (not a deployment), same stack as the split-move above plus a
+  task-owned fault proxy (outside the repository) in front of the API: compare the
+  segments, audit rows and a commercial hash before and after each case; a move
+  writes one mutation group (source `Cancelled`, a `Created` successor), the actor
+  is `staff:{id}`, evidence is always empty. Report faults by boundary (not
+  forwarded / committed then cut / board `GET` held).
 
 ## 5. Reading what users see
 

@@ -1,6 +1,6 @@
 # PMS-CAL-003 — operational-block move (design and roadmap)
 
-> Status 2026-10-12: `PMS-CAL-003-CP01` (backend) is **merged** (PR #103, merge `1a09e656af128a6df93875bb5ae12de8f70ce435`). `PMS-CAL-003-CP02` (Admin_Web foundation, §5) is implemented in a Draft PR on that baseline; CP03 is **not started**. Block split/resize/batch/swap, check-in/check-out, folio and the template mocks are out of scope. This document records the contract CP01 implements; current state is tracked in `docs/project/PROJECT_BIBLE.md` and `docs/project/SNAPSHOT.md`.
+> Status 2026-10-12: `PMS-CAL-003-CP01` (backend, PR #103) and `PMS-CAL-003-CP02` (Admin_Web foundation, §5, PR #104, merge `3dfab2954a169a58ed4c7a7e1dd3b2b4a2ecaf48`) are **merged**. `PMS-CAL-003-CP03` (dialog, board action, send-time guards, lifecycle and isolated browser acceptance, §6) is implemented in a Draft PR on that baseline and awaits Owner review/merge; it is the last checkpoint of the milestone. Block split/resize/batch/swap, check-in/check-out, folio and the template mocks are out of scope. This document records the contract CP01 implements; current state is tracked in `docs/project/PROJECT_BIBLE.md` and `docs/project/SNAPSHOT.md`.
 
 ## 1. Why
 
@@ -40,8 +40,8 @@ Only `Succeeded` is a success shape; any other (including an unknown) status is 
 | CP | Scope | State |
 |---|---|---|
 | **CP01** | Store adapter, HTTP route, tests, docs (this document). | merged (PR #103) |
-| **CP02** | Admin_Web client function, request/outcome types, reconciliation target and tab-storage record for a block move (the lock rules of create/cancel apply: one request, never retried, the source's room and nights stay locked while unknown). No action, dialog or send handler. | implemented in a Draft PR (§5) |
-| **CP03** | Dialog, board/popover action, locks, browser acceptance on an isolated PostgreSQL in `Staff` mode. | not started |
+| **CP02** | Admin_Web client function, request/outcome types, reconciliation target and tab-storage record for a block move (the lock rules of create/cancel apply: one request, never retried, the source's room and nights stay locked while unknown). No action, dialog or send handler. | merged (PR #104) |
+| **CP03** | Dialog, board/popover action, send-time guards, lifecycle, locks, browser acceptance on an isolated PostgreSQL in `Staff` mode. | implemented in a Draft PR (§6); awaiting Owner review |
 
 Not planned here: block split, resize, batch or swap; moving a block to another Property; any change to the shared supersession engine.
 
@@ -63,3 +63,15 @@ Admin_Web only; no backend, schema, dialog, popover, toolbar, `StaffSession` or 
 - **Board** (allowance only): the inline `UncertainBlockNotice` words a restored move as a move between two rooms (observed = a fact of the schedule, not proof of cause; changed = not saved), resolved notices dismiss without touching any other record or lock, and the two block dialogs ignore the move-only `changed` value.
 
 CP03 will add the dialog, the popover action, the send handler (calling the lock predicates at send time) and the real-browser acceptance. Evidence: `docs/reports/PMS-CAL-003-CP02-completion.md`.
+
+## 6. CP03 status — dialog, board action and isolated acceptance (2026-10-12)
+
+Admin_Web only (no backend, schema, auth, API client/type, `blockMoveTarget`, reconciliation or storage-format change). What exists:
+
+- **Action.** The operational-block popover offers `Move block…` beside `Cancel block` for every role with `BlockWrite` (FrontDesk and Manager); never for a stay or an unassigned range. It is disabled, with a reason, for a stale board, a board waiting to be re-read, an unresolved cancel/move of that segment or of its room, no other Active room, or a range that is invalid or longer than 366 nights (such a block can still be cancelled).
+- **Dialog** (`ReservationBlockMoveDialog.tsx`): shows the segment's own full `[start, end)` and night count, the source room, the block reason marked *unchanged* and the segment id/version; offers the Active rooms other than the source (same room type first, then others) as candidates, never as rooms known to be free; one optional reason (trimmed, at most 500 characters, audit only). No date input, no cross-RoomType confirmation, no past-date acknowledgement. It never calls the client: it hands `{ destinationPhysicalRoomId, reason? }` to the board. One synchronous submit guard; while the request is on the wire it cannot be edited or closed; after a terminal outcome it cannot send again; only `not-sent` and `400` may be corrected and sent by an explicit new Confirm.
+- **Send time** (`blockMoveSubmission.ts`, pure; `submitBlockMove` in the board). Everything is re-read from live refs at the moment of sending, never from the opener: the view is still the board the dialog came from, the exact header/id/version/room/range is still on the loaded board, the destination is still an Active room other than the source, the role (`blockWrite`), a sign-out or an access check, storage readability, a board awaiting its re-read, and the unresolved locks — the segment predicate (`isBlockSegmentWriteUnresolved`, now also gating the existing cancel at open and at send) and both rooms over the full range. Any refusal sends nothing and records no intent. The body is `expectedVersion`, `destinationPhysicalRoomId` and a trimmed reason only. Free capacity is never guessed: a `409` is authoritative.
+- **Lifecycle.** `beginPendingWrite` → `trackWrite` → one request → outcome → `finishIntent`/`afterWrite`, activity balanced even if the client throws (a throw is `unknown`). `200` is always a known move, whatever the body or the re-read; a `409`, a refusal or an `unknown` re-reads the board; a `404`/`403` is never worded as the block having moved or been removed, and a generic `403` re-reads access once without resending. The result is reported on the board it was written from and never painted on another range. `unknown` keeps one record (token handed over only once the record is safely stored) and locks both rooms; `observed` is the schedule showing the exact successor, `changed` is not a save.
+- **Real-browser evidence** (Chrome 153 + Admin_Web production build + Kestrel in `Staff` mode + PostgreSQL 18.3 on loopback): `docs/reports/PMS-CAL-003-CP03-completion.md` §5. One finding is recorded there rather than fixed: the API's board projection lists only Active rooms, so a block in a room that is no longer Active has no row on the board and cannot be reached from it; the dialog's allowance for an inactive source is therefore exercised only by tests and by the server when the room changes after the board was read.
+
+Out of scope and still absent: block split/resize/drag/batch/swap, check-in/check-out, folio, templates and any change to the shared supersession engine.
