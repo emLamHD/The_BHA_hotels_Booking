@@ -44,6 +44,7 @@ vi.mock("@/lib/api/client", () => ({
   splitMoveReservationAssignment: vi.fn(),
   createOperationalBlock: vi.fn(),
   cancelOperationalBlock: vi.fn(),
+  moveOperationalBlock: vi.fn(),
 }));
 
 import {
@@ -52,6 +53,7 @@ import {
   createReservationAssignment,
   fetchActiveProperties,
   fetchReservationBoard,
+  moveOperationalBlock,
   moveReservationAssignment,
   splitMoveReservationAssignment,
   unassignReservationAssignment,
@@ -65,6 +67,7 @@ const mockedUnassign = vi.mocked(unassignReservationAssignment);
 const mockedSplit = vi.mocked(splitMoveReservationAssignment);
 const mockedBlock = vi.mocked(createOperationalBlock);
 const mockedCancel = vi.mocked(cancelOperationalBlock);
+const mockedBlockMove = vi.mocked(moveOperationalBlock);
 
 const propertyA: ApiProperty = { id: "prop-a", name: "Property A", timeZone: "Asia/Ho_Chi_Minh" };
 const propertyB: ApiProperty = { id: "prop-b", name: "Property B", timeZone: "Asia/Ho_Chi_Minh" };
@@ -177,7 +180,7 @@ async function flushMicrotasks() {
 beforeEach(() => {
   // Unconfirmed writes survive a reload in this tab (PMS-CAL-001.5-CP02): no test may inherit another's.
   sessionStorage.clear();
-  for (const mock of [mockedProperties, mockedBoard, mockedCreate, mockedMove, mockedUnassign, mockedSplit, mockedBlock, mockedCancel]) mock.mockReset();
+  for (const mock of [mockedProperties, mockedBoard, mockedCreate, mockedMove, mockedUnassign, mockedSplit, mockedBlock, mockedCancel, mockedBlockMove]) mock.mockReset();
   mockedProperties.mockResolvedValue({ ok: true, data: [propertyA, propertyB] });
   mockedBoard.mockImplementation((propertyId, from, to) => Promise.resolve({ ok: true, data: boardFor(propertyId, from, to) }));
 });
@@ -1796,7 +1799,7 @@ describe("ReservationBoard — known outcomes, mixed restores and damaged record
 
     const storedKeys = () => [rawGet.call(sessionStorage, PENDING_KEY), rawGet.call(sessionStorage, UNCERTAIN_KEY)];
     const banner = () => screen.queryByTestId(BANNER);
-    const postCount = () => [mockedCreate, mockedMove, mockedUnassign, mockedBlock, mockedCancel].reduce((sum, mock) => sum + mock.mock.calls.length, 0);
+    const postCount = () => [mockedCreate, mockedMove, mockedUnassign, mockedBlock, mockedCancel, mockedBlockMove].reduce((sum, mock) => sum + mock.mock.calls.length, 0);
 
     const boardWithPaintBlock = () =>
       mockedBoard.mockImplementation((propertyId, from, to) => {
@@ -1880,6 +1883,34 @@ describe("ReservationBoard — known outcomes, mixed restores and damaged record
         confirm: "Cancel block on room 201",
         posted: () => mockedCancel.mock.calls.length,
       },
+      {
+        // PMS-CAL-003-CP03: an unconfirmed write into the DESTINATION room over the block's own nights.
+        name: "block move (destination room locked)",
+        lock: ["room-102", "102", 6, 7],
+        prepare: boardWithPaintBlock,
+        open: async (user) => {
+          await user.click(screen.getByTitle("Paint"));
+          await user.click(within(screen.getByRole("dialog", { name: "Operational block details" })).getByRole("button", { name: "Move block…" }));
+          await user.click(within(screen.getByRole("dialog", { name: "Move operational block" })).getByRole("radio", { name: /Room 102/ }));
+          return screen.getByRole("dialog", { name: "Move operational block" });
+        },
+        confirm: "Move block to room 102",
+        posted: () => mockedBlockMove.mock.calls.length,
+      },
+      {
+        // … and into the SOURCE room, which keeps the nights if the request did not commit.
+        name: "block move (source room locked)",
+        lock: ["room-201", "201", 6, 7],
+        prepare: boardWithPaintBlock,
+        open: async (user) => {
+          await user.click(screen.getByTitle("Paint"));
+          await user.click(within(screen.getByRole("dialog", { name: "Operational block details" })).getByRole("button", { name: "Move block…" }));
+          await user.click(within(screen.getByRole("dialog", { name: "Move operational block" })).getByRole("radio", { name: /Room 102/ }));
+          return screen.getByRole("dialog", { name: "Move operational block" });
+        },
+        confirm: "Move block to room 102",
+        posted: () => mockedBlockMove.mock.calls.length,
+      },
     ];
 
     it.each(operations)(
@@ -1887,7 +1918,7 @@ describe("ReservationBoard — known outcomes, mixed restores and damaged record
       async (operation) => {
         const user = userEvent.setup();
         operation.prepare?.();
-        for (const mock of [mockedCreate, mockedMove, mockedUnassign, mockedBlock, mockedCancel]) mock.mockResolvedValue({ kind: "unknown", reason: "timeout" } as never);
+        for (const mock of [mockedCreate, mockedMove, mockedUnassign, mockedBlock, mockedCancel, mockedBlockMove]) mock.mockResolvedValue({ kind: "unknown", reason: "timeout" } as never);
         const { from, to } = await probeRange();
         const [roomId, roomNumber, start, end] = operation.lock;
         beginPendingWrite(sessionStorage, { kind: "block", entry: blockEntry(from, to, roomId, roomNumber, start, end) });
@@ -1923,7 +1954,7 @@ describe("ReservationBoard — known outcomes, mixed restores and damaged record
       async (operation) => {
         const user = userEvent.setup();
         operation.prepare?.();
-        for (const mock of [mockedCreate, mockedMove, mockedUnassign, mockedBlock, mockedCancel]) mock.mockResolvedValue({ kind: "unknown", reason: "timeout" } as never);
+        for (const mock of [mockedCreate, mockedMove, mockedUnassign, mockedBlock, mockedCancel, mockedBlockMove]) mock.mockResolvedValue({ kind: "unknown", reason: "timeout" } as never);
         const { from, to } = await probeRange();
         const [roomId, roomNumber, start, end] = operation.lock;
         beginPendingWrite(sessionStorage, { kind: "block", entry: blockEntry(from, to, roomId, roomNumber, start, end) });
@@ -2176,7 +2207,7 @@ describe("ReservationBoard — a restored split-move is described and locked as 
   });
 
   const expectNoWriteSent = () => {
-    for (const write of [mockedCreate, mockedMove, mockedUnassign, mockedBlock, mockedCancel]) expect(write).not.toHaveBeenCalled();
+    for (const write of [mockedCreate, mockedMove, mockedUnassign, mockedBlock, mockedCancel, mockedBlockMove]) expect(write).not.toHaveBeenCalled();
   };
 
   async function expectBlockLocked(user: ReturnType<typeof userEvent.setup>, room: string, start: string, end: string) {
