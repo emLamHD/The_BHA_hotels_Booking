@@ -284,7 +284,7 @@ describe("ReservationSplitMoveDialog — summary, bounds and preview (PMS-CAL-00
     vi.unstubAllGlobals();
   });
 
-  it("source: imports no client function, performs no network or storage access, is mounted nowhere", () => {
+  it("source: imports no client function and performs no network or storage access (PMS-CAL-002-CP05 mounts it from the board; see ReservationBoardSplitMove.test.tsx)", () => {
     const dir = path.dirname(new URL(import.meta.url).pathname);
     const source = readFileSync(path.join(dir, "ReservationSplitMoveDialog.tsx"), "utf8");
     const importLines = source.split("\n").filter((line) => /^\s*import\b/.test(line)).join("\n");
@@ -292,9 +292,6 @@ describe("ReservationSplitMoveDialog — summary, bounds and preview (PMS-CAL-00
     expect(importLines).toContain('import type { SplitMoveAssignmentOutcome } from "@/lib/api/client"');
     expect(source).not.toMatch(/\bfetch\(|localStorage|sessionStorage|Date\.now|new Date\(/);
     expect(source).not.toContain("dateMath");
-    for (const file of ["ReservationBoard.tsx", "ReservationBoardStayPopover.tsx", "ReservationBoardServerTimeline.tsx"]) {
-      expect(readFileSync(path.join(dir, file), "utf8")).not.toContain("ReservationSplitMoveDialog");
-    }
   });
 });
 

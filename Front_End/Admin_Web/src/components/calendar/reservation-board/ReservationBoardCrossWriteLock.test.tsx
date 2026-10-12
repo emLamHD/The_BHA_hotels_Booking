@@ -41,6 +41,7 @@ vi.mock("@/lib/api/client", () => ({
   createReservationAssignment: vi.fn(),
   moveReservationAssignment: vi.fn(),
   unassignReservationAssignment: vi.fn(),
+  splitMoveReservationAssignment: vi.fn(),
   createOperationalBlock: vi.fn(),
   cancelOperationalBlock: vi.fn(),
 }));
@@ -52,6 +53,7 @@ import {
   fetchActiveProperties,
   fetchReservationBoard,
   moveReservationAssignment,
+  splitMoveReservationAssignment,
   unassignReservationAssignment,
 } from "@/lib/api/client";
 
@@ -60,6 +62,7 @@ const mockedBoard = vi.mocked(fetchReservationBoard);
 const mockedCreate = vi.mocked(createReservationAssignment);
 const mockedMove = vi.mocked(moveReservationAssignment);
 const mockedUnassign = vi.mocked(unassignReservationAssignment);
+const mockedSplit = vi.mocked(splitMoveReservationAssignment);
 const mockedBlock = vi.mocked(createOperationalBlock);
 const mockedCancel = vi.mocked(cancelOperationalBlock);
 
@@ -174,7 +177,7 @@ async function flushMicrotasks() {
 beforeEach(() => {
   // Unconfirmed writes survive a reload in this tab (PMS-CAL-001.5-CP02): no test may inherit another's.
   sessionStorage.clear();
-  for (const mock of [mockedProperties, mockedBoard, mockedCreate, mockedMove, mockedUnassign, mockedBlock, mockedCancel]) mock.mockReset();
+  for (const mock of [mockedProperties, mockedBoard, mockedCreate, mockedMove, mockedUnassign, mockedSplit, mockedBlock, mockedCancel]) mock.mockReset();
   mockedProperties.mockResolvedValue({ ok: true, data: [propertyA, propertyB] });
   mockedBoard.mockImplementation((propertyId, from, to) => Promise.resolve({ ok: true, data: boardFor(propertyId, from, to) }));
 });
@@ -2337,5 +2340,102 @@ describe("ReservationBoard — a restored split-move is described and locked as 
     expect(within(notice).queryByRole("button", { name: "Check again" })).not.toBeInTheDocument();
     expect(sessionStorage.getItem(UNCERTAIN_WRITES_STORAGE_KEY)).not.toBeNull();
     expectNoWriteSent();
+  });
+});
+
+describe("ReservationBoard — move, unassign and split-move share one source lock, and a split locks the right room nights (PMS-CAL-002-CP05)", () => {
+  const SEGMENT_BAR = "Nguyen Van A — CNF-100";
+  const popoverOf = () => screen.getByRole("dialog", { name: "Reservation details" });
+  const splitDialog = () => screen.getByRole("dialog", { name: "Move from a date" });
+
+  async function openPopover(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByTitle(SEGMENT_BAR));
+  }
+
+  async function loseMove(user: ReturnType<typeof userEvent.setup>) {
+    mockedMove.mockResolvedValue({ kind: "unknown", reason: "timeout" } as MoveAssignmentOutcome);
+    const before = mockedBoard.mock.calls.length;
+    await openMoveDialog(user);
+    await user.click(within(moveDialog()).getByLabelText(/Room 102/));
+    await user.click(within(moveDialog()).getByRole("button", { name: "Move to room 102" }));
+    await settleReread(before);
+    await closeDialog(user, moveDialog());
+  }
+
+  async function loseUnassign(user: ReturnType<typeof userEvent.setup>) {
+    mockedUnassign.mockResolvedValue({ kind: "unknown", reason: "timeout" } as UnassignAssignmentOutcome);
+    const before = mockedBoard.mock.calls.length;
+    await openPopover(user);
+    await user.click(within(popoverOf()).getByRole("button", { name: "Remove room assignment" }));
+    const dialog = screen.getByRole("dialog", { name: "Remove room assignment" });
+    await user.click(within(dialog).getByRole("button", { name: /^Remove room/ }));
+    await settleReread(before);
+    await closeDialog(user, dialog);
+  }
+
+  async function loseSplit(user: ReturnType<typeof userEvent.setup>, from: string) {
+    mockedSplit.mockResolvedValue({ kind: "unknown", reason: "timeout" });
+    const before = mockedBoard.mock.calls.length;
+    await openPopover(user);
+    await user.click(within(popoverOf()).getByRole("button", { name: /^Move from a date/ }));
+    const dialog = within(splitDialog());
+    fireEvent.change(dialog.getByLabelText("Destination room takes over from"), { target: { value: addDaysIso(from, 3) } });
+    fireEvent.click(dialog.getByLabelText(/Room 102/));
+    await user.click(dialog.getByRole("button", { name: /^Split and move/ }));
+    await settleReread(before);
+    await closeDialog(user, splitDialog());
+  }
+
+  async function expectActionsDisabled(user: ReturnType<typeof userEvent.setup>, names: RegExp[]) {
+    await openPopover(user);
+    for (const name of names) expect(within(popoverOf()).getByRole("button", { name })).toBeDisabled();
+    await user.click(within(popoverOf()).getByRole("button", { name: "Close" }));
+  }
+
+  it("a lost move leaves the segment's unassign and split-move unavailable", async () => {
+    const user = userEvent.setup();
+    await renderLoadedBoard();
+    await loseMove(user);
+    await expectActionsDisabled(user, [/^Move room$/, /^Remove room assignment$/, /^Move from a date/]);
+    expect(mockedUnassign).not.toHaveBeenCalled();
+    expect(mockedSplit).not.toHaveBeenCalled();
+  });
+
+  it("a lost unassign leaves the segment's move and split-move unavailable", async () => {
+    const user = userEvent.setup();
+    await renderLoadedBoard();
+    await loseUnassign(user);
+    await expectActionsDisabled(user, [/^Move room$/, /^Remove room assignment$/, /^Move from a date/]);
+    expect(mockedMove).not.toHaveBeenCalled();
+    expect(mockedSplit).not.toHaveBeenCalled();
+  });
+
+  it("a lost split-move leaves the segment's move and unassign unavailable", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    await loseSplit(user, from);
+    await expectActionsDisabled(user, [/^Move room$/, /^Remove room assignment$/, /^Move from a date/]);
+    expect(mockedMove).not.toHaveBeenCalled();
+    expect(mockedUnassign).not.toHaveBeenCalled();
+    expect(mockedSplit).toHaveBeenCalledTimes(1);
+  });
+
+  it("a lost split locks the source room over its whole range and the destination only from the split date", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    await loseSplit(user, from);
+
+    // Source room 101: every night of the segment, including the prefix.
+    await reviewBlock(user, "room-101", addDaysIso(from, 2), addDaysIso(from, 3));
+    expect(within(blockDialog()).getByRole("alert")).toHaveTextContent("still unconfirmed");
+    await closeDialog(user, blockDialog());
+    // Destination 102: the later night [from+3, from+4) …
+    await reviewBlock(user, "room-102", addDaysIso(from, 3), addDaysIso(from, 4));
+    expect(within(blockDialog()).getByRole("alert")).toHaveTextContent("still unconfirmed");
+    await closeDialog(user, blockDialog());
+    // … but not the prefix night [from+2, from+3), which the destination never takes.
+    await reviewBlock(user, "room-102", addDaysIso(from, 2), addDaysIso(from, 3));
+    expect(within(blockDialog()).queryByRole("alert")).not.toBeInTheDocument();
+    expect(mockedBlock).not.toHaveBeenCalled();
   });
 });
