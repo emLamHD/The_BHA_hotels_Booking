@@ -150,7 +150,8 @@ dotnet TheBha.Api.dll --staff-disable --email desk@example.com
   record; nothing is resent.
 - A block in a room that is no longer Active is not listed by the board
   projection (it returns Active rooms only) and so cannot be reached from the
-  board — manage it through the API or by restoring the room's status.
+  board; how operators should manage such a block is pending an OC decision
+  (`docs/reports/PMS-CAL-003-CP03-completion.md` §7).
 - Local acceptance (not a deployment), same stack as the split-move above plus a
   task-owned fault proxy (outside the repository) in front of the API: compare the
   segments, audit rows and a commercial hash before and after each case; a move
