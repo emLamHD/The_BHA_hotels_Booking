@@ -290,7 +290,7 @@ public sealed class StaffCalendarAuthorizationTests(PostgreSqlWebApplicationFact
     // ---------------------------------------------------------------
 
     [Fact]
-    public async Task In_staff_mode_the_five_calendar_writes_are_converted_and_refuse_without_authority_before_binding()
+    public async Task In_staff_mode_the_calendar_writes_are_converted_and_refuse_without_authority_before_binding()
     {
         var seed = await SeedAsync();
         var segment = Guid.NewGuid();
@@ -306,6 +306,8 @@ public sealed class StaffCalendarAuthorizationTests(PostgreSqlWebApplicationFact
                 Json(new { physicalRoomId = seed.RoomA, startDate = From, endDate = To, reason = "Burst pipe" })),
             ($"/api/admin/v1/properties/{seed.A}/operational-blocks/{segment}/cancel",
                 Json(new { expectedVersion = 1 })),
+            ($"/api/admin/v1/properties/{seed.A}/operational-blocks/{segment}/move",
+                Json(new { expectedVersion = 1, destinationPhysicalRoomId = seed.RoomA })),
         };
 
         // PMS-ADMIN-AUTH-001-CP05 converted the five writes (CP04 closed them): in Staff mode they

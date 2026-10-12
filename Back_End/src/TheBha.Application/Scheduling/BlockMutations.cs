@@ -37,6 +37,22 @@ public sealed record SupersedeBlockSegmentsCommand(
     string ActorReference,
     string? Reason);
 
+/// <summary>
+/// PMS-CAL-003-CP01: moves exactly one Effective OperationalBlock segment to another
+/// PhysicalRoom of the same Property over its own whole, unchanged range. It is the narrow
+/// adapter over <see cref="BlockSegmentSupersession"/> with one replacement; it carries no
+/// dates and no replacement list, because the store reads the source's own range, so a
+/// caller can neither shorten nor extend the block by moving it.
+/// <see cref="ExpectedVersion"/> is the optimistic-concurrency token last observed.
+/// </summary>
+public sealed record MoveOperationalBlockCommand(
+    Guid PropertyId,
+    Guid SegmentId,
+    uint ExpectedVersion,
+    Guid DestinationPhysicalRoomId,
+    string ActorReference,
+    string? Reason);
+
 public sealed record RoomBlockDto(
     Guid Id,
     Guid PropertyId,
@@ -73,5 +89,14 @@ public interface IOperationalBlockMutationStore
 
     Task<SegmentMutationResult> SupersedeSegmentsAsync(
         SupersedeBlockSegmentsCommand command,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// PMS-CAL-003-CP01: moves one Effective OperationalBlock segment to another room over its
+    /// own full range (see <see cref="MoveOperationalBlockCommand"/>). Returns
+    /// <c>[source Cancelled, successor Effective]</c>; every refusal writes nothing.
+    /// </summary>
+    Task<SegmentMutationResult> MoveAsync(
+        MoveOperationalBlockCommand command,
         CancellationToken cancellationToken);
 }
