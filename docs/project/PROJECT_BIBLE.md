@@ -116,7 +116,7 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   CLI, cookie session `.TheBha.Staff` (8 giờ tuyệt đối), `GET /api/admin/v1/me`.
   `AdminCalendar:AccessMode`: `Staff` (mặc định từ CP07, mọi môi trường) yêu cầu
   Staff session + permission kiểm tra trên server theo Property/role cho Board
-  read và năm route ghi, audit actor `staff:{id}` và evidence cross-RoomType của
+  read và sáu route ghi (assignment create/move/unassign/split-move, block create/cancel), audit actor `staff:{id}` và evidence cross-RoomType của
   Manager; `LocalGate` (gate ẩn danh ở trên) chỉ là opt-in Development, môi
   trường khác từ chối khởi động. Admin_Web có `/signin`, gate `/calendar`,
   selector từ memberships và UI theo quyền. Vận hành:
@@ -167,13 +167,19 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   CURRENT ở mức local-only từ CP04B, single-segment operational-block
   *create*/*cancel* CURRENT ở mức local-only từ `PMS-CAL-001.3` CP01/CP02,
   và Admin Reservation Board gọi cả hai từ CP03/CP04) —
-  assignment split/batch, OperationalBlock *move/split* và multi-segment block
-  create/supersede qua HTTP, frontend integration cho split/batch và cho
+  assignment *batch*, OperationalBlock *move/split* và multi-segment block
+  create/supersede qua HTTP, frontend integration cho batch và cho
   operational-block move/split vẫn TARGET, chưa implement. Đổi phòng giữa kỳ bằng
-  split một segment (split-move, blueprint §15.4) có thiết kế đề xuất
-  `PMS-CAL-002-CP00` ([PMS-CAL-002-split-move](../design/PMS-CAL-002-split-move.md));
-  nó vẫn TARGET cho tới khi các checkpoint implementation merge, và các quyết định
-  Owner D1–D6 của thiết kế còn mở. (Staff
+  split một segment (split-move, blueprint §15.4,
+  [PMS-CAL-002-split-move](../design/PMS-CAL-002-split-move.md); Owner đã chốt D1–D6)
+  nay **CURRENT ở mức local/Staff**: store `SplitMoveAsync` (CP01), route
+  `POST …/reservation-assignments/{segmentId}/split-move` (CP02), client/target/
+  reconciliation/storage (CP03), dialog (CP04) và action `Move from a date…` trên
+  Admin Reservation Board (CP05, `PMS-CAL-002`, chờ Owner review/merge). Đây là
+  thao tác **phân bổ phòng** trên segment: nó không đổi ngày lưu trú, giá hay
+  booking (D6), và **không** có check-in/check-out, lifecycle, folio hay template
+  nối backend — các phần đó vẫn mock/TARGET. Chưa deploy Production; Backend CD vẫn
+  `PAUSED / NOT_COMPLETE`. (Staff
   authentication/RBAC và audit actor Staff đã CURRENT ở chế độ `Staff` —
   `PMS-ADMIN-AUTH-001`; chế độ `LocalGate` vẫn dùng hằng số opaque.)
 - Intentional cross-RoomType upgrade/downgrade có authorization/reason/audit

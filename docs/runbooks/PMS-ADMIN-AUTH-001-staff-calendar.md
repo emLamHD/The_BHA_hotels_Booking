@@ -1,6 +1,6 @@
 # Runbook — Staff access to the Admin Calendar (PMS-ADMIN-AUTH-001)
 
-Operating the Reservation Board (`/calendar`) and its five writes with Staff
+Operating the Reservation Board (`/calendar`) and its six writes with Staff
 sign-in. Design: `docs/design/PMS-ADMIN-AUTH-001-staff-auth-rbac.md`; decisions:
 ADR 0007. This runbook describes configuration and operator steps only; it does
 not deploy anything.
@@ -39,7 +39,7 @@ not deploy anything.
   deployment packet in `docs/runbooks/CUST-WEB-SHOWCASE-001-deploy.md` §7b). The
   cookie attributes do not change in either mode.
 - **`Cors:AdminOrigins`**: the exact HTTPS origin(s) of the Admin Web, nothing
-  else (no wildcard, no `http://`). Staff `POST`s (login, logout, the five
+  else (no wildcard, no `http://`). Staff `POST`s (login, logout, the six
   writes) must carry exactly one `Origin` from this list; with the list empty
   every Staff write — login included — is refused. This is a server-side
   `Origin` check, not CORS response headers, and it applies in proxy mode too: the
@@ -73,10 +73,13 @@ dotnet TheBha.Api.dll --staff-disable --email desk@example.com
   a single non-interactive run (set it for that command only, then unset it).
   Never put a password in an argument, a script or a log.
 - **Roles** are exactly `FrontDesk` and `Manager`, per Property.
-  - FrontDesk: read the board; assign/move/unassign within the sold room type;
-    create/cancel operational blocks.
+  - FrontDesk: read the board; assign/move/unassign and split-move
+    (`Move from a date…`) within the sold room type; create/cancel operational
+    blocks.
   - Manager: all of that, plus a confirmed cross-room-type placement with a
-    reason.
+    reason — for a split-move, whenever the part that stays (the stay is already
+    in another room type than sold) **or** the part that moves is outside the
+    sold room type.
 - `--staff-grant` adds a membership or changes its role (also downward). There
   is no CLI verb to remove a membership; to cut a person's access entirely,
   `--staff-disable` them.
@@ -96,6 +99,33 @@ dotnet TheBha.Api.dll --staff-disable --email desk@example.com
    (`RoomOccupancySegmentAudits.ActorReference`); a Manager cross-room-type
    placement also carries `staff-rbac:Manager:{propertyId}:cross-room-type-confirmed`.
 5. Sign out → `/signin`, and `GET /api/admin/v1/me` answers 401.
+
+### Split-move (`Move from a date…`) — what operators and acceptance should know
+
+- The six writes are: assignment create, move, unassign and split-move
+  (`POST …/reservation-assignments`, `…/{segmentId}/move`, `…/unassign`,
+  `…/{segmentId}/split-move`) and operational-block create and cancel.
+- Split-move keeps the earlier nights `[start, splitDate)` in the segment's own
+  room and gives `[splitDate, end)` to another Active room. It changes the room
+  assignment only: stay dates, price and booking are untouched, and it is not a
+  check-in/check-out or folio operation.
+- A split date **before the Property's current date** (the Property's, not the
+  browser's) is allowed but needs its own acknowledgement, separate from the
+  cross-room-type confirmation; the server has no today rule.
+- "Unconfirmed … room split-move request" means the same as for the other
+  writes: it is never retried, both parts' nights stay locked (the source room
+  for its whole range, the destination from the split date), and a re-read can
+  show it `observed` (both exact parts shown), unchanged (still unknown) or
+  `changed` — each a statement about the schedule, never proof of what the lost
+  request did. A reload keeps the records in the tab; sign-out and sign-in do
+  not clear them and nothing is resent.
+- Local acceptance (not a deployment): PostgreSQL 18.3 on loopback, the API in
+  Staff mode with `Cors:AdminOrigins` set to the exact Admin origin, both
+  origins over mkcert HTTPS, two Staff accounts (one FrontDesk, one Manager)
+  created with the CLI above. Compare the segment, audit and commercial rows
+  before and after each case; a split writes one mutation group (source
+  `Cancelled`, a `Created` prefix and suffix) and evidence only on the part that
+  crosses room types.
 
 ## 5. Reading what users see
 
