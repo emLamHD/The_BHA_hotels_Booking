@@ -862,3 +862,182 @@ describe("ReservationBoardServerTimeline — a bar's label never sizes the date 
     }
   });
 });
+
+describe("ReservationBoardServerTimeline — rooms that are not Active (PMS-CAL-004-CP01)", () => {
+  // The API lists such a room only because an Effective block sits in it, with its real status.
+  const archiveType: ReservationBoardRoomType = { id: "type-archive", code: "ARC", name: "Archive", isActive: false };
+  const inactiveStandard: ReservationBoardPhysicalRoom = {
+    id: "room-109",
+    roomTypeId: "type-standard",
+    roomNumber: "109",
+    floor: 1,
+    operationalStatus: "OutOfService",
+  };
+  const archivedRoom: ReservationBoardPhysicalRoom = {
+    id: "room-901",
+    roomTypeId: "type-archive",
+    roomNumber: "901",
+    floor: 9,
+    operationalStatus: "Inactive",
+  };
+  const blockIn = (physicalRoomId: string, segmentId: string, reason: string): ReservationBoardOperationalBlock => ({
+    roomBlockId: `header-${segmentId}`,
+    segmentId,
+    segmentVersion: 7,
+    physicalRoomId,
+    startDate: "2026-09-02",
+    endDate: "2026-09-04",
+    reason,
+  });
+
+  it("draws the room's row with its status and the block in it, reporting the room number on selection", async () => {
+    const user = userEvent.setup();
+    const onSelectBlock = vi.fn();
+    const block = blockIn("room-109", "seg-109", "Pipe burst");
+    render(
+      <ReservationBoardServerTimeline
+        {...baseProps()}
+        physicalRooms={[...physicalRooms, inactiveStandard]}
+        operationalBlocks={[block]}
+        onSelectBlock={onSelectBlock}
+      />
+    );
+
+    expect(screen.getByText("109")).toBeInTheDocument();
+    expect(screen.getByTestId("room-status-room-109")).toHaveTextContent("Out of service");
+    // An Active room's row carries no status badge at all.
+    expect(screen.queryByTestId("room-status-room-101")).not.toBeInTheDocument();
+    const bar = screen.getByRole("button", { name: "Pipe burst — room 109, Out of service" });
+    expect(bar).toHaveAttribute("title", "Pipe burst");
+    await user.click(bar);
+    expect(onSelectBlock).toHaveBeenCalledWith({ block, roomNumber: "109" });
+  });
+
+  it("says Inactive for an Inactive room and keeps an Active room's bar named by its reason alone", () => {
+    render(
+      <ReservationBoardServerTimeline
+        {...baseProps()}
+        physicalRooms={[...physicalRooms, { ...inactiveStandard, id: "room-110", roomNumber: "110", operationalStatus: "Inactive" }]}
+        operationalBlocks={[blockIn("room-110", "seg-110", "Closed"), blockIn("room-101", "seg-101", "Painting")]}
+      />
+    );
+    expect(screen.getByTestId("room-status-room-110")).toHaveTextContent("Inactive");
+    expect(screen.getByRole("button", { name: "Closed — room 110, Inactive" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Painting" })).not.toHaveAttribute("aria-label");
+  });
+
+  it("a RoomType that has only such a room still gets its header and row, but no empty Unassigned lane of its own", () => {
+    render(
+      <ReservationBoardServerTimeline
+        {...baseProps()}
+        roomTypes={[...roomTypes, archiveType]}
+        physicalRooms={[...physicalRooms, archivedRoom]}
+        operationalBlocks={[blockIn("room-901", "seg-901", "Archived block")]}
+      />
+    );
+    expect(screen.getByText("Archive")).toBeInTheDocument();
+    expect(screen.getByText("901")).toBeInTheDocument();
+    expect(screen.getByTestId("room-status-room-901")).toHaveTextContent("Inactive");
+    // Only the two Active types keep their one empty lane; the archive type adds none.
+    expect(screen.getAllByText("Unassigned")).toHaveLength(2);
+  });
+
+  it("a visible unassigned stay sold under that RoomType still gets its lane by the old rule", async () => {
+    const user = userEvent.setup();
+    const onSelectUnassignedRange = vi.fn();
+    const stay: ReservationBoardStay = {
+      reservationId: "res-9",
+      reservationUnitId: "unit-9",
+      confirmationNumber: "CNF-009",
+      guestDisplayName: "Le Van C",
+      soldRoomTypeId: "type-archive",
+      checkIn: "2026-09-02",
+      checkOut: "2026-09-04",
+      coverageStatus: "FullyUnassigned",
+      assignments: [],
+      unassignedRanges: [{ startDate: "2026-09-02", endDate: "2026-09-04" }],
+    };
+    render(
+      <ReservationBoardServerTimeline
+        {...baseProps()}
+        roomTypes={[...roomTypes, archiveType]}
+        physicalRooms={[...physicalRooms, archivedRoom]}
+        operationalBlocks={[blockIn("room-901", "seg-901", "Archived block")]}
+        stays={[stay]}
+        onSelectUnassignedRange={onSelectUnassignedRange}
+      />
+    );
+    expect(screen.getAllByText("Unassigned")).toHaveLength(3);
+    await user.click(screen.getByRole("button", { name: /Assign room: Le Van C/ }));
+    expect(onSelectUnassignedRange).toHaveBeenCalledTimes(1);
+  });
+
+  it("a type with an Active room and a listed non-Active room keeps exactly one Unassigned lane", () => {
+    render(
+      <ReservationBoardServerTimeline
+        {...baseProps()}
+        physicalRooms={[...physicalRooms, inactiveStandard]}
+        operationalBlocks={[blockIn("room-109", "seg-109", "Pipe burst")]}
+      />
+    );
+    expect(screen.getAllByText("Unassigned")).toHaveLength(2);
+  });
+
+  it("the filters keep their meaning: hiding blocks hides the bar, not the listed room; hiding unassigned hides the lanes", () => {
+    render(
+      <ReservationBoardServerTimeline
+        {...baseProps()}
+        physicalRooms={[...physicalRooms, inactiveStandard]}
+        operationalBlocks={[blockIn("room-109", "seg-109", "Pipe burst")]}
+        showOperationalBlocks={false}
+        showUnassigned={false}
+      />
+    );
+    expect(screen.queryByRole("button", { name: /Pipe burst/ })).not.toBeInTheDocument();
+    expect(screen.getByText("109")).toBeInTheDocument();
+    expect(screen.queryByText("Unassigned")).not.toBeInTheDocument();
+  });
+
+  it("hands a drop on such a row to the board by its room id and accepts it only when the board allows it", () => {
+    const stay: ReservationBoardStay = {
+      reservationId: "res-1",
+      reservationUnitId: "unit-1",
+      confirmationNumber: "CNF-001",
+      guestDisplayName: "Nguyen Van A",
+      soldRoomTypeId: "type-standard",
+      checkIn: "2026-09-02",
+      checkOut: "2026-09-04",
+      coverageStatus: "FullyAssigned",
+      assignments: [
+        { segmentId: "seg-1", segmentVersion: 4, physicalRoomId: "room-101", actualRoomTypeId: "type-standard", startDate: "2026-09-02", endDate: "2026-09-04" },
+      ],
+      unassignedRanges: [],
+    };
+    const refusal = vi.fn().mockReturnValue("Room 109 is not Active.");
+    const onDrop = vi.fn().mockReturnValue("Room 109 is not Active.");
+    render(
+      <ReservationBoardServerTimeline
+        {...baseProps()}
+        physicalRooms={[...physicalRooms, inactiveStandard]}
+        operationalBlocks={[blockIn("room-109", "seg-109", "Pipe burst")]}
+        stays={[stay]}
+        onAssignedSegmentDragStart={() => null}
+        getAssignedSegmentDropRefusal={refusal}
+        onAssignedSegmentDrop={onDrop}
+      />
+    );
+    const dataTransfer = { dropEffect: "none", effectAllowed: "all", setData: vi.fn(), getData: () => "", types: [] };
+    fireEvent.dragStart(screen.getByTitle("Nguyen Van A — CNF-001"), { dataTransfer });
+    const cell = Array.from(document.querySelectorAll<HTMLElement>('div[data-drop-room-id="room-109"]')).find(
+      (element) => !element.classList.contains("sticky")
+    )!;
+    const over = fireEvent.dragOver(cell, { dataTransfer });
+    // The board's refusal wins: the drop is not accepted, and the board is asked with the room's id.
+    expect(over).toBe(true);
+    expect(dataTransfer.dropEffect).toBe("none");
+    expect(refusal).toHaveBeenLastCalledWith(expect.objectContaining({ stay }), "room-109");
+    fireEvent.drop(cell, { dataTransfer });
+    expect(onDrop).toHaveBeenCalledWith(expect.objectContaining({ stay }), "room-109");
+    expect(screen.getByTestId("board-drag-feedback")).toHaveTextContent("Nothing was moved: Room 109 is not Active.");
+  });
+});

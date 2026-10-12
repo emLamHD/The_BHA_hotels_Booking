@@ -67,10 +67,11 @@ export interface AssignmentTarget {
 
 /**
  * Every Active PhysicalRoom of this Property, tagged and grouped: same sold
- * RoomType first, then cross-RoomType, each group in board order. The board
- * already returns only this Property's Active rooms; the status is re-checked
- * so a future widening of that projection cannot silently offer an inactive
- * room.
+ * RoomType first, then cross-RoomType, each group in board order. Since
+ * PMS-CAL-004-CP01 the board lists this Property's Active rooms plus any
+ * non-Active room that an Effective operational block sits in (to display and
+ * manage that block); the status is therefore decisive here, and such a room
+ * is never offered as a destination.
  */
 export function selectAssignableRoomCandidates(
   physicalRooms: ReservationBoardPhysicalRoom[],

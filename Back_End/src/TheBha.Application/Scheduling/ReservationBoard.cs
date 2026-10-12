@@ -132,11 +132,18 @@ public sealed record ReservationBoardPropertyData(
 
 public sealed record ReservationBoardRoomTypeData(Guid Id, string Code, string Name, bool IsActive);
 
+/// <summary>
+/// One room to list on the board. PMS-CAL-004-CP01: the room's real <see cref="OperationalStatus"/> travels
+/// with it, because the list is every Active room of the Property <em>plus</em> a non-Active room that an
+/// Effective OperationalBlock overlapping the window sits in (so a block already in an Inactive/OutOfService
+/// room can be shown and managed). It is a list to display, never a sellable count.
+/// </summary>
 public sealed record ReservationBoardPhysicalRoomData(
     Guid Id,
     Guid RoomTypeId,
     string RoomNumber,
-    int Floor);
+    int Floor,
+    OperationalStatus OperationalStatus);
 
 /// <summary>One night of one Committed Unit's complete (unbounded-by-window) booked-night set.</summary>
 public sealed record ReservationBoardUnitNightData(Guid ReservationUnitId, DateOnly StayDate);
@@ -243,7 +250,7 @@ public sealed class ReservationBoardQuery(
 
         var physicalRooms = raw.PhysicalRooms
             .Select(room => new ReservationBoardPhysicalRoomDto(
-                room.Id, room.RoomTypeId, room.RoomNumber, room.Floor, OperationalStatus.Active))
+                room.Id, room.RoomTypeId, room.RoomNumber, room.Floor, room.OperationalStatus))
             .OrderBy(room => room.Floor)
             .ThenBy(room => room.RoomNumber, StringComparer.Ordinal)
             .ThenBy(room => room.Id)

@@ -225,4 +225,15 @@ describe("buildSplitMoveTarget (PMS-CAL-002-CP03)", () => {
     expect(board).toEqual(boardBefore);
     expect(selection).toEqual(selectionBefore);
   });
+
+  it("PMS-CAL-004-CP01: a non-Active room the board lists because of a block is never offered as a destination", () => {
+    const listed: ReservationBoardPhysicalRoom[] = [
+      ...rooms,
+      { id: "room-109", roomTypeId: "type-standard", roomNumber: "109", floor: 1, operationalStatus: "Inactive" },
+    ];
+    const target = buildSplitMoveTarget({ ...board, physicalRooms: listed }, "prop-a", select(seg1));
+    expect(target).not.toBeNull();
+    expect(target!.candidateRooms.map((room) => room.id)).not.toContain("room-109");
+    expect(target!.candidateRooms.map((room) => room.id)).not.toContain("room-103");
+  });
 });
