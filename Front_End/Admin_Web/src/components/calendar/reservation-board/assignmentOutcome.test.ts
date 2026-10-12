@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { describeAssignmentOutcome, describeMoveOutcome, describeUnassignOutcome } from "./assignmentOutcome";
-import type { AssignmentCreateOutcome, MoveAssignmentOutcome, UnassignAssignmentOutcome } from "@/lib/api/client";
+import {
+  describeAssignmentOutcome,
+  describeMoveOutcome,
+  describeSplitMoveOutcome,
+  describeUnassignOutcome,
+} from "./assignmentOutcome";
+import type {
+  AssignmentCreateOutcome,
+  MoveAssignmentOutcome,
+  SplitMoveAssignmentOutcome,
+  UnassignAssignmentOutcome,
+} from "@/lib/api/client";
 
 const cases: Array<[string, AssignmentCreateOutcome, { reloadBoard: boolean; allowResubmit: boolean }]> = [
   ["created", { kind: "created", segment: null }, { reloadBoard: true, allowResubmit: false }],
@@ -300,5 +310,109 @@ describe("describeUnassignOutcome (PMS-CAL-001.2-CP04D.4A)", () => {
         ).toBe(true);
       }
     }
+  });
+});
+
+describe("describeSplitMoveOutcome (PMS-CAL-002-CP04)", () => {
+  type Policy = { reloadBoard: boolean; allowResubmit: boolean };
+  const asManager = { crossRoomTypeEnabled: true };
+  const asFrontDesk = { crossRoomTypeEnabled: false };
+  const storeCrossTypeForbidden: SplitMoveAssignmentOutcome = {
+    kind: "rejected",
+    status: 403,
+    category: "cross-room-type-confirmation-required",
+    detail: "needs reason",
+  };
+
+  const splitCases: Array<[string, SplitMoveAssignmentOutcome, Policy]> = [
+    ["200 with segments", { kind: "split", segments: [] }, { reloadBoard: true, allowResubmit: false }],
+    ["200 with an unreadable body", { kind: "split", segments: null }, { reloadBoard: true, allowResubmit: false }],
+    ["not-sent", { kind: "not-sent", message: "not configured" }, { reloadBoard: false, allowResubmit: true }],
+    ["400", { kind: "rejected", status: 400, category: "validation", detail: "bad date" }, { reloadBoard: false, allowResubmit: true }],
+    ["401 session ended", { kind: "rejected", status: 401, category: "refused", detail: "Your session has ended." }, { reloadBoard: false, allowResubmit: false }],
+    ["403 permission or Origin", { kind: "rejected", status: 403, category: "not-permitted" }, { reloadBoard: false, allowResubmit: false }],
+    ["404", { kind: "rejected", status: 404, category: "not-permitted" }, { reloadBoard: false, allowResubmit: false }],
+    ["409", { kind: "rejected", status: 409, category: "conflict", detail: "overlap" }, { reloadBoard: true, allowResubmit: false }],
+    ["415", { kind: "rejected", status: 415, category: "refused" }, { reloadBoard: false, allowResubmit: false }],
+    ["network", { kind: "unknown", reason: "network" }, { reloadBoard: true, allowResubmit: false }],
+    ["timeout", { kind: "unknown", reason: "timeout" }, { reloadBoard: true, allowResubmit: false }],
+    ["aborted after send", { kind: "unknown", reason: "aborted" }, { reloadBoard: true, allowResubmit: false }],
+    ["5xx", { kind: "unknown", reason: "server-error", status: 503 }, { reloadBoard: true, allowResubmit: false }],
+  ];
+
+  it.each(splitCases)("%s → reload/resubmit policy", (_name, outcome, expected) => {
+    for (const context of [asManager, asFrontDesk]) {
+      const view = describeSplitMoveOutcome(outcome, context);
+      expect({ reloadBoard: view.reloadBoard, allowResubmit: view.allowResubmit }).toEqual(expected);
+    }
+  });
+
+  it("only a 200 is ever described as saved, with or without a readable body", () => {
+    for (const [, outcome] of splitCases) {
+      const view = describeSplitMoveOutcome(outcome, asManager);
+      expect(view.tone === "success").toBe(outcome.kind === "split");
+      if (outcome.kind !== "split") {
+        expect(`${view.title} ${view.detail ?? ""}`).not.toMatch(/split-move saved|successfully/i);
+      }
+    }
+    expect(describeSplitMoveOutcome({ kind: "split", segments: null }, asManager).title).toBe("Room split-move saved.");
+  });
+
+  it("never paints successors and never offers a retry after success", () => {
+    const view = describeSplitMoveOutcome({ kind: "split", segments: [] }, asManager);
+    expect(view.detail).toMatch(/once it has been reloaded/i);
+    expect(view.allowResubmit).toBe(false);
+  });
+
+  it("an unconfirmed result says it may or may not be saved, is not retried, and Close does not undo it", () => {
+    const view = describeSplitMoveOutcome({ kind: "unknown", reason: "network" }, asManager);
+    expect(view.tone).toBe("warning");
+    expect(view.title).toMatch(/may or may not have been saved/);
+    expect(view.title).toMatch(/not retried automatically/);
+    expect(view.detail).toMatch(/does not stop or undo a request that was already sent/);
+    expect(view.title).not.toMatch(/cancel|fail/i);
+  });
+
+  it("the store's cross-RoomType 403 asks a role without crossRoomType for a Manager, never to confirm and retry", () => {
+    const view = describeSplitMoveOutcome(storeCrossTypeForbidden, asFrontDesk);
+    expect(view.title).toMatch(/Manager must split-move/);
+    expect(view.allowResubmit).toBe(false);
+    expect(view.reloadBoard).toBe(false);
+    expect(`${view.title} ${view.detail}`).not.toMatch(/confirm the placement|enter a reason|try again/i);
+    expect(view.detail).not.toContain("needs reason"); // the server's text is not echoed to a role that cannot act on it
+  });
+
+  it("the store's cross-RoomType 403 for a role that may confirm asks to correct confirmation and reason, once more", () => {
+    const view = describeSplitMoveOutcome(storeCrossTypeForbidden, asManager);
+    expect(view.title).toMatch(/was not confirmed\. Nothing was saved/);
+    expect(view.detail).toBe("needs reason");
+    expect(view.allowResubmit).toBe(true);
+    const withoutDetail = describeSplitMoveOutcome({ ...storeCrossTypeForbidden, detail: undefined } as SplitMoveAssignmentOutcome, asManager);
+    expect(withoutDetail.detail).toMatch(/Confirm the placement and enter a reason/);
+  });
+
+  it("a refusal is never worded as though the booking or segment were removed", () => {
+    for (const outcome of [
+      { kind: "rejected", status: 403, category: "not-permitted" },
+      { kind: "rejected", status: 404, category: "not-permitted" },
+      { kind: "rejected", status: 401, category: "refused", detail: "Your session has ended." },
+      { kind: "rejected", status: 415, category: "refused" },
+    ] as SplitMoveAssignmentOutcome[]) {
+      const view = describeSplitMoveOutcome(outcome, asManager);
+      expect(view.title).toMatch(/Nothing was saved/);
+      expect(view.title).not.toMatch(/removed|deleted|cancelled|gone/i);
+    }
+    expect(describeSplitMoveOutcome({ kind: "rejected", status: 404, category: "not-permitted" }, asManager).detail).toMatch(
+      /does not mean the booking was removed/
+    );
+    expect(describeSplitMoveOutcome({ kind: "rejected", status: 401, category: "refused", detail: "Your session has ended." }, asManager).detail).toBe(
+      "Your session has ended."
+    );
+  });
+
+  it("existing create, move and unassign wording is unchanged", () => {
+    expect(describeAssignmentOutcome({ kind: "created", segment: null }).title).toBe("Room assigned.");
+    expect(describeMoveOutcome({ kind: "moved", segments: null }).title).toBe("Room moved.");
+    expect(describeUnassignOutcome({ kind: "unassigned", segments: null }).title).toBe("Room assignment removed.");
   });
 });

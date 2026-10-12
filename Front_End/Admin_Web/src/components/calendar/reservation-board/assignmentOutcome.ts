@@ -15,7 +15,12 @@
  *    the freshly reloaded board instead of pressing Confirm again.
  */
 
-import type { AssignmentCreateOutcome, MoveAssignmentOutcome, UnassignAssignmentOutcome } from "@/lib/api/client";
+import type {
+  AssignmentCreateOutcome,
+  MoveAssignmentOutcome,
+  SplitMoveAssignmentOutcome,
+  UnassignAssignmentOutcome,
+} from "@/lib/api/client";
 
 export type AssignmentOutcomeTone = "success" | "error" | "warning";
 
@@ -315,6 +320,128 @@ export function describeUnassignOutcome(outcome: UnassignAssignmentOutcome): Ass
         tone: "warning",
         title:
           "The result could not be confirmed — the room assignment may or may not have been removed. It was not retried automatically. Check the reloaded board before trying again.",
+        detail: `${cause} Closing this dialog does not stop or undo a request that was already sent.`,
+        reloadBoard: true,
+        allowResubmit: false,
+      };
+    }
+  }
+}
+
+/** PMS-CAL-002-CP04: what the dialog knows about the caller when it words a split-move outcome. */
+export interface SplitMoveOutcomeContext {
+  /** The caller may confirm a cross-RoomType placement (Manager). Decides whether a store 403 is "correct and retry" or "ask a Manager". */
+  crossRoomTypeEnabled: boolean;
+}
+
+/**
+ * PMS-CAL-002-CP04: the split-move counterpart, sharing the same two rules and the same
+ * {@link AssignmentOutcomeView} shape.
+ *
+ * - `split` is success whether or not its `200` body could be read; the words never describe the two
+ *   resulting segments, because the board re-read — not this text — decides what is drawn.
+ * - Only a request that provably wrote nothing and that a different choice could fix (`not-sent`, a
+ *   `400`, and the store's cross-RoomType `403` for a role that may confirm) can be sent again. Every
+ *   other answer — including a `409` and any unconfirmed result — returns the operator to the
+ *   reloaded board.
+ * - A `403`/`404`/`401` is a refusal of this write, never a statement about the booking, and only the
+ *   `401` carries its session-ended detail. The store `403` for a role that cannot confirm says a
+ *   Manager is needed rather than "confirm and retry".
+ */
+export function describeSplitMoveOutcome(
+  outcome: SplitMoveAssignmentOutcome,
+  context: SplitMoveOutcomeContext
+): AssignmentOutcomeView {
+  switch (outcome.kind) {
+    case "split":
+      return {
+        tone: "success",
+        title: "Room split-move saved.",
+        detail: "The stay's dates, rate and booking are unchanged. The board shows the two parts once it has been reloaded.",
+        reloadBoard: true,
+        allowResubmit: false,
+      };
+
+    case "not-sent":
+      return {
+        tone: "error",
+        title: "The request was not sent. Nothing was saved.",
+        detail: outcome.message,
+        reloadBoard: false,
+        allowResubmit: true,
+      };
+
+    case "rejected":
+      switch (outcome.category) {
+        case "validation":
+          return {
+            tone: "error",
+            title: "The server did not accept this split-move. Nothing was saved.",
+            detail: outcome.detail,
+            reloadBoard: false,
+            allowResubmit: true,
+          };
+        case "not-permitted":
+          return {
+            tone: "error",
+            title: "Room split-move is not available or not permitted from this Admin session. Nothing was saved.",
+            detail:
+              outcome.status === 404
+                ? "Writes may be disabled on this API host. This does not mean the booking was removed."
+                : "The server refused this write.",
+            reloadBoard: false,
+            allowResubmit: false,
+          };
+        case "cross-room-type-confirmation-required":
+          return context.crossRoomTypeEnabled
+            ? {
+                tone: "error",
+                title: "This split-move places a part in a different room type than sold and was not confirmed. Nothing was saved.",
+                detail: outcome.detail ?? "Confirm the placement and enter a reason, then try again.",
+                reloadBoard: false,
+                allowResubmit: true,
+              }
+            : {
+                tone: "error",
+                title: "A Manager must split-move this stay: a part would be in a different room type than sold. Nothing was saved.",
+                detail: "Ask a Manager, or choose a different destination if that is the cause.",
+                reloadBoard: false,
+                allowResubmit: false,
+              };
+        case "conflict":
+          return {
+            tone: "warning",
+            title:
+              "This split-move was not saved: the schedule has changed or the destination room is no longer suitable. Review the reloaded board before trying again.",
+            detail: outcome.detail,
+            reloadBoard: true,
+            allowResubmit: false,
+          };
+        case "refused":
+        default:
+          return {
+            tone: "error",
+            title: `The server refused the request (HTTP ${outcome.status}). Nothing was saved.`,
+            detail: outcome.detail,
+            reloadBoard: false,
+            allowResubmit: false,
+          };
+      }
+
+    case "unknown":
+    default: {
+      const cause =
+        outcome.reason === "timeout"
+          ? "The server did not respond in time."
+          : outcome.reason === "server-error"
+            ? `The server returned an unexpected response${outcome.status ? ` (HTTP ${outcome.status})` : ""}.`
+            : outcome.reason === "aborted"
+              ? "The request was interrupted after it was sent."
+              : "The connection to the Admin API could not be completed.";
+      return {
+        tone: "warning",
+        title:
+          "The result could not be confirmed — the split-move may or may not have been saved. It was not retried automatically. Check the reloaded board before trying again.",
         detail: `${cause} Closing this dialog does not stop or undo a request that was already sent.`,
         reloadBoard: true,
         allowResubmit: false,
