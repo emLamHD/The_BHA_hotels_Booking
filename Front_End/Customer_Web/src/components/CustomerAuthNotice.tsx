@@ -94,6 +94,8 @@ export interface AuthCommandRunner {
   /** Show the spinner: a request or the recovery read is running (not a mere unresolved recovery). */
   working: boolean;
   presentation: AuthPresentation | null;
+  /** Forget the last result (another command has started, so it no longer describes the page). */
+  reset: () => void;
 }
 
 /**
@@ -142,6 +144,7 @@ export function useAuthCommand(command: AuthCommand): AuthCommandRunner {
   return {
     run,
     pending,
+    reset: () => setOutcome(null),
     busy: pending || identityChange.phase !== "idle",
     working: pending || identityChange.phase === "transport" || identityChange.phase === "recovering",
     presentation,

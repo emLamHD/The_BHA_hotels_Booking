@@ -52,7 +52,7 @@ const LoginForm: FC = () => {
     }
     setFieldErrors({});
     const { credentials } = validation;
-    login.run(
+    const started = login.run(
       () => guardedLogin(credentials),
       (result) => {
         clearPassword();
@@ -63,10 +63,11 @@ const LoginForm: FC = () => {
         }
       }
     );
+    if (started) logout.reset();
   };
 
   const onLogout = () => {
-    logout.run(() => guardedLogout());
+    if (logout.run(() => guardedLogout())) login.reset();
   };
 
   // The server render and the very first client render know nothing yet: show no form (and no password
