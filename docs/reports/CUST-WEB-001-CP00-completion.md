@@ -36,7 +36,7 @@ BACKEND_CD: OUT_OF_SCOPE — NO_NEW_LIVE_VERIFICATION
 - **API (§4):** `register` trả `201 CustomerSessionResponse` nhưng **không** đăng nhập; `login`/`register` bỏ CSRF, `logout`/`booking-holds`/`confirm`/`cancel` cần CSRF; Origin chỉ kiểm ở route Admin/Staff; không có API liệt kê đặt phòng (đã kiểm toàn bộ route map); `confirm` không có `Idempotency-Key` nhưng idempotent theo hold nguồn.
 - **Hazard tìm thấy trong source (§7), chưa tái hiện, không sửa:** (H01) cookie Customer hỏng/hết hạn chặn mọi booking API kể cả khách, và `logout` không dọn được; (H03) replay `create` không trả `guestAccessToken` ⇒ khách mất phản hồi đầu có thể không bao giờ xác nhận được; (H04) fingerprint của hold chứa `customerAccountId` ⇒ đổi danh tính giữa chừng gây 409 hoặc mất credential; CSRF gắn danh tính, `invalidateCsrfToken()` chưa có ai gọi khi login/logout.
 - **Owner packet (§5):** 11 quyết định, tất cả `OPEN`, mỗi dòng có khuyến nghị, đánh đổi, input thiếu và CP phụ thuộc.
-- **Chuỗi PR (§6):** CP01 → CP10; **checkpoint triển khai đầu tiên đề xuất: `CUST-WEB-001-CP01` (nền tảng session & chuyển danh tính, 350–550 logic, có ranh giới tách 01a/01b)**. Chưa kích hoạt.
+- **Chuỗi PR (§6):** CP01 → CP10; **checkpoint triển khai đầu tiên đề xuất: `CUST-WEB-001-CP01a` (client auth + provider `me` + làm mới CSRF, ~200–300 logic), kế tiếp `CP01b` (khoá đổi danh tính, ~200–300)**; CP05 và CP07 cũng đã được tách a/b để nằm trong mục tiêu ~400. Chưa kích hoạt.
 - **Release (§8):** mười gate G1–G10; không giảm journey bắt buộc.
 
 ## Owner PR policy (nguyên văn và phạm vi)
@@ -58,11 +58,13 @@ Chép nguyên văn ở contract §0. Áp dụng cho mọi PR và correction củ
 
 | Check | Kết quả |
 |---|---|
-| `git diff --check` (working tree và `origin/develop...HEAD`) | chạy, kết quả ghi ở handoff |
-| Review file thay đổi so với allowlist | chỉ 4 file allowlist |
-| Đối chiếu path/symbol/endpoint trong contract với source | chạy bằng script ad-hoc (không thêm vào repo), kết quả ghi ở handoff |
-| Quét secret/PII trên file thay đổi | chạy bằng `grep`, không in giá trị; kết quả ghi ở handoff |
-| Self-review inventory ↔ API ↔ quyết định ↔ PR ↔ release | đã thực hiện |
+| `git diff --check` / `git diff --cached --check` | Sạch (exit 0) trên cây làm việc và trên bản staged của 4 file; hai file mới kết thúc bằng một dòng trống duy nhất (không trailing blank lines) |
+| Review file thay đổi so với allowlist | Chỉ 4 file allowlist (`git diff --name-only` + untracked): contract, report, `PROJECT_BIBLE.md`, `SNAPSHOT.md` |
+| Đối chiếu **đường dẫn** | Script ad-hoc (nằm ngoài repo): 119 tham chiếu đường dẫn/liên kết kiểm tra; thiếu 2 — `src/lib/api/authService.ts` (file **sẽ được tạo** ở CP01a, đã ghi là “thêm”) và `ci.yml` (đã sửa thành `.github/workflows/ci.yml`) |
+| Đối chiếu **symbol** | 151 định danh trong backtick; 133 tìm thấy trong `Front_End/Customer_Web/src`, `Back_End/src`, `Back_End/tests`, `scripts`, `next.config.js`; 18 không tìm thấy là nhãn quy trình MEP, nhãn phân loại của contract, hoặc symbol **đề xuất/phủ định** có chủ ý (`CustomerSessionProvider`, `IEmailSender`); đã đọc tay các citation `file:line` quan trọng (`csrf.ts:66,99`, `Program.cs:172,154-158`, `InventoryHold.cs:15,150-153`, `BookingHoldCreationStore.cs:250-256,308-310,377-379`, `BookingHoldConfirmationStore.cs:33-41,142-150`, `BookingHoldConfirmation.cs:84-115`, `BookingHoldCreation.cs:165-178`, `NavMobile.tsx:133`, `SectionAvailabilitySearch.tsx:561,570`) |
+| Đối chiếu **endpoint** | A01–A16 khớp `[Route]`/`[Http*]` của `AuthController`, `PropertiesController`, `RoomTypesController`, `BookingHoldsController`, `ReservationsController`; `Program.cs` không có `MapGet/MapPost/MapPut/MapDelete`; A17 (danh sách đặt phòng) không tồn tại ở bất kỳ controller nào |
+| Quét secret/PII trên file thay đổi | 0 hit với các mẫu khoá/token/private key/JWT; chỉ có email/điện thoại là placeholder của template (`example@email.com`, `nc.example@example.com`, `000-123-456-7890`). Không in giá trị nhạy cảm |
+| Self-review inventory ↔ API ↔ quyết định ↔ PR ↔ release | Đã thực hiện; sau review nội bộ đã sửa: dòng `develop` HEAD ở SNAPSHOT §1, tách CP01/CP05/CP07 để nằm trong mục tiêu ~400, và re-cite A12/H03 sang `BookingHoldConfirmation.cs` |
 | GitHub additions/deletions, `git diff --numstat` | ghi ở PR body/handoff. Ước lượng **hand-written logic = 0** (cả 4 file là tài liệu; không có code, test, generated, lockfile, snapshot) |
 | CI Backend/Frontend/Admin trên FINAL_HEAD | ghi ở PR body/handoff; workflow `.github/workflows/ci.yml` chạy trên mọi `pull_request` vào `develop` (không có path filter) |
 | Vercel / Backend image tự kích hoạt | ghi riêng ở handoff nếu có; không suy ra deploy readiness |
