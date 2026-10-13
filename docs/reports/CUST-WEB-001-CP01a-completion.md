@@ -2,11 +2,11 @@
 
 - **Work item / phase:** `CUST-WEB-001-CP01a` / `CUSTOMER_SESSION_FOUNDATION`. Role pair `IMPLEMENTER: CLAUDE` + `REVIEWER: CODEX_READ_ONLY`. Model: Sonnet 5.5. Skill: không dùng `diagnosing-bugs` (xem “Race CSRF” — RED/GREEN do test, không có lỗi chưa rõ nguyên nhân); không dùng Graphify/GitNexus.
 - **Branch:** `feature/cust-web-001-cp01a-session-foundation` → Draft PR vào `develop`. `BASELINE_SHA` = `START_HEAD` = `3be18c3384af9f10bea783f5efc0463b5181f48a` (merge PR #107, CP00).
-- **FINAL_HEAD, commit, PR URL, GitHub additions/deletions và CI của FINAL_HEAD:** ghi ở PR body và terminal handoff, không ghi ở file này.
+- **FINAL_HEAD, commit, PR URL, GitHub additions/deletions và CI của FINAL_HEAD (cả C0 và C1):** ghi ở PR body và terminal handoff, không ghi ở file này. Mọi evidence ở các mục trước “Correction C1” là của C0 (`a42286c`), không gán sang C1.
 - Hợp đồng gốc: `docs/design/CUST-WEB-001-product-contract.md` (vẫn `PROPOSAL`; `DP-01`…`DP-11` vẫn `OPEN`, CP01a không phụ thuộc chúng).
 
 ```
-IMPLEMENTATION_CP01a: PASS — kèm một check bắt buộc (`npx tsc --noEmit -p .`) FAIL giống hệt baseline, xem “Checks”
+IMPLEMENTATION_CP01a: PASS sau correction C1 (xem “Correction C1” cuối file). Lịch sử: tại a42286c (C0) trạng thái đúng là CORRECTION_REQUIRED / validation incomplete vì `npx tsc --noEmit -p .` FAIL (lỗi baseline) — dòng “PASS kèm FAIL” của bản C0 không thỏa MEP
 CUSTOMER_SESSION_READER: IMPLEMENTED
 AUTH_UI: NOT_IMPLEMENTED — CP02_PLUS
 BOOKING_IDENTITY_GUARD: NOT_IMPLEMENTED — CP01b
@@ -88,3 +88,41 @@ Source CP01a: ~285 dòng logic (không tính comment/blank: `authService` 87, `c
 ## Handoff
 
 Đã dừng ghi. Review do Owner gọi; FINAL_HEAD, PR, CI: xem terminal handoff và PR body.
+
+---
+
+## Correction C1 — `CUST-WEB-001-CP01a-C1` (`CSRF_DISPATCH_GENERATION_AND_TYPECHECK_GATE`)
+
+`CORRECTION_START_HEAD` = `a42286c46d7e58371413d1a62ab99430ef80b287` (local = remote = PR #108 = start; `origin/develop` = `3be18c3`; PR OPEN/Draft/base `develop`). Role pair và scope giữ nguyên; Sonnet 5.5; không dùng `diagnosing-bugs` (repro cụ thể có sẵn, feedback loop là test), không dùng Graphify. FINAL_HEAD C1 và CI: ở PR body/terminal handoff. `REVIEW_C1: NOT_RUN — OWNER_ONLY`.
+
+### F1 — token CSRF lỗi thời ở thời điểm dispatch
+- **Trước (C0, `a42286c`):** `acquireCurrentCsrfToken` kiểm generation rồi trả; `submitCsrfProtectedRequest` `await` nó rồi mới dựng header và gọi `apiUnsafeRequest`, nên một invalidation chen vào khoảng `await` đó vẫn cho ra POST mang token cũ (cả lần gửi đầu và lần retry exact-refusal).
+- **RED (chạy trên chính `csrf.ts` của `a42286c`, vitest, mock transport — không phải API thật):** 4 test fail: lịch OC (prime cache → gọi mutation → `queueMicrotask(invalidate)`), sweep dispatch đầu khi cache đã nạp (trễ 0 microtask), sweep cold-start (trễ 6), sweep retry exact-refusal (trễ 10). Các test điều khiển (không invalidation, chia sẻ trong cùng generation, lỗi HTTP thường, mutation đã giao cho transport) pass trên bản cũ.
+- **Sửa (`src/lib/api/csrf.ts`):** `dispatchWithCurrentToken(send)` đọc token, kiểm `requestedIn === generation` và gọi `send` (dựng header + `apiUnsafeRequest`) **trong cùng continuation đồng bộ**; sai generation thì đọc lại token (GET, không phải POST retry). Kết quả của `send` trả về dạng giá trị để lỗi lấy token (throw) tách khỏi lỗi transport. `submitCsrfProtectedRequest` giữ API công khai, header đã lấy thắng biến thể hoa/thường, đúng body/`Idempotency-Key`/`signal`, một retry cho exact-refusal, không POST thứ ba, không retry mạng/HTTP thường, không prefetch. Không hoàn tác/gửi lại mutation đã giao cho transport khi generation đổi sau đó; không claim atomicity giữa lời gọi transport JS và xử lý HTTP/cookie thật (identity guard vẫn là CP01b).
+- **GREEN:** `csrf.test.ts` 56/56 (24 của C0 giữ nguyên + 32 mới: lịch OC theo bất biến “token gửi thuộc generation hiện hành lúc dispatch”, sweep 9 + 7 + 10 trễ microtask cho dispatch đầu/cold/retry, điều khiển invalidation đồng bộ ⇒ token mới, mutation đã giao không bị gửi lại, không invalidation ⇒ dùng lại cache, chia sẻ acquisition, lỗi HTTP thường không retry). Kiểm đột biến (bỏ kiểm generation lúc dispatch): 12 test fail.
+- Ghi chú về lịch OC: sau sửa, với `queueMicrotask(invalidate)` thì dispatch xảy ra trước invalidation (cùng continuation với lần kiểm), nên token gửi đi vẫn đúng generation lúc dispatch; test khẳng định bất biến này chứ không khẳng định “phải là token mới”. Trường hợp invalidation đã có hiệu lực trước khi tới dispatch được test riêng (đọc token mới).
+
+### F2 — `tsc`
+- Sửa đúng hai hook thành block body trả `void`: `src/lib/api/__tests__/apiProxyConfig.test.ts` (`describe("next.config.js")`) và `src/lib/routePolicy.test.ts` (`describe("with the API proxy enabled…")`): `afterEach(() => { vi.unstubAllEnvs(); });`. Không đổi lời gọi cleanup/assertion/env, không `ts-ignore`/`as any`, không đổi tsconfig/package.
+- Lỗi baseline lịch sử (2 × `TS2322`, cùng blob giữa `3be18c3` và `a42286c`) **giữ nguyên là lịch sử của C0**; GREEN của C1: `npx tsc --noEmit -p .` exit **0**.
+
+### Checks C1 (từ `Front_End/Customer_Web`, Node v22.23.2 / npm 10.9.8)
+| Lệnh | Kết quả |
+|---|---|
+| `npm ci` | OK |
+| `npx vitest run src/lib/api/__tests__/csrf.test.ts src/lib/api/__tests__/authService.test.ts src/lib/customerSession.test.ts src/lib/api/__tests__/apiProxyConfig.test.ts src/lib/routePolicy.test.ts` | 5 files, 220 passed |
+| `npm run lint` | No ESLint warnings or errors |
+| `npx tsc --noEmit -p .` | exit 0 |
+| `npm test` | 34 files, 669 passed |
+| `npm run build` | Compiled successfully |
+| `git diff --check`, allowlist, secret/PII scan, CI FINAL_HEAD | ở PR body/handoff |
+
+### Live bounded recheck (build C1 từ working tree = nội dung FINAL_HEAD + API `3be18c3` + PostgreSQL 18.3 `18.3 (Debian 18.3-1.pgdg13+1)` task-owned, HTTPS tin cậy, TLS verification bật)
+- Ẩn danh mở root: `GET properties`, `GET auth/me` → **401**, `GET room-types`; **không POST tự động**.
+- Harness trong trang (không phải UI): `register` 201, `me` vẫn 401; `login` 200; **tải lại ⇒ provider đọc `me` → 200** (không POST do trang phát). `logout` với CSRF vừa lấy khi đang đăng nhập → **204**, `me` → **401**.
+- Booking qua UI Customer (ẩn danh, room 2PN, 24→26/10): `POST booking-holds` **201** → `/paydone` → `POST …/confirm` **201** → “Đặt phòng đã xác nhận”. DB: `InventoryHolds` = 1, `Reservations` = 1, hold `Confirmed`, guest-owned, `SourceHoldId` khớp; không bản thứ hai.
+- **Mô phỏng vs thật:** bằng chứng race ở F1 là test vitest dùng mock transport; live chỉ xác nhận hành vi bình thường không hồi quy, **không** quan sát race dispatch ở server thật. Không lặp ma trận media/SSR/mobile/H01 của C0 (C1 không đụng chúng; evidence C0 giữ tại `a42286c`).
+- **Dọn:** container `cust-cp01a-pg18`, tiến trình API/`next start`/TLS front (theo PID đã ghi) và jest-worker mồ côi do task tạo; container/tiến trình khác không đụng.
+
+### Rủi ro / NOT_RUN còn lại
+Không có UI gọi `loginCustomer`/`logoutCustomer`; khoá đổi danh tính chưa có (CP01b, H04 mở). H01/H03 vẫn là blocker phát hành đã ghi ở contract. Safari/WebKit, deploy: `NOT_RUN`. Backend không đổi.

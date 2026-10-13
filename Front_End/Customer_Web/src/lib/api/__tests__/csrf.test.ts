@@ -371,3 +371,188 @@ describe("invalidateCsrfToken with an acquisition in flight", () => {
     expect(apiUnsafeRequestMock).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * CUST-WEB-001-CP01a-C1: the token of each dispatch must belong to the generation that is current
+ * at the moment the mutation is handed to the transport (an invalidation can land between the token
+ * being read and the POST being built).
+ */
+describe("the CSRF token at dispatch time", () => {
+  const microtasks = (count: number, fn: () => void) => {
+    let chain: Promise<void> = Promise.resolve();
+    for (let i = 0; i < count; i += 1) chain = chain.then(() => undefined);
+    void chain.then(fn);
+  };
+  const headerOf = (call: unknown[]) => (call[3] as { headers: Record<string, string> }).headers["X-CSRF-TOKEN"];
+
+  /** GET /auth/csrf mock: every call issues a numbered token and remembers how many test invalidations had happened. */
+  function csrfIssuer() {
+    const state = { testInvalidations: 0, issuedAt: new Map<string, number>(), issued: 0 };
+    apiGetMock.mockImplementation(async () => {
+      state.issued += 1;
+      const token = `token-${state.issued}`;
+      state.issuedAt.set(token, state.testInvalidations);
+      return { token, headerName: "X-CSRF-TOKEN" };
+    });
+    return state;
+  }
+
+  it("OC schedule: prime the cache, start a mutation, invalidate in a queued microtask — the token sent belongs to the generation current at dispatch", async () => {
+    const { submitCsrfProtectedRequest, invalidateCsrfToken } = await import("../csrf");
+    const issuer = csrfIssuer();
+    const sent: { token: string; invalidationsAtSend: number }[] = [];
+    apiUnsafeRequestMock.mockImplementation(async (...args: unknown[]) => {
+      sent.push({ token: headerOf(args), invalidationsAtSend: issuer.testInvalidations });
+      return { status: 204, data: undefined };
+    });
+    await submitCsrfProtectedRequest("/synthetic/prime", "POST", undefined);
+    sent.length = 0;
+
+    const pending = submitCsrfProtectedRequest("/synthetic/request", "POST", undefined);
+    queueMicrotask(() => {
+      issuer.testInvalidations += 1;
+      invalidateCsrfToken();
+    });
+    await pending;
+
+    expect(sent).toHaveLength(1);
+    expect(issuer.issuedAt.get(sent[0].token)).toBe(sent[0].invalidationsAtSend);
+  });
+
+  it("control: an invalidation that is already in effect when the dispatch is reached makes it read a fresh token first", async () => {
+    const { submitCsrfProtectedRequest, invalidateCsrfToken } = await import("../csrf");
+    csrfIssuer();
+    apiUnsafeRequestMock.mockResolvedValue({ status: 204, data: undefined });
+    await submitCsrfProtectedRequest("/synthetic/prime", "POST", undefined);
+    apiUnsafeRequestMock.mockClear();
+
+    const pending = submitCsrfProtectedRequest("/synthetic/request", "POST", undefined);
+    invalidateCsrfToken(); // synchronously, before the pending request reached its dispatch
+    await pending;
+
+    expect(apiGetMock).toHaveBeenCalledTimes(2);
+    expect(apiUnsafeRequestMock).toHaveBeenCalledTimes(1);
+    expect(headerOf(apiUnsafeRequestMock.mock.calls[0])).toBe("token-2");
+  });
+
+  it.each([0, 1, 2, 3, 4, 5, 6, 8, 10])(
+    "first dispatch never carries a token older than the latest invalidation (invalidation after %i microtasks, cache primed)",
+    async (delay) => {
+      const { submitCsrfProtectedRequest, invalidateCsrfToken } = await import("../csrf");
+      const issuer = csrfIssuer();
+      apiUnsafeRequestMock.mockImplementation(async (...args: unknown[]) => {
+        const sent = headerOf(args);
+        expect(issuer.issuedAt.get(sent)).toBe(issuer.testInvalidations);
+        return { status: 204, data: undefined };
+      });
+      await submitCsrfProtectedRequest("/synthetic/prime", "POST", undefined);
+      apiUnsafeRequestMock.mockClear();
+
+      const pending = submitCsrfProtectedRequest("/synthetic/request", "POST", undefined);
+      microtasks(delay, () => {
+        issuer.testInvalidations += 1;
+        invalidateCsrfToken();
+      });
+      await pending;
+      expect(apiUnsafeRequestMock).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it.each([0, 1, 2, 3, 4, 6, 8])(
+    "first dispatch of a cold start never carries a token older than the latest invalidation (after %i microtasks)",
+    async (delay) => {
+      const { submitCsrfProtectedRequest, invalidateCsrfToken } = await import("../csrf");
+      const issuer = csrfIssuer();
+      apiUnsafeRequestMock.mockImplementation(async (...args: unknown[]) => {
+        expect(issuer.issuedAt.get(headerOf(args))).toBe(issuer.testInvalidations);
+        return { status: 204, data: undefined };
+      });
+      const pending = submitCsrfProtectedRequest("/synthetic/request", "POST", undefined);
+      microtasks(delay, () => {
+        issuer.testInvalidations += 1;
+        invalidateCsrfToken();
+      });
+      await pending;
+      expect(apiUnsafeRequestMock).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it.each([0, 1, 2, 3, 4, 5, 6, 8, 10, 12])(
+    "the one exact-refusal retry never carries a token older than the latest invalidation (invalidation %i microtasks after the first dispatch)",
+    async (delay) => {
+      const { submitCsrfProtectedRequest, invalidateCsrfToken } = await import("../csrf");
+      const issuer = csrfIssuer();
+      let posts = 0;
+      apiUnsafeRequestMock.mockImplementation(async (...args: unknown[]) => {
+        posts += 1;
+        if (posts === 1) {
+          microtasks(delay, () => {
+            issuer.testInvalidations += 1;
+            invalidateCsrfToken();
+          });
+          throw ANTIFORGERY_ERROR;
+        }
+        expect(issuer.issuedAt.get(headerOf(args))).toBe(issuer.testInvalidations);
+        return { status: 201, data: { ok: true } };
+      });
+
+      const result = await submitCsrfProtectedRequest("/api/v1/booking-holds", "POST", { a: 1 }, {
+        headers: { "Idempotency-Key": "key-1" },
+      });
+
+      expect(result).toEqual({ status: 201, data: { ok: true } });
+      expect(posts).toBe(2); // exactly one retry, never a third POST
+      expect(apiUnsafeRequestMock.mock.calls[1][3].headers["Idempotency-Key"]).toBe("key-1");
+    }
+  );
+
+  it("does not resend a mutation that already reached the transport when the generation changes afterwards", async () => {
+    const { submitCsrfProtectedRequest, invalidateCsrfToken } = await import("../csrf");
+    csrfIssuer();
+    let finish!: (value: { status: number; data: unknown }) => void;
+    apiUnsafeRequestMock.mockReturnValueOnce(new Promise((resolve) => (finish = resolve)));
+
+    const pending = submitCsrfProtectedRequest("/api/v1/booking-holds", "POST", { a: 1 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(apiUnsafeRequestMock).toHaveBeenCalledTimes(1);
+    invalidateCsrfToken();
+    finish({ status: 201, data: { held: true } });
+
+    await expect(pending).resolves.toEqual({ status: 201, data: { held: true } });
+    expect(apiUnsafeRequestMock).toHaveBeenCalledTimes(1);
+    expect(apiGetMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("with no invalidation the cached token is reused and a request never causes an extra token fetch", async () => {
+    const { submitCsrfProtectedRequest } = await import("../csrf");
+    csrfIssuer();
+    apiUnsafeRequestMock.mockResolvedValue({ status: 204, data: undefined });
+    await submitCsrfProtectedRequest("/synthetic/a", "POST", undefined);
+    await submitCsrfProtectedRequest("/synthetic/b", "POST", undefined);
+    expect(apiGetMock).toHaveBeenCalledTimes(1);
+    expect(apiUnsafeRequestMock.mock.calls.map(headerOf)).toEqual(["token-1", "token-1"]);
+  });
+
+  it("concurrent first dispatches in one generation still share one acquisition and one token", async () => {
+    const { submitCsrfProtectedRequest } = await import("../csrf");
+    csrfIssuer();
+    apiUnsafeRequestMock.mockResolvedValue({ status: 204, data: undefined });
+    await Promise.all([
+      submitCsrfProtectedRequest("/synthetic/a", "POST", undefined),
+      submitCsrfProtectedRequest("/synthetic/b", "POST", undefined),
+    ]);
+    expect(apiGetMock).toHaveBeenCalledTimes(1);
+    expect(apiUnsafeRequestMock.mock.calls.map(headerOf)).toEqual(["token-1", "token-1"]);
+  });
+
+  it("an ordinary HTTP error after a generation change is returned once and is not retried", async () => {
+    const { submitCsrfProtectedRequest, invalidateCsrfToken } = await import("../csrf");
+    csrfIssuer();
+    const ordinary = new ApiHttpError(409, { title: "Conflict", status: 409 });
+    apiUnsafeRequestMock.mockRejectedValue(ordinary);
+    const pending = submitCsrfProtectedRequest("/synthetic/a", "POST", undefined);
+    queueMicrotask(() => invalidateCsrfToken());
+    await expect(pending).rejects.toBe(ordinary);
+    expect(apiUnsafeRequestMock).toHaveBeenCalledTimes(1);
+  });
+});

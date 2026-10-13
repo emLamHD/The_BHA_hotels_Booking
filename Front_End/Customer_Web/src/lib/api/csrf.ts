@@ -86,23 +86,34 @@ function acquireCsrfToken(): Promise<CsrfMemory> {
 }
 
 /**
- * The token of the generation that is current when it is returned. A caller that waited on an
- * acquisition which an invalidation overtook (it resolves or fails) takes the current generation's
- * token instead, so no mutation ever goes out with an old one. This is a token read (GET), never a
- * mutation retry.
+ * Hands one mutation to the transport with a token of the generation that is current at that very
+ * moment. `send` is called in the same synchronous continuation as the generation check, so no
+ * invalidation can land between the check and the call. A caller that waited on an acquisition which an
+ * invalidation overtook (it resolves, fails, or the invalidation lands while this continuation was
+ * queued) reads the current generation's token instead; that is a token read (GET), never a mutation
+ * retry. The outcome of `send` is returned as a value so that acquisition failures (thrown) stay
+ * distinct from transport failures (returned). Nothing already handed to the transport is undone or
+ * resent when the generation changes afterwards.
  */
-async function acquireCurrentCsrfToken(): Promise<CsrfMemory> {
+async function dispatchWithCurrentToken<T>(
+  send: (csrf: CsrfMemory) => Promise<T>
+): Promise<{ ok: true; value: T } | { ok: false; error: unknown }> {
   for (;;) {
     const requestedIn = generation;
+    let memory: CsrfMemory;
     try {
-      const memory = await acquireCsrfToken();
-      if (requestedIn === generation) {
-        return memory;
-      }
+      memory = await acquireCsrfToken();
     } catch (error) {
       if (requestedIn === generation) {
         throw error;
       }
+      continue;
+    }
+    if (requestedIn === generation) {
+      return send(memory).then(
+        (value) => ({ ok: true as const, value }),
+        (error: unknown) => ({ ok: false as const, error })
+      );
     }
   }
 }
@@ -132,22 +143,24 @@ export async function submitCsrfProtectedRequest<T>(
   body: unknown,
   options: ApiRequestOptions = {}
 ): Promise<ApiUnsafeResponse<T>> {
-  const csrf = await acquireCurrentCsrfToken();
-  const headers = mergeHeaders({ ...options.headers, [csrf.headerName]: csrf.token });
-
-  try {
-    return await apiUnsafeRequest<T>(path, method, body, { ...options, headers });
-  } catch (error) {
-    if (!isAntiforgeryFailure(error)) {
-      throw error;
-    }
-
-    invalidateCsrfToken();
-    const refreshed = await acquireCurrentCsrfToken();
-    const retryHeaders = mergeHeaders({
-      ...options.headers,
-      [refreshed.headerName]: refreshed.token,
+  const send = (csrf: CsrfMemory) =>
+    apiUnsafeRequest<T>(path, method, body, {
+      ...options,
+      headers: mergeHeaders({ ...options.headers, [csrf.headerName]: csrf.token }),
     });
-    return apiUnsafeRequest<T>(path, method, body, { ...options, headers: retryHeaders });
+
+  const first = await dispatchWithCurrentToken(send);
+  if (first.ok) {
+    return first.value;
   }
+  if (!isAntiforgeryFailure(first.error)) {
+    throw first.error;
+  }
+
+  invalidateCsrfToken();
+  const retry = await dispatchWithCurrentToken(send);
+  if (retry.ok) {
+    return retry.value;
+  }
+  throw retry.error;
 }
