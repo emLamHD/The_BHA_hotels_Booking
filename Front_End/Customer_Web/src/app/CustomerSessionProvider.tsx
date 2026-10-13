@@ -48,7 +48,7 @@ const CustomerIdentityBindingContext = createContext<CustomerIdentityBinding | n
 /**
  * CUST-WEB-001-CP01a/CP01b: the Customer session. Mounted once in the root layout, outside the booking
  * providers. It reads `me` on mount, and offers guarded login/logout that are serialized with the booking
- * flow by one coordinator per instance (nothing module-scoped, nothing stored). No UI uses it yet. The
+ * flow by one coordinator per instance (nothing module-scoped, nothing stored). The login page and the header/app-bar account entries (CP02) use it. The
  * logic lives in the React-free controllers; this component only wires them to React.
  */
 export function CustomerSessionProvider({ children }: { children: React.ReactNode }) {
