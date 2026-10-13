@@ -74,6 +74,15 @@ Kiểm đột biến (khôi phục sau mỗi lần): bỏ mirror `live` ⇒ 15 t
 - `recovery-unresolved` là trạng thái UI cần CP02 hiển thị (thử lại bằng `refreshSession`); hiện không có UI nên chưa quan sát bằng mắt.
 - H01 (cookie `.TheBha.Customer` hỏng chặn booking) và H03 (replay hold mất token khách) vẫn mở, ngoài CP01b. Safari/WebKit, deploy: `NOT_RUN`. Backend không đổi.
 
+## Correction `CUST-WEB-001-CP01b-C1` — phân loại transport outcome của auth 5xx
+
+- **Finding (Codex P2, review trên `e921f0f`):** `transportOutcomeOf` coi mọi `ApiHttpError` là `refused`, kể cả 5xx — server có thể đã đổi session rồi mới lỗi, nên `refused` mâu thuẫn với session `me` xác minh. Review C0 (reviewed SHA `e921f0f`, CI run `38355004055` success) và toàn bộ evidence live C0 ở trên **giữ nguyên, không gán sang C1**.
+- **Trước:** `error instanceof ApiHttpError ? "refused" : "lost"`. **Sau:** `refused` chỉ khi `ApiHttpError` có status trong allowlist tường minh `400/401/429` (400 validation/antiforgery, 401 xác thực, 429 rate limit — đúng `ProducesResponseType` của `AuthController` login/logout); mọi thứ khác (5xx, 408, status ngoài danh sách, `ApiNetworkError`, malformed success, config) là `lost`. 409 không thêm (chỉ của `register`, không phải đổi danh tính). `AuthTransportOutcome` giữ nguyên `succeeded | refused | lost`, không thêm API.
+- **Không đổi:** `refused` là câu trả lời của server cho auth request, không phải bằng chứng session không đổi — `me` vẫn chạy cho cả `succeeded/refused/lost`; transport không bao giờ lấy ngược từ kết quả `me`; khoá chỉ nhả khi `me` 200/401; `me` lỗi ⇒ `recovery-unresolved` (vẫn khoá, refresh chỉ đọc lại `me`); không retry auth POST; `blocked` (guard ứng dụng, trước network) khác `refused`.
+- **Test (`customerIdentityChange.test.ts`, qua public `login`/`logout` của coordinator, rig có sẵn):** bảng tham số cho cả login và logout — 400/401/429 ⇒ `refused`; 500/502/503/504, 408, 418, lỗi mạng ⇒ `lost`; 5xx + `me` authenticated ⇒ `lost` + `authenticated`, khoá còn tới khi `me` trả lời, đúng 1 auth request; 5xx + `me` anonymous; 5xx + `me` lỗi ⇒ `recovery-unresolved`/`lost`, giữ khoá, refresh chỉ đọc `me`, không resend. **RED trên `e921f0f`: 22 test fail** (các case 5xx/408/418 ở login và logout, `5xx + me`), các control 400/401/429/mạng pass; **GREEN** sau fix.
+- **Checks (Front_End/Customer_Web):** `npm ci` OK; vitest `customerIdentityChange` + `customerSession` 91 passed; `npm run lint` sạch; `tsc --noEmit -p .` exit 0; `npm test` 35 files, 787 passed; `npm run build` OK. `git diff --check`, allowlist, secret/PII scan, CI FINAL_HEAD C1: ở PR body/handoff.
+- **Runtime/browser C1:** `NOT_REQUIRED` (chỉ đổi phân loại outcome của foundation chưa có UI; test xác định + checks đầy đủ + CI là verification bắt buộc). Không dựng lại stack. `REVIEW_C1: NOT_RUN — OWNER_ONLY`.
+
 ## Handoff
 
 Đã dừng ghi. Review do Owner gọi; FINAL_HEAD, PR, CI: xem terminal handoff và PR body.

@@ -84,10 +84,15 @@ export interface CustomerIdentityCoordinator {
   deactivate: () => void;
 }
 
+// The statuses login/logout document as a refusal of the request itself: 400 (validation/antiforgery),
+// 401 (authentication) and 429 (rate limit). Register's 409 is not here: register is not an identity change.
+const AUTH_REFUSAL_STATUSES: ReadonlySet<number> = new Set([400, 401, 429]);
+
 function transportOutcomeOf(error: unknown): AuthTransportOutcome {
-  // A definite HTTP refusal (401, 429, 400…) is "refused". Anything else (lost response, malformed
-  // success, configuration) may or may not have changed the server session: only `me` can tell.
-  return error instanceof ApiHttpError ? "refused" : "lost";
+  // "refused" only for a documented refusal status. Everything else (5xx, 408, an unexpected status, a lost
+  // response, malformed success, configuration) may have followed a change of the server session: only `me`
+  // can tell. Even "refused" is the server's answer to the request, never proof that the session is unchanged.
+  return error instanceof ApiHttpError && AUTH_REFUSAL_STATUSES.has(error.status) ? "refused" : "lost";
 }
 
 export function createCustomerIdentityCoordinator(deps: CustomerIdentityCoordinatorDeps): CustomerIdentityCoordinator {

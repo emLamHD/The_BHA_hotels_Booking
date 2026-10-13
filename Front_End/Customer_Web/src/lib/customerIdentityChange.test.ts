@@ -171,20 +171,68 @@ describe("identity coordinator — claim, serialize, hold through recovery", () 
     expect(rig.coordinator.getState()).toEqual({ phase: "idle" });
   });
 
-  it.each([
+  // `refused` = the server declined this auth request with a status the contract documents for login/logout
+  // (400 validation/antiforgery, 401, 429). Anything else (5xx, 408, unexpected) may have followed a session
+  // change on the server, so it stays `lost`. Neither says what the session is: `me` does.
+  const OUTCOMES = [
+    ["a 400", http(400), "refused"],
     ["a 401", http(401), "refused"],
     ["a 429", http(429), "refused"],
+    ["a 500", http(500), "lost"],
+    ["a 502", http(502), "lost"],
+    ["a 503", http(503), "lost"],
+    ["a 504", http(504), "lost"],
+    ["a 408", http(408), "lost"],
+    ["an unexpected 418", http(418), "lost"],
     ["a lost response", new ApiNetworkError(), "lost"],
-  ] as const)("after %s the session is still read: me decides, not the transport", async (_name, error, transport) => {
-    const rig = unitRig();
-    const pending = rig.coordinator.login(CREDENTIALS);
-    rig.transports[0].d.reject(error);
-    await settle();
-    expect(rig.session.read).toHaveBeenCalledTimes(1);
-    rig.reads[0].resolve("anonymous");
-    const result = await pending;
-    expect(result).toMatchObject({ status: "settled", transport, session: "anonymous", transportError: error });
-    expect(rig.transports).toHaveLength(1); // never resent
+  ] as const;
+
+  describe.each([
+    ["login", (c: ReturnType<typeof unitRig>["coordinator"]) => c.login(CREDENTIALS)],
+    ["logout", (c: ReturnType<typeof unitRig>["coordinator"]) => c.logout()],
+  ] as const)("%s", (_command, start) => {
+    it.each(OUTCOMES)("after %s the session is still read: me decides, not the transport", async (_name, error, transport) => {
+      const rig = unitRig();
+      const pending = start(rig.coordinator);
+      rig.transports[0].d.reject(error);
+      await settle();
+      expect(rig.session.read).toHaveBeenCalledTimes(1);
+      rig.reads[0].resolve("anonymous");
+      const result = await pending;
+      expect(result).toMatchObject({ status: "settled", transport, session: "anonymous", transportError: error });
+      expect(rig.transports).toHaveLength(1); // never resent
+    });
+
+    it.each([500, 502, 503, 504])(
+      "a %s whose session me then reports as authenticated is lost, never refused, and the transport is not read back from me",
+      async (status) => {
+        const rig = unitRig();
+        const pending = start(rig.coordinator);
+        rig.transports[0].d.reject(http(status));
+        await settle();
+        expect(rig.coordinator.isIdentityChangeLocked()).toBe(true); // still locked until me answers
+        rig.reads[0].resolve("authenticated");
+        await expect(pending).resolves.toMatchObject({ status: "settled", transport: "lost", session: "authenticated" });
+        expect(rig.coordinator.isIdentityChangeLocked()).toBe(false);
+        expect(rig.transports).toHaveLength(1);
+      },
+    );
+
+    it("a 5xx whose me read fails stays lost, keeps the lock, and refresh only reads me again", async () => {
+      const rig = unitRig();
+      const pending = start(rig.coordinator);
+      rig.transports[0].d.reject(http(503));
+      await settle();
+      rig.reads[0].resolve("unknown");
+      await expect(pending).resolves.toMatchObject({ status: "recovery-unresolved", transport: "lost" });
+      expect(rig.coordinator.isIdentityChangeLocked()).toBe(true);
+
+      rig.coordinator.requestRefresh();
+      rig.reads[1].resolve("anonymous");
+      await settle();
+      expect(rig.coordinator.isIdentityChangeLocked()).toBe(false);
+      expect(rig.transports).toHaveLength(1); // the auth request was never repeated
+    });
   });
 
   it("logout goes through the same path", async () => {
