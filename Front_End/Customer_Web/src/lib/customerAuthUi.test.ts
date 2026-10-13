@@ -201,10 +201,10 @@ describe("presentIdentityCommandResult — what the auth request did AND what me
   });
 
   it.each(["succeeded", "refused", "lost"] as const)(
-    "recovery-unresolved after a %s request says the session could not be checked and offers the read-only retry",
+    "recovery-unresolved after a %s request says the session could not be checked (the provider notice owns the retry action)",
     (transport) => {
       const result = presentIdentityCommandResult("login", { status: "recovery-unresolved", transport }, CTX);
-      expect(result).toMatchObject({ tone: "warning", offerRefresh: true });
+      expect(result).toMatchObject({ tone: "warning", offerRefresh: false });
       expect(result?.message).toContain("chưa kiểm tra lại được phiên đăng nhập");
     }
   );

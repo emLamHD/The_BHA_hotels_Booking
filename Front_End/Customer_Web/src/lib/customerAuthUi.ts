@@ -137,7 +137,8 @@ export function presentIdentityCommandResult(
           : result.transport === "refused"
             ? "Yêu cầu bị từ chối"
             : "Chưa xác nhận được kết quả của yêu cầu";
-      return present("warning", `${sent}, nhưng chưa kiểm tra lại được phiên đăng nhập.`, { offerRefresh: true });
+      // The provider's own notice (describeSessionNotice) carries the read-only "check again" action.
+      return present("warning", `${sent}, nhưng chưa kiểm tra lại được phiên đăng nhập.`);
     }
     case "settled": {
       const authenticated = result.session === "authenticated";
