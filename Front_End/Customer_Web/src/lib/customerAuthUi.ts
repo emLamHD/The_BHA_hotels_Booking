@@ -14,6 +14,7 @@ import type { CustomerSessionState } from "@/lib/customerSession";
 export const LOGIN_PAGE = "/login";
 export const RECEIPT_ROUTE = "/paydone";
 export const HOME_PAGE = "/";
+export const ACCOUNT_PAGE = "/account";
 
 /** The API's field limits (`LoginCustomerRequest`). */
 export const EMAIL_MAX_LENGTH = 256;
@@ -270,7 +271,11 @@ export interface AuthEntry {
   indicator: "none" | "busy" | "attention";
 }
 
-/** The one auth entry shared by every header and the mobile app bar. The destination is always `/login`. */
+/**
+ * The one auth entry shared by every header and the mobile app bar. A verified signed-in Customer goes to
+ * `/account` (only while no identity change is under way); anonymous, loading, unknown and anything pending go to `/login` (the auth and status panel) — unknown is never
+ * treated as anonymous, and `/account` is only offered once `me` has answered 200.
+ */
 export function describeAuthEntry(
   status: CustomerSessionState["status"],
   phase: IdentityChangePhase,
@@ -286,7 +291,7 @@ export function describeAuthEntry(
     return { label: "Đăng nhập", ariaLabel: "Đăng nhập", href: LOGIN_PAGE, indicator };
   }
   if (status === "authenticated" && email) {
-    return { label: "Tài khoản", ariaLabel: `Tài khoản ${email}`, href: LOGIN_PAGE, indicator };
+    return { label: "Tài khoản", ariaLabel: `Tài khoản ${email}`, href: phase === "idle" ? ACCOUNT_PAGE : LOGIN_PAGE, indicator };
   }
   return {
     label: "Tài khoản",

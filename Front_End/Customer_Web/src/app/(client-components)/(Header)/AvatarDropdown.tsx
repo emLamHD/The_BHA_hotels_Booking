@@ -121,6 +121,17 @@ export default function AvatarDropdown({ className = "", panelClassName = "-righ
                       </Link>
                     )}
 
+                    {email && identityChange.phase === "idle" && (
+                      <Link href={"/account" as Route} className={ITEM_CLASS} onClick={() => close()}>
+                        <div className="flex items-center justify-center flex-shrink-0 text-neutral-500 dark:text-neutral-300">
+                          <UserCircleIcon className="h-6 w-6" aria-hidden="true" />
+                        </div>
+                        <div className="ml-4">
+                          <p className="text-sm font-medium ">{"Tài khoản"}</p>
+                        </div>
+                      </Link>
+                    )}
+
                     {/* ------------------ 2 --------------------- */}
                     <div className="flex items-center justify-between p-2 -m-3 transition duration-150 ease-in-out rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-700 focus:outline-none focus-visible:ring focus-visible:ring-orange-500 focus-visible:ring-opacity-50">
                       <div className="flex items-center">

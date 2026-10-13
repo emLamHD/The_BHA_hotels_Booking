@@ -6,7 +6,7 @@ import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { useCustomerSession } from "@/app/CustomerSessionProvider";
 import { AuthPresentationView, CustomerSessionNotice, useAuthCommand } from "@/components/CustomerAuthNotice";
-import { HOME_PAGE, LoginFieldErrors, EMAIL_MAX_LENGTH, loginSucceeded, validateLoginInput } from "@/lib/customerAuthUi";
+import { ACCOUNT_PAGE, HOME_PAGE, LoginFieldErrors, EMAIL_MAX_LENGTH, loginSucceeded, validateLoginInput } from "@/lib/customerAuthUi";
 import ButtonPrimary from "@/shared/ButtonPrimary";
 import ButtonSecondary from "@/shared/ButtonSecondary";
 import Input from "@/shared/Input";
@@ -146,10 +146,11 @@ const LoginForm: FC = () => {
         <ButtonPrimary type="button" loading={logout.working} disabled={busy} onClick={onLogout}>
           Đăng xuất
         </ButtonPrimary>
+        <ButtonSecondary href={ACCOUNT_PAGE as Route}>Xem tài khoản</ButtonSecondary>
         <ButtonSecondary href={HOME_PAGE}>Về trang chủ</ButtonSecondary>
       </div>
       <p className="text-xs text-neutral-500 dark:text-neutral-400">
-        Quản lý tài khoản và lịch sử đặt phòng chưa có trong bản demo này.
+        Hiện chỉ xem được email tài khoản; chỉnh sửa hồ sơ và lịch sử đặt phòng chưa được hỗ trợ.
       </p>
     </section>
   );

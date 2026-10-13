@@ -256,16 +256,23 @@ describe("describeSessionNotice — the provider is the authority", () => {
 });
 
 describe("describeAuthEntry — one entry for every header and the app bar", () => {
-  it("always leads to /login; anonymous says Đăng nhập, everything else Tài khoản", () => {
+  it("a verified signed-in Customer leads to /account; anonymous, loading and unknown lead to /login", () => {
     expect(describeAuthEntry("anonymous", "idle", null)).toMatchObject({ label: "Đăng nhập", href: "/login", indicator: "none" });
     expect(describeAuthEntry("authenticated", "idle", "a@b.test")).toMatchObject({
       label: "Tài khoản",
       ariaLabel: "Tài khoản a@b.test",
-      href: "/login",
+      href: "/account",
     });
     for (const status of ["loading", "unknown"] as const) {
       expect(describeAuthEntry(status, "idle", null).href).toBe("/login");
       expect(describeAuthEntry(status, "idle", null).label).toBe("Tài khoản");
+    }
+  });
+  it("never offers /account without a verified email, even for an authenticated status", () => {
+    expect(describeAuthEntry("authenticated", "idle", null).href).toBe("/login");
+    for (const phase of ["transport", "recovering", "recovery-unresolved"] as const) {
+      expect(describeAuthEntry("loading", phase, null).href).toBe("/login");
+      expect(describeAuthEntry("authenticated", phase, "a@b.test").href).toBe("/login"); // a stale snapshot while pending
     }
   });
   it("never carries an email unless authenticated, and flags busy / attention states", () => {
