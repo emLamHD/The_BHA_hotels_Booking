@@ -518,14 +518,36 @@ work item riêng.
 - Mọi ảnh được **quét provenance (heuristic, chưa validate chữ ký C2PA)** và ghi bằng chứng từng file vào manifest. Mặc định của script (CP02/C1): ảnh có marker nêu dịch vụ sinh ảnh
   hoặc không có metadata **không** được publish; chỉ ảnh có editor metadata được publish (C3 ghi đè mặc định này bằng quyết định Owner cho các ảnh đã chọn, xem bên dưới), và mức bằng chứng đó là "nguồn camera chưa được xác minh độc lập"
   — không phải xác nhận ảnh thật. Nới cổng là quyết định Owner, không phải cờ script.
-- Namespace route media của Customer_Web là chuỗi cố định `/media/<property>/<kebab>.webp`; mọi đường dẫn khác vẫn default-deny. C2 từng giới hạn route công khai ở `/` và `/listing-stay-detail` và thay ảnh template bằng placeholder; **C3 đã thay thế** (xem bullet Template bên dưới): route template mở lại, `/api/*` vẫn default-deny.
+- Namespace route media của Customer_Web là chuỗi cố định `/media/<property>/<kebab>.webp`; mọi đường dẫn khác vẫn default-deny. C2 từng giới hạn route công khai ở `/` và `/listing-stay-detail` và thay ảnh template bằng placeholder; **C3 đã thay thế** (xem bullet Template bên dưới): route template mở lại, `/api/*` mặc định đóng (từ `BHA-WEB-PROXY-001`, chỉ được chuyển tiếp khi build cấu hình `API_PROXY_ORIGIN`; xem [contract Customer](../design/CUST-WEB-001-product-contract.md) mục X01).
 - Hiện trạng Riverside (từ CP02-C3): 31 ảnh — Property 10, 2PN 9, 1PN 6, 1PN view thoáng 6 — `MEDIA_COVERAGE: PASS`, `MEDIA_PROVENANCE: UNVERIFIED`.
   **Quyết định Owner (C3, ghi trong MEP ngày 2026-10-07):** thư mục theo từng loại phòng do Owner phân loại; Owner cho phép publish ảnh dù quét byte thấy generator marker hoặc không có metadata.
   Manifest ghi `decision: owner-authorized`, `provenanceStatus: UNVERIFIED`, `validation: NOT_RUN` cho từng file; báo cáo **không** được khẳng định đó là ảnh chụp thật hay đúng phòng thật.
   Quyết định này thay đoạn "không publish" ở trên cho ảnh đã được Owner chọn; nó không phải cờ script chung.
 - **Template (C3, Owner):** giao diện khách là template Chisfis được khôi phục đầy đủ (không còn khung preview inert của C2). Chỉ dữ liệu The BHA Riverside (phòng, giá, đặt phòng) là thật;
-  phần còn lại là nội dung mẫu, có một dòng ghi chú. Route template mở lại; `/api/*` vẫn đóng; currency dropdown chỉ là template (không quy đổi VND).
+  phần còn lại là nội dung mẫu, có một dòng ghi chú. Route template mở lại; `/api/*` mặc định đóng (ngoại lệ: build có `API_PROXY_ORIGIN`); currency dropdown chỉ là template (không quy đổi VND).
 
 **Quyết định Owner đang chờ:** (1) ~~làm rõ ảnh 1PN~~ — đã giải quyết ở C3: Owner cho publish, provenance vẫn `UNVERIFIED` (cần Owner/pháp lý xác nhận nguồn và quyền sử dụng trước khi công bố thương mại); (2) tên miền: Owner đã cung cấp
 `thebhariverside.com` / `admin.` / `api.` (cùng registrable domain cho cookie Lax/Strict; DNS/live `NOT_TESTED`); (3) địa chỉ, mô tả, tiện nghi thật của Riverside; (4) runtime API
 (đề xuất ECS Fargate + EFS mã hóa) và nơi giữ Data Protection key ring; (5) bật/cấp quyền publish ECR (biến `ECR_PUBLISH_ENABLED`, role OIDC; publish chỉ từ `develop`).
+
+### 14.2 Customer Web — hiện trạng và mục tiêu (`CUST-WEB-001`)
+
+Nguồn đầy đủ: [CUST-WEB-001-product-contract](../design/CUST-WEB-001-product-contract.md) (`CUST-WEB-001-CP00`,
+2026-10-13, `PROPOSAL` — chưa Owner duyệt). Bảng dưới chỉ tóm tắt; mọi dòng `SOURCE_ONLY` tại `2ad2bc9`.
+
+**CURRENT.**
+
+- `REAL_INTEGRATED`: danh mục The BHA Riverside (Property, RoomType), tìm availability, trang phòng
+  `/listing-stay-detail?propertyId=&roomTypeId=`, hold → confirm → biên nhận `/paydone`; giá, currency, tồn, hạn giữ
+  chỗ (15 phút) và hạn hủy do server sở hữu. Trạng thái hold/biên nhận chỉ nằm trong bộ nhớ tab.
+- `TEMPLATE_ONLY`: `/login`, `/signup`, `/account*` (định danh mẫu “Eden Smith”), `/checkout`, `/contact`, `/about`,
+  footer, `/listing-stay` (`DEMO_STAY_LISTINGS`), các dịch vụ Cars/Flights/Experiences/Real Estate, rating/review mẫu.
+- API `Back_End` có `auth/register|login|logout|me`, đọc/hủy một reservation theo credential; Customer_Web **chưa gọi**
+  chúng. Chưa có API liệt kê đặt phòng của tài khoản, đổi hồ sơ/mật khẩu, quên mật khẩu, liên hệ/newsletter, thanh toán,
+  email giao dịch. `register` trả 201 nhưng **không** đăng nhập.
+- Customer_Web **chưa** hoàn tất (`CUSTOMER_WEBSITE: NOT_COMPLETE`).
+
+**TARGET (đề xuất, chờ Owner).** Giữ thiết kế Chisfis; thay dữ liệu mẫu bằng dữ liệu thật hoặc bỏ section; session
+Customer thật; tự phục vụ đặt phòng theo API; định nghĩa release và gate ở contract mục 8. Các quyết định `OPEN`
+(sitemap, ngôn ngữ, House/Villa, nội dung/chính sách, phạm vi tài khoản, tra cứu của khách, thanh toán/email, quyền
+template/ảnh) nằm ở contract mục 5 và **không** được coi là approved.
