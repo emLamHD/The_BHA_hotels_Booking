@@ -10,6 +10,7 @@ import {
   BookingHoldFlowController,
   createBookingHoldFlowController,
 } from "@/lib/api/bookingHoldFlowController";
+import { useCustomerIdentityBinding } from "./CustomerSessionProvider";
 
 export interface BookingHoldFlowApi extends BookingHoldFlowController {
   state: BookingHoldFlowState;
@@ -42,7 +43,14 @@ export function BookingHoldProvider({ children }: { children: React.ReactNode })
   // unmount) may abort it.
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  const controllerRef = useRef<BookingHoldFlowController>();
+  // CUST-WEB-001-CP01b: the identity coordinator of the root CustomerSessionProvider (null when this
+  // provider is rendered without one). The controller reads its lock through a ref, so it always asks the
+  // current coordinator; the binding below registers this controller's guard with that same coordinator.
+  const identityBinding = useCustomerIdentityBinding();
+  const identityBindingRef = useRef(identityBinding);
+  identityBindingRef.current = identityBinding;
+
+  const controllerRef = useRef<ReturnType<typeof createBookingHoldFlowController>>();
   if (!controllerRef.current) {
     controllerRef.current = createBookingHoldFlowController({
       getState: () => stateRef.current,
@@ -50,8 +58,13 @@ export function BookingHoldProvider({ children }: { children: React.ReactNode })
       onAttemptStart: (controller) => {
         abortControllerRef.current = controller;
       },
+      isIdentityChangeLocked: () => identityBindingRef.current?.isIdentityChangeLocked() ?? false,
     });
   }
+  const { identityGuard, ...publicController } = controllerRef.current;
+
+  // The cleanup removes only this registration, so a late cleanup (StrictMode, unmount) never removes a newer one.
+  useEffect(() => identityBinding?.bindBooking(identityGuard), [identityBinding, identityGuard]);
 
   useEffect(() => {
     return () => {
@@ -59,7 +72,7 @@ export function BookingHoldProvider({ children }: { children: React.ReactNode })
     };
   }, []);
 
-  const api: BookingHoldFlowApi = { state, ...controllerRef.current };
+  const api: BookingHoldFlowApi = { state, ...(publicController as BookingHoldFlowController) };
 
   return <BookingHoldFlowContext.Provider value={api}>{children}</BookingHoldFlowContext.Provider>;
 }

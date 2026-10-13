@@ -547,7 +547,7 @@ Nguồn đầy đủ: [CUST-WEB-001-product-contract](../design/CUST-WEB-001-pro
   email giao dịch. `register` trả 201 nhưng **không** đăng nhập.
 - `CUST-WEB-001-CP01a` (2026-10-13, Draft PR): nền Customer session — `authService.ts` (client `me`/`register`/`login`/`logout`),
   `CustomerSessionProvider` chỉ đọc `me` ở root (loading/anonymous/authenticated/unknown) và cache CSRF có generation khi
-  invalidation; **chưa** có UI đăng nhập/đăng ký/đăng xuất/tài khoản và **chưa** có khoá đổi danh tính khi đang giữ chỗ (`CP01b`).
+  invalidation; **chưa** có UI đăng nhập/đăng ký/đăng xuất/tài khoản và khoá đổi danh tính khi đang giữ chỗ do `CP01b` (2026-10-13, Draft PR) bổ sung: guarded login/logout trong provider, giữ khoá tới khi `me` được kiểm chứng, reset draft, `finishBooking` cục bộ; vẫn **chưa** có UI.
 - Customer_Web **chưa** hoàn tất (`CUSTOMER_WEBSITE: NOT_COMPLETE`).
 
 **TARGET (đề xuất, chờ Owner).** Giữ thiết kế Chisfis; thay dữ liệu mẫu bằng dữ liệu thật hoặc bỏ section; session

@@ -6,7 +6,7 @@ import {
   initialBookingHoldFlowState,
 } from "../bookingHoldFlow";
 import { SelectedOfferSnapshot } from "../bookingHoldAttempt";
-import { ApiNetworkError } from "../errors";
+import { ApiHttpError, ApiNetworkError } from "../errors";
 import { BookingHoldDto, ReservationDto } from "../bookingHoldTypes";
 
 const createBookingHoldMock = vi.fn();
@@ -939,5 +939,315 @@ describe("createBookingHoldFlowController — confirmation lifecycle (P2)", () =
     controller.selectOffer(OTHER_OFFER, "other");
     expect(harness.getState().offer).toBeNull();
     expect(harness.getState().phase).toBe("reservation-result");
+  });
+});
+
+/**
+ * CUST-WEB-001-CP01b — the identity guard. The harness below keeps `getState()` STALE until `commit()` is
+ * called, exactly like a React snapshot between a dispatch and the next render: every authority assertion
+ * is made before a commit.
+ */
+function createStaleHarness() {
+  let state: BookingHoldFlowState = initialBookingHoldFlowState;
+  const queue: BookingHoldFlowAction[] = [];
+  const dispatched: BookingHoldFlowAction[] = [];
+  return {
+    getState: () => state,
+    dispatch: (action: BookingHoldFlowAction) => {
+      dispatched.push(action);
+      queue.push(action);
+    },
+    commit: () => {
+      while (queue.length) state = bookingHoldFlowReducer(state, queue.shift() as BookingHoldFlowAction);
+    },
+    dispatched,
+    queued: () => queue.length,
+  };
+}
+
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+async function identityRig() {
+  const { createBookingHoldFlowController } = await import("../bookingHoldFlowController");
+  const harness = createStaleHarness();
+  const lock = { locked: false };
+  const controller = createBookingHoldFlowController({
+    getState: harness.getState,
+    dispatch: harness.dispatch,
+    isIdentityChangeLocked: () => lock.locked,
+  });
+  const toSelected = () => {
+    controller.selectOffer(OFFER, "label");
+    harness.commit();
+    controller.updateContact(CONTACT);
+    harness.commit();
+  };
+  return { harness, controller, lock, guard: controller.identityGuard, toSelected };
+}
+
+type Rig = Awaited<ReturnType<typeof identityRig>>;
+
+/** Each builder leaves the flow in the named phase WITHOUT committing the last dispatches (stale snapshot). */
+const PHASES: Record<string, (rig: Rig) => Promise<void>> = {
+  idle: async () => undefined,
+  selected: async (rig) => rig.toSelected(),
+  "known-error": async (rig) => {
+    rig.toSelected();
+    createBookingHoldMock.mockRejectedValueOnce(new ApiHttpError(409, { title: "conflict", status: 409 }));
+    rig.controller.submit();
+    await settle();
+  },
+  submitting: async (rig) => {
+    rig.toSelected();
+    createBookingHoldMock.mockReturnValueOnce(new Promise(() => undefined));
+    rig.controller.submit();
+  },
+  uncertain: async (rig) => {
+    rig.toSelected();
+    createBookingHoldMock.mockRejectedValueOnce(new ApiNetworkError());
+    rig.controller.submit();
+    await settle();
+  },
+  "active-session": async (rig) => {
+    rig.toSelected();
+    createBookingHoldMock.mockResolvedValueOnce({ hold: holdFixture(), outcome: "created" });
+    rig.controller.submit();
+    await settle();
+  },
+  confirming: async (rig) => {
+    await PHASES["active-session"](rig);
+    rig.harness.commit();
+    confirmBookingHoldMock.mockReturnValueOnce(new Promise(() => undefined));
+    rig.controller.confirmHold();
+  },
+  "confirm-uncertain": async (rig) => {
+    await PHASES["active-session"](rig);
+    rig.harness.commit();
+    confirmBookingHoldMock.mockRejectedValueOnce(new ApiNetworkError());
+    rig.controller.confirmHold();
+    await settle();
+  },
+  "confirm-known-error": async (rig) => {
+    await PHASES["active-session"](rig);
+    rig.harness.commit();
+    confirmBookingHoldMock.mockRejectedValueOnce(new ApiHttpError(409, { title: "conflict", status: 409 }));
+    rig.controller.confirmHold();
+    await settle();
+  },
+  "reservation-result": async (rig) => {
+    await PHASES["active-session"](rig);
+    rig.harness.commit();
+    confirmBookingHoldMock.mockResolvedValueOnce(confirmationResult());
+    rig.controller.confirmHold();
+    await settle();
+  },
+};
+
+describe("identity guard — booking → identity (synchronous authority)", () => {
+  it.each([
+    ["idle", null],
+    ["selected", null],
+    ["known-error", null],
+    ["submitting", "booking-in-progress"],
+    ["uncertain", "booking-in-progress"],
+    ["active-session", "booking-in-progress"],
+    ["confirming", "booking-in-progress"],
+    ["confirm-uncertain", "booking-in-progress"],
+    ["confirm-known-error", "booking-in-progress"],
+    ["reservation-result", "receipt-not-finished"],
+  ])("%s → %s, decided from the live view before React commits the response", async (phase, reason) => {
+    const rig = await identityRig();
+    await PHASES[phase](rig);
+    expect(rig.guard.identityChangeBlockReason()).toBe(reason);
+  });
+
+  it("a response that has settled (lock released in finally) but is not yet rendered still blocks", async () => {
+    const rig = await identityRig();
+    rig.toSelected();
+    let resolveHold!: (value: unknown) => void;
+    createBookingHoldMock.mockReturnValueOnce(new Promise((resolve) => (resolveHold = resolve)));
+    rig.controller.submit();
+    resolveHold({ hold: holdFixture(), outcome: "created" });
+    await settle();
+
+    // React has not committed anything since `selected`, and the in-flight flag is already released…
+    expect(rig.harness.getState().phase).toBe("selected");
+    expect(rig.harness.queued()).toBeGreaterThan(0);
+    // …yet the controller knows the flow is an active session.
+    expect(rig.guard.identityChangeBlockReason()).toBe("booking-in-progress");
+    expect(rig.guard.scrubForIdentityChange()).toBe(false);
+  });
+
+  it("submit() then the guard in the same tick: blocked by the in-flight lock, no commit needed", async () => {
+    const rig = await identityRig();
+    rig.toSelected();
+    createBookingHoldMock.mockReturnValueOnce(new Promise(() => undefined));
+    rig.controller.submit();
+    expect(rig.guard.identityChangeBlockReason()).toBe("booking-in-progress");
+    expect(createBookingHoldMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["submitting", "uncertain", "active-session", "confirming", "confirm-uncertain", "confirm-known-error", "reservation-result"])(
+    "scrubForIdentityChange in %s changes nothing: no dispatch, same state, same attempt and token",
+    async (phase) => {
+      const rig = await identityRig();
+      await PHASES[phase](rig);
+      rig.harness.commit();
+      const before = rig.harness.getState();
+      const dispatchedBefore = rig.harness.dispatched.length;
+
+      expect(rig.guard.scrubForIdentityChange()).toBe(false);
+
+      expect(rig.harness.dispatched).toHaveLength(dispatchedBefore);
+      expect(rig.harness.getState()).toBe(before);
+    }
+  );
+
+  it.each(["idle", "selected", "known-error"])("scrubForIdentityChange from %s discards the draft synchronously", async (phase) => {
+    const rig = await identityRig();
+    await PHASES[phase](rig);
+    rig.harness.commit();
+
+    expect(rig.guard.scrubForIdentityChange()).toBe(true);
+
+    // Before React commits: a stale submit in the same tick cannot use the old selection or contact.
+    createBookingHoldMock.mockClear();
+    generateIdempotencyKeyMock.mockClear();
+    rig.controller.submit();
+    expect(createBookingHoldMock).not.toHaveBeenCalled();
+    expect(generateIdempotencyKeyMock).not.toHaveBeenCalled();
+
+    rig.harness.commit();
+    expect(rig.harness.getState()).toMatchObject({ phase: "idle", offer: null, attempt: null, errorMessage: null });
+    expect(JSON.stringify(rig.harness.getState())).not.toContain(CONTACT.email);
+  });
+});
+
+describe("identity guard — identity → booking (every booking mutation refused while locked)", () => {
+  it("refuses submit, selectOffer, updateContact and search before any key, validation dispatch or network", async () => {
+    const rig = await identityRig();
+    rig.toSelected();
+    rig.lock.locked = true;
+    const dispatchedBefore = rig.harness.dispatched.length;
+
+    rig.controller.submit();
+    rig.controller.selectOffer(OTHER_OFFER, "other");
+    rig.controller.updateContact({ ...CONTACT, fullName: "Someone Else" });
+    expect(rig.controller.tryBeginAvailabilitySearch()).toBe(false);
+    expect(rig.controller.isAvailabilitySearchLocked()).toBe(true);
+
+    expect(rig.harness.dispatched).toHaveLength(dispatchedBefore);
+    expect(generateIdempotencyKeyMock).not.toHaveBeenCalled();
+    expect(createBookingHoldMock).not.toHaveBeenCalled();
+
+    rig.lock.locked = false; // control: the same calls work again
+    createBookingHoldMock.mockReturnValueOnce(new Promise(() => undefined));
+    rig.controller.submit();
+    expect(createBookingHoldMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses an invalid-draft submit too: no validation-failed dispatch", async () => {
+    const rig = await identityRig();
+    rig.controller.selectOffer(OFFER, "label");
+    rig.harness.commit();
+    rig.lock.locked = true;
+    const before = rig.harness.dispatched.length;
+    rig.controller.submit();
+    expect(rig.harness.dispatched).toHaveLength(before);
+  });
+
+  it("refuses retryExact, confirmHold and retryConfirmationExact: no request and no state change", async () => {
+    for (const [phase, call] of [
+      ["uncertain", (c: Rig["controller"]) => c.retryExact()],
+      ["active-session", (c: Rig["controller"]) => c.confirmHold()],
+      ["confirm-uncertain", (c: Rig["controller"]) => c.retryConfirmationExact()],
+    ] as const) {
+      createBookingHoldMock.mockReset();
+      confirmBookingHoldMock.mockReset();
+      const rig = await identityRig();
+      await PHASES[phase](rig);
+      rig.harness.commit();
+      const before = rig.harness.getState();
+      const dispatchedBefore = rig.harness.dispatched.length;
+      createBookingHoldMock.mockClear();
+      confirmBookingHoldMock.mockClear();
+      rig.lock.locked = true;
+
+      call(rig.controller);
+
+      expect(createBookingHoldMock).not.toHaveBeenCalled();
+      expect(confirmBookingHoldMock).not.toHaveBeenCalled();
+      expect(rig.harness.dispatched).toHaveLength(dispatchedBefore);
+      expect(rig.harness.getState()).toBe(before);
+    }
+  });
+});
+
+describe("finishBooking (explicit local receipt completion)", () => {
+  const RECEIPT_ID = "bbbbbbbb-0000-0000-0000-000000000001";
+
+  it("scrubs the receipt synchronously for exactly that reservation, sends nothing, and keeps the operation identity monotonic", async () => {
+    const rig = await identityRig();
+    await PHASES["reservation-result"](rig);
+    rig.harness.commit();
+    const operationBefore = rig.harness.getState().operationId;
+    confirmBookingHoldMock.mockClear();
+    createBookingHoldMock.mockClear();
+
+    expect(rig.controller.finishBooking(RECEIPT_ID)).toBe(true);
+
+    expect(confirmBookingHoldMock).not.toHaveBeenCalled();
+    expect(createBookingHoldMock).not.toHaveBeenCalled();
+    // A second, stale call in the same tick finds nothing to finish.
+    expect(rig.controller.finishBooking(RECEIPT_ID)).toBe(false);
+    // A stale same-tick submit cannot revive the receipt's flow.
+    rig.controller.submit();
+    expect(createBookingHoldMock).not.toHaveBeenCalled();
+
+    rig.harness.commit();
+    expect(rig.harness.getState()).toEqual({ ...initialBookingHoldFlowState, operationId: operationBefore });
+    expect(JSON.stringify(rig.harness.getState())).not.toContain(CONTACT.email);
+    expect(rig.guard.identityChangeBlockReason()).toBeNull();
+  });
+
+  it("works from the live view even when React has not committed the receipt yet", async () => {
+    const rig = await identityRig();
+    await PHASES["reservation-result"](rig); // no commit after the confirmation settled
+    expect(rig.harness.getState().phase).not.toBe("reservation-result");
+    expect(rig.controller.finishBooking(RECEIPT_ID)).toBe(true);
+  });
+
+  it("is refused, with zero effect, for a wrong reservation id", async () => {
+    const rig = await identityRig();
+    await PHASES["reservation-result"](rig);
+    rig.harness.commit();
+    const before = rig.harness.getState();
+    const dispatchedBefore = rig.harness.dispatched.length;
+    expect(rig.controller.finishBooking("cccccccc-0000-0000-0000-000000000009")).toBe(false);
+    expect(rig.harness.dispatched).toHaveLength(dispatchedBefore);
+    expect(rig.harness.getState()).toBe(before);
+  });
+
+  it.each(["idle", "selected", "submitting", "uncertain", "active-session", "confirming", "confirm-uncertain", "confirm-known-error"])(
+    "is refused in %s, with zero effect",
+    async (phase) => {
+      const rig = await identityRig();
+      await PHASES[phase](rig);
+      rig.harness.commit();
+      const before = rig.harness.getState();
+      const dispatchedBefore = rig.harness.dispatched.length;
+      expect(rig.controller.finishBooking(RECEIPT_ID)).toBe(false);
+      expect(rig.harness.dispatched).toHaveLength(dispatchedBefore);
+      expect(rig.harness.getState()).toBe(before);
+    }
+  );
+
+  it("is refused while an identity change is locked", async () => {
+    const rig = await identityRig();
+    await PHASES["reservation-result"](rig);
+    rig.harness.commit();
+    rig.lock.locked = true;
+    expect(rig.controller.finishBooking(RECEIPT_ID)).toBe(false);
+    expect(rig.harness.getState().phase).toBe("reservation-result");
   });
 });
