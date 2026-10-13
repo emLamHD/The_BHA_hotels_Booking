@@ -1,8 +1,10 @@
 # THE BHA — SNAPSHOT
 
-> Ngày cập nhật: 2026-10-12 (`PMS-CAL-004-CP01`, `PMS-CAL-003-CP03`, `-CP02`, `-CP01`, `PMS-CAL-002-CP05`, `-CP04`, `-CP03`; 2026-10-10: `PMS-CAL-002-CP02`, `PMS-CAL-002-CP01`, `BHA-BACKEND-CD-001-CP04`; 2026-10-09: `-CP03`, `-CP02`, `-CP01`; các phần cũ hơn giữ nguyên kèm SHA)
+> Ngày cập nhật: 2026-10-13 (`CUST-WEB-001-CP00`, docs-only; 2026-10-12: `PMS-CAL-004-CP01`, `PMS-CAL-003-CP03`, `-CP02`, `-CP01`, `PMS-CAL-002-CP05`, `-CP04`, `-CP03`; 2026-10-10: `PMS-CAL-002-CP02`, `PMS-CAL-002-CP01`, `BHA-BACKEND-CD-001-CP04`; 2026-10-09: `-CP03`, `-CP02`, `-CP01`; các phần cũ hơn giữ nguyên kèm SHA)
 >
 > Mục đích: phục hồi trạng thái hiện tại mà không cần nạp worklog lịch sử
+
+Cập nhật 2026-10-13 (`CUST-WEB-001-CP00`, CUSTOMER_PRODUCT_AND_RELEASE_CONTRACT, docs-only, branch `docs/cust-web-001-cp00-product-contract` từ `develop` `2ad2bc967735931a9390112d796c3cdd870ed1df`, Draft PR vào `develop`, implementer Claude / reviewer Codex read-only do Owner gọi): Owner đã chuyển trọng tâm sang Customer frontend; không mở rộng Calendar/Admin. Checkpoint này chỉ audit và viết hợp đồng sản phẩm/release `docs/design/CUST-WEB-001-product-contract.md` (`PROPOSAL`, chưa Owner duyệt; mọi quyết định `OPEN`) và report `docs/reports/CUST-WEB-001-CP00-completion.md`; không đổi source, test, config, schema; không chạy trình duyệt/build. Customer web: `CUSTOMER_WEBSITE: NOT_COMPLETE`. Checkpoint triển khai đầu tiên được đề xuất (chưa kích hoạt): `CUST-WEB-001-CP01` — nền tảng session & chuyển danh tính an toàn. **Active-status narration bị thay thế bởi cập nhật này** (giữ nguyên các đoạn lịch sử bên dưới, gắn với SHA cũ): các câu “Draft, chưa merge” của PR #83 (`CUST-WEB-SHOWCASE-001-CP02`) nay lỗi thời — Git: PR #82 (`9ad8edc`), #83 (`6ae3fdd`), #86 `release: The BHA Riverside booking showcase` (`57fc1b7`), #87/#89 proxy Customer (`f3c9616`/`45511fb`) đều merged; PR #106 (`PMS-CAL-004-CP01`, merge `2ad2bc9`) merged `2026-10-12`, nên đoạn “Draft PR” của `PMS-CAL-004-CP01` ngay bên dưới đã hết hiệu lực. Tại baseline: 0 PR mở; CI run `38274194162` (Backend/Frontend/Admin) success trên `2ad2bc9`; Backend image run `38274194088` success (không chứng minh Backend CD/live deploy); commit status Vercel “the-bha-hotels-booking” success, “the-bha-hotels-booking-p5rj” failure (chưa điều tra, ngoài CP00).
 
 Cập nhật 2026-10-12 (`PMS-CAL-004-CP01`, INACTIVE_ROOM_BLOCK_VISIBILITY, branch `feature/pms-cal-004-cp01-inactive-room-block-visibility` từ `develop` `ab838897861d3e636c4e7433b5898e3eb9c0ae0e`, Draft PR vào `develop`, implementer Claude / reviewer Codex read-only do Owner gọi): PR #105 (`PMS-CAL-003-CP03`) đã merged, `PMS-CAL-003` đóng với qualifier lịch sử. Backend: `GET …/reservation-board` trả mọi phòng Active của Property **cộng** phòng Inactive/OutOfService cùng Property có Effective block giao với window (cùng predicate cũ; không thêm theo Cancelled/ngoài window/chỉ chạm biên half-open/chỉ assignment/Property khác/phòng inactive không có block), `operationalStatus` thật qua raw-data shape tới DTO (bỏ gán cứng `Active`), mỗi phòng một dòng, `roomTypes` gồm type của phòng bổ sung (kể cả type inactive), vẫn một RepeatableRead snapshot (query block chạy trước query phòng, gắn tag `OperationalBlocksQueryTag`), không route/field/enum/auth/schema mới. Admin_Web: `ReservationBoardServerTimeline` vẽ dòng phòng kèm trạng thái, header RoomType cho phòng được liệt kê nhưng chỉ type có phòng **Active** mới giữ Unassigned lane rỗng; `Move block…`/`Cancel block` hiện hữu dùng được từ bar của phòng inactive; mọi destination vẫn Active-only (pickers, drag, callback ép). Test: backend 244 unit + 930 integration (+10) trên PostgreSQL 18.3 cô lập; Admin 1660 Vitest (50 file), lint/tsc/build sạch; mutation 11/11 bị bắt. RED ở baseline được tái hiện (6 test thất bại). Nghiệm thu thật (Chrome, Admin build production, Kestrel Staff, PostgreSQL 18.3 cô lập): GET thật trả trạng thái inactive **trước** khi mở dialog; move (FrontDesk, OutOfService; Manager, Inactive, khác RoomType) và cancel thành công, một POST mỗi lần, status phòng/commercial không đổi; hai segment cùng header trên một phòng: row giữ khi còn sibling, biến mất sau segment cuối; mất phản hồi sau commit → `unknown`, hai phòng khóa, reload không gửi lại, reread → `observed`. `INACTIVE_BLOCK_BOARD_VISIBILITY`: `IMPLEMENTED`; `INACTIVE_SOURCE_MOVE_CANCEL_ISOLATED_REAL_API`: `PASS`; `PMS_CAL_003_INACTIVE_SOURCE_QUALIFIER`: `RESOLVED_BY_NEW_EVIDENCE` (hàng PARTIAL của CP03 giữ nguyên tại SHA cũ); `PMS_CAL_004`: `IMPLEMENTED_AWAITING_OWNER_REVIEW_MERGE`; `OLD_BUILD_DOWNGRADE_RUNTIME`: `NOT_VERIFIED`. Inventory/sellability Active-only, giới hạn storage-readback của CP03, lifecycle/folio/templates vẫn như cũ; không cloud/deploy; Backend CD AWS `PAUSED / NOT_COMPLETE`. Chi tiết: `docs/reports/PMS-CAL-004-CP01-completion.md`, `docs/design/PMS-CAL-004-inactive-room-block-visibility.md`.
 
@@ -344,7 +346,7 @@ này sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
 | PR #46 | merged — `feat(admin): controlled cross-RoomType reservation assignment (PMS-CAL-001.2-CP03B)`, merge commit `16303edd472e4b960db8b765f69b394f58411246`, merged `2026-09-14T18:02:54Z`. CI run `34878420882` `success` trên đúng merge commit. Remote feature branch đã xóa. |
 | PR #47 | merged — `fix(backend): record SupersedeAsync authorization evidence per audit event (PMS-CAL-001.2-CP04A)`, merge commit `2fefb6295e4b772411dc2c63c270e298253690db`, merged `2026-09-14T18:58:06Z`. CI run `34884020638` `success` trên đúng merge commit. Remote feature branch đã xóa. |
 | PR #48–#71 | merged (2026-09 → 2026-09-30); CI của từng PR nằm trong mô tả PR đó, riêng merge #71 (`3d7eb12`) là run `36690121585` `success`: CP04B route move/unassign (#48, `b898c39`); CP04C–D move/unassign trên board (#49–#63); `PMS-CAL-001.3` block create/cancel API và board (#64–#67, `21240aa`); `PMS-CAL-001.4-CP01` kéo-để-mở-dialog-move (#68, `27c962d`); `PMS-CAL-001.5` CP01 (#69, `56eff1c`), CP02 (#70, `80f582e`), CP03 (#71, merge `3d7eb12b09286bbb2aa79590442f4ace69321563`). |
-| PR #72–#80 | merged: `PMS-CAL-001.5-CP04` (#72, `0952e1b`); `PMS-ADMIN-AUTH-001` CP00 (#73, `874f148`), CP01 (#74, `3c1eefd`), CP02 (#75, `6baefe9`), CP03 (#76, `c89efc2`), CP04 (#77, `f3f705f`), CP05 (#78, `8f62229`), CP06 (#79, `c62719b`), CP07 (#80, merge `38d4a9d964fde411aa4c03b46323f250fd54221b`, `2026-10-04T09:32:21Z`, CI run `37192482384` `success`). PR thực thi đang mở duy nhất: Draft PR của `PMS-CAL-002-CP00` (docs-only). |
+| PR #72–#80 | merged: `PMS-CAL-001.5-CP04` (#72, `0952e1b`); `PMS-ADMIN-AUTH-001` CP00 (#73, `874f148`), CP01 (#74, `3c1eefd`), CP02 (#75, `6baefe9`), CP03 (#76, `c89efc2`), CP04 (#77, `f3f705f`), CP05 (#78, `8f62229`), CP06 (#79, `c62719b`), CP07 (#80, merge `38d4a9d964fde411aa4c03b46323f250fd54221b`, `2026-10-04T09:32:21Z`, CI run `37192482384` `success`). Tại 2026-10-13 (Git/GitHub): PR #81–#106 đều merged trừ #88 (CLOSED, không merge), không có PR mở; `develop` = `2ad2bc967735931a9390112d796c3cdd870ed1df` (PR #106). |
 
 ## 2. Work item state
 
@@ -464,14 +466,14 @@ này sẽ còn là `develop` HEAD sau các commit tiếp theo; revalidate lại
 
 ### Đang thực thi
 
-- `CUST-WEB-SHOWCASE-001-CP01` — Customer Web thật ở `/`, route template bị chặn (Draft PR).
-- `PMS-CAL-002`: thiết kế merged (PR #81), CP01 store command merged (PR #97), CP02 route HTTP split-move merged (PR #98, `402c8f8`); CP03 nền Admin_Web merged (PR #99) + `CP03-C1` merged (PR #100, `fc5e290`); CP04 dialog chưa mount ở Draft PR; D1–D6 APPROVED; CP05 (board + gửi) chưa bắt đầu.
+- `CUST-WEB-001-CP00` — Customer Web: audit và hợp đồng sản phẩm/release (docs-only, Draft PR; `PROPOSAL`, chưa Owner duyệt). Evidence: `docs/reports/CUST-WEB-001-CP00-completion.md`, `docs/design/CUST-WEB-001-product-contract.md`. `CUST-WEB-001-CP01+` chưa bắt đầu.
+- (Đã hoàn tất, thay thế các dòng “Draft PR” cũ ở đây) `CUST-WEB-SHOWCASE-001` CP01–CP02: PR #82, #83, #86, #87/#89 merged (xem đầu file). `PMS-CAL-002` CP00–CP05 merged (PR #81, #97–#102), `PMS-CAL-003` CP01–CP03 merged (PR #103–#105), `PMS-CAL-004-CP01` merged (PR #106).
 - Các mutation khác (assignment swap/batch, operational-block move/split) **chưa kích
   hoạt**; Snapshot này không tự mở chúng.
 
 ### Quyết định đang hiệu lực
 
-`PMS_ADMIN_AUTH_001_CLOSED__PMS_CAL_002_CP00_DESIGN_ACTIVE`
+`PMS_ADMIN_AUTH_001_CLOSED__CUST_WEB_001_CP00_CONTRACT_ACTIVE`
 
 Ý nghĩa:
 
@@ -829,10 +831,10 @@ evidence independently verified for this closeout via:
 `38d4a9d964fde411aa4c03b46323f250fd54221b`). Production deployment chưa thực hiện và cần
 quyết định riêng của Owner.
 
-Objective hiện tại là `CUST-WEB-SHOWCASE-001` (CP01 Draft PR): Customer Web thật ở `/`, route
-template bị chặn. `PMS-CAL-002` (split-move): thiết kế merged PR #81, store command merged PR #97,
-route HTTP CP02 ở Draft PR; D4/D6 vẫn OPEN. Review Codex chỉ do Owner gọi, OC quyết định,
-Owner giữ Ready/merge/branch cleanup. Không tự bắt đầu work item khác từ Snapshot này.
+Objective hiện tại là `CUST-WEB-001` (Customer Web thương mại trên template Chisfis): `CP00` audit và hợp đồng
+sản phẩm/release (docs-only, Draft PR, `PROPOSAL`). `CUST-WEB-SHOWCASE-001` và các chuỗi `PMS-CAL-002/003/004-CP01`
+đã merged (PR #82–#106; xem đầu file). Review Codex chỉ do Owner gọi, OC quyết định, Owner giữ
+Ready/merge/branch cleanup. Không tự bắt đầu work item khác từ Snapshot này.
 
 ## 9. Main risks
 
@@ -904,8 +906,8 @@ Chạy `git fetch --prune origin` và đọc `origin/develop` HEAD trực tiếp
 Git — **không** lấy SHA từ tài liệu này — trước khi dùng Snapshot này làm
 planning baseline.
 
-Work item đang thực thi là `CUST-WEB-SHOWCASE-001-CP01` (branch
-`feature/cust-web-showcase-001-cp01-live-entry`). Owner invoke `/codex:review --base
-origin/develop` trên đúng PR head, OC quyết định, Owner Ready/merge; CP02 (ảnh, dữ liệu demo)
-chỉ mở sau đó. Evidence: `docs/reports/CUST-WEB-SHOWCASE-001-CP01-completion.md`. (Đoạn First action cũ trỏ tới
-`PMS-CAL-001.2-CP04B` đã hết hiệu lực; CP04B merged trong PR #48.)
+Work item đang thực thi là `CUST-WEB-001-CP00` (branch `docs/cust-web-001-cp00-product-contract`, Draft PR vào
+`develop`). Owner invoke `/codex:review --base origin/develop` trên đúng PR head, OC quyết định, Owner
+Ready/merge; `CUST-WEB-001-CP01` (đề xuất: nền tảng session & chuyển danh tính) chỉ mở khi Owner kích hoạt.
+Evidence: `docs/reports/CUST-WEB-001-CP00-completion.md`, `docs/design/CUST-WEB-001-product-contract.md`. (Các đoạn First
+action cũ trỏ tới `CUST-WEB-SHOWCASE-001-CP01` và `PMS-CAL-001.2-CP04B` đã hết hiệu lực: PR #48 và #82 merged.)
