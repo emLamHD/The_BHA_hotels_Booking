@@ -235,3 +235,77 @@ describe("customer session controller — lifecycle", () => {
     expect(LOADING_SESSION).toEqual({ status: "loading", customer: null });
   });
 });
+
+describe("customer session controller — read() and beginIdentityChange() (CP01b)", () => {
+  it("read resolves with how the read ended, after publishing", async () => {
+    const { controller, reads } = harness();
+    controller.start();
+    const second = controller.read();
+    reads[1].resolve(ALICE);
+    await expect(second).resolves.toBe("authenticated");
+    expect(controller.getState()).toEqual({ status: "authenticated", customer: ALICE });
+
+    const third = controller.read();
+    reads[2].reject(httpError(401));
+    await expect(third).resolves.toBe("anonymous");
+
+    const fourth = controller.read();
+    reads[3].reject(new ApiNetworkError());
+    await expect(fourth).resolves.toBe("unknown");
+    expect(controller.getState()).toEqual({ status: "unknown", customer: null });
+  });
+
+  it("a read that is overtaken resolves superseded and publishes nothing", async () => {
+    const { controller, reads } = harness();
+    controller.start();
+    const older = controller.read(); // reads[1]; reads[0] is the first read made by start()
+    controller.read(); // reads[2] overtakes it
+    reads[1].resolve(ALICE);
+    await expect(older).resolves.toBe("superseded");
+    expect(controller.getState().customer).toBeNull();
+  });
+
+  it("read does nothing while stopped", async () => {
+    const { controller, readSession } = harness();
+    await expect(controller.read()).resolves.toBe("superseded");
+    expect(readSession).not.toHaveBeenCalled();
+  });
+
+  it("beginIdentityChange clears the identity, aborts the read in flight and keeps its late answer out (no A while changing to B)", async () => {
+    const { controller, reads } = harness();
+    controller.start();
+    reads[0].resolve(ALICE);
+    await settle();
+    controller.refresh(); // an ordinary read in flight, which would publish A again
+    expect(controller.getState().status).toBe("loading");
+
+    expect(controller.beginIdentityChange()).toBe(true);
+    expect(reads[1].signal.aborted).toBe(true);
+    expect(controller.getState()).toEqual({ status: "loading", customer: null });
+
+    reads[1].resolve(ALICE); // the old answer arrives late
+    await settle();
+    expect(controller.getState()).toEqual({ status: "loading", customer: null });
+
+    const recovery = controller.read(); // the canonical read after the change
+    reads[2].resolve(BOB);
+    await expect(recovery).resolves.toBe("authenticated");
+    expect(controller.getState()).toEqual({ status: "authenticated", customer: BOB });
+  });
+
+  it("beginIdentityChange clears an already published identity without reading, and is refused while stopped", async () => {
+    const { controller, reads, readSession } = harness();
+    expect(controller.beginIdentityChange()).toBe(false);
+    controller.start();
+    reads[0].resolve(ALICE);
+    await settle();
+    expect(controller.getState().customer).toEqual(ALICE);
+
+    expect(controller.beginIdentityChange()).toBe(true);
+    expect(controller.getState()).toEqual({ status: "loading", customer: null });
+    expect(readSession).toHaveBeenCalledTimes(1);
+
+    controller.stop();
+    expect(controller.beginIdentityChange()).toBe(false);
+  });
+});
