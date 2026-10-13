@@ -541,14 +541,15 @@ Nguồn đầy đủ: [CUST-WEB-001-product-contract](../design/CUST-WEB-001-pro
   `/listing-stay-detail?propertyId=&roomTypeId=`, hold → confirm → biên nhận `/paydone`; giá, currency, tồn, hạn giữ
   chỗ (15 phút) và hạn hủy do server sở hữu. Trạng thái hold/biên nhận chỉ nằm trong bộ nhớ tab.
 - `REAL_INTEGRATED` (`CUST-WEB-001-CP02`): `/login` thật, mục tài khoản/đăng xuất theo `me` ở header và mobile, đóng biên nhận cục bộ.
-- `TEMPLATE_ONLY`: `/signup`, `/account*`, `/checkout`, `/contact`, `/about`,
+- `REAL_INTEGRATED` (`CUST-WEB-001-CP03`): `/signup` thật gọi `register` (chỉ tạo tài khoản, không đăng nhập), link “Tạo tài khoản” ở `/login` và menu ẩn danh.
+- `TEMPLATE_ONLY`: `/account*`, `/checkout`, `/contact`, `/about`,
   footer, `/listing-stay` (`DEMO_STAY_LISTINGS`), các dịch vụ Cars/Flights/Experiences/Real Estate, rating/review mẫu.
 - API `Back_End` có `auth/register|login|logout|me`, đọc/hủy một reservation theo credential; Customer_Web gọi `me`, `login`, `logout`
-  (CP01a–CP02) và **chưa** gọi `register` hay đọc/hủy reservation theo tài khoản. Chưa có API liệt kê đặt phòng của tài khoản, đổi hồ sơ/mật khẩu, quên mật khẩu, liên hệ/newsletter, thanh toán,
+  (CP01a–CP02) và `register` (CP03), **chưa** đọc/hủy reservation theo tài khoản. Chưa có API liệt kê đặt phòng của tài khoản, đổi hồ sơ/mật khẩu, quên mật khẩu, liên hệ/newsletter, thanh toán,
   email giao dịch. `register` trả 201 nhưng **không** đăng nhập.
 - `CUST-WEB-001-CP01a` (2026-10-13, merged PR #108): nền Customer session — `authService.ts` (client `me`/`register`/`login`/`logout`),
   `CustomerSessionProvider` chỉ đọc `me` ở root (loading/anonymous/authenticated/unknown) và cache CSRF có generation khi
-  invalidation; **chưa** có UI đăng nhập/đăng ký/đăng xuất/tài khoản và khoá đổi danh tính khi đang giữ chỗ do `CP01b` (2026-10-13, merged PR #109) bổ sung: guarded login/logout trong provider, giữ khoá tới khi `me` được kiểm chứng, reset draft, `finishBooking` cục bộ. `CP02` (2026-10-13, Draft PR) thêm UI `/login`, mục tài khoản ở header/mobile/`FooterNav` và nút “Đóng biên nhận”; đăng ký, tài khoản chỉ đọc và lịch sử vẫn **chưa** có.
+  invalidation; **chưa** có UI đăng nhập/đăng ký/đăng xuất/tài khoản và khoá đổi danh tính khi đang giữ chỗ do `CP01b` (2026-10-13, merged PR #109) bổ sung: guarded login/logout trong provider, giữ khoá tới khi `me` được kiểm chứng, reset draft, `finishBooking` cục bộ. `CP02` (2026-10-13, merged PR #110) thêm UI `/login`, mục tài khoản ở header/mobile/`FooterNav` và nút “Đóng biên nhận”; `CP03` (2026-10-13, Draft PR) thêm UI `/signup` — `register` không tạo session; tài khoản chỉ đọc và lịch sử vẫn **chưa** có.
 - Customer_Web **chưa** hoàn tất (`CUSTOMER_WEBSITE: NOT_COMPLETE`).
 
 **TARGET (đề xuất, chờ Owner).** Giữ thiết kế Chisfis; thay dữ liệu mẫu bằng dữ liệu thật hoặc bỏ section; session
