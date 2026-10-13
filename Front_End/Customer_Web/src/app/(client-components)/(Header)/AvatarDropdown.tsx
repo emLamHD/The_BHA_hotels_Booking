@@ -1,7 +1,7 @@
 "use client";
 
 import { Popover, Transition } from "@headlessui/react";
-import { UserCircleIcon } from "@heroicons/react/24/outline";
+import { UserCircleIcon, UserPlusIcon } from "@heroicons/react/24/outline";
 import { Fragment } from "react";
 import type { Route } from "next";
 import Avatar from "@/shared/Avatar";
@@ -106,6 +106,17 @@ export default function AvatarDropdown({ className = "", panelClassName = "-righ
                         </div>
                         <div className="ml-4">
                           <p className="text-sm font-medium ">{"Đăng nhập"}</p>
+                        </div>
+                      </Link>
+                    )}
+
+                    {!email && identityChange.phase === "idle" && (
+                      <Link href={"/signup" as Route} className={ITEM_CLASS} onClick={() => close()}>
+                        <div className="flex items-center justify-center flex-shrink-0 text-neutral-500 dark:text-neutral-300">
+                          <UserPlusIcon className="h-6 w-6" aria-hidden="true" />
+                        </div>
+                        <div className="ml-4">
+                          <p className="text-sm font-medium ">{"Tạo tài khoản"}</p>
                         </div>
                       </Link>
                     )}
