@@ -95,7 +95,7 @@ const SignupForm: FC = () => {
   // field) until the session has been read, or an attempt of this page is under way.
   const checking = state.status === "loading" && !identityBusy && !pending;
   const blocked = identityBusy;
-  const presentation = outcome ? presentSignupOutcome(outcome, authenticated) : null;
+  const presentation = outcome ? presentSignupOutcome(outcome, state.status) : null;
   const created = outcome === "created";
   const emailError = fieldErrors.email;
   const passwordError = fieldErrors.password;

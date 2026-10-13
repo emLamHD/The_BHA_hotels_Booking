@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { CustomerSessionState } from "@/lib/customerSession";
 import { registerCustomer } from "@/lib/api/authService";
 import { ApiHttpError, ApiNetworkError, ApiValidationError } from "@/lib/api/errors";
 import {
@@ -120,39 +121,75 @@ describe("signupOutcomeOf", () => {
 describe("presentSignupOutcome", () => {
   const outcomes: SignupOutcome[] = ["created", "invalid", "exists", "rate-limited", "uncertain"];
 
-  it("says created and not signed in, with a way to the login page that carries nothing", () => {
-    const view = presentSignupOutcome("created", false);
+  it("says created and not signed in only when the provider has verified an anonymous session; link carries nothing", () => {
+    const view = presentSignupOutcome("created", "anonymous");
     expect(view.message).toBe("Tạo tài khoản thành công. Bạn chưa đăng nhập.");
     expect(view.link).toEqual({ href: "/login", label: "Đăng nhập" });
   });
 
   it("does not claim 'not signed in' when the provider says the customer is signed in", () => {
-    expect(presentSignupOutcome("created", true).message).not.toContain("chưa đăng nhập");
+    const message = presentSignupOutcome("created", "authenticated").message;
+    expect(message).toBe("Tạo tài khoản thành công. Việc đăng ký không thay đổi phiên đăng nhập hiện tại.");
+    expect(message).not.toContain("chưa đăng nhập");
   });
 
+  it.each<CustomerSessionState["status"]>(["unknown", "loading"])(
+    "says nothing about the current session while the provider does not know it (%s)",
+    (status) => {
+      const view = presentSignupOutcome("created", status);
+      expect(view.message).toBe("Tạo tài khoản thành công. Việc đăng ký không tự đăng nhập.");
+      expect(view.message).not.toContain("chưa đăng nhập");
+      expect(view.message).not.toContain("hiện tại");
+      expect(view.outcome).toBe("created");
+      expect(view.link).toEqual({ href: "/login", label: "Đăng nhập" });
+    }
+  );
+
+  it("keeps the account outcome while the session knowledge changes (same created result, re-presented per status)", () => {
+    const statuses: CustomerSessionState["status"][] = ["unknown", "anonymous", "unknown", "authenticated", "loading"];
+    const views = statuses.map((status) => presentSignupOutcome("created", status));
+    expect(views.every((view) => view.outcome === "created" && view.tone === "success")).toBe(true);
+    expect(views.map((view) => view.message)).toEqual([
+      "Tạo tài khoản thành công. Việc đăng ký không tự đăng nhập.",
+      "Tạo tài khoản thành công. Bạn chưa đăng nhập.",
+      "Tạo tài khoản thành công. Việc đăng ký không tự đăng nhập.",
+      "Tạo tài khoản thành công. Việc đăng ký không thay đổi phiên đăng nhập hiện tại.",
+      "Tạo tài khoản thành công. Việc đăng ký không tự đăng nhập.",
+    ]);
+  });
+
+  it.each<CustomerSessionState["status"]>(["loading", "anonymous", "authenticated", "unknown"])(
+    "never changes a failure outcome's wording with the session status (%s)",
+    (status) => {
+      for (const outcome of ["invalid", "exists", "rate-limited", "uncertain"] as const) {
+        expect(presentSignupOutcome(outcome, status)).toEqual(presentSignupOutcome(outcome, "anonymous"));
+      }
+    }
+  );
+
   it("calls only 201 a success", () => {
-    expect(outcomes.filter((outcome) => presentSignupOutcome(outcome, false).tone === "success")).toEqual(["created"]);
+    expect(outcomes.filter((outcome) => presentSignupOutcome(outcome, "anonymous").tone === "success")).toEqual(["created"]);
   });
 
   it("never says an uncertain attempt did or did not create the account, and offers login", () => {
-    const view = presentSignupOutcome("uncertain", false);
+    const view = presentSignupOutcome("uncertain", "anonymous");
     expect(view.message).toContain("Chưa xác nhận được tài khoản đã được tạo hay chưa");
     expect(view.message).not.toMatch(/thành công|không được tạo|chưa được tạo/);
     expect(view.link?.href).toBe("/login");
   });
 
   it("does not turn a conflict into ownership or success, and does not invent a wait time", () => {
-    expect(presentSignupOutcome("exists", false).message).not.toMatch(/thành công|đã tạo/);
-    expect(presentSignupOutcome("rate-limited", false).message).not.toMatch(/\d/);
+    expect(presentSignupOutcome("exists", "anonymous").message).not.toMatch(/thành công|đã tạo/);
+    expect(presentSignupOutcome("rate-limited", "anonymous").message).not.toMatch(/\d/);
   });
 
   it("lists the password requirements for a refused (400) request", () => {
-    expect(presentSignupOutcome("invalid", false).message).toContain(PASSWORD_REQUIREMENTS);
+    expect(presentSignupOutcome("invalid", "anonymous").message).toContain(PASSWORD_REQUIREMENTS);
   });
 
   it("shows nothing but its own wording: no server text, no credentials", () => {
     for (const outcome of outcomes) {
-      const text = JSON.stringify(presentSignupOutcome(outcome, false));
+      const text = JSON.stringify(presentSignupOutcome(outcome, "anonymous"));
       expect(text).not.toContain("SECRET");
       expect(text).not.toContain(PASSWORD);
       expect(text).not.toContain("bob@example.test");

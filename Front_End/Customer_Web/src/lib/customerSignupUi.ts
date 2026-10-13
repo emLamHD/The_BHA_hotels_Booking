@@ -1,6 +1,7 @@
 import type { CustomerCredentials } from "@/lib/api/authService";
 import { ApiHttpError } from "@/lib/api/errors";
 import { EMAIL_MAX_LENGTH, LOGIN_PAGE, PASSWORD_MAX_LENGTH } from "@/lib/customerAuthUi";
+import type { CustomerSessionState } from "@/lib/customerSession";
 
 /**
  * CUST-WEB-001-CP03. The decisions behind the Customer signup UI, kept React-free so the component only
@@ -90,21 +91,28 @@ export interface SignupPresentation {
   link: { href: string; label: string } | null;
 }
 
+const CREATED_MESSAGE: Record<CustomerSessionState["status"], string> = {
+  anonymous: "Tạo tài khoản thành công. Bạn chưa đăng nhập.",
+  authenticated: "Tạo tài khoản thành công. Việc đăng ký không thay đổi phiên đăng nhập hiện tại.",
+  unknown: "Tạo tài khoản thành công. Việc đăng ký không tự đăng nhập.",
+  loading: "Tạo tài khoản thành công. Việc đăng ký không tự đăng nhập.",
+};
+
 /**
  * What to tell the user. Fixed Vietnamese wording per outcome: nothing from the server's response (title,
- * detail, field messages) or from the credentials is ever shown. `sessionAuthenticated` is the provider's
- * verdict; a registration does not change it, so the message must not claim otherwise.
+ * detail, field messages) or from the credentials is ever shown. `sessionStatus` is the provider's own
+ * `me` state, passed through whole: a registration neither changes nor verifies the session, so the account
+ * outcome ("created") and what is known about the session stay separate. "Not signed in" is said only for
+ * an `anonymous` the provider has verified; `unknown`/`loading` say nothing about the current session.
  */
-export function presentSignupOutcome(outcome: SignupOutcome, sessionAuthenticated: boolean): SignupPresentation {
+export function presentSignupOutcome(outcome: SignupOutcome, sessionStatus: CustomerSessionState["status"]): SignupPresentation {
   const login = { href: LOGIN_PAGE, label: "Đăng nhập" };
   switch (outcome) {
     case "created":
       return {
         outcome,
         tone: "success",
-        message: sessionAuthenticated
-          ? "Tạo tài khoản thành công. Việc đăng ký không thay đổi phiên đăng nhập hiện tại."
-          : "Tạo tài khoản thành công. Bạn chưa đăng nhập.",
+        message: CREATED_MESSAGE[sessionStatus],
         link: login,
       };
     case "invalid":
