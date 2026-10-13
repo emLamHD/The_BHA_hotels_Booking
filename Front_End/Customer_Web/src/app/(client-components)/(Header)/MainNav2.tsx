@@ -30,6 +30,11 @@ const MainNav2: FC<MainNav2Props> = ({ className = "" }) => {
           <HeroSearchForm2MobileFactory />
         </div>
 
+        {/* CUST-WEB-001-CP02: the right-hand cluster below is hidden under md, so the account entry has its own. */}
+        <div className="flex md:hidden flex-shrink-0 self-center ml-1 text-neutral-700 dark:text-neutral-100">
+          <AvatarDropdown panelClassName="right-0" />
+        </div>
+
         <div className="hidden md:flex flex-shrink-0 justify-end flex-1 lg:flex-none text-neutral-700 dark:text-neutral-100">
           <div className="hidden lg:flex space-x-1">
             <TemplatesDropdown />

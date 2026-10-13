@@ -1,12 +1,16 @@
 "use client";
 
-import React, { FC, useEffect } from "react";
+import React, { FC, Fragment, useEffect, useState } from "react";
 import Link from "next/link";
 import type { Route } from "next";
+import { useRouter } from "next/navigation";
+import { Dialog, Transition } from "@headlessui/react";
 import ButtonPrimary from "@/shared/ButtonPrimary";
 import ButtonSecondary from "@/shared/ButtonSecondary";
 import StartRating from "@/components/StartRating";
 import { useBookingHoldFlow } from "@/app/BookingHoldProvider";
+import { useCustomerSession } from "@/app/CustomerSessionProvider";
+import { HOME_PAGE, receiptCloseFailureMessage, receiptCloseTarget } from "@/lib/customerAuthUi";
 import { useStaySearch } from "@/components/StaySearchProvider";
 import { formatCurrencyAmount } from "@/lib/api/availabilityPresentation";
 import { calculateNights } from "@/lib/api/availabilityValidation";
@@ -72,8 +76,14 @@ const Row: FC<{ label: string; children: React.ReactNode }> = ({ label, children
  * the booking system returned.
  */
 const PayDoneReceipt: FC = () => {
-  const { state, confirmHold, retryConfirmationExact } = useBookingHoldFlow();
+  const { state, confirmHold, retryConfirmationExact, finishBooking } = useBookingHoldFlow();
+  const { identityChange } = useCustomerSession();
+  const router = useRouter();
   const stay = useStaySearch();
+  // CUST-WEB-001-CP02: the reservation the open "close the receipt" dialog is about (null: closed), captured
+  // when it opened, so finishBooking refuses it if the receipt has changed since.
+  const [closingReservationId, setClosingReservationId] = useState<string | null>(null);
+  const [closeError, setCloseError] = useState<string | null>(null);
   useEffect(() => {
     stay?.ensureCatalog();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -86,6 +96,20 @@ const PayDoneReceipt: FC = () => {
     : null;
   const snapshot: Snapshot | null = reservation ?? hold;
   const target = inProgressBookingTarget(state);
+  const receiptId = receiptCloseTarget(state);
+
+  const confirmClose = () => {
+    const expected = closingReservationId;
+    setClosingReservationId(null);
+    if (!expected) return;
+    // No HTTP: it only forgets the receipt in this tab. It is refused (and the receipt kept) if the receipt
+    // changed since the dialog opened, or a login/logout is being verified.
+    if (finishBooking(expected)) {
+      router.push(HOME_PAGE);
+    } else {
+      setCloseError(receiptCloseFailureMessage(identityChange.phase));
+    }
+  };
 
   const renderRecovery = () => {
     const resumeHref = target ? (buildRoomDetailsHref(target) as Route) : null;
@@ -262,21 +286,99 @@ const PayDoneReceipt: FC = () => {
           </div>
         )}
 
+        {closeError && (
+          <div role="alert" className="text-sm text-red-600 dark:text-red-400">
+            {closeError}
+          </div>
+        )}
+
         <div className="flex flex-wrap gap-3">
           {target && !confirmed && (
             <ButtonSecondary href={buildRoomDetailsHref(target) as Route}>Về trang phòng</ButtonSecondary>
           )}
           <ButtonPrimary href="/">Xem thêm chỗ nghỉ</ButtonPrimary>
+          {receiptId && (
+            <ButtonSecondary
+              type="button"
+              onClick={() => {
+                setCloseError(null);
+                setClosingReservationId(receiptId);
+              }}
+            >
+              Đóng biên nhận
+            </ButtonSecondary>
+          )}
         </div>
       </div>
     );
   };
+
+  const renderCloseDialog = () => (
+    <Transition appear show={closingReservationId !== null} as={Fragment}>
+      <Dialog as="div" className="relative z-50" onClose={() => setClosingReservationId(null)}>
+        <Transition.Child
+          as={Fragment}
+          enter="duration-200"
+          enterFrom="opacity-0"
+          enterTo="opacity-100"
+          leave="duration-150"
+          leaveFrom="opacity-100"
+          leaveTo="opacity-0"
+        >
+          <div className="fixed inset-0 bg-black/60 dark:bg-black/70" aria-hidden="true" />
+        </Transition.Child>
+        <div className="fixed inset-0 flex items-center justify-center p-4">
+          <Transition.Child
+            as={Fragment}
+            enter="duration-200"
+            enterFrom="opacity-0 scale-95"
+            enterTo="opacity-100 scale-100"
+            leave="duration-150"
+            leaveFrom="opacity-100 scale-100"
+            leaveTo="opacity-0 scale-95"
+          >
+            <Dialog.Panel className="w-full max-w-md space-y-5 rounded-2xl bg-white p-6 shadow-xl dark:bg-neutral-800">
+              <Dialog.Title className="text-xl font-semibold">Đóng biên nhận?</Dialog.Title>
+              <Dialog.Description as="div" className="space-y-3 text-sm text-neutral-6000 dark:text-neutral-300">
+                <p>
+                  Hãy lưu lại mã đặt phòng
+                  {reservation ? (
+                    <>
+                      {" "}
+                      <span className="font-mono font-semibold text-neutral-900 dark:text-neutral-100">
+                        {reservation.confirmationNumber}
+                      </span>
+                    </>
+                  ) : null}{" "}
+                  trước khi đóng. Bản demo này chưa có trang lịch sử đặt phòng hay khôi phục biên nhận, nên bạn sẽ không
+                  mở lại được biên nhận này.
+                </p>
+                <p>
+                  Đóng biên nhận chỉ xoá thông tin khỏi màn hình này, để bạn có thể đổi tài khoản. Việc này không huỷ đặt
+                  phòng và không phải thanh toán.
+                </p>
+              </Dialog.Description>
+              <div className="flex flex-wrap justify-end gap-3">
+                <ButtonSecondary type="button" onClick={() => setClosingReservationId(null)}>
+                  Giữ biên nhận
+                </ButtonSecondary>
+                <ButtonPrimary type="button" onClick={confirmClose}>
+                  Đóng biên nhận
+                </ButtonPrimary>
+              </div>
+            </Dialog.Panel>
+          </Transition.Child>
+        </div>
+      </Dialog>
+    </Transition>
+  );
 
   return (
     <div className="nc-PayPage">
       <main className="container mt-11 mb-24 lg:mb-32">
         <div className="max-w-4xl mx-auto">{snapshot ? renderReceipt(snapshot) : renderRecovery()}</div>
       </main>
+      {renderCloseDialog()}
     </div>
   );
 };

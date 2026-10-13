@@ -11,6 +11,8 @@ import MenuBar from "@/shared/MenuBar";
 import isInViewport from "@/utils/isInViewport";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useCustomerSession } from "@/app/CustomerSessionProvider";
+import { describeAuthEntry } from "@/lib/customerAuthUi";
 
 let WIN_PREV_POSITION = 0;
 if (typeof window !== "undefined") {
@@ -21,6 +23,8 @@ interface NavItem {
   name: string;
   link?: PathName;
   icon: any;
+  /** The Customer auth entry: labelled and marked from the session provider, not fixed here. */
+  auth?: boolean;
 }
 
 const NAV: NavItem[] = [
@@ -35,9 +39,10 @@ const NAV: NavItem[] = [
     icon: HeartIcon,
   },
   {
-    name: "Log in",
-    link: "/account",
+    name: "Đăng nhập",
+    link: "/login",
     icon: UserCircleIcon,
+    auth: true,
   },
   {
     name: "Menu",
@@ -49,6 +54,12 @@ const FooterNav = () => {
   const containerRef = useRef<HTMLDivElement>(null);
 
   const pathname = usePathname();
+  const { state, identityChange } = useCustomerSession();
+  const authEntry = describeAuthEntry(
+    state.status,
+    identityChange.phase,
+    state.status === "authenticated" ? state.customer.email : null
+  );
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -94,18 +105,31 @@ const FooterNav = () => {
     WIN_PREV_POSITION = currentScrollPos;
   };
 
-  const renderItem = (item: NavItem, index: number) => {
+  const renderItem = (rawItem: NavItem, index: number) => {
+    // CUST-WEB-001-CP02: the auth entry's label follows the verified session; its destination is always /login.
+    const item: NavItem = rawItem.auth ? { ...rawItem, name: authEntry.label } : rawItem;
     const isActive = pathname === item.link;
 
     return item.link ? (
       <Link
         key={index}
         href={item.link}
+        aria-label={item.auth ? authEntry.ariaLabel : undefined}
         className={`flex flex-col items-center justify-between text-neutral-500 dark:text-neutral-300/90 ${
           isActive ? "text-neutral-900 dark:text-neutral-100" : ""
         }`}
       >
-        <item.icon className={`w-6 h-6 ${isActive ? "text-red-600" : ""}`} />
+        <span className="relative">
+          <item.icon className={`w-6 h-6 ${isActive ? "text-red-600" : ""}`} />
+          {item.auth && authEntry.indicator !== "none" && (
+            <span
+              aria-hidden="true"
+              className={`absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-white dark:ring-neutral-800 ${
+                authEntry.indicator === "busy" ? "bg-primary-500 animate-pulse" : "bg-amber-500"
+              }`}
+            />
+          )}
+        </span>
         <span
           className={`text-[11px] leading-none mt-1 ${
             isActive ? "text-red-600" : ""
