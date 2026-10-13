@@ -1,6 +1,8 @@
 "use client";
 
 import React, { FC, FormEvent, useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { useCustomerSession } from "@/app/CustomerSessionProvider";
 import { AuthPresentationView, CustomerSessionNotice, useAuthCommand } from "@/components/CustomerAuthNotice";
@@ -174,7 +176,10 @@ const LoginForm: FC = () => {
         )}
         {!checking && !authenticated && (
           <p className="block text-center text-sm text-neutral-600 dark:text-neutral-400">
-            Bạn có thể đặt phòng mà không cần tài khoản. Đăng ký tài khoản chưa có trong bản demo này.
+            Bạn có thể đặt phòng mà không cần tài khoản. Chưa có tài khoản?{" "}
+            <Link href={"/signup" as Route} className="font-semibold underline">
+              Tạo tài khoản
+            </Link>
           </p>
         )}
       </div>
