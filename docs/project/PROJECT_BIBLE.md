@@ -545,6 +545,9 @@ Nguồn đầy đủ: [CUST-WEB-001-product-contract](../design/CUST-WEB-001-pro
 - API `Back_End` có `auth/register|login|logout|me`, đọc/hủy một reservation theo credential; Customer_Web **chưa gọi**
   chúng. Chưa có API liệt kê đặt phòng của tài khoản, đổi hồ sơ/mật khẩu, quên mật khẩu, liên hệ/newsletter, thanh toán,
   email giao dịch. `register` trả 201 nhưng **không** đăng nhập.
+- `CUST-WEB-001-CP01a` (2026-10-13, Draft PR): nền Customer session — `authService.ts` (client `me`/`register`/`login`/`logout`),
+  `CustomerSessionProvider` chỉ đọc `me` ở root (loading/anonymous/authenticated/unknown) và cache CSRF có generation khi
+  invalidation; **chưa** có UI đăng nhập/đăng ký/đăng xuất/tài khoản và **chưa** có khoá đổi danh tính khi đang giữ chỗ (`CP01b`).
 - Customer_Web **chưa** hoàn tất (`CUSTOMER_WEBSITE: NOT_COMPLETE`).
 
 **TARGET (đề xuất, chờ Owner).** Giữ thiết kế Chisfis; thay dữ liệu mẫu bằng dữ liệu thật hoặc bỏ section; session
