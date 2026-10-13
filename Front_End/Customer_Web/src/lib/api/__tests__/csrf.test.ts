@@ -232,3 +232,142 @@ describe("submitCsrfProtectedRequest", () => {
     expect(apiUnsafeRequestMock).not.toHaveBeenCalled();
   });
 });
+
+/** CUST-WEB-001-CP01a: invalidation while a CSRF acquisition is still pending. */
+describe("invalidateCsrfToken with an acquisition in flight", () => {
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    let reject!: (reason: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  }
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const tokenOf = (call: unknown[]) => (call[3] as { headers: Record<string, string> }).headers["X-CSRF-TOKEN"];
+
+  it("starts a new acquisition for a request made after the invalidation instead of reusing the old pending one", async () => {
+    const { submitCsrfProtectedRequest, invalidateCsrfToken } = await import("../csrf");
+    const oldAcquisition = deferred<typeof CSRF_RESPONSE>();
+    apiGetMock
+      .mockReturnValueOnce(oldAcquisition.promise)
+      .mockResolvedValueOnce({ token: "token-new", headerName: "X-CSRF-TOKEN" });
+    apiUnsafeRequestMock.mockResolvedValue({ status: 204, data: undefined });
+
+    const before = submitCsrfProtectedRequest("/api/v1/auth/logout", "POST", undefined);
+    await settle();
+    invalidateCsrfToken();
+    const after = submitCsrfProtectedRequest("/api/v1/auth/logout", "POST", undefined);
+    await settle();
+
+    expect(apiGetMock).toHaveBeenCalledTimes(2);
+    await after;
+    expect(tokenOf(apiUnsafeRequestMock.mock.calls[0])).toBe("token-new");
+
+    oldAcquisition.resolve({ token: "token-old", headerName: "X-CSRF-TOKEN" });
+    await before;
+  });
+
+  it("never sends the old generation's token, not even to the caller that was waiting for it", async () => {
+    const { submitCsrfProtectedRequest, invalidateCsrfToken } = await import("../csrf");
+    const oldAcquisition = deferred<typeof CSRF_RESPONSE>();
+    apiGetMock
+      .mockReturnValueOnce(oldAcquisition.promise)
+      .mockResolvedValueOnce({ token: "token-new", headerName: "X-CSRF-TOKEN" });
+    apiUnsafeRequestMock.mockResolvedValue({ status: 204, data: undefined });
+
+    const waiting = submitCsrfProtectedRequest("/api/v1/auth/logout", "POST", undefined);
+    await settle();
+    invalidateCsrfToken();
+    const fresh = submitCsrfProtectedRequest("/api/v1/auth/logout", "POST", undefined);
+    await settle();
+    oldAcquisition.resolve({ token: "token-old", headerName: "X-CSRF-TOKEN" });
+    await Promise.all([waiting, fresh]);
+
+    const sent = apiUnsafeRequestMock.mock.calls.map(tokenOf);
+    expect(sent).toEqual(["token-new", "token-new"]);
+    expect(apiGetMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not let a late old resolution fill the cache or hide the current acquisition from later requests", async () => {
+    const { submitCsrfProtectedRequest, invalidateCsrfToken } = await import("../csrf");
+    const oldAcquisition = deferred<typeof CSRF_RESPONSE>();
+    const currentAcquisition = deferred<typeof CSRF_RESPONSE>();
+    apiGetMock.mockReturnValueOnce(oldAcquisition.promise).mockReturnValueOnce(currentAcquisition.promise);
+    apiUnsafeRequestMock.mockResolvedValue({ status: 204, data: undefined });
+
+    const first = submitCsrfProtectedRequest("/api/v1/auth/logout", "POST", undefined);
+    await settle();
+    invalidateCsrfToken();
+    const second = submitCsrfProtectedRequest("/api/v1/auth/logout", "POST", undefined);
+    await settle();
+    oldAcquisition.resolve({ token: "token-old", headerName: "X-CSRF-TOKEN" });
+    await settle();
+    // The old acquisition has finished; the current one is still pending and must still be shared.
+    const third = submitCsrfProtectedRequest("/api/v1/auth/logout", "POST", undefined);
+    await settle();
+    expect(apiGetMock).toHaveBeenCalledTimes(2);
+    expect(apiUnsafeRequestMock).not.toHaveBeenCalled();
+
+    currentAcquisition.resolve({ token: "token-new", headerName: "X-CSRF-TOKEN" });
+    await Promise.all([first, second, third]);
+    expect(apiUnsafeRequestMock.mock.calls.map(tokenOf)).toEqual(["token-new", "token-new", "token-new"]);
+    expect(apiGetMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("lets a caller that waited on an old acquisition that then fails use the current generation's token", async () => {
+    const { submitCsrfProtectedRequest, invalidateCsrfToken } = await import("../csrf");
+    const oldAcquisition = deferred<typeof CSRF_RESPONSE>();
+    apiGetMock
+      .mockReturnValueOnce(oldAcquisition.promise)
+      .mockResolvedValueOnce({ token: "token-new", headerName: "X-CSRF-TOKEN" });
+    apiUnsafeRequestMock.mockResolvedValue({ status: 204, data: undefined });
+
+    const waiting = submitCsrfProtectedRequest("/api/v1/auth/logout", "POST", undefined);
+    await settle();
+    invalidateCsrfToken();
+    const fresh = submitCsrfProtectedRequest("/api/v1/auth/logout", "POST", undefined);
+    await settle();
+    oldAcquisition.reject(new ApiNetworkError());
+
+    await expect(waiting).resolves.toEqual({ status: 204, data: undefined });
+    await fresh;
+    expect(apiUnsafeRequestMock.mock.calls.map(tokenOf)).toEqual(["token-new", "token-new"]);
+  });
+
+  it("still reports an acquisition failure of the current generation to its callers", async () => {
+    const { submitCsrfProtectedRequest } = await import("../csrf");
+    const failure = new ApiNetworkError();
+    apiGetMock.mockRejectedValueOnce(failure);
+
+    await expect(submitCsrfProtectedRequest("/api/v1/auth/logout", "POST", undefined)).rejects.toBe(failure);
+    expect(apiUnsafeRequestMock).not.toHaveBeenCalled();
+  });
+
+  it("drops a cached token on invalidation so the next request reacquires, and shares within the new generation", async () => {
+    const { submitCsrfProtectedRequest, invalidateCsrfToken } = await import("../csrf");
+    apiGetMock
+      .mockResolvedValueOnce(CSRF_RESPONSE)
+      .mockResolvedValueOnce({ token: "token-new", headerName: "X-CSRF-TOKEN" });
+    apiUnsafeRequestMock.mockResolvedValue({ status: 204, data: undefined });
+
+    await submitCsrfProtectedRequest("/api/v1/auth/logout", "POST", undefined);
+    invalidateCsrfToken();
+    await Promise.all([
+      submitCsrfProtectedRequest("/api/v1/auth/logout", "POST", undefined),
+      submitCsrfProtectedRequest("/api/v1/auth/logout", "POST", undefined),
+    ]);
+
+    expect(apiGetMock).toHaveBeenCalledTimes(2);
+    expect(apiUnsafeRequestMock.mock.calls.map(tokenOf)).toEqual(["csrf-token-1", "token-new", "token-new"]);
+  });
+
+  it("invalidating does not itself request a token or resend anything", async () => {
+    const { invalidateCsrfToken } = await import("../csrf");
+    invalidateCsrfToken();
+    invalidateCsrfToken();
+    expect(apiGetMock).not.toHaveBeenCalled();
+    expect(apiUnsafeRequestMock).not.toHaveBeenCalled();
+  });
+});

@@ -23,8 +23,19 @@ interface CsrfMemory {
   headerName: string;
 }
 
+interface CsrfAcquisition {
+  generation: number;
+  promise: Promise<CsrfMemory>;
+}
+
+/**
+ * Bumped by every invalidation. A token (cached or still being acquired) belongs to the generation it
+ * was requested in: the server ties the antiforgery token to the identity of the session, so after the
+ * session may have changed nothing from an earlier generation is cached, shared or sent.
+ */
+let generation = 0;
 let cachedToken: CsrfMemory | undefined;
-let inFlightAcquisition: Promise<CsrfMemory> | undefined;
+let inFlightAcquisition: CsrfAcquisition | undefined;
 
 function isUsableString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
@@ -39,38 +50,73 @@ function isAntiforgeryFailure(error: unknown): boolean {
   );
 }
 
-async function acquireCsrfToken(): Promise<CsrfMemory> {
+function acquireCsrfToken(): Promise<CsrfMemory> {
   if (cachedToken) {
-    return cachedToken;
+    return Promise.resolve(cachedToken);
   }
 
-  if (!inFlightAcquisition) {
-    inFlightAcquisition = (async () => {
-      const data = await apiGet<CsrfTokenResponse>(CSRF_PATH);
-      if (!data || !isUsableString(data.token) || !isUsableString(data.headerName)) {
-        throw new Error("The CSRF token response was malformed.");
-      }
+  if (!inFlightAcquisition || inFlightAcquisition.generation !== generation) {
+    const startedIn = generation;
+    const acquisition: CsrfAcquisition = {
+      generation: startedIn,
+      promise: (async () => {
+        const data = await apiGet<CsrfTokenResponse>(CSRF_PATH);
+        if (!data || !isUsableString(data.token) || !isUsableString(data.headerName)) {
+          throw new Error("The CSRF token response was malformed.");
+        }
 
-      const memory: CsrfMemory = { token: data.token, headerName: data.headerName };
-      cachedToken = memory;
-      return memory;
-    })().finally(() => {
-      inFlightAcquisition = undefined;
-    });
+        const memory: CsrfMemory = { token: data.token, headerName: data.headerName };
+        // A token requested before an invalidation is returned to nobody as current and never cached.
+        if (startedIn === generation) {
+          cachedToken = memory;
+        }
+        return memory;
+      })().finally(() => {
+        // Only the acquisition that is still the current one is cleared; a late older one must not
+        // remove a newer acquisition that other callers are sharing.
+        if (inFlightAcquisition === acquisition) {
+          inFlightAcquisition = undefined;
+        }
+      }),
+    };
+    inFlightAcquisition = acquisition;
   }
 
-  return inFlightAcquisition;
+  return inFlightAcquisition.promise;
 }
 
-/** Narrow memory invalidation hook, e.g. for a future login/logout transition. */
+/**
+ * The token of the generation that is current when it is returned. A caller that waited on an
+ * acquisition which an invalidation overtook (it resolves or fails) takes the current generation's
+ * token instead, so no mutation ever goes out with an old one. This is a token read (GET), never a
+ * mutation retry.
+ */
+async function acquireCurrentCsrfToken(): Promise<CsrfMemory> {
+  for (;;) {
+    const requestedIn = generation;
+    try {
+      const memory = await acquireCsrfToken();
+      if (requestedIn === generation) {
+        return memory;
+      }
+    } catch (error) {
+      if (requestedIn === generation) {
+        throw error;
+      }
+    }
+  }
+}
+
+/** Narrow memory invalidation hook, e.g. for a login/logout transition. Requests no token itself. */
 export function invalidateCsrfToken(): void {
+  generation += 1;
   cachedToken = undefined;
+  inFlightAcquisition = undefined;
 }
 
 /** Test-only: clears cached/in-flight CSRF state so tests start isolated. */
 export function resetCsrfStateForTests(): void {
-  cachedToken = undefined;
-  inFlightAcquisition = undefined;
+  invalidateCsrfToken();
 }
 
 /**
@@ -86,7 +132,7 @@ export async function submitCsrfProtectedRequest<T>(
   body: unknown,
   options: ApiRequestOptions = {}
 ): Promise<ApiUnsafeResponse<T>> {
-  const csrf = await acquireCsrfToken();
+  const csrf = await acquireCurrentCsrfToken();
   const headers = mergeHeaders({ ...options.headers, [csrf.headerName]: csrf.token });
 
   try {
@@ -97,7 +143,7 @@ export async function submitCsrfProtectedRequest<T>(
     }
 
     invalidateCsrfToken();
-    const refreshed = await acquireCsrfToken();
+    const refreshed = await acquireCurrentCsrfToken();
     const retryHeaders = mergeHeaders({
       ...options.headers,
       [refreshed.headerName]: refreshed.token,
