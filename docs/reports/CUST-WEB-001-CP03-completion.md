@@ -29,7 +29,7 @@ BACKEND_CD / LIVE_DEPLOY: OUT_OF_SCOPE / NOT_RUN
 
 | File | Nội dung |
 |---|---|
-| `src/lib/customerSignupUi.ts` (mới) + `.test.ts` (57 test) | Seam React-free mà UI import trực tiếp. `validateSignupInput`: email trim; mật khẩu và nhập lại **nguyên văn** (không trim/normalise/cắt), chặn rỗng/email sai/email > 256/mật khẩu < 12 hoặc > 128 (độ dài UTF-16, như .NET)/nhập lại không khớp; **không** tự đặt regex cho chữ hoa/thường/số/ký tự đặc biệt (server quyết, 400 được xử lý) — chỉ hiển thị yêu cầu. `signupOutcomeOf`: `400`→`invalid`, `409`→`exists`, `429`→`rate-limited`, mọi thứ khác (mạng, 408, 5xx, status lạ, 2xx sai hình) → `uncertain`. `presentSignupOutcome`: câu chữ cố định, không echo server/credential, không đếm ngược, không nói `uncertain` là đã/chưa tạo, thông báo thành công không nói “chưa đăng nhập” nếu provider đang báo đã đăng nhập. `createSignupOwner(register)`: chiếm đồng bộ trước `await` (hai event cùng tick = một request), một owner = một attempt, không giao kết quả sau `dispose`; **không abort** (abort không chứng minh server chưa tạo tài khoản) |
+| `src/lib/customerSignupUi.ts` (mới) + `.test.ts` (57 test ở C0; 64 sau C1) | Seam React-free mà UI import trực tiếp. `validateSignupInput`: email trim; mật khẩu và nhập lại **nguyên văn** (không trim/normalise/cắt), chặn rỗng/email sai/email > 256/mật khẩu < 12 hoặc > 128 (độ dài UTF-16, như .NET)/nhập lại không khớp; **không** tự đặt regex cho chữ hoa/thường/số/ký tự đặc biệt (server quyết, 400 được xử lý) — chỉ hiển thị yêu cầu. `signupOutcomeOf`: `400`→`invalid`, `409`→`exists`, `429`→`rate-limited`, mọi thứ khác (mạng, 408, 5xx, status lạ, 2xx sai hình) → `uncertain`. `presentSignupOutcome`: câu chữ cố định, không echo server/credential, không đếm ngược, không nói `uncertain` là đã/chưa tạo, thông báo thành công không nói “chưa đăng nhập” nếu provider đang báo đã đăng nhập (**C0**; C1 thay bằng nhận trạng thái provider đầy đủ — xem “C1”). `createSignupOwner(register)`: chiếm đồng bộ trước `await` (hai event cùng tick = một request), một owner = một attempt, không giao kết quả sau `dispose`; **không abort** (abort không chứng minh server chưa tạo tài khoản) |
 | `src/app/signup/page.tsx`, `SignupForm.tsx` (mới) | `/signup` thật: label/id/name, `autoComplete=username/new-password/new-password`, `noValidate method="post"`, lỗi có `role=alert` + `aria-invalid` + `aria-describedby`, focus ô sai đầu tiên, gợi ý yêu cầu mật khẩu gắn `aria-describedby`. Input **không điều khiển**: mật khẩu không vào state/URL/storage/log, xoá khi attempt kết thúc; email dài **không** bị `maxLength` cắt (thông báo thay vì cắt âm thầm). Server render và lần render đầu **không có form** (`loading`) nên Enter trước hydrate không thể GET credential lên URL. Anonymous/unknown thường: form; authenticated: email từ `me` + link tới panel `/login`, không form; identity `transport/recovering/recovery-unresolved`: notice của provider (nút “Kiểm tra lại” chỉ `GET me`), submit disabled và `onSubmit` thoát sớm. Thành công: panel “Tạo tài khoản thành công. Bạn chưa đăng nhập.” + CTA “Đăng nhập” → `/login` (không query/cookie/storage). Bỏ social, “OR”, forgot-password và mọi checkbox/Terms |
 | `src/app/login/LoginForm.tsx` | Chỉ câu cuối: “Chưa có tài khoản? Tạo tài khoản” → `/signup` thay cho “chưa có trong bản demo”. Không đổi lifecycle login |
 | `(Header)/AvatarDropdown.tsx` | Chỉ thêm mục “Tạo tài khoản” (→ `/signup`) cạnh “Đăng nhập” khi ẩn danh/idle; dùng chung ở cả ba header. Không đụng logout/menu |
@@ -89,6 +89,36 @@ Số kiểm tra tự động trong harness trên build cuối `f94d20d`: signup 
 - **Thật:** UI, Chrome, TLS, API baseline, PostgreSQL 18.3, `201`/`400`/`409`, **429 do rate limiter thật**, cookie, `me`, mọi tài khoản/hold/reservation, thất lạc response **sau** commit thật (drop-after, fail-after).
 - **Mô phỏng (đã ghi rõ ở bảng):** `201` không body và `503` do proxy trả thẳng (API không nhận request, không tài khoản nào được đếm); `me` 503; độ trễ. Không có response giả nào được dùng làm bằng chứng tài khoản/phiên — tài khoản lấy từ DB, phiên lấy từ `me` thật hoặc `me` mô phỏng nêu trên.
 - **Không quan sát (`NOT_RUN`):** Safari/WebKit, dark mode bằng mắt, trình đọc màn hình, multi-tab.
+
+## C1 — `CUST-WEB-001-CP03-C1`: giữ trạng thái phiên chưa biết khi hiển thị signup thành công
+
+**Finding F1 (P2, OC, bằng đọc source tại `6a62b65`; C0 verdict `CORRECTION_REQUIRED`):** `SignupForm` truyền `authenticated = (state.status === "authenticated")` vào `presentSignupOutcome`, nên `created` + `unknown`/`loading` hiện “Bạn chưa đăng nhập” như `anonymous`. Với người dùng có cookie phiên A hợp lệ nhưng `me` ở frontend thất bại (ordinary `unknown`), đăng ký B không đổi cookie nên server vẫn có thể là A — câu chữ khẳng định điều frontend chưa biết. Đây là lỗi diễn đạt, **không** phải `register` phát session; các bằng chứng C0 (201/DB/booking/guard) không bị phủ nhận. Không thay đổi hành vi: form vẫn dùng được khi `unknown`, guard identity/recovery, owner/double-submit/unmount, mọi classifier lỗi, CTA, hold/receipt.
+
+**Sửa (`CORRECTION_START_HEAD` = `6a62b650493df7f2696631dece5a6f805a1214d7`; allowlist: `customerSignupUi.ts`, `SignupForm.tsx`, test, ba file docs):** `presentSignupOutcome(outcome, sessionStatus)` nhận **toàn bộ** `CustomerSessionState["status"]`; kết quả tạo tài khoản và hiểu biết về phiên tách riêng:
+
+| `created` + provider | Thông báo |
+|---|---|
+| `anonymous` (provider đã xác minh) | “Tạo tài khoản thành công. Bạn chưa đăng nhập.” |
+| `authenticated` | “Tạo tài khoản thành công. Việc đăng ký không thay đổi phiên đăng nhập hiện tại.” |
+| `unknown` / `loading` | “Tạo tài khoản thành công. Việc đăng ký không tự đăng nhập.” (không khẳng định phiên hiện tại; `CustomerSessionNotice` vẫn nói đang kiểm tra/chưa kiểm tra được phiên) |
+
+Khi provider đổi trạng thái sau `created`, thông báo theo trạng thái hiện hành; kết quả `created` không đổi và không bao giờ đổi thành kết quả phiên. Không `me`/login/logout/CSRF/refresh mới, không provider hay storage mới; failure outcome không phụ thuộc trạng thái phiên.
+
+**RED/GREEN:** (1) Trên mã `6a62b65`, file test tạm với adapter đúng cách gọi cũ của component (`status === "authenticated"` → boolean): `created`+`unknown` và `created`+`loading` **fail** (“Bạn chưa đăng nhập” còn xuất hiện), hai control `anonymous`/`authenticated` pass — rồi xoá file tạm. (2) Test mới gọi chữ ký mới trên mã cũ: 4 fail về hành vi (không phải lỗi compile/import). Sau sửa: `customerSignupUi.test.ts` 64/64 (7 test mới/đổi: anonymous, authenticated, `unknown`/`loading`, chuỗi `unknown→anonymous→unknown→authenticated→loading` giữ nguyên `outcome: created`, failure outcome bất biến theo status).
+
+**Checks (delivered tree của correction):** `npm ci` exit 0 · `npx vitest run src/lib/customerSignupUi.test.ts` 64 passed · `npm run lint` sạch · `npx tsc --noEmit -p .` exit 0 · `npm test` 37 files / 895 passed · `npm run build` OK (`/signup` 6.01 kB). CI Frontend/Backend/Admin trên FINAL_HEAD mới: PR body. (Codex không chạy được Vitest trong sandbox read-only — số liệu test là của Claude/CI.)
+
+**Browser recheck có giới hạn (build Customer của commit `92ba146` — commit sau đó chỉ docs; `git diff 92ba146 HEAD -- Front_End/Customer_Web` rỗng; TLS tin cậy bật; API = backend baseline `cdf41cf` (`git diff cdf41cf -- Back_End` rỗng); PostgreSQL `18.3 (Debian 18.3-1.pgdg13+1)` task-owned, seed Riverside; Chrome 1440×900 và 390×844). Build `f94d20d` của C0 **không** được tính cho C1.** Tài khoản A dựng bằng API (setup, không tính cho UI); đăng nhập A, ký B và ký C đều bằng UI.
+
+| Bước | Kết quả (desktop 13/13 + mobile 13/13) |
+|---|---|
+| Đăng nhập A bằng UI | login 200 + `me` 200, header A, cookie Customer có |
+| Tải lại `/signup` với `me` **503 mô phỏng** (session A vẫn thật ở API) | provider `unknown`: notice + “Kiểm tra lại”, form còn, không email trên header |
+| Ký B bằng UI | **một** `POST register 201` thật, DB +1, đúng một `NormalizedEmail`, **không** POST auth khác, **không** `GET me`, tập cookie không đổi; thông báo “Tạo tài khoản thành công. Việc đăng ký không tự đăng nhập.” — **không** “Bạn chưa đăng nhập”; notice `unknown` vẫn hiện; CTA `/login` còn |
+| Khôi phục `me`, bấm “Kiểm tra lại” | chỉ `GET me` (200, thật), email A trên header và panel; B không được đăng nhập; cookie A không đổi; `me` probe thật 200 (A); đăng xuất A bằng UI ⇒ `me` 401 |
+| Control: ký C ẩn danh bằng UI | `201`, DB +1, provider đã xác minh anonymous ⇒ “Tạo tài khoản thành công. Bạn chưa đăng nhập.”; không cookie Customer, `me` probe thật 401 |
+
+Nhánh `loading` chỉ kiểm bằng test deterministic (không quan sát riêng trong browser). Mô phỏng: chỉ `me` 503; mọi tài khoản, cookie, `me` 200/401 là thật. Tổng DB phiên C1: 7 tài khoản synthetic (gồm một A do lần chạy desktop bị dừng vì lỗi **script** — tên container DB trong helper — rồi chạy lại), 0 `NormalizedEmail` trùng. Dọn dẹp: container `cust-cp03c1-pg18`, tiến trình API/proxy/web/TLS theo PID, thư mục scratch Chrome và file env; cổng trống.
 
 ## Rủi ro / còn mở
 
