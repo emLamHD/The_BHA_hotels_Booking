@@ -6,7 +6,7 @@ import type { Route } from "next";
 import { useCustomerSession } from "@/app/CustomerSessionProvider";
 import { CustomerSessionNotice } from "@/components/CustomerAuthNotice";
 import { registerCustomer } from "@/lib/api/authService";
-import { LOGIN_PAGE } from "@/lib/customerAuthUi";
+import { ACCOUNT_PAGE, LOGIN_PAGE } from "@/lib/customerAuthUi";
 import {
   PASSWORD_REQUIREMENTS,
   SignupFieldErrors,
@@ -190,7 +190,7 @@ const SignupForm: FC = () => {
         Để tạo một tài khoản khác, hãy đăng xuất trước.
       </p>
       <div className="flex flex-wrap gap-3">
-        <ButtonPrimary href={LOGIN_PAGE as Route}>Đến trang tài khoản</ButtonPrimary>
+        <ButtonPrimary href={ACCOUNT_PAGE as Route}>Đến trang tài khoản</ButtonPrimary>
         <ButtonSecondary href="/">Về trang chủ</ButtonSecondary>
       </div>
     </section>

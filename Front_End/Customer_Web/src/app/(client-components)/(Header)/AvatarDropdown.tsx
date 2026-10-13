@@ -3,6 +3,7 @@
 import { Popover, Transition } from "@headlessui/react";
 import { UserCircleIcon, UserPlusIcon } from "@heroicons/react/24/outline";
 import { Fragment } from "react";
+import { usePathname } from "next/navigation";
 import type { Route } from "next";
 import Avatar from "@/shared/Avatar";
 import SwitchDarkMode2 from "@/shared/SwitchDarkMode2";
@@ -29,12 +30,15 @@ const ITEM_CLASS =
 export default function AvatarDropdown({ className = "", panelClassName = "-right-10 sm:right-0" }: Props) {
   const { state, identityChange, guardedLogout } = useCustomerSession();
   const logout = useAuthCommand("logout");
+  const pathname = usePathname();
   const email = state.status === "authenticated" ? state.customer.email : null;
   const entry = describeAuthEntry(state.status, identityChange.phase, email);
 
   return (
     <>
-      <Popover className={`AvatarDropdown relative flex ${className}`}>
+      {/* CP04: keyed by the route so a navigation the page itself makes (/account -> /login once a logout is
+          verified) does not leave the menu open over the new page; the logout owner above is unaffected. */}
+      <Popover key={pathname} className={`AvatarDropdown relative flex ${className}`}>
         {({ close }) => (
           <>
             <Popover.Button
@@ -117,6 +121,17 @@ export default function AvatarDropdown({ className = "", panelClassName = "-righ
                         </div>
                         <div className="ml-4">
                           <p className="text-sm font-medium ">{"Tạo tài khoản"}</p>
+                        </div>
+                      </Link>
+                    )}
+
+                    {email && identityChange.phase === "idle" && (
+                      <Link href={"/account" as Route} className={ITEM_CLASS} onClick={() => close()}>
+                        <div className="flex items-center justify-center flex-shrink-0 text-neutral-500 dark:text-neutral-300">
+                          <UserCircleIcon className="h-6 w-6" aria-hidden="true" />
+                        </div>
+                        <div className="ml-4">
+                          <p className="text-sm font-medium ">{"Tài khoản"}</p>
                         </div>
                       </Link>
                     )}

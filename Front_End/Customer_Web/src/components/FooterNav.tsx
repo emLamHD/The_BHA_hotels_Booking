@@ -106,8 +106,11 @@ const FooterNav = () => {
   };
 
   const renderItem = (rawItem: NavItem, index: number) => {
-    // CUST-WEB-001-CP02: the auth entry's label follows the verified session; its destination is always /login.
-    const item: NavItem = rawItem.auth ? { ...rawItem, name: authEntry.label } : rawItem;
+    // CUST-WEB-001-CP02/CP04: the auth entry's label and destination follow the verified session
+    // (/account once signed in, /login otherwise), and so does its active state.
+    const item: NavItem = rawItem.auth
+      ? { ...rawItem, name: authEntry.label, link: authEntry.href as PathName }
+      : rawItem;
     const isActive = pathname === item.link;
 
     return item.link ? (
