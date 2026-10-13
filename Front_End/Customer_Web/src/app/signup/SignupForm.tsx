@@ -6,7 +6,7 @@ import type { Route } from "next";
 import { useCustomerSession } from "@/app/CustomerSessionProvider";
 import { CustomerSessionNotice } from "@/components/CustomerAuthNotice";
 import { registerCustomer } from "@/lib/api/authService";
-import { EMAIL_MAX_LENGTH, LOGIN_PAGE } from "@/lib/customerAuthUi";
+import { LOGIN_PAGE } from "@/lib/customerAuthUi";
 import {
   PASSWORD_REQUIREMENTS,
   SignupFieldErrors,
@@ -114,7 +114,6 @@ const SignupForm: FC = () => {
           type="email"
           inputMode="email"
           required
-          maxLength={EMAIL_MAX_LENGTH}
           autoComplete="username"
           autoCapitalize="none"
           spellCheck={false}
