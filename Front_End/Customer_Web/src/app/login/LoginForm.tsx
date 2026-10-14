@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { useCustomerSession } from "@/app/CustomerSessionProvider";
 import { AuthPresentationView, CustomerSessionNotice, useAuthCommand } from "@/components/CustomerAuthNotice";
 import { ACCOUNT_PAGE, HOME_PAGE, LoginFieldErrors, EMAIL_MAX_LENGTH, loginSucceeded, validateLoginInput } from "@/lib/customerAuthUi";
+import { AuthReturnTarget, resolveAuthReturnTarget } from "@/lib/authReturnTarget";
 import ButtonPrimary from "@/shared/ButtonPrimary";
 import ButtonSecondary from "@/shared/ButtonSecondary";
 import Input from "@/shared/Input";
@@ -32,7 +33,7 @@ const LoginForm: FC = () => {
   const emailRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const [fieldErrors, setFieldErrors] = useState<LoginFieldErrors>({});
-  const [redirecting, setRedirecting] = useState(false);
+  const [redirecting, setRedirecting] = useState<AuthReturnTarget | null>(null);
 
   const clearPassword = () => {
     if (passwordRef.current) passwordRef.current.value = "";
@@ -54,14 +55,18 @@ const LoginForm: FC = () => {
     }
     setFieldErrors({});
     const { credentials } = validation;
+    // CUST-WEB-001-CP08a-C2: read once, when the visitor submits (no Suspense boundary needed); the only
+    // destination other than the home page is the account page, and only for the exact link the account
+    // page builds (`lib/authReturnTarget`). Nothing of the query string is kept.
+    const target = resolveAuthReturnTarget(window.location.search);
     const started = login.run(
       () => guardedLogin(credentials),
       (result) => {
         clearPassword();
         // Leave the page only for the attempt of this very mount, and only when it succeeded AND `me` agrees.
         if (loginSucceeded(result)) {
-          setRedirecting(true);
-          router.push(HOME_PAGE);
+          setRedirecting(target);
+          router.push(target as Route);
         }
       }
     );
@@ -164,7 +169,7 @@ const LoginForm: FC = () => {
         <AuthPresentationView presentation={logout.presentation} />
         {redirecting ? (
           <p role="status" className="text-sm text-neutral-600 dark:text-neutral-300">
-            Đang chuyển về trang chủ…
+            {redirecting === ACCOUNT_PAGE ? "Đang chuyển tới trang tài khoản…" : "Đang chuyển về trang chủ…"}
           </p>
         ) : checking ? null : logout.pending ? (
           <p role="status" className="text-sm text-neutral-600 dark:text-neutral-300">

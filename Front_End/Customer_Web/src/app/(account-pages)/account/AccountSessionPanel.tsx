@@ -5,7 +5,8 @@ import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { useCustomerSession } from "@/app/CustomerSessionProvider";
 import { CustomerSessionNotice } from "@/components/CustomerAuthNotice";
-import { HOME_PAGE, LOGIN_PAGE } from "@/lib/customerAuthUi";
+import { HOME_PAGE } from "@/lib/customerAuthUi";
+import { LOGIN_FOR_ACCOUNT_HREF } from "@/lib/authReturnTarget";
 import { describeAccountView } from "@/lib/customerAccountUi";
 import ButtonSecondary from "@/shared/ButtonSecondary";
 
@@ -15,6 +16,9 @@ import ButtonSecondary from "@/shared/ButtonSecondary";
  * does not read the session itself, and it never starts or repeats an auth request. The email appears only
  * for a verified, idle session; the login redirect only for a verified-anonymous, idle one. Logging out is
  * the header's guarded command, not a second button here.
+ *
+ * CUST-WEB-001-CP08a-C2: the login redirect carries `returnTo=/account` (`lib/authReturnTarget`), so a visitor who
+ * chose "Tài khoản của tôi" while signed out comes back here after signing in.
  */
 const AccountSessionPanel: FC = () => {
   const router = useRouter();
@@ -22,7 +26,7 @@ const AccountSessionPanel: FC = () => {
   const view = describeAccountView(state, identityChange.phase);
 
   useEffect(() => {
-    if (view.kind === "redirect-login") router.replace(LOGIN_PAGE as Route);
+    if (view.kind === "redirect-login") router.replace(LOGIN_FOR_ACCOUNT_HREF as Route);
   }, [view.kind, router]);
 
   return (

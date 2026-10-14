@@ -37,9 +37,9 @@ export default function TemplatesDropdown() {
             <Popover.Button
               className={`
                 ${open ? "" : "text-opacity-80"}
-                group h-10 sm:h-12 px-3 py-1.5 inline-flex items-center text-sm text-gray-800 dark:text-slate-300 font-medium hover:text-opacity-100 focus:outline-none `}
+                group h-10 sm:h-12 px-3 py-1.5 inline-flex items-center text-sm text-gray-800 dark:text-slate-300 font-medium hover:text-opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 rounded-full`}
             >
-              <span className="">Templates</span>
+              <span className="">Giao diện mẫu</span>
               <ChevronDownIcon
                 className={`${open ? "-rotate-180" : ""}
                   ml-1 h-4 w-4 transition ease-in-out duration-150 `}
@@ -58,7 +58,10 @@ export default function TemplatesDropdown() {
               <Popover.Panel className="absolute z-20 top-full w-full inset-x-0">
                 <div className="bg-white dark:bg-neutral-900 shadow-lg">
                   <div className="container">
-                    <div className="flex text-sm border-t border-slate-200 dark:border-slate-700 py-14">
+                    <p className="border-t border-slate-200 pt-6 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300">
+                      Các trang dưới đây là giao diện mẫu Chisfis với nội dung minh hoạ, chưa phải dữ liệu thật của The BHA.
+                    </p>
+                    <div className="flex text-sm py-8">
                       <div className="flex-1 grid grid-cols-5 gap-6 xl:gap-8 pr-6 xl:pr-8">
                         {NAVIGATION_DEMO_2.map((item, index) => (
                           <div key={index}>
@@ -74,7 +77,11 @@ export default function TemplatesDropdown() {
                         ))}
                       </div>
                       <div className="w-[35%] xl:w-[30%]">
-                        <Collection />
+                        <Collection
+                          name="The BHA Riverside"
+                          desc="Đặt phòng <br /> trực tiếp"
+                          featuredImage="/media/the-bha-riverside/rooftop-pool-day.webp"
+                        />
                       </div>
                     </div>
                   </div>

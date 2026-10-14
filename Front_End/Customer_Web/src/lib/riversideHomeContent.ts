@@ -28,19 +28,34 @@ export const HOME_SECTION_IDS: readonly string[] = [HOME_SECTION.intro, HOME_SEC
 /** The page every "view all" and "find a room" link leads to. */
 export const RESULTS_PATH = "/listing-stay";
 
+/** The pages of the public site (CUST-WEB-001-CP08a-C2): `/` is the booking portal, `/riverside` the property's own page. */
+export const HOME_PATH = "/";
+export const RIVERSIDE_PATH = "/riverside";
+export const OFFERS_PATH = "/offers";
+export const BLOG_PATH = "/blog";
+export const ACCOUNT_PATH = "/account";
+
+/** A section of the Riverside page, as a link that works from every page (`/riverside#faq`). */
+export const riversideSectionHref = (section: string) => `${RIVERSIDE_PATH}#${section}`;
+
 export interface SiteNavItem {
   id: string;
   name: string;
-  /** A section of the home page (`/#section`), or a page of its own. */
+  /** A section of the Riverside page (`/riverside#section`), or a page of its own. */
   section?: string;
   href?: string;
 }
 
-/** The public navigation: every entry leads somewhere that works. */
-export const RIVERSIDE_NAV: readonly SiteNavItem[] = [
-  { id: "intro", name: "Riverside", section: HOME_SECTION.intro },
+/** The public navigation: Riverside, offers, blog. Every entry leads somewhere that works. */
+export const PRIMARY_NAV: readonly SiteNavItem[] = [
+  { id: "riverside", name: "Riverside", href: RIVERSIDE_PATH },
+  { id: "offers", name: "Ưu đãi", href: OFFERS_PATH },
+  { id: "blog", name: "Blog", href: BLOG_PATH },
+];
+
+/** The sections of the Riverside page the footer links to. */
+export const RIVERSIDE_SECTION_LINKS: readonly SiteNavItem[] = [
   { id: "rooms", name: "Loại phòng", section: HOME_SECTION.rooms },
-  { id: "search", name: "Tìm phòng", href: RESULTS_PATH },
   { id: "guide", name: "Hướng dẫn đặt phòng", section: HOME_SECTION.guide },
   { id: "faq", name: "Thông tin cần biết", section: HOME_SECTION.faq },
 ];

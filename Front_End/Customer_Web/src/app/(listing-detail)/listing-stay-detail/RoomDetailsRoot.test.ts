@@ -17,7 +17,7 @@ const markup = renderToStaticMarkup(
 describe("RoomDetailsRoot without a room in the URL", () => {
   it("explains that no room was chosen and links back to the rooms", () => {
     expect(markup).toContain("Chưa chọn phòng");
-    expect(markup).toContain("/#rooms");
+    expect(markup).toContain("/riverside#rooms");
   });
 
   it("renders no template room, price, host, review or booking form", () => {

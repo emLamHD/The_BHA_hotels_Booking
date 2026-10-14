@@ -10,8 +10,9 @@ import React, { FC } from "react";
  */
 const TemplateDemoNotice: FC = () => (
   <p className="bg-primary-50 px-4 py-2 text-center text-xs text-primary-700 dark:bg-neutral-800 dark:text-primary-300">
-    Bản demo: phòng, giá và đặt phòng của The BHA Riverside lấy từ hệ thống đặt phòng. Chưa có thanh toán trực tuyến; ảnh
-    chưa được xác minh quyền sử dụng thương mại. Một số trang khác của giao diện mẫu chưa phải nội dung thật.
+    Bản demo: phòng, giá và đặt phòng của The BHA Riverside lấy từ hệ thống đặt phòng. Ưu đãi trên trang chủ chỉ là dữ liệu
+    minh hoạ. Chưa có thanh toán trực tuyến; ảnh phòng chưa được xác minh quyền sử dụng thương mại, ảnh Đà Nẵng có ghi nguồn
+    ở trang Nguồn ảnh. Một số trang khác của giao diện mẫu chưa phải nội dung thật.
   </p>
 );
 

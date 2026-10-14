@@ -1,319 +1,197 @@
 import React from "react";
-import { DEMO_POSTS } from "@/data/posts";
-import { PostDataType } from "@/data/types";
-import Avatar from "@/shared/Avatar";
-import Badge from "@/shared/Badge";
-import ButtonPrimary from "@/shared/ButtonPrimary";
-import ButtonSecondary from "@/shared/ButtonSecondary";
-import Comment from "@/shared/Comment";
-import SocialsList from "@/shared/SocialsList";
-import Textarea from "@/shared/Textarea";
+import type { Metadata } from "next";
 import Image from "next/image";
-import travelhero2Image from "@/images/travelhero2.png";
 import Link from "next/link";
-import { Route } from "@/routers/types";
+import type { Route } from "next";
+import { notFound } from "next/navigation";
+import BgGlassmorphism from "@/components/BgGlassmorphism";
+import { MEDIA_CHANGES_NOTE, MEDIA_CREDITS_PATH, creditForFile, travelMediaUrl } from "@/data/heroSlides";
+import { TRAVEL_POSTS } from "@/data/travelPosts";
+import {
+  blogCategoryPath,
+  findCategory,
+  findPostBySegments,
+  formatPostDate,
+  isSafeSourceUrl,
+  relatedPosts,
+} from "@/lib/homepageContent";
+import { BLOG_PATH } from "@/lib/riversideHomeContent";
+import PostCard from "../PostCard";
 
-const Page = ({
-  params,
-  searchParams,
-}: {
-  params: { stepIndex: string };
-  searchParams?: { [key: string]: string | string[] | undefined };
-}) => {
-  const renderHeader = () => {
-    return (
-      <header className="container rounded-xl">
-        <div className="max-w-screen-md mx-auto space-y-5">
-          <Badge href="/blog" color="purple" name="Traveler" />
-          <h1
-            className=" text-neutral-900 font-semibold text-3xl md:text-4xl md:!leading-[120%] lg:text-4xl dark:text-neutral-100 max-w-4xl "
-            title="Quiet ingenuity: 120,000 lunches and counting"
-          >
-            Keep up the spirit of the desire to travel around the world
-          </h1>
-          <span className="block text-base text-neutral-500 md:text-lg dark:text-neutral-400 pb-1">
-            We’re an online magazine dedicated to covering the best in
-            international product design. We started as a little blog back in
-            2002 covering student work and over time
-          </span>
+interface PostPageProps {
+  params: { slug?: string[] };
+}
 
-          <div className="w-full border-b border-neutral-100 dark:border-neutral-800"></div>
-          <div className="flex flex-col items-baseline sm:flex-row sm:justify-between">
-            <div className="nc-PostMeta2 flex items-center flex-wrap text-neutral-700 text-left dark:text-neutral-200 text-sm leading-none flex-shrink-0">
-              <Avatar
-                containerClassName="flex-shrink-0"
-                sizeClass="w-8 h-8 sm:h-11 sm:w-11 "
-              />
-              <div className="ml-3">
-                <div className="flex items-center">
-                  <a className="block font-semibold" href="/">
-                    Fones Mimi
-                  </a>
-                </div>
-                <div className="text-xs mt-[6px]">
-                  <span className="text-neutral-700 dark:text-neutral-300">
-                    May 20, 2021
-                  </span>
-                  <span className="mx-2 font-semibold">·</span>
-                  <span className="text-neutral-700 dark:text-neutral-300">
-                    6 min read
-                  </span>
-                </div>
-              </div>
-            </div>
-            <div className="mt-3 sm:mt-0 sm:ml-3">
-              <SocialsList />
-            </div>
-          </div>
-        </div>
-      </header>
-    );
-  };
+/** Only the registry's slugs are generated; anything else is answered by `notFound()` below. */
+export function generateStaticParams() {
+  return TRAVEL_POSTS.map((post) => ({ slug: [post.slug] }));
+}
 
-  const renderContent = () => {
-    return (
-      <div
-        id="single-entry-content"
-        className="prose dark:prose-invert prose-sm !max-w-screen-md sm:prose lg:prose-lg mx-auto dark:prose-dark"
-      >
-        <p>
-          Lorem ipsum dolor, sit amet consectetur adipisicing elit. Iure vel
-          officiis ipsum placeat itaque neque dolorem modi perspiciatis dolor
-          distinctio veritatis sapiente, minima corrupti dolores necessitatibus
-          suscipit accusantium dignissimos culpa cumque.
-        </p>
-        <p>
-          It is a long established fact that a <strong>reader</strong> will be
-          distracted by the readable content of a page when looking at its{" "}
-          <strong>layout</strong>. The point of using Lorem Ipsum is that it has
-          a more-or-less normal{" "}
-          <a href="/#" target="_blank" rel="noopener noreferrer">
-            distribution of letters.
-          </a>{" "}
-        </p>
-        <ol>
-          <li>We want everything to look good out of the box.</li>
-          <li>
-            {` Really just the first reason, that's the whole point of the plugin.`}
-          </li>
-          <li>
-            {`   Here's a third pretend reason though a list with three items looks
-            more realistic than a list with two items.`}
-          </li>
-        </ol>
-        <h3>Typography should be easy</h3>
-        <p>
-          {`So that's a header for you — with any luck if we've done our job
-          correctly that will look pretty reasonable.`}
-        </p>
-        <p>Something a wise person once told me about typography is:</p>
-        <blockquote>
-          <p>
-            {` Typography is pretty important if you don't want your stuff to look
-            like trash. Make it good then it won't be bad.`}
-          </p>
-        </blockquote>
-        <p>
-          {`        It's probably important that images look okay here by default as well:`}
-        </p>
-        <figure>
-          <Image src={travelhero2Image} alt="blog" className="rounded-2xl" />
-          <figcaption>
-            Lorem ipsum dolor, sit amet consectetur adipisicing elit. Iure vel
-            officiis ipsum placeat itaque neque dolorem modi perspiciatis dolor
-            distinctio veritatis sapiente
-          </figcaption>
-        </figure>
-        <p>
-          {` Now I'm going to show you an example of an unordered list to make sure
-          that looks good, too:`}
-        </p>
-        <ul>
-          <li>So here is the first item in this list.</li>
-          <li>{`In this example we're keeping the items short.`}</li>
-          <li>{`Later, we'll use longer, more complex list items.`}</li>
-        </ul>
-        <p>{`And that's the end of this section.`}</p>
-        <h2>Code should look okay by default.</h2>
-        <p>
-          I think most people are going to use{" "}
-          <a href="https://highlightjs.org/">highlight.js</a> or{" "}
-          <a href="https://prismjs.com/">Prism</a>{" "}
-          {`or something if they want to
-          style their code blocks but it wouldn't hurt to make them look`}{" "}
-          <em>okay</em> out of the box, even with no syntax highlighting.
-        </p>
-        <p>
-          {`   What I've written here is probably long enough, but adding this final
-          sentence can't hurt.`}
-        </p>
+export function generateMetadata({ params }: PostPageProps): Metadata {
+  const post = findPostBySegments(params.slug);
+  if (!post) return { title: "Không tìm thấy bài viết — The BHA" };
+  return { title: `${post.title} — The BHA`, description: post.excerpt };
+}
 
-        <p>Hopefully that looks good enough to you.</p>
-        <h3>We still need to think about stacked headings though.</h3>
-
-        <p>
-          Phew, with any luck we have styled the headings above this text and
-          they look pretty good.
-        </p>
-      </div>
-    );
-  };
-
-  const renderTags = () => {
-    return (
-      <div className="max-w-screen-md mx-auto flex flex-wrap">
-        <a
-          className="nc-Tag inline-block bg-white text-sm text-neutral-600 dark:text-neutral-300 py-2 rounded-lg border border-neutral-100  md:px-4 dark:bg-neutral-700 dark:border-neutral-700 hover:border-neutral-200 dark:hover:border-neutral-6000 mr-2 mb-2"
-          href="##"
-        >
-          Garden
-        </a>
-        <a
-          className="nc-Tag inline-block bg-white text-sm text-neutral-600 dark:text-neutral-300 py-2 rounded-lg border border-neutral-100  md:px-4 dark:bg-neutral-700 dark:border-neutral-700 hover:border-neutral-200 dark:hover:border-neutral-6000 mr-2 mb-2"
-          href="##"
-        >
-          Jewelry
-        </a>
-        <a
-          className="nc-Tag inline-block bg-white text-sm text-neutral-600 dark:text-neutral-300 py-2 rounded-lg border border-neutral-100  md:px-4 dark:bg-neutral-700 dark:border-neutral-700 hover:border-neutral-200 dark:hover:border-neutral-6000 mr-2 mb-2"
-          href="##"
-        >
-          Tools
-        </a>
-      </div>
-    );
-  };
-
-  const renderAuthor = () => {
-    return (
-      <div className="max-w-screen-md mx-auto ">
-        <div className="nc-SingleAuthor flex">
-          <Avatar sizeClass="w-11 h-11 md:w-24 md:h-24" />
-          <div className="flex flex-col ml-3 max-w-lg sm:ml-5 space-y-1">
-            <span className="text-xs text-neutral-400 uppercase tracking-wider">
-              WRITEN BY
-            </span>
-            <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-200">
-              <a href="/">Fones Mimi</a>
-            </h2>
-            <span className="text-sm text-neutral-500 sm:text-base dark:text-neutral-300">
-              There’s no stopping the tech giant. Apple now opens its 100th
-              store in China.There’s no stopping the tech giant.
-              <a className="text-primary-6000 font-medium ml-1" href="/">
-                Readmore
-              </a>
-            </span>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const renderCommentForm = () => {
-    return (
-      <div className="max-w-screen-md mx-auto pt-5">
-        <h3 className="text-xl font-semibold text-neutral-800 dark:text-neutral-200">
-          Responses (14)
-        </h3>
-        <form className="nc-SingleCommentForm mt-5">
-          <Textarea />
-          <div className="mt-2 space-x-3">
-            <ButtonPrimary>Submit</ButtonPrimary>
-            <ButtonSecondary>Cancel</ButtonSecondary>
-          </div>
-        </form>
-      </div>
-    );
-  };
-
-  const renderCommentLists = () => {
-    return (
-      <div className="max-w-screen-md mx-auto">
-        <ul className="nc-SingleCommentLists space-y-5">
-          <li>
-            <Comment />
-            <ul className="pl-4 mt-5 space-y-5 md:pl-11">
-              <li>
-                <Comment isSmall />
-              </li>
-            </ul>
-          </li>
-          <li>
-            <Comment />
-            <ul className="pl-4 mt-5 space-y-5 md:pl-11">
-              <li>
-                <Comment isSmall />
-              </li>
-            </ul>
-          </li>
-        </ul>
-      </div>
-    );
-  };
-
-  const renderPostRelated = (post: PostDataType) => {
-    return (
-      <div
-        key={post.id}
-        className="relative aspect-w-3 aspect-h-4 rounded-3xl overflow-hidden group"
-      >
-        <Link href={post.href as Route} />
-        <Image
-          className="object-cover transform group-hover:scale-105 transition-transform duration-300"
-          src={post.featuredImage}
-          fill
-          sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 50vw"
-          alt=""
-        />
-        <div>
-          <div className="absolute bottom-0 inset-x-0 h-1/2 bg-gradient-to-t from-black"></div>
-        </div>
-        <div className="flex flex-col justify-end items-start text-xs text-neutral-300 space-y-2.5 p-4">
-          <Badge name="Categories" />
-          <h2 className="block text-lg font-semibold text-white ">
-            <span className="line-clamp-2">{post.title}</span>
-          </h2>
-
-          <div className="flex">
-            <span className="block text-neutral-200 hover:text-white font-medium truncate">
-              {post.author.displayName}
-            </span>
-            <span className="mx-1.5 font-medium">·</span>
-            <span className="font-normal truncate">{post.date}</span>
-          </div>
-        </div>
-        <Link href={post.href as Route} />
-      </div>
-    );
-  };
+/**
+ * CUST-WEB-001-CP08a-C2: one blog post, resolved from the registry by the exact single segment. Unknown
+ * slugs, extra segments and other letter cases are a 404. The page shows what the registry holds — sections as
+ * plain text (nothing from the web is injected as HTML), its sources as `https` links that open safely,
+ * related posts — and no author, comment, counter or template filler.
+ */
+export default function PostPage({ params }: PostPageProps) {
+  const post = findPostBySegments(params.slug);
+  if (!post) notFound();
+  const category = findCategory(post.category);
+  const credit = creditForFile(post.cover);
+  const related = relatedPosts(post);
 
   return (
-    <div className="nc-PageSingle pt-8 lg:pt-16 ">
-      {renderHeader()}
-      <div className="container my-10 sm:my-12 ">
-        <Image className="w-full rounded-xl" src={travelhero2Image} alt="" />
-      </div>
+    <div className="nc-PostPage relative overflow-hidden">
+      <BgGlassmorphism />
+      <div className="container relative pb-20 pt-10 lg:pb-28 lg:pt-14">
+        <article className="mx-auto max-w-3xl">
+          <nav aria-label="Breadcrumb" className="text-sm text-neutral-500 dark:text-neutral-400">
+            <ol className="flex flex-wrap items-center gap-2">
+              <li>
+                <Link href={"/" as Route} className="hover:underline">
+                  Trang chủ
+                </Link>
+              </li>
+              <li aria-hidden="true">/</li>
+              <li>
+                <Link href={BLOG_PATH as Route} className="hover:underline">
+                  Blog
+                </Link>
+              </li>
+              {category && (
+                <>
+                  <li aria-hidden="true">/</li>
+                  <li>
+                    <Link href={blogCategoryPath(category.slug) as Route} className="hover:underline">
+                      {category.name}
+                    </Link>
+                  </li>
+                </>
+              )}
+            </ol>
+          </nav>
 
-      <div className="nc-SingleContent container space-y-10">
-        {renderContent()}
-        {renderTags()}
-        <div className="max-w-screen-md mx-auto border-b border-t border-neutral-100 dark:border-neutral-700"></div>
-        {renderAuthor()}
-        {renderCommentForm()}
-        {renderCommentLists()}
-      </div>
-      <div className="relative bg-neutral-100 dark:bg-neutral-800 py-16 lg:py-28 mt-16 lg:mt-24">
-        <div className="container ">
-          <h2 className="text-3xl font-semibold">Related posts</h2>
-          <div className="mt-10 grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 md:gap-8">
-            {/*  */}
-            {DEMO_POSTS.filter((_, i) => i < 4).map(renderPostRelated)}
-            {/*  */}
+          <header className="mt-6 space-y-4">
+            {category && (
+              <Link
+                href={blogCategoryPath(category.slug) as Route}
+                className="inline-block text-xs font-medium uppercase tracking-wide text-primary-700 hover:underline dark:text-primary-300"
+              >
+                {category.name}
+              </Link>
+            )}
+            <h1 className="text-3xl font-semibold !leading-tight text-neutral-900 dark:text-neutral-50 md:text-4xl">{post.title}</h1>
+            <p className="text-neutral-600 dark:text-neutral-300">{post.excerpt}</p>
+            <p className="text-sm text-neutral-500 dark:text-neutral-400">
+              {post.kind === "news"
+                ? `Tóm tắt từ bản tin ngày ${formatPostDate(post.publishedAt)} · cập nhật ${formatPostDate(post.updatedAt)}`
+                : `Cẩm nang cập nhật ${formatPostDate(post.updatedAt)}`}
+            </p>
+          </header>
+
+          <figure className="mt-8">
+            <div className="overflow-hidden rounded-3xl">
+              <Image
+                src={travelMediaUrl(post.cover)}
+                alt={post.coverAlt}
+                width={1200}
+                height={800}
+                sizes="(min-width: 768px) 768px, 100vw"
+                priority
+                className="w-full object-cover"
+              />
+            </div>
+            {credit && (
+              <figcaption className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
+                Ảnh: {credit.author} ·{" "}
+                <a href={credit.licenseUrl} target="_blank" rel="noopener noreferrer" className="underline">
+                  {credit.license}
+                </a>{" "}
+                ·{" "}
+                <a href={credit.sourceUrl} target="_blank" rel="noopener noreferrer" className="underline">
+                  Wikimedia Commons
+                </a>
+                . {MEDIA_CHANGES_NOTE}{" "}
+                <Link href={MEDIA_CREDITS_PATH as Route} className="underline">
+                  Nguồn ảnh
+                </Link>
+              </figcaption>
+            )}
+          </figure>
+
+          <div className="mt-10 space-y-10">
+            {post.sections.map((section, sectionIndex) => (
+              <section key={section.heading} aria-labelledby={`section-${sectionIndex}`}>
+                <h2 id={`section-${sectionIndex}`} className="text-xl font-semibold text-neutral-900 dark:text-neutral-100 md:text-2xl">
+                  {section.heading}
+                </h2>
+                <div className="mt-3 space-y-4 text-neutral-700 dark:text-neutral-300">
+                  {section.paragraphs.map((paragraph) => (
+                    <p key={paragraph}>{paragraph}</p>
+                  ))}
+                  {section.bullets && (
+                    <ul className="list-disc space-y-2 pl-6">
+                      {section.bullets.map((bullet) => (
+                        <li key={bullet}>{bullet}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </section>
+            ))}
           </div>
-        </div>
+
+          <section aria-labelledby="sources-heading" className="mt-12 rounded-3xl border border-neutral-200 p-6 dark:border-neutral-700">
+            <h2 id="sources-heading" className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
+              Nguồn tham khảo
+            </h2>
+            <ul className="mt-4 space-y-3 text-sm">
+              {post.sources
+                .filter((source) => isSafeSourceUrl(source.url))
+                .map((source) => (
+                  <li key={source.url}>
+                    <a href={source.url} target="_blank" rel="noopener noreferrer" className="font-medium text-primary-700 underline underline-offset-2 dark:text-primary-300">
+                      {source.label}
+                    </a>
+                    <span className="block text-neutral-500 dark:text-neutral-400">
+                      {source.publisher}
+                      {source.publishedAt ? ` · ${formatPostDate(source.publishedAt)}` : ""}
+                    </span>
+                  </li>
+                ))}
+            </ul>
+            <p className="mt-4 text-xs text-neutral-500 dark:text-neutral-400">
+              Nội dung được tóm lược từ các nguồn công khai ở trên bằng lời của chúng tôi và có thể đã thay đổi. Hãy đọc bản gốc trước khi lên kế hoạch.
+            </p>
+          </section>
+        </article>
+
+        {related.length > 0 && (
+          <section aria-labelledby="related-heading" className="mx-auto mt-16 max-w-6xl">
+            <h2 id="related-heading" className="text-2xl font-semibold text-neutral-900 dark:text-neutral-50">
+              Bài viết liên quan
+            </h2>
+            <ul className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              {related.map((item) => (
+                <li key={item.id}>
+                  <PostCard post={item} />
+                </li>
+              ))}
+            </ul>
+            <p className="mt-8">
+              <Link href={BLOG_PATH as Route} className="font-medium text-primary-700 underline underline-offset-2 dark:text-primary-300">
+                ← Quay lại Blog
+              </Link>
+            </p>
+          </section>
+        )}
       </div>
     </div>
   );
-};
-
-export default Page;
+}

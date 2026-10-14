@@ -1,27 +1,24 @@
 import React from "react";
 import type { Metadata } from "next";
-import SectionHero from "@/app/(server-components)/SectionHero";
 import BgGlassmorphism from "@/components/BgGlassmorphism";
-import HomeFeaturedRooms from "./(home)/HomeFeaturedRooms";
-import { HomeSectionAnchors } from "./(home)/RiversideHomeSections";
-import {
-  BookingGuideSection,
-  IntroSection,
-  LocationFaqSection,
-  SpaceGallerySection,
-} from "./(home)/RiversideHomeContent";
+import HomeHeroCarousel from "./(home)/HomeHeroCarousel";
+import HomeOfferSection from "./(home)/HomeOfferSection";
+import HomeDestinationSection from "./(home)/HomeDestinationSection";
+import HomeRiversideTeaser from "./(home)/HomeRiversideTeaser";
+import HomeNewsSection from "./(home)/HomeNewsSection";
+import HomeNewsletter from "./(home)/HomeNewsletter";
 
 export const metadata: Metadata = {
-  title: "The BHA Riverside — Đặt phòng trực tiếp tại Đà Nẵng",
+  title: "The BHA — Đặt phòng trực tiếp tại Đà Nẵng",
   description:
-    "Căn hộ lưu trú The BHA Riverside tại Đà Nẵng: chọn ngày, xem giá từng đêm theo loại phòng và đặt phòng trực tiếp.",
+    "Khám phá Đà Nẵng cùng The BHA: tìm phòng, xem giá từng đêm tại The BHA Riverside, đọc cẩm nang điểm đến và tin du lịch.",
 };
 
 /**
- * CUST-WEB-001-CP08a: the home page of The BHA Riverside, in the Chisfis composition. Hero with the search,
- * the real room types, why and how to book, the place itself, the questions a guest has. Every section says
- * only what the booking system or an Owner-approved fact backs (see `lib/riversideHomeContent`); the
- * template's sample cities, authors, testimonials, newsletter, video and app promotion are not rendered.
+ * CUST-WEB-001-CP08a-C2: the booking portal. A full-width Đà Nẵng slideshow with the real search, sample offers
+ * (mock data, said as such), destination guides, travel-news summaries and a newsletter preview. It is not
+ * the Riverside landing page — that is `/riverside` — and it renders no price, availability or catalog data of
+ * its own: the booking system answers only when a search or a room page asks.
  */
 function PageHome() {
   return (
@@ -29,21 +26,19 @@ function PageHome() {
       {/* GLASSMOPHIN */}
       <BgGlassmorphism />
 
-      <HomeSectionAnchors>
-        <div className="container relative space-y-24 mb-24 lg:space-y-28 lg:mb-28">
-          <SectionHero className="pt-10 lg:pt-16 lg:pb-16" />
+      <HomeHeroCarousel />
 
-          <HomeFeaturedRooms />
+      <div className="container relative mb-24 mt-16 space-y-20 lg:mb-28 lg:mt-12 lg:space-y-28">
+        <HomeOfferSection />
 
-          <IntroSection />
+        <HomeDestinationSection />
 
-          <SpaceGallerySection />
+        <HomeRiversideTeaser />
 
-          <BookingGuideSection />
+        <HomeNewsSection />
 
-          <LocationFaqSection />
-        </div>
-      </HomeSectionAnchors>
+        <HomeNewsletter />
+      </div>
     </main>
   );
 }
