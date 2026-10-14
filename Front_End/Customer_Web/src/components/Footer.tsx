@@ -1,106 +1,85 @@
 "use client";
 
-import Logo from "@/shared/Logo";
-import SocialsList1 from "@/shared/SocialsList1";
-import { CustomLink } from "@/data/types";
 import React from "react";
-import FooterNav from "./FooterNav";
+import Link from "next/link";
+import type { Route } from "next";
+import Logo from "@/shared/Logo";
+import ShowcaseNavLink from "@/components/ShowcaseNavLink";
+import { useCustomerSession } from "@/app/CustomerSessionProvider";
+import { describeAuthEntry } from "@/lib/customerAuthUi";
+import { HOME_SECTION, RESULTS_PATH, RIVERSIDE_ADDRESS, RIVERSIDE_NAME } from "@/lib/riversideHomeContent";
 
-export interface WidgetFooterMenu {
-  id: string;
-  title: string;
-  menus: CustomLink[];
-}
+const LINK_CLASS = "text-neutral-6000 dark:text-neutral-300 hover:text-black dark:hover:text-white";
 
-const widgetMenus: WidgetFooterMenu[] = [
-  {
-    id: "5",
-    title: "Getting started",
-    menus: [
-      { href: "#", label: "Installation" },
-      { href: "#", label: "Release Notes" },
-      { href: "#", label: "Upgrade Guide" },
-      { href: "#", label: "Browser Support" },
-      { href: "#", label: "Editor Support" },
-    ],
-  },
-  {
-    id: "1",
-    title: "Explore",
-    menus: [
-      { href: "#", label: "Design features" },
-      { href: "#", label: "Prototyping" },
-      { href: "#", label: "Design systems" },
-      { href: "#", label: "Pricing" },
-      { href: "#", label: "Security" },
-    ],
-  },
-  {
-    id: "2",
-    title: "Resources",
-    menus: [
-      { href: "#", label: "Best practices" },
-      { href: "#", label: "Support" },
-      { href: "#", label: "Developers" },
-      { href: "#", label: "Learn design" },
-      { href: "#", label: "Releases" },
-    ],
-  },
-  {
-    id: "4",
-    title: "Community",
-    menus: [
-      { href: "#", label: "Discussion Forums" },
-      { href: "#", label: "Code of Conduct" },
-      { href: "#", label: "Community Resources" },
-      { href: "#", label: "Contributing" },
-      { href: "#", label: "Concurrent Mode" },
-    ],
-  },
-];
-
+/**
+ * CUST-WEB-001-CP08a: the footer of the Riverside site. The brand and its approved address, and links that
+ * lead through the booking journey: search, room types, the guide, the questions, the account entry.
+ * There is no phone, e-mail, Zalo or social link because none has been supplied; none is invented.
+ * (The small-screen app bar, FooterNav, is mounted once by the root layout, not here.)
+ */
 const Footer: React.FC = () => {
-  const renderWidgetMenuItem = (menu: WidgetFooterMenu, index: number) => {
-    return (
-      <div key={index} className="text-sm">
-        <h2 className="font-semibold text-neutral-700 dark:text-neutral-200">
-          {menu.title}
-        </h2>
-        <ul className="mt-5 space-y-4">
-          {menu.menus.map((item, index) => (
-            <li key={index}>
-              <a
-                key={index}
-                className="text-neutral-6000 dark:text-neutral-300 hover:text-black dark:hover:text-white"
-                href={item.href}
-              >
-                {item.label}
-              </a>
-            </li>
-          ))}
-        </ul>
-      </div>
-    );
-  };
+  const { state, identityChange } = useCustomerSession();
+  const entry = describeAuthEntry(
+    state.status,
+    identityChange.phase,
+    state.status === "authenticated" ? state.customer.email : null
+  );
+  const showSignup = state.status === "anonymous";
 
   return (
-    <>
-      <FooterNav />
-
-      <div className="nc-Footer relative py-24 lg:py-28 border-t border-neutral-200 dark:border-neutral-700">
-        <div className="container grid grid-cols-2 gap-y-10 gap-x-5 sm:gap-x-8 md:grid-cols-4 lg:grid-cols-5 lg:gap-x-10 ">
-          <div className="grid grid-cols-4 gap-5 col-span-2 md:col-span-4 lg:md:col-span-1 lg:flex lg:flex-col">
-            <div className="col-span-2 md:col-span-1">
-              <Logo />
-            </div>
-            <div className="col-span-2 flex items-center md:col-span-3">
-              <SocialsList1 className="flex items-center space-x-3 lg:space-x-0 lg:flex-col lg:space-y-2.5 lg:items-start" />
-            </div>
-          </div>
-          {widgetMenus.map(renderWidgetMenuItem)}
+    <div className="nc-Footer relative py-24 lg:py-28 border-t border-neutral-200 dark:border-neutral-700">
+      <div className="container grid grid-cols-2 gap-y-10 gap-x-5 sm:gap-x-8 md:grid-cols-4 lg:gap-x-10">
+        <div className="col-span-2 space-y-4 text-sm">
+          <Logo />
+          <p className="font-semibold text-neutral-700 dark:text-neutral-200">{RIVERSIDE_NAME}</p>
+          <p className="text-neutral-6000 dark:text-neutral-300">{RIVERSIDE_ADDRESS}</p>
         </div>
+
+        <nav aria-label="Đặt phòng" className="text-sm">
+          <h2 className="font-semibold text-neutral-700 dark:text-neutral-200">Đặt phòng</h2>
+          <ul className="mt-5 space-y-4">
+            <li>
+              <Link href={RESULTS_PATH as Route} className={LINK_CLASS}>
+                Tìm phòng
+              </Link>
+            </li>
+            <li>
+              <ShowcaseNavLink section={HOME_SECTION.rooms} className={LINK_CLASS}>
+                Loại phòng
+              </ShowcaseNavLink>
+            </li>
+            <li>
+              <ShowcaseNavLink section={HOME_SECTION.guide} className={LINK_CLASS}>
+                Hướng dẫn đặt phòng
+              </ShowcaseNavLink>
+            </li>
+            <li>
+              <ShowcaseNavLink section={HOME_SECTION.faq} className={LINK_CLASS}>
+                Thông tin cần biết
+              </ShowcaseNavLink>
+            </li>
+          </ul>
+        </nav>
+
+        <nav aria-label="Tài khoản" className="text-sm">
+          <h2 className="font-semibold text-neutral-700 dark:text-neutral-200">Tài khoản</h2>
+          <ul className="mt-5 space-y-4">
+            <li>
+              <Link href={entry.href as Route} className={LINK_CLASS}>
+                {entry.label}
+              </Link>
+            </li>
+            {showSignup && (
+              <li>
+                <Link href={"/signup" as Route} className={LINK_CLASS}>
+                  Tạo tài khoản
+                </Link>
+              </li>
+            )}
+          </ul>
+        </nav>
       </div>
-    </>
+    </div>
   );
 };
 

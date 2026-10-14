@@ -1,25 +1,32 @@
 "use client";
 
-import React, { Fragment, useState } from "react";
-import { Dialog, Tab, Transition } from "@headlessui/react";
+import React, { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { Dialog, Transition } from "@headlessui/react";
 import { MagnifyingGlassIcon } from "@heroicons/react/24/outline";
 import { XMarkIcon } from "@heroicons/react/24/solid";
 import ButtonSubmit from "./ButtonSubmit";
 import { useTimeoutFn } from "react-use";
 import StaySearchForm from "./(stay-search-form)/StaySearchForm";
-import CarsSearchForm from "./(car-search-form)/CarsSearchForm";
-import FlightSearchForm from "./(flight-search-form)/FlightSearchForm";
-import { describeDraftProblem, useStaySearch } from "@/components/StaySearchProvider";
-import { validateAvailabilityDraft } from "@/lib/api/availabilityValidation";
-import { DEFAULT_FEATURED_TAB } from "@/lib/featuredBrands";
-import { initialStayDraft, toAvailabilityDraft } from "@/lib/staySearch";
+import { useStaySearch } from "@/components/StaySearchProvider";
+import { OPEN_SEARCH_EVENT, draftPatchFromListingQuery, summarizeDraft } from "@/lib/homepageSearch";
+import { LISTING_STAY_PATH, parseStayListingQuery } from "@/lib/stayListingQuery";
+import { initialStayDraft } from "@/lib/staySearch";
 
+/**
+ * The compact search of every header under `lg` (and of the room page, where the app bar is hidden).
+ * CUST-WEB-001-CP08a: it is the live Riverside search only — the template's Experiences/Cars/Flights tabs
+ * are gone — and Search goes through the same decision as the home hero (`StaySearchProvider.submit`): a
+ * valid draft closes the modal and goes to the canonical /listing-stay URL; an incomplete one keeps the
+ * modal open and says what is missing. Opening it never navigates: on a results page it only copies that
+ * page's valid Riverside search into the draft, which stays a draft until Search.
+ */
 const HeroSearchForm2Mobile = () => {
   const [showModal, setShowModal] = useState(false);
-  // CP02-C3: the first tab (Stay) is the live search of The BHA's stays; the others are the template's demo forms.
   const stay = useStaySearch();
-  const [tabIndex, setTabIndex] = useState(0);
-  const [stayProblem, setStayProblem] = useState<string | null>(null);
+  const problemRef = useRef<HTMLParagraphElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const problemId = stay?.problem?.id;
+  const seenProblem = useRef(problemId);
 
   // FOR RESET ALL DATA WHEN CLICK CLEAR BUTTON
   const [showDialog, setShowDialog] = useState(false);
@@ -29,24 +36,50 @@ const HeroSearchForm2Mobile = () => {
     setShowModal(false);
   }
 
-  function openModal() {
+  const openModal = useCallback(() => {
+    if (stay) {
+      stay.clearProblem();
+      if (window.location.pathname === LISTING_STAY_PATH) {
+        const patch = draftPatchFromListingQuery(parseStayListingQuery(new URLSearchParams(window.location.search)));
+        if (patch) stay.updateDraft(patch);
+      }
+    }
     setShowModal(true);
-  }
+  }, [stay]);
+
+  // The page's own "Tìm phòng" button asks for this search to open.
+  useEffect(() => {
+    // Above `lg` the hero's own form is on screen; this modal is the small-screen search only.
+    const onRequest = () => {
+      if (window.matchMedia("(max-width: 1023px)").matches) openModal();
+    };
+    window.addEventListener(OPEN_SEARCH_EVENT, onRequest);
+    return () => window.removeEventListener(OPEN_SEARCH_EVENT, onRequest);
+  }, [openModal]);
+
+  useEffect(() => {
+    if (problemId && problemId !== seenProblem.current && showModal) problemRef.current?.focus();
+    seenProblem.current = problemId;
+  }, [problemId, showModal]);
+
+  if (!stay) return null;
+  const summary = summarizeDraft(stay.draft);
 
   const renderButtonOpenModal = () => {
     return (
       <button
+        type="button"
+        ref={triggerRef}
         onClick={openModal}
+        aria-label="Tìm phòng"
         className="relative flex items-center w-full border border-neutral-200 dark:border-neutral-6000 px-4 py-2 pr-11 rounded-full shadow-lg"
       >
         <MagnifyingGlassIcon className="flex-shrink-0 w-5 h-5" />
 
         <div className="ml-3 flex-1 text-left overflow-hidden">
-          <span className="block font-medium text-sm">Where to?</span>
+          <span className="block font-medium text-sm line-clamp-1">{summary.title}</span>
           <span className="block mt-0.5 text-xs font-light text-neutral-500 dark:text-neutral-400 ">
-            <span className="line-clamp-1">
-              Anywhere • Any week • Add guests
-            </span>
+            <span className="line-clamp-1">{summary.subtitle}</span>
           </span>
         </div>
 
@@ -69,7 +102,11 @@ const HeroSearchForm2Mobile = () => {
   return (
     <div className="HeroSearchForm2Mobile">
       {renderButtonOpenModal()}
-      <Transition appear show={showModal} as={Fragment}>
+      {/* When the modal has gone, the keyboard is back on the control that opened it. */}
+      <Transition appear show={showModal} as={Fragment} afterLeave={() => {
+          // The rest of the page is inert until the dialog has unmounted; focus the trigger just after that.
+          window.setTimeout(() => triggerRef.current?.focus(), 30);
+        }}>
         <Dialog
           as="div"
           className="HeroSearchFormMobile__Dialog relative z-max"
@@ -88,64 +125,32 @@ const HeroSearchForm2Mobile = () => {
               >
                 <Dialog.Panel className="relative h-full overflow-hidden flex-1 flex flex-col justify-between ">
                   {showDialog && (
-                    <Tab.Group manual onChange={setTabIndex}>
+                    <>
                       <div className="absolute left-4 top-4">
-                        <button className="" onClick={closeModal}>
+                        <button type="button" aria-label="Đóng" onClick={closeModal}>
                           <XMarkIcon className="w-5 h-5 text-black dark:text-white" />
                         </button>
                       </div>
 
-                      <Tab.List className="pt-12 flex w-full justify-center font-semibold text-sm sm:text-base text-neutral-500 dark:text-neutral-400 space-x-6 sm:space-x-8">
-                        {["Stay", "Experiences", "Cars", "Flights"].map(
-                          (item, index) => (
-                            <Tab key={index} as={Fragment}>
-                              {({ selected }) => (
-                                <div className="relative focus:outline-none focus-visible:ring-0 outline-none select-none">
-                                  <div
-                                    className={`${
-                                      selected
-                                        ? "text-black dark:text-white"
-                                        : ""
-                                    }  `}
-                                  >
-                                    {item}
-                                  </div>
-                                  {selected && (
-                                    <span className="absolute inset-x-0 top-full border-b-2 border-black dark:border-white"></span>
-                                  )}
-                                </div>
-                              )}
-                            </Tab>
-                          )
-                        )}
-                      </Tab.List>
+                      <Dialog.Title className="pt-12 text-center font-semibold text-base text-black dark:text-white">
+                        Tìm phòng tại The BHA Riverside
+                      </Dialog.Title>
                       <div className="flex-1 pt-3 px-1.5 sm:px-4 flex overflow-hidden">
-                        <Tab.Panels className="flex-1 overflow-y-auto hiddenScrollbar py-4">
-                          <Tab.Panel>
-                            <div className="transition-opacity animate-[myblur_0.4s_ease-in-out]">
-                              <StaySearchForm live />
-                            </div>
-                          </Tab.Panel>
-                          <Tab.Panel>
-                            <div className="transition-opacity animate-[myblur_0.4s_ease-in-out]">
-                              <StaySearchForm />
-                            </div>
-                          </Tab.Panel>
-                          <Tab.Panel>
-                            <div className="transition-opacity animate-[myblur_0.4s_ease-in-out]">
-                              <CarsSearchForm />
-                            </div>
-                          </Tab.Panel>
-                          <Tab.Panel>
-                            <div className="transition-opacity animate-[myblur_0.4s_ease-in-out]">
-                              <FlightSearchForm />
-                            </div>
-                          </Tab.Panel>
-                        </Tab.Panels>
+                        <div className="flex-1 overflow-y-auto hiddenScrollbar py-4">
+                          <div className="transition-opacity animate-[myblur_0.4s_ease-in-out]">
+                            <StaySearchForm live />
+                          </div>
+                        </div>
                       </div>
-                      {tabIndex === 0 && stayProblem && (
-                        <p role="alert" className="px-4 py-2 text-sm text-red-600 bg-white dark:bg-neutral-900 dark:text-red-400">
-                          {stayProblem}
+                      {stay.problem && (
+                        <p
+                          key={stay.problem.id}
+                          ref={problemRef}
+                          role="alert"
+                          tabIndex={-1}
+                          className="px-4 py-2 text-sm text-red-600 bg-white focus:outline-none dark:bg-neutral-900 dark:text-red-400"
+                        >
+                          {stay.problem.message}
                         </p>
                       )}
                       <div className="px-4 py-3 bg-white dark:bg-neutral-900 border-t border-neutral-200 dark:border-neutral-700 flex justify-between">
@@ -153,30 +158,24 @@ const HeroSearchForm2Mobile = () => {
                           type="button"
                           className="underline font-semibold flex-shrink-0"
                           onClick={() => {
-                            if (tabIndex === 0) stay?.updateDraft(initialStayDraft());
+                            stay.updateDraft(initialStayDraft());
                             setShowDialog(false);
                             resetIsShowingDialog();
                           }}
                         >
-                          Clear all
+                          Xoá tất cả
                         </button>
                         <ButtonSubmit
+                          label="Tìm phòng"
                           onClick={() => {
-                            if (tabIndex === 0 && stay) {
-                              // An unsearchable Riverside draft keeps the modal open and says why (the hero's own message is not on screen here).
-                              const checked = validateAvailabilityDraft(toAvailabilityDraft(stay.draft));
-                              if (stay.draft.brand === DEFAULT_FEATURED_TAB && !checked.ok) {
-                                setStayProblem(describeDraftProblem(checked.errors));
-                                return;
-                              }
-                              setStayProblem(null);
-                              stay.submit();
-                            }
-                            closeModal();
+                            // An incomplete search keeps the modal open and says why; a valid one starts
+                            // exactly one navigation and the modal closes.
+                            const outcome = stay.submit();
+                            if (outcome === "navigate" || outcome === "duplicate") closeModal();
                           }}
                         />
                       </div>
-                    </Tab.Group>
+                    </>
                   )}
                 </Dialog.Panel>
               </Transition.Child>

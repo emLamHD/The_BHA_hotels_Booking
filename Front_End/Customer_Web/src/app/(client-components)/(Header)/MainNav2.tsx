@@ -1,19 +1,25 @@
 import React, { FC } from "react";
+import Link from "next/link";
+import type { Route } from "next";
 import Logo from "@/shared/Logo";
 import MenuBar from "@/shared/MenuBar";
-import LangDropdown from "./LangDropdown";
-import NotifyDropdown from "./NotifyDropdown";
 import AvatarDropdown from "./AvatarDropdown";
-import DropdownTravelers from "./DropdownTravelers";
 import HeroSearchForm2MobileFactory from "../(HeroSearchForm2Mobile)/HeroSearchForm2MobileFactory";
-import Link from "next/link";
-import TemplatesDropdown from "./TemplatesDropdown";
-import { Route } from "@/routers/types";
+import ShowcaseNavLink from "@/components/ShowcaseNavLink";
+import { RIVERSIDE_NAV } from "@/lib/riversideHomeContent";
 
 export interface MainNav2Props {
   className?: string;
 }
 
+const NAV_LINK_CLASS =
+  "inline-flex items-center rounded-full px-3 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-100 hover:text-neutral-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:text-neutral-300 dark:hover:bg-neutral-800 dark:hover:text-white";
+
+/**
+ * CUST-WEB-001-CP08a: logo, the Riverside navigation (every entry leads somewhere that works), the compact
+ * search under `lg`, and the account entry. The template's multi-service dropdowns, templates menu, language,
+ * notifications and "List your property" are not rendered.
+ */
 const MainNav2: FC<MainNav2Props> = ({ className = "" }) => {
   return (
     <div className={`MainNav2 relative z-10 ${className}`}>
@@ -21,9 +27,19 @@ const MainNav2: FC<MainNav2Props> = ({ className = "" }) => {
         <div className="hidden md:flex justify-start flex-1 space-x-3 sm:space-x-8 lg:space-x-10">
           <Logo className="w-24 self-center" />
           <div className="hidden lg:block self-center h-10 border-l border-neutral-300 dark:border-neutral-500"></div>
-          <div className="hidden lg:flex ">
-            <DropdownTravelers />
-          </div>
+          <nav aria-label="Điều hướng chính" className="hidden lg:flex self-center items-center space-x-1">
+            {RIVERSIDE_NAV.map((item) =>
+              item.section ? (
+                <ShowcaseNavLink key={item.id} section={item.section} className={NAV_LINK_CLASS}>
+                  {item.name}
+                </ShowcaseNavLink>
+              ) : (
+                <Link key={item.id} href={item.href as Route} className={NAV_LINK_CLASS}>
+                  {item.name}
+                </Link>
+              )
+            )}
+          </nav>
         </div>
 
         <div className="self-center lg:hidden flex-[3] max-w-lg !mx-auto md:px-3">
@@ -37,20 +53,9 @@ const MainNav2: FC<MainNav2Props> = ({ className = "" }) => {
 
         <div className="hidden md:flex flex-shrink-0 justify-end flex-1 lg:flex-none text-neutral-700 dark:text-neutral-100">
           <div className="hidden lg:flex space-x-1">
-            <TemplatesDropdown />
-            <LangDropdown />
-            <Link
-              href={"/add-listing" as Route<string>}
-              className="self-center text-opacity-90 group px-4 py-2 border border-neutral-300 hover:border-neutral-400 dark:border-neutral-700 rounded-full inline-flex items-center text-sm text-gray-700 dark:text-neutral-300 font-medium hover:text-opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-opacity-75"
-            >
-              List your property
-            </Link>
-
-            <NotifyDropdown />
             <AvatarDropdown />
           </div>
           <div className="flex space-x-2 lg:hidden">
-            <NotifyDropdown />
             <AvatarDropdown />
             <MenuBar />
           </div>
