@@ -72,9 +72,9 @@ Bốn trạng thái tách riêng: **implementation** `PASS` (code, test, browser
 - **API/DB (thật):** PostgreSQL `18.3` container riêng của task, loopback `55428`, DB `cust_cp08a_demo`; `idempotent.sql` áp sau khi kiểm `pg_isready`, `current_database`, version, container; lịch sử migration = 9 (tới `StaffIdentityFoundation`) và source có đúng 9 migration. `dotnet publish` Release từ Backend **không đổi** (diff Backend/`deploy` so với baseline rỗng). Seed `--seed-riverside-demo` (dry-run rồi apply): 60 đêm `2026-10-15..2026-12-13`, 3 loại phòng, 1 rate plan, 11 phòng vật lý, 262 dòng. API `Production` (không LocalGate), PFX task, CORS chỉ `https://localhost:3401`, `health/ready` 200. `next start` `127.0.0.1:3400` sau TLS front `3401`; proxy lỗi `7546 → 7545` xác minh TLS upstream.
 - **Thật, không mô phỏng:** catalog/room types/offer từ API+DB task; **rỗng thật** (`200 []` cho tháng 3/2027, ngoài cửa sổ seed, đi từ hero trang chủ bằng lịch thật); toàn bộ năm hành trình đặt phòng (đối chiếu DB); đăng ký/đăng nhập/đăng xuất; điều hướng và bố cục.
 - **Mô phỏng (đánh dấu trong test, log proxy ghi `simulated`):** property list `[]`, room types `[]`/chỉ một loại, 500/503 ở catalog và availability, 401/400 body, mạng đứt (`page.route` abort), availability chậm 5 s (race A→B), catalog chậm 4 s (không navigation muộn), ảnh lỗi (route abort). **Không** kết quả mô phỏng nào được tính là “API+DB rỗng thật”.
-- **Chỉ ở unit/fixture:** pending/recovery của auth (code auth không đổi; test auth hiện có giữ xanh — **không** có browser run cho các trạng thái này); đa rate plan / giá đêm không đều (seed chỉ có 1 rate plan, đêm đều; test CP05a dùng helper thật).
+- **Chỉ ở unit/fixture (tại thời điểm C0 — đã được browser run ở C1, xem §12):** pending/recovery của auth (code auth không đổi; test auth hiện có giữ xanh — C0 **không** có browser run cho các trạng thái này); đa rate plan / giá đêm không đều (seed chỉ có 1 rate plan, đêm đều; test CP05a dùng helper thật).
 
-### Bảng acceptance: 272 check, một lượt sạch (`RUN_SET=2`)
+### Bảng acceptance (C0): 272 mục = **271 PASS + 1 FINDING kế thừa**, một lượt sạch (`RUN_SET=2`)
 
 | Bộ | Check | Phạm vi |
 |---|---|---|
@@ -84,7 +84,7 @@ Bốn trạng thái tách riêng: **implementation** `PASS` (code, test, browser
 | 4 | 35 | đặt phòng E2E khách desktop, khách mobile, người đã đăng nhập (mỗi lượt +1 hold +1 reservation `Confirmed`, 2 request ghi); hold/biên nhận sống qua search, điều hướng, FAQ, đăng nhập bị chặn như baseline; xác nhận đúng một lần |
 | 5 | 63 | giá so với JSON thật, link thẻ mang đúng năm giá trị, tên truy cập, bàn phím/Esc, vùng live, 320/390/768 không tràn/không che, dark mode + tương phản, console |
 
-Trong bộ 5, 62 là pass và **1 là FINDING có nhãn** (không phải pass): nút mũi tên/chấm của slider ảnh trong thẻ phòng không có tên truy cập (24 nút) — thành phần dùng chung `GallerySlider.tsx`, ngoài allowlist.
+Trong bộ 5, 62 là PASS và **1 là FINDING có nhãn** (không phải PASS; 64+52+58+35+62 = 271 PASS): nút mũi tên/chấm của slider ảnh trong thẻ phòng không có tên truy cập (24 nút) — thành phần dùng chung `GallerySlider.tsx`, ngoài allowlist.
 
 ### Lỗi thật do browser acceptance và rà soát tìm ra, đã sửa trong phạm vi
 
@@ -135,7 +135,7 @@ Checkpoint **không** claim “mọi route thương mại hoàn tất”.
 
 *Chuẩn bị:* build đã deploy hoặc `https://localhost:3401`, dữ liệu là bản seed demo, không phải tồn kho thương mại đã mở bán.
 
-1. **(0:00)** Mở `/` trên laptop. “Đây là The BHA Riverside: một câu về chỗ nghỉ, ảnh thật, tìm phòng ngay ở đầu trang.” Chỉ dòng demo trên cùng: giá và đặt phòng là của hệ thống đặt phòng, chưa có thanh toán trực tuyến, ảnh chưa xác minh quyền thương mại.
+1. **(0:00)** Mở `/` trên laptop. “Đây là The BHA Riverside: một câu về chỗ nghỉ, ảnh Riverside do Owner cung cấp (cho dùng bản demo; nguồn gốc và quyền thương mại chưa xác minh), tìm phòng ngay ở đầu trang.” Chỉ dòng demo trên cùng: giá và đặt phòng là của hệ thống đặt phòng, chưa có thanh toán trực tuyến, ảnh chưa xác minh quyền thương mại.
 2. **(0:30)** Cuộn tới *Loại phòng*: các loại căn hộ là dữ liệu từ hệ thống (không phải mẫu); chưa chọn ngày nên chưa có giá. Mở *Đặt phòng trực tiếp, rõ ràng từng bước* và *Khám phá không gian*: hồ bơi sân thượng, sảnh, lối vào.
 3. **(1:15)** Lên đầu trang, chọn ngày, 3 người lớn 1 trẻ em, bấm Tìm phòng: URL mang đủ tham số (chia sẻ/tải lại/Back-Forward đều dựng lại kết quả); **so giá giữa các loại phòng**, nói rõ giá là ảnh chụp tại lúc tìm, chưa giữ phòng. Thử ngày thiếu để thấy lời nhắn; thử ngày ngoài lịch để thấy “Không có phòng phù hợp” (rỗng thật, khác với lỗi).
 4. **(2:00)** *Chỉ trên điện thoại:* pill tìm kiếm ở đầu, modal, Esc/Đóng giữ nguyên lựa chọn.
@@ -152,7 +152,7 @@ Checkpoint **không** claim “mọi route thương mại hoàn tất”.
 - **Owner kiểm trên Vercel (không thể chứng minh cục bộ):** (1) **chế độ proxy:** toàn bộ acceptance chạy ở direct mode; đăng nhập/đăng ký, cookie, CSRF, CORS ở proxy mode chưa được kiểm; (2) `NEXT_PUBLIC_API_BASE_URL`/`API_PROXY_ORIGIN` đúng môi trường, API đang chạy khớp `6ae3fdd` hoặc mới hơn; (3) ảnh `/media/the-bha-riverside/*` và `/_next/image` tải được; (4) trang chủ tải catalog (3 loại phòng nếu seed giống) và một lượt tìm phòng trên ngày thật của dữ liệu; (5) hai trạng thái Vercel của PR chỉ là build preview, **không** chứng minh production đã deploy hay đúng backend.
 - **Rollback frontend:** về bản release trước do Owner chọn (không bịa SHA/tag/domain; chưa kiểm production).
 - **Hành vi hồi quy cần Owner nhìn:** search ở header/hero (một navigation), drawer và app bar mobile, hash `/#faq` từ trang khác, hold đang mở khi bấm điều hướng, đăng nhập bị chặn khi đang có booking.
-- **Ghi nhận trung thực:** search header trên `/listing-stay` cho đúng query đang áp dụng đẩy cùng URL và không tạo request (form listing xử lý lại bằng nút Search riêng: đọc lại một lần); trạng thái pending/recovery của auth không có browser run (xem §5); header desktop không có ô tìm kiếm riêng ngoài mục “Tìm phòng” và form ở hero/listing.
+- **Ghi nhận trung thực:** search header trên `/listing-stay` cho đúng query đang áp dụng đẩy cùng URL và không tạo request (form listing xử lý lại bằng nút Search riêng: đọc lại một lần); trạng thái pending/recovery của auth không có browser run ở C0 (đã khép ở C1, §12); header desktop không có ô tìm kiếm riêng ngoài mục “Tìm phòng” và form ở hero/listing.
 - **Cổng thương mại còn mở (không đóng bằng CI xanh):** H01 cookie hỏng, H03 replay hold mất token, `me` không timeout, biên nhận/tra cứu bền vững, thanh toán/email, chính sách (nhận/trả, hủy/hoàn), kênh liên hệ, license template/ảnh/logo, `DP-01`…`DP-11`, dữ liệu House/Villa, các route mẫu còn truy cập được, các nhãn tiếng Anh ở §7. Chưa kiểm: Safari, bfcache, nhiều tab, trình duyệt khác Chrome.
 
 ## 10. Disposition ghi vào contract (hẹp, không phải duyệt DP)
@@ -162,5 +162,55 @@ Homepage, hero và điều hướng công khai tập trung Riverside; menu/tab �
 ## 11. Dọn dẹp
 
 Dừng theo PID đã kiểm lệnh (API, `next start` + shell cha, proxy), container task `cp08a-pg-*` xoá theo tên duy nhất của task (stack Owner `the-bha-postgres-1` không đụng), thư mục harness (khoá, PFX, mật khẩu, ảnh chụp, script) xoá sau handoff; không `git worktree add`, stash, reset, rebase; không push `develop`/`main`, không dispatch, không deploy.
+
+## 12. C1 — browser evidence cho auth pending/recovery (`CUST-WEB-001-CP08a-C1-AUTH-BROWSER-EVIDENCE`)
+
+*Lịch sử C0 ở các mục trên giữ nguyên như evidence tại thời điểm đó; C1 bổ sung thay vì sửa.*
+
+- **Lý do (OC, `CORRECTION_REQUIRED` về evidence):** MEP CP08a §9 yêu cầu “guarded logout/pending/recovery không regress” ở browser; C0 chỉ có unit/fixture cho hai trạng thái này trong khi shell/header/footer đã đổi. Không có finding code mới; **C1 không đổi source, test, config, asset**.
+- **Định danh:** `CORRECTION_START_HEAD` = `9095557b344f7931e02457fd1188dff840a4b91b` (= PR head = `origin/branch`; base `develop` = `c989fc3`, không drift; 0 PR mở khác). Cây frontend lúc bắt đầu = `EXPECTED_FRONTEND_TREE` = `8e5235187f33b25047ff8559176943f305bcf3ac`. FINAL_HEAD, commit, số liệu GitHub, CI, Vercel: ở PR body/terminal.
+- **Build:** dựng lại (không có build cũ đã xác minh tree): `git status --porcelain Front_End/Customer_Web` rỗng và `git rev-parse HEAD:Front_End/Customer_Web` = `8e5235187f33b25047ff8559176943f305bcf3ac` trước và sau `npm run build` (`NEXT_PUBLIC_API_BASE_URL=https://localhost:7546`, `API_PROXY_ORIGIN` rỗng). Không chạy lại 272 mục của C0 hay 1026 unit test: **1026 test là run C0 và CI của SHA cũ, không phải run mới của C1**.
+- **Công cụ/runtime:** Google Chrome `153.0.8010.52`, Playwright `1.64.0` (scratch, không đổi package/lockfile), Node 22.23.2/npm 10.9.8. TLS: binary `mkcert` vẫn không có; leaf `CN=localhost` (SAN `localhost/127.0.0.1/::1`, `CA:FALSE`, 3 ngày) ký bằng `openssl` với CA mkcert hiện có (Chrome đã tin cậy), `openssl verify` OK, không cờ bỏ qua TLS, không đổi truststore. PostgreSQL `18.3` container riêng (`:55438`), 9 migration (source có đúng 9; diff Backend/`deploy` so với baseline rỗng), seed 60 đêm, API `Production` (không LocalGate), `health/ready` 200; `next start` sau TLS front; proxy lỗi ngoài repo `7546 → 7545` (xác minh TLS upstream).
+- **Nguồn xác thực (authority):** phiên là cookie ASP.NET Core Identity do API cấp; `GET /api/v1/auth/me` của API là câu trả lời duy nhất về danh tính; không inject provider/React, không giả cookie/`me`. Tài khoản synthetic tạo bằng chính các trang `/signup` rồi `/login` (register `201`, login, `GET me` `200`); không có booking trước ca logout (không hold nào được tạo trong C1).
+
+### Chuyển trạng thái theo source (`customerIdentityChange.ts`)
+
+Logout đã được nhận ⇒ khoá `transport` (đồng bộ, trước request) → khi request kết thúc: `recovering` (một `GET me`) → `idle` nếu `me` trả 200/401, hoặc `recovery-unresolved` nếu `me` lỗi, giữ khoá cho tới khi người dùng bấm “Kiểm tra lại” (chỉ `GET me`, không gửi lại logout/login). Một refusal có tài liệu (400/401/429) được coi là `refused`; mất kết nối/5xx là `lost` (chỉ `me` mới biết). Vì vậy: ca A giữ ở `transport`; ca B dùng yêu cầu `lost` + `me` 503 để dừng ở `recovery-unresolved`. Giai đoạn `recovering` ngắn (đang đọc `me`) **không** được giữ riêng để quan sát.
+
+### Vị trí lỗi (mô phỏng ngoài repo, log proxy ghi `simulated`) và phần thật
+
+| Ca | Lỗi mô phỏng | Thật |
+|---|---|---|
+| A — pending rồi hoàn tất | request `POST auth/logout` bị proxy **giữ 75 s trước khi gọi API**; sau đó chuyển tiếp nguyên vẹn | API thực thi logout (204), `GET me` thật trả 401 |
+| B — recovery chưa xác minh rồi khôi phục | `POST auth/logout` được chuyển tới API **một lần và API commit (204)**, nhưng phản hồi bị cắt dở trước khi tới trình duyệt (yêu cầu “lost”; Chrome không tự gửi lại khi phản hồi đã bắt đầu); `GET me` bị proxy trả `503` cho tới lúc gỡ lỗi | `me` sau khi gỡ lỗi do API trả thật |
+
+Ghi chú công cụ: lần thử đầu bằng cách đóng socket **trước** khi trả lời cho thấy Chrome tự gửi lại POST ở tầng mạng (proxy thấy 2 POST) nên không tạo được “lost”; đó là lý do dùng phản hồi bị cắt. Các lần chạy thăm dò và các lần crash giữa chừng không được tính; evidence dưới đây là **một lượt chạy đầy đủ, không sửa gì giữa chừng**, bắt đầu bằng xoá mọi luật lỗi cũ.
+
+### Kết quả (4 kịch bản, 75 mục = **73 PASS + 2 FINDING có nhãn**; không cộng vào 272 của C0)
+
+| Kịch bản | Mục | Kết quả chính |
+|---|---|---|
+| A desktop 1440×900 | 20 (19 PASS + 1 FINDING) | Pending: menu hiện “Phiên đăng nhập” + “Đang gửi yêu cầu đăng nhập hoặc đăng xuất. Đặt phòng tạm khoá…”, **không còn nút Đăng xuất/Đăng nhập** (không thể bắt đầu lệnh auth thứ hai), nút tài khoản = “Tài khoản — đang kiểm tra phiên” + chấm busy (không phải “Đăng nhập”, không phải email), footer chỉ “Tài khoản” (không “Đăng nhập”/“Tạo tài khoản”). Đóng/mở lại menu và 2 lần đổi route (header “Tìm phòng”→`/listing-stay`, “Loại phòng”→`/#rooms`, cùng document) giữ nguyên; `/login` hiện cùng thông báo, form chỉ-đọc/submit bị vô hiệu. Nút “Hold this room” bị **vô hiệu hoá** (click cưỡng bức không gửi gì): 0 request booking. Đếm: 1 logout, 0 login, 0 `GET me`, 0 booking trong suốt pending. Nhả: đúng 1 `GET me` → 401, UI trở về “Đăng nhập”, footer “Đăng nhập”+“Tạo tài khoản”, menu “Bạn chưa đăng nhập” và không che trang |
+| B desktop | 17 | Sau khi logout bị mất phản hồi + `me` 503: menu “Chưa kiểm tra được phiên đăng nhập. Đăng nhập, đăng xuất và đặt phòng tạm khoá…” + “Kiểm tra lại”, nhãn “Tài khoản — chưa kiểm tra được phiên đăng nhập” + chấm cảnh báo (không busy), không giả anonymous hay danh tính mới. Đếm: 1 logout, 1 `GET me` (lần đọc lỗi); chờ thêm 4 s: không tự thử lại. Hold bị vô hiệu hoá (0 booking). 2 lần đổi route + mở lại menu: nhãn, chấm, thông báo và “Kiểm tra lại” còn nguyên, 0 request auth tự động. `/login`: thông báo + “Kiểm tra lại”, email/mật khẩu chỉ-đọc, submit vô hiệu, click cưỡng bức: 0 login. Gỡ lỗi + bấm “Kiểm tra lại” thật: **đúng +1 `GET me`**, không logout/login; `me` trả **200** (xem bên dưới) ⇒ UI trở về “Tài khoản <email>”, menu “Đã đăng nhập” và “Đăng xuất” có lại, thông báo biến mất. Tổng: 1 logout, 0 login, 2 `GET me` |
+| A mobile 390×844 | 21 (20 PASS + 1 FINDING) | Như A desktop, thêm app bar: mục tài khoản là “Tài khoản — đang kiểm tra phiên” + chấm busy; 3 lần đổi route (liên kết “← Tất cả phòng” của trang phòng→`/#rooms`, app bar “Tìm phòng”, “Trang chủ”); nhả: app bar “Đăng nhập”, footer “Đăng nhập”+“Tạo tài khoản” |
+| B mobile | 17 | Như B desktop; app bar có chấm cảnh báo trong lúc chưa xác minh và trở về “Tài khoản <email>” sau “Kiểm tra lại” (`me` 200); 1 logout, 0 login, 2 `GET me` |
+
+**Về kết quả `me` 200 ở ca B:** phản hồi logout (kèm `Set-Cookie` xoá phiên) không bao giờ tới trình duyệt, nên cookie không đổi và API tiếp tục chấp nhận nó; UI vì vậy trở về đăng nhập theo đúng câu trả lời `me` thật, không theo giả định “đã đăng xuất”. Đây đúng là tình huống mơ hồ mà vòng recovery tồn tại để xử lý. Nhánh “`me` 401 sau khi API đã commit” được chứng minh thật ở ca A (nhả → `me` 401).
+
+**FINDING mới (baseline, không do CP08a, không sửa trong C1):** `AvatarDropdown` (không nằm trong diff của CP08a) — ở trạng thái pending, nút “Đăng xuất” bị gỡ nên focus rơi về `<body>` và phím **Esc không đóng menu tài khoản** (bấm lại nút tài khoản thì đóng). Follow-up: giữ focus ở nút tài khoản khi lệnh auth bắt đầu. Hai ca A (desktop, mobile) ghi cùng quan sát. FINDING kế thừa từ C0 (24 nút `GallerySlider` thiếu tên truy cập) **vẫn mở**.
+
+**Không thay đổi so với C0:** auth/provider/booking logic không đổi (`git diff` 9095557…HEAD chỉ chạm `docs/`); cây frontend vẫn `8e5235187f33b25047ff8559176943f305bcf3ac`; các cổng thương mại, chế độ proxy trên Vercel, deploy production vẫn `NOT_RUN`/mở.
+
+**Giới hạn của C1:** Chrome desktop và mobile giả lập (không Safari/multi-tab/bfcache); trạng thái `recovering` ngắn không được giữ riêng; chỉ một nhánh recovery (lost + `me` 503) được chạy ở trình duyệt (nhánh còn lại đủ bằng ca A); dữ liệu là seed demo; không có kết quả nào của C1 là bằng chứng về production hay chế độ proxy.
+
+**Dọn dẹp:** dừng theo PID đã kiểm lệnh (API, `next start` + shell cha, proxy), container task `cp08a-c1-pg-*` xoá theo tên duy nhất, thư mục harness (khoá, PFX, mật khẩu, ảnh chụp, script) xoá; không `git worktree add`/stash/reset/rebase; không push `develop`/`main`, không dispatch, không deploy. Không còn tài nguyên task sót lại.
+
+```
+IMPLEMENTATION_CP08a_C1: PASS
+AUTH_PENDING_RECOVERY_BROWSER: VERIFIED_AT_UNCHANGED_FRONTEND_TREE
+REVIEW_C1: NOT_RUN_OWNER_ONLY
+LIVE_DEPLOY_VERIFICATION: NOT_RUN
+COMMERCIAL_READINESS: NOT_CERTIFIED
+```
 
 Dừng ghi sau handoff; Owner gọi review.
