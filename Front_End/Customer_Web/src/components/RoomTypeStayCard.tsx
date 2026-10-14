@@ -26,6 +26,12 @@ export interface RoomTypeStayCardProps {
   /** The room page's URL, carrying the visitor's search when there is a valid one. */
   href: string;
   price: RoomCardPrice;
+  /**
+   * CUST-WEB-001-CP05a: presentation only. The home page keeps the template's sample star rating and heart
+   * (both default on); the live results page turns them off because neither is backed by anything real.
+   */
+  showRating?: boolean;
+  showWishlist?: boolean;
 }
 
 /**
@@ -36,7 +42,15 @@ export interface RoomTypeStayCardProps {
  * the visitor chose (or a prompt to choose them). The star rating is the template's sample value and
  * is labelled as such; it is not a guest review.
  */
-const RoomTypeStayCard: FC<RoomTypeStayCardProps> = ({ className = "", property, roomType, href, price }) => {
+const RoomTypeStayCard: FC<RoomTypeStayCardProps> = ({
+  className = "",
+  property,
+  roomType,
+  href,
+  price,
+  showRating = true,
+  showWishlist = true,
+}) => {
   const [failedUrls, setFailedUrls] = useState<string[]>([]);
   const name = roomType.name ?? "Room type";
 
@@ -106,7 +120,7 @@ const RoomTypeStayCard: FC<RoomTypeStayCardProps> = ({ className = "", property,
             </div>
           </Link>
         )}
-        <BtnLikeIcon className="absolute right-3 top-3 z-[1]" />
+        {showWishlist && <BtnLikeIcon className="absolute right-3 top-3 z-[1]" />}
       </div>
 
       <Link href={href as Route}>
@@ -136,9 +150,11 @@ const RoomTypeStayCard: FC<RoomTypeStayCardProps> = ({ className = "", property,
           <div className="w-14 border-b border-neutral-100 dark:border-neutral-800"></div>
           <div className="flex justify-between items-center">
             {renderPrice()}
-            <span className="shrink-0" title="Đánh giá mẫu (không phải đánh giá của khách)">
-              <StartRating sample="short" className="whitespace-nowrap" />
-            </span>
+            {showRating && (
+              <span className="shrink-0" title="Đánh giá mẫu (không phải đánh giá của khách)">
+                <StartRating sample="short" className="whitespace-nowrap" />
+              </span>
+            )}
           </div>
         </div>
       </Link>
