@@ -7,7 +7,6 @@ import "@/styles/index.scss";
 import "rc-slider/assets/index.css";
 import Footer from "@/components/Footer";
 import FooterNav from "@/components/FooterNav";
-import TemplateDemoNotice from "@/components/TemplateDemoNotice";
 import { BookingHoldProvider } from "./BookingHoldProvider";
 import { CustomerSessionProvider } from "./CustomerSessionProvider";
 import HoldReceiptRedirector from "@/components/HoldReceiptRedirector";
@@ -44,7 +43,6 @@ export default function RootLayout({
           <BookingHoldProvider>
             <StaySearchProvider>
               <ClientCommons />
-              <TemplateDemoNotice />
               <SiteHeader />
               <HoldReceiptRedirector />
               {children}

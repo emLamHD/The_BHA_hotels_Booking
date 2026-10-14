@@ -33,7 +33,7 @@ const MainNav2: FC<MainNav2Props> = ({ className = "" }) => {
     <div className={`MainNav2 relative z-10 ${className}`}>
       <div className="px-4 h-16 md:h-20 lg:container flex items-center justify-between gap-1 sm:gap-2">
         <div className="hidden md:flex items-center flex-shrink-0 space-x-3 lg:space-x-6 xl:space-x-8">
-          <Logo className="w-24 self-center" />
+          <Logo className="w-28 lg:w-32 self-center" />
           <div className="hidden lg:block self-center h-10 border-l border-neutral-300 dark:border-neutral-500"></div>
           <nav aria-label="Điều hướng chính" className="hidden lg:flex items-center space-x-1">
             {PRIMARY_NAV.filter((item) => item.id !== "blog").map((item) => (

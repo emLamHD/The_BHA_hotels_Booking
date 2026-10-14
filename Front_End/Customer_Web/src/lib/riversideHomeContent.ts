@@ -62,6 +62,14 @@ export const RIVERSIDE_SECTION_LINKS: readonly SiteNavItem[] = [
 
 export const RIVERSIDE_NAME = "The BHA Riverside";
 export const RIVERSIDE_ADDRESS = "162 Nghiêm Xuân Yêm, Đà Nẵng";
+/** The full address the Owner gave for the map (2026-10-14); the short one above stays where a short line fits. */
+export const RIVERSIDE_FULL_ADDRESS = "162 Nghiêm Xuân Yêm, phường Ngũ Hành Sơn, Thành phố Đà Nẵng";
+
+const mapQuery = (address: string) => encodeURIComponent(`${RIVERSIDE_NAME}, ${address}`);
+/** Keyless Google Maps embed of the property (a plain iframe: no script, no API key, nothing of the visitor is sent by this site). */
+export const riversideMapEmbedUrl = (address: string = RIVERSIDE_FULL_ADDRESS) => `https://www.google.com/maps?q=${mapQuery(address)}&output=embed&hl=vi`;
+/** The same place in the Google Maps site/app, for directions. */
+export const riversideMapLink = (address: string = RIVERSIDE_FULL_ADDRESS) => `https://www.google.com/maps/search/?api=1&query=${mapQuery(address)}`;
 export const HOLD_MINUTES = 15;
 
 export interface HomeImage {
