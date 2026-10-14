@@ -138,7 +138,9 @@ const HomeHeroCarousel: FC = () => {
         onKeyDown={onKeyDown}
       >
         {/* The picture frame is the only element that clips. */}
-        <div {...swipe} className="relative h-[340px] overflow-hidden bg-neutral-900 sm:h-[420px] lg:h-[560px]">
+        {/* touch-pan-y: only vertical panning is left to the browser, so a horizontal swipe changes the picture and is not
+            taken by the browser's own overscroll gesture (which went back in history). */}
+        <div {...swipe} className="relative h-[340px] touch-pan-y overflow-hidden bg-neutral-900 sm:h-[420px] lg:h-[560px]">
           {slides.map((slide, slideIndex) => {
             const isActive = slideIndex === index;
             return (

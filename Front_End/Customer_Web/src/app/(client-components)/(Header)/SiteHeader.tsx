@@ -20,6 +20,13 @@ const PAGES_HIDE_HEADER_BORDER: PathName[] = [
 ];
 
 /**
+ * CUST-WEB-001-CP08a-C2: puts the stored dark theme on <html> while the page is still being parsed, before the first
+ * paint, so a reload does not flash light. A constant, same key and class as `utils/useThemeMode` (which keeps
+ * owning the state and the toggle); nothing from the visitor is interpolated.
+ */
+const THEME_BOOT = 'try{if(window.localStorage.getItem("theme")==="dark")document.documentElement.classList.add("dark")}catch(e){}';
+
+/**
  * CUST-WEB-001-CP08a: the one public header (the template's "Header 2": logo, the Riverside navigation,
  * the compact search under `lg`, the account entry). The template's demo "Customize" panel — header
  * styles and the other home demos — is not part of the site any more.
@@ -64,6 +71,7 @@ const SiteHeader = () => {
 
   return (
     <>
+      <script dangerouslySetInnerHTML={{ __html: THEME_BOOT }} />
       <Header className={headerClassName} navType="MainNav2" />
       <div ref={anchorRef} className="h-1 absolute invisible"></div>
     </>

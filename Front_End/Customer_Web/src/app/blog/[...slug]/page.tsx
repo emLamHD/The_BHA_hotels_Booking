@@ -22,7 +22,13 @@ interface PostPageProps {
   params: { slug?: string[] };
 }
 
-/** Only the registry's slugs are generated; anything else is answered by `notFound()` below. */
+/**
+ * Only the registry's slugs exist. `dynamicParams = false` makes every other path a real HTTP 404 (without it
+ * Next 13.4 answered an unknown slug with the not-found page but status 200, cached); `notFound()` below stays
+ * as the second line.
+ */
+export const dynamicParams = false;
+
 export function generateStaticParams() {
   return TRAVEL_POSTS.map((post) => ({ slug: [post.slug] }));
 }

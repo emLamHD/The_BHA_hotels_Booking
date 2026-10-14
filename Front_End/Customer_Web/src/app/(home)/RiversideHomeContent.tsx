@@ -129,7 +129,7 @@ export const LocationFaqSection: FC = () => (
           <p className="mt-1 text-neutral-500 dark:text-neutral-400">{RIVERSIDE_ADDRESS}</p>
           <Link
             href={RESULTS_PATH as Route}
-            className="mt-6 inline-block text-sm font-medium text-primary-6000 underline underline-offset-2 hover:text-primary-700"
+            className="mt-6 inline-block text-sm font-medium text-primary-6000 underline underline-offset-2 hover:text-primary-700 dark:text-primary-300 dark:hover:text-primary-200"
           >
             Xem phòng còn trống
           </Link>

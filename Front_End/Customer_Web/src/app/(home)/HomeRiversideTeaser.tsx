@@ -41,7 +41,7 @@ const HomeRiversideTeaser: FC = () => (
         </Link>
         <Link
           href={riversideSectionHref(HOME_SECTION.rooms) as Route}
-          className="inline-flex items-center px-2 py-3 text-sm font-medium text-primary-6000 underline underline-offset-2 hover:text-primary-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+          className="inline-flex items-center px-2 py-3 text-sm font-medium text-primary-6000 underline underline-offset-2 hover:text-primary-700 focus:outline-none dark:text-primary-300 dark:hover:text-primary-200 focus-visible:ring-2 focus-visible:ring-primary-500"
         >
           Các loại phòng
         </Link>
