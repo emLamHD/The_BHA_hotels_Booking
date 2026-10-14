@@ -7,8 +7,8 @@ import "@/styles/index.scss";
 import "rc-slider/assets/index.css";
 import Footer from "@/components/Footer";
 import FooterNav from "@/components/FooterNav";
-import TemplateDemoNotice from "@/components/TemplateDemoNotice";
 import { BookingHoldProvider } from "./BookingHoldProvider";
+import { CustomerSessionProvider } from "./CustomerSessionProvider";
 import HoldReceiptRedirector from "@/components/HoldReceiptRedirector";
 import { StaySearchProvider } from "@/components/StaySearchProvider";
 
@@ -39,17 +39,18 @@ export default function RootLayout({
   return (
     <html lang="vi" className={poppins.className}>
       <body className="bg-white text-base dark:bg-neutral-900 text-neutral-900 dark:text-neutral-200">
-        <BookingHoldProvider>
-          <StaySearchProvider>
-            <ClientCommons />
-            <TemplateDemoNotice />
-            <SiteHeader />
-            <HoldReceiptRedirector />
-            {children}
-            <FooterNav />
-            <Footer />
-          </StaySearchProvider>
-        </BookingHoldProvider>
+        <CustomerSessionProvider>
+          <BookingHoldProvider>
+            <StaySearchProvider>
+              <ClientCommons />
+              <SiteHeader />
+              <HoldReceiptRedirector />
+              {children}
+              <FooterNav />
+              <Footer />
+            </StaySearchProvider>
+          </BookingHoldProvider>
+        </CustomerSessionProvider>
       </body>
     </html>
   );

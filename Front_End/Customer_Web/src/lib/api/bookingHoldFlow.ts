@@ -80,7 +80,11 @@ export type BookingHoldFlowAction =
   | { type: "confirmation-retry-requested"; operationId: number }
   | { type: "confirmation-succeeded"; operationId: number; result: ConfirmBookingHoldResult }
   | { type: "confirmation-known-error"; operationId: number; message: string }
-  | { type: "confirmation-uncertain"; operationId: number };
+  | { type: "confirmation-uncertain"; operationId: number }
+  /** CUST-WEB-001-CP01b: an accepted Customer identity change discards the draft; only idle/selected/known-error. */
+  | { type: "identity-change-scrub" }
+  /** CUST-WEB-001-CP01b: the explicit local "done with the receipt"; only for the receipt of that reservation. */
+  | { type: "booking-finished"; reservationId: string };
 
 /** Contact is editable and a fresh, newly keyed submit is allowed. */
 const EDITABLE_PHASES: ReadonlySet<BookingHoldFlowPhase> = new Set<BookingHoldFlowPhase>([
@@ -280,6 +284,26 @@ export function bookingHoldFlowReducer(
         return state;
       }
       return { ...state, phase: "confirm-uncertain", errorMessage: null };
+    }
+
+    case "identity-change-scrub": {
+      // Only a draft (idle/selected/known-error) can be discarded; a hold, an unknown outcome or a
+      // receipt is never touched by an identity change. The operation identity stays monotonic.
+      if (state.phase !== "idle" && !EDITABLE_PHASES.has(state.phase)) {
+        return state;
+      }
+      return { ...initialBookingHoldFlowState, operationId: state.operationId };
+    }
+
+    case "booking-finished": {
+      if (
+        state.phase !== "reservation-result" ||
+        state.reservationResult?.reservation.reservationId !== action.reservationId
+      ) {
+        return state;
+      }
+      // Local only: scrubs the receipt and every PII-bearing field. Nothing is sent anywhere.
+      return { ...initialBookingHoldFlowState, operationId: state.operationId };
     }
 
     default:

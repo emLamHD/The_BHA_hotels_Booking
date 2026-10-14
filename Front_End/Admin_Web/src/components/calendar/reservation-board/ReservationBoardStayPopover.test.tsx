@@ -289,4 +289,212 @@ describe("ReservationBoardStayPopover", () => {
       expect(source).toContain("ReservationUnassignDialog");
     });
   });
+
+  describe("Move from a date… (PMS-CAL-002-CP05)", () => {
+    const assigned: { kind: "stay"; value: StaySelection } = {
+      kind: "stay",
+      value: { stay, roomTypeName: "Standard", segment },
+    };
+    const splitButton = () => screen.queryByRole("button", { name: /^Move from a date/ });
+
+    it("is offered for an assigned bar's exact segment when the caller supplies the callback, and reports exactly { stay, segment } once", async () => {
+      const user = userEvent.setup();
+      const onSplitMove = vi.fn();
+      const onClose = vi.fn();
+      render(<ReservationBoardStayPopover selection={assigned} onClose={onClose} onSplitMove={onSplitMove} />);
+      expect(splitButton()).toBeEnabled();
+      await user.click(splitButton()!);
+      expect(onSplitMove).toHaveBeenCalledTimes(1);
+      expect(onSplitMove).toHaveBeenCalledWith({ stay, segment });
+      expect(onSplitMove.mock.calls[0][0].segment).toBe(segment);
+      expect(Object.keys(onSplitMove.mock.calls[0][0]).sort()).toEqual(["segment", "stay"]);
+      // The popover neither closes itself nor decides anything about dates or rooms.
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it("is not offered without a segment, without the callback, or for an operational block", () => {
+      const noSegment: { kind: "stay"; value: StaySelection } = { kind: "stay", value: { stay, roomTypeName: "Standard" } };
+      const { rerender } = render(<ReservationBoardStayPopover selection={noSegment} onClose={vi.fn()} onSplitMove={vi.fn()} />);
+      expect(splitButton()).not.toBeInTheDocument();
+      rerender(<ReservationBoardStayPopover selection={assigned} onClose={vi.fn()} onMoveRoom={vi.fn()} onUnassignRoom={vi.fn()} />);
+      expect(splitButton()).not.toBeInTheDocument();
+      const block: ReservationBoardOperationalBlock = {
+        roomBlockId: "block-1",
+        segmentId: "seg-b",
+        segmentVersion: 1,
+        physicalRoomId: "room-101",
+        startDate: "2026-09-02",
+        endDate: "2026-09-04",
+        reason: "Maintenance",
+      };
+      rerender(
+        <ReservationBoardStayPopover
+          selection={{ kind: "block", value: { block, roomNumber: "101" } }}
+          onClose={vi.fn()}
+          onSplitMove={vi.fn()}
+          splitMoveUnavailableReason="x"
+        />
+      );
+      expect(splitButton()).not.toBeInTheDocument();
+    });
+
+    it("a reason disables it natively for mouse and keyboard, is linked to the button, and the callback is never called", async () => {
+      const user = userEvent.setup();
+      const onSplitMove = vi.fn();
+      render(
+        <ReservationBoardStayPopover
+          selection={assigned}
+          onClose={vi.fn()}
+          onSplitMove={onSplitMove}
+          splitMoveUnavailableReason="An earlier move, unassign or split-move of this stay or its room is still unconfirmed."
+        />
+      );
+      const button = splitButton()!;
+      expect(button).toBeDisabled();
+      expect(button).toHaveAttribute("aria-disabled", "true");
+      expect(button).toHaveAccessibleDescription(/still unconfirmed/);
+      await user.click(button);
+      fireEvent.click(button);
+      button.focus();
+      await user.keyboard("{Enter} ");
+      expect(onSplitMove).not.toHaveBeenCalled();
+    });
+
+    it("no reason: no explanation text and no aria-describedby", () => {
+      render(<ReservationBoardStayPopover selection={assigned} onClose={vi.fn()} onSplitMove={vi.fn()} splitMoveUnavailableReason={null} />);
+      expect(splitButton()).not.toHaveAttribute("aria-describedby");
+      expect(splitButton()).toBeEnabled();
+    });
+
+    it("is independent of Move room and Remove room assignment, in both directions", async () => {
+      const user = userEvent.setup();
+      const onMoveRoom = vi.fn();
+      const onUnassignRoom = vi.fn();
+      const onSplitMove = vi.fn();
+      const { rerender } = render(
+        <ReservationBoardStayPopover selection={assigned} onClose={vi.fn()} onMoveRoom={onMoveRoom} onUnassignRoom={onUnassignRoom} onSplitMove={onSplitMove} moveBlocked unassignBlocked />
+      );
+      expect(screen.getByRole("button", { name: "Move room" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Remove room assignment" })).toBeDisabled();
+      expect(splitButton()).toBeEnabled();
+      await user.click(splitButton()!);
+      expect(onSplitMove).toHaveBeenCalledTimes(1);
+
+      rerender(
+        <ReservationBoardStayPopover selection={assigned} onClose={vi.fn()} onMoveRoom={onMoveRoom} onUnassignRoom={onUnassignRoom} onSplitMove={onSplitMove} splitMoveUnavailableReason="blocked" />
+      );
+      expect(splitButton()).toBeDisabled();
+      await user.click(screen.getByRole("button", { name: "Move room" }));
+      await user.click(screen.getByRole("button", { name: "Remove room assignment" }));
+      expect(onMoveRoom).toHaveBeenCalledTimes(1);
+      expect(onUnassignRoom).toHaveBeenCalledTimes(1);
+      expect(onSplitMove).toHaveBeenCalledTimes(1);
+    });
+
+    it("the live board wires it for every role that may write assignments", () => {
+      const source = readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), "ReservationBoard.tsx"), "utf8");
+      expect(source).toMatch(/onSplitMove=\{splitMoveOffered \? handleSplitMove : undefined\}/);
+      expect(source).toMatch(/const splitMoveOffered = [^;]*capabilities\.assignmentWrite/);
+      expect(source).toContain("ReservationSplitMoveDialog");
+    });
+  });
+  describe("Move block… (PMS-CAL-003-CP03)", () => {
+    const block: ReservationBoardOperationalBlock = {
+      roomBlockId: "header-1",
+      segmentId: "seg-b",
+      segmentVersion: 7,
+      physicalRoomId: "room-101",
+      startDate: "2026-09-02",
+      endDate: "2026-09-10",
+      reason: "Maintenance",
+    };
+    const blockSelection: { kind: "block"; value: BlockSelection } = { kind: "block", value: { block, roomNumber: "101" } };
+    const moveButton = () => screen.queryByRole("button", { name: "Move block…" });
+
+    it("is offered for a block when the caller supplies the callback, and reports exactly the clicked BlockSelection once", async () => {
+      const user = userEvent.setup();
+      const onMoveBlock = vi.fn();
+      const onClose = vi.fn();
+      render(<ReservationBoardStayPopover selection={blockSelection} onClose={onClose} onMoveBlock={onMoveBlock} />);
+      expect(moveButton()).toBeEnabled();
+      await user.click(moveButton()!);
+      expect(onMoveBlock).toHaveBeenCalledTimes(1);
+      expect(onMoveBlock.mock.calls[0][0]).toBe(blockSelection.value);
+      expect(Object.keys(onMoveBlock.mock.calls[0][0]).sort()).toEqual(["block", "roomNumber"]);
+      // The popover neither closes itself nor decides anything about rooms, nights or versions.
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it("sits beside Cancel block, before it, and each reports only its own action", async () => {
+      const user = userEvent.setup();
+      const onMoveBlock = vi.fn();
+      const onCancelBlock = vi.fn();
+      render(<ReservationBoardStayPopover selection={blockSelection} onClose={vi.fn()} onMoveBlock={onMoveBlock} onCancelBlock={onCancelBlock} />);
+      const labels = screen.getAllByRole("button").map((button) => button.textContent);
+      expect(labels.indexOf("Move block…")).toBeGreaterThan(-1);
+      expect(labels.indexOf("Move block…")).toBeLessThan(labels.indexOf("Cancel block"));
+      await user.click(moveButton()!);
+      expect(onMoveBlock).toHaveBeenCalledTimes(1);
+      expect(onCancelBlock).not.toHaveBeenCalled();
+      await user.click(screen.getByRole("button", { name: "Cancel block" }));
+      expect(onCancelBlock).toHaveBeenCalledTimes(1);
+      expect(onMoveBlock).toHaveBeenCalledTimes(1);
+    });
+
+    it("is not offered without the callback, and never for a stay (even with the callback)", () => {
+      const { rerender } = render(<ReservationBoardStayPopover selection={blockSelection} onClose={vi.fn()} onCancelBlock={vi.fn()} />);
+      expect(moveButton()).not.toBeInTheDocument();
+      const staySelection: { kind: "stay"; value: StaySelection } = { kind: "stay", value: { stay, roomTypeName: "Standard", segment } };
+      rerender(<ReservationBoardStayPopover selection={staySelection} onClose={vi.fn()} onMoveBlock={vi.fn()} onMoveRoom={vi.fn()} />);
+      expect(moveButton()).not.toBeInTheDocument();
+      const noSegment: { kind: "stay"; value: StaySelection } = { kind: "stay", value: { stay, roomTypeName: "Standard" } };
+      rerender(<ReservationBoardStayPopover selection={noSegment} onClose={vi.fn()} onMoveBlock={vi.fn()} />);
+      expect(moveButton()).not.toBeInTheDocument();
+    });
+
+    it("a reason disables it natively for mouse and keyboard, links it to the button, and the callback is never called; Cancel block is independent", async () => {
+      const user = userEvent.setup();
+      const onMoveBlock = vi.fn();
+      const onCancelBlock = vi.fn();
+      render(
+        <ReservationBoardStayPopover
+          selection={blockSelection}
+          onClose={vi.fn()}
+          onMoveBlock={onMoveBlock}
+          moveBlockUnavailableReason="This block is longer than 366 nights."
+          onCancelBlock={onCancelBlock}
+        />
+      );
+      expect(moveButton()).toBeDisabled();
+      expect(moveButton()).toHaveAttribute("aria-disabled", "true");
+      expect(moveButton()).toHaveAccessibleDescription("This block is longer than 366 nights.");
+      await user.click(moveButton()!);
+      moveButton()!.focus();
+      await user.keyboard("{Enter}");
+      expect(onMoveBlock).not.toHaveBeenCalled();
+      // Cancel block keeps its own rule: a block that cannot be moved can still be cancelled.
+      expect(screen.getByRole("button", { name: "Cancel block" })).toBeEnabled();
+      await user.click(screen.getByRole("button", { name: "Cancel block" }));
+      expect(onCancelBlock).toHaveBeenCalledTimes(1);
+    });
+
+    it("no reason: no explanation text and no aria-describedby", () => {
+      render(<ReservationBoardStayPopover selection={blockSelection} onClose={vi.fn()} onMoveBlock={vi.fn()} />);
+      expect(moveButton()).not.toHaveAttribute("aria-describedby");
+      expect(moveButton()).toBeEnabled();
+    });
+
+    it("cancelBlockBlocked does not disable it, and a move reason does not disable Cancel block", () => {
+      render(<ReservationBoardStayPopover selection={blockSelection} onClose={vi.fn()} onMoveBlock={vi.fn()} onCancelBlock={vi.fn()} cancelBlockBlocked />);
+      expect(moveButton()).toBeEnabled();
+      expect(screen.getByRole("button", { name: "Cancel block" })).toBeDisabled();
+    });
+
+    it("the live board wires it for every role that may write blocks, reading its reason from the pure seam", () => {
+      const source = readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), "ReservationBoard.tsx"), "utf8");
+      expect(source).toMatch(/onMoveBlock=\{selection\.kind === "block" && capabilities\.blockWrite \? handleMoveBlock : undefined\}/);
+      expect(source).toMatch(/moveBlockUnavailableReason=\{blockMoveUnavailableReason\}/);
+      expect(source).toContain("ReservationBlockMoveDialog");
+    });
+  });
 });

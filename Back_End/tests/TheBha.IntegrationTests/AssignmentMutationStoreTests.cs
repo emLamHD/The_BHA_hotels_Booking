@@ -994,6 +994,422 @@ public sealed class AssignmentMutationStoreTests(PostgreSqlWebApplicationFactory
         Assert.Equal(commercialBefore, await CommercialSnapshotAsync(data.UnitsA[0].Id));
     }
 
+    // ---------------------------------------------------------------------
+    // PMS-CAL-002-CP01: SplitMoveAsync. Every case calls the interface member (not
+    // SupersedeAsync) against real PostgreSQL with the clock pinned to the fixture's
+    // Now. Positive cases assert partition, order, versions, the audit group per row,
+    // the kept Created history and the commercial snapshot; every rejection re-reads
+    // with a fresh DbContext and compares the whole schedule/audit/commercial state.
+    // ---------------------------------------------------------------------
+
+    private async Task<Fixture> SeedSplitAsync(string slug, int roomsAPerType = 3, int roomsBPerType = 3, int unitsA = 1)
+    {
+        var data = await SeedAsync(slug, roomsAPerType, roomsBPerType, unitsA);
+        factory.Clock.UtcNow = Now;
+        return data;
+    }
+
+    private static SplitMoveAssignmentCommand SplitCommand(
+        Fixture data, RoomOccupancySegmentDto segment, DateOnly splitDate, PhysicalRoom destination,
+        string? evidence = null, string? reason = null) =>
+        new(data.Property.Id, segment.Id, segment.Version, splitDate, destination.Id, Actor, evidence, reason);
+
+    /// <summary>Every segment (identity, type, status, room, nights, xmin), audit row and the commercial snapshot of the Property.</summary>
+    private async Task<string> StateAsync(Guid propertyId, Guid unitId)
+    {
+        await using var context = factory.CreateDbContext();
+        var segments = (await context.RoomOccupancySegments.Where(s => s.PropertyId == propertyId).ToListAsync())
+            .OrderBy(s => s.Id)
+            .Select(s => $"{s.Id}|{s.Type}|{s.Status}|{s.PhysicalRoomId}|{s.StartDate:yyyy-MM-dd}|{s.EndDate:yyyy-MM-dd}|{context.Entry(s).Property<uint>("xmin").CurrentValue}");
+        var audits = (await context.RoomOccupancySegmentAudits.Where(a => a.PropertyId == propertyId).ToListAsync())
+            .OrderBy(a => a.Id)
+            .Select(a => $"{a.Id}|{a.SegmentId}|{a.MutationGroupId}|{a.EventType}|{a.ActorReference}|{a.AuthorizationEvidence}|{a.Reason}");
+        return string.Join("\n", segments) + "\n--\n" + string.Join("\n", audits) + "\n--\n" + await CommercialSnapshotAsync(unitId);
+    }
+
+    private async Task AssertRejectedWithoutChangeAsync(
+        Fixture data, string stateBefore, SegmentMutationResult result, SegmentMutationStatus expected, string? errorContains = null)
+    {
+        Assert.Equal(expected, result.Status);
+        Assert.Null(result.Segments);
+        if (errorContains is not null)
+        {
+            // SupersedeAsync would also answer Invalid for a bad partition; the message tells which guard answered.
+            Assert.Contains(errorContains, result.Error, StringComparison.Ordinal);
+        }
+
+        Assert.Equal(stateBefore, await StateAsync(data.Property.Id, data.UnitsA[0].Id));
+    }
+
+    /// <summary>Asserts [source Cancelled, prefix, suffix], the three versions against xmin, and returns the successors.</summary>
+    private async Task<(RoomOccupancySegmentDto Prefix, RoomOccupancySegmentDto Suffix)> AssertSplitAsync(
+        SegmentMutationResult result, RoomOccupancySegmentDto original, Guid prefixRoom, Guid suffixRoom, DateOnly splitDate)
+    {
+        Assert.Equal(SegmentMutationStatus.Succeeded, result.Status);
+        var segments = result.Segments!;
+        Assert.Equal(3, segments.Count);
+        var (source, prefix, suffix) = (segments[0], segments[1], segments[2]);
+        Assert.Equal((original.Id, original.PhysicalRoomId, original.StartDate, original.EndDate), (source.Id, source.PhysicalRoomId, source.StartDate, source.EndDate));
+        Assert.Equal(RoomOccupancySegmentStatus.Cancelled.ToString(), source.Status);
+        Assert.NotEqual(original.Version, source.Version);
+        Assert.Equal((prefixRoom, original.StartDate, splitDate), (prefix.PhysicalRoomId, prefix.StartDate, prefix.EndDate));
+        Assert.Equal((suffixRoom, splitDate, original.EndDate), (suffix.PhysicalRoomId, suffix.StartDate, suffix.EndDate));
+        Assert.All(new[] { prefix, suffix }, s =>
+        {
+            Assert.Equal(RoomOccupancySegmentStatus.Effective.ToString(), s.Status);
+            Assert.Equal(RoomOccupancySegmentType.ReservationAssignment.ToString(), s.Type);
+            Assert.Equal(original.ReservationUnitId, s.ReservationUnitId);
+        });
+
+        await using var verify = factory.CreateDbContext();
+        var rows = await verify.RoomOccupancySegments.Where(s => s.ReservationUnitId == original.ReservationUnitId).ToListAsync();
+        Assert.Equal(3, rows.Count);
+        foreach (var dto in segments)
+        {
+            Assert.Equal(dto.Version, verify.Entry(rows.Single(r => r.Id == dto.Id)).Property<uint>("xmin").CurrentValue);
+        }
+
+        return (prefix, suffix);
+    }
+
+    private async Task AssertCreatedHistoryKeptAsync(RoomOccupancySegmentDto original, string? evidence, string? reason, Guid newGroupId)
+    {
+        await using var verify = factory.CreateDbContext();
+        var created = await verify.RoomOccupancySegmentAudits.SingleAsync(
+            a => a.SegmentId == original.Id && a.EventType == RoomOccupancySegmentAuditEventType.Created);
+        Assert.Equal((evidence, reason), (created.AuthorizationEvidence, created.Reason));
+        Assert.NotEqual(newGroupId, created.MutationGroupId);
+    }
+
+    [Fact]
+    public async Task Split_move_same_type_partitions_the_source_range_and_changes_nothing_commercial()
+    {
+        var data = await SeedSplitAsync("cal2-same-type");
+        var store = CreateStore();
+        var original = await CreateAssignmentAsync(store, data, data.UnitsA[0], data.RoomsA[0], null, null);
+        var commercialBefore = await CommercialSnapshotAsync(data.UnitsA[0].Id);
+        var splitDate = CheckIn.AddDays(2);
+
+        var result = await store.SplitMoveAsync(SplitCommand(data, original, splitDate, data.RoomsA[1], null, "AC failure"), CancellationToken.None);
+
+        var (prefix, suffix) = await AssertSplitAsync(result, original, data.RoomsA[0].Id, data.RoomsA[1].Id, splitDate);
+        var group = await MutationGroupAuditsAsync(original.Id);
+        Assert.Equal(3, group.Count);
+        AssertAudit(group, original.Id, RoomOccupancySegmentAuditEventType.Cancelled, null, "AC failure");
+        AssertAudit(group, prefix.Id, RoomOccupancySegmentAuditEventType.Created, null, "AC failure");
+        AssertAudit(group, suffix.Id, RoomOccupancySegmentAuditEventType.Created, null, "AC failure");
+        await AssertCreatedHistoryKeptAsync(original, null, null, group[0].MutationGroupId);
+        Assert.Equal(commercialBefore, await CommercialSnapshotAsync(data.UnitsA[0].Id));
+        Assert.Equal(2, (await CountSegmentsAsync(data.Property.Id)).Count(s => s.Status == RoomOccupancySegmentStatus.Effective));
+    }
+
+    [Fact]
+    public async Task Split_move_to_a_cross_type_destination_records_evidence_only_on_the_suffix()
+    {
+        var data = await SeedSplitAsync("cal2-suffix-cross");
+        var store = CreateStore();
+        var original = await CreateAssignmentAsync(store, data, data.UnitsA[0], data.RoomsA[0], null, null);
+        var commercialBefore = await CommercialSnapshotAsync(data.UnitsA[0].Id);
+        var splitDate = CheckIn.AddDays(3);
+
+        var result = await store.SplitMoveAsync(SplitCommand(data, original, splitDate, data.RoomsB[0], Evidence, "Upgrade"), CancellationToken.None);
+
+        var (prefix, suffix) = await AssertSplitAsync(result, original, data.RoomsA[0].Id, data.RoomsB[0].Id, splitDate);
+        var group = await MutationGroupAuditsAsync(original.Id);
+        Assert.Equal(3, group.Count);
+        AssertAudit(group, original.Id, RoomOccupancySegmentAuditEventType.Cancelled, null, "Upgrade");
+        AssertAudit(group, prefix.Id, RoomOccupancySegmentAuditEventType.Created, null, "Upgrade");
+        AssertAudit(group, suffix.Id, RoomOccupancySegmentAuditEventType.Created, Evidence, "Upgrade");
+        Assert.Equal(commercialBefore, await CommercialSnapshotAsync(data.UnitsA[0].Id));
+    }
+
+    [Fact]
+    public async Task Split_move_of_a_cross_type_source_to_the_sold_type_needs_fresh_evidence_on_the_prefix_only()
+    {
+        var data = await SeedSplitAsync("cal2-prefix-cross");
+        var store = CreateStore();
+        var original = await CreateAssignmentAsync(store, data, data.UnitsA[0], data.RoomsB[0], "evidence:original-upgrade", "Original upgrade");
+        var commercialBefore = await CommercialSnapshotAsync(data.UnitsA[0].Id);
+        var splitDate = CheckIn.AddDays(2);
+
+        var result = await store.SplitMoveAsync(SplitCommand(data, original, splitDate, data.RoomsA[0], Evidence, "Back to the sold type"), CancellationToken.None);
+
+        var (prefix, suffix) = await AssertSplitAsync(result, original, data.RoomsB[0].Id, data.RoomsA[0].Id, splitDate);
+        var group = await MutationGroupAuditsAsync(original.Id);
+        Assert.Equal(3, group.Count);
+        AssertAudit(group, original.Id, RoomOccupancySegmentAuditEventType.Cancelled, null, "Back to the sold type");
+        AssertAudit(group, prefix.Id, RoomOccupancySegmentAuditEventType.Created, Evidence, "Back to the sold type");
+        AssertAudit(group, suffix.Id, RoomOccupancySegmentAuditEventType.Created, null, "Back to the sold type");
+        await AssertCreatedHistoryKeptAsync(original, "evidence:original-upgrade", "Original upgrade", group[0].MutationGroupId);
+        Assert.Equal(commercialBefore, await CommercialSnapshotAsync(data.UnitsA[0].Id));
+    }
+
+    [Fact]
+    public async Task Split_move_with_both_successors_cross_type_records_evidence_on_both()
+    {
+        var data = await SeedSplitAsync("cal2-both-cross");
+        var store = CreateStore();
+        var original = await CreateAssignmentAsync(store, data, data.UnitsA[0], data.RoomsB[0], "evidence:original-upgrade", "Original upgrade");
+        var commercialBefore = await CommercialSnapshotAsync(data.UnitsA[0].Id);
+        var splitDate = CheckIn.AddDays(1);
+
+        var result = await store.SplitMoveAsync(SplitCommand(data, original, splitDate, data.RoomsB[1], Evidence, "Move within the upgrade type"), CancellationToken.None);
+
+        var (prefix, suffix) = await AssertSplitAsync(result, original, data.RoomsB[0].Id, data.RoomsB[1].Id, splitDate);
+        var group = await MutationGroupAuditsAsync(original.Id);
+        Assert.Equal(3, group.Count);
+        AssertAudit(group, original.Id, RoomOccupancySegmentAuditEventType.Cancelled, null, "Move within the upgrade type");
+        AssertAudit(group, prefix.Id, RoomOccupancySegmentAuditEventType.Created, Evidence, "Move within the upgrade type");
+        AssertAudit(group, suffix.Id, RoomOccupancySegmentAuditEventType.Created, Evidence, "Move within the upgrade type");
+        Assert.Equal(commercialBefore, await CommercialSnapshotAsync(data.UnitsA[0].Id));
+    }
+
+    [Fact]
+    public async Task Split_move_of_a_partial_assignment_builds_its_ranges_from_the_segment_not_from_the_whole_stay()
+    {
+        var data = await SeedSplitAsync("cal2-partial");
+        var store = CreateStore();
+        var partialStart = CheckIn.AddDays(1); // nights 9/2-9/4 of the 9/1-9/5 stay
+        var partialEnd = CheckOut.AddDays(-1);
+        var created = await store.CreateAsync(
+            new CreateAssignmentCommand(data.Property.Id, data.UnitsA[0].Id, new AssignmentDestination(data.RoomsA[0].Id, partialStart, partialEnd), Actor, null, null),
+            CancellationToken.None);
+        var original = created.Segments![0];
+        var splitDate = CheckIn.AddDays(2);
+
+        var result = await store.SplitMoveAsync(SplitCommand(data, original, splitDate, data.RoomsA[1]), CancellationToken.None);
+
+        await AssertSplitAsync(result, original, data.RoomsA[0].Id, data.RoomsA[1].Id, splitDate);
+        var effective = (await CountSegmentsAsync(data.Property.Id)).Where(s => s.Status == RoomOccupancySegmentStatus.Effective).OrderBy(s => s.StartDate).ToList();
+        Assert.Equal([(partialStart, splitDate), (splitDate, partialEnd)], effective.Select(s => (s.StartDate, s.EndDate)));
+    }
+
+    [Theory]
+    [InlineData(null, "Upgrade")]
+    [InlineData("   ", "Upgrade")]
+    [InlineData(Evidence, null)]
+    [InlineData(Evidence, "   ")]
+    public async Task Split_move_with_a_cross_type_suffix_and_missing_evidence_or_reason_is_unauthorized_without_change(string? evidence, string? reason)
+    {
+        // Free destination, ample capacity: only the authorization rule can reject this.
+        var data = await SeedSplitAsync("cal2-unauth-suffix");
+        var store = CreateStore();
+        var original = await CreateAssignmentAsync(store, data, data.UnitsA[0], data.RoomsA[0], null, null);
+        var before = await StateAsync(data.Property.Id, data.UnitsA[0].Id);
+
+        var result = await store.SplitMoveAsync(SplitCommand(data, original, CheckIn.AddDays(2), data.RoomsB[0], evidence, reason), CancellationToken.None);
+
+        await AssertRejectedWithoutChangeAsync(data, before, result, SegmentMutationStatus.Unauthorized);
+    }
+
+    [Theory]
+    [InlineData(null, "Back to the sold type")]
+    [InlineData("   ", "Back to the sold type")]
+    [InlineData(Evidence, null)]
+    [InlineData(Evidence, "   ")]
+    public async Task Split_move_with_a_cross_type_prefix_does_not_inherit_the_old_evidence(string? evidence, string? reason)
+    {
+        // The destination is the sold type (the suffix alone would be allowed), the old assignment
+        // carries its own evidence, and rooms/capacity are free: the new prefix must still be authorized.
+        var data = await SeedSplitAsync("cal2-unauth-prefix");
+        var store = CreateStore();
+        var original = await CreateAssignmentAsync(store, data, data.UnitsA[0], data.RoomsB[0], "evidence:original-upgrade", "Original upgrade");
+        var before = await StateAsync(data.Property.Id, data.UnitsA[0].Id);
+
+        var result = await store.SplitMoveAsync(SplitCommand(data, original, CheckIn.AddDays(2), data.RoomsA[0], evidence, reason), CancellationToken.None);
+
+        await AssertRejectedWithoutChangeAsync(data, before, result, SegmentMutationStatus.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Split_move_to_the_segments_own_room_is_invalid_without_change()
+    {
+        var data = await SeedSplitAsync("cal2-same-room");
+        var store = CreateStore();
+        var original = await CreateAssignmentAsync(store, data, data.UnitsA[0], data.RoomsA[0], null, null);
+        var before = await StateAsync(data.Property.Id, data.UnitsA[0].Id);
+
+        var result = await store.SplitMoveAsync(SplitCommand(data, original, CheckIn.AddDays(2), data.RoomsA[0]), CancellationToken.None);
+
+        await AssertRejectedWithoutChangeAsync(data, before, result, SegmentMutationStatus.Invalid, "must differ from the segment's current room");
+    }
+
+    [Theory]
+    [InlineData(-1)] // before the segment
+    [InlineData(0)]  // at start: the prefix would be empty
+    [InlineData(5)]  // at end: the suffix would be empty
+    [InlineData(6)]  // after the segment
+    public async Task Split_move_with_a_split_date_not_strictly_inside_the_segment_is_invalid_without_change(int offsetFromStart)
+    {
+        var data = await SeedSplitAsync("cal2-split-date");
+        var store = CreateStore();
+        var original = await CreateAssignmentAsync(store, data, data.UnitsA[0], data.RoomsA[0], null, null);
+        var before = await StateAsync(data.Property.Id, data.UnitsA[0].Id);
+
+        var result = await store.SplitMoveAsync(SplitCommand(data, original, original.StartDate.AddDays(offsetFromStart), data.RoomsA[1]), CancellationToken.None);
+
+        await AssertRejectedWithoutChangeAsync(data, before, result, SegmentMutationStatus.Invalid, "splitDate must fall strictly inside");
+    }
+
+    [Fact]
+    public async Task Split_move_with_date_only_boundary_values_is_invalid_without_overflow_or_change()
+    {
+        var data = await SeedSplitAsync("cal2-date-boundary");
+        var store = CreateStore();
+        var original = await CreateAssignmentAsync(store, data, data.UnitsA[0], data.RoomsA[0], null, null);
+        var before = await StateAsync(data.Property.Id, data.UnitsA[0].Id);
+
+        foreach (var splitDate in new[] { DateOnly.MinValue, DateOnly.MaxValue })
+        {
+            var result = await store.SplitMoveAsync(SplitCommand(data, original, splitDate, data.RoomsA[1]), CancellationToken.None);
+            await AssertRejectedWithoutChangeAsync(data, before, result, SegmentMutationStatus.Invalid, "splitDate must fall strictly inside");
+        }
+    }
+
+    [Fact]
+    public async Task Split_move_of_a_one_night_segment_is_invalid_at_both_ends_without_change()
+    {
+        var data = await SeedSplitAsync("cal2-one-night");
+        var store = CreateStore();
+        var created = await store.CreateAsync(
+            new CreateAssignmentCommand(data.Property.Id, data.UnitsA[0].Id, new AssignmentDestination(data.RoomsA[0].Id, CheckIn, CheckIn.AddDays(1)), Actor, null, null),
+            CancellationToken.None);
+        var original = created.Segments![0];
+        var before = await StateAsync(data.Property.Id, data.UnitsA[0].Id);
+
+        foreach (var splitDate in new[] { CheckIn, CheckIn.AddDays(1) })
+        {
+            var result = await store.SplitMoveAsync(SplitCommand(data, original, splitDate, data.RoomsA[1]), CancellationToken.None);
+            await AssertRejectedWithoutChangeAsync(data, before, result, SegmentMutationStatus.Invalid, "splitDate must fall strictly inside");
+        }
+    }
+
+    [Fact]
+    public async Task Split_move_of_an_unknown_foreign_or_non_assignment_segment_is_not_found_without_change()
+    {
+        var data = await SeedSplitAsync("cal2-not-found");
+        var store = CreateStore();
+        var original = await CreateAssignmentAsync(store, data, data.UnitsA[0], data.RoomsA[0], null, null);
+        var blockId = Guid.NewGuid();
+        var blockSegmentId = Guid.NewGuid();
+        await using (var context = factory.CreateDbContext())
+        {
+            context.Add(new RoomBlock(blockId, data.Property.Id, "Maintenance", Actor, Now));
+            context.Add(new RoomOccupancySegment(blockSegmentId, data.Property.Id, data.RoomsA[2].Id, RoomOccupancySegmentType.OperationalBlock, CheckIn, CheckOut, null, blockId, Now));
+            await context.SaveChangesAsync();
+        }
+
+        var before = await StateAsync(data.Property.Id, data.UnitsA[0].Id);
+        var otherProperty = Guid.NewGuid();
+        var commands = new[]
+        {
+            SplitCommand(data, original, CheckIn.AddDays(2), data.RoomsA[1]) with { SegmentId = Guid.NewGuid() },
+            SplitCommand(data, original, CheckIn.AddDays(2), data.RoomsA[1]) with { PropertyId = otherProperty },
+            SplitCommand(data, original, CheckIn.AddDays(2), data.RoomsA[1]) with { SegmentId = blockSegmentId, ExpectedVersion = 0 }
+        };
+        foreach (var command in commands)
+        {
+            var result = await store.SplitMoveAsync(command, CancellationToken.None);
+            await AssertRejectedWithoutChangeAsync(data, before, result, SegmentMutationStatus.NotFound);
+        }
+    }
+
+    [Fact]
+    public async Task Split_move_to_a_destination_of_another_property_is_not_found_without_change()
+    {
+        var data = await SeedSplitAsync("cal2-foreign-room");
+        var store = CreateStore();
+        var original = await CreateAssignmentAsync(store, data, data.UnitsA[0], data.RoomsA[0], null, null);
+        PhysicalRoom foreignRoom;
+        await using (var context = factory.CreateDbContext())
+        {
+            var other = new Property(
+                Guid.NewGuid(), "Other Hotel", "cal2-foreign-room-other", null, "2 Hotel Street", "Da Nang", "Vietnam",
+                "Asia/Ho_Chi_Minh", new TimeOnly(14, 0), new TimeOnly(12, 0), true, Now);
+            var otherType = new RoomType(Guid.NewGuid(), other.Id, "OTH", "other", "cal2-other-a", null, 2, 4, true, Now);
+            foreignRoom = new PhysicalRoom(Guid.NewGuid(), other.Id, otherType, "F0", 1, OperationalStatus.Active, Now);
+            context.AddRange(other, otherType, foreignRoom);
+            await context.SaveChangesAsync();
+        }
+
+        var before = await StateAsync(data.Property.Id, data.UnitsA[0].Id);
+        var result = await store.SplitMoveAsync(SplitCommand(data, original, CheckIn.AddDays(2), foreignRoom, Evidence, "Foreign"), CancellationToken.None);
+
+        await AssertRejectedWithoutChangeAsync(data, before, result, SegmentMutationStatus.NotFound);
+    }
+
+    [Fact]
+    public async Task Split_move_to_an_inactive_destination_is_a_conflict_without_change()
+    {
+        var data = await SeedSplitAsync("cal2-inactive");
+        var store = CreateStore();
+        var original = await CreateAssignmentAsync(store, data, data.UnitsA[0], data.RoomsA[0], null, null);
+        var inactive = new PhysicalRoom(Guid.NewGuid(), data.Property.Id, data.RoomTypeA, "INACTIVE", 1, OperationalStatus.Inactive, Now);
+        await using (var context = factory.CreateDbContext())
+        {
+            context.Add(inactive);
+            await context.SaveChangesAsync();
+        }
+
+        var before = await StateAsync(data.Property.Id, data.UnitsA[0].Id);
+        var result = await store.SplitMoveAsync(SplitCommand(data, original, CheckIn.AddDays(2), inactive), CancellationToken.None);
+
+        await AssertRejectedWithoutChangeAsync(data, before, result, SegmentMutationStatus.Conflict);
+    }
+
+    [Fact]
+    public async Task Split_move_with_a_stale_version_or_a_non_effective_source_is_a_conflict_without_change()
+    {
+        var data = await SeedSplitAsync("cal2-stale");
+        var store = CreateStore();
+        var original = await CreateAssignmentAsync(store, data, data.UnitsA[0], data.RoomsA[0], null, null);
+        var stateBefore = await StateAsync(data.Property.Id, data.UnitsA[0].Id);
+
+        var stale = await store.SplitMoveAsync(SplitCommand(data, original, CheckIn.AddDays(2), data.RoomsA[1]) with { ExpectedVersion = original.Version + 1000 }, CancellationToken.None);
+        await AssertRejectedWithoutChangeAsync(data, stateBefore, stale, SegmentMutationStatus.Conflict);
+
+        var unassigned = await store.SupersedeAsync(
+            new SupersedeAssignmentsCommand(data.Property.Id, [new AssignmentSupersession(original.Id, original.Version, [])], Actor, null, "Unassign"),
+            CancellationToken.None);
+        Assert.Equal(SegmentMutationStatus.Succeeded, unassigned.Status);
+        var cancelledState = await StateAsync(data.Property.Id, data.UnitsA[0].Id);
+
+        var cancelled = await store.SplitMoveAsync(SplitCommand(data, original, CheckIn.AddDays(2), data.RoomsA[1]) with { ExpectedVersion = unassigned.Segments![0].Version }, CancellationToken.None);
+        await AssertRejectedWithoutChangeAsync(data, cancelledState, cancelled, SegmentMutationStatus.Conflict);
+    }
+
+    [Fact]
+    public async Task Split_move_into_an_occupied_destination_is_a_conflict_without_change()
+    {
+        var data = await SeedSplitAsync("cal2-overlap", unitsA: 2);
+        var store = CreateStore();
+        var original = await CreateAssignmentAsync(store, data, data.UnitsA[0], data.RoomsA[0], null, null);
+        await CreateAssignmentAsync(store, data, data.UnitsA[1], data.RoomsA[1], null, null); // RoomsA[1] is taken for the whole stay
+        var before = await StateAsync(data.Property.Id, data.UnitsA[0].Id);
+
+        var result = await store.SplitMoveAsync(SplitCommand(data, original, CheckIn.AddDays(2), data.RoomsA[1]), CancellationToken.None);
+
+        await AssertRejectedWithoutChangeAsync(data, before, result, SegmentMutationStatus.Conflict);
+    }
+
+    [Fact]
+    public async Task Split_move_without_capacity_for_a_cross_type_suffix_is_a_conflict_without_change()
+    {
+        // The only RoomTypeB room is free, but an Active, unexpired hold consumes its capacity.
+        var data = await SeedSplitAsync("cal2-capacity", roomsBPerType: 1);
+        var store = CreateStore();
+        var original = await CreateAssignmentAsync(store, data, data.UnitsA[0], data.RoomsA[0], null, null);
+        var fixedNow = Now.AddDays(60);
+        await PlaceActiveHoldAsync(data, data.RoomTypeB.Id, fixedNow.AddMinutes(-1));
+        factory.Clock.UtcNow = fixedNow;
+        Assert.DoesNotContain(await CountSegmentsAsync(data.Property.Id), s => s.PhysicalRoomId == data.RoomsB[0].Id);
+        var before = await StateAsync(data.Property.Id, data.UnitsA[0].Id);
+
+        var result = await store.SplitMoveAsync(SplitCommand(data, original, CheckIn.AddDays(2), data.RoomsB[0], Evidence, "Upgrade"), CancellationToken.None);
+
+        await AssertRejectedWithoutChangeAsync(data, before, result, SegmentMutationStatus.Conflict);
+    }
+
     private async Task<RoomOccupancySegmentDto> CreateAssignmentAsync(
         IAssignmentMutationStore store,
         Fixture data,

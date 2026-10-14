@@ -43,6 +43,13 @@ internal sealed class ReservationBoardDataLoader(TheBhaDbContext dbContext) : IR
     /// </summary>
     internal const string CandidateUnitsQueryTag = "pms-cal-001.1-reservation-board-candidate-units";
 
+    /// <summary>
+    /// PMS-CAL-004-CP01: stable EF query tag on the Effective-OperationalBlock query, which now runs before the
+    /// room query (the rooms listed depend on it). A deterministic regression test pauses the projection right
+    /// after it to commit a competing change; renaming it requires updating that test.
+    /// </summary>
+    internal const string OperationalBlocksQueryTag = "pms-cal-004-reservation-board-operational-blocks";
+
     public async Task<ReservationBoardRawData?> LoadAsync(
         Guid propertyId,
         DateOnly from,
@@ -86,10 +93,45 @@ internal sealed class ReservationBoardDataLoader(TheBhaDbContext dbContext) : IR
             return null;
         }
 
+        // Effective OperationalBlock segments overlapping the requested window
+        // (contract detail 7's overlap predicate), un-clipped (contract detail 8).
+        var operationalBlocks = await dbContext.RoomOccupancySegments
+            .AsNoTracking()
+            .TagWith(OperationalBlocksQueryTag)
+            .Where(segment =>
+                segment.PropertyId == propertyId &&
+                segment.Type == RoomOccupancySegmentType.OperationalBlock &&
+                segment.Status == RoomOccupancySegmentStatus.Effective &&
+                segment.StartDate < to &&
+                segment.EndDate > from &&
+                segment.RoomBlockId != null)
+            .Join(
+                dbContext.RoomBlocks.AsNoTracking().Where(block => block.PropertyId == propertyId),
+                segment => segment.RoomBlockId,
+                block => block.Id,
+                (segment, block) => new ReservationBoardOperationalBlockData(
+                    segment.Id,
+                    EF.Property<uint>(segment, "xmin"),
+                    block.Id,
+                    segment.PhysicalRoomId,
+                    segment.StartDate,
+                    segment.EndDate,
+                    block.Reason))
+            .ToListAsync(cancellationToken);
+
+        // PMS-CAL-004-CP01: the rooms listed are every Active room of this Property plus a room of this
+        // Property that one of the Effective blocks above sits in — whatever its status — so a block already in
+        // an Inactive/OutOfService room is visible. Nothing else widens the list: not a cancelled or
+        // out-of-window block, not an assignment-only reference, not another Property, not an inactive room
+        // without a qualifying block. Read in the same snapshot, after the block query it depends on.
+        var blockRoomIds = operationalBlocks.Select(block => block.PhysicalRoomId).Distinct().ToList();
         var physicalRooms = await dbContext.PhysicalRooms
             .AsNoTracking()
-            .Where(room => room.PropertyId == propertyId && room.OperationalStatus == OperationalStatus.Active)
-            .Select(room => new ReservationBoardPhysicalRoomData(room.Id, room.RoomTypeId, room.RoomNumber, room.Floor))
+            .Where(room =>
+                room.PropertyId == propertyId &&
+                (room.OperationalStatus == OperationalStatus.Active || blockRoomIds.Contains(room.Id)))
+            .Select(room => new ReservationBoardPhysicalRoomData(
+                room.Id, room.RoomTypeId, room.RoomNumber, room.Floor, room.OperationalStatus))
             .ToListAsync(cancellationToken);
 
         // Candidate Units: Committed Units under this Property with at least one
@@ -151,32 +193,7 @@ internal sealed class ReservationBoardDataLoader(TheBhaDbContext dbContext) : IR
                     segment.EndDate))
             .ToListAsync(cancellationToken);
 
-        // Effective OperationalBlock segments overlapping the requested window
-        // (contract detail 7's overlap predicate), un-clipped (contract detail 8).
-        var operationalBlocks = await dbContext.RoomOccupancySegments
-            .AsNoTracking()
-            .Where(segment =>
-                segment.PropertyId == propertyId &&
-                segment.Type == RoomOccupancySegmentType.OperationalBlock &&
-                segment.Status == RoomOccupancySegmentStatus.Effective &&
-                segment.StartDate < to &&
-                segment.EndDate > from &&
-                segment.RoomBlockId != null)
-            .Join(
-                dbContext.RoomBlocks.AsNoTracking().Where(block => block.PropertyId == propertyId),
-                segment => segment.RoomBlockId,
-                block => block.Id,
-                (segment, block) => new ReservationBoardOperationalBlockData(
-                    segment.Id,
-                    EF.Property<uint>(segment, "xmin"),
-                    block.Id,
-                    segment.PhysicalRoomId,
-                    segment.StartDate,
-                    segment.EndDate,
-                    block.Reason))
-            .ToListAsync(cancellationToken);
-
-        // roomTypes must cover active PhysicalRooms, sold RoomTypes of returned
+        // roomTypes must cover the listed PhysicalRooms (Active, or holding a qualifying block), sold RoomTypes of returned
         // stays, and actually-assigned RoomTypes (contract detail 14) — even a
         // since-deactivated RoomType, distinguished by isActive.
         var referencedRoomTypeIds = physicalRooms.Select(room => room.RoomTypeId)

@@ -697,3 +697,51 @@ and audit history stay, as Decision items 4 and 5 already require. Block
 move/split, multi-segment supersede, Admin authentication/RBAC and real Staff
 identity remain TARGET, and no Admin frontend calls this endpoint yet. Current
 state is tracked in `docs/project/PROJECT_BIBLE.md`, not here.
+
+### 2026-10-10 — one assignment split-move endpoint is exposed (`PMS-CAL-002-CP02`)
+
+`POST /api/admin/v1/properties/{propertyId}/reservation-assignments/{segmentId}/split-move`
+exposes `IAssignmentMutationStore.SplitMoveAsync` (`PMS-CAL-002-CP01`) behind the
+same Staff authorization and the same Development-only `LocalGate` as `move` and
+`unassign`. The caller supplies only `expectedVersion`, `splitDate`,
+`destinationPhysicalRoomId`, an optional `confirmCrossRoomType` and an optional
+`reason`; the source's room and nights come from the database, and the store
+still decides ownership, status, version, destination, capacity, locking,
+cross-RoomType evidence per successor and audit. The segment is superseded as
+Decision item 5 already requires, and the response is `[source Cancelled,
+prefix, suffix]`. The Decision is unchanged. A generic assignment split, swap or
+batch, operational-block move/split and Admin_Web use of this endpoint remain
+TARGET. Current state is tracked in `docs/project/PROJECT_BIBLE.md`, not here.
+
+### 2026-10-12 — one operational-block move endpoint is exposed (`PMS-CAL-003-CP01`)
+
+`POST /api/admin/v1/properties/{propertyId}/operational-blocks/{segmentId}/move`
+exposes a narrow adapter, `IOperationalBlockMutationStore.MoveAsync`, behind the
+same Staff authorization (`BlockWrite`) and the same Development-only
+`LocalGate` as block create and cancel. The caller supplies only
+`expectedVersion`, `destinationPhysicalRoomId` and an optional `reason`; the
+adapter reads the segment's own room and nights from the database and delegates
+one single-replacement supersession to the unchanged `SupersedeSegmentsAsync`
+(Decision item 5, and the block case of item 4), which still decides ownership,
+status, version, destination, overlap, final capacity, locking and audit. The
+`RoomBlock` header is preserved; the response is `[source Cancelled, successor
+Effective]`. A block has no sold RoomType, so no cross-RoomType confirmation or
+authorization evidence applies. The adapter refuses a source longer than 366
+nights as a resource bound. The Decision is unchanged. Block split, resize,
+batch and swap, and Admin_Web use of this endpoint, remain TARGET. Current state
+is tracked in `docs/project/PROJECT_BIBLE.md`, not here; the design is
+`docs/design/PMS-CAL-003-operational-block-move.md`.
+
+### 2026-10-12 — the Admin read lists a non-Active room that holds an Effective block (`PMS-CAL-004-CP01`)
+
+The Admin Reservation Board read (`GET …/reservation-board`) now returns, besides every
+Active room of the Property, a non-Active (`Inactive`/`OutOfService`) room of that
+Property that an Effective OperationalBlock segment overlapping the requested window sits
+in, with the room's real `OperationalStatus`, so a block already in such a room can be
+shown and managed. This is a read-exposure change only: rooms are listed for display, not
+counted as sellable inventory, and base inventory and sellability remain Active-only. The
+write rules are unchanged — a source segment may be in a room that is not Active, a
+destination of any placement must be Active, and capacity, overlap, locking and audit stay
+with the existing mutation engine. The Decision is unchanged. The design is
+`docs/design/PMS-CAL-004-inactive-room-block-visibility.md`; current state is tracked in
+`docs/project/PROJECT_BIBLE.md`, not here.

@@ -70,3 +70,93 @@ describe("Calendar page layout preservation", () => {
     expect(source).toMatch(/mode\.mode === "LocalGate"\) return <ReservationBoard\s*\/>;/);
   });
 });
+
+describe("split-move wiring boundaries (PMS-CAL-002-CP05)", () => {
+  it("the board is the only caller of the split-move client function; the seam, popover and dialog import no client function", () => {
+    const importsOf = (file: string) =>
+      read(file)
+        .split("\n")
+        .filter((line) => /^\s*import\b/.test(line))
+        .join("\n");
+    expect(read("ReservationBoard.tsx")).toContain("splitMoveReservationAssignment(");
+    for (const file of ["splitMoveSubmission.ts", "ReservationBoardStayPopover.tsx", "ReservationSplitMoveDialog.tsx"]) {
+      expect(importsOf(file)).not.toMatch(/import \{[^}]*splitMoveReservationAssignment/);
+      expect(read(file)).not.toMatch(/\bfetch\(/);
+    }
+  });
+
+  it("the past-date acknowledgement is a UI fact: it is never part of the request the board sends", () => {
+    const seam = read("splitMoveSubmission.ts");
+    const request = seam.slice(seam.indexOf("request: {"), seam.indexOf("target,", seam.indexOf("request: {")));
+    expect(request).toContain("expectedVersion: target.segment.segmentVersion");
+    expect(request).not.toMatch(/pastDate|acknowledg/i);
+  });
+
+  it("the three source-consuming operations are gated by one predicate, not by their own operation-specific ones", () => {
+    const source = read("ReservationBoard.tsx");
+    expect(source).toContain("isSegmentAssignmentWriteUnresolved");
+    expect(source).not.toContain("isSegmentMoveUnresolved");
+    expect(source).not.toContain("isSegmentUnassignUnresolved");
+  });
+});
+
+describe("block-move wiring boundaries (PMS-CAL-003-CP03)", () => {
+  // Whole `import ... ;` statements, so a wrapped named-import list is seen in full.
+  const importsOf = (file: string) => (read(file).match(/^import\s[\s\S]*?;$/gm) ?? []).join("\n");
+
+  it("the board is the only caller of the block-move client function, exactly once; the seam, popover and dialog import no client function", () => {
+    const board = read("ReservationBoard.tsx");
+    expect(board.match(/\bmoveOperationalBlock\(/g)).toHaveLength(1);
+    expect(importsOf("ReservationBoard.tsx")).toMatch(/\bmoveOperationalBlock\b/);
+    for (const file of ["blockMoveSubmission.ts", "blockMoveTarget.ts", "ReservationBoardStayPopover.tsx", "ReservationBlockMoveDialog.tsx"]) {
+      expect(importsOf(file)).not.toMatch(/import \{[^}]*\bmoveOperationalBlock\b/);
+      expect(importsOf(file)).not.toMatch(/import \{[^}]*\b(cancelOperationalBlock|createOperationalBlock)\b/);
+      expect(read(file)).not.toMatch(/\bfetch\(/);
+    }
+    // The dialog's only client import is a type.
+    for (const statement of importsOf("ReservationBlockMoveDialog.tsx").split(/;\n?/).filter((l) => l.includes("@/lib/api/client"))) {
+      expect(statement).toMatch(/^import type /);
+    }
+  });
+
+  it("the request is built field by field from the verified target: no confirmation, actor, evidence, dates, header or role can ride along", () => {
+    const seam = read("blockMoveSubmission.ts");
+    const request = seam.slice(seam.indexOf("request: {"), seam.indexOf("target,", seam.indexOf("request: {")));
+    expect(request).toContain("expectedVersion: block.segmentVersion");
+    expect(request).toContain("destinationPhysicalRoomId: destination.id");
+    expect(request).toMatch(/\.\.\.\(reason !== "" \? \{ reason \} : \{\}\)/);
+    expect(request).not.toMatch(/confirm|actor|evidence|role|startDate|endDate|roomBlockId|intent\./i);
+  });
+
+  it("a cancel and a move of one block segment are gated by the one segment predicate at open and at send, in the popover's reason too", () => {
+    const board = read("ReservationBoard.tsx");
+    // handleCancelBlock (open), submitBlockCancel (send), isCancelBlockedForBlock (popover) — and the seam for the move.
+    expect(board.match(/isBlockSegmentWriteUnresolved\(/g)).toHaveLength(3);
+    expect(read("blockMoveSubmission.ts")).toContain("isBlockSegmentWriteUnresolved(");
+    expect(board).not.toMatch(/isSegmentMoveUnresolved|isSegmentUnassignUnresolved/);
+  });
+
+  it("the board reads the live refs at the moment of opening and sending, not the closure the popover rendered with", () => {
+    const board = read("ReservationBoard.tsx");
+    const send = board.slice(board.indexOf("const submitBlockMove = useCallback("), board.indexOf("const isBlockRangeLocked = useCallback("));
+    expect(send).toContain("boardStateRef.current");
+    expect(send).toContain("currentBoardKeyRef.current");
+    expect(send).toContain("reconciliationsRef.current");
+    expect(send).toContain("blockReconciliationsRef.current");
+    expect(send).toContain("capabilitiesAt(opened.propertyId).blockWrite");
+    expect(send).toContain("refuseWhileStorageUnverified()");
+    // Recorded, tracked and balanced in the order the other writes use.
+    expect(send.indexOf("beginPendingWrite(")).toBeLessThan(send.indexOf("trackWrite(pendingToken)"));
+    expect(send.indexOf("trackWrite(pendingToken)")).toBeLessThan(send.indexOf("moveOperationalBlock("));
+    expect(send).toMatch(/finally \{\s*untrackWrite\(pendingToken\);/);
+    const open = board.slice(board.indexOf("const handleMoveBlock = useCallback("), board.indexOf("const submitBlockMove = useCallback("));
+    expect(open).toContain("boardStateRef.current");
+    expect(open).toContain("currentBoardKeyRef.current");
+  });
+
+  it("the popover's block-move action is wired for blockWrite only, and the dialog is mounted with the live permission", () => {
+    const board = read("ReservationBoard.tsx");
+    expect(board).toMatch(/onMoveBlock=\{selection\.kind === "block" && capabilities\.blockWrite \? handleMoveBlock : undefined\}/);
+    expect(board).toMatch(/blockWriteEnabled=\{capabilitiesFor\(access, blockMoveTarget\.propertyId, sessionEnded, writesPaused\)\.blockWrite\}/);
+  });
+});

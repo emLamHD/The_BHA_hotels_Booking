@@ -3,19 +3,22 @@
 import React, { FC, MouseEvent, ReactNode } from "react";
 import Link from "next/link";
 import type { Route } from "next";
+import { RIVERSIDE_PATH, riversideSectionHref } from "@/lib/riversideHomeContent";
 import { SHOWCASE_SECTION_NAVIGATION_EVENT } from "@/lib/routePolicy";
 
 /**
- * CUST-WEB-SHOWCASE-001-CP01-C1 (F1): a header link to one section of the
- * live entry that never loads a new document (that would remount
- * BookingHoldProvider and lose the guest's in-memory hold and token).
+ * CUST-WEB-SHOWCASE-001-CP01-C1 (F1): a link to one section of the Riverside page that never loads a new
+ * document (that would remount BookingHoldProvider and lose the guest's in-memory hold and token).
+ *
+ * CUST-WEB-001-CP08a-C2: the Riverside page is `/riverside` now (`/` is the booking portal), so every link
+ * is `/riverside#section`.
  *
  * Next 13.4.3 scrolls a Link's hash target with
  * `window.scrollTo(0, element.offsetTop)`, which is wrong inside a positioned
- * ancestor and ignores the sticky header's scroll margin. So on the live page
+ * ancestor and ignores the sticky header's scroll margin. So on the Riverside page
  * itself — with or without a query string — the jump is a native fragment
  * change instead; from any other page the Link navigates client-side and
- * SectionGridFeatureProperty aligns the section once the catalog is ready.
+ * the page's `HomeSectionAnchors` aligns the section the hash names once it mounts.
  * A same-fragment click has no native hashchange event, so it explicitly
  * starts a fresh bounded alignment window.
  */
@@ -29,7 +32,7 @@ const ShowcaseNavLink: FC<{
   const onClick = (event: MouseEvent<HTMLAnchorElement>) => {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     onNavigate?.();
-    const target = window.location.pathname === "/" ? document.getElementById(section) : null;
+    const target = window.location.pathname === RIVERSIDE_PATH ? document.getElementById(section) : null;
     if (!target) return;
     event.preventDefault();
     if (window.location.hash === `#${section}`) {
@@ -41,7 +44,7 @@ const ShowcaseNavLink: FC<{
   };
 
   return (
-    <Link href={`/#${section}` as Route} className={className} onClick={onClick}>
+    <Link href={riversideSectionHref(section) as Route} className={className} onClick={onClick}>
       {children}
     </Link>
   );

@@ -25,6 +25,7 @@ vi.mock("@/lib/api/client", () => ({
   unassignReservationAssignment: vi.fn(),
   createOperationalBlock: vi.fn(),
   cancelOperationalBlock: vi.fn(),
+  moveOperationalBlock: vi.fn(),
 }));
 
 import {
@@ -32,6 +33,7 @@ import {
   createReservationAssignment,
   fetchActiveProperties,
   fetchReservationBoard,
+  moveOperationalBlock,
   moveReservationAssignment,
 } from "@/lib/api/client";
 
@@ -40,11 +42,12 @@ const mockedBoard = vi.mocked(fetchReservationBoard);
 const mockedCreate = vi.mocked(createReservationAssignment);
 const mockedMove = vi.mocked(moveReservationAssignment);
 const mockedBlockCreate = vi.mocked(createOperationalBlock);
+const mockedBlockMove = vi.mocked(moveOperationalBlock);
 
 beforeEach(() => {
   sessionStorage.clear();
   vi.restoreAllMocks();
-  for (const mock of [mockedCatalog, mockedBoard, mockedCreate, mockedMove, mockedBlockCreate]) mock.mockReset();
+  for (const mock of [mockedCatalog, mockedBoard, mockedCreate, mockedMove, mockedBlockCreate, mockedBlockMove]) mock.mockReset();
   mockedBoard.mockImplementation((propertyId, from, to) => Promise.resolve({ ok: true, data: boardFor(propertyId, from, to) }));
 });
 
@@ -231,12 +234,56 @@ describe("Staff mode: controls and handlers follow the role (groups 7, 8)", () =
     });
   });
 
+  it("PMS-CAL-002-CP05: the summary mentions the split-move; FrontDesk and Manager are offered it, a stay in another type than sold needs a Manager", async () => {
+    const user = userEvent.setup();
+    const desk = await renderStaffBoard([membership("prop-a", "FrontDesk")]);
+    expect(screen.getByTestId("reservation-board-capabilities")).toHaveTextContent("split from a chosen date");
+    desk.unmount();
+    // The fixture's segment is two nights long, so the split is offered by both roles and sends nothing by itself.
+    for (const role of ["FrontDesk", "Manager"]) {
+      const view = await renderStaffBoard([membership("prop-a", role)]);
+      await user.click(screen.getByTitle("Nguyen Van A — CNF-100"));
+      expect(within(screen.getByRole("dialog", { name: "Reservation details" })).getByRole("button", { name: /^Move from a date/ })).toBeEnabled();
+      view.unmount();
+    }
+    expect(mockedMove).not.toHaveBeenCalled();
+  });
+
   it("FrontDesk can block and cancel blocks; the popover offers Cancel block", async () => {
     const user = userEvent.setup();
     await renderStaffBoard([membership("prop-a", "FrontDesk")]);
     expect(screen.getByRole("button", { name: "Create operational block" })).toBeEnabled();
     await user.click(screen.getByTitle(BLOCK_REASON));
     expect(within(screen.getByRole("dialog", { name: "Operational block details" })).getByRole("button", { name: "Cancel block" })).toBeInTheDocument();
+  });
+
+  it("PMS-CAL-003-CP03: FrontDesk and Manager are both offered Move block…, a role without BlockWrite is not, and the summary says blocks can be moved", async () => {
+    const user = userEvent.setup();
+    for (const role of ["FrontDesk", "Manager"]) {
+      const view = await renderStaffBoard([membership("prop-a", role)]);
+      expect(screen.getByTestId("reservation-board-capabilities")).toHaveTextContent("a block can be cancelled or moved to another Active room");
+      await user.click(screen.getByTitle(BLOCK_REASON));
+      expect(within(screen.getByRole("dialog", { name: "Operational block details" })).getByRole("button", { name: "Move block…" })).toBeEnabled();
+      view.unmount();
+    }
+    const { access } = staffAccess([membership("prop-a", "Viewer")]);
+    render(<ReservationBoard access={access} />);
+    await screen.findAllByText(/does not include access to the Reservation Board/);
+    expect(screen.queryByTitle(BLOCK_REASON)).not.toBeInTheDocument();
+    expect(mockedBlockMove).not.toHaveBeenCalled();
+  });
+
+  it("PMS-CAL-003-CP03: a role lowered while the move dialog is open sends nothing", async () => {
+    const user = userEvent.setup();
+    const desk = await renderStaffBoard([membership("prop-a", "FrontDesk")]);
+    await user.click(screen.getByTitle(BLOCK_REASON));
+    await user.click(within(screen.getByRole("dialog", { name: "Operational block details" })).getByRole("button", { name: "Move block…" }));
+    const dialog = screen.getByRole("dialog", { name: "Move operational block" });
+    await user.click(within(dialog).getByRole("radio", { name: /Room 101/ }));
+    desk.rerender(<ReservationBoard access={{ ...desk.access, memberships: [membership("prop-a", "Viewer")] } as BoardAccess} />);
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("needs permission to change blocks");
+    expect(within(dialog).queryByRole("button", { name: /^Move block/ })).not.toBeInTheDocument();
+    expect(mockedBlockMove).not.toHaveBeenCalled();
   });
 });
 
@@ -331,6 +378,60 @@ describe("Staff mode: 401 and 403 (groups 9, 10, 12)", () => {
     spies.refreshAccess.mockResolvedValue("unauthenticated");
     render(<ReservationBoard access={spies.access} />);
     await waitFor(() => expect(spies.onSessionExpired).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe("Staff mode: a block move's 401 and 403 (PMS-CAL-003-CP03)", () => {
+  async function confirmBlockMove(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByTitle(BLOCK_REASON));
+    await user.click(within(screen.getByRole("dialog", { name: "Operational block details" })).getByRole("button", { name: "Move block…" }));
+    const dialog = screen.getByRole("dialog", { name: "Move operational block" });
+    await user.click(within(dialog).getByRole("radio", { name: /Room 101/ }));
+    await user.click(within(dialog).getByRole("button", { name: "Move block to room 101" }));
+    return dialog;
+  }
+
+  it("a 401 is settled as a refusal first — nothing resent — then the session is handed back once", async () => {
+    const user = userEvent.setup();
+    const desk = await renderStaffBoard([membership("prop-a", "FrontDesk")]);
+    mockedBlockMove.mockResolvedValue({ kind: "rejected", status: 401, category: "refused", detail: "Your Staff session has ended." });
+    await confirmBlockMove(user);
+    await waitFor(() => expect(desk.onSessionExpired).toHaveBeenCalledTimes(1));
+    expect(mockedBlockMove).toHaveBeenCalledTimes(1);
+    expect(desk.onWriteActivityChange).toHaveBeenLastCalledWith(false);
+    expect(restoreUncertainWrites(tabStorage(), 1).blocks).toHaveLength(0);
+  });
+
+  it("a 403 re-reads access once and never resends; it does not end the session or claim the block moved", async () => {
+    const user = userEvent.setup();
+    const desk = await renderStaffBoard([membership("prop-a", "FrontDesk")]);
+    mockedBlockMove.mockResolvedValue({ kind: "rejected", status: 403, category: "not-permitted" });
+    const dialog = await confirmBlockMove(user);
+    await waitFor(() => expect(desk.refreshAccess).toHaveBeenCalledTimes(1));
+    expect(mockedBlockMove).toHaveBeenCalledTimes(1);
+    expect(desk.onSessionExpired).not.toHaveBeenCalled();
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("Nothing was changed");
+    expect(within(dialog).getByRole("alert")).not.toHaveTextContent(/has been moved|was moved/);
+  });
+
+  it("an unconfirmed move outlives the session: sign-out and another Staff member at the same Property keep it locked and resend nothing", async () => {
+    const user = userEvent.setup();
+    await renderStaffBoard([membership("prop-a", "FrontDesk")]);
+    mockedBlockMove.mockResolvedValue({ kind: "unknown", reason: "timeout" });
+    await confirmBlockMove(user);
+    await waitFor(() => expect(mockedBlockMove).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+    });
+    expect(restoreUncertainWrites(tabStorage(), 1).blocks).toHaveLength(1);
+
+    // The page ends; a Manager signs in to the same tab.
+    const manager = await renderStaffBoard([membership("prop-a", "Manager")]);
+    expect(manager.access.mode).toBe("Staff");
+    expect(screen.getAllByTestId("uncertain-block-notice").length).toBeGreaterThan(0);
+    await user.click(screen.getAllByTitle(BLOCK_REASON)[0]);
+    expect(within(screen.getByRole("dialog", { name: "Operational block details" })).getByRole("button", { name: "Move block…" })).toBeDisabled();
+    expect(mockedBlockMove).toHaveBeenCalledTimes(1);
   });
 });
 

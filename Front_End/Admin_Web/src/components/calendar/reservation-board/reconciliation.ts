@@ -42,11 +42,18 @@
  *    exactly, `changed` once it does not. `changed` then only says the stale
  *    `expectedVersion` can never commit again — not that the lost request
  *    succeeded, rolled back or caused the change.
+ *    PMS-CAL-002-CP03: a **split-move** keeps the source room for
+ *    `[startDate, splitDate)` and puts the destination room on
+ *    `[splitDate, endDate)`; `startDate`/`endDate` stay the source's full range.
+ *    A board returns an assignment un-clipped but only when it overlaps the
+ *    board's window, so what it can prove depends on that window (see
+ *    `evaluateUncertainWrite`). `changed` again only says the stale
+ *    `expectedVersion` can never commit.
  *    Otherwise it stays `unresolved`, however many reads follow.
  */
 
 import type { ReservationBoardResponse, ReservationBoardUnassignedRange } from "@/lib/api/types";
-import type { BlockCreateReconciliation } from "./blockCreateReconciliation";
+import { blockRoomsTouchedBy, type BlockCreateReconciliation } from "./blockCreateReconciliation";
 
 interface ReconciliationTargetBase {
   reservationUnitId: string;
@@ -95,7 +102,30 @@ export interface UnassignReconciliationTarget extends ReconciliationTargetBase {
   sourcePhysicalRoomId: string;
 }
 
-export type ReconciliationTarget = CreateReconciliationTarget | MoveReconciliationTarget | UnassignReconciliationTarget;
+/**
+ * PMS-CAL-002-CP03: a split-move of one segment. `startDate`/`endDate` are the
+ * source segment's FULL range (never the suffix), `physicalRoomId` is the
+ * DESTINATION room that takes `[splitDate, endDate)`, and the source room keeps
+ * `[startDate, splitDate)`.
+ */
+export interface SplitMoveReconciliationTarget extends ReconciliationTargetBase {
+  operation: "split-move";
+  /** Destination PhysicalRoom: the room taking the later nights. */
+  physicalRoomId: string;
+  /** Source segment identity/version exactly as clicked — what "unresolved" and "changed" are judged against. */
+  segmentId: string;
+  expectedVersion: number;
+  /** Source segment's own current room, which keeps the earlier nights. */
+  sourcePhysicalRoomId: string;
+  /** First night in the destination room; strictly inside `[startDate, endDate)`. */
+  splitDate: string;
+}
+
+export type ReconciliationTarget =
+  | CreateReconciliationTarget
+  | MoveReconciliationTarget
+  | UnassignReconciliationTarget
+  | SplitMoveReconciliationTarget;
 
 export interface Reconciliation {
   id: number;
@@ -157,10 +187,13 @@ function overlapsRange(a: { startDate: string; endDate: string }, b: { startDate
  * once the actual (fuller) range is covered elsewhere — full containment is
  * what keeps that judgement correct. A move's target, by contrast, is never
  * clipped (`moveTarget.ts` deliberately carries the segment's own full,
- * un-clipped `[startDate, endDate)`), and `assignments` on a board are
- * returned complete for any Unit the board includes at all — so a window
- * that merely *overlaps* that range already returns the exact full source or
- * destination assignment, whichever is on the server. Requiring full
+ * un-clipped `[startDate, endDate)`), and a board returns each assignment
+ * un-clipped but only when it overlaps the board's window (not every
+ * assignment of the Unit) — so a window that merely *overlaps* that range
+ * already returns the exact full source or destination assignment,
+ * whichever is on the server. A split-move's source is judged the same way;
+ * its successors are narrower than the source range, so seeing them needs a
+ * window that also straddles the split date (`evaluateUncertainWrite`). Requiring full
  * containment for a move would leave any segment longer than the UI's
  * maximum visible window (`ReservationBoardRangeLength`, capped at 31 nights)
  * permanently unresolved (and, for the retry gate specifically, permanently
@@ -194,6 +227,39 @@ export function evaluateUncertainWrite(
 
   const stay = board.stays.find((candidate) => candidate.reservationUnitId === target.reservationUnitId);
 
+  const sourceIntact = (source: { segmentId: string; expectedVersion: number; sourcePhysicalRoomId: string }) =>
+    stay?.assignments.some(
+      (assignment) =>
+        assignment.segmentId === source.segmentId &&
+        assignment.segmentVersion === source.expectedVersion &&
+        assignment.physicalRoomId === source.sourcePhysicalRoomId &&
+        assignment.startDate === target.startDate &&
+        assignment.endDate === target.endDate
+    ) ?? false;
+
+  if (target.operation === "split-move") {
+    // PMS-CAL-002-CP03: the two successors are narrower than the source, and a
+    // board returns an assignment only when it overlaps the window. Only a
+    // window with nights on both sides of the split date (`from < splitDate < to`)
+    // returns both, so only such a board can observe the result; anything else
+    // can at most tell whether the source is still there. One successor, a
+    // missing source, or one assignment over the whole range is never enough.
+    const straddles = board.from < target.splitDate && target.splitDate < board.to;
+    const hasExactly = (physicalRoomId: string, startDate: string, endDate: string) =>
+      stay?.assignments.some(
+        (assignment) =>
+          assignment.physicalRoomId === physicalRoomId && assignment.startDate === startDate && assignment.endDate === endDate
+      ) ?? false;
+    if (
+      straddles &&
+      hasExactly(target.sourcePhysicalRoomId, target.startDate, target.splitDate) &&
+      hasExactly(target.physicalRoomId, target.splitDate, target.endDate)
+    ) {
+      return "observed";
+    }
+    return sourceIntact(target) ? "unresolved" : "changed";
+  }
+
   // Destination checked first for create/move: if the intended placement
   // itself is on the server, the write's effect is known. An unassign has no
   // destination, so nothing on the board can ever be "observed" for it.
@@ -214,16 +280,7 @@ export function evaluateUncertainWrite(
     // room, range — still matches exactly. Any mismatch (superseded,
     // unassigned, or moved by something else) means the stale
     // `expectedVersion` this write carries can never take effect again.
-    const sourceIntact =
-      stay?.assignments.some(
-        (assignment) =>
-          assignment.segmentId === target.segmentId &&
-          assignment.segmentVersion === target.expectedVersion &&
-          assignment.physicalRoomId === target.sourcePhysicalRoomId &&
-          assignment.startDate === target.startDate &&
-          assignment.endDate === target.endDate
-      ) ?? false;
-    return sourceIntact ? "unresolved" : "changed";
+    return sourceIntact(target) ? "unresolved" : "changed";
   }
 
   // create: still a candidate only while every night of the write is still uncovered.
@@ -338,18 +395,69 @@ export function isSegmentUnassignUnresolved(list: Reconciliation[], propertyId: 
 }
 
 /**
- * PMS-CAL-001.3-CP03-C1: the rooms an unresolved assignment-type write may
- * still change — a create's destination, both rooms of a move, an unassign's
- * source.
+ * PMS-CAL-002-CP03: true while an uncertain split-move whose source is exactly
+ * this segment is unresolved — on any board, whatever its range. Matches on
+ * `segmentId` alone, for the same reason as `isSegmentMoveUnresolved`.
  */
-function roomsTouchedBy(target: ReconciliationTarget): string[] {
+export function isSegmentSplitMoveUnresolved(list: Reconciliation[], propertyId: string, segmentId: string): boolean {
+  return list.some(
+    (entry) =>
+      entry.resolution === "unresolved" &&
+      entry.propertyId === propertyId &&
+      entry.target.operation === "split-move" &&
+      entry.target.segmentId === segmentId
+  );
+}
+
+/**
+ * PMS-CAL-002-CP03: true while an uncertain move, unassign or split-move of
+ * exactly this segment is unresolved. All three consume the same source
+ * segment and `expectedVersion`, so any of them in doubt must refuse another of
+ * any kind. Matches on the id alone — never version, room or range, which a
+ * still-stale board could reopen. Not wired to a handler by CP03; the
+ * operation-specific predicates above keep their exact meaning.
+ */
+export function isSegmentAssignmentWriteUnresolved(list: Reconciliation[], propertyId: string, segmentId: string): boolean {
+  return list.some(
+    (entry) =>
+      entry.resolution === "unresolved" &&
+      entry.propertyId === propertyId &&
+      entry.target.operation !== "create" &&
+      entry.target.segmentId === segmentId
+  );
+}
+
+interface RoomRange {
+  physicalRoomId: string;
+  startDate: string;
+  endDate: string;
+}
+
+/**
+ * PMS-CAL-001.3-CP03-C1 / PMS-CAL-002-CP03: the room-and-night facts an
+ * unresolved assignment-type write may still change — a create's destination, both
+ * rooms of a move over the full range, an unassign's source, and for a
+ * split-move the source room over its whole range (if the request did not
+ * commit, the source still holds every night) but the destination room only
+ * over `[splitDate, endDate)` — the prefix nights never touch it.
+ */
+function roomRangesTouchedBy(target: ReconciliationTarget): RoomRange[] {
+  const { startDate, endDate } = target;
   switch (target.operation) {
     case "create":
-      return [target.physicalRoomId];
+      return [{ physicalRoomId: target.physicalRoomId, startDate, endDate }];
     case "move":
-      return [target.physicalRoomId, target.sourcePhysicalRoomId];
+      return [
+        { physicalRoomId: target.physicalRoomId, startDate, endDate },
+        { physicalRoomId: target.sourcePhysicalRoomId, startDate, endDate },
+      ];
     case "unassign":
-      return [target.sourcePhysicalRoomId];
+      return [{ physicalRoomId: target.sourcePhysicalRoomId, startDate, endDate }];
+    case "split-move":
+      return [
+        { physicalRoomId: target.sourcePhysicalRoomId, startDate, endDate },
+        { physicalRoomId: target.physicalRoomId, startDate: target.splitDate, endDate },
+      ];
   }
 }
 
@@ -370,16 +478,22 @@ export function isRoomRangeUnresolved(
   physicalRoomIds: string[],
   range: { startDate: string; endDate: string }
 ): boolean {
-  const touches = (rooms: string[], nights: { startDate: string; endDate: string }) =>
-    rooms.some((room) => physicalRoomIds.includes(room)) && overlapsRange(nights, range);
   return (
     assignments.some(
       (entry) =>
-        entry.resolution === "unresolved" && entry.propertyId === propertyId && touches(roomsTouchedBy(entry.target), entry.target)
+        entry.resolution === "unresolved" &&
+        entry.propertyId === propertyId &&
+        roomRangesTouchedBy(entry.target).some(
+          (touched) => physicalRoomIds.includes(touched.physicalRoomId) && overlapsRange(touched, range)
+        )
     ) ||
     blocks.some(
       (entry) =>
-        entry.resolution === "unresolved" && entry.propertyId === propertyId && touches([entry.target.physicalRoomId], entry.target)
+        entry.resolution === "unresolved" &&
+        entry.propertyId === propertyId &&
+        // PMS-CAL-003-CP02: both rooms of an unresolved block move, over its full range.
+        blockRoomsTouchedBy(entry.target).some((roomId) => physicalRoomIds.includes(roomId)) &&
+        overlapsRange(entry.target, range)
     )
   );
 }

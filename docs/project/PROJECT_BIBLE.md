@@ -116,7 +116,7 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   CLI, cookie session `.TheBha.Staff` (8 giờ tuyệt đối), `GET /api/admin/v1/me`.
   `AdminCalendar:AccessMode`: `Staff` (mặc định từ CP07, mọi môi trường) yêu cầu
   Staff session + permission kiểm tra trên server theo Property/role cho Board
-  read và năm route ghi, audit actor `staff:{id}` và evidence cross-RoomType của
+  read và bảy route ghi (assignment create/move/unassign/split-move, block create/cancel/move), audit actor `staff:{id}` và evidence cross-RoomType của
   Manager; `LocalGate` (gate ẩn danh ở trên) chỉ là opt-in Development, môi
   trường khác từ chối khởi động. Admin_Web có `/signin`, gate `/calendar`,
   selector từ memberships và UI theo quyền. Vận hành:
@@ -167,13 +167,39 @@ implement; PROJECT_BIBLE.md chỉ tóm tắt, không lặp lại chi tiết.
   CURRENT ở mức local-only từ CP04B, single-segment operational-block
   *create*/*cancel* CURRENT ở mức local-only từ `PMS-CAL-001.3` CP01/CP02,
   và Admin Reservation Board gọi cả hai từ CP03/CP04) —
-  assignment split/batch, OperationalBlock *move/split* và multi-segment block
-  create/supersede qua HTTP, frontend integration cho split/batch và cho
-  operational-block move/split vẫn TARGET, chưa implement. Đổi phòng giữa kỳ bằng
-  split một segment (split-move, blueprint §15.4) có thiết kế đề xuất
-  `PMS-CAL-002-CP00` ([PMS-CAL-002-split-move](../design/PMS-CAL-002-split-move.md));
-  nó vẫn TARGET cho tới khi các checkpoint implementation merge, và các quyết định
-  Owner D1–D6 của thiết kế còn mở. (Staff
+  assignment *batch*, OperationalBlock *split* và multi-segment block
+  create/supersede qua HTTP, frontend integration cho batch và cho
+  operational-block split vẫn TARGET, chưa implement; OperationalBlock *move* của
+  một segment có route backend (`PMS-CAL-003-CP01`, xem dưới), nền Admin_Web
+  (`PMS-CAL-003-CP02`: client, target chính xác, reconciliation observed/unresolved/changed,
+  khóa hai phòng, record storage v1) và nay cả dialog + action `Move block…` trên board
+  (`PMS-CAL-003-CP03`, đã chạy trên Chrome thật + API Staff thật + PostgreSQL 18.3 cô lập; PR chờ
+  review/merge của Owner; PR #105 đã merge, milestone `PMS-CAL-003` **đóng** với qualifier lịch sử:
+  block ở phòng không Active khi đó chưa hiện trên board), một request, không retry, kết quả mất phản
+  hồi giữ `unknown` và khóa hai phòng. `PMS-CAL-004-CP01` sửa chỗ hiển thị đó: read
+  `reservation-board` trả mọi phòng Active **cộng** phòng Inactive/OutOfService của cùng Property có
+  Effective block giao với window (kèm `operationalStatus` thật; không mở danh sách phòng inactive hay lịch
+  sử), để Staff dùng `Move block…`/`Cancel block` hiện hữu trên block đó; mọi destination vẫn Active-only,
+  inventory/sellability vẫn Active-only, không đổi status phòng
+  ([PMS-CAL-004](../design/PMS-CAL-004-inactive-room-block-visibility.md); PR chờ review/merge của Owner).
+  Đổi phòng giữa kỳ bằng
+  split một segment (split-move, blueprint §15.4,
+  [PMS-CAL-002-split-move](../design/PMS-CAL-002-split-move.md); Owner đã chốt D1–D6)
+  nay **CURRENT ở mức local/Staff**: store `SplitMoveAsync` (CP01), route
+  `POST …/reservation-assignments/{segmentId}/split-move` (CP02), client/target/
+  reconciliation/storage (CP03), dialog (CP04) và action `Move from a date…` trên
+  Admin Reservation Board (CP05; PR #102 đã merge sau review của Owner, milestone
+  `PMS-CAL-002` **đóng**). Đây là
+  thao tác **phân bổ phòng** trên segment: nó không đổi ngày lưu trú, giá hay
+  booking (D6), và **không** có check-in/check-out, lifecycle, folio hay template
+  nối backend — các phần đó vẫn mock/TARGET. `PMS-CAL-003-CP01` thêm route
+  ghi thứ bảy: `POST …/operational-blocks/{segmentId}/move`
+  ([PMS-CAL-003-operational-block-move](../design/PMS-CAL-003-operational-block-move.md)),
+  chuyển đúng một OperationalBlock segment Effective sang phòng Active khác của cùng
+  Property trên toàn bộ đêm của nó, giữ RoomBlock header; chỉ cần `BlockWrite`
+  (FrontDesk và Manager, kể cả khác RoomType: block không có sold RoomType nên không
+  có xác nhận cross-RoomType hay evidence). Chưa deploy Production; Backend CD vẫn
+  `PAUSED / NOT_COMPLETE`. (Staff
   authentication/RBAC và audit actor Staff đã CURRENT ở chế độ `Staff` —
   `PMS-ADMIN-AUTH-001`; chế độ `LocalGate` vẫn dùng hằng số opaque.)
 - Intentional cross-RoomType upgrade/downgrade có authorization/reason/audit
@@ -492,14 +518,45 @@ work item riêng.
 - Mọi ảnh được **quét provenance (heuristic, chưa validate chữ ký C2PA)** và ghi bằng chứng từng file vào manifest. Mặc định của script (CP02/C1): ảnh có marker nêu dịch vụ sinh ảnh
   hoặc không có metadata **không** được publish; chỉ ảnh có editor metadata được publish (C3 ghi đè mặc định này bằng quyết định Owner cho các ảnh đã chọn, xem bên dưới), và mức bằng chứng đó là "nguồn camera chưa được xác minh độc lập"
   — không phải xác nhận ảnh thật. Nới cổng là quyết định Owner, không phải cờ script.
-- Namespace route media của Customer_Web là chuỗi cố định `/media/<property>/<kebab>.webp`; mọi đường dẫn khác vẫn default-deny. C2 từng giới hạn route công khai ở `/` và `/listing-stay-detail` và thay ảnh template bằng placeholder; **C3 đã thay thế** (xem bullet Template bên dưới): route template mở lại, `/api/*` vẫn default-deny.
+- Namespace route media của Customer_Web là chuỗi cố định `/media/<property>/<kebab>.webp`; mọi đường dẫn khác vẫn default-deny. C2 từng giới hạn route công khai ở `/` và `/listing-stay-detail` và thay ảnh template bằng placeholder; **C3 đã thay thế** (xem bullet Template bên dưới): route template mở lại, `/api/*` mặc định đóng (từ `BHA-WEB-PROXY-001`, chỉ được chuyển tiếp khi build cấu hình `API_PROXY_ORIGIN`; xem [contract Customer](../design/CUST-WEB-001-product-contract.md) mục X01).
 - Hiện trạng Riverside (từ CP02-C3): 31 ảnh — Property 10, 2PN 9, 1PN 6, 1PN view thoáng 6 — `MEDIA_COVERAGE: PASS`, `MEDIA_PROVENANCE: UNVERIFIED`.
   **Quyết định Owner (C3, ghi trong MEP ngày 2026-10-07):** thư mục theo từng loại phòng do Owner phân loại; Owner cho phép publish ảnh dù quét byte thấy generator marker hoặc không có metadata.
   Manifest ghi `decision: owner-authorized`, `provenanceStatus: UNVERIFIED`, `validation: NOT_RUN` cho từng file; báo cáo **không** được khẳng định đó là ảnh chụp thật hay đúng phòng thật.
   Quyết định này thay đoạn "không publish" ở trên cho ảnh đã được Owner chọn; nó không phải cờ script chung.
 - **Template (C3, Owner):** giao diện khách là template Chisfis được khôi phục đầy đủ (không còn khung preview inert của C2). Chỉ dữ liệu The BHA Riverside (phòng, giá, đặt phòng) là thật;
-  phần còn lại là nội dung mẫu, có một dòng ghi chú. Route template mở lại; `/api/*` vẫn đóng; currency dropdown chỉ là template (không quy đổi VND).
+  phần còn lại là nội dung mẫu, có một dòng ghi chú. Route template mở lại; `/api/*` mặc định đóng (ngoại lệ: build có `API_PROXY_ORIGIN`); currency dropdown chỉ là template (không quy đổi VND). **Từ `CUST-WEB-001-CP08a` (Owner, 2026-10-14) quyết định này được thay thế chỉ cho trang chủ, header, footer và điều hướng công khai** (Riverside-first, không còn menu/tab đa dịch vụ hay nội dung mẫu ở đó); các route mẫu còn lại vẫn truy cập trực tiếp và `DP-01`/`DP-03`/`DP-10` vẫn `OPEN`.
 
 **Quyết định Owner đang chờ:** (1) ~~làm rõ ảnh 1PN~~ — đã giải quyết ở C3: Owner cho publish, provenance vẫn `UNVERIFIED` (cần Owner/pháp lý xác nhận nguồn và quyền sử dụng trước khi công bố thương mại); (2) tên miền: Owner đã cung cấp
 `thebhariverside.com` / `admin.` / `api.` (cùng registrable domain cho cookie Lax/Strict; DNS/live `NOT_TESTED`); (3) địa chỉ, mô tả, tiện nghi thật của Riverside; (4) runtime API
 (đề xuất ECS Fargate + EFS mã hóa) và nơi giữ Data Protection key ring; (5) bật/cấp quyền publish ECR (biến `ECR_PUBLISH_ENABLED`, role OIDC; publish chỉ từ `develop`).
+
+### 14.2 Customer Web — hiện trạng và mục tiêu (`CUST-WEB-001`)
+
+Nguồn đầy đủ: [CUST-WEB-001-product-contract](../design/CUST-WEB-001-product-contract.md) (`CUST-WEB-001-CP00`,
+2026-10-13, `PROPOSAL` — chưa Owner duyệt). Bảng dưới chỉ tóm tắt; mọi dòng `SOURCE_ONLY` tại `2ad2bc9`.
+
+**CURRENT.**
+
+- `REAL_INTEGRATED`: danh mục The BHA Riverside (Property, RoomType), tìm availability, trang phòng
+  `/listing-stay-detail?propertyId=&roomTypeId=`, hold → confirm → biên nhận `/paydone`; giá, currency, tồn, hạn giữ
+  chỗ (15 phút) và hạn hủy do server sở hữu. Trạng thái hold/biên nhận chỉ nằm trong bộ nhớ tab.
+- `REAL_INTEGRATED` (`CUST-WEB-001-CP02`): `/login` thật, mục tài khoản/đăng xuất theo `me` ở header và mobile, đóng biên nhận cục bộ.
+- `REAL_INTEGRATED` (`CUST-WEB-001-CP03`): `/signup` thật gọi `register` (chỉ tạo tài khoản, không đăng nhập), link “Tạo tài khoản” ở `/login` và menu ẩn danh.
+- `REAL_INTEGRATED` (`CUST-WEB-001-CP04`): `/account` chỉ đọc (email từ `me`), mục “Tài khoản” theo `me` ở header/mobile/`FooterNav`; `/account-password|billing|savelists` hiện “Chức năng này chưa được hỗ trợ”.
+- `REAL_INTEGRATED` (`CUST-WEB-001-CP05a`): `/listing-stay` là kết quả catalog/availability thật của The BHA Riverside với tham số tìm kiếm trên URL (reload/chia sẻ/Back-Forward); `/listing-stay-map` chỉ là alias redirect (chưa có bản đồ); House/Villa “Chưa hỗ trợ đặt phòng trực tuyến”. Search ở header/trang chủ giữ hành vi cũ (về Featured), chưa chuyển sang URL.
+- `REAL_INTEGRATED` (`CUST-WEB-001-CP08a`): trang chủ là The BHA Riverside (hero, loại phòng thật ở dạng browse không giá, lý do đặt, ảnh property, ba bước, vị trí, FAQ); header, drawer, app bar và footer chỉ dẫn tới nơi chạy được; mọi điểm vào tìm kiếm (hero, header mobile kể cả trang phòng) đi tới URL `/listing-stay` chuẩn bằng một navigation, trang chủ không hỏi availability. House/Villa hoãn, không có trong picker của trang chủ/header.
+- `REAL_INTEGRATED` (`CUST-WEB-001-CP08a-C2`): `/` là cổng đặt phòng (slideshow Đà Nẵng, form tìm phòng thật, ưu đãi **mẫu** tách khỏi giá thật, điểm đến, tin tức, newsletter UI không lưu); trang Riverside ở `/riverside`; `/offers`, `/blog`, `/blog/<slug>` (registry tĩnh, mọi bài có nguồn), `/media-credits`; menu Chisfis/Ngôn ngữ/Tiền tệ chỉ là UI, nút sáng/tối thật; `/account` → `/login?returnTo=/account` cho phiên anonymous đã xác minh.
+- `TEMPLATE_ONLY`: `/checkout`, `/contact`, `/about`, `/author`, các dịch vụ Cars/Flights/Experiences/Real Estate
+  (các route này còn truy cập trực tiếp, không còn link từ header/footer), rating/review mẫu ở trang phòng.
+- API `Back_End` có `auth/register|login|logout|me`, đọc/hủy một reservation theo credential; Customer_Web gọi `me`, `login`, `logout`
+  (CP01a–CP02) và `register` (CP03), **chưa** đọc/hủy reservation theo tài khoản. Chưa có API liệt kê đặt phòng của tài khoản, đổi hồ sơ/mật khẩu, quên mật khẩu, liên hệ/newsletter, thanh toán,
+  email giao dịch. `register` trả 201 nhưng **không** đăng nhập.
+- `CUST-WEB-001-CP01a` (2026-10-13, merged PR #108): nền Customer session — `authService.ts` (client `me`/`register`/`login`/`logout`),
+  `CustomerSessionProvider` chỉ đọc `me` ở root (loading/anonymous/authenticated/unknown) và cache CSRF có generation khi
+  invalidation; **chưa** có UI đăng nhập/đăng ký/đăng xuất/tài khoản và khoá đổi danh tính khi đang giữ chỗ do `CP01b` (2026-10-13, merged PR #109) bổ sung: guarded login/logout trong provider, giữ khoá tới khi `me` được kiểm chứng, reset draft, `finishBooking` cục bộ. `CP02` (2026-10-13, merged PR #110) thêm UI `/login`, mục tài khoản ở header/mobile/`FooterNav` và nút “Đóng biên nhận”; `CP03` (+ `C1`; 2026-10-13, merged PR #111) thêm UI `/signup` — `register` không tạo session; `CP04` (2026-10-13, Draft PR) thêm `/account` chỉ đọc — lịch sử đặt phòng và chỉnh sửa hồ sơ vẫn **chưa** có.
+- Customer_Web **chưa** hoàn tất (`CUSTOMER_WEBSITE: NOT_COMPLETE`).
+
+**TARGET (đề xuất, chờ Owner).** Giữ thiết kế Chisfis; thay dữ liệu mẫu bằng dữ liệu thật hoặc bỏ section; session
+Customer thật; tự phục vụ đặt phòng theo API; định nghĩa release và gate ở contract mục 8. Các quyết định `OPEN`
+(sitemap, ngôn ngữ, House/Villa, nội dung/chính sách, phạm vi tài khoản, tra cứu của khách, thanh toán/email, quyền
+template/ảnh) nằm ở contract mục 5 và **không** được coi là approved.

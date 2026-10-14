@@ -1,0 +1,53 @@
+name: Backend OIDC subject probe
+
+# BHA-BACKEND-CD-001-CP04: diagnostic only. It exists to read the ACTUAL `sub`/`aud` of the GitHub OIDC token that a job in the
+# `backend-production` environment receives, so the AWS role trust policy can be written from evidence instead of from a
+# remembered format. It has no inputs, runs only on `main`, does not check out code, does not touch AWS/SSM/ECR, publishes and
+# deploys nothing, uploads no artifact, and never prints the token, request headers or the full payload (the token is masked
+# before anything is shown; only the claims listed below are written to the log).
+#
+# GitHub offers "Run workflow" for a workflow file that exists on the default branch (main), so this file only becomes
+# dispatchable after the Owner promotes it there. The Owner dispatches it once on `main` and reads the printed lines.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Print the OIDC subject and audience
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: backend-production
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Read the claims of the job's own OIDC token (audience sts.amazonaws.com)
+        run: |
+          python3 - <<'PY'
+          import base64, json, os, sys, urllib.request
+
+          SHOW = ("iss", "aud", "sub", "repository", "repository_id", "repository_owner", "repository_owner_id",
+                  "ref", "ref_type", "sha", "environment", "event_name", "workflow_ref", "job_workflow_ref", "run_id", "run_attempt")
+          try:
+              request_token = os.environ["ACTIONS_ID_TOKEN_REQUEST_TOKEN"]
+              print("::add-mask::" + request_token)
+              url = os.environ["ACTIONS_ID_TOKEN_REQUEST_URL"] + "&audience=sts.amazonaws.com"
+              req = urllib.request.Request(url, headers={"Authorization": "bearer " + request_token})
+              token = json.load(urllib.request.urlopen(req, timeout=20))["value"]
+              print("::add-mask::" + token)
+              segment = token.split(".")[1]
+              claims = json.loads(base64.urlsafe_b64decode(segment + "=" * (-len(segment) % 4)).decode("utf-8"))
+          except Exception as error:  # a type name only: never a message that could carry a URL or a token
+              print("probe failed: " + type(error).__name__)
+              sys.exit(1)
+          print("OIDC probe (read-only diagnostic; no AWS call was made)")
+          for name in SHOW:
+              if name in claims:
+                  print("claim %s = %s" % (name, json.dumps(claims[name], ensure_ascii=True)))
+          print("claims not shown: %d" % len([k for k in claims if k not in SHOW]))
+          PY

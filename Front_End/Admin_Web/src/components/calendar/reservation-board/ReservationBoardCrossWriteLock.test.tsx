@@ -41,8 +41,10 @@ vi.mock("@/lib/api/client", () => ({
   createReservationAssignment: vi.fn(),
   moveReservationAssignment: vi.fn(),
   unassignReservationAssignment: vi.fn(),
+  splitMoveReservationAssignment: vi.fn(),
   createOperationalBlock: vi.fn(),
   cancelOperationalBlock: vi.fn(),
+  moveOperationalBlock: vi.fn(),
 }));
 
 import {
@@ -51,7 +53,9 @@ import {
   createReservationAssignment,
   fetchActiveProperties,
   fetchReservationBoard,
+  moveOperationalBlock,
   moveReservationAssignment,
+  splitMoveReservationAssignment,
   unassignReservationAssignment,
 } from "@/lib/api/client";
 
@@ -60,8 +64,10 @@ const mockedBoard = vi.mocked(fetchReservationBoard);
 const mockedCreate = vi.mocked(createReservationAssignment);
 const mockedMove = vi.mocked(moveReservationAssignment);
 const mockedUnassign = vi.mocked(unassignReservationAssignment);
+const mockedSplit = vi.mocked(splitMoveReservationAssignment);
 const mockedBlock = vi.mocked(createOperationalBlock);
 const mockedCancel = vi.mocked(cancelOperationalBlock);
+const mockedBlockMove = vi.mocked(moveOperationalBlock);
 
 const propertyA: ApiProperty = { id: "prop-a", name: "Property A", timeZone: "Asia/Ho_Chi_Minh" };
 const propertyB: ApiProperty = { id: "prop-b", name: "Property B", timeZone: "Asia/Ho_Chi_Minh" };
@@ -174,7 +180,7 @@ async function flushMicrotasks() {
 beforeEach(() => {
   // Unconfirmed writes survive a reload in this tab (PMS-CAL-001.5-CP02): no test may inherit another's.
   sessionStorage.clear();
-  for (const mock of [mockedProperties, mockedBoard, mockedCreate, mockedMove, mockedUnassign, mockedBlock, mockedCancel]) mock.mockReset();
+  for (const mock of [mockedProperties, mockedBoard, mockedCreate, mockedMove, mockedUnassign, mockedSplit, mockedBlock, mockedCancel, mockedBlockMove]) mock.mockReset();
   mockedProperties.mockResolvedValue({ ok: true, data: [propertyA, propertyB] });
   mockedBoard.mockImplementation((propertyId, from, to) => Promise.resolve({ ok: true, data: boardFor(propertyId, from, to) }));
 });
@@ -1793,7 +1799,7 @@ describe("ReservationBoard — known outcomes, mixed restores and damaged record
 
     const storedKeys = () => [rawGet.call(sessionStorage, PENDING_KEY), rawGet.call(sessionStorage, UNCERTAIN_KEY)];
     const banner = () => screen.queryByTestId(BANNER);
-    const postCount = () => [mockedCreate, mockedMove, mockedUnassign, mockedBlock, mockedCancel].reduce((sum, mock) => sum + mock.mock.calls.length, 0);
+    const postCount = () => [mockedCreate, mockedMove, mockedUnassign, mockedBlock, mockedCancel, mockedBlockMove].reduce((sum, mock) => sum + mock.mock.calls.length, 0);
 
     const boardWithPaintBlock = () =>
       mockedBoard.mockImplementation((propertyId, from, to) => {
@@ -1877,6 +1883,34 @@ describe("ReservationBoard — known outcomes, mixed restores and damaged record
         confirm: "Cancel block on room 201",
         posted: () => mockedCancel.mock.calls.length,
       },
+      {
+        // PMS-CAL-003-CP03: an unconfirmed write into the DESTINATION room over the block's own nights.
+        name: "block move (destination room locked)",
+        lock: ["room-102", "102", 6, 7],
+        prepare: boardWithPaintBlock,
+        open: async (user) => {
+          await user.click(screen.getByTitle("Paint"));
+          await user.click(within(screen.getByRole("dialog", { name: "Operational block details" })).getByRole("button", { name: "Move block…" }));
+          await user.click(within(screen.getByRole("dialog", { name: "Move operational block" })).getByRole("radio", { name: /Room 102/ }));
+          return screen.getByRole("dialog", { name: "Move operational block" });
+        },
+        confirm: "Move block to room 102",
+        posted: () => mockedBlockMove.mock.calls.length,
+      },
+      {
+        // … and into the SOURCE room, which keeps the nights if the request did not commit.
+        name: "block move (source room locked)",
+        lock: ["room-201", "201", 6, 7],
+        prepare: boardWithPaintBlock,
+        open: async (user) => {
+          await user.click(screen.getByTitle("Paint"));
+          await user.click(within(screen.getByRole("dialog", { name: "Operational block details" })).getByRole("button", { name: "Move block…" }));
+          await user.click(within(screen.getByRole("dialog", { name: "Move operational block" })).getByRole("radio", { name: /Room 102/ }));
+          return screen.getByRole("dialog", { name: "Move operational block" });
+        },
+        confirm: "Move block to room 102",
+        posted: () => mockedBlockMove.mock.calls.length,
+      },
     ];
 
     it.each(operations)(
@@ -1884,7 +1918,7 @@ describe("ReservationBoard — known outcomes, mixed restores and damaged record
       async (operation) => {
         const user = userEvent.setup();
         operation.prepare?.();
-        for (const mock of [mockedCreate, mockedMove, mockedUnassign, mockedBlock, mockedCancel]) mock.mockResolvedValue({ kind: "unknown", reason: "timeout" } as never);
+        for (const mock of [mockedCreate, mockedMove, mockedUnassign, mockedBlock, mockedCancel, mockedBlockMove]) mock.mockResolvedValue({ kind: "unknown", reason: "timeout" } as never);
         const { from, to } = await probeRange();
         const [roomId, roomNumber, start, end] = operation.lock;
         beginPendingWrite(sessionStorage, { kind: "block", entry: blockEntry(from, to, roomId, roomNumber, start, end) });
@@ -1920,7 +1954,7 @@ describe("ReservationBoard — known outcomes, mixed restores and damaged record
       async (operation) => {
         const user = userEvent.setup();
         operation.prepare?.();
-        for (const mock of [mockedCreate, mockedMove, mockedUnassign, mockedBlock, mockedCancel]) mock.mockResolvedValue({ kind: "unknown", reason: "timeout" } as never);
+        for (const mock of [mockedCreate, mockedMove, mockedUnassign, mockedBlock, mockedCancel, mockedBlockMove]) mock.mockResolvedValue({ kind: "unknown", reason: "timeout" } as never);
         const { from, to } = await probeRange();
         const [roomId, roomNumber, start, end] = operation.lock;
         beginPendingWrite(sessionStorage, { kind: "block", entry: blockEntry(from, to, roomId, roomNumber, start, end) });
@@ -2130,5 +2164,371 @@ describe("ReservationBoard — known outcomes, mixed restores and damaged record
       await waitFor(() => expect(banner()).not.toBeInTheDocument());
       expect(screen.getAllByTestId("uncertain-block-notice")).toHaveLength(1);
     });
+  });
+});
+
+describe("ReservationBoard — a restored split-move is described and locked as what it is (PMS-CAL-002-CP03)", () => {
+  /**
+   * The mounted board's `seg-existing` (room 101, `[from+2, from+4)`) is the
+   * source, split at `from+3`: room 101 keeps night `from+2`, room 102 takes
+   * night `from+3`. A synthetic record stands in for a write from a previous
+   * page — nothing in this build can create one yet.
+   */
+  async function probeRange() {
+    const range = await renderLoadedBoard();
+    cleanup();
+    return range;
+  }
+
+  const splitMoveEntry = (from: string, to: string): Reconciliation => ({
+    id: 0,
+    key: `prop-a|${from}|${to}`,
+    propertyId: "prop-a",
+    from,
+    to,
+    afterSeq: 0,
+    certainty: "uncertain",
+    status: "pending",
+    resolution: "unresolved",
+    target: {
+      operation: "split-move",
+      reservationUnitId: "unit-1",
+      physicalRoomId: "room-102",
+      startDate: addDaysIso(from, 2),
+      endDate: addDaysIso(from, 4),
+      roomNumber: "102",
+      guestDisplayName: "",
+      confirmationNumber: "",
+      segmentId: "seg-existing",
+      expectedVersion: 1,
+      sourcePhysicalRoomId: "room-101",
+      splitDate: addDaysIso(from, 3),
+    },
+  });
+
+  const expectNoWriteSent = () => {
+    for (const write of [mockedCreate, mockedMove, mockedUnassign, mockedBlock, mockedCancel, mockedBlockMove]) expect(write).not.toHaveBeenCalled();
+  };
+
+  async function expectBlockLocked(user: ReturnType<typeof userEvent.setup>, room: string, start: string, end: string) {
+    await reviewBlock(user, room, start, end);
+    expect(within(blockDialog()).getByRole("alert")).toHaveTextContent("still unconfirmed");
+    await closeDialog(user, blockDialog());
+  }
+
+  async function expectBlockAllowed(user: ReturnType<typeof userEvent.setup>, room: string, start: string, end: string) {
+    await reviewBlock(user, room, start, end);
+    expect(within(blockDialog()).queryByRole("alert")).not.toBeInTheDocument();
+    expect(within(blockDialog()).getByRole("button", { name: "Create block" })).toBeInTheDocument();
+    await closeDialog(user, blockDialog());
+  }
+
+  /** The record a previous page left, a reload of the same tab, and the page as the operator meets it. */
+  async function restoreFromUnknownOutcome() {
+    const { from, to } = await probeRange();
+    persistUncertainWrites(sessionStorage, [splitMoveEntry(from, to)], []);
+    await renderLoadedBoard();
+    return { from, to };
+  }
+
+  it("an unknown-outcome record says room split-move with both parts, never an unassign or one full-range assignment, and sends nothing", async () => {
+    const { from } = await restoreFromUnknownOutcome();
+
+    const notice = await screen.findByTestId("uncertain-write-notice");
+    const keeps = `[${addDaysIso(from, 2)}, ${addDaysIso(from, 3)})`;
+    const takes = `[${addDaysIso(from, 3)}, ${addDaysIso(from, 4)})`;
+    expect(notice).toHaveTextContent("Unconfirmed room split-move request from before this page was reloaded or left");
+    expect(notice).toHaveTextContent(`the source room keeps ${keeps} and room 102 takes ${takes}`);
+    expect(notice).toHaveTextContent("may already have been saved");
+    expect(notice).not.toHaveTextContent(/unassign/i);
+    expect(notice).not.toHaveTextContent(`room 102, [${addDaysIso(from, 2)}, ${addDaysIso(from, 4)})`);
+    // The first read after the reload already counts: the source is still shown, so the result stays unknown.
+    await waitFor(() => expect(screen.getByTestId("uncertain-write-notice")).toHaveTextContent("the original room assignment is still shown unchanged"));
+    expect(screen.getByTestId("uncertain-write-notice")).toHaveTextContent("will not be sent again");
+    expect(screen.getByTestId("uncertain-write-notice")).not.toHaveTextContent(/saved on the server|was saved/i);
+    expectNoWriteSent();
+  });
+
+  it("locks the source room over every night and the destination room only from the split date", async () => {
+    const user = userEvent.setup();
+    const { from } = await restoreFromUnknownOutcome();
+    await screen.findByTestId("uncertain-write-notice");
+    const night = (offset: number) => [addDaysIso(from, offset), addDaysIso(from, offset + 1)] as const;
+
+    await expectBlockLocked(user, "room-101", ...night(2));
+    await expectBlockLocked(user, "room-101", ...night(3));
+    await expectBlockLocked(user, "room-102", ...night(3));
+    // The destination's prefix night, other nights and other rooms are free.
+    await expectBlockAllowed(user, "room-102", ...night(2));
+    await expectBlockAllowed(user, "room-101", ...night(4));
+    await expectBlockAllowed(user, "room-201", ...night(3));
+    expectNoWriteSent();
+  });
+
+  it("while it is unresolved, a move or an unassign of the same source segment is refused and nothing is sent", async () => {
+    const user = userEvent.setup();
+    await restoreFromUnknownOutcome();
+    await screen.findByTestId("uncertain-write-notice");
+
+    // The source room is locked over the segment's nights, so neither dialog opens.
+    await user.click(screen.getByTitle("Nguyen Van A — CNF-100"));
+    const popover = screen.getByRole("dialog", { name: "Reservation details" });
+    await user.click(within(popover).getByRole("button", { name: "Move room" }));
+    expect(screen.queryByRole("dialog", { name: "Move room" })).not.toBeInTheDocument();
+    await user.click(within(popover).getByRole("button", { name: "Remove room assignment" }));
+    expect(screen.queryByRole("dialog", { name: "Remove room assignment" })).not.toBeInTheDocument();
+    expectNoWriteSent();
+  });
+
+  it("Check again only reads the board", async () => {
+    const user = userEvent.setup();
+    await restoreFromUnknownOutcome();
+    await waitFor(() => expect(screen.getByTestId("uncertain-write-notice")).toHaveTextContent("still shown unchanged"));
+    const boardCalls = mockedBoard.mock.calls.length;
+
+    await user.click(within(screen.getByTestId("uncertain-write-notice")).getByRole("button", { name: "Check again" }));
+
+    await waitFor(() => expect(mockedBoard.mock.calls.length).toBe(boardCalls + 1));
+    expect(screen.getByTestId("uncertain-write-notice")).toHaveTextContent("still shown unchanged");
+    expectNoWriteSent();
+  });
+
+  it("an in-flight intent is restored the same way, worded as sent just before the reload", async () => {
+    const user = userEvent.setup();
+    const { from, to } = await probeRange();
+    beginPendingWrite(sessionStorage, { kind: "assignment", entry: splitMoveEntry(from, to) });
+
+    await renderLoadedBoard();
+
+    const notice = await screen.findByTestId("uncertain-write-notice");
+    expect(notice).toHaveTextContent("Unconfirmed room split-move request sent just before this page was reloaded or left");
+    expect(notice).toHaveTextContent(`room 102 takes [${addDaysIso(from, 3)}, ${addDaysIso(from, 4)})`);
+    await expectBlockLocked(user, "room-101", addDaysIso(from, 2), addDaysIso(from, 3));
+    await expectBlockAllowed(user, "room-102", addDaysIso(from, 2), addDaysIso(from, 3));
+    expectNoWriteSent();
+  });
+
+  it("when the schedule shows both parts, it says so without claiming this request made them, and the record clears", async () => {
+    const { from, to } = await probeRange();
+    persistUncertainWrites(sessionStorage, [splitMoveEntry(from, to)], []);
+    mockedBoard.mockImplementation((propertyId, boardFrom, boardTo) => {
+      const board = boardFor(propertyId, boardFrom, boardTo);
+      const [stay] = board.stays;
+      return Promise.resolve({
+        ok: true,
+        data: {
+          ...board,
+          stays: [
+            {
+              ...stay,
+              assignments: [
+                { segmentId: "seg-prefix", segmentVersion: 2, physicalRoomId: "room-101", actualRoomTypeId: "type-standard", startDate: addDaysIso(from, 2), endDate: addDaysIso(from, 3) },
+                { segmentId: "seg-suffix", segmentVersion: 2, physicalRoomId: "room-102", actualRoomTypeId: "type-standard", startDate: addDaysIso(from, 3), endDate: addDaysIso(from, 4) },
+              ],
+            },
+          ],
+        },
+      });
+    });
+
+    await renderLoadedBoard();
+
+    await waitFor(() => expect(screen.getByTestId("uncertain-write-notice")).toHaveTextContent("The schedule now shows both parts"));
+    const notice = screen.getByTestId("uncertain-write-notice");
+    expect(notice).toHaveTextContent("does not prove this request made it");
+    expect(within(notice).getByRole("button", { name: "Dismiss notice" })).toBeInTheDocument();
+    expect(sessionStorage.getItem(UNCERTAIN_WRITES_STORAGE_KEY)).toBeNull();
+    expectNoWriteSent();
+  });
+
+  it("when the source has since changed, it says the request can no longer take effect, not that it was saved", async () => {
+    const { from, to } = await probeRange();
+    persistUncertainWrites(sessionStorage, [splitMoveEntry(from, to)], []);
+    mockedBoard.mockImplementation((propertyId, boardFrom, boardTo) => {
+      const board = boardFor(propertyId, boardFrom, boardTo);
+      const [stay] = board.stays;
+      return Promise.resolve({ ok: true, data: { ...board, stays: [{ ...stay, assignments: [] }] } });
+    });
+
+    await renderLoadedBoard();
+
+    await waitFor(() => expect(screen.getByTestId("uncertain-write-notice")).toHaveTextContent("can no longer take effect"));
+    // The restored explanation's own "may already have been saved" is a doubt; nothing here may claim a success.
+    expect(screen.getByTestId("uncertain-write-notice")).not.toHaveTextContent(/both parts|was saved|saved on the server|succeeded/i);
+    expectNoWriteSent();
+  });
+
+  it("a view that does not overlap the source's nights keeps the lock and says where to look, using the shared window rule", async () => {
+    const user = userEvent.setup();
+    const { from } = await restoreFromUnknownOutcome();
+    await screen.findByTestId("uncertain-write-notice");
+
+    await user.click(screen.getByRole("button", { name: "Next date range" }));
+    await waitFor(() => expect(mockedBoard.mock.calls.at(-1)![1]).toBe(addDaysIso(from, 14)));
+
+    const notice = await screen.findByTestId("uncertain-write-notice");
+    expect(notice).toHaveTextContent(`Open a view of this Property that overlaps [${addDaysIso(from, 2)}, ${addDaysIso(from, 4)}) to check again.`);
+    expect(within(notice).queryByRole("button", { name: "Check again" })).not.toBeInTheDocument();
+    expect(sessionStorage.getItem(UNCERTAIN_WRITES_STORAGE_KEY)).not.toBeNull();
+    expectNoWriteSent();
+  });
+});
+
+describe("ReservationBoard — move, unassign and split-move share one source lock, and a split locks the right room nights (PMS-CAL-002-CP05)", () => {
+  const SEGMENT_BAR = "Nguyen Van A — CNF-100";
+  const popoverOf = () => screen.getByRole("dialog", { name: "Reservation details" });
+  const splitDialog = () => screen.getByRole("dialog", { name: "Move from a date" });
+
+  async function openPopover(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByTitle(SEGMENT_BAR));
+  }
+
+  async function loseMove(user: ReturnType<typeof userEvent.setup>) {
+    mockedMove.mockResolvedValue({ kind: "unknown", reason: "timeout" } as MoveAssignmentOutcome);
+    const before = mockedBoard.mock.calls.length;
+    await openMoveDialog(user);
+    await user.click(within(moveDialog()).getByLabelText(/Room 102/));
+    await user.click(within(moveDialog()).getByRole("button", { name: "Move to room 102" }));
+    await settleReread(before);
+    await closeDialog(user, moveDialog());
+  }
+
+  async function loseUnassign(user: ReturnType<typeof userEvent.setup>) {
+    mockedUnassign.mockResolvedValue({ kind: "unknown", reason: "timeout" } as UnassignAssignmentOutcome);
+    const before = mockedBoard.mock.calls.length;
+    await openPopover(user);
+    await user.click(within(popoverOf()).getByRole("button", { name: "Remove room assignment" }));
+    const dialog = screen.getByRole("dialog", { name: "Remove room assignment" });
+    await user.click(within(dialog).getByRole("button", { name: /^Remove room/ }));
+    await settleReread(before);
+    await closeDialog(user, dialog);
+  }
+
+  async function loseSplit(user: ReturnType<typeof userEvent.setup>, from: string) {
+    mockedSplit.mockResolvedValue({ kind: "unknown", reason: "timeout" });
+    const before = mockedBoard.mock.calls.length;
+    await openPopover(user);
+    await user.click(within(popoverOf()).getByRole("button", { name: /^Move from a date/ }));
+    const dialog = within(splitDialog());
+    fireEvent.change(dialog.getByLabelText("Destination room takes over from"), { target: { value: addDaysIso(from, 3) } });
+    fireEvent.click(dialog.getByLabelText(/Room 102/));
+    await user.click(dialog.getByRole("button", { name: /^Split and move/ }));
+    await settleReread(before);
+    await closeDialog(user, splitDialog());
+  }
+
+  async function expectActionsDisabled(user: ReturnType<typeof userEvent.setup>, names: RegExp[]) {
+    await openPopover(user);
+    for (const name of names) expect(within(popoverOf()).getByRole("button", { name })).toBeDisabled();
+    await user.click(within(popoverOf()).getByRole("button", { name: "Close" }));
+  }
+
+  it("a lost move leaves the segment's unassign and split-move unavailable", async () => {
+    const user = userEvent.setup();
+    await renderLoadedBoard();
+    await loseMove(user);
+    await expectActionsDisabled(user, [/^Move room$/, /^Remove room assignment$/, /^Move from a date/]);
+    expect(mockedUnassign).not.toHaveBeenCalled();
+    expect(mockedSplit).not.toHaveBeenCalled();
+  });
+
+  it("a lost unassign leaves the segment's move and split-move unavailable", async () => {
+    const user = userEvent.setup();
+    await renderLoadedBoard();
+    await loseUnassign(user);
+    await expectActionsDisabled(user, [/^Move room$/, /^Remove room assignment$/, /^Move from a date/]);
+    expect(mockedMove).not.toHaveBeenCalled();
+    expect(mockedSplit).not.toHaveBeenCalled();
+  });
+
+  it("a lost split-move leaves the segment's move and unassign unavailable", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    await loseSplit(user, from);
+    await expectActionsDisabled(user, [/^Move room$/, /^Remove room assignment$/, /^Move from a date/]);
+    expect(mockedMove).not.toHaveBeenCalled();
+    expect(mockedUnassign).not.toHaveBeenCalled();
+    expect(mockedSplit).toHaveBeenCalledTimes(1);
+  });
+
+  it("a lost split locks the source room over its whole range and the destination only from the split date", async () => {
+    const user = userEvent.setup();
+    const { from } = await renderLoadedBoard();
+    await loseSplit(user, from);
+
+    // Source room 101: every night of the segment, including the prefix.
+    await reviewBlock(user, "room-101", addDaysIso(from, 2), addDaysIso(from, 3));
+    expect(within(blockDialog()).getByRole("alert")).toHaveTextContent("still unconfirmed");
+    await closeDialog(user, blockDialog());
+    // Destination 102: the later night [from+3, from+4) …
+    await reviewBlock(user, "room-102", addDaysIso(from, 3), addDaysIso(from, 4));
+    expect(within(blockDialog()).getByRole("alert")).toHaveTextContent("still unconfirmed");
+    await closeDialog(user, blockDialog());
+    // … but not the prefix night [from+2, from+3), which the destination never takes.
+    await reviewBlock(user, "room-102", addDaysIso(from, 2), addDaysIso(from, 3));
+    expect(within(blockDialog()).queryByRole("alert")).not.toBeInTheDocument();
+    expect(mockedBlock).not.toHaveBeenCalled();
+  });
+});
+
+describe("ReservationBoard — a restored block move locks assignment writes into both of its rooms (PMS-CAL-003-CP02)", () => {
+  const restoredBlockMove = (from: string, to: string): BlockCreateReconciliation => ({
+    id: 1,
+    key: `prop-a|${from}|${to}`,
+    propertyId: "prop-a",
+    from,
+    to,
+    afterSeq: 0,
+    certainty: "uncertain",
+    status: "pending",
+    resolution: "unresolved",
+    target: {
+      operation: "move",
+      roomBlockId: "header-x",
+      segmentId: "seg-x",
+      expectedVersion: 5,
+      sourcePhysicalRoomId: "room-201",
+      sourceRoomNumber: "201",
+      physicalRoomId: "room-102",
+      roomNumber: "102",
+      startDate: from,
+      endDate: addDaysIso(from, 2),
+    },
+  });
+
+  it("refuses an assignment into the destination or the source room over the move's nights, and still allows another room", async () => {
+    const user = userEvent.setup();
+    // The server still shows the moved block in its source room, exactly as it was, so the move stays unresolved.
+    const withSource = (propertyId: string, from: string, to: string) => ({
+      ...boardFor(propertyId, from, to),
+      operationalBlocks: [
+        { roomBlockId: "header-x", segmentId: "seg-x", segmentVersion: 5, physicalRoomId: "room-201", startDate: from, endDate: addDaysIso(from, 2), reason: "Paint" },
+      ],
+    });
+    mockedBoard.mockImplementation((propertyId, from, to) => Promise.resolve({ ok: true, data: withSource(propertyId, from, to) }));
+    const first = await renderLoadedBoard();
+    cleanup();
+    persistUncertainWrites(sessionStorage, [], [restoredBlockMove(first.from, first.to)]);
+    await renderLoadedBoard();
+
+    // The unassigned range [from, from+2) is exactly the moved block's nights.
+    for (const room of [/Room 102/, /Room 201/]) {
+      await user.click(firstRangeBar(first.from));
+      await user.click(within(assignDialog()).getByLabelText(room));
+      if (room.source.includes("201")) {
+        await user.click(within(assignDialog()).getByLabelText(/deliberately chosen a room of a different room type/));
+        await user.type(within(assignDialog()).getByLabelText("Reason"), "Upgrade");
+      }
+      await user.click(within(assignDialog()).getByRole("button", { name: /^Assign room/ }));
+      expect(await within(assignDialog()).findByRole("alert")).toHaveTextContent("still unconfirmed");
+      await closeDialog(user, assignDialog());
+    }
+    expect(mockedCreate).not.toHaveBeenCalled();
+
+    mockedCreate.mockResolvedValue({ kind: "rejected", status: 400, category: "validation" });
+    await user.click(firstRangeBar(first.from));
+    await user.click(within(assignDialog()).getByLabelText(/Room 101/));
+    await user.click(within(assignDialog()).getByRole("button", { name: "Assign room 101" }));
+    await waitFor(() => expect(mockedCreate).toHaveBeenCalledTimes(1));
   });
 });

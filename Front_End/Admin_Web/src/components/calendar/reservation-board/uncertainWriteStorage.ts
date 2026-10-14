@@ -63,6 +63,8 @@
 
 import type { BlockCreateReconciliation, BlockWriteTarget } from "./blockCreateReconciliation";
 import type { Reconciliation, ReconciliationTarget } from "./reconciliation";
+import { MAX_BLOCK_MOVE_NIGHTS } from "./blockMoveTarget";
+import { gregorianDayNumber } from "./splitMoveTarget";
 
 export const UNCERTAIN_WRITES_STORAGE_KEY = "thebha.adminCalendar.uncertainWrites";
 /** CP03: writes sent but not yet answered, kept apart so persisting the list above never touches them. */
@@ -129,6 +131,7 @@ function assignmentRecord(entry: Reconciliation) {
             sourcePhysicalRoomId: target.sourcePhysicalRoomId,
           }
         : {}),
+      ...(target.operation === "split-move" ? { splitDate: target.splitDate } : {}),
     },
   };
 }
@@ -150,6 +153,17 @@ function blockRecord(entry: BlockCreateReconciliation) {
       endDate: target.endDate,
       ...(target.operation === "cancel"
         ? { segmentId: target.segmentId, expectedVersion: target.expectedVersion }
+        : {}),
+      // PMS-CAL-003-CP02: a move names its header, its source and (above) its destination room and the
+      // source's full range. Never a reason, an actor or any free text: the target type has none.
+      ...(target.operation === "move"
+        ? {
+            roomBlockId: target.roomBlockId,
+            segmentId: target.segmentId,
+            expectedVersion: target.expectedVersion,
+            sourcePhysicalRoomId: target.sourcePhysicalRoomId,
+            sourceRoomNumber: target.sourceRoomNumber,
+          }
         : {}),
     },
   };
@@ -191,7 +205,26 @@ export function persistUncertainWrites(
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const isText = (value: unknown): value is string => typeof value === "string" && value.length > 0;
 const isOptionalText = (value: unknown) => value === undefined || isText(value);
+/** The backend's `uint` version (`xmin`); only a split-move record is bounded by it. */
+const MAX_UINT32 = 4_294_967_295;
 const isVersion = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value >= 0;
+/**
+ * PMS-CAL-002-CP03: a real calendar day (Gregorian, years 0001–9999), checked by
+ * arithmetic rather than by `Date`, which maps years 0–99 onto 1900–1999 and
+ * rolls an impossible day over to the next month. The server's dates are not
+ * bounded by the mock board's years, so no narrower range is applied.
+ */
+function isRealIsoDate(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  if (year < 1 || month < 1 || month > 12 || day < 1) return false;
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = month === 2 ? (leap ? 29 : 28) : [4, 6, 9, 11].includes(month) ? 30 : 31;
+  return day <= daysInMonth;
+}
+
 const isNights = (start: unknown, end: unknown) =>
   typeof start === "string" && typeof end === "string" && ISO_DATE.test(start) && ISO_DATE.test(end) && start < end;
 
@@ -220,6 +253,33 @@ function readAssignment(value: unknown, id: number): Reconciliation | null {
   if (raw.operation === "create") {
     if (!isText(raw.physicalRoomId)) return null;
     target = { ...base, operation: "create", physicalRoomId: raw.physicalRoomId };
+  } else if (raw.operation === "split-move") {
+    // PMS-CAL-002-CP03: every identity field, the three dates real and ordered
+    // `start < splitDate < end`, and two different rooms — else the record is
+    // damaged and reported as such, never guessed at.
+    if (
+      !isText(raw.segmentId) ||
+      !isVersion(raw.expectedVersion) ||
+      raw.expectedVersion > MAX_UINT32 ||
+      !isText(raw.sourcePhysicalRoomId) ||
+      !isText(raw.physicalRoomId) ||
+      raw.sourcePhysicalRoomId === raw.physicalRoomId ||
+      !isRealIsoDate(raw.startDate) ||
+      !isRealIsoDate(raw.endDate) ||
+      !isRealIsoDate(raw.splitDate) ||
+      !(raw.startDate < raw.splitDate && raw.splitDate < raw.endDate)
+    ) {
+      return null;
+    }
+    target = {
+      ...base,
+      operation: "split-move",
+      segmentId: raw.segmentId,
+      expectedVersion: raw.expectedVersion,
+      sourcePhysicalRoomId: raw.sourcePhysicalRoomId,
+      physicalRoomId: raw.physicalRoomId,
+      splitDate: raw.splitDate,
+    };
   } else if (raw.operation === "move" || raw.operation === "unassign") {
     if (!isText(raw.segmentId) || !isVersion(raw.expectedVersion) || !isText(raw.sourcePhysicalRoomId)) return null;
     const source = { segmentId: raw.segmentId, expectedVersion: raw.expectedVersion, sourcePhysicalRoomId: raw.sourcePhysicalRoomId };
@@ -252,6 +312,39 @@ function readBlock(value: unknown, id: number): BlockCreateReconciliation | null
   let target: BlockWriteTarget;
   if (raw.operation === "create") {
     target = { ...base, operation: "create" };
+  } else if (raw.operation === "move") {
+    // PMS-CAL-003-CP02: every identity field, a true `uint` version, two different rooms and the source's own range as
+    // real Gregorian days of 1…366 nights (the backend's move bound) — else the record is damaged and reported as such,
+    // never guessed at. Read strictly: a move is only ever restored from a record this code wrote.
+    const start = gregorianDayNumber(raw.startDate as string);
+    const end = gregorianDayNumber(raw.endDate as string);
+    if (
+      !isText(raw.roomBlockId) ||
+      !isText(raw.segmentId) ||
+      !isVersion(raw.expectedVersion) ||
+      raw.expectedVersion > MAX_UINT32 ||
+      !isText(raw.sourcePhysicalRoomId) ||
+      !isText(raw.sourceRoomNumber) ||
+      raw.sourcePhysicalRoomId === raw.physicalRoomId ||
+      start === null ||
+      end === null ||
+      end - start < 1 ||
+      end - start > MAX_BLOCK_MOVE_NIGHTS
+    ) {
+      return null;
+    }
+    target = {
+      operation: "move",
+      roomBlockId: raw.roomBlockId,
+      segmentId: raw.segmentId,
+      expectedVersion: raw.expectedVersion,
+      sourcePhysicalRoomId: raw.sourcePhysicalRoomId,
+      sourceRoomNumber: raw.sourceRoomNumber,
+      physicalRoomId: raw.physicalRoomId,
+      roomNumber: raw.roomNumber,
+      startDate: raw.startDate as string,
+      endDate: raw.endDate as string,
+    };
   } else if (raw.operation === "cancel") {
     if (!isText(raw.segmentId) || !isVersion(raw.expectedVersion)) return null;
     target = { ...base, operation: "cancel", segmentId: raw.segmentId, expectedVersion: raw.expectedVersion };

@@ -180,6 +180,7 @@ const LocationInput: FC<LocationInputProps> = ({
           <input
             className={`block w-full bg-transparent border-none focus:ring-0 p-0 focus:outline-none focus:placeholder-neutral-300 xl:text-lg font-semibold placeholder-neutral-800 dark:placeholder-neutral-200 truncate`}
             placeholder={placeHolder}
+            aria-label={placeHolder}
             value={value}
             autoFocus={showPopover}
             readOnly={!!options}

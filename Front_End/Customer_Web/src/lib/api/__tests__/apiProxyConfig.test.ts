@@ -73,7 +73,9 @@ describe("resolveApiProxyOrigin", () => {
 });
 
 describe("next.config.js", () => {
-  afterEach(() => vi.unstubAllEnvs());
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
 
   async function loadConfig(env: Record<string, string>) {
     for (const name of ["API_PROXY_ORIGIN", "NEXT_PUBLIC_API_BASE_URL"]) vi.stubEnv(name, "");

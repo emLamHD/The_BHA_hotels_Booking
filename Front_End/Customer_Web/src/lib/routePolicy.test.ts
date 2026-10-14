@@ -128,7 +128,9 @@ describe("middleware", () => {
   });
 
   describe("with the API proxy enabled (BHA-WEB-PROXY-001)", () => {
-    afterEach(() => vi.unstubAllEnvs());
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
 
     it("lets /api/* through for the rewrite only when this build baked the proxy flag", () => {
       for (const path of ["/api", "/api/", "/api/v1/auth/csrf", "/api/admin/v1/me"]) {

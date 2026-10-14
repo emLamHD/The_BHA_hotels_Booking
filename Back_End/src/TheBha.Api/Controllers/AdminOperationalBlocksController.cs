@@ -98,6 +98,41 @@ public sealed class CancelOperationalBlockRequest
 }
 
 /// <summary>
+/// PMS-CAL-003-CP01: one Admin Calendar operational-block move request: the segment named in the
+/// route keeps its own nights and RoomBlock header and is placed in
+/// <see cref="DestinationPhysicalRoomId"/>. It carries no dates, no replacement list, no actor and
+/// no authorization evidence — the store reads the source's own range, and a browser-supplied
+/// identity would be a claim, not proof. Unknown JSON properties are ignored, so a body that
+/// invents <c>startDate</c>, <c>replacements</c> or <c>actorReference</c> is read exactly as one
+/// that does not. Both value-typed properties are <see cref="JsonRequiredAttribute"/> for the
+/// same reason as <see cref="CancelOperationalBlockRequest.ExpectedVersion"/>: an omitted
+/// version or room would otherwise bind as <c>0</c> / <see cref="Guid.Empty"/> and come back as a
+/// misleading <c>409</c> / <c>404</c> instead of the <c>400</c> the caller's mistake deserves.
+/// </summary>
+public sealed class MoveOperationalBlockRequest
+{
+    /// <summary>The segment's <c>Version</c> as last read from the board projection.</summary>
+    [JsonRequired]
+    [Required]
+    public uint ExpectedVersion { get; init; }
+
+    /// <summary>
+    /// The room that takes the block. It must be an Active room of this Property other than the
+    /// block's current room; whether it has capacity is the store's to decide.
+    /// </summary>
+    [JsonRequired]
+    [Required]
+    public Guid DestinationPhysicalRoomId { get; init; }
+
+    /// <summary>
+    /// Optional; why the block is moved. Trimmed; blank is recorded as no reason; at most
+    /// <c>SchedulingFieldLimits.Reason</c> characters. It goes only into the move's two audit rows —
+    /// the RoomBlock header's own reason is never rewritten.
+    /// </summary>
+    public string? Reason { get; init; }
+}
+
+/// <summary>
 /// PMS-CAL-001.3-CP01: the first OperationalBlock <em>write</em> endpoint, and a
 /// thin adapter over the already-accepted
 /// <see cref="IOperationalBlockMutationStore.CreateBlockAsync"/> — every room,
@@ -138,8 +173,17 @@ public sealed class CancelOperationalBlockRequest
 /// <see cref="IOperationalBlockMutationStore.SupersedeSegmentsAsync"/>, narrowed
 /// to exactly one segment and zero replacements. The same caveat applies: a
 /// lost cancel response leaves the caller not knowing whether the block was
-/// lifted, and the board is the evidence — not a second POST. Block move,
-/// split and multi-segment supersede remain internal-only and get no route here.
+/// lifted, and the board is the evidence — not a second POST.
+/// </para>
+///
+/// <para>
+/// PMS-CAL-003-CP01: <see cref="Move"/> is the third adapter, over
+/// <see cref="IOperationalBlockMutationStore.MoveAsync"/>, which reads the source's own room and
+/// range and delegates one single-replacement supersession: the same actor and the same
+/// <see cref="StaffPermission.BlockWrite"/> as create and cancel, no authorization evidence (a
+/// block has no sold RoomType, so there is no cross-RoomType confirmation to give), no read-by-id
+/// route, no idempotency. Block split and multi-segment supersede remain internal-only and get no
+/// route here.
 /// </para>
 ///
 /// <para>
@@ -331,6 +375,73 @@ public sealed class AdminOperationalBlocksController(
             // One supersession with no replacements yields exactly the one
             // cancelled segment; Single() makes any other shape a server fault.
             SegmentMutationStatus.Succeeded => Ok(result.Segments!.Single()),
+            SegmentMutationStatus.Invalid => Problem(
+                statusCode: StatusCodes.Status400BadRequest,
+                title: "Invalid operational block request",
+                detail: result.Error),
+            SegmentMutationStatus.NotFound => Problem(
+                statusCode: StatusCodes.Status404NotFound,
+                title: "Operational block target not found",
+                detail: result.Error),
+            _ => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "Operational block conflict",
+                detail: result.Error)
+        };
+    }
+
+    /// <summary>
+    /// Moves one existing Effective OperationalBlock segment of this Property to another Active
+    /// room of the same Property over exactly its own nights: the source becomes Cancelled and one
+    /// Effective successor takes its place, under the same RoomBlock header, whose reason, creator
+    /// and creation time are untouched. Which segment qualifies, whether the destination is Active
+    /// and different, and whether its capacity allows the move — a different RoomType included — is
+    /// the store's to decide, not restated here.
+    /// </summary>
+    /// <remarks>
+    /// <c>200</c> with <c>[source (Cancelled), successor (Effective)]</c>, each with its committed
+    /// <c>Version</c>. <c>404</c> covers a segment that does not exist, belongs to another Property,
+    /// is not an operational block, or a destination room that is not in this Property; <c>409</c>
+    /// covers a stale version, a source that is no longer Effective, a destination that is not
+    /// Active, and an overlap or capacity failure; <c>400</c> a missing or malformed field, the same
+    /// room as the destination, a reason over the limit, or a block too long to move in one request.
+    /// The other metadata mirrors <see cref="Cancel"/>'s for the same reasons.
+    /// </remarks>
+    [HttpPost("{segmentId:guid}/move")]
+    [StaffCalendarPermission(StaffPermission.BlockWrite, typeof(AdminCalendarWriteGateFilter))]
+    [ProducesResponseType(typeof(IReadOnlyList<RoomOccupancySegmentDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(void), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status415UnsupportedMediaType)]
+    public async Task<ActionResult<IReadOnlyList<RoomOccupancySegmentDto>>> Move(
+        Guid propertyId,
+        Guid segmentId,
+        [FromBody] MoveOperationalBlockRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (ResolveActor(propertyId) is not { } actorReference)
+        {
+            return Forbid(StaffAuthentication.Scheme);
+        }
+
+        var reason = string.IsNullOrWhiteSpace(request.Reason) ? null : request.Reason.Trim();
+
+        var result = await store.MoveAsync(
+            new MoveOperationalBlockCommand(
+                propertyId,
+                segmentId,
+                request.ExpectedVersion,
+                request.DestinationPhysicalRoomId,
+                actorReference,
+                reason),
+            cancellationToken);
+
+        return result.Status switch
+        {
+            // Only Succeeded is a success shape; an unrecognised status falls through to a refusal.
+            SegmentMutationStatus.Succeeded => Ok(result.Segments),
             SegmentMutationStatus.Invalid => Problem(
                 statusCode: StatusCodes.Status400BadRequest,
                 title: "Invalid operational block request",

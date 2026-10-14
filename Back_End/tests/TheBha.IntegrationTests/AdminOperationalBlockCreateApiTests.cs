@@ -650,12 +650,14 @@ public sealed class AdminOperationalBlockCreateApiTests(PostgreSqlWebApplication
             responseSchema.GetProperty("properties").EnumerateObject()
                 .Select(property => property.Name).Order(StringComparer.OrdinalIgnoreCase).ToArray());
 
-        // Below the collection, only CP02's single-segment cancel exists: no
-        // block move, split or multi-segment supersede route.
+        // Below the collection, only the single-segment routes exist — CP02's cancel and
+        // PMS-CAL-003-CP01's move (asserted in full by AdminOperationalBlockMoveApiTests): no
+        // block split or multi-segment supersede route.
         var subPaths = swagger.GetProperty("paths").EnumerateObject().Select(p => p.Name)
             .Where(p => p.Contains("operational-blocks/", StringComparison.OrdinalIgnoreCase))
+            .Order(StringComparer.Ordinal)
             .ToArray();
-        Assert.Equal([ExpectedPath + "/{segmentId}/cancel"], subPaths);
+        Assert.Equal([ExpectedPath + "/{segmentId}/cancel", ExpectedPath + "/{segmentId}/move"], subPaths);
     }
 
     // ---------------------------------------------------------------

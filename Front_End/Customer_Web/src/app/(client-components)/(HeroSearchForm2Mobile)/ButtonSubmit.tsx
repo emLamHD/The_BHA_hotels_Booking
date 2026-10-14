@@ -5,11 +5,14 @@ interface Props {
   className?: string;
   onClick?: () => void;
   href?: PathName;
+  /** CP08a: the caption; "Search" keeps every existing caller unchanged. */
+  label?: string;
 }
 const ButtonSubmit: FC<Props> = ({
   className = "",
   onClick = () => {},
   href = "/listing-stay",
+  label = "Search",
 }) => {
   return (
     <button
@@ -34,7 +37,7 @@ const ButtonSubmit: FC<Props> = ({
           d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
         />
       </svg>
-      <span className="ml-2">Search</span>
+      <span className="ml-2">{label}</span>
     </button>
   );
 };

@@ -1,42 +1,115 @@
 import React from "react";
-import { DEMO_POSTS } from "@/data/posts";
-import SectionAds from "./SectionAds";
-import SectionMagazine5 from "./SectionMagazine5";
-import SectionLatestPosts from "./SectionLatestPosts";
+import type { Metadata } from "next";
+import Link from "next/link";
+import type { Route } from "next";
+import { notFound } from "next/navigation";
 import BgGlassmorphism from "@/components/BgGlassmorphism";
-import SectionSubscribe2 from "@/components/SectionSubscribe2";
+import { POST_CATEGORIES } from "@/data/travelPosts";
+import { blogCategoryPath, postsForFilter, resolveBlogFilter } from "@/lib/homepageContent";
+import { BLOG_PATH } from "@/lib/riversideHomeContent";
+import PostCard from "./PostCard";
 
-// DEMO DATA
-const POSTS = DEMO_POSTS;
+interface BlogPageProps {
+  searchParams?: { category?: string | string[] };
+}
 
-// DEMO POST FOR MAGAZINE SECTION
-const MAGAZINE1_POSTS = POSTS.filter((_, i) => i >= 0 && i < 8);
-//
+export function generateMetadata({ searchParams }: BlogPageProps): Metadata {
+  const filter = resolveBlogFilter(searchParams?.category);
+  if (filter.kind === "category") {
+    return { title: `${filter.category.name} — Blog The BHA`, description: filter.category.description };
+  }
+  return {
+    title: "Blog du lịch — The BHA",
+    description: "Cẩm nang điểm đến và bản tóm tắt tin du lịch công khai về Đà Nẵng và vùng lân cận, kèm nguồn.",
+  };
+}
 
-const BlogPage: React.FC = () => {
+const CHIP_CLASS =
+  "inline-flex items-center rounded-full border px-4 py-2 text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500";
+
+/**
+ * CUST-WEB-001-CP08a-C2: the travel blog. `?category=` is read by `resolveBlogFilter`: none shows everything,
+ * one registered category shows its posts, anything else (unknown, repeated, another letter case) is a 404
+ * rather than a guess. The posts are guides and summaries of public reports with their sources, not news of
+ * The BHA; there is no author, comment or counter.
+ */
+export default function BlogPage({ searchParams }: BlogPageProps) {
+  const filter = resolveBlogFilter(searchParams?.category);
+  if (filter.kind === "invalid") notFound();
+  const posts = postsForFilter(filter);
+  const activeSlug = filter.kind === "category" ? filter.category.slug : null;
+  const heading = filter.kind === "category" ? filter.category.name : "Blog du lịch";
+  const description =
+    filter.kind === "category"
+      ? filter.category.description
+      : "Cẩm nang điểm đến và bản tóm tắt tin du lịch công khai về Đà Nẵng và vùng lân cận.";
+
   return (
-    <div className="nc-BlogPage overflow-hidden relative">
-      {/* ======== BG GLASS ======== */}
+    <div className="nc-BlogPage relative overflow-hidden">
       <BgGlassmorphism />
-      {/* ======== ALL SECTIONS ======== */}
-      {/* ======= START CONTAINER ============= */}
-      <div className="container relative">
-        {/* === SECTION 1 === */}
-        <div className="pt-12 pb-16 lg:pb-28">
-          <SectionMagazine5 posts={MAGAZINE1_POSTS} />
-        </div>
+      <div className="container relative pb-20 pt-10 lg:pb-28 lg:pt-14">
+        <nav aria-label="Breadcrumb" className="text-sm text-neutral-500 dark:text-neutral-400">
+          <ol className="flex flex-wrap items-center gap-2">
+            <li>
+              <Link href={"/" as Route} className="hover:underline">
+                Trang chủ
+              </Link>
+            </li>
+            <li aria-hidden="true">/</li>
+            <li>
+              {activeSlug ? (
+                <Link href={BLOG_PATH as Route} className="hover:underline">
+                  Blog
+                </Link>
+              ) : (
+                <span aria-current="page">Blog</span>
+              )}
+            </li>
+            {activeSlug && (
+              <>
+                <li aria-hidden="true">/</li>
+                <li aria-current="page">{heading}</li>
+              </>
+            )}
+          </ol>
+        </nav>
 
-        {/* === SECTION 1 === */}
-        <SectionAds />
+        <header className="mt-6 max-w-3xl space-y-3">
+          <h1 className="text-3xl font-semibold text-neutral-900 dark:text-neutral-50 md:text-4xl">{heading}</h1>
+          <p className="text-neutral-600 dark:text-neutral-300">{description}</p>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">
+            Mỗi bài ghi nguồn tham khảo ở cuối trang. Đây không phải tin của The BHA.
+          </p>
+        </header>
 
-        {/* === SECTION 8 === */}
-        <SectionLatestPosts className="py-16 lg:py-28" />
+        <nav aria-label="Danh mục" className="mt-8 flex flex-wrap gap-3">
+          <Link
+            href={BLOG_PATH as Route}
+            aria-current={activeSlug === null ? "page" : undefined}
+            className={`${CHIP_CLASS} ${activeSlug === null ? "border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-neutral-900" : "border-neutral-300 text-neutral-700 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-200 dark:hover:bg-neutral-800"}`}
+          >
+            Tất cả
+          </Link>
+          {POST_CATEGORIES.map((category) => (
+            <Link
+              key={category.slug}
+              href={blogCategoryPath(category.slug) as Route}
+              aria-current={activeSlug === category.slug ? "page" : undefined}
+              className={`${CHIP_CLASS} ${activeSlug === category.slug ? "border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-neutral-900" : "border-neutral-300 text-neutral-700 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-200 dark:hover:bg-neutral-800"}`}
+            >
+              {category.name}
+            </Link>
+          ))}
+        </nav>
 
-        {/* === SECTION 1 === */}
-        <SectionSubscribe2 className="pb-16 lg:pb-28" />
+        <ul className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3 lg:gap-8">
+          {posts.map((post) => (
+            <li key={post.id}>
+              <PostCard post={post} />
+            </li>
+          ))}
+        </ul>
       </div>
     </div>
   );
-};
-
-export default BlogPage;
+}

@@ -765,3 +765,54 @@ describe("bookingHoldFlowReducer — confirmation lifecycle (P2)", () => {
     ).toBe(state);
   });
 });
+
+describe("bookingHoldFlowReducer — identity-change-scrub (CP01b)", () => {
+  it("discards the offer, contact, errors and attempt of an idle/selected/known-error draft, keeping the operation identity", () => {
+    const draft: BookingHoldFlowState = {
+      ...selected(),
+      contact: CONTACT,
+      fieldErrors: { email: "bad" },
+      errorMessage: "old error",
+      operationId: 7,
+    };
+    for (const phase of ["selected", "known-error"] as const) {
+      const next = bookingHoldFlowReducer({ ...draft, phase }, { type: "identity-change-scrub" });
+      expect(next).toEqual({ ...initialBookingHoldFlowState, operationId: 7 });
+    }
+    const idle = bookingHoldFlowReducer({ ...initialBookingHoldFlowState, operationId: 3 }, { type: "identity-change-scrub" });
+    expect(idle).toEqual({ ...initialBookingHoldFlowState, operationId: 3 });
+  });
+
+  it.each([
+    ["active-session", () => activeSessionState()],
+    ["confirming", () => confirmingState()],
+    ["confirm-known-error", () => confirmKnownErrorState()],
+    ["confirm-uncertain", () => confirmUncertainState()],
+    ["reservation-result", () => reservationResultState()],
+    ["submitting", () => ({ ...selected(), phase: "submitting" as const, attempt: ATTEMPT })],
+    ["uncertain", () => ({ ...selected(), phase: "uncertain" as const, attempt: ATTEMPT })],
+  ])("never touches a %s flow", (_name, build) => {
+    const state = build();
+    expect(bookingHoldFlowReducer(state, { type: "identity-change-scrub" })).toBe(state);
+  });
+});
+
+describe("bookingHoldFlowReducer — booking-finished (CP01b)", () => {
+  it("scrubs the receipt and every PII-bearing field for exactly that reservation, keeping the operation identity", () => {
+    const state = reservationResultState();
+    const id = state.reservationResult!.reservation.reservationId;
+    const next = bookingHoldFlowReducer(state, { type: "booking-finished", reservationId: id });
+    expect(next).toEqual({ ...initialBookingHoldFlowState, operationId: state.operationId });
+    expect(JSON.stringify(next)).not.toContain(CONTACT.email);
+  });
+
+  it("ignores a different reservation id and every phase other than reservation-result", () => {
+    const state = reservationResultState();
+    expect(bookingHoldFlowReducer(state, { type: "booking-finished", reservationId: "someone-else" })).toBe(state);
+    for (const other of [selected(), activeSessionState(), confirmingState(), confirmUncertainState(), initialBookingHoldFlowState]) {
+      expect(
+        bookingHoldFlowReducer(other, { type: "booking-finished", reservationId: state.reservationResult!.reservation.reservationId })
+      ).toBe(other);
+    }
+  });
+});

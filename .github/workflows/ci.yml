@@ -83,7 +83,7 @@ jobs:
       ConnectionStrings__TheBhaDatabase: Host=localhost;Port=5432;Database=thebha_ci;Username=thebha_ci;Password=ci-only-password
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres:18.3
         env:
           POSTGRES_DB: thebha_ci
           POSTGRES_USER: thebha_ci
@@ -98,6 +98,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: PostgreSQL server version is 18.3
+        run: |
+          version="$(docker exec "${{ job.services.postgres.id }}" psql -U thebha_ci -d thebha_ci -Atc 'show server_version')"
+          echo "server_version=$version"
+          echo "PostgreSQL server_version: $version" >> "$GITHUB_STEP_SUMMARY"
+          case "$version" in 18.3|"18.3 "*) ;; *) echo "::error::Expected PostgreSQL 18.3."; exit 1 ;; esac
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4

@@ -269,11 +269,12 @@ public sealed class StaffCalendarWriteAuthorizationTests(PostgreSqlWebApplicatio
         }
 
         // FrontDesk confirming a cross-RoomType placement — even onto a same-type room — is
-        // refused before the store, for create and move.
+        // refused before the store, for create, move and split-move.
         foreach (var (path, body) in new[]
                  {
                      (CreateUrl(seed.A), CreateBody(seed.Units[0], seed.Standard[0], confirm: true, reason: "x")),
                      (MoveUrl(seed.A, segment), MoveBody(1, seed.Standard[0], confirm: true, reason: "x")),
+                     (SplitMoveUrl(seed.A, segment), SplitMoveBody(1, CheckIn.AddDays(2), seed.Standard[1], confirm: true, reason: "x")),
                  })
         {
             await AssertForbiddenAsync(await client.SendAsync(Post(path, body, desk)));
@@ -281,13 +282,14 @@ public sealed class StaffCalendarWriteAuthorizationTests(PostgreSqlWebApplicatio
 
         Assert.Equal((0, 0), (assignments.Calls, blocks.Calls));
 
-        // Positive control: the same five requests with the member's cookie reach the store.
+        // Positive control: the same seven requests with the member's cookie reach the store
+        // (PMS-CAL-003-CP01 added the block move).
         foreach (var (path, body) in writes)
         {
             await client.SendAsync(Post(path, body, desk));
         }
 
-        Assert.Equal((3, 2), (assignments.Calls, blocks.Calls));
+        Assert.Equal((4, 3), (assignments.Calls, blocks.Calls));
         var deskActor = $"staff:{await StaffIdAsync(Desk):D}";
         Assert.All(assignments.Actors.Concat(blocks.Actors), actor => Assert.Equal(deskActor, actor));
     }
@@ -330,6 +332,124 @@ public sealed class StaffCalendarWriteAuthorizationTests(PostgreSqlWebApplicatio
             client.SendAsync(Post(MoveUrl(seed.A, segment.Id), MoveBody(segment.Version, seed.Deluxe[0], confirm: true, reason: "Upgrade"), manager)));
         await AssertStatusAsync(HttpStatusCode.Created,
             client.SendAsync(Post(CreateUrl(seed.A), CreateBody(seed.Units[1], seed.Deluxe[1], confirm: true, reason: "Upgrade"), manager)));
+    }
+
+    // ---------------------------------------------------------------
+    // PMS-CAL-003-CP01: block move
+    // ---------------------------------------------------------------
+
+    [Fact]
+    public async Task A_block_move_is_a_block_write_for_both_roles_across_room_types_with_the_staff_actor_and_no_evidence()
+    {
+        var seed = await SeedAsync();
+        using var host = CreateHost(AdminCalendarAccessMode.Staff);
+        await CreateStaffAsync(host, seed);
+        using var client = CreateHttpsClient(host);
+        var desk = await LoginAsync(client, Desk);
+        var manager = await LoginAsync(client, Manager);
+        var deskActor = $"staff:{await StaffIdAsync(Desk):D}";
+        var managerActor = $"staff:{await StaffIdAsync(Manager):D}";
+
+        var created = await AssertStatusAsync(HttpStatusCode.Created, client.SendAsync(Post(BlockUrl(seed.A), BlockBody(seed.Standard[2]), desk)));
+        var first = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("segment").Deserialize<RoomOccupancySegmentDto>(JsonOptions)!;
+
+        // FrontDesk, same RoomType; then the Manager, other RoomType; then FrontDesk back across RoomTypes.
+        // No confirmation field exists and none is needed: a block has no sold RoomType to cross.
+        var sameType = await SegmentsAsync(await AssertStatusAsync(HttpStatusCode.OK,
+            client.SendAsync(Post(BlockMoveUrl(seed.A, first.Id), BlockMoveBody(first.Version, seed.Standard[1], "  Pipe repaired next door  "), desk))));
+        Assert.Equal(["Cancelled", "Effective"], sameType.Select(item => item.Status).ToArray());
+        var cross = await SegmentsAsync(await AssertStatusAsync(HttpStatusCode.OK,
+            client.SendAsync(Post(BlockMoveUrl(seed.A, sameType[1].Id), BlockMoveBody(sameType[1].Version, seed.Deluxe[0]), manager))));
+        var back = await SegmentsAsync(await AssertStatusAsync(HttpStatusCode.OK,
+            client.SendAsync(Post(BlockMoveUrl(seed.A, cross[1].Id), BlockMoveBody(cross[1].Version, seed.Standard[2]), desk))));
+        Assert.Equal((seed.Standard[2], BlockFrom, BlockTo), (back[1].PhysicalRoomId, back[1].StartDate, back[1].EndDate));
+
+        // The header stays the creator's; each move names its mover on both rows and carries no evidence.
+        Assert.Equal([deskActor], await BlockCreatorsAsync());
+        Assert.Equal((deskActor, (string?)null), await CancelledAuditAsync(first.Id));
+        Assert.Equal((deskActor, (string?)null), await CreatedAuditAsync(sameType[1].Id));
+        Assert.Equal((managerActor, (string?)null), await CancelledAuditAsync(sameType[1].Id));
+        Assert.Equal((managerActor, (string?)null), await CreatedAuditAsync(cross[1].Id));
+        Assert.Equal((deskActor, (string?)null), await CreatedAuditAsync(back[1].Id));
+        Assert.DoesNotContain(await AuditsAsync(), audit => audit.AuthorizationEvidence is not null);
+        Assert.Equal("Pipe repaired next door", Assert.Single(await AuditsAsync(), audit => audit.SegmentId == sameType[1].Id && audit.EventType == RoomOccupancySegmentAuditEventType.Created).Reason);
+    }
+
+    [Fact]
+    public async Task A_block_move_ignores_a_forged_identity_and_with_both_cookies_the_staff_member_is_the_actor()
+    {
+        var seed = await SeedAsync();
+        using var host = CreateHost(AdminCalendarAccessMode.Staff);
+        await CreateStaffAsync(host, seed);
+        var customerId = await CreateCustomerAsync(host);
+        using var client = CreateHttpsClient(host);
+        var desk = await LoginAsync(client, Desk);
+        var both = $"{desk}; {await CustomerLoginAsync(client)}";
+        var block = (await (await AssertStatusAsync(HttpStatusCode.Created, client.SendAsync(Post(BlockUrl(seed.A), BlockBody(seed.Standard[2]), desk))))
+            .Content.ReadFromJsonAsync<JsonElement>()).GetProperty("segment").Deserialize<RoomOccupancySegmentDto>(JsonOptions)!;
+        var spoof = new
+        {
+            actorReference = LocalActor, authorizationEvidence = "forged", role = "Manager", staffId = Guid.NewGuid(), confirmCrossRoomType = true,
+            startDate = BlockFrom.AddDays(1), endDate = BlockTo.AddDays(3), physicalRoomId = seed.Standard[0],
+            replacements = new[] { new { physicalRoomId = seed.Deluxe[0], startDate = BlockFrom, endDate = BlockTo } }
+        };
+
+        var request = Post(
+            $"{BlockMoveUrl(seed.A, block.Id)}?actorReference=forged&role=Manager&destinationPhysicalRoomId={seed.Standard[0]}",
+            BlockMoveBody(block.Version, seed.Standard[1], extra: spoof), both);
+        request.Headers.Add("X-Actor-Reference", "forged");
+        request.Headers.Add("X-Role", "Manager");
+        var moved = await SegmentsAsync(await AssertStatusAsync(HttpStatusCode.OK, client.SendAsync(request)));
+
+        // The route and the typed body decide: same nights, the body's destination, the Staff actor.
+        Assert.Equal((seed.Standard[1], BlockFrom, BlockTo), (moved[1].PhysicalRoomId, moved[1].StartDate, moved[1].EndDate));
+        var deskActor = $"staff:{await StaffIdAsync(Desk):D}";
+        Assert.Equal((deskActor, (string?)null), await CreatedAuditAsync(moved[1].Id));
+        Assert.Equal((deskActor, (string?)null), await CancelledAuditAsync(block.Id));
+        Assert.DoesNotContain(await AuditsAsync(), audit => audit.ActorReference.Contains(customerId.ToString(), StringComparison.OrdinalIgnoreCase) || audit.ActorReference == LocalActor);
+        await using var context = factory.CreateDbContext();
+        Assert.Empty(await context.RoomOccupancySegments.Where(item => item.PhysicalRoomId == seed.Standard[0] || item.PhysicalRoomId == seed.Deluxe[0]).ToListAsync());
+    }
+
+    [Fact]
+    public async Task A_block_move_by_a_member_of_another_property_a_disabled_account_or_an_expired_session_never_reaches_the_store()
+    {
+        var seed = await SeedAsync();
+        var blocks = new CountingBlockStore();
+        using var host = CreateHost(AdminCalendarAccessMode.Staff, builder =>
+        {
+            LocalWriteOn(builder);
+            builder.ConfigureTestServices(services => services.AddScoped<IOperationalBlockMutationStore>(_ => blocks));
+        });
+        await CreateStaffAsync(host, seed);
+        using var client = CreateHttpsClient(host);
+        var desk = await LoginAsync(client, Desk);
+        var outsider = await LoginAsync(client, Outsider);
+        var path = BlockMoveUrl(seed.A, Guid.NewGuid());
+        var body = BlockMoveBody(1, seed.Standard[1]);
+
+        await AssertUnauthorizedAsync(await client.SendAsync(Post(path, body)));
+        await AssertForbiddenAsync(await client.SendAsync(Post(path, body, outsider)));
+        try
+        {
+            factory.Clock.UtcNow = Now.AddHours(8);
+            await AssertUnauthorizedAsync(await client.SendAsync(Post(path, body, desk)));
+        }
+        finally
+        {
+            factory.Clock.UtcNow = Now;
+        }
+
+        await CliAsync(host, ["--staff-disable", "--email", Desk]);
+        await AssertUnauthorizedAsync(await client.SendAsync(Post(path, body, desk)));
+        Assert.Equal(0, blocks.Calls);
+
+        // Authority established, the request reaches the store with the route's ids and the body's room.
+        var manager = await LoginAsync(client, Manager);
+        await client.SendAsync(Post(path, body, manager));
+        var move = Assert.Single(blocks.Moves);
+        Assert.Equal((seed.A, seed.Standard[1], 1u), (move.PropertyId, move.DestinationPhysicalRoomId, move.ExpectedVersion));
+        Assert.Equal($"staff:{await StaffIdAsync(Manager):D}", move.ActorReference);
     }
 
     // ---------------------------------------------------------------
@@ -511,8 +631,10 @@ public sealed class StaffCalendarWriteAuthorizationTests(PostgreSqlWebApplicatio
             [$"{nameof(AdminReservationAssignmentsController)}.{nameof(AdminReservationAssignmentsController.Create)}"] = StaffPermission.AssignmentWrite,
             [$"{nameof(AdminReservationAssignmentsController)}.{nameof(AdminReservationAssignmentsController.Move)}"] = StaffPermission.AssignmentWrite,
             [$"{nameof(AdminReservationAssignmentsController)}.{nameof(AdminReservationAssignmentsController.Unassign)}"] = StaffPermission.AssignmentWrite,
+            [$"{nameof(AdminReservationAssignmentsController)}.{nameof(AdminReservationAssignmentsController.SplitMove)}"] = StaffPermission.AssignmentWrite,
             [$"{nameof(AdminOperationalBlocksController)}.{nameof(AdminOperationalBlocksController.Create)}"] = StaffPermission.BlockWrite,
             [$"{nameof(AdminOperationalBlocksController)}.{nameof(AdminOperationalBlocksController.Cancel)}"] = StaffPermission.BlockWrite,
+            [$"{nameof(AdminOperationalBlocksController)}.{nameof(AdminOperationalBlocksController.Move)}"] = StaffPermission.BlockWrite,
         };
 
         var actual = new Dictionary<string, StaffPermission>();
@@ -545,8 +667,10 @@ public sealed class StaffCalendarWriteAuthorizationTests(PostgreSqlWebApplicatio
             ("/api/admin/v1/properties/{propertyId}/reservation-assignments", "AssignmentWrite", true, ["201", "400", "403", "404", "409", "415"]),
             ("/api/admin/v1/properties/{propertyId}/reservation-assignments/{segmentId}/move", "AssignmentWrite", true, ["200", "400", "403", "404", "409", "415"]),
             ("/api/admin/v1/properties/{propertyId}/reservation-assignments/{segmentId}/unassign", "AssignmentWrite", false, ["200", "400", "404", "409", "415"]),
+            ("/api/admin/v1/properties/{propertyId}/reservation-assignments/{segmentId}/split-move", "AssignmentWrite", true, ["200", "400", "403", "404", "409", "415"]),
             ("/api/admin/v1/properties/{propertyId}/operational-blocks", "BlockWrite", false, ["201", "400", "403", "404", "409", "415"]),
             ("/api/admin/v1/properties/{propertyId}/operational-blocks/{segmentId}/cancel", "BlockWrite", false, ["200", "400", "403", "404", "409", "415"]),
+            ("/api/admin/v1/properties/{propertyId}/operational-blocks/{segmentId}/move", "BlockWrite", false, ["200", "400", "403", "404", "409", "415"]),
         };
 
         foreach (var mode in new AdminCalendarAccessMode?[] { AdminCalendarAccessMode.Staff, AdminCalendarAccessMode.LocalGate })
@@ -579,6 +703,195 @@ public sealed class StaffCalendarWriteAuthorizationTests(PostgreSqlWebApplicatio
                 }
             }
         }
+    }
+
+    // ---------------------------------------------------------------
+    // PMS-CAL-002-CP02: split-move under Staff authorization
+    // ---------------------------------------------------------------
+
+    [Fact]
+    public async Task A_front_desk_member_splits_a_stay_between_same_type_rooms_without_a_reason_and_every_row_names_it()
+    {
+        var seed = await SeedAsync();
+        using var host = CreateHost(AdminCalendarAccessMode.Staff);
+        await CreateStaffAsync(host, seed);
+        using var client = CreateHttpsClient(host);
+        var desk = await LoginAsync(client, Desk);
+        var source = await SegmentAsync(await AssertStatusAsync(HttpStatusCode.Created,
+            client.SendAsync(Post(CreateUrl(seed.A), CreateBody(seed.Units[0], seed.Standard[0]), desk))));
+        var commercialBefore = await CommercialAsync();
+        var splitDate = CheckIn.AddDays(2);
+
+        var segments = await SegmentsAsync(await AssertStatusAsync(HttpStatusCode.OK,
+            client.SendAsync(Post(SplitMoveUrl(seed.A, source.Id), SplitMoveBody(source.Version, splitDate, seed.Standard[1]), desk))));
+
+        await AssertPartitionAsync(segments, source, seed.Standard[0], seed.Standard[1], splitDate);
+        var deskActor = $"staff:{await StaffIdAsync(Desk):D}";
+        var group = await SplitGroupAsync(source.Id);
+        Assert.Equal(["Cancelled", "Created", "Created"], group.Select(audit => audit.EventType.ToString()).Order(StringComparer.Ordinal).ToArray());
+        Assert.All(group, audit => Assert.Equal((deskActor, (string?)null, (string?)null), (audit.ActorReference, audit.AuthorizationEvidence, audit.Reason)));
+        Assert.Equal(4, (await AuditsAsync()).Length);
+        Assert.Equal(commercialBefore, await CommercialAsync());
+    }
+
+    [Theory]
+    [InlineData("suffix")]
+    [InlineData("prefix")]
+    [InlineData("both")]
+    public async Task A_manager_split_records_fresh_evidence_on_exactly_the_cross_type_successors_and_requires_a_reason(string scenario)
+    {
+        var seed = await SeedAsync();
+        using var host = CreateHost(AdminCalendarAccessMode.Staff);
+        await CreateStaffAsync(host, seed);
+        using var client = CreateHttpsClient(host);
+        var manager = await LoginAsync(client, Manager);
+        var (prefixCross, suffixCross) = scenario switch { "suffix" => (false, true), "prefix" => (true, false), _ => (true, true) };
+        var sourceRoom = prefixCross ? seed.Deluxe[0] : seed.Standard[0];
+        var destination = suffixCross ? (prefixCross ? seed.Deluxe[1] : seed.Deluxe[0]) : seed.Standard[1];
+        var source = await SegmentAsync(await AssertStatusAsync(HttpStatusCode.Created, client.SendAsync(Post(
+            CreateUrl(seed.A), CreateBody(seed.Units[0], sourceRoom, confirm: prefixCross, reason: prefixCross ? "Upgrade" : null), manager))));
+        var evidence = $"staff-rbac:Manager:{seed.A:D}:cross-room-type-confirmed";
+        var managerActor = $"staff:{await StaffIdAsync(Manager):D}";
+        var commercialBefore = await CommercialAsync();
+        var splitDate = CheckIn.AddDays(2);
+
+        // The reason is mandatory as soon as either successor crosses; the refusal is the store's.
+        await AssertProblemAsync(
+            await client.SendAsync(Post(SplitMoveUrl(seed.A, source.Id), SplitMoveBody(source.Version, splitDate, destination, confirm: true, reason: "  "), manager)),
+            HttpStatusCode.Forbidden, "Cross-RoomType confirmation required");
+        Assert.Equal(prefixCross ? 1 : 0, (await AuditsAsync()).Count(audit => audit.AuthorizationEvidence is not null));
+
+        var segments = await SegmentsAsync(await AssertStatusAsync(HttpStatusCode.OK, client.SendAsync(Post(
+            SplitMoveUrl(seed.A, source.Id), SplitMoveBody(source.Version, splitDate, destination, confirm: true, reason: "  Split reason  "), manager))));
+
+        var (prefix, suffix) = await AssertPartitionAsync(segments, source, sourceRoom, destination, splitDate);
+        var group = await SplitGroupAsync(source.Id);
+        Assert.Equal(3, group.Length);
+        Assert.All(group, audit => Assert.Equal((managerActor, "Split reason"), (audit.ActorReference, audit.Reason)));
+        Assert.Null(Assert.Single(group, audit => audit.SegmentId == source.Id).AuthorizationEvidence);
+        Assert.Equal(prefixCross ? evidence : null, Assert.Single(group, audit => audit.SegmentId == prefix.Id).AuthorizationEvidence);
+        Assert.Equal(suffixCross ? evidence : null, Assert.Single(group, audit => audit.SegmentId == suffix.Id).AuthorizationEvidence);
+
+        // The source's own Created row is untouched and outside the new group.
+        Assert.Equal((managerActor, prefixCross ? evidence : null), await CreatedAuditAsync(source.Id));
+        Assert.Equal(commercialBefore, await CommercialAsync());
+    }
+
+    [Fact]
+    public async Task Split_move_cross_type_rules_follow_the_role_and_every_refusal_changes_nothing()
+    {
+        var seed = await SeedAsync();
+        using var host = CreateHost(AdminCalendarAccessMode.Staff);
+        await CreateStaffAsync(host, seed);
+        using var client = CreateHttpsClient(host);
+        var desk = await LoginAsync(client, Desk);
+        var manager = await LoginAsync(client, Manager);
+        var sold = await SegmentAsync(await AssertStatusAsync(HttpStatusCode.Created,
+            client.SendAsync(Post(CreateUrl(seed.A), CreateBody(seed.Units[0], seed.Standard[0]), desk))));
+        var cross = await SegmentAsync(await AssertStatusAsync(HttpStatusCode.Created,
+            client.SendAsync(Post(CreateUrl(seed.A), CreateBody(seed.Units[1], seed.Deluxe[0], confirm: true, reason: "Upgrade"), manager))));
+        var splitDate = CheckIn.AddDays(2);
+
+        async Task Refused(string cookie, RoomOccupancySegmentDto segment, Guid destination, bool confirm, string? reason, bool accessDenied)
+        {
+            var before = await StateAsync();
+            var response = await client.SendAsync(Post(SplitMoveUrl(seed.A, segment.Id), SplitMoveBody(segment.Version, splitDate, destination, confirm, reason), cookie));
+            await AssertProblemAsync(response, HttpStatusCode.Forbidden, accessDenied ? "Access denied" : "Cross-RoomType confirmation required");
+            Assert.Equal(before, await StateAsync());
+        }
+
+        // FrontDesk: confirming is a missing permission whatever the destination (Access denied)...
+        await Refused(desk, sold, seed.Standard[1], confirm: true, reason: "x", accessDenied: true);
+        await Refused(desk, sold, seed.Deluxe[1], confirm: true, reason: "x", accessDenied: true);
+        await Refused(desk, cross, seed.Standard[1], confirm: true, reason: "x", accessDenied: true);
+        // ...and without confirming, a successor outside the sold type is the store's refusal: the
+        // suffix for a sold-type source, the prefix for a source already placed elsewhere.
+        await Refused(desk, sold, seed.Deluxe[1], confirm: false, reason: "x", accessDenied: false);
+        await Refused(desk, cross, seed.Standard[1], confirm: false, reason: "x", accessDenied: false);
+        // Manager: the server does not confirm on the caller's behalf, and the reason stays mandatory.
+        await Refused(manager, sold, seed.Deluxe[1], confirm: false, reason: "x", accessDenied: false);
+        await Refused(manager, sold, seed.Deluxe[1], confirm: true, reason: null, accessDenied: false);
+        await Refused(manager, cross, seed.Standard[1], confirm: false, reason: "x", accessDenied: false);
+        await Refused(manager, cross, seed.Standard[1], confirm: true, reason: " ", accessDenied: false);
+        Assert.Equal(2, (await AuditsAsync()).Length);
+    }
+
+    [Fact]
+    public async Task A_forged_split_move_body_gives_no_authority_and_a_valid_one_keeps_the_sources_own_range()
+    {
+        var seed = await SeedAsync();
+        var spoof = new
+        {
+            actorReference = LocalActor, authorizationEvidence = "forged", role = "Manager", staffId = Guid.NewGuid(),
+            startDate = CheckIn.AddDays(1), endDate = CheckIn.AddDays(3), physicalRoomId = seed.Standard[2], reservationUnitId = seed.Units[1],
+            replacements = new[] { new { physicalRoomId = seed.Deluxe[0], startDate = CheckIn, endDate = CheckOut } }, unitAmount = 1
+        };
+        var splitDate = CheckIn.AddDays(2);
+
+        using (var host = CreateHost(AdminCalendarAccessMode.Staff))
+        {
+            await CreateStaffAsync(host, seed);
+            using var client = CreateHttpsClient(host);
+            var desk = await LoginAsync(client, Desk);
+            var source = await SegmentAsync(await AssertStatusAsync(HttpStatusCode.Created,
+                client.SendAsync(Post(CreateUrl(seed.A), CreateBody(seed.Units[0], seed.Standard[0]), desk))));
+
+            var request = Post(
+                $"{SplitMoveUrl(seed.A, source.Id)}?actorReference=forged&role=Manager&physicalRoomId={seed.Standard[2]}",
+                SplitMoveBody(source.Version, splitDate, seed.Standard[1], extra: spoof), desk);
+            request.Headers.Add("X-Actor-Reference", "forged");
+            request.Headers.Add("X-Role", "Manager");
+            var segments = await SegmentsAsync(await AssertStatusAsync(HttpStatusCode.OK, client.SendAsync(request)));
+
+            await AssertPartitionAsync(segments, source, seed.Standard[0], seed.Standard[1], splitDate);
+            var deskActor = $"staff:{await StaffIdAsync(Desk):D}";
+            Assert.All(await SplitGroupAsync(source.Id), audit => Assert.Equal((deskActor, (string?)null), (audit.ActorReference, audit.AuthorizationEvidence)));
+            await using var context = factory.CreateDbContext();
+            Assert.Empty(await context.RoomOccupancySegments.Where(item => item.ReservationUnitId == seed.Units[1] || item.PhysicalRoomId == seed.Standard[2] || item.PhysicalRoomId == seed.Deluxe[0]).ToListAsync());
+        }
+
+        // The same payload with confirmCrossRoomType from a FrontDesk member still lacks the permission.
+        var spy = new CountingAssignmentStore();
+        using var spyHost = CreateHost(AdminCalendarAccessMode.Staff, builder => builder.ConfigureTestServices(services =>
+            services.AddScoped<IAssignmentMutationStore>(_ => spy)));
+        using var spyClient = CreateHttpsClient(spyHost);
+        var forged = await LoginAsync(spyClient, Desk);
+        await AssertForbiddenAsync(await spyClient.SendAsync(Post(
+            SplitMoveUrl(seed.A, Guid.NewGuid()), SplitMoveBody(1, splitDate, seed.Deluxe[1], confirm: true, reason: "x", extra: spoof), forged)));
+        Assert.Equal(0, spy.Calls);
+    }
+
+    [Fact]
+    public async Task An_expired_session_and_the_local_write_flag_neither_authorize_a_split_move()
+    {
+        var seed = await SeedAsync();
+        var spy = new CountingAssignmentStore();
+        using var host = CreateHost(AdminCalendarAccessMode.Staff, builder =>
+        {
+            LocalWriteOn(builder);
+            builder.ConfigureTestServices(services => services.AddScoped<IAssignmentMutationStore>(_ => spy));
+        });
+        await CreateStaffAsync(host, seed);
+        using var client = CreateHttpsClient(host);
+        var desk = await LoginAsync(client, Desk);
+        var path = SplitMoveUrl(seed.A, Guid.NewGuid());
+        var body = SplitMoveBody(1, CheckIn.AddDays(2), seed.Standard[1]);
+
+        // The write flag is not an identity in Staff mode.
+        await AssertUnauthorizedAsync(await client.SendAsync(Post(path, body)));
+        try
+        {
+            factory.Clock.UtcNow = Now.AddHours(8);
+            await AssertUnauthorizedAsync(await client.SendAsync(Post(path, body, desk)));
+        }
+        finally
+        {
+            factory.Clock.UtcNow = Now;
+        }
+
+        Assert.Equal(0, spy.Calls);
+        await client.SendAsync(Post(path, body, desk));
+        Assert.Equal(1, spy.Calls);
     }
 
     // ---------------------------------------------------------------
@@ -730,6 +1043,55 @@ public sealed class StaffCalendarWriteAuthorizationTests(PostgreSqlWebApplicatio
         return await context.RoomOccupancySegmentAudits.AsNoTracking().OrderBy(audit => audit.OccurredAtUtc).ToArrayAsync();
     }
 
+    private async Task<RoomOccupancySegmentAudit[]> SplitGroupAsync(Guid sourceId)
+    {
+        var audits = await AuditsAsync();
+        var group = Assert.Single(audits, audit => audit.SegmentId == sourceId && audit.EventType == RoomOccupancySegmentAuditEventType.Cancelled).MutationGroupId;
+        return audits.Where(audit => audit.MutationGroupId == group).ToArray();
+    }
+
+    /// <summary>The prices and commitment of every Unit: split-move must leave them exactly as they were.</summary>
+    private async Task<string> CommercialAsync()
+    {
+        await using var context = factory.CreateDbContext();
+        var units = await context.ReservationUnits.AsNoTracking().Include(unit => unit.Nights).OrderBy(unit => unit.Id).ToListAsync();
+        return string.Join("\n", units.Select(unit =>
+            $"{unit.Id}|{unit.RoomTypeId}|{unit.CommitmentStatus}|{string.Join(",", unit.Nights.OrderBy(n => n.StayDate).Select(n => $"{n.StayDate:yyyy-MM-dd}/{n.RatePlanId}/{n.UnitAmount:0.00}"))}"));
+    }
+
+    /// <summary>Every segment (with xmin), every audit row and the commercial snapshot: a refusal must change none of it.</summary>
+    private async Task<string> StateAsync()
+    {
+        await using var context = factory.CreateDbContext();
+        var segments = (await context.RoomOccupancySegments.ToListAsync()).OrderBy(s => s.Id)
+            .Select(s => $"{s.Id}|{s.Status}|{s.PhysicalRoomId}|{s.StartDate:yyyy-MM-dd}|{s.EndDate:yyyy-MM-dd}|{context.Entry(s).Property<uint>("xmin").CurrentValue}");
+        var audits = (await context.RoomOccupancySegmentAudits.AsNoTracking().ToListAsync()).OrderBy(a => a.Id)
+            .Select(a => $"{a.Id}|{a.SegmentId}|{a.MutationGroupId}|{a.EventType}|{a.ActorReference}|{a.AuthorizationEvidence}|{a.Reason}");
+        return string.Join("\n", segments) + "\n--\n" + string.Join("\n", audits) + "\n--\n" + await CommercialAsync();
+    }
+
+    /// <summary>Asserts [source Cancelled, prefix, suffix] over the source's own nights and each version against the committed xmin.</summary>
+    private async Task<(RoomOccupancySegmentDto Prefix, RoomOccupancySegmentDto Suffix)> AssertPartitionAsync(
+        RoomOccupancySegmentDto[] segments, RoomOccupancySegmentDto original, Guid prefixRoom, Guid suffixRoom, DateOnly splitDate)
+    {
+        Assert.Equal(["Cancelled", "Effective", "Effective"], segments.Select(item => item.Status).ToArray());
+        var (source, prefix, suffix) = (segments[0], segments[1], segments[2]);
+        Assert.Equal((original.Id, original.PhysicalRoomId, original.StartDate, original.EndDate), (source.Id, source.PhysicalRoomId, source.StartDate, source.EndDate));
+        Assert.Equal((prefixRoom, original.StartDate, splitDate), (prefix.PhysicalRoomId, prefix.StartDate, prefix.EndDate));
+        Assert.Equal((suffixRoom, splitDate, original.EndDate), (suffix.PhysicalRoomId, suffix.StartDate, suffix.EndDate));
+        Assert.All(new[] { prefix, suffix }, item => Assert.Equal(original.ReservationUnitId, item.ReservationUnitId));
+
+        await using var context = factory.CreateDbContext();
+        var rows = await context.RoomOccupancySegments.Where(item => item.ReservationUnitId == original.ReservationUnitId).ToListAsync();
+        Assert.Equal(3, rows.Count);
+        foreach (var dto in segments)
+        {
+            Assert.Equal(dto.Version, context.Entry(rows.Single(row => row.Id == dto.Id)).Property<uint>("xmin").CurrentValue);
+        }
+
+        return (prefix, suffix);
+    }
+
     private async Task<(string Actor, string? Evidence)> CreatedAuditAsync(Guid segmentId) =>
         await AuditAsync(segmentId, RoomOccupancySegmentAuditEventType.Created);
 
@@ -753,15 +1115,19 @@ public sealed class StaffCalendarWriteAuthorizationTests(PostgreSqlWebApplicatio
         (CreateUrl(propertyId), CreateBody(seed.Units[0], seed.Standard[0])),
         (MoveUrl(propertyId, segment), MoveBody(1, seed.Standard[1])),
         (UnassignUrl(propertyId, segment), UnassignBody(1)),
+        (SplitMoveUrl(propertyId, segment), SplitMoveBody(1, CheckIn.AddDays(2), seed.Standard[1])),
         (BlockUrl(propertyId), BlockBody(seed.Standard[2])),
         (CancelUrl(propertyId, segment), CancelBody(1)),
+        (BlockMoveUrl(propertyId, segment), BlockMoveBody(1, seed.Standard[1])),
     ];
 
     private static string CreateUrl(Guid propertyId) => $"/api/admin/v1/properties/{propertyId}/reservation-assignments";
     private static string MoveUrl(Guid propertyId, Guid segment) => $"{CreateUrl(propertyId)}/{segment}/move";
     private static string UnassignUrl(Guid propertyId, Guid segment) => $"{CreateUrl(propertyId)}/{segment}/unassign";
+    private static string SplitMoveUrl(Guid propertyId, Guid segment) => $"{CreateUrl(propertyId)}/{segment}/split-move";
     private static string BlockUrl(Guid propertyId) => $"/api/admin/v1/properties/{propertyId}/operational-blocks";
     private static string CancelUrl(Guid propertyId, Guid segment) => $"{BlockUrl(propertyId)}/{segment}/cancel";
+    private static string BlockMoveUrl(Guid propertyId, Guid segment) => $"{BlockUrl(propertyId)}/{segment}/move";
 
     private static string CreateBody(
         Guid unit, Guid room, bool confirm = false, string? reason = null, object? extra = null, DateOnly? start = null, DateOnly? end = null) =>
@@ -780,10 +1146,17 @@ public sealed class StaffCalendarWriteAuthorizationTests(PostgreSqlWebApplicatio
 
     private static string UnassignBody(uint version) => Body(new { expectedVersion = version });
 
+    private static string SplitMoveBody(
+        uint version, DateOnly splitDate, Guid destination, bool confirm = false, string? reason = null, object? extra = null) =>
+        Body(new { expectedVersion = version, splitDate, destinationPhysicalRoomId = destination, confirmCrossRoomType = confirm, reason }, extra);
+
     private static string BlockBody(Guid room, DateOnly? start = null, DateOnly? end = null) =>
         Body(new { physicalRoomId = room, startDate = start ?? BlockFrom, endDate = end ?? BlockTo, reason = "Burst pipe" });
 
     private static string CancelBody(uint version) => Body(new { expectedVersion = version });
+
+    private static string BlockMoveBody(uint version, Guid destination, string? reason = null, object? extra = null) =>
+        Body(new { expectedVersion = version, destinationPhysicalRoomId = destination, reason }, extra);
 
     /// <summary>The JSON body, with any <paramref name="extra"/> properties a forged client would add.</summary>
     private static string Body(object payload, object? extra = null)
@@ -884,6 +1257,9 @@ public sealed class StaffCalendarWriteAuthorizationTests(PostgreSqlWebApplicatio
         public Task<SegmentMutationResult> SupersedeAsync(SupersedeAssignmentsCommand command, CancellationToken cancellationToken) =>
             Record(command.ActorReference);
 
+        public Task<SegmentMutationResult> SplitMoveAsync(SplitMoveAssignmentCommand command, CancellationToken cancellationToken) =>
+            Record(command.ActorReference);
+
         private Task<SegmentMutationResult> Record(string actor)
         {
             Interlocked.Increment(ref Calls);
@@ -909,6 +1285,19 @@ public sealed class StaffCalendarWriteAuthorizationTests(PostgreSqlWebApplicatio
 
         public Task<SegmentMutationResult> SupersedeSegmentsAsync(SupersedeBlockSegmentsCommand command, CancellationToken cancellationToken)
         {
+            Record(command.ActorReference);
+            return Task.FromResult(SegmentMutationResult.Conflict("spy"));
+        }
+
+        public List<MoveOperationalBlockCommand> Moves { get; } = [];
+
+        public Task<SegmentMutationResult> MoveAsync(MoveOperationalBlockCommand command, CancellationToken cancellationToken)
+        {
+            lock (Moves)
+            {
+                Moves.Add(command);
+            }
+
             Record(command.ActorReference);
             return Task.FromResult(SegmentMutationResult.Conflict("spy"));
         }

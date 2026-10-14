@@ -20,6 +20,7 @@ namespace TheBha.Api.Controllers;
 /// PMS-CAL-001.2-CP04B: the same narrowing applies to <c>Move</c> and
 /// <c>Unassign</c> — every action this filter matches shares the identical
 /// gate, so every one of them needs the identical correction.
+/// PMS-CAL-002-CP02 adds <c>SplitMove</c> to the set for the same reason.
 /// </para>
 /// </summary>
 public sealed class AdminReservationAssignmentOpenApiOperationFilter : IOperationFilter
@@ -29,6 +30,7 @@ public sealed class AdminReservationAssignmentOpenApiOperationFilter : IOperatio
         nameof(AdminReservationAssignmentsController.Create),
         nameof(AdminReservationAssignmentsController.Move),
         nameof(AdminReservationAssignmentsController.Unassign),
+        nameof(AdminReservationAssignmentsController.SplitMove),
     };
 
     public void Apply(OpenApiOperation operation, OperationFilterContext context)

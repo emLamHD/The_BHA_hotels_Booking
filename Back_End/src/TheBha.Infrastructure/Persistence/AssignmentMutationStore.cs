@@ -494,6 +494,59 @@ internal sealed class AssignmentMutationStore(
             mutatedSegments.Select(segment => RoomOccupancySegmentMutationSupport.ToDto(dbContext, segment)).ToList());
     }
 
+    public async Task<SegmentMutationResult> SplitMoveAsync(
+        SplitMoveAssignmentCommand command,
+        CancellationToken cancellationToken)
+    {
+        // PMS-CAL-002-CP01. This read only learns the source's own room and nights so
+        // the two successors can be composed; it decides nothing. A segment's room and
+        // dates never change (only its status and version do), and SupersedeAsync
+        // re-reads status, version, destination, RoomType authorization and capacity
+        // under the ReservationUnit lock, so a source cancelled or re-versioned in
+        // between is the same Conflict as any other superseding command.
+        var source = await dbContext.RoomOccupancySegments
+            .AsNoTracking()
+            .Where(s =>
+                s.Id == command.SegmentId &&
+                s.PropertyId == command.PropertyId &&
+                s.Type == RoomOccupancySegmentType.ReservationAssignment &&
+                s.ReservationUnitId != null)
+            .Select(s => new { s.PhysicalRoomId, s.StartDate, s.EndDate })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (source is null)
+        {
+            return SegmentMutationResult.NotFound("The requested assignment segment does not exist in this Property.");
+        }
+
+        // Comparisons only: no date arithmetic, so DateOnly.MinValue/MaxValue cannot overflow.
+        if (command.SplitDate <= source.StartDate || command.SplitDate >= source.EndDate)
+        {
+            return SegmentMutationResult.Invalid("splitDate must fall strictly inside the segment's nights.");
+        }
+
+        if (command.DestinationPhysicalRoomId == source.PhysicalRoomId)
+        {
+            return SegmentMutationResult.Invalid("The destination PhysicalRoom must differ from the segment's current room.");
+        }
+
+        return await SupersedeAsync(
+            new SupersedeAssignmentsCommand(
+                command.PropertyId,
+                [
+                    new AssignmentSupersession(
+                        command.SegmentId,
+                        command.ExpectedVersion,
+                        [
+                            new AssignmentDestination(source.PhysicalRoomId, source.StartDate, command.SplitDate),
+                            new AssignmentDestination(command.DestinationPhysicalRoomId, command.SplitDate, source.EndDate)
+                        ])
+                ],
+                command.ActorReference,
+                command.AuthorizationEvidence,
+                command.Reason),
+            cancellationToken);
+    }
+
     private static readonly IReadOnlyDictionary<(Guid RoomTypeId, DateOnly StayDate), int> EmptyDeltas =
         new Dictionary<(Guid, DateOnly), int>();
 

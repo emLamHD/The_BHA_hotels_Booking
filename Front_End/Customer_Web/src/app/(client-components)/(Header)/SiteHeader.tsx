@@ -1,24 +1,10 @@
 "use client";
 
-import React, { Fragment, useEffect, useRef, useState } from "react";
-import {
-  ShoppingBagIcon as ShoppingCartIcon,
-  Cog8ToothIcon as CogIcon,
-} from "@heroicons/react/24/outline";
-import { Popover, Transition } from "@headlessui/react";
+import React, { useEffect, useRef, useState } from "react";
 import { PathName } from "@/routers/types";
-import Link from "next/link";
 import Header from "./Header";
-import Header3 from "./Header3";
 import { usePathname } from "next/navigation";
 import { useThemeMode } from "@/utils/useThemeMode";
-
-export type SiteHeaders = "Header 1" | "Header 2" | "Header 3";
-
-interface HomePageItem {
-  name: string;
-  slug: PathName;
-}
 
 let OPTIONS = {
   root: null,
@@ -33,17 +19,20 @@ const PAGES_HIDE_HEADER_BORDER: PathName[] = [
   "/listing-stay-detail",
 ];
 
+/**
+ * CUST-WEB-001-CP08a-C2: puts the stored dark theme on <html> while the page is still being parsed, before the first
+ * paint, so a reload does not flash light. A constant, same key and class as `utils/useThemeMode` (which keeps
+ * owning the state and the toggle); nothing from the visitor is interpolated.
+ */
+const THEME_BOOT = 'try{if(window.localStorage.getItem("theme")==="dark")document.documentElement.classList.add("dark")}catch(e){}';
+
+/**
+ * CUST-WEB-001-CP08a: the one public header (the template's "Header 2": logo, the Riverside navigation,
+ * the compact search under `lg`, the account entry). The template's demo "Customize" panel — header
+ * styles and the other home demos — is not part of the site any more.
+ */
 const SiteHeader = () => {
   const anchorRef = useRef<HTMLDivElement>(null);
-
-  let [headers] = useState<SiteHeaders[]>(["Header 1", "Header 2", "Header 3"]);
-
-  let [homePages] = useState<HomePageItem[]>([
-    { name: "Travel", slug: "/" },
-    { name: "Real Estate", slug: "/home-2" },
-    { name: "Booking", slug: "/home-3" },
-  ]);
-  const [headerSelected, setHeaderSelected] = useState<SiteHeaders>("Header 2");
 
   const [isTopOfPage, setIsTopOfPage] = useState(true);
 
@@ -75,124 +64,15 @@ const SiteHeader = () => {
     }
   }, [pathname]);
 
-  const renderRadioHeaders = () => {
-    return (
-      <div className="mt-4">
-        <span className="text-sm font-medium">Header Styles</span>
-        <div className="mt-1.5 flex items-center space-x-2">
-          {headers.map((header) => {
-            return (
-              <div
-                key={header}
-                className={`py-1.5 px-3.5 flex items-center rounded-full font-medium text-xs cursor-pointer select-none ${
-                  headerSelected === header
-                    ? "bg-black text-white shadow-black/10 shadow-lg"
-                    : "border border-neutral-300 dark:border-neutral-700 hover:border-neutral-400 dark:hover:border-neutral-500"
-                }`}
-                onClick={() => setHeaderSelected(header)}
-              >
-                {header}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
-  };
-
-  const renderRadioHomePages = () => {
-    return (
-      <div className="mt-4">
-        <span className="text-sm font-medium">Home Demos</span>
-        <div className="mt-1.5 flex items-center space-x-2">
-          {homePages.map((home) => {
-            return (
-              <Link
-                key={home.slug}
-                href={home.slug}
-                className={`py-1.5 px-3.5 flex items-center rounded-full font-medium text-xs cursor-pointer select-none ${
-                  pathname === home.slug
-                    ? "bg-black text-white shadow-black/10 shadow-lg"
-                    : "border border-neutral-300 dark:border-neutral-700 hover:border-neutral-400 dark:hover:border-neutral-500"
-                }`}
-              >
-                {home.name}
-              </Link>
-            );
-          })}
-        </div>
-      </div>
-    );
-  };
-
-  // FOR DEMO PAGE
-  const renderControlSelections = () => {
-    return (
-      <div className="ControlSelections relative z-40 hidden lg:block">
-        <div className="fixed right-3 top-1/4 z-40 flex items-center">
-          <Popover className="relative">
-            {({ open }) => (
-              <>
-                <Popover.Button
-                  className={`p-2.5 bg-white hover:bg-neutral-100 dark:bg-primary-6000 dark:hover:bg-primary-700 rounded-xl shadow-xl border border-neutral-200 dark:border-primary-6000 z-10 focus:outline-none ${
-                    open ? " focus:ring-2 ring-primary-500" : ""
-                  }`}
-                >
-                  <CogIcon className="w-8 h-8" />
-                </Popover.Button>
-                <Transition
-                  as={Fragment}
-                  enter="transition ease-out duration-200"
-                  enterFrom="opacity-0 translate-y-1"
-                  enterTo="opacity-100 translate-y-0"
-                  leave="transition ease-in duration-150"
-                  leaveFrom="opacity-100 translate-y-0"
-                  leaveTo="opacity-0 translate-y-1"
-                >
-                  <Popover.Panel className="absolute right-0 z-10 mt-3 w-screen max-w-sm">
-                    <div className="rounded-2xl bg-white dark:bg-neutral-800 overflow-hidden nc-custom-shadow-1">
-                      <div className="relative p-6">
-                        <span className="text-xl font-semibold">Customize</span>
-                        <div className="w-full border-b border-neutral-200 dark:border-neutral-700 mt-4"></div>
-                        {renderRadioHeaders()}
-                        {renderRadioHomePages()}
-                      </div>
-                    
-                    </div>
-                  </Popover.Panel>
-                </Transition>
-              </>
-            )}
-          </Popover>
-        </div>
-      </div>
-    );
-  };
-
-  const renderHeader = () => {
-    let headerClassName = "shadow-sm dark:border-b dark:border-neutral-700";
-    if (PAGES_HIDE_HEADER_BORDER.includes(pathname as PathName)) {
-      headerClassName = isTopOfPage
-        ? ""
-        : "shadow-sm dark:border-b dark:border-neutral-700";
-    }
-    switch (headerSelected) {
-      case "Header 1":
-        return <Header className={headerClassName} navType="MainNav1" />;
-      case "Header 2":
-        return <Header className={headerClassName} navType="MainNav2" />;
-      case "Header 3":
-        return <Header3 className={headerClassName} />;
-
-      default:
-        return <Header className={headerClassName} navType="MainNav1" />;
-    }
-  };
+  let headerClassName = "shadow-sm dark:border-b dark:border-neutral-700";
+  if (PAGES_HIDE_HEADER_BORDER.includes(pathname as PathName)) {
+    headerClassName = isTopOfPage ? "" : "shadow-sm dark:border-b dark:border-neutral-700";
+  }
 
   return (
     <>
-      {renderControlSelections()}
-      {renderHeader()}
+      <script dangerouslySetInnerHTML={{ __html: THEME_BOOT }} />
+      <Header className={headerClassName} navType="MainNav2" />
       <div ref={anchorRef} className="h-1 absolute invisible"></div>
     </>
   );

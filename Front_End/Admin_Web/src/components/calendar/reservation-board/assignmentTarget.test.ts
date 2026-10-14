@@ -82,6 +82,17 @@ describe("selectAssignableRoomCandidates (PMS-CAL-001.2-CP03B)", () => {
     expect(candidates.some((room) => room.roomTypeId === "type-suite")).toBe(false);
   });
 
+  it("PMS-CAL-004-CP01: a room the board lists only because a block sits in it (Inactive or OutOfService, even in an inactive RoomType) is never a candidate", () => {
+    const listed: ReservationBoardPhysicalRoom[] = [
+      ...rooms,
+      { id: "room-109", roomTypeId: "type-standard", roomNumber: "109", floor: 1, operationalStatus: "Inactive" },
+      { id: "room-901", roomTypeId: "type-archive", roomNumber: "901", floor: 9, operationalStatus: "OutOfService" },
+    ];
+    const types: ReservationBoardRoomType[] = [...roomTypes, { id: "type-archive", code: "ARC", name: "Archive", isActive: false }];
+    const candidates = selectAssignableRoomCandidates(listed, types, "type-standard");
+    expect(candidates.map((room) => room.id)).toEqual(["room-101", "room-102", "room-201", "room-202"]);
+  });
+
   it("puts every Active room into the cross-RoomType group when the sold RoomType matches none of them", () => {
     const candidates = selectAssignableRoomCandidates(rooms, roomTypes, "type-penthouse");
     expect(candidates.every((room) => room.isSameSoldType === false)).toBe(true);

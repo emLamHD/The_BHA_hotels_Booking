@@ -1,0 +1,23 @@
+# PMS-CAL-004 — inactive-room block visibility (contract and evidence)
+
+> Status 2026-10-12: `PMS-CAL-004-CP01` is implemented in a Draft PR on baseline `ab838897861d3e636c4e7433b5898e3eb9c0ae0e` (PR #105, `PMS-CAL-003-CP03`, merged; `PMS-CAL-003` closed with its historical qualifier). One checkpoint, end to end: backend read projection, Admin_Web display and write eligibility, isolated real-browser acceptance. Evidence: `docs/reports/PMS-CAL-004-CP01-completion.md`.
+
+## 1. Why
+
+`PMS-CAL-003-CP03` showed that a block already in an Inactive or OutOfService room could not be reached from the Calendar: the board read listed only Active rooms and mapped every listed room to `Active`, so such a block had no row and no bar, and neither `Move block…` nor `Cancel block` was reachable even though the backend moves and cancels such a block (the source room's status is not a rule; only a destination must be Active). `PMS-CAL-004-CP01` corrects what is *displayed*. It does not change inventory, sellability, any write engine or any room's status.
+
+## 2. Contract
+
+**Read projection** (`GET /api/admin/v1/properties/{propertyId}/reservation-board`, window `[from, to)`). `physicalRooms` is every Active room of the Property **plus** a room of the same Property that an Effective OperationalBlock segment returned for this window sits in, whatever that room's status. Nothing else widens it: not a Cancelled block, a block outside the window or only touching a half-open boundary, an assignment-only reference, a room of another Property, or an inactive room without a qualifying block. The block predicate is the one that already existed (same Property, `OperationalBlock`, `Effective`, `StartDate < to && EndDate > from`, `RoomBlock` of the same Property); the blocks keep their full un-clipped dates, ids, versions, header and reason. Each room carries its **real** `OperationalStatus` (`Active`, `Inactive`, `OutOfService`); the mapper no longer hard-codes `Active`. A room appears once however many blocks sit in it. `roomTypes` cover the listed rooms (an inactive RoomType included, with its real `isActive`). Ordering is unchanged (Floor, ordinal RoomNumber, Id). Routes, JSON field names, types and enum values are unchanged; coverage, stays, assignments, availability, prices, commitments and every mutation, capacity and advisory-lock rule are unchanged. The list is for display, never a sellable count.
+
+**Snapshot.** One `RepeatableRead` snapshot (or the caller's ambient transaction), `AsNoTracking`, bounded queries, the cancellation token and `CandidateUnitsQueryTag` as before. The block query now runs before the room query (the rooms listed depend on it) and is tagged `OperationalBlocksQueryTag` so a deterministic test can pause the projection between the two. No write lock is taken and the read mutates nothing.
+
+**Admin_Web.** The timeline draws such a room's row with its status in the label and an accessible label on its block bars; a RoomType that has only such rooms still gets its header and rows, but the empty Unassigned lane a RoomType always keeps belongs only to a type with at least one *Active* room (a visible unassigned stay sold under it still gets a lane by the old rule). The filters keep their meaning. Staff reach the existing `Move block…` / `Cancel block` from such a bar with PMS-CAL-003's full-range/version/header checks, guards and lifecycle unchanged. Destinations stay Active-only everywhere: assignment, move, split-move, block create and block move pickers exclude non-Active rooms, a drop onto such a row is refused with no request, and a forced callback is refused before anything is recorded. After the last qualifying block leaves (moved or cancelled) the row disappears from the next authoritative read; a sibling keeps it; notices, focus and unconfirmed records do not depend on the row.
+
+## 3. Evidence boundaries
+
+The `PMS-CAL-003-CP03` inactive-source row stays **PARTIAL** at its own validation SHA. This work item records the qualifier as resolved only by its own evidence: the real browser saw the inactive status from the GET *before* the dialog opened, and the move and the cancel succeeded (report §5). It does not make `PMS-CAL-003-CP03`'s other acceptance apply to this head, and it does not verify an old-build downgrade (`OLD_BUILD_DOWNGRADE_RUNTIME: NOT_VERIFIED`).
+
+## 4. Out of scope and unchanged
+
+Inventory and sellability (Active-only), block/room status editing, reactivating a room, date resize, a Manager-only rule, lifecycle/folio/templates, block split/batch/swap, the storage-readback intent limitation of CP03 (a separate known limit, not recovered here), the schema and migrations, and any cloud or deploy step (Backend CD remains `PAUSED / NOT_COMPLETE`).

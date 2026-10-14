@@ -6,7 +6,7 @@ import {
   buildBookingHoldRequest,
   validateContact,
 } from "./bookingHoldAttempt";
-import { BookingHoldFlowAction, BookingHoldFlowState } from "./bookingHoldFlow";
+import { BookingHoldFlowAction, BookingHoldFlowState, bookingHoldFlowReducer } from "./bookingHoldFlow";
 import { confirmBookingHold, createBookingHold } from "./bookingHoldService";
 import { generateIdempotencyKey } from "./idempotencyKey";
 import { ApiConfigError, ApiHttpError, ApiNetworkError, ApiValidationError } from "./errors";
@@ -62,6 +62,31 @@ export interface BookingHoldFlowController {
    * invalid.
    */
   isAvailabilitySearchLocked: () => boolean;
+  /**
+   * CUST-WEB-001-CP01b: the explicit, local "done with this receipt". Accepted only for the current
+   * `reservation-result` of exactly `expectedReservationId`, with nothing in flight and no Customer
+   * identity change under way; then it scrubs the receipt and every PII-bearing field and returns the
+   * flow to idle. No HTTP: it is not a cancellation, a payment or a confirmation. Returns whether it ran.
+   */
+  finishBooking: (expectedReservationId: string) => boolean;
+}
+
+/** Why a Customer identity change may not start now. */
+export type IdentityChangeBlockReason = "booking-in-progress" | "receipt-not-finished";
+
+/**
+ * The booking side of the identity-change guard (CUST-WEB-001-CP01b). Only the identity coordinator
+ * uses it, through the binding the provider registers; it is deliberately not part of the public flow API.
+ */
+export interface BookingIdentityGuard {
+  /** Synchronous, from the controller's own live view (not from a React snapshot). Null when a change may start. */
+  identityChangeBlockReason: () => IdentityChangeBlockReason | null;
+  /** Discards the draft synchronously. A no-op returning false unless `identityChangeBlockReason()` is null. */
+  scrubForIdentityChange: () => boolean;
+}
+
+export interface BookingHoldFlowControllerInternal extends BookingHoldFlowController {
+  identityGuard: BookingIdentityGuard;
 }
 
 export interface CreateBookingHoldFlowControllerOptions {
@@ -73,6 +98,11 @@ export interface CreateBookingHoldFlowControllerOptions {
    * own teardown — a page/panel unmounting must never abort it.
    */
   onAttemptStart?: (controller: AbortController) => void;
+  /**
+   * True while a Customer identity operation or its session recovery is unresolved. Read synchronously
+   * before every booking mutation/draft command, which are refused outright while it is true.
+   */
+  isIdentityChangeLocked?: () => boolean;
 }
 
 /**
@@ -86,8 +116,19 @@ export interface CreateBookingHoldFlowControllerOptions {
  */
 export function createBookingHoldFlowController(
   options: CreateBookingHoldFlowControllerOptions
-): BookingHoldFlowController {
-  const { getState, dispatch, onAttemptStart } = options;
+): BookingHoldFlowControllerInternal {
+  const { getState, dispatch: dispatchToReact, onAttemptStart, isIdentityChangeLocked } = options;
+  const identityLocked = () => isIdentityChangeLocked?.() === true;
+
+  // CUST-WEB-001-CP01b: the controller's own synchronous view of the flow. `getState()` is a React
+  // snapshot and only reflects a dispatch after the next render, so an identity decision made between a
+  // response settling and React committing it would otherwise see a stale phase. Every dispatch goes
+  // through `dispatch` below, which applies the same pure reducer to this mirror in the same tick.
+  let live: BookingHoldFlowState = getState();
+  const dispatch = (action: BookingHoldFlowAction): void => {
+    live = bookingHoldFlowReducer(live, action);
+    dispatchToReact(action);
+  };
 
   // Synchronous in-flight guard: set before the first `await`/microtask and
   // before control returns to the caller, so two same-tick submits/retries
@@ -118,7 +159,7 @@ export function createBookingHoldFlowController(
   // The one lock predicate shared by both the read-only authorization check
   // and the committing gate below — never duplicated, never re-derived.
   function isFlowLockedForAvailability(): boolean {
-    if (inFlight) {
+    if (inFlight || identityLocked()) {
       return true;
     }
     return CONFIRMATION_LOCKED_PHASES.has(getState().phase);
@@ -237,6 +278,9 @@ export function createBookingHoldFlowController(
 
   return {
     selectOffer(offer, label) {
+      if (identityLocked()) {
+        return;
+      }
       const phase = getState().phase;
       if (CONFIRMATION_LOCKED_PHASES.has(phase)) {
         return;
@@ -246,6 +290,9 @@ export function createBookingHoldFlowController(
     },
 
     updateContact(contact) {
+      if (identityLocked()) {
+        return;
+      }
       const phase = getState().phase;
       if (phase !== "selected" && phase !== "known-error") {
         return;
@@ -254,7 +301,7 @@ export function createBookingHoldFlowController(
     },
 
     submit() {
-      if (inFlight) {
+      if (inFlight || identityLocked()) {
         return;
       }
       // Rejects a same-tick submit that follows an Availability search
@@ -283,7 +330,7 @@ export function createBookingHoldFlowController(
     },
 
     retryExact() {
-      if (inFlight) {
+      if (inFlight || identityLocked()) {
         return;
       }
       const current = getState();
@@ -296,7 +343,7 @@ export function createBookingHoldFlowController(
     },
 
     confirmHold() {
-      if (inFlight) {
+      if (inFlight || identityLocked()) {
         return;
       }
       const current = getState();
@@ -315,7 +362,7 @@ export function createBookingHoldFlowController(
     },
 
     retryConfirmationExact() {
-      if (inFlight) {
+      if (inFlight || identityLocked()) {
         return;
       }
       const current = getState();
@@ -350,6 +397,44 @@ export function createBookingHoldFlowController(
 
     isAvailabilitySearchLocked() {
       return isFlowLockedForAvailability();
+    },
+
+    finishBooking(expectedReservationId) {
+      if (inFlight || identityLocked()) {
+        return false;
+      }
+      const current = live;
+      if (
+        current.phase !== "reservation-result" ||
+        current.reservationResult?.reservation.reservationId !== expectedReservationId
+      ) {
+        return false;
+      }
+      // Synchronously drop the selection flag as well, so a stale same-tick submit cannot reuse the receipt's flow.
+      offerSelectionActive = false;
+      dispatch({ type: "booking-finished", reservationId: expectedReservationId });
+      return true;
+    },
+
+    identityGuard: {
+      identityChangeBlockReason() {
+        if (inFlight) {
+          return "booking-in-progress";
+        }
+        if (live.phase === "reservation-result") {
+          return "receipt-not-finished";
+        }
+        return CONFIRMATION_LOCKED_PHASES.has(live.phase) ? "booking-in-progress" : null;
+      },
+
+      scrubForIdentityChange() {
+        if (inFlight || live.phase === "reservation-result" || CONFIRMATION_LOCKED_PHASES.has(live.phase)) {
+          return false;
+        }
+        offerSelectionActive = false;
+        dispatch({ type: "identity-change-scrub" });
+        return true;
+      },
     },
   };
 }

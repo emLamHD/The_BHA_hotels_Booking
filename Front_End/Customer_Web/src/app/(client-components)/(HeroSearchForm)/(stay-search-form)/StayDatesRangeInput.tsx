@@ -8,6 +8,10 @@ import DatePickerCustomDay from "@/components/DatePickerCustomDay";
 import DatePicker from "react-datepicker";
 import ClearDataButton from "../ClearDataButton";
 
+/** "10/11": the picked day as a Vietnamese guest reads it, whatever the browser's own date format is. */
+const dayMonthLabel = (date: Date) =>
+  `${String(date.getDate()).padStart(2, "0")}/${String(date.getMonth() + 1).padStart(2, "0")}`;
+
 export interface StayDatesRangeInputProps {
   className?: string;
   fieldClassName?: string;
@@ -57,20 +61,20 @@ const StayDatesRangeInput: FC<StayDatesRangeInputProps> = ({
         </div>
         <div className="flex-grow text-left">
           <span className="block xl:text-lg font-semibold">
-            {startDate?.toLocaleDateString("en-US", {
-              month: "short",
-              day: "2-digit",
-            }) || "Add dates"}
+            {(startDate &&
+              (controlled
+                ? dayMonthLabel(startDate)
+                : startDate.toLocaleDateString("en-US", { month: "short", day: "2-digit" }))) ||
+              (controlled ? "Thêm ngày" : "Add dates")}
             {endDate
               ? " - " +
-                endDate?.toLocaleDateString("en-US", {
-                  month: "short",
-                  day: "2-digit",
-                })
+                (controlled
+                  ? dayMonthLabel(endDate)
+                  : endDate.toLocaleDateString("en-US", { month: "short", day: "2-digit" }))
               : ""}
           </span>
           <span className="block mt-1 text-sm text-neutral-400 leading-none font-light">
-            {"Check in - Check out"}
+            {controlled ? "Nhận phòng - Trả phòng" : "Check in - Check out"}
           </span>
         </div>
       </>

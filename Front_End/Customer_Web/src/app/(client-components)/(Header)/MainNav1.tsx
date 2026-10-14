@@ -2,7 +2,7 @@ import React, { FC } from "react";
 import Logo from "@/shared/Logo";
 import Navigation from "@/shared/Navigation/Navigation";
 import SearchDropdown from "./SearchDropdown";
-import ButtonPrimary from "@/shared/ButtonPrimary";
+import AvatarDropdown from "./AvatarDropdown";
 import MenuBar from "@/shared/MenuBar";
 import SwitchDarkMode from "@/shared/SwitchDarkMode";
 import HeroSearchForm2MobileFactory from "../(HeroSearchForm2Mobile)/HeroSearchForm2MobileFactory";
@@ -27,19 +27,23 @@ const MainNav1: FC<MainNav1Props> = ({ className = "" }) => {
           </div>
         </div>
 
+        {/* CUST-WEB-001-CP02: the right-hand cluster below is hidden under md, so the account entry has its own. */}
+        <div className="flex md:hidden flex-shrink-0 self-center ml-1 text-neutral-700 dark:text-neutral-100">
+          <AvatarDropdown panelClassName="right-0" />
+        </div>
+
         <div className="hidden md:flex flex-shrink-0 justify-end flex-1 lg:flex-none text-neutral-700 dark:text-neutral-100">
           <div className="hidden xl:flex space-x-0.5">
             <SwitchDarkMode />
             <SearchDropdown className="flex items-center" />
             <div className="px-1" />
-            <ButtonPrimary className="self-center" href="/login">
-              Sign up
-            </ButtonPrimary>
+            <AvatarDropdown />
           </div>
 
           <div className="flex xl:hidden items-center">
             <SwitchDarkMode />
             <div className="px-0.5" />
+            <AvatarDropdown />
             <MenuBar />
           </div>
         </div>

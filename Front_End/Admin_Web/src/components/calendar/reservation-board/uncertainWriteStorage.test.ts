@@ -533,3 +533,596 @@ describe("uncertainWriteStorage — a read that throws is an unfinished restorat
     expect([restored.unreadable, restored.incomplete]).toEqual([false, false]);
   });
 });
+
+describe("uncertainWriteStorage — split-move records (PMS-CAL-002-CP03)", () => {
+  function splitMove(overrides: Record<string, unknown> = {}, entry: Partial<Reconciliation> = {}): Reconciliation {
+    return assignment({
+      target: {
+        operation: "split-move",
+        reservationUnitId: "unit-1",
+        physicalRoomId: "room-102", // destination
+        startDate: "2026-09-03",
+        endDate: "2026-09-10",
+        roomNumber: "102",
+        guestDisplayName: "Nguyen Van A",
+        confirmationNumber: "CNF-100",
+        segmentId: "seg-1",
+        expectedVersion: 7,
+        sourcePhysicalRoomId: "room-101",
+        splitDate: "2026-09-06",
+        ...overrides,
+      } as never,
+      ...entry,
+    });
+  }
+
+  /** What a stored split-move target looks like as JSON, for damaging one field at a time. */
+  const stored = () => {
+    persistUncertainWrites(sessionStorage, [splitMove()], []);
+    return JSON.parse(sessionStorage.getItem(UNCERTAIN_WRITES_STORAGE_KEY)!);
+  };
+  const damaged = (patch: Record<string, unknown>) => {
+    const record = stored();
+    record.assignments[0].target = { ...record.assignments[0].target, ...patch };
+    sessionStorage.setItem(UNCERTAIN_WRITES_STORAGE_KEY, JSON.stringify(record));
+    return restoreUncertainWrites(sessionStorage, 1);
+  };
+
+  it("round-trips the unconfirmed record: both rooms, the full source range and the split date — and nothing personal", () => {
+    persistUncertainWrites(sessionStorage, [splitMove()], []);
+    const text = sessionStorage.getItem(UNCERTAIN_WRITES_STORAGE_KEY)!;
+    expect(JSON.parse(text).v).toBe(1);
+    for (const absent of ["Nguyen Van A", "CNF-100", "guestDisplayName", "confirmationNumber", "reason", "localToday", "actor", "evidence", "credentials"]) {
+      expect(text).not.toContain(absent);
+    }
+
+    const restored = restoreUncertainWrites(sessionStorage, 3);
+
+    expect(restored.unreadable).toBe(false);
+    expect(restored.assignments).toHaveLength(1);
+    expect(restored.assignments[0]).toMatchObject({ ...board, id: 3, afterSeq: 0, certainty: "uncertain", status: "pending", resolution: "unresolved", restored: "unknown-outcome" });
+    expect(restored.assignments[0].target).toEqual({
+      operation: "split-move",
+      reservationUnitId: "unit-1",
+      physicalRoomId: "room-102",
+      sourcePhysicalRoomId: "room-101",
+      segmentId: "seg-1",
+      expectedVersion: 7,
+      startDate: "2026-09-03",
+      endDate: "2026-09-10",
+      splitDate: "2026-09-06",
+      roomNumber: "102",
+      guestDisplayName: "",
+      confirmationNumber: "",
+    });
+  });
+
+  it("round-trips an in-flight intent without sending anything, with its token and an in-flight origin", () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const token = beginPendingWrite(sessionStorage, { kind: "assignment", entry: splitMove() })!;
+    expect(token).toEqual(expect.any(String));
+    const text = sessionStorage.getItem(PENDING_WRITES_STORAGE_KEY)!;
+    expect(JSON.parse(text).writes[0].write.inFlight).toBe(true);
+    expect(text).not.toContain("Nguyen Van A");
+
+    const restored = restoreUncertainWrites(sessionStorage, 1);
+
+    expect(restored.pendingTokens).toEqual([token]);
+    expect(restored.assignments[0]).toMatchObject({ restored: "in-flight", intent: token, afterSeq: 0, status: "pending", resolution: "unresolved" });
+    expect(restored.assignments[0].target).toMatchObject({ operation: "split-move", splitDate: "2026-09-06", sourcePhysicalRoomId: "room-101", physicalRoomId: "room-102" });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("restores one entry when the intent and the unconfirmed record describe the same split-move", () => {
+    const token = beginPendingWrite(sessionStorage, { kind: "assignment", entry: splitMove() })!;
+    persistUncertainWrites(sessionStorage, [splitMove({}, { intent: token })], []);
+    const restored = restoreUncertainWrites(sessionStorage, 1);
+    expect(restored.assignments).toHaveLength(1);
+    expect(restored.assignments[0]).toMatchObject({ restored: "unknown-outcome", intent: token });
+    expect(restored.pendingTokens).toEqual([token]);
+    // Only the owned token is cleaned up; a sibling intent is untouched.
+    const other = beginPendingWrite(sessionStorage, { kind: "block", entry: block() })!;
+    expect(endPendingWrite(sessionStorage, token)).toBe(true);
+    expect(JSON.parse(sessionStorage.getItem(PENDING_WRITES_STORAGE_KEY)!).writes.map((r: { token: string }) => r.token)).toEqual([other]);
+  });
+
+  it("reads old v1 records written before CP03 exactly as before, beside a split-move", () => {
+    // Literal pre-CP03 v1 text, not produced by this build's serializer.
+    const legacyUncertain = {
+      v: 1,
+      assignments: [
+        { key: "prop-a|2026-09-01|2026-09-15", propertyId: "prop-a", from: "2026-09-01", to: "2026-09-15", target: { operation: "create", reservationUnitId: "unit-2", startDate: "2026-09-01", endDate: "2026-09-02", roomNumber: "101", physicalRoomId: "room-101" } },
+        { key: "prop-a|2026-09-01|2026-09-15", propertyId: "prop-a", from: "2026-09-01", to: "2026-09-15", target: { operation: "move", reservationUnitId: "unit-1", startDate: "2026-09-03", endDate: "2026-09-05", roomNumber: "102", physicalRoomId: "room-102", segmentId: "seg-1", expectedVersion: 7, sourcePhysicalRoomId: "room-101" } },
+        { key: "prop-a|2026-09-01|2026-09-15", propertyId: "prop-a", from: "2026-09-01", to: "2026-09-15", intent: "tok-old", inFlight: true, target: { operation: "unassign", reservationUnitId: "unit-3", startDate: "2026-09-08", endDate: "2026-09-09", roomNumber: "101", segmentId: "seg-3", expectedVersion: 2, sourcePhysicalRoomId: "room-101" } },
+      ],
+      blocks: [
+        { key: "prop-a|2026-09-01|2026-09-15", propertyId: "prop-a", from: "2026-09-01", to: "2026-09-15", target: { operation: "cancel", physicalRoomId: "room-201", roomNumber: "201", startDate: "2026-09-06", endDate: "2026-09-07", segmentId: "seg-b", expectedVersion: 3 } },
+      ],
+    };
+    sessionStorage.setItem(UNCERTAIN_WRITES_STORAGE_KEY, JSON.stringify(legacyUncertain));
+    sessionStorage.setItem(
+      PENDING_WRITES_STORAGE_KEY,
+      JSON.stringify({
+        v: 1,
+        writes: [
+          { token: "tok-pending", kind: "block", write: { key: "prop-a|2026-09-01|2026-09-15", propertyId: "prop-a", from: "2026-09-01", to: "2026-09-15", inFlight: true, target: { operation: "create", physicalRoomId: "room-102", roomNumber: "102", startDate: "2026-09-10", endDate: "2026-09-11" } } },
+        ],
+      })
+    );
+
+    const restored = restoreUncertainWrites(sessionStorage, 1);
+
+    expect(restored.unreadable).toBe(false);
+    expect(restored.assignments.map((e) => e.target.operation)).toEqual(["create", "move", "unassign"]);
+    expect(restored.assignments[2]).toMatchObject({ restored: "in-flight", intent: "tok-old" });
+    expect(restored.blocks.map((e) => e.target.operation)).toEqual(["cancel", "create"]);
+    expect(restored.pendingTokens).toEqual(["tok-pending"]);
+
+    // Adding a split-move to a list that already holds old entries neither rewrites nor drops them.
+    persistUncertainWrites(sessionStorage, [...restored.assignments, splitMove()], restored.blocks);
+    const again = restoreUncertainWrites(sessionStorage, 1);
+    expect(again.assignments.map((e) => e.target.operation)).toEqual(["create", "move", "unassign", "split-move"]);
+    expect(JSON.parse(sessionStorage.getItem(UNCERTAIN_WRITES_STORAGE_KEY)!).v).toBe(1);
+  });
+
+  it.each([
+    ["segmentId missing", { segmentId: undefined }],
+    ["segmentId empty", { segmentId: "" }],
+    ["segmentId a number", { segmentId: 4 }],
+    ["expectedVersion missing", { expectedVersion: undefined }],
+    ["expectedVersion a string", { expectedVersion: "7" }],
+    ["expectedVersion negative", { expectedVersion: -1 }],
+    ["expectedVersion fractional", { expectedVersion: 1.5 }],
+    ["expectedVersion above uint", { expectedVersion: 4_294_967_296 }],
+    ["expectedVersion not finite", { expectedVersion: null }],
+    ["sourcePhysicalRoomId missing", { sourcePhysicalRoomId: undefined }],
+    ["physicalRoomId missing", { physicalRoomId: undefined }],
+    ["splitDate missing", { splitDate: undefined }],
+    ["splitDate not a string", { splitDate: 20260906 }],
+    ["splitDate not ISO", { splitDate: "2026-9-6" }],
+    ["same source and destination room", { physicalRoomId: "room-101" }],
+    ["splitDate equal to start", { splitDate: "2026-09-03" }],
+    ["splitDate before start", { splitDate: "2026-09-02" }],
+    ["splitDate equal to end", { splitDate: "2026-09-10" }],
+    ["splitDate after end", { splitDate: "2026-09-11" }],
+    ["start not before end", { startDate: "2026-09-10", endDate: "2026-09-10" }],
+    ["a day that does not exist", { splitDate: "2026-09-31" }],
+    ["month 13", { splitDate: "2026-13-05" }],
+    ["month 00", { startDate: "2026-00-01" }],
+    ["day 00", { splitDate: "2026-09-00" }],
+    ["29 February in a non-leap year", { startDate: "2026-02-27", splitDate: "2026-02-29", endDate: "2026-03-02" }],
+    ["29 February in a century non-leap year", { startDate: "2100-02-27", splitDate: "2100-02-29", endDate: "2100-03-02" }],
+    ["year 0000", { startDate: "0000-12-30", splitDate: "0000-12-31", endDate: "0001-01-02" }],
+  ])("drops a split-move record with %s, reports it unreadable and keeps its valid sibling", (_name, patch) => {
+    const record = stored();
+    record.assignments.push({ ...record.assignments[0], target: { ...record.assignments[0].target, operation: "move", segmentId: "seg-ok", splitDate: undefined, startDate: "2026-09-03", endDate: "2026-09-05" } });
+    record.assignments[0].target = { ...record.assignments[0].target, ...patch };
+    sessionStorage.setItem(UNCERTAIN_WRITES_STORAGE_KEY, JSON.stringify(record));
+
+    const restored = restoreUncertainWrites(sessionStorage, 1);
+
+    expect(restored.unreadable).toBe(true);
+    expect(restored.assignments.map((e) => e.target.operation)).toEqual(["move"]);
+    expect(restored.assignments[0].target).toMatchObject({ segmentId: "seg-ok" });
+  });
+
+  it("accepts real calendar boundaries: leap days, month and year ends, and the extreme years", () => {
+    const cases = [
+      { startDate: "2028-02-28", splitDate: "2028-02-29", endDate: "2028-03-01" },
+      { startDate: "2000-02-28", splitDate: "2000-02-29", endDate: "2000-03-01" },
+      { startDate: "2026-02-27", splitDate: "2026-02-28", endDate: "2026-03-01" },
+      { startDate: "2026-12-30", splitDate: "2026-12-31", endDate: "2027-01-02" },
+      { startDate: "2026-04-29", splitDate: "2026-04-30", endDate: "2026-05-02" },
+      { startDate: "0001-01-01", splitDate: "0001-01-02", endDate: "0001-01-03" },
+      { startDate: "0004-02-28", splitDate: "0004-02-29", endDate: "0004-03-01" },
+      { startDate: "9999-12-29", splitDate: "9999-12-30", endDate: "9999-12-31" },
+      { startDate: "2020-01-01", splitDate: "2020-01-02", endDate: "2020-01-03" },
+      { startDate: "2036-01-01", splitDate: "2040-06-15", endDate: "2041-01-01" },
+    ];
+    for (const patch of cases) {
+      const restored = damaged(patch);
+      expect(restored.unreadable, JSON.stringify(patch)).toBe(false);
+      expect(restored.assignments[0].target).toMatchObject(patch);
+    }
+  });
+
+  it("lets a uint version at its maximum through", () => {
+    expect(damaged({ expectedVersion: 4_294_967_295 }).assignments[0].target).toMatchObject({ expectedVersion: 4_294_967_295 });
+    expect(damaged({ expectedVersion: 0 }).unreadable).toBe(false);
+  });
+
+  it("refuses a new write while a damaged split-move intent is stored, and never overwrites it", () => {
+    const token = beginPendingWrite(sessionStorage, { kind: "assignment", entry: splitMove() })!;
+    const record = JSON.parse(sessionStorage.getItem(PENDING_WRITES_STORAGE_KEY)!);
+    record.writes[0].write.target.splitDate = "2026-09-31";
+    const damagedText = JSON.stringify(record);
+    sessionStorage.setItem(PENDING_WRITES_STORAGE_KEY, damagedText);
+
+    expect(beginPendingWrite(sessionStorage, { kind: "assignment", entry: assignment() })).toBeNull();
+    expect(beginPendingWrite(sessionStorage, { kind: "block", entry: block() })).toBeNull();
+    expect(sessionStorage.getItem(PENDING_WRITES_STORAGE_KEY)).toBe(damagedText);
+
+    const restored = restoreUncertainWrites(sessionStorage, 1);
+    expect(restored.unreadable).toBe(true);
+    expect(restored.assignments).toEqual([]);
+    expect(restored.pendingTokens).toEqual([]);
+    // Its own cleanup still works: the damaged entry is removed by its token only.
+    expect(endPendingWrite(sessionStorage, token)).toBe(true);
+  });
+
+  it("does not send authorization when the split-move intent cannot be written or read back", () => {
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("full", "QuotaExceededError");
+    });
+    expect(beginPendingWrite(sessionStorage, { kind: "assignment", entry: splitMove() })).toBeNull();
+    vi.restoreAllMocks();
+
+    // Written, but the read-back does not show it.
+    const realGet = Storage.prototype.getItem;
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(function (this: Storage, key: string) {
+      return key === PENDING_WRITES_STORAGE_KEY ? null : realGet.call(this, key);
+    });
+    expect(beginPendingWrite(sessionStorage, { kind: "assignment", entry: splitMove() })).toBeNull();
+    expect(beginPendingWrite(null, { kind: "assignment", entry: splitMove() })).toBeNull();
+  });
+
+  it("keeps a failed deletion from turning a known split-move outcome into a warning, and retries only that token", () => {
+    const token = beginPendingWrite(sessionStorage, { kind: "assignment", entry: splitMove() })!;
+    const spy = vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => {
+      throw new DOMException("denied", "SecurityError");
+    });
+    expect(discardPendingWrite(sessionStorage, token)).toBe(false);
+    // Remembered as owed: never restored as an unknown write while this document lives.
+    expect(restoreUncertainWrites(sessionStorage, 1).assignments).toEqual([]);
+    spy.mockRestore();
+    retryPendingCleanup(sessionStorage);
+    expect(sessionStorage.getItem(PENDING_WRITES_STORAGE_KEY)).toBeNull();
+  });
+
+  it("an operation the parser does not know fails closed: unreadable beside valid siblings, and a new write is refused with the record untouched", () => {
+    // The same fall-through an older build applies to "split-move" (by source inspection of its parser):
+    // an unknown operation is not guessed at, it is reported and never built upon.
+    const record = stored();
+    record.assignments.push({ ...record.assignments[0], target: { ...record.assignments[0].target, operation: "split-move-v2" } });
+    record.assignments[0].target.operation = "unassign";
+    delete record.assignments[0].target.physicalRoomId;
+    delete record.assignments[0].target.splitDate;
+    sessionStorage.setItem(UNCERTAIN_WRITES_STORAGE_KEY, JSON.stringify(record));
+    const restored = restoreUncertainWrites(sessionStorage, 1);
+    expect(restored.unreadable).toBe(true);
+    expect(restored.assignments.map((e) => e.target.operation)).toEqual(["unassign"]);
+
+    const token = beginPendingWrite(sessionStorage, { kind: "assignment", entry: splitMove() })!;
+    const pending = JSON.parse(sessionStorage.getItem(PENDING_WRITES_STORAGE_KEY)!);
+    pending.writes[0].write.target.operation = "split-move-v2";
+    const text = JSON.stringify(pending);
+    sessionStorage.setItem(PENDING_WRITES_STORAGE_KEY, text);
+    expect(beginPendingWrite(sessionStorage, { kind: "assignment", entry: assignment() })).toBeNull();
+    expect(sessionStorage.getItem(PENDING_WRITES_STORAGE_KEY)).toBe(text);
+    expect(token).toEqual(expect.any(String));
+  });
+
+  it("reports a read that throws as incomplete — not as verified-empty — and no storage as incomplete", () => {
+    const refusing = {
+      getItem: () => {
+        throw new DOMException("denied", "SecurityError");
+      },
+      setItem: () => {
+        throw new DOMException("full", "QuotaExceededError");
+      },
+      removeItem: () => {
+        throw new DOMException("denied", "SecurityError");
+      },
+    } as unknown as Storage;
+    expect(restoreUncertainWrites(refusing, 1)).toMatchObject({ assignments: [], incomplete: true, unreadable: false });
+    expect(restoreUncertainWrites(null, 1).incomplete).toBe(true);
+    expect(restoreUncertainWrites(sessionStorage, 1)).toMatchObject({ assignments: [], incomplete: false, unreadable: false });
+  });
+});
+
+describe("uncertainWriteStorage — block move records (PMS-CAL-003-CP02)", () => {
+  function move(overrides: Record<string, unknown> = {}, entry: Partial<BlockCreateReconciliation> = {}): BlockCreateReconciliation {
+    return block({
+      target: {
+        operation: "move",
+        roomBlockId: "header-1",
+        segmentId: "seg-1",
+        expectedVersion: 42,
+        sourcePhysicalRoomId: "room-101",
+        sourceRoomNumber: "101",
+        physicalRoomId: "room-102", // destination
+        roomNumber: "102",
+        startDate: "2026-11-01",
+        endDate: "2026-11-04",
+        ...overrides,
+      } as never,
+      ...entry,
+    });
+  }
+
+  const stored = () => {
+    persistUncertainWrites(sessionStorage, [], [move()]);
+    return JSON.parse(sessionStorage.getItem(UNCERTAIN_WRITES_STORAGE_KEY)!);
+  };
+  const damaged = (patch: Record<string, unknown>) => {
+    const record = stored();
+    record.blocks[0].target = { ...record.blocks[0].target, ...patch };
+    sessionStorage.setItem(UNCERTAIN_WRITES_STORAGE_KEY, JSON.stringify(record));
+    return restoreUncertainWrites(sessionStorage, 1);
+  };
+
+  it("round-trips the unconfirmed record: header, source segment and version, both rooms and the full range — and nothing free-text, personal or secret", () => {
+    persistUncertainWrites(sessionStorage, [], [move()]);
+    const text = sessionStorage.getItem(UNCERTAIN_WRITES_STORAGE_KEY)!;
+    expect(JSON.parse(text).v).toBe(1);
+    for (const absent of ["reason", "Paint", "actor", "evidence", "staff", "password", "token", "cookie", "session", "guest", "contact", "confirmation"]) {
+      expect(text.toLowerCase()).not.toContain(absent.toLowerCase());
+    }
+
+    const restored = restoreUncertainWrites(sessionStorage, 3);
+
+    expect(restored.unreadable).toBe(false);
+    expect(restored.incomplete).toBe(false);
+    expect(restored.assignments).toEqual([]);
+    expect(restored.blocks).toHaveLength(1);
+    expect(restored.blocks[0]).toMatchObject({ ...board, id: 3, afterSeq: 0, certainty: "uncertain", status: "pending", resolution: "unresolved", restored: "unknown-outcome" });
+    expect(restored.blocks[0].target).toEqual({
+      operation: "move",
+      roomBlockId: "header-1",
+      segmentId: "seg-1",
+      expectedVersion: 42,
+      sourcePhysicalRoomId: "room-101",
+      sourceRoomNumber: "101",
+      physicalRoomId: "room-102",
+      roomNumber: "102",
+      startDate: "2026-11-01",
+      endDate: "2026-11-04",
+    });
+  });
+
+  it("stores no reason even when a caller's object carries one", () => {
+    persistUncertainWrites(sessionStorage, [], [move({ reason: "Closure follows the repair", actorReference: "staff:1", authorizationEvidence: "x" })]);
+    const text = sessionStorage.getItem(UNCERTAIN_WRITES_STORAGE_KEY)!;
+    expect(text).not.toMatch(/Closure follows|actorReference|authorizationEvidence|staff:1/);
+    expect(Object.keys(JSON.parse(text).blocks[0].target).sort()).toEqual(
+      ["endDate", "expectedVersion", "operation", "physicalRoomId", "roomBlockId", "roomNumber", "segmentId", "sourcePhysicalRoomId", "sourceRoomNumber", "startDate"]
+    );
+  });
+
+  it("round-trips an in-flight intent without sending anything, with its token and an in-flight origin", () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const token = beginPendingWrite(sessionStorage, { kind: "block", entry: move() })!;
+    expect(token).toEqual(expect.any(String));
+    const text = sessionStorage.getItem(PENDING_WRITES_STORAGE_KEY)!;
+    expect(JSON.parse(text).writes[0]).toMatchObject({ token, kind: "block", write: { inFlight: true } });
+    expect(text).not.toMatch(/reason|actor/i);
+
+    const restored = restoreUncertainWrites(sessionStorage, 1);
+
+    expect(restored.pendingTokens).toEqual([token]);
+    expect(restored.blocks[0]).toMatchObject({ restored: "in-flight", intent: token, afterSeq: 0, status: "pending", resolution: "unresolved" });
+    expect(restored.blocks[0].target).toMatchObject({ operation: "move", roomBlockId: "header-1", sourcePhysicalRoomId: "room-101", physicalRoomId: "room-102", expectedVersion: 42 });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("restores one entry when the intent and the unconfirmed record describe the same move, and removes only its own token", () => {
+    const token = beginPendingWrite(sessionStorage, { kind: "block", entry: move() })!;
+    persistUncertainWrites(sessionStorage, [], [move({}, { intent: token })]);
+    const restored = restoreUncertainWrites(sessionStorage, 1);
+    expect(restored.blocks).toHaveLength(1);
+    expect(restored.blocks[0]).toMatchObject({ restored: "unknown-outcome", intent: token });
+    expect(restored.pendingTokens).toEqual([token]);
+
+    const other = beginPendingWrite(sessionStorage, { kind: "assignment", entry: assignment() })!;
+    expect(endPendingWrite(sessionStorage, token)).toBe(true);
+    expect(JSON.parse(sessionStorage.getItem(PENDING_WRITES_STORAGE_KEY)!).writes.map((r: { token: string }) => r.token)).toEqual([other]);
+  });
+
+  it("without an intent token the move is its own identity, so two records of one move are still one", () => {
+    const token = beginPendingWrite(sessionStorage, { kind: "block", entry: move() })!;
+    expect(token).toEqual(expect.any(String));
+    const first = restoreUncertainWrites(sessionStorage, 1);
+    persistUncertainWrites(sessionStorage, [], first.blocks);
+    const second = restoreUncertainWrites(sessionStorage, 1);
+    expect(second.blocks.filter((entry) => entry.target.operation === "move")).toHaveLength(1);
+  });
+
+  it("keeps assignment and block lists together: a move beside a split-move, a cancel and a create persists and restores every entry", () => {
+    const blocks: BlockCreateReconciliation[] = [
+      block(),
+      move(),
+      block({ id: 11, target: { operation: "create", physicalRoomId: "room-301", roomNumber: "301", startDate: "2026-09-08", endDate: "2026-09-09", reason: "Leak" } }),
+    ];
+    persistUncertainWrites(sessionStorage, [assignment()], blocks);
+    const restored = restoreUncertainWrites(sessionStorage, 1);
+    expect(restored.assignments.map((entry) => entry.target.operation)).toEqual(["move"]);
+    expect(restored.blocks.map((entry) => entry.target.operation)).toEqual(["cancel", "move", "create"]);
+    // A move that was resolved is not kept, and the rest are.
+    persistUncertainWrites(sessionStorage, [assignment()], [move({}, { resolution: "changed" }), block()]);
+    expect(restoreUncertainWrites(sessionStorage, 1).blocks.map((entry) => entry.target.operation)).toEqual(["cancel"]);
+    persistUncertainWrites(sessionStorage, [], [move({}, { resolution: "observed" })]);
+    expect(sessionStorage.getItem(UNCERTAIN_WRITES_STORAGE_KEY)).toBeNull();
+  });
+
+  it("reads literal pre-CP02 v1 records exactly as before, beside a move", () => {
+    // Literal v1 text written before block moves existed, not produced by this build's serializer.
+    const legacy = {
+      v: 1,
+      assignments: [
+        { key: "prop-a|2026-09-01|2026-09-15", propertyId: "prop-a", from: "2026-09-01", to: "2026-09-15", target: { operation: "move", reservationUnitId: "unit-1", startDate: "2026-09-03", endDate: "2026-09-05", roomNumber: "102", physicalRoomId: "room-102", segmentId: "seg-1", expectedVersion: 7, sourcePhysicalRoomId: "room-101" } },
+      ],
+      blocks: [
+        { key: "prop-a|2026-09-01|2026-09-15", propertyId: "prop-a", from: "2026-09-01", to: "2026-09-15", target: { operation: "create", physicalRoomId: "room-101", roomNumber: "101", startDate: "2026-09-02", endDate: "2026-09-05" } },
+        { key: "prop-a|2026-09-01|2026-09-15", propertyId: "prop-a", from: "2026-09-01", to: "2026-09-15", intent: "tok-old", inFlight: true, target: { operation: "cancel", physicalRoomId: "room-201", roomNumber: "201", startDate: "2026-09-06", endDate: "2026-09-07", segmentId: "seg-b", expectedVersion: 3 } },
+      ],
+    };
+    sessionStorage.setItem(UNCERTAIN_WRITES_STORAGE_KEY, JSON.stringify(legacy));
+
+    const restored = restoreUncertainWrites(sessionStorage, 1);
+
+    expect(restored.unreadable).toBe(false);
+    expect(restored.assignments.map((entry) => entry.target.operation)).toEqual(["move"]);
+    expect(restored.blocks.map((entry) => entry.target.operation)).toEqual(["create", "cancel"]);
+    expect(restored.blocks[1]).toMatchObject({ restored: "in-flight", intent: "tok-old" });
+
+    persistUncertainWrites(sessionStorage, restored.assignments, [...restored.blocks, move()]);
+    const again = restoreUncertainWrites(sessionStorage, 1);
+    expect(again.blocks.map((entry) => entry.target.operation)).toEqual(["create", "cancel", "move"]);
+    expect(JSON.parse(sessionStorage.getItem(UNCERTAIN_WRITES_STORAGE_KEY)!).v).toBe(1);
+  });
+
+  it.each([
+    ["roomBlockId missing", { roomBlockId: undefined }],
+    ["roomBlockId empty", { roomBlockId: "" }],
+    ["roomBlockId a number", { roomBlockId: 7 }],
+    ["segmentId missing", { segmentId: undefined }],
+    ["segmentId empty", { segmentId: "" }],
+    ["segmentId an object", { segmentId: {} }],
+    ["expectedVersion missing", { expectedVersion: undefined }],
+    ["expectedVersion null", { expectedVersion: null }],
+    ["expectedVersion a string", { expectedVersion: "42" }],
+    ["expectedVersion a boolean", { expectedVersion: true }],
+    ["expectedVersion negative", { expectedVersion: -1 }],
+    ["expectedVersion fractional", { expectedVersion: 41.5 }],
+    ["expectedVersion above uint", { expectedVersion: 4_294_967_296 }],
+    ["expectedVersion not finite", { expectedVersion: 1e999 }],
+    ["sourcePhysicalRoomId missing", { sourcePhysicalRoomId: undefined }],
+    ["sourceRoomNumber missing", { sourceRoomNumber: undefined }],
+    ["sourceRoomNumber empty", { sourceRoomNumber: "" }],
+    ["destination physicalRoomId missing", { physicalRoomId: undefined }],
+    ["destination roomNumber missing", { roomNumber: undefined }],
+    ["same source and destination room", { physicalRoomId: "room-101" }],
+    ["startDate missing", { startDate: undefined }],
+    ["start not before end", { startDate: "2026-11-04", endDate: "2026-11-04" }],
+    ["start after end", { startDate: "2026-11-05", endDate: "2026-11-04" }],
+    ["a day that does not exist", { endDate: "2026-11-31" }],
+    ["month 13", { endDate: "2026-13-05" }],
+    ["day 00", { startDate: "2026-11-00" }],
+    ["29 February in a non-leap year", { startDate: "2026-02-28", endDate: "2026-02-29" }],
+    ["29 February in a century non-leap year", { startDate: "2100-02-28", endDate: "2100-02-29" }],
+    ["year 0000", { startDate: "0000-12-30", endDate: "0000-12-31" }],
+    ["367 nights", { startDate: "2026-01-01", endDate: "2027-01-03" }],
+    ["an extreme range", { startDate: "0001-01-01", endDate: "9999-12-31" }],
+    ["a date with a trailing newline", { endDate: "2026-11-04\n" }],
+  ])("drops a move record with %s, reports it unreadable and keeps its valid sibling", (_name, patch) => {
+    const record = stored();
+    record.blocks.push({ ...record.blocks[0], target: { operation: "cancel", physicalRoomId: "room-201", roomNumber: "201", startDate: "2026-09-06", endDate: "2026-09-07", segmentId: "seg-ok", expectedVersion: 3 } });
+    record.blocks[0].target = { ...record.blocks[0].target, ...patch };
+    sessionStorage.setItem(UNCERTAIN_WRITES_STORAGE_KEY, JSON.stringify(record));
+
+    const restored = restoreUncertainWrites(sessionStorage, 1);
+
+    expect(restored.unreadable).toBe(true);
+    expect(restored.blocks.map((entry) => entry.target.operation)).toEqual(["cancel"]);
+    expect(restored.blocks[0].target).toMatchObject({ segmentId: "seg-ok" });
+  });
+
+  it("accepts exactly 1 and 366 nights and real calendar boundaries, including years 0001–0099", () => {
+    const ok = [
+      { startDate: "2026-11-01", endDate: "2026-11-02" }, // 1
+      { startDate: "2028-01-01", endDate: "2029-01-01" }, // 366 (leap year)
+      { startDate: "2026-01-01", endDate: "2027-01-02" }, // 366
+      { startDate: "2028-02-28", endDate: "2028-02-29" },
+      { startDate: "2000-02-28", endDate: "2000-03-01" },
+      { startDate: "2026-12-31", endDate: "2027-01-01" },
+      { startDate: "0001-01-01", endDate: "0001-01-02" },
+      { startDate: "0099-12-31", endDate: "0100-01-02" },
+      { startDate: "0004-02-28", endDate: "0004-03-01" },
+      { startDate: "9999-12-30", endDate: "9999-12-31" },
+    ];
+    for (const patch of ok) {
+      const restored = damaged(patch);
+      expect(restored.unreadable, JSON.stringify(patch)).toBe(false);
+      expect(restored.blocks[0].target).toMatchObject(patch);
+    }
+    expect(damaged({ expectedVersion: 4_294_967_295 }).blocks[0].target).toMatchObject({ expectedVersion: 4_294_967_295 });
+    expect(damaged({ expectedVersion: 0 }).unreadable).toBe(false);
+  });
+
+  it("an unknown or future operation fails closed — unreadable beside valid siblings — and never becomes a move", () => {
+    const record = stored();
+    record.blocks.push({ ...record.blocks[0], target: { ...record.blocks[0].target, operation: "move-v2" } });
+    record.blocks.push({ ...record.blocks[0], target: { ...record.blocks[0].target, operation: "split" } });
+    record.blocks.push({ ...record.blocks[0], target: { ...record.blocks[0].target, operation: undefined } });
+    sessionStorage.setItem(UNCERTAIN_WRITES_STORAGE_KEY, JSON.stringify(record));
+
+    const restored = restoreUncertainWrites(sessionStorage, 1);
+
+    expect(restored.unreadable).toBe(true);
+    expect(restored.blocks.map((entry) => entry.target.operation)).toEqual(["move"]);
+
+    // A record of another format version is unreadable as a whole, not guessed at.
+    sessionStorage.setItem(UNCERTAIN_WRITES_STORAGE_KEY, JSON.stringify({ ...record, v: 2 }));
+    expect(restoreUncertainWrites(sessionStorage, 1)).toMatchObject({ blocks: [], unreadable: true });
+  });
+
+  it("refuses a new write while a damaged move intent or an unsupported pending operation is stored, and never overwrites it", () => {
+    beginPendingWrite(sessionStorage, { kind: "block", entry: move() });
+    const record = JSON.parse(sessionStorage.getItem(PENDING_WRITES_STORAGE_KEY)!);
+    record.writes[0].write.target.endDate = "2026-11-31";
+    const damagedText = JSON.stringify(record);
+    sessionStorage.setItem(PENDING_WRITES_STORAGE_KEY, damagedText);
+    expect(beginPendingWrite(sessionStorage, { kind: "block", entry: move({ segmentId: "seg-2" }) })).toBeNull();
+    expect(sessionStorage.getItem(PENDING_WRITES_STORAGE_KEY)).toBe(damagedText);
+    expect(restoreUncertainWrites(sessionStorage, 1)).toMatchObject({ unreadable: true, blocks: [], pendingTokens: [] });
+
+    // An operation this parser does not know in the pending record is the same, and is distinguished from "none stored".
+    record.writes[0].write.target.endDate = "2026-11-04";
+    record.writes[0].write.target.operation = "move-v2";
+    const unsupported = JSON.stringify(record);
+    sessionStorage.setItem(PENDING_WRITES_STORAGE_KEY, unsupported);
+    expect(beginPendingWrite(sessionStorage, { kind: "block", entry: move({ segmentId: "seg-3" }) })).toBeNull();
+    expect(sessionStorage.getItem(PENDING_WRITES_STORAGE_KEY)).toBe(unsupported);
+    expect(restoreUncertainWrites(sessionStorage, 1).unreadable).toBe(true);
+    sessionStorage.removeItem(PENDING_WRITES_STORAGE_KEY);
+    expect(restoreUncertainWrites(sessionStorage, 1).unreadable).toBe(false);
+  });
+
+  it("keeps a failed deletion from turning a known move outcome into a warning, and retries only that token", () => {
+    const token = beginPendingWrite(sessionStorage, { kind: "block", entry: move() })!;
+    const other = beginPendingWrite(sessionStorage, { kind: "block", entry: move({ segmentId: "seg-2" }) })!;
+    const realSet = Storage.prototype.setItem;
+    const spy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("full", "QuotaExceededError");
+    });
+    expect(discardPendingWrite(sessionStorage, token)).toBe(false);
+    // While storage refuses, the answered token is not restored as unknown; the other still is.
+    const restored = restoreUncertainWrites(sessionStorage, 1);
+    expect(restored.blocks.map((entry) => entry.intent)).toEqual([other]);
+    spy.mockRestore();
+    expect(realSet).toBeDefined();
+    retryPendingCleanup(sessionStorage);
+    expect(JSON.parse(sessionStorage.getItem(PENDING_WRITES_STORAGE_KEY)!).writes.map((r: { token: string }) => r.token)).toEqual([other]);
+  });
+
+  it("reports failing reads, writes and removals honestly: persist is false, restore is incomplete — never 'no locks'", () => {
+    const refusing = {
+      getItem: () => {
+        throw new DOMException("denied", "SecurityError");
+      },
+      setItem: () => {
+        throw new DOMException("full", "QuotaExceededError");
+      },
+      removeItem: () => {
+        throw new DOMException("denied", "SecurityError");
+      },
+    } as unknown as Storage;
+    expect(persistUncertainWrites(refusing, [], [move()])).toBe(false);
+    expect(persistUncertainWrites(null, [], [move()])).toBe(false);
+    expect(beginPendingWrite(refusing, { kind: "block", entry: move() })).toBeNull();
+    expect(restoreUncertainWrites(refusing, 1)).toMatchObject({ blocks: [], incomplete: true, unreadable: false });
+    expect(restoreUncertainWrites(null, 1).incomplete).toBe(true);
+
+    // A write that cannot be read back is not "stored".
+    const writeOnly = {
+      getItem: () => null,
+      setItem: () => undefined,
+      removeItem: () => undefined,
+    } as unknown as Storage;
+    expect(persistUncertainWrites(writeOnly, [], [move()])).toBe(false);
+  });
+});

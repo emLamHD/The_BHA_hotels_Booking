@@ -21,6 +21,7 @@ using TheBha.Api;
 using TheBha.Api.Authentication;
 using TheBha.Application.Scheduling;
 using TheBha.Domain.Properties;
+using TheBha.Domain.Scheduling;
 using TheBha.Infrastructure.Identity;
 
 namespace TheBha.IntegrationTests;
@@ -136,6 +137,56 @@ public sealed class StaffCalendarAuthorizationTests(PostgreSqlWebApplicationFact
         Assert.Equal(HttpStatusCode.NotFound, inactive.StatusCode);
         AssertNoStore(inactive);
         Assert.Equal("Property not found", await TitleAsync(inactive));
+    }
+
+    [Fact]
+    public async Task PMS_CAL_004_a_member_sees_an_inactive_room_with_a_block_in_its_own_property_only_and_the_boundaries_are_unchanged()
+    {
+        var seed = await SeedAsync();
+        Guid inactiveInA;
+        Guid inactiveInB;
+        await using (var context = factory.CreateDbContext())
+        {
+            var typeA = await context.RoomTypes.SingleAsync(type => type.PropertyId == seed.A);
+            var typeB = new RoomType(Guid.NewGuid(), seed.B, "CP04B", "Standard", "cp04-b", null, 2, 4, true, Now);
+            var roomA = new PhysicalRoom(Guid.NewGuid(), seed.A, typeA, "A-OOS", 2, OperationalStatus.OutOfService, Now);
+            var roomB = new PhysicalRoom(Guid.NewGuid(), seed.B, typeB, "B-INACTIVE", 1, OperationalStatus.Inactive, Now);
+            var headerA = new RoomBlock(Guid.NewGuid(), seed.A, "Closed A", "actor:qa", Now);
+            var headerB = new RoomBlock(Guid.NewGuid(), seed.B, "Closed B", "actor:qa", Now);
+            context.AddRange(typeB, roomA, roomB, headerA, headerB);
+            context.Add(new RoomOccupancySegment(Guid.NewGuid(), seed.A, roomA.Id, RoomOccupancySegmentType.OperationalBlock, From.AddDays(1), From.AddDays(3), null, headerA.Id, Now));
+            context.Add(new RoomOccupancySegment(Guid.NewGuid(), seed.B, roomB.Id, RoomOccupancySegmentType.OperationalBlock, From.AddDays(1), From.AddDays(3), null, headerB.Id, Now));
+            await context.SaveChangesAsync();
+            inactiveInA = roomA.Id;
+            inactiveInB = roomB.Id;
+        }
+
+        using var host = CreateHost(AdminCalendarAccessMode.Staff);
+        await CreateStaffAsync(host, seed);
+        using var client = CreateHttpsClient(host);
+        var desk = await LoginAsync(client, Desk);
+        var outsider = await LoginAsync(client, Outsider);
+
+        // A member of A sees A's inactive room with its real status, never B's.
+        var response = await client.SendAsync(Get(BoardUrl(seed.A), desk));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        AssertNoStore(response);
+        var board = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var rooms = board.GetProperty("physicalRooms").EnumerateArray()
+            .ToDictionary(room => room.GetProperty("id").GetGuid(), room => room.GetProperty("operationalStatus").GetString());
+        Assert.Equal("OutOfService", rooms[inactiveInA]);
+        Assert.Equal("Active", rooms[seed.RoomA]);
+        Assert.DoesNotContain(inactiveInB, rooms.Keys);
+
+        // The same permissions as before: a member of B still cannot read A, and A's member still cannot read B.
+        await AssertForbiddenAsync(await client.SendAsync(Get(BoardUrl(seed.A), outsider)));
+        await AssertForbiddenAsync(await client.SendAsync(Get(BoardUrl(seed.B), desk)));
+        var own = await (await client.SendAsync(Get(BoardUrl(seed.B), outsider))).Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Contains(own.GetProperty("physicalRooms").EnumerateArray(), room =>
+            room.GetProperty("id").GetGuid() == inactiveInB && room.GetProperty("operationalStatus").GetString() == "Inactive");
+
+        // An unauthenticated read is still refused; the response shape of a refusal is unchanged.
+        await AssertUnauthorizedAsync(await client.SendAsync(Get(BoardUrl(seed.A))));
     }
 
     [Fact]
@@ -290,7 +341,7 @@ public sealed class StaffCalendarAuthorizationTests(PostgreSqlWebApplicationFact
     // ---------------------------------------------------------------
 
     [Fact]
-    public async Task In_staff_mode_the_five_calendar_writes_are_converted_and_refuse_without_authority_before_binding()
+    public async Task In_staff_mode_the_calendar_writes_are_converted_and_refuse_without_authority_before_binding()
     {
         var seed = await SeedAsync();
         var segment = Guid.NewGuid();
@@ -306,6 +357,8 @@ public sealed class StaffCalendarAuthorizationTests(PostgreSqlWebApplicationFact
                 Json(new { physicalRoomId = seed.RoomA, startDate = From, endDate = To, reason = "Burst pipe" })),
             ($"/api/admin/v1/properties/{seed.A}/operational-blocks/{segment}/cancel",
                 Json(new { expectedVersion = 1 })),
+            ($"/api/admin/v1/properties/{seed.A}/operational-blocks/{segment}/move",
+                Json(new { expectedVersion = 1, destinationPhysicalRoomId = seed.RoomA })),
         };
 
         // PMS-ADMIN-AUTH-001-CP05 converted the five writes (CP04 closed them): in Staff mode they
