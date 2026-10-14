@@ -35,12 +35,27 @@ describe("the post registry that feeds the home cards, /blog and /blog/<slug>", 
       }
       expect(post.publishedAt).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       expect(post.updatedAt).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-      expect(post.sources.length).toBeGreaterThanOrEqual(1);
+      // A sample post is the one exception: it summarises no report, so it has no source to list.
+      if (post.sample) expect(post.sources).toHaveLength(0);
+      else expect(post.sources.length).toBeGreaterThanOrEqual(1);
     }
     const covers = TRAVEL_POSTS.filter((post) => post.kind === "destination").map((post) => post.cover);
     expect(new Set(covers).size).toBe(covers.length);
     const newsCovers = TRAVEL_POSTS.filter((post) => post.kind === "news").map((post) => post.cover);
     expect(new Set(newsCovers).size).toBe(newsCovers.length);
+  });
+
+  it("sample posts say so, state no figure and are only news filler", () => {
+    const samples = TRAVEL_POSTS.filter((post) => post.sample);
+    expect(samples.length).toBeGreaterThanOrEqual(2);
+    for (const post of samples) {
+      expect(post.kind).toBe("news");
+      expect(post.title.startsWith("Bài mẫu")).toBe(true);
+      expect(post.excerpt).toContain("Bài mẫu minh hoạ");
+      expect(JSON.stringify(post.sections)).not.toMatch(/\d/);
+    }
+    // Real posts never carry the flag, and the first news post (the large card) is a real one.
+    expect(TRAVEL_POSTS.filter((post) => post.kind === "news")[0].sample).toBeUndefined();
   });
 
   it("every source link is a safe https URL naming its publisher", () => {

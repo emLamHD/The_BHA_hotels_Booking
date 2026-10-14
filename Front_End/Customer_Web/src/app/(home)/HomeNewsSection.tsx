@@ -6,12 +6,12 @@ import { ArrowRightIcon } from "@heroicons/react/24/outline";
 import Heading from "@/shared/Heading";
 import ButtonSecondary from "@/shared/ButtonSecondary";
 import { travelMediaUrl } from "@/data/heroSlides";
-import { TravelPost } from "@/data/travelPosts";
+import { SAMPLE_POST_LABEL, TravelPost } from "@/data/travelPosts";
 import { findCategory, formatPostDate, homeNews, postPath } from "@/lib/homepageContent";
 import { BLOG_PATH } from "@/lib/riversideHomeContent";
 
 /** "Tin ngày 12/07/2026": the date of the report the summary is made from, not of anything the property did. */
-const reportDate = (post: TravelPost) => `Tin ngày ${formatPostDate(post.publishedAt)}`;
+const reportDate = (post: TravelPost) => (post.sample ? SAMPLE_POST_LABEL : `Tin ngày ${formatPostDate(post.publishedAt)}`);
 
 export const NewsCardLarge: FC<{ post: TravelPost }> = ({ post }) => (
   <article className="nc-NewsCardLarge group flex flex-col overflow-hidden rounded-3xl border border-neutral-200 bg-white dark:border-neutral-700 dark:bg-neutral-900">
@@ -64,7 +64,7 @@ const HomeNewsSection: FC = () => {
       <div className="grid gap-6 lg:grid-cols-2">
         <NewsCardLarge post={lead} />
         <div className="grid content-start gap-6">
-          {rest.slice(0, 3).map((post) => (
+          {rest.slice(0, 4).map((post) => (
             <NewsCardSmall key={post.id} post={post} />
           ))}
         </div>

@@ -9,6 +9,10 @@
  * are travel guides and summaries of public reports, and the home page says so. Dates in the news posts are
  * the dates of the reports; what had not happened yet when it was reported is worded as planned ("dự kiến").
  * Administrative units are not named (they changed in 2025). Pictures and their credits: `data/heroSlides.ts`.
+ *
+ * Sample posts (`sample: true`) are the one exception to "every fact has a source": they fill the news block's
+ * layout, say on every card and page that they are samples, state no fact, figure, date of an event or source,
+ * and are the only posts allowed an empty `sources`. They are replaced by real summaries when there are some.
  */
 
 export type PostKind = "destination" | "news";
@@ -64,7 +68,12 @@ export interface TravelPost {
   sections: readonly PostSection[];
   sources: readonly PostSource[];
   related: readonly string[];
+  /** A layout sample, not a real report: it has no sources and is labelled as a sample everywhere it appears. */
+  sample?: boolean;
 }
+
+/** What a sample post shows where a real one shows its report date. */
+export const SAMPLE_POST_LABEL = "Bài mẫu minh hoạ";
 
 const UPDATED = "2026-10-14";
 
@@ -493,5 +502,69 @@ export const TRAVEL_POSTS: readonly TravelPost[] = [
       },
     ],
     related: ["pho-co-hoi-an", "diff-2026-khep-lai", "du-lich-da-nang-9-thang-2026"],
+  },
+  {
+    id: "news-sample-chuan-bi",
+    slug: "mau-chuan-bi-chuyen-di-da-nang",
+    kind: "news",
+    category: "tin-du-lich",
+    sample: true,
+    title: "Bài mẫu: Những việc nên làm trước một chuyến đi Đà Nẵng",
+    excerpt: "Bài mẫu minh hoạ bố cục khu tin tức: chỉ có lời nhắc chung, không có tin, số liệu hay nguồn nào.",
+    cover: "card-my-khe-beach.webp",
+    coverAlt: "Bãi biển Mỹ Khê với hàng dừa, Đà Nẵng",
+    publishedAt: "2026-10-14",
+    updatedAt: UPDATED,
+    sections: [
+      {
+        heading: "Về bài viết này",
+        paragraphs: [
+          "Đây là bài mẫu để giữ chỗ cho khu tin tức của trang chủ. Bài không tóm tắt bản tin nào, không nêu số liệu hay sự kiện, và sẽ được thay bằng bản tóm tắt có nguồn khi có tin thật.",
+        ],
+      },
+      {
+        heading: "Lời nhắc chung",
+        paragraphs: ["Những điều dưới đây là lời nhắc chung cho mọi chuyến đi, không phải thông tin về một địa điểm hay sự kiện cụ thể."],
+        bullets: [
+          "Chọn ngày, số khách và số phòng rồi xem giá thật do hệ thống đặt phòng tính cho đúng lần tìm đó.",
+          "Xem dự báo thời tiết gần ngày đi từ nguồn chính thức.",
+          "Ghi lại mã xác nhận ngay khi đặt phòng được xác nhận.",
+        ],
+      },
+    ],
+    sources: [],
+    related: ["bai-bien-my-khe", "pho-co-hoi-an"],
+  },
+  {
+    id: "news-sample-doc-gia",
+    slug: "mau-doc-gia-truoc-khi-dat-phong",
+    kind: "news",
+    category: "tin-du-lich",
+    sample: true,
+    title: "Bài mẫu: Cách đọc giá và điều kiện trước khi đặt phòng",
+    excerpt: "Bài mẫu minh hoạ bố cục khu tin tức: chỉ có lời nhắc chung, không có tin, số liệu hay nguồn nào.",
+    cover: "card-ngu-hanh-son.webp",
+    coverAlt: "Nhìn ra bờ biển từ Ngũ Hành Sơn, Đà Nẵng",
+    publishedAt: "2026-10-14",
+    updatedAt: UPDATED,
+    sections: [
+      {
+        heading: "Về bài viết này",
+        paragraphs: [
+          "Đây là bài mẫu để giữ chỗ cho khu tin tức của trang chủ. Bài không tóm tắt bản tin nào, không nêu số liệu hay sự kiện, và sẽ được thay bằng bản tóm tắt có nguồn khi có tin thật.",
+        ],
+      },
+      {
+        heading: "Lời nhắc chung",
+        paragraphs: ["Những điều dưới đây là lời nhắc chung khi đặt chỗ ở, không phải thông tin về một cơ sở cụ thể."],
+        bullets: [
+          "Đối chiếu ngày nhận phòng, trả phòng và số đêm trước khi xác nhận.",
+          "Xem tổng tiền cho cả kỳ lưu trú, không chỉ giá một đêm.",
+          "Đọc lại thông tin liên hệ bạn nhập trước khi bấm xác nhận.",
+        ],
+      },
+    ],
+    sources: [],
+    related: ["du-lich-da-nang-9-thang-2026", "ngu-hanh-son"],
   },
 ];

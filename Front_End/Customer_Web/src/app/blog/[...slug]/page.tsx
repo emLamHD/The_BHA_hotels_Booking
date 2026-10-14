@@ -6,7 +6,7 @@ import type { Route } from "next";
 import { notFound } from "next/navigation";
 import BgGlassmorphism from "@/components/BgGlassmorphism";
 import { MEDIA_CHANGES_NOTE, MEDIA_CREDITS_PATH, creditForFile, travelMediaUrl } from "@/data/heroSlides";
-import { TRAVEL_POSTS } from "@/data/travelPosts";
+import { SAMPLE_POST_LABEL, TRAVEL_POSTS } from "@/data/travelPosts";
 import {
   blogCategoryPath,
   findCategory,
@@ -95,7 +95,9 @@ export default function PostPage({ params }: PostPageProps) {
             <h1 className="text-3xl font-semibold !leading-tight text-neutral-900 dark:text-neutral-50 md:text-4xl">{post.title}</h1>
             <p className="text-neutral-600 dark:text-neutral-300">{post.excerpt}</p>
             <p className="text-sm text-neutral-500 dark:text-neutral-400">
-              {post.kind === "news"
+              {post.sample
+                ? `${SAMPLE_POST_LABEL}: nội dung chưa phải tin thật`
+                : post.kind === "news"
                 ? `Tóm tắt từ bản tin ngày ${formatPostDate(post.publishedAt)} · cập nhật ${formatPostDate(post.updatedAt)}`
                 : `Cẩm nang cập nhật ${formatPostDate(post.updatedAt)}`}
             </p>
@@ -153,29 +155,35 @@ export default function PostPage({ params }: PostPageProps) {
             ))}
           </div>
 
-          <section aria-labelledby="sources-heading" className="mt-12 rounded-3xl border border-neutral-200 p-6 dark:border-neutral-700">
-            <h2 id="sources-heading" className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-              Nguồn tham khảo
-            </h2>
-            <ul className="mt-4 space-y-3 text-sm">
-              {post.sources
-                .filter((source) => isSafeSourceUrl(source.url))
-                .map((source) => (
-                  <li key={source.url}>
-                    <a href={source.url} target="_blank" rel="noopener noreferrer" className="font-medium text-primary-700 underline underline-offset-2 dark:text-primary-300">
-                      {source.label}
-                    </a>
-                    <span className="block text-neutral-500 dark:text-neutral-400">
-                      {source.publisher}
-                      {source.publishedAt ? ` · ${formatPostDate(source.publishedAt)}` : ""}
-                    </span>
-                  </li>
-                ))}
-            </ul>
-            <p className="mt-4 text-xs text-neutral-500 dark:text-neutral-400">
-              Nội dung được tóm lược từ các nguồn công khai ở trên bằng lời của chúng tôi và có thể đã thay đổi. Hãy đọc bản gốc trước khi lên kế hoạch.
+          {post.sample ? (
+            <p role="note" className="mt-12 rounded-3xl border border-neutral-200 p-6 text-sm text-neutral-600 dark:border-neutral-700 dark:text-neutral-300">
+              Đây là bài mẫu minh hoạ bố cục, không có nguồn vì không tóm tắt bản tin nào. Bài sẽ được thay bằng bản tóm tắt có nguồn khi có tin thật.
             </p>
-          </section>
+          ) : (
+            <section aria-labelledby="sources-heading" className="mt-12 rounded-3xl border border-neutral-200 p-6 dark:border-neutral-700">
+              <h2 id="sources-heading" className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
+                Nguồn tham khảo
+              </h2>
+              <ul className="mt-4 space-y-3 text-sm">
+                {post.sources
+                  .filter((source) => isSafeSourceUrl(source.url))
+                  .map((source) => (
+                    <li key={source.url}>
+                      <a href={source.url} target="_blank" rel="noopener noreferrer" className="font-medium text-primary-700 underline underline-offset-2 dark:text-primary-300">
+                        {source.label}
+                      </a>
+                      <span className="block text-neutral-500 dark:text-neutral-400">
+                        {source.publisher}
+                        {source.publishedAt ? ` · ${formatPostDate(source.publishedAt)}` : ""}
+                      </span>
+                    </li>
+                  ))}
+              </ul>
+              <p className="mt-4 text-xs text-neutral-500 dark:text-neutral-400">
+                Nội dung được tóm lược từ các nguồn công khai ở trên bằng lời của chúng tôi và có thể đã thay đổi. Hãy đọc bản gốc trước khi lên kế hoạch.
+              </p>
+            </section>
+          )}
         </article>
 
         {related.length > 0 && (

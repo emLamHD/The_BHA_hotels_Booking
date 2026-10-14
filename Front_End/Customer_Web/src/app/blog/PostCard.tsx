@@ -3,11 +3,12 @@ import Image from "next/image";
 import Link from "next/link";
 import type { Route } from "next";
 import { travelMediaUrl } from "@/data/heroSlides";
-import { TravelPost } from "@/data/travelPosts";
+import { SAMPLE_POST_LABEL, TravelPost } from "@/data/travelPosts";
 import { findCategory, formatPostDate, postPath } from "@/lib/homepageContent";
 
 /** "Cẩm nang, cập nhật 14/10/2026" for a destination; "Tin ngày 12/07/2026" for a summary of a report. */
 export function postDateLine(post: TravelPost): string {
+  if (post.sample) return SAMPLE_POST_LABEL;
   return post.kind === "news" ? `Tin ngày ${formatPostDate(post.publishedAt)}` : `Cập nhật ${formatPostDate(post.updatedAt)}`;
 }
 
