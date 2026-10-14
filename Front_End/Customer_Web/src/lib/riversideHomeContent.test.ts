@@ -11,6 +11,9 @@ import {
   RIVERSIDE_PATH,
   RIVERSIDE_SECTION_LINKS,
   riversideSectionHref,
+  RIVERSIDE_FULL_ADDRESS,
+  riversideMapEmbedUrl,
+  riversideMapLink,
   SPACE_GALLERY,
   amenityNames,
   buildFaq,
@@ -143,5 +146,28 @@ describe("claims the booking system cannot back are not made", () => {
 
   it("has exactly three steps, numbered in order", () => {
     expect(BOOKING_STEPS.map((step) => step.id)).toEqual([1, 2, 3]);
+  });
+});
+
+describe("the property's map", () => {
+  it("embeds and links Google Maps (https, google.com) for exactly the Owner-given address", () => {
+    expect(RIVERSIDE_FULL_ADDRESS).toBe("162 Nghiêm Xuân Yêm, phường Ngũ Hành Sơn, Thành phố Đà Nẵng");
+    const embed = new URL(riversideMapEmbedUrl());
+    const link = new URL(riversideMapLink());
+    expect(embed.protocol).toBe("https:");
+    expect(embed.hostname).toBe("www.google.com");
+    expect(embed.pathname).toBe("/maps");
+    expect(embed.searchParams.get("output")).toBe("embed");
+    expect(embed.searchParams.get("q")).toBe(`The BHA Riverside, ${RIVERSIDE_FULL_ADDRESS}`);
+    expect(link.protocol).toBe("https:");
+    expect(link.hostname).toBe("www.google.com");
+    expect(link.searchParams.get("query")).toBe(`The BHA Riverside, ${RIVERSIDE_FULL_ADDRESS}`);
+  });
+
+  it("encodes the address so it cannot add parameters or change the host", () => {
+    const embed = new URL(riversideMapEmbedUrl("x&output=nope#frag"));
+    expect(embed.searchParams.get("output")).toBe("embed");
+    expect(embed.searchParams.get("q")).toContain("x&output=nope#frag");
+    expect(embed.hash).toBe("");
   });
 });

@@ -7,6 +7,7 @@ import HomeDestinationSection from "./(home)/HomeDestinationSection";
 import HomeRiversideTeaser from "./(home)/HomeRiversideTeaser";
 import HomeNewsSection from "./(home)/HomeNewsSection";
 import HomeNewsletter from "./(home)/HomeNewsletter";
+import HomeLocationMap from "./(home)/HomeLocationMap";
 
 export const metadata: Metadata = {
   title: "The BHA — Đặt phòng trực tiếp tại Đà Nẵng",
@@ -16,7 +17,7 @@ export const metadata: Metadata = {
 
 /**
  * CUST-WEB-001-CP08a-C2: the booking portal. A full-width Đà Nẵng slideshow with the real search, sample offers
- * (mock data, said as such), destination guides, travel-news summaries and a newsletter preview. It is not
+ * (mock data, said as such), destination guides, travel-news summaries, a newsletter preview and the property's map. It is not
  * the Riverside landing page — that is `/riverside` — and it renders no price, availability or catalog data of
  * its own: the booking system answers only when a search or a room page asks.
  */
@@ -38,6 +39,8 @@ function PageHome() {
         <HomeNewsSection />
 
         <HomeNewsletter />
+
+        <HomeLocationMap />
       </div>
     </main>
   );

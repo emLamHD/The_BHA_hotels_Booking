@@ -5,9 +5,8 @@ import Image from "next/image";
 import Link from "next/link";
 import type { Route } from "next";
 import { useSwipeable } from "react-swipeable";
-import { ChevronLeftIcon, ChevronRightIcon, PauseIcon, PlayIcon } from "@heroicons/react/24/solid";
+import { ArrowRightIcon, ChevronLeftIcon, ChevronRightIcon, MagnifyingGlassIcon, PauseIcon, PlayIcon } from "@heroicons/react/24/solid";
 import StaySearchForm from "../(client-components)/(HeroSearchForm)/(stay-search-form)/StaySearchForm";
-import ButtonPrimary from "@/shared/ButtonPrimary";
 import { HERO_SEARCH_ID } from "./RiversideHomeSections";
 import {
   HERO_HEIGHT,
@@ -22,8 +21,11 @@ import { AUTOPLAY_INTERVAL_MS, nextIndex, prevIndex, shouldAutoplay } from "@/li
 import { OPEN_SEARCH_EVENT } from "@/lib/homepageSearch";
 import { RIVERSIDE_PATH } from "@/lib/riversideHomeContent";
 
-const SECONDARY_LINK_CLASS =
-  "nc-Button relative h-auto inline-flex items-center justify-center rounded-full transition-colors text-sm sm:text-base font-medium px-5 py-3 sm:px-7 sm:py-4 border border-white/70 bg-white/10 text-white backdrop-blur-sm hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-white";
+/** The two hero actions share one height, weight and radius: a solid white primary and a glass secondary, both legible over any picture. */
+const ACTION_BASE_CLASS =
+  "inline-flex h-12 items-center justify-center gap-2 rounded-full px-6 text-sm font-semibold shadow-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black/40 sm:h-14 sm:px-8 sm:text-base";
+const PRIMARY_ACTION_CLASS = `${ACTION_BASE_CLASS} bg-white text-neutral-900 hover:bg-neutral-100`;
+const SECONDARY_ACTION_CLASS = `${ACTION_BASE_CLASS} border border-white/70 bg-black/25 text-white backdrop-blur-sm hover:bg-black/40`;
 const ROUND_BUTTON_CLASS =
   "flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-sm hover:bg-black/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-white";
 
@@ -169,11 +171,13 @@ const HomeHeroCarousel: FC = () => {
               <h1 className="text-3xl font-medium !leading-[114%] text-white sm:text-5xl lg:text-6xl">The BHA — Đà Nẵng</h1>
               <p className="max-w-md text-base text-white/90 sm:text-lg">Đặt phòng trực tiếp, xem giá từng đêm.</p>
               <div className="flex flex-wrap gap-3">
-                <ButtonPrimary type="button" onClick={startSearch} sizeClass="px-5 py-3 sm:px-7 sm:py-4">
+                <button type="button" onClick={startSearch} className={PRIMARY_ACTION_CLASS}>
+                  <MagnifyingGlassIcon className="h-5 w-5" aria-hidden="true" />
                   Tìm phòng
-                </ButtonPrimary>
-                <Link href={RIVERSIDE_PATH as Route} className={SECONDARY_LINK_CLASS}>
+                </button>
+                <Link href={RIVERSIDE_PATH as Route} className={SECONDARY_ACTION_CLASS}>
                   Xem Riverside
+                  <ArrowRightIcon className="h-5 w-5" aria-hidden="true" />
                 </Link>
               </div>
             </div>

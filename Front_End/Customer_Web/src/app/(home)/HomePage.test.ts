@@ -73,6 +73,22 @@ describe("the home page is the booking portal", () => {
   });
 });
 
+describe("the home page carries the property's map and no demo banner", () => {
+  it("has a titled Google Maps iframe after the newsletter, lazy, plus a safe link to open it", () => {
+    expect(home.indexOf("newsletter-heading")).toBeLessThan(home.indexOf("location-heading"));
+    expect(home).toContain("162 Nghiêm Xuân Yêm, phường Ngũ Hành Sơn, Thành phố Đà Nẵng");
+    expect(home).toMatch(/<iframe[^>]+src="https:\/\/www\.google\.com\/maps\?q=/);
+    expect(home).toMatch(/<iframe[^>]+loading="lazy"/);
+    expect(home).toMatch(/<iframe[^>]+title="Bản đồ Google Maps/);
+    expect(home).toMatch(/href="https:\/\/www\.google\.com\/maps\/search\/\?api=1[^"]*"[^>]*rel="noopener noreferrer"/);
+  });
+
+  it("the offers' price and button sit in one block pinned to the bottom of an equal-height card", () => {
+    expect(home).toContain("mt-auto space-y-3 pt-2");
+    expect(home).not.toContain("Bản demo: phòng, giá và đặt phòng");
+  });
+});
+
 describe("/riverside keeps the Riverside composition", () => {
   it("has the four sections with their anchors, once each, and one H1", () => {
     for (const id of ["gioi-thieu", "rooms", "booking-guide", "faq"]) expect(count(riverside, `id="${id}"`)).toBe(1);
