@@ -82,8 +82,9 @@ const demoChildMenus: NavItemType[] = [
 ];
 
 const otherPageChildMenus: NavItemType[] = [
-  { id: ncNanoId(), href: "/blog", name: "Blog page" },
-  { id: ncNanoId(), href: "/blog/single" as Route, name: "Blog single" },
+  // CUST-WEB-001-CP08a-C2: `/blog` is the real travel blog now, and the template's single article route
+  // (`/blog/single`) is not an article any more, so it is no longer offered.
+  { id: ncNanoId(), href: "/blog", name: "Blog" },
   { id: ncNanoId(), href: "/about", name: "About" },
   { id: ncNanoId(), href: "/contact", name: "Contact us" },
   { id: ncNanoId(), href: "/login", name: "Login" },
@@ -370,5 +371,51 @@ export const NAVIGATION_DEMO_2: NavItemType[] = [
     name: "Other pages",
     type: "dropdown",
     children: otherPageChildMenus,
+  },
+];
+
+/**
+ * CUST-WEB-001-CP08a-C2: the Blog dropdown of the header and the mobile menu. Every entry is a real filter of
+ * `/blog` (see `lib/homepageContent.resolveBlogFilter`).
+ */
+export const BLOG_NAV_ITEMS: NavItemType[] = [
+  { id: "bha-blog-all", href: "/blog" as Route, name: "Tất cả bài viết" },
+  { id: "bha-blog-destinations", href: "/blog?category=diem-den-noi-bat" as Route, name: "Điểm đến nổi bật" },
+  { id: "bha-blog-news", href: "/blog?category=tin-du-lich" as Route, name: "Tin du lịch" },
+];
+
+/**
+ * The mobile menu's tree (the template's `NAVIGATION_DEMO` shape): the public pages, the service menu with
+ * its demo status, and the template's own sample pages under "Giao diện mẫu".
+ */
+export const NAVIGATION_BHA: NavItemType[] = [
+  { id: "bha-nav-riverside", href: "/riverside" as Route, name: "Riverside" },
+  { id: "bha-nav-offers", href: "/offers" as Route, name: "Ưu đãi" },
+  {
+    id: "bha-nav-blog",
+    href: "/blog" as Route,
+    name: "Blog",
+    type: "dropdown",
+    children: BLOG_NAV_ITEMS,
+  },
+  {
+    id: "bha-nav-services",
+    href: "/listing-stay" as Route,
+    name: "Dịch vụ",
+    type: "dropdown",
+    children: [
+      { id: "bha-svc-stays", href: "/listing-stay" as Route, name: "Lưu trú — đặt phòng The BHA Riverside" },
+      { id: "bha-svc-estate", href: "/listing-real-estate" as Route, name: "Bất động sản (trang mẫu)" },
+      { id: "bha-svc-cars", href: "/listing-car" as Route, name: "Thuê xe (trang mẫu)" },
+      { id: "bha-svc-exp", href: "/listing-experiences" as Route, name: "Trải nghiệm (trang mẫu)" },
+      { id: "bha-svc-flights", href: "/listing-flights" as Route, name: "Chuyến bay (trang mẫu)" },
+    ],
+  },
+  {
+    id: "bha-nav-templates",
+    href: "/author" as Route,
+    name: "Giao diện mẫu",
+    type: "dropdown",
+    children: NAVIGATION_DEMO.filter((item) => item.name !== "Home" && item.type !== "megaMenu"),
   },
 ];

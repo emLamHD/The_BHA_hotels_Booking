@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  HeartIcon,
+  HomeIcon,
   MagnifyingGlassIcon,
   UserCircleIcon,
 } from "@heroicons/react/24/outline";
@@ -27,16 +27,20 @@ interface NavItem {
   auth?: boolean;
 }
 
+/**
+ * CUST-WEB-001-CP08a: the small-screen app bar leads only to things that work — the home page, the room
+ * search, the account entry and the menu. "Wishlists" is gone: saving rooms is not supported.
+ */
 const NAV: NavItem[] = [
   {
-    name: "Explore",
+    name: "Trang chủ",
     link: "/",
-    icon: MagnifyingGlassIcon,
+    icon: HomeIcon,
   },
   {
-    name: "Wishlists",
-    link: "/account-savelists",
-    icon: HeartIcon,
+    name: "Tìm phòng",
+    link: "/listing-stay",
+    icon: MagnifyingGlassIcon,
   },
   {
     name: "Đăng nhập",
@@ -62,17 +66,13 @@ const FooterNav = () => {
   );
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      window.addEventListener("scroll", handleEvent);
-    }
+    const handleEvent = () => {
+      window.requestAnimationFrame(showHideHeaderMenu);
+    };
+    window.addEventListener("scroll", handleEvent);
+    return () => window.removeEventListener("scroll", handleEvent);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const handleEvent = () => {
-    if (typeof window !== "undefined") {
-      window.requestAnimationFrame(showHideHeaderMenu);
-    }
-  };
 
   const showHideHeaderMenu = () => {
     // if (typeof window === "undefined" || window?.innerWidth >= 768) {
@@ -147,6 +147,13 @@ const FooterNav = () => {
         className={`flex flex-col items-center justify-between text-neutral-500 dark:text-neutral-300/90 ${
           isActive ? "text-neutral-900 dark:text-neutral-100" : ""
         }`}
+        // CP08a: tapping the "Menu" caption opens the menu like tapping its icon (the icon is the real button).
+        onClick={(event) => {
+          // The open menu is a portal: its clicks bubble here through the React tree but are not in this element.
+          const target = event.target as HTMLElement;
+          if (!event.currentTarget.contains(target) || target.closest("button")) return;
+          event.currentTarget.querySelector("button")?.click();
+        }}
       >
         <item.icon iconClassName="w-6 h-6" className={``} />
         <span className="text-[11px] leading-none mt-1">{item.name}</span>

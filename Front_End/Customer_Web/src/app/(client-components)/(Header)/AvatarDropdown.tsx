@@ -1,8 +1,15 @@
 "use client";
 
 import { Popover, Transition } from "@headlessui/react";
-import { UserCircleIcon, UserPlusIcon } from "@heroicons/react/24/outline";
-import { Fragment } from "react";
+import {
+  ArrowRightOnRectangleIcon,
+  CalendarDaysIcon,
+  HeartIcon,
+  MoonIcon,
+  UserCircleIcon,
+  UserPlusIcon,
+} from "@heroicons/react/24/outline";
+import { Fragment, useRef } from "react";
 import { usePathname } from "next/navigation";
 import type { Route } from "next";
 import Avatar from "@/shared/Avatar";
@@ -11,6 +18,7 @@ import Link from "next/link";
 import { useCustomerSession } from "@/app/CustomerSessionProvider";
 import { AuthPresentationView, CustomerSessionNotice, useAuthCommand } from "@/components/CustomerAuthNotice";
 import { describeAuthEntry } from "@/lib/customerAuthUi";
+import { ACCOUNT_PATH } from "@/lib/riversideHomeContent";
 
 interface Props {
   className?: string;
@@ -20,17 +28,24 @@ interface Props {
 
 const ITEM_CLASS =
   "flex w-full items-center p-2 -m-3 text-left transition duration-150 ease-in-out rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-700 focus:outline-none focus-visible:ring focus-visible:ring-orange-500 focus-visible:ring-opacity-50";
+const ICON_CLASS = "flex items-center justify-center flex-shrink-0 text-neutral-500 dark:text-neutral-300";
 
 /**
  * CUST-WEB-001-CP02: the account entry of every header. What it shows comes from the Customer session
  * provider's `me` state — an email only while authenticated, a neutral icon otherwise — and its only auth
  * action is `guardedLogout`. The logout owner lives here, not in the panel, so closing the menu (or Esc)
  * never abandons or repeats a request that is already running.
+ *
+ * CUST-WEB-001-CP08a-C2: the template's profile menu for everyone — neutral avatar, "Tài khoản", "Tài khoản của
+ * tôi" (always `/account`: the page itself sends a verified-anonymous visitor to sign in and back), the entries
+ * that have no feature behind them marked as such, the theme switch and, only for a signed-in Customer, logout.
+ * When logout removes the focused button, focus stays on the account button, so Esc still closes the menu.
  */
 export default function AvatarDropdown({ className = "", panelClassName = "-right-10 sm:right-0" }: Props) {
   const { state, identityChange, guardedLogout } = useCustomerSession();
   const logout = useAuthCommand("logout");
   const pathname = usePathname();
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const email = state.status === "authenticated" ? state.customer.email : null;
   const entry = describeAuthEntry(state.status, identityChange.phase, email);
 
@@ -42,6 +57,7 @@ export default function AvatarDropdown({ className = "", panelClassName = "-righ
         {({ close }) => (
           <>
             <Popover.Button
+              ref={triggerRef}
               aria-label={entry.ariaLabel}
               className={`relative self-center w-10 h-10 sm:w-12 sm:h-12 rounded-full text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 flex items-center justify-center`}
             >
@@ -78,22 +94,19 @@ export default function AvatarDropdown({ className = "", panelClassName = "-righ
                         <UserCircleIcon className="h-12 w-12 flex-shrink-0 text-neutral-400" aria-hidden="true" />
                       )}
                       <div className="min-w-0 flex-grow">
+                        <h4 className="font-semibold">
+                          {email || state.status === "anonymous" ? "Tài khoản" : "Phiên đăng nhập"}
+                        </h4>
                         {email ? (
-                          <>
-                            <h4 className="font-semibold">Đã đăng nhập</h4>
-                            <p className="text-xs mt-0.5 break-all" title={email}>
-                              {email}
-                            </p>
-                          </>
+                          <p className="text-xs mt-0.5 break-all" title={email}>
+                            {email}
+                          </p>
                         ) : (
-                          <>
-                            <h4 className="font-semibold">
-                              {state.status === "anonymous" ? "Bạn chưa đăng nhập" : "Phiên đăng nhập"}
-                            </h4>
-                            {state.status === "anonymous" && (
-                              <p className="text-xs mt-0.5">Bạn vẫn có thể đặt phòng không cần tài khoản.</p>
-                            )}
-                          </>
+                          state.status === "anonymous" && (
+                            <p className="text-xs mt-0.5">
+                              Bạn chưa đăng nhập. Bạn vẫn có thể đặt phòng không cần tài khoản.
+                            </p>
+                          )
                         )}
                       </div>
                     </div>
@@ -105,7 +118,7 @@ export default function AvatarDropdown({ className = "", panelClassName = "-righ
 
                     {!email && identityChange.phase === "idle" && (
                       <Link href={"/login" as Route} className={ITEM_CLASS} onClick={() => close()}>
-                        <div className="flex items-center justify-center flex-shrink-0 text-neutral-500 dark:text-neutral-300">
+                        <div className={ICON_CLASS}>
                           <UserCircleIcon className="h-6 w-6" aria-hidden="true" />
                         </div>
                         <div className="ml-4">
@@ -116,7 +129,7 @@ export default function AvatarDropdown({ className = "", panelClassName = "-righ
 
                     {!email && identityChange.phase === "idle" && (
                       <Link href={"/signup" as Route} className={ITEM_CLASS} onClick={() => close()}>
-                        <div className="flex items-center justify-center flex-shrink-0 text-neutral-500 dark:text-neutral-300">
+                        <div className={ICON_CLASS}>
                           <UserPlusIcon className="h-6 w-6" aria-hidden="true" />
                         </div>
                         <div className="ml-4">
@@ -125,53 +138,44 @@ export default function AvatarDropdown({ className = "", panelClassName = "-righ
                       </Link>
                     )}
 
-                    {email && identityChange.phase === "idle" && (
-                      <Link href={"/account" as Route} className={ITEM_CLASS} onClick={() => close()}>
-                        <div className="flex items-center justify-center flex-shrink-0 text-neutral-500 dark:text-neutral-300">
-                          <UserCircleIcon className="h-6 w-6" aria-hidden="true" />
-                        </div>
-                        <div className="ml-4">
-                          <p className="text-sm font-medium ">{"Tài khoản"}</p>
-                        </div>
-                      </Link>
-                    )}
+                    <Link href={ACCOUNT_PATH as Route} className={ITEM_CLASS} onClick={() => close()}>
+                      <div className={ICON_CLASS}>
+                        <UserCircleIcon className="h-6 w-6" aria-hidden="true" />
+                      </div>
+                      <div className="ml-4">
+                        <p className="text-sm font-medium ">{"Tài khoản của tôi"}</p>
+                      </div>
+                    </Link>
 
-                    {/* ------------------ 2 --------------------- */}
+                    <div aria-disabled="true" className="flex w-full items-center p-2 -m-3 opacity-60">
+                      <div className={ICON_CLASS}>
+                        <CalendarDaysIcon className="h-6 w-6" aria-hidden="true" />
+                      </div>
+                      <div className="ml-4">
+                        <p className="text-sm font-medium ">{"Đặt phòng của tôi"}</p>
+                        <p className="text-xs text-neutral-500 dark:text-neutral-400">{"Chưa hỗ trợ"}</p>
+                      </div>
+                    </div>
+
+                    <Link href={"/account-savelists" as Route} className={ITEM_CLASS} onClick={() => close()}>
+                      <div className={ICON_CLASS}>
+                        <HeartIcon className="h-6 w-6" aria-hidden="true" />
+                      </div>
+                      <div className="ml-4">
+                        <p className="text-sm font-medium ">{"Danh sách yêu thích"}</p>
+                        <p className="text-xs text-neutral-500 dark:text-neutral-400">{"Chưa hỗ trợ"}</p>
+                      </div>
+                    </Link>
+
                     <div className="flex items-center justify-between p-2 -m-3 transition duration-150 ease-in-out rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-700 focus:outline-none focus-visible:ring focus-visible:ring-orange-500 focus-visible:ring-opacity-50">
                       <div className="flex items-center">
-                        <div className="flex items-center justify-center flex-shrink-0 text-neutral-500 dark:text-neutral-300">
-                          <svg
-                            width="24"
-                            height="24"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            xmlns="http://www.w3.org/2000/svg"
-                          >
-                            <path
-                              d="M12.0001 7.88989L10.9301 9.74989C10.6901 10.1599 10.8901 10.4999 11.3601 10.4999H12.6301C13.1101 10.4999 13.3001 10.8399 13.0601 11.2499L12.0001 13.1099"
-                              stroke="currentColor"
-                              strokeWidth="1.5"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                            <path
-                              d="M8.30011 18.0399V16.8799C6.00011 15.4899 4.11011 12.7799 4.11011 9.89993C4.11011 4.94993 8.66011 1.06993 13.8001 2.18993C16.0601 2.68993 18.0401 4.18993 19.0701 6.25993C21.1601 10.4599 18.9601 14.9199 15.7301 16.8699V18.0299C15.7301 18.3199 15.8401 18.9899 14.7701 18.9899H9.26011C8.16011 18.9999 8.30011 18.5699 8.30011 18.0399Z"
-                              stroke="currentColor"
-                              strokeWidth="1.5"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                            <path
-                              d="M8.5 22C10.79 21.35 13.21 21.35 15.5 22"
-                              stroke="currentColor"
-                              strokeWidth="1.5"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                          </svg>
+                        <div className={ICON_CLASS}>
+                          <MoonIcon className="h-6 w-6" aria-hidden="true" />
                         </div>
                         <div className="ml-4">
-                          <p className="text-sm font-medium ">{"Dark theme"}</p>
+                          <p className="text-sm font-medium " aria-hidden="true">
+                            {"Chế độ tối"}
+                          </p>
                         </div>
                       </div>
                       <SwitchDarkMode2 />
@@ -182,38 +186,15 @@ export default function AvatarDropdown({ className = "", panelClassName = "-righ
                         type="button"
                         className={`${ITEM_CLASS} disabled:opacity-60`}
                         disabled={logout.busy}
-                        onClick={() => logout.run(() => guardedLogout())}
+                        onClick={() => {
+                          // The button is removed as soon as the session is anonymous: keep focus inside this
+                          // menu (on its own button) so Esc and Tab still behave while the request runs.
+                          triggerRef.current?.focus({ preventScroll: true });
+                          logout.run(() => guardedLogout());
+                        }}
                       >
-                        <div className="flex items-center justify-center flex-shrink-0 text-neutral-500 dark:text-neutral-300">
-                          <svg
-                          width="24"
-                          height="24"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          xmlns="http://www.w3.org/2000/svg"
-                        >
-                          <path
-                            d="M8.90002 7.55999C9.21002 3.95999 11.06 2.48999 15.11 2.48999H15.24C19.71 2.48999 21.5 4.27999 21.5 8.74999V15.27C21.5 19.74 19.71 21.53 15.24 21.53H15.11C11.09 21.53 9.24002 20.08 8.91002 16.54"
-                            stroke="currentColor"
-                            strokeWidth="1.5"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                          <path
-                            d="M15 12H3.62"
-                            stroke="currentColor"
-                            strokeWidth="1.5"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                          <path
-                            d="M5.85 8.6499L2.5 11.9999L5.85 15.3499"
-                            stroke="currentColor"
-                            strokeWidth="1.5"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
+                        <div className={ICON_CLASS}>
+                          <ArrowRightOnRectangleIcon className="h-6 w-6" aria-hidden="true" />
                         </div>
                         <div className="ml-4">
                           <p className="text-sm font-medium ">{logout.working ? "Đang đăng xuất…" : "Đăng xuất"}</p>

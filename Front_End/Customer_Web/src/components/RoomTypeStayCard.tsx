@@ -9,8 +9,10 @@ import StartRating from "@/components/StartRating";
 import { PropertyDto, RoomTypeDto } from "@/lib/api/propertyTypes";
 import { selectGalleryImages, visibleImages } from "@/lib/api/mediaPresentation";
 import { formatCurrencyAmount } from "@/lib/api/availabilityPresentation";
-import { formatMaxOccupancy } from "@/lib/api/roomTypePresentation";
 import { RoomQuote } from "@/lib/roomQuote";
+
+/** "Tối đa 4 khách": the room type's maximum occupancy as the catalog states it, nothing about beds or rooms. */
+const formatMaxGuests = (maxOccupancy: number) => `Tối đa ${maxOccupancy} khách`;
 
 /** What the card knows about price: nothing asked yet, being asked, no room for the dates, or an answer. */
 export type RoomCardPrice =
@@ -127,7 +129,7 @@ const RoomTypeStayCard: FC<RoomTypeStayCardProps> = ({
         <div className="mt-3 space-y-3">
           <div className="space-y-2">
             <span className="text-sm text-neutral-500 dark:text-neutral-400">
-              Căn hộ · {formatMaxOccupancy(roomType.maxOccupancy)}
+              Căn hộ · {formatMaxGuests(roomType.maxOccupancy)}
             </span>
             <div className="flex items-center space-x-2">
               <h2 className="font-semibold text-neutral-900 dark:text-white text-base">

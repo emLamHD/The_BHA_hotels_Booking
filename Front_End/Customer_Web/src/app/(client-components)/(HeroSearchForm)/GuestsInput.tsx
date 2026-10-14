@@ -21,6 +21,8 @@ export interface LiveGuestsControl {
   onChange: (patch: { adults?: number; children?: number; rooms?: number }) => void;
   onSubmit: () => void;
   disabled?: boolean;
+  /** CP08a: accessible name of the round Search button; the default keeps the template's "Search". */
+  submitLabel?: string;
 }
 
 export interface GuestsInputProps {
@@ -84,11 +86,11 @@ const GuestsInput: FC<GuestsInputProps> = ({
               </div>
               <div className="flex-grow">
                 <span className="block xl:text-lg font-semibold">
-                  {totalGuests || ""} Guests
+                  {live ? `${totalGuests} khách` : `${totalGuests || ""} Guests`}
                 </span>
                 <span className="block mt-1 text-sm text-neutral-400 leading-none font-light">
                   {live
-                    ? `${live.rooms} ${live.rooms === 1 ? "room" : "rooms"}`
+                    ? `${live.rooms} phòng`
                     : totalGuests
                       ? "Guests"
                       : "Add guests"}
@@ -110,7 +112,7 @@ const GuestsInput: FC<GuestsInputProps> = ({
             {hasButtonSubmit && (
               <div className="pr-2 xl:pr-4">
                 {live ? (
-                  <ButtonSubmit onClick={live.onSubmit} disabled={live.disabled} />
+                  <ButtonSubmit onClick={live.onSubmit} disabled={live.disabled} label={live.submitLabel} />
                 ) : (
                   <ButtonSubmit href={buttonSubmitHref} />
                 )}
@@ -139,16 +141,16 @@ const GuestsInput: FC<GuestsInputProps> = ({
                     onChange={(value) => live.onChange({ adults: value })}
                     max={10}
                     min={1}
-                    label="Adults"
-                    desc="Ages 13 or above"
+                    label="Người lớn"
+                    desc="Từ 13 tuổi trở lên"
                   />
                   <NcInputNumber
                     className="w-full mt-6"
                     value={live.children}
                     onChange={(value) => live.onChange({ children: value })}
                     max={4}
-                    label="Children"
-                    desc="Ages 2–12"
+                    label="Trẻ em"
+                    desc="Từ 2 đến 12 tuổi"
                   />
                   <NcInputNumber
                     className="w-full mt-6"
@@ -156,8 +158,8 @@ const GuestsInput: FC<GuestsInputProps> = ({
                     onChange={(value) => live.onChange({ rooms: value })}
                     max={10}
                     min={1}
-                    label="Rooms"
-                    desc="Number of apartments"
+                    label="Phòng"
+                    desc="Số căn hộ"
                   />
                   <p className="mt-5 text-xs text-neutral-500 dark:text-neutral-400">
                     Trẻ dưới 2 tuổi chưa có lựa chọn riêng khi đặt phòng.

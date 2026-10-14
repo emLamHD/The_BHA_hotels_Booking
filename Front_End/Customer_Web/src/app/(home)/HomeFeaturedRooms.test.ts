@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { BookingHoldProvider } from "@/app/BookingHoldProvider";
-import { StaySearchProvider } from "@/components/StaySearchProvider";
+import { StaySearchContextValue, StaySearchProvider, useStaySearch } from "@/components/StaySearchProvider";
 import HomeFeaturedRooms from "./HomeFeaturedRooms";
 
 // The router hooks need a mounted app router, which a node render does not have.
@@ -13,42 +13,64 @@ vi.mock("next/navigation", () => ({
 }));
 
 /**
- * CUST-WEB-SHOWCASE-001-CP02-C3: the server render is the component's real first (loading) state —
- * effects have not run, so no request has resolved. Data, tab switching, quotes and the card links
- * are verified in the browser against the real API (see the completion report); a node-environment test
- * cannot run effects.
+ * CUST-WEB-001-CP08a (replaces the CP02-C3 expectations, which described the three-brand Featured tabs and
+ * the in-memory quotes the home page no longer has): the server render is the component's real first
+ * (loading) state — effects have not run, so no request has resolved. Catalog data, the card links and the
+ * missing/empty/error copy are verified in the browser against the real API (see the completion report); a
+ * node-environment test cannot run effects.
  */
-const markup = renderToStaticMarkup(
-  React.createElement(
-    BookingHoldProvider,
-    null,
-    React.createElement(StaySearchProvider, null, React.createElement(HomeFeaturedRooms))
-  )
-);
+const wrap = (child: React.ReactElement) =>
+  React.createElement(BookingHoldProvider, null, React.createElement(StaySearchProvider, null, child));
+
+const markup = renderToStaticMarkup(wrap(React.createElement(HomeFeaturedRooms)));
 
 describe("HomeFeaturedRooms first render", () => {
-  it("is the template's Featured places section with the #rooms anchor exactly once", () => {
-    expect(markup).toContain("Featured places to stay");
-    expect(markup).toContain("nc-SectionGridFeaturePlaces");
+  it("is the Riverside room-types section with the #rooms anchor exactly once", () => {
+    expect(markup).toContain("Loại phòng tại The BHA Riverside");
     expect(markup.split('id="rooms"').length - 1).toBe(1);
   });
 
-  it("offers exactly the three brand tabs, Riverside first, and none of the template's cities", () => {
-    const at = (label: string) => markup.indexOf(`>${label}<`);
-    expect(at("The BHA Riverside")).toBeGreaterThan(-1);
-    expect(at("The BHA Riverside")).toBeLessThan(at("The BHA House"));
-    expect(at("The BHA House")).toBeLessThan(at("The BHA Villa"));
-    for (const demoTab of ["New York", "Tokyo", "Paris", "London"]) expect(markup).not.toContain(demoTab);
+  it("offers no brand tabs, no House/Villa, none of the template's cities or its Featured heading", () => {
+    for (const gone of ["The BHA House", "The BHA Villa", "Featured places to stay", "New York", "Tokyo", "Paris", "London", "Sắp ra mắt", "View all"]) {
+      expect(markup).not.toContain(gone);
+    }
+    expect(markup).not.toContain("nc-SectionGridFeaturePlaces");
   });
 
-  it("starts on Riverside in a loading state: no template demo listing, no endless spinner button", () => {
+  it("starts in a loading state with a link to the results page: no template listing, no card before the API has answered", () => {
     expect(markup).toContain("Đang tải phòng");
-    expect(markup).not.toContain("Show me more");
-    expect(markup).not.toContain("nc-StayCard2"); // cards exist only once the API has answered
+    expect(markup).toContain('href="/listing-stay"');
+    expect(markup).not.toContain("nc-StayCard2");
     expect(markup).not.toContain("pexels");
   });
 
-  it("does not show the coming-soon panel for the default tab", () => {
-    expect(markup).not.toContain("Sắp ra mắt");
+  it("shows no price and no sample rating or heart at any stage", () => {
+    expect(markup).not.toMatch(/₫|VND|\/đêm|Đánh giá mẫu|Hết phòng/);
+  });
+});
+
+describe("the shared stay search no longer carries a quote path", () => {
+  let captured: StaySearchContextValue | null = null;
+  const Probe = () => {
+    captured = useStaySearch();
+    return null;
+  };
+  renderToStaticMarkup(wrap(React.createElement(Probe)));
+
+  it("holds a draft, the Riverside catalog and a submit, and nothing that reads or keeps offers", () => {
+    expect(captured).not.toBeNull();
+    const keys = Object.keys(captured as unknown as Record<string, unknown>);
+    for (const needed of ["draft", "updateDraft", "ensureCatalog", "riverside", "roomTypes", "submit", "problem", "clearProblem"]) {
+      expect(keys).toContain(needed);
+    }
+    for (const gone of ["search", "activeTab", "setActiveTab"]) expect(keys).not.toContain(gone);
+    expect(typeof (captured as unknown as StaySearchContextValue).submit).toBe("function");
+  });
+
+  it("starts as a Riverside draft with no dates and no problem", () => {
+    const ctx = captured as unknown as StaySearchContextValue;
+    expect(ctx.draft).toMatchObject({ brand: "The BHA Riverside", checkIn: "", checkOut: "", adults: 2, children: 0, rooms: 1 });
+    expect(ctx.problem).toBeNull();
+    expect(ctx.propsStatus).toBe("idle");
   });
 });

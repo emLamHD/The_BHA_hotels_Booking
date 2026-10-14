@@ -12,33 +12,49 @@ interface SolutionItem {
   href: PathName;
   icon: any;
   active?: boolean;
+  /** True for a template page: it has sample content, no real data and no booking. */
+  demo?: boolean;
 }
 
+/**
+ * CUST-WEB-001-CP08a-C2: the template's service menu. Only "Lưu trú" is the booking system (The BHA Riverside);
+ * the other services open the template's own sample pages and say so.
+ */
 const solutions: SolutionItem[] = [
   {
-    name: "Stays",
-    description: "Stays rental description ",
+    name: "Lưu trú",
+    description: "Đặt phòng The BHA Riverside",
     href: "/listing-stay",
     active: true,
     icon: IconOne,
   },
   {
-    name: "Real Estate",
-    description: "Real Estate description",
+    name: "Bất động sản",
+    description: "Trang mẫu của giao diện",
     href: "/listing-real-estate",
     icon: IconTwo,
+    demo: true,
   },
   {
-    name: "Cars",
-    description: "Car rental description",
+    name: "Thuê xe",
+    description: "Trang mẫu của giao diện",
     href: "/listing-car",
     icon: IconThree,
+    demo: true,
   },
   {
-    name: "Experiences",
-    description: "Tour and experiences",
+    name: "Trải nghiệm",
+    description: "Trang mẫu của giao diện",
     href: "/listing-experiences",
     icon: IconFour,
+    demo: true,
+  },
+  {
+    name: "Chuyến bay",
+    description: "Trang mẫu của giao diện",
+    href: "/listing-flights",
+    icon: IconFive,
+    demo: true,
   },
 ];
 
@@ -49,16 +65,16 @@ export default function DropdownTravelers() {
         <>
           <Popover.Button
             className={`${open ? "" : "text-opacity-90"}
-                group self-center py-2 h-10 sm:h-12 rounded-md text-sm sm:text-base font-medium hover:text-opacity-100 focus:outline-none`}
+                group self-center py-2 h-10 sm:h-12 rounded-md text-sm sm:text-base font-medium hover:text-opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500`}
           >
-            <div className={` inline-flex items-center `} role="button">
-              <span>Travelers</span>
+            <span className="inline-flex items-center">
+              <span>Dịch vụ</span>
               <ChevronDownIcon
                 className={`${open ? "-rotate-180" : "text-opacity-70 "}
-                  ml-2 h-5 w-5 text-neutral-700 group-hover:text-opacity-80 transition ease-in-out duration-150 `}
+                  ml-2 h-5 w-5 text-neutral-700 dark:text-neutral-300 group-hover:text-opacity-80 transition ease-in-out duration-150 `}
                 aria-hidden="true"
               />
-            </div>
+            </span>
           </Popover.Button>
           <Transition
             as={Fragment}
@@ -85,7 +101,14 @@ export default function DropdownTravelers() {
                         <item.icon aria-hidden="true" />
                       </div>
                       <div className="ml-4 space-y-0.5">
-                        <p className="text-sm font-medium ">{item.name}</p>
+                        <p className="text-sm font-medium ">
+                          {item.name}
+                          {item.demo && (
+                            <span className="ml-2 rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-medium uppercase text-neutral-600 dark:bg-neutral-600 dark:text-neutral-100">
+                              Mẫu
+                            </span>
+                          )}
+                        </p>
                         <p className="text-xs text-neutral-500 dark:text-neutral-300">
                           {item.description}
                         </p>
@@ -95,19 +118,9 @@ export default function DropdownTravelers() {
                 </div>
                 {/* FOOTER */}
                 <div className="p-4 bg-neutral-50 dark:bg-neutral-700">
-                  <Link
-                    href="/"
-                    className="flow-root px-2 py-2 space-y-0.5 transition duration-150 ease-in-out rounded-md focus:outline-none focus-visible:ring focus-visible:ring-orange-500 focus-visible:ring-opacity-50"
-                  >
-                    <span className="flex items-center">
-                      <span className="text-sm font-medium ">
-                        Documentation
-                      </span>
-                    </span>
-                    <span className="block text-sm text-gray-500 dark:text-neutral-400">
-                      Start integrating products and tools
-                    </span>
-                  </Link>
+                  <p className="px-2 py-2 text-sm text-neutral-600 dark:text-neutral-300">
+                    Chỉ Lưu trú tại The BHA Riverside đặt được trực tuyến. Các mục có nhãn “Mẫu” là giao diện mẫu, chưa có dữ liệu thật.
+                  </p>
                 </div>
               </div>
             </Popover.Panel>
@@ -115,6 +128,25 @@ export default function DropdownTravelers() {
         </>
       )}
     </Popover>
+  );
+}
+
+function IconFive() {
+  return (
+    <svg
+      className="w-7 h-7"
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="M21 16V14L13 9V3.5C13 2.67 12.33 2 11.5 2C10.67 2 10 2.67 10 3.5V9L2 14V16L10 13.5V19L8 20.5V22L11.5 21L15 22V20.5L13 19V13.5L21 16Z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 

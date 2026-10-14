@@ -1,146 +1,106 @@
 "use client";
 
 import React from "react";
+import Link from "next/link";
+import type { Route } from "next";
+import { Disclosure } from "@headlessui/react";
+import { ChevronDownIcon, GlobeAltIcon } from "@heroicons/react/24/solid";
 import ButtonClose from "@/shared/ButtonClose";
 import Logo from "@/shared/Logo";
-import { Disclosure } from "@headlessui/react";
-import { NavItemType } from "./NavigationItem";
-import { NAVIGATION_DEMO } from "@/data/navigation";
-import ButtonPrimary from "@/shared/ButtonPrimary";
-import SocialsList from "@/shared/SocialsList";
-import { ChevronDownIcon } from "@heroicons/react/24/solid";
 import SwitchDarkMode from "@/shared/SwitchDarkMode";
-import Link from "next/link";
-import LangDropdown from "@/app/(client-components)/(Header)/LangDropdown";
+import { NAVIGATION_BHA } from "@/data/navigation";
+import { NavItemType } from "@/shared/Navigation/NavigationItem";
+import { LangCurrencyTabs } from "@/app/(client-components)/(Header)/LangDropdown";
+import { RIVERSIDE_ADDRESS, RIVERSIDE_NAME } from "@/lib/riversideHomeContent";
 
 export interface NavMobileProps {
   data?: NavItemType[];
   onClickClose?: () => void;
 }
 
-const NavMobile: React.FC<NavMobileProps> = ({
-  data = NAVIGATION_DEMO,
-  onClickClose,
-}) => {
-  const _renderMenuChild = (item: NavItemType) => {
-    return (
-      <ul className="nav-mobile-sub-menu pl-6 pb-1 text-base">
-        {item.children?.map((i, index) => (
-          <Disclosure key={i.href + index} as="li">
-            <Link
-              href={{
-                pathname: i.href || undefined,
-              }}
-              className="flex px-4 text-neutral-900 dark:text-neutral-200 text-sm font-medium rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 mt-0.5"
-            >
-              <span
-                className={`py-2.5 pr-3 ${!i.children ? "block w-full" : ""}`}
-              >
-                {i.name}
-              </span>
-              {i.children && (
-                <span
-                  className="flex-1 flex"
-                  onClick={(e) => e.preventDefault()}
-                >
-                  <Disclosure.Button
-                    as="span"
-                    className="py-2.5 flex justify-end flex-1"
-                  >
-                    <ChevronDownIcon
-                      className="ml-2 h-4 w-4 text-neutral-500"
-                      aria-hidden="true"
-                    />
-                  </Disclosure.Button>
-                </span>
-              )}
-            </Link>
-            {i.children && (
-              <Disclosure.Panel>{_renderMenuChild(i)}</Disclosure.Panel>
-            )}
-          </Disclosure>
-        ))}
-      </ul>
-    );
-  };
+const ITEM_CLASS =
+  "flex flex-1 items-center rounded-lg px-4 py-3 text-base font-medium text-neutral-900 hover:bg-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:text-white dark:hover:bg-neutral-800";
+const CHILD_CLASS =
+  "flex flex-1 items-center rounded-lg px-4 py-2.5 text-sm font-medium text-neutral-800 hover:bg-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:text-neutral-200 dark:hover:bg-neutral-800";
+const TOGGLE_CLASS =
+  "flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:text-neutral-300 dark:hover:bg-neutral-800";
 
-  const _renderItem = (item: NavItemType, index: number) => {
-    return (
-      <Disclosure
-        key={item.id}
-        as="li"
-        className="text-neutral-900 dark:text-white"
-      >
-        <Link
-          className="flex w-full px-4 font-medium uppercase tracking-wide text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg"
-          href={{
-            pathname: item.href || undefined,
-          }}
-        >
-          <span
-            className={`py-2.5 pr-3 ${!item.children ? "block w-full" : ""}`}
-          >
+/**
+ * CUST-WEB-001-CP08a-C2: the small-screen menu, the template's tree: each entry is a link, and an entry with
+ * children has its own button that expands them (the link and the expander are separate, so neither one
+ * hides the other from the keyboard). Every link closes the menu. The panel scrolls, closes with Esc or a
+ * click outside (the Dialog around it), and carries the light/dark button and the Language/Currency preview
+ * that the compact header does not have room for. The template's social placeholders and "Get Template"
+ * button are not part of it.
+ */
+const NavMobile: React.FC<NavMobileProps> = ({ data = NAVIGATION_BHA, onClickClose }) => {
+  const renderNode = (item: NavItemType, depth: number): React.ReactNode => {
+    const cls = depth === 0 ? ITEM_CLASS : CHILD_CLASS;
+    if (!item.children || item.children.length === 0) {
+      return (
+        <li key={item.id}>
+          <Link href={item.href as Route} className={cls} onClick={onClickClose}>
             {item.name}
-          </span>
-          {item.children && (
-            <span className="flex-1 flex" onClick={(e) => e.preventDefault()}>
-              <Disclosure.Button
-                as="span"
-                className="py-2.5 flex items-center justify-end flex-1 "
-              >
-                <ChevronDownIcon
-                  className="ml-2 h-4 w-4 text-neutral-500"
-                  aria-hidden="true"
-                />
+          </Link>
+        </li>
+      );
+    }
+    return (
+      <Disclosure as="li" key={item.id}>
+        {({ open }) => (
+          <>
+            <div className="flex items-center">
+              <Link href={item.href as Route} className={cls} onClick={onClickClose}>
+                {item.name}
+              </Link>
+              <Disclosure.Button aria-label={`${open ? "Thu gọn" : "Mở rộng"} ${item.name}`} className={TOGGLE_CLASS}>
+                <ChevronDownIcon className={`h-5 w-5 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true" />
               </Disclosure.Button>
-            </span>
-          )}
-        </Link>
-        {item.children && (
-          <Disclosure.Panel>{_renderMenuChild(item)}</Disclosure.Panel>
+            </div>
+            <Disclosure.Panel as="ul" className="space-y-0.5 pb-1 pl-5">
+              {item.children?.map((child) => renderNode(child, depth + 1))}
+            </Disclosure.Panel>
+          </>
         )}
       </Disclosure>
     );
   };
 
   return (
-    <div className="overflow-y-auto w-full h-screen py-2 transition transform shadow-lg ring-1 dark:ring-neutral-700 bg-white dark:bg-neutral-900 divide-y-2 divide-neutral-100 dark:divide-neutral-800">
-      <div className="py-6 px-5">
-        <Logo />
-        <div className="flex flex-col mt-5 text-neutral-700 dark:text-neutral-300 text-sm">
-          <span>
-            Discover the most outstanding articles on all topics of life. Write
-            your stories and share them
-          </span>
-
-          <div className="flex justify-between items-center mt-4">
-            <SocialsList itemClass="w-9 h-9 flex items-center justify-center rounded-full bg-neutral-100 text-xl dark:bg-neutral-800 dark:text-neutral-300" />
-            <span className="block">
-              <SwitchDarkMode className="bg-neutral-100 dark:bg-neutral-800" />
-            </span>
+    <div
+      style={{ height: "100dvh" }}
+      className="relative h-screen w-full overflow-y-auto overscroll-contain bg-white py-2 shadow-lg ring-1 transition transform divide-y-2 divide-neutral-100 dark:bg-neutral-900 dark:ring-neutral-700 dark:divide-neutral-800"
+    >
+      <div className="px-5 py-6">
+        <div className="flex items-center justify-between">
+          <Logo />
+          <div className="flex items-center gap-1">
+            <SwitchDarkMode className="bg-neutral-100 dark:bg-neutral-800" />
+            <ButtonClose onClick={onClickClose} />
           </div>
         </div>
-        <span className="absolute right-2 top-2 p-1">
-          <ButtonClose onClick={onClickClose} />
-        </span>
+        <p className="mt-5 text-sm text-neutral-700 dark:text-neutral-300">
+          {RIVERSIDE_NAME} — căn hộ lưu trú tại {RIVERSIDE_ADDRESS}. Đặt phòng trực tiếp ngay trên trang.
+        </p>
       </div>
-      <ul className="flex flex-col py-6 px-2 space-y-1">
-        {data.map(_renderItem)}
-      </ul>
-      <div className="flex items-center justify-between py-6 px-5">
-        <a
-          className="inline-block"
-          href="https://themeforest.net/item/chisfis-online-booking-nextjs-template/43399526"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <ButtonPrimary>Get Template</ButtonPrimary>
-        </a>
-
-        <LangDropdown
-          className="flex"
-          panelClassName="z-10 w-screen max-w-[280px] px-4 mb-3 right-3 bottom-full sm:px-0"
-        />
+      <nav aria-label="Menu" className="px-2 py-4">
+        <ul className="flex flex-col space-y-1">{data.map((item) => renderNode(item, 0))}</ul>
+      </nav>
+      <div className="px-2 py-4">
+        <Disclosure>
+          {({ open }) => (
+            <>
+              <Disclosure.Button className="flex w-full items-center rounded-lg px-4 py-3 text-left text-base font-medium text-neutral-900 hover:bg-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:text-white dark:hover:bg-neutral-800">
+                <GlobeAltIcon className="mr-3 h-5 w-5 text-neutral-500" aria-hidden="true" />
+                <span className="flex-1">Ngôn ngữ và tiền tệ</span>
+                <ChevronDownIcon className={`h-5 w-5 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true" />
+              </Disclosure.Button>
+              <Disclosure.Panel className="px-2 pb-4 pt-2">
+                <LangCurrencyTabs />
+              </Disclosure.Panel>
+            </>
+          )}
+        </Disclosure>
       </div>
     </div>
   );

@@ -1,0 +1,469 @@
+{
+  "schema": 1,
+  "urlPath": "/media/the-bha-travel/",
+  "webpQuality": {
+    "card": 78,
+    "hero": 68
+  },
+  "entries": [
+    {
+      "id": "dragon-bridge-dusk",
+      "commonsTitle": "File:Da Nang, Vietnam.jpg",
+      "sourceUrl": "https://commons.wikimedia.org/wiki/File:Da_Nang,_Vietnam.jpg",
+      "author": "Quangpraha",
+      "license": "CC0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/deed.en",
+      "attributionRequired": false,
+      "originalDimensions": [
+        7552,
+        5037
+      ],
+      "originalSha1": "27e873132693f872fc39edf3be3278d5cff9a186",
+      "renditionWidth": 2400,
+      "renditionSha256": "d394c7f9882071adffb7e76b026ae834f02d4a3aa75bfeb300e1f4d95590787c",
+      "retrievedOn": "2026-10-14",
+      "derivatives": [
+        {
+          "file": "hero-dragon-bridge-dusk.webp",
+          "width": 1920,
+          "height": 900,
+          "bytes": 93254,
+          "sha256": "bfbd224a78332d61a6268a4a38cb558b47a9cc236dc1a190eabd8b31fc91b968",
+          "alt": "Cầu Rồng và sông Hàn lúc hoàng hôn, Đà Nẵng",
+          "crop": {
+            "focus": [
+              0.5,
+              0.55
+            ],
+            "box": [
+              0,
+              254,
+              1920,
+              1154
+            ],
+            "scaledTo": [
+              1920,
+              1280
+            ]
+          }
+        },
+        {
+          "file": "card-cau-rong-song-han.webp",
+          "width": 1200,
+          "height": 800,
+          "bytes": 48640,
+          "sha256": "1ef548a2c6f496f590550cfff881ea75dfa495d954705c486e05ed73edf255de",
+          "alt": "Cầu Rồng bắc qua sông Hàn lúc hoàng hôn, Đà Nẵng",
+          "crop": {
+            "focus": [
+              0.42,
+              0.62
+            ],
+            "box": [
+              0,
+              0,
+              1200,
+              800
+            ],
+            "scaledTo": [
+              1200,
+              800
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "danang-skyline-night",
+      "commonsTitle": "File:Bright Da Nang skyline (Unsplash).jpg",
+      "sourceUrl": "https://commons.wikimedia.org/wiki/File:Bright_Da_Nang_skyline_(Unsplash).jpg",
+      "author": "NGO TUNG thanhtungo",
+      "license": "CC0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/deed.en",
+      "attributionRequired": false,
+      "originalDimensions": [
+        7227,
+        4064
+      ],
+      "originalSha1": "76f759c16db53e20f6cf2d5fdff65fb211af36ea",
+      "renditionWidth": 2400,
+      "renditionSha256": "e19d943a8f35537f582237a2cef7bf3c664aa044e9b87acdd7bbd87e07027a20",
+      "retrievedOn": "2026-10-14",
+      "derivatives": [
+        {
+          "file": "hero-danang-skyline.webp",
+          "width": 1920,
+          "height": 900,
+          "bytes": 78088,
+          "sha256": "8408a4818dad00ca14015546f777db46951ea5b84ffa590a05413be233adaa8d",
+          "alt": "Đường chân trời Đà Nẵng lúc chạng vạng",
+          "crop": {
+            "focus": [
+              0.5,
+              0.5
+            ],
+            "box": [
+              0,
+              90,
+              1920,
+              990
+            ],
+            "scaledTo": [
+              1920,
+              1080
+            ]
+          }
+        },
+        {
+          "file": "card-danang-skyline.webp",
+          "width": 1200,
+          "height": 800,
+          "bytes": 50054,
+          "sha256": "526c41466829e3f4b43176535063898db129a323c493055eacef831855810f42",
+          "alt": "Đường chân trời Đà Nẵng lúc chạng vạng",
+          "crop": {
+            "focus": [
+              0.5,
+              0.55
+            ],
+            "box": [
+              112,
+              0,
+              1312,
+              800
+            ],
+            "scaledTo": [
+              1423,
+              800
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "han-river-bridge-night",
+      "commonsTitle": "File:Da Nang - DaNang1492.jpg",
+      "sourceUrl": "https://commons.wikimedia.org/wiki/File:Da_Nang_-_DaNang1492.jpg",
+      "author": "lumoplank",
+      "license": "CC0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/deed.en",
+      "attributionRequired": false,
+      "originalDimensions": [
+        4658,
+        3105
+      ],
+      "originalSha1": "4d07e2cc0f4d48ac9da4cfe295421fa8bdd7b089",
+      "renditionWidth": 2400,
+      "renditionSha256": "a2885464d7fa54350c247fc6427920e228a6d37fb224497e706865dffe353978",
+      "retrievedOn": "2026-10-14",
+      "derivatives": [
+        {
+          "file": "hero-han-river-night.webp",
+          "width": 1920,
+          "height": 900,
+          "bytes": 138810,
+          "sha256": "bc8007e0169251804f9cd730c0b76dd89a4300d9a08f2724d764951430f52c1b",
+          "alt": "Cầu quay sông Hàn về đêm, Đà Nẵng",
+          "crop": {
+            "focus": [
+              0.5,
+              0.5
+            ],
+            "box": [
+              0,
+              190,
+              1920,
+              1090
+            ],
+            "scaledTo": [
+              1920,
+              1280
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "my-khe-beach",
+      "commonsTitle": "File:My Khe Beach, Da Nang, Vietnam.jpg",
+      "sourceUrl": "https://commons.wikimedia.org/wiki/File:My_Khe_Beach,_Da_Nang,_Vietnam.jpg",
+      "author": ". Ray in Manila",
+      "license": "CC BY 2.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/2.0",
+      "attributionRequired": true,
+      "originalDimensions": [
+        7669,
+        5011
+      ],
+      "originalSha1": "eeaf21f230fad6d71ea463cbadd77752dff44245",
+      "renditionWidth": 2400,
+      "renditionSha256": "d9c2cf0b3e9a2787ead96dee70cfea03147086e78be169c6c1f16a64ac1cb390",
+      "retrievedOn": "2026-10-14",
+      "derivatives": [
+        {
+          "file": "hero-my-khe-beach.webp",
+          "width": 1920,
+          "height": 900,
+          "bytes": 471546,
+          "sha256": "23eed2ca406595013f37fd395ad8630124a94e5136f021a531fc51ad52fbb625",
+          "alt": "Bãi biển Mỹ Khê với hàng dừa, Đà Nẵng",
+          "crop": {
+            "focus": [
+              0.5,
+              0.55
+            ],
+            "box": [
+              0,
+              240,
+              1920,
+              1140
+            ],
+            "scaledTo": [
+              1920,
+              1254
+            ]
+          }
+        },
+        {
+          "file": "card-my-khe-beach.webp",
+          "width": 1200,
+          "height": 800,
+          "bytes": 244776,
+          "sha256": "b1e883c99619b06396494c0046538f7750fdc6c2487b03352284ab082824dc0c",
+          "alt": "Bãi biển Mỹ Khê với hàng dừa, Đà Nẵng",
+          "crop": {
+            "focus": [
+              0.5,
+              0.5
+            ],
+            "box": [
+              12,
+              0,
+              1212,
+              800
+            ],
+            "scaledTo": [
+              1224,
+              800
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "linh-ung-pagoda",
+      "commonsTitle": "File:Chùa Linh Ứng Buddhist Temple, Danang, Vietnam (54161781835).jpg",
+      "sourceUrl": "https://commons.wikimedia.org/wiki/File:Chùa_Linh_Ứng_Buddhist_Temple,_Danang,_Vietnam_(54161781835).jpg",
+      "author": "Mustang Joe",
+      "license": "CC0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/deed.en",
+      "attributionRequired": false,
+      "originalDimensions": [
+        6016,
+        4016
+      ],
+      "originalSha1": "3b7ee45457d81d9942f9d9d1de980db6d899d521",
+      "renditionWidth": 2400,
+      "renditionSha256": "618c2cd32845884fd26958098673ef3b1a8a21121b22ff02d51b8d3566983875",
+      "retrievedOn": "2026-10-14",
+      "derivatives": [
+        {
+          "file": "card-linh-ung-son-tra.webp",
+          "width": 1200,
+          "height": 800,
+          "bytes": 202234,
+          "sha256": "02f8fa84b073934b4f91ba9da246a2559ea9b6e9c780a73dca922c037dde4793",
+          "alt": "Chùa Linh Ứng trên bán đảo Sơn Trà, Đà Nẵng",
+          "crop": {
+            "focus": [
+              0.5,
+              0.5
+            ],
+            "box": [
+              0,
+              0,
+              1200,
+              800
+            ],
+            "scaledTo": [
+              1200,
+              801
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "marble-mountains-view",
+      "commonsTitle": "File:Da Nang - coastal view from Marble Mountains Mar 2024 01.jpg",
+      "sourceUrl": "https://commons.wikimedia.org/wiki/File:Da_Nang_-_coastal_view_from_Marble_Mountains_Mar_2024_01.jpg",
+      "author": "Dominic Nelson",
+      "license": "CC BY-SA 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+      "attributionRequired": true,
+      "originalDimensions": [
+        5836,
+        3891
+      ],
+      "originalSha1": "1f170f4e1f4708b19fd9dd3e2f33c2cd7529011c",
+      "renditionWidth": 2400,
+      "renditionSha256": "663ebe39408fda994841222650cc86409779a44853cdd9b2177524ca9d8a36c6",
+      "retrievedOn": "2026-10-14",
+      "derivatives": [
+        {
+          "file": "card-ngu-hanh-son.webp",
+          "width": 1200,
+          "height": 800,
+          "bytes": 139604,
+          "sha256": "dcd75c5ef3f9241f2974ede17d0d463f5a9ec58878d59b58548ff2c97cfe9d86",
+          "alt": "Nhìn ra bờ biển từ Ngũ Hành Sơn, Đà Nẵng",
+          "crop": {
+            "focus": [
+              0.5,
+              0.5
+            ],
+            "box": [
+              0,
+              0,
+              1200,
+              800
+            ],
+            "scaledTo": [
+              1200,
+              800
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "hoi-an-old-town-night",
+      "commonsTitle": "File:2024-12-20 Hoi An Old Town at night 4.jpg",
+      "sourceUrl": "https://commons.wikimedia.org/wiki/File:2024-12-20_Hoi_An_Old_Town_at_night_4.jpg",
+      "author": "Alexkom000",
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0",
+      "attributionRequired": true,
+      "originalDimensions": [
+        5322,
+        3548
+      ],
+      "originalSha1": "a7e6dd59d0c45fd4c47b74c0e6b47d479bf48b22",
+      "renditionWidth": 2400,
+      "renditionSha256": "08c2f6af27357c2639b910f85425927ad5a07e1cd17382d1da19c0ed987b1207",
+      "retrievedOn": "2026-10-14",
+      "derivatives": [
+        {
+          "file": "card-hoi-an.webp",
+          "width": 1200,
+          "height": 800,
+          "bytes": 118928,
+          "sha256": "f18f8c3080eb1f04294d834718a433474afd5b83cceb56970019267acea7ce70",
+          "alt": "Phố cổ Hội An về đêm với đèn lồng",
+          "crop": {
+            "focus": [
+              0.5,
+              0.5
+            ],
+            "box": [
+              0,
+              0,
+              1200,
+              800
+            ],
+            "scaledTo": [
+              1200,
+              800
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "hue-citadel-gate",
+      "commonsTitle": "File:Gate in the Citadel of Huế.jpg",
+      "sourceUrl": "https://commons.wikimedia.org/wiki/File:Gate_in_the_Citadel_of_Huế.jpg",
+      "author": "Christophe95",
+      "license": "CC BY-SA 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+      "attributionRequired": true,
+      "originalDimensions": [
+        5184,
+        3888
+      ],
+      "originalSha1": "e675dbbb30c2932565f0bb323b7a8430b793f7b3",
+      "renditionWidth": 2400,
+      "renditionSha256": "0947ea56a57da4f5e71821321c85e87dd9313a9c286e61090022136aad4daccf",
+      "retrievedOn": "2026-10-14",
+      "derivatives": [
+        {
+          "file": "card-hue.webp",
+          "width": 1200,
+          "height": 800,
+          "bytes": 197342,
+          "sha256": "d9bb6153f224b24d021ec118a3077fa9fc57462c4f8bbce32b9db400c34dc752",
+          "alt": "Cổng trong Kinh thành Huế",
+          "crop": {
+            "focus": [
+              0.5,
+              0.45
+            ],
+            "box": [
+              0,
+              5,
+              1200,
+              805
+            ],
+            "scaledTo": [
+              1200,
+              900
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "danang-fireworks",
+      "commonsTitle": "File:Audience impressed by Danang International Firework Festival.jpg",
+      "sourceUrl": "https://commons.wikimedia.org/wiki/File:Audience_impressed_by_Danang_International_Firework_Festival.jpg",
+      "author": "Vivu Vietnam",
+      "license": "CC BY-SA 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+      "attributionRequired": true,
+      "originalDimensions": [
+        8256,
+        5504
+      ],
+      "originalSha1": "c972d1b810bbf10f485809d10e232ade2a64300f",
+      "renditionWidth": 2400,
+      "renditionSha256": "0f9ab936ee7c1d0536f9115ecc4e1d2a109c8f733e240258fa8c410f0b8fa0ca",
+      "retrievedOn": "2026-10-14",
+      "derivatives": [
+        {
+          "file": "card-firework-festival.webp",
+          "width": 1200,
+          "height": 800,
+          "bytes": 18044,
+          "sha256": "338b57b02ebe6e2d004100fe9bb3e7c20ffc735de640edc2fe2aa9b9ba27d6a6",
+          "alt": "Khán giả xem Lễ hội pháo hoa quốc tế Đà Nẵng",
+          "crop": {
+            "focus": [
+              0.5,
+              0.5
+            ],
+            "box": [
+              0,
+              0,
+              1200,
+              800
+            ],
+            "scaledTo": [
+              1200,
+              800
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
