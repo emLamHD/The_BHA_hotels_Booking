@@ -1,7 +1,7 @@
 "use client";
 
 import React, { FC, FormEvent, useEffect, useRef, useState } from "react";
-import { ArrowRightIcon } from "@heroicons/react/24/solid";
+import { ArrowRightIcon, EnvelopeIcon } from "@heroicons/react/24/solid";
 import {
   NEWSLETTER_BENEFIT,
   NEWSLETTER_DISCLOSURE,
@@ -43,20 +43,28 @@ const HomeNewsletter: FC = () => {
   };
 
   return (
-    <section aria-labelledby="newsletter-heading" className="nc-HomeNewsletter relative overflow-hidden rounded-3xl bg-primary-50 px-6 py-10 dark:bg-neutral-800 sm:px-10 lg:px-14">
-      <div className="grid items-center gap-8 lg:grid-cols-2">
-        <div className="space-y-3">
+    <section
+      aria-labelledby="newsletter-heading"
+      className="nc-HomeNewsletter relative overflow-hidden rounded-3xl border border-primary-100 bg-gradient-to-br from-primary-50 via-white to-primary-100/60 px-6 py-10 dark:border-neutral-700 dark:from-neutral-800 dark:via-neutral-800 dark:to-neutral-900 sm:px-10 sm:py-12 lg:px-14 lg:py-14"
+    >
+      <div aria-hidden="true" className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-primary-200/40 blur-2xl dark:bg-primary-500/10" />
+      <div aria-hidden="true" className="pointer-events-none absolute -bottom-20 -left-12 h-48 w-48 rounded-full bg-primary-100/70 blur-2xl dark:bg-primary-500/10" />
+      <div className="relative grid items-center gap-8 lg:grid-cols-2 lg:gap-14">
+        <div className="space-y-4">
+          <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-primary-6000 shadow-sm dark:bg-neutral-900 dark:text-primary-300">
+            <EnvelopeIcon className="h-6 w-6" aria-hidden="true" />
+          </span>
           <h2 id="newsletter-heading" className="text-2xl font-semibold text-neutral-900 dark:text-neutral-50 sm:text-3xl">
             {NEWSLETTER_HEADING}
           </h2>
-          <p className="text-neutral-600 dark:text-neutral-300">{NEWSLETTER_BENEFIT}</p>
+          <p className="max-w-md text-neutral-600 dark:text-neutral-300">{NEWSLETTER_BENEFIT}</p>
         </div>
-        <div>
-          <form noValidate onSubmit={onSubmit} aria-describedby="newsletter-disclosure" className="space-y-2">
+        <div className="rounded-2xl bg-white p-5 shadow-lg shadow-primary-900/5 dark:bg-neutral-900 sm:p-6">
+          <form noValidate onSubmit={onSubmit} aria-describedby="newsletter-disclosure" className="space-y-3">
             <label htmlFor="newsletter-email" className="block text-sm font-medium text-neutral-800 dark:text-neutral-200">
               Email của bạn
             </label>
-            <div className="relative">
+            <div className="flex flex-col gap-3 sm:flex-row">
               <input
                 ref={inputRef}
                 id="newsletter-email"
@@ -68,14 +76,15 @@ const HomeNewsletter: FC = () => {
                 placeholder="ten@example.com"
                 aria-invalid={feedback?.kind === "error" ? true : undefined}
                 aria-describedby={feedback ? "newsletter-feedback" : undefined}
-                className="block h-12 w-full rounded-full border border-neutral-200 bg-white pl-5 pr-14 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-primary-300 focus:outline-none focus:ring focus:ring-primary-200/50 dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-100"
+                className="block h-12 w-full min-w-0 flex-1 rounded-full border border-neutral-200 bg-white px-5 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-primary-300 focus:outline-none focus:ring focus:ring-primary-200/50 dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-100"
               />
               <button
                 type="submit"
-                aria-label="Gửi đăng ký (bản demo, email không được lưu)"
-                className="absolute right-1.5 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-primary-6000 text-white hover:bg-primary-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2"
+                aria-label="Đăng ký (bản demo, email không được lưu)"
+                className="inline-flex h-12 flex-shrink-0 items-center justify-center gap-2 rounded-full bg-primary-6000 px-6 text-sm font-semibold text-white transition-colors hover:bg-primary-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2"
               >
-                <ArrowRightIcon className="h-5 w-5" aria-hidden="true" />
+                Đăng ký
+                <ArrowRightIcon className="h-4 w-4" aria-hidden="true" />
               </button>
             </div>
             <p id="newsletter-disclosure" className="text-xs text-neutral-700 dark:text-neutral-300">

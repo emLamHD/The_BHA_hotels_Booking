@@ -20,7 +20,7 @@ const HomeOfferSection: FC = () => (
     </Heading>
     <HomeSlider label="Ưu đãi phòng minh hoạ">
       {MOCK_OFFERS.map((offer) => (
-        <li key={offer.id} className="w-[80%] flex-shrink-0 snap-start sm:w-[46%] lg:w-[31.5%] xl:w-[23.5%]">
+        <li key={offer.id} className="flex w-[80%] flex-shrink-0 snap-start sm:w-[46%] lg:w-[31.5%] xl:w-[23.5%]">
           <OfferCard offer={offer} />
         </li>
       ))}

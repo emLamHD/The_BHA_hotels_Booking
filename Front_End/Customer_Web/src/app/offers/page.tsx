@@ -42,7 +42,7 @@ export default function OffersPage({ searchParams }: OffersPageProps) {
         </header>
         <ul className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3 lg:gap-8">
           {MOCK_OFFERS.map((offer) => (
-            <li key={offer.id}>
+            <li key={offer.id} className="flex">
               <OfferCard offer={offer} highlighted={highlighted?.id === offer.id} sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw" />
             </li>
           ))}
