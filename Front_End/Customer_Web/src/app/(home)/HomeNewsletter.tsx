@@ -78,7 +78,7 @@ const HomeNewsletter: FC = () => {
                 <ArrowRightIcon className="h-5 w-5" aria-hidden="true" />
               </button>
             </div>
-            <p id="newsletter-disclosure" className="text-xs text-neutral-500 dark:text-neutral-400">
+            <p id="newsletter-disclosure" className="text-xs text-neutral-700 dark:text-neutral-300">
               {NEWSLETTER_DISCLOSURE}
             </p>
           </form>
