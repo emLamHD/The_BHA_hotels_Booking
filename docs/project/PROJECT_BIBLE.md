@@ -543,8 +543,9 @@ Nguồn đầy đủ: [CUST-WEB-001-product-contract](../design/CUST-WEB-001-pro
 - `REAL_INTEGRATED` (`CUST-WEB-001-CP02`): `/login` thật, mục tài khoản/đăng xuất theo `me` ở header và mobile, đóng biên nhận cục bộ.
 - `REAL_INTEGRATED` (`CUST-WEB-001-CP03`): `/signup` thật gọi `register` (chỉ tạo tài khoản, không đăng nhập), link “Tạo tài khoản” ở `/login` và menu ẩn danh.
 - `REAL_INTEGRATED` (`CUST-WEB-001-CP04`): `/account` chỉ đọc (email từ `me`), mục “Tài khoản” theo `me` ở header/mobile/`FooterNav`; `/account-password|billing|savelists` hiện “Chức năng này chưa được hỗ trợ”.
+- `REAL_INTEGRATED` (`CUST-WEB-001-CP05a`): `/listing-stay` là kết quả catalog/availability thật của The BHA Riverside với tham số tìm kiếm trên URL (reload/chia sẻ/Back-Forward); `/listing-stay-map` chỉ là alias redirect (chưa có bản đồ); House/Villa “Chưa hỗ trợ đặt phòng trực tuyến”. Search ở header/trang chủ giữ hành vi cũ (về Featured), chưa chuyển sang URL.
 - `TEMPLATE_ONLY`: `/checkout`, `/contact`, `/about`,
-  footer, `/listing-stay` (`DEMO_STAY_LISTINGS`), các dịch vụ Cars/Flights/Experiences/Real Estate, rating/review mẫu.
+  footer, các dịch vụ Cars/Flights/Experiences/Real Estate, rating/review mẫu.
 - API `Back_End` có `auth/register|login|logout|me`, đọc/hủy một reservation theo credential; Customer_Web gọi `me`, `login`, `logout`
   (CP01a–CP02) và `register` (CP03), **chưa** đọc/hủy reservation theo tài khoản. Chưa có API liệt kê đặt phòng của tài khoản, đổi hồ sơ/mật khẩu, quên mật khẩu, liên hệ/newsletter, thanh toán,
   email giao dịch. `register` trả 201 nhưng **không** đăng nhập.
