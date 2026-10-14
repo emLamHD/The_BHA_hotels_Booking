@@ -524,7 +524,7 @@ work item riêng.
   Manifest ghi `decision: owner-authorized`, `provenanceStatus: UNVERIFIED`, `validation: NOT_RUN` cho từng file; báo cáo **không** được khẳng định đó là ảnh chụp thật hay đúng phòng thật.
   Quyết định này thay đoạn "không publish" ở trên cho ảnh đã được Owner chọn; nó không phải cờ script chung.
 - **Template (C3, Owner):** giao diện khách là template Chisfis được khôi phục đầy đủ (không còn khung preview inert của C2). Chỉ dữ liệu The BHA Riverside (phòng, giá, đặt phòng) là thật;
-  phần còn lại là nội dung mẫu, có một dòng ghi chú. Route template mở lại; `/api/*` mặc định đóng (ngoại lệ: build có `API_PROXY_ORIGIN`); currency dropdown chỉ là template (không quy đổi VND).
+  phần còn lại là nội dung mẫu, có một dòng ghi chú. Route template mở lại; `/api/*` mặc định đóng (ngoại lệ: build có `API_PROXY_ORIGIN`); currency dropdown chỉ là template (không quy đổi VND). **Từ `CUST-WEB-001-CP08a` (Owner, 2026-10-14) quyết định này được thay thế chỉ cho trang chủ, header, footer và điều hướng công khai** (Riverside-first, không còn menu/tab đa dịch vụ hay nội dung mẫu ở đó); các route mẫu còn lại vẫn truy cập trực tiếp và `DP-01`/`DP-03`/`DP-10` vẫn `OPEN`.
 
 **Quyết định Owner đang chờ:** (1) ~~làm rõ ảnh 1PN~~ — đã giải quyết ở C3: Owner cho publish, provenance vẫn `UNVERIFIED` (cần Owner/pháp lý xác nhận nguồn và quyền sử dụng trước khi công bố thương mại); (2) tên miền: Owner đã cung cấp
 `thebhariverside.com` / `admin.` / `api.` (cùng registrable domain cho cookie Lax/Strict; DNS/live `NOT_TESTED`); (3) địa chỉ, mô tả, tiện nghi thật của Riverside; (4) runtime API
@@ -544,8 +544,9 @@ Nguồn đầy đủ: [CUST-WEB-001-product-contract](../design/CUST-WEB-001-pro
 - `REAL_INTEGRATED` (`CUST-WEB-001-CP03`): `/signup` thật gọi `register` (chỉ tạo tài khoản, không đăng nhập), link “Tạo tài khoản” ở `/login` và menu ẩn danh.
 - `REAL_INTEGRATED` (`CUST-WEB-001-CP04`): `/account` chỉ đọc (email từ `me`), mục “Tài khoản” theo `me` ở header/mobile/`FooterNav`; `/account-password|billing|savelists` hiện “Chức năng này chưa được hỗ trợ”.
 - `REAL_INTEGRATED` (`CUST-WEB-001-CP05a`): `/listing-stay` là kết quả catalog/availability thật của The BHA Riverside với tham số tìm kiếm trên URL (reload/chia sẻ/Back-Forward); `/listing-stay-map` chỉ là alias redirect (chưa có bản đồ); House/Villa “Chưa hỗ trợ đặt phòng trực tuyến”. Search ở header/trang chủ giữ hành vi cũ (về Featured), chưa chuyển sang URL.
-- `TEMPLATE_ONLY`: `/checkout`, `/contact`, `/about`,
-  footer, các dịch vụ Cars/Flights/Experiences/Real Estate, rating/review mẫu.
+- `REAL_INTEGRATED` (`CUST-WEB-001-CP08a`): trang chủ là The BHA Riverside (hero, loại phòng thật ở dạng browse không giá, lý do đặt, ảnh property, ba bước, vị trí, FAQ); header, drawer, app bar và footer chỉ dẫn tới nơi chạy được; mọi điểm vào tìm kiếm (hero, header mobile kể cả trang phòng) đi tới URL `/listing-stay` chuẩn bằng một navigation, trang chủ không hỏi availability. House/Villa hoãn, không có trong picker của trang chủ/header.
+- `TEMPLATE_ONLY`: `/checkout`, `/contact`, `/about`, `/author`, `/blog`, các dịch vụ Cars/Flights/Experiences/Real Estate
+  (các route này còn truy cập trực tiếp, không còn link từ header/footer), rating/review mẫu ở trang phòng.
 - API `Back_End` có `auth/register|login|logout|me`, đọc/hủy một reservation theo credential; Customer_Web gọi `me`, `login`, `logout`
   (CP01a–CP02) và `register` (CP03), **chưa** đọc/hủy reservation theo tài khoản. Chưa có API liệt kê đặt phòng của tài khoản, đổi hồ sơ/mật khẩu, quên mật khẩu, liên hệ/newsletter, thanh toán,
   email giao dịch. `register` trả 201 nhưng **không** đăng nhập.
