@@ -7,9 +7,7 @@ import type { Route } from "next";
 import { Fragment, useRef } from "react";
 import { BLOG_NAV_ITEMS } from "@/data/navigation";
 import { BLOG_PATH } from "@/lib/riversideHomeContent";
-
-const MAIN_LINK_CLASS =
-  "inline-flex items-center rounded-l-full py-2 pl-4 pr-1 text-sm xl:text-base font-normal text-neutral-700 hover:bg-neutral-100 hover:text-neutral-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:text-neutral-300 dark:hover:bg-neutral-800 dark:hover:text-neutral-200";
+import { NAV_MAIN_SPLIT_LEFT, NAV_SUB_TEXT } from "@/shared/headerTypography";
 
 /**
  * CUST-WEB-001-CP08a-C2: the "Blog" entry of the header. The name is a link to `/blog`; beside it a small button
@@ -30,7 +28,7 @@ export default function BlogNavDropdown() {
             if (open) close();
           }}
         >
-          <Link href={BLOG_PATH as Route} className={MAIN_LINK_CLASS} onClick={() => close()}>
+          <Link href={BLOG_PATH as Route} className={NAV_MAIN_SPLIT_LEFT} onClick={() => close()}>
             Blog
           </Link>
           <Popover.Button
@@ -56,7 +54,7 @@ export default function BlogNavDropdown() {
                     <Link
                       href={item.href as Route}
                       onClick={() => close()}
-                      className="flex items-center rounded-md px-4 py-2 font-normal text-neutral-600 hover:bg-neutral-100 hover:text-neutral-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:text-neutral-300 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+                      className={`flex items-center rounded-md px-4 py-2 ${NAV_SUB_TEXT} text-neutral-600 hover:bg-neutral-100 hover:text-neutral-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:text-neutral-300 dark:hover:bg-neutral-800 dark:hover:text-neutral-200`}
                     >
                       {item.name}
                     </Link>
