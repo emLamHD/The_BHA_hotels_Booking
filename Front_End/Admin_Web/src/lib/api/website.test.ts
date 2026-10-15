@@ -9,12 +9,15 @@ import {
   checkRateText,
   clearTranslation,
   createCurrency,
+  applyPack,
   createLanguage,
   deleteCurrency,
   deleteLanguage,
   listCurrencies,
   listLanguages,
+  exportPack,
   listTranslations,
+  previewPack,
   saveTranslation,
   setCurrencyActive,
   setCurrencyRate,
@@ -27,15 +30,23 @@ import {
 const BASE = "https://localhost:7145";
 const LANGUAGE = {
   code: "vi", displayName: "Vietnamese", nativeName: "Tiếng Việt", sortOrder: 10, isActive: true, isDefault: true,
-  version: 1, translatedKeys: 25, totalKeys: 25, updatedAtUtc: "2026-10-15T00:00:00+00:00",
+  version: 1, defaultCurrencyCode: "VND", direction: "ltr", formatLocale: "vi-VN", packId: "bha.vi", packVersion: "1",
+  requiredKeys: 25, translatedKeys: 25, missingKeys: 0, outdatedKeys: 0, manualKeys: 0, isComplete: true,
+  updatedAtUtc: "2026-10-15T00:00:00+00:00",
 };
+const LANGUAGE_INPUT = { displayName: "French", nativeName: "Français", sortOrder: 30, isActive: false, defaultCurrencyCode: "EUR", direction: "ltr" as const, formatLocale: "fr-FR" };
 const CURRENCY = {
   code: "USD", name: "US dollar", symbol: "$", minorUnits: 2, sortOrder: 20, isActive: false, isDefault: false, isBase: false,
   vndPerUnit: null, rateUpdatedAtUtc: null, rateSource: "manual", version: 1, updatedAtUtc: "2026-10-15T00:00:00+00:00",
 };
 const ROW = {
-  key: "common.close", group: "common", sourceText: "Đóng", placeholders: [], value: null, effectiveValue: "Đóng",
-  hasOverride: false, isFallback: true, version: null, updatedAtUtc: null,
+  key: "customer.common.close", scope: "customer", group: "common", context: null, sourceText: "Đóng", placeholders: [], value: null,
+  status: "missing", isManual: false, version: null, updatedAtUtc: null,
+};
+const LIST = {
+  locale: "vi", referenceLocale: "vi", defaultLocale: "vi", isDefaultLocale: true, total: 1, page: 1, pageSize: 25,
+  facets: { required: 1, translated: 0, missing: 1, outdated: 0, manual: 0, scopes: [{ name: "customer", count: 1 }], groups: [{ name: "common", count: 1 }] },
+  rows: [ROW],
 };
 
 function respond(status: number, body?: unknown) {
@@ -74,13 +85,13 @@ describe("what goes on the wire", () => {
   it("writes JSON with the cookie and never sets an Origin or an actor itself", async () => {
     const spy = respond(201, LANGUAGE);
     vi.stubGlobal("fetch", spy);
-    await createLanguage(" fr ", { displayName: "French", nativeName: "Français", sortOrder: 30, isActive: false });
+    await createLanguage(" fr ", LANGUAGE_INPUT);
     const [url, init] = spy.mock.calls[0];
     expect(url).toBe(`${BASE}/api/admin/v1/website/languages`);
     expect(init.method).toBe("POST");
     expect(init.credentials).toBe("include");
     expect(init.headers).toEqual({ Accept: "application/json", "Content-Type": "application/json" });
-    expect(JSON.parse(init.body)).toEqual({ code: "fr", displayName: "French", nativeName: "Français", sortOrder: 30, isActive: false });
+    expect(JSON.parse(init.body)).toEqual({ code: "fr", ...LANGUAGE_INPUT });
     expect(Object.keys(init.headers)).not.toContain("Origin");
     expect(init.body).not.toMatch(/actor|permission|staff/i);
   });
@@ -102,19 +113,43 @@ describe("what goes on the wire", () => {
     expect(JSON.parse(spy.mock.calls[0][1].body)).toEqual({ locale: "fr", key: "common.close", value: "Fermer", expectedVersion: null });
     const languageSpy = respond(200, LANGUAGE);
     vi.stubGlobal("fetch", languageSpy);
-    await updateLanguage("zh-Hans", 2, { displayName: "Chinese", nativeName: "中文", sortOrder: 40, isActive: true });
+    await updateLanguage("zh-Hans", 2, { ...LANGUAGE_INPUT, displayName: "Chinese", nativeName: "中文", sortOrder: 40, isActive: true });
     expect(languageSpy.mock.calls[0][0]).toBe(`${BASE}/api/admin/v1/website/languages/zh-Hans/update`);
     await setDefaultLanguage("a/b", 1);
     expect(languageSpy.mock.calls[1][0]).toBe(`${BASE}/api/admin/v1/website/languages/a%2Fb/set-default`);
   });
 
-  it("builds the translations query from the locale, group and trimmed search", async () => {
-    const spy = respond(200, { locale: "vi", isDefaultLocale: true, defaultLocale: "vi", translatedKeys: 1, totalKeys: 1, groups: ["common"], rows: [ROW] });
+  it("builds the translations query from the locale, scope, group, status, trimmed search, reference and page", async () => {
+    const spy = respond(200, LIST);
     vi.stubGlobal("fetch", spy);
-    await listTranslations("vi", { group: "common", search: "  Đóng " });
-    expect(spy.mock.calls[0][0]).toBe(`${BASE}/api/admin/v1/website/translations?locale=vi&group=common&q=%C4%90%C3%B3ng`);
-    await listTranslations("vi", {});
-    expect(spy.mock.calls[1][0]).toBe(`${BASE}/api/admin/v1/website/translations?locale=vi`);
+    await listTranslations("vi", { scope: "customer", group: "common", status: "missing", search: "  Đóng ", reference: "en", page: 2, pageSize: 25 });
+    expect(spy.mock.calls[0][0]).toBe(`${BASE}/api/admin/v1/website/translations?locale=vi&page=2&pageSize=25&scope=customer&group=common&status=missing&q=%C4%90%C3%B3ng&reference=en`);
+    await listTranslations("vi", { page: 1, pageSize: 50 });
+    expect(spy.mock.calls[1][0]).toBe(`${BASE}/api/admin/v1/website/translations?locale=vi&page=1&pageSize=50`);
+  });
+
+  it("previews with no change to the server's data, applies with the preview's token, and exports as text", async () => {
+    const counts = { required: 1, inPack: 1, added: 1, updated: 0, unchanged: 0, keptManual: 0, overwrittenManual: 0, ignored: 0, rejected: 0, missingAfter: 0, obsolete: 0 };
+    const preview = { locale: "fr", displayName: "French", nativeName: "Français", packId: "bha.fr", packVersion: "7", mode: "keep-manual", isNewLanguage: true, languageVersion: null, defaultCurrency: "EUR", counts, issues: [], issuesTruncated: false, canApply: true, canEnable: true, previewToken: "t" };
+    const spy = respond(200, preview);
+    vi.stubGlobal("fetch", spy);
+    expect((await previewPack({ json: "{}" }, "keep-manual")).kind).toBe("ok");
+    expect(spy.mock.calls[0][0]).toBe(`${BASE}/api/admin/v1/website/language-packs/preview`);
+    expect(JSON.parse(spy.mock.calls[0][1].body)).toEqual({ json: "{}", mode: "keep-manual" });
+    const applySpy = respond(200, { counts, enabled: true, language: LANGUAGE });
+    vi.stubGlobal("fetch", applySpy);
+    await applyPack({ builtInPackId: "bha.fr" }, "overwrite", "t", true);
+    expect(JSON.parse(applySpy.mock.calls[0][1].body)).toEqual({ builtInPackId: "bha.fr", mode: "overwrite", previewToken: "t", enable: true });
+    const exportSpy = vi.fn().mockResolvedValue(new Response('{"schema":"bha.language-pack/1"}', { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", exportSpy);
+    expect(await exportPack("fr")).toEqual({ kind: "ok", data: '{"schema":"bha.language-pack/1"}' });
+    expect(exportSpy.mock.calls[0][0]).toBe(`${BASE}/api/admin/v1/website/language-packs/export/fr`);
+  });
+
+  it("a lost answer to an apply is unverified, while a lost answer to a read is only a network failure", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("down")));
+    expect((await applyPack({ builtInPackId: "bha.fr" }, "keep-manual", "t", false)).kind).toBe("unverified");
+    expect((await previewPack({ builtInPackId: "bha.fr" }, "keep-manual")).kind).toBe("network");
   });
 
   it.each([
@@ -150,7 +185,7 @@ describe("what each answer means", () => {
     vi.stubGlobal("fetch", respond(403));
     expect(await listCurrencies()).toEqual({ kind: "denied" });
     vi.stubGlobal("fetch", respond(403));
-    expect(await createLanguage("fr", { displayName: "x", nativeName: "x", sortOrder: 1, isActive: false })).toEqual({ kind: "denied" });
+    expect(await createLanguage("fr", { ...LANGUAGE_INPUT, displayName: "x", nativeName: "x", sortOrder: 1, isActive: false })).toEqual({ kind: "denied" });
   });
 
   it.each([400, 404, 409])("%i is a refusal with the server's code, field and reason", async (status) => {
@@ -167,7 +202,7 @@ describe("what each answer means", () => {
   it("a write that gets no answer is UNVERIFIED, a read that gets none is a network error, and neither is retried", async () => {
     const down = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
     vi.stubGlobal("fetch", down);
-    expect((await createLanguage("fr", { displayName: "x", nativeName: "x", sortOrder: 1, isActive: false })).kind).toBe("unverified");
+    expect((await createLanguage("fr", { ...LANGUAGE_INPUT, displayName: "x", nativeName: "x", sortOrder: 1, isActive: false })).kind).toBe("unverified");
     expect(down).toHaveBeenCalledTimes(1);
     expect((await listLanguages()).kind).toBe("network");
     expect(down).toHaveBeenCalledTimes(2);
@@ -181,7 +216,7 @@ describe("what each answer means", () => {
 
   it("a 2xx whose body cannot be read is unverified for a write and invalid for a read", async () => {
     vi.stubGlobal("fetch", respond(200, "not json"));
-    expect((await updateLanguage("vi", 1, { displayName: "x", nativeName: "x", sortOrder: 1, isActive: true })).kind).toBe("unverified");
+    expect((await updateLanguage("vi", 1, { ...LANGUAGE_INPUT, displayName: "x", nativeName: "x", sortOrder: 1, isActive: true })).kind).toBe("unverified");
     expect((await listLanguages()).kind).toBe("invalid-response");
     vi.stubGlobal("fetch", respond(200, [{ ...LANGUAGE, version: "1" }]));
     expect((await listLanguages()).kind).toBe("invalid-response");
@@ -191,7 +226,7 @@ describe("what each answer means", () => {
 
   it("an unexpected status that is not a refusal is an error, not an unverified write", async () => {
     vi.stubGlobal("fetch", respond(415, { title: "Unsupported media type" }));
-    expect(await createLanguage("fr", { displayName: "x", nativeName: "x", sortOrder: 1, isActive: false })).toMatchObject({ kind: "error", status: 415 });
+    expect(await createLanguage("fr", { ...LANGUAGE_INPUT, displayName: "x", nativeName: "x", sortOrder: 1, isActive: false })).toMatchObject({ kind: "error", status: 415 });
   });
 
   it("an aborted read is not an error and is never retried", async () => {

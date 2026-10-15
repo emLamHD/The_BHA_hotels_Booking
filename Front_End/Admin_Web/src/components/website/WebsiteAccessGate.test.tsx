@@ -58,7 +58,7 @@ const authenticated = (session = ALLOWED): StaffSessionResult => ({ kind: "authe
 describe("configuration", () => {
   it.each([
     ["an invalid mode", "Staf", /must be exactly Staff or LocalGate/, "website-config-error"],
-    ["LocalGate", "LocalGate", /need Staff sign-in/, "website-needs-staff-mode"],
+    ["LocalGate", "LocalGate", /cần đăng nhập Staff/, "website-needs-staff-mode"],
   ])("%s shows a panel and asks nobody anything", (_label, value, message, testId) => {
     vi.stubEnv("NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE", value);
     render(<WebsiteAccessGate returnTo="/website/languages"><Probe /></WebsiteAccessGate>);
@@ -85,7 +85,7 @@ describe("the session and the permission", () => {
     expect(screen.queryByTestId("page")).toBeNull();
     await act(async () => me.resolve(authenticated()));
     expect(screen.getByTestId("page")).toBeInTheDocument();
-    expect(screen.getByTestId("staff-identity")).toHaveTextContent("Signed in as site@example.com");
+    expect(screen.getByTestId("staff-identity")).toHaveTextContent("Đang đăng nhập với site@example.com");
   });
 
   it.each([
@@ -107,7 +107,7 @@ describe("the session and the permission", () => {
     expect(await screen.findByTestId("staff-session-error")).toHaveTextContent("unreachable");
     expect(replace).not.toHaveBeenCalled();
     mockedMe.mockResolvedValueOnce(authenticated());
-    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await userEvent.click(screen.getByRole("button", { name: "Thử lại" }));
     expect(await screen.findByTestId("page")).toBeInTheDocument();
   });
 
@@ -118,7 +118,7 @@ describe("the session and the permission", () => {
   ])("an account with %s sees why, and the page is never mounted", async (_label, session) => {
     mockedMe.mockResolvedValue(authenticated(session));
     render(<WebsiteAccessGate returnTo="/website/languages"><Probe /></WebsiteAccessGate>);
-    expect(await screen.findByTestId("website-no-permission")).toHaveTextContent(/does not have access/);
+    expect(await screen.findByTestId("website-no-permission")).toHaveTextContent(/không có quyền với cài đặt website/);
     expect(screen.queryByTestId("page")).toBeNull();
     expect(mounts).toBe(0);
     expect(replace).not.toHaveBeenCalled();
@@ -136,7 +136,7 @@ describe("Sign out and writes exclude each other", () => {
     mockedMe.mockResolvedValue(authenticated());
     render(<WebsiteAccessGate returnTo="/website/languages"><Probe /></WebsiteAccessGate>);
     await screen.findByTestId("page");
-    const signOut = screen.getByRole("button", { name: "Sign out" });
+    const signOut = screen.getByRole("button", { name: "Đăng xuất" });
     expect(signOut).toBeEnabled();
 
     let first = false;
@@ -160,8 +160,8 @@ describe("Sign out and writes exclude each other", () => {
     mockedLogout.mockReturnValue(logout.promise);
     render(<WebsiteAccessGate returnTo="/website/languages"><Probe /></WebsiteAccessGate>);
     await screen.findByTestId("page");
-    await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
-    expect(screen.getByRole("button", { name: "Signing out…" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "Đăng xuất" }));
+    expect(screen.getByRole("button", { name: "Đang đăng xuất…" })).toBeDisabled();
     expect(host!.signingOut).toBe(true);
     let started = true;
     act(() => {
@@ -181,7 +181,7 @@ describe("Sign out and writes exclude each other", () => {
     mockedLogout.mockResolvedValue({ kind: "logged-out" });
     render(<WebsiteAccessGate returnTo="/website/currencies"><Probe /></WebsiteAccessGate>);
     await screen.findByTestId("page");
-    await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    await userEvent.click(screen.getByRole("button", { name: "Đăng xuất" }));
     await waitFor(() => expect(screen.queryByTestId("page")).toBeNull());
     expect(mounts).toBe(0);
     await waitFor(() => expect(replace).toHaveBeenCalledWith("/signin?returnTo=%2Fwebsite%2Fcurrencies"));
@@ -209,7 +209,7 @@ describe("a 403 or a 401 on a page that is open", () => {
     await act(async () => {
       await host!.onDenied();
     });
-    expect(screen.getByTestId("website-notice")).toHaveTextContent(/refused that request \(403\)/);
+    expect(screen.getByTestId("website-notice")).toHaveTextContent(/từ chối yêu cầu \(403\)/);
     expect(screen.getByTestId("page")).toBeInTheDocument();
   });
 
@@ -244,6 +244,6 @@ describe("a 403 or a 401 on a page that is open", () => {
     act(() => host!.onUnauthenticated());
     await waitFor(() => expect(replace).toHaveBeenCalledWith("/signin?returnTo=%2Fwebsite%2Ftranslations"));
     expect(screen.queryByTestId("page")).toBeNull();
-    expect(screen.getByTestId("staff-session-required")).toHaveTextContent("Your Staff session has ended");
+    expect(screen.getByTestId("staff-session-required")).toHaveTextContent("Phiên đăng nhập Staff của bạn đã kết thúc");
   });
 });

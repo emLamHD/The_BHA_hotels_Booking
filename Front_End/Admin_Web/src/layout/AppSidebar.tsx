@@ -47,9 +47,9 @@ const navItems: NavItem[] = [
     icon: <PlugInIcon />,
     name: "Website",
     subItems: [
-      { name: "Languages", path: "/website/languages", pro: false },
-      { name: "UI translations", path: "/website/translations", pro: false },
-      { name: "Currencies and rates", path: "/website/currencies", pro: false },
+      { name: "Ngôn ngữ & bản dịch", path: "/website/languages", pro: false },
+      { name: "Bản dịch", path: "/website/translations", pro: false },
+      { name: "Tiền tệ & tỷ giá", path: "/website/currencies", pro: false },
     ],
   },
 

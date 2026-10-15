@@ -1,6 +1,6 @@
 /**
- * CUST-WEB-HEADER-001-CP02: the typed client of the website-settings Admin API
- * (`/api/admin/v1/website/…`: languages, UI translations, currencies and exchange rates).
+ * CUST-WEB-HEADER-001-CP02-C2-R1: the typed client of the website-settings Admin API
+ * (`/api/admin/v1/website/…`: languages, language packs, translations, currencies and exchange rates).
  *
  * Every call carries the browser's `.TheBha.Staff` cookie (`credentials: "include"`); the browser adds `Origin`
  * itself. Nothing is stored, nothing is retried: a write is sent once. What comes back is sorted into outcomes
@@ -13,7 +13,8 @@
  *   have been applied, so the screen must read the server again before anything is sent a second time.
  * - `network` / `error` / `invalid-response` — the same for a read, where nothing can have changed.
  *
- * A rate is a decimal STRING in both directions (`"25000.5"`), never a JS number, so no digit is ever lost.
+ * A rate is a decimal STRING in both directions (`"25000.5"`), never a JS number, so no digit is ever lost. The
+ * words shown to the operator are Vietnamese; a server `detail` (English) is kept for the cases no code explains.
  */
 
 import { describeApiBaseUrlError, getApiBaseUrl } from "./env";
@@ -27,32 +28,54 @@ export interface WebsiteLanguage {
   isActive: boolean;
   isDefault: boolean;
   version: number;
+  /** The currency a visitor gets with this language; `null` = the site default. */
+  defaultCurrencyCode: string | null;
+  direction: "ltr" | "rtl";
+  formatLocale: string;
+  packId: string | null;
+  packVersion: string | null;
+  requiredKeys: number;
   translatedKeys: number;
-  totalKeys: number;
+  missingKeys: number;
+  outdatedKeys: number;
+  manualKeys: number;
+  /** Every required text exists and is valid: the only state a language may be switched on in. */
+  isComplete: boolean;
   updatedAtUtc: string;
 }
 
+export type TranslationStatus = "translated" | "missing" | "outdated";
+
 export interface WebsiteTranslationRow {
   key: string;
+  scope: string;
   group: string;
-  sourceText: string;
+  context: string | null;
   placeholders: string[];
-  /** The override of this language, or `null` when it falls back to the default language. */
+  /** The reference language's text. */
+  sourceText: string;
+  /** The text of this language, or `null` when there is none (a fallback is never shown as a translation). */
   value: string | null;
-  effectiveValue: string;
-  hasOverride: boolean;
-  isFallback: boolean;
+  status: TranslationStatus;
+  isManual: boolean;
   version: number | null;
   updatedAtUtc: string | null;
 }
 
+export interface FacetCount {
+  name: string;
+  count: number;
+}
+
 export interface WebsiteTranslationList {
   locale: string;
-  isDefaultLocale: boolean;
+  referenceLocale: string;
   defaultLocale: string;
-  translatedKeys: number;
-  totalKeys: number;
-  groups: string[];
+  isDefaultLocale: boolean;
+  total: number;
+  page: number;
+  pageSize: number;
+  facets: { required: number; translated: number; missing: number; outdated: number; manual: number; scopes: FacetCount[]; groups: FacetCount[] };
   rows: WebsiteTranslationRow[];
 }
 
@@ -72,6 +95,69 @@ export interface WebsiteCurrency {
   version: number;
   updatedAtUtc: string;
 }
+
+export interface LibraryPack {
+  id: string;
+  locale: string;
+  displayName: string;
+  nativeName: string;
+  version: string;
+  texts: number;
+  missingFromCatalog: number;
+  /** `available`, `installed` or `update-available`. */
+  state: string;
+  installedVersion: string | null;
+}
+
+export interface PackCounts {
+  required: number;
+  inPack: number;
+  added: number;
+  updated: number;
+  unchanged: number;
+  keptManual: number;
+  overwrittenManual: number;
+  ignored: number;
+  rejected: number;
+  missingAfter: number;
+  obsolete: number;
+}
+
+export interface PackIssue {
+  key: string | null;
+  severity: string;
+  code: string;
+  message: string;
+}
+
+export interface PackPreview {
+  locale: string;
+  displayName: string;
+  nativeName: string;
+  packId: string;
+  packVersion: string;
+  mode: PackMode;
+  isNewLanguage: boolean;
+  languageVersion: number | null;
+  defaultCurrency: string | null;
+  counts: PackCounts;
+  issues: PackIssue[];
+  issuesTruncated: boolean;
+  canApply: boolean;
+  canEnable: boolean;
+  previewToken: string;
+}
+
+export interface PackApplyResult {
+  counts: PackCounts;
+  enabled: boolean;
+  language: WebsiteLanguage;
+}
+
+export type PackMode = "keep-manual" | "overwrite";
+
+/** A pack to check or install: one of the library, or the text of an uploaded file — never a URL. */
+export type PackSource = { builtInPackId: string } | { json: string };
 
 export type WebsiteFailure =
   | { kind: "unauthenticated" }
@@ -94,14 +180,12 @@ const RATE_TEXT = /^(0|[1-9][0-9]{0,11})(\.[0-9]{1,8})?$/;
 
 /** `null` when the text can be a BCP 47 tag of the supported shape (`vi`, `en-US`, `zh-Hans`). */
 export function checkLanguageCode(text: string): string | null {
-  return LANGUAGE_TAG.test(text.trim())
-    ? null
-    : "Use a language tag such as vi, en-US or zh-Hans (letters, optional script and region).";
+  return LANGUAGE_TAG.test(text.trim()) ? null : "Dùng mã ngôn ngữ như vi, en-US hoặc zh-Hans (chữ cái, có thể thêm chữ viết và vùng).";
 }
 
 /** `null` when the text is three letters; whether it is an ISO 4217 code is the server's call. */
 export function checkCurrencyCode(text: string): string | null {
-  return /^[A-Za-z]{3}$/.test(text.trim()) ? null : "Use a three-letter ISO 4217 code such as USD.";
+  return /^[A-Za-z]{3}$/.test(text.trim()) ? null : "Dùng mã tiền tệ ISO 4217 gồm ba chữ cái, ví dụ USD.";
 }
 
 /**
@@ -110,9 +194,9 @@ export function checkCurrencyCode(text: string): string | null {
  */
 export function checkRateText(text: string): string | null {
   if (!RATE_TEXT.test(text)) {
-    return "Enter VND per one unit as a plain decimal, for example 25000.5 (digits and one '.', up to 12 + 8 digits, no commas or spaces).";
+    return "Nhập số VND cho một đơn vị tiền tệ dạng số thập phân thường, ví dụ 25000.5 (chỉ chữ số và một dấu '.', không dấu phẩy hay khoảng trắng).";
   }
-  return /^0(\.0+)?$/.test(text) ? "The rate must be greater than zero." : null;
+  return /^0(\.0+)?$/.test(text) ? "Tỷ giá phải lớn hơn 0." : null;
 }
 
 // ---------------------------------------------------------------- response checking
@@ -123,22 +207,6 @@ const isStr = (value: unknown): value is string => typeof value === "string";
 const isNum = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
 const isBool = (value: unknown): value is boolean => typeof value === "boolean";
 const strOrNull = (value: unknown): value is string | null => value === null || isStr(value);
-
-export function parseLanguage(data: unknown): WebsiteLanguage | null {
-  if (!isRec(data)) return null;
-  if (
-    !isStr(data.code) || data.code === "" || !isStr(data.displayName) || !isStr(data.nativeName) || !isNum(data.sortOrder) ||
-    !isBool(data.isActive) || !isBool(data.isDefault) || !isNum(data.version) || !isNum(data.translatedKeys) ||
-    !isNum(data.totalKeys) || !isStr(data.updatedAtUtc)
-  ) {
-    return null;
-  }
-  return {
-    code: data.code, displayName: data.displayName, nativeName: data.nativeName, sortOrder: data.sortOrder,
-    isActive: data.isActive, isDefault: data.isDefault, version: data.version, translatedKeys: data.translatedKeys,
-    totalKeys: data.totalKeys, updatedAtUtc: data.updatedAtUtc,
-  };
-}
 
 function parseList<T>(data: unknown, parse: (item: unknown) => T | null): T[] | null {
   if (!Array.isArray(data)) return null;
@@ -151,35 +219,64 @@ function parseList<T>(data: unknown, parse: (item: unknown) => T | null): T[] | 
   return items;
 }
 
-export function parseTranslationRow(data: unknown): WebsiteTranslationRow | null {
+export function parseLanguage(data: unknown): WebsiteLanguage | null {
   if (!isRec(data)) return null;
   if (
-    !isStr(data.key) || data.key === "" || !isStr(data.group) || !isStr(data.sourceText) || !Array.isArray(data.placeholders) ||
-    !data.placeholders.every(isStr) || !strOrNull(data.value) || !isStr(data.effectiveValue) || !isBool(data.hasOverride) ||
-    !isBool(data.isFallback) || !(data.version === null || isNum(data.version)) || !strOrNull(data.updatedAtUtc)
+    !isStr(data.code) || data.code === "" || !isStr(data.displayName) || !isStr(data.nativeName) || !isNum(data.sortOrder) ||
+    !isBool(data.isActive) || !isBool(data.isDefault) || !isNum(data.version) || !strOrNull(data.defaultCurrencyCode) ||
+    !(data.direction === "ltr" || data.direction === "rtl") || !isStr(data.formatLocale) || !strOrNull(data.packId) ||
+    !strOrNull(data.packVersion) || !isNum(data.requiredKeys) || !isNum(data.translatedKeys) || !isNum(data.missingKeys) ||
+    !isNum(data.outdatedKeys) || !isNum(data.manualKeys) || !isBool(data.isComplete) || !isStr(data.updatedAtUtc)
   ) {
     return null;
   }
   return {
-    key: data.key, group: data.group, sourceText: data.sourceText, placeholders: data.placeholders as string[], value: data.value,
-    effectiveValue: data.effectiveValue, hasOverride: data.hasOverride, isFallback: data.isFallback,
+    code: data.code, displayName: data.displayName, nativeName: data.nativeName, sortOrder: data.sortOrder, isActive: data.isActive,
+    isDefault: data.isDefault, version: data.version, defaultCurrencyCode: data.defaultCurrencyCode, direction: data.direction,
+    formatLocale: data.formatLocale, packId: data.packId, packVersion: data.packVersion, requiredKeys: data.requiredKeys,
+    translatedKeys: data.translatedKeys, missingKeys: data.missingKeys, outdatedKeys: data.outdatedKeys, manualKeys: data.manualKeys,
+    isComplete: data.isComplete, updatedAtUtc: data.updatedAtUtc,
+  };
+}
+
+export function parseTranslationRow(data: unknown): WebsiteTranslationRow | null {
+  if (!isRec(data)) return null;
+  if (
+    !isStr(data.key) || data.key === "" || !isStr(data.scope) || !isStr(data.group) || !strOrNull(data.context) ||
+    !Array.isArray(data.placeholders) || !data.placeholders.every(isStr) || !isStr(data.sourceText) || !strOrNull(data.value) ||
+    !(data.status === "translated" || data.status === "missing" || data.status === "outdated") || !isBool(data.isManual) ||
+    !(data.version === null || isNum(data.version)) || !strOrNull(data.updatedAtUtc)
+  ) {
+    return null;
+  }
+  return {
+    key: data.key, scope: data.scope, group: data.group, context: data.context, placeholders: data.placeholders as string[],
+    sourceText: data.sourceText, value: data.value, status: data.status, isManual: data.isManual,
     version: data.version as number | null, updatedAtUtc: data.updatedAtUtc,
   };
 }
 
+const parseFacet = (data: unknown): FacetCount | null => (isRec(data) && isStr(data.name) && isNum(data.count) ? { name: data.name, count: data.count } : null);
+
 export function parseTranslationList(data: unknown): WebsiteTranslationList | null {
-  if (!isRec(data)) return null;
+  if (!isRec(data) || !isRec(data.facets)) return null;
+  const facets = data.facets;
   if (
-    !isStr(data.locale) || !isBool(data.isDefaultLocale) || !isStr(data.defaultLocale) || !isNum(data.translatedKeys) ||
-    !isNum(data.totalKeys) || !Array.isArray(data.groups) || !data.groups.every(isStr)
+    !isStr(data.locale) || !isStr(data.referenceLocale) || !isStr(data.defaultLocale) || !isBool(data.isDefaultLocale) ||
+    !isNum(data.total) || !isNum(data.page) || !isNum(data.pageSize) || !isNum(facets.required) || !isNum(facets.translated) ||
+    !isNum(facets.missing) || !isNum(facets.outdated) || !isNum(facets.manual)
   ) {
     return null;
   }
+  const scopes = parseList(facets.scopes, parseFacet);
+  const groups = parseList(facets.groups, parseFacet);
   const rows = parseList(data.rows, parseTranslationRow);
-  if (rows === null) return null;
+  if (scopes === null || groups === null || rows === null) return null;
   return {
-    locale: data.locale, isDefaultLocale: data.isDefaultLocale, defaultLocale: data.defaultLocale,
-    translatedKeys: data.translatedKeys, totalKeys: data.totalKeys, groups: data.groups as string[], rows,
+    locale: data.locale, referenceLocale: data.referenceLocale, defaultLocale: data.defaultLocale, isDefaultLocale: data.isDefaultLocale,
+    total: data.total, page: data.page, pageSize: data.pageSize,
+    facets: { required: facets.required, translated: facets.translated, missing: facets.missing, outdated: facets.outdated, manual: facets.manual, scopes, groups },
+    rows,
   };
 }
 
@@ -200,8 +297,63 @@ export function parseCurrency(data: unknown): WebsiteCurrency | null {
   };
 }
 
+export function parseLibraryPack(data: unknown): LibraryPack | null {
+  if (!isRec(data)) return null;
+  if (
+    !isStr(data.id) || !isStr(data.locale) || !isStr(data.displayName) || !isStr(data.nativeName) || !isStr(data.version) ||
+    !isNum(data.texts) || !isNum(data.missingFromCatalog) || !isStr(data.state) || !strOrNull(data.installedVersion)
+  ) {
+    return null;
+  }
+  return {
+    id: data.id, locale: data.locale, displayName: data.displayName, nativeName: data.nativeName, version: data.version,
+    texts: data.texts, missingFromCatalog: data.missingFromCatalog, state: data.state, installedVersion: data.installedVersion,
+  };
+}
+
+function parseCounts(data: unknown): PackCounts | null {
+  if (!isRec(data)) return null;
+  const keys = ["required", "inPack", "added", "updated", "unchanged", "keptManual", "overwrittenManual", "ignored", "rejected", "missingAfter", "obsolete"] as const;
+  if (!keys.every((key) => isNum(data[key]))) return null;
+  return Object.fromEntries(keys.map((key) => [key, data[key] as number])) as unknown as PackCounts;
+}
+
+const parseIssue = (data: unknown): PackIssue | null =>
+  isRec(data) && strOrNull(data.key) && isStr(data.severity) && isStr(data.code) && isStr(data.message)
+    ? { key: data.key as string | null, severity: data.severity, code: data.code, message: data.message }
+    : null;
+
+export function parsePackPreview(data: unknown): PackPreview | null {
+  if (!isRec(data)) return null;
+  const counts = parseCounts(data.counts);
+  const issues = parseList(data.issues, parseIssue);
+  if (
+    counts === null || issues === null || !isStr(data.locale) || !isStr(data.displayName) || !isStr(data.nativeName) ||
+    !isStr(data.packId) || !isStr(data.packVersion) || !(data.mode === "keep-manual" || data.mode === "overwrite") ||
+    !isBool(data.isNewLanguage) || !(data.languageVersion === null || isNum(data.languageVersion)) || !strOrNull(data.defaultCurrency) ||
+    !isBool(data.issuesTruncated) || !isBool(data.canApply) || !isBool(data.canEnable) || !isStr(data.previewToken)
+  ) {
+    return null;
+  }
+  return {
+    locale: data.locale, displayName: data.displayName, nativeName: data.nativeName, packId: data.packId, packVersion: data.packVersion,
+    mode: data.mode, isNewLanguage: data.isNewLanguage, languageVersion: data.languageVersion as number | null,
+    defaultCurrency: data.defaultCurrency, counts, issues, issuesTruncated: data.issuesTruncated, canApply: data.canApply,
+    canEnable: data.canEnable, previewToken: data.previewToken,
+  };
+}
+
+export function parsePackApplyResult(data: unknown): PackApplyResult | null {
+  if (!isRec(data)) return null;
+  const counts = parseCounts(data.counts);
+  const language = parseLanguage(data.language);
+  if (counts === null || language === null || !isBool(data.enabled)) return null;
+  return { counts, enabled: data.enabled, language };
+}
+
 const parseLanguages = (data: unknown) => parseList(data, parseLanguage);
 const parseCurrencies = (data: unknown) => parseList(data, parseCurrency);
+const parseLibrary = (data: unknown) => parseList(data, parseLibraryPack);
 
 // ---------------------------------------------------------------- one request
 
@@ -210,6 +362,8 @@ interface CallOptions<T> {
   parse?: (data: unknown) => T | null;
   /** The success status carries no body (delete). */
   noContent?: boolean;
+  /** The success body is plain text (an exported pack). */
+  text?: boolean;
   signal?: AbortSignal;
 }
 
@@ -217,7 +371,7 @@ function target(path: string): { ok: true; url: string } | { ok: false; message:
   const mode = getAccessMode();
   if (!mode.ok) return { ok: false, message: mode.message };
   if (mode.mode !== "Staff") {
-    return { ok: false, message: "The website settings need Staff sign-in. They are not available in LocalGate mode." };
+    return { ok: false, message: "Cài đặt website cần đăng nhập Staff. Chúng không dùng được ở chế độ LocalGate." };
   }
   const base = getApiBaseUrl();
   if (!base.ok) return { ok: false, message: describeApiBaseUrlError(base.reason) };
@@ -237,7 +391,7 @@ async function readProblem(response: Response): Promise<{ code: string | null; f
   } catch {
     // An unreadable problem body still has a status.
   }
-  return { code: null, field: null, detail: `The Admin API answered HTTP ${response.status}.` };
+  return { code: null, field: null, detail: `Máy chủ Admin trả lời HTTP ${response.status}.` };
 }
 
 async function call<T>(method: "GET" | "POST", path: string, body: unknown, options: CallOptions<T>): Promise<WebsiteResult<T>> {
@@ -245,14 +399,14 @@ async function call<T>(method: "GET" | "POST", path: string, body: unknown, opti
   if (!destination.ok) return { kind: "config", message: destination.message };
   const { write } = options;
   const noAnswer = write
-    ? ({ kind: "unverified", message: "The Admin API did not answer, so the change may or may not have been saved." } as const)
-    : ({ kind: "network", message: "Could not reach the Admin API. Check your connection and try again." } as const);
+    ? ({ kind: "unverified", message: "Máy chủ Admin không trả lời, nên thay đổi có thể đã hoặc chưa được lưu." } as const)
+    : ({ kind: "network", message: "Không kết nối được tới máy chủ Admin. Hãy kiểm tra kết nối rồi thử lại." } as const);
 
   let response: Response;
   try {
     response = await fetch(destination.url, {
       method,
-      headers: method === "POST" ? { Accept: "application/json", "Content-Type": "application/json" } : { Accept: "application/json" },
+      headers: method === "POST" ? { Accept: "application/json", "Content-Type": "application/json" } : { Accept: options.text ? "application/json, text/plain" : "application/json" },
       body: method === "POST" ? JSON.stringify(body ?? {}) : undefined,
       credentials: "include",
       cache: "no-store",
@@ -260,7 +414,7 @@ async function call<T>(method: "GET" | "POST", path: string, body: unknown, opti
       signal: options.signal,
     });
   } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") return { kind: "network", message: "The request was cancelled." };
+    if (error instanceof DOMException && error.name === "AbortError") return { kind: "network", message: "Yêu cầu đã bị huỷ." };
     return noAnswer;
   }
 
@@ -271,27 +425,28 @@ async function call<T>(method: "GET" | "POST", path: string, body: unknown, opti
   }
   if (response.status >= 500) {
     return write
-      ? { kind: "unverified", message: `The Admin API answered HTTP ${response.status}, so the change may or may not have been saved.` }
-      : { kind: "error", status: response.status, message: `The Admin API answered HTTP ${response.status}. Try again in a moment.` };
+      ? { kind: "unverified", message: `Máy chủ Admin trả lời HTTP ${response.status}, nên thay đổi có thể đã hoặc chưa được lưu.` }
+      : { kind: "error", status: response.status, message: `Máy chủ Admin trả lời HTTP ${response.status}. Hãy thử lại sau ít phút.` };
   }
   if (!response.ok) {
     // Any other status (a redirect, 405, 415, 429…): the request was not applied.
-    return { kind: "error", status: response.status, message: `The Admin API refused the request (HTTP ${response.status}).` };
+    return { kind: "error", status: response.status, message: `Máy chủ Admin từ chối yêu cầu (HTTP ${response.status}).` };
   }
   if (options.noContent) {
     return response.status === 204 ? { kind: "ok", data: undefined as T } : write
-      ? { kind: "unverified", message: "The Admin API gave an unexpected answer, so the change may or may not have been saved." }
-      : { kind: "invalid-response", message: "The Admin API gave an unexpected answer." };
+      ? { kind: "unverified", message: "Máy chủ Admin trả lời không như mong đợi, nên thay đổi có thể đã hoặc chưa được lưu." }
+      : { kind: "invalid-response", message: "Máy chủ Admin trả lời không như mong đợi." };
   }
   try {
+    if (options.text) return { kind: "ok", data: (await response.text()) as T };
     const parsed = options.parse ? options.parse(await response.json()) : null;
     if (parsed !== null) return { kind: "ok", data: parsed };
   } catch {
     // Falls through: a 2xx whose body cannot be read.
   }
   return write
-    ? { kind: "unverified", message: "The Admin API saved nothing it could confirm: its answer could not be read." }
-    : { kind: "invalid-response", message: "The Admin API answer could not be read." };
+    ? { kind: "unverified", message: "Không có gì được xác nhận: không đọc được câu trả lời của máy chủ Admin." }
+    : { kind: "invalid-response", message: "Không đọc được câu trả lời của máy chủ Admin." };
 }
 
 const encode = (value: string) => encodeURIComponent(value);
@@ -303,6 +458,9 @@ export interface LanguageInput {
   nativeName: string;
   sortOrder: number;
   isActive: boolean;
+  defaultCurrencyCode: string | null;
+  direction: "ltr" | "rtl";
+  formatLocale: string;
 }
 
 export const listLanguages = (signal?: AbortSignal) =>
@@ -320,12 +478,47 @@ export const setDefaultLanguage = (code: string, expectedVersion: number) =>
 export const deleteLanguage = (code: string, expectedVersion: number) =>
   call<void>("POST", `${SETTINGS}/languages/${encode(code)}/delete`, { expectedVersion }, { write: true, noContent: true });
 
+// ---------------------------------------------------------------- language packs
+
+const PACKS = `${SETTINGS}/language-packs`;
+
+export const listLibraryPacks = (signal?: AbortSignal) =>
+  call<LibraryPack[]>("GET", `${PACKS}/library`, undefined, { write: false, parse: parseLibrary, signal });
+
+/** Checks a pack on the server and says what installing it would do. Nothing is changed (so it is read-safe to repeat). */
+export const previewPack = (source: PackSource, mode: PackMode) =>
+  call<PackPreview>("POST", `${PACKS}/preview`, { ...source, mode }, { write: false, parse: parsePackPreview });
+
+/** Installs the pack the preview described; the token binds the two. A lost answer is `unverified`: read the server before retrying. */
+export const applyPack = (source: PackSource, mode: PackMode, previewToken: string, enable: boolean) =>
+  call<PackApplyResult>("POST", `${PACKS}/apply`, { ...source, mode, previewToken, enable }, { write: true, parse: parsePackApplyResult });
+
+export const exportPack = (code: string) => call<string>("GET", `${PACKS}/export/${encode(code)}`, undefined, { write: false, text: true });
+
+export const downloadPackTemplate = (referenceLocale?: string) =>
+  call<string>("GET", `${PACKS}/template${referenceLocale ? `?reference=${encode(referenceLocale)}` : ""}`, undefined, { write: false, text: true });
+
 // ---------------------------------------------------------------- translations
 
-export const listTranslations = (locale: string, filter: { group?: string; search?: string }, signal?: AbortSignal) => {
-  const query = new URLSearchParams({ locale });
+export type TranslationScope = "customer" | "admin" | "shared" | "content";
+
+export interface TranslationFilter {
+  scope?: string;
+  group?: string;
+  status?: string;
+  search?: string;
+  reference?: string;
+  page: number;
+  pageSize: number;
+}
+
+export const listTranslations = (locale: string, filter: TranslationFilter, signal?: AbortSignal) => {
+  const query = new URLSearchParams({ locale, page: String(filter.page), pageSize: String(filter.pageSize) });
+  if (filter.scope) query.set("scope", filter.scope);
   if (filter.group) query.set("group", filter.group);
+  if (filter.status) query.set("status", filter.status);
   if (filter.search?.trim()) query.set("q", filter.search.trim());
+  if (filter.reference) query.set("reference", filter.reference);
   return call<WebsiteTranslationList>("GET", `${SETTINGS}/translations?${query}`, undefined, { write: false, parse: parseTranslationList, signal });
 };
 

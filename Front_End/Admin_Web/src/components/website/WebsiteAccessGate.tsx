@@ -52,7 +52,7 @@ export default function WebsiteAccessGate({ returnTo, children }: { returnTo: st
   if (mode.mode !== "Staff") {
     return (
       <Panel role="alert" testId="website-needs-staff-mode">
-        The website settings need Staff sign-in, which this Admin build does not use (LocalGate mode). Nothing was requested.
+        Cài đặt website cần đăng nhập Staff, mà bản Admin này không dùng (chế độ LocalGate). Chưa có yêu cầu nào được gửi.
       </Panel>
     );
   }
@@ -98,7 +98,7 @@ function WebsiteBoundary({ returnTo, children }: { returnTo: string; children: R
         else if (result === "authenticated") {
           // The session is current. If it lost the permission the gate closes the page on this very render;
           // if it still has it, the 403 was something else (Origin, a proxy): say so rather than retry.
-          setNotice("The server refused that request (403) although your access is current. Nothing was changed; reload the page and try again.");
+          setNotice("Máy chủ từ chối yêu cầu (403) dù quyền của bạn vẫn còn hiệu lực. Chưa có gì thay đổi; hãy tải lại trang rồi thử lại.");
         }
       },
       onUnauthenticated: expire,
@@ -122,7 +122,7 @@ function WebsiteBoundary({ returnTo, children }: { returnTo: string; children: R
   }, [signOut]);
 
   if (state.status === "checking") {
-    return <Panel role="status" testId="staff-session-checking">Checking your Staff session…</Panel>;
+    return <Panel role="status" testId="staff-session-checking">Đang kiểm tra phiên đăng nhập Staff…</Panel>;
   }
   if (state.status === "error") {
     return (
@@ -133,7 +133,7 @@ function WebsiteBoundary({ returnTo, children }: { returnTo: string; children: R
           onClick={retry}
           className="ml-3 rounded-lg border border-gray-300 px-3 py-1 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-white/5"
         >
-          Retry
+          Thử lại
         </button>
       </Panel>
     );
@@ -141,10 +141,10 @@ function WebsiteBoundary({ returnTo, children }: { returnTo: string; children: R
   if (state.status === "unauthenticated") {
     return (
       <Panel role="status" testId="staff-session-required">
-        {state.reason === "expired" ? "Your Staff session has ended. " : state.reason === "signed-out" ? "You have signed out. " : ""}
-        Sign in to manage the website settings.{" "}
+        {state.reason === "expired" ? "Phiên đăng nhập Staff của bạn đã kết thúc. " : state.reason === "signed-out" ? "Bạn đã đăng xuất. " : ""}
+        Hãy đăng nhập để quản lý cài đặt website.{" "}
         <Link href={signInUrlFor(returnTo)} className="font-medium text-brand-500 hover:text-brand-600 dark:text-brand-400">
-          Sign in
+          Đăng nhập
         </Link>
       </Panel>
     );
@@ -158,7 +158,7 @@ function WebsiteBoundary({ returnTo, children }: { returnTo: string; children: R
         className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm dark:border-gray-800 dark:bg-white/[0.03]"
       >
         <span className="text-gray-700 dark:text-gray-200">
-          Signed in as <span className="font-medium">{state.session.email}</span>
+          Đang đăng nhập với <span className="font-medium">{state.session.email}</span>
         </span>
         <div className="flex items-center gap-3">
           {signOutMessage && (
@@ -170,17 +170,16 @@ function WebsiteBoundary({ returnTo, children }: { returnTo: string; children: R
             type="button"
             onClick={handleSignOut}
             disabled={writing || signingOut}
-            title={writing ? "A change is still waiting for the server; sign out when it has finished." : undefined}
+            title={writing ? "Một thay đổi vẫn đang chờ máy chủ; hãy đăng xuất sau khi nó xong." : undefined}
             className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-white/5"
           >
-            {signingOut ? "Signing out…" : "Sign out"}
+            {signingOut ? "Đang đăng xuất…" : "Đăng xuất"}
           </button>
         </div>
       </div>
       {!allowed ? (
         <Panel role="alert" testId="website-no-permission">
-          This account does not have access to the website settings. Access is granted to a Staff account by an operator
-          with the Admin API command line; it is separate from Property roles. Nothing was requested.
+          Tài khoản này không có quyền với cài đặt website. Quyền này do người vận hành cấp cho tài khoản Staff bằng dòng lệnh của Admin API và tách biệt với vai trò theo cơ sở lưu trú. Chưa có yêu cầu nào được gửi.
         </Panel>
       ) : (
         <WebsiteHostContext.Provider value={host}>
@@ -188,7 +187,7 @@ function WebsiteBoundary({ returnTo, children }: { returnTo: string; children: R
             <div role="alert" data-testid="website-notice" className="flex items-start justify-between gap-3 rounded-2xl border border-warning-300 bg-warning-50 px-4 py-3 text-sm text-warning-800 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-200">
               <span>{notice}</span>
               <button type="button" onClick={() => setNotice(null)} className="text-xs font-medium underline">
-                Dismiss
+                Đóng
               </button>
             </div>
           )}

@@ -21,7 +21,9 @@ export const WITHOUT_PERMISSION: StaffSession = { ...ALLOWED, permissions: [] };
 export function lang(overrides: Partial<WebsiteLanguage> = {}): WebsiteLanguage {
   return {
     code: "vi", displayName: "Vietnamese", nativeName: "Tiếng Việt", sortOrder: 10, isActive: true, isDefault: true,
-    version: 1, translatedKeys: 25, totalKeys: 25, updatedAtUtc: "2026-10-15T00:00:00+00:00", ...overrides,
+    version: 1, defaultCurrencyCode: "VND", direction: "ltr", formatLocale: "vi-VN", packId: "bha.vi", packVersion: "1",
+    requiredKeys: 25, translatedKeys: 25, missingKeys: 0, outdatedKeys: 0, manualKeys: 0, isComplete: true,
+    updatedAtUtc: "2026-10-15T00:00:00+00:00", ...overrides,
   };
 }
 
@@ -39,16 +41,20 @@ export const VND = currency({
 
 export function row(overrides: Partial<WebsiteTranslationRow> = {}): WebsiteTranslationRow {
   return {
-    key: "common.close", group: "common", sourceText: "Đóng", placeholders: [], value: "Đóng", effectiveValue: "Đóng",
-    hasOverride: true, isFallback: false, version: 1, updatedAtUtc: "2026-10-15T00:00:00+00:00", ...overrides,
+    key: "customer.common.close", scope: "customer", group: "common", context: null, placeholders: [], sourceText: "Đóng", value: "Đóng",
+    status: "translated", isManual: false, version: 1, updatedAtUtc: "2026-10-15T00:00:00+00:00", ...overrides,
   };
 }
 
 export function translations(overrides: Partial<WebsiteTranslationList> = {}): WebsiteTranslationList {
+  const rows = overrides.rows ?? [
+    row(),
+    row({ key: "customer.common.loadFailed", sourceText: "Đã có lỗi khi tải {what}.", placeholders: ["what"], value: "Đã có lỗi khi tải {what}." }),
+  ];
   return {
-    locale: "vi", isDefaultLocale: true, defaultLocale: "vi", translatedKeys: 2, totalKeys: 2, groups: ["common", "header-menu"],
-    rows: [row(), row({ key: "common.error.loadFailed", sourceText: "Đã có lỗi khi tải {what}.", placeholders: ["what"], value: "Đã có lỗi khi tải {what}.", effectiveValue: "Đã có lỗi khi tải {what}." })],
-    ...overrides,
+    locale: "vi", referenceLocale: "vi", defaultLocale: "vi", isDefaultLocale: true, total: rows.length, page: 1, pageSize: 25,
+    facets: { required: 2, translated: 2, missing: 0, outdated: 0, manual: 0, scopes: [{ name: "customer", count: 2 }], groups: [{ name: "common", count: 2 }] },
+    rows, ...overrides,
   };
 }
 

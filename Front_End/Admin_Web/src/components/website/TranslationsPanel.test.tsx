@@ -1,10 +1,10 @@
 /**
- * CUST-WEB-HEADER-001-CP02: the UI translations screen against a mocked Admin API client — which language is picked,
- * the filters, the local placeholder/plain-text checks, create-override vs update (expectedVersion null vs number),
- * removing an override, and the same refusal / stale / lost-answer handling as the other screens.
+ * CUST-WEB-HEADER-001-CP02-C2-R1: the translation editor against a mocked Admin API client — the server filters, pages and
+ * counts; a row is "translated" only if its text exists; a draft survives a change of filter or page but not a silent change of
+ * language; a save is sent once with the version the row had; a conflict keeps the draft; a lost answer is never retried.
  */
 import React from "react";
-import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -28,265 +28,152 @@ import { fetchStaffSession } from "@/lib/api/staff";
 import { clearTranslation, listLanguages, listTranslations, saveTranslation } from "@/lib/api/website";
 
 const languages = vi.mocked(listLanguages);
-const listRows = vi.mocked(listTranslations);
+const rows = vi.mocked(listTranslations);
 const save = vi.mocked(saveTranslation);
 const clear = vi.mocked(clearTranslation);
 
 const VI = lang();
-const EN = lang({ code: "en", displayName: "English", nativeName: "English", sortOrder: 20, isActive: true, isDefault: false, translatedKeys: 1 });
+const FR = lang({ code: "fr", displayName: "French", nativeName: "Français", isActive: false, isDefault: false, version: 3 });
+const MISSING = row({ key: "customer.booking.hold", sourceText: "Giữ phòng {nights, plural, other {# đêm}}", placeholders: ["nights"], value: null, status: "missing", version: null, updatedAtUtc: null });
+const DONE = row({ key: "customer.common.close", sourceText: "Đóng", value: "Fermer", status: "translated", version: 4, isManual: true });
+const FR_LIST = translations({
+  locale: "fr", isDefaultLocale: false, rows: [MISSING, DONE], total: 2,
+  facets: { required: 100, translated: 60, missing: 38, outdated: 2, manual: 5, scopes: [{ name: "customer", count: 80 }, { name: "content", count: 20 }], groups: [{ name: "booking", count: 10 }, { name: "common", count: 90 }] },
+});
 const refused = (status: number, code: string, detail: string, field: string | null = null) => ({ kind: "refused" as const, status, code, field, detail });
 
-/** An English view: one translated row, one that falls back to Vietnamese, one with a placeholder. */
-const EN_VIEW = translations({
-  locale: "en", isDefaultLocale: false, translatedKeys: 1, totalKeys: 3,
-  rows: [
-    row({ key: "common.close", sourceText: "Đóng", value: "Close", effectiveValue: "Close", hasOverride: true, isFallback: false, version: 6 }),
-    row({ key: "header.menu.offers", group: "header-menu", sourceText: "Ưu đãi", value: null, effectiveValue: "Ưu đãi", hasOverride: false, isFallback: true, version: null as never, updatedAtUtc: null as never }),
-    row({ key: "common.error.loadFailed", sourceText: "Đã có lỗi khi tải {what}.", placeholders: ["what"], value: null, effectiveValue: "Đã có lỗi khi tải {what}.", hasOverride: false, isFallback: true, version: null as never, updatedAtUtc: null as never }),
-  ],
-});
-const VI_VIEW = translations();
-
-async function open(initialLocale: string | null = null) {
-  renderInGate(<TranslationsPanel initialLocale={initialLocale} />, "/website/translations");
-  await screen.findByTestId("locale-select");
-  await screen.findByTestId("coverage");
-}
-const paste = async (testId: string, text: string) => {
-  await userEvent.clear(screen.getByTestId(testId));
+/** Types into a row's box. (`userEvent.type` reads `{` as a key command; a pasted text is typed as it is.) */
+async function fill(testId: string, text: string) {
   await userEvent.click(screen.getByTestId(testId));
   await userEvent.paste(text);
-};
+}
+
+async function open(locale = "fr") {
+  renderInGate(<TranslationsPanel initialLocale={locale} />, "/website/translations");
+  await screen.findByTestId("translation-rows");
+}
 
 beforeEach(() => {
   vi.mocked(fetchStaffSession).mockResolvedValue({ kind: "authenticated", session: ALLOWED });
-  for (const fn of [languages, listRows, save, clear]) fn.mockReset();
-  languages.mockResolvedValue(ok([VI, EN]));
-  listRows.mockImplementation(async (locale) => ok(locale === "en" ? EN_VIEW : VI_VIEW));
+  for (const fn of [languages, rows, save, clear]) fn.mockReset();
+  languages.mockResolvedValue(ok([VI, FR]));
+  rows.mockResolvedValue(ok(FR_LIST));
 });
 afterEach(cleanup);
 
-describe("choosing the language", () => {
-  it("starts on the default language", async () => {
+describe("the list", () => {
+  it("shows the real coverage from the server's facets and asks for the texts that still need work", async () => {
     await open();
-    expect(screen.getByTestId("locale-select")).toHaveValue("vi");
-    expect(listRows).toHaveBeenLastCalledWith("vi", { group: "", search: "" }, expect.anything());
-    expect(screen.getByTestId("coverage")).toHaveTextContent("the default language keeps all of them");
+    expect(rows).toHaveBeenCalledWith("fr", { scope: "", group: "", status: "todo", search: "", reference: "", page: 1, pageSize: 25 }, expect.anything());
+    expect(screen.getByTestId("coverage")).toHaveTextContent("đã dịch 60/100 câu bắt buộc (60%) · thiếu 38 · cần cập nhật 2 · chỉnh tay 5");
+    const missing = screen.getByTestId("row-customer.booking.hold");
+    expect(within(missing).getByText("Chưa dịch")).toBeInTheDocument();
+    expect((screen.getByTestId("value-customer.booking.hold") as HTMLTextAreaElement).value).toBe(""); // a fallback is never shown as a translation
+    expect(within(screen.getByTestId("row-customer.common.close")).getByText("Đã chỉnh tay")).toBeInTheDocument();
+    expect(screen.getByTestId("source-customer.common.close")).toHaveTextContent("Đóng");
   });
 
-  it("starts on the language the link asked for, case-insensitively; an unknown one falls back to the default", async () => {
-    await open("EN");
-    expect(screen.getByTestId("locale-select")).toHaveValue("en");
-    cleanup();
-    listRows.mockClear();
-    await open("zz");
-    expect(screen.getByTestId("locale-select")).toHaveValue("vi");
-  });
-
-  it("changing the language loads that language and shows what falls back", async () => {
+  it("every filter goes to the server, and going back to page 1 when the filter changes", async () => {
     await open();
-    await userEvent.selectOptions(screen.getByTestId("locale-select"), "en");
-    await waitFor(() => expect(screen.getByTestId("coverage")).toHaveTextContent("the other 2 use the vi text"));
-    expect(within(screen.getByTestId("row-header.menu.offers")).getByText("Uses the vi text")).toBeInTheDocument();
-    expect(within(screen.getByTestId("row-common.close")).queryByText("Uses the vi text")).toBeNull();
-    expect(within(screen.getByTestId("row-common.close")).getByText("Edit")).toBeInTheDocument();
-    expect(within(screen.getByTestId("row-header.menu.offers")).getByText("Translate")).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByTestId("status-select"), "missing");
+    await waitFor(() => expect(rows).toHaveBeenLastCalledWith("fr", expect.objectContaining({ status: "missing", page: 1 }), expect.anything()));
+    await userEvent.click(screen.getByTestId("scope-content"));
+    await waitFor(() => expect(rows).toHaveBeenLastCalledWith("fr", expect.objectContaining({ scope: "content", group: "" }), expect.anything()));
+    await userEvent.selectOptions(screen.getByTestId("group-select"), "booking");
+    await waitFor(() => expect(rows).toHaveBeenLastCalledWith("fr", expect.objectContaining({ group: "booking" }), expect.anything()));
+    await userEvent.type(screen.getByTestId("search-input"), "giữ");
+    await waitFor(() => expect(rows).toHaveBeenLastCalledWith("fr", expect.objectContaining({ search: "giữ" }), expect.anything()));
   });
 
-  it("a group filter and a search (after the pause) are sent to the server", async () => {
+  it("pages with the server's total", async () => {
+    rows.mockResolvedValue(ok({ ...FR_LIST, total: 60, pageSize: 25 }));
     await open();
-    await userEvent.selectOptions(screen.getByTestId("group-select"), "common");
-    await waitFor(() => expect(listRows).toHaveBeenLastCalledWith("vi", { group: "common", search: "" }, expect.anything()));
-    await userEvent.type(screen.getByTestId("search-input"), "menu");
-    await waitFor(() => expect(listRows).toHaveBeenLastCalledWith("vi", { group: "common", search: "menu" }, expect.anything()));
-  });
-
-  it("no match shows a plain message", async () => {
-    listRows.mockResolvedValue(ok(translations({ rows: [] })));
-    await open();
-    expect(screen.getByTestId("no-rows")).toHaveTextContent("Nothing matches.");
-  });
-
-  it("no languages at all points to the Languages screen", async () => {
-    languages.mockResolvedValue(ok([]));
-    renderInGate(<TranslationsPanel initialLocale={null} />, "/website/translations");
-    expect(await screen.findByText(/There are no languages yet/)).toBeInTheDocument();
-    expect(listRows).not.toHaveBeenCalled();
-  });
-
-  it("a failed load is an error with Retry", async () => {
-    listRows.mockResolvedValueOnce({ kind: "network", message: "The Admin API is unreachable." });
-    renderInGate(<TranslationsPanel initialLocale={null} />, "/website/translations");
-    expect(await screen.findByText(/unreachable/)).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
-    expect(await screen.findByTestId("coverage")).toBeInTheDocument();
+    expect(screen.getByTestId("page-info")).toHaveTextContent("Trang 1/3");
+    await userEvent.click(btn("page-next"));
+    await waitFor(() => expect(rows).toHaveBeenLastCalledWith("fr", expect.objectContaining({ page: 2 }), expect.anything()));
   });
 });
 
-describe("the local checks (the server decides again)", () => {
-  async function openDialog(key: string) {
-    await open("en");
-    await userEvent.click(btn(`edit-${key}`));
-    await screen.findByTestId("translation-dialog");
-  }
-
-  it.each([
-    ["empty", "", /Enter the text/],
-    ["markup", "<b>Close</b>", /Plain text only/],
-    ["a line break", "a\nb", /No line breaks/],
-    ["a stray brace", "Close }", /must be part of a placeholder/],
-    ["too long", "x".repeat(1001), /At most 1000/],
-  ])("%s is refused without a request", async (_label, text, message) => {
-    await openDialog("common.close");
-    const field = screen.getByTestId("field-value");
-    await userEvent.clear(field);
-    if (text) fireEvent.change(field, { target: { value: text } });
-    await userEvent.click(btn("dialog-save"));
-    expect(save).not.toHaveBeenCalled();
-    expect(screen.getByText(message)).toBeInTheDocument();
+describe("saving a text", () => {
+  it("sends one save with the version the row had, then clears the draft and reads the server again", async () => {
+    save.mockResolvedValue(ok({ ...MISSING, value: "Bloquer la chambre", status: "translated", version: 1, isManual: true }));
+    await open();
+    await fill("value-customer.booking.hold", "Bloquer {nights, plural, other {# nuit}}");
+    await userEvent.click(btn("save-customer.booking.hold"));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save).toHaveBeenCalledWith("fr", "customer.booking.hold", "Bloquer {nights, plural, other {# nuit}}", null);
+    expect(await screen.findByTestId("website-success")).toHaveTextContent("Đã lưu câu customer.booking.hold (fr).");
+    expect(screen.queryByTestId("dirty-count")).toBeNull();
+    expect(rows.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
-  it("a placeholder the key declares must stay, and one it does not declare is refused", async () => {
-    await openDialog("common.error.loadFailed");
-    await paste("field-value", "Could not load.");
-    await userEvent.click(btn("dialog-save"));
-    expect(screen.getByText("Keep the placeholder {what}.")).toBeInTheDocument();
-    await paste("field-value", "Could not load {what} {who}.");
-    await userEvent.click(btn("dialog-save"));
-    expect(screen.getByText("{who} is not declared for this key.")).toBeInTheDocument();
-    expect(save).not.toHaveBeenCalled();
-  });
-});
-
-describe("saving", () => {
-  it("a key with no override creates one: expectedVersion null; the text is trimmed; the list is re-read", async () => {
-    await open("en");
-    await userEvent.click(btn("edit-header.menu.offers"));
-    expect(screen.getByTestId("source-text")).toHaveTextContent("Ưu đãi");
-    expect(screen.getByTestId("translation-dialog")).toHaveTextContent("Currently shown from vi: Ưu đãi");
-    await paste("field-value", "  Special offers  ");
-    save.mockResolvedValue(ok(row({ key: "header.menu.offers", value: "Special offers", version: 1 })));
-    listRows.mockImplementation(async () => ok({ ...EN_VIEW, rows: EN_VIEW.rows.map((r) => (r.key === "header.menu.offers" ? { ...r, value: "Special offers", effectiveValue: "Special offers", hasOverride: true, isFallback: false, version: 1 } : r)) }));
-    await userEvent.dblClick(btn("dialog-save"));
-    await waitFor(() => expect(screen.queryByTestId("translation-dialog")).toBeNull());
-    expect(save).toHaveBeenCalledTimes(1);
-    expect(save).toHaveBeenCalledWith("en", "header.menu.offers", "Special offers", null);
-    expect(await screen.findByTestId("website-success")).toHaveTextContent("Saved header.menu.offers (en).");
-    await waitFor(() => expect(screen.getByTestId("value-header.menu.offers")).toHaveTextContent("Special offers"));
+  it("an edit of an existing text is checked against that text's version", async () => {
+    save.mockResolvedValue(ok({ ...DONE, value: "Fermer la fenêtre", version: 5 }));
+    await open();
+    const box = screen.getByTestId("value-customer.common.close");
+    await userEvent.clear(box);
+    await userEvent.type(box, "Fermer la fenêtre");
+    await userEvent.click(btn("save-customer.common.close"));
+    await waitFor(() => expect(save).toHaveBeenCalledWith("fr", "customer.common.close", "Fermer la fenêtre", 4));
   });
 
-  it("an existing override is updated with the version it loaded", async () => {
-    await open("en");
-    await userEvent.click(btn("edit-common.close"));
-    expect(screen.getByTestId("field-value")).toHaveValue("Close");
-    await paste("field-value", "Dismiss");
-    save.mockResolvedValue(ok(row({ value: "Dismiss", version: 7 })));
-    await userEvent.click(btn("dialog-save"));
-    await waitFor(() => expect(save).toHaveBeenCalledWith("en", "common.close", "Dismiss", 6));
+  it("will not send a text that drops a variable, and says which one", async () => {
+    await open();
+    await fill("value-customer.booking.hold", "Bloquer la chambre");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Cần giữ lại {nights}.");
+    expect(btn("save-customer.booking.hold")).toBeDisabled();
+    await userEvent.click(screen.getByTestId("placeholder-customer.booking.hold-nights"));
+    expect((screen.getByTestId("value-customer.booking.hold") as HTMLTextAreaElement).value).toContain("{nights}");
   });
 
-  it("a placeholder is kept and sent as typed", async () => {
-    await open("en");
-    await userEvent.click(btn("edit-common.error.loadFailed"));
-    await paste("field-value", "Could not load {what}.");
-    save.mockResolvedValue(ok(row({ key: "common.error.loadFailed", value: "Could not load {what}." })));
-    await userEvent.click(btn("dialog-save"));
-    await waitFor(() => expect(save).toHaveBeenCalledWith("en", "common.error.loadFailed", "Could not load {what}.", null));
-  });
-
-  it("a server refusal on the value shows beside the field and keeps the draft", async () => {
-    await open("en");
-    await userEvent.click(btn("edit-common.close"));
-    await paste("field-value", "Dismiss");
-    save.mockResolvedValue(refused(400, "validation", "The text must be plain text.", "value"));
-    await userEvent.click(btn("dialog-save"));
-    expect(await screen.findByText("The text must be plain text.")).toBeInTheDocument();
-    expect(screen.getByTestId("field-value")).toHaveValue("Dismiss");
-  });
-
-  it("stale: draft kept; Reload shows the server's text; the next save uses the server's version", async () => {
-    await open("en");
-    await userEvent.click(btn("edit-common.close"));
-    await paste("field-value", "Dismiss");
-    save.mockResolvedValueOnce(refused(409, "stale-version", "changed"));
-    await userEvent.click(btn("dialog-save"));
-    await screen.findByTestId("write-refused");
-    listRows.mockImplementation(async () => ok({ ...EN_VIEW, rows: EN_VIEW.rows.map((r) => (r.key === "common.close" ? { ...r, value: "Shut", effectiveValue: "Shut", version: 11 } : r)) }));
-    await userEvent.click(screen.getByTestId("reload-latest"));
-    expect(await screen.findByText(/version 11: "Shut"/)).toBeInTheDocument();
-    expect(screen.getByTestId("field-value")).toHaveValue("Dismiss");
-    save.mockResolvedValueOnce(ok(row({ value: "Dismiss", version: 12 })));
-    await userEvent.click(btn("dialog-save"));
-    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
-    expect(save.mock.calls[1]).toEqual(["en", "common.close", "Dismiss", 11]);
-  });
-
-  it("a lost answer blocks a second send until the server has been read", async () => {
-    await open("en");
-    await userEvent.click(btn("edit-common.close"));
-    await paste("field-value", "Dismiss");
-    save.mockResolvedValue({ kind: "unverified", message: "no answer" });
-    await userEvent.click(btn("dialog-save"));
-    await screen.findByTestId("write-unverified");
-    expect(btn("dialog-save")).toBeDisabled();
-    expect(screen.getByTestId("field-value")).toBeDisabled();
-    await userEvent.click(screen.getByTestId("check-server"));
-    expect(await screen.findByText(/Latest on the server — version 6: "Close"/)).toBeInTheDocument();
-    expect(btn("dialog-save")).toBeEnabled();
+  it("a stale version keeps the draft and offers the latest; it sends nothing a second time on its own", async () => {
+    save.mockResolvedValue(refused(409, "stale-version", "changed"));
+    await open();
+    await fill("value-customer.booking.hold", "Bloquer {nights}");
+    await userEvent.click(btn("save-customer.booking.hold"));
+    expect(await screen.findByTestId("note-customer.booking.hold")).toHaveTextContent("Bản nháp của bạn vẫn được giữ");
+    expect((screen.getByTestId("value-customer.booking.hold") as HTMLTextAreaElement).value).toBe("Bloquer {nights}");
     expect(save).toHaveBeenCalledTimes(1);
   });
 
-  it("the Save button is held while another write is on the wire", async () => {
-    await open("en");
-    await userEvent.click(btn("edit-common.close"));
-    await paste("field-value", "Dismiss");
-    const pending = deferred<ReturnType<typeof ok>>();
-    save.mockReturnValue(pending.promise as never);
-    await userEvent.click(btn("dialog-save"));
-    expect(screen.getByTestId("write-pending")).toBeInTheDocument();
-    expect(btn("dialog-save")).toBeDisabled();
-    expect(btn("dialog-cancel")).toBeDisabled();
-    await act(async () => pending.resolve(ok(row({ value: "Dismiss" }))));
-  });
-});
-
-describe("removing an override", () => {
-  it("is offered only for a non-default language that has one, asks first, and sends the version", async () => {
-    await open("en");
-    await userEvent.click(btn("edit-header.menu.offers")); // no override
-    expect(screen.queryByTestId("remove-text")).toBeNull();
-    await userEvent.click(btn("dialog-cancel"));
-
-    await userEvent.click(btn("edit-common.close"));
-    await userEvent.click(btn("remove-text"));
-    expect(screen.getByTestId("remove-confirm")).toHaveTextContent("It will use the vi text again");
-    await userEvent.click(btn("remove-confirm-no"));
-    expect(clear).not.toHaveBeenCalled();
-
-    await userEvent.click(btn("remove-text"));
-    clear.mockResolvedValue(ok(row()));
-    await userEvent.click(btn("remove-confirm-yes"));
-    await waitFor(() => expect(clear).toHaveBeenCalledWith("en", "common.close", 6));
-    expect(await screen.findByTestId("website-success")).toHaveTextContent("Removed the en text of common.close; it uses the vi text again.");
-  });
-
-  it("the default language can never remove a text", async () => {
+  it("a lost answer is not retried: the row asks the server first and recognises the saved text", async () => {
+    const lost = deferred<{ kind: "unverified"; message: string }>();
+    save.mockReturnValueOnce(lost.promise);
     await open();
-    await userEvent.click(btn("edit-common.close"));
-    expect(screen.queryByTestId("remove-text")).toBeNull();
+    await fill("value-customer.booking.hold", "Bloquer {nights}");
+    await userEvent.click(btn("save-customer.booking.hold"));
+    lost.resolve({ kind: "unverified", message: "Máy chủ Admin không trả lời." });
+    expect(await screen.findByTestId("note-customer.booking.hold")).toHaveTextContent("Hệ thống không tự gửi lại");
+    rows.mockResolvedValueOnce(ok({ ...FR_LIST, rows: [{ ...MISSING, value: "Bloquer {nights}", status: "translated", version: 1 }, DONE] }));
+    await userEvent.click(screen.getByTestId("refresh-customer.booking.hold"));
+    expect(await screen.findByTestId("website-success")).toHaveTextContent("máy chủ đã có đúng nội dung này");
+    expect(save).toHaveBeenCalledTimes(1);
   });
 });
 
-describe("access changes while a dialog is open", () => {
-  it("a 403 re-reads me; the permission gone closes the screen", async () => {
-    await open("en");
-    await userEvent.click(btn("edit-common.close"));
-    await paste("field-value", "Dismiss");
-    save.mockResolvedValue({ kind: "denied" });
-    vi.mocked(fetchStaffSession).mockResolvedValue({ kind: "authenticated", session: { ...ALLOWED, permissions: [] } });
-    await userEvent.click(btn("dialog-save"));
-    expect(await screen.findByTestId("website-no-permission")).toBeInTheDocument();
-    expect(screen.queryByTestId("translations-panel")).toBeNull();
-    expect(save).toHaveBeenCalledTimes(1);
+describe("drafts", () => {
+  it("survive a change of filter, and changing the language asks before dropping them", async () => {
+    await open();
+    await fill("value-customer.booking.hold", "Bloquer {nights}");
+    expect(screen.getByTestId("dirty-count")).toHaveTextContent("Có 1 câu chưa lưu");
+    await userEvent.selectOptions(screen.getByTestId("status-select"), "translated");
+    await waitFor(() => expect(rows).toHaveBeenLastCalledWith("fr", expect.objectContaining({ status: "translated" }), expect.anything()));
+    expect(screen.getByTestId("dirty-count")).toBeInTheDocument(); // the draft is still there
+    await userEvent.selectOptions(screen.getByTestId("locale-select"), "vi");
+    expect(screen.getByTestId("leave-warning")).toHaveTextContent("Có 1 câu chưa lưu");
+    expect((screen.getByTestId("locale-select") as HTMLSelectElement).value).toBe("fr"); // not switched yet
+    await userEvent.click(btn("leave-no"));
+    expect(screen.queryByTestId("leave-warning")).toBeNull();
+  });
+});
+
+describe("removing a text", () => {
+  it("is offered only where a text exists and the language is not the default, and sends one clear with its version", async () => {
+    clear.mockResolvedValue(ok({ ...DONE, value: null, status: "missing", version: null }));
+    await open();
+    expect(screen.queryByTestId("remove-customer.booking.hold")).toBeNull(); // nothing to remove
+    await userEvent.click(btn("remove-customer.common.close"));
+    await waitFor(() => expect(clear).toHaveBeenCalledTimes(1));
+    expect(clear).toHaveBeenCalledWith("fr", "customer.common.close", 4);
   });
 });

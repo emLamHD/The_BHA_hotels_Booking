@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useWebsiteHost } from "./WebsiteAccessGate";
 import type { WebsiteFailure, WebsiteResult } from "@/lib/api/website";
+import { refusalText } from "@/lib/website/wording";
 
 export type ListState<T> =
   | { status: "loading" }
@@ -21,7 +22,7 @@ export type ListState<T> =
 export function describeFailure(failure: WebsiteFailure): string {
   switch (failure.kind) {
     case "refused":
-      return failure.detail;
+      return refusalText(failure);
     case "unverified":
     case "network":
     case "error":
@@ -29,9 +30,9 @@ export function describeFailure(failure: WebsiteFailure): string {
     case "config":
       return failure.message;
     case "denied":
-      return "The server refused the request: this account may no longer have access to the website settings.";
+      return "Máy chủ từ chối yêu cầu: tài khoản này có thể không còn quyền với cài đặt website.";
     case "unauthenticated":
-      return "Your Staff session has ended.";
+      return "Phiên đăng nhập Staff của bạn đã kết thúc.";
   }
 }
 

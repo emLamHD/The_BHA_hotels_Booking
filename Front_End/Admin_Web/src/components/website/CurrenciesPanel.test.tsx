@@ -65,19 +65,19 @@ describe("the list", () => {
   it("shows the base, the default, on/off, 'No rate yet' and the rate exactly as the server sent it", async () => {
     await open();
     const vnd = screen.getByTestId("currency-row-VND");
-    expect(within(vnd).getByText("Base")).toBeInTheDocument();
-    expect(within(vnd).getByText("Display default")).toBeInTheDocument();
-    expect(within(vnd).getByText("Fixed: rate 1, always on")).toBeInTheDocument();
+    expect(within(vnd).getByText("Gốc")).toBeInTheDocument();
+    expect(within(vnd).getByText("Mặc định hiển thị")).toBeInTheDocument();
+    expect(within(vnd).getByText("Cố định: tỷ giá 1, luôn bật")).toBeInTheDocument();
     for (const id of ["edit-VND", "rate-edit-VND", "toggle-VND", "delete-VND", "default-VND"]) expect(queryBtn(id)).toBeNull();
 
     const usd = screen.getByTestId("currency-row-USD");
-    expect(within(usd).getByText("No rate yet")).toBeInTheDocument();
-    expect(within(usd).getByText("Off")).toBeInTheDocument();
-    expect(within(usd).getByText("Set rate")).toBeInTheDocument();
+    expect(within(usd).getByText("Chưa có tỷ giá")).toBeInTheDocument();
+    expect(within(usd).getByText("Đã tắt")).toBeInTheDocument();
+    expect(within(usd).getByText("Nhập tỷ giá")).toBeInTheDocument();
 
     expect(screen.getByTestId("rate-EUR")).toHaveTextContent("27500.25");
     expect(within(screen.getByTestId("currency-row-EUR")).getByText("Nhập thủ công")).toBeInTheDocument();
-    expect(within(screen.getByTestId("currency-row-EUR")).getByText("Change rate")).toBeInTheDocument();
+    expect(within(screen.getByTestId("currency-row-EUR")).getByText("Đổi tỷ giá")).toBeInTheDocument();
   });
 
   it("a failed load is an error with Retry", async () => {
@@ -85,7 +85,7 @@ describe("the list", () => {
     renderInGate(<CurrenciesPanel />, "/website/currencies");
     expect(await screen.findByText(/returned an error \(500\)/)).toBeInTheDocument();
     list.mockResolvedValueOnce(ok([VND]));
-    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await userEvent.click(screen.getByRole("button", { name: "Thử lại" }));
     expect(await screen.findByTestId("currency-row-VND")).toBeInTheDocument();
   });
 });
@@ -144,7 +144,7 @@ describe("setting a rate", () => {
     await screen.findByTestId("write-refused");
     list.mockResolvedValue(ok([VND, USD, { ...EUR, vndPerUnit: "27999", version: 9 }]));
     await userEvent.click(screen.getByTestId("reload-latest"));
-    expect(await screen.findByText(/version 9: "Euro" \(€\).*rate 27999 VND/)).toBeInTheDocument();
+    expect(await screen.findByText(/phiên bản 9: "Euro" \(€\).*tỷ giá 27999 VND/)).toBeInTheDocument();
     expect(screen.getByTestId("field-rate")).toHaveValue("28000");
     setRate.mockResolvedValueOnce(ok({ ...EUR, vndPerUnit: "28000", version: 10 }));
     await userEvent.click(btn("dialog-save"));
@@ -162,7 +162,7 @@ describe("setting a rate", () => {
     expect(btn("dialog-save")).toBeDisabled();
     list.mockResolvedValue(ok([VND, { ...USD, vndPerUnit: "25000", version: 5 }, EUR]));
     await userEvent.click(screen.getByTestId("check-server"));
-    expect(await screen.findByText(/rate 25000 VND/)).toBeInTheDocument();
+    expect(await screen.findByText(/tỷ giá 25000 VND/)).toBeInTheDocument();
     expect(setRate).toHaveBeenCalledTimes(1);
   });
 });
@@ -187,7 +187,7 @@ describe("adding and editing", () => {
     await userEvent.click(btn("dialog-save"));
     await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
     expect(create).toHaveBeenCalledWith("JPY", { name: "Japanese yen", symbol: "¥", minorUnits: 0, sortOrder: 40 });
-    expect(await screen.findByTestId("website-success")).toHaveTextContent("Added JPY. It is off and has no rate yet.");
+    expect(await screen.findByTestId("website-success")).toHaveTextContent("Đã thêm JPY. Tiền tệ đang tắt và chưa có tỷ giá.");
   });
 
   it("double click on Add sends one request", async () => {
@@ -227,12 +227,12 @@ describe("turning on / off, default and delete", () => {
   it("turning on asks first and tells the operator the rate it will use", async () => {
     await open();
     await userEvent.click(btn("toggle-EUR")); // EUR is on → turn off
-    expect(screen.getByTestId("currency-toggle-dialog")).toHaveTextContent("Turn off EUR?");
+    expect(screen.getByTestId("currency-toggle-dialog")).toHaveTextContent("Tắt EUR?");
     await userEvent.click(btn("dialog-cancel"));
     expect(setActive).not.toHaveBeenCalled();
 
     await userEvent.click(btn("toggle-USD"));
-    expect(screen.getByTestId("currency-toggle-dialog")).toHaveTextContent("It has no rate yet, so the server will refuse");
+    expect(screen.getByTestId("currency-toggle-dialog")).toHaveTextContent("Chưa có tỷ giá nên máy chủ sẽ từ chối");
   });
 
   it("the server's refusal to turn on a currency without a rate is shown and nothing changes", async () => {
@@ -242,18 +242,18 @@ describe("turning on / off, default and delete", () => {
     await userEvent.click(btn("dialog-confirm"));
     expect(await screen.findByTestId("write-refused")).toHaveTextContent("USD has no rate yet.");
     expect(setActive).toHaveBeenCalledWith("USD", 4, true);
-    expect(within(screen.getByTestId("currency-row-USD")).getByText("Off")).toBeInTheDocument();
+    expect(within(screen.getByTestId("currency-row-USD")).getByText("Đã tắt")).toBeInTheDocument();
   });
 
   it("making the default names the current default; confirmation sends once with the version", async () => {
     await open();
     await userEvent.click(btn("default-EUR"));
-    expect(screen.getByTestId("currency-default-dialog")).toHaveTextContent(/instead of\s*VND/);
+    expect(screen.getByTestId("currency-default-dialog")).toHaveTextContent(/thay vì\s*VND/);
     makeDefault.mockResolvedValue(ok({ ...EUR, isDefault: true, version: 3 }));
     await userEvent.dblClick(btn("dialog-confirm"));
     await waitFor(() => expect(makeDefault).toHaveBeenCalledTimes(1));
     expect(makeDefault).toHaveBeenCalledWith("EUR", 2);
-    expect(await screen.findByTestId("website-success")).toHaveTextContent("EUR is now the display default currency.");
+    expect(await screen.findByTestId("website-success")).toHaveTextContent("EUR hiện là tiền tệ mặc định hiển thị.");
   });
 
   it("VND can be made the default again", async () => {
@@ -286,7 +286,7 @@ describe("turning on / off, default and delete", () => {
     await screen.findByTestId("write-unverified");
     list.mockResolvedValue(ok([VND, EUR]));
     await userEvent.click(screen.getByTestId("check-server"));
-    expect(await screen.findByText(/USD is no longer on the server: it was deleted/)).toBeInTheDocument();
+    expect(await screen.findByText(/USD không còn trên máy chủ: đã được xoá/)).toBeInTheDocument();
     expect(remove).toHaveBeenCalledTimes(1);
   });
 });

@@ -13,17 +13,14 @@ import Button from "@/components/ui/button/Button";
 import Label from "@/components/form/Label";
 import type { WebsiteFailure } from "@/lib/api/website";
 import type { WriteStatus } from "./useWebsiteData";
+import { formatWhen as formatWhenVi, refusalText } from "@/lib/website/wording";
 
 const INPUT_CLASSES =
   "h-11 w-full rounded-lg border border-gray-300 bg-transparent px-4 py-2.5 text-sm text-gray-800 shadow-theme-xs placeholder:text-gray-400 focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-white/30 dark:focus:border-brand-800";
 const INPUT_ERROR_CLASSES =
   "border-error-500 focus:border-error-300 focus:ring-error-500/20 dark:border-error-500 dark:focus:border-error-800";
 
-export function formatWhen(iso: string | null): string {
-  if (!iso) return "—";
-  const when = new Date(iso);
-  return Number.isNaN(when.getTime()) ? iso : when.toLocaleString();
-}
+export const formatWhen = formatWhenVi;
 
 export function PageHeader({ title, children }: { title: string; children?: React.ReactNode }) {
   return (
@@ -59,7 +56,7 @@ export function Banner({
       <div className="min-w-0">{children}</div>
       {onDismiss && (
         <button type="button" onClick={onDismiss} className="shrink-0 text-xs font-medium underline">
-          Dismiss
+          Đóng
         </button>
       )}
     </div>
@@ -176,16 +173,19 @@ export function DialogShell({
   busy,
   children,
   testId,
+  wide,
 }: {
   title: string;
   onClose: () => void;
   busy: boolean;
   children: React.ReactNode;
   testId: string;
+  /** A dialog that holds a table or a preview. */
+  wide?: boolean;
 }) {
   const titleId = useId();
   return (
-    <Modal isOpen onClose={() => (busy ? undefined : onClose())} showCloseButton={!busy} className="max-w-[560px] p-6 lg:p-8">
+    <Modal isOpen onClose={() => (busy ? undefined : onClose())} showCloseButton={!busy} className={`${wide ? "max-w-[860px]" : "max-w-[560px]"} max-h-[90vh] overflow-y-auto p-6 lg:p-8`}>
       <div role="dialog" aria-modal="true" aria-labelledby={titleId} data-testid={testId} className="flex flex-col gap-4">
         <h2 id={titleId} className="pr-10 text-lg font-semibold text-gray-800 dark:text-white/90">
           {title}
@@ -255,46 +255,42 @@ export function WriteFeedback({
     <>
       {status.phase === "pending" && (
         <Banner tone="info" testId="write-pending">
-          Saving… waiting for the server.
+          Đang lưu… chờ máy chủ trả lời.
         </Banner>
       )}
       {refused && showHere && (
         <Banner tone="error" testId="write-refused">
           <p className="font-medium">
-            {refused.code === "stale-version"
-              ? "This changed on the server since you opened it. Nothing was saved."
-              : refused.status === 404
-                ? "It no longer exists on the server. Nothing was saved."
-                : "The server did not apply this change."}
+            {refused.code === "stale-version" ? "Dữ liệu đã thay đổi trên máy chủ. Chưa có gì được lưu." : refused.status === 404 ? "Mục này không còn trên máy chủ. Chưa có gì được lưu." : "Máy chủ chưa áp dụng thay đổi này."}
           </p>
-          <p className="mt-1">{refused.detail}</p>
+          {refused.code !== "stale-version" && <p className="mt-1">{refusalText(refused)}</p>}
           {refused.code === "stale-version" && onReloadLatest && (
             <p className="mt-2">
-              Your draft is kept.{" "}
+              Bản nháp của bạn vẫn được giữ.{" "}
               <button type="button" onClick={onReloadLatest} disabled={working} className="font-medium underline disabled:opacity-50" data-testid="reload-latest">
-                Reload the latest values
+                Tải giá trị mới nhất
               </button>{" "}
-              to compare, then save again if you still want your change.
+              để so sánh, rồi lưu lại nếu bạn vẫn muốn thay đổi.
             </p>
           )}
         </Banner>
       )}
       {status.phase === "failed" && (
         <Banner tone="error" testId="write-failed">
-          {status.message} Nothing was saved.
+          {status.message} Chưa có gì được lưu.
         </Banner>
       )}
       {status.phase === "unverified" && (
         <Banner tone="warning" testId="write-unverified">
-          <p className="font-medium">The result is not confirmed.</p>
+          <p className="font-medium">Chưa xác nhận được kết quả.</p>
           <p className="mt-1">{status.message}</p>
           <p className="mt-2">
-            Nothing is sent again automatically. Read the server first
+            Hệ thống không tự gửi lại. Hãy đọc lại dữ liệu từ máy chủ trước
             {onCheckServer && (
               <>
                 :{" "}
                 <button type="button" onClick={onCheckServer} disabled={working} className="font-medium underline disabled:opacity-50" data-testid="check-server">
-                  Check the server
+                  Kiểm tra máy chủ
                 </button>
               </>
             )}
@@ -314,7 +310,7 @@ export function WriteFeedback({
 export function LoadingPanel({ what }: { what: string }) {
   return (
     <div role="status" data-testid="website-loading" className="rounded-2xl border border-gray-200 bg-white px-4 py-6 text-sm text-gray-600 dark:border-gray-800 dark:bg-white/[0.03] dark:text-gray-300">
-      Loading {what}…
+      Đang tải {what}…
     </div>
   );
 }
@@ -324,7 +320,7 @@ export function ErrorPanel({ message, onRetry }: { message: string; onRetry: () 
     <div role="alert" data-testid="website-load-error" className="rounded-2xl border border-error-300 bg-error-50 px-4 py-6 text-sm text-error-800 dark:border-error-500/30 dark:bg-error-500/10 dark:text-error-200">
       <span>{message}</span>
       <button type="button" onClick={onRetry} className="ml-3 rounded-lg border border-error-300 px-3 py-1 text-sm font-medium hover:bg-error-100 dark:border-error-500/40 dark:hover:bg-white/5">
-        Retry
+        Thử lại
       </button>
     </div>
   );
