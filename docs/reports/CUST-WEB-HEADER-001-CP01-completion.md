@@ -139,6 +139,7 @@ sys.exit(1 if bad else 0)
 
 - Commit thứ hai (`7af71a0`) thêm `sizes="128px"` cho hai `Image` tải sớm: không có nó, trình duyệt tải rendition 1920px cho logo ≤ 128px (đã đúng với JPG cũ; bản mới có hai ảnh nên tăng gấp đôi). Nằm trong `Logo.tsx`, không ngoài scope.
 - 14/312 kiểm tra đỏ ở lượt đầu của `accept.mjs` là lỗi selector của script (`text=…` khớp cả nội dung trang) — không phải lỗi sản phẩm; script sửa sang đọc `aria-expanded`, sản phẩm không đổi.
+- **Follow-up do Owner yêu cầu trực tiếp (ngoài MEP):** hero slideshow của trang chủ cao thêm khoảng 10% trên desktop (`lg:` 620 → 682px; điện thoại và máy tính bảng giữ nguyên; `lg` bắt đầu từ 1024px nên máy tính bảng ngang cũng nhận). Hero nằm trong danh sách cấm của MEP; Owner chọn thêm vào PR này. Bằng chứng logo/typography ở trên vẫn ứng với cây `def73bb…`; commit follow-up chỉ đổi hero, test ghim chiều cao `HomeLayoutPolish.test.ts` và dòng này; cây frontend mới, kiểm chứng và CI ghi ở PR body. Review Codex đã chạy ở `af0990d` không phủ commit này.
 - Kích thước PR: xem GitHub ở PR body; code ≈ 62/30 dòng cộng hai asset nhị phân, còn lại là docs.
 
 ## 8. Known risks / NOT RUN

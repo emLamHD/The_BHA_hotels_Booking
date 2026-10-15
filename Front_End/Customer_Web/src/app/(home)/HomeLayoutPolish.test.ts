@@ -19,11 +19,11 @@ const hero = readFileSync(new URL("./HomeHeroCarousel.tsx", import.meta.url), "u
 const count = (markup: string, needle: string) => markup.split(needle).length - 1;
 
 describe("home hero height", () => {
-  it("is about a tenth taller than before, and 380:620 stays at the golden ratio", () => {
+  it("is a tenth taller again on desktop (620 -> 682px); phone and tablet heights are unchanged", () => {
     expect(hero).toContain("h-[380px]");
     expect(hero).toContain("sm:h-[460px]");
-    expect(hero).toContain("lg:h-[620px]");
-    expect(380 / 620).toBeCloseTo(1 / 1.618, 1);
+    expect(hero).toContain("lg:h-[682px]");
+    expect(682).toBe(Math.round(620 * 1.1));
   });
 });
 
