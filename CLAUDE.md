@@ -18,4 +18,9 @@ Claude-specific adapter:
 - If `REVIEWER: CLAUDE_READ_ONLY`: Claude only reads and returns findings for Owner and OC — no file edits, formatter writes, commits, pushes, PR changes, merges or branch deletion. Claude does not invoke itself into this role and does not fix findings.
 - If Claude is not selected as `IMPLEMENTER` or `REVIEWER` for a work item, Claude does not act on it.
 - Use Claude-specific tools only within the authority and scope granted by `AGENTS.md`, `docs/governance/RULES.md` and the Master Execution Prompt.
+- Consult the `advisor` tool:
+  - before locking a plan;
+  - when the same error occurs twice;
+  - before reporting a task as done.
+  This applies in both the `IMPLEMENTER` and `REVIEWER` roles and grants no write, Codex or review-invocation authority.
 - If this adapter conflicts with `AGENTS.md` or `docs/governance/RULES.md`, stop and report the contradiction; do not choose the broader interpretation.

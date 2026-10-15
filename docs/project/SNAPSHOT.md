@@ -817,9 +817,10 @@ evidence independently verified for this closeout via:
   chỉ Owner mới invoke reviewer đã chọn (`/codex:review --base
   origin/develop`, hoặc base do prompt chỉ định, khi reviewer là Codex;
   một phiên Claude read-only riêng khi reviewer là Claude). Không dùng
-  rescue, transfer, Codex write mode, automatic review gate, parallel
-  agent hoặc nested implementation orchestration — mô hình
-  single-primary-checkout không thay đổi bất biến này.
+  rescue, transfer, Codex write mode, automatic review gate hoặc parallel
+  implementation. Subagent (kể cả chạy song song) được phép dưới quyền
+  `ACTIVE_EXECUTOR` — mô hình single-primary-checkout không thay đổi bất
+  biến này.
 
 ## 7. Tooling migration state
 
