@@ -5,6 +5,7 @@ import { NAVIGATION_DEMO_2 } from "@/data/navigation";
 import { NavItemType } from "@/shared/Navigation/NavigationItem";
 import Link from "next/link";
 import Collection from "@/components/Collection";
+import { NAV_MAIN_ITEM } from "@/shared/headerTypography";
 
 export default function TemplatesDropdown() {
   const renderMegaMenuNavlink = (
@@ -35,9 +36,7 @@ export default function TemplatesDropdown() {
         {({ open, close }) => (
           <>
             <Popover.Button
-              className={`
-                ${open ? "" : "text-opacity-80"}
-                group h-10 sm:h-12 px-3 py-1.5 inline-flex items-center text-sm text-gray-800 dark:text-slate-300 font-medium hover:text-opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 rounded-full`}
+              className={`${open ? "" : "text-opacity-80"} group h-10 sm:h-12 ${NAV_MAIN_ITEM}`}
             >
               <span className="">Giao diện mẫu</span>
               <ChevronDownIcon

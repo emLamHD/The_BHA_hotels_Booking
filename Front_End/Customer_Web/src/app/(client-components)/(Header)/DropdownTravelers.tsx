@@ -5,6 +5,7 @@ import { ChevronDownIcon } from "@heroicons/react/24/solid";
 import { Fragment } from "react";
 import { PathName } from "@/routers/types";
 import Link from "next/link";
+import { NAV_MAIN_ITEM } from "@/shared/headerTypography";
 
 interface SolutionItem {
   name: string;
@@ -64,14 +65,13 @@ export default function DropdownTravelers() {
       {({ open, close }) => (
         <>
           <Popover.Button
-            className={`${open ? "" : "text-opacity-90"}
-                group self-center py-2 h-10 sm:h-12 rounded-md text-sm sm:text-base font-medium hover:text-opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500`}
+            className={`${open ? "" : "text-opacity-90"} group self-center h-10 sm:h-12 ${NAV_MAIN_ITEM}`}
           >
             <span className="inline-flex items-center">
               <span>Dịch vụ</span>
               <ChevronDownIcon
                 className={`${open ? "-rotate-180" : "text-opacity-70 "}
-                  ml-2 h-5 w-5 text-neutral-700 dark:text-neutral-300 group-hover:text-opacity-80 transition ease-in-out duration-150 `}
+                  ml-1 h-4 w-4 text-neutral-700 dark:text-neutral-300 group-hover:text-opacity-80 transition ease-in-out duration-150 `}
                 aria-hidden="true"
               />
             </span>

@@ -1,4 +1,4 @@
-import { Poppins } from "next/font/google";
+import { Be_Vietnam_Pro, Poppins } from "next/font/google";
 import SiteHeader from "./(client-components)/(Header)/SiteHeader";
 import ClientCommons from "./ClientCommons";
 import "./globals.css";
@@ -16,6 +16,14 @@ const poppins = Poppins({
   subsets: ["latin"],
   display: "swap",
   weight: ["300", "400", "500", "600", "700"],
+});
+
+// CUST-WEB-HEADER-001-CP01: header/menu font only (see shared/headerTypography). Poppins has no Vietnamese subset.
+const headerFont = Be_Vietnam_Pro({
+  subsets: ["latin", "latin-ext", "vietnamese"],
+  display: "swap",
+  weight: ["400", "500"],
+  variable: "--font-header",
 });
 
 export const metadata = {
@@ -37,7 +45,7 @@ export default function RootLayout({
   params: any;
 }) {
   return (
-    <html lang="vi" className={poppins.className}>
+    <html lang="vi" className={`${poppins.className} ${headerFont.variable}`}>
       <body className="bg-white text-base dark:bg-neutral-900 text-neutral-900 dark:text-neutral-200">
         <CustomerSessionProvider>
           <BookingHoldProvider>

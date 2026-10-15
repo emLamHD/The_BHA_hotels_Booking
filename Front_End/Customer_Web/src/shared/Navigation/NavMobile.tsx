@@ -12,6 +12,7 @@ import { NAVIGATION_BHA } from "@/data/navigation";
 import { NavItemType } from "@/shared/Navigation/NavigationItem";
 import { LangCurrencyTabs } from "@/app/(client-components)/(Header)/LangDropdown";
 import { RIVERSIDE_ADDRESS, RIVERSIDE_NAME } from "@/lib/riversideHomeContent";
+import { HEADER_FONT, NAV_SUB_TEXT } from "@/shared/headerTypography";
 
 export interface NavMobileProps {
   data?: NavItemType[];
@@ -20,8 +21,7 @@ export interface NavMobileProps {
 
 const ITEM_CLASS =
   "flex flex-1 items-center rounded-lg px-4 py-3 text-base font-medium text-neutral-900 hover:bg-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:text-white dark:hover:bg-neutral-800";
-const CHILD_CLASS =
-  "flex flex-1 items-center rounded-lg px-4 py-2.5 text-sm font-medium text-neutral-800 hover:bg-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:text-neutral-200 dark:hover:bg-neutral-800";
+const CHILD_CLASS = `flex flex-1 items-center rounded-lg px-4 py-2.5 ${NAV_SUB_TEXT} text-neutral-800 hover:bg-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:text-neutral-200 dark:hover:bg-neutral-800`;
 const TOGGLE_CLASS =
   "flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:text-neutral-300 dark:hover:bg-neutral-800";
 
@@ -69,7 +69,7 @@ const NavMobile: React.FC<NavMobileProps> = ({ data = NAVIGATION_BHA, onClickClo
   return (
     <div
       style={{ height: "100dvh" }}
-      className="relative h-screen w-full overflow-y-auto overscroll-contain bg-white py-2 shadow-lg ring-1 transition transform divide-y-2 divide-neutral-100 dark:bg-neutral-900 dark:ring-neutral-700 dark:divide-neutral-800"
+      className={`relative h-screen w-full overflow-y-auto overscroll-contain bg-white py-2 shadow-lg ring-1 transition transform divide-y-2 divide-neutral-100 dark:bg-neutral-900 dark:ring-neutral-700 dark:divide-neutral-800 ${HEADER_FONT}`}
     >
       <div className="px-5 py-6">
         <div className="flex items-center justify-between">

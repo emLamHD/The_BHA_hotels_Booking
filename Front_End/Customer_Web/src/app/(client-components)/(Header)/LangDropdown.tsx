@@ -145,7 +145,7 @@ const LangDropdown: FC<LangDropdownProps> = ({
               aria-label="Ngôn ngữ và tiền tệ"
               className={`
                 ${open ? "" : "text-opacity-80"}
-             group self-center h-10 sm:h-12 px-3 py-1.5 inline-flex items-center text-sm text-gray-800 dark:text-neutral-200 font-medium hover:text-opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 rounded-full`}
+             group self-center h-10 sm:h-12 px-3 py-1.5 inline-flex items-center text-sm text-gray-800 dark:text-neutral-200 font-medium hover:text-opacity-100 hover:bg-neutral-100 active:bg-neutral-200 dark:hover:bg-neutral-800 dark:active:bg-neutral-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 rounded-full`}
             >
               <GlobeAltIcon className="w-5 h-5 opacity-80" aria-hidden="true" />
               <span className="mx-1" aria-hidden="true">/</span>
