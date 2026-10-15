@@ -58,7 +58,7 @@ function useOptionalRouter() {
   }
 }
 
-export function I18nProvider({ snapshot, children }: { snapshot: I18nSnapshot; children: React.ReactNode }) {
+export function I18nProvider({ snapshot, children }: { snapshot: I18nSnapshot; children?: React.ReactNode }) {
   const router = useOptionalRouter();
   const [switching, setSwitching] = useState(false);
   const reported = useRef(new Set<string>());
