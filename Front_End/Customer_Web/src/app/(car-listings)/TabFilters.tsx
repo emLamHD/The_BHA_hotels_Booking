@@ -10,6 +10,7 @@ import Checkbox from "@/shared/Checkbox";
 import convertNumbThousand from "@/utils/convertNumbThousand";
 import Slider from "rc-slider";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 // DEMO DATA
 const typeOfCar = [
   { name: "Small", description: "$68" },
@@ -43,6 +44,7 @@ const insurance = [
 ];
 
 const TabFilters = () => {
+  const t = useT();
   const [isOpenMoreFilter, setisOpenMoreFilter] = useState(false);
   const [isOpenMoreFilterMobile, setisOpenMoreFilterMobile] = useState(false);
   const [rangePrices, setRangePrices] = useState([0, 1000]);
@@ -83,7 +85,7 @@ const TabFilters = () => {
                 open ? "!border-primary-500 " : ""
               }`}
             >
-              <span>Car type</span>
+              <span>{t("customer.carListings.tabFilters.carType")}</span>
               <i className="las la-angle-down ml-2"></i>
             </Popover.Button>
             <Transition
@@ -109,15 +111,11 @@ const TabFilters = () => {
                     ))}
                   </div>
                   <div className="p-5 bg-neutral-50 dark:bg-neutral-900 dark:border-t dark:border-neutral-800 flex items-center justify-between">
-                    <ButtonThird onClick={close} sizeClass="px-4 py-2 sm:px-5">
-                      Clear
-                    </ButtonThird>
+                    <ButtonThird onClick={close} sizeClass="px-4 py-2 sm:px-5">{t("customer.common.clear")}</ButtonThird>
                     <ButtonPrimary
                       onClick={close}
                       sizeClass="px-4 py-2 sm:px-5"
-                    >
-                      Apply
-                    </ButtonPrimary>
+                    >{t("customer.common.apply")}</ButtonPrimary>
                   </div>
                 </div>
               </Popover.Panel>
@@ -156,7 +154,7 @@ const TabFilters = () => {
                 <div className="overflow-hidden rounded-2xl shadow-xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700">
                   <div className="relative flex flex-col px-5 py-6 space-y-8">
                     <div className="space-y-5">
-                      <span className="font-medium">Price per day</span>
+                      <span className="font-medium">{t("customer.common.pricePerDay")}</span>
                       <Slider
                         range
                         className="text-red-400"
@@ -173,9 +171,7 @@ const TabFilters = () => {
                         <label
                           htmlFor="minPrice"
                           className="block text-sm font-medium text-neutral-700 dark:text-neutral-300"
-                        >
-                          Min price
-                        </label>
+                        >{t("customer.common.minPrice2")}</label>
                         <div className="mt-1 relative rounded-md">
                           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                             <span className="text-neutral-500 sm:text-sm">
@@ -196,9 +192,7 @@ const TabFilters = () => {
                         <label
                           htmlFor="maxPrice"
                           className="block text-sm font-medium text-neutral-700 dark:text-neutral-300"
-                        >
-                          Max price
-                        </label>
+                        >{t("customer.common.maxPrice2")}</label>
                         <div className="mt-1 relative rounded-md">
                           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                             <span className="text-neutral-500 sm:text-sm">
@@ -218,15 +212,11 @@ const TabFilters = () => {
                     </div>
                   </div>
                   <div className="p-5 bg-neutral-50 dark:bg-neutral-900 dark:border-t dark:border-neutral-800 flex items-center justify-between">
-                    <ButtonThird onClick={close} sizeClass="px-4 py-2 sm:px-5">
-                      Clear
-                    </ButtonThird>
+                    <ButtonThird onClick={close} sizeClass="px-4 py-2 sm:px-5">{t("customer.common.clear")}</ButtonThird>
                     <ButtonPrimary
                       onClick={close}
                       sizeClass="px-4 py-2 sm:px-5"
-                    >
-                      Apply
-                    </ButtonPrimary>
+                    >{t("customer.common.apply")}</ButtonPrimary>
                   </div>
                 </div>
               </Popover.Panel>
@@ -247,7 +237,7 @@ const TabFilters = () => {
         }`}
         onClick={() => setIsOnSale(!isOnSale)}
       >
-        <span>On sale</span>
+        <span>{t("customer.common.onSale")}</span>
         {isOnSale && renderXClear()}
       </div>
     );
@@ -263,7 +253,7 @@ const TabFilters = () => {
                 open ? "!border-primary-500 " : ""
               }`}
             >
-              <span>Guests & Bags</span>
+              <span>{t("customer.carListings.tabFilters.guestsBags")}</span>
               <i className="las la-angle-down ml-2"></i>
             </Popover.Button>
             <Transition
@@ -278,19 +268,15 @@ const TabFilters = () => {
               <Popover.Panel className="absolute z-10 w-screen max-w-sm px-4 mt-3 left-0 sm:px-0 lg:max-w-md">
                 <div className="overflow-hidden rounded-2xl shadow-xl bg-white dark:bg-neutral-900   border border-neutral-200 dark:border-neutral-700">
                   <div className="relative flex flex-col px-5 py-6 space-y-5">
-                    <NcInputNumber label="Passengers" max={40} />
-                    <NcInputNumber label="Bags" max={40} />
+                    <NcInputNumber label={t("customer.carListings.tabFilters.passengers")} max={40} />
+                    <NcInputNumber label={t("customer.carListings.tabFilters.bags")} max={40} />
                   </div>
                   <div className="p-5 bg-neutral-50 dark:bg-neutral-900 dark:border-t dark:border-neutral-800 flex items-center justify-between">
-                    <ButtonThird onClick={close} sizeClass="px-4 py-2 sm:px-5">
-                      Clear
-                    </ButtonThird>
+                    <ButtonThird onClick={close} sizeClass="px-4 py-2 sm:px-5">{t("customer.common.clear")}</ButtonThird>
                     <ButtonPrimary
                       onClick={close}
                       sizeClass="px-4 py-2 sm:px-5"
-                    >
-                      Apply
-                    </ButtonPrimary>
+                    >{t("customer.common.apply")}</ButtonPrimary>
                   </div>
                 </div>
               </Popover.Panel>
@@ -347,8 +333,7 @@ const TabFilters = () => {
           onClick={openModalMoreFilterMobile}
         >
           <span>
-            <span className="hidden sm:inline">Car</span> filters (3)
-          </span>
+            <span className="hidden sm:inline">{t("customer.carListings.tabFilters.car")}</span>{" "}{t("customer.common.filters3")}</span>
           {renderXClear()}
         </div>
 
@@ -392,9 +377,7 @@ const TabFilters = () => {
                     <Dialog.Title
                       as="h3"
                       className="text-lg font-medium leading-6 text-gray-900"
-                    >
-                      Experiences filters
-                    </Dialog.Title>
+                    >{t("customer.common.experiencesFilters")}</Dialog.Title>
                     <span className="absolute left-3 top-3">
                       <ButtonClose onClick={closeModalMoreFilterMobile} />
                     </span>
@@ -404,7 +387,7 @@ const TabFilters = () => {
                     <div className="px-4 sm:px-6 divide-y divide-neutral-200 dark:divide-neutral-800">
                       {/* ------ */}
                       <div className="py-7">
-                        <h3 className="text-xl font-medium">Type of car</h3>
+                        <h3 className="text-xl font-medium">{t("customer.carListings.tabFilters.typeOfCar")}</h3>
                         <div className="mt-6 relative ">
                           {renderMoreFilterItem(typeOfCar)}
                         </div>
@@ -412,9 +395,7 @@ const TabFilters = () => {
 
                       {/* ------ */}
                       <div className="py-7">
-                        <h3 className="text-xl font-medium">
-                          Car specifications
-                        </h3>
+                        <h3 className="text-xl font-medium">{t("customer.carListings.tabFilters.carSpecifications")}</h3>
                         <div className="mt-6 relative ">
                           {renderMoreFilterItem(carSpecifications)}
                         </div>
@@ -423,7 +404,7 @@ const TabFilters = () => {
                       {/* --------- */}
                       {/* ---- */}
                       <div className="py-7">
-                        <h3 className="text-xl font-medium">Range Prices</h3>
+                        <h3 className="text-xl font-medium">{t("customer.common.rangePrices")}</h3>
                         <div className="mt-6 relative ">
                           <div className="relative flex flex-col space-y-8">
                             <div className="space-y-5">
@@ -443,9 +424,7 @@ const TabFilters = () => {
                                 <label
                                   htmlFor="minPrice"
                                   className="block text-sm font-medium text-neutral-700 dark:text-neutral-300"
-                                >
-                                  Min price
-                                </label>
+                                >{t("customer.common.minPrice2")}</label>
                                 <div className="mt-1 relative rounded-md">
                                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                                     <span className="text-neutral-500 sm:text-sm">
@@ -466,9 +445,7 @@ const TabFilters = () => {
                                 <label
                                   htmlFor="maxPrice"
                                   className="block text-sm font-medium text-neutral-700 dark:text-neutral-300"
-                                >
-                                  Max price
-                                </label>
+                                >{t("customer.common.maxPrice2")}</label>
                                 <div className="mt-1 relative rounded-md">
                                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                                     <span className="text-neutral-500 sm:text-sm">
@@ -492,18 +469,16 @@ const TabFilters = () => {
 
                       {/* ------ */}
                       <div className="py-7">
-                        <h3 className="text-xl font-medium">
-                          Passengers & Bags
-                        </h3>
+                        <h3 className="text-xl font-medium">{t("customer.carListings.tabFilters.passengersBags")}</h3>
                         <div className="mt-6 relative flex-col px-5 py-6 space-y-5">
-                          <NcInputNumber label="Passengers" max={40} />
-                          <NcInputNumber label="Bags" max={40} />
+                          <NcInputNumber label={t("customer.carListings.tabFilters.passengers")} max={40} />
+                          <NcInputNumber label={t("customer.carListings.tabFilters.bags")} max={40} />
                         </div>
                       </div>
 
                       {/* ------ */}
                       <div className="py-7">
-                        <h3 className="text-xl font-medium">Mileage</h3>
+                        <h3 className="text-xl font-medium">{t("customer.carListings.tabFilters.mileage")}</h3>
                         <div className="mt-6 relative ">
                           {renderMoreFilterItem(mileage)}
                         </div>
@@ -511,7 +486,7 @@ const TabFilters = () => {
 
                       {/* ------ */}
                       <div className="py-7">
-                        <h3 className="text-xl font-medium">Supplier</h3>
+                        <h3 className="text-xl font-medium">{t("customer.carListings.tabFilters.supplier")}</h3>
                         <div className="mt-6 relative ">
                           {renderMoreFilterItem(supplier)}
                         </div>
@@ -519,7 +494,7 @@ const TabFilters = () => {
 
                       {/* ------ */}
                       <div className="py-7">
-                        <h3 className="text-xl font-medium">Insurance</h3>
+                        <h3 className="text-xl font-medium">{t("customer.carListings.tabFilters.insurance")}</h3>
                         <div className="mt-6 relative ">
                           {renderMoreFilterItem(insurance)}
                         </div>
@@ -531,15 +506,11 @@ const TabFilters = () => {
                     <ButtonThird
                       onClick={closeModalMoreFilterMobile}
                       sizeClass="px-4 py-2 sm:px-5"
-                    >
-                      Clear
-                    </ButtonThird>
+                    >{t("customer.common.clear")}</ButtonThird>
                     <ButtonPrimary
                       onClick={closeModalMoreFilterMobile}
                       sizeClass="px-4 py-2 sm:px-5"
-                    >
-                      Apply
-                    </ButtonPrimary>
+                    >{t("customer.common.apply")}</ButtonPrimary>
                   </div>
                 </div>
               </Transition.Child>
@@ -558,7 +529,7 @@ const TabFilters = () => {
           className={`flex items-center justify-center px-4 py-2 text-sm rounded-full border border-primary-500 bg-primary-50 text-primary-700 focus:outline-none cursor-pointer`}
           onClick={openModalMoreFilter}
         >
-          <span>More filters (3)</span>
+          <span>{t("customer.carListings.tabFilters.moreFilters3")}</span>
           {renderXClear()}
         </div>
 
@@ -602,9 +573,7 @@ const TabFilters = () => {
                     <Dialog.Title
                       as="h3"
                       className="text-lg font-medium leading-6 text-gray-900"
-                    >
-                      More filters
-                    </Dialog.Title>
+                    >{t("customer.carListings.tabFilters.moreFilters")}</Dialog.Title>
                     <span className="absolute left-3 top-3">
                       <ButtonClose onClick={closeModalMoreFilter} />
                     </span>
@@ -613,27 +582,25 @@ const TabFilters = () => {
                   <div className="flex-grow overflow-y-auto">
                     <div className="px-4 sm:px-6 divide-y divide-neutral-200 dark:divide-neutral-800">
                       <div className="py-7">
-                        <h3 className="text-xl font-medium">
-                          Car specifications
-                        </h3>
+                        <h3 className="text-xl font-medium">{t("customer.carListings.tabFilters.carSpecifications")}</h3>
                         <div className="mt-6 relative ">
                           {renderMoreFilterItem(carSpecifications)}
                         </div>
                       </div>
                       <div className="py-7">
-                        <h3 className="text-xl font-medium">Mileage</h3>
+                        <h3 className="text-xl font-medium">{t("customer.carListings.tabFilters.mileage")}</h3>
                         <div className="mt-6 relative ">
                           {renderMoreFilterItem(mileage)}
                         </div>
                       </div>
                       <div className="py-7">
-                        <h3 className="text-xl font-medium">Supplier</h3>
+                        <h3 className="text-xl font-medium">{t("customer.carListings.tabFilters.supplier")}</h3>
                         <div className="mt-6 relative ">
                           {renderMoreFilterItem(supplier)}
                         </div>
                       </div>
                       <div className="py-7">
-                        <h3 className="text-xl font-medium">Insurance</h3>
+                        <h3 className="text-xl font-medium">{t("customer.carListings.tabFilters.insurance")}</h3>
                         <div className="mt-6 relative ">
                           {renderMoreFilterItem(insurance)}
                         </div>
@@ -645,15 +612,11 @@ const TabFilters = () => {
                     <ButtonThird
                       onClick={closeModalMoreFilter}
                       sizeClass="px-4 py-2 sm:px-5"
-                    >
-                      Clear
-                    </ButtonThird>
+                    >{t("customer.common.clear")}</ButtonThird>
                     <ButtonPrimary
                       onClick={closeModalMoreFilter}
                       sizeClass="px-4 py-2 sm:px-5"
-                    >
-                      Apply
-                    </ButtonPrimary>
+                    >{t("customer.common.apply")}</ButtonPrimary>
                   </div>
                 </div>
               </Transition.Child>

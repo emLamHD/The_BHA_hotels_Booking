@@ -6,7 +6,9 @@ import SectionSubscribe2 from "@/components/SectionSubscribe2";
 import React, { ReactNode } from "react";
 import SectionHeroArchivePage from "../(server-components)/SectionHeroArchivePage";
 
-const Layout = ({ children }: { children: ReactNode }) => {
+import { getT } from "@/lib/i18n/server";
+const Layout = async ({ children }: { children: ReactNode }) => {
+  const t = await getT();
   return (
     <div className={`nc-ListingStayPage relative `}>
       <BgGlassmorphism />
@@ -19,7 +21,7 @@ const Layout = ({ children }: { children: ReactNode }) => {
           listingType={
             <>
               <i className="text-2xl las la-umbrella-beach"></i>
-              <span className="ml-2.5">1599 experiences</span>
+              <span className="ml-2.5">{t("customer.experienceListings.layout.1599Experiences")}</span>
             </>
           }
         />
@@ -32,7 +34,7 @@ const Layout = ({ children }: { children: ReactNode }) => {
         <div className="relative py-16">
           <BackgroundSection />
           <SectionSliderNewCategories
-            heading="Explore by types of stays"
+            heading={t("customer.common.exploreByTypesOfStays")}
             subHeading="Explore houses based on 10 types of stays"
             categoryCardType="card5"
             itemPerRow={5}

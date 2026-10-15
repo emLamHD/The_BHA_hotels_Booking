@@ -1,3 +1,5 @@
+"use client";
+
 import React, { FC } from "react";
 import { DEMO_CAR_LISTINGS } from "@/data/listings";
 import { CarDataType } from "@/data/types";
@@ -6,6 +8,7 @@ import TabFilters from "./TabFilters";
 import Heading2 from "@/shared/Heading2";
 import CarCard from "@/components/CarCard";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface SectionGridFilterCardProps {
   className?: string;
   data?: CarDataType[];
@@ -17,16 +20,13 @@ const SectionGridFilterCard: FC<SectionGridFilterCardProps> = ({
   className = "",
   data = DEMO_DATA,
 }) => {
+  const t = useT();
   return (
     <div className={`nc-SectionGridFilterCard ${className}`}>
       <Heading2
-        heading="Cars in Tokyo"
+        heading={t("customer.common.carsInTokyo")}
         subHeading={
-          <span className="block text-neutral-500 dark:text-neutral-400 mt-3">
-            233 cars
-            <span className="mx-2">·</span>
-            Aug 12 - 18
-          </span>
+          <span className="block text-neutral-500 dark:text-neutral-400 mt-3">{t("customer.common.233Cars")}<span className="mx-2">·</span>{t("customer.common.aug1218")}</span>
         }
       />
 

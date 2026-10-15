@@ -10,6 +10,7 @@ import convertNumbThousand from "@/utils/convertNumbThousand";
 import Slider from "rc-slider";
 import { XMarkIcon } from "@heroicons/react/24/outline";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 // DEMO DATA
 const typeOfAirlines = [
   {
@@ -48,6 +49,7 @@ const stopPoints = [
 
 //
 const TabFilters = () => {
+  const t = useT();
   const [isOpenMoreFilter, setisOpenMoreFilter] = useState(false);
   //
   const [isOnSale, setIsOnSale] = useState(true);
@@ -131,7 +133,7 @@ const TabFilters = () => {
                   <div className="space-y-3">
                     <div className="flex space-x-2">
                       <i className="text-lg las la-plane-departure"></i>
-                      <span className="text-xs">Departure time:</span>
+                      <span className="text-xs">{t("customer.flightListings.tabFilters.departureTime")}</span>
                       <span className="text-xs text-primary-500 dark:text-primary-400">
                         {posts.Departure[0]}:00 - {posts.Departure[1]}
                         :00
@@ -167,7 +169,7 @@ const TabFilters = () => {
                   <div className="space-y-3">
                     <div className="flex space-x-2">
                       <i className="text-lg las la-plane-arrival"></i>
-                      <span className="text-xs">Arrival time:</span>
+                      <span className="text-xs">{t("customer.flightListings.tabFilters.arrivalTime")}</span>
                       <span className="text-xs text-primary-500 dark:text-primary-400">
                         {posts.Arrival[0]}:00 - {posts.Arrival[1]}:00
                       </span>
@@ -223,7 +225,7 @@ const TabFilters = () => {
                 }
                 `}
             >
-              <span>Airlines</span>
+              <span>{t("customer.flightListings.tabFilters.airlines")}</span>
               {!airlinesStates.length ? (
                 <i className="las la-angle-down ml-2"></i>
               ) : (
@@ -246,7 +248,7 @@ const TabFilters = () => {
                   <div className="relative flex flex-col px-5 py-6 space-y-5">
                     <Checkbox
                       name="All Airlines"
-                      label="All Airlines"
+                      label={t("customer.flightListings.tabFilters.allAirlines")}
                       defaultChecked={airlinesStates.includes("All Airlines")}
                       onChange={(checked) =>
                         handleChangeAirlines(checked, "All Airlines")
@@ -273,15 +275,11 @@ const TabFilters = () => {
                         setAirlinesStates([]);
                       }}
                       sizeClass="px-4 py-2 sm:px-5"
-                    >
-                      Clear
-                    </ButtonThird>
+                    >{t("customer.common.clear")}</ButtonThird>
                     <ButtonPrimary
                       onClick={close}
                       sizeClass="px-4 py-2 sm:px-5"
-                    >
-                      Apply
-                    </ButtonPrimary>
+                    >{t("customer.common.apply")}</ButtonPrimary>
                   </div>
                 </div>
               </Popover.Panel>
@@ -307,7 +305,7 @@ const TabFilters = () => {
                 }
                 `}
             >
-              <span>Stop points</span>
+              <span>{t("customer.flightListings.tabFilters.stopPoints")}</span>
               {!stopPontsStates.length ? (
                 <i className="las la-angle-down ml-2"></i>
               ) : (
@@ -348,15 +346,11 @@ const TabFilters = () => {
                         setStopPontsStates([]);
                       }}
                       sizeClass="px-4 py-2 sm:px-5"
-                    >
-                      Clear
-                    </ButtonThird>
+                    >{t("customer.common.clear")}</ButtonThird>
                     <ButtonPrimary
                       onClick={close}
                       sizeClass="px-4 py-2 sm:px-5"
-                    >
-                      Apply
-                    </ButtonPrimary>
+                    >{t("customer.common.apply")}</ButtonPrimary>
                   </div>
                 </div>
               </Popover.Panel>
@@ -377,7 +371,7 @@ const TabFilters = () => {
                 open ? "!border-primary-500 " : ""
               }`}
             >
-              <span>Flight time</span>
+              <span>{t("customer.flightListings.tabFilters.flightTime")}</span>
               <i className="las la-angle-down ml-2"></i>
             </Popover.Button>
             <Transition
@@ -395,15 +389,11 @@ const TabFilters = () => {
                     {renderTabsTimeFlightTab()}
                   </div>
                   <div className="p-5 bg-neutral-50 dark:bg-neutral-900 dark:border-t dark:border-neutral-800 flex items-center justify-between">
-                    <ButtonThird onClick={close} sizeClass="px-4 py-2 sm:px-5">
-                      Clear
-                    </ButtonThird>
+                    <ButtonThird onClick={close} sizeClass="px-4 py-2 sm:px-5">{t("customer.common.clear")}</ButtonThird>
                     <ButtonPrimary
                       onClick={close}
                       sizeClass="px-4 py-2 sm:px-5"
-                    >
-                      Apply
-                    </ButtonPrimary>
+                    >{t("customer.common.apply")}</ButtonPrimary>
                   </div>
                 </div>
               </Popover.Panel>
@@ -422,7 +412,7 @@ const TabFilters = () => {
             <Popover.Button
               className={`flex items-center justify-center px-4 py-2 text-sm rounded-full border border-primary-500 bg-primary-50 text-primary-700 focus:outline-none `}
             >
-              <span>less than {tripTimes} hours</span>
+              <span>{t("customer.flightListings.tabFilters.lessThanHours", { tripTimes })}</span>
               {renderXClear()}
             </Popover.Button>
             <Transition
@@ -438,9 +428,7 @@ const TabFilters = () => {
                 <div className="overflow-hidden rounded-2xl shadow-xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700">
                   <div className="relative flex flex-col px-5 py-6 space-y-8">
                     <div className="space-y-5">
-                      <div className="font-medium">
-                        Trip time:
-                        <span className="text-sm font-normal ml-1 text-primary-500">{` <${tripTimes} hours`}</span>
+                      <div className="font-medium">{t("customer.flightListings.tabFilters.tripTime")}<span className="text-sm font-normal ml-1 text-primary-500">{` <${tripTimes} hours`}</span>
                       </div>
 
                       <Slider
@@ -452,15 +440,11 @@ const TabFilters = () => {
                     </div>
                   </div>
                   <div className="p-5 bg-neutral-50 dark:bg-neutral-900 dark:border-t dark:border-neutral-800 flex items-center justify-between">
-                    <ButtonThird onClick={close} sizeClass="px-4 py-2 sm:px-5">
-                      Clear
-                    </ButtonThird>
+                    <ButtonThird onClick={close} sizeClass="px-4 py-2 sm:px-5">{t("customer.common.clear")}</ButtonThird>
                     <ButtonPrimary
                       onClick={close}
                       sizeClass="px-4 py-2 sm:px-5"
-                    >
-                      Apply
-                    </ButtonPrimary>
+                    >{t("customer.common.apply")}</ButtonPrimary>
                   </div>
                 </div>
               </Popover.Panel>
@@ -499,7 +483,7 @@ const TabFilters = () => {
                 <div className="overflow-hidden rounded-2xl shadow-xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700">
                   <div className="relative flex flex-col px-5 py-6 space-y-8">
                     <div className="space-y-5">
-                      <span className="font-medium">Price per person</span>
+                      <span className="font-medium">{t("customer.flightListings.tabFilters.pricePerPerson")}</span>
                       <Slider
                         range
                         min={100}
@@ -515,9 +499,7 @@ const TabFilters = () => {
                         <label
                           htmlFor="minPrice"
                           className="block text-sm font-medium text-neutral-700 dark:text-neutral-300"
-                        >
-                          Min price
-                        </label>
+                        >{t("customer.common.minPrice2")}</label>
                         <div className="mt-1 relative rounded-md">
                           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                             <span className="text-neutral-500 sm:text-sm">
@@ -538,9 +520,7 @@ const TabFilters = () => {
                         <label
                           htmlFor="maxPrice"
                           className="block text-sm font-medium text-neutral-700 dark:text-neutral-300"
-                        >
-                          Max price
-                        </label>
+                        >{t("customer.common.maxPrice2")}</label>
                         <div className="mt-1 relative rounded-md">
                           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                             <span className="text-neutral-500 sm:text-sm">
@@ -560,15 +540,11 @@ const TabFilters = () => {
                     </div>
                   </div>
                   <div className="p-5 bg-neutral-50 dark:bg-neutral-900 dark:border-t dark:border-neutral-800 flex items-center justify-between">
-                    <ButtonThird onClick={close} sizeClass="px-4 py-2 sm:px-5">
-                      Clear
-                    </ButtonThird>
+                    <ButtonThird onClick={close} sizeClass="px-4 py-2 sm:px-5">{t("customer.common.clear")}</ButtonThird>
                     <ButtonPrimary
                       onClick={close}
                       sizeClass="px-4 py-2 sm:px-5"
-                    >
-                      Apply
-                    </ButtonPrimary>
+                    >{t("customer.common.apply")}</ButtonPrimary>
                   </div>
                 </div>
               </Popover.Panel>
@@ -589,7 +565,7 @@ const TabFilters = () => {
         }`}
         onClick={() => setIsOnSale(!isOnSale)}
       >
-        <span>On sale</span>
+        <span>{t("customer.common.onSale")}</span>
         {isOnSale && renderXClear()}
       </div>
     );
@@ -641,8 +617,7 @@ const TabFilters = () => {
           onClick={openModalMoreFilter}
         >
           <span>
-            <span className="hidden sm:inline">Flights</span> filters (3)
-          </span>
+            <span className="hidden sm:inline">{t("customer.flightListings.tabFilters.flights")}</span>{" "}{t("customer.common.filters3")}</span>
           {renderXClear()}
         </div>
 
@@ -686,9 +661,7 @@ const TabFilters = () => {
                     <Dialog.Title
                       as="h3"
                       className="text-lg font-medium leading-6 text-gray-900"
-                    >
-                      Flight filters
-                    </Dialog.Title>
+                    >{t("customer.flightListings.tabFilters.flightFilters")}</Dialog.Title>
                     <span className="absolute left-3 top-3">
                       <ButtonClose onClick={closeModalMoreFilter} />
                     </span>
@@ -699,7 +672,7 @@ const TabFilters = () => {
                       {/* --------- */}
                       {/* ---- */}
                       <div className="py-7">
-                        <h3 className="text-xl font-medium">Airlines</h3>
+                        <h3 className="text-xl font-medium">{t("customer.flightListings.tabFilters.airlines")}</h3>
                         <div className="mt-6 relative ">
                           {renderMoreFilterItem(typeOfAirlines)}
                         </div>
@@ -707,7 +680,7 @@ const TabFilters = () => {
                       {/* --------- */}
                       {/* ---- */}
                       <div className="py-7">
-                        <h3 className="text-xl font-medium">Stop points</h3>
+                        <h3 className="text-xl font-medium">{t("customer.flightListings.tabFilters.stopPoints")}</h3>
                         <div className="mt-6 relative ">
                           {renderMoreFilterItem(stopPoints)}
                         </div>
@@ -716,7 +689,7 @@ const TabFilters = () => {
                       {/* --------- */}
                       {/* ---- */}
                       <div className="py-7">
-                        <h3 className="text-xl font-medium">Range Prices</h3>
+                        <h3 className="text-xl font-medium">{t("customer.common.rangePrices")}</h3>
                         <div className="mt-6 relative ">
                           <div className="relative flex flex-col space-y-8">
                             <div className="space-y-5">
@@ -736,9 +709,7 @@ const TabFilters = () => {
                                 <label
                                   htmlFor="minPrice"
                                   className="block text-sm font-medium text-neutral-700 dark:text-neutral-300"
-                                >
-                                  Min price
-                                </label>
+                                >{t("customer.common.minPrice2")}</label>
                                 <div className="mt-1 relative rounded-md">
                                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                                     <span className="text-neutral-500 sm:text-sm">
@@ -759,9 +730,7 @@ const TabFilters = () => {
                                 <label
                                   htmlFor="maxPrice"
                                   className="block text-sm font-medium text-neutral-700 dark:text-neutral-300"
-                                >
-                                  Max price
-                                </label>
+                                >{t("customer.common.maxPrice2")}</label>
                                 <div className="mt-1 relative rounded-md">
                                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                                     <span className="text-neutral-500 sm:text-sm">
@@ -786,9 +755,7 @@ const TabFilters = () => {
                       {/* --------- */}
                       {/* ---- */}
                       <div className="py-7">
-                        <h3 className="text-xl font-medium">
-                          Strip times
-                          <span className="text-sm font-normal ml-1 text-primary-500">{` <${tripTimes} hours`}</span>
+                        <h3 className="text-xl font-medium">{t("customer.flightListings.tabFilters.stripTimes")}<span className="text-sm font-normal ml-1 text-primary-500">{` <${tripTimes} hours`}</span>
                         </h3>
                         <div className="mt-6 relative ">
                           <Slider
@@ -803,7 +770,7 @@ const TabFilters = () => {
                       {/* --------- */}
                       {/* ---- */}
                       <div className="py-7">
-                        <h3 className="text-xl font-medium">Flight times</h3>
+                        <h3 className="text-xl font-medium">{t("customer.flightListings.tabFilters.flightTimes")}</h3>
                         <div className="relative flex flex-col py-5 space-y-5">
                           {renderTabsTimeFlightTab()}
                         </div>
@@ -815,15 +782,11 @@ const TabFilters = () => {
                     <ButtonThird
                       onClick={closeModalMoreFilter}
                       sizeClass="px-4 py-2 sm:px-5"
-                    >
-                      Clear
-                    </ButtonThird>
+                    >{t("customer.common.clear")}</ButtonThird>
                     <ButtonPrimary
                       onClick={closeModalMoreFilter}
                       sizeClass="px-4 py-2 sm:px-5"
-                    >
-                      Apply
-                    </ButtonPrimary>
+                    >{t("customer.common.apply")}</ButtonPrimary>
                   </div>
                 </div>
               </Transition.Child>

@@ -1,6 +1,9 @@
+"use client";
+
 import React, { FC } from "react";
 import Heading from "@/shared/Heading";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface Statistic {
   id: string;
   heading: string;
@@ -32,14 +35,12 @@ export interface SectionStatisticProps {
 }
 
 const SectionStatistic: FC<SectionStatisticProps> = ({ className = "" }) => {
+  const t = useT();
   return (
     <div className={`nc-SectionStatistic relative ${className}`}>
       <Heading
-        desc=" We’re impartial and independent, and every day we create distinctive,
-          world-class programmes and content"
-      >
-        🚀 Fast Facts
-      </Heading>
+        desc={t("customer.common.weReImpartialAndIndependent")}
+      >{t("customer.about.sectionStatistic.fastFacts")}</Heading>
       <div className="grid md:grid-cols-2 gap-6 lg:grid-cols-3 xl:gap-8">
         {FOUNDER_DEMO.map((item) => (
           <div

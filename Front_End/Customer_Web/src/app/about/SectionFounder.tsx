@@ -1,7 +1,10 @@
+"use client";
+
 import Heading from "@/shared/Heading";
 import Image from "next/image";
 import React from "react";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface People {
   id: string;
   name: string;
@@ -41,14 +44,12 @@ const FOUNDER_DEMO: People[] = [
 ];
 
 const SectionFounder = () => {
+  const t = useT();
   return (
     <div className="nc-SectionFounder relative">
       <Heading
-        desc="We’re impartial and independent, and every day we create distinctive,
-          world-class programmes and content"
-      >
-        ⛱ Founder
-      </Heading>
+        desc={t("customer.common.weReImpartialAndIndependent")}
+      >{t("customer.about.sectionFounder.founder")}</Heading>
       <div className="grid sm:grid-cols-2 gap-x-5 gap-y-8 lg:grid-cols-4 xl:gap-x-8">
         {FOUNDER_DEMO.map((item) => (
           <div key={item.id} className="max-w-sm">

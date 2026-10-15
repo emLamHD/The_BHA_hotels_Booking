@@ -1,10 +1,14 @@
+"use client";
+
 import React, { FC } from "react";
 import ButtonPrimary from "@/shared/ButtonPrimary";
 import Input from "@/shared/Input";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface PageAddListing5Props {}
 
 const PageAddListing5: FC<PageAddListing5Props> = () => {
+  const t = useT();
   const renderRadio = (
     name: string,
     id: string,
@@ -44,21 +48,16 @@ const PageAddListing5: FC<PageAddListing5Props> = () => {
   return (
     <>
       <div>
-        <h2 className="text-2xl font-semibold">
-          Set house rules for your guests{" "}
+        <h2 className="text-2xl font-semibold">{t("customer.addListing.stepIndex.pageAddListing5.setHouseRulesForYour")}
         </h2>
-        <span className="block mt-2 text-neutral-500 dark:text-neutral-400">
-          Guests must agree to your house rules before they book.
-        </span>
+        <span className="block mt-2 text-neutral-500 dark:text-neutral-400">{t("customer.addListing.stepIndex.pageAddListing5.guestsMustAgreeToYour")}</span>
       </div>
       <div className="w-14 border-b border-neutral-200 dark:border-neutral-700"></div>
       {/* FORM */}
       <div className="space-y-8">
         {/* ITEM */}
         <div>
-          <label className="text-lg font-semibold" htmlFor="">
-            General amenities
-          </label>
+          <label className="text-lg font-semibold" htmlFor="">{t("customer.common.generalAmenities")}</label>
           <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {renderRadio("Smoking", "Do", "Do not allow")}
             {renderRadio("Smoking", "Allow", "Allow", true)}
@@ -68,9 +67,7 @@ const PageAddListing5: FC<PageAddListing5Props> = () => {
 
         {/* ITEM */}
         <div>
-          <label className="text-lg font-semibold" htmlFor="">
-            Pet
-          </label>
+          <label className="text-lg font-semibold" htmlFor="">{t("customer.addListing.stepIndex.pageAddListing5.pet")}</label>
           <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {renderRadio("Pet", "Do", "Do not allow")}
             {renderRadio("Pet", "Allow", "Allow", true)}
@@ -80,9 +77,7 @@ const PageAddListing5: FC<PageAddListing5Props> = () => {
 
         {/* ITEM */}
         <div>
-          <label className="text-lg font-semibold" htmlFor="">
-            Party organizing
-          </label>
+          <label className="text-lg font-semibold" htmlFor="">{t("customer.addListing.stepIndex.pageAddListing5.partyOrganizing")}</label>
           <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {renderRadio("Partyorganizing", "Do", "Do not allow")}
             {renderRadio("Partyorganizing", "Allow", "Allow", true)}
@@ -92,9 +87,7 @@ const PageAddListing5: FC<PageAddListing5Props> = () => {
 
         {/* ITEM */}
         <div>
-          <label className="text-lg font-semibold" htmlFor="">
-            Cooking
-          </label>
+          <label className="text-lg font-semibold" htmlFor="">{t("customer.addListing.stepIndex.pageAddListing5.cooking")}</label>
           <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {renderRadio("Cooking", "Do", "Do not allow")}
             {renderRadio("Cooking", "Allow", "Allow", true)}
@@ -104,7 +97,7 @@ const PageAddListing5: FC<PageAddListing5Props> = () => {
 
         {/* ----------- */}
         <div className=" border-b border-neutral-200 dark:border-neutral-700"></div>
-        <span className="block text-lg font-semibold">Additional rules</span>
+        <span className="block text-lg font-semibold">{t("customer.addListing.stepIndex.pageAddListing5.additionalRules")}</span>
         <div className="flow-root">
           <div className="-my-3 divide-y divide-neutral-100 dark:divide-neutral-800">
             {renderNoInclude("No smoking in common areas")}
@@ -113,10 +106,10 @@ const PageAddListing5: FC<PageAddListing5Props> = () => {
           </div>
         </div>
         <div className="flex flex-col sm:flex-row sm:justify-between space-y-3 sm:space-y-0 sm:space-x-5">
-          <Input className="!h-full" placeholder="No smoking..." />
+          <Input className="!h-full" placeholder={t("customer.addListing.stepIndex.pageAddListing5.noSmoking")} />
           <ButtonPrimary className="flex-shrink-0">
             <i className="text-xl las la-plus"></i>
-            <span className="ml-3">Add tag</span>
+            <span className="ml-3">{t("customer.addListing.stepIndex.pageAddListing5.addTag")}</span>
           </ButtonPrimary>
         </div>
       </div>

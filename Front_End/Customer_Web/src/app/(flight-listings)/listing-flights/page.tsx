@@ -5,9 +5,11 @@ import SectionSubscribe2 from "@/components/SectionSubscribe2";
 import React, { FC } from "react";
 import SectionGridFilterCard from "../SectionGridFilterCard";
 
+import { getT } from "@/lib/i18n/server";
 export interface ListingFlightsPageProps {}
 
-const ListingFlightsPage: FC<ListingFlightsPageProps> = ({}) => {
+async function ListingFlightsPage(_props: ListingFlightsPageProps) {
+  const t = await getT();
   return (
     <div className={`nc-ListingFlightsPage relative overflow-hidden `}>
       <BgGlassmorphism />
@@ -20,7 +22,7 @@ const ListingFlightsPage: FC<ListingFlightsPageProps> = ({}) => {
           listingType={
             <>
               <i className="text-2xl las la-plane-departure"></i>
-              <span className="ml-2.5">1599 flights</span>
+              <span className="ml-2.5">{t("customer.flightListings.listingFlights.page.1599Flights")}</span>
             </>
           }
           className="pt-10 pb-24 lg:pb-28 lg:pt-16 "
@@ -31,7 +33,7 @@ const ListingFlightsPage: FC<ListingFlightsPageProps> = ({}) => {
 
         {/* SECTION 1 */}
         <SectionSliderNewCategories
-          heading="Explore top destination ✈"
+          heading={t("customer.flightListings.listingFlights.page.exploreTopDestination")}
           subHeading="Explore thousands of destinations around the world"
           categoryCardType="card4"
           itemPerRow={4}
@@ -42,6 +44,6 @@ const ListingFlightsPage: FC<ListingFlightsPageProps> = ({}) => {
       </div>
     </div>
   );
-};
+}
 
 export default ListingFlightsPage;

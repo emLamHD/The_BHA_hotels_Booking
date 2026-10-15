@@ -1,3 +1,5 @@
+"use client";
+
 import React, { FC } from "react";
 import { DEMO_EXPERIENCES_LISTINGS } from "@/data/listings";
 import { ExperiencesDataType, StayDataType } from "@/data/types";
@@ -6,6 +8,7 @@ import TabFilters from "./TabFilters";
 import Heading2 from "@/shared/Heading2";
 import ExperiencesCard from "@/components/ExperiencesCard";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface SectionGridFilterCardProps {
   className?: string;
   data?: StayDataType[];
@@ -19,17 +22,13 @@ const SectionGridFilterCard: FC<SectionGridFilterCardProps> = ({
   className = "",
   data = DEMO_DATA,
 }) => {
+  const t = useT();
   return (
     <div className={`nc-SectionGridFilterCard ${className}`}>
       <Heading2
-        heading="Experiences in Tokyo"
+        heading={t("customer.common.experiencesInTokyo")}
         subHeading={
-          <span className="block text-neutral-500 dark:text-neutral-400 mt-3">
-            233 experiences
-            <span className="mx-2">·</span>
-            Aug 12 - 18
-            <span className="mx-2">·</span>2 Guests
-          </span>
+          <span className="block text-neutral-500 dark:text-neutral-400 mt-3">{t("customer.common.233Experiences")}<span className="mx-2">·</span>{t("customer.common.aug1218")}<span className="mx-2">·</span>{t("customer.common.2Guests")}</span>
         }
       />
 
