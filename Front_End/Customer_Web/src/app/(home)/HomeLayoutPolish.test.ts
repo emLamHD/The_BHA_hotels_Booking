@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import React from "react";
 import { readFileSync } from "node:fs";
-import { renderToStaticMarkup } from "react-dom/server";
+import { renderWithI18n } from "@/lib/i18n/testkit";
 import HomeOfferSection from "./HomeOfferSection";
 import HomeNewsletter from "./HomeNewsletter";
 import HomeNewsSection from "./HomeNewsSection";
@@ -10,10 +10,10 @@ import { MOCK_OFFERS } from "@/data/homepageOffers";
 import { BENEFITS, SPACE_GALLERY } from "@/lib/riversideHomeContent";
 
 /** CUST-WEB-001-CP08a-C2 polish: taller hero, offer cards whose price and button line up, a newsletter that matches the page. */
-const offers = renderToStaticMarkup(React.createElement(HomeOfferSection));
-const newsletter = renderToStaticMarkup(React.createElement(HomeNewsletter));
-const news = renderToStaticMarkup(React.createElement(HomeNewsSection));
-const teaser = renderToStaticMarkup(React.createElement(HomeRiversideTeaser));
+const offers = renderWithI18n(React.createElement(HomeOfferSection));
+const newsletter = renderWithI18n(React.createElement(HomeNewsletter));
+const news = renderWithI18n(React.createElement(HomeNewsSection));
+const teaser = renderWithI18n(React.createElement(HomeRiversideTeaser));
 const hero = readFileSync(new URL("./HomeHeroCarousel.tsx", import.meta.url), "utf8");
 
 const count = (markup: string, needle: string) => markup.split(needle).length - 1;

@@ -15,6 +15,7 @@ import { isRequestCancelledError } from "@/lib/api/httpClient";
 import { SHOWCASE_SECTION_NAVIGATION_EVENT } from "@/lib/routePolicy";
 import { createAnchorAlignment } from "@/lib/anchorAlignment";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface SectionGridFeaturePropertyProps {
   className?: string;
   gridClass?: string;
@@ -47,6 +48,7 @@ const SectionGridFeatureProperty: FC<SectionGridFeaturePropertyProps> = ({
   heading = "Featured properties",
   subHeading = "Real properties from The BHA Hotels catalog",
 }) => {
+  const t = useT();
   const [status, setStatus] = useState<LoadStatus>("loading");
   const [properties, setProperties] = useState<PropertyDto[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -123,9 +125,7 @@ const SectionGridFeatureProperty: FC<SectionGridFeaturePropertyProps> = ({
           role="status"
           aria-live="polite"
           className="py-16 text-center text-neutral-500 dark:text-neutral-400"
-        >
-          Loading properties…
-        </div>
+        >{t("customer.home.sectionGridFeatureProperty.loadingProperties")}</div>
       )}
 
       {status === "error" && (
@@ -134,7 +134,7 @@ const SectionGridFeatureProperty: FC<SectionGridFeaturePropertyProps> = ({
           className="py-16 flex flex-col items-center text-center space-y-4"
         >
           <p className="text-neutral-600 dark:text-neutral-300">{errorMessage}</p>
-          <ButtonSecondary onClick={loadProperties}>Retry</ButtonSecondary>
+          <ButtonSecondary onClick={loadProperties}>{t("customer.common.retry")}</ButtonSecondary>
         </div>
       )}
 
@@ -142,9 +142,7 @@ const SectionGridFeatureProperty: FC<SectionGridFeaturePropertyProps> = ({
         <div
           role="status"
           className="py-16 text-center text-neutral-500 dark:text-neutral-400"
-        >
-          No properties are available right now.
-        </div>
+        >{t("customer.home.sectionGridFeatureProperty.noPropertiesAreAvailableRight")}</div>
       )}
 
       {ready && (
@@ -163,7 +161,7 @@ const SectionGridFeatureProperty: FC<SectionGridFeaturePropertyProps> = ({
           .filter((property) => selectGalleryImages(property.media).length > 1)
           .map((property) => (
             <div key={`gallery-${property.id}`} className="mt-8">
-              <h3 className="mb-3 text-lg font-medium">Hình ảnh {property.name ?? "chỗ nghỉ"}</h3>
+              <h3 className="mb-3 text-lg font-medium">{t("customer.home.sectionGridFeatureProperty.images")}{" "}{property.name ?? "chỗ nghỉ"}</h3>
               <MediaGallery media={property.media} name={property.name ?? "Property"} aspectClass="aspect-[16/9]" />
             </div>
           ))}

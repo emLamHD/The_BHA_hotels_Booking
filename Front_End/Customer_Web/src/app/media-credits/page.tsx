@@ -4,6 +4,7 @@ import Image from "next/image";
 import BgGlassmorphism from "@/components/BgGlassmorphism";
 import { MEDIA_CHANGES_NOTE, MEDIA_CREDITS, travelMediaUrl } from "@/data/heroSlides";
 
+import { getT } from "@/lib/i18n/server";
 export const metadata: Metadata = {
   title: "Nguồn ảnh — The BHA",
   description: "Tác giả, giấy phép và nguồn của các ảnh Đà Nẵng trên trang The BHA.",
@@ -15,20 +16,16 @@ export const metadata: Metadata = {
  * Commons page, what was changed, and where the picture is used. CC BY-SA pictures stay under that licence in
  * the form shown here. The Riverside property photographs are a separate matter and are said so below.
  */
-export default function MediaCreditsPage() {
+export default async function MediaCreditsPage() {
+  const t = await getT();
   return (
     <div className="nc-MediaCreditsPage relative overflow-hidden">
       <BgGlassmorphism />
       <div className="container relative pb-20 pt-10 lg:pb-28 lg:pt-14">
         <header className="max-w-3xl space-y-3">
-          <h1 className="text-3xl font-semibold text-neutral-900 dark:text-neutral-50 md:text-4xl">Nguồn ảnh</h1>
-          <p className="text-neutral-600 dark:text-neutral-300">
-            Các ảnh Đà Nẵng và vùng lân cận trên trang chủ và trong Blog là ảnh có giấy phép mở lấy từ Wikimedia Commons. {MEDIA_CHANGES_NOTE}{" "}
-            Các ảnh theo giấy phép CC BY-SA được chia sẻ tiếp theo cùng giấy phép đó.
-          </p>
-          <p className="text-sm text-neutral-500 dark:text-neutral-400">
-            Ảnh của The BHA Riverside (phòng, hồ bơi, sảnh) là ảnh của chủ sở hữu, dùng cho bản demo; quyền sử dụng thương mại của các ảnh đó chưa được xác minh.
-          </p>
+          <h1 className="text-3xl font-semibold text-neutral-900 dark:text-neutral-50 md:text-4xl">{t("customer.common.photoCredits")}</h1>
+          <p className="text-neutral-600 dark:text-neutral-300">{t("customer.mediaCredits.page.photosOfDaNangAnd", { MEDIACHANGESNOTE: MEDIA_CHANGES_NOTE })}</p>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">{t("customer.mediaCredits.page.photosOfTheBhaRiverside")}</p>
         </header>
         <ul className="mt-10 grid gap-6 lg:grid-cols-2">
           {MEDIA_CREDITS.map((credit) => (
@@ -43,19 +40,16 @@ export default function MediaCreditsPage() {
               />
               <div className="min-w-0 space-y-1 text-sm">
                 <p className="font-semibold text-neutral-900 dark:text-neutral-100">{credit.commonsTitle.replace(/^File:/, "")}</p>
-                <p className="text-neutral-600 dark:text-neutral-300">Tác giả: {credit.author}</p>
-                <p className="text-neutral-600 dark:text-neutral-300">
-                  Giấy phép:{" "}
+                <p className="text-neutral-600 dark:text-neutral-300">{t("customer.mediaCredits.page.author", { author: credit.author })}</p>
+                <p className="text-neutral-600 dark:text-neutral-300">{t("customer.mediaCredits.page.licence")}{" "}
                   <a href={credit.licenseUrl} target="_blank" rel="noopener noreferrer" className="underline">
                     {credit.license}
                   </a>
                 </p>
                 <p>
-                  <a href={credit.sourceUrl} target="_blank" rel="noopener noreferrer" className="text-primary-700 underline dark:text-primary-300">
-                    Trang gốc trên Wikimedia Commons
-                  </a>
+                  <a href={credit.sourceUrl} target="_blank" rel="noopener noreferrer" className="text-primary-700 underline dark:text-primary-300">{t("customer.mediaCredits.page.originalPageOnWikimediaCommons")}</a>
                 </p>
-                <p className="text-xs text-neutral-500 dark:text-neutral-400">Tệp dùng trên trang: {credit.files.join(", ")}</p>
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">{t("customer.mediaCredits.page.fileUsedOnThisSite")}{" "}{credit.files.join(", ")}</p>
               </div>
             </li>
           ))}

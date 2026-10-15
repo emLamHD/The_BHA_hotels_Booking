@@ -1,3 +1,5 @@
+"use client";
+
 import React, { FC, ReactNode } from "react";
 import imagePng from "@/images/hero-right2.png";
 import HeroSearchForm, {
@@ -5,6 +7,7 @@ import HeroSearchForm, {
 } from "../(client-components)/(HeroSearchForm)/HeroSearchForm";
 import Image, { StaticImageData } from "next/image";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface SectionHeroArchivePageProps {
   className?: string;
   listingType?: ReactNode;
@@ -20,6 +23,7 @@ const SectionHeroArchivePage: FC<SectionHeroArchivePageProps> = ({
   currentTab,
   rightImage = imagePng,
 }) => {
+  const t = useT();
   return (
     <div
       className={`nc-SectionHeroArchivePage flex flex-col relative ${className}`}
@@ -39,7 +43,7 @@ const SectionHeroArchivePage: FC<SectionHeroArchivePageProps> = ({
             ) : (
               <>
                 <i className="text-2xl las la-home"></i>
-                <span className="ml-2.5">112 properties</span>
+                <span className="ml-2.5">{t("customer.common.112Properties")}</span>
               </>
             )}
           </div>

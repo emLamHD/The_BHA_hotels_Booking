@@ -9,6 +9,7 @@ import { PropertyDto, RoomTypeDto } from "@/lib/api/propertyTypes";
 import { ApiConfigError, ApiHttpError, ApiNetworkError } from "@/lib/api/errors";
 import { isRequestCancelledError } from "@/lib/api/httpClient";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 type LoadStatus = "loading" | "success" | "error";
 
 function describeError(error: unknown): string {
@@ -38,6 +39,7 @@ const PropertyRoomTypes: FC<PropertyRoomTypesProps> = ({
   propertyId,
   propertyName,
 }) => {
+  const t = useT();
   const [status, setStatus] = useState<LoadStatus>("loading");
   const [roomTypes, setRoomTypes] = useState<RoomTypeDto[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -79,8 +81,7 @@ const PropertyRoomTypes: FC<PropertyRoomTypesProps> = ({
 
   return (
     <div className="nc-PropertyRoomTypes">
-      <h3 className="text-xl font-semibold text-neutral-900 dark:text-neutral-50 mb-6">
-        Room types at {propertyName}
+      <h3 className="text-xl font-semibold text-neutral-900 dark:text-neutral-50 mb-6">{t("customer.home.sectionGridRoomTypes.roomTypesAt", { propertyName })}
       </h3>
 
       {status === "loading" && (
@@ -88,9 +89,7 @@ const PropertyRoomTypes: FC<PropertyRoomTypesProps> = ({
           role="status"
           aria-live="polite"
           className="py-10 text-center text-neutral-500 dark:text-neutral-400"
-        >
-          Loading room types…
-        </div>
+        >{t("customer.home.sectionGridRoomTypes.loadingRoomTypes")}</div>
       )}
 
       {status === "error" && (
@@ -101,7 +100,7 @@ const PropertyRoomTypes: FC<PropertyRoomTypesProps> = ({
           <p className="text-neutral-600 dark:text-neutral-300">
             {propertyName}: {errorMessage}
           </p>
-          <ButtonSecondary onClick={loadRoomTypes}>Retry</ButtonSecondary>
+          <ButtonSecondary onClick={loadRoomTypes}>{t("customer.common.retry")}</ButtonSecondary>
         </div>
       )}
 
@@ -109,9 +108,7 @@ const PropertyRoomTypes: FC<PropertyRoomTypesProps> = ({
         <div
           role="status"
           className="py-10 text-center text-neutral-500 dark:text-neutral-400"
-        >
-          No room types are available for {propertyName} right now.
-        </div>
+        >{t("customer.home.sectionGridRoomTypes.noRoomTypesAreAvailable", { propertyName })}</div>
       )}
 
       {status === "success" && roomTypes.length > 0 && (
@@ -139,15 +136,14 @@ const SectionGridRoomTypes: FC<SectionGridRoomTypesProps> = ({
   className = "",
   properties,
 }) => {
+  const t = useT();
   if (properties.length === 0) {
     return null;
   }
 
   return (
     <div className={`nc-SectionGridRoomTypes relative ${className}`}>
-      <Heading desc="Real room types from The BHA Hotels catalog">
-        Room types
-      </Heading>
+      <Heading desc={t("customer.home.sectionGridRoomTypes.realRoomTypesFromThe")}>{t("customer.home.sectionGridRoomTypes.roomTypes")}</Heading>
 
       <div className="space-y-16">
         {properties.map((property) => (

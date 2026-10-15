@@ -1,3 +1,5 @@
+"use client";
+
 import React, { FC } from "react";
 import Image from "next/image";
 import Link from "next/link";
@@ -18,6 +20,7 @@ import {
   mediaUrl,
 } from "@/lib/riversideHomeContent";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 const BADGE_COLORS = ["blue", "green", "red"] as const;
 
 /**
@@ -28,7 +31,9 @@ const BADGE_COLORS = ["blue", "green", "red"] as const;
  */
 
 /** Why book here: what the booking page really does, the property's own amenities, one real photograph. */
-export const IntroSection: FC = () => (
+export const IntroSection: FC = () => {
+  const t = useT();
+  return (
   <section
     id={HOME_SECTION.intro}
     aria-labelledby="intro-heading"
@@ -46,9 +51,7 @@ export const IntroSection: FC = () => (
     </div>
     <div className="mt-10 max-w-2xl flex-shrink-0 lg:mt-0 lg:w-2/5 lg:pl-16">
       <span className="text-sm uppercase tracking-widest text-neutral-500 dark:text-neutral-400">{RIVERSIDE_NAME}</span>
-      <h2 id="intro-heading" className="mt-5 text-4xl font-semibold">
-        Đặt phòng trực tiếp, rõ ràng từng bước
-      </h2>
+      <h2 id="intro-heading" className="mt-5 text-4xl font-semibold">{t("customer.home.riversideHomeContent.bookDirectClearAtEvery")}</h2>
       <ul className="mt-12 space-y-10">
         {BENEFITS.map((benefit, index) => (
           <li key={benefit.id} className="space-y-4">
@@ -62,13 +65,14 @@ export const IntroSection: FC = () => (
     </div>
   </section>
 );
+};
 
 /** The place itself: property pictures only (pool, rooftop, entrance, lobby), each with its own description. */
-export const SpaceGallerySection: FC = () => (
+export const SpaceGallerySection: FC = () => {
+  const t = useT();
+  return (
   <section aria-labelledby="space-heading" className="relative scroll-mt-24">
-    <Heading id="space-heading" desc="Hồ bơi trên sân thượng, sảnh và lối vào của The BHA Riverside.">
-      Khám phá không gian
-    </Heading>
+    <Heading id="space-heading" desc={t("customer.home.riversideHomeContent.theRooftopPoolLobbyAnd")}>{t("customer.home.riversideHomeContent.exploreTheSpace")}</Heading>
     <div className="grid grid-cols-2 gap-3 sm:gap-6 md:grid-cols-3">
       {SPACE_GALLERY.map((image, index) => (
         <div
@@ -88,13 +92,14 @@ export const SpaceGallerySection: FC = () => (
     </div>
   </section>
 );
+};
 
 /** Three steps that are the booking page's real behaviour: search (a snapshot), hold, confirm. */
-export const BookingGuideSection: FC = () => (
+export const BookingGuideSection: FC = () => {
+  const t = useT();
+  return (
   <section id={HOME_SECTION.guide} aria-labelledby="guide-heading" className="nc-SectionHowItWork relative scroll-mt-24">
-    <Heading id="guide-heading" isCenter desc="Ba bước, ngay trên trang.">
-      Cách đặt phòng
-    </Heading>
+    <Heading id="guide-heading" isCenter desc={t("customer.home.riversideHomeContent.threeStepsRightOnThis")}>{t("customer.home.riversideHomeContent.howToBook")}</Heading>
     <ol className="mt-14 grid gap-12 md:grid-cols-3 md:gap-16">
       {BOOKING_STEPS.map((step) => (
         <li key={step.id} className="mx-auto flex max-w-xs flex-col items-center text-center">
@@ -110,29 +115,28 @@ export const BookingGuideSection: FC = () => (
       ))}
     </ol>
     <div className="mt-14 flex justify-center">
-      <ButtonPrimary href={RESULTS_PATH as Route}>Bắt đầu tìm phòng</ButtonPrimary>
+      <ButtonPrimary href={RESULTS_PATH as Route}>{t("customer.home.riversideHomeContent.startSearchingForARoom")}</ButtonPrimary>
     </div>
   </section>
 );
+};
 
 /** Where it is (the approved address) and what a guest should know before booking. */
-export const LocationFaqSection: FC = () => (
+export const LocationFaqSection: FC = () => {
+  const t = useT();
+  return (
   <section id={HOME_SECTION.faq} aria-labelledby="faq-heading" className="relative scroll-mt-24">
-    <Heading id="faq-heading" desc="Vị trí và những điều nên biết trước khi đặt phòng.">
-      Thông tin cần biết
-    </Heading>
+    <Heading id="faq-heading" desc={t("customer.home.riversideHomeContent.locationAndThingsToKnow")}>{t("customer.home.riversideHomeContent.goodToKnow")}</Heading>
     <div className="grid gap-10 lg:grid-cols-3">
       <div className="lg:col-span-1">
         <div className="rounded-3xl border border-neutral-200 p-6 dark:border-neutral-700">
-          <h3 className="text-sm font-medium text-neutral-500 dark:text-neutral-400">Vị trí</h3>
+          <h3 className="text-sm font-medium text-neutral-500 dark:text-neutral-400">{t("customer.home.riversideHomeContent.location")}</h3>
           <p className="mt-3 text-lg font-semibold">{RIVERSIDE_NAME}</p>
           <p className="mt-1 text-neutral-500 dark:text-neutral-400">{RIVERSIDE_ADDRESS}</p>
           <Link
             href={RESULTS_PATH as Route}
             className="mt-6 inline-block text-sm font-medium text-primary-6000 underline underline-offset-2 hover:text-primary-700 dark:text-primary-300 dark:hover:text-primary-200"
-          >
-            Xem phòng còn trống
-          </Link>
+          >{t("customer.home.riversideHomeContent.seeAvailableRooms")}</Link>
         </div>
       </div>
       <div className="lg:col-span-2">
@@ -141,3 +145,4 @@ export const LocationFaqSection: FC = () => (
     </div>
   </section>
 );
+};

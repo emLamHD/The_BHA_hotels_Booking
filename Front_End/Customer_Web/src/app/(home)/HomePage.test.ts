@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("@/lib/i18n/server", async () => (await import("@/lib/i18n/testkit")).serverModuleMock());
 import React from "react";
-import { renderToStaticMarkup } from "react-dom/server";
+import { renderPage, renderWithI18n } from "@/lib/i18n/testkit";
 import PageHome from "@/app/page";
 import PageRiverside from "@/app/riverside/page";
 import OffersPage from "@/app/offers/page";
@@ -15,10 +17,10 @@ import { BookingHoldProvider } from "@/app/BookingHoldProvider";
  * browser run covers behaviour; these pin the contract that does not need one: one H1, the real links, the
  * mock/real boundary, and that the portal is not the Riverside landing page.
  */
-const home = renderToStaticMarkup(React.createElement(PageHome));
-const riverside = renderToStaticMarkup(React.createElement(BookingHoldProvider, null, React.createElement(PageRiverside)));
-const offers = renderToStaticMarkup(React.createElement(OffersPage, { searchParams: { offer: MOCK_OFFERS[2].slug } }));
-const credits = renderToStaticMarkup(React.createElement(MediaCreditsPage));
+const home = await renderPage(PageHome);
+const riverside = renderWithI18n(React.createElement(BookingHoldProvider, null, await PageRiverside()));
+const offers = await renderPage(OffersPage, { searchParams: { offer: MOCK_OFFERS[2].slug } });
+const credits = await renderPage(MediaCreditsPage);
 
 const count = (markup: string, needle: string) => markup.split(needle).length - 1;
 
@@ -105,9 +107,9 @@ describe("/offers", () => {
     expect(count(offers, "<h1")).toBe(1);
   });
 
-  it("highlights nothing for an unknown or repeated value", () => {
+  it("highlights nothing for an unknown or repeated value", async () => {
     for (const offer of ["unknown", ["a", "b"] as unknown as string]) {
-      const markup = renderToStaticMarkup(React.createElement(OffersPage, { searchParams: { offer } }));
+      const markup = await renderPage(OffersPage, { searchParams: { offer } });
       expect(count(markup, "border-primary-500 ring-2 ring-primary-500")).toBe(0);
     }
   });

@@ -4,6 +4,7 @@ import React, { FC, ReactNode, useCallback, useEffect, useRef, useState } from "
 import NextBtn from "@/components/NextBtn";
 import PrevBtn from "@/components/PrevBtn";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 /**
  * CUST-WEB-001-CP08a-C2: a horizontal slider made of native scrolling (scroll-snap) with previous/next buttons.
  * Swiping, trackpads and the keyboard (the track takes focus; arrow keys scroll it) work without any script;
@@ -11,6 +12,7 @@ import PrevBtn from "@/components/PrevBtn";
  * when the visitor moves it, and it never navigates or changes anything outside itself.
  */
 const HomeSlider: FC<{ label: string; children: ReactNode; className?: string }> = ({ label, children, className = "" }) => {
+  const t = useT();
   const trackRef = useRef<HTMLUListElement>(null);
   const [canPrev, setCanPrev] = useState(false);
   const [canNext, setCanNext] = useState(true);
@@ -49,8 +51,8 @@ const HomeSlider: FC<{ label: string; children: ReactNode; className?: string }>
         {children}
       </ul>
       <div className="mt-4 hidden justify-end gap-2 sm:flex">
-        <PrevBtn type="button" aria-label="Trước" disabled={!canPrev} onClick={() => scroll(-1)} className="h-10 w-10 text-lg disabled:opacity-40" />
-        <NextBtn type="button" aria-label="Tiếp" disabled={!canNext} onClick={() => scroll(1)} className="h-10 w-10 text-lg disabled:opacity-40" />
+        <PrevBtn type="button" aria-label={t("customer.home.homeSlider.previous")} disabled={!canPrev} onClick={() => scroll(-1)} className="h-10 w-10 text-lg disabled:opacity-40" />
+        <NextBtn type="button" aria-label={t("customer.home.homeSlider.next")} disabled={!canNext} onClick={() => scroll(1)} className="h-10 w-10 text-lg disabled:opacity-40" />
       </div>
     </div>
   );

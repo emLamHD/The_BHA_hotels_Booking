@@ -1,3 +1,5 @@
+"use client";
+
 import BackgroundSection from "@/components/BackgroundSection";
 import React from "react";
 import appSvg1 from "@/images/appSvg1.png";
@@ -9,7 +11,9 @@ import btnIosPng from "@/images/btn-ios.png";
 import btnAndroidPng from "@/images/btn-android.png";
 import Image from "next/image";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 const SectionDowloadApp = () => {
+  const t = useT();
   return (
     <div className="relative pb-0 pt-24 lg:py-32 xl:py-40 2xl:py-48">
       <BackgroundSection className="bg-neutral-100 bg-opacity-80 dark:bg-opacity-100 ">
@@ -31,9 +35,7 @@ const SectionDowloadApp = () => {
       </BackgroundSection>
 
       <div className="relative inline-block ">
-        <h2 className="text-5xl md:text-6xl xl:text-7xl font-bold text-neutral-800">
-          Mobile Apps
-        </h2>
+        <h2 className="text-5xl md:text-6xl xl:text-7xl font-bold text-neutral-800">{t("customer.home.sectionDowloadApp.mobileApps")}</h2>
         <span className="block mt-7 max-w-md text-neutral-6000">
           Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed dapibus
           porttitor nisl, sit amet finibus libero.

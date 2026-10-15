@@ -1,3 +1,5 @@
+"use client";
+
 import React, { FC } from "react";
 import Image from "next/image";
 import Link from "next/link";
@@ -7,12 +9,14 @@ import { discountPercent } from "@/lib/homepageContent";
 import Money from "@/components/Money";
 import { OFFERS_PATH, RESULTS_PATH } from "@/lib/riversideHomeContent";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 /**
  * CUST-WEB-001-CP08a-C2: one sample offer. Everything printed is the offer's own mock data and the percent
  * computed from its own two prices; it says it is a sample, shows no stock, rating or timer, and its only
  * way into the booking system is the real search, whose price comes from the server for the dates chosen.
  */
 const OfferCard: FC<{ offer: MockOffer; highlighted?: boolean; sizes?: string }> = ({ offer, highlighted = false, sizes = "(min-width: 1024px) 25vw, 80vw" }) => {
+  const t = useT();
   const percent = discountPercent(offer.originalPrice, offer.discountPrice);
   return (
     <article
@@ -43,15 +47,15 @@ const OfferCard: FC<{ offer: MockOffer; highlighted?: boolean; sizes?: string }>
               and, being pinned to the bottom, the prices and buttons line up across cards whatever the text above. */}
           <p>
             <span className="block text-sm text-neutral-500 line-through dark:text-neutral-400">
-              <span className="sr-only">Giá gốc minh hoạ </span>
+              <span className="sr-only">{t("customer.home.offerCard.sampleOriginalPrice")}</span>
               <Money vnd={offer.originalPrice} />
             </span>
             <span className="flex items-baseline gap-x-2 whitespace-nowrap">
               <span className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-                <span className="sr-only">Giá ưu đãi minh hoạ </span>
+                <span className="sr-only">{t("customer.home.offerCard.sampleOfferPrice")}</span>
                 <Money vnd={offer.discountPrice} />
               </span>
-              <span className="text-xs text-neutral-500 dark:text-neutral-400">/ đêm (minh hoạ)</span>
+              <span className="text-xs text-neutral-500 dark:text-neutral-400">{t("customer.home.offerCard.nightSample")}</span>
             </span>
           </p>
           <Link

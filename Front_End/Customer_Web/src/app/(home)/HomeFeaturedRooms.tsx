@@ -12,6 +12,7 @@ import { useStaySearch } from "@/components/StaySearchProvider";
 import { bookingStatusCopy, buildRoomDetailsHref, inProgressBookingTarget } from "@/lib/roomDetailsRoute";
 import { HOME_SECTION, RESULTS_PATH, RIVERSIDE_NAME } from "@/lib/riversideHomeContent";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 /**
  * CUST-WEB-001-CP08a: the home page's room types. The real room types of the Property whose slug is
  * `the-bha-riverside`, exactly the ones the booking system returns (the count is whatever it is), as
@@ -21,6 +22,7 @@ import { HOME_SECTION, RESULTS_PATH, RIVERSIDE_NAME } from "@/lib/riversideHomeC
  * House and Villa are not offered: they are not bookable online.
  */
 const HomeFeaturedRooms: FC = () => {
+  const t = useT();
   const ctx = useStaySearch();
   const { state: holdState } = useBookingHoldFlow();
 
@@ -34,41 +36,38 @@ const HomeFeaturedRooms: FC = () => {
   const renderBody = (): ReactNode => {
     if (!ctx) return null;
     const { propsStatus, propsError, riverside, roomsStatus, roomsError, roomTypes } = ctx;
-    if (propsStatus === "idle" || propsStatus === "loading") return <Notice role="status">Đang tải phòng…</Notice>;
+    if (propsStatus === "idle" || propsStatus === "loading") return <Notice role="status">{t("customer.home.homeFeaturedRooms.loadingRooms")}</Notice>;
     if (propsStatus === "error") {
       return (
         <Notice role="alert">
           <p>{propsError}</p>
-          <ButtonSecondary onClick={ctx.retryProperties}>Thử lại</ButtonSecondary>
+          <ButtonSecondary onClick={ctx.retryProperties}>{t("customer.home.homeFeaturedRooms.tryAgain")}</ButtonSecondary>
         </Notice>
       );
     }
     if (!riverside) {
       return (
         <Notice role="status">
-          {RIVERSIDE_NAME} hiện chưa có trong hệ thống đặt phòng, nên chưa thể hiển thị phòng.
-        </Notice>
+          {t("customer.home.homeFeaturedRooms.isNotInTheBooking", { RIVERSIDENAME: RIVERSIDE_NAME })}</Notice>
       );
     }
-    if (roomsStatus === "idle" || roomsStatus === "loading") return <Notice role="status">Đang tải loại phòng…</Notice>;
+    if (roomsStatus === "idle" || roomsStatus === "loading") return <Notice role="status">{t("customer.home.homeFeaturedRooms.loadingRoomTypes")}</Notice>;
     if (roomsStatus === "error") {
       return (
         <Notice role="alert">
           <p>{roomsError}</p>
-          <ButtonSecondary onClick={ctx.retryRoomTypes}>Thử lại</ButtonSecondary>
+          <ButtonSecondary onClick={ctx.retryRoomTypes}>{t("customer.home.homeFeaturedRooms.tryAgain")}</ButtonSecondary>
         </Notice>
       );
     }
     if (roomTypes.length === 0) {
-      return <Notice role="status">{RIVERSIDE_NAME} chưa có loại phòng nào.</Notice>;
+      return <Notice role="status">{t("customer.home.homeFeaturedRooms.hasNoRoomTypesYet", { RIVERSIDENAME: RIVERSIDE_NAME })}</Notice>;
     }
     return (
       <>
         <p className="mb-6 text-sm text-neutral-600 dark:text-neutral-300">
           {roomTypes.length} loại phòng tại {riverside.name ?? RIVERSIDE_NAME}
-          <span className="mx-2">·</span>
-          Chọn ngày để xem giá
-        </p>
+          <span className="mx-2">·</span>{t("customer.home.homeFeaturedRooms.chooseDatesToSeePrices")}</p>
         <div className="grid gap-6 sm:grid-cols-2 md:gap-8 lg:grid-cols-3">
           {roomTypes.map((roomType) => (
             <RoomTypeStayCard
@@ -92,14 +91,13 @@ const HomeFeaturedRooms: FC = () => {
         <Heading
           id="rooms-heading"
           className="text-neutral-900 dark:text-neutral-50"
-          desc="Chọn loại căn hộ, rồi chọn ngày để xem giá và đặt phòng."
-        >
-          Loại phòng tại {RIVERSIDE_NAME}
+          desc={t("customer.home.homeFeaturedRooms.chooseAnApartmentTypeThen")}
+        >{t("customer.home.homeFeaturedRooms.roomTypesAt", { RIVERSIDENAME: RIVERSIDE_NAME })}
         </Heading>
         <span className="flex-shrink-0">
           <ButtonSecondary href={RESULTS_PATH as Route} className="!leading-none">
             <div className="flex items-center justify-center">
-              <span>Xem tất cả loại phòng</span>
+              <span>{t("customer.home.homeFeaturedRooms.viewAllRoomTypes")}</span>
               <ArrowRightIcon aria-hidden="true" className="ml-3 h-5 w-5" />
             </div>
           </ButtonSecondary>

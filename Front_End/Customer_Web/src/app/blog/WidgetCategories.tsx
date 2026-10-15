@@ -1,9 +1,12 @@
+"use client";
+
 import CardCategory1 from "@/components/CardCategory1";
 import { DEMO_CATEGORIES } from "@/data/taxonomies";
 import { TaxonomyType } from "@/data/types";
 import React, { FC } from "react";
 import WidgetHeading1 from "./WidgetHeading1";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface WidgetCategoriesProps {
   className?: string;
   categories?: TaxonomyType[];
@@ -15,12 +18,13 @@ const WidgetCategories: FC<WidgetCategoriesProps> = ({
   className = "bg-neutral-100 dark:bg-neutral-800",
   categories = categoriesDemo,
 }) => {
+  const t = useT();
   return (
     <div
       className={`nc-WidgetCategories rounded-3xl overflow-hidden ${className}`}
     >
       <WidgetHeading1
-        title="✨ Trending topic"
+        title={t("customer.blog.widgetCategories.trendingTopic")}
         viewAll={{ label: "View all", href: "/#" }}
       />
       <div className="flow-root">

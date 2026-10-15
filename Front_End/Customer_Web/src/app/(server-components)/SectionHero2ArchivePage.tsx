@@ -1,8 +1,11 @@
+"use client";
+
 import React, { FC } from "react";
 import imagePng from "@/images/hero-right-3.png";
 import Image from "next/image";
 import HeroRealEstateSearchForm from "../(client-components)/(HeroSearchForm)/(real-estate-search-form)/HeroRealEstateSearchForm";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface SectionHero2ArchivePageProps {
   className?: string;
 }
@@ -10,6 +13,7 @@ export interface SectionHero2ArchivePageProps {
 const SectionHero2ArchivePage: FC<SectionHero2ArchivePageProps> = ({
   className = "",
 }) => {
+  const t = useT();
   return (
     <div
       className={`nc-SectionHero2ArchivePage relative ${className}`}
@@ -30,7 +34,7 @@ const SectionHero2ArchivePage: FC<SectionHero2ArchivePageProps> = ({
               <span className="ml-2.5">Jappan </span>
               <span className="mx-5"></span>
               <i className="text-2xl las la-home"></i>
-              <span className="ml-2.5">112 properties</span>
+              <span className="ml-2.5">{t("customer.common.112Properties")}</span>
             </div>
           </div>
         </div>

@@ -9,6 +9,7 @@ import { blogCategoryPath, postsForFilter, resolveBlogFilter } from "@/lib/homep
 import { BLOG_PATH } from "@/lib/riversideHomeContent";
 import PostCard from "./PostCard";
 
+import { getT } from "@/lib/i18n/server";
 interface BlogPageProps {
   searchParams?: { category?: string | string[] };
 }
@@ -33,7 +34,8 @@ const CHIP_CLASS =
  * rather than a guess. The posts are guides and summaries of public reports with their sources, not news of
  * The BHA; there is no author, comment or counter.
  */
-export default function BlogPage({ searchParams }: BlogPageProps) {
+export default async function BlogPage({ searchParams }: BlogPageProps) {
+  const t = await getT();
   const filter = resolveBlogFilter(searchParams?.category);
   if (filter.kind === "invalid") notFound();
   const posts = postsForFilter(filter);
@@ -48,21 +50,17 @@ export default function BlogPage({ searchParams }: BlogPageProps) {
     <div className="nc-BlogPage relative overflow-hidden">
       <BgGlassmorphism />
       <div className="container relative pb-20 pt-10 lg:pb-28 lg:pt-14">
-        <nav aria-label="Breadcrumb" className="text-sm text-neutral-500 dark:text-neutral-400">
+        <nav aria-label={t("customer.common.breadcrumb")} className="text-sm text-neutral-500 dark:text-neutral-400">
           <ol className="flex flex-wrap items-center gap-2">
             <li>
-              <Link href={"/" as Route} className="hover:underline">
-                Trang chủ
-              </Link>
+              <Link href={"/" as Route} className="hover:underline">{t("customer.common.home")}</Link>
             </li>
             <li aria-hidden="true">/</li>
             <li>
               {activeSlug ? (
-                <Link href={BLOG_PATH as Route} className="hover:underline">
-                  Blog
-                </Link>
+                <Link href={BLOG_PATH as Route} className="hover:underline">{t("customer.common.blog2")}</Link>
               ) : (
-                <span aria-current="page">Blog</span>
+                <span aria-current="page">{t("customer.common.blog2")}</span>
               )}
             </li>
             {activeSlug && (
@@ -77,19 +75,15 @@ export default function BlogPage({ searchParams }: BlogPageProps) {
         <header className="mt-6 max-w-3xl space-y-3">
           <h1 className="text-3xl font-semibold text-neutral-900 dark:text-neutral-50 md:text-4xl">{heading}</h1>
           <p className="text-neutral-600 dark:text-neutral-300">{description}</p>
-          <p className="text-sm text-neutral-500 dark:text-neutral-400">
-            Mỗi bài ghi nguồn tham khảo ở cuối trang. Đây không phải tin của The BHA.
-          </p>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">{t("customer.blog.page.eachArticleListsItsSources")}</p>
         </header>
 
-        <nav aria-label="Danh mục" className="mt-8 flex flex-wrap gap-3">
+        <nav aria-label={t("customer.blog.page.categories")} className="mt-8 flex flex-wrap gap-3">
           <Link
             href={BLOG_PATH as Route}
             aria-current={activeSlug === null ? "page" : undefined}
             className={`${CHIP_CLASS} ${activeSlug === null ? "border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-neutral-900" : "border-neutral-300 text-neutral-700 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-200 dark:hover:bg-neutral-800"}`}
-          >
-            Tất cả
-          </Link>
+          >{t("customer.blog.page.all")}</Link>
           {POST_CATEGORIES.map((category) => (
             <Link
               key={category.slug}

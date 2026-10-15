@@ -1,9 +1,12 @@
+"use client";
+
 import { DEMO_POSTS } from "@/data/posts";
 import { PostDataType } from "@/data/types";
 import React, { FC } from "react";
 import Card3Small from "./Card3Small";
 import WidgetHeading1 from "./WidgetHeading1";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface WidgetPostsProps {
   className?: string;
   posts?: PostDataType[];
@@ -17,10 +20,11 @@ const WidgetPosts: FC<WidgetPostsProps> = ({
   className = "bg-neutral-100 dark:bg-neutral-800",
   posts = widgetPostsDemo,
 }) => {
+  const t = useT();
   return (
     <div className={`nc-WidgetPosts rounded-3xl overflow-hidden ${className}`}>
       <WidgetHeading1
-        title="🎯 Popular Posts"
+        title={t("customer.blog.widgetPosts.popularPosts")}
         viewAll={{ label: "View all", href: "/#" }}
       />
       <div className="flex flex-col divide-y divide-neutral-200 dark:divide-neutral-700">

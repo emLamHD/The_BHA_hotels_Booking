@@ -47,8 +47,17 @@ function writePreference(name: string, value: string) {
   document.cookie = `${name}=${encodeURIComponent(value)}; Path=/; Max-Age=${PREFERENCE_MAX_AGE_SECONDS}; SameSite=Lax${window.location.protocol === "https:" ? "; Secure" : ""}`;
 }
 
+/** The App Router, or `null` where there is none (a component test): choosing a language then only writes the cookies. */
+function useOptionalRouter() {
+  try {
+    return useRouter();
+  } catch {
+    return null;
+  }
+}
+
 export function I18nProvider({ snapshot, children }: { snapshot: I18nSnapshot; children: React.ReactNode }) {
-  const router = useRouter();
+  const router = useOptionalRouter();
   const [switching, setSwitching] = useState(false);
   const reported = useRef(new Set<string>());
   const { messages, locale, formatLocale, config } = snapshot;
@@ -74,7 +83,7 @@ export function I18nProvider({ snapshot, children }: { snapshot: I18nSnapshot; c
   }, [snapshot.locale, snapshot.currency, snapshot.revision]);
 
   const finish = useCallback(() => {
-    router.refresh();
+    router?.refresh();
   }, [router]);
 
   const setLocale = useCallback(

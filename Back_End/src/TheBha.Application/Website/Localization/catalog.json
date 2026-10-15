@@ -2,6 +2,88 @@
  "schema": "bha.message-catalog/1",
  "messages": [
   {
+   "key": "customer.blog.page.all",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.page.categories",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.page.eachArticleListsItsSources",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.sectionLatestPosts.latestArticles",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.sectionLatestPosts.showMeMore",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.slug.page.backToTheBlog",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.slug.page.photo",
+   "scope": "customer",
+   "placeholders": [
+    "author"
+   ]
+  },
+  {
+   "key": "customer.blog.slug.page.references",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.slug.page.relatedArticles",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.slug.page.theContentIsSummarisedIn",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.slug.page.thisIsASampleArticle",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.slug.page.wikimediaCommons",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.widgetCategories.trendingTopic",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.widgetPosts.popularPosts",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.widgetTags.discoverMoreTags",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.112Properties",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.common.adults",
    "scope": "customer",
    "placeholders": []
@@ -23,6 +105,16 @@
   },
   {
    "key": "customer.common.blog",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.blog2",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.breadcrumb",
    "scope": "customer",
    "placeholders": []
   },
@@ -67,6 +159,16 @@
    "placeholders": []
   },
   {
+   "key": "customer.common.findARoom2",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.home",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.common.infants",
    "scope": "customer",
    "placeholders": []
@@ -87,6 +189,11 @@
    "placeholders": []
   },
   {
+   "key": "customer.common.photoCredits",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.common.pickUp",
    "scope": "customer",
    "placeholders": []
@@ -103,6 +210,16 @@
   },
   {
    "key": "customer.common.recentSearches",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.retry",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.roomOffers",
    "scope": "customer",
    "placeholders": []
   },
@@ -527,12 +644,435 @@
    "placeholders": []
   },
   {
+   "key": "customer.home.home2.page.exploreByTypesOfStays",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.home2.page.suggestionsForDiscovery",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeDestinationSection.featuredDestinations",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeDestinationSection.placesWorthKnowingInDa",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeDestinationSection.readTheGuide",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeDestinationSection.seeMoreDestinations",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeFeaturedRooms.chooseAnApartmentTypeThen",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeFeaturedRooms.chooseDatesToSeePrices",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeFeaturedRooms.hasNoRoomTypesYet",
+   "scope": "customer",
+   "placeholders": [
+    "RIVERSIDENAME"
+   ]
+  },
+  {
+   "key": "customer.home.homeFeaturedRooms.isNotInTheBooking",
+   "scope": "customer",
+   "placeholders": [
+    "RIVERSIDENAME"
+   ]
+  },
+  {
+   "key": "customer.home.homeFeaturedRooms.loadingRooms",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeFeaturedRooms.loadingRoomTypes",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeFeaturedRooms.roomTypesAt",
+   "scope": "customer",
+   "placeholders": [
+    "RIVERSIDENAME"
+   ]
+  },
+  {
+   "key": "customer.home.homeFeaturedRooms.tryAgain",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeFeaturedRooms.viewAllRoomTypes",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeHeroCarousel.bookDirectAndSeeThe",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeHeroCarousel.daNang",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeHeroCarousel.nextPhoto",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeHeroCarousel.photosOfDaNang",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeHeroCarousel.previousPhoto",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeHeroCarousel.theBhaDaNang",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeHeroCarousel.xemRiverside",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeLocationMap.locationOf",
+   "scope": "customer",
+   "placeholders": [
+    "RIVERSIDENAME"
+   ]
+  },
+  {
+   "key": "customer.home.homeLocationMap.openInGoogleMaps",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeLocationMap.opensInANewTab",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeNewsletter.subscribe",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeNewsletter.subscribeDemoYourEmailIs",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeNewsletter.tenExampleCom",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeNewsletter.yourEmail",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeNewsSection.seeMoreNews",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeNewsSection.summariesOfPublicTravelNews",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeNewsSection.topNews",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeOfferSection.sampleRoomOffers",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeOfferSection.seeMoreOffers",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeRiversideTeaser.discoverRiverside",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeRiversideTeaser.realBooking",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeRiversideTeaser.roomTypes",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeRiversideTeaser.seeRealRoomsAndPrices",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeRiversideTeaser.servicedApartmentsAtChooseDates",
+   "scope": "customer",
+   "placeholders": [
+    "RIVERSIDEADDRESS"
+   ]
+  },
+  {
+   "key": "customer.home.homeSlider.next",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeSlider.previous",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.offerCard.nightSample",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.offerCard.sampleOfferPrice",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.offerCard.sampleOriginalPrice",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.riversideHomeContent.bookDirectClearAtEvery",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.riversideHomeContent.exploreTheSpace",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.riversideHomeContent.goodToKnow",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.riversideHomeContent.howToBook",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.riversideHomeContent.location",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.riversideHomeContent.locationAndThingsToKnow",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.riversideHomeContent.seeAvailableRooms",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.riversideHomeContent.startSearchingForARoom",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.riversideHomeContent.theRooftopPoolLobbyAnd",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.riversideHomeContent.threeStepsRightOnThis",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.riversideHomeSections.exploreRoomTypes",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.riversideHomeSections.propertyAmenities",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.sectionDowloadApp.mobileApps",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.sectionGridFeatureProperty.images",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.sectionGridFeatureProperty.loadingProperties",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.sectionGridFeatureProperty.noPropertiesAreAvailableRight",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.sectionGridRoomTypes.loadingRoomTypes",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.sectionGridRoomTypes.noRoomTypesAreAvailable",
+   "scope": "customer",
+   "placeholders": [
+    "propertyName"
+   ]
+  },
+  {
+   "key": "customer.home.sectionGridRoomTypes.realRoomTypesFromThe",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.sectionGridRoomTypes.roomTypes",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.sectionGridRoomTypes.roomTypesAt",
+   "scope": "customer",
+   "placeholders": [
+    "propertyName"
+   ]
+  },
+  {
+   "key": "customer.mediaCredits.page.author",
+   "scope": "customer",
+   "placeholders": [
+    "author"
+   ]
+  },
+  {
+   "key": "customer.mediaCredits.page.fileUsedOnThisSite",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.mediaCredits.page.licence",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.mediaCredits.page.originalPageOnWikimediaCommons",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.mediaCredits.page.photosOfDaNangAnd",
+   "scope": "customer",
+   "placeholders": [
+    "MEDIACHANGESNOTE"
+   ]
+  },
+  {
+   "key": "customer.mediaCredits.page.photosOfTheBhaRiverside",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.meta.description",
    "scope": "customer",
    "placeholders": []
   },
   {
    "key": "customer.meta.title",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.notFound.returnHomePage",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.notFound.thePageYouWereLooking",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.offers.page.findRoomsAndSeeReal",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionHero.servicedApartmentsInDaNang",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionHero2.findYourBest",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionHero2.smartRealEstate",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionHero3.bookingTaxFreeFromChis",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionHero3.keepCalmTravelOn",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionHero3.newGeneration",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionHero3.ofBooking",
    "scope": "customer",
    "placeholders": []
   },
@@ -596,6 +1136,21 @@
   },
   {
    "key": "customer.shared.nextPrev.prev",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.showcaseUnavailable.notFound.backToTheBookingPage",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.showcaseUnavailable.notFound.thisDemoOnlyCoversViewing",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.showcaseUnavailable.notFound.thisFeatureIsNotIn",
    "scope": "customer",
    "placeholders": []
   },

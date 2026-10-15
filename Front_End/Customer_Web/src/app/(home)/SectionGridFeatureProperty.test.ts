@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import React from "react";
-import { renderToStaticMarkup } from "react-dom/server";
+import { renderWithI18n } from "@/lib/i18n/testkit";
 import SectionGridFeatureProperty from "./SectionGridFeatureProperty";
 
 /**
@@ -11,7 +11,7 @@ import SectionGridFeatureProperty from "./SectionGridFeatureProperty";
  * (loading) state: effects have not run, so no request has resolved.
  */
 describe("SectionGridFeatureProperty while the catalog is loading", () => {
-  const markup = renderToStaticMarkup(React.createElement(SectionGridFeatureProperty));
+  const markup = renderWithI18n(React.createElement(SectionGridFeatureProperty));
   const count = (id: string) => markup.split(`id="${id}"`).length - 1;
 
   it.each(["catalog", "room-types", "booking"])("renders the #%s anchor exactly once", (id) => {

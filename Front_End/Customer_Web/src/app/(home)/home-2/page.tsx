@@ -35,6 +35,7 @@ import SectionDowloadApp from "../SectionDowloadApp";
 import SectionHero2 from "@/app/(server-components)/SectionHero2";
 import Image from "next/image";
 
+import { getT } from "@/lib/i18n/server";
 const DEMO_CATS_2: TaxonomyType[] = [
   {
     id: "1",
@@ -101,7 +102,8 @@ const DEMO_CATS_2: TaxonomyType[] = [
   },
 ];
 
-function PageHome2() {
+async function PageHome2() {
+  const t = await getT();
   return (
     <main className="nc-PageHome2 relative overflow-hidden">
       <div className="container relative space-y-24 mb-24 lg:space-y-28 lg:mb-28">
@@ -170,7 +172,7 @@ function PageHome2() {
           categories={DEMO_CATS_2}
           categoryCardType="card4"
           itemPerRow={4}
-          heading="Suggestions for discovery"
+          heading={t("customer.home.home2.page.suggestionsForDiscovery")}
           subHeading="Popular places to stay that Chisfis recommends for you"
         />
 
@@ -180,7 +182,7 @@ function PageHome2() {
         </div>
 
         <SectionSliderNewCategories
-          heading="Explore by types of stays"
+          heading={t("customer.home.home2.page.exploreByTypesOfStays")}
           subHeading="Explore houses based on 10 types of stays"
           categoryCardType="card5"
           itemPerRow={5}

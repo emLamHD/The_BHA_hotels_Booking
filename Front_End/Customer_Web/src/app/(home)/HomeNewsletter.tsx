@@ -10,6 +10,7 @@ import {
   validateNewsletterEmail,
 } from "@/lib/newsletterUi";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 type Feedback = { kind: "error" | "notice"; message: string; id: number } | null;
 
 /**
@@ -20,6 +21,7 @@ type Feedback = { kind: "error" | "notice"; message: string; id: number } | null
  * page is interactive carries no address. The disclosure is visible before the visitor submits.
  */
 const HomeNewsletter: FC = () => {
+  const t = useT();
   const inputRef = useRef<HTMLInputElement>(null);
   const [feedback, setFeedback] = useState<Feedback>(null);
   const attempts = useRef(0);
@@ -61,9 +63,7 @@ const HomeNewsletter: FC = () => {
         </div>
         <div className="rounded-2xl bg-white p-5 shadow-lg shadow-primary-900/5 dark:bg-neutral-900 sm:p-6">
           <form noValidate onSubmit={onSubmit} aria-describedby="newsletter-disclosure" className="space-y-3">
-            <label htmlFor="newsletter-email" className="block text-sm font-medium text-neutral-800 dark:text-neutral-200">
-              Email của bạn
-            </label>
+            <label htmlFor="newsletter-email" className="block text-sm font-medium text-neutral-800 dark:text-neutral-200">{t("customer.home.homeNewsletter.yourEmail")}</label>
             <div className="flex flex-col gap-3 sm:flex-row">
               <input
                 ref={inputRef}
@@ -73,18 +73,16 @@ const HomeNewsletter: FC = () => {
                 autoComplete="email"
                 autoCapitalize="none"
                 spellCheck={false}
-                placeholder="ten@example.com"
+                placeholder={t("customer.home.homeNewsletter.tenExampleCom")}
                 aria-invalid={feedback?.kind === "error" ? true : undefined}
                 aria-describedby={feedback ? "newsletter-feedback" : undefined}
                 className="block h-12 w-full min-w-0 flex-1 rounded-full border border-neutral-200 bg-white px-5 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-primary-300 focus:outline-none focus:ring focus:ring-primary-200/50 dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-100"
               />
               <button
                 type="submit"
-                aria-label="Đăng ký (bản demo, email không được lưu)"
+                aria-label={t("customer.home.homeNewsletter.subscribeDemoYourEmailIs")}
                 className="inline-flex h-12 flex-shrink-0 items-center justify-center gap-2 rounded-full bg-primary-6000 px-6 text-sm font-semibold text-white transition-colors hover:bg-primary-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2"
-              >
-                Đăng ký
-                <ArrowRightIcon className="h-4 w-4" aria-hidden="true" />
+              >{t("customer.home.homeNewsletter.subscribe")}<ArrowRightIcon className="h-4 w-4" aria-hidden="true" />
               </button>
             </div>
             <p id="newsletter-disclosure" className="text-xs text-neutral-700 dark:text-neutral-300">

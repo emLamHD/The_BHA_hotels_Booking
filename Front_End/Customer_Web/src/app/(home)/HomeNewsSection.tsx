@@ -1,3 +1,5 @@
+"use client";
+
 import React, { FC } from "react";
 import Image from "next/image";
 import Link from "next/link";
@@ -10,6 +12,7 @@ import { SAMPLE_POST_LABEL, TravelPost } from "@/data/travelPosts";
 import { findCategory, formatPostDate, homeNews, postPath } from "@/lib/homepageContent";
 import { BLOG_PATH } from "@/lib/riversideHomeContent";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 /** "Tin ngày 12/07/2026": the date of the report the summary is made from, not of anything the property did. */
 const reportDate = (post: TravelPost) => (post.sample ? SAMPLE_POST_LABEL : `Tin ngày ${formatPostDate(post.publishedAt)}`);
 
@@ -54,13 +57,12 @@ export const NewsCardSmall: FC<{ post: TravelPost }> = ({ post }) => (
  * the article page, not news of The BHA; "Xem thêm tin tức" leads to the unfiltered `/blog`.
  */
 const HomeNewsSection: FC = () => {
+  const t = useT();
   const [lead, ...rest] = homeNews();
   if (!lead) return null;
   return (
     <section aria-labelledby="news-heading" className="nc-HomeNewsSection relative">
-      <Heading id="news-heading" desc="Tóm tắt các bản tin du lịch công khai về Đà Nẵng, kèm nguồn để bạn đọc bản gốc. Đây không phải tin của The BHA.">
-        Tin tức nổi bật
-      </Heading>
+      <Heading id="news-heading" desc={t("customer.home.homeNewsSection.summariesOfPublicTravelNews")}>{t("customer.home.homeNewsSection.topNews")}</Heading>
       <div className="grid gap-6 lg:grid-cols-2">
         <NewsCardLarge post={lead} />
         <div className="grid content-start gap-6">
@@ -72,7 +74,7 @@ const HomeNewsSection: FC = () => {
       <div className="mt-8 flex justify-center">
         <ButtonSecondary href={BLOG_PATH as Route} className="!leading-none">
           <div className="flex items-center justify-center">
-            <span>Xem thêm tin tức</span>
+            <span>{t("customer.home.homeNewsSection.seeMoreNews")}</span>
             <ArrowRightIcon aria-hidden="true" className="ml-3 h-5 w-5" />
           </div>
         </ButtonSecondary>
