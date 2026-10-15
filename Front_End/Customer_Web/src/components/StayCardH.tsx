@@ -12,7 +12,7 @@ import Link from "next/link";
 
 import { useT } from "@/lib/i18n/I18nProvider";
 import DemoPrice from "@/components/DemoPrice";
-import { Tpl } from "@/lib/i18n/Tpl";
+import { Tpl, useTpl } from "@/lib/i18n/Tpl";
 export interface StayCardHProps {
   className?: string;
   data?: StayDataType;
@@ -25,6 +25,7 @@ const StayCardH: FC<StayCardHProps> = ({
   data = DEMO_DATA,
 }) => {
   const t = useT();
+  const tp = useTpl();
   const {
     galleryImgs,
     listingCategory,
@@ -98,7 +99,7 @@ const StayCardH: FC<StayCardHProps> = ({
         <div className="space-y-2">
           <div className="text-sm text-neutral-500 dark:text-neutral-400">
             <span>
-              {t("customer.stayCardH.in", { name: listingCategory.name, address })}
+              {t("customer.stayCardH.in", { name: tp(listingCategory.name), address })}
             </span>
           </div>
           <div className="flex items-center space-x-2">

@@ -7,6 +7,7 @@ import DatePickerCustomHeaderTwoMonth from "@/components/DatePickerCustomHeaderT
 import DatePickerCustomDay from "@/components/DatePickerCustomDay";
 import ClearDataButton from "../ClearDataButton";
 import { useI18n } from "@/lib/i18n/I18nProvider";
+import { Tpl } from "@/lib/i18n/Tpl";
 
 export interface ExperiencesDateSingleInputProps {
   className?: string;
@@ -37,7 +38,7 @@ const ExperiencesDateSingleInput: FC<ExperiencesDateSingleInputProps> = ({
             {startDate?.toLocaleDateString(formatLocale, {
               month: "short",
               day: "2-digit",
-            }) || "Date"}
+            }) || <Tpl text="Date" />}
             {endDate
               ? " - " +
                 endDate?.toLocaleDateString(formatLocale, {
@@ -47,7 +48,7 @@ const ExperiencesDateSingleInput: FC<ExperiencesDateSingleInputProps> = ({
               : ""}
           </span>
           <span className="block mt-1 text-sm text-neutral-400 leading-none font-light">
-            {startDate ? "Date" : `Add dates`}
+            {startDate ? <Tpl text="Date" /> : <Tpl text="Add dates" />}
           </span>
         </div>
       </>

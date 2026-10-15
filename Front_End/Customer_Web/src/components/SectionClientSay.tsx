@@ -87,32 +87,32 @@ const SectionClientSay: FC<SectionClientSayProps> = ({
         <Image
           className="absolute top-9 -left-20"
           src={clientSay1}
-          alt="client 1"
+          alt=""
         />
         <Image
           className="absolute bottom-[100px] right-full mr-40"
           src={clientSay2}
-          alt="client 2"
+          alt=""
         />
         <Image
           className="absolute top-full left-[140px]"
           src={clientSay3}
-          alt="client 3"
+          alt=""
         />
         <Image
           className="absolute -bottom-10 right-[140px]"
           src={clientSay4}
-          alt="client 4"
+          alt=""
         />
         <Image
           className="absolute left-full ml-32 bottom-[80px]"
           src={clientSay5}
-          alt="client 5"
+          alt=""
         />
         <Image
           className="absolute -right-10 top-10 "
           src={clientSay6}
-          alt="client 6"
+          alt=""
         />
       </div>
     );

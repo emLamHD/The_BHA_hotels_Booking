@@ -9,6 +9,7 @@ import DatePickerCustomDay from "@/components/DatePickerCustomDay";
 import ClearDataButton from "../ClearDataButton";
 import ButtonSubmit from "../ButtonSubmit";
 import { useI18n } from "@/lib/i18n/I18nProvider";
+import { Tpl } from "@/lib/i18n/Tpl";
 
 export interface FlightDateRangeInputProps {
   className?: string;
@@ -53,7 +54,7 @@ const FlightDateRangeInput: FC<FlightDateRangeInputProps> = ({
               : ""}
           </span>
           <span className="block mt-1 text-sm text-neutral-400 leading-none font-light">
-            {selectsRange ? "Pick up - Drop off" : "Pick up date"}
+            <Tpl text={selectsRange ? "Pick up - Drop off" : "Pick up date"} />
           </span>
         </div>
       </>

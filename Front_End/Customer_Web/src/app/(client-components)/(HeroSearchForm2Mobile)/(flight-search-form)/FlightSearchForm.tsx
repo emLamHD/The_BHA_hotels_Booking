@@ -215,11 +215,11 @@ const FlightSearchForm = () => {
     if (guestInput.guestAdults || guestInput.guestChildren) {
       const guest =
         (guestInput.guestAdults || 0) + (guestInput.guestChildren || 0);
-      guestSelected += `${guest} guests`;
+      guestSelected += t("customer.booking.guests", { guests: guest });
     }
 
     if (guestInput.guestInfants) {
-      guestSelected += `, ${guestInput.guestInfants} infants`;
+      guestSelected += `, ${t("customer.booking.infants", { infants: guestInput.guestInfants })}`;
     }
 
     return (
@@ -236,7 +236,7 @@ const FlightSearchForm = () => {
             onClick={() => setFieldNameShow("guests")}
           >
             <span className="text-neutral-400">{t("customer.heroSearchForm2Mobile.flightSearchForm.flightSearchForm.who")}</span>
-            <span>{guestSelected || `Add guests`}</span>
+            <span>{guestSelected || <Tpl text="Add guests" />}</span>
           </button>
         ) : (
           <GuestsInput defaultValue={guestInput} onChange={setGuestInput} />

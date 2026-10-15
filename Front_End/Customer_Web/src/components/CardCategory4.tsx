@@ -46,9 +46,9 @@ const CardCategory4: FC<CardCategory4Props> = ({
         >
           {convertNumbThousand(count || 0)}
           {` `}
-          {(!listingType || listingType === "stay") && "properties"}
-          {listingType === "car" && "cars"}
-          {listingType === "experiences" && "experiences"}
+          {(!listingType || listingType === "stay") && t("customer.common.properties")}
+          {listingType === "car" && <Tpl text="cars" />}
+          {listingType === "experiences" && <Tpl text="experiences" />}
         </span>
       </div>
     </Link>

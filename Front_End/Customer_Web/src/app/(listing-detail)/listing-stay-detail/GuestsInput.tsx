@@ -44,7 +44,7 @@ const GuestsInput: FC<GuestsInputProps> = ({ className = "flex-1", adults, child
                 <span className="block xl:text-lg font-semibold">
                   {t("customer.listingDetail.listingStayDetail.guestsInput.guests", { totalGuests })}</span>
                 <span className="block mt-1 text-sm text-neutral-400 leading-none font-light">
-                  {rooms} {rooms === 1 ? "room" : "rooms"}
+                  {t("customer.booking.rooms", { rooms })}
                 </span>
               </div>
             </Popover.Button>

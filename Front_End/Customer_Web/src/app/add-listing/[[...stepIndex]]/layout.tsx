@@ -5,6 +5,7 @@ import ButtonSecondary from "@/shared/ButtonSecondary";
 import { Route } from "@/routers/types";
 
 import { getT } from "@/lib/i18n/server";
+import { tpl } from "@/lib/i18n/tpl";
 export interface CommonLayoutProps {
   children: React.ReactNode;
   params: {
@@ -41,7 +42,7 @@ async function CommonLayout({ children, params } : CommonLayoutProps) {
         <div className="flex justify-end space-x-5">
           <ButtonSecondary href={backtHref}>{t("customer.addListing.stepIndex.layout.goBack")}</ButtonSecondary>
           <ButtonPrimary href={nextHref}>
-            {nextBtnText || "Continue"}
+            {tpl(nextBtnText)}
           </ButtonPrimary>
         </div>
       </div>

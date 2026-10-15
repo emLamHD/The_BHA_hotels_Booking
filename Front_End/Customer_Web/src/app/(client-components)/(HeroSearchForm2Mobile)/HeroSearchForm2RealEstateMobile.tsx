@@ -9,6 +9,7 @@ import { useTimeoutFn } from "react-use";
 import RealestateSearchForm from "./(real-estate-search-form)/RealestateSearchForm";
 
 import { useT } from "@/lib/i18n/I18nProvider";
+import { Tpl } from "@/lib/i18n/Tpl";
 const HeroSearchForm2RealEstateMobile = () => {
   const t = useT();
   const [showModal, setShowModal] = useState(false);
@@ -95,7 +96,7 @@ const HeroSearchForm2RealEstateMobile = () => {
                                     selected ? "text-black dark:text-white" : ""
                                   }  `}
                                 >
-                                  {item}
+                                  <Tpl text={item} />
                                 </div>
                                 {selected && (
                                   <span className="absolute inset-x-0 top-full border-b-2 border-black dark:border-white"></span>

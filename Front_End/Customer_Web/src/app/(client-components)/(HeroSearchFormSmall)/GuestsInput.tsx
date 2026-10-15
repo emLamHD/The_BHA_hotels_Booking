@@ -10,6 +10,7 @@ import NcInputNumber from "@/components/NcInputNumber";
 import { GuestsObject } from "../type";
 
 import { useT } from "@/lib/i18n/I18nProvider";
+import { Tpl } from "@/lib/i18n/Tpl";
 export interface GuestsInputProps {
   className?: string;
   fieldClassName?: string;
@@ -77,7 +78,7 @@ const GuestsInput: FC<GuestsInputProps> = ({
             <span className="block font-semibold">
               {totalGuests || ""}{t("customer.heroSearchFormSmall.guestsInput.guests")}</span>
             <span className="block mt-1 text-sm text-neutral-400 leading-none font-light">
-              {totalGuests ? "Guests" : "Add guests"}
+              <Tpl text={totalGuests ? "Guests" : "Add guests"} />
             </span>
           </div>
         </div>

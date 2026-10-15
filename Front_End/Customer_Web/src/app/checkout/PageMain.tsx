@@ -132,10 +132,7 @@ const CheckOutPagePageMain: FC<CheckOutPagePageMainProps> = ({
                     <span className="text-sm text-neutral-400">{t("customer.common.guests")}</span>
                     <span className="mt-1.5 text-lg font-semibold">
                       <span className="line-clamp-1">
-                        {`${
-                          (guests.guestAdults || 0) +
-                          (guests.guestChildren || 0)
-                        } Guests, ${guests.guestInfants || 0} Infants`}
+                        {`${t("customer.booking.guests", { guests: (guests.guestAdults || 0) + (guests.guestChildren || 0) })}, ${t("customer.booking.infants", { infants: guests.guestInfants || 0 })}`}
                       </span>
                     </span>
                   </div>

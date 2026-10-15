@@ -12,7 +12,7 @@ import Link from "next/link";
 
 import { useT } from "@/lib/i18n/I18nProvider";
 import DemoPrice from "@/components/DemoPrice";
-import { Tpl } from "@/lib/i18n/Tpl";
+import { Tpl, useTpl } from "@/lib/i18n/Tpl";
 export interface StayCard2Props {
   className?: string;
   data?: StayDataType;
@@ -27,6 +27,7 @@ const StayCard2: FC<StayCard2Props> = ({
   data = DEMO_DATA,
 }) => {
   const t = useT();
+  const tp = useTpl();
   const {
     galleryImgs,
     listingCategory,
@@ -64,7 +65,7 @@ const StayCard2: FC<StayCard2Props> = ({
       <div className={size === "default" ? "mt-3 space-y-3" : "mt-2 space-y-2"}>
         <div className="space-y-2">
           <span className="text-sm text-neutral-500 dark:text-neutral-400">
-            {t("customer.common.beds", { name: listingCategory.name, bedrooms })}</span>
+            {t("customer.common.beds", { name: tp(listingCategory.name), bedrooms })}</span>
           <div className="flex items-center space-x-2">
             {isAds && <Badge name="ADS" color="green" />}
             <h2

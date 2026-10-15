@@ -74,7 +74,7 @@ const FlightSearchForm: FC<FlightSearchFormProps> = ({}) => {
            ${open ? "" : ""}
             px-4 py-1.5 rounded-md inline-flex items-center font-medium hover:text-opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-opacity-75 text-xs`}
             >
-              <span>{`${totalGuests || ""} Guests`}</span>
+              <span>{totalGuests ? t("customer.booking.guests", { guests: totalGuests }) : t("customer.search.who")}</span>
               <ChevronDownIcon
                 className={`${
                   open ? "" : "text-opacity-70"

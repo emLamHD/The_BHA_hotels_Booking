@@ -8,6 +8,7 @@ import ClearDataButton from "@/app/(client-components)/(HeroSearchForm)/ClearDat
 import { GuestsObject } from "@/app/(client-components)/type";
 
 import { useT } from "@/lib/i18n/I18nProvider";
+import { Tpl } from "@/lib/i18n/Tpl";
 export interface GuestsInputProps {
   className?: string;
 }
@@ -60,7 +61,7 @@ const GuestsInput: FC<GuestsInputProps> = ({ className = "flex-1" }) => {
                 <span className="block xl:text-lg font-semibold">
                   {totalGuests || ""}{" "}{t("customer.listingDetail.listingExperiencesDetail.guestsInput.guests")}</span>
                 <span className="block mt-1 text-sm text-neutral-400 leading-none font-light">
-                  {totalGuests ? "Guests" : "Add guests"}
+                  <Tpl text={totalGuests ? "Guests" : "Add guests"} />
                 </span>
               </div>
 

@@ -14,6 +14,7 @@ import { initialStayDraft } from "@/lib/staySearch";
 
 import { useApiMessage } from "@/lib/i18n/apiMessage";
 import { useT } from "@/lib/i18n/I18nProvider";
+import { Tpl } from "@/lib/i18n/Tpl";
 /**
  * The compact search of every header under `lg` (and of the room page, where the app bar is hidden).
  * CUST-WEB-001-CP08a: it is the live Riverside search only — the template's Experiences/Cars/Flights tabs
@@ -81,9 +82,9 @@ const HeroSearchForm2Mobile = () => {
         <MagnifyingGlassIcon className="flex-shrink-0 w-5 h-5" />
 
         <div className="ml-3 flex-1 text-left overflow-hidden">
-          <span className="block font-medium text-sm line-clamp-1">{summary.title}</span>
+          <span className="block font-medium text-sm line-clamp-1"><Tpl text={summary.title} quiet /></span>
           <span className="block mt-0.5 text-xs font-light text-neutral-500 dark:text-neutral-400 ">
-            <span className="line-clamp-1">{summary.subtitle}</span>
+            <span className="line-clamp-1"><Tpl text={summary.subtitle} quiet /></span>
           </span>
         </div>
 

@@ -3174,6 +3174,26 @@
    "placeholders": []
   },
   {
+   "key": "customer.datePicker.choose",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.datePicker.month",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.datePicker.notAvailable",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.datePicker.week",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.datePickerCustomHeaderTwoMonth.nextMonth",
    "scope": "customer",
    "placeholders": []
@@ -4328,6 +4348,11 @@
   },
   {
    "key": "customer.like.saved",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.like.savedLabel",
    "scope": "customer",
    "placeholders": []
   },
@@ -6199,6 +6224,11 @@
    "placeholders": []
   },
   {
+   "key": "customer.tpl.053f004e",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.tpl.072a8a9f",
    "scope": "customer",
    "placeholders": []
@@ -6219,12 +6249,27 @@
    "placeholders": []
   },
   {
+   "key": "customer.tpl.0a6e4c68",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.tpl.134db098",
    "scope": "customer",
    "placeholders": []
   },
   {
    "key": "customer.tpl.13daef5e",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.14be7555",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.15554cf6",
    "scope": "customer",
    "placeholders": []
   },
@@ -6240,6 +6285,11 @@
   },
   {
    "key": "customer.tpl.224d574a",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.24144ab0",
    "scope": "customer",
    "placeholders": []
   },
@@ -6289,6 +6339,11 @@
    "placeholders": []
   },
   {
+   "key": "customer.tpl.3b527379",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.tpl.3c73fb74",
    "scope": "customer",
    "placeholders": []
@@ -6319,7 +6374,17 @@
    "placeholders": []
   },
   {
+   "key": "customer.tpl.504443a0",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.tpl.50b6b3b3",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.5221f9e8",
    "scope": "customer",
    "placeholders": []
   },
@@ -6349,6 +6414,11 @@
    "placeholders": []
   },
   {
+   "key": "customer.tpl.608f893f",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.tpl.61116d1c",
    "scope": "customer",
    "placeholders": []
@@ -6369,7 +6439,27 @@
    "placeholders": []
   },
   {
+   "key": "customer.tpl.6c753e11",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.6cc2cb35",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.6d2c72ca",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.tpl.6d8c9eba",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.724297a0",
    "scope": "customer",
    "placeholders": []
   },
@@ -6394,6 +6484,11 @@
    "placeholders": []
   },
   {
+   "key": "customer.tpl.850d6c27",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.tpl.8645ac7e",
    "scope": "customer",
    "placeholders": [
@@ -6411,12 +6506,27 @@
    "placeholders": []
   },
   {
+   "key": "customer.tpl.8c292c25",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.tpl.8e4c5199",
    "scope": "customer",
    "placeholders": []
   },
   {
+   "key": "customer.tpl.95276dd6",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.tpl.955e2f27",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.97599e09",
    "scope": "customer",
    "placeholders": []
   },
@@ -6431,12 +6541,27 @@
    "placeholders": []
   },
   {
+   "key": "customer.tpl.9ded06aa",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.a1ff7df0",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.tpl.a24d57e9",
    "scope": "customer",
    "placeholders": []
   },
   {
    "key": "customer.tpl.a437a37f",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.a534dcd1",
    "scope": "customer",
    "placeholders": []
   },
@@ -6456,7 +6581,17 @@
    "placeholders": []
   },
   {
+   "key": "customer.tpl.ab43d664",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.tpl.ac4fe479",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.ace216ae",
    "scope": "customer",
    "placeholders": []
   },
@@ -6506,7 +6641,22 @@
    "placeholders": []
   },
   {
+   "key": "customer.tpl.be212b51",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.tpl.bee63639",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.c54d244b",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.c646a2c9",
    "scope": "customer",
    "placeholders": []
   },
@@ -6516,7 +6666,22 @@
    "placeholders": []
   },
   {
+   "key": "customer.tpl.cada780b",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.tpl.cc3830eb",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.d0b54adf",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.d131be1c",
    "scope": "customer",
    "placeholders": []
   },
@@ -6568,6 +6733,11 @@
    "placeholders": []
   },
   {
+   "key": "customer.tpl.de897825",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.tpl.dfa9c4c2",
    "scope": "customer",
    "placeholders": []
@@ -6584,6 +6754,11 @@
   },
   {
    "key": "customer.tpl.e566cf1b",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.ea4e9d86",
    "scope": "customer",
    "placeholders": []
   },

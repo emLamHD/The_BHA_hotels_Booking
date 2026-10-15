@@ -337,7 +337,7 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
                 htmlFor="availability-property"
                 className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1"
               >
-                Property
+                {t("customer.search.property")}
               </label>
               <Select
                 id="availability-property"

@@ -12,7 +12,7 @@ import GallerySlider from "./GallerySlider";
 
 import { useT } from "@/lib/i18n/I18nProvider";
 import DemoPrice from "@/components/DemoPrice";
-import { Tpl } from "@/lib/i18n/Tpl";
+import { Tpl, useTpl } from "@/lib/i18n/Tpl";
 export interface StayCardProps {
   className?: string;
   data?: StayDataType;
@@ -27,6 +27,7 @@ const StayCard: FC<StayCardProps> = ({
   data = DEMO_DATA,
 }) => {
   const t = useT();
+  const tp = useTpl();
   const {
     galleryImgs,
     listingCategory,
@@ -64,7 +65,7 @@ const StayCard: FC<StayCardProps> = ({
       <div className={size === "default" ? "p-4 space-y-4" : "p-3 space-y-1"}>
         <div className={size === "default" ? "space-y-2" : "space-y-1"}>
           <span className="text-sm text-neutral-500 dark:text-neutral-400">
-            {t("customer.common.beds", { name: listingCategory.name, bedrooms })}</span>
+            {t("customer.common.beds", { name: tp(listingCategory.name), bedrooms })}</span>
           <div className="flex items-center space-x-2">
             {isAds && <Badge name="ADS" color="green" />}
             <h2
