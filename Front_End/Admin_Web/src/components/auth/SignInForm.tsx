@@ -8,7 +8,9 @@
  * and lives only in this component's state, which is cleared once the attempt
  * is over and when the form goes away. Nothing is put in storage, the URL or
  * the console. A `200` only says the cookie was issued: the board is opened
- * only after `GET /me` confirms the session.
+ * only after `GET /me` confirms the session. CUST-WEB-HEADER-001-CP02: `returnTo` is one
+ * of the allowlisted pages (`lib/website/returnTo`), chosen by the sign-in page, so a
+ * website page sends the person back to itself — only after `me` confirmed the session.
  *
  * In `LocalGate` mode there is no Staff sign-in; the page says so instead.
  */
@@ -17,6 +19,7 @@ import Label from "@/components/form/Label";
 import { ChevronLeftIcon, EyeCloseIcon, EyeIcon } from "@/icons";
 import { getAccessMode } from "@/lib/api/accessMode";
 import { fetchStaffSession, staffLogin, type StaffLoginOutcome } from "@/lib/api/staff";
+import { resolveReturnTo } from "@/lib/website/returnTo";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import React, { useEffect, useId, useRef, useState } from "react";
@@ -42,7 +45,7 @@ export function describeLoginFailure(outcome: Exclude<StaffLoginOutcome, { kind:
   }
 }
 
-export default function SignInForm() {
+export default function SignInForm({ returnTo = "/calendar" }: { returnTo?: string } = {}) {
   const mode = getAccessMode();
   const router = useRouter();
   const emailId = useId();
@@ -79,7 +82,7 @@ export default function SignInForm() {
       const session = await fetchStaffSession();
       if (!mountedRef.current) return;
       if (session.kind === "authenticated") {
-        router.push("/calendar");
+        router.push(resolveReturnTo(returnTo));
         return;
       }
       setError(

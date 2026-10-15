@@ -42,6 +42,16 @@ const navItems: NavItem[] = [
     name: "User Profile",
     path: "/profile",
   },
+  // CUST-WEB-HEADER-001-CP02: the website settings. A link is not authorization: each page asks the server.
+  {
+    icon: <PlugInIcon />,
+    name: "Website",
+    subItems: [
+      { name: "Languages", path: "/website/languages", pro: false },
+      { name: "UI translations", path: "/website/translations", pro: false },
+      { name: "Currencies and rates", path: "/website/currencies", pro: false },
+    ],
+  },
 
   {
     name: "Forms",
