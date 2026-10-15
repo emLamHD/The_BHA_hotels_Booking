@@ -38,7 +38,7 @@ There are two distinct activation contexts.
 - `ACTIVE_EXECUTOR` — the agent `IMPLEMENTER` names in the current Master Execution Prompt — is the only write-capable implementer for this repository, for that work item.
 - `ACTIVE_EXECUTOR` requires a valid Master Execution Prompt containing at minimum `IMPLEMENTER`, `REVIEWER`, `REPOSITORY`, `FEATURE_BRANCH`, baseline, scope, acceptance, checks, skill policy and stop conditions before making any edit.
 - `ACTIVE_EXECUTOR` may implement, test, checkpoint, commit, push and open a Draft PR only when the Master Execution Prompt explicitly authorizes each of those actions.
-- `ACTIVE_EXECUTOR` never grants the reviewer write access, never invokes the reviewer or any other coding agent and never runs an implementation in parallel with another agent. Creating subagents is permitted; they act under `ACTIVE_EXECUTOR` authority, hold no independent write authority, and never invoke the reviewer or Codex.
+- `ACTIVE_EXECUTOR` never grants the reviewer write access, never invokes the reviewer or any other coding agent and never runs an implementation in parallel with another agent. Creating subagents is permitted (including in parallel, for lookup/read work); they act under `ACTIVE_EXECUTOR` authority, hold no independent write authority, and never invoke the reviewer or Codex.
 - If the Master Execution Prompt is missing a required field, or another coding agent may still have write access, `ACTIVE_EXECUTOR` returns `BLOCKED`.
 
 ### 2.B Dedicated review context
@@ -55,7 +55,7 @@ There are two distinct activation contexts.
 ## 3. Write lock
 
 - `ACTIVE_EXECUTOR` is the only coding agent with write access to the repository checkout, for every work item, at every phase.
-- `ACTIVE_EXECUTOR` never invokes the reviewer or runs an implementation in parallel with any other agent. Creating subagents is permitted (§2.A).
+- `ACTIVE_EXECUTOR` never invokes the reviewer or runs an implementation in parallel with any other agent. Creating subagents is permitted (§2.A), including in parallel for lookup/read work.
 - Before Owner invokes review, `ACTIVE_EXECUTOR` stops all writes and leaves the working tree at a stable, reviewable checkpoint for the duration of the review.
 - A correction cycle requires an OC correction prompt and Owner activation before `ACTIVE_EXECUTOR` resumes writing; the role pair does not change.
 
