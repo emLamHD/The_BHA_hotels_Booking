@@ -26,4 +26,4 @@ Thẻ/ưu đãi phòng (`OfferCard`, `AvailabilityOfferCard`, `RoomTypeStayCard`
 
 ## 4. Chuỗi UI
 
-Tin nhắn có khóa trong gói: 1212 (+225 nội dung tĩnh/thực thể) mỗi ngôn ngữ = 1437 chuỗi; chữ mẫu của template dùng khóa `customer.tpl.<hash>` (xem design §9). Mỗi ngôn ngữ phát hành phải đủ 100% khóa bắt buộc mới được bật.
+Tin nhắn có khóa trong gói: 1213 (+225 nội dung tĩnh/thực thể) mỗi ngôn ngữ = 1438 chuỗi; chữ mẫu của template dùng khóa `customer.tpl.<hash>` (xem design §9). Mỗi ngôn ngữ phát hành phải đủ 100% khóa bắt buộc mới được bật.
