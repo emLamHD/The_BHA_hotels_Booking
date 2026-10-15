@@ -13,4 +13,3 @@ export function formatStayDate(isoDate: string, formatLocale: string): string {
   const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
   return new Intl.DateTimeFormat(formatLocale, { dateStyle: "medium", timeZone: "UTC" }).format(date);
 }
-

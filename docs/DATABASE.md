@@ -103,6 +103,7 @@ The current migration chain is:
 8. `20260826035254_PhysicalRoomScheduleAvailabilityAuthority`
 9. `20261001141847_AddStaffIdentityFoundation`
 10. `20261015050047_AddWebsiteLocalizationSettings`
+11. `20261015095908_AddRuntimeLanguagePacks`
 
 `PMS-BE-001.1` (migration 7) replaces the single-RoomType `BookingHold`/
 `BookingHoldNight` and `Reservation`/`ReservationNight` commercial authority
@@ -191,6 +192,27 @@ non-seed language. It does **not** detect the deletion of a seed row that was
 never edited (for example clearing one seed `en` translation or deleting USD
 leaves every remaining row at version 1), so a rollback after such a deletion
 silently drops the remaining seed. Design: `docs/design/CUST-WEB-HEADER-001-CP02-website-localization-settings.md`.
+
+`CUST-WEB-HEADER-001-CP02-C2/R1` (migration 11, `AddRuntimeLanguagePacks`)
+turns the language data into **runtime language packs**: `WebsiteLanguages`
+gains `PackId`, `PackVersion`, `Direction` (`ltr`/`rtl`), `FormatLocale` (the
+BCP 47 tag used by `Intl` for dates and numbers) and `DefaultCurrencyCode`
+(the display currency a visitor gets with that language until they choose
+another); `WebsiteTranslations` gains `SourceHash` (hash of the reference text
+a translation was made from, so an edited source marks it stale) and
+`IsManual` (an Admin edit that a later pack import keeps unless the operator
+chooses "overwrite"). `Value` becomes `varchar(4000)` and the two CHECK
+constraints on `Key`/`Value` of migration 10 are dropped (the server validates
+keys against the pack catalog and messages as ICU syntax). Existing keys are
+renamed into the catalog's naming and the 50 seed translation rows of migration
+10 are removed: the seed languages `vi`/`en` stay, and the texts come back when
+the built-in packs are installed from the Admin. No currency or booking row is
+changed, and **no booking amount is ever stored in another currency**:
+reservations stay in VND. `Down()` raises an exception while installed packs or
+administered translations exist. The migration adds no rates; rates are
+entered by the operator in the Admin (see `docs/runbooks/CUST-WEB-HEADER-001-languages-and-rates.md`). Apply it
+with the normal `dotnet ef database update` command; apply order is 10 → 11.
+Design: `docs/design/CUST-WEB-HEADER-001-CP02-website-localization-settings.md` §9.
 
 Run the update command before the development seed. The API never calls
 `EnsureCreated()` and never applies a migration during startup.
