@@ -1,3 +1,4 @@
+import { testT } from "@/lib/i18n/testkit";
 import { describe, expect, it } from "vitest";
 import type { AvailabilityOfferDto } from "@/lib/api/availabilityTypes";
 import { initialBookingHoldFlowState } from "@/lib/api/bookingHoldFlow";
@@ -192,7 +193,7 @@ describe("inProgressBookingTarget", () => {
 
 describe("bookingStatusCopy", () => {
   it("calls a confirmed reservation done, not in progress", () => {
-    const copy = bookingStatusCopy("reservation-result");
+    const copy = bookingStatusCopy("reservation-result", testT("vi"));
     expect(copy.message).toContain("hoàn tất");
     expect(copy.action).toBe("Xem xác nhận");
     expect(copy.barText).not.toContain("đang thực hiện");
@@ -201,7 +202,7 @@ describe("bookingStatusCopy", () => {
   it.each(["submitting", "uncertain", "active-session", "confirming", "confirm-known-error", "confirm-uncertain"] as const)(
     "calls %s an order in progress with a way to continue it",
     (phase) => {
-      const copy = bookingStatusCopy(phase);
+      const copy = bookingStatusCopy(phase, testT("vi"));
       expect(copy.message).toContain("đang thực hiện");
       expect(copy.action).toBe("Tiếp tục đặt phòng");
       expect(copy.barAction).toBe("Tiếp tục");

@@ -10,6 +10,7 @@ import { LOGIN_FOR_ACCOUNT_HREF } from "@/lib/authReturnTarget";
 import { describeAccountView } from "@/lib/customerAccountUi";
 import ButtonSecondary from "@/shared/ButtonSecondary";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 /**
  * CUST-WEB-001-CP04. The read-only account page. What it shows is `describeAccountView` of the provider's
  * `me` state and identity phase, re-derived on every render: no copy of the email is kept here, the page
@@ -21,6 +22,7 @@ import ButtonSecondary from "@/shared/ButtonSecondary";
  * chose "Tài khoản của tôi" while signed out comes back here after signing in.
  */
 const AccountSessionPanel: FC = () => {
+  const t = useT();
   const router = useRouter();
   const { state, identityChange } = useCustomerSession();
   const view = describeAccountView(state, identityChange.phase);
@@ -31,25 +33,21 @@ const AccountSessionPanel: FC = () => {
 
   return (
     <div className="space-y-6 sm:space-y-8">
-      <h2 className="text-3xl font-semibold">Tài khoản</h2>
+      <h2 className="text-3xl font-semibold">{t("customer.accountPages.account.accountSessionPanel.account")}</h2>
       <div className="w-14 border-b border-neutral-200 dark:border-neutral-700"></div>
       <div className="max-w-2xl space-y-6">
         <CustomerSessionNotice />
         {view.kind === "redirect-login" && (
-          <p role="status" className="text-sm text-neutral-600 dark:text-neutral-300">
-            Bạn chưa đăng nhập. Đang chuyển tới trang đăng nhập…
-          </p>
+          <p role="status" className="text-sm text-neutral-600 dark:text-neutral-300">{t("customer.accountPages.account.accountSessionPanel.youAreNotSignedIn")}</p>
         )}
         {view.kind === "ready" && (
-          <section aria-label="Thông tin tài khoản" className="space-y-4 rounded-2xl border border-neutral-200 p-6 dark:border-neutral-700">
+          <section aria-label={t("customer.accountPages.account.accountSessionPanel.accountDetails")} className="space-y-4 rounded-2xl border border-neutral-200 p-6 dark:border-neutral-700">
             <div>
-              <p className="text-sm text-neutral-500 dark:text-neutral-400">Email tài khoản</p>
+              <p className="text-sm text-neutral-500 dark:text-neutral-400">{t("customer.accountPages.account.accountSessionPanel.accountEmail")}</p>
               <p className="break-all text-lg font-semibold text-neutral-900 dark:text-neutral-100">{view.email}</p>
             </div>
-            <p className="text-sm text-neutral-600 dark:text-neutral-300">
-              Hiện chỉ xem email tài khoản; chỉnh sửa hồ sơ và lịch sử đặt phòng chưa được hỗ trợ.
-            </p>
-            <ButtonSecondary href={HOME_PAGE as Route}>Về trang chủ</ButtonSecondary>
+            <p className="text-sm text-neutral-600 dark:text-neutral-300">{t("customer.accountPages.account.accountSessionPanel.forNowYouCanOnly")}</p>
+            <ButtonSecondary href={HOME_PAGE as Route}>{t("customer.common.backToHome")}</ButtonSecondary>
           </section>
         )}
       </div>

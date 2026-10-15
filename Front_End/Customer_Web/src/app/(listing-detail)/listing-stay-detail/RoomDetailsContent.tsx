@@ -17,6 +17,8 @@ import { useBookingHoldFlow } from "@/app/BookingHoldProvider";
 import { PropertyDto, RoomTypeDto } from "@/lib/api/propertyTypes";
 import { selectGalleryImages, visibleImages } from "@/lib/api/mediaPresentation";
 import { formatTime } from "@/lib/api/propertyPresentation";
+import { useDateFormat } from "@/lib/i18n/dates";
+import { useI18n } from "@/lib/i18n/I18nProvider";
 import { formatDesignedForOccupancy, formatMaxOccupancy } from "@/lib/api/roomTypePresentation";
 import {
   bookingStatusCopy,
@@ -57,13 +59,15 @@ const Section: FC<{ title: string; hint?: string; children: React.ReactNode }> =
  * reviews, host, cancellation terms, rates tables) is not shown at all.
  */
 const RoomDetailsContent: FC<RoomDetailsContentProps> = ({ property, roomType, roomTypes, searchDraft }) => {
+  const { t, content } = useI18n();
+  const dates = useDateFormat();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const search = searchParams?.toString() ?? "";
   const modalOpen = searchParams?.get("modal") === PHOTO_TOUR;
-  const roomName = roomType.name ?? "Room type";
-  const propertyName = property.name ?? "The BHA";
+  const roomName = content("roomType", roomType.id, "name", roomType.name ?? t("customer.booking.offer.roomTypeFallback"));
+  const propertyName = content("property", property.id, "name", property.name ?? "The BHA");
 
   const [failedUrls, setFailedUrls] = useState<string[]>([]);
   const images = useMemo<ListingGalleryImage[]>(
@@ -71,9 +75,9 @@ const RoomDetailsContent: FC<RoomDetailsContentProps> = ({ property, roomType, r
       visibleImages(selectGalleryImages(roomType.media), failedUrls).map((image, index) => ({
         id: index,
         url: image.url ?? "",
-        alt: image.altText ?? `${roomName}`,
+        alt: content("media", image.id, "altText", image.altText ?? roomName),
       })),
-    [roomType.media, failedUrls, roomName]
+    [roomType.media, failedUrls, roomName, content]
   );
 
   // Pictures the browser cannot load are dropped, never replaced by another photograph.
@@ -123,7 +127,7 @@ const RoomDetailsContent: FC<RoomDetailsContentProps> = ({ property, roomType, r
     <div className="nc-ListingStayDetailPage pb-24 lg:pb-0">
       <div className="pt-4 pb-4">
         <ShowcaseNavLink section="rooms" className="inline-flex items-center text-sm font-medium text-neutral-600 hover:text-primary-6000 dark:text-neutral-300">
-          ← Tất cả phòng
+          {t("customer.room.allRooms")}
         </ShowcaseNavLink>
       </div>
 
@@ -139,7 +143,7 @@ const RoomDetailsContent: FC<RoomDetailsContentProps> = ({ property, roomType, r
             </div>
             <h1 className="text-2xl sm:text-3xl lg:text-4xl font-semibold">{roomName}</h1>
             <div className="flex items-center space-x-4 text-neutral-500 dark:text-neutral-400">
-              <span title="Đánh giá mẫu (không phải đánh giá của khách)">
+              <span title={t("customer.stay.sampleRatingTitle")}>
                 <StartRating sample="full" />
               </span>
               <span>·</span>
@@ -152,31 +156,31 @@ const RoomDetailsContent: FC<RoomDetailsContentProps> = ({ property, roomType, r
             <div className="flex flex-wrap items-center gap-x-8 gap-y-3 text-sm text-neutral-700 dark:text-neutral-300">
               <div className="flex items-center space-x-3">
                 <i className="las la-user text-2xl"></i>
-                <span>{formatMaxOccupancy(roomType.maxOccupancy)}</span>
+                <span>{formatMaxOccupancy(roomType.maxOccupancy, t)}</span>
               </div>
               <div className="flex items-center space-x-3">
                 <i className="las la-users text-2xl"></i>
-                <span>{formatDesignedForOccupancy(roomType.baseOccupancy)}</span>
+                <span>{formatDesignedForOccupancy(roomType.baseOccupancy, t)}</span>
               </div>
             </div>
           </div>
 
-          <Section title="Thông tin phòng">
+          <Section title={t("customer.room.info")}>
             <div className="text-neutral-6000 dark:text-neutral-300">
-              {roomType.description ?? "Thông tin chi tiết đang được cập nhật."}
+              {content("roomType", roomType.id, "description", roomType.description ?? t("customer.room.detailsPending"))}
             </div>
           </Section>
 
           {(amenities.length > 0 || propertyAmenities.length > 0) && (
             <Section
-              title="Tiện ích"
-              hint={amenities.length > 0 ? undefined : `Tiện ích chung tại ${propertyName}`}
+              title={t("customer.room.amenities")}
+              hint={amenities.length > 0 ? undefined : t("customer.room.amenitiesHint", { property: propertyName })}
             >
               <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 text-sm text-neutral-700 dark:text-neutral-300">
                 {(amenities.length > 0 ? amenities : propertyAmenities).map((amenity) => (
                   <div key={amenity.id} className="flex items-center space-x-3">
                     <i className="text-3xl las la-check-circle"></i>
-                    <span>{amenity.name ?? amenity.code}</span>
+                    <span>{content("amenity", amenity.id, "name", amenity.name ?? amenity.code)}</span>
                   </div>
                 ))}
               </div>
@@ -184,13 +188,13 @@ const RoomDetailsContent: FC<RoomDetailsContentProps> = ({ property, roomType, r
           )}
 
           {selectGalleryImages(property.media).length > 0 && (
-            <Section title="Không gian chung" hint={`Hình ảnh chung của ${propertyName}, không phải riêng phòng này.`}>
+            <Section title={t("customer.room.commonAreas")} hint={t("customer.room.commonAreasHint", { property: propertyName })}>
               <MediaGallery media={property.media} name={propertyName} aspectClass="aspect-[16/9]" />
             </Section>
           )}
 
           {roomTypes.some((other) => !sameId(other.id, roomType.id)) && (
-            <Section title="Loại phòng khác" hint={`Các loại phòng khác tại ${propertyName}`}>
+            <Section title={t("customer.room.otherRooms")} hint={t("customer.room.otherRoomsHint", { property: propertyName })}>
               <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {roomTypes
                   .filter((other) => !sameId(other.id, roomType.id))
@@ -200,9 +204,9 @@ const RoomDetailsContent: FC<RoomDetailsContentProps> = ({ property, roomType, r
                         href={buildRoomDetailsHref({ propertyId: property.id, roomTypeId: other.id }) as Route}
                         className="block rounded-2xl border border-neutral-200 p-4 hover:border-primary-6000 dark:border-neutral-700"
                       >
-                        <span className="block font-medium">{other.name ?? "Room type"}</span>
+                        <span className="block font-medium">{content("roomType", other.id, "name", other.name ?? t("customer.booking.offer.roomTypeFallback"))}</span>
                         <span className="block mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-                          {formatMaxOccupancy(other.maxOccupancy)}
+                          {formatMaxOccupancy(other.maxOccupancy, t)}
                         </span>
                       </Link>
                     </li>
@@ -211,15 +215,15 @@ const RoomDetailsContent: FC<RoomDetailsContentProps> = ({ property, roomType, r
             </Section>
           )}
 
-          <Section title="Nhận phòng và trả phòng">
+          <Section title={t("customer.room.checkInOut")}>
             <div className="max-w-md text-sm sm:text-base text-neutral-500 dark:text-neutral-400">
               <div className="flex space-x-10 justify-between p-3 bg-neutral-100 dark:bg-neutral-800 rounded-lg">
-                <span>Nhận phòng</span>
-                <span>từ {formatTime(property.checkInTime)}</span>
+                <span>{t("customer.room.checkIn")}</span>
+                <span>{t("customer.room.checkInFrom", { time: formatTime(property.checkInTime) })}</span>
               </div>
               <div className="flex space-x-10 justify-between p-3">
-                <span>Trả phòng</span>
-                <span>trước {formatTime(property.checkOutTime)}</span>
+                <span>{t("customer.room.checkOut")}</span>
+                <span>{t("customer.room.checkOutBefore", { time: formatTime(property.checkOutTime) })}</span>
               </div>
             </div>
           </Section>
@@ -252,15 +256,16 @@ const RoomBookingSidebar: FC<{ property: PropertyDto; roomType: RoomTypeDto; sea
   searchDraft,
 }) => {
   const { state } = useBookingHoldFlow();
+  const { t, content } = useI18n();
   const inProgress = inProgressBookingTarget(state);
-  const roomName = roomType.name ?? "Room type";
+  const roomName = content("roomType", roomType.id, "name", roomType.name ?? t("customer.booking.offer.roomTypeFallback"));
 
   return (
     <>
       <div>
-        <span className="block text-2xl font-semibold">Đặt phòng</span>
+        <span className="block text-2xl font-semibold">{t("customer.room.book")}</span>
         <span className="block mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-          {roomName} · Giá theo ngày bạn chọn
+          {t("customer.room.priceForDates", { room: roomName })}
         </span>
       </div>
 
@@ -270,11 +275,10 @@ const RoomBookingSidebar: FC<{ property: PropertyDto; roomType: RoomTypeDto; sea
           className="space-y-3 rounded-2xl border border-primary-200 bg-primary-50 p-4 text-sm text-primary-700 dark:border-neutral-700 dark:bg-neutral-800 dark:text-primary-300"
         >
           <p>
-            {bookingStatusCopy(inProgress.phase).message} Đó là một phòng khác, nên chưa thể đặt phòng này trong lúc
-            đó.
+            {bookingStatusCopy(inProgress.phase, t).message} {t("customer.room.otherRoomBlocked")}
           </p>
           <Link href={buildRoomDetailsHref(inProgress) as Route} className="font-medium underline underline-offset-2">
-            {bookingStatusCopy(inProgress.phase).action}
+            {bookingStatusCopy(inProgress.phase, t).action}
           </Link>
         </div>
       ) : (

@@ -37,7 +37,8 @@ const Footer: React.FC = () => {
   const entry = describeAuthEntry(
     state.status,
     identityChange.phase,
-    state.status === "authenticated" ? state.customer.email : null
+    state.status === "authenticated" ? state.customer.email : null,
+    t
   );
   const showSignup = state.status === "anonymous";
 

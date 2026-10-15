@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testT } from "@/lib/i18n/testkit";
 import {
   BookingHoldFlowAction,
   BookingHoldFlowState,
@@ -23,6 +24,7 @@ import { IdentityCommandResult, createCustomerIdentityCoordinator } from "@/lib/
 import type { BookingIdentityGuard } from "@/lib/api/bookingHoldFlowController";
 import type { SessionReadOutcome } from "@/lib/customerSession";
 
+const t = testT("vi");
 const createBookingHoldMock = vi.fn();
 const confirmBookingHoldMock = vi.fn();
 vi.mock("@/lib/api/bookingHoldService", () => ({
@@ -57,20 +59,20 @@ describe("validateLoginInput", () => {
   });
 
   it.each([
-    ["", "secret", "email", "Nhập địa chỉ email."],
-    ["   ", "secret", "email", "Nhập địa chỉ email."],
-    ["not-an-email", "secret", "email", "Địa chỉ email chưa hợp lệ."],
-    ["a@@b", "secret", "email", "Địa chỉ email chưa hợp lệ."],
-    ["a b@c.test", "secret", "email", "Địa chỉ email chưa hợp lệ."],
-    [`${"a".repeat(250)}@b.test`, "secret", "email", "Email tối đa 256 ký tự."],
+    ["", "secret", "email", "customer.auth.validation.emailRequired"],
+    ["   ", "secret", "email", "customer.auth.validation.emailRequired"],
+    ["not-an-email", "secret", "email", "customer.auth.validation.emailInvalid"],
+    ["a@@b", "secret", "email", "customer.auth.validation.emailInvalid"],
+    ["a b@c.test", "secret", "email", "customer.auth.validation.emailInvalid"],
+    [`${"a".repeat(250)}@b.test`, "secret", "email", "customer.auth.validation.emailTooLong"],
   ] as const)("refuses email %j before any request, focusing the email", (email, password, focus, message) => {
     expect(validateLoginInput(email, password)).toEqual({ ok: false, errors: { email: message }, focus });
   });
 
   it.each([
-    ["", "Nhập mật khẩu."],
-    ["     ", "Nhập mật khẩu."],
-    ["x".repeat(129), "Mật khẩu tối đa 128 ký tự."],
+    ["", "customer.auth.validation.passwordRequired"],
+    ["     ", "customer.auth.validation.passwordRequired"],
+    ["x".repeat(129), "customer.auth.validation.passwordTooLong"],
   ])("refuses password %j, focusing the password", (password, message) => {
     expect(validateLoginInput("bob@example.test", password)).toEqual({
       ok: false,
@@ -83,7 +85,7 @@ describe("validateLoginInput", () => {
     expect(validateLoginInput(`${"a".repeat(249)}@b.test`, "x".repeat(128)).ok).toBe(true);
     expect(validateLoginInput("", "")).toEqual({
       ok: false,
-      errors: { email: "Nhập địa chỉ email.", password: "Nhập mật khẩu." },
+      errors: { email: "customer.auth.validation.emailRequired", password: "customer.auth.validation.passwordRequired" },
       focus: "email",
     });
   });
@@ -101,7 +103,7 @@ const settled = (
 describe("presentIdentityCommandResult — what the auth request did AND what me verified", () => {
   it("login succeeded + me authenticated is the only success, and the only one that leaves the page", () => {
     const ok = settled("succeeded", "authenticated");
-    expect(presentIdentityCommandResult("login", ok, CTX)).toMatchObject({ tone: "success" });
+    expect(presentIdentityCommandResult("login", ok, CTX, t)).toMatchObject({ tone: "success" });
     expect(loginSucceeded(ok)).toBe(true);
     for (const other of [
       settled("succeeded", "anonymous"),
@@ -117,15 +119,15 @@ describe("presentIdentityCommandResult — what the auth request did AND what me
   });
 
   it("401 is one generic message (no account enumeration), 429 asks to wait without inventing a cooldown", () => {
-    const wrong = presentIdentityCommandResult("login", settled("refused", "anonymous", http(401)), CTX);
+    const wrong = presentIdentityCommandResult("login", settled("refused", "anonymous", http(401)), CTX, t);
     expect(wrong).toMatchObject({ tone: "error", message: "Email hoặc mật khẩu không đúng." });
-    const limited = presentIdentityCommandResult("login", settled("refused", "anonymous", http(429)), CTX);
+    const limited = presentIdentityCommandResult("login", settled("refused", "anonymous", http(429)), CTX, t);
     expect(limited?.message).toBe("Có quá nhiều lần thử. Hãy thử lại sau ít phút.");
     expect(limited?.message).not.toMatch(/\d+\s*(giây|phút)/);
   });
 
   it("a refusal while the previous account is still signed in does not read as a login", () => {
-    const result = presentIdentityCommandResult("login", settled("refused", "authenticated", http(401)), CTX);
+    const result = presentIdentityCommandResult("login", settled("refused", "authenticated", http(401)), CTX, t);
     expect(result?.tone).toBe("error");
     expect(result?.message).toContain("Email hoặc mật khẩu không đúng.");
     expect(result?.message).toContain("vẫn đang đăng nhập");
@@ -133,7 +135,7 @@ describe("presentIdentityCommandResult — what the auth request did AND what me
 
   it("400 and any other refusal use safe copy that never echoes the server's detail or the credentials", () => {
     for (const status of [400, 422]) {
-      const result = presentIdentityCommandResult("login", settled("refused", "anonymous", http(status)), CTX);
+      const result = presentIdentityCommandResult("login", settled("refused", "anonymous", http(status)), CTX, t);
       expect(result?.tone).toBe("error");
       expect(result?.message).not.toContain("SECRET-SERVER-DETAIL");
     }
@@ -142,58 +144,58 @@ describe("presentIdentityCommandResult — what the auth request did AND what me
   it.each([500, 502, 503, 504])(
     "a %s is lost, never a refusal or success: no false 'wrong password', and the verified session decides the sentence",
     (status) => {
-      const signedIn = presentIdentityCommandResult("login", settled("lost", "authenticated", http(status)), CTX);
+      const signedIn = presentIdentityCommandResult("login", settled("lost", "authenticated", http(status)), CTX, t);
       expect(signedIn).toMatchObject({ tone: "warning" });
       expect(signedIn?.message).toContain("Chưa xác nhận được kết quả");
       expect(signedIn?.message).toContain("bạn đang đăng nhập");
       expect(signedIn?.message).not.toContain("không đúng");
       expect(signedIn?.message).not.toContain("SECRET-SERVER-DETAIL");
-      const out = presentIdentityCommandResult("login", settled("lost", "anonymous", http(status)), CTX);
+      const out = presentIdentityCommandResult("login", settled("lost", "anonymous", http(status)), CTX, t);
       expect(out?.message).toContain("chưa đăng nhập");
       expect(out?.message).not.toContain("không đúng");
     }
   );
 
   it("a lost response (network) is lost too, for login and for logout", () => {
-    const login = presentIdentityCommandResult("login", settled("lost", "anonymous", new ApiNetworkError()), CTX);
+    const login = presentIdentityCommandResult("login", settled("lost", "anonymous", new ApiNetworkError()), CTX, t);
     expect(login?.message).toContain("Chưa xác nhận được kết quả");
-    const logout = presentIdentityCommandResult("logout", settled("lost", "authenticated", new ApiNetworkError()), CTX);
+    const logout = presentIdentityCommandResult("logout", settled("lost", "authenticated", new ApiNetworkError()), CTX, t);
     expect(logout?.message).toContain("vẫn đang đăng nhập");
     expect(logout?.tone).toBe("warning");
   });
 
   it("logout: success needs me anonymous; a 401 + me 401 claims nothing about cookies", () => {
-    expect(presentIdentityCommandResult("logout", settled("succeeded", "anonymous"), CTX)).toMatchObject({
+    expect(presentIdentityCommandResult("logout", settled("succeeded", "anonymous"), CTX, t)).toMatchObject({
       tone: "success",
       message: "Đã đăng xuất.",
     });
-    expect(presentIdentityCommandResult("logout", settled("succeeded", "authenticated"), CTX)?.tone).toBe("warning");
-    const refused = presentIdentityCommandResult("logout", settled("refused", "anonymous", http(401)), CTX);
+    expect(presentIdentityCommandResult("logout", settled("succeeded", "authenticated"), CTX, t)?.tone).toBe("warning");
+    const refused = presentIdentityCommandResult("logout", settled("refused", "anonymous", http(401)), CTX, t);
     expect(refused?.tone).toBe("info");
     expect(refused?.message).not.toMatch(/cookie/i);
-    expect(presentIdentityCommandResult("logout", settled("refused", "anonymous", http(429)), CTX)?.tone).toBe("warning");
+    expect(presentIdentityCommandResult("logout", settled("refused", "anonymous", http(429)), CTX, t)?.tone).toBe("warning");
   });
 
   it("blocked booking-in-progress explains and links back to the booking, with no refresh to offer", () => {
-    const result = presentIdentityCommandResult("login", { status: "blocked", reason: "booking-in-progress" }, CTX);
+    const result = presentIdentityCommandResult("login", { status: "blocked", reason: "booking-in-progress" }, CTX, t);
     expect(result).toMatchObject({ tone: "warning", link: { href: "/listing-stay-detail?room=1" }, offerRefresh: false });
-    const noTarget = presentIdentityCommandResult("logout", { status: "blocked", reason: "booking-in-progress" }, { bookingHref: null });
+    const noTarget = presentIdentityCommandResult("logout", { status: "blocked", reason: "booking-in-progress" }, { bookingHref: null }, t);
     expect(noTarget?.link?.href).toBe("/");
   });
 
   it("blocked receipt-not-finished leads to the receipt, never auto-closing it", () => {
-    const result = presentIdentityCommandResult("logout", { status: "blocked", reason: "receipt-not-finished" }, CTX);
+    const result = presentIdentityCommandResult("logout", { status: "blocked", reason: "receipt-not-finished" }, CTX, t);
     expect(result?.link).toEqual({ href: "/paydone", label: "Mở biên nhận" });
     expect(result?.message).toContain("mã đặt phòng");
   });
 
   it("blocked in-progress / unbound / inactive: safe, with a read-only check only where it helps", () => {
-    expect(presentIdentityCommandResult("login", { status: "blocked", reason: "identity-change-in-progress" }, CTX)).toMatchObject({
+    expect(presentIdentityCommandResult("login", { status: "blocked", reason: "identity-change-in-progress" }, CTX, t)).toMatchObject({
       tone: "info",
       offerRefresh: false,
     });
     for (const reason of ["booking-unbound", "session-inactive"] as const) {
-      expect(presentIdentityCommandResult("login", { status: "blocked", reason }, CTX)).toMatchObject({
+      expect(presentIdentityCommandResult("login", { status: "blocked", reason }, CTX, t)).toMatchObject({
         tone: "warning",
         offerRefresh: true,
       });
@@ -203,14 +205,14 @@ describe("presentIdentityCommandResult — what the auth request did AND what me
   it.each(["succeeded", "refused", "lost"] as const)(
     "recovery-unresolved after a %s request says the session could not be checked (the provider notice owns the retry action)",
     (transport) => {
-      const result = presentIdentityCommandResult("login", { status: "recovery-unresolved", transport }, CTX);
+      const result = presentIdentityCommandResult("login", { status: "recovery-unresolved", transport }, CTX, t);
       expect(result).toMatchObject({ tone: "warning", offerRefresh: false });
       expect(result?.message).toContain("chưa kiểm tra lại được phiên đăng nhập");
     }
   );
 
   it("an aborted command shows nothing and implies no rollback", () => {
-    expect(presentIdentityCommandResult("login", { status: "aborted" }, CTX)).toBeNull();
+    expect(presentIdentityCommandResult("login", { status: "aborted" }, CTX, t)).toBeNull();
   });
 
   it("a stored recovery-unresolved result is stale once the provider is idle again; a lost/settled one is not", () => {
@@ -239,17 +241,17 @@ describe("presentIdentityCommandResult — what the auth request did AND what me
 
 describe("describeSessionNotice — the provider is the authority", () => {
   it("busy while a guarded command or its recovery read runs, whatever me says", () => {
-    expect(describeSessionNotice("loading", "transport")).toMatchObject({ kind: "busy", offerRefresh: false });
-    expect(describeSessionNotice("loading", "recovering")).toMatchObject({ kind: "busy", offerRefresh: false });
+    expect(describeSessionNotice("loading", "transport", t)).toMatchObject({ kind: "busy", offerRefresh: false });
+    expect(describeSessionNotice("loading", "recovering", t)).toMatchObject({ kind: "busy", offerRefresh: false });
   });
   it("unresolved after a failed recovery read offers the read-only check; idle + verified clears it", () => {
-    expect(describeSessionNotice("loading", "recovery-unresolved")).toMatchObject({ kind: "unresolved", offerRefresh: true });
-    expect(describeSessionNotice("authenticated", "idle")).toBeNull();
-    expect(describeSessionNotice("anonymous", "idle")).toBeNull();
+    expect(describeSessionNotice("loading", "recovery-unresolved", t)).toMatchObject({ kind: "unresolved", offerRefresh: true });
+    expect(describeSessionNotice("authenticated", "idle", t)).toBeNull();
+    expect(describeSessionNotice("anonymous", "idle", t)).toBeNull();
   });
   it("the initial read is 'checking'; a failed ordinary read is 'unknown' and offers a re-check without locking", () => {
-    expect(describeSessionNotice("loading", "idle")).toMatchObject({ kind: "checking", offerRefresh: false });
-    const unknown = describeSessionNotice("unknown", "idle");
+    expect(describeSessionNotice("loading", "idle", t)).toMatchObject({ kind: "checking", offerRefresh: false });
+    const unknown = describeSessionNotice("unknown", "idle", t);
     expect(unknown).toMatchObject({ kind: "unresolved", offerRefresh: true });
     expect(unknown?.message).not.toContain("khoá");
   });
@@ -257,30 +259,30 @@ describe("describeSessionNotice — the provider is the authority", () => {
 
 describe("describeAuthEntry — one entry for every header and the app bar", () => {
   it("a verified signed-in Customer leads to /account; anonymous, loading and unknown lead to /login", () => {
-    expect(describeAuthEntry("anonymous", "idle", null)).toMatchObject({ label: "Đăng nhập", href: "/login", indicator: "none" });
-    expect(describeAuthEntry("authenticated", "idle", "a@b.test")).toMatchObject({
+    expect(describeAuthEntry("anonymous", "idle", null, t)).toMatchObject({ label: "Đăng nhập", href: "/login", indicator: "none" });
+    expect(describeAuthEntry("authenticated", "idle", "a@b.test", t)).toMatchObject({
       label: "Tài khoản",
       ariaLabel: "Tài khoản a@b.test",
       href: "/account",
     });
     for (const status of ["loading", "unknown"] as const) {
-      expect(describeAuthEntry(status, "idle", null).href).toBe("/login");
-      expect(describeAuthEntry(status, "idle", null).label).toBe("Tài khoản");
+      expect(describeAuthEntry(status, "idle", null, t).href).toBe("/login");
+      expect(describeAuthEntry(status, "idle", null, t).label).toBe("Tài khoản");
     }
   });
   it("never offers /account without a verified email, even for an authenticated status", () => {
-    expect(describeAuthEntry("authenticated", "idle", null).href).toBe("/login");
+    expect(describeAuthEntry("authenticated", "idle", null, t).href).toBe("/login");
     for (const phase of ["transport", "recovering", "recovery-unresolved"] as const) {
-      expect(describeAuthEntry("loading", phase, null).href).toBe("/login");
-      expect(describeAuthEntry("authenticated", phase, "a@b.test").href).toBe("/login"); // a stale snapshot while pending
+      expect(describeAuthEntry("loading", phase, null, t).href).toBe("/login");
+      expect(describeAuthEntry("authenticated", phase, "a@b.test", t).href).toBe("/login"); // a stale snapshot while pending
     }
   });
   it("never carries an email unless authenticated, and flags busy / attention states", () => {
-    expect(describeAuthEntry("loading", "transport", "stale@b.test").ariaLabel).not.toContain("stale@b.test");
-    expect(describeAuthEntry("loading", "transport", null).indicator).toBe("busy");
-    expect(describeAuthEntry("loading", "recovering", null).indicator).toBe("busy");
-    expect(describeAuthEntry("loading", "recovery-unresolved", null).indicator).toBe("attention");
-    expect(describeAuthEntry("unknown", "idle", null).indicator).toBe("attention");
+    expect(describeAuthEntry("loading", "transport", "stale@b.test", t).ariaLabel).not.toContain("stale@b.test");
+    expect(describeAuthEntry("loading", "transport", null, t).indicator).toBe("busy");
+    expect(describeAuthEntry("loading", "recovering", null, t).indicator).toBe("busy");
+    expect(describeAuthEntry("loading", "recovery-unresolved", null, t).indicator).toBe("attention");
+    expect(describeAuthEntry("unknown", "idle", null, t).indicator).toBe("attention");
   });
 });
 
@@ -380,7 +382,7 @@ describe("the owner with the real identity coordinator", () => {
     expect(seen).toHaveLength(1);
     expect(seen[0]).toMatchObject({ status: "settled", transport: "lost", session: "authenticated" });
     expect(loginSucceeded(seen[0])).toBe(false);
-    const shown = presentIdentityCommandResult("login", seen[0], CTX);
+    const shown = presentIdentityCommandResult("login", seen[0], CTX, t);
     expect(shown?.tone).toBe("warning");
     expect(shown?.message).not.toContain("không đúng");
     expect(login).toHaveBeenCalledTimes(1);
@@ -411,13 +413,13 @@ describe("the owner with the real identity coordinator", () => {
     reads[0].resolve("unknown");
     await settle();
     expect(seen[0]).toMatchObject({ status: "recovery-unresolved", transport: "succeeded" });
-    expect(describeSessionNotice("loading", coordinator.getState().phase)).toMatchObject({ kind: "unresolved", offerRefresh: true });
+    expect(describeSessionNotice("loading", coordinator.getState().phase, t)).toMatchObject({ kind: "unresolved", offerRefresh: true });
     coordinator.requestRefresh(); // the read-only check
     reads[1].resolve("anonymous");
     await settle();
     expect(coordinator.getState().phase).toBe("idle");
     expect(isStalePresentation(seen[0], coordinator.getState().phase, "idle")).toBe(true);
-    expect(describeSessionNotice("anonymous", coordinator.getState().phase)).toBeNull();
+    expect(describeSessionNotice("anonymous", coordinator.getState().phase, t)).toBeNull();
     expect(transports).toHaveLength(1); // the login was never resent
   });
 });
@@ -514,7 +516,7 @@ describe("receiptCloseTarget + finishBooking", () => {
     expect(rig.booking.finishBooking(RESERVATION.reservationId)).toBe(false);
     rig.commit();
     expect(rig.getState().phase).toBe("reservation-result");
-    expect(receiptCloseFailureMessage("idle")).toContain("đã thay đổi");
-    expect(receiptCloseFailureMessage("recovering")).toContain("Phiên đăng nhập");
+    expect(t(receiptCloseFailureMessage("idle"))).toContain("đã thay đổi");
+    expect(t(receiptCloseFailureMessage("recovering"))).toContain("Phiên đăng nhập");
   });
 });

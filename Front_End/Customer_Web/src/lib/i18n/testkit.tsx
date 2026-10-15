@@ -63,6 +63,16 @@ export function testSnapshot(locale = "vi", currency?: string): I18nSnapshot {
   };
 }
 
+/** `t` for the pure helpers that take a translator (`bookingStatusCopy(phase, t)`): the real pack of the locale, throwing on a missing key. */
+export function testT(locale = "vi") {
+  const snapshot = testSnapshot(locale);
+  return (key: string, params?: MessageParams) => {
+    const text = snapshot.messages[key];
+    if (text === undefined) throw new Error(`missing text for ${key} (${locale})`);
+    return formatMessage(text, snapshot.formatLocale, params);
+  };
+}
+
 export function withI18n(element: React.ReactElement, locale = "vi", currency?: string): React.ReactElement {
   return React.createElement(I18nProvider, { snapshot: testSnapshot(locale, currency), children: element });
 }

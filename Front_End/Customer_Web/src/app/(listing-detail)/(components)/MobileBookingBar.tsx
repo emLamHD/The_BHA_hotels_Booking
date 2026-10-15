@@ -3,6 +3,7 @@
 import React, { FC } from "react";
 import ButtonPrimary from "@/shared/ButtonPrimary";
 import { useBookingHoldFlow } from "@/app/BookingHoldProvider";
+import { useI18n } from "@/lib/i18n/I18nProvider";
 import { bookingStatusCopy, inProgressBookingTarget } from "@/lib/roomDetailsRoute";
 
 export const BOOKING_PANEL_ID = "room-booking";
@@ -16,8 +17,9 @@ export const BOOKING_PANEL_ID = "room-booking";
  */
 const MobileBookingBar: FC = () => {
   const { state } = useBookingHoldFlow();
+  const { t } = useI18n();
   const inProgress = inProgressBookingTarget(state);
-  const copy = inProgress ? bookingStatusCopy(inProgress.phase) : null;
+  const copy = inProgress ? bookingStatusCopy(inProgress.phase, t) : null;
 
   const goToBooking = () => {
     const panel = document.getElementById(BOOKING_PANEL_ID);
@@ -30,14 +32,14 @@ const MobileBookingBar: FC = () => {
     <div className="block lg:hidden fixed bottom-0 inset-x-0 py-2 sm:py-3 bg-white dark:bg-neutral-800 border-t border-neutral-200 dark:border-neutral-6000 z-40">
       <div className="container flex items-center justify-between">
         <span className="text-sm font-medium text-neutral-700 dark:text-neutral-200">
-          {copy ? copy.barText : "Giá theo ngày bạn chọn"}
+          {copy ? copy.barText : t("customer.room.mobilePriceHint")}
         </span>
         <ButtonPrimary
           type="button"
           sizeClass="px-5 sm:px-7 py-3 !rounded-2xl"
           onClick={goToBooking}
         >
-          {copy ? copy.barAction : "Đặt phòng"}
+          {copy ? copy.barAction : t("customer.room.book")}
         </ButtonPrimary>
       </div>
     </div>

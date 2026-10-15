@@ -22,5 +22,131 @@
   "Email address": "Adresse e-mail",
   "Hold room": "Réserver temporairement",
   "Book": "Réserver"
+ },
+ "terms": {
+  "vi": {
+   "chỗ nghỉ": {
+    "en": "property",
+    "fr": "établissement"
+   },
+   "loại phòng": {
+    "en": "room type",
+    "fr": "type de chambre"
+   },
+   "đặt phòng": {
+    "en": "booking",
+    "fr": "réservation"
+   },
+   "nhận phòng": {
+    "en": "check-in",
+    "fr": "arrivée"
+   },
+   "trả phòng": {
+    "en": "check-out",
+    "fr": "départ"
+   },
+   "giữ phòng": {
+    "en": "room hold",
+    "fr": "blocage de chambre"
+   },
+   "giữ chỗ": {
+    "en": "hold",
+    "fr": "blocage"
+   },
+   "tiện ích": {
+    "en": "amenities",
+    "fr": "équipements"
+   },
+   "tài khoản": {
+    "en": "account",
+    "fr": "compte"
+   },
+   "đăng nhập": {
+    "en": "sign in",
+    "fr": "connexion"
+   },
+   "đăng xuất": {
+    "en": "sign out",
+    "fr": "déconnexion"
+   },
+   "mật khẩu": {
+    "en": "password",
+    "fr": "mot de passe"
+   },
+   "ưu đãi": {
+    "en": "offer",
+    "fr": "offre"
+   },
+   "biên nhận": {
+    "en": "receipt",
+    "fr": "reçu"
+   },
+   "khách": {
+    "en": "guests",
+    "fr": "voyageurs"
+   },
+   "phòng": {
+    "en": "room",
+    "fr": "chambre"
+   }
+  },
+  "en": {
+   "hold": {
+    "vi": "giữ phòng",
+    "fr": "blocage"
+   },
+   "property": {
+    "vi": "chỗ nghỉ",
+    "fr": "établissement"
+   },
+   "room type": {
+    "vi": "loại phòng",
+    "fr": "type de chambre"
+   },
+   "check-in": {
+    "vi": "nhận phòng",
+    "fr": "arrivée"
+   },
+   "check-out": {
+    "vi": "trả phòng",
+    "fr": "départ"
+   },
+   "guests": {
+    "vi": "khách",
+    "fr": "voyageurs"
+   },
+   "guest": {
+    "vi": "khách",
+    "fr": "voyageur"
+   },
+   "amenities": {
+    "vi": "tiện ích",
+    "fr": "équipements"
+   },
+   "account": {
+    "vi": "tài khoản",
+    "fr": "compte"
+   },
+   "sign in": {
+    "vi": "đăng nhập",
+    "fr": "connexion"
+   },
+   "sign out": {
+    "vi": "đăng xuất",
+    "fr": "déconnexion"
+   },
+   "password": {
+    "vi": "mật khẩu",
+    "fr": "mot de passe"
+   },
+   "offer": {
+    "vi": "ưu đãi",
+    "fr": "offre"
+   },
+   "receipt": {
+    "vi": "biên nhận",
+    "fr": "reçu"
+   }
+  }
  }
 }

@@ -792,13 +792,15 @@ describe("createBookingHoldFlowController — confirmation lifecycle (P2)", () =
         title: "Booking Hold cannot be confirmed",
         status: 409,
         detail: "The Hold has expired and cannot be confirmed.",
+        code: "hold.expired",
       })
     );
 
     controller.confirmHold();
 
     await vi.waitFor(() => expect(harness.getState().phase).toBe("confirm-known-error"));
-    expect(harness.getState().errorMessage).toBe("The Hold has expired and cannot be confirmed.");
+    // The visitor reads the pack message for the API's stable code, never the English detail.
+    expect(harness.getState().errorMessage).toBe("shared.apiError.hold.expired");
   });
 
   it("retryConfirmationExact reuses the identical Hold ID and token", async () => {

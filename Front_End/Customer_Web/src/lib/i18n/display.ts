@@ -119,6 +119,19 @@ export function formatMoney(amount: string, currency: string, minorUnits: number
   }).format(Number(amount));
 }
 
+/** An amount in a currency the site holds no rate for: shown exactly as the API gave it (no conversion, no invented currency). */
+export function formatAsGiven(amount: number, currencyCode: string | null, formatLocale: string): string {
+  if (currencyCode) {
+    try {
+      return new Intl.NumberFormat(formatLocale, { style: "currency", currency: currencyCode }).format(amount);
+    } catch {
+      /* an unknown code is shown next to the plain number below */
+    }
+  }
+  const plain = new Intl.NumberFormat(formatLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount);
+  return currencyCode ? `${plain} ${currencyCode}` : plain;
+}
+
 /** The formatter bound to the visitor's locale and the chosen currency. */
 export function useMoneyFormat() {
   const { currency, currencies, formatLocale } = useI18n();

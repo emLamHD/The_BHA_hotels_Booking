@@ -6,12 +6,13 @@ import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { useCustomerSession } from "@/app/CustomerSessionProvider";
 import { AuthPresentationView, CustomerSessionNotice, useAuthCommand } from "@/components/CustomerAuthNotice";
-import { ACCOUNT_PAGE, HOME_PAGE, LoginFieldErrors, EMAIL_MAX_LENGTH, loginSucceeded, validateLoginInput } from "@/lib/customerAuthUi";
+import { ACCOUNT_PAGE, HOME_PAGE, LoginFieldErrors, EMAIL_MAX_LENGTH, PASSWORD_MAX_LENGTH, loginSucceeded, validateLoginInput } from "@/lib/customerAuthUi";
 import { AuthReturnTarget, resolveAuthReturnTarget } from "@/lib/authReturnTarget";
 import ButtonPrimary from "@/shared/ButtonPrimary";
 import ButtonSecondary from "@/shared/ButtonSecondary";
 import Input from "@/shared/Input";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 const HEADING_CLASS =
   "my-20 flex items-center text-3xl leading-[115%] md:text-5xl md:leading-[115%] font-semibold text-neutral-900 dark:text-neutral-100 justify-center";
 const ERROR_CLASS = "mt-1 text-sm text-red-600 dark:text-red-400";
@@ -26,6 +27,7 @@ const ERROR_CLASS = "mt-1 text-sm text-red-600 dark:text-red-400";
  * holding the owner is shown only for some `me` states: the provider reports `loading` during an attempt.
  */
 const LoginForm: FC = () => {
+  const t = useT();
   const router = useRouter();
   const { state, identityChange, guardedLogin, guardedLogout } = useCustomerSession();
   const login = useAuthCommand("login");
@@ -89,9 +91,7 @@ const LoginForm: FC = () => {
   const renderForm = () => (
     <form className="grid grid-cols-1 gap-6" method="post" noValidate onSubmit={onSubmit} aria-busy={busy}>
       <div className="block">
-        <label htmlFor="login-email" className="block text-neutral-800 dark:text-neutral-200">
-          Địa chỉ email
-        </label>
+        <label htmlFor="login-email" className="block text-neutral-800 dark:text-neutral-200">{t("customer.common.emailAddress")}</label>
         <Input
           id="login-email"
           name="email"
@@ -106,19 +106,17 @@ const LoginForm: FC = () => {
           readOnly={busy}
           aria-invalid={emailError ? true : undefined}
           aria-describedby={emailError ? "login-email-error" : undefined}
-          placeholder="ten@example.com"
+          placeholder={t("customer.common.tenExampleCom")}
           className="mt-1"
         />
         {emailError && (
           <p id="login-email-error" role="alert" className={ERROR_CLASS}>
-            {emailError}
+            {t(emailError, { max: EMAIL_MAX_LENGTH })}
           </p>
         )}
       </div>
       <div className="block">
-        <label htmlFor="login-password" className="block text-neutral-800 dark:text-neutral-200">
-          Mật khẩu
-        </label>
+        <label htmlFor="login-password" className="block text-neutral-800 dark:text-neutral-200">{t("customer.common.password")}</label>
         <Input
           id="login-password"
           name="password"
@@ -133,30 +131,24 @@ const LoginForm: FC = () => {
         />
         {passwordError && (
           <p id="login-password-error" role="alert" className={ERROR_CLASS}>
-            {passwordError}
+            {t(passwordError, { max: PASSWORD_MAX_LENGTH })}
           </p>
         )}
       </div>
-      <ButtonPrimary type="submit" loading={working} disabled={busy}>
-        Đăng nhập
-      </ButtonPrimary>
+      <ButtonPrimary type="submit" loading={working} disabled={busy}>{t("customer.common.signIn")}</ButtonPrimary>
     </form>
   );
 
   const renderPanel = (email: string) => (
-    <section aria-label="Phiên đăng nhập" className="space-y-4 rounded-2xl border border-neutral-200 p-6 dark:border-neutral-700">
-      <p className="text-sm text-neutral-500 dark:text-neutral-400">Bạn đang đăng nhập bằng</p>
+    <section aria-label={t("customer.common.session")} className="space-y-4 rounded-2xl border border-neutral-200 p-6 dark:border-neutral-700">
+      <p className="text-sm text-neutral-500 dark:text-neutral-400">{t("customer.common.youAreSignedInAs")}</p>
       <p className="break-all text-lg font-semibold text-neutral-900 dark:text-neutral-100">{email}</p>
       <div className="flex flex-wrap gap-3">
-        <ButtonPrimary type="button" loading={logout.working} disabled={busy} onClick={onLogout}>
-          Đăng xuất
-        </ButtonPrimary>
-        <ButtonSecondary href={ACCOUNT_PAGE as Route}>Xem tài khoản</ButtonSecondary>
-        <ButtonSecondary href={HOME_PAGE}>Về trang chủ</ButtonSecondary>
+        <ButtonPrimary type="button" loading={logout.working} disabled={busy} onClick={onLogout}>{t("customer.login.loginForm.signOut")}</ButtonPrimary>
+        <ButtonSecondary href={ACCOUNT_PAGE as Route}>{t("customer.login.loginForm.viewAccount")}</ButtonSecondary>
+        <ButtonSecondary href={HOME_PAGE}>{t("customer.common.backToHome2")}</ButtonSecondary>
       </div>
-      <p className="text-xs text-neutral-500 dark:text-neutral-400">
-        Hiện chỉ xem được email tài khoản; chỉnh sửa hồ sơ và lịch sử đặt phòng chưa được hỗ trợ.
-      </p>
+      <p className="text-xs text-neutral-500 dark:text-neutral-400">{t("customer.login.loginForm.forNowYouCanOnly")}</p>
     </section>
   );
 
@@ -172,20 +164,15 @@ const LoginForm: FC = () => {
             {redirecting === ACCOUNT_PAGE ? "Đang chuyển tới trang tài khoản…" : "Đang chuyển về trang chủ…"}
           </p>
         ) : checking ? null : logout.pending ? (
-          <p role="status" className="text-sm text-neutral-600 dark:text-neutral-300">
-            Đang đăng xuất…
-          </p>
+          <p role="status" className="text-sm text-neutral-600 dark:text-neutral-300">{t("customer.login.loginForm.signingOut")}</p>
         ) : authenticated && state.customer ? (
           renderPanel(state.customer.email)
         ) : (
           renderForm()
         )}
         {!checking && !authenticated && (
-          <p className="block text-center text-sm text-neutral-600 dark:text-neutral-400">
-            Bạn có thể đặt phòng mà không cần tài khoản. Chưa có tài khoản?{" "}
-            <Link href={"/signup" as Route} className="font-semibold underline">
-              Tạo tài khoản
-            </Link>
+          <p className="block text-center text-sm text-neutral-600 dark:text-neutral-400">{t("customer.login.loginForm.youCanBookWithoutAn")}{" "}
+            <Link href={"/signup" as Route} className="font-semibold underline">{t("customer.common.createAnAccount")}</Link>
           </p>
         )}
       </div>

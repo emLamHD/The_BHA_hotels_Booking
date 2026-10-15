@@ -1,5 +1,4 @@
 import React from "react";
-import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import {
   BookingHoldFlowState,
@@ -9,7 +8,17 @@ import {
 import { BookingHoldConfirmationAttemptSnapshot, SelectedOfferSnapshot } from "@/lib/api/bookingHoldAttempt";
 import { BookingHoldDto, ReservationDto } from "@/lib/api/bookingHoldTypes";
 import { ConfirmBookingHoldResult } from "@/lib/api/bookingHoldService";
-import { formatCurrencyAmount } from "@/lib/api/availabilityPresentation";
+import { formatMoney } from "@/lib/i18n/display";
+import { formatStayDate } from "@/lib/i18n/dates";
+import { renderWithI18n } from "@/lib/i18n/testkit";
+
+/** The amount as the visitor reads it when VND (the stored currency) is the chosen one: no conversion, no request. */
+const formatCurrencyAmount = (amount: number, code: string | null) => formatMoney(String(amount), code ?? "VND", 0, "en-US");
+
+/** These tests read the English pack, the language the assertions were written in. */
+const render = (element: React.ReactElement) => renderWithI18n(element, "en", "VND");
+
+const d = (iso: string) => formatStayDate(iso, "en-US");
 
 const mockedFlow = vi.hoisted(() => ({ state: null as unknown }));
 
@@ -174,7 +183,7 @@ function reservationResultState(
 
 function renderPanel(state: BookingHoldFlowState): string {
   mockedFlow.state = state;
-  return renderToStaticMarkup(React.createElement(BookingHoldPanel));
+  return render(React.createElement(BookingHoldPanel));
 }
 
 describe("BookingHoldPanel production render decision", () => {
@@ -216,10 +225,10 @@ describe("BookingHoldPanel production render decision", () => {
     for (const expected of [
       hold.holdId,
       hold.status,
-      hold.checkIn,
-      hold.checkOut,
-      hold.nights![0].stayDate,
-      hold.nights![1].stayDate,
+      d(hold.checkIn),
+      d(hold.checkOut),
+      d(hold.nights![0].stayDate),
+      d(hold.nights![1].stayDate),
       formatCurrencyAmount(hold.nights![0].nightTotal, hold.currencyCode),
       formatCurrencyAmount(hold.nights![1].nightTotal, hold.currencyCode),
       formatCurrencyAmount(hold.totalAmount, hold.currencyCode),
@@ -249,7 +258,7 @@ describe("BookingHoldPanel production render decision", () => {
     expect(sensitiveValues.some((value) => markup.includes(value))).toBe(false);
     expect(markup.includes("Full name")).toBe(false);
     expect(markup.includes("Confirm Hold")).toBe(false);
-    expect(markup.includes("Retry exact request")).toBe(false);
+    expect(markup.includes("Retry the same request")).toBe(false);
   });
 
   it("keeps idle with no session hidden", () => {
@@ -257,7 +266,7 @@ describe("BookingHoldPanel production render decision", () => {
   });
 
   it.each([
-    ["selected", selectedState(), "Create 15-minute Hold"],
+    ["selected", selectedState(), "Create a 15-minute hold"],
     [
       "submitting",
       bookingHoldFlowReducer(selectedState(), {
@@ -265,7 +274,7 @@ describe("BookingHoldPanel production render decision", () => {
         attempt: ATTEMPT,
         operationId: 1,
       }),
-      "Creating your 15-minute Hold",
+      "Creating your 15-minute hold",
     ],
     [
       "known-error",
@@ -275,9 +284,9 @@ describe("BookingHoldPanel production render decision", () => {
           attempt: ATTEMPT,
           operationId: 1,
         }),
-        { type: "attempt-known-error", operationId: 1, message: "Known failure" }
+        { type: "attempt-known-error", operationId: 1, message: "shared.apiError.hold.expired" }
       ),
-      "Known failure",
+      "This hold has expired",
     ],
     [
       "uncertain",
@@ -289,7 +298,7 @@ describe("BookingHoldPanel production render decision", () => {
         }),
         { type: "attempt-uncertain", operationId: 1 }
       ),
-      "Retry exact request",
+      "Retry the same request",
     ],
   ])("retains the existing %s presentation", (_phase, state, expectedText) => {
     expect(renderPanel(state).includes(expectedText)).toBe(true);
@@ -318,15 +327,14 @@ describe("BookingHoldPanel confirmation lifecycle (P3)", () => {
   it("confirming does not render a retry action or the Create Hold form", () => {
     const markup = renderPanel(confirmingState());
     expect(markup.includes("Retry confirmation")).toBe(false);
-    expect(markup.includes("Retry exact confirmation")).toBe(false);
+    expect(markup.includes("Retry the same confirmation")).toBe(false);
     expect(markup.includes("Full name")).toBe(false);
-    expect(markup.includes("Create 15-minute Hold")).toBe(false);
+    expect(markup.includes("Create a 15-minute hold")).toBe(false);
   });
 
   it("confirm-known-error renders the customer-safe error as an alert", () => {
-    const message = "The Hold has expired and cannot be confirmed.";
-    const markup = renderPanel(confirmKnownErrorState(message));
-    expect(markup.includes(message)).toBe(true);
+    const markup = renderPanel(confirmKnownErrorState("shared.apiError.hold.expired"));
+    expect(markup.includes("This hold has expired")).toBe(true);
     expect(markup.includes('role="alert"')).toBe(true);
   });
 
@@ -338,14 +346,14 @@ describe("BookingHoldPanel confirmation lifecycle (P3)", () => {
   it("confirm-uncertain uses honest ambiguous-result wording, not a failure claim", () => {
     const markup = renderPanel(confirmUncertainState());
     expect(markup.includes("confirm whether your reservation was completed")).toBe(true);
-    expect(markup.includes("resends the exact same confirmation")).toBe(true);
+    expect(markup.includes("sends the same confirmation again")).toBe(true);
     expect(markup.includes("second reservation")).toBe(true);
     expect(markup.includes("confirmation failed")).toBe(false);
   });
 
-  it("confirm-uncertain renders the Retry exact confirmation action", () => {
+  it("confirm-uncertain renders the Retry the same confirmation action", () => {
     const markup = renderPanel(confirmUncertainState());
-    expect(markup.includes("Retry exact confirmation")).toBe(true);
+    expect(markup.includes("Retry the same confirmation")).toBe(true);
   });
 
   it("reservation-result renders the confirmation number and Reservation status", () => {
@@ -362,8 +370,8 @@ describe("BookingHoldPanel confirmation lifecycle (P3)", () => {
     const markup = renderPanel(state);
     const reservation = state.reservationResult!.reservation;
     for (const expected of [
-      reservation.checkIn,
-      reservation.checkOut,
+      d(reservation.checkIn),
+      d(reservation.checkOut),
       `${reservation.rooms} room`,
       `${reservation.adults} adult`,
       `${reservation.children} child`,
@@ -377,7 +385,7 @@ describe("BookingHoldPanel confirmation lifecycle (P3)", () => {
     const markup = renderPanel(state);
     const { nights, currencyCode } = state.reservationResult!.reservation;
     for (const night of nights!) {
-      expect(markup.includes(night.stayDate)).toBe(true);
+      expect(markup.includes(d(night.stayDate))).toBe(true);
       expect(markup.includes(formatCurrencyAmount(night.unitAmount, currencyCode))).toBe(true);
       expect(markup.includes(formatCurrencyAmount(night.nightTotal, currencyCode))).toBe(true);
     }
@@ -415,14 +423,14 @@ describe("BookingHoldPanel confirmation lifecycle (P3)", () => {
     const state = reservationResultState("confirmed", { nights: null });
     expect(() => renderPanel(state)).not.toThrow();
     const markup = renderPanel(state);
-    expect(markup.includes("Nightly pricing details are not available")).toBe(true);
+    expect(markup.includes("Nightly prices")).toBe(true);
   });
 
   it("handles empty nights honestly without crashing or inventing nightly values", () => {
     const state = reservationResultState("confirmed", { nights: [] });
     expect(() => renderPanel(state)).not.toThrow();
     const markup = renderPanel(state);
-    expect(markup.includes("Nightly pricing details are not available")).toBe(true);
+    expect(markup.includes("Nightly prices")).toBe(true);
   });
 
   it("never renders the guest token across confirming/confirm-known-error/confirm-uncertain", () => {

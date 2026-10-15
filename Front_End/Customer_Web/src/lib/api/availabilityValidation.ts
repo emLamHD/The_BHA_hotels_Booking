@@ -89,36 +89,36 @@ export function validateAvailabilityDraft(
   const errors: AvailabilityFieldErrors = {};
 
   if (!draft.checkIn) {
-    errors.checkIn = "Check-in date is required.";
+    errors.checkIn = "customer.validation.checkInRequired";
   }
   if (!draft.checkOut) {
-    errors.checkOut = "Check-out date is required.";
+    errors.checkOut = "customer.validation.checkOutRequired";
   }
 
   if (!errors.checkIn && !errors.checkOut) {
     const nights = calculateNights(draft.checkIn, draft.checkOut);
     if (nights === null) {
-      errors.checkOut = "Enter valid check-in and check-out dates.";
+      errors.checkOut = "customer.validation.datesInvalid";
     } else if (nights <= 0) {
-      errors.checkOut = "Check-out must be after check-in.";
+      errors.checkOut = "shared.apiError.validation.dates-order";
     } else if (nights > MAX_STAY_NIGHTS) {
-      errors.checkOut = `Stay cannot exceed ${MAX_STAY_NIGHTS} nights.`;
+      errors.checkOut = "shared.apiError.validation.stay-too-long";
     }
   }
 
   const adults = parseStructuralInteger(draft.adults);
   if (adults === null || adults < 1) {
-    errors.adults = "Adults must be at least 1.";
+    errors.adults = "shared.apiError.validation.adults-required";
   }
 
   const children = parseStructuralInteger(draft.children);
   if (children === null || children < 0) {
-    errors.children = "Children cannot be negative.";
+    errors.children = "shared.apiError.validation.children-negative";
   }
 
   const rooms = parseStructuralInteger(draft.rooms);
   if (rooms === null || rooms < 1 || rooms > MAX_REQUESTED_ROOMS) {
-    errors.rooms = `Rooms must be between 1 and ${MAX_REQUESTED_ROOMS}.`;
+    errors.rooms = "shared.apiError.validation.rooms-required";
   }
 
   if (Object.keys(errors).length > 0) {

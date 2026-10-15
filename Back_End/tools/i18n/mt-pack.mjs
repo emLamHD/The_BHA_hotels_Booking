@@ -122,6 +122,7 @@ for (const key of Object.keys(existing.vi)) {
   if (LANGS.every((l) => row[l])) for (const l of LANGS) memory.set(`${l}\u0000${row[l]}`, row);
 }
 
+async function draft(seed, targets) {
 const adds = {}, failed = [], review = [], reused = [];
 const jobs = []; // {key, target, src, nodes plan}
 for (const [key, { lang, text }] of Object.entries(seed)) {
@@ -132,13 +133,15 @@ for (const [key, { lang, text }] of Object.entries(seed)) {
   adds[key] = row;
   let nodes;
   try { nodes = parse(text); } catch (e) { failed.push({ key, reason: `source not valid: ${e.message}` }); continue; }
-  const shape = nodes.some((n) => n.k === "p") ? (nodes.length === 1 ? "plural" : null) : "flat";
-  if (!shape) { failed.push({ key, reason: "plural mixed with surrounding text: write by hand" }); continue; }
-  for (const target of LANGS.filter((l) => l !== lang)) {
+  const plurals = nodes.filter((n) => n.k === "p");
+  const nested = plurals.some((p) => p.branches.some((b) => b.body.some((n) => n.k === "p")));
+  const shape = plurals.length === 0 ? "flat" : plurals.length === 1 && !nested ? "plural" : null;
+  if (!shape) { failed.push({ key, reason: "more than one plural in a message: write by hand" }); continue; }
+  for (const target of targets.filter((l) => l !== lang)) {
     const hit = glossary[`${lang}>${target}`]?.[text];
     if (hit) { row[target] = hit; continue; }
     if (shape === "flat") jobs.push({ key, lang, target, shape, nodes, sample: sampleFor(nodes) });
-    else jobs.push({ key, lang, target, shape, node: nodes[0] });
+    else jobs.push({ key, lang, target, shape, nodes, node: plurals[0] });
   }
 }
 
@@ -152,11 +155,25 @@ for (const job of jobs) {
   const sourceBy = (c) => p.branches.find((b) => b.sel === c) ?? p.branches.find((b) => b.sel === "other");
   if (!sourceBy("other")) { failed.push({ key: job.key, reason: "plural without other" }); continue; }
   job.plural = { name: p.n, parts: [] };
-  for (const b of exact) addUnit(job, b.sel, b.body, sampleFor(b.body));
-  for (const c of cats) { const b = sourceBy(c); const n = c === "one" ? 1 : 14; addUnit(job, c, b.body, sampleFor(b.body, n), n); }
+  // The whole sentence is translated once per plural form (text around the plural included), so the result is
+  // `{n, plural, one {<whole sentence>} other {<whole sentence>}}` — what the formatter takes and the translator reads.
+  const whole = (b) => job.nodes.flatMap((n) => (n === p ? b.body : [n]));
+  for (const b of exact) addUnit(job, b.sel, whole(b), sampleFor(whole(b)));
+  for (const c of cats) { const b = sourceBy(c); const n = c === "one" ? 1 : 14; addUnit(job, c, whole(b), sampleFor(whole(b), n), n); }
+}
+// Domain terms the engine renders badly ("chỗ nghỉ" -> "rest"): the source term is replaced by the target term itself before
+// translating (a word of the target language inside the sentence stays as it is). One reviewed list, glossary.json "terms".
+function withTerms(text, lang, target) {
+  const terms = Object.entries(glossary.terms?.[lang] ?? {}).sort((a, b) => b[0].length - a[0].length);
+  let out = text;
+  for (const [term, to] of terms) {
+    if (!to[target]) continue;
+    out = out.replace(new RegExp(`(?<![\\p{L}\\p{N}])${term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\p{L}\\p{N}])`, "giu"), to[target]);
+  }
+  return out;
 }
 function addUnit(job, sel, nodes, samples, n) {
-  const raw = toSampleText(nodes, samples);
+  const raw = job.target === "en" ? withTerms(toSampleText(nodes, samples), job.lang, "en") : toSampleText(nodes, samples);
   const [input, dotted] = dot(raw);
   units.push({ job, sel, samples, input, dotted, n });
 }
@@ -173,6 +190,28 @@ for (const [pair, list] of byPair) {
       if (u.dotted && r.endsWith(".")) r = r.slice(0, -1);
       u.output = t === "fr" ? FR_PUNCT(r) : r;
     });
+  }
+}
+
+// A sentence that starts with its number gets the number spelled out ("1 khách" -> "a guest"). A short carrier in front
+// of it keeps the digits; the carrier is cut off again at its colon. Only used for units that lost their variable.
+const CARRIER = { vi: "Tổng cộng: ", en: "Total: ", fr: "Total : " };
+{
+  const lost = units.filter((u) => fromSampleText(u.output, u.samples) === null && !u.input.includes(":"));
+  const retryPairs = new Map();
+  for (const u of lost) { const k = `${u.job.lang}>${u.job.target}`; (retryPairs.get(k) ?? retryPairs.set(k, []).get(k)).push(u); }
+  for (const [pair, list] of retryPairs) {
+    const [s, t] = pair.split(">");
+    for (let i = 0; i < list.length; i += 25) {
+      const chunk = list.slice(i, i + 25);
+      const out = await lt(chunk.map((u) => CARRIER[s] + u.input), s, t);
+      chunk.forEach((u, j) => {
+        let cut = out[j].replace(/^[^:]*:\s*/, "").trim();
+        if (/^\p{Lu}/u.test(u.input) && /^\p{Ll}/u.test(cut)) cut = cut[0].toUpperCase() + cut.slice(1);
+        const text = t === "fr" ? FR_PUNCT(u.dotted && cut.endsWith(".") ? cut.slice(0, -1) : cut) : (u.dotted && cut.endsWith(".") ? cut.slice(0, -1) : cut);
+        if (fromSampleText(text, u.samples) !== null) u.output = text;
+      });
+    }
   }
 }
 
@@ -198,7 +237,7 @@ const strip = (m) => m.replace(/\{[^}]*\}/g, " ").replace(/#/g, " ");
 const checks = [];
 for (const [key, row] of Object.entries(adds)) {
   const lang = seed[key].lang;
-  for (const target of LANGS.filter((l) => l !== lang && row[l])) {
+  for (const target of targets.filter((l) => l !== lang && row[l])) {
     if (reused.includes(key) || glossary[`${lang}>${target}`]?.[seed[key].text]) continue;
     checks.push({ key, lang, target, source: strip(seed[key].text), draft: strip(row[target]) });
   }
@@ -222,6 +261,19 @@ for (const c of checks) {
 }
 
 for (const [key, row] of Object.entries(adds)) for (const l of LANGS) if (!row[l]) { /* incomplete rows are not emitted */ }
+  return { adds, failed, review, reused };
+}
+
+// English first (from vi, with the reviewed domain terms), then French FROM THE ENGLISH TEXT: an explicit source for every pair,
+// and the engine renders French far better from English than from Vietnamese for this vocabulary.
+const A = await draft(seed, ["vi", "en"]);
+const seedB = {};
+for (const [key, row] of Object.entries(A.adds)) if (row.en && !row.fr) seedB[key] = { lang: "en", text: row.en };
+const B = await draft(seedB, ["fr"]);
+for (const [key, row] of Object.entries(B.adds)) if (row.fr) A.adds[key].fr = row.fr;
+const adds = A.adds, reused = A.reused;
+const failed = [...A.failed, ...B.failed.filter((f) => !A.failed.some((x) => x.key === f.key))];
+const review = [...A.review, ...B.review];
 const complete = Object.fromEntries(Object.entries(adds).filter(([, r]) => LANGS.every((l) => r[l])));
 writeFileSync(args.out, JSON.stringify(complete, null, 1) + "\n");
 const report = { total: Object.keys(seed).length, emitted: Object.keys(complete).length, reused: reused.length, translatedUnits: stats.items, ltCalls: stats.calls, ltMs: stats.ms, failed, review };

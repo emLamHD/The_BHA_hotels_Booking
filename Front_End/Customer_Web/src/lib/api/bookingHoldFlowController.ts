@@ -10,20 +10,12 @@ import { BookingHoldFlowAction, BookingHoldFlowState, bookingHoldFlowReducer } f
 import { confirmBookingHold, createBookingHold } from "./bookingHoldService";
 import { generateIdempotencyKey } from "./idempotencyKey";
 import { ApiConfigError, ApiHttpError, ApiNetworkError, ApiValidationError } from "./errors";
+import { apiErrorKey } from "./errorMessages";
 import { isRequestCancelledError } from "./httpClient";
 
+/** The pack key of the message the visitor reads (see `errorMessages.ts`); the panel translates it when it renders. */
 function describeError(error: unknown): string {
-  if (error instanceof ApiValidationError) {
-    const firstFieldMessage = Object.values(error.errors).flat()[0];
-    return firstFieldMessage ?? error.problem.detail ?? error.problem.title;
-  }
-  if (error instanceof ApiHttpError) {
-    return error.problem.detail ?? error.problem.title;
-  }
-  if (error instanceof ApiConfigError) {
-    return "The booking service is not configured correctly.";
-  }
-  return "Something went wrong while creating your Hold.";
+  return apiErrorKey(error, "shared.apiError.holdGeneric");
 }
 
 export interface BookingHoldFlowController {

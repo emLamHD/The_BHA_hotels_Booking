@@ -4,6 +4,7 @@ import React, { FC } from "react";
 import Badge from "@/shared/Badge";
 import { RoomTypeDto } from "@/lib/api/propertyTypes";
 import MediaGallery from "@/components/MediaGallery";
+import { useI18n } from "@/lib/i18n/I18nProvider";
 import {
   formatDesignedForOccupancy,
   formatMaxOccupancy,
@@ -18,7 +19,8 @@ const RoomTypeLiveCard: FC<RoomTypeLiveCardProps> = ({
   className = "",
   data,
 }) => {
-  const name = data.name ?? "Room type";
+  const { t, content } = useI18n();
+  const name = content("roomType", data.id, "name", data.name ?? t("customer.booking.offer.roomTypeFallback"));
 
   return (
     <div
@@ -29,7 +31,7 @@ const RoomTypeLiveCard: FC<RoomTypeLiveCardProps> = ({
         <MediaGallery
           media={data.media}
           name={name}
-          emptyLabel="Ảnh đang được cập nhật"
+          emptyLabel={t("customer.booking.offer.photoPending")}
           aspectClass="aspect-[6/5]"
         />
       </div>
@@ -41,19 +43,19 @@ const RoomTypeLiveCard: FC<RoomTypeLiveCardProps> = ({
 
         {data.description && (
           <p className="text-sm text-neutral-500 dark:text-neutral-400 line-clamp-2">
-            {data.description}
+            {content("roomType", data.id, "description", data.description)}
           </p>
         )}
 
         <div className="text-xs text-neutral-500 dark:text-neutral-400">
-          {formatDesignedForOccupancy(data.baseOccupancy)} ·{" "}
-          {formatMaxOccupancy(data.maxOccupancy)}
+          {formatDesignedForOccupancy(data.baseOccupancy, t)} ·{" "}
+          {formatMaxOccupancy(data.maxOccupancy, t)}
         </div>
 
         {data.amenities && data.amenities.length > 0 && (
           <div className="flex flex-wrap gap-2">
             {data.amenities.map((amenity) => (
-              <Badge key={amenity.id} name={amenity.name ?? amenity.code} />
+              <Badge key={amenity.id} name={content("amenity", amenity.id, "name", amenity.name ?? amenity.code)} />
             ))}
           </div>
         )}

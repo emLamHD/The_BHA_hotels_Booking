@@ -109,9 +109,9 @@ const HomeFeaturedRooms: FC = () => {
           role="status"
           className="mb-6 flex flex-col gap-3 rounded-2xl border border-primary-200 bg-primary-50 px-4 py-3 text-sm text-primary-700 sm:flex-row sm:items-center sm:justify-between dark:border-neutral-700 dark:bg-neutral-800 dark:text-primary-300"
         >
-          <span>{bookingStatusCopy(inProgress.phase).message}</span>
+          <span>{bookingStatusCopy(inProgress.phase, t).message}</span>
           <Link href={buildRoomDetailsHref(inProgress) as Route} className="font-medium underline underline-offset-2">
-            {bookingStatusCopy(inProgress.phase).action}
+            {bookingStatusCopy(inProgress.phase, t).action}
           </Link>
         </div>
       )}

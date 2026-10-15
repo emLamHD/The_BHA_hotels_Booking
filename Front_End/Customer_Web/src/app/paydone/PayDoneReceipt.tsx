@@ -12,7 +12,10 @@ import { useBookingHoldFlow } from "@/app/BookingHoldProvider";
 import { useCustomerSession } from "@/app/CustomerSessionProvider";
 import { HOME_PAGE, receiptCloseFailureMessage, receiptCloseTarget } from "@/lib/customerAuthUi";
 import { useStaySearch } from "@/components/StaySearchProvider";
-import { formatCurrencyAmount } from "@/lib/api/availabilityPresentation";
+import PriceBreakdown from "@/components/PriceBreakdown";
+import { useApiMessage } from "@/lib/i18n/apiMessage";
+import { useDateFormat } from "@/lib/i18n/dates";
+import { useI18n } from "@/lib/i18n/I18nProvider";
 import { calculateNights } from "@/lib/api/availabilityValidation";
 import { selectGalleryImages } from "@/lib/api/mediaPresentation";
 import { BookingHoldNightDto, ReservationNightDto } from "@/lib/api/bookingHoldTypes";
@@ -30,11 +33,6 @@ interface Snapshot {
   currencyCode: string | null;
   totalAmount: number;
   nights: (BookingHoldNightDto | ReservationNightDto)[] | null;
-}
-
-function formatUtcInstant(iso: string): string {
-  const parsed = new Date(iso);
-  return Number.isNaN(parsed.getTime()) ? iso : parsed.toLocaleString("vi-VN");
 }
 
 const CalendarIcon = () => (
@@ -77,6 +75,9 @@ const Row: FC<{ label: string; children: React.ReactNode }> = ({ label, children
  */
 const PayDoneReceipt: FC = () => {
   const { state, confirmHold, retryConfirmationExact, finishBooking } = useBookingHoldFlow();
+  const { t, has, content } = useI18n();
+  const dates = useDateFormat();
+  const message = useApiMessage();
   const { identityChange } = useCustomerSession();
   const router = useRouter();
   const stay = useStaySearch();
@@ -115,17 +116,17 @@ const PayDoneReceipt: FC = () => {
     const resumeHref = target ? (buildRoomDetailsHref(target) as Route) : null;
     const message =
       phase === "submitting"
-        ? "Đang tạo giữ chỗ cho bạn…"
+        ? t("customer.receipt.recovery.submitting")
         : phase === "uncertain"
-          ? "Chưa xác định được giữ chỗ đã được tạo hay chưa. Hãy quay lại trang phòng để gửi lại đúng yêu cầu cũ — hệ thống sẽ không tạo giữ chỗ thứ hai."
-          : "Không có đặt phòng nào đang thực hiện trong phiên này. Nếu bạn vừa tải lại trang hoặc mở thẳng địa chỉ này, thông tin giữ chỗ chỉ nằm trong bộ nhớ của tab nên đã mất — hãy chọn phòng và đặt lại.";
+          ? t("customer.receipt.recovery.uncertain")
+          : t("customer.receipt.recovery.none");
     return (
       <div role="status" aria-live="polite" className="w-full flex flex-col sm:rounded-2xl space-y-8 px-0 sm:p-6 xl:p-8">
-        <h2 className="text-3xl lg:text-4xl font-semibold">Chưa có đặt phòng để hiển thị</h2>
+        <h2 className="text-3xl lg:text-4xl font-semibold">{t("customer.receipt.recovery.title")}</h2>
         <p className="text-neutral-6000 dark:text-neutral-300">{message}</p>
         <div className="flex flex-wrap gap-3">
-          {resumeHref && <ButtonPrimary href={resumeHref}>Quay lại phòng đang đặt</ButtonPrimary>}
-          <ButtonSecondary href="/#rooms">Xem các loại phòng</ButtonSecondary>
+          {resumeHref && <ButtonPrimary href={resumeHref}>{t("customer.receipt.recovery.resume")}</ButtonPrimary>}
+          <ButtonSecondary href="/#rooms">{t("customer.room.viewRooms")}</ButtonSecondary>
         </div>
       </div>
     );
@@ -141,41 +142,39 @@ const PayDoneReceipt: FC = () => {
 
     return (
       <div className="w-full flex flex-col sm:rounded-2xl space-y-10 px-0 sm:p-6 xl:p-8">
-        <h2 className="text-3xl lg:text-4xl font-semibold">{confirmed ? "Đặt phòng đã xác nhận 🎉" : "Đã giữ chỗ"}</h2>
+        <h2 className="text-3xl lg:text-4xl font-semibold">{confirmed ? t("customer.receipt.title.confirmed") : t("customer.receipt.title.held")}</h2>
         <p className="-mt-6 text-neutral-6000 dark:text-neutral-300" role="status" aria-live="polite">
-          {confirmed
-            ? "Hệ thống đặt phòng đã xác nhận đặt phòng của bạn. Chưa có thanh toán trực tuyến."
-            : "Phòng đang được giữ cho bạn. Đây chưa phải đặt phòng đã xác nhận và chưa thanh toán — hãy bấm xác nhận bên dưới trước khi giữ chỗ hết hạn."}
+          {confirmed ? t("customer.receipt.sub.confirmed") : t("customer.receipt.sub.held")}
         </p>
 
         <div className="border-b border-neutral-200 dark:border-neutral-700"></div>
 
         {/* ------------------------ */}
         <div className="space-y-6">
-          <h3 className="text-2xl font-semibold">Đặt phòng của bạn</h3>
+          <h3 className="text-2xl font-semibold">{t("customer.receipt.yourBooking")}</h3>
           <div className="flex flex-col sm:flex-row sm:items-center">
             <div className="flex-shrink-0 w-full sm:w-40">
               <div className="aspect-w-4 aspect-h-3 sm:aspect-h-4 rounded-2xl overflow-hidden bg-neutral-100 dark:bg-neutral-800">
                 {cover?.url ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={cover.url} alt={cover.altText ?? roomType?.name ?? ""} className="h-full w-full object-cover" />
+                  <img src={cover.url} alt={content("media", cover.id, "altText", cover.altText ?? roomType?.name ?? "")} className="h-full w-full object-cover" />
                 ) : (
-                  <div className="flex items-center justify-center p-3 text-center text-xs text-neutral-500">Ảnh đang được cập nhật</div>
+                  <div className="flex items-center justify-center p-3 text-center text-xs text-neutral-500">{t("customer.booking.offer.photoPending")}</div>
                 )}
               </div>
             </div>
             <div className="pt-5 sm:pb-5 sm:px-5 space-y-3">
               <div>
-                <span className="text-sm text-neutral-500 dark:text-neutral-400 line-clamp-1">{property?.name ?? "The BHA"}</span>
-                <span className="text-base sm:text-lg font-medium mt-1 block">{roomType?.name ?? "Loại phòng"}</span>
+                <span className="text-sm text-neutral-500 dark:text-neutral-400 line-clamp-1">{property ? content("property", property.id, "name", property.name ?? "The BHA") : "The BHA"}</span>
+                <span className="text-base sm:text-lg font-medium mt-1 block">{roomType ? content("roomType", roomType.id, "name", roomType.name ?? t("customer.booking.offer.roomTypeFallback")) : t("customer.booking.offer.roomTypeFallback")}</span>
               </div>
               {roomType && (
                 <span className="block text-sm text-neutral-500 dark:text-neutral-400">
-                  {formatMaxOccupancy(roomType.maxOccupancy)} · {formatDesignedForOccupancy(roomType.baseOccupancy)}
+                  {formatMaxOccupancy(roomType.maxOccupancy, t)} · {formatDesignedForOccupancy(roomType.baseOccupancy, t)}
                 </span>
               )}
               <div className="w-10 border-b border-neutral-200 dark:border-neutral-700"></div>
-              <span title="Đánh giá mẫu (không phải đánh giá của khách)">
+              <span title={t("customer.stay.sampleRatingTitle")}>
                 <StartRating sample="full" />
               </span>
             </div>
@@ -184,21 +183,21 @@ const PayDoneReceipt: FC = () => {
             <div className="flex-1 p-5 flex space-x-4">
               <CalendarIcon />
               <div className="flex flex-col">
-                <span className="text-sm text-neutral-400">Ngày ở</span>
+                <span className="text-sm text-neutral-400">{t("customer.receipt.stayDates")}</span>
                 <span className="mt-1.5 text-lg font-semibold">
-                  {data.checkIn} → {data.checkOut}
+                  {dates.stayDate(data.checkIn)} → {dates.stayDate(data.checkOut)}
                 </span>
-                {nights !== null && <span className="text-sm text-neutral-500">{nights} đêm</span>}
+                {nights !== null && <span className="text-sm text-neutral-500">{t("customer.booking.nights", { nights })}</span>}
               </div>
             </div>
             <div className="flex-1 p-5 flex space-x-4">
               <GuestsIcon />
               <div className="flex flex-col">
-                <span className="text-sm text-neutral-400">Khách</span>
+                <span className="text-sm text-neutral-400">{t("customer.receipt.guests")}</span>
                 <span className="mt-1.5 text-lg font-semibold">
-                  {data.adults} người lớn{data.children > 0 ? `, ${data.children} trẻ em` : ""}
+                  {t("customer.booking.adults", { adults: data.adults })}{data.children > 0 ? `, ${t("customer.booking.children", { children: data.children })}` : ""}
                 </span>
-                <span className="text-sm text-neutral-500">{data.rooms} phòng</span>
+                <span className="text-sm text-neutral-500">{t("customer.booking.rooms", { rooms: data.rooms })}</span>
               </div>
             </div>
           </div>
@@ -206,41 +205,42 @@ const PayDoneReceipt: FC = () => {
 
         {/* ------------------------ */}
         <div className="space-y-6">
-          <h3 className="text-2xl font-semibold">Chi tiết</h3>
+          <h3 className="text-2xl font-semibold">{t("customer.receipt.details")}</h3>
           <div className="flex flex-col space-y-4">
             {confirmed ? (
               <>
-                <Row label="Mã đặt phòng">
+                <Row label={t("customer.receipt.bookingCode")}>
                   <span className="font-mono text-sm">{reservation!.confirmationNumber}</span>
                 </Row>
-                <Row label="Trạng thái">{reservation!.status}</Row>
-                <Row label="Xác nhận lúc">{formatUtcInstant(reservation!.confirmedAtUtc)}</Row>
+                <Row label={t("customer.receipt.status")}>{has(`customer.booking.reservation.status.${reservation!.status}`) ? t(`customer.booking.reservation.status.${reservation!.status}`) : reservation!.status}</Row>
+                <Row label={t("customer.receipt.confirmedAt")}>{dates.instant(reservation!.confirmedAtUtc)}</Row>
               </>
             ) : (
               <>
-                <Row label="Mã giữ chỗ">
+                <Row label={t("customer.receipt.holdCode")}>
                   <span className="font-mono text-xs">{hold!.holdId}</span>
                 </Row>
-                <Row label="Trạng thái giữ chỗ">{hold!.status}</Row>
-                <Row label="Hết hạn lúc">{formatUtcInstant(hold!.expiresAtUtc)}</Row>
+                <Row label={t("customer.receipt.holdStatus")}>{has(`customer.booking.hold.status.${hold!.status}`) ? t(`customer.booking.hold.status.${hold!.status}`) : hold!.status}</Row>
+                <Row label={t("customer.receipt.expiresAt")}>{dates.instant(hold!.expiresAtUtc)}</Row>
               </>
             )}
-            {data.nights && data.nights.length > 0 && (
-              <div className="divide-y divide-neutral-100 dark:divide-neutral-800 text-neutral-6000 dark:text-neutral-300">
-                {data.nights.map((night) => (
-                  <div key={night.stayDate} className="flex justify-between gap-4 py-2">
-                    <span>
-                      {night.stayDate} · {night.rooms} phòng · {formatCurrencyAmount(night.unitAmount, data.currencyCode)}
-                    </span>
-                    <span className="font-medium text-neutral-900 dark:text-neutral-100">
-                      {formatCurrencyAmount(night.nightTotal, data.currencyCode)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-            <Row label="Tổng">{formatCurrencyAmount(data.totalAmount, data.currencyCode)}</Row>
-            <Row label="Thanh toán">Chưa có thanh toán trực tuyến</Row>
+            <div className="text-neutral-6000 dark:text-neutral-300">
+              <PriceBreakdown
+                rows={(data.nights ?? []).map((night) => ({
+                  key: night.stayDate,
+                  label: `${dates.stayDate(night.stayDate)} · ${t("customer.booking.rooms", { rooms: night.rooms })}`,
+                  amount: night.nightTotal,
+                  unitAmount: night.unitAmount,
+                }))}
+                totalAmount={data.totalAmount}
+                currencyCode={data.currencyCode}
+                totalLabel={t("customer.receipt.total")}
+                rowClassName="flex justify-between gap-4 py-2 font-medium text-neutral-900 dark:text-neutral-100"
+                totalClassName="flex items-center justify-between gap-4 pt-4"
+                totalValueClassName="text-lg font-semibold text-neutral-900 dark:text-neutral-100"
+              />
+            </div>
+            <Row label={t("customer.receipt.payment")}>{t("customer.receipt.noOnlinePayment")}</Row>
           </div>
         </div>
 
@@ -249,37 +249,34 @@ const PayDoneReceipt: FC = () => {
           <div className="space-y-4">
             {phase === "active-session" && (
               <ButtonPrimary type="button" onClick={confirmHold}>
-                Xác nhận đặt phòng
+                {t("customer.receipt.confirm")}
               </ButtonPrimary>
             )}
             {busy && (
               <>
                 <div role="status" aria-live="polite" className="text-sm text-neutral-500 dark:text-neutral-400">
-                  Đang xác nhận đặt phòng của bạn…
+                  {t("customer.receipt.confirming")}
                 </div>
                 <ButtonPrimary type="button" loading>
-                  Xác nhận đặt phòng
+                  {t("customer.receipt.confirm")}
                 </ButtonPrimary>
               </>
             )}
             {phase === "confirm-known-error" && errorMessage && (
               <>
                 <div role="alert" className="text-sm text-red-600 dark:text-red-400">
-                  {errorMessage}
+                  {message(errorMessage)}
                 </div>
                 <ButtonSecondary type="button" onClick={retryConfirmationExact}>
-                  Thử xác nhận lại
+                  {t("customer.receipt.retryConfirm")}
                 </ButtonSecondary>
               </>
             )}
             {phase === "confirm-uncertain" && (
               <div role="alert" className="space-y-3 text-sm text-amber-600 dark:text-amber-400">
-                <p>
-                  Chưa xác định được đặt phòng đã hoàn tất hay chưa — kết nối bị mất trước khi có phản hồi. Gửi lại sẽ xác
-                  nhận đúng giữ chỗ này; hệ thống sẽ không tạo đặt phòng thứ hai.
-                </p>
+                <p>{t("customer.receipt.uncertain")}</p>
                 <ButtonSecondary type="button" onClick={retryConfirmationExact}>
-                  Gửi lại xác nhận
+                  {t("customer.receipt.resend")}
                 </ButtonSecondary>
               </div>
             )}
@@ -294,9 +291,9 @@ const PayDoneReceipt: FC = () => {
 
         <div className="flex flex-wrap gap-3">
           {target && !confirmed && (
-            <ButtonSecondary href={buildRoomDetailsHref(target) as Route}>Về trang phòng</ButtonSecondary>
+            <ButtonSecondary href={buildRoomDetailsHref(target) as Route}>{t("customer.receipt.backToRoom")}</ButtonSecondary>
           )}
-          <ButtonPrimary href="/">Xem thêm chỗ nghỉ</ButtonPrimary>
+          <ButtonPrimary href="/">{t("customer.receipt.moreProperties")}</ButtonPrimary>
           {receiptId && (
             <ButtonSecondary
               type="button"
@@ -305,7 +302,7 @@ const PayDoneReceipt: FC = () => {
                 setClosingReservationId(receiptId);
               }}
             >
-              Đóng biên nhận
+              {t("customer.receipt.closeReceipt")}
             </ButtonSecondary>
           )}
         </div>
@@ -338,32 +335,21 @@ const PayDoneReceipt: FC = () => {
             leaveTo="opacity-0 scale-95"
           >
             <Dialog.Panel className="w-full max-w-md space-y-5 rounded-2xl bg-white p-6 shadow-xl dark:bg-neutral-800">
-              <Dialog.Title className="text-xl font-semibold">Đóng biên nhận?</Dialog.Title>
+              <Dialog.Title className="text-xl font-semibold">{t("customer.receipt.closeQuestion")}</Dialog.Title>
               <Dialog.Description as="div" className="space-y-3 text-sm text-neutral-6000 dark:text-neutral-300">
                 <p>
-                  Hãy lưu lại mã đặt phòng
-                  {reservation ? (
-                    <>
-                      {" "}
-                      <span className="font-mono font-semibold text-neutral-900 dark:text-neutral-100">
-                        {reservation.confirmationNumber}
-                      </span>
-                    </>
-                  ) : null}{" "}
-                  trước khi đóng. Bản demo này chưa có trang lịch sử đặt phòng hay khôi phục biên nhận, nên bạn sẽ không
-                  mở lại được biên nhận này.
+                  {reservation?.confirmationNumber
+                    ? t("customer.receipt.closeWarnWithCode", { code: reservation.confirmationNumber })
+                    : t("customer.receipt.closeWarn")}
                 </p>
-                <p>
-                  Đóng biên nhận chỉ xoá thông tin khỏi màn hình này, để bạn có thể đổi tài khoản. Việc này không huỷ đặt
-                  phòng và không phải thanh toán.
-                </p>
+                <p>{t("customer.receipt.closeNote")}</p>
               </Dialog.Description>
               <div className="flex flex-wrap justify-end gap-3">
                 <ButtonSecondary type="button" onClick={() => setClosingReservationId(null)}>
-                  Giữ biên nhận
+                  {t("customer.receipt.keepReceipt")}
                 </ButtonSecondary>
                 <ButtonPrimary type="button" onClick={confirmClose}>
-                  Đóng biên nhận
+                  {t("customer.receipt.closeReceipt")}
                 </ButtonPrimary>
               </div>
             </Dialog.Panel>

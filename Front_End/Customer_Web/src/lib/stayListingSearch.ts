@@ -66,6 +66,7 @@ export interface ListingDeps {
 export const defaultListingDeps: ListingDeps = { getProperties, getRoomTypes, searchAvailability };
 
 export interface DescribedError {
+  /** A pack key (`shared.apiError.network`): the page translates it when it renders, in the visitor's language at that moment. */
   message: string;
   /** Whether asking again can help (network, server trouble) — a rejected search will be rejected again. */
   retryable: boolean;
@@ -74,18 +75,18 @@ export interface DescribedError {
 /** Fixed, safe copy: nothing the server said, no status text, no URL. */
 export function describeListingError(error: unknown, scope: "catalog" | "availability"): DescribedError {
   if (error instanceof ApiConfigError) {
-    return { message: "Dịch vụ đặt phòng chưa được cấu hình đúng.", retryable: false };
+    return { message: "shared.apiError.config", retryable: false };
   }
   if (error instanceof ApiNetworkError) {
-    return { message: "Không kết nối được tới hệ thống đặt phòng. Kiểm tra kết nối rồi thử lại.", retryable: true };
+    return { message: "shared.apiError.network", retryable: true };
   }
   if (scope === "availability" && error instanceof ApiHttpError && (error.status === 400 || error.status === 422)) {
     return {
-      message: "Hệ thống không nhận tìm kiếm này. Hãy kiểm tra ngày và số khách rồi tìm lại.",
+      message: "customer.stayList.searchRejected",
       retryable: false,
     };
   }
-  return { message: "Hệ thống đặt phòng đang gặp sự cố. Hãy thử lại sau.", retryable: true };
+  return { message: "customer.stayList.serviceTrouble", retryable: true };
 }
 
 export interface ListingController {

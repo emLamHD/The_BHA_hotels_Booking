@@ -1,3 +1,4 @@
+import type { Translate } from "@/lib/i18n/types";
 import {
   AvailabilityDraft,
   MAX_REQUESTED_ROOMS,
@@ -214,37 +215,27 @@ export function buildListingAliasHref(params: RawSearchParams | null | undefined
   return text ? `${LISTING_STAY_PATH}?${text}` : LISTING_STAY_PATH;
 }
 
-const FIELD_LABEL: Record<ListingQueryProblemKey, string> = {
-  brand: "thương hiệu",
-  checkIn: "ngày nhận phòng",
-  checkOut: "ngày trả phòng",
-  adults: "số người lớn",
-  children: "số trẻ em",
-  rooms: "số phòng",
-  stay: "thời gian lưu trú",
-};
-
 /** What is wrong with an invalid URL, in the visitor's language. */
-export function describeListingProblems(problems: readonly ListingQueryProblem[]): string[] {
+export function describeListingProblems(problems: readonly ListingQueryProblem[], t: Translate): string[] {
   return problems.map(({ key, reason }) => {
-    const field = FIELD_LABEL[key];
+    const field = t(`customer.stayList.field.${key}`);
     switch (reason) {
       case "repeated":
-        return `Liên kết có ${field} lặp lại.`;
+        return t("customer.stayList.problem.repeated", { field });
       case "missing":
-        return `Liên kết thiếu ${field}.`;
+        return t("customer.stayList.problem.missing", { field });
       case "blank":
-        return `Liên kết để trống ${field}.`;
+        return t("customer.stayList.problem.blank", { field });
       case "unknown":
-        return `Liên kết có ${field} không được hỗ trợ.`;
+        return t("customer.stayList.problem.unknown", { field });
       case "out-of-range":
-        return `Liên kết có ${field} nằm ngoài giới hạn.`;
+        return t("customer.stayList.problem.outOfRange", { field });
       case "order":
-        return "Ngày trả phòng phải sau ngày nhận phòng.";
+        return t("shared.apiError.validation.dates-order");
       case "too-long":
-        return `Thời gian lưu trú tối đa ${MAX_STAY_NIGHTS} đêm.`;
+        return t("shared.apiError.validation.stay-too-long", { nights: MAX_STAY_NIGHTS });
       default:
-        return `Liên kết có ${field} không hợp lệ.`;
+        return t("customer.stayList.problem.invalid", { field });
     }
   });
 }

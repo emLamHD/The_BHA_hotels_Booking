@@ -1,3 +1,4 @@
+import type { Translate } from "@/lib/i18n/types";
 import type { AvailabilityOfferDto } from "@/lib/api/availabilityTypes";
 import type { AvailabilityDraft } from "@/lib/api/availabilityValidation";
 import { searchQueryParams } from "@/lib/staySearch";
@@ -147,19 +148,12 @@ export interface BookingStatusCopy {
 }
 
 /** What to tell the visitor about a booking that is in progress or has just been confirmed. */
-export function bookingStatusCopy(phase: BookingHoldFlowState["phase"]): BookingStatusCopy {
-  if (phase === "reservation-result") {
-    return {
-      message: "Bạn vừa hoàn tất một đặt phòng.",
-      action: "Xem xác nhận",
-      barText: "Đặt phòng đã xác nhận",
-      barAction: "Xem",
-    };
-  }
+export function bookingStatusCopy(phase: BookingHoldFlowState["phase"], t: Translate): BookingStatusCopy {
+  const base = phase === "reservation-result" ? "customer.booking.status.confirmed" : "customer.booking.status.inProgress";
   return {
-    message: "Bạn đang có một đặt phòng đang thực hiện.",
-    action: "Tiếp tục đặt phòng",
-    barText: "Đặt phòng đang thực hiện",
-    barAction: "Tiếp tục",
+    message: t(`${base}.message`),
+    action: t(`${base}.action`),
+    barText: t(`${base}.barText`),
+    barAction: t(`${base}.barAction`),
   };
 }

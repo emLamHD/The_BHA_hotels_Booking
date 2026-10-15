@@ -5,95 +5,82 @@ import Input from "@/shared/Input";
 import ButtonPrimary from "@/shared/ButtonPrimary";
 import ButtonSecondary from "@/shared/ButtonSecondary";
 import { useBookingHoldFlow } from "@/app/BookingHoldProvider";
-import { formatCurrencyAmount } from "@/lib/api/availabilityPresentation";
+import PriceBreakdown from "@/components/PriceBreakdown";
+import { useApiMessage } from "@/lib/i18n/apiMessage";
 import { ActiveHoldSession } from "@/lib/api/bookingHoldAttempt";
 import { ReservationDto } from "@/lib/api/bookingHoldTypes";
+import { useDateFormat } from "@/lib/i18n/dates";
+import { partyLine } from "@/lib/i18n/party";
+import { useI18n } from "@/lib/i18n/I18nProvider";
+import { Translate } from "@/lib/i18n/types";
 
 export interface BookingHoldPanelProps {
   className?: string;
 }
 
-function formatUtcInstant(iso: string): string {
-  const parsed = new Date(iso);
-  return Number.isNaN(parsed.getTime()) ? iso : parsed.toLocaleString();
+/** The pack text of a status the API sent as a word (`Active`); a status this site has no text for is shown as sent. */
+function statusText(t: Translate, has: (key: string) => boolean, key: string, raw: string): string {
+  return has(`${key}.${raw}`) ? t(`${key}.${raw}`) : raw;
 }
 
 /** Shared customer-safe Hold summary for every session-carrying lifecycle phase. */
-function renderHoldSummary(session: ActiveHoldSession) {
+function HoldSummary({ session }: { session: ActiveHoldSession }) {
   const { hold } = session;
+  const { t, has } = useI18n();
+  const dates = useDateFormat();
   return (
     <div role="status" aria-live="polite" className="space-y-3 text-sm">
       <p className="text-neutral-600 dark:text-neutral-300">
-        Status <span className="font-medium">{hold.status}</span> · Hold ID{" "}
-        <span className="font-mono text-xs">{hold.holdId}</span>
+        {t("customer.booking.hold.status")}{" "}
+        <span className="font-medium">{statusText(t, has, "customer.booking.hold.status", hold.status)}</span> ·{" "}
+        {t("customer.booking.hold.holdId")} <span className="font-mono text-xs">{hold.holdId}</span>
       </p>
-      <p className="text-neutral-600 dark:text-neutral-300">
-        {hold.checkIn} → {hold.checkOut} · {hold.rooms} room{hold.rooms === 1 ? "" : "s"} ·{" "}
-        {hold.adults} adult{hold.adults === 1 ? "" : "s"}
-        {hold.children > 0 ? `, ${hold.children} child(ren)` : ""}
-      </p>
-      {hold.nights && hold.nights.length > 0 && (
-        <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
-          {hold.nights.map((night) => (
-            <li key={night.stayDate} className="flex justify-between gap-4 py-1">
-              <span>{night.stayDate}</span>
-              <span>{formatCurrencyAmount(night.nightTotal, hold.currencyCode)}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-      <div className="flex justify-between items-center border-t border-neutral-200/80 dark:border-neutral-700 pt-3">
-        <span className="text-neutral-500 dark:text-neutral-400">Total</span>
-        <span className="text-base font-semibold text-secondary-500">
-          {formatCurrencyAmount(hold.totalAmount, hold.currencyCode)}
-        </span>
-      </div>
+      <p className="text-neutral-600 dark:text-neutral-300">{partyLine(t, dates, hold)}</p>
+      <PriceBreakdown
+        rows={(hold.nights ?? []).map((night) => ({ key: night.stayDate, label: dates.stayDate(night.stayDate), amount: night.nightTotal }))}
+        totalAmount={hold.totalAmount}
+        currencyCode={hold.currencyCode}
+        totalLabel={t("customer.booking.hold.total")}
+      />
       <p className="text-neutral-500 dark:text-neutral-400">
-        Created {formatUtcInstant(hold.createdAtUtc)} · Expires{" "}
-        {formatUtcInstant(hold.expiresAtUtc)}
+        {t("customer.booking.hold.created", { time: dates.instant(hold.createdAtUtc) })} ·{" "}
+        {t("customer.booking.hold.expires", { time: dates.instant(hold.expiresAtUtc) })}
       </p>
       {session.guestAccessToken ? (
-        <p className="text-neutral-500 dark:text-neutral-400">
-          Please remain in this browser tab — your one-time guest access code is stored only
-          in memory for this application session and cannot be shown again or recovered
-          later.
-        </p>
+        <p className="text-neutral-500 dark:text-neutral-400">{t("customer.booking.hold.keepTab")}</p>
       ) : (
-        <p className="text-neutral-500 dark:text-neutral-400">
-          This Hold was already created earlier. No new one-time guest access code was
-          issued, and — if this browser tab does not already have one retained — later
-          anonymous access cannot be recovered from this response.
-        </p>
+        <p className="text-neutral-500 dark:text-neutral-400">{t("customer.booking.hold.existingHold")}</p>
       )}
     </div>
   );
 }
 
 /** Renders each server-returned night snapshot directly; an honest fallback if none are available. */
-function renderReservationNights(
-  nights: ReservationDto["nights"],
-  currencyCode: ReservationDto["currencyCode"]
-) {
+function ReservationNights({ reservation }: { reservation: ReservationDto }) {
+  const { t } = useI18n();
+  const dates = useDateFormat();
+  const nights = reservation.nights;
   if (!nights || nights.length === 0) {
     return (
-      <p className="text-neutral-500 dark:text-neutral-400">
-        Nightly pricing details are not available for this reservation.
-      </p>
+      <>
+        <p className="text-neutral-500 dark:text-neutral-400">{t("customer.booking.hold.noNightly")}</p>
+        <PriceBreakdown rows={[]} totalAmount={reservation.totalAmount} currencyCode={reservation.currencyCode} totalLabel={t("customer.booking.hold.total")} />
+      </>
     );
   }
-
   return (
-    <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
-      {nights.map((night) => (
-        <li key={night.stayDate} className="flex justify-between gap-4 py-1 text-sm">
-          <span>
-            {night.stayDate} · {night.rooms} room{night.rooms === 1 ? "" : "s"} ·{" "}
-            {formatCurrencyAmount(night.unitAmount, currencyCode)}
-          </span>
-          <span>{formatCurrencyAmount(night.nightTotal, currencyCode)}</span>
-        </li>
-      ))}
-    </ul>
+    <PriceBreakdown
+      rows={nights.map((night) => ({
+        key: night.stayDate,
+        label: `${dates.stayDate(night.stayDate)} · ${t("customer.booking.rooms", { rooms: night.rooms })}`,
+        amount: night.nightTotal,
+        unitAmount: night.unitAmount,
+      }))}
+      totalAmount={reservation.totalAmount}
+      currencyCode={reservation.currencyCode}
+      totalLabel={t("customer.booking.hold.total")}
+      rowClassName="flex justify-between gap-4 py-1 text-sm"
+    />
   );
 }
 
@@ -110,6 +97,9 @@ function renderReservationNights(
 const BookingHoldPanel: FC<BookingHoldPanelProps> = ({ className = "" }) => {
   const { state, updateContact, submit, retryExact, confirmHold, retryConfirmationExact } =
     useBookingHoldFlow();
+  const { t, has } = useI18n();
+  const dates = useDateFormat();
+  const message = useApiMessage();
   const { phase, offer, offerLabel, contact, fieldErrors, errorMessage, session, reservationResult } =
     state;
 
@@ -146,34 +136,25 @@ const BookingHoldPanel: FC<BookingHoldPanelProps> = ({ className = "" }) => {
         className={`nc-BookingHoldPanel rounded-3xl border border-neutral-200/80 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-6 space-y-4 ${className}`}
       >
         <h3 ref={headingRef} tabIndex={-1} className="text-lg font-semibold outline-none">
-          Reservation confirmed
+          {t("customer.booking.hold.reservationConfirmed")}
         </h3>
         <div role="status" aria-live="polite" className="space-y-3 text-sm">
           {outcome === "replayed" && (
             <p className="text-neutral-600 dark:text-neutral-300">
-              This reservation was already confirmed. Here is the existing confirmation.
+              {t("customer.booking.hold.alreadyConfirmed")}
             </p>
           )}
           <p className="text-neutral-600 dark:text-neutral-300">
-            Confirmation number{" "}
-            <span className="font-mono text-xs">{reservation.confirmationNumber}</span> · Status{" "}
-            <span className="font-medium">{reservation.status}</span>
+            {t("customer.booking.hold.confirmationNumber")}{" "}
+            <span className="font-mono text-xs">{reservation.confirmationNumber}</span> · {t("customer.booking.hold.status")}{" "}
+            <span className="font-medium">{statusText(t, has, "customer.booking.reservation.status", reservation.status)}</span>
           </p>
           <p className="text-neutral-600 dark:text-neutral-300">
-            {reservation.checkIn} → {reservation.checkOut} · {reservation.rooms} room
-            {reservation.rooms === 1 ? "" : "s"} · {reservation.adults} adult
-            {reservation.adults === 1 ? "" : "s"}
-            {reservation.children > 0 ? `, ${reservation.children} child(ren)` : ""}
+            {partyLine(t, dates, reservation)}
           </p>
-          {renderReservationNights(reservation.nights, reservation.currencyCode)}
-          <div className="flex justify-between items-center border-t border-neutral-200/80 dark:border-neutral-700 pt-3">
-            <span className="text-neutral-500 dark:text-neutral-400">Total</span>
-            <span className="text-base font-semibold text-secondary-500">
-              {formatCurrencyAmount(reservation.totalAmount, reservation.currencyCode)}
-            </span>
-          </div>
+          <ReservationNights reservation={reservation} />
           <p className="text-neutral-500 dark:text-neutral-400">
-            Confirmed {formatUtcInstant(reservation.confirmedAtUtc)}
+            {t("customer.booking.hold.confirmed", { time: dates.instant(reservation.confirmedAtUtc) })}
           </p>
         </div>
       </div>
@@ -192,13 +173,13 @@ const BookingHoldPanel: FC<BookingHoldPanelProps> = ({ className = "" }) => {
         className={`nc-BookingHoldPanel rounded-3xl border border-neutral-200/80 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-6 space-y-4 ${className}`}
       >
         <h3 ref={headingRef} tabIndex={-1} className="text-lg font-semibold outline-none">
-          {session.outcome === "created" ? "Hold created" : "Hold already exists"}
+          {session.outcome === "created" ? t("customer.booking.hold.holdCreated") : t("customer.booking.hold.holdExists")}
         </h3>
-        {renderHoldSummary(session)}
+        <HoldSummary session={session} />
 
         {phase === "active-session" && (
           <ButtonPrimary type="button" onClick={confirmHold}>
-            Confirm reservation
+            {t("customer.booking.hold.confirmReservation")}
           </ButtonPrimary>
         )}
 
@@ -209,10 +190,10 @@ const BookingHoldPanel: FC<BookingHoldPanelProps> = ({ className = "" }) => {
               aria-live="polite"
               className="text-sm text-neutral-500 dark:text-neutral-400"
             >
-              Confirming your reservation…
+              {t("customer.booking.hold.confirming")}
             </div>
             <ButtonPrimary type="button" loading>
-              Confirm reservation
+              {t("customer.booking.hold.confirmReservation")}
             </ButtonPrimary>
           </>
         )}
@@ -220,23 +201,19 @@ const BookingHoldPanel: FC<BookingHoldPanelProps> = ({ className = "" }) => {
         {phase === "confirm-known-error" && errorMessage && (
           <>
             <div role="alert" className="text-sm text-red-600 dark:text-red-400">
-              {errorMessage}
+              {message(errorMessage)}
             </div>
             <ButtonSecondary type="button" onClick={retryConfirmationExact}>
-              Retry confirmation
+              {t("customer.booking.hold.retryConfirmation")}
             </ButtonSecondary>
           </>
         )}
 
         {phase === "confirm-uncertain" && (
           <div role="alert" className="space-y-2 text-sm text-amber-600 dark:text-amber-400">
-            <p>
-              We couldn&apos;t confirm whether your reservation was completed — the connection
-              was lost before a response arrived. Retrying resends the exact same confirmation
-              for this Hold; it will not create a second reservation.
-            </p>
+            <p>{t("customer.booking.hold.confirmUncertain")}</p>
             <ButtonSecondary type="button" onClick={retryConfirmationExact}>
-              Retry exact confirmation
+              {t("customer.booking.hold.retryExactConfirmation")}
             </ButtonSecondary>
           </div>
         )}
@@ -253,7 +230,7 @@ const BookingHoldPanel: FC<BookingHoldPanelProps> = ({ className = "" }) => {
       className={`nc-BookingHoldPanel rounded-3xl border border-neutral-200/80 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-6 space-y-4 ${className}`}
     >
       <h3 ref={headingRef} tabIndex={-1} className="text-lg font-semibold outline-none">
-        Hold this room
+        {t("customer.booking.hold.holdThisRoom")}
       </h3>
       <p className="text-sm text-neutral-500 dark:text-neutral-400">{offerLabel}</p>
 
@@ -263,7 +240,7 @@ const BookingHoldPanel: FC<BookingHoldPanelProps> = ({ className = "" }) => {
             htmlFor="hold-full-name"
             className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1"
           >
-            Full name
+            {t("customer.booking.hold.fullName")}
           </label>
           <Input
             id="hold-full-name"
@@ -277,7 +254,7 @@ const BookingHoldPanel: FC<BookingHoldPanelProps> = ({ className = "" }) => {
           />
           {fieldErrors?.fullName && (
             <p id="hold-full-name-error" role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400">
-              {fieldErrors.fullName}
+              {message(fieldErrors.fullName)}
             </p>
           )}
         </div>
@@ -287,7 +264,7 @@ const BookingHoldPanel: FC<BookingHoldPanelProps> = ({ className = "" }) => {
             htmlFor="hold-email"
             className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1"
           >
-            Email
+            {t("customer.booking.hold.email")}
           </label>
           <Input
             id="hold-email"
@@ -301,7 +278,7 @@ const BookingHoldPanel: FC<BookingHoldPanelProps> = ({ className = "" }) => {
           />
           {fieldErrors?.email && (
             <p id="hold-email-error" role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400">
-              {fieldErrors.email}
+              {message(fieldErrors.email)}
             </p>
           )}
         </div>
@@ -311,7 +288,7 @@ const BookingHoldPanel: FC<BookingHoldPanelProps> = ({ className = "" }) => {
             htmlFor="hold-phone"
             className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1"
           >
-            Phone
+            {t("customer.booking.hold.phone")}
           </label>
           <Input
             id="hold-phone"
@@ -325,38 +302,35 @@ const BookingHoldPanel: FC<BookingHoldPanelProps> = ({ className = "" }) => {
           />
           {fieldErrors?.phone && (
             <p id="hold-phone-error" role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400">
-              {fieldErrors.phone}
+              {message(fieldErrors.phone)}
             </p>
           )}
         </div>
 
         {phase === "submitting" && (
           <div role="status" aria-live="polite" className="text-sm text-neutral-500 dark:text-neutral-400">
-            Creating your 15-minute Hold…
+            {t("customer.booking.hold.creating")}
           </div>
         )}
 
         {phase === "known-error" && errorMessage && (
           <div role="alert" className="text-sm text-red-600 dark:text-red-400">
-            {errorMessage}
+            {message(errorMessage)}
           </div>
         )}
 
         {phase === "uncertain" && (
           <div role="alert" className="space-y-2 text-sm text-amber-600 dark:text-amber-400">
-            <p>
-              We couldn&apos;t confirm whether your Hold was created — the connection was lost
-              before a response arrived. Sending again reuses the exact same request.
-            </p>
+            <p>{t("customer.booking.hold.holdUncertain")}</p>
             <ButtonSecondary type="button" onClick={retryExact}>
-              Retry exact request
+              {t("customer.booking.hold.retryExactRequest")}
             </ButtonSecondary>
           </div>
         )}
 
         {phase !== "uncertain" && (
           <ButtonPrimary type="submit" loading={phase === "submitting"} disabled={locked}>
-            {phase === "submitting" ? "Creating your 15-minute Hold…" : "Create 15-minute Hold"}
+            {phase === "submitting" ? t("customer.booking.hold.creating") : t("customer.booking.hold.create")}
           </ButtonPrimary>
         )}
       </form>

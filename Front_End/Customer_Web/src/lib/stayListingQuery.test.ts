@@ -1,3 +1,4 @@
+import { testT } from "@/lib/i18n/testkit";
 import { describe, expect, it } from "vitest";
 import {
   KNOWN_KEYS,
@@ -242,9 +243,9 @@ describe("buildListingAliasHref", () => {
 
 describe("describeListingProblems", () => {
   it("says what is wrong in Vietnamese, one line per problem", () => {
-    const lines = describeListingProblems(problemsOf(parse("checkIn=2026-02-31&checkOut=2026-03-01&adults=2&children=0&rooms=1&rooms=2")));
+    const lines = describeListingProblems(problemsOf(parse("checkIn=2026-02-31&checkOut=2026-03-01&adults=2&children=0&rooms=1&rooms=2")), testT("vi"));
     expect(lines.length).toBe(2);
-    expect(lines.join(" ")).toMatch(/ngày nhận phòng/);
-    expect(lines.join(" ")).toMatch(/số phòng/);
+    expect(lines.join(" ")).toMatch(/Ngày nhận phòng/);
+    expect(lines.join(" ")).toMatch(/Số phòng/);
   });
 });

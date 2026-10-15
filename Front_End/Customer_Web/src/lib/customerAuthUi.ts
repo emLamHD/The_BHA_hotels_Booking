@@ -1,3 +1,4 @@
+import type { Translate } from "@/lib/i18n/types";
 import type { CustomerCredentials } from "@/lib/api/authService";
 import type { BookingHoldFlowState } from "@/lib/api/bookingHoldFlow";
 import { ApiHttpError } from "@/lib/api/errors";
@@ -41,16 +42,16 @@ export function validateLoginInput(emailRaw: string, passwordRaw: string): Login
   const email = emailRaw.trim();
   const errors: LoginFieldErrors = {};
   if (email.length === 0) {
-    errors.email = "Nhập địa chỉ email.";
+    errors.email = "customer.auth.validation.emailRequired";
   } else if (email.length > EMAIL_MAX_LENGTH) {
-    errors.email = `Email tối đa ${EMAIL_MAX_LENGTH} ký tự.`;
+    errors.email = "customer.auth.validation.emailTooLong";
   } else if (!/^[^\s@]+@[^\s@]+$/.test(email)) {
-    errors.email = "Địa chỉ email chưa hợp lệ.";
+    errors.email = "customer.auth.validation.emailInvalid";
   }
   if (passwordRaw.trim().length === 0) {
-    errors.password = "Nhập mật khẩu.";
+    errors.password = "customer.auth.validation.passwordRequired";
   } else if (passwordRaw.length > PASSWORD_MAX_LENGTH) {
-    errors.password = `Mật khẩu tối đa ${PASSWORD_MAX_LENGTH} ký tự.`;
+    errors.password = "customer.auth.validation.passwordTooLong";
   }
   if (errors.email) return { ok: false, errors, focus: "email" };
   if (errors.password) return { ok: false, errors, focus: "password" };
@@ -82,8 +83,6 @@ export interface AuthPresentationContext {
   bookingHref: string | null;
 }
 
-const VERB: Record<AuthCommand, string> = { login: "đăng nhập", logout: "đăng xuất" };
-
 function httpStatusOf(error: unknown): number | null {
   return error instanceof ApiHttpError ? error.status : null;
 }
@@ -96,9 +95,9 @@ function httpStatusOf(error: unknown): number | null {
 export function presentIdentityCommandResult(
   command: AuthCommand,
   result: AuthUiResult,
-  context: AuthPresentationContext
+  context: AuthPresentationContext,
+  t: Translate
 ): AuthPresentation | null {
-  const verb = VERB[command];
   const present = (
     tone: AuthTone,
     message: string,
@@ -109,74 +108,59 @@ export function presentIdentityCommandResult(
     case "aborted":
       return null;
     case "failed":
-      return present("error", `Không thể hoàn tất yêu cầu ${verb}. Hãy thử lại.`, { offerRefresh: true });
+      return present("error", t(`customer.auth.failed.${command}`), { offerRefresh: true });
     case "blocked":
       switch (result.reason) {
         case "booking-in-progress":
-          return present("warning", `Bạn đang có một đặt phòng chưa hoàn tất. Hãy hoàn tất đặt phòng trước khi ${verb}.`, {
-            link: { href: context.bookingHref ?? HOME_PAGE, label: "Quay lại đặt phòng" },
+          return present("warning", t(`customer.auth.blocked.booking.${command}`), {
+            link: { href: context.bookingHref ?? HOME_PAGE, label: t("customer.auth.link.backToBooking") },
           });
         case "receipt-not-finished":
           return present(
             "warning",
-            `Biên nhận đặt phòng của bạn vẫn đang mở. Hãy lưu mã đặt phòng rồi đóng biên nhận trước khi ${verb}.`,
-            { link: { href: RECEIPT_ROUTE, label: "Mở biên nhận" } }
+            t(`customer.auth.blocked.receipt.${command}`),
+            { link: { href: RECEIPT_ROUTE, label: t("customer.auth.link.openReceipt") } }
           );
         case "identity-change-in-progress":
-          return present("info", "Phiên đăng nhập đang được xử lý hoặc kiểm tra. Hãy đợi trong giây lát.");
+          return present("info", t("customer.auth.blocked.identityChange"));
         case "booking-unbound":
         case "session-inactive":
-          return present("warning", "Phiên đăng nhập chưa sẵn sàng. Hãy kiểm tra lại hoặc tải lại trang.", {
+          return present("warning", t("customer.auth.blocked.sessionNotReady"), {
             offerRefresh: true,
           });
       }
       return null;
     case "recovery-unresolved": {
-      const sent =
-        result.transport === "succeeded"
-          ? "Yêu cầu đã được máy chủ chấp nhận"
-          : result.transport === "refused"
-            ? "Yêu cầu bị từ chối"
-            : "Chưa xác nhận được kết quả của yêu cầu";
       // The provider's own notice (describeSessionNotice) carries the read-only "check again" action.
-      return present("warning", `${sent}, nhưng chưa kiểm tra lại được phiên đăng nhập.`);
+      return present("warning", t(`customer.auth.unresolved.${result.transport === "succeeded" ? "succeeded" : result.transport === "refused" ? "refused" : "unknown"}`));
     }
     case "settled": {
       const authenticated = result.session === "authenticated";
       if (result.transport === "succeeded") {
         if (command === "login") {
           return authenticated
-            ? present("success", "Đăng nhập thành công.")
-            : present("warning", "Yêu cầu đăng nhập đã được gửi nhưng phiên đăng nhập chưa được xác nhận. Hãy thử lại.");
+            ? present("success", t("customer.auth.login.success"))
+            : present("warning", t("customer.auth.login.unconfirmed"));
         }
         return authenticated
-          ? present("warning", "Chưa xác nhận được việc đăng xuất: phiên vẫn đang đăng nhập.")
-          : present("success", "Đã đăng xuất.");
+          ? present("warning", t("customer.auth.logout.unconfirmed"))
+          : present("success", t("customer.auth.logout.success"));
       }
       if (result.transport === "refused") {
         const status = httpStatusOf(result.transportError);
-        if (status === 429) return present("warning", "Có quá nhiều lần thử. Hãy thử lại sau ít phút.");
+        if (status === 429) return present("warning", t("customer.auth.rateLimited"));
         if (command === "login") {
-          const kept = authenticated ? " Bạn vẫn đang đăng nhập bằng tài khoản trước đó." : "";
+          const kept = authenticated ? "Kept" : "";
           return status === 401
-            ? present("error", `Email hoặc mật khẩu không đúng.${kept}`)
-            : present("error", `Không thể xử lý yêu cầu đăng nhập. Hãy kiểm tra lại thông tin rồi thử lại.${kept}`);
+            ? present("error", t(`customer.auth.login.badCredentials${kept}`))
+            : present("error", t(`customer.auth.login.cannotProcess${kept}`));
         }
         return status === 401 && !authenticated
-          ? present("info", "Không có phiên đăng nhập hợp lệ để đăng xuất.")
-          : present("error", "Không thể xử lý yêu cầu đăng xuất. Hãy thử lại.");
+          ? present("info", t("customer.auth.logout.noSession"))
+          : present("error", t("customer.auth.logout.cannotProcess"));
       }
       // lost: the request may or may not have changed the server session; `me` has told what it is now.
-      const head = `Chưa xác nhận được kết quả của yêu cầu ${verb} (kết nối hoặc máy chủ gặp sự cố).`;
-      const verified =
-        command === "login"
-          ? authenticated
-            ? "Kiểm tra lại cho thấy bạn đang đăng nhập."
-            : "Kiểm tra lại cho thấy bạn chưa đăng nhập; hãy thử lại."
-          : authenticated
-            ? "Kiểm tra lại cho thấy bạn vẫn đang đăng nhập."
-            : "Kiểm tra lại cho thấy phiên đăng nhập không còn.";
-      return present("warning", `${head} ${verified}`);
+      return present("warning", t(`customer.auth.lost.${command}.${authenticated ? "authenticated" : "anonymous"}`));
     }
   }
 }
@@ -229,34 +213,34 @@ export interface SessionNotice {
  */
 export function describeSessionNotice(
   status: CustomerSessionState["status"],
-  phase: IdentityChangePhase
+  phase: IdentityChangePhase,
+  t: Translate
 ): SessionNotice | null {
   switch (phase) {
     case "transport":
       return {
         kind: "busy",
-        message: "Đang gửi yêu cầu đăng nhập hoặc đăng xuất. Đặt phòng tạm khoá cho đến khi kiểm tra xong phiên.",
+        message: t("customer.auth.notice.transport"),
         offerRefresh: false,
       };
     case "recovering":
       return {
         kind: "busy",
-        message: "Đang kiểm tra lại phiên đăng nhập. Đặt phòng tạm khoá cho đến khi kiểm tra xong.",
+        message: t("customer.auth.notice.recovering"),
         offerRefresh: false,
       };
     case "recovery-unresolved":
       return {
         kind: "unresolved",
-        message:
-          "Chưa kiểm tra được phiên đăng nhập. Đăng nhập, đăng xuất và đặt phòng tạm khoá cho đến khi kiểm tra lại được.",
+        message: t("customer.auth.notice.unresolved"),
         offerRefresh: true,
       };
     case "idle":
       if (status === "loading") {
-        return { kind: "checking", message: "Đang kiểm tra phiên đăng nhập…", offerRefresh: false };
+        return { kind: "checking", message: t("customer.auth.notice.checking"), offerRefresh: false };
       }
       if (status === "unknown") {
-        return { kind: "unresolved", message: "Chưa kiểm tra được phiên đăng nhập.", offerRefresh: true };
+        return { kind: "unresolved", message: t("customer.auth.notice.unknown"), offerRefresh: true };
       }
       return null;
   }
@@ -279,7 +263,8 @@ export interface AuthEntry {
 export function describeAuthEntry(
   status: CustomerSessionState["status"],
   phase: IdentityChangePhase,
-  email: string | null
+  email: string | null,
+  t: Translate
 ): AuthEntry {
   const indicator: AuthEntry["indicator"] =
     phase === "transport" || phase === "recovering"
@@ -288,15 +273,14 @@ export function describeAuthEntry(
         ? "attention"
         : "none";
   if (status === "anonymous") {
-    return { label: "Đăng nhập", ariaLabel: "Đăng nhập", href: LOGIN_PAGE, indicator };
+    return { label: t("customer.auth.entry.signIn"), ariaLabel: t("customer.auth.entry.signIn"), href: LOGIN_PAGE, indicator };
   }
   if (status === "authenticated" && email) {
-    return { label: "Tài khoản", ariaLabel: `Tài khoản ${email}`, href: phase === "idle" ? ACCOUNT_PAGE : LOGIN_PAGE, indicator };
+    return { label: t("customer.auth.entry.account"), ariaLabel: t("customer.auth.entry.accountEmail", { email }), href: phase === "idle" ? ACCOUNT_PAGE : LOGIN_PAGE, indicator };
   }
   return {
-    label: "Tài khoản",
-    ariaLabel:
-      indicator === "attention" ? "Tài khoản — chưa kiểm tra được phiên đăng nhập" : "Tài khoản — đang kiểm tra phiên",
+    label: t("customer.auth.entry.account"),
+    ariaLabel: indicator === "attention" ? t("customer.auth.entry.attention") : t("customer.auth.entry.checking"),
     href: LOGIN_PAGE,
     indicator,
   };
@@ -366,7 +350,5 @@ export function receiptCloseTarget(state: BookingHoldFlowState): string | null {
 
 /** Why `finishBooking` said no. The receipt is untouched in every case. */
 export function receiptCloseFailureMessage(phase: IdentityChangePhase): string {
-  return phase === "idle"
-    ? "Không thể đóng biên nhận này vì biên nhận đã thay đổi. Biên nhận vẫn được giữ nguyên."
-    : "Phiên đăng nhập đang được xử lý hoặc kiểm tra nên chưa đóng được biên nhận. Hãy thử lại sau ít giây.";
+  return phase === "idle" ? "customer.auth.receipt.changed" : "customer.auth.receipt.busy";
 }

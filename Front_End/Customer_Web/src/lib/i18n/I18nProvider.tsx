@@ -34,6 +34,8 @@ export interface I18nContextValue {
   /** Format a message by key; a key without a text is shown as the key (and reported), never as another language. */
   t: (key: string, params?: MessageParams) => string;
   has: (key: string) => boolean;
+  /** A field of data the API owns (a room type's name, an amenity): the visitor's translation by stable id, else what the API sent. */
+  content: <T extends string | null>(entity: string, id: string, field: string, fallback: T) => string | T;
   /** Choose a language: the language's own default currency comes with it. */
   setLocale: (code: string) => void;
   /** Choose a currency without changing the language. */
@@ -122,6 +124,10 @@ export function I18nProvider({ snapshot, children }: { snapshot: I18nSnapshot; c
       degraded: snapshot.degraded,
       t,
       has: (key: string) => messages[key] !== undefined,
+      content: <T extends string | null>(entity: string, id: string, field: string, fallback: T): string | T => {
+        const key = `content.${entity}.${id}.${field}`;
+        return messages[key] === undefined ? fallback : formatMessage(messages[key], formatLocale, {});
+      },
       setLocale,
       setCurrency,
       switching,

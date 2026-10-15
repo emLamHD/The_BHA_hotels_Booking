@@ -10,6 +10,10 @@ import { AvailabilityDraft, calculateNights } from "@/lib/api/availabilityValida
 import { bookingStatusCopy, buildRoomDetailsHref, inProgressBookingTarget } from "@/lib/roomDetailsRoute";
 import { LISTING_STAY_PATH, StayListingQuery, brandInfo, describeListingProblems, stayListingKey } from "@/lib/stayListingQuery";
 import { ListingState, buildListingCards } from "@/lib/stayListingSearch";
+import { useApiMessage } from "@/lib/i18n/apiMessage";
+import { useDateFormat } from "@/lib/i18n/dates";
+import { useI18n } from "@/lib/i18n/I18nProvider";
+import { Translate } from "@/lib/i18n/types";
 
 export interface ListingStayResultsProps {
   query: StayListingQuery;
@@ -27,14 +31,15 @@ const Notice: FC<{ role: "status" | "alert"; children: ReactNode }> = ({ role, c
   </div>
 );
 
-const isoToDisplay = (iso: string) => iso.split("-").reverse().join("/");
-
-function summaryOf(search: AvailabilityDraft, nights: number | null): string {
+/** "15 Oct – 18 Oct 2026 (3 nights) · 2 adults, 1 child · 1 room": each count is its own plural message. */
+function summaryOf(search: AvailabilityDraft, nights: number | null, t: Translate, dates: ReturnType<typeof useDateFormat>): string {
   const children = Number(search.children);
+  const party = [t("customer.booking.adults", { adults: Number(search.adults) })];
+  if (children > 0) party.push(t("customer.booking.children", { children }));
   return [
-    `${isoToDisplay(search.checkIn)} – ${isoToDisplay(search.checkOut)}${nights ? ` (${nights} đêm)` : ""}`,
-    `${search.adults} người lớn${children > 0 ? `, ${children} trẻ em` : ""}`,
-    `${search.rooms} phòng`,
+    `${dates.stayDate(search.checkIn)} – ${dates.stayDate(search.checkOut)}${nights ? ` (${t("customer.booking.nights", { nights })})` : ""}`,
+    party.join(", "),
+    t("customer.booking.rooms", { rooms: Number(search.rooms) }),
   ].join(" · ");
 }
 
@@ -46,6 +51,9 @@ function summaryOf(search: AvailabilityDraft, nights: number | null): string {
  */
 const ListingStayResults: FC<ListingStayResultsProps> = ({ query, state, onRetry, onClear }) => {
   const { state: holdState } = useBookingHoldFlow();
+  const { t, content } = useI18n();
+  const dates = useDateFormat();
+  const apiMessage = useApiMessage();
   const inProgress = inProgressBookingTarget(holdState);
 
   const inProgressNotice = inProgress && (
@@ -53,29 +61,29 @@ const ListingStayResults: FC<ListingStayResultsProps> = ({ query, state, onRetry
       role="status"
       className="mb-6 flex flex-col gap-3 rounded-2xl border border-primary-200 bg-primary-50 px-4 py-3 text-sm text-primary-700 sm:flex-row sm:items-center sm:justify-between dark:border-neutral-700 dark:bg-neutral-800 dark:text-primary-300"
     >
-      <span>{bookingStatusCopy(inProgress.phase).message}</span>
+      <span>{bookingStatusCopy(inProgress.phase, t).message}</span>
       <Link href={buildRoomDetailsHref(inProgress) as Route} className="font-medium underline underline-offset-2">
-        {bookingStatusCopy(inProgress.phase).action}
+        {bookingStatusCopy(inProgress.phase, t).action}
       </Link>
     </div>
   );
 
   const body = (): ReactNode => {
     if (state.kind === "idle" || state.key !== stayListingKey(query)) {
-      return <Notice role="status">Đang tải…</Notice>;
+      return <Notice role="status">{t("customer.stayList.loading")}</Notice>;
     }
 
     if (state.kind === "invalid") {
       return (
         <Notice role="alert">
-          <p className="text-base font-medium text-neutral-800 dark:text-neutral-100">Liên kết tìm phòng chưa hợp lệ</p>
+          <p className="text-base font-medium text-neutral-800 dark:text-neutral-100">{t("customer.stayList.invalid.title")}</p>
           <ul className="space-y-1">
-            {describeListingProblems(state.problems).map((line) => (
+            {describeListingProblems(state.problems, t).map((line) => (
               <li key={line}>{line}</li>
             ))}
           </ul>
-          <p>Chọn ngày và số khách ở trên rồi bấm tìm, hoặc xoá bộ lọc để xem các loại phòng.</p>
-          <ButtonSecondary onClick={onClear}>Xoá bộ lọc</ButtonSecondary>
+          <p>{t("customer.stayList.invalid.hint")}</p>
+          <ButtonSecondary onClick={onClear}>{t("customer.stayList.clearFilters")}</ButtonSecondary>
         </Notice>
       );
     }
@@ -84,45 +92,45 @@ const ListingStayResults: FC<ListingStayResultsProps> = ({ query, state, onRetry
       return (
         <Notice role="status">
           <p className="text-base font-medium text-neutral-800 dark:text-neutral-100">{brandInfo(state.brand).label}</p>
-          <p>Chưa hỗ trợ đặt phòng trực tuyến.</p>
-          <ButtonSecondary href={LISTING_STAY_PATH as Route}>Xem The BHA Riverside</ButtonSecondary>
+          <p>{t("customer.stayList.unsupportedBrand")}</p>
+          <ButtonSecondary href={LISTING_STAY_PATH as Route}>{t("customer.stayList.viewRiverside")}</ButtonSecondary>
         </Notice>
       );
     }
 
     const { catalog, availability, search } = state;
-    if (catalog.status === "loading") return <Notice role="status">Đang tải loại phòng…</Notice>;
+    if (catalog.status === "loading") return <Notice role="status">{t("customer.stayList.loadingRooms")}</Notice>;
     if (catalog.status === "error") {
       return (
         <Notice role="alert">
-          <p>{catalog.message}</p>
-          <ButtonSecondary onClick={onRetry}>Thử lại</ButtonSecondary>
+          <p>{apiMessage(catalog.message)}</p>
+          <ButtonSecondary onClick={onRetry}>{t("customer.common.retry")}</ButtonSecondary>
         </Notice>
       );
     }
     if (catalog.status === "missing") {
       return (
         <Notice role="status">
-          <p>The BHA Riverside hiện chưa có trong hệ thống đặt phòng, nên chưa thể hiển thị phòng.</p>
-          <ButtonSecondary onClick={onRetry}>Tải lại</ButtonSecondary>
+          <p>{t("customer.stayList.missing")}</p>
+          <ButtonSecondary onClick={onRetry}>{t("customer.stayList.reload")}</ButtonSecondary>
         </Notice>
       );
     }
     if (catalog.status === "empty") {
       return (
         <Notice role="status">
-          <p>The BHA Riverside chưa có loại phòng nào đang mở đặt.</p>
-          <ButtonSecondary onClick={onRetry}>Tải lại</ButtonSecondary>
+          <p>{t("customer.stayList.empty")}</p>
+          <ButtonSecondary onClick={onRetry}>{t("customer.stayList.reload")}</ButtonSecondary>
         </Notice>
       );
     }
 
-    if (search && availability.status === "loading") return <Notice role="status">Đang tìm phòng…</Notice>;
+    if (search && availability.status === "loading") return <Notice role="status">{t("customer.stayList.searching")}</Notice>;
     if (search && availability.status === "error") {
       return (
         <Notice role="alert">
-          <p>{availability.message}</p>
-          {availability.retryable && <ButtonSecondary onClick={onRetry}>Thử lại</ButtonSecondary>}
+          <p>{apiMessage(availability.message)}</p>
+          {availability.retryable && <ButtonSecondary onClick={onRetry}>{t("customer.common.retry")}</ButtonSecondary>}
         </Notice>
       );
     }
@@ -137,30 +145,30 @@ const ListingStayResults: FC<ListingStayResultsProps> = ({ query, state, onRetry
             <>
               {cards.length > 0 && (
                 <>
-                  {cards.length} loại phòng còn trống
+                  {t("customer.stayList.countAvailable", { count: cards.length })}
                   <span className="mx-2">·</span>
                 </>
               )}
-              {summaryOf(search, calculateNights(search.checkIn, search.checkOut))}
+              {summaryOf(search, calculateNights(search.checkIn, search.checkOut), t, dates)}
               {cards.length > 0 && (
                 <>
                   <br />
-                  Giá là kết quả tại thời điểm tìm, chưa giữ phòng.
+                  {t("customer.stayList.priceNote")}
                 </>
               )}
             </>
           ) : (
             <>
-              {cards.length} loại phòng tại {catalog.property.name ?? "The BHA Riverside"}
+              {t("customer.stayList.countAt", { count: cards.length, property: content("property", catalog.property.id, "name", catalog.property.name ?? "The BHA Riverside") })}
               <span className="mx-2">·</span>
-              Chọn ngày để xem giá
+              {t("customer.stay.pickDates")}
             </>
           )}
         </p>
         {cards.length === 0 ? (
           <Notice role="status">
-            <p>Không có phòng phù hợp cho tìm kiếm này.</p>
-            <p>Hãy đổi ngày hoặc số khách ở trên rồi tìm lại.</p>
+            <p>{t("customer.stayList.noMatch.title")}</p>
+            <p>{t("customer.stayList.noMatch.hint")}</p>
           </Notice>
         ) : (
           <div className="grid grid-cols-1 gap-6 md:gap-8 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">

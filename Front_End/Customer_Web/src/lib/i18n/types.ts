@@ -69,3 +69,6 @@ export const PROVIDER_CONTENT_PREFIXES = [
   "content.amenity.",
   "content.media.",
 ] as const;
+
+/** What `useT()` returns: the text for a key in the visitor's language, with the message's parameters filled in. */
+export type Translate = (key: string, params?: import("./format").MessageParams) => string;

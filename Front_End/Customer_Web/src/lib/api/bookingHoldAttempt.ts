@@ -59,11 +59,11 @@ export function validateContact(input: ContactInput): ContactFieldErrors | null 
   const errors: ContactFieldErrors = {};
 
   if (!normalized.fullName || normalized.fullName.length > BookingFieldLimits.FullName) {
-    errors.fullName = `Full name is required and cannot exceed ${BookingFieldLimits.FullName} characters.`;
+    errors.fullName = "customer.validation.fullNameRequired";
   } else if (CONTROL_CHARACTERS.test(normalized.fullName)) {
     // Stricter than the server, which only requires a non-blank name: a name with a control character
     // (a pasted line break or tab) is never a name. Unicode letters of any script remain valid.
-    errors.fullName = "Full name cannot contain line breaks or control characters.";
+    errors.fullName = "customer.validation.fullNameControl";
   }
 
   if (
@@ -71,7 +71,7 @@ export function validateContact(input: ContactInput): ContactFieldErrors | null 
     normalized.email.length > BookingFieldLimits.Email ||
     !EMAIL_PATTERN.test(normalized.email)
   ) {
-    errors.email = "Enter a valid contact email.";
+    errors.email = "customer.validation.emailInvalid";
   }
 
   if (
@@ -79,8 +79,7 @@ export function validateContact(input: ContactInput): ContactFieldErrors | null 
     !PHONE_PATTERN.test(normalized.phone) ||
     !/[0-9]/.test(normalized.phone)
   ) {
-    errors.phone =
-      "Enter a valid contact phone (7-32 characters, at least one digit; digits, spaces, +, (, ), ., or - only).";
+    errors.phone = "customer.validation.phoneInvalid";
   }
 
   return Object.keys(errors).length > 0 ? errors : null;

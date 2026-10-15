@@ -1,3 +1,4 @@
+import type { Translate } from "@/lib/i18n/types";
 import type { CustomerCredentials } from "@/lib/api/authService";
 import { ApiHttpError } from "@/lib/api/errors";
 import { EMAIL_MAX_LENGTH, LOGIN_PAGE, PASSWORD_MAX_LENGTH } from "@/lib/customerAuthUi";
@@ -12,7 +13,6 @@ import type { CustomerSessionState } from "@/lib/customerSession";
 
 /** The API's rule (ASP.NET Core Identity options in Program.cs); the server stays the authority for the rest. */
 export const PASSWORD_MIN_LENGTH = 12;
-export const PASSWORD_REQUIREMENTS = `Ít nhất ${PASSWORD_MIN_LENGTH} ký tự, gồm chữ hoa, chữ thường, số và ký tự đặc biệt.`;
 
 /* ------------------------------------------------------------------------- validation */
 
@@ -38,23 +38,23 @@ export function validateSignupInput(emailRaw: string, passwordRaw: string, confi
   const email = emailRaw.trim();
   const errors: SignupFieldErrors = {};
   if (email.length === 0) {
-    errors.email = "Nhập địa chỉ email.";
+    errors.email = "customer.auth.validation.emailRequired";
   } else if (email.length > EMAIL_MAX_LENGTH) {
-    errors.email = `Email tối đa ${EMAIL_MAX_LENGTH} ký tự.`;
+    errors.email = "customer.auth.validation.emailTooLong";
   } else if (!/^[^\s@]+@[^\s@]+$/.test(email)) {
-    errors.email = "Địa chỉ email chưa hợp lệ.";
+    errors.email = "customer.auth.validation.emailInvalid";
   }
   if (passwordRaw.trim().length === 0) {
-    errors.password = "Nhập mật khẩu.";
+    errors.password = "customer.auth.validation.passwordRequired";
   } else if (passwordRaw.length < PASSWORD_MIN_LENGTH) {
-    errors.password = `Mật khẩu cần ít nhất ${PASSWORD_MIN_LENGTH} ký tự.`;
+    errors.password = "customer.signup.validation.passwordMin";
   } else if (passwordRaw.length > PASSWORD_MAX_LENGTH) {
-    errors.password = `Mật khẩu tối đa ${PASSWORD_MAX_LENGTH} ký tự.`;
+    errors.password = "customer.auth.validation.passwordTooLong";
   }
   if (confirmationRaw.length === 0) {
-    errors.confirmation = "Nhập lại mật khẩu.";
+    errors.confirmation = "customer.signup.validation.confirmationRequired";
   } else if (confirmationRaw !== passwordRaw) {
-    errors.confirmation = "Mật khẩu nhập lại không khớp.";
+    errors.confirmation = "customer.signup.validation.confirmationMismatch";
   }
   const focus: SignupField | null = errors.email ? "email" : errors.password ? "password" : errors.confirmation ? "confirmation" : null;
   if (focus) return { ok: false, errors, focus };
@@ -92,56 +92,55 @@ export interface SignupPresentation {
 }
 
 const CREATED_MESSAGE: Record<CustomerSessionState["status"], string> = {
-  anonymous: "Tạo tài khoản thành công. Bạn chưa đăng nhập.",
-  authenticated: "Tạo tài khoản thành công. Việc đăng ký không thay đổi phiên đăng nhập hiện tại.",
-  unknown: "Tạo tài khoản thành công. Việc đăng ký không tự đăng nhập.",
-  loading: "Tạo tài khoản thành công. Việc đăng ký không tự đăng nhập.",
+  anonymous: "customer.signup.created.anonymous",
+  authenticated: "customer.signup.created.authenticated",
+  unknown: "customer.signup.created.unknown",
+  loading: "customer.signup.created.unknown",
 };
 
 /**
- * What to tell the user. Fixed Vietnamese wording per outcome: nothing from the server's response (title,
+ * What to tell the user. Fixed wording per outcome (a pack message in the visitor's language): nothing from the server's response (title,
  * detail, field messages) or from the credentials is ever shown. `sessionStatus` is the provider's own
  * `me` state, passed through whole: a registration neither changes nor verifies the session, so the account
  * outcome ("created") and what is known about the session stay separate. "Not signed in" is said only for
  * an `anonymous` the provider has verified; `unknown`/`loading` say nothing about the current session.
  */
-export function presentSignupOutcome(outcome: SignupOutcome, sessionStatus: CustomerSessionState["status"]): SignupPresentation {
-  const login = { href: LOGIN_PAGE, label: "Đăng nhập" };
+export function presentSignupOutcome(outcome: SignupOutcome, sessionStatus: CustomerSessionState["status"], t: Translate): SignupPresentation {
+  const login = { href: LOGIN_PAGE, label: t("customer.auth.entry.signIn") };
   switch (outcome) {
     case "created":
       return {
         outcome,
         tone: "success",
-        message: CREATED_MESSAGE[sessionStatus],
+        message: t(CREATED_MESSAGE[sessionStatus]),
         link: login,
       };
     case "invalid":
       return {
         outcome,
         tone: "error",
-        message: `Không thể tạo tài khoản với thông tin này. Hãy kiểm tra lại email và mật khẩu. ${PASSWORD_REQUIREMENTS}`,
+        message: `${t("customer.signup.invalid")} ${t("customer.signup.passwordRequirements", { min: PASSWORD_MIN_LENGTH })}`,
         link: null,
       };
     case "exists":
       return {
         outcome,
         tone: "error",
-        message: "Không thể tạo tài khoản với email này. Hãy đăng nhập nếu bạn đã có tài khoản, hoặc dùng email khác.",
+        message: t("customer.signup.exists"),
         link: login,
       };
     case "rate-limited":
       return {
         outcome,
         tone: "warning",
-        message: "Có quá nhiều yêu cầu đăng ký. Hãy đợi một lúc rồi thử lại.",
+        message: t("customer.signup.rateLimited"),
         link: null,
       };
     case "uncertain":
       return {
         outcome,
         tone: "warning",
-        message:
-          "Chưa xác nhận được tài khoản đã được tạo hay chưa (kết nối hoặc máy chủ gặp sự cố). Bạn có thể đăng nhập bằng email và mật khẩu vừa nhập, hoặc tự đăng ký lại.",
+        message: t("customer.signup.uncertain"),
         link: login,
       };
   }

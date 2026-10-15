@@ -47,7 +47,8 @@ const RefreshButton: FC<{ onClick: () => void }> = ({ onClick }) => {
 /** What the provider says is going on with the session: checking, busy (booking locked) or needing a re-check. */
 export const CustomerSessionNotice: FC<{ className?: string }> = ({ className = "" }) => {
   const { state, identityChange, refreshSession } = useCustomerSession();
-  const notice = describeSessionNotice(state.status, identityChange.phase);
+  const t = useT();
+  const notice = describeSessionNotice(state.status, identityChange.phase, t);
   if (!notice) return null;
   return (
     <div
@@ -137,10 +138,11 @@ export function useAuthCommand(command: AuthCommand): AuthCommandRunner {
     return started;
   }, []);
 
+  const t = useT();
   const target = inProgressBookingTarget(booking);
   const presentation =
     outcome && !isStalePresentation(outcome, identityChange.phase, booking.phase)
-      ? presentIdentityCommandResult(command, outcome, { bookingHref: target ? buildRoomDetailsHref(target) : null })
+      ? presentIdentityCommandResult(command, outcome, { bookingHref: target ? buildRoomDetailsHref(target) : null }, t)
       : null;
 
   return {

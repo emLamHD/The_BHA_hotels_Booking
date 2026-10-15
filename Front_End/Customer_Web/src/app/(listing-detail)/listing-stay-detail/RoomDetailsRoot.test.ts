@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import React from "react";
-import { renderToStaticMarkup } from "react-dom/server";
 import { BookingHoldProvider } from "@/app/BookingHoldProvider";
+import { renderWithI18n } from "@/lib/i18n/testkit";
 import RoomDetailsRoot from "./RoomDetailsRoot";
 
 /**
@@ -10,9 +10,7 @@ import RoomDetailsRoot from "./RoomDetailsRoot";
  * not render a booking form. Malformed, unknown and mismatched ids are covered by roomDetailsRoute
  * tests (pure) and in the browser against the API (the loader needs effects).
  */
-const markup = renderToStaticMarkup(
-  React.createElement(BookingHoldProvider, null, React.createElement(RoomDetailsRoot))
-);
+const markup = renderWithI18n(React.createElement(BookingHoldProvider, null, React.createElement(RoomDetailsRoot)));
 
 describe("RoomDetailsRoot without a room in the URL", () => {
   it("explains that no room was chosen and links back to the rooms", () => {

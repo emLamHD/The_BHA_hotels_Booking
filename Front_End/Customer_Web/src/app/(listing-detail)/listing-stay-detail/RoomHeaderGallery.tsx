@@ -4,21 +4,23 @@ import React, { FC } from "react";
 import { Squares2X2Icon } from "@heroicons/react/24/outline";
 import type { ListingGalleryImage } from "@/components/listing-image-gallery/utils/types";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface RoomHeaderGalleryProps {
   images: ListingGalleryImage[];
   roomName: string;
   onOpen: () => void;
 }
 
-const Empty: FC<{ label: string }> = ({ label }) => (
+const Empty: FC<{ label: string }> = ({ label }) => {
+  const t = useT();
+  return (
   <div
     role="img"
     aria-label={label}
     className="absolute inset-0 flex items-center justify-center bg-neutral-100 p-2 text-center text-xs text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400"
-  >
-    Ảnh đang được cập nhật
-  </div>
+  >{t("customer.listingDetail.listingStayDetail.roomHeaderGallery.photosAreBeingUpdated")}</div>
 );
+};
 
 /**
  * CUST-WEB-SHOWCASE-001-CP02-C3: the template's top mosaic exactly — one large picture and four small

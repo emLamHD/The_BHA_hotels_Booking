@@ -4,6 +4,8 @@ export interface ProblemDetails {
   status: number;
   detail?: string;
   instance?: string;
+  /** The API's stable machine-readable code (`hold.expired`); a visitor's message is chosen by it, never by the English text. */
+  code?: string;
 }
 
 export interface ValidationProblemDetails extends ProblemDetails {

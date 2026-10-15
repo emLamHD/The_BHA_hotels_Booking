@@ -49,7 +49,7 @@ export default function AvatarDropdown({ className = "", panelClassName = "-righ
   const pathname = usePathname();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const email = state.status === "authenticated" ? state.customer.email : null;
-  const entry = describeAuthEntry(state.status, identityChange.phase, email);
+  const entry = describeAuthEntry(state.status, identityChange.phase, email, t);
 
   return (
     <>
