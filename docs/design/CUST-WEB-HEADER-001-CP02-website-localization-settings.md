@@ -27,7 +27,7 @@ dotnet TheBha.Api.dll --staff-website-access --email <staff-email> --enabled fal
 
 Two `DEFERRABLE INITIALLY DEFERRED` constraint triggers (SQLSTATE `XBHA3`, `XBHA4`) guarantee exactly one default language and exactly one default currency at commit, regardless of the application path.
 
-Frozen seed (in the migration, not in code, so re-running changes nothing): languages `vi` (active, default) and `en` (present but **off**, all 25 managed keys with authored English); currencies VND (base, default, on, rate 1), USD and EUR (off, **no rate**); 50 translation rows. `Down()` refuses while anything was administered (a version > 1, any other language/currency, any non-seed translation) or any account holds the permission.
+Frozen seed (in the migration, not in code, so re-running changes nothing): languages `vi` (active, default) and `en` (present but **off**, all 25 managed keys with authored English); currencies VND (base, default, on, rate 1), USD and EUR (off, **no rate**); 50 translation rows. `Down()` refuses while any account holds the permission, a language other than `vi`/`en` or a currency other than VND/USD/EUR exists, or any row has a version > 1 or belongs to a non-seed language. It does not detect the deletion of an unedited seed row (all remaining rows stay at version 1), so it is a guard against dropping edited data, not a proof that nothing changed.
 
 `VndPerUnit` is **VND per one unit** of the currency (so a reference amount in the currency is VND ÷ rate). It is exchanged as a decimal **string** matching `^(0|[1-9][0-9]{0,11})(\.[0-9]{1,8})?$`, `> 0`, never a JSON number; the API returns the canonical form without trailing zeros (`25000.50` is stored `25000.50000000` and returned `25000.5`).
 

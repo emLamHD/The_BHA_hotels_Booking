@@ -184,9 +184,13 @@ translation rows) and installs CHECK constraints, partial unique indexes and
 two `DEFERRABLE INITIALLY DEFERRED` constraint triggers (`SQLSTATE XBHA3`,
 `XBHA4`) that keep exactly one default language and one default currency.
 `VndPerUnit` is `numeric(20,8)`: VND per one unit of the currency. `Down()` is
-guarded: it fails atomically if anything was administered (a version above 1, an
-extra language/currency, a non-seed translation) or any account holds the
-permission. Design: `docs/design/CUST-WEB-HEADER-001-CP02-website-localization-settings.md`.
+guarded: it fails atomically if any account holds the permission, any language
+other than `vi`/`en` or currency other than VND/USD/EUR exists, or any
+language, currency or translation row has a version above 1 or belongs to a
+non-seed language. It does **not** detect the deletion of a seed row that was
+never edited (for example clearing one seed `en` translation or deleting USD
+leaves every remaining row at version 1), so a rollback after such a deletion
+silently drops the remaining seed. Design: `docs/design/CUST-WEB-HEADER-001-CP02-website-localization-settings.md`.
 
 Run the update command before the development seed. The API never calls
 `EnsureCreated()` and never applies a migration during startup.

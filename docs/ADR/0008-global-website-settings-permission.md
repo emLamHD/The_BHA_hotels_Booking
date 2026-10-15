@@ -21,4 +21,4 @@ ADR 0007 authorizes Staff per Property: a `StaffPropertyMembership` role (`Front
 
 - One more column and one more CLI verb; no new table for permissions. If a second global permission appears, a small permission table or flags column is a later, explicit decision.
 - An operator, not the Admin UI, decides who can change the site's languages and currencies. There is no screen to grant it.
-- `Down()` of migration 10 refuses while any website data was administered or any account holds the permission, so a rollback cannot silently drop either.
+- `Down()` of migration 10 refuses while any account holds the permission or any website row was edited or added (a version above 1, a non-seed language/currency/translation), so a rollback cannot silently drop either. It does not notice the deletion of an unedited seed row.

@@ -17,9 +17,9 @@
 | A5 | API công khai + hồi quy Calendar | PASS |
 
 ### A1 — migration và dữ liệu hiện có
-- `dotnet ef migrations has-pending-model-changes` → "No changes have been made". Migration 10 `20261015050047_AddWebsiteLocalizationSettings` (EF sinh + trigger/seed viết tay); `Down()` có bảo vệ.
+- `dotnet ef migrations has-pending-model-changes` → "No changes have been made". Migration 10 `20261015050047_AddWebsiteLocalizationSettings` (EF sinh + trigger/seed viết tay); `Down()` có bảo vệ (giới hạn đã biết: không phát hiện việc xóa một dòng seed chưa từng sửa, vì các dòng còn lại vẫn ở version 1 — xem `DATABASE.md`).
 - **Đường dữ liệu thật (DB tạm `thebha_cp02_demo`, PostgreSQL 18.3):** migrate tới migration 9 → seed Riverside demo (172 dòng) → đếm hàng 27 bảng → migrate lên 10 → đếm lại. Diff chỉ gồm 3 bảng mới (`WebsiteCurrencies=3`, `WebsiteLanguages=2`, `WebsiteTranslations=50`) và `__EFMigrationsHistory` 9→10; **mọi bảng cũ giữ nguyên số hàng** (`counts-before.txt`/`counts-after.txt`). Seed: `vi` bật+mặc định, `en` có nhưng tắt, VND base/mặc định/tỷ giá 1, USD/EUR tắt không có tỷ giá; không Staff nào có quyền.
-- Test tích hợp `WebsiteSettingsMigrationTests` (migrate từ 9 có dữ liệu Staff, `Down()` bị từ chối khi đã quản trị/đã cấp quyền, trigger `XBHA3`/`XBHA4`, so mô hình với snapshot) cùng các test migration cũ được cập nhật số lượng.
+- Test tích hợp `WebsiteSettingsMigrationTests` (migrate từ 9 có dữ liệu Staff, `Down()` bị từ chối khi có tài khoản đã được cấp quyền hoặc có dòng bị sửa/thêm (version > 1, ngôn ngữ/tiền tệ/bản dịch ngoài seed), trigger `XBHA3`/`XBHA4`, so mô hình với snapshot) cùng các test migration cũ được cập nhật số lượng.
 - Không apply lên DB nào ngoài container tạm; `the-bha-postgres-1` không đụng tới.
 
 ### A2 — quyền
@@ -69,9 +69,11 @@ Kịch bản và harness (không chứa bí mật, nằm ngoài repo): `~/bha-ev
 3. **Tỷ giá lưu `numeric(20,8)`** và trả dạng chuẩn không số 0 thừa (`25000.50` → `25000.5`).
 4. **PR lớn** (~7,1k dòng backend, ~4,1k Admin, chưa tính docs): vượt mục tiêu 100–400 dòng (chỉ là mục tiêu, không phải trần); phần lớn là migration (EF Designer + snapshot ≈ 2,4k) và test (≈ 3,9k). Số GitHub additions/deletions: xem PR body.
 5. **Sửa ngoài kế hoạch, có giải thích:** `Button` template không có `type` nên nút Hủy trong `<form>` sẽ submit — thêm prop tùy chọn (mặc định không đổi hành vi cho mọi nơi cũ); wrapper bảng thêm `relative` vì cell `sr-only` gây cuộn ngang mobile.
-6. **Đọc có Origin lạ + cookie hợp lệ trả 200** khi gọi không qua trình duyệt (Playwright `request`); CORS chỉ chặn việc *đọc* của trình duyệt, cookie `SameSite=Strict` chặn gửi chéo site — cùng hành vi với các đọc Calendar hiện có, không phải regression. Mọi `POST` vẫn bị biên Staff kiểm Origin/JSON.
+6. **Đọc có Origin lạ + cookie hợp lệ trả 200** khi gọi không qua trình duyệt (Playwright `request`); CORS chỉ chặn việc *đọc* của trình duyệt, cookie `SameSite=Strict` chặn gửi chéo site — cùng hành vi với các đọc Calendar hiện có (đã xác minh trong mã: `StaffRequestBoundaryFilter` bỏ qua `GET`/`HEAD` — "every Staff request other than a read" — và `StaffCalendarAccessFilter` dùng chính filter đó), không phải regression. Mọi `POST` vẫn bị biên Staff kiểm Origin/JSON.
 7. **Chưa kiểm bằng trình duyệt:** sign-out đang chờ làm các ghi mới bị từ chối (chỉ có test đơn vị `WebsiteAccessGate`); không có gì thật được deploy; Customer_Web chưa dùng API công khai.
-8. **Harness:** nâng giới hạn đăng nhập Staff (`StaffAuthentication__LoginRateLimiting__PermitLimit=500`) và dùng thư mục khóa Data Protection tạm cho API chạy `Production`; chỉ trong harness.
+8. **Không chạy `npm ci`:** lockfile và dependency không đổi (chỉ `node_modules` có sẵn); `npm test/tsc/lint/build` đều chạy trên cây hiện có. Container tạm `the-bha-cp02-pg` (127.0.0.1:55440) và `staff.env` (mode 600, mật khẩu chỉ cho dữ liệu thử) trong thư mục scratchpad **được giữ** cho các vòng sửa sau review; xóa khi Owner đóng work item.
+9. **Quy trình:** bước E2E "Manager không quyền" đỏ hai lần liên tiếp với cùng lỗi (đăng nhập bị 429) trước khi tôi chẩn đoán qua nhật ký API; theo CLAUDE.md lẽ ra phải gọi advisor ở lần lặp thứ hai — **không làm**. Lỗi là của harness, không phải của sản phẩm.
+10. **Harness:** nâng giới hạn đăng nhập Staff (`StaffAuthentication__LoginRateLimiting__PermitLimit=500`) và dùng thư mục khóa Data Protection tạm cho API chạy `Production`; chỉ trong harness.
 
 ## 5. Cách Owner thử
 
@@ -87,4 +89,4 @@ Kịch bản và harness (không chứa bí mật, nằm ngoài repo): `~/bha-ev
 ## 7. Chẩn đoán (`diagnosing-bugs`, làm tay) và công cụ
 
 - Các lỗi đã chẩn đoán có vòng phản hồi: 598 test đỏ do `ExecuteSqlRaw` hiểu `{what}` là placeholder (đỏ → nhân đôi ngoặc → xanh); nút Hủy submit form (test panel đỏ → thêm `type` → xanh + test hồi quy); dialog xóa biến mất khi dòng bị xóa (test đỏ → giữ bản chụp dòng); cuộn ngang mobile (đo 594/417/547px → `relative` → 390px); 429 đăng nhập trong E2E (nhật ký API → nâng giới hạn harness).
-- Mô hình chính Sonnet 5.5; advisor Opus 5.5 được gọi trước khi chốt kế hoạch và trước khi báo xong; Haiku 5.5 chỉ cho tra cứu chỉ-đọc. Không có agent nào ghi vào repo.
+- Mô hình chính Sonnet 5.5; advisor Opus 5.5 được gọi trước khi chốt kế hoạch và trước khi báo xong (trừ lần lặp lỗi nêu ở mục 4.9); Haiku 5.5 chỉ cho tra cứu chỉ-đọc. Không có agent nào ghi vào repo.
