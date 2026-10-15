@@ -9,14 +9,14 @@ import {
   riversideMapLink,
 } from "@/lib/riversideHomeContent";
 
-import { useT } from "@/lib/i18n/I18nProvider";
+import { useI18n } from "@/lib/i18n/I18nProvider";
 /**
  * CUST-WEB-001-CP08a-C3 (Owner): where The BHA Riverside is. A Google Maps embed (plain iframe, loaded only when
  * it nears the screen, no script of ours, no API key) of the Owner-given address, with a link that opens the place
  * in Google Maps for directions. Nothing from the booking system or the visitor is involved.
  */
 const HomeLocationMap: FC = () => {
-  const t = useT();
+  const { t, locale } = useI18n();
   return (
   <section aria-labelledby="location-heading" className="nc-HomeLocationMap relative">
     <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -39,7 +39,7 @@ const HomeLocationMap: FC = () => {
     <div className="overflow-hidden rounded-3xl border border-neutral-200 dark:border-neutral-700">
       <iframe
         title={t("customer.home.map.title", { name: RIVERSIDE_NAME, address: RIVERSIDE_FULL_ADDRESS })}
-        src={riversideMapEmbedUrl()}
+        src={riversideMapEmbedUrl(undefined, locale)}
         loading="lazy"
         referrerPolicy="no-referrer-when-downgrade"
         allowFullScreen

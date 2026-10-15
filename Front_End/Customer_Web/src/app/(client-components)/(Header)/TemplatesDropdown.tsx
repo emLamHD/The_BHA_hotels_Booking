@@ -78,7 +78,7 @@ export default function TemplatesDropdown() {
                       <div className="w-[35%] xl:w-[30%]">
                         <Collection
                           name="The BHA Riverside"
-                          desc="Đặt phòng <br /> trực tiếp"
+                          desc={t("customer.nav.bookDirect")}
                           featuredImage="/media/the-bha-riverside/rooftop-pool-day.webp"
                         />
                       </div>

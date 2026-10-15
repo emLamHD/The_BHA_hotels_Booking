@@ -88,14 +88,10 @@ const GuestsInput: FC<GuestsInputProps> = ({
               </div>
               <div className="flex-grow">
                 <span className="block xl:text-lg font-semibold">
-                  {live ? `${totalGuests} khách` : `${totalGuests || ""} Guests`}
+                  {live || totalGuests ? t("customer.booking.guests", { guests: totalGuests }) : t("customer.search.who")}
                 </span>
                 <span className="block mt-1 text-sm text-neutral-400 leading-none font-light">
-                  {live
-                    ? `${live.rooms} phòng`
-                    : totalGuests
-                      ? "Guests"
-                      : "Add guests"}
+                  {live ? t("customer.booking.rooms", { rooms: live.rooms }) : t("customer.search.guests.add")}
                 </span>
               </div>
 

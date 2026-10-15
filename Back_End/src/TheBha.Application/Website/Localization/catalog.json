@@ -3887,6 +3887,11 @@
    "placeholders": []
   },
   {
+   "key": "customer.nav.bookDirect",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.nav.carRental",
    "scope": "customer",
    "placeholders": []

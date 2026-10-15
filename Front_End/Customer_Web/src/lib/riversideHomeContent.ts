@@ -68,7 +68,7 @@ export const RIVERSIDE_FULL_ADDRESS = "162 Nghiêm Xuân Yêm, phường Ngũ H�
 
 const mapQuery = (address: string) => encodeURIComponent(`${RIVERSIDE_NAME}, ${address}`);
 /** Keyless Google Maps embed of the property (a plain iframe: no script, no API key, nothing of the visitor is sent by this site). */
-export const riversideMapEmbedUrl = (address: string = RIVERSIDE_FULL_ADDRESS) => `https://www.google.com/maps?q=${mapQuery(address)}&output=embed&hl=vi`;
+export const riversideMapEmbedUrl = (address: string = RIVERSIDE_FULL_ADDRESS, language: string = "vi") => `https://www.google.com/maps?q=${mapQuery(address)}&output=embed&hl=${encodeURIComponent(language)}`;
 /** The same place in the Google Maps site/app, for directions. */
 export const riversideMapLink = (address: string = RIVERSIDE_FULL_ADDRESS) => `https://www.google.com/maps/search/?api=1&query=${mapQuery(address)}`;
 export const HOLD_MINUTES = 15;
