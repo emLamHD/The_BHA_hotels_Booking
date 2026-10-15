@@ -335,7 +335,7 @@ export function describeRefusal(failure: WebsiteFailure | null): string | null {
 }
 
 export const TABLE_CLASSES = {
-  wrap: "overflow-x-auto rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]",
+  wrap: "relative overflow-x-auto rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]",
   table: "min-w-full text-left text-sm",
   head: "border-b border-gray-100 bg-gray-50 text-xs uppercase tracking-wide text-gray-500 dark:border-gray-800 dark:bg-white/[0.02] dark:text-gray-400",
   headCell: "px-4 py-3 font-medium",

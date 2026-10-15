@@ -207,7 +207,10 @@ function TranslationsTable({ locale, languages, onLocale }: { locale: string; la
                     </td>
                     <td className={TABLE_CLASSES.cell}>{formatWhen(row.updatedAtUtc)}</td>
                     <td className={`${TABLE_CLASSES.cell} whitespace-nowrap`}>
-                      <ActionButton variant="outline" testId={`edit-${row.key}`} onClick={() => setEditing(row.key)} disabled={host.signingOut}>
+                      <ActionButton variant="outline" testId={`edit-${row.key}`} onClick={() => {
+                          setNotice(null);
+                          setEditing(row.key);
+                        }} disabled={host.signingOut}>
                         {row.hasOverride ? "Edit" : "Translate"}
                       </ActionButton>
                     </td>
