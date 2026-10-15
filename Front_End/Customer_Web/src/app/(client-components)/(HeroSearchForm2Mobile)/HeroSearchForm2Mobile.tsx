@@ -12,6 +12,7 @@ import { OPEN_SEARCH_EVENT, draftPatchFromListingQuery, summarizeDraft } from "@
 import { LISTING_STAY_PATH, parseStayListingQuery } from "@/lib/stayListingQuery";
 import { initialStayDraft } from "@/lib/staySearch";
 
+import { useApiMessage } from "@/lib/i18n/apiMessage";
 import { useT } from "@/lib/i18n/I18nProvider";
 /**
  * The compact search of every header under `lg` (and of the room page, where the app bar is hidden).
@@ -23,6 +24,7 @@ import { useT } from "@/lib/i18n/I18nProvider";
  */
 const HeroSearchForm2Mobile = () => {
   const t = useT();
+  const apiMessage = useApiMessage();
   const [showModal, setShowModal] = useState(false);
   const stay = useStaySearch();
   const problemRef = useRef<HTMLParagraphElement>(null);
@@ -65,7 +67,7 @@ const HeroSearchForm2Mobile = () => {
   }, [problemId, showModal]);
 
   if (!stay) return null;
-  const summary = summarizeDraft(stay.draft);
+  const summary = summarizeDraft(stay.draft, t);
 
   const renderButtonOpenModal = () => {
     return (
@@ -150,7 +152,7 @@ const HeroSearchForm2Mobile = () => {
                           tabIndex={-1}
                           className="px-4 py-2 text-sm text-red-600 bg-white focus:outline-none dark:bg-neutral-900 dark:text-red-400"
                         >
-                          {stay.problem.message}
+                          {apiMessage(stay.problem.message)}
                         </p>
                       )}
                       <div className="px-4 py-3 bg-white dark:bg-neutral-900 border-t border-neutral-200 dark:border-neutral-700 flex justify-between">

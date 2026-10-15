@@ -1,6 +1,6 @@
 "use client";
 
-import React, { FC, KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
+import React, { useMemo, FC, KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import type { Route } from "next";
@@ -21,7 +21,8 @@ import { AUTOPLAY_INTERVAL_MS, nextIndex, prevIndex, shouldAutoplay } from "@/li
 import { OPEN_SEARCH_EVENT } from "@/lib/homepageSearch";
 import { RIVERSIDE_PATH } from "@/lib/riversideHomeContent";
 
-import { useT } from "@/lib/i18n/I18nProvider";
+import { useI18n, useT } from "@/lib/i18n/I18nProvider";
+import { localizeHeroSlide } from "@/lib/i18n/staticContent";
 /** The two hero actions share one height, weight and radius: a solid white primary and a glass secondary, both legible over any picture. */
 const ACTION_BASE_CLASS =
   "inline-flex h-12 items-center justify-center gap-2 rounded-full px-6 text-sm font-semibold shadow-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black/40 sm:h-14 sm:px-8 sm:text-base";
@@ -55,7 +56,8 @@ function startSearch() {
  */
 const HomeHeroCarousel: FC = () => {
   const t = useT();
-  const slides = HERO_SLIDES;
+  const { content } = useI18n();
+  const slides = useMemo(() => HERO_SLIDES.map((slide) => localizeHeroSlide(slide, content)), [content]);
   const [index, setIndex] = useState(0);
   const [hovered, setHovered] = useState(false);
   const [focusWithin, setFocusWithin] = useState(false);
@@ -209,7 +211,7 @@ const HomeHeroCarousel: FC = () => {
                 <li key={slide.id}>
                   <button
                     type="button"
-                    aria-label={`Ảnh ${slideIndex + 1}: ${slide.caption}`}
+                    aria-label={t("customer.hero.slideLabel", { n: slideIndex + 1, caption: slide.caption })}
                     aria-current={slideIndex === index ? "true" : undefined}
                     onClick={() => go(slideIndex)}
                     className="group flex h-6 w-6 items-center justify-center focus:outline-none"

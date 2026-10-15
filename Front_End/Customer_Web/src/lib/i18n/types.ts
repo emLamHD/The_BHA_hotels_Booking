@@ -68,6 +68,14 @@ export const PROVIDER_CONTENT_PREFIXES = [
   "content.ratePlan.",
   "content.amenity.",
   "content.media.",
+  // the small static registries (offers, hero slides, navigation, booking guide); posts are read per page
+  "content.offer.",
+  "content.hero.",
+  "content.nav.",
+  "content.gallery.",
+  "content.benefit.",
+  "content.step.",
+  "content.category.",
 ] as const;
 
 /** What `useT()` returns: the text for a key in the visitor's language, with the message's parameters filled in. */

@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import type { Route } from "next";
 import BgGlassmorphism from "@/components/BgGlassmorphism";
-import { MOCK_OFFERS, OFFER_DISCLOSURE } from "@/data/homepageOffers";
+import { MOCK_OFFERS } from "@/data/homepageOffers";
 import { resolveOfferHighlight } from "@/lib/homepageContent";
 import { RESULTS_PATH } from "@/lib/riversideHomeContent";
 import OfferCard from "../(home)/OfferCard";
@@ -34,7 +34,7 @@ export default async function OffersPage({ searchParams }: OffersPageProps) {
         <header className="max-w-3xl space-y-3">
           <h1 className="text-3xl font-semibold text-neutral-900 dark:text-neutral-50 md:text-4xl">{t("customer.common.roomOffers")}</h1>
           <p role="note" className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-600 dark:bg-neutral-800 dark:text-amber-200">
-            {OFFER_DISCLOSURE}
+            {t("customer.offers.disclosure")}
           </p>
           <p>
             <Link href={RESULTS_PATH as Route} className="font-medium text-primary-700 underline underline-offset-2 dark:text-primary-300">{t("customer.offers.page.findRoomsAndSeeReal")}</Link>

@@ -910,6 +910,28 @@
    "placeholders": []
   },
   {
+   "key": "customer.blog.index.description",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.index.title",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.metaTitle",
+   "scope": "customer",
+   "placeholders": [
+    "name"
+   ]
+  },
+  {
+   "key": "customer.blog.metaTitleIndex",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.blog.page.all",
    "scope": "customer",
    "placeholders": []
@@ -925,12 +947,51 @@
    "placeholders": []
   },
   {
+   "key": "customer.blog.reportDate",
+   "scope": "customer",
+   "placeholders": [
+    "date"
+   ]
+  },
+  {
+   "key": "customer.blog.sampleLabel",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.sampleNotReal",
+   "scope": "customer",
+   "placeholders": [
+    "label"
+   ]
+  },
+  {
    "key": "customer.blog.sectionLatestPosts.latestArticles",
    "scope": "customer",
    "placeholders": []
   },
   {
    "key": "customer.blog.sectionLatestPosts.showMeMore",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.slug.guideLine",
+   "scope": "customer",
+   "placeholders": [
+    "date"
+   ]
+  },
+  {
+   "key": "customer.blog.slug.newsLine",
+   "scope": "customer",
+   "placeholders": [
+    "published",
+    "updated"
+   ]
+  },
+  {
+   "key": "customer.blog.slug.notFoundTitle",
    "scope": "customer",
    "placeholders": []
   },
@@ -970,6 +1031,13 @@
    "key": "customer.blog.slug.page.wikimediaCommons",
    "scope": "customer",
    "placeholders": []
+  },
+  {
+   "key": "customer.blog.updated",
+   "scope": "customer",
+   "placeholders": [
+    "date"
+   ]
   },
   {
    "key": "customer.blog.widgetCategories.trendingTopic",
@@ -2616,6 +2684,14 @@
    "placeholders": []
   },
   {
+   "key": "customer.hero.slideLabel",
+   "scope": "customer",
+   "placeholders": [
+    "caption",
+    "n"
+   ]
+  },
+  {
    "key": "customer.heroSearchForm.guestsInput.adults",
    "scope": "customer",
    "placeholders": []
@@ -3105,6 +3181,33 @@
    ]
   },
   {
+   "key": "customer.homeSearch.brand",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.homeSearch.dates",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.homeSearch.generic",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.homeSearch.pickDates",
+   "scope": "customer",
+   "placeholders": [
+    "party"
+   ]
+  },
+  {
+   "key": "customer.homeSearch.title",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.likeSaveBtns.share",
    "scope": "customer",
    "placeholders": []
@@ -3407,6 +3510,11 @@
    "placeholders": []
   },
   {
+   "key": "customer.media.changesNote",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.mediaCredits.page.author",
    "scope": "customer",
    "placeholders": [
@@ -3466,6 +3574,36 @@
    "placeholders": []
   },
   {
+   "key": "customer.newsletter.benefit",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.disclosure",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.heading",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.invalid",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.notStored",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.required",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.notFound.returnHomePage",
    "scope": "customer",
    "placeholders": []
@@ -3476,7 +3614,29 @@
    "placeholders": []
   },
   {
+   "key": "customer.offers.badge",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.offers.disclosure",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.offers.discountAria",
+   "scope": "customer",
+   "placeholders": [
+    "percent"
+   ]
+  },
+  {
    "key": "customer.offers.page.findRoomsAndSeeReal",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.offers.realCta",
    "scope": "customer",
    "placeholders": []
   },

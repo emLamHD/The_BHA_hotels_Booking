@@ -8,48 +8,58 @@ import { ArrowRightIcon } from "@heroicons/react/24/outline";
 import Heading from "@/shared/Heading";
 import ButtonSecondary from "@/shared/ButtonSecondary";
 import { travelMediaUrl } from "@/data/heroSlides";
-import { SAMPLE_POST_LABEL, TravelPost } from "@/data/travelPosts";
-import { findCategory, formatPostDate, homeNews, postPath } from "@/lib/homepageContent";
+import type { TravelPost } from "@/data/travelPosts";
+import { findCategory, homeNews, postPath } from "@/lib/homepageContent";
+import { localizeCategory, localizePost } from "@/lib/i18n/staticContent";
+import { postDateLine } from "@/app/blog/PostCard";
 import { BLOG_PATH } from "@/lib/riversideHomeContent";
 
-import { useT } from "@/lib/i18n/I18nProvider";
-/** "Tin ngày 12/07/2026": the date of the report the summary is made from, not of anything the property did. */
-const reportDate = (post: TravelPost) => (post.sample ? SAMPLE_POST_LABEL : `Tin ngày ${formatPostDate(post.publishedAt)}`);
+import { useI18n, useT } from "@/lib/i18n/I18nProvider";
 
-export const NewsCardLarge: FC<{ post: TravelPost }> = ({ post }) => (
+export const NewsCardLarge: FC<{ post: TravelPost }> = ({ post: registryPost }) => {
+  const { t, content, formatLocale } = useI18n();
+  const post = localizePost(registryPost, content);
+  const registryCategory = findCategory(post.category);
+  return (
   <article className="nc-NewsCardLarge group flex flex-col overflow-hidden rounded-3xl border border-neutral-200 bg-white dark:border-neutral-700 dark:bg-neutral-900">
     <Link href={postPath(post.slug) as Route} className="relative block aspect-[3/2] overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500" aria-label={post.title}>
       <Image src={travelMediaUrl(post.cover)} alt={post.coverAlt} width={1200} height={800} sizes="(min-width: 1024px) 50vw, 100vw" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
     </Link>
     <div className="space-y-3 p-6">
-      <p className="text-xs font-medium uppercase tracking-wide text-primary-700 dark:text-primary-300">{findCategory(post.category)?.name}</p>
+      <p className="text-xs font-medium uppercase tracking-wide text-primary-700 dark:text-primary-300">{registryCategory ? localizeCategory(registryCategory, content).name : ""}</p>
       <h3 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100 sm:text-2xl">
         <Link href={postPath(post.slug) as Route} className="hover:underline focus:outline-none focus-visible:underline">
           {post.title}
         </Link>
       </h3>
       <p className="text-sm text-neutral-600 dark:text-neutral-300">{post.excerpt}</p>
-      <p className="text-xs text-neutral-500 dark:text-neutral-400">{reportDate(post)}</p>
+      <p className="text-xs text-neutral-500 dark:text-neutral-400">{postDateLine(post, t, formatLocale)}</p>
     </div>
   </article>
-);
+  );
+};
 
-export const NewsCardSmall: FC<{ post: TravelPost }> = ({ post }) => (
+export const NewsCardSmall: FC<{ post: TravelPost }> = ({ post: registryPost }) => {
+  const { t, content, formatLocale } = useI18n();
+  const post = localizePost(registryPost, content);
+  const registryCategory = findCategory(post.category);
+  return (
   <article className="nc-NewsCardSmall group flex gap-4 overflow-hidden rounded-3xl border border-neutral-200 bg-white p-3 dark:border-neutral-700 dark:bg-neutral-900">
     <Link href={postPath(post.slug) as Route} className="relative block h-28 w-28 flex-shrink-0 overflow-hidden rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 sm:h-32 sm:w-40" aria-label={post.title}>
       <Image src={travelMediaUrl(post.cover)} alt={post.coverAlt} width={1200} height={800} sizes="160px" className="h-full w-full object-cover" />
     </Link>
     <div className="min-w-0 space-y-2 py-1">
-      <p className="text-xs font-medium uppercase tracking-wide text-primary-700 dark:text-primary-300">{findCategory(post.category)?.name}</p>
+      <p className="text-xs font-medium uppercase tracking-wide text-primary-700 dark:text-primary-300">{registryCategory ? localizeCategory(registryCategory, content).name : ""}</p>
       <h3 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
         <Link href={postPath(post.slug) as Route} className="hover:underline focus:outline-none focus-visible:underline">
           {post.title}
         </Link>
       </h3>
-      <p className="text-xs text-neutral-500 dark:text-neutral-400">{reportDate(post)}</p>
+      <p className="text-xs text-neutral-500 dark:text-neutral-400">{postDateLine(post, t, formatLocale)}</p>
     </div>
   </article>
-);
+  );
+};
 
 /**
  * CUST-WEB-001-CP08a-C2: "Tin tức nổi bật": one large and the other news summaries (the template's

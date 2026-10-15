@@ -18,7 +18,8 @@ import {
   riversideSectionHref,
 } from "@/lib/riversideHomeContent";
 
-import { useT } from "@/lib/i18n/I18nProvider";
+import { useI18n, useT } from "@/lib/i18n/I18nProvider";
+import { localizeBenefit, localizeImage } from "@/lib/i18n/staticContent";
 const BENEFIT_ICON: Record<string, typeof HomeModernIcon> = { types: HomeModernIcon, price: CalendarDaysIcon, hold: ClockIcon };
 
 /** Property-level pictures from the Riverside gallery: the pool by day, the lobby and the entrance with the brand's sign. */
@@ -33,6 +34,7 @@ const COLLAGE = ["rooftop-pool-day.webp", "lobby-sofa.webp", "entrance-logo.webp
  */
 const HomeRiversideTeaser: FC = () => {
   const t = useT();
+  const { content } = useI18n();
   return (
   <section
     id={HOME_SECTION.rooms}
@@ -46,7 +48,8 @@ const HomeRiversideTeaser: FC = () => {
       </h2>
       <p className="text-neutral-600 dark:text-neutral-300">{t("customer.home.homeRiversideTeaser.servicedApartmentsAtChooseDates", { RIVERSIDEADDRESS: RIVERSIDE_ADDRESS })}</p>
       <ul className="space-y-4 border-t border-neutral-200 pt-6 dark:border-neutral-700">
-        {BENEFITS.map((benefit) => {
+        {BENEFITS.map((registryBenefit) => {
+          const benefit = localizeBenefit(registryBenefit, content);
           const Icon = BENEFIT_ICON[benefit.id] ?? HomeModernIcon;
           return (
             <li key={benefit.id} className="flex gap-4">
@@ -74,7 +77,7 @@ const HomeRiversideTeaser: FC = () => {
       </div>
     </div>
     <div className="grid h-[340px] grid-cols-2 grid-rows-2 gap-3 sm:h-[440px] lg:h-[520px]">
-      {COLLAGE.map((image, index) => (
+      {COLLAGE.map((registryImage, index) => { const image = localizeImage(registryImage, registryImage.file.replace(/\.webp$/, ""), content); return (
         <div key={image.file} className={`relative overflow-hidden rounded-3xl ${index === 0 ? "row-span-2" : ""}`}>
           <Image
             src={mediaUrl(image.file)}
@@ -85,7 +88,7 @@ const HomeRiversideTeaser: FC = () => {
             className="h-full w-full object-cover"
           />
         </div>
-      ))}
+      ); })}
     </div>
   </section>
 );

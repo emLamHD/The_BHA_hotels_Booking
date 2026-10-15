@@ -20,7 +20,8 @@ import {
   mediaUrl,
 } from "@/lib/riversideHomeContent";
 
-import { useT } from "@/lib/i18n/I18nProvider";
+import { useI18n, useT } from "@/lib/i18n/I18nProvider";
+import { localizeBenefit, localizeHeroSlide, localizeImage, localizeNavItem, localizeStep } from "@/lib/i18n/staticContent";
 const BADGE_COLORS = ["blue", "green", "red"] as const;
 
 /**
@@ -33,6 +34,7 @@ const BADGE_COLORS = ["blue", "green", "red"] as const;
 /** Why book here: what the booking page really does, the property's own amenities, one real photograph. */
 export const IntroSection: FC = () => {
   const t = useT();
+  const { content } = useI18n();
   return (
   <section
     id={HOME_SECTION.intro}
@@ -42,7 +44,7 @@ export const IntroSection: FC = () => {
     <div className="w-full flex-grow lg:w-3/5">
       <Image
         src={mediaUrl(INTRO_IMAGE.file)}
-        alt={INTRO_IMAGE.alt}
+        alt={localizeImage(INTRO_IMAGE, "intro", content).alt}
         width={INTRO_IMAGE.width}
         height={INTRO_IMAGE.height}
         sizes="(min-width: 1024px) 55vw, 100vw"
@@ -53,13 +55,13 @@ export const IntroSection: FC = () => {
       <span className="text-sm uppercase tracking-widest text-neutral-500 dark:text-neutral-400">{RIVERSIDE_NAME}</span>
       <h2 id="intro-heading" className="mt-5 text-4xl font-semibold">{t("customer.home.riversideHomeContent.bookDirectClearAtEvery")}</h2>
       <ul className="mt-12 space-y-10">
-        {BENEFITS.map((benefit, index) => (
+        {BENEFITS.map((registryBenefit, index) => { const benefit = localizeBenefit(registryBenefit, content); return (
           <li key={benefit.id} className="space-y-4">
             <Badge color={BADGE_COLORS[index % BADGE_COLORS.length]} name={benefit.badge} />
             <h3 className="block text-xl font-semibold">{benefit.title}</h3>
             <span className="block text-neutral-500 dark:text-neutral-400">{benefit.body}</span>
           </li>
-        ))}
+        ); })}
       </ul>
       <PropertyAmenities />
     </div>
@@ -70,11 +72,12 @@ export const IntroSection: FC = () => {
 /** The place itself: property pictures only (pool, rooftop, entrance, lobby), each with its own description. */
 export const SpaceGallerySection: FC = () => {
   const t = useT();
+  const { content } = useI18n();
   return (
   <section aria-labelledby="space-heading" className="relative scroll-mt-24">
     <Heading id="space-heading" desc={t("customer.home.riversideHomeContent.theRooftopPoolLobbyAnd")}>{t("customer.home.riversideHomeContent.exploreTheSpace")}</Heading>
     <div className="grid grid-cols-2 gap-3 sm:gap-6 md:grid-cols-3">
-      {SPACE_GALLERY.map((image, index) => (
+      {SPACE_GALLERY.map((registryImage, index) => { const image = localizeImage(registryImage, registryImage.file.replace(/\.webp$/, ""), content); return (
         <div
           key={image.file}
           className={`overflow-hidden rounded-3xl ${index === 0 ? "col-span-2 md:row-span-2" : ""}`}
@@ -88,7 +91,7 @@ export const SpaceGallerySection: FC = () => {
             className="h-full w-full object-cover"
           />
         </div>
-      ))}
+      ); })}
     </div>
   </section>
 );
@@ -97,11 +100,12 @@ export const SpaceGallerySection: FC = () => {
 /** Three steps that are the booking page's real behaviour: search (a snapshot), hold, confirm. */
 export const BookingGuideSection: FC = () => {
   const t = useT();
+  const { content } = useI18n();
   return (
   <section id={HOME_SECTION.guide} aria-labelledby="guide-heading" className="nc-SectionHowItWork relative scroll-mt-24">
     <Heading id="guide-heading" isCenter desc={t("customer.home.riversideHomeContent.threeStepsRightOnThis")}>{t("customer.home.riversideHomeContent.howToBook")}</Heading>
     <ol className="mt-14 grid gap-12 md:grid-cols-3 md:gap-16">
-      {BOOKING_STEPS.map((step) => (
+      {BOOKING_STEPS.map((registryStep) => { const step = localizeStep(registryStep, content); return (
         <li key={step.id} className="mx-auto flex max-w-xs flex-col items-center text-center">
           <span
             aria-hidden="true"
@@ -112,7 +116,7 @@ export const BookingGuideSection: FC = () => {
           <h3 className="mt-6 text-xl font-semibold">{step.title}</h3>
           <span className="mt-4 block text-neutral-500 dark:text-neutral-400">{step.body}</span>
         </li>
-      ))}
+      ); })}
     </ol>
     <div className="mt-14 flex justify-center">
       <ButtonPrimary href={RESULTS_PATH as Route}>{t("customer.home.riversideHomeContent.startSearchingForARoom")}</ButtonPrimary>
@@ -124,6 +128,7 @@ export const BookingGuideSection: FC = () => {
 /** Where it is (the approved address) and what a guest should know before booking. */
 export const LocationFaqSection: FC = () => {
   const t = useT();
+  const { content } = useI18n();
   return (
   <section id={HOME_SECTION.faq} aria-labelledby="faq-heading" className="relative scroll-mt-24">
     <Heading id="faq-heading" desc={t("customer.home.riversideHomeContent.locationAndThingsToKnow")}>{t("customer.home.riversideHomeContent.goodToKnow")}</Heading>

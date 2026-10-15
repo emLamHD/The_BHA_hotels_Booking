@@ -5,24 +5,24 @@ import type { Route } from "next";
 import { notFound } from "next/navigation";
 import BgGlassmorphism from "@/components/BgGlassmorphism";
 import { POST_CATEGORIES } from "@/data/travelPosts";
+import { localizeCategory } from "@/lib/i18n/staticContent";
 import { blogCategoryPath, postsForFilter, resolveBlogFilter } from "@/lib/homepageContent";
 import { BLOG_PATH } from "@/lib/riversideHomeContent";
 import PostCard from "./PostCard";
 
-import { getT } from "@/lib/i18n/server";
+import { getContent, getT } from "@/lib/i18n/server";
 interface BlogPageProps {
   searchParams?: { category?: string | string[] };
 }
 
-export function generateMetadata({ searchParams }: BlogPageProps): Metadata {
+export async function generateMetadata({ searchParams }: BlogPageProps): Promise<Metadata> {
+  const [t, { c }] = await Promise.all([getT(), getContent()]);
   const filter = resolveBlogFilter(searchParams?.category);
   if (filter.kind === "category") {
-    return { title: `${filter.category.name} — Blog The BHA`, description: filter.category.description };
+    const category = localizeCategory(filter.category, c);
+    return { title: t("customer.blog.metaTitle", { name: category.name }), description: category.description };
   }
-  return {
-    title: "Blog du lịch — The BHA",
-    description: "Cẩm nang điểm đến và bản tóm tắt tin du lịch công khai về Đà Nẵng và vùng lân cận, kèm nguồn.",
-  };
+  return { title: t("customer.blog.metaTitleIndex"), description: t("customer.blog.index.description") };
 }
 
 const CHIP_CLASS =
@@ -35,16 +35,14 @@ const CHIP_CLASS =
  * The BHA; there is no author, comment or counter.
  */
 export default async function BlogPage({ searchParams }: BlogPageProps) {
-  const t = await getT();
+  const [t, { c }] = await Promise.all([getT(), getContent()]);
   const filter = resolveBlogFilter(searchParams?.category);
   if (filter.kind === "invalid") notFound();
   const posts = postsForFilter(filter);
   const activeSlug = filter.kind === "category" ? filter.category.slug : null;
-  const heading = filter.kind === "category" ? filter.category.name : "Blog du lịch";
-  const description =
-    filter.kind === "category"
-      ? filter.category.description
-      : "Cẩm nang điểm đến và bản tóm tắt tin du lịch công khai về Đà Nẵng và vùng lân cận.";
+  const activeCategory = filter.kind === "category" ? localizeCategory(filter.category, c) : null;
+  const heading = activeCategory ? activeCategory.name : t("customer.blog.index.title");
+  const description = activeCategory ? activeCategory.description : t("customer.blog.index.description");
 
   return (
     <div className="nc-BlogPage relative overflow-hidden">
@@ -91,7 +89,7 @@ export default async function BlogPage({ searchParams }: BlogPageProps) {
               aria-current={activeSlug === category.slug ? "page" : undefined}
               className={`${CHIP_CLASS} ${activeSlug === category.slug ? "border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-neutral-900" : "border-neutral-300 text-neutral-700 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-200 dark:hover:bg-neutral-800"}`}
             >
-              {category.name}
+              {localizeCategory(category, c).name}
             </Link>
           ))}
         </nav>

@@ -8,6 +8,7 @@ import { useStaySearch } from "@/components/StaySearchProvider";
 import { brandInfo } from "@/lib/stayListingQuery";
 import { dateToIso, isoToDate, todayLocal } from "@/lib/staySearch";
 
+import { useApiMessage } from "@/lib/i18n/apiMessage";
 import { useT } from "@/lib/i18n/I18nProvider";
 const FORM_CLASS =
   "w-full relative mt-8 flex rounded-full shadow-xl dark:shadow-2xl bg-white dark:bg-neutral-800 ";
@@ -35,6 +36,7 @@ const TemplateStaySearchForm: FC = () => (
  */
 const LiveStaySearchForm: FC = () => {
   const t = useT();
+  const apiMessage = useApiMessage();
   const ctx = useStaySearch();
   const problemRef = useRef<HTMLParagraphElement>(null);
   const problemId = ctx?.problem?.id;
@@ -110,7 +112,7 @@ const LiveStaySearchForm: FC = () => {
             tabIndex={-1}
             className="text-red-600 focus:outline-none dark:text-red-400"
           >
-            {problem.message}
+            {apiMessage(problem.message)}
           </p>
         )}
       </div>

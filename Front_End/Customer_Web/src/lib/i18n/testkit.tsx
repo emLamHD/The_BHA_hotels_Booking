@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { formatMessage, type MessageParams } from "./format";
 import { I18nProvider } from "./I18nProvider";
+import { contentFrom } from "./staticContent";
 import type { I18nSnapshot, WebsiteConfig } from "./types";
 
 /**
@@ -98,5 +99,6 @@ export function serverModuleMock(locale = "vi") {
       return formatMessage(text, snapshot.formatLocale, params);
     },
     getContentMessages: async () => ({ messages: snapshot.messages, locale, formatLocale: snapshot.formatLocale }),
+    getContent: async () => ({ c: contentFrom(snapshot.messages, snapshot.formatLocale), formatLocale: snapshot.formatLocale }),
   };
 }

@@ -1,3 +1,4 @@
+import { contentFrom, type ContentFn } from "./staticContent";
 import { cache } from "react";
 import { cookies } from "next/headers";
 import { getApiBaseUrl } from "@/lib/api/env";
@@ -94,6 +95,13 @@ export async function getT(): Promise<(key: string, params?: MessageParams) => s
     }
     return formatMessage(text, snapshot.formatLocale, params);
   };
+}
+
+/** The text lookup for static content (posts, offers, navigation): the small registries already in the layout's dictionary plus the long ones named by `prefixes`. */
+export async function getContent(...prefixes: string[]): Promise<{ c: ContentFn; formatLocale: string }> {
+  const snapshot = await getI18n();
+  const extra = prefixes.length > 0 ? await getContentMessages(...prefixes) : null;
+  return { c: contentFrom({ ...snapshot.messages, ...(extra?.messages ?? {}) }, snapshot.formatLocale), formatLocale: snapshot.formatLocale };
 }
 
 /** Long static content (a post, the FAQ) for the visitor's language, by key prefix — read per page, never shipped to every page. */

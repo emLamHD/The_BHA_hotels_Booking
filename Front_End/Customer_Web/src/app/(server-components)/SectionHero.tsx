@@ -6,7 +6,8 @@ import StaySearchForm from "../(client-components)/(HeroSearchForm)/(stay-search
 import { HeroActions, HERO_SEARCH_ID } from "../(home)/RiversideHomeSections";
 import { HERO_IMAGE, RIVERSIDE_NAME, mediaUrl } from "@/lib/riversideHomeContent";
 
-import { useT } from "@/lib/i18n/I18nProvider";
+import { useI18n, useT } from "@/lib/i18n/I18nProvider";
+import { localizeImage } from "@/lib/i18n/staticContent";
 export interface SectionHeroProps {
   className?: string;
 }
@@ -19,6 +20,7 @@ export interface SectionHeroProps {
  */
 const SectionHero: FC<SectionHeroProps> = ({ className = "" }) => {
   const t = useT();
+  const { content } = useI18n();
   return (
     <div className={`nc-SectionHero flex flex-col-reverse lg:flex-col relative ${className}`}>
       <div className="flex flex-col lg:flex-row lg:items-center">
@@ -31,7 +33,7 @@ const SectionHero: FC<SectionHeroProps> = ({ className = "" }) => {
           <Image
             className="w-full rounded-3xl object-cover"
             src={mediaUrl(HERO_IMAGE.file)}
-            alt={HERO_IMAGE.alt}
+            alt={localizeImage(HERO_IMAGE, "hero", content).alt}
             width={HERO_IMAGE.width}
             height={HERO_IMAGE.height}
             sizes="(min-width: 1024px) 50vw, 100vw"

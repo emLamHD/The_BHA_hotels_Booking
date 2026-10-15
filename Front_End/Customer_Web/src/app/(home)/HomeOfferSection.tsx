@@ -8,7 +8,7 @@ import Heading from "@/shared/Heading";
 import ButtonSecondary from "@/shared/ButtonSecondary";
 import HomeSlider from "./HomeSlider";
 import OfferCard from "./OfferCard";
-import { MOCK_OFFERS, OFFER_DISCLOSURE } from "@/data/homepageOffers";
+import { MOCK_OFFERS } from "@/data/homepageOffers";
 import { OFFERS_PATH } from "@/lib/riversideHomeContent";
 
 import { useT } from "@/lib/i18n/I18nProvider";
@@ -20,7 +20,7 @@ const HomeOfferSection: FC = () => {
   const t = useT();
   return (
   <section aria-labelledby="offers-heading" className="nc-HomeOfferSection relative">
-    <Heading id="offers-heading" desc={OFFER_DISCLOSURE}>{t("customer.common.roomOffers")}</Heading>
+    <Heading id="offers-heading" desc={t("customer.offers.disclosure")}>{t("customer.common.roomOffers")}</Heading>
     <HomeSlider label={t("customer.home.homeOfferSection.sampleRoomOffers")}>
       {MOCK_OFFERS.map((offer) => (
         <li key={offer.id} className="flex w-[80%] flex-shrink-0 snap-start sm:w-[46%] lg:w-[31.5%] xl:w-[23.5%]">

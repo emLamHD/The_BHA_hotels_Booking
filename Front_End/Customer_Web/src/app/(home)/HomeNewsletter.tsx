@@ -57,9 +57,9 @@ const HomeNewsletter: FC = () => {
             <EnvelopeIcon className="h-6 w-6" aria-hidden="true" />
           </span>
           <h2 id="newsletter-heading" className="text-2xl font-semibold text-neutral-900 dark:text-neutral-50 sm:text-3xl">
-            {NEWSLETTER_HEADING}
+            {t(NEWSLETTER_HEADING)}
           </h2>
-          <p className="max-w-md text-neutral-600 dark:text-neutral-300">{NEWSLETTER_BENEFIT}</p>
+          <p className="max-w-md text-neutral-600 dark:text-neutral-300">{t(NEWSLETTER_BENEFIT)}</p>
         </div>
         <div className="rounded-2xl bg-white p-5 shadow-lg shadow-primary-900/5 dark:bg-neutral-900 sm:p-6">
           <form noValidate onSubmit={onSubmit} aria-describedby="newsletter-disclosure" className="space-y-3">
@@ -86,7 +86,7 @@ const HomeNewsletter: FC = () => {
               </button>
             </div>
             <p id="newsletter-disclosure" className="text-xs text-neutral-700 dark:text-neutral-300">
-              {NEWSLETTER_DISCLOSURE}
+              {t(NEWSLETTER_DISCLOSURE)}
             </p>
           </form>
           <div aria-live="polite" className="min-h-[1.5rem]">
@@ -97,7 +97,7 @@ const HomeNewsletter: FC = () => {
                 role={feedback.kind === "error" ? "alert" : "status"}
                 className={`mt-2 text-sm font-medium ${feedback.kind === "error" ? "text-red-600 dark:text-red-400" : "text-neutral-800 dark:text-neutral-100"}`}
               >
-                {feedback.message}
+                {t(feedback.message)}
               </p>
             )}
           </div>

@@ -1,3 +1,4 @@
+import type { Translate } from "@/lib/i18n/types";
 import { StayListingQuery, ListingQueryProblem, brandFromLabel, brandInfo, buildStayListingHref, parseStayListingQuery, StayBrand } from "@/lib/stayListingQuery";
 import { StaySearchDraft } from "@/lib/staySearch";
 
@@ -15,14 +16,15 @@ export type HomeSearchDecision =
   | { kind: "navigate"; href: string; brand: StayBrand }
   | { kind: "invalid"; message: string };
 
+/** Pack message KEYS: the form translates them when it renders (`useApiMessage`), in the visitor's language at that moment. */
 const MESSAGES = {
-  brand: "Chọn chỗ nghỉ để tìm phòng.",
-  dates: "Chọn ngày nhận phòng và trả phòng.",
-  order: "Ngày trả phòng phải sau ngày nhận phòng.",
-  tooLong: "Thời gian lưu trú tối đa 30 đêm.",
-  rooms: "Số phòng phải từ 1 đến 10.",
-  adults: "Cần ít nhất 1 người lớn.",
-  generic: "Kiểm tra lại ngày và số khách.",
+  brand: "customer.homeSearch.brand",
+  dates: "customer.homeSearch.dates",
+  order: "shared.apiError.validation.dates-order",
+  tooLong: "shared.apiError.validation.stay-too-long",
+  rooms: "shared.apiError.validation.rooms-required",
+  adults: "shared.apiError.validation.adults-required",
+  generic: "customer.homeSearch.generic",
 } as const;
 
 /** The first thing wrong with a draft the URL contract rejected, in the form's words (not the link's). */
@@ -130,11 +132,11 @@ export interface DraftSummary {
 }
 
 /** What the collapsed mobile search says: the draft when it has dates, otherwise what to do. */
-export function summarizeDraft(draft: StaySearchDraft): DraftSummary {
+export function summarizeDraft(draft: StaySearchDraft, t: Translate): DraftSummary {
   const guests = draft.adults + draft.children;
-  const party = `${guests} khách · ${draft.rooms} phòng`;
+  const party = `${t("customer.booking.guests", { guests })} · ${t("customer.booking.rooms", { rooms: draft.rooms })}`;
   if (draft.checkIn && draft.checkOut) {
     return { title: draft.brand, subtitle: `${dayMonth(draft.checkIn)} – ${dayMonth(draft.checkOut)} · ${party}` };
   }
-  return { title: "Tìm phòng tại The BHA Riverside", subtitle: `Chọn ngày · ${party}` };
+  return { title: t("customer.homeSearch.title"), subtitle: t("customer.homeSearch.pickDates", { party }) };
 }

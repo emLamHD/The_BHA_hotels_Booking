@@ -20,7 +20,8 @@ import {
   RIVERSIDE_SECTION_LINKS,
 } from "@/lib/riversideHomeContent";
 
-import { useT } from "@/lib/i18n/I18nProvider";
+import { useI18n, useT } from "@/lib/i18n/I18nProvider";
+import { localizeNavItem } from "@/lib/i18n/staticContent";
 const LINK_CLASS = "text-neutral-6000 dark:text-neutral-300 hover:text-black dark:hover:text-white";
 
 /**
@@ -33,6 +34,7 @@ const LINK_CLASS = "text-neutral-6000 dark:text-neutral-300 hover:text-black dar
  */
 const Footer: React.FC = () => {
   const t = useT();
+  const { content } = useI18n();
   const { state, identityChange } = useCustomerSession();
   const entry = describeAuthEntry(
     state.status,
@@ -81,7 +83,7 @@ const Footer: React.FC = () => {
             {RIVERSIDE_SECTION_LINKS.map((item) => (
               <li key={item.id}>
                 <ShowcaseNavLink section={item.section as string} className={LINK_CLASS}>
-                  {item.name}
+                  {localizeNavItem(item, content).name}
                 </ShowcaseNavLink>
               </li>
             ))}

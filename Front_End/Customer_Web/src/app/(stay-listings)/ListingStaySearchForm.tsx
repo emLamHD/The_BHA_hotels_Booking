@@ -15,6 +15,7 @@ import {
   brandInfo,
 } from "@/lib/stayListingQuery";
 
+import { useApiMessage } from "@/lib/i18n/apiMessage";
 import { useT } from "@/lib/i18n/I18nProvider";
 interface FormDraft {
   brand: StayBrand;
@@ -48,9 +49,9 @@ function draftFromQuery(query: StayListingQuery): FormDraft {
 }
 
 function problemWith(draft: FormDraft): string | null {
-  if (!draft.checkIn || !draft.checkOut) return "Chọn ngày nhận phòng và trả phòng.";
+  if (!draft.checkIn || !draft.checkOut) return "customer.homeSearch.dates";
   const nights = calculateNights(draft.checkIn, draft.checkOut);
-  if (nights !== null && nights > MAX_STAY_NIGHTS) return `Thời gian lưu trú tối đa ${MAX_STAY_NIGHTS} đêm.`;
+  if (nights !== null && nights > MAX_STAY_NIGHTS) return "shared.apiError.validation.stay-too-long";
   const candidate: AvailabilityDraft = {
     checkIn: draft.checkIn,
     checkOut: draft.checkOut,
@@ -58,7 +59,7 @@ function problemWith(draft: FormDraft): string | null {
     children: String(draft.children),
     rooms: String(draft.rooms),
   };
-  return validateAvailabilityDraft(candidate).ok ? null : "Kiểm tra lại ngày và số khách.";
+  return validateAvailabilityDraft(candidate).ok ? null : "customer.homeSearch.generic";
 }
 
 export interface ListingStaySearchFormProps {
@@ -79,6 +80,7 @@ const FIELD_DIVIDER = "border-b border-slate-200 dark:border-slate-700 md:border
  */
 const ListingStaySearchForm: FC<ListingStaySearchFormProps> = ({ applied, onApply, onClear }) => {
   const t = useT();
+  const apiMessage = useApiMessage();
   const [draft, setDraft] = useState<FormDraft>(() => draftFromQuery(applied));
   const [problem, setProblem] = useState<{ id: number; message: string } | null>(null);
   const problemRef = useRef<HTMLParagraphElement>(null);
@@ -166,7 +168,7 @@ const ListingStaySearchForm: FC<ListingStaySearchFormProps> = ({ applied, onAppl
             tabIndex={-1}
             className="text-red-600 focus:outline-none dark:text-red-400"
           >
-            {problem.message}
+            {apiMessage(problem.message)}
           </p>
         )}
         {hasFilters && (

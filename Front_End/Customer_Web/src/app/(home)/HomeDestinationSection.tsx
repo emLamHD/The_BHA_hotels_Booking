@@ -12,10 +12,13 @@ import { travelMediaUrl } from "@/data/heroSlides";
 import { TravelPost } from "@/data/travelPosts";
 import { blogCategoryPath, homeDestinations, postPath } from "@/lib/homepageContent";
 
-import { useT } from "@/lib/i18n/I18nProvider";
+import { useI18n, useT } from "@/lib/i18n/I18nProvider";
+import { localizePost } from "@/lib/i18n/staticContent";
 /** One destination: its photograph and name, linking to its own article. No count, rating or price is shown. */
-export const DestinationCard: FC<{ post: TravelPost }> = ({ post }) => {
+export const DestinationCard: FC<{ post: TravelPost }> = ({ post: registryPost }) => {
   const t = useT();
+  const { content } = useI18n();
+  const post = localizePost(registryPost, content);
   return (
   <Link
     href={postPath(post.slug) as Route}

@@ -1,3 +1,4 @@
+import { testT } from "@/lib/i18n/testkit";
 import { describe, expect, it, vi } from "vitest";
 import {
   createHomeSearchDispatcher,
@@ -40,29 +41,29 @@ describe("decideHomeSearch: the draft becomes the canonical listing URL, or says
 
   it("the default draft is Riverside and still has no dates: it asks for them, it never browses or guesses", () => {
     expect(initialStayDraft().brand).toBe(RIVERSIDE);
-    expect(decideHomeSearch(initialStayDraft())).toEqual({ kind: "invalid", message: "Chọn ngày nhận phòng và trả phòng." });
+    expect(decideHomeSearch(initialStayDraft())).toEqual({ kind: "invalid", message: "customer.homeSearch.dates" });
   });
 
   it("partial dates (one missing) are invalid with the same message, and navigate to nothing", () => {
     for (const patch of [{ checkIn: "" }, { checkOut: "" }, { checkIn: "", checkOut: "" }]) {
-      expect(decideHomeSearch(draft(patch))).toEqual({ kind: "invalid", message: "Chọn ngày nhận phòng và trả phòng." });
+      expect(decideHomeSearch(draft(patch))).toEqual({ kind: "invalid", message: "customer.homeSearch.dates" });
     }
   });
 
   it("malformed, impossible, reversed, equal and over-30-night ranges are invalid, each with its own words", () => {
-    expect(decideHomeSearch(draft({ checkIn: "2026-02-31" }))).toMatchObject({ kind: "invalid", message: "Kiểm tra lại ngày và số khách." });
+    expect(decideHomeSearch(draft({ checkIn: "2026-02-31" }))).toMatchObject({ kind: "invalid", message: "customer.homeSearch.generic" });
     expect(decideHomeSearch(draft({ checkIn: "10/11/2026" }))).toMatchObject({ kind: "invalid" });
-    expect(decideHomeSearch(draft({ checkIn: "2026-11-12", checkOut: "2026-11-10" }))).toEqual({ kind: "invalid", message: "Ngày trả phòng phải sau ngày nhận phòng." });
-    expect(decideHomeSearch(draft({ checkOut: "2026-11-10" }))).toEqual({ kind: "invalid", message: "Ngày trả phòng phải sau ngày nhận phòng." });
-    expect(decideHomeSearch(draft({ checkIn: "2026-11-01", checkOut: "2026-12-02" }))).toEqual({ kind: "invalid", message: "Thời gian lưu trú tối đa 30 đêm." });
+    expect(decideHomeSearch(draft({ checkIn: "2026-11-12", checkOut: "2026-11-10" }))).toEqual({ kind: "invalid", message: "shared.apiError.validation.dates-order" });
+    expect(decideHomeSearch(draft({ checkOut: "2026-11-10" }))).toEqual({ kind: "invalid", message: "shared.apiError.validation.dates-order" });
+    expect(decideHomeSearch(draft({ checkIn: "2026-11-01", checkOut: "2026-12-02" }))).toEqual({ kind: "invalid", message: "shared.apiError.validation.stay-too-long" });
   });
 
   it("accepts exactly 30 nights, 1 and 10 rooms; rejects 0 and 11 rooms and 0 adults; children 0 is fine", () => {
     expect(decideHomeSearch(draft({ checkIn: "2026-11-01", checkOut: "2026-12-01" })).kind).toBe("navigate");
     expect(decideHomeSearch(draft({ rooms: 10, children: 0 })).kind).toBe("navigate");
-    expect(decideHomeSearch(draft({ rooms: 11 }))).toEqual({ kind: "invalid", message: "Số phòng phải từ 1 đến 10." });
-    expect(decideHomeSearch(draft({ rooms: 0 }))).toEqual({ kind: "invalid", message: "Số phòng phải từ 1 đến 10." });
-    expect(decideHomeSearch(draft({ adults: 0 }))).toEqual({ kind: "invalid", message: "Cần ít nhất 1 người lớn." });
+    expect(decideHomeSearch(draft({ rooms: 11 }))).toEqual({ kind: "invalid", message: "shared.apiError.validation.rooms-required" });
+    expect(decideHomeSearch(draft({ rooms: 0 }))).toEqual({ kind: "invalid", message: "shared.apiError.validation.rooms-required" });
+    expect(decideHomeSearch(draft({ adults: 0 }))).toEqual({ kind: "invalid", message: "shared.apiError.validation.adults-required" });
   });
 
   it("non-integer counts never become URLs (decimal, NaN, negative)", () => {
@@ -72,8 +73,8 @@ describe("decideHomeSearch: the draft becomes the canonical listing URL, or says
   });
 
   it("an unknown brand label is an error, never Riverside by default", () => {
-    expect(decideHomeSearch(draft({ brand: "Tokyo" }))).toEqual({ kind: "invalid", message: "Chọn chỗ nghỉ để tìm phòng." });
-    expect(decideHomeSearch(draft({ brand: "" }))).toEqual({ kind: "invalid", message: "Chọn chỗ nghỉ để tìm phòng." });
+    expect(decideHomeSearch(draft({ brand: "Tokyo" }))).toEqual({ kind: "invalid", message: "customer.homeSearch.brand" });
+    expect(decideHomeSearch(draft({ brand: "" }))).toEqual({ kind: "invalid", message: "customer.homeSearch.brand" });
   });
 
   it("House and Villa are not bookable: their URL carries the brand, so the results page shows its own 'not supported' and asks the server for nothing", () => {
@@ -95,9 +96,9 @@ describe("decideHomeSearch: the draft becomes the canonical listing URL, or says
 
 describe("describeDraftProblems", () => {
   it("is the form's wording, not the link's, and has a fallback", () => {
-    expect(describeDraftProblems([{ key: "checkOut", reason: "missing" }])).toBe("Chọn ngày nhận phòng và trả phòng.");
-    expect(describeDraftProblems([{ key: "stay", reason: "malformed" }])).toBe("Kiểm tra lại ngày và số khách.");
-    expect(describeDraftProblems([])).toBe("Kiểm tra lại ngày và số khách.");
+    expect(describeDraftProblems([{ key: "checkOut", reason: "missing" }])).toBe("customer.homeSearch.dates");
+    expect(describeDraftProblems([{ key: "stay", reason: "malformed" }])).toBe("customer.homeSearch.generic");
+    expect(describeDraftProblems([])).toBe("customer.homeSearch.generic");
     for (const problem of [{ key: "checkIn", reason: "malformed" }, { key: "rooms", reason: "out-of-range" }] as const) {
       expect(describeDraftProblems([problem])).not.toMatch(/Liên kết/);
     }
@@ -186,13 +187,13 @@ describe("draftPatchFromListingQuery: what opening a header search copies from a
 
 describe("summarizeDraft", () => {
   it("says what to do while the draft has no dates, and the draft itself once it has", () => {
-    expect(summarizeDraft(initialStayDraft())).toEqual({ title: "Tìm phòng tại The BHA Riverside", subtitle: "Chọn ngày · 2 khách · 1 phòng" });
-    expect(summarizeDraft(draft())).toEqual({ title: RIVERSIDE, subtitle: "10/11 – 12/11 · 3 khách · 1 phòng" });
+    expect(summarizeDraft(initialStayDraft(), testT("vi"))).toEqual({ title: "Tìm phòng tại The BHA Riverside", subtitle: "Chọn ngày · 2 khách · 1 phòng" });
+    expect(summarizeDraft(draft(), testT("vi"))).toEqual({ title: RIVERSIDE, subtitle: "10/11 – 12/11 · 3 khách · 1 phòng" });
   });
 
   it("never shows the template's 'Anywhere / Any week' placeholder", () => {
     for (const d of [initialStayDraft(), draft()]) {
-      const text = JSON.stringify(summarizeDraft(d));
+      const text = JSON.stringify(summarizeDraft(d, testT("vi")));
       expect(text).not.toMatch(/Anywhere|Any week|Where to/);
     }
   });

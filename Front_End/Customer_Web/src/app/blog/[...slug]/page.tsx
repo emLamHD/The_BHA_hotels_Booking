@@ -5,20 +5,21 @@ import Link from "next/link";
 import type { Route } from "next";
 import { notFound } from "next/navigation";
 import BgGlassmorphism from "@/components/BgGlassmorphism";
-import { MEDIA_CHANGES_NOTE, MEDIA_CREDITS_PATH, creditForFile, travelMediaUrl } from "@/data/heroSlides";
-import { SAMPLE_POST_LABEL, TRAVEL_POSTS } from "@/data/travelPosts";
+import { MEDIA_CREDITS_PATH, creditForFile, travelMediaUrl } from "@/data/heroSlides";
+import { TRAVEL_POSTS } from "@/data/travelPosts";
 import {
   blogCategoryPath,
   findCategory,
   findPostBySegments,
-  formatPostDate,
   isSafeSourceUrl,
   relatedPosts,
 } from "@/lib/homepageContent";
 import { BLOG_PATH } from "@/lib/riversideHomeContent";
 import PostCard from "../PostCard";
 
-import { getT } from "@/lib/i18n/server";
+import { formatStayDate } from "@/lib/i18n/dates";
+import { getContent, getT } from "@/lib/i18n/server";
+import { localizeCategory, localizePost } from "@/lib/i18n/staticContent";
 interface PostPageProps {
   params: { slug?: string[] };
 }
@@ -34,9 +35,11 @@ export function generateStaticParams() {
   return TRAVEL_POSTS.map((post) => ({ slug: [post.slug] }));
 }
 
-export function generateMetadata({ params }: PostPageProps): Metadata {
-  const post = findPostBySegments(params.slug);
-  if (!post) return { title: "Không tìm thấy bài viết — The BHA" };
+export async function generateMetadata({ params }: PostPageProps): Promise<Metadata> {
+  const [t, { c }] = await Promise.all([getT(), getContent()]);
+  const registryPost = findPostBySegments(params.slug);
+  if (!registryPost) return { title: t("customer.blog.slug.notFoundTitle") };
+  const post = localizePost(registryPost, c);
   return { title: `${post.title} — The BHA`, description: post.excerpt };
 }
 
@@ -47,10 +50,13 @@ export function generateMetadata({ params }: PostPageProps): Metadata {
  * related posts — and no author, comment, counter or template filler.
  */
 export default async function PostPage({ params }: PostPageProps) {
-  const t = await getT();
-  const post = findPostBySegments(params.slug);
-  if (!post) notFound();
-  const category = findCategory(post.category);
+  const [t, { c, formatLocale }] = await Promise.all([getT(), getContent("content.postBody.")]);
+  const registryPost = findPostBySegments(params.slug);
+  if (!registryPost) notFound();
+  const post = localizePost(registryPost, c);
+  const registryCategory = findCategory(post.category);
+  const category = registryCategory ? localizeCategory(registryCategory, c) : undefined;
+  const date = (iso: string) => formatStayDate(iso, formatLocale);
   const credit = creditForFile(post.cover);
   const related = relatedPosts(post);
 
@@ -94,10 +100,10 @@ export default async function PostPage({ params }: PostPageProps) {
             <p className="text-neutral-600 dark:text-neutral-300">{post.excerpt}</p>
             <p className="text-sm text-neutral-500 dark:text-neutral-400">
               {post.sample
-                ? `${SAMPLE_POST_LABEL}: nội dung chưa phải tin thật`
+                ? t("customer.blog.sampleNotReal", { label: t("customer.blog.sampleLabel") })
                 : post.kind === "news"
-                ? `Tóm tắt từ bản tin ngày ${formatPostDate(post.publishedAt)} · cập nhật ${formatPostDate(post.updatedAt)}`
-                : `Cẩm nang cập nhật ${formatPostDate(post.updatedAt)}`}
+                ? t("customer.blog.slug.newsLine", { published: date(post.publishedAt), updated: date(post.updatedAt) })
+                : t("customer.blog.slug.guideLine", { date: date(post.updatedAt) })}
             </p>
           </header>
 
@@ -120,7 +126,7 @@ export default async function PostPage({ params }: PostPageProps) {
                 </a>{" "}
                 ·{" "}
                 <a href={credit.sourceUrl} target="_blank" rel="noopener noreferrer" className="underline">{t("customer.blog.slug.page.wikimediaCommons")}</a>
-                . {MEDIA_CHANGES_NOTE}{" "}
+                . {t("customer.media.changesNote")}{" "}
                 <Link href={MEDIA_CREDITS_PATH as Route} className="underline">{t("customer.common.photoCredits")}</Link>
               </figcaption>
             )}
@@ -163,7 +169,7 @@ export default async function PostPage({ params }: PostPageProps) {
                       </a>
                       <span className="block text-neutral-500 dark:text-neutral-400">
                         {source.publisher}
-                        {source.publishedAt ? ` · ${formatPostDate(source.publishedAt)}` : ""}
+                        {source.publishedAt ? ` · ${date(source.publishedAt)}` : ""}
                       </span>
                     </li>
                   ))}
