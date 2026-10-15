@@ -103,11 +103,13 @@ Kịch bản và harness (không chứa bí mật, nằm ngoài repo): `~/bha-ev
 
 ### 8.2 Thay đổi
 - **Nguồn (SIX, tải và đối chiếu trong phiên này, 2026-10-15):** List One `Pblshd=2026-09-17` (178 mã khác nhau); List Three `Pblshd=2026-01-01`; amendment 176 (XCG thay ANG, hiệu lực 2025-03-31) và 177 (ZWG thay ZWL, hiệu lực 2024-06-25; ZWL hết hạn 2024-09). Hai amendment đều có hiệu lực trước ngày xuất bản List One nên không có thay đổi nào chưa phản ánh.
-- **Danh sách** = List One trừ các mã không phải tiền tệ theo policy sản phẩm hiện có (funds BOV CHE CHW CLF COU MXV USN UYI UYW; kim loại XAG XAU XPD XPT; XTS; XXX; đơn vị tài khoản XBA–XBD, XDR, XSU, XUA). Kết quả đối chiếu toàn bộ 157 mã cũ với danh sách đó chỉ lệch bốn mã:
-  - **Bỏ:** `ZWL` (List Three, 2024-09), `ANG` (List Three, 2025-03), `BGN` (List Three, 2026-01) — 155 mã còn lại.
+- **Danh sách** = List One trừ các mã không phải tiền tệ theo policy sản phẩm hiện có (funds BOV CHE CHW CLF COU MXV USN UYI UYW; kim loại XAG XAU XPD XPT; XTS; XXX; đơn vị tài khoản XBA–XBD, XDR, XSU, XUA). Đối chiếu toàn bộ 157 mã cũ với List One trừ nhóm loại trừ trên cho đúng năm khác biệt: bỏ `ANG`/`BGN`/`ZWL`, thêm `XCG`, và `XAD` (xem dưới) là đơn vị tài khoản được phân loại là loại trừ:
+  - **Bỏ:** `ZWL` (List Three, 2024-09), `ANG` (List Three, 2025-03), `BGN` (List Three, 2026-01) — còn 154 mã; cộng `XCG` = **155 mã**.
   - **Thêm:** `XCG` (Caribbean Guilder, 2 chữ số thập phân; List One; amendment 176).
   - **Giữ:** `SVC` (El Salvador Colon) và `ZWG` (Zimbabwe Gold) — vẫn trong List One; không thêm blacklist riêng cho SVC.
 - **Phân loại OC chưa nêu — `XAD`:** List One có `XAD` (Arab Accounting Dinar, ARAB MONETARY FUND, 2 chữ số thập phân), không thuộc nhóm "N.A.". Đây là đơn vị tài khoản của một quỹ, cùng nhóm với XDR/XUA đã bị loại theo policy nên **giữ loại trừ** (và có test từ chối); **OC xác nhận lại** nếu muốn khác.
+- **Xác minh đích DB trước khi dùng lại container:** `docker inspect` cho `the-bha-cp02-pg`, image `postgres:18.3`, gắn `127.0.0.1:55440`; đích kết nối in ra (không kèm mật khẩu) là `127.0.0.1:55440/thebha_cp02_demo`. `the-bha-postgres-1` không bị chạm.
+- **Rà diff riêng của correction (`git diff --name-only 923336a..HEAD`, trước commit này):** `Back_End/src/TheBha.Domain/Website/WebsiteRules.cs`, `Back_End/tests/TheBha.IntegrationTests/WebsiteCurrenciesApiTests.cs`, `Back_End/tests/TheBha.UnitTests/WebsiteRulesTests.cs`, `docs/daily/2026-10/2026-10-15-worklog.md`, `docs/design/CUST-WEB-HEADER-001-CP02-website-localization-settings.md`, `docs/project/SNAPSHOT.md`, `docs/reports/CUST-WEB-HEADER-001-CP02-completion.md` — không có file nào ngoài phạm vi cho phép.
 - Chỉ đổi `WebsiteRules.cs` (dữ liệu + comment nguồn/as-of) và test. Không đổi chữ ký, chuẩn hóa trim/uppercase, mã lỗi; không migration/seed; list vẫn offline.
 - **Dữ liệu đã lưu:** truy vấn chỉ-đọc DB tạm trước khi sửa: 0 dòng `ZWL/ANG/BGN` (DB hiện có VND, USD, EUR, GBP); không cần cleanup. Lưu ý: `FindCurrencyAsync` cũng dùng `Iso4217.TryNormalize`, nên một dòng withdrawn đã tồn tại ở môi trường nào đó sẽ không còn thao tác được qua API — chưa có môi trường nào như vậy (tính năng chưa deploy).
 
