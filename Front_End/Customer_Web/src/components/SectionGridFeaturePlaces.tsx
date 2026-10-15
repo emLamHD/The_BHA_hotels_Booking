@@ -1,3 +1,5 @@
+"use client";
+
 import React, { FC, ReactNode } from "react";
 import { DEMO_STAY_LISTINGS } from "@/data/listings";
 import { StayDataType } from "@/data/types";
@@ -6,6 +8,7 @@ import HeaderFilter from "./HeaderFilter";
 import StayCard from "./StayCard";
 import StayCard2 from "./StayCard2";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 // OTHER DEMO WILL PASS PROPS
 const DEMO_DATA: StayDataType[] = DEMO_STAY_LISTINGS.filter((_, i) => i < 8);
 
@@ -40,6 +43,7 @@ const SectionGridFeaturePlaces: FC<SectionGridFeaturePlacesProps> = ({
   children,
   id,
 }) => {
+  const t = useT();
   const renderCard = (stay: StayDataType) => {
     let CardName = StayCard;
     switch (cardType) {
@@ -76,7 +80,7 @@ const SectionGridFeaturePlaces: FC<SectionGridFeaturePlacesProps> = ({
             {stayListings.map((stay) => renderCard(stay))}
           </div>
           <div className="flex mt-16 justify-center items-center">
-            <ButtonPrimary loading>Show me more</ButtonPrimary>
+            <ButtonPrimary loading>{t("customer.common.showMeMore")}</ButtonPrimary>
           </div>
         </>
       )}

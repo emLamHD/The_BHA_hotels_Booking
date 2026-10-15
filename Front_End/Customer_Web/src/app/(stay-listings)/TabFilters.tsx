@@ -10,6 +10,7 @@ import Checkbox from "@/shared/Checkbox";
 import Slider from "rc-slider";
 import convertNumbThousand from "@/utils/convertNumbThousand";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 // DEMO DATA
 const typeOfPaces = [
   {
@@ -68,6 +69,7 @@ const moreFilter3 = [
 const moreFilter4 = [{ name: " Pets allowed" }, { name: "Smoking allowed" }];
 
 const TabFilters = () => {
+  const t = useT();
   const [isOpenMoreFilter, setisOpenMoreFilter] = useState(false);
   const [isOpenMoreFilterMobile, setisOpenMoreFilterMobile] = useState(false);
   const [rangePrices, setRangePrices] = useState([0, 1000]);
@@ -108,7 +110,7 @@ const TabFilters = () => {
                 open ? "!border-primary-500 " : ""
               }`}
             >
-              <span>Type of place</span>
+              <span>{t("customer.stayListings.tabFilters.typeOfPlace")}</span>
               <i className="las la-angle-down ml-2"></i>
             </Popover.Button>
             <Transition
@@ -134,15 +136,11 @@ const TabFilters = () => {
                     ))}
                   </div>
                   <div className="p-5 bg-neutral-50 dark:bg-neutral-900 dark:border-t dark:border-neutral-800 flex items-center justify-between">
-                    <ButtonThird onClick={close} sizeClass="px-4 py-2 sm:px-5">
-                      Clear
-                    </ButtonThird>
+                    <ButtonThird onClick={close} sizeClass="px-4 py-2 sm:px-5">{t("customer.stayListings.tabFilters.clear")}</ButtonThird>
                     <ButtonPrimary
                       onClick={close}
                       sizeClass="px-4 py-2 sm:px-5"
-                    >
-                      Apply
-                    </ButtonPrimary>
+                    >{t("customer.stayListings.tabFilters.apply")}</ButtonPrimary>
                   </div>
                 </div>
               </Popover.Panel>
@@ -163,7 +161,7 @@ const TabFilters = () => {
                 open ? "!border-primary-500 " : ""
               }`}
             >
-              <span>Rooms of Beds</span>
+              <span>{t("customer.stayListings.tabFilters.roomsOfBeds")}</span>
               <i className="las la-angle-down ml-2"></i>
             </Popover.Button>
             <Transition
@@ -178,20 +176,16 @@ const TabFilters = () => {
               <Popover.Panel className="absolute z-10 w-screen max-w-sm px-4 mt-3 left-0 sm:px-0 lg:max-w-md">
                 <div className="overflow-hidden rounded-2xl shadow-xl bg-white dark:bg-neutral-900   border border-neutral-200 dark:border-neutral-700">
                   <div className="relative flex flex-col px-5 py-6 space-y-5">
-                    <NcInputNumber label="Beds" max={10} />
-                    <NcInputNumber label="Bedrooms" max={10} />
-                    <NcInputNumber label="Bathrooms" max={10} />
+                    <NcInputNumber label={t("customer.stayListings.tabFilters.beds")} max={10} />
+                    <NcInputNumber label={t("customer.stayListings.tabFilters.bedrooms")} max={10} />
+                    <NcInputNumber label={t("customer.stayListings.tabFilters.bathrooms")} max={10} />
                   </div>
                   <div className="p-5 bg-neutral-50 dark:bg-neutral-900 dark:border-t dark:border-neutral-800 flex items-center justify-between">
-                    <ButtonThird onClick={close} sizeClass="px-4 py-2 sm:px-5">
-                      Clear
-                    </ButtonThird>
+                    <ButtonThird onClick={close} sizeClass="px-4 py-2 sm:px-5">{t("customer.stayListings.tabFilters.clear")}</ButtonThird>
                     <ButtonPrimary
                       onClick={close}
                       sizeClass="px-4 py-2 sm:px-5"
-                    >
-                      Apply
-                    </ButtonPrimary>
+                    >{t("customer.stayListings.tabFilters.apply")}</ButtonPrimary>
                   </div>
                 </div>
               </Popover.Panel>
@@ -230,7 +224,7 @@ const TabFilters = () => {
                 <div className="overflow-hidden rounded-2xl shadow-xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700">
                   <div className="relative flex flex-col px-5 py-6 space-y-8">
                     <div className="space-y-5">
-                      <span className="font-medium">Price per day</span>
+                      <span className="font-medium">{t("customer.stayListings.tabFilters.pricePerDay")}</span>
                       <Slider
                         range
                         className="text-red-400"
@@ -247,9 +241,7 @@ const TabFilters = () => {
                         <label
                           htmlFor="minPrice"
                           className="block text-sm font-medium text-neutral-700 dark:text-neutral-300"
-                        >
-                          Min price
-                        </label>
+                        >{t("customer.stayListings.tabFilters.minPrice")}</label>
                         <div className="mt-1 relative rounded-md">
                           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                             <span className="text-neutral-500 sm:text-sm">
@@ -270,9 +262,7 @@ const TabFilters = () => {
                         <label
                           htmlFor="maxPrice"
                           className="block text-sm font-medium text-neutral-700 dark:text-neutral-300"
-                        >
-                          Max price
-                        </label>
+                        >{t("customer.stayListings.tabFilters.maxPrice")}</label>
                         <div className="mt-1 relative rounded-md">
                           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                             <span className="text-neutral-500 sm:text-sm">
@@ -292,15 +282,11 @@ const TabFilters = () => {
                     </div>
                   </div>
                   <div className="p-5 bg-neutral-50 dark:bg-neutral-900 dark:border-t dark:border-neutral-800 flex items-center justify-between">
-                    <ButtonThird onClick={close} sizeClass="px-4 py-2 sm:px-5">
-                      Clear
-                    </ButtonThird>
+                    <ButtonThird onClick={close} sizeClass="px-4 py-2 sm:px-5">{t("customer.stayListings.tabFilters.clear")}</ButtonThird>
                     <ButtonPrimary
                       onClick={close}
                       sizeClass="px-4 py-2 sm:px-5"
-                    >
-                      Apply
-                    </ButtonPrimary>
+                    >{t("customer.stayListings.tabFilters.apply")}</ButtonPrimary>
                   </div>
                 </div>
               </Popover.Panel>
@@ -352,7 +338,7 @@ const TabFilters = () => {
           className={`flex items-center justify-center px-4 py-2 text-sm rounded-full border border-primary-500 bg-primary-50 text-primary-700 focus:outline-none cursor-pointer`}
           onClick={openModalMoreFilter}
         >
-          <span>More filters (3)</span>
+          <span>{t("customer.stayListings.tabFilters.moreFilters3")}</span>
           {renderXClear()}
         </div>
 
@@ -396,9 +382,7 @@ const TabFilters = () => {
                     <Dialog.Title
                       as="h3"
                       className="text-lg font-medium leading-6 text-gray-900"
-                    >
-                      More filters
-                    </Dialog.Title>
+                    >{t("customer.stayListings.tabFilters.moreFilters")}</Dialog.Title>
                     <span className="absolute left-3 top-3">
                       <ButtonClose onClick={closeModalMoreFilter} />
                     </span>
@@ -407,25 +391,25 @@ const TabFilters = () => {
                   <div className="flex-grow overflow-y-auto">
                     <div className="px-10 divide-y divide-neutral-200 dark:divide-neutral-800">
                       <div className="py-7">
-                        <h3 className="text-xl font-medium">Amenities</h3>
+                        <h3 className="text-xl font-medium">{t("customer.stayListings.tabFilters.amenities")}</h3>
                         <div className="mt-6 relative ">
                           {renderMoreFilterItem(moreFilter1)}
                         </div>
                       </div>
                       <div className="py-7">
-                        <h3 className="text-xl font-medium">Facilities</h3>
+                        <h3 className="text-xl font-medium">{t("customer.stayListings.tabFilters.facilities")}</h3>
                         <div className="mt-6 relative ">
                           {renderMoreFilterItem(moreFilter2)}
                         </div>
                       </div>
                       <div className="py-7">
-                        <h3 className="text-xl font-medium">Property type</h3>
+                        <h3 className="text-xl font-medium">{t("customer.stayListings.tabFilters.propertyType")}</h3>
                         <div className="mt-6 relative ">
                           {renderMoreFilterItem(moreFilter3)}
                         </div>
                       </div>
                       <div className="py-7">
-                        <h3 className="text-xl font-medium">House rules</h3>
+                        <h3 className="text-xl font-medium">{t("customer.stayListings.tabFilters.houseRules")}</h3>
                         <div className="mt-6 relative ">
                           {renderMoreFilterItem(moreFilter4)}
                         </div>
@@ -437,15 +421,11 @@ const TabFilters = () => {
                     <ButtonThird
                       onClick={closeModalMoreFilter}
                       sizeClass="px-4 py-2 sm:px-5"
-                    >
-                      Clear
-                    </ButtonThird>
+                    >{t("customer.stayListings.tabFilters.clear")}</ButtonThird>
                     <ButtonPrimary
                       onClick={closeModalMoreFilter}
                       sizeClass="px-4 py-2 sm:px-5"
-                    >
-                      Apply
-                    </ButtonPrimary>
+                    >{t("customer.stayListings.tabFilters.apply")}</ButtonPrimary>
                   </div>
                 </div>
               </Transition.Child>
@@ -463,7 +443,7 @@ const TabFilters = () => {
           className={`flex lg:hidden items-center justify-center px-4 py-2 text-sm rounded-full border border-primary-500 bg-primary-50 text-primary-700 focus:outline-none cursor-pointer`}
           onClick={openModalMoreFilterMobile}
         >
-          <span>More filters (3)</span>
+          <span>{t("customer.stayListings.tabFilters.moreFilters3")}</span>
           {renderXClear()}
         </div>
 
@@ -507,9 +487,7 @@ const TabFilters = () => {
                     <Dialog.Title
                       as="h3"
                       className="text-lg font-medium leading-6 text-gray-900"
-                    >
-                      More filters
-                    </Dialog.Title>
+                    >{t("customer.stayListings.tabFilters.moreFilters")}</Dialog.Title>
                     <span className="absolute left-3 top-3">
                       <ButtonClose onClick={closeModalMoreFilterMobile} />
                     </span>
@@ -519,7 +497,7 @@ const TabFilters = () => {
                     <div className="px-4 sm:px-6 divide-y divide-neutral-200 dark:divide-neutral-800">
                       {/* ---- */}
                       <div className="py-7">
-                        <h3 className="text-xl font-medium">Type of place</h3>
+                        <h3 className="text-xl font-medium">{t("customer.stayListings.tabFilters.typeOfPlace")}</h3>
                         <div className="mt-6 relative ">
                           {renderMoreFilterItem(typeOfPaces)}
                         </div>
@@ -527,7 +505,7 @@ const TabFilters = () => {
 
                       {/* ---- */}
                       <div className="py-7">
-                        <h3 className="text-xl font-medium">Range Prices</h3>
+                        <h3 className="text-xl font-medium">{t("customer.stayListings.tabFilters.rangePrices")}</h3>
                         <div className="mt-6 relative ">
                           <div className="relative flex flex-col space-y-8">
                             <div className="space-y-5">
@@ -547,9 +525,7 @@ const TabFilters = () => {
                                 <label
                                   htmlFor="minPrice"
                                   className="block text-sm font-medium text-neutral-700 dark:text-neutral-300"
-                                >
-                                  Min price
-                                </label>
+                                >{t("customer.stayListings.tabFilters.minPrice")}</label>
                                 <div className="mt-1 relative rounded-md">
                                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                                     <span className="text-neutral-500 sm:text-sm">
@@ -570,9 +546,7 @@ const TabFilters = () => {
                                 <label
                                   htmlFor="maxPrice"
                                   className="block text-sm font-medium text-neutral-700 dark:text-neutral-300"
-                                >
-                                  Max price
-                                </label>
+                                >{t("customer.stayListings.tabFilters.maxPrice")}</label>
                                 <div className="mt-1 relative rounded-md">
                                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                                     <span className="text-neutral-500 sm:text-sm">
@@ -596,17 +570,17 @@ const TabFilters = () => {
 
                       {/* ---- */}
                       <div className="py-7">
-                        <h3 className="text-xl font-medium">Rooms and beds</h3>
+                        <h3 className="text-xl font-medium">{t("customer.stayListings.tabFilters.roomsAndBeds")}</h3>
                         <div className="mt-6 relative flex flex-col space-y-5">
-                          <NcInputNumber label="Beds" max={10} />
-                          <NcInputNumber label="Bedrooms" max={10} />
-                          <NcInputNumber label="Bathrooms" max={10} />
+                          <NcInputNumber label={t("customer.stayListings.tabFilters.beds")} max={10} />
+                          <NcInputNumber label={t("customer.stayListings.tabFilters.bedrooms")} max={10} />
+                          <NcInputNumber label={t("customer.stayListings.tabFilters.bathrooms")} max={10} />
                         </div>
                       </div>
 
                       {/* ---- */}
                       <div className="py-7">
-                        <h3 className="text-xl font-medium">Amenities</h3>
+                        <h3 className="text-xl font-medium">{t("customer.stayListings.tabFilters.amenities")}</h3>
                         <div className="mt-6 relative ">
                           {renderMoreFilterItem(moreFilter1)}
                         </div>
@@ -614,7 +588,7 @@ const TabFilters = () => {
 
                       {/* ---- */}
                       <div className="py-7">
-                        <h3 className="text-xl font-medium">Facilities</h3>
+                        <h3 className="text-xl font-medium">{t("customer.stayListings.tabFilters.facilities")}</h3>
                         <div className="mt-6 relative ">
                           {renderMoreFilterItem(moreFilter2)}
                         </div>
@@ -622,7 +596,7 @@ const TabFilters = () => {
 
                       {/* ---- */}
                       <div className="py-7">
-                        <h3 className="text-xl font-medium">Property type</h3>
+                        <h3 className="text-xl font-medium">{t("customer.stayListings.tabFilters.propertyType")}</h3>
                         <div className="mt-6 relative ">
                           {renderMoreFilterItem(moreFilter3)}
                         </div>
@@ -630,7 +604,7 @@ const TabFilters = () => {
 
                       {/* ---- */}
                       <div className="py-7">
-                        <h3 className="text-xl font-medium">House rules</h3>
+                        <h3 className="text-xl font-medium">{t("customer.stayListings.tabFilters.houseRules")}</h3>
                         <div className="mt-6 relative ">
                           {renderMoreFilterItem(moreFilter4)}
                         </div>
@@ -642,15 +616,11 @@ const TabFilters = () => {
                     <ButtonThird
                       onClick={closeModalMoreFilterMobile}
                       sizeClass="px-4 py-2 sm:px-5"
-                    >
-                      Clear
-                    </ButtonThird>
+                    >{t("customer.stayListings.tabFilters.clear")}</ButtonThird>
                     <ButtonPrimary
                       onClick={closeModalMoreFilterMobile}
                       sizeClass="px-4 py-2 sm:px-5"
-                    >
-                      Apply
-                    </ButtonPrimary>
+                    >{t("customer.stayListings.tabFilters.apply")}</ButtonPrimary>
                   </div>
                 </div>
               </Transition.Child>

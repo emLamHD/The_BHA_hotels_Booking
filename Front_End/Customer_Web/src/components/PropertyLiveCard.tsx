@@ -10,6 +10,7 @@ import {
   selectCoverImage,
 } from "@/lib/api/propertyPresentation";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface PropertyLiveCardProps {
   className?: string;
   data: PropertyDto;
@@ -19,6 +20,7 @@ const PropertyLiveCard: FC<PropertyLiveCardProps> = ({
   className = "",
   data,
 }) => {
+  const t = useT();
   // The URL that failed, not a flag: a different cover is never judged by an old failure.
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const coverImage = selectCoverImage(data.media);
@@ -48,9 +50,7 @@ const PropertyLiveCard: FC<PropertyLiveCardProps> = ({
               />
             ) : (
               // CUST-WEB-SHOWCASE-001-CP01: no bundled template bitmap without rights evidence.
-              <div className="absolute inset-0 flex items-center justify-center p-4 text-center text-xs text-neutral-500 dark:text-neutral-400">
-                Ảnh đang được cập nhật
-              </div>
+              <div className="absolute inset-0 flex items-center justify-center p-4 text-center text-xs text-neutral-500 dark:text-neutral-400">{t("customer.propertyLiveCard.photosAreBeingUpdated")}</div>
             )}
           </div>
         </div>
@@ -74,8 +74,7 @@ const PropertyLiveCard: FC<PropertyLiveCardProps> = ({
               </p>
             )}
 
-            <div className="text-xs text-neutral-500 dark:text-neutral-400">
-              Check-in {formatTime(data.checkInTime)} · Check-out{" "}
+            <div className="text-xs text-neutral-500 dark:text-neutral-400">{t("customer.propertyLiveCard.checkIn")}{" "}{formatTime(data.checkInTime)}{" "}{t("customer.propertyLiveCard.checkOut")}{" "}
               {formatTime(data.checkOutTime)}
             </div>
 

@@ -2,6 +2,7 @@ import { StarIcon } from "@heroicons/react/24/solid";
 import React, { FC } from "react";
 import Avatar from "@/shared/Avatar";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 interface CommentListingDataType {
   name: string;
   avatar?: string;
@@ -29,6 +30,7 @@ const CommentListing: FC<CommentListingProps> = ({
   data = DEMO_DATA,
   hasListingTitle,
 }) => {
+  const t = useT();
   return (
     <div
       className={`nc-CommentListing flex space-x-4 ${className}`}
@@ -50,9 +52,9 @@ const CommentListing: FC<CommentListingProps> = ({
               {hasListingTitle && (
                 <>
                   <span className="text-neutral-500 dark:text-neutral-400 font-normal">
-                    {` review in `}
+                    {" "}{t("customer.commentListing.reviewIn")}
                   </span>
-                  <a href="/">The Lounge & Bar</a>
+                  <a href="/">{t("customer.commentListing.theLoungeBar")}</a>
                 </>
               )}
             </div>

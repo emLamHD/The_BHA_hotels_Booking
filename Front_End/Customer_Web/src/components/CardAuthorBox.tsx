@@ -1,3 +1,5 @@
+"use client";
+
 import React, { FC } from "react";
 import { AuthorType } from "@/data/types";
 import { StarIcon } from "@heroicons/react/24/solid";
@@ -5,6 +7,7 @@ import Avatar from "@/shared/Avatar";
 import Badge from "@/shared/Badge";
 import Link from "next/link";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface CardAuthorBoxProps {
   className?: string;
   author: AuthorType;
@@ -16,6 +19,7 @@ const CardAuthorBox: FC<CardAuthorBoxProps> = ({
   author,
   index,
 }) => {
+  const t = useT();
   const { displayName, href = "/", avatar, starRating } = author;
   return (
     <Link
@@ -41,9 +45,7 @@ const CardAuthorBox: FC<CardAuthorBoxProps> = ({
         </h2>
         <span
           className={`block mt-1.5 text-sm text-neutral-500 dark:text-neutral-400`}
-        >
-          New York
-        </span>
+        >{t("customer.cardAuthorBox.newYork")}</span>
       </div>
       <div className="py-2 px-5 mt-4 bg-neutral-100 dark:bg-neutral-800 rounded-full flex items-center justify-center ">
         <span className="text-xs font-medium pt-[1px]">

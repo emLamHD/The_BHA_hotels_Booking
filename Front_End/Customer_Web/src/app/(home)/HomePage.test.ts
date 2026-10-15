@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/i18n/server", async () => (await import("@/lib/i18n/testkit")).serverModuleMock());
 import React from "react";
@@ -17,10 +17,16 @@ import { BookingHoldProvider } from "@/app/BookingHoldProvider";
  * browser run covers behaviour; these pin the contract that does not need one: one H1, the real links, the
  * mock/real boundary, and that the portal is not the Riverside landing page.
  */
-const home = await renderPage(PageHome);
-const riverside = renderWithI18n(React.createElement(BookingHoldProvider, null, await PageRiverside()));
-const offers = await renderPage(OffersPage, { searchParams: { offer: MOCK_OFFERS[2].slug } });
-const credits = await renderPage(MediaCreditsPage);
+let home = "";
+let riverside = "";
+let offers = "";
+let credits = "";
+beforeAll(async () => {
+  home = await renderPage(PageHome);
+  riverside = renderWithI18n(React.createElement(BookingHoldProvider, null, (await PageRiverside()) as React.ReactElement));
+  offers = await renderPage(OffersPage, { searchParams: { offer: MOCK_OFFERS[2].slug } });
+  credits = await renderPage(MediaCreditsPage);
+});
 
 const count = (markup: string, needle: string) => markup.split(needle).length - 1;
 

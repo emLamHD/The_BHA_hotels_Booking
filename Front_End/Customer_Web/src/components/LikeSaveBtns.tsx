@@ -2,6 +2,7 @@
 
 import React, { FC, useEffect, useState } from "react";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface LikeSaveBtnsProps {
   /** Public address to share (identity and search only — never a token or contact). */
   shareUrl?: string;
@@ -40,6 +41,7 @@ const BUTTON =
  * — no account, no wishlist backend — and says so.
  */
 const LikeSaveBtns: FC<LikeSaveBtnsProps> = ({ shareUrl, shareTitle, saveKey }) => {
+  const t = useT();
   const [saved, setSaved] = useState(false);
   const [feedback, setFeedback] = useState("");
 
@@ -88,7 +90,7 @@ const LikeSaveBtns: FC<LikeSaveBtnsProps> = ({ shareUrl, shareTitle, saveKey }) 
               d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
             />
           </svg>
-          <span className="hidden sm:block ml-2.5">Share</span>
+          <span className="hidden sm:block ml-2.5">{t("customer.likeSaveBtns.share")}</span>
         </button>
         <button type="button" onClick={toggleSave} aria-pressed={saved} className={BUTTON}>
           <svg

@@ -4,6 +4,7 @@ import convertNumbThousand from "@/utils/convertNumbThousand";
 import Link from "next/link";
 import Image from "next/image";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface CardCategory3Props {
   className?: string;
   taxonomy: TaxonomyType;
@@ -13,6 +14,7 @@ const CardCategory3: FC<CardCategory3Props> = ({
   className = "",
   taxonomy,
 }) => {
+  const t = useT();
   const { count, name, href = "/", thumbnail } = taxonomy;
   return (
     <Link href={href} className={`nc-CardCategory3 flex flex-col ${className}`}>
@@ -22,7 +24,7 @@ const CardCategory3: FC<CardCategory3Props> = ({
         <Image
           src={thumbnail || ""}
           className="object-cover w-full h-full rounded-2xl"
-          alt="places"
+          alt={t("customer.cardCategory3.places")}
           fill
           sizes="(max-width: 400px) 100vw, 300px"
         />
@@ -37,8 +39,7 @@ const CardCategory3: FC<CardCategory3Props> = ({
         <span
           className={`block mt-1.5 text-sm text-neutral-6000 dark:text-neutral-400`}
         >
-          {convertNumbThousand(count || 0)} properties
-        </span>
+          {convertNumbThousand(count || 0)}{" "}{t("customer.common.properties")}</span>
       </div>
     </Link>
   );

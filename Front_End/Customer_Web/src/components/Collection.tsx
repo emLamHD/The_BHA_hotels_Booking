@@ -3,6 +3,7 @@ import ButtonSecondary from "@/shared/ButtonSecondary";
 import Link from "next/link";
 import Image from "next/image";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface CollectionProps {
   className?: string;
   featuredImage?: string;
@@ -18,6 +19,7 @@ const Collection: FC<CollectionProps> = ({
   desc = "The most popular <br /> in the world",
   color,
 }) => {
+  const t = useT();
   return (
     <Link href={"/listing-stay"} className={`nc-Collection block ${className}`}>
       <div
@@ -51,9 +53,7 @@ const Collection: FC<CollectionProps> = ({
               <ButtonSecondary
                 sizeClass="py-3 px-4 sm:py-3.5 sm:px-6"
                 fontSize="text-sm font-medium"
-              >
-                Show more
-              </ButtonSecondary>
+              >{t("customer.collection.showMore")}</ButtonSecondary>
             </div>
           </div>
         </div>

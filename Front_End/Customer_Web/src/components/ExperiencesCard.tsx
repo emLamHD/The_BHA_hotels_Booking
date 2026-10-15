@@ -1,3 +1,5 @@
+"use client";
+
 import React, { FC } from "react";
 import GallerySlider from "@/components/GallerySlider";
 import { DEMO_EXPERIENCES_LISTINGS } from "@/data/listings";
@@ -9,6 +11,7 @@ import Badge from "@/shared/Badge";
 import Link from "next/link";
 import { MapPinIcon } from "@heroicons/react/24/outline";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface ExperiencesCardProps {
   className?: string;
   ratioClass?: string;
@@ -24,6 +27,7 @@ const ExperiencesCard: FC<ExperiencesCardProps> = ({
   data = DEMO_DATA,
   ratioClass = "aspect-w-3 aspect-h-3",
 }) => {
+  const t = useT();
   const {
     galleryImgs,
     address,
@@ -79,9 +83,7 @@ const ExperiencesCard: FC<ExperiencesCardProps> = ({
             {price}
             {` `}
             {size === "default" && (
-              <span className="text-sm text-neutral-500 dark:text-neutral-400 font-normal">
-                /person
-              </span>
+              <span className="text-sm text-neutral-500 dark:text-neutral-400 font-normal">{t("customer.common.person")}</span>
             )}
           </span>
           <StartRating reviewCount={reviewCount} point={reviewStart} />

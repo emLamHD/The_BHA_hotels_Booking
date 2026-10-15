@@ -1,6 +1,9 @@
+"use client";
+
 import { StarIcon } from "@heroicons/react/24/solid";
 import React, { FC } from "react";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface StartRatingProps {
   className?: string;
   point?: number;
@@ -15,6 +18,7 @@ const StartRating: FC<StartRatingProps> = ({
   reviewCount = 112,
   sample,
 }) => {
+  const t = useT();
   return (
     <div
       className={`nc-StartRating flex items-center space-x-1 text-sm  ${className}`}
@@ -30,7 +34,7 @@ const StartRating: FC<StartRatingProps> = ({
       {sample && (
         <span
           className="text-xs whitespace-nowrap text-neutral-500 dark:text-neutral-400"
-          title="Đánh giá mẫu (không phải đánh giá của khách)"
+          title={t("customer.startRating.sampleRatingNotAGuest")}
         >
           {sample === "full" ? "· Đánh giá mẫu" : "(mẫu)"}
         </span>

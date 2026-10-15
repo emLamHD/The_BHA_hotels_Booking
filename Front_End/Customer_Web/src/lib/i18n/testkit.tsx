@@ -64,7 +64,7 @@ export function testSnapshot(locale = "vi", currency?: string): I18nSnapshot {
 }
 
 export function withI18n(element: React.ReactElement, locale = "vi", currency?: string): React.ReactElement {
-  return React.createElement(I18nProvider, { snapshot: testSnapshot(locale, currency) }, element);
+  return React.createElement(I18nProvider, { snapshot: testSnapshot(locale, currency), children: element });
 }
 
 /** Renders a (possibly async server) page or component to static markup inside the provider. */

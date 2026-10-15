@@ -79,12 +79,96 @@
    "placeholders": []
   },
   {
+   "key": "customer.carCard.car",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.carCard.seats",
+   "scope": "customer",
+   "placeholders": [
+    "seats"
+   ]
+  },
+  {
+   "key": "customer.cardAuthorBox.newYork",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.cardCategory1.articles",
+   "scope": "customer",
+   "placeholders": [
+    "count"
+   ]
+  },
+  {
+   "key": "customer.cardCategory3.places",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.cardCategory4.archive",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.cardCategoryBox1.19MinutesDrive",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.collection.showMore",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.commentListing.reviewIn",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.commentListing.theLoungeBar",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.common.112Properties",
    "scope": "customer",
    "placeholders": []
   },
   {
+   "key": "customer.common.12Places",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.2Bags",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.3Baths",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.4Seats",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.6Beds",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.common.adults",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.adults2",
    "scope": "customer",
    "placeholders": []
   },
@@ -99,9 +183,32 @@
    "placeholders": []
   },
   {
+   "key": "customer.common.ages13OrAbove2",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.common.ages212",
    "scope": "customer",
    "placeholders": []
+  },
+  {
+   "key": "customer.common.ages2122",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.autoGearbox",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.beds",
+   "scope": "customer",
+   "placeholders": [
+    "bedrooms",
+    "name"
+   ]
   },
   {
    "key": "customer.common.blog",
@@ -119,7 +226,27 @@
    "placeholders": []
   },
   {
+   "key": "customer.common.cancellationPolicy",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.carOwner",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.checkInCheckOut",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.common.children",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.children2",
    "scope": "customer",
    "placeholders": []
   },
@@ -139,6 +266,11 @@
    "placeholders": []
   },
   {
+   "key": "customer.common.day",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.common.differentDropOff",
    "scope": "customer",
    "placeholders": []
@@ -150,6 +282,11 @@
   },
   {
    "key": "customer.common.dropOffLocation",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.fastResponseWithinAFew",
    "scope": "customer",
    "placeholders": []
   },
@@ -169,7 +306,37 @@
    "placeholders": []
   },
   {
+   "key": "customer.common.hostedBy",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.include",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.includedInThePrice",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.common.infants",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.joinedInMarch2016",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.kevinFrancis",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.location",
    "scope": "customer",
    "placeholders": []
   },
@@ -184,12 +351,42 @@
    "placeholders": []
   },
   {
+   "key": "customer.common.mondayAugust121000",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.mondayAugust161000",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.night",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.common.oneWay",
    "scope": "customer",
    "placeholders": []
   },
   {
+   "key": "customer.common.person",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.photo1",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.common.photoCredits",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.photos",
    "scope": "customer",
    "placeholders": []
   },
@@ -209,12 +406,37 @@
    "placeholders": []
   },
   {
+   "key": "customer.common.properties",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.providingLakeViewsTheSymphony",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.common.recentSearches",
    "scope": "customer",
    "placeholders": []
   },
   {
+   "key": "customer.common.reserve",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.responseRate100",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.common.retry",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.reviews23Reviews",
    "scope": "customer",
    "placeholders": []
   },
@@ -234,6 +456,61 @@
    "placeholders": []
   },
   {
+   "key": "customer.common.sanDiegoCaUnitedStates",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.save",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.seeHostProfile",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.selectDate",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.shareYourThoughts",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.showAllPhotos",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.showMeMore",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.thingsToKnow",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.tokyoJappan",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.total",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.viewMore20Reviews",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.common.when",
    "scope": "customer",
    "placeholders": []
@@ -245,6 +522,111 @@
   },
   {
    "key": "customer.common.whereYouWantToFly",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.customerAuthNotice.checkAgain",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.datePickerCustomHeaderTwoMonth.nextMonth",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.datePickerCustomHeaderTwoMonth.previousMonth",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.experiencesCardH.3Hours",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.experiencesCardH.makingACupOfCoffee",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.experiencesCardH.upTo6People",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightCard.1Stop",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightCard.2Hours15MinutesBkk",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightCard.7h45m",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightCard.7Hours15Minutes",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightCard.anaBusinessClassBoeing787",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightCard.han",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightCard.hnd",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightCard.hndSin",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightCard.nonstop",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightCard.roundTrip",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightCard.sin",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightCard.singaporeInternationalAirportSin",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightCard.tokyoInternationalAirportHnd",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightCard.transitTime15Hours45",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightCard.tripTime7Hours45",
    "scope": "customer",
    "placeholders": []
   },
@@ -285,6 +667,11 @@
   },
   {
    "key": "customer.footer.riverside",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.gallerySlider.listingCardGallery",
    "scope": "customer",
    "placeholders": []
   },
@@ -490,6 +877,11 @@
   },
   {
    "key": "customer.header.theme.toLight",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.headerFilter.viewAll",
    "scope": "customer",
    "placeholders": []
   },
@@ -983,6 +1375,278 @@
    ]
   },
   {
+   "key": "customer.likeSaveBtns.share",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.layout.exploreByTypesOfStays",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingCarDetail.page.19X3Day",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingCarDetail.page.bmw3SeriesSedan",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingCarDetail.page.carDescriptions",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingCarDetail.page.carOwner",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingCarDetail.page.lockInThisFantasticPrice",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingCarDetail.page.photo0",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingCarDetail.page.pickUpAndDropOff",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingCarDetail.page.questionsAreAtTheHeart",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingCarDetail.page.questionsAreAtTheHeart2",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingCarDetail.page.saintPetersburgCityCenter",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingCarDetail.page.specialNote",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingCarDetail.page.untilTheAllNewTucson",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingCarDetail.page.vehicleParametersUtilities",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingCarDetail.page.weAskedOurselvesHowCan",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingCarDetail.rentalCarDatesRangeInput.pickUpDropOff",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.guestsInput.ages02",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.guestsInput.guests",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.guestsInput.infants",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.07300800Our",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.1030ArriveBaiDinh",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.1215EnjoyTheBuffet",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.1330VisitTrangAn",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.1545ArriveAtMua",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.17302000Return",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.19X3Adults",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.35Hours",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.anyExperienceCanBeCanceled",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.baiDinhPagodaExplorer",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.englishVietnames",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.experiencesDescriptions",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.formalWearToVisitBai",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.guestRequirements",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.hostInformation",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.itIsOneFullDay",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.muaCaveHikingTakePicture",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.serviceCharge",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.trangAnBoatTourMua",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.trangAnBoatTourMua2",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.trangAnTourOnBoat",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.upTo10GuestsAges",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.upTo10People",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.weWillPickUpFrom",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.whatToBring",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingStayDetail.guestsInput.childrenUnder2HaveNo",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingStayDetail.guestsInput.guests",
+   "scope": "customer",
+   "placeholders": [
+    "totalGuests"
+   ]
+  },
+  {
+   "key": "customer.listingDetail.listingStayDetail.guestsInput.numberOfApartments",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingStayDetail.guestsInput.rooms",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingStayDetail.page.loadingRooms",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.sectionDateRange.availability",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.sectionDateRange.pricesMayIncreaseOnWeekends",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingImageGallery.sharedModal.downloadFullsizeVersion",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingImageGallery.sharedModal.openFullsizeVersion",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.mediaCredits.page.author",
    "scope": "customer",
    "placeholders": [
@@ -1027,6 +1691,21 @@
    "placeholders": []
   },
   {
+   "key": "customer.modalSelectDate.clearDates",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.modalSelectDate.whenSYourTrip",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.modalSelectGuests.clearData",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.notFound.returnHomePage",
    "scope": "customer",
    "placeholders": []
@@ -1038,6 +1717,86 @@
   },
   {
    "key": "customer.offers.page.findRoomsAndSeeReal",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.propertyCardH.1200SqFit",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.propertyCardH.4Network",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.propertyCardH.family",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.propertyLiveCard.checkIn",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.propertyLiveCard.checkOut",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.propertyLiveCard.photosAreBeingUpdated",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionBecomeAnAuthor.accompanyingUsYouHaveA",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionBecomeAnAuthor.becomeAnAuthor",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionBecomeAnAuthor.whyDidYouChooseUs",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionClientSay.goodNewsFromFarAway",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionClientSay.letSSeeWhatPeople",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionGridAuthorBox.becomeAHost",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionGridAuthorBox.ratingBasedOnCustomerReviews",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionGridAuthorBox.top10AuthorOfThe",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionGridCategoryBox.discoverGreatPlacesNearWhere",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionGridCategoryBox.exploreNearby",
    "scope": "customer",
    "placeholders": []
   },
@@ -1073,6 +1832,91 @@
   },
   {
    "key": "customer.sectionHero3.ofBooking",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionHowItWork.howItWork",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionHowItWork.keepCalmTravelOn",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionOurFeatures.aHolidayLettingsListingGives",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionOurFeatures.bennefits",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionOurFeatures.costEffectiveAdvertising",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionOurFeatures.happeningCities",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionOurFeatures.millionsOfPeopleAreSearching",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionOurFeatures.reachMillionsWithChisfis",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionOurFeatures.secureAndSimple",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionOurFeatures.withAFreeListingYou",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionSubscribe2.enterYourEmail",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionSubscribe2.getMoreDiscount",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionSubscribe2.getPremiumMagazines",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionSubscribe2.joinOurNewsletter",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionSubscribe2.readAndShareNewPerspectives",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionVideos.checkOutOurHottestVideos",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionVideos.theVideos",
    "scope": "customer",
    "placeholders": []
   },
@@ -1151,6 +1995,164 @@
   },
   {
    "key": "customer.showcaseUnavailable.notFound.thisFeatureIsNotIn",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.startRating.sampleRatingNotAGuest",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayCardH.6Bedrooms",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayCardH.6Guests",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayCardH.in",
+   "scope": "customer",
+   "placeholders": [
+    "address",
+    "name"
+   ]
+  },
+  {
+   "key": "customer.stayCardH.noSmoking",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayCardH.wifi",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.listingStay.page.loading",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.listingStaySearchForm.clearFilters",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.listingStaySearchForm.findARoom",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.sectionGridFilterCard.chooseYourDatesAndGuests",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.sectionGridFilterCard.findARoomAtThe",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.sectionGridHasMap.searchAsIMoveThe",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.sectionGridHasMap.showMap",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.tabFilters.amenities",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.tabFilters.apply",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.tabFilters.bathrooms",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.tabFilters.bedrooms",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.tabFilters.beds",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.tabFilters.clear",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.tabFilters.facilities",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.tabFilters.houseRules",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.tabFilters.maxPrice",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.tabFilters.minPrice",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.tabFilters.moreFilters",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.tabFilters.moreFilters3",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.tabFilters.pricePerDay",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.tabFilters.propertyType",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.tabFilters.rangePrices",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.tabFilters.roomsAndBeds",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.tabFilters.roomsOfBeds",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.tabFilters.typeOfPlace",
    "scope": "customer",
    "placeholders": []
   },

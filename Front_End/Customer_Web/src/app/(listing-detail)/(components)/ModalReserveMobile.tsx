@@ -3,6 +3,7 @@ import CheckOutPagePageMain from "@/app/checkout/PageMain";
 import { Dialog, Transition } from "@headlessui/react";
 import { XMarkIcon } from "@heroicons/react/24/solid";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 interface ModalReserveMobileProps {
   renderChildren?: (p: { openModal: () => void }) => React.ReactNode;
 }
@@ -10,6 +11,7 @@ interface ModalReserveMobileProps {
 const ModalReserveMobile: FC<ModalReserveMobileProps> = ({
   renderChildren,
 }) => {
+  const t = useT();
   const [showModal, setShowModal] = useState(false);
 
   //
@@ -25,7 +27,7 @@ const ModalReserveMobile: FC<ModalReserveMobileProps> = ({
     return renderChildren ? (
       renderChildren({ openModal })
     ) : (
-      <button onClick={openModal}>Select Date</button>
+      <button onClick={openModal}>{t("customer.common.selectDate")}</button>
     );
   };
 

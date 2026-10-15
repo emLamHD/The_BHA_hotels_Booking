@@ -1,3 +1,5 @@
+"use client";
+
 import React, { FC } from "react";
 import { TaxonomyType } from "@/data/types";
 import Badge from "@/shared/Badge";
@@ -5,6 +7,7 @@ import convertNumbThousand from "@/utils/convertNumbThousand";
 import Link from "next/link";
 import Image from "next/image";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface CardCategoryBox1Props {
   className?: string;
   taxonomy: TaxonomyType;
@@ -14,6 +17,7 @@ const CardCategoryBox1: FC<CardCategoryBox1Props> = ({
   className = "",
   taxonomy,
 }) => {
+  const t = useT();
   const { count, name, thumbnail, href = "/" } = taxonomy;
   return (
     <Link
@@ -40,9 +44,7 @@ const CardCategoryBox1: FC<CardCategoryBox1Props> = ({
         </h2>
         <span
           className={`block mt-2 text-sm text-neutral-500 dark:text-neutral-400`}
-        >
-          19 minutes drive
-        </span>
+        >{t("customer.cardCategoryBox1.19MinutesDrive")}</span>
       </div>
     </Link>
   );

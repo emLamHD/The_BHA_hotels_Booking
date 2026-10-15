@@ -8,11 +8,13 @@ import ButtonPrimary from "@/shared/ButtonPrimary";
 import DatePickerCustomHeaderTwoMonth from "./DatePickerCustomHeaderTwoMonth";
 import DatePickerCustomDay from "./DatePickerCustomDay";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 interface ModalSelectDateProps {
   renderChildren?: (p: { openModal: () => void }) => React.ReactNode;
 }
 
 const ModalSelectDate: FC<ModalSelectDateProps> = ({ renderChildren }) => {
+  const t = useT();
   const [showModal, setShowModal] = useState(false);
 
   const [startDate, setStartDate] = useState<Date | null>(
@@ -40,7 +42,7 @@ const ModalSelectDate: FC<ModalSelectDateProps> = ({ renderChildren }) => {
     return renderChildren ? (
       renderChildren({ openModal })
     ) : (
-      <button onClick={openModal}>Select Date</button>
+      <button onClick={openModal}>{t("customer.common.selectDate")}</button>
     );
   };
 
@@ -80,7 +82,7 @@ const ModalSelectDate: FC<ModalSelectDateProps> = ({ renderChildren }) => {
                         <div className="flex-1 flex flex-col transition-opacity animate-[myblur_0.4s_ease-in-out] overflow-auto">
                           <div className="p-5 ">
                             <span className="block font-semibold text-xl sm:text-2xl">
-                              {` When's your trip?`}
+                              {" "}{t("customer.modalSelectDate.whenSYourTrip")}
                             </span>
                           </div>
                           <div className="flex-1 relative flex z-10 ">
@@ -116,17 +118,13 @@ const ModalSelectDate: FC<ModalSelectDateProps> = ({ renderChildren }) => {
                         onClick={() => {
                           onChangeDate([null, null]);
                         }}
-                      >
-                        Clear dates
-                      </button>
+                      >{t("customer.modalSelectDate.clearDates")}</button>
                       <ButtonPrimary
                         sizeClass="px-6 py-3 !rounded-xl"
                         onClick={() => {
                           closeModal();
                         }}
-                      >
-                        Save
-                      </ButtonPrimary>
+                      >{t("customer.common.save")}</ButtonPrimary>
                     </div>
                   </>
                 </Dialog.Panel>

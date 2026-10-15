@@ -4,6 +4,7 @@ import convertNumbThousand from "@/utils/convertNumbThousand";
 import Link from "next/link";
 import Image from "next/image";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface CardCategory4Props {
   className?: string;
   taxonomy: TaxonomyType;
@@ -13,6 +14,7 @@ const CardCategory4: FC<CardCategory4Props> = ({
   className = "",
   taxonomy,
 }) => {
+  const t = useT();
   const { count, name, href = "/", thumbnail, listingType } = taxonomy;
   return (
     <Link
@@ -27,7 +29,7 @@ const CardCategory4: FC<CardCategory4Props> = ({
           src={thumbnail || ""}
           className="object-cover w-full h-full rounded-2xl"
           fill
-          alt="archive"
+          alt={t("customer.cardCategory4.archive")}
           sizes="(max-width: 400px) 100vw, 400px"
         />
         <span className="opacity-0 group-hover:opacity-100 absolute inset-0 bg-black bg-opacity-10 transition-opacity"></span>

@@ -1,3 +1,5 @@
+"use client";
+
 import React, { FC } from "react";
 import { DEMO_STAY_LISTINGS } from "@/data/listings";
 import { StayDataType } from "@/data/types";
@@ -8,6 +10,7 @@ import Badge from "@/shared/Badge";
 import Link from "next/link";
 import GallerySlider from "./GallerySlider";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface StayCardProps {
   className?: string;
   data?: StayDataType;
@@ -21,6 +24,7 @@ const StayCard: FC<StayCardProps> = ({
   className = "",
   data = DEMO_DATA,
 }) => {
+  const t = useT();
   const {
     galleryImgs,
     listingCategory,
@@ -58,8 +62,7 @@ const StayCard: FC<StayCardProps> = ({
       <div className={size === "default" ? "p-4 space-y-4" : "p-3 space-y-1"}>
         <div className={size === "default" ? "space-y-2" : "space-y-1"}>
           <span className="text-sm text-neutral-500 dark:text-neutral-400">
-            {listingCategory.name} · {bedrooms} beds
-          </span>
+            {t("customer.common.beds", { name: listingCategory.name, bedrooms })}</span>
           <div className="flex items-center space-x-2">
             {isAds && <Badge name="ADS" color="green" />}
             <h2
@@ -101,9 +104,7 @@ const StayCard: FC<StayCardProps> = ({
             {price}
             {` `}
             {size === "default" && (
-              <span className="text-sm text-neutral-500 dark:text-neutral-400 font-normal">
-                /night
-              </span>
+              <span className="text-sm text-neutral-500 dark:text-neutral-400 font-normal">{t("customer.common.night")}</span>
             )}
           </span>
           {!!reviewStart && (

@@ -15,6 +15,7 @@ import {
   brandInfo,
 } from "@/lib/stayListingQuery";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 interface FormDraft {
   brand: StayBrand;
   checkIn: string;
@@ -77,6 +78,7 @@ const FIELD_DIVIDER = "border-b border-slate-200 dark:border-slate-700 md:border
  * says what is missing and starts no request.
  */
 const ListingStaySearchForm: FC<ListingStaySearchFormProps> = ({ applied, onApply, onClear }) => {
+  const t = useT();
   const [draft, setDraft] = useState<FormDraft>(() => draftFromQuery(applied));
   const [problem, setProblem] = useState<{ id: number; message: string } | null>(null);
   const problemRef = useRef<HTMLParagraphElement>(null);
@@ -108,7 +110,7 @@ const ListingStaySearchForm: FC<ListingStaySearchFormProps> = ({ applied, onAppl
   return (
     <div>
       <form
-        aria-label="Tìm phòng"
+        aria-label={t("customer.stayListings.listingStaySearchForm.findARoom")}
         className="w-full relative flex flex-col md:flex-row rounded-3xl md:rounded-full shadow-xl dark:shadow-2xl bg-white dark:bg-neutral-800 [&_button[aria-label=Search]]:px-6 md:[&_button[aria-label=Search]]:px-0"
         onSubmit={(event) => {
           event.preventDefault();
@@ -172,9 +174,7 @@ const ListingStaySearchForm: FC<ListingStaySearchFormProps> = ({ applied, onAppl
             type="button"
             onClick={onClear}
             className="text-neutral-600 underline underline-offset-2 hover:text-neutral-900 dark:text-neutral-300 dark:hover:text-white"
-          >
-            Xoá bộ lọc
-          </button>
+          >{t("customer.stayListings.listingStaySearchForm.clearFilters")}</button>
         )}
       </div>
     </div>

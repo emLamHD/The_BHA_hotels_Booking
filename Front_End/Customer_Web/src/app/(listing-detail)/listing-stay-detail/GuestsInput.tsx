@@ -5,6 +5,7 @@ import { Popover, Transition } from "@headlessui/react";
 import NcInputNumber from "@/components/NcInputNumber";
 import { UserPlusIcon } from "@heroicons/react/24/outline";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface GuestsInputProps {
   className?: string;
   adults: number;
@@ -20,6 +21,7 @@ export interface GuestsInputProps {
  * "Infants" counter is not offered (there is no infant count to send) and the popover says so.
  */
 const GuestsInput: FC<GuestsInputProps> = ({ className = "flex-1", adults, childrenCount, rooms, onChange, disabled }) => {
+  const t = useT();
   const totalGuests = adults + childrenCount;
 
   return (
@@ -40,8 +42,7 @@ const GuestsInput: FC<GuestsInputProps> = ({ className = "flex-1", adults, child
               </div>
               <div className="flex-grow">
                 <span className="block xl:text-lg font-semibold">
-                  {totalGuests} Guests
-                </span>
+                  {t("customer.listingDetail.listingStayDetail.guestsInput.guests", { totalGuests })}</span>
                 <span className="block mt-1 text-sm text-neutral-400 leading-none font-light">
                   {rooms} {rooms === 1 ? "room" : "rooms"}
                 </span>
@@ -65,16 +66,16 @@ const GuestsInput: FC<GuestsInputProps> = ({ className = "flex-1", adults, child
                 onChange={(value) => onChange({ adults: value })}
                 max={10}
                 min={1}
-                label="Adults"
-                desc="Ages 13 or above"
+                label={t("customer.common.adults2")}
+                desc={t("customer.common.ages13OrAbove2")}
               />
               <NcInputNumber
                 className="w-full mt-6"
                 value={childrenCount}
                 onChange={(value) => onChange({ children: value })}
                 max={4}
-                label="Children"
-                desc="Ages 2–12"
+                label={t("customer.common.children2")}
+                desc={t("customer.common.ages2122")}
               />
               <NcInputNumber
                 className="w-full mt-6"
@@ -82,12 +83,10 @@ const GuestsInput: FC<GuestsInputProps> = ({ className = "flex-1", adults, child
                 onChange={(value) => onChange({ rooms: value })}
                 max={10}
                 min={1}
-                label="Rooms"
-                desc="Number of apartments"
+                label={t("customer.listingDetail.listingStayDetail.guestsInput.rooms")}
+                desc={t("customer.listingDetail.listingStayDetail.guestsInput.numberOfApartments")}
               />
-              <p className="mt-5 text-xs text-neutral-500 dark:text-neutral-400">
-                Trẻ dưới 2 tuổi chưa có lựa chọn riêng khi đặt phòng.
-              </p>
+              <p className="mt-5 text-xs text-neutral-500 dark:text-neutral-400">{t("customer.listingDetail.listingStayDetail.guestsInput.childrenUnder2HaveNo")}</p>
             </Popover.Panel>
           </Transition>
         </>

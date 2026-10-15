@@ -1,3 +1,5 @@
+"use client";
+
 import React, { FC } from "react";
 import { DEMO_CAR_LISTINGS } from "@/data/listings";
 import { CarDataType } from "@/data/types";
@@ -8,6 +10,7 @@ import Badge from "@/shared/Badge";
 import Image from "next/image";
 import Link from "next/link";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface CarCardProps {
   className?: string;
   data?: CarDataType;
@@ -21,6 +24,7 @@ const CarCard: FC<CarCardProps> = ({
   className = "",
   data = DEMO_DATA,
 }) => {
+  const t = useT();
   const {
     featuredImage,
     title,
@@ -42,7 +46,7 @@ const CarCard: FC<CarCardProps> = ({
           <Image
             fill
             src={featuredImage}
-            alt="car"
+            alt={t("customer.carCard.car")}
             sizes="(max-width: 640px) 100vw, 350px"
           />
         </div>
@@ -69,7 +73,7 @@ const CarCard: FC<CarCardProps> = ({
             </h2>
           </div>
           <div className="flex items-center text-neutral-500 dark:text-neutral-400 text-sm space-x-2">
-            <span className="">{seats} seats</span>
+            <span className="">{t("customer.carCard.seats", { seats })}</span>
             <span>-</span>
             <span className="">{gearshift} </span>
           </div>
@@ -80,9 +84,7 @@ const CarCard: FC<CarCardProps> = ({
             {price}
             {` `}
             {size === "default" && (
-              <span className="text-sm text-neutral-500 dark:text-neutral-400 font-normal">
-                /day
-              </span>
+              <span className="text-sm text-neutral-500 dark:text-neutral-400 font-normal">{t("customer.common.day")}</span>
             )}
           </span>
           <StartRating reviewCount={reviewCount} point={reviewStart} />

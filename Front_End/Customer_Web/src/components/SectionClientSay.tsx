@@ -17,6 +17,7 @@ import Image from "next/image";
 import { useSwipeable } from "react-swipeable";
 import { variants } from "@/utils/animationVariants";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface SectionClientSayProps {
   className?: string;
   data?: typeof DEMO_DATA;
@@ -50,6 +51,7 @@ const SectionClientSay: FC<SectionClientSayProps> = ({
   className = "",
   data = DEMO_DATA,
 }) => {
+  const t = useT();
   const [index, setIndex] = useState(0);
   const [direction, setDirection] = useState(0);
 
@@ -117,9 +119,7 @@ const SectionClientSay: FC<SectionClientSayProps> = ({
 
   return (
     <div className={`nc-SectionClientSay relative ${className} `}>
-      <Heading desc="Let's see what people think of Chisfis" isCenter>
-        Good news from far away
-      </Heading>
+      <Heading desc={t("customer.sectionClientSay.letSSeeWhatPeople")} isCenter>{t("customer.sectionClientSay.goodNewsFromFarAway")}</Heading>
       <div className="relative md:mb-16 max-w-2xl mx-auto">
         {renderBg()}
         <Image className="mx-auto" src={clientSayMain} alt="" />

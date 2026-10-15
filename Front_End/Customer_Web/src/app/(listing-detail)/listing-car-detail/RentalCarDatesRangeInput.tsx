@@ -9,6 +9,7 @@ import DatePickerCustomHeaderTwoMonth from "@/components/DatePickerCustomHeaderT
 import DatePickerCustomDay from "@/components/DatePickerCustomDay";
 import ClearDataButton from "@/app/(client-components)/(HeroSearchForm)/ClearDataButton";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface RentalCarDatesRangeInputProps {
   className?: string;
 }
@@ -16,6 +17,7 @@ export interface RentalCarDatesRangeInputProps {
 const RentalCarDatesRangeInput: FC<RentalCarDatesRangeInputProps> = ({
   className = "",
 }) => {
+  const t = useT();
   const [startDate, setStartDate] = useState<Date | null>(
     new Date("2023/03/01")
   );
@@ -48,7 +50,7 @@ const RentalCarDatesRangeInput: FC<RentalCarDatesRangeInputProps> = ({
               : ""}
           </span>
           <span className="block mt-1 text-sm text-neutral-400 leading-none font-light">
-            {"Pick up - Drop off"}
+            {t("customer.listingDetail.listingCarDetail.rentalCarDatesRangeInput.pickUpDropOff")}
           </span>
         </div>
       </>

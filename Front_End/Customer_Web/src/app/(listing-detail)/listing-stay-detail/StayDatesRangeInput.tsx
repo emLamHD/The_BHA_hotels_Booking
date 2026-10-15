@@ -8,6 +8,7 @@ import DatePickerCustomDay from "@/components/DatePickerCustomDay";
 import DatePicker from "react-datepicker";
 import ClearDataButton from "@/app/(client-components)/(HeroSearchForm)/ClearDataButton";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface StayDatesRangeInputProps {
   className?: string;
   /** The range, owned by the booking panel's draft. */
@@ -30,6 +31,7 @@ const StayDatesRangeInput: FC<StayDatesRangeInputProps> = ({
   minDate,
   disabled,
 }) => {
+  const t = useT();
   const renderInput = () => {
     return (
       <>
@@ -51,7 +53,7 @@ const StayDatesRangeInput: FC<StayDatesRangeInputProps> = ({
               : ""}
           </span>
           <span className="block mt-1 text-sm text-neutral-400 leading-none font-light">
-            {"Check in - Check out"}
+            {t("customer.common.checkInCheckOut")}
           </span>
         </div>
       </>

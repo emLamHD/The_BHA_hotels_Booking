@@ -9,6 +9,7 @@ import { variants } from "@/utils/animationVariants";
 import Link from "next/link";
 import { Route } from "@/routers/types";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface GallerySliderProps {
   className?: string;
   galleryImgs: (StaticImageData | string)[];
@@ -36,6 +37,7 @@ export default function GallerySlider({
   unoptimized = false,
   onImageError,
 }: GallerySliderProps) {
+  const t = useT();
   const [loaded, setLoaded] = useState(false);
   const [index, setIndex] = useState(0);
   const [direction, setDirection] = useState(0);
@@ -97,7 +99,7 @@ export default function GallerySlider({
                 <Image
                   src={currentImage || ""}
                   fill
-                  alt="listing card gallery"
+                  alt={t("customer.gallerySlider.listingCardGallery")}
                   className={`object-cover ${imageClass}`}
                   onLoadingComplete={() => setLoaded(true)}
                   onError={() => onImageError?.(currentImage)}

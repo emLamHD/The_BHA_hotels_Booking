@@ -1,3 +1,5 @@
+"use client";
+
 import React, { FC } from "react";
 import GallerySlider from "@/components/GallerySlider";
 import { DEMO_STAY_LISTINGS } from "@/data/listings";
@@ -8,6 +10,7 @@ import Badge from "@/shared/Badge";
 import { StayDataType } from "@/data/types";
 import Link from "next/link";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface PropertyCardHProps {
   className?: string;
   data?: StayDataType;
@@ -19,6 +22,7 @@ const PropertyCardH: FC<PropertyCardHProps> = ({
   className = "",
   data = DEMO_DATA,
 }) => {
+  const t = useT();
   const {
     galleryImgs,
     title,
@@ -57,9 +61,7 @@ const PropertyCardH: FC<PropertyCardHProps> = ({
           <span className="hidden sm:inline-block">
             <i className="las la-bed text-lg"></i>
           </span>
-          <span className="text-xs text-neutral-500 dark:text-neutral-400">
-            6 beds
-          </span>
+          <span className="text-xs text-neutral-500 dark:text-neutral-400">{t("customer.common.6Beds")}</span>
         </div>
 
         {/* ---- */}
@@ -67,9 +69,7 @@ const PropertyCardH: FC<PropertyCardHProps> = ({
           <span className="hidden sm:inline-block">
             <i className="las la-bath text-lg"></i>
           </span>
-          <span className="text-xs text-neutral-500 dark:text-neutral-400">
-            3 baths
-          </span>
+          <span className="text-xs text-neutral-500 dark:text-neutral-400">{t("customer.common.3Baths")}</span>
         </div>
 
         {/* ---- */}
@@ -77,9 +77,7 @@ const PropertyCardH: FC<PropertyCardHProps> = ({
           <span className="hidden sm:inline-block">
             <i className="las la-expand-arrows-alt text-lg"></i>
           </span>
-          <span className="text-xs text-neutral-500 dark:text-neutral-400">
-            1200 Sq. Fit
-          </span>
+          <span className="text-xs text-neutral-500 dark:text-neutral-400">{t("customer.propertyCardH.1200SqFit")}</span>
         </div>
       </div>
     );
@@ -94,7 +92,7 @@ const PropertyCardH: FC<PropertyCardHProps> = ({
               name={
                 <div className="flex items-center">
                   <i className="text-sm las la-share-alt"></i>
-                  <span className="ml-1">4 Network</span>
+                  <span className="ml-1">{t("customer.propertyCardH.4Network")}</span>
                 </div>
               }
             />
@@ -102,7 +100,7 @@ const PropertyCardH: FC<PropertyCardHProps> = ({
               name={
                 <div className="flex items-center">
                   <i className="text-sm las la-user-friends"></i>
-                  <span className="ml-1">Family</span>
+                  <span className="ml-1">{t("customer.propertyCardH.family")}</span>
                 </div>
               }
               color="yellow"

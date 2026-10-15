@@ -3,6 +3,7 @@ import { TaxonomyType } from "@/data/types";
 import Link from "next/link";
 import Image from "next/image";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface CardCategory1Props {
   className?: string;
   taxonomy: TaxonomyType;
@@ -14,6 +15,7 @@ const CardCategory1: FC<CardCategory1Props> = ({
   size = "normal",
   taxonomy,
 }) => {
+  const t = useT();
   const { count, name, href = "/", thumbnail } = taxonomy;
   return (
     <Link
@@ -42,8 +44,7 @@ const CardCategory1: FC<CardCategory1Props> = ({
             size === "large" ? "text-sm" : "text-xs"
           } block mt-[2px] text-neutral-500 dark:text-neutral-400`}
         >
-          {count} Articles
-        </span>
+          {t("customer.cardCategory1.articles", { count })}</span>
       </div>
     </Link>
   );

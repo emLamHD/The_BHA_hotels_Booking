@@ -9,6 +9,7 @@ import Badge from "@/shared/Badge";
 import Avatar from "@/shared/Avatar";
 import Link from "next/link";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface ExperiencesCardHProps {
   className?: string;
   data?: ExperiencesDataType;
@@ -20,6 +21,7 @@ const ExperiencesCardH: FC<ExperiencesCardHProps> = ({
   className = "",
   data = DEMO_DATA,
 }) => {
+  const t = useT();
   const {
     galleryImgs,
     address,
@@ -73,23 +75,17 @@ const ExperiencesCardH: FC<ExperiencesCardHProps> = ({
         </div>
         <div className="hidden sm:block text-sm text-neutral-500 dark:text-neutral-400 mt-4">
           <span className="line-clamp-2">
-            {`Making a cup of coffee in Vietnam is a whole process that you barely
-            have free time in the middle. But it's also not a really complicated
-            task to start the day with`}
+            {t("customer.experiencesCardH.makingACupOfCoffee")}
           </span>
         </div>
         <div className="flex items-center space-x-8 mt-4  ">
           <div className="flex items-center space-x-2">
             <i className="las la-clock text-lg"></i>
-            <span className="text-sm text-neutral-500 dark:text-neutral-400">
-              3 hours
-            </span>
+            <span className="text-sm text-neutral-500 dark:text-neutral-400">{t("customer.experiencesCardH.3Hours")}</span>
           </div>
           <div className="flex items-center space-x-2">
             <i className="las la-user text-lg"></i>
-            <span className="text-sm text-neutral-500 dark:text-neutral-400">
-              Up to 6 people
-            </span>
+            <span className="text-sm text-neutral-500 dark:text-neutral-400">{t("customer.experiencesCardH.upTo6People")}</span>
           </div>
         </div>
         <div className="w-14 border-b border-neutral-100 dark:border-neutral-800 my-4"></div>
@@ -97,16 +93,14 @@ const ExperiencesCardH: FC<ExperiencesCardHProps> = ({
           <div className="flex items-center space-x-3 text-sm text-neutral-700  dark:text-neutral-300">
             <Avatar imgUrl={author.avatar} userName={author.displayName} />
             <span className="hidden sm:inline-block">
-              <span className="hidden sm:inline">Hosted by</span>{" "}
+              <span className="hidden sm:inline">{t("customer.common.hostedBy")}</span>{" "}
               {author.displayName}
             </span>
           </div>
           <span className="text-base font-semibold text-secondary-700">
             {price}
             {` `}
-            <span className="text-sm text-neutral-500 dark:text-neutral-400 font-normal">
-              /person
-            </span>
+            <span className="text-sm text-neutral-500 dark:text-neutral-400 font-normal">{t("customer.common.person")}</span>
           </span>
         </div>
       </div>
