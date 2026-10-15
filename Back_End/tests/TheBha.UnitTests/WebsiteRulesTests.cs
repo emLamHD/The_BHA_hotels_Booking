@@ -65,8 +65,46 @@ public sealed class WebsiteRulesTests
     [InlineData("ABC")]
     [InlineData("XAU")]
     [InlineData("12A")]
-    public void An_unknown_currency_code_is_refused(string input) =>
+    [InlineData("CHE")]   // a fund code, not a currency
+    [InlineData("XDR")]   // a unit of account
+    [InlineData("XTS")]   // the testing code
+    [InlineData("XXX")]   // "no currency"
+    [InlineData("XAD")]   // Arab Accounting Dinar: the Arab Monetary Fund's unit of account, the class of XDR/XUA
+    public void An_unknown_fund_metal_test_or_accounting_unit_code_is_refused(string input) =>
         Assert.False(Iso4217.TryNormalize(input, out _));
+
+    /// <summary>
+    /// ISO 4217 List Three (historic denominations), withdrawn before the list this code follows:
+    /// ZWL (replaced by ZWG; amendment 177, ZWL withdrawn 2024-09), ANG (replaced by XCG; amendment 176, withdrawn
+    /// 2025-03) and BGN (the euro replaced it; withdrawn 2026-01).
+    /// </summary>
+    [Theory]
+    [InlineData("ZWL")]
+    [InlineData("zwl")]
+    [InlineData("ANG")]
+    [InlineData(" bgn ")]
+    public void A_withdrawn_currency_code_is_refused(string input) =>
+        Assert.False(Iso4217.TryNormalize(input, out _));
+
+    /// <summary>XCG is the current code that replaced ANG (amendment 176, effective 2025-03-31).</summary>
+    [Theory]
+    [InlineData("XCG", "XCG")]
+    [InlineData(" xcg ", "XCG")]
+    public void A_current_code_that_replaced_a_withdrawn_one_is_accepted(string input, string expected)
+    {
+        Assert.True(Iso4217.TryNormalize(input, out var code));
+        Assert.Equal(expected, code);
+    }
+
+    /// <summary>Guards, green before and after the correction: current codes that a careless "withdrawn" sweep must not remove.</summary>
+    [Theory]
+    [InlineData("SVC")]   // still in List One (El Salvador), though little used
+    [InlineData("ZWG")]
+    [InlineData("VND")]
+    [InlineData("USD")]
+    [InlineData("EUR")]
+    public void A_current_code_is_still_accepted(string input) =>
+        Assert.True(Iso4217.TryNormalize(input, out _));
 
     [Theory]
     [InlineData("25000.5", "25000.5")]

@@ -66,15 +66,30 @@ public static partial class LanguageTag
 }
 
 /// <summary>
-/// The active ISO 4217 alphabetic codes (funds, metals and test codes excluded). A code outside this list
-/// is refused, so <c>ABC</c> cannot become a currency. The list is data, not behaviour: a currency ISO adds
-/// later is a one-line change here.
+/// The current ISO 4217 alphabetic currency codes. A code outside this list is refused, so <c>ABC</c> cannot become
+/// a currency, and neither can a withdrawn one. The list is data, not behaviour: when ISO adds or withdraws a
+/// currency, it is a one-line change here, read from the two SIX lists below.
+///
+/// <para>Source (SIX Financial Information, the ISO 4217 maintenance agency), checked 2026-10-15:
+/// List One, <c>Pblshd=2026-09-17</c> (current codes):
+/// https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml ;
+/// List Three, <c>Pblshd=2026-01-01</c> (withdrawn codes):
+/// https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-three.xml ;
+/// amendment 176 (XCG replaces ANG, effective 2025-03-31) and amendment 177 (ZWG replaces ZWL, effective 2024-06-25):
+/// https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/amendments/dl-currency-iso-amendment-176.pdf and
+/// https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/amendments/dl-currency-iso-amendment-177.pdf .</para>
+///
+/// <para>This is List One minus the codes that are not currencies by product policy: funds (BOV, CHE, CHW, CLF, COU,
+/// MXV, USN, UYI, UYW), precious metals (XAG, XAU, XPD, XPT), the testing code XTS, "no currency" XXX, and units of
+/// account (XBA–XBD, XDR, XSU, XUA, and XAD, the Arab Monetary Fund's Arab Accounting Dinar, the same class as XDR and
+/// XUA). A rarely used code that List One still lists (SVC, El Salvador) stays; a code on List Three (ANG, BGN, ZWL)
+/// does not.</para>
 /// </summary>
 public static class Iso4217
 {
     private static readonly HashSet<string> Codes = new(StringComparer.Ordinal)
     {
-        "AED", "AFN", "ALL", "AMD", "ANG", "AOA", "ARS", "AUD", "AWG", "AZN", "BAM", "BBD", "BDT", "BGN", "BHD", "BIF",
+        "AED", "AFN", "ALL", "AMD", "AOA", "ARS", "AUD", "AWG", "AZN", "BAM", "BBD", "BDT", "BHD", "BIF",
         "BMD", "BND", "BOB", "BRL", "BSD", "BTN", "BWP", "BYN", "BZD", "CAD", "CDF", "CHF", "CLP", "CNY", "COP", "CRC",
         "CUP", "CVE", "CZK", "DJF", "DKK", "DOP", "DZD", "EGP", "ERN", "ETB", "EUR", "FJD", "FKP", "GBP", "GEL", "GHS",
         "GIP", "GMD", "GNF", "GTQ", "GYD", "HKD", "HNL", "HTG", "HUF", "IDR", "ILS", "INR", "IQD", "IRR", "ISK", "JMD",
@@ -83,7 +98,7 @@ public static class Iso4217
         "NGN", "NIO", "NOK", "NPR", "NZD", "OMR", "PAB", "PEN", "PGK", "PHP", "PKR", "PLN", "PYG", "QAR", "RON", "RSD",
         "RUB", "RWF", "SAR", "SBD", "SCR", "SDG", "SEK", "SGD", "SHP", "SLE", "SOS", "SRD", "SSP", "STN", "SVC", "SYP",
         "SZL", "THB", "TJS", "TMT", "TND", "TOP", "TRY", "TTD", "TWD", "TZS", "UAH", "UGX", "USD", "UYU", "UZS", "VED",
-        "VES", "VND", "VUV", "WST", "XAF", "XCD", "XOF", "XPF", "YER", "ZAR", "ZMW", "ZWG", "ZWL"
+        "VES", "VND", "VUV", "WST", "XAF", "XCD", "XCG", "XOF", "XPF", "YER", "ZAR", "ZMW", "ZWG"
     };
 
     public static bool TryNormalize(string? value, out string code)

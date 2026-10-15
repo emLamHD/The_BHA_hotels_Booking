@@ -224,6 +224,52 @@ public sealed class WebsiteCurrenciesApiTests(PostgreSqlWebApplicationFactory fa
         await AssertInvariantsAsync();
     }
 
+    /// <summary>
+    /// ISO 4217 List Three codes: a withdrawn code is refused on the code field and nothing is stored, so the public
+    /// config can never offer it. The assertion that matters is the absence of a row (a never-activated currency is
+    /// absent from the config anyway).
+    /// </summary>
+    [Theory]
+    [InlineData("ZWL")]
+    [InlineData("zwl")]
+    [InlineData("ANG")]
+    [InlineData("BGN")]
+    public async Task A_withdrawn_currency_code_is_a_400_on_code_and_nothing_is_stored(string code)
+    {
+        using var session = await StartAsync();
+
+        var refused = await AssertStatusAsync(HttpStatusCode.BadRequest, session.PostAsync(Url, NewCurrency(code, "Withdrawn", "¤")));
+        Assert.Equal((WebsiteErrorCodes.Validation, "code"), await ProblemAsync(refused));
+        Assert.Equal(0, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteCurrencies" WHERE "Code" IN ('ZWL', 'ANG', 'BGN') """));
+        Assert.Equal(3, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteCurrencies" """));   // still only VND, USD, EUR
+        await AssertStatusAsync(HttpStatusCode.NotFound, session.PostAsync($"{Url}/{code}/rate", Rate(1, "1")));
+        await AssertInvariantsAsync();
+    }
+
+    /// <summary>
+    /// XCG (Caribbean guilder, amendment 176) is a current code that was missing, and SVC is a current code that a
+    /// review mistook for withdrawn. Both go through the whole lifecycle; the rates are made-up test data.
+    /// </summary>
+    [Theory]
+    [InlineData("xcg", "XCG", "Caribbean guilder", "Cg", "14000.5")]
+    [InlineData("SVC", "SVC", "El Salvador colon", "₡", "2900")]
+    public async Task A_current_code_is_created_rated_turned_on_and_offered_by_the_public_config(string typed, string code, string name, string symbol, string rate)
+    {
+        using var session = await StartAsync();
+
+        var created = await JsonAsync(await AssertStatusAsync(HttpStatusCode.Created, session.PostAsync(Url, NewCurrency(typed, name, symbol, 2, 60))));
+        Assert.Equal(code, created.GetProperty("code").GetString());
+        await AssertStatusAsync(HttpStatusCode.OK, session.PostAsync($"{Url}/{code.ToLowerInvariant()}/rate", Rate(1, rate)));
+        await AssertStatusAsync(HttpStatusCode.OK, session.PostAsync($"{Url}/{code}/active", new { expectedVersion = 2, isActive = true }));
+
+        var config = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, session.Client.SendAsync(Get("/api/v1/website/config"))));   // no cookie: anonymous
+        var offered = config.GetProperty("currencies").EnumerateArray().Single(currency => currency.GetProperty("code").GetString() == code);
+        Assert.Equal(rate, offered.GetProperty("vndPerUnit").GetString());
+        Assert.Equal(name, offered.GetProperty("name").GetString());
+        Assert.Equal("VND", config.GetProperty("defaultCurrency").GetString());
+        await AssertInvariantsAsync();
+    }
+
     [Fact]
     public async Task Editing_a_currency_checks_the_version_and_the_code_is_never_changed()
     {
