@@ -73,7 +73,7 @@ Tại mọi thời điểm chỉ `ACTIVE_EXECUTOR` (implementer được chọn)
 - Trước khi Owner gọi reviewer, `ACTIVE_EXECUTOR` phải dừng mọi thao tác ghi và giữ working tree ở một checkpoint ổn định trong suốt lượt review.
 - Chỉ Owner được phép gọi reviewer, và chỉ qua cơ chế đã duyệt (`/codex:review` khi reviewer là Codex; một phiên Claude read-only riêng khi reviewer là Claude). `ACTIVE_EXECUTOR` không tự thực thi việc gọi reviewer; không dùng reviewer để rescue, transfer, implement, sửa findings hoặc tự phân chia task.
 - Không bật automatic review gate hoặc vòng lặp implementer–reviewer tự động. Mỗi lượt review phải là một invocation hữu hạn, có chủ đích và được ghi trong report.
-- Không tạo nested-agent/fan-out ngoài review invocation đã duyệt.
+- Được phép tạo subagent/nested-agent; chúng hoạt động dưới quyền `ACTIVE_EXECUTOR`, không có quyền ghi độc lập, không gọi reviewer/Codex và không chạy implementation song song.
 - Control Tower hoặc OC có thể tư vấn/review nhưng không được sửa worktree do `ACTIVE_EXECUTOR` nắm giữ.
 
 `Implementer được chọn ghi. Reviewer ghép cặp review độc lập, read-only. OC quyết định. Owner merge.` Role pair cố định trong suốt work item, không đổi giữa chừng hoặc qua correction.
