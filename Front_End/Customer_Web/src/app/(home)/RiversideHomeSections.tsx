@@ -101,7 +101,8 @@ export const PropertyAmenities: FC = () => {
 
 /** The questions of `buildFaq`; the check-in/out answer carries the times the booking system holds, when it has them. */
 export const HomeFaq: FC = () => {
-  const items = buildFaq(checkTimes(useStaySearch()?.riverside));
+  const t = useT();
+  const items = buildFaq(checkTimes(useStaySearch()?.riverside), t);
   return (
     <div className="divide-y divide-neutral-200 rounded-3xl border border-neutral-200 dark:divide-neutral-700 dark:border-neutral-700">
       {items.map((item) => (

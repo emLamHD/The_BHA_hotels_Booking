@@ -11,6 +11,7 @@ import Badge from "@/shared/Badge";
 import Link from "next/link";
 
 import { useT } from "@/lib/i18n/I18nProvider";
+import DemoPrice from "@/components/DemoPrice";
 export interface StayCard2Props {
   className?: string;
   data?: StayDataType;
@@ -101,7 +102,7 @@ const StayCard2: FC<StayCard2Props> = ({
         <div className="w-14 border-b border-neutral-100 dark:border-neutral-800"></div>
         <div className="flex justify-between items-center">
           <span className="text-base font-semibold">
-            {price}
+            <DemoPrice value={price} />
             {` `}
             {size === "default" && (
               <span className="text-sm text-neutral-500 dark:text-neutral-400 font-normal">{t("customer.common.night")}</span>

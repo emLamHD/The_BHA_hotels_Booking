@@ -12,6 +12,7 @@ import Link from "next/link";
 import { MapPinIcon } from "@heroicons/react/24/outline";
 
 import { useT } from "@/lib/i18n/I18nProvider";
+import DemoPrice from "@/components/DemoPrice";
 export interface ExperiencesCardProps {
   className?: string;
   ratioClass?: string;
@@ -80,7 +81,7 @@ const ExperiencesCard: FC<ExperiencesCardProps> = ({
         <div className="border-b border-neutral-100 dark:border-neutral-800"></div>
         <div className="flex justify-between items-center">
           <span className="text-base font-semibold">
-            {price}
+            <DemoPrice value={price} />
             {` `}
             {size === "default" && (
               <span className="text-sm text-neutral-500 dark:text-neutral-400 font-normal">{t("customer.common.person")}</span>

@@ -1,14 +1,14 @@
 "use client";
 
 import React, { Fragment, useState, FC } from "react";
-import DatePicker from "react-datepicker";
+import DatePicker from "@/components/LocalizedDatePicker";
 import { Popover, Transition } from "@headlessui/react";
 import DatePickerCustomHeaderTwoMonth from "@/components/DatePickerCustomHeaderTwoMonth";
 import DatePickerCustomDay from "@/components/DatePickerCustomDay";
 import ClearDataButton from "../ClearDataButton";
 import ButtonSubmit from "../ButtonSubmit";
 
-import { useT } from "@/lib/i18n/I18nProvider";
+import { useI18n, useT } from "@/lib/i18n/I18nProvider";
 export interface RentalCarDatesRangeInputProps {
   className?: string;
   fieldClassName?: string;
@@ -21,6 +21,7 @@ const RentalCarDatesRangeInput: FC<RentalCarDatesRangeInputProps> = ({
   hasButtonSubmit = true,
 }) => {
   const t = useT();
+  const { formatLocale } = useI18n();
   const [startDate, setStartDate] = useState<Date | null>(
     new Date("2023/03/01")
   );
@@ -37,13 +38,13 @@ const RentalCarDatesRangeInput: FC<RentalCarDatesRangeInputProps> = ({
       <>
         <div className="flex-grow text-left">
           <span className="block xl:text-base font-semibold">
-            {startDate?.toLocaleDateString("en-US", {
+            {startDate?.toLocaleDateString(formatLocale, {
               month: "short",
               day: "2-digit",
             }) || "Add dates"}
             {endDate
               ? " - " +
-                endDate?.toLocaleDateString("en-US", {
+                endDate?.toLocaleDateString(formatLocale, {
                   month: "short",
                   day: "2-digit",
                 })

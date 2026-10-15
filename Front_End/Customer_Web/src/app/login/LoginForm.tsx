@@ -154,14 +154,14 @@ const LoginForm: FC = () => {
 
   return (
     <>
-      <h2 className={HEADING_CLASS}>{authenticated ? "Tài khoản" : "Đăng nhập"}</h2>
+      <h2 className={HEADING_CLASS}>{authenticated ? t("customer.auth.entry.account") : t("customer.auth.entry.signIn")}</h2>
       <div className="max-w-md mx-auto space-y-6">
         <CustomerSessionNotice />
         <AuthPresentationView presentation={login.presentation} />
         <AuthPresentationView presentation={logout.presentation} />
         {redirecting ? (
           <p role="status" className="text-sm text-neutral-600 dark:text-neutral-300">
-            {redirecting === ACCOUNT_PAGE ? "Đang chuyển tới trang tài khoản…" : "Đang chuyển về trang chủ…"}
+            {redirecting === ACCOUNT_PAGE ? t("customer.auth.redirecting.account") : t("customer.auth.redirecting.home")}
           </p>
         ) : checking ? null : logout.pending ? (
           <p role="status" className="text-sm text-neutral-600 dark:text-neutral-300">{t("customer.login.loginForm.signingOut")}</p>

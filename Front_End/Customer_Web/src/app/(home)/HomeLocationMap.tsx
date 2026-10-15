@@ -38,7 +38,7 @@ const HomeLocationMap: FC = () => {
     </div>
     <div className="overflow-hidden rounded-3xl border border-neutral-200 dark:border-neutral-700">
       <iframe
-        title={`Bản đồ Google Maps: ${RIVERSIDE_NAME}, ${RIVERSIDE_FULL_ADDRESS}`}
+        title={t("customer.home.map.title", { name: RIVERSIDE_NAME, address: RIVERSIDE_FULL_ADDRESS })}
         src={riversideMapEmbedUrl()}
         loading="lazy"
         referrerPolicy="no-referrer-when-downgrade"

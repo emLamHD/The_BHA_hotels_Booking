@@ -227,7 +227,7 @@ const HomeHeroCarousel: FC = () => {
             </ul>
             <button
               type="button"
-              aria-label={pausedByVisitor ? "Bật tự động chuyển ảnh" : "Tạm dừng tự động chuyển ảnh"}
+              aria-label={pausedByVisitor ? t("customer.hero.resume") : t("customer.hero.pause")}
               onClick={() => setPausedByVisitor((value) => !value)}
               className="flex h-8 w-8 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-sm hover:bg-black/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
             >

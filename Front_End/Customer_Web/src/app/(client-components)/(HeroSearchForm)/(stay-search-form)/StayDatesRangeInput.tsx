@@ -5,8 +5,9 @@ import { Popover, Transition } from "@headlessui/react";
 import { CalendarIcon } from "@heroicons/react/24/outline";
 import DatePickerCustomHeaderTwoMonth from "@/components/DatePickerCustomHeaderTwoMonth";
 import DatePickerCustomDay from "@/components/DatePickerCustomDay";
-import DatePicker from "react-datepicker";
+import DatePicker from "@/components/LocalizedDatePicker";
 import ClearDataButton from "../ClearDataButton";
+import { useI18n } from "@/lib/i18n/I18nProvider";
 
 /** "10/11": the picked day as a Vietnamese guest reads it, whatever the browser's own date format is. */
 const dayMonthLabel = (date: Date) =>
@@ -36,6 +37,7 @@ const StayDatesRangeInput: FC<StayDatesRangeInputProps> = ({
   minDate,
   disabled,
 }) => {
+  const { formatLocale } = useI18n();
   const [ownStart, setStartDate] = useState<Date | null>(null);
   const [ownEnd, setEndDate] = useState<Date | null>(null);
   const controlled = !!onDatesChange;
@@ -64,13 +66,13 @@ const StayDatesRangeInput: FC<StayDatesRangeInputProps> = ({
             {(startDate &&
               (controlled
                 ? dayMonthLabel(startDate)
-                : startDate.toLocaleDateString("en-US", { month: "short", day: "2-digit" }))) ||
+                : startDate.toLocaleDateString(formatLocale, { month: "short", day: "2-digit" }))) ||
               (controlled ? "Thêm ngày" : "Add dates")}
             {endDate
               ? " - " +
                 (controlled
                   ? dayMonthLabel(endDate)
-                  : endDate.toLocaleDateString("en-US", { month: "short", day: "2-digit" }))
+                  : endDate.toLocaleDateString(formatLocale, { month: "short", day: "2-digit" }))
               : ""}
           </span>
           <span className="block mt-1 text-sm text-neutral-400 leading-none font-light">

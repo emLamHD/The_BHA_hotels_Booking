@@ -10,10 +10,10 @@ import OfferCard from "../(home)/OfferCard";
 import OfferHighlightScroller from "./OfferHighlightScroller";
 
 import { getT } from "@/lib/i18n/server";
-export const metadata: Metadata = {
-  title: "Ưu đãi phòng — The BHA",
-  description: "Các ưu đãi phòng minh hoạ của The BHA. Giá thật được hệ thống đặt phòng tính theo ngày bạn chọn.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getT();
+  return { title: t("customer.meta.offers.title"), description: t("customer.meta.offers.description") };
+}
 
 interface OffersPageProps {
   searchParams?: { offer?: string | string[] };

@@ -8,6 +8,7 @@ import PropertyTypeSelect from "./PropertyTypeSelect";
 import { ClassOfProperties } from "../../type";
 
 import { useT } from "@/lib/i18n/I18nProvider";
+import DemoPrice from "@/components/DemoPrice";
 const RealestateSearchForm = () => {
   const t = useT();
   //
@@ -132,9 +133,7 @@ const RealestateSearchForm = () => {
           >
             <span className="text-neutral-400">{t("customer.heroSearchForm2Mobile.realEstateSearchForm.realestateSearchForm.price")}</span>
             <span>
-              {`$${convertNumbThousand(
-                rangePrices[0] / 1000
-              )}k ~ $${convertNumbThousand(rangePrices[1] / 1000)}k`}
+              <DemoPrice value={`$${rangePrices[0]} ~ $${rangePrices[1]}`} />
             </span>
           </button>
         ) : (

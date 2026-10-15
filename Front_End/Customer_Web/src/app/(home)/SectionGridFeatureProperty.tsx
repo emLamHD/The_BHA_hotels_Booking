@@ -161,7 +161,7 @@ const SectionGridFeatureProperty: FC<SectionGridFeaturePropertyProps> = ({
           .filter((property) => selectGalleryImages(property.media).length > 1)
           .map((property) => (
             <div key={`gallery-${property.id}`} className="mt-8">
-              <h3 className="mb-3 text-lg font-medium">{t("customer.home.sectionGridFeatureProperty.images")}{" "}{property.name ?? "chỗ nghỉ"}</h3>
+              <h3 className="mb-3 text-lg font-medium">{t("customer.home.sectionGridFeatureProperty.images")}{" "}{property.name ?? t("customer.search.propertyFallback")}</h3>
               <MediaGallery media={property.media} name={property.name ?? "Property"} aspectClass="aspect-[16/9]" />
             </div>
           ))}
@@ -173,7 +173,7 @@ const SectionGridFeatureProperty: FC<SectionGridFeaturePropertyProps> = ({
         {ready ? (
           <SectionGridRoomTypes properties={properties} />
         ) : (
-          <PendingNote status={status} what="Loại phòng" />
+          <PendingNote status={status} what={t("customer.home.pending.roomTypes")} />
         )}
       </div>
 
@@ -181,7 +181,7 @@ const SectionGridFeatureProperty: FC<SectionGridFeaturePropertyProps> = ({
         {ready ? (
           <SectionAvailabilitySearch properties={properties} />
         ) : (
-          <PendingNote status={status} what="Tìm phòng trống" />
+          <PendingNote status={status} what={t("customer.home.pending.availability")} />
         )}
       </div>
     </div>
@@ -189,15 +189,18 @@ const SectionGridFeatureProperty: FC<SectionGridFeaturePropertyProps> = ({
 };
 
 /** What the room-type and booking areas say until the catalog is usable. */
-const PendingNote: FC<{ status: LoadStatus; what: string }> = ({ status, what }) => (
+const PendingNote: FC<{ status: LoadStatus; what: string }> = ({ status, what }) => {
+  const t = useT();
+  return (
   <div role="status" className="rounded-2xl border border-dashed border-neutral-300 px-4 py-10 text-center text-sm text-neutral-500 dark:border-neutral-700 dark:text-neutral-400">
     <p className="mb-1 font-medium text-neutral-700 dark:text-neutral-200">{what}</p>
     {status === "loading"
-      ? "Đang tải danh sách chỗ nghỉ — phần này sẽ hiện ngay khi tải xong."
+      ? t("customer.home.pending.loading")
       : status === "error"
-        ? "Chưa tải được danh sách chỗ nghỉ. Bấm Retry ở mục Chỗ nghỉ phía trên để thử lại."
-        : "Hiện chưa có chỗ nghỉ nào để đặt."}
+        ? t("customer.home.pending.error")
+        : t("customer.home.pending.empty")}
   </div>
-);
+  );
+};
 
 export default SectionGridFeatureProperty;

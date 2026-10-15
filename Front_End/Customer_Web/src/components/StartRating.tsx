@@ -36,7 +36,7 @@ const StartRating: FC<StartRatingProps> = ({
           className="text-xs whitespace-nowrap text-neutral-500 dark:text-neutral-400"
           title={t("customer.startRating.sampleRatingNotAGuest")}
         >
-          {sample === "full" ? "· Đánh giá mẫu" : "(mẫu)"}
+          {sample === "full" ? t("customer.rating.sampleFull") : t("customer.rating.sampleShort")}
         </span>
       )}
     </div>

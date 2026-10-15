@@ -12,6 +12,7 @@ import NcInputNumber from "@/components/NcInputNumber";
 import { XMarkIcon } from "@heroicons/react/24/outline";
 
 import { useT } from "@/lib/i18n/I18nProvider";
+import DemoPrice from "@/components/DemoPrice";
 // DEMO DATA
 const typeOfProperty = [
   {
@@ -162,9 +163,7 @@ const TabFilters = () => {
               className={`flex items-center justify-center px-4 py-2 text-sm rounded-full border border-primary-500 bg-primary-50 text-primary-700 focus:outline-none `}
             >
               <span>
-                {`$${convertNumbThousand(
-                  rangePrices[0]
-                )} - $${convertNumbThousand(rangePrices[1])}`}{" "}
+                <DemoPrice value={`$${rangePrices[0]} - $${rangePrices[1]}`} />{" "}
               </span>
               {renderXClear()}
             </Popover.Button>
@@ -199,19 +198,7 @@ const TabFilters = () => {
                           className="block text-sm font-medium text-neutral-700 dark:text-neutral-300"
                         >{t("customer.common.minPrice2")}</label>
                         <div className="mt-1 relative rounded-md">
-                          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                            <span className="text-neutral-500 sm:text-sm">
-                              $
-                            </span>
-                          </div>
-                          <input
-                            type="text"
-                            name="minPrice"
-                            disabled
-                            id="minPrice"
-                            className="focus:ring-indigo-500 focus:border-indigo-500 block w-full pl-7 pr-3 sm:text-sm border-neutral-200 rounded-full text-neutral-900"
-                            value={rangePrices[0]}
-                          />
+                          <div className="block w-full px-4 py-2 sm:text-sm border border-neutral-200 dark:border-neutral-500 rounded-full text-neutral-900 dark:text-neutral-200"><DemoPrice value={`$${rangePrices[0]}`} /></div>
                         </div>
                       </div>
                       <div>
@@ -220,19 +207,7 @@ const TabFilters = () => {
                           className="block text-sm font-medium text-neutral-700 dark:text-neutral-300"
                         >{t("customer.common.maxPrice2")}</label>
                         <div className="mt-1 relative rounded-md">
-                          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                            <span className="text-neutral-500 sm:text-sm">
-                              $
-                            </span>
-                          </div>
-                          <input
-                            type="text"
-                            disabled
-                            name="maxPrice"
-                            id="maxPrice"
-                            className="focus:ring-indigo-500 focus:border-indigo-500 block w-full pl-7 pr-3 sm:text-sm border-neutral-200 rounded-full text-neutral-900 "
-                            value={rangePrices[1]}
-                          />
+                          <div className="block w-full px-4 py-2 sm:text-sm border border-neutral-200 dark:border-neutral-500 rounded-full text-neutral-900 dark:text-neutral-200"><DemoPrice value={`$${rangePrices[1]}`} /></div>
                         </div>
                       </div>
                     </div>
@@ -408,19 +383,7 @@ const TabFilters = () => {
                                   className="block text-sm font-medium text-neutral-700 dark:text-neutral-300"
                                 >{t("customer.common.minPrice2")}</label>
                                 <div className="mt-1 relative rounded-md">
-                                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                    <span className="text-neutral-500 sm:text-sm">
-                                      $
-                                    </span>
-                                  </div>
-                                  <input
-                                    type="text"
-                                    name="minPrice"
-                                    disabled
-                                    id="minPrice"
-                                    className=" w-full pl-7 pr-3"
-                                    value={rangePrices[0]}
-                                  />
+                                  <div className="block w-full px-4 py-2 sm:text-sm border border-neutral-200 dark:border-neutral-500 rounded-full text-neutral-900 dark:text-neutral-200"><DemoPrice value={`$${rangePrices[0]}`} /></div>
                                 </div>
                               </div>
                               <div>
@@ -429,19 +392,7 @@ const TabFilters = () => {
                                   className="block text-sm font-medium text-neutral-700 dark:text-neutral-300"
                                 >{t("customer.common.maxPrice2")}</label>
                                 <div className="mt-1 relative rounded-md">
-                                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                    <span className="text-neutral-500 sm:text-sm">
-                                      $
-                                    </span>
-                                  </div>
-                                  <input
-                                    type="text"
-                                    disabled
-                                    name="maxPrice"
-                                    id="maxPrice"
-                                    className=" pl-7 pr-3 "
-                                    value={rangePrices[1]}
-                                  />
+                                  <div className="block w-full px-4 py-2 sm:text-sm border border-neutral-200 dark:border-neutral-500 rounded-full text-neutral-900 dark:text-neutral-200"><DemoPrice value={`$${rangePrices[1]}`} /></div>
                                 </div>
                               </div>
                             </div>

@@ -20,6 +20,7 @@ import RentalCarDatesRangeInput from "./RentalCarDatesRangeInput";
 import { Route } from "next";
 
 import { useT } from "@/lib/i18n/I18nProvider";
+import DemoPrice from "@/components/DemoPrice";
 export interface ListingCarDetailPageProps {}
 
 const ListingCarDetailPage: FC<ListingCarDetailPageProps> = ({}) => {
@@ -103,7 +104,7 @@ const ListingCarDetailPage: FC<ListingCarDetailPageProps> = ({}) => {
               <div className="w-10 flex-shrink-0">
                 <Image src={item.icon} alt="" />
               </div>
-              <span>{item.name}</span>
+              <DemoPrice value={item.name} />
             </div>
           ))}
         </div>
@@ -139,7 +140,7 @@ const ListingCarDetailPage: FC<ListingCarDetailPageProps> = ({}) => {
             .map((item) => (
               <div key={item.name} className="flex items-center space-x-3">
                 <i className="las la-check-circle text-2xl"></i>
-                <span>{item.name}</span>
+                <DemoPrice value={item.name} />
               </div>
             ))}
         </div>
@@ -336,7 +337,7 @@ const ListingCarDetailPage: FC<ListingCarDetailPageProps> = ({}) => {
         {/* PRICE */}
         <div className="flex justify-between">
           <span className="text-3xl font-semibold">
-            $19
+            <DemoPrice value="$19" />
             <span className="ml-1 text-base font-normal text-neutral-500 dark:text-neutral-400">{t("customer.common.day")}</span>
           </span>
           <StartRating />
@@ -351,13 +352,13 @@ const ListingCarDetailPage: FC<ListingCarDetailPageProps> = ({}) => {
         <div className="flex flex-col space-y-4 ">
           <div className="flex justify-between text-neutral-6000 dark:text-neutral-300">
             <span>{t("customer.listingDetail.listingCarDetail.page.19X3Day")}</span>
-            <span>$57</span>
+            <DemoPrice value="$57" />
           </div>
 
           <div className="border-b border-neutral-200 dark:border-neutral-700"></div>
           <div className="flex justify-between font-semibold">
             <span>{t("customer.common.total")}</span>
-            <span>$199</span>
+            <DemoPrice value="$199" />
           </div>
         </div>
 

@@ -97,7 +97,7 @@ export default function AvatarDropdown({ className = "", panelClassName = "-righ
                       )}
                       <div className="min-w-0 flex-grow">
                         <h4 className="font-semibold">
-                          {email || state.status === "anonymous" ? "Tài khoản" : "Phiên đăng nhập"}
+                          {email || state.status === "anonymous" ? t("customer.auth.entry.account") : t("customer.auth.entry.session")}
                         </h4>
                         {email ? (
                           <p className="text-xs mt-0.5 break-all" title={email}>
@@ -197,7 +197,7 @@ export default function AvatarDropdown({ className = "", panelClassName = "-righ
                           <ArrowRightOnRectangleIcon className="h-6 w-6" aria-hidden="true" />
                         </div>
                         <div className="ml-4">
-                          <p className="text-sm font-medium ">{logout.working ? "Đang đăng xuất…" : "Đăng xuất"}</p>
+                          <p className="text-sm font-medium ">{logout.working ? t("customer.auth.entry.signingOut") : t("customer.auth.entry.signOut")}</p>
                         </div>
                       </button>
                     )}

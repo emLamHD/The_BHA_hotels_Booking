@@ -24,36 +24,36 @@ interface SolutionItem {
  */
 const solutions: SolutionItem[] = [
   {
-    name: "Lưu trú",
-    description: "Đặt phòng The BHA Riverside",
+    name: "customer.nav.accommodation",
+    description: "customer.nav.accommodationDesc",
     href: "/listing-stay",
     active: true,
     icon: IconOne,
   },
   {
-    name: "Bất động sản",
-    description: "Trang mẫu của giao diện",
+    name: "customer.nav.realEstate",
+    description: "customer.nav.templateDesc",
     href: "/listing-real-estate",
     icon: IconTwo,
     demo: true,
   },
   {
-    name: "Thuê xe",
-    description: "Trang mẫu của giao diện",
+    name: "customer.nav.carRental",
+    description: "customer.nav.templateDesc",
     href: "/listing-car",
     icon: IconThree,
     demo: true,
   },
   {
-    name: "Trải nghiệm",
-    description: "Trang mẫu của giao diện",
+    name: "customer.nav.experiences",
+    description: "customer.nav.templateDesc",
     href: "/listing-experiences",
     icon: IconFour,
     demo: true,
   },
   {
-    name: "Chuyến bay",
-    description: "Trang mẫu của giao diện",
+    name: "customer.nav.flights",
+    description: "customer.nav.templateDesc",
     href: "/listing-flights",
     icon: IconFive,
     demo: true,
@@ -104,13 +104,13 @@ export default function DropdownTravelers() {
                       </div>
                       <div className="ml-4 space-y-0.5">
                         <p className="text-sm font-medium ">
-                          {item.name}
+                          {t(item.name)}
                           {item.demo && (
                             <span className="ml-2 rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-medium uppercase text-neutral-600 dark:bg-neutral-600 dark:text-neutral-100">{t("customer.header.dropdownTravelers.sample")}</span>
                           )}
                         </p>
                         <p className="text-xs text-neutral-500 dark:text-neutral-300">
-                          {item.description}
+                          {t(item.description)}
                         </p>
                       </div>
                     </Link>

@@ -10,6 +10,7 @@ import Avatar from "@/shared/Avatar";
 import Link from "next/link";
 
 import { useT } from "@/lib/i18n/I18nProvider";
+import DemoPrice from "@/components/DemoPrice";
 export interface ExperiencesCardHProps {
   className?: string;
   data?: ExperiencesDataType;
@@ -98,7 +99,7 @@ const ExperiencesCardH: FC<ExperiencesCardHProps> = ({
             </span>
           </div>
           <span className="text-base font-semibold text-secondary-700">
-            {price}
+            <DemoPrice value={price} />
             {` `}
             <span className="text-sm text-neutral-500 dark:text-neutral-400 font-normal">{t("customer.common.person")}</span>
           </span>

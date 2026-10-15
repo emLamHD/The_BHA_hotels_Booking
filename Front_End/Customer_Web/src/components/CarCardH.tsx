@@ -10,6 +10,7 @@ import Image from "next/image";
 import Link from "next/link";
 
 import { useT } from "@/lib/i18n/I18nProvider";
+import DemoPrice from "@/components/DemoPrice";
 export interface CarCardHProps {
   className?: string;
   data?: CarDataType;
@@ -109,7 +110,7 @@ const CarCardH: FC<CarCardHProps> = ({ className = "", data = DEMO_DATA }) => {
             </span>
           </div>
           <span className="text-lg font-semibold text-secondary-700">
-            {price}
+            <DemoPrice value={price} />
             {` `}
             <span className="text-sm text-neutral-500 dark:text-neutral-400 font-normal">{t("customer.common.day")}</span>
           </span>

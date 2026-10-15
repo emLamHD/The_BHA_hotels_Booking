@@ -1,5 +1,5 @@
 import React, { FC, Fragment, useState } from "react";
-import DatePicker from "react-datepicker";
+import DatePicker from "@/components/LocalizedDatePicker";
 import DatePickerCustomHeaderTwoMonth from "@/components/DatePickerCustomHeaderTwoMonth";
 import DatePickerCustomDay from "@/components/DatePickerCustomDay";
 

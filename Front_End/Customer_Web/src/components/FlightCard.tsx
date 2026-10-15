@@ -4,6 +4,7 @@ import Image from "next/image";
 import React, { FC, useState } from "react";
 
 import { useT } from "@/lib/i18n/I18nProvider";
+import DemoPrice from "@/components/DemoPrice";
 export interface FlightCardProps {
   className?: string;
   data: {
@@ -156,7 +157,7 @@ const FlightCard: FC<FlightCardProps> = ({ className = "", data }) => {
           <div className="flex-[4] whitespace-nowrap sm:text-right">
             <div>
               <span className="text-xl font-semibold text-secondary-6000">
-                {data.price}
+                <DemoPrice value={data.price} />
               </span>
             </div>
             <div className="text-xs sm:text-sm text-neutral-500 font-normal mt-0.5">{t("customer.flightCard.roundTrip")}</div>

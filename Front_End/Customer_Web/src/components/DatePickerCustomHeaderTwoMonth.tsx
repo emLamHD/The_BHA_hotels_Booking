@@ -2,7 +2,7 @@ import { ChevronLeftIcon, ChevronRightIcon } from "@heroicons/react/24/outline";
 import React from "react";
 import { ReactDatePickerCustomHeaderProps } from "react-datepicker";
 
-import { useT } from "@/lib/i18n/I18nProvider";
+import { useI18n, useT } from "@/lib/i18n/I18nProvider";
 const DatePickerCustomHeaderTwoMonth = ({
   monthDate,
   customHeaderCount,
@@ -10,6 +10,7 @@ const DatePickerCustomHeaderTwoMonth = ({
   increaseMonth,
 }: ReactDatePickerCustomHeaderProps) => {
   const t = useT();
+  const { formatLocale } = useI18n();
   return (
     <div>
       <button
@@ -26,7 +27,7 @@ const DatePickerCustomHeaderTwoMonth = ({
         </span>
       </button>
       <span className="react-datepicker__current-month">
-        {monthDate.toLocaleString("en-US", {
+        {monthDate.toLocaleString(formatLocale, {
           month: "long",
           year: "numeric",
         })}

@@ -21,6 +21,7 @@ import SectionDateRange from "../SectionDateRange";
 import { Route } from "next";
 
 import { useT } from "@/lib/i18n/I18nProvider";
+import DemoPrice from "@/components/DemoPrice";
 export interface ListingExperiencesDetailPageProps {}
 
 const ListingExperiencesDetailPage: FC<
@@ -332,7 +333,7 @@ const ListingExperiencesDetailPage: FC<
         {/* PRICE */}
         <div className="flex justify-between">
           <span className="text-3xl font-semibold">
-            $19
+            <DemoPrice value="$19" />
             <span className="ml-1 text-base font-normal text-neutral-500 dark:text-neutral-400">{t("customer.common.person")}</span>
           </span>
           <StartRating />
@@ -350,16 +351,16 @@ const ListingExperiencesDetailPage: FC<
         <div className="flex flex-col space-y-4">
           <div className="flex justify-between text-neutral-6000 dark:text-neutral-300">
             <span>{t("customer.listingDetail.listingExperiencesDetail.page.19X3Adults")}</span>
-            <span>$57</span>
+            <DemoPrice value="$57" />
           </div>
           <div className="flex justify-between text-neutral-6000 dark:text-neutral-300">
             <span>{t("customer.listingDetail.listingExperiencesDetail.page.serviceCharge")}</span>
-            <span>$0</span>
+            <DemoPrice value="$0" />
           </div>
           <div className="border-b border-neutral-200 dark:border-neutral-700"></div>
           <div className="flex justify-between font-semibold">
             <span>{t("customer.common.total")}</span>
-            <span>$199</span>
+            <DemoPrice value="$199" />
           </div>
         </div>
 

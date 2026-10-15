@@ -1,11 +1,12 @@
 "use client";
 
 import React, { Fragment, useState, FC } from "react";
-import DatePicker from "react-datepicker";
+import DatePicker from "@/components/LocalizedDatePicker";
 import { Popover, Transition } from "@headlessui/react";
 import DatePickerCustomHeaderTwoMonth from "@/components/DatePickerCustomHeaderTwoMonth";
 import DatePickerCustomDay from "@/components/DatePickerCustomDay";
 import ClearDataButton from "../ClearDataButton";
+import { useI18n } from "@/lib/i18n/I18nProvider";
 
 export interface ExperiencesDateSingleInputProps {
   className?: string;
@@ -16,6 +17,7 @@ const ExperiencesDateSingleInput: FC<ExperiencesDateSingleInputProps> = ({
   className = "",
   fieldClassName = "[ nc-hero-field-padding--small ]",
 }) => {
+  const { formatLocale } = useI18n();
   const [startDate, setStartDate] = useState<Date | null>(
     new Date("2023/03/01")
   );
@@ -32,13 +34,13 @@ const ExperiencesDateSingleInput: FC<ExperiencesDateSingleInputProps> = ({
       <>
         <div className="flex-grow text-left">
           <span className="block xl:text-base font-semibold">
-            {startDate?.toLocaleDateString("en-US", {
+            {startDate?.toLocaleDateString(formatLocale, {
               month: "short",
               day: "2-digit",
             }) || "Date"}
             {endDate
               ? " - " +
-                endDate?.toLocaleDateString("en-US", {
+                endDate?.toLocaleDateString(formatLocale, {
                   month: "short",
                   day: "2-digit",
                 })

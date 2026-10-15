@@ -1,5 +1,6 @@
 import React from "react";
 import type { Metadata } from "next";
+import { getT } from "@/lib/i18n/server";
 import SectionHero from "@/app/(server-components)/SectionHero";
 import BgGlassmorphism from "@/components/BgGlassmorphism";
 import HomeFeaturedRooms from "../(home)/HomeFeaturedRooms";
@@ -11,11 +12,10 @@ import {
   SpaceGallerySection,
 } from "../(home)/RiversideHomeContent";
 
-export const metadata: Metadata = {
-  title: "The BHA Riverside — Đặt phòng trực tiếp tại Đà Nẵng",
-  description:
-    "Căn hộ lưu trú The BHA Riverside tại Đà Nẵng: chọn ngày, xem giá từng đêm theo loại phòng và đặt phòng trực tiếp.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getT();
+  return { title: t("customer.meta.riverside.title"), description: t("customer.meta.riverside.description") };
+}
 
 /**
  * CUST-WEB-001-CP08a: the page of The BHA Riverside, in the Chisfis composition. Hero with the search, the real

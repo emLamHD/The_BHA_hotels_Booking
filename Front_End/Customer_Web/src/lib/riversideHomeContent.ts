@@ -1,3 +1,4 @@
+import type { Translate } from "@/lib/i18n/types";
 import type { PropertyDto } from "@/lib/api/propertyTypes";
 
 /**
@@ -190,43 +191,15 @@ export interface HomeFaqItem {
   answer: string;
 }
 
-/** The questions a guest has before booking, answered from how the booking page behaves today. */
-export function buildFaq(times: { checkIn: string; checkOut: string } | null): HomeFaqItem[] {
+/** The questions a guest has before booking, answered from how the booking page behaves today (pack messages `customer.faq.*`). */
+export function buildFaq(times: { checkIn: string; checkOut: string } | null, t: Translate): HomeFaqItem[] {
+  const item = (id: string, key: string, answer: string): HomeFaqItem => ({ id, question: t(`customer.faq.${key}.q`), answer });
   return [
-    {
-      id: "dates-guests",
-      question: "Tôi chọn ngày, số khách và số phòng như thế nào?",
-      answer:
-        "Dùng ô tìm kiếm để chọn ngày nhận phòng, ngày trả phòng, số người lớn, số trẻ em và số phòng. Mỗi lần tìm tối đa 30 đêm và từ 1 đến 10 phòng. Sức chứa theo từng loại phòng và quy tắc về ngày do hệ thống đặt phòng kiểm tra.",
-    },
-    {
-      id: "snapshot",
-      question: "Kết quả tìm phòng có nghĩa là phòng đã được giữ cho tôi?",
-      answer:
-        "Không. Kết quả cho biết tình trạng và giá tại thời điểm bạn tìm. Phòng chỉ được giữ khi bạn tạo giữ chỗ ở trang loại phòng.",
-    },
-    {
-      id: "hold-vs-confirm",
-      question: "Giữ chỗ và xác nhận đặt phòng khác nhau thế nào?",
-      answer: `Giữ chỗ giữ phòng cho bạn trong ${HOLD_MINUTES} phút. Chỉ khi bạn xác nhận trước khi hết thời gian đó thì đặt phòng mới được ghi nhận và có mã xác nhận.`,
-    },
-    {
-      id: "payment",
-      question: "Tôi thanh toán như thế nào?",
-      answer: "Trang này chưa thu tiền trực tuyến và chưa gửi email xác nhận. Việc xác nhận đặt phòng ở đây không phải là thanh toán.",
-    },
-    {
-      id: "reload",
-      question: "Nếu tôi tải lại trang hoặc đóng tab khi đang đặt phòng?",
-      answer:
-        "Thông tin giữ chỗ và biên nhận hiện chỉ nằm trong tab đang mở, nên tải lại hoặc đóng tab sẽ làm mất màn hình đó. Hãy ghi lại mã xác nhận ngay khi đặt phòng được xác nhận.",
-    },
-    {
-      id: "times",
-      question: "Giờ nhận phòng và trả phòng là khi nào?",
-      answer: times
-        ? `Hệ thống đặt phòng hiện ghi giờ nhận phòng ${times.checkIn} và giờ trả phòng ${times.checkOut}.`
-        : "Giờ nhận phòng và trả phòng được hiển thị trên trang của từng loại phòng.",
-    },
+    item("dates-guests", "datesGuests", t("customer.faq.datesGuests.a")),
+    item("snapshot", "snapshot", t("customer.faq.snapshot.a")),
+    item("hold-vs-confirm", "holdVsConfirm", t("customer.faq.holdVsConfirm.a")),
+    item("payment", "payment", t("customer.faq.payment.a")),
+    item("reload", "reload", t("customer.faq.reload.a")),
+    item("times", "times", times ? t("customer.faq.times.a", { checkIn: times.checkIn, checkOut: times.checkOut }) : t("customer.faq.times.none")),
   ];
 }

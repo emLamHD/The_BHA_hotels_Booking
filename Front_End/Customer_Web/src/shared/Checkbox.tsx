@@ -1,6 +1,7 @@
 "use client";
 
 import React, { FC } from "react";
+import DemoPrice from "@/components/DemoPrice";
 
 export interface CheckboxProps {
   label?: string;
@@ -39,7 +40,7 @@ const Checkbox: FC<CheckboxProps> = ({
           </span>
           {subLabel && (
             <p className="mt-1 text-neutral-500 dark:text-neutral-400 text-sm font-light">
-              {subLabel}
+              <DemoPrice value={subLabel} />
             </p>
           )}
         </label>

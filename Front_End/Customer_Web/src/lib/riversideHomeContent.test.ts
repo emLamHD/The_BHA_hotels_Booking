@@ -1,3 +1,4 @@
+import { testT } from "@/lib/i18n/testkit";
 import { describe, expect, it } from "vitest";
 import manifest from "../../scripts/riverside-media/manifest.json";
 import {
@@ -29,6 +30,8 @@ interface PublishedEntry {
   ownerType: string;
 }
 const published = (manifest as { published: PublishedEntry[] }).published;
+
+const t = testT("vi");
 
 describe("pictures: every one is a published manifest entry, described and sized as the manifest says", () => {
   const used = [HERO_IMAGE, INTRO_IMAGE, ...SPACE_GALLERY];
@@ -114,7 +117,7 @@ describe("what is shown from the catalog is the catalog's", () => {
   });
 
   it("the FAQ's times answer states the times when known and does not claim any when not", () => {
-    const answer = (times: Parameters<typeof buildFaq>[0]) => buildFaq(times).find((item) => item.id === "times")?.answer ?? "";
+    const answer = (times: Parameters<typeof buildFaq>[0]) => buildFaq(times, t).find((item) => item.id === "times")?.answer ?? "";
     expect(answer({ checkIn: "14:00", checkOut: "12:00" })).toContain("14:00");
     expect(answer({ checkIn: "14:00", checkOut: "12:00" })).toContain("12:00");
     expect(answer(null)).not.toMatch(/\d{2}:\d{2}/);
@@ -122,7 +125,7 @@ describe("what is shown from the catalog is the catalog's", () => {
 });
 
 describe("claims the booking system cannot back are not made", () => {
-  const everything = JSON.stringify([BENEFITS, BOOKING_STEPS, buildFaq(null)]);
+  const everything = JSON.stringify([BENEFITS, BOOKING_STEPS, buildFaq(null, t)]);
 
   it("no rating, review, award, discount, 'cheapest', instant, free-cancellation or visitor-count claim", () => {
     for (const pattern of [/đánh giá/i, /\bsao\b/i, /giải thưởng/i, /giảm giá/i, /rẻ nhất/i, /tức thì/i, /miễn phí/i, /hủy miễn phí/i, /khách hàng đã/i, /\d+\s*(?:\+|nghìn|triệu)/i]) {
@@ -131,7 +134,7 @@ describe("claims the booking system cannot back are not made", () => {
   });
 
   it("says plainly that there is no online payment and no confirmation e-mail yet", () => {
-    const payment = buildFaq(null).find((item) => item.id === "payment")?.answer ?? "";
+    const payment = buildFaq(null, t).find((item) => item.id === "payment")?.answer ?? "";
     expect(payment).toMatch(/chưa thu tiền trực tuyến/);
     expect(payment).toMatch(/chưa gửi email/);
     expect(everything).not.toMatch(/đã gửi email|thanh toán thành công|đã thanh toán/i);

@@ -11,6 +11,7 @@ import Badge from "@/shared/Badge";
 import Link from "next/link";
 
 import { useT } from "@/lib/i18n/I18nProvider";
+import DemoPrice from "@/components/DemoPrice";
 export interface StayCardHProps {
   className?: string;
   data?: StayDataType;
@@ -112,7 +113,7 @@ const StayCardH: FC<StayCardHProps> = ({
         <div className="flex justify-between items-end">
           <StartRating reviewCount={reviewCount} point={reviewStart} />
           <span className="text-base font-semibold text-secondary-500">
-            {price}
+            <DemoPrice value={price} />
             {` `}
             <span className="text-sm text-neutral-500 dark:text-neutral-400 font-normal">{t("customer.common.night")}</span>
           </span>

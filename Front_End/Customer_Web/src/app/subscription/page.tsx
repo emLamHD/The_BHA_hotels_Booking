@@ -4,6 +4,7 @@ import ButtonPrimary from "@/shared/ButtonPrimary";
 import ButtonSecondary from "@/shared/ButtonSecondary";
 
 import { getT } from "@/lib/i18n/server";
+import DemoPrice from "@/components/DemoPrice";
 export interface PageSubcriptionProps {}
 
 export interface PricingItem {
@@ -72,7 +73,7 @@ async function PageSubcription(_props: PageSubcriptionProps) {
             {pricing.name}
           </h3>
           <h2 className="text-5xl leading-none flex items-center text-neutral-900 dark:text-neutral-300">
-            <span>{pricing.pricing}</span>
+            <DemoPrice value={pricing.pricing} />
             <span className="text-lg ml-1 font-normal text-neutral-500">
               {pricing.per}
             </span>

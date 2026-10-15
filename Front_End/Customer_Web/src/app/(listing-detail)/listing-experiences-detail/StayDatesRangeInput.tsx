@@ -5,10 +5,10 @@ import { Popover, Transition } from "@headlessui/react";
 import { CalendarIcon } from "@heroicons/react/24/outline";
 import DatePickerCustomHeaderTwoMonth from "@/components/DatePickerCustomHeaderTwoMonth";
 import DatePickerCustomDay from "@/components/DatePickerCustomDay";
-import DatePicker from "react-datepicker";
+import DatePicker from "@/components/LocalizedDatePicker";
 import ClearDataButton from "@/app/(client-components)/(HeroSearchForm)/ClearDataButton";
 
-import { useT } from "@/lib/i18n/I18nProvider";
+import { useI18n, useT } from "@/lib/i18n/I18nProvider";
 export interface StayDatesRangeInputProps {
   className?: string;
 }
@@ -17,6 +17,7 @@ const StayDatesRangeInput: FC<StayDatesRangeInputProps> = ({
   className = "flex-1",
 }) => {
   const t = useT();
+  const { formatLocale } = useI18n();
   const [startDate, setStartDate] = useState<Date | null>(
     new Date("2023/02/06")
   );
@@ -37,13 +38,13 @@ const StayDatesRangeInput: FC<StayDatesRangeInputProps> = ({
         </div>
         <div className="flex-grow text-left">
           <span className="block xl:text-lg font-semibold">
-            {startDate?.toLocaleDateString("en-US", {
+            {startDate?.toLocaleDateString(formatLocale, {
               month: "short",
               day: "2-digit",
             }) || "Add dates"}
             {endDate
               ? " - " +
-                endDate?.toLocaleDateString("en-US", {
+                endDate?.toLocaleDateString(formatLocale, {
                   month: "short",
                   day: "2-digit",
                 })

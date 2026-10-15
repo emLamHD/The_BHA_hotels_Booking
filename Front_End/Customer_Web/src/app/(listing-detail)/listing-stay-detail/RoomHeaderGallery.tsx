@@ -28,6 +28,7 @@ const Empty: FC<{ label: string }> = ({ label }) => {
  * own images. A slot with no picture says so; no picture is repeated and none belongs to another room.
  */
 const RoomHeaderGallery: FC<RoomHeaderGalleryProps> = ({ images, roomName, onOpen }) => {
+  const t = useT();
   const slot = (index: number) => images[index];
   const main = slot(0);
 
@@ -44,7 +45,7 @@ const RoomHeaderGallery: FC<RoomHeaderGalleryProps> = ({ images, roomName, onOpe
             // eslint-disable-next-line @next/next/no-img-element
             <img src={main.url} alt={main.alt ?? roomName} className="absolute inset-0 h-full w-full object-cover rounded-md sm:rounded-xl" />
           ) : (
-            <Empty label={`${roomName}: ảnh đang được cập nhật`} />
+            <Empty label={t("customer.gallery.updating", { room: roomName })} />
           )}
           {main && <div className="absolute inset-0 bg-neutral-900 bg-opacity-20 opacity-0 hover:opacity-100 transition-opacity"></div>}
         </div>
@@ -60,13 +61,13 @@ const RoomHeaderGallery: FC<RoomHeaderGalleryProps> = ({ images, roomName, onOpe
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={image.url} alt={image.alt ?? ""} className="h-full w-full object-cover rounded-md sm:rounded-xl" />
                 ) : (
-                  <Empty label={`${roomName}: ảnh đang được cập nhật`} />
+                  <Empty label={t("customer.gallery.updating", { room: roomName })} />
                 )}
               </div>
               {image && (
                 <button
                   type="button"
-                  aria-label={`Xem ảnh: ${image.alt ?? roomName}`}
+                  aria-label={t("customer.gallery.viewPhoto", { name: image.alt ?? roomName })}
                   className="absolute inset-0 bg-neutral-900 bg-opacity-20 opacity-0 hover:opacity-100 focus-visible:opacity-100 transition-opacity cursor-pointer"
                   onClick={onOpen}
                 />
@@ -83,7 +84,7 @@ const RoomHeaderGallery: FC<RoomHeaderGalleryProps> = ({ images, roomName, onOpe
           >
             <Squares2X2Icon className="w-5 h-5" />
             <span className="ml-2 text-neutral-800 text-sm font-medium">
-              {images.length > 1 ? `Xem tất cả ${images.length} ảnh` : "Xem ảnh"}
+              {t("customer.gallery.viewAll", { count: images.length })}
             </span>
           </button>
         )}

@@ -54,14 +54,14 @@ const LikeSaveBtns: FC<LikeSaveBtnsProps> = ({ shareUrl, shareTitle, saveKey }) 
     try {
       if (typeof navigator.share === "function") {
         await navigator.share({ url, title: shareTitle });
-        setFeedback("Đã mở chia sẻ");
+        setFeedback(t("customer.like.shared"));
         return;
       }
       await navigator.clipboard.writeText(url);
-      setFeedback("Đã sao chép liên kết");
+      setFeedback(t("customer.like.copied"));
     } catch {
       // a dismissed share sheet is not an error worth reporting; a failed copy is
-      if (typeof navigator.share !== "function") setFeedback("Không sao chép được liên kết");
+      if (typeof navigator.share !== "function") setFeedback(t("customer.like.copyFailed"));
     }
   };
 
@@ -69,7 +69,7 @@ const LikeSaveBtns: FC<LikeSaveBtnsProps> = ({ shareUrl, shareTitle, saveKey }) 
     const next = !saved;
     setSaved(next);
     writeSaved(saveKey, next);
-    setFeedback(next ? "Đã lưu trên thiết bị này" : "Đã bỏ lưu");
+    setFeedback(next ? t("customer.like.saved") : t("customer.like.unsaved"));
   };
 
   return (

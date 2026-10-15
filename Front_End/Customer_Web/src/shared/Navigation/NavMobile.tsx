@@ -55,7 +55,7 @@ const NavMobile: React.FC<NavMobileProps> = ({ data = NAVIGATION_BHA, onClickClo
               <Link href={item.href as Route} className={cls} onClick={onClickClose}>
                 {item.name}
               </Link>
-              <Disclosure.Button aria-label={`${open ? "Thu gọn" : "Mở rộng"} ${item.name}`} className={TOGGLE_CLASS}>
+              <Disclosure.Button aria-label={t(open ? "customer.menu.collapse" : "customer.menu.expand", { name: item.name })} className={TOGGLE_CLASS}>
                 <ChevronDownIcon className={`h-5 w-5 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true" />
               </Disclosure.Button>
             </div>

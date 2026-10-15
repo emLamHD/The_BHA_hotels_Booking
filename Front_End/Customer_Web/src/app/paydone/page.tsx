@@ -1,8 +1,11 @@
+import type { Metadata } from "next";
+import { getT } from "@/lib/i18n/server";
 import PayDoneReceipt from "./PayDoneReceipt";
 
-export const metadata = {
-  title: "Đặt phòng — The BHA",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getT();
+  return { title: t("customer.meta.paydone") };
+}
 
 /**
  * CUST-WEB-SHOWCASE-001-CP02-C3: the template's pay-done layout, as the live receipt of a booking made

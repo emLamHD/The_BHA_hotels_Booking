@@ -34,17 +34,17 @@ interface NavItem {
  */
 const NAV: NavItem[] = [
   {
-    name: "Trang chủ",
+    name: "customer.footerNav.home",
     link: "/",
     icon: HomeIcon,
   },
   {
-    name: "Tìm phòng",
+    name: "customer.footerNav.search",
     link: "/listing-stay",
     icon: MagnifyingGlassIcon,
   },
   {
-    name: "Đăng nhập",
+    name: "customer.auth.entry.signIn",
     link: "/login",
     icon: UserCircleIcon,
     auth: true,
@@ -141,7 +141,7 @@ const FooterNav = () => {
             isActive ? "text-red-600" : ""
           }`}
         >
-          {item.name}
+          {t(item.name)}
         </span>
       </Link>
     ) : (
@@ -159,7 +159,7 @@ const FooterNav = () => {
         }}
       >
         <item.icon iconClassName="w-6 h-6" className={``} />
-        <span className="text-[11px] leading-none mt-1">{item.name}</span>
+        <span className="text-[11px] leading-none mt-1">{t(item.name)}</span>
       </div>
     );
   };

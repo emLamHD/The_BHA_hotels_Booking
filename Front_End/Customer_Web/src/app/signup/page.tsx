@@ -1,8 +1,11 @@
+import type { Metadata } from "next";
+import { getT } from "@/lib/i18n/server";
 import SignupForm from "./SignupForm";
 
-export const metadata = {
-  title: "Đăng ký — The BHA",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getT();
+  return { title: t("customer.meta.signup") };
+}
 
 /**
  * CUST-WEB-001-CP03: the template's signup layout, connected to the Customer API. Registering creates an

@@ -5,10 +5,10 @@ import BgGlassmorphism from "@/components/BgGlassmorphism";
 import { MEDIA_CHANGES_NOTE, MEDIA_CREDITS, travelMediaUrl } from "@/data/heroSlides";
 
 import { getT } from "@/lib/i18n/server";
-export const metadata: Metadata = {
-  title: "Nguồn ảnh — The BHA",
-  description: "Tác giả, giấy phép và nguồn của các ảnh Đà Nẵng trên trang The BHA.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getT();
+  return { title: t("customer.meta.mediaCredits.title"), description: t("customer.meta.mediaCredits.description") };
+}
 
 /**
  * CUST-WEB-001-CP08a-C2: the credit page for the Đà Nẵng photographs (the hero slideshow and the destination and

@@ -18,6 +18,7 @@ import Image from "next/image";
 import { GuestsObject } from "../(client-components)/type";
 
 import { useT } from "@/lib/i18n/I18nProvider";
+import DemoPrice from "@/components/DemoPrice";
 export interface CheckOutPagePageMainProps {
   className?: string;
 }
@@ -65,17 +66,17 @@ const CheckOutPagePageMain: FC<CheckOutPagePageMainProps> = ({
           <h3 className="text-2xl font-semibold">{t("customer.checkout.pageMain.priceDetail")}</h3>
           <div className="flex justify-between text-neutral-6000 dark:text-neutral-300">
             <span>{t("customer.checkout.pageMain.19X3Day")}</span>
-            <span>$57</span>
+            <DemoPrice value="$57" />
           </div>
           <div className="flex justify-between text-neutral-6000 dark:text-neutral-300">
             <span>{t("customer.checkout.pageMain.serviceCharge")}</span>
-            <span>$0</span>
+            <DemoPrice value="$0" />
           </div>
 
           <div className="border-b border-neutral-200 dark:border-neutral-700"></div>
           <div className="flex justify-between font-semibold">
             <span>{t("customer.checkout.pageMain.total")}</span>
-            <span>$57</span>
+            <DemoPrice value="$57" />
           </div>
         </div>
       </div>

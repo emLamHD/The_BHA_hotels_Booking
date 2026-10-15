@@ -4,7 +4,7 @@ import DatePickerCustomDay from "@/components/DatePickerCustomDay";
 import DatePickerCustomHeaderTwoMonth from "@/components/DatePickerCustomHeaderTwoMonth";
 import NcInputNumber from "@/components/NcInputNumber";
 import React, { FC, useState } from "react";
-import DatePicker from "react-datepicker";
+import DatePicker from "@/components/LocalizedDatePicker";
 
 import { useT } from "@/lib/i18n/I18nProvider";
 export interface PageAddListing9Props {}

@@ -5,6 +5,7 @@ import converSelectedDateToString from "@/utils/converSelectedDateToString";
 import ModalReserveMobile from "./ModalReserveMobile";
 
 import { useT } from "@/lib/i18n/I18nProvider";
+import DemoPrice from "@/components/DemoPrice";
 const MobileFooterSticky = () => {
   const t = useT();
   const [startDate, setStartDate] = useState<Date | null>(
@@ -17,7 +18,7 @@ const MobileFooterSticky = () => {
       <div className="container flex items-center justify-between">
         <div className="">
           <span className="block text-xl font-semibold">
-            $311
+            <DemoPrice value="$311" />
             <span className="ml-1 text-sm font-normal text-neutral-500 dark:text-neutral-400">{t("customer.common.night")}</span>
           </span>
           <ModalSelectDate

@@ -1,6 +1,6 @@
 "use client";
 
-import DatePicker from "react-datepicker";
+import DatePicker from "@/components/LocalizedDatePicker";
 import { Dialog, Transition } from "@headlessui/react";
 import { XMarkIcon } from "@heroicons/react/24/solid";
 import React, { FC, Fragment, useEffect, useState } from "react";

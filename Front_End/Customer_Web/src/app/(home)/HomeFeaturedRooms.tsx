@@ -12,7 +12,7 @@ import { useStaySearch } from "@/components/StaySearchProvider";
 import { bookingStatusCopy, buildRoomDetailsHref, inProgressBookingTarget } from "@/lib/roomDetailsRoute";
 import { HOME_SECTION, RESULTS_PATH, RIVERSIDE_NAME } from "@/lib/riversideHomeContent";
 
-import { useT } from "@/lib/i18n/I18nProvider";
+import { useI18n } from "@/lib/i18n/I18nProvider";
 /**
  * CUST-WEB-001-CP08a: the home page's room types. The real room types of the Property whose slug is
  * `the-bha-riverside`, exactly the ones the booking system returns (the count is whatever it is), as
@@ -22,7 +22,7 @@ import { useT } from "@/lib/i18n/I18nProvider";
  * House and Villa are not offered: they are not bookable online.
  */
 const HomeFeaturedRooms: FC = () => {
-  const t = useT();
+  const { t, content } = useI18n();
   const ctx = useStaySearch();
   const { state: holdState } = useBookingHoldFlow();
 
@@ -66,7 +66,7 @@ const HomeFeaturedRooms: FC = () => {
     return (
       <>
         <p className="mb-6 text-sm text-neutral-600 dark:text-neutral-300">
-          {roomTypes.length} loại phòng tại {riverside.name ?? RIVERSIDE_NAME}
+          {t("customer.stayList.countAt", { count: roomTypes.length, property: content("property", riverside.id, "name", riverside.name ?? RIVERSIDE_NAME) })}
           <span className="mx-2">·</span>{t("customer.home.homeFeaturedRooms.chooseDatesToSeePrices")}</p>
         <div className="grid gap-6 sm:grid-cols-2 md:gap-8 lg:grid-cols-3">
           {roomTypes.map((roomType) => (

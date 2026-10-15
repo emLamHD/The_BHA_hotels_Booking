@@ -76,7 +76,7 @@ const LiveStaySearchForm: FC = () => {
           options={[RIVERSIDE_LABEL]}
           value={draft.brand}
           onSelect={(brand) => updateDraft({ brand })}
-          placeHolder="Chỗ nghỉ"
+          placeHolder={t("customer.search.property")}
           optionsHeading="The BHA"
         />
         <div className="self-center border-r border-slate-200 dark:border-slate-700 h-8"></div>
@@ -98,7 +98,7 @@ const LiveStaySearchForm: FC = () => {
             rooms: draft.rooms,
             onChange: (patch) => updateDraft(patch),
             onSubmit: submit,
-            submitLabel: "Tìm phòng",
+            submitLabel: t("customer.search.submitShort"),
           }}
         />
       </form>

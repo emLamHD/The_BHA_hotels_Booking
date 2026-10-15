@@ -4,6 +4,7 @@ import React from "react";
 import { MoonIcon } from "@heroicons/react/24/solid";
 import { SunIcon } from "@heroicons/react/24/outline";
 import { useThemeMode } from "@/utils/useThemeMode";
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface SwitchDarkModeProps {
   className?: string;
 }
@@ -16,12 +17,13 @@ export interface SwitchDarkModeProps {
  */
 const SwitchDarkMode: React.FC<SwitchDarkModeProps> = ({ className = "" }) => {
   const { _toogleDarkMode, isDarkMode } = useThemeMode();
+  const t = useT();
 
   return (
     <button
       type="button"
       onClick={_toogleDarkMode}
-      aria-label={isDarkMode ? "Bật chế độ sáng" : "Bật chế độ tối"}
+      aria-label={isDarkMode ? t("customer.darkMode.toLight") : t("customer.darkMode.toDark")}
       className={`self-center text-2xl md:text-3xl w-10 h-10 sm:w-12 sm:h-12 rounded-full text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 flex items-center justify-center ${className}`}
     >
       {isDarkMode ? (
