@@ -154,7 +154,7 @@ Kịch bản và harness (không chứa bí mật, nằm ngoài repo): `~/bha-ev
 
 - Gói phát hành: 1212 tin nhắn + 225 nội dung mỗi ngôn ngữ (vi/en/fr), 100% khóa bắt buộc, không bản nháp nào được bật công khai.
 - Quy trình: LibreTranslate cục bộ soạn **nháp** (nguồn khai báo, ICU-aware, fr dịch từ en, chặn mất biến); toàn bộ chuỗi giá/giữ phòng/hủy/xác nhận/thanh toán/lỗi và ≥100 chuỗi đại diện được rà **toàn bộ bởi implementer (Claude)** — chưa có người bản ngữ en/fr kiểm. Chất lượng thô thấp với văn bản miền khách sạn tiếng Việt: các lô đã ghi (`r1/mt-stats.md`) cần sửa khoảng 80–95% ô (ví dụ lô luồng đặt phòng 103 khóa: vi 87, fr 75 ô phải sửa; lô xác thực 45 khóa: 41/41); chỉ nhãn ngắn thông dụng dùng được nguyên. Có lần mô hình dịch “Huế” thành từ thô tục và “Địa chỉ email” thành “Chile”; cả hai đều bị chặn/sửa. Các dòng ghi chuẩn trong `mt-stats.md` cộng lại 232 khóa, 35 khóa tái dùng từ bản dịch có sẵn; các lô đầu ghi theo định dạng khác nên không có tổng duy nhất. Dùng token: **không đo được** từ công cụ; thời gian thực đo được: lô 103 khóa/400 đơn vị = 25,5 s, lô 183 khóa = 76 s.
-- 68 + 14 + 15 + 8 + 7 + … khóa `customer.tpl.*` (chữ mẫu của template) viết/duyệt tay theo cùng quy trình.
+- 120 khóa `customer.tpl.*` (chữ mẫu của template) viết/duyệt tay theo cùng quy trình.
 
 ### Giới hạn / NOT RUN
 
