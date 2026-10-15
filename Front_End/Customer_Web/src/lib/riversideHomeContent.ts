@@ -1,5 +1,5 @@
 import type { Translate } from "@/lib/i18n/types";
-import type { PropertyDto } from "@/lib/api/propertyTypes";
+import type { AmenityDto, PropertyDto } from "@/lib/api/propertyTypes";
 
 /**
  * CUST-WEB-001-CP08a: the words, links and pictures of the Riverside home page, with where each one comes
@@ -176,10 +176,14 @@ export function checkTimes(property: Pick<PropertyDto, "checkInTime" | "checkOut
 }
 
 /** The property's amenities exactly as the catalog names them; nothing is added. */
-export function amenityNames(property: Pick<PropertyDto, "amenities"> | null | undefined): string[] {
+export function amenityNames(
+  property: Pick<PropertyDto, "amenities"> | null | undefined,
+  /** The visitor-language name of an amenity (pack content); the catalog's own name when omitted. */
+  nameOf: (amenity: AmenityDto) => string | null = (amenity) => amenity.name
+): string[] {
   const names: string[] = [];
   for (const amenity of property?.amenities ?? []) {
-    const name = amenity.name?.trim();
+    const name = nameOf(amenity)?.trim();
     if (name && names.indexOf(name) === -1) names.push(name);
   }
   return names;

@@ -2,7 +2,7 @@ import React from "react";
 import type { Metadata } from "next";
 import Image from "next/image";
 import BgGlassmorphism from "@/components/BgGlassmorphism";
-import { MEDIA_CHANGES_NOTE, MEDIA_CREDITS, travelMediaUrl } from "@/data/heroSlides";
+import { MEDIA_CREDITS, travelMediaUrl } from "@/data/heroSlides";
 
 import { getT } from "@/lib/i18n/server";
 export async function generateMetadata(): Promise<Metadata> {
@@ -24,7 +24,7 @@ export default async function MediaCreditsPage() {
       <div className="container relative pb-20 pt-10 lg:pb-28 lg:pt-14">
         <header className="max-w-3xl space-y-3">
           <h1 className="text-3xl font-semibold text-neutral-900 dark:text-neutral-50 md:text-4xl">{t("customer.common.photoCredits")}</h1>
-          <p className="text-neutral-600 dark:text-neutral-300">{t("customer.mediaCredits.page.photosOfDaNangAnd", { MEDIACHANGESNOTE: MEDIA_CHANGES_NOTE })}</p>
+          <p className="text-neutral-600 dark:text-neutral-300">{t("customer.mediaCredits.page.photosOfDaNangAnd", { MEDIACHANGESNOTE: t("customer.media.changesNote") })}</p>
           <p className="text-sm text-neutral-500 dark:text-neutral-400">{t("customer.mediaCredits.page.photosOfTheBhaRiverside")}</p>
         </header>
         <ul className="mt-10 grid gap-6 lg:grid-cols-2">

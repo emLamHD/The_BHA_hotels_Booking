@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 import React from "react";
-import { renderToStaticMarkup } from "react-dom/server";
 import MediaGallery from "./MediaGallery";
 import { MediaDto } from "@/lib/api/propertyTypes";
+import { renderWithI18n } from "@/lib/i18n/testkit";
 
 const media = (id: string, sortOrder: number, isCover = false, url = `https://shop.example.test/media/${id}.webp`): MediaDto => ({
   id, url, altText: `Mô tả ${id}`, mediaType: "Image", sortOrder, isCover,
 });
-const render = (props: Partial<React.ComponentProps<typeof MediaGallery>> & { media: MediaDto[] | null }) =>
-  renderToStaticMarkup(React.createElement(MediaGallery, { name: "Căn hộ", ...props }));
+const render = (props: Partial<React.ComponentProps<typeof MediaGallery>> & { media: MediaDto[] | null }, locale = "vi") =>
+  renderWithI18n(React.createElement(MediaGallery, { name: "Căn hộ", ...props }), locale);
 
 describe("MediaGallery (first paint)", () => {
   it("shows the cover large with its own alt text and a thumbnail for every image", () => {
@@ -36,5 +36,18 @@ describe("MediaGallery (first paint)", () => {
   it("renders nothing when nothing is usable and no placeholder was asked for", () => {
     expect(render({ media: null })).toBe("");
     expect(render({ media: [] })).toBe("");
+  });
+
+  it("shows the stored photo description in the visitor's language when the language has one, the catalog's own text otherwise", () => {
+    const known = { ...media("a5000000-0000-0000-0000-000000000026", 0, true), altText: "Phòng khách có ghế sofa, bàn trà và tivi" };
+    expect(render({ media: [known] }, "en")).toContain('alt="Living room with a sofa, coffee table and TV"');
+    expect(render({ media: [known] }, "fr")).toContain('alt="Salon avec canapé, table basse et télévision"');
+    expect(render({ media: [media("not-in-any-pack", 0, true)] }, "en")).toContain('alt="Mô tả not-in-any-pack"');
+  });
+
+  it("labels a photo without a description in the visitor's language", () => {
+    const bare = { ...media("bare", 0, true), altText: null };
+    expect(render({ media: [bare], name: "Studio" }, "en")).toContain('alt="Photo of Studio"');
+    expect(render({ media: [bare], name: "Studio" }, "fr")).toContain('alt="Photo de Studio"');
   });
 });

@@ -8,7 +8,7 @@ import { tplKey } from "./tpl";
 const reported = new Set<string>();
 
 /** A template text with no key in the pack is shown as written and reported once (the Admin counts it as missing, never as translated). */
-function reportMissing(text: string, locale: string) {
+export function reportMissingTpl(text: string, locale: string) {
   if (typeof window === "undefined" || reported.has(text) || !/\p{L}{2}/u.test(text)) return;
   reported.add(text);
   console.warn(`[i18n] missing template text (${locale}): ${text}`);
@@ -19,7 +19,7 @@ export function Tpl({ text, quiet = false }: { text: string; quiet?: boolean }) 
   const { t, has, locale } = useI18n();
   const key = tplKey(text);
   if (!has(key)) {
-    if (!quiet) reportMissing(text, locale);
+    if (!quiet) reportMissingTpl(text, locale);
     return <>{text}</>;
   }
   return <>{t(key)}</>;
@@ -30,7 +30,7 @@ export function useTpl() {
   const { t, has, locale } = useI18n();
   return (text: string) => {
     if (has(tplKey(text))) return t(tplKey(text));
-    reportMissing(text, locale);
+    reportMissingTpl(text, locale);
     return text;
   };
 }

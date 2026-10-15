@@ -11,7 +11,7 @@ import { OPEN_SEARCH_EVENT } from "@/lib/homepageSearch";
 import { HOME_SECTION, HOME_SECTION_IDS, amenityNames, buildFaq, checkTimes } from "@/lib/riversideHomeContent";
 import { SHOWCASE_SECTION_NAVIGATION_EVENT } from "@/lib/routePolicy";
 
-import { useT } from "@/lib/i18n/I18nProvider";
+import { useI18n, useT } from "@/lib/i18n/I18nProvider";
 /** The id of the hero's search form: the "Tìm phòng" button scrolls to it on large screens. */
 export const HERO_SEARCH_ID = "tim-phong";
 
@@ -79,8 +79,8 @@ export const HeroActions: FC = () => {
 
 /** The property's amenities exactly as the booking system names them; nothing is shown while it has none. */
 export const PropertyAmenities: FC = () => {
-  const t = useT();
-  const names = amenityNames(useStaySearch()?.riverside);
+  const { t, content } = useI18n();
+  const names = amenityNames(useStaySearch()?.riverside, (amenity) => content("amenity", amenity.id, "name", amenity.name ?? amenity.code))
   if (names.length === 0) return null;
   return (
     <div className="mt-10">

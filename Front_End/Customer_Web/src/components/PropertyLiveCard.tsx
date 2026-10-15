@@ -10,7 +10,7 @@ import {
   selectCoverImage,
 } from "@/lib/api/propertyPresentation";
 
-import { useT } from "@/lib/i18n/I18nProvider";
+import { useI18n } from "@/lib/i18n/I18nProvider";
 export interface PropertyLiveCardProps {
   className?: string;
   data: PropertyDto;
@@ -20,13 +20,18 @@ const PropertyLiveCard: FC<PropertyLiveCardProps> = ({
   className = "",
   data,
 }) => {
-  const t = useT();
+  const { t, content } = useI18n();
   // The URL that failed, not a flag: a different cover is never judged by an old failure.
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const coverImage = selectCoverImage(data.media);
   const useApiImage = !coverHasFailed(coverImage, failedUrl);
-  const location = formatLocation(data);
-  const name = data.name ?? "Property";
+  const location = formatLocation({
+    ...data,
+    city: content("property", data.id, "city", data.city),
+    country: content("property", data.id, "country", data.country),
+  });
+  const name = content("property", data.id, "name", data.name ?? t("customer.search.propertyFallback"));
+  const description = content("property", data.id, "description", data.description);
 
   return (
     <div
@@ -43,7 +48,7 @@ const PropertyLiveCard: FC<PropertyLiveCardProps> = ({
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={coverImage!.url!}
-                alt={coverImage!.altText ?? `${name} photo`}
+                alt={content("media", coverImage!.id, "altText", coverImage!.altText) ?? t("customer.media.photoOf", { name })}
                 className="absolute inset-0 w-full h-full object-cover"
                 loading="lazy"
                 onError={() => setFailedUrl(coverImage!.url)}
@@ -68,9 +73,9 @@ const PropertyLiveCard: FC<PropertyLiveCardProps> = ({
               </div>
             )}
 
-            {data.description && (
+            {description && (
               <p className="text-sm text-neutral-500 dark:text-neutral-400 line-clamp-2">
-                {data.description}
+                {description}
               </p>
             )}
 
@@ -81,7 +86,7 @@ const PropertyLiveCard: FC<PropertyLiveCardProps> = ({
             {data.amenities && data.amenities.length > 0 && (
               <div className="flex flex-wrap gap-2">
                 {data.amenities.map((amenity) => (
-                  <Badge key={amenity.id} name={amenity.name ?? amenity.code} />
+                  <Badge key={amenity.id} name={content("amenity", amenity.id, "name", amenity.name ?? amenity.code)} />
                 ))}
               </div>
             )}

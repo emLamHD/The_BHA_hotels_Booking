@@ -32,7 +32,6 @@ const CC_BY_4 = "https://creativecommons.org/licenses/by/4.0";
 const CC_BY_SA_4 = "https://creativecommons.org/licenses/by-sa/4.0";
 
 /** What was done to every original; CC BY and CC BY-SA ask that changes are indicated. */
-export const MEDIA_CHANGES_NOTE = "Đã cắt khung, thu nhỏ và chuyển sang định dạng WebP.";
 
 export const MEDIA_CREDITS: readonly MediaCredit[] = [
   {

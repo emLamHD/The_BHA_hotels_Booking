@@ -6,23 +6,16 @@ import ButtonSecondary from "@/shared/ButtonSecondary";
 import RoomTypeLiveCard from "@/components/RoomTypeLiveCard";
 import { getRoomTypes } from "@/lib/api/roomTypeService";
 import { PropertyDto, RoomTypeDto } from "@/lib/api/propertyTypes";
-import { ApiConfigError, ApiHttpError, ApiNetworkError } from "@/lib/api/errors";
+import { apiErrorKey } from "@/lib/api/errorMessages";
 import { isRequestCancelledError } from "@/lib/api/httpClient";
 
-import { useT } from "@/lib/i18n/I18nProvider";
+import { useI18n } from "@/lib/i18n/I18nProvider";
+import { useApiMessage } from "@/lib/i18n/apiMessage";
 type LoadStatus = "loading" | "success" | "error";
 
+/** The pack key of the message for a failed load; the section translates it when it renders. */
 function describeError(error: unknown): string {
-  if (error instanceof ApiConfigError) {
-    return "The room type service is not configured correctly.";
-  }
-  if (error instanceof ApiNetworkError) {
-    return "We couldn't reach the room type service. Check your connection and try again.";
-  }
-  if (error instanceof ApiHttpError) {
-    return error.problem.detail ?? error.problem.title;
-  }
-  return "Something went wrong while loading room types.";
+  return apiErrorKey(error, "customer.home.sectionGridRoomTypes.loadError");
 }
 
 interface PropertyRoomTypesProps {
@@ -39,7 +32,8 @@ const PropertyRoomTypes: FC<PropertyRoomTypesProps> = ({
   propertyId,
   propertyName,
 }) => {
-  const t = useT();
+  const { t, content } = useI18n();
+  const apiMessage = useApiMessage();
   const [status, setStatus] = useState<LoadStatus>("loading");
   const [roomTypes, setRoomTypes] = useState<RoomTypeDto[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -98,7 +92,7 @@ const PropertyRoomTypes: FC<PropertyRoomTypesProps> = ({
           className="py-10 flex flex-col items-center text-center space-y-4"
         >
           <p className="text-neutral-600 dark:text-neutral-300">
-            {propertyName}: {errorMessage}
+            {propertyName}: {errorMessage ? apiMessage(errorMessage) : null}
           </p>
           <ButtonSecondary onClick={loadRoomTypes}>{t("customer.common.retry")}</ButtonSecondary>
         </div>
@@ -136,7 +130,8 @@ const SectionGridRoomTypes: FC<SectionGridRoomTypesProps> = ({
   className = "",
   properties,
 }) => {
-  const t = useT();
+  const { t, content } = useI18n();
+  const apiMessage = useApiMessage();
   if (properties.length === 0) {
     return null;
   }
@@ -150,7 +145,7 @@ const SectionGridRoomTypes: FC<SectionGridRoomTypesProps> = ({
           <PropertyRoomTypes
             key={property.id}
             propertyId={property.id}
-            propertyName={property.name ?? "Property"}
+            propertyName={content("property", property.id, "name", property.name ?? t("customer.search.propertyFallback"))}
           />
         ))}
       </div>

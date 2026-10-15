@@ -2,6 +2,7 @@
 
 import React, { FC, useState } from "react";
 import { MediaDto } from "@/lib/api/propertyTypes";
+import { useI18n } from "@/lib/i18n/I18nProvider";
 import { pickMainImage, selectGalleryImages, visibleImages } from "@/lib/api/mediaPresentation";
 
 export interface MediaGalleryProps {
@@ -27,6 +28,8 @@ const MediaGallery: FC<MediaGalleryProps> = ({
   className = "",
   aspectClass = "aspect-[3/2]",
 }) => {
+  const { t, content } = useI18n();
+  const altOf = (image: MediaDto) => content("media", image.id, "altText", image.altText);
   const [failedUrls, setFailedUrls] = useState<string[]>([]);
   const [selectedUrl, setSelectedUrl] = useState<string | null>(null);
 
@@ -52,21 +55,21 @@ const MediaGallery: FC<MediaGalleryProps> = ({
         <img
           key={main.url ?? main.id}
           src={main.url!}
-          alt={main.altText ?? `${name} photo`}
+          alt={altOf(main) ?? t("customer.media.photoOf", { name })}
           className="absolute inset-0 h-full w-full object-cover"
           loading="lazy"
           onError={() => markFailed(main.url)}
         />
       </div>
       {visible.length > 1 && (
-        <ul className="mt-2 grid grid-cols-5 gap-2" aria-label={`${name} photos`}>
+        <ul className="mt-2 grid grid-cols-5 gap-2" aria-label={t("customer.media.photosOf", { name })}>
           {visible.map((image, index) => (
             <li key={image.id}>
               <button
                 type="button"
                 onClick={() => setSelectedUrl(image.url)}
                 aria-pressed={image.url === main.url}
-                aria-label={`${name}: ${image.altText ?? `photo ${index + 1}`}`}
+                aria-label={`${name}: ${altOf(image) ?? t("customer.media.photoNumber", { number: index + 1 })}`}
                 className={`relative block w-full aspect-[4/3] overflow-hidden rounded-lg bg-neutral-100 dark:bg-neutral-800 ring-offset-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-6000 ${
                   image.url === main.url ? "ring-2 ring-primary-6000" : ""
                 }`}
