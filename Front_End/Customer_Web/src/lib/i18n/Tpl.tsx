@@ -14,11 +14,12 @@ function reportMissing(text: string, locale: string) {
   console.warn(`[i18n] missing template text (${locale}): ${text}`);
 }
 
-export function Tpl({ text }: { text: string }) {
+/** `quiet`: for a component that also receives texts already translated by `t()`; a miss there is not a missing template text. */
+export function Tpl({ text, quiet = false }: { text: string; quiet?: boolean }) {
   const { t, has, locale } = useI18n();
   const key = tplKey(text);
   if (!has(key)) {
-    reportMissing(text, locale);
+    if (!quiet) reportMissing(text, locale);
     return <>{text}</>;
   }
   return <>{t(key)}</>;
@@ -26,6 +27,16 @@ export function Tpl({ text }: { text: string }) {
 
 /** For an attribute that needs a string (`placeholder`, `aria-label`). */
 export function useTpl() {
+  const { t, has, locale } = useI18n();
+  return (text: string) => {
+    if (has(tplKey(text))) return t(tplKey(text));
+    reportMissing(text, locale);
+    return text;
+  };
+}
+
+/** Like `useTpl`, for a component that receives text that may already be translated: never reports a miss. */
+export function useQuietTpl() {
   const { t, has } = useI18n();
   return (text: string) => (has(tplKey(text)) ? t(tplKey(text)) : text);
 }

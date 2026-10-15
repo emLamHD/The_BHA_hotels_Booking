@@ -76,6 +76,8 @@ export const PROVIDER_CONTENT_PREFIXES = [
   "content.benefit.",
   "content.step.",
   "content.category.",
+  // post cards (title, excerpt, cover alt); the long post bodies stay per page
+  "content.post.",
 ] as const;
 
 /** What `useT()` returns: the text for a key in the visitor's language, with the message's parameters filled in. */

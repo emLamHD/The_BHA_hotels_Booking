@@ -6153,6 +6153,376 @@
    "placeholders": []
   },
   {
+   "key": "customer.tpl.00d644e0",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.01253bf6",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.01f4412e",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.072a8a9f",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.07cc2e49",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.08b28ac4",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.08c13be7",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.134db098",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.18fe85ae",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.19f4fb8c",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.224d574a",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.24efdf25",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.272e9ea7",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.2b8d5d95",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.2bd2d295",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.2d39aee2",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.2e976348",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.3ac4ad38",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.3b363206",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.3c73fb74",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.3cfe9b45",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.412c0a09",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.41f23689",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.42c10d1a",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.4c64d4ed",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.50b6b3b3",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.546d19d2",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.5bc08dc6",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.5be9ef7c",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.5c8f4b61",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.6015cdfe",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.61116d1c",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.6447104e",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.6940a489",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.6a7b5b60",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.6d8c9eba",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.7fc4b6dc",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.87dc5eae",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.8ad2ab2c",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.8e4c5199",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.995228a5",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.9a86933e",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.a24d57e9",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.a437a37f",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.a6bbee1f",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.a9b59e94",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.aa033ce6",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.ac4fe479",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.adea5b32",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.b554bc44",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.b6017bdf",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.b605221b",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.bbdcf845",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.bee63639",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.c7e09f71",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.d2e7705c",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.d45f6bd6",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.d5000949",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.d55bda07",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.d668c627",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.d72f84dd",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.db60480b",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.dc9e1ad2",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.e4d4aff3",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.e54c0a54",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.e566cf1b",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.ed90e891",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.ee2d9b75",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.f2b57f97",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.f5fad29f",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.f62789e7",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.f6d7956c",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.f9f2a5c5",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.fa6d2b95",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.validation.checkInRequired",
    "scope": "customer",
    "placeholders": []
