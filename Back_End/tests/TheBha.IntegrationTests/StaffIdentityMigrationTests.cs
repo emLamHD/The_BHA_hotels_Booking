@@ -8,7 +8,7 @@ using TheBha.Infrastructure.Persistence;
 namespace TheBha.IntegrationTests;
 
 /// <summary>
-/// PMS-ADMIN-AUTH-001-CP01 migration evidence: migration 9 applies to a fresh database,
+/// PMS-ADMIN-AUTH-001-CP01 migration evidence: migration 9 applies to a fresh database (migration 10, website settings, follows it),
 /// upgrades a migration 8 database with Customer and Property rows intact, and its guarded
 /// Down() refuses to drop Staff rows but succeeds when both new tables are empty.
 /// Each test owns a disposable database so it controls which migration is applied.
@@ -17,6 +17,7 @@ public sealed class StaffIdentityMigrationTests : IAsyncLifetime
 {
     private const string V8Migration = "20260826035254_PhysicalRoomScheduleAvailabilityAuthority";
     private const string V9Migration = "20261001141847_AddStaffIdentityFoundation";
+    private const string V10Migration = "20261015050047_AddWebsiteLocalizationSettings";
     private static readonly Guid PropertyId = Guid.Parse("90000000-0000-0000-0000-000000000011");
     private static readonly Guid CustomerId = Guid.Parse("90000000-0000-0000-0000-000000000012");
 
@@ -38,12 +39,12 @@ public sealed class StaffIdentityMigrationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Fresh_database_applies_all_nine_migrations()
+    public async Task Fresh_database_applies_all_ten_migrations()
     {
         await using var context = CreateContext();
         await context.Database.MigrateAsync();
 
-        Assert.Equal(9, (await context.Database.GetAppliedMigrationsAsync()).Count());
+        Assert.Equal(10, (await context.Database.GetAppliedMigrationsAsync()).Count());
         Assert.Empty(await context.Database.GetPendingMigrationsAsync());
         Assert.Equal(0, await CountAsync("StaffAccounts"));
         Assert.Equal(0, await CountAsync("StaffPropertyMemberships"));
@@ -67,7 +68,8 @@ public sealed class StaffIdentityMigrationTests : IAsyncLifetime
 
         Assert.Equal(1, await CountAsync("Properties"));
         Assert.Equal(1, await CountAsync("AspNetUsers"));
-        Assert.Empty(await context.Database.GetPendingMigrationsAsync());
+        // Migration 10 (website settings) is the only one left beyond this test's V9 target.
+        Assert.Equal([V10Migration], await context.Database.GetPendingMigrationsAsync());
 
         await ExecuteAsync(
             $"""
@@ -80,7 +82,7 @@ public sealed class StaffIdentityMigrationTests : IAsyncLifetime
 
         await ExecuteAsync("DELETE FROM \"StaffAccounts\"");
         await migrator.MigrateAsync(V8Migration);
-        Assert.Equal([V9Migration], await context.Database.GetPendingMigrationsAsync());
+        Assert.Equal([V9Migration, V10Migration], await context.Database.GetPendingMigrationsAsync());
         Assert.Equal(1, await CountAsync("AspNetUsers"));
     }
 

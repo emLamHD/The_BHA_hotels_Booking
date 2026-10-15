@@ -41,6 +41,9 @@ public static class StaffCalendarModeGuard
 
     public static bool IsOpenInStaffMode(Endpoint? endpoint) =>
         endpoint?.Metadata.GetMetadata<StaffCalendarPermissionAttribute>() is not null ||
+        // CUST-WEB-HEADER-001-CP02: an action opens only by carrying the website permission attribute, which is
+        // itself the filter that enforces it (ADR 0008); never a prefix, a controller or a URL list.
+        endpoint?.Metadata.GetMetadata<StaffWebsitePermissionAttribute>() is not null ||
         (endpoint?.Metadata.GetMetadata<ControllerActionDescriptor>() is { } action &&
          action.ControllerTypeInfo.AsType() == typeof(StaffAuthController) &&
          SessionActions.Contains(action.ActionName, StringComparer.Ordinal));

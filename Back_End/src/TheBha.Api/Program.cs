@@ -523,7 +523,10 @@ if (staffCalendarMode)
     // admin-calendar(-write) attribute in Staff mode. Anything else keeps its own attribute.
     controllers.Add(endpoint =>
     {
-        if (!endpoint.Metadata.OfType<StaffCalendarPermissionAttribute>().Any())
+        // CUST-WEB-HEADER-001-CP02: the website-settings actions ride the same credentialed Staff policies:
+        // GET reads and POST mutations (every website mutation is a POST).
+        if (!endpoint.Metadata.OfType<StaffCalendarPermissionAttribute>().Any() &&
+            !endpoint.Metadata.OfType<StaffWebsitePermissionAttribute>().Any())
         {
             return;
         }

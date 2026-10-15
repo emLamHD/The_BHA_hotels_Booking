@@ -10,7 +10,8 @@ namespace TheBha.Api.Authentication;
 
 /// <summary>
 /// PMS-ADMIN-AUTH-001-CP02: the operator CLI that creates Staff, grants a Property
-/// membership, disables Staff and resets a Staff password. There is no HTTP route for
+/// membership, disables Staff and resets a Staff password (and, CUST-WEB-HEADER-001-CP02,
+/// grants or revokes the site-wide website permission). There is no HTTP route for
 /// any of this. A password is read from <see cref="PasswordVariable"/> or a hidden
 /// prompt, never from an argument, and is never written to the output. Every verb runs
 /// in one database transaction, so a failure leaves nothing half-done.
@@ -29,6 +30,8 @@ public static class StaffBootstrapCommand
         ["--staff-grant"] = ["--email", "--property-id", "--role"],
         ["--staff-disable"] = ["--email"],
         ["--staff-reset-password"] = ["--email"],
+        // CUST-WEB-HEADER-001-CP02: the one way to grant or revoke the site-wide WebsiteSettingsManage permission.
+        ["--staff-website-access"] = ["--email", "--enabled"],
     };
 
     public static bool IsStaffCommand(string[] args) => args.Any(IsStaffArgument);
@@ -73,6 +76,7 @@ public static class StaffBootstrapCommand
                 "--staff-create" => await CreateAsync(context, users, options, password!, now),
                 "--staff-grant" => await GrantAsync(context, users, options, now),
                 "--staff-disable" => await DisableAsync(users, options, now),
+                "--staff-website-access" => await WebsiteAccessAsync(users, options),
                 _ => await ResetPasswordAsync(users, options, password!),
             };
             if (succeeded)
@@ -215,6 +219,40 @@ public static class StaffBootstrapCommand
             : (false, $"rejected by Identity ({Codes(updated)}); nothing was changed.");
     }
 
+    /// <summary>
+    /// Sets the website permission flag of an existing Staff account. No account is created, no password is read, no
+    /// membership or role is touched, and the security stamp is left alone: the API reads the flag from the database
+    /// on every request, so a revoke ends the access on the next request even for a cookie that is still valid.
+    /// Granting is refused for a disabled account.
+    /// </summary>
+    private static async Task<(bool, string)> WebsiteAccessAsync(
+        UserManager<StaffAccount> users,
+        IReadOnlyDictionary<string, string> options)
+    {
+        var account = await users.FindByEmailAsync(options["--email"]);
+        if (account is null)
+        {
+            return (false, "the Staff account does not exist; nothing was changed.");
+        }
+
+        var enabled = string.Equals(options["--enabled"], "true", StringComparison.OrdinalIgnoreCase);
+        if (enabled && !account.IsActive)
+        {
+            return (false, $"Staff {account.Id} is disabled; website access is granted only to an active account; nothing was changed.");
+        }
+
+        if (account.CanManageWebsite == enabled)
+        {
+            return (true, $"Staff {account.Id} website access is already {(enabled ? "on" : "off")}; unchanged.");
+        }
+
+        account.CanManageWebsite = enabled;
+        var updated = await users.UpdateAsync(account);
+        return updated.Succeeded
+            ? (true, $"website access {(enabled ? "granted to" : "revoked from")} Staff {account.Id}.")
+            : (false, $"rejected by Identity ({Codes(updated)}); nothing was changed.");
+    }
+
     private static async Task<(bool, string)> ResetPasswordAsync(
         UserManager<StaffAccount> users,
         IReadOnlyDictionary<string, string> options,
@@ -274,6 +312,13 @@ public static class StaffBootstrapCommand
         if (options.TryGetValue("--property-id", out var propertyId) && !Guid.TryParse(propertyId, out _))
         {
             return ("", [], "--property-id is not a GUID.");
+        }
+
+        if (options.TryGetValue("--enabled", out var enabled) &&
+            !string.Equals(enabled, "true", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(enabled, "false", StringComparison.OrdinalIgnoreCase))
+        {
+            return ("", [], "--enabled must be true or false.");
         }
 
         if (options.TryGetValue("--role", out var role) && role is not (StaffRole.FrontDesk or StaffRole.Manager))

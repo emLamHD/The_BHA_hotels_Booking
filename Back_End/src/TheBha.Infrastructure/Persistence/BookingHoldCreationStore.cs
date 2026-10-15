@@ -450,6 +450,7 @@ public static class BookingAdvisoryLockKeys
     private const string HoldTransitionNamespace = "thebha:booking:hold-transition:v1:";
     private const string ReservationUnitNamespace = "thebha:pms:reservation-unit:v1:";
     private const string RoomTypeInventoryScopeNamespace = "thebha:pms:roomtype-inventory-scope:v1:";
+    private const string WebsiteSettingsNamespace = "thebha:website:settings:v1";
 
     public static long ForIdempotency(string idempotencyKeyHash) =>
         HashToInt64(IdempotencyNamespace + idempotencyKeyHash);
@@ -491,6 +492,14 @@ public static class BookingAdvisoryLockKeys
                 propertyId.ToString("D"),
                 ":",
                 roomTypeId.ToString("D")));
+
+    /// <summary>
+    /// CUST-WEB-HEADER-001-CP02: the one site-wide lock every website-settings writer takes, first, inside its
+    /// transaction. These tables are tiny and rarely written, so one lock costs nothing and is what keeps
+    /// "exactly one default", "no active currency without a rate" and a version check true under concurrency.
+    /// It shares no class with the booking locks above: no website path takes a booking lock and none takes both.
+    /// </summary>
+    public static long ForWebsiteSettings() => HashToInt64(WebsiteSettingsNamespace);
 
     private static long HashToInt64(string value)
     {

@@ -4,6 +4,7 @@ using TheBha.Domain.Bookings;
 using TheBha.Infrastructure.Identity;
 using TheBha.Domain.Properties;
 using TheBha.Domain.Scheduling;
+using TheBha.Domain.Website;
 
 namespace TheBha.Infrastructure.Persistence;
 
@@ -34,6 +35,9 @@ public sealed class TheBhaDbContext(DbContextOptions<TheBhaDbContext> options)
     public DbSet<RoomBlock> RoomBlocks => Set<RoomBlock>();
     public DbSet<RoomOccupancySegment> RoomOccupancySegments => Set<RoomOccupancySegment>();
     public DbSet<RoomOccupancySegmentAudit> RoomOccupancySegmentAudits => Set<RoomOccupancySegmentAudit>();
+    public DbSet<WebsiteLanguage> WebsiteLanguages => Set<WebsiteLanguage>();
+    public DbSet<WebsiteTranslation> WebsiteTranslations => Set<WebsiteTranslation>();
+    public DbSet<WebsiteCurrency> WebsiteCurrencies => Set<WebsiteCurrency>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -1070,6 +1070,221 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("TheBha.Domain.Website.WebsiteCurrency", b =>
+                {
+                    b.Property<string>("Code")
+                        .HasMaxLength(3)
+                        .HasColumnType("character(3)")
+                        .IsFixedLength();
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsBase")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsDefault")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("MinorUnits")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("RateSource")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTimeOffset?>("RateUpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("RateUpdatedByStaffId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Symbol")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedByStaffId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer");
+
+                    b.Property<decimal?>("VndPerUnit")
+                        .HasPrecision(20, 8)
+                        .HasColumnType("numeric(20,8)");
+
+                    b.HasKey("Code");
+
+                    b.HasIndex("IsBase")
+                        .IsUnique()
+                        .HasDatabaseName("UX_WebsiteCurrencies_OneBase")
+                        .HasFilter("\"IsBase\"");
+
+                    b.HasIndex("IsDefault")
+                        .IsUnique()
+                        .HasDatabaseName("UX_WebsiteCurrencies_OneDefault")
+                        .HasFilter("\"IsDefault\"");
+
+                    b.HasIndex("RateUpdatedByStaffId");
+
+                    b.HasIndex("UpdatedByStaffId");
+
+                    b.ToTable("WebsiteCurrencies", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_WebsiteCurrencies_ActiveNeedsRate", "NOT \"IsActive\" OR \"VndPerUnit\" IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_WebsiteCurrencies_Base", "(\"IsBase\" = (\"Code\" = 'VND')) AND (NOT \"IsBase\" OR (\"VndPerUnit\" = 1 AND \"MinorUnits\" = 0 AND \"IsActive\"))");
+
+                            t.HasCheckConstraint("CK_WebsiteCurrencies_Code", "\"Code\" ~ '^[A-Z]{3}$'");
+
+                            t.HasCheckConstraint("CK_WebsiteCurrencies_DefaultIsActive", "NOT \"IsDefault\" OR \"IsActive\"");
+
+                            t.HasCheckConstraint("CK_WebsiteCurrencies_MinorUnits", "\"MinorUnits\" BETWEEN 0 AND 4");
+
+                            t.HasCheckConstraint("CK_WebsiteCurrencies_Names", "btrim(\"Name\") <> '' AND btrim(\"Symbol\") <> ''");
+
+                            t.HasCheckConstraint("CK_WebsiteCurrencies_Rate", "\"VndPerUnit\" IS NULL OR (\"VndPerUnit\" > 0 AND \"VndPerUnit\" < 1000000000000)");
+
+                            t.HasCheckConstraint("CK_WebsiteCurrencies_RateSource", "\"RateSource\" = 'manual'");
+
+                            t.HasCheckConstraint("CK_WebsiteCurrencies_RateStamp", "(\"VndPerUnit\" IS NULL) = (\"RateUpdatedAtUtc\" IS NULL)");
+
+                            t.HasCheckConstraint("CK_WebsiteCurrencies_SortOrder", "\"SortOrder\" BETWEEN 0 AND 10000");
+
+                            t.HasCheckConstraint("CK_WebsiteCurrencies_Version", "\"Version\" >= 1");
+                        });
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Website.WebsiteLanguage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsDefault")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("NativeName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("NormalizedCode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedByStaffId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IsDefault")
+                        .IsUnique()
+                        .HasDatabaseName("UX_WebsiteLanguages_OneDefault")
+                        .HasFilter("\"IsDefault\"");
+
+                    b.HasIndex("NormalizedCode")
+                        .IsUnique()
+                        .HasDatabaseName("UX_WebsiteLanguages_NormalizedCode");
+
+                    b.HasIndex("UpdatedByStaffId");
+
+                    b.ToTable("WebsiteLanguages", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_WebsiteLanguages_Code", "\"NormalizedCode\" = lower(\"Code\") AND \"NormalizedCode\" ~ '^[a-z]{2,3}(-[a-z]{4})?(-([a-z]{2}|[0-9]{3}))?$'");
+
+                            t.HasCheckConstraint("CK_WebsiteLanguages_DefaultIsActive", "NOT \"IsDefault\" OR \"IsActive\"");
+
+                            t.HasCheckConstraint("CK_WebsiteLanguages_Names", "btrim(\"DisplayName\") <> '' AND btrim(\"NativeName\") <> ''");
+
+                            t.HasCheckConstraint("CK_WebsiteLanguages_SortOrder", "\"SortOrder\" BETWEEN 0 AND 10000");
+
+                            t.HasCheckConstraint("CK_WebsiteLanguages_Version", "\"Version\" >= 1");
+                        });
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Website.WebsiteTranslation", b =>
+                {
+                    b.Property<Guid>("LanguageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Key")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedByStaffId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer");
+
+                    b.HasKey("LanguageId", "Key");
+
+                    b.HasIndex("UpdatedByStaffId");
+
+                    b.ToTable("WebsiteTranslations", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_WebsiteTranslations_Key", "\"Key\" ~ '^[a-z][a-zA-Z0-9]*(\\.[a-z][a-zA-Z0-9]*)+$'");
+
+                            t.HasCheckConstraint("CK_WebsiteTranslations_Value", "btrim(\"Value\") <> '' AND char_length(\"Value\") <= 1000");
+
+                            t.HasCheckConstraint("CK_WebsiteTranslations_Version", "\"Version\" >= 1");
+                        });
+                });
+
             modelBuilder.Entity("TheBha.Infrastructure.Identity.CustomerAccount", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1146,6 +1361,11 @@ namespace TheBha.Infrastructure.Persistence.Migrations
 
                     b.Property<int>("AccessFailedCount")
                         .HasColumnType("integer");
+
+                    b.Property<bool>("CanManageWebsite")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
 
                     b.Property<string>("ConcurrencyStamp")
                         .IsConcurrencyToken()
@@ -1570,6 +1790,41 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         .HasPrincipalKey("PropertyId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Website.WebsiteCurrency", b =>
+                {
+                    b.HasOne("TheBha.Infrastructure.Identity.StaffAccount", null)
+                        .WithMany()
+                        .HasForeignKey("RateUpdatedByStaffId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("TheBha.Infrastructure.Identity.StaffAccount", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedByStaffId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Website.WebsiteLanguage", b =>
+                {
+                    b.HasOne("TheBha.Infrastructure.Identity.StaffAccount", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedByStaffId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Website.WebsiteTranslation", b =>
+                {
+                    b.HasOne("TheBha.Domain.Website.WebsiteLanguage", null)
+                        .WithMany()
+                        .HasForeignKey("LanguageId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("TheBha.Infrastructure.Identity.StaffAccount", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedByStaffId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("TheBha.Infrastructure.Identity.StaffPropertyMembership", b =>
