@@ -1,0 +1,26 @@
+{
+ "vi>en": {
+  "Địa chỉ email": "Email address",
+  "Ưu đãi minh hoạ": "Sample offer",
+  "Ưu đãi minh họa": "Sample offer",
+  "Giữ phòng": "Hold room",
+  "Đặt phòng": "Book"
+ },
+ "vi>fr": {
+  "Địa chỉ email": "Adresse e-mail",
+  "Ưu đãi minh hoạ": "Offre à titre d’exemple",
+  "Ưu đãi minh họa": "Offre à titre d’exemple",
+  "Giữ phòng": "Réserver temporairement",
+  "Đặt phòng": "Réserver"
+ },
+ "en>vi": {
+  "Email address": "Địa chỉ email",
+  "Hold room": "Giữ phòng",
+  "Book": "Đặt phòng"
+ },
+ "en>fr": {
+  "Email address": "Adresse e-mail",
+  "Hold room": "Réserver temporairement",
+  "Book": "Réserver"
+ }
+}
