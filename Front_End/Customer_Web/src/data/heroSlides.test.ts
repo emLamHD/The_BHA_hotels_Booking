@@ -63,7 +63,8 @@ describe("home photographs: credits, manifest and files agree", () => {
   it("looks a credit up by file and writes a short caption line without the Commons dot prefix", () => {
     const credit = creditForFile("hero-my-khe-beach.webp");
     expect(credit?.license).toBe("CC BY 2.0");
-    expect(credit && creditLine(credit)).toBe("Ảnh: Ray in Manila · CC BY 2.0");
+    expect(credit && creditLine(credit, "Ảnh")).toBe("Ảnh: Ray in Manila · CC BY 2.0");
+    expect(credit && creditLine(credit, "Photo")).toBe("Photo: Ray in Manila · CC BY 2.0");
     expect(creditForFile("nope.webp")).toBeUndefined();
     expect(travelMediaUrl("hero-my-khe-beach.webp")).toBe("/media/the-bha-travel/hero-my-khe-beach.webp");
   });

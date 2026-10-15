@@ -807,6 +807,7 @@
    "customer.login.loginForm.viewAccount": "Voir le compte",
    "customer.login.loginForm.youCanBookWithoutAn": "Vous pouvez réserver sans compte. Vous n’en avez pas encore ?",
    "customer.media.changesNote": "Recadrée, redimensionnée et convertie au format WebP.",
+   "customer.media.photoBy": "Photo",
    "customer.media.photoNumber": "photo {number}",
    "customer.media.photoOf": "Photo de {name}",
    "customer.media.photosOf": "Photos de {name}",

@@ -807,6 +807,7 @@
    "customer.login.loginForm.viewAccount": "View account",
    "customer.login.loginForm.youCanBookWithoutAn": "You can book without an account. Don't have one yet?",
    "customer.media.changesNote": "Cropped, resized and converted to WebP.",
+   "customer.media.photoBy": "Photo",
    "customer.media.photoNumber": "photo {number}",
    "customer.media.photoOf": "Photo of {name}",
    "customer.media.photosOf": "Photos of {name}",

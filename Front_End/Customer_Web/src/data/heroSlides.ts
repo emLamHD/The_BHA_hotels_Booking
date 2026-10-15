@@ -124,9 +124,9 @@ export function creditForFile(file: string): MediaCredit | undefined {
   return MEDIA_CREDITS.find((credit) => credit.files.indexOf(file) !== -1);
 }
 
-/** One line for a caption: "Ảnh: <author> · <licence>". The credits page carries the links. */
-export function creditLine(credit: MediaCredit): string {
-  return `Ảnh: ${credit.author.replace(/^\.\s*/, "")} · ${credit.license}`;
+/** One line for a caption: "<photo label>: <author> · <licence>" (the label is the visitor's language). The credits page carries the links. */
+export function creditLine(credit: MediaCredit, photoLabel: string): string {
+  return `${photoLabel}: ${credit.author.replace(/^\.\s*/, "")} · ${credit.license}`;
 }
 
 export interface HeroSlide {

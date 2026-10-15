@@ -189,7 +189,7 @@ const HomeHeroCarousel: FC = () => {
               <span className="mx-1.5" aria-hidden="true">
                 ·
               </span>
-              {credit && <span>{creditLine(credit)}</span>}
+              {credit && <span>{creditLine(credit, t("customer.media.photoBy"))}</span>}
               <span className="mx-1.5" aria-hidden="true">
                 ·
               </span>

@@ -4664,6 +4664,11 @@
    "placeholders": []
   },
   {
+   "key": "customer.media.photoBy",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.media.photoNumber",
    "scope": "customer",
    "placeholders": [
