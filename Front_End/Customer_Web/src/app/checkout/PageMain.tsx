@@ -65,7 +65,7 @@ const CheckOutPagePageMain: FC<CheckOutPagePageMainProps> = ({
         <div className="flex flex-col space-y-4">
           <h3 className="text-2xl font-semibold">{t("customer.checkout.pageMain.priceDetail")}</h3>
           <div className="flex justify-between text-neutral-6000 dark:text-neutral-300">
-            <span>{t("customer.checkout.pageMain.19X3Day")}</span>
+            <span>{t("customer.checkout.perNightTimes")}</span>
             <DemoPrice value="$57" />
           </div>
           <div className="flex justify-between text-neutral-6000 dark:text-neutral-300">

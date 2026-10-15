@@ -2406,11 +2406,6 @@
    "placeholders": []
   },
   {
-   "key": "customer.checkout.pageMain.19X3Day",
-   "scope": "customer",
-   "placeholders": []
-  },
-  {
    "key": "customer.checkout.pageMain.2Beds2Baths",
    "scope": "customer",
    "placeholders": []
@@ -2527,6 +2522,16 @@
   },
   {
    "key": "customer.checkout.pageMain.yourTrip",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.checkout.perNightTimes",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.checkout.perPersonTimes",
    "scope": "customer",
    "placeholders": []
   },
@@ -3489,6 +3494,11 @@
    "placeholders": []
   },
   {
+   "key": "customer.footerNav.menu",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.footerNav.search",
    "scope": "customer",
    "placeholders": []
@@ -4332,11 +4342,6 @@
    "placeholders": []
   },
   {
-   "key": "customer.listingDetail.listingCarDetail.page.19X3Day",
-   "scope": "customer",
-   "placeholders": []
-  },
-  {
    "key": "customer.listingDetail.listingCarDetail.page.bmw3SeriesSedan",
    "scope": "customer",
    "placeholders": []
@@ -4448,11 +4453,6 @@
   },
   {
    "key": "customer.listingDetail.listingExperiencesDetail.page.17302000Return",
-   "scope": "customer",
-   "placeholders": []
-  },
-  {
-   "key": "customer.listingDetail.listingExperiencesDetail.page.19X3Adults",
    "scope": "customer",
    "placeholders": []
   },

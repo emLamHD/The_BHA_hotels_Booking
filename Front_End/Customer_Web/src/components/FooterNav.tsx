@@ -50,7 +50,7 @@ const NAV: NavItem[] = [
     auth: true,
   },
   {
-    name: "Menu",
+    name: "customer.footerNav.menu",
     icon: MenuBar,
   },
 ];
@@ -141,7 +141,7 @@ const FooterNav = () => {
             isActive ? "text-red-600" : ""
           }`}
         >
-          {t(item.name)}
+          {item.auth ? authEntry.label : t(item.name)}
         </span>
       </Link>
     ) : (

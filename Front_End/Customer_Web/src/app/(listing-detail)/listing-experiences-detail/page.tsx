@@ -350,7 +350,7 @@ const ListingExperiencesDetailPage: FC<
         {/* SUM */}
         <div className="flex flex-col space-y-4">
           <div className="flex justify-between text-neutral-6000 dark:text-neutral-300">
-            <span>{t("customer.listingDetail.listingExperiencesDetail.page.19X3Adults")}</span>
+            <span>{t("customer.checkout.perPersonTimes")}</span>
             <DemoPrice value="$57" />
           </div>
           <div className="flex justify-between text-neutral-6000 dark:text-neutral-300">

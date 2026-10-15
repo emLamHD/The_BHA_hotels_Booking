@@ -7,7 +7,7 @@ import type { Route } from "next";
 import { travelMediaUrl } from "@/data/heroSlides";
 import type { TravelPost } from "@/data/travelPosts";
 import { findCategory, postPath } from "@/lib/homepageContent";
-import { formatStayDate } from "@/lib/i18n/dates";
+import { formatStayDate } from "@/lib/i18n/dateFormat";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { localizeCategory, localizePost } from "@/lib/i18n/staticContent";
 import type { Translate } from "@/lib/i18n/types";

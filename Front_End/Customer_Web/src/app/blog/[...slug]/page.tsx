@@ -17,7 +17,7 @@ import {
 import { BLOG_PATH } from "@/lib/riversideHomeContent";
 import PostCard from "../PostCard";
 
-import { formatStayDate } from "@/lib/i18n/dates";
+import { formatStayDate } from "@/lib/i18n/dateFormat";
 import { getContent, getT } from "@/lib/i18n/server";
 import { localizeCategory, localizePost } from "@/lib/i18n/staticContent";
 interface PostPageProps {

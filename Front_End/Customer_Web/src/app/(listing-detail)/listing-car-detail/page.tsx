@@ -351,7 +351,7 @@ const ListingCarDetailPage: FC<ListingCarDetailPageProps> = ({}) => {
         {/* SUM */}
         <div className="flex flex-col space-y-4 ">
           <div className="flex justify-between text-neutral-6000 dark:text-neutral-300">
-            <span>{t("customer.listingDetail.listingCarDetail.page.19X3Day")}</span>
+            <span>{t("customer.checkout.perNightTimes")}</span>
             <DemoPrice value="$57" />
           </div>
 
