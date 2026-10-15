@@ -102,6 +102,7 @@ The current migration chain is:
 7. `20260823084717_CommercialCommitmentV2Foundation`
 8. `20260826035254_PhysicalRoomScheduleAvailabilityAuthority`
 9. `20261001141847_AddStaffIdentityFoundation`
+10. `20261015050047_AddWebsiteLocalizationSettings`
 
 `PMS-BE-001.1` (migration 7) replaces the single-RoomType `BookingHold`/
 `BookingHoldNight` and `Reservation`/`ReservationNight` commercial authority
@@ -171,6 +172,21 @@ user name, `IsActive`/`DisabledAtUtc` consistency check) and
 parents) — ADR 0007. Customer tables are unchanged. `Down()` is guarded: it
 fails atomically while either new table has rows. No Staff sign-in, endpoint
 or bootstrap command exists yet, and the seed creates no Staff.
+
+`CUST-WEB-HEADER-001-CP02` (migration 10, `AddWebsiteLocalizationSettings`)
+adds `WebsiteLanguages`, `WebsiteTranslations`, `WebsiteCurrencies` and the
+column `StaffAccounts.CanManageWebsite boolean NOT NULL DEFAULT false`
+(ADR 0008). Existing rows are untouched: the new column defaults to `false`,
+so no Staff account gains the permission. The migration freezes its own seed
+(language `vi` active and default; `en` present but off with 25 managed keys;
+currency VND base/default/on with rate 1; USD and EUR off with no rate; 50
+translation rows) and installs CHECK constraints, partial unique indexes and
+two `DEFERRABLE INITIALLY DEFERRED` constraint triggers (`SQLSTATE XBHA3`,
+`XBHA4`) that keep exactly one default language and one default currency.
+`VndPerUnit` is `numeric(20,8)`: VND per one unit of the currency. `Down()` is
+guarded: it fails atomically if anything was administered (a version above 1, an
+extra language/currency, a non-seed translation) or any account holds the
+permission. Design: `docs/design/CUST-WEB-HEADER-001-CP02-website-localization-settings.md`.
 
 Run the update command before the development seed. The API never calls
 `EnsureCreated()` and never applies a migration during startup.
