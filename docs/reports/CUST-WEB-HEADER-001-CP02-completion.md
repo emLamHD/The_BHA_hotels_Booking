@@ -132,3 +132,35 @@ Kịch bản và harness (không chứa bí mật, nằm ngoài repo): `~/bha-ev
 - Re-review: **NOT RUN — chờ Owner gọi lại** trên head sau correction. Không merge/Ready/deploy; phase 3 chưa mở.
 - `diagnosing-bugs`: không gọi được qua công cụ Skill (`disable-model-invocation`); `SKILL.md` được đọc và làm theo thủ công (vòng phản hồi = test đỏ trước sửa, xanh sau).
 - Advisor (Opus 5.5) được gọi trước khi chốt kế hoạch C1; gợi ý đã dùng: kiểm tra `checkCurrencyCode` của Admin chỉ kiểm hình dạng (nên server quyết định — đúng), không đọc `staff.env` (mật khẩu thử sinh mới), giữ `XAD` bị loại, kiểm chứng mạng-vắng-mặt cho logout.
+
+## 9. C2/R1 — Customer_Web theo ngôn ngữ/tiền tệ, gói ngôn ngữ cài lúc chạy (`CUST-WEB-HEADER-001-CP02-C2-R1-CUSTOMER-SCOPE-AND-TRANSLATION-PIPELINE`)
+
+- **Trạng thái:** `IMPLEMENTATION COMPLETE — AWAITING OWNER PRODUCT ACCEPTANCE AND RE-REVIEW` (CI trên FINAL_HEAD: xem PR). Draft PR #119, base `develop` (`3f4254d`). Implementer Claude / reviewer Codex read-only do Owner gọi.
+- **Cây mã đã kiểm chứng** (mọi bằng chứng dưới đây chạy trên đúng cây này; commit sau đó chỉ sửa tài liệu): HEAD kiểm chứng `7005190926…`, `Front_End/Customer_Web` = `398c3746c2733f041ac7e611c5d9d658f5bf02ae`, `Front_End/Admin_Web` = `ad7e896d2d78258c448a623101886fc2d7aabdeb`, `Back_End` = `39b808c29e4981e68d568588e874d07e981e59c5`.
+- **Cách thử qua UI:** (1) Admin → Website → Tiền tệ: nhập tỷ giá USD/EUR (ví dụ ở đây USD 26060, EUR 29748,26 — nguồn: feed XML Vietcombank, cột “Bán ra”, công bố 15/10/2026 16:54:46 ICT; bản lưu `~/bha-evidence/CUST-WEB-HEADER-001-CP02/vietcombank-rates-2026-10-15.xml`). (2) Website → Ngôn ngữ → Nhập gói: bật vi/en/fr từ thư viện. (3) Customer: biểu tượng địa cầu trên header đổi ngôn ngữ và tiền tệ riêng; vi→VND, en→USD, fr→EUR theo mặc định. (4) Thêm ngôn ngữ mới: runbook `docs/runbooks/CUST-WEB-HEADER-001-languages-and-rates.md`.
+
+### Acceptance
+
+| | Kết quả | Bằng chứng |
+|---|---|---|
+| A1 Customer toàn bộ | PASS | `docs/reports/CUST-WEB-HEADER-001-CP02-R1-coverage.md`; quét 56 tuyến × 3 ngôn ngữ = 168 trang (`r1/sweep/sweep-vi-en-fr.json`, `foreign-words.json`, `missing-tpl-vi-en-fr.json`); phần còn lại chỉ là ngoại lệ đã liệt kê (tên riêng, dữ liệu/lorem mẫu, tiêu đề nguồn ngoài, tên tệp, thông báo Google Maps). Cảnh báo: mỗi trang vẫn có `401` của `me` ẩn danh (dự kiến) |
+| A2 Tiền tệ | PASS | vi→VND, en→USD, fr→EUR theo ánh xạ; chọn riêng tiền tệ trong E2E (fr: đổi EUR→VND→USD→EUR); DB luôn VND (`2000000.00`, `CurrencyCode=VND`); USD 76,74 và EUR 67,24 là tổng các dòng đã làm tròn; test `display.test.ts`, backend `display-prices` |
+| A3 Trạng thái | PASS (có lưu ý) | `r1/booking/booking-e2e-results.json` 26/26: lựa chọn nhớ qua điều hướng; đổi ngôn ngữ/tiền tệ khi form đang nhập giữ nguyên giá trị và không gửi ghi; khi hold đang hoạt động: cùng `holdId`, `ExpiresAtUtc` không đổi, sessionStorage/localStorage không đổi, không POST/PUT/DELETE; đổi ngôn ngữ **trong lúc request xác nhận đang bay** (trễ 3,5 s): đúng 1 POST xác nhận, kết quả hiện đủ. **Đã sửa 1 lỗi thật** tìm thấy bằng E2E này: đổi ngôn ngữ làm `RoomDetailsRoot` tải lại và hủy form hold (`ids` là object mới mỗi lần render) — nay khóa theo `propertyId/roomTypeId`. Lưu ý: tải lại trang mất hold là thiết kế sẵn có (hold chỉ ở bộ nhớ tab), thông báo hiển thị đúng ngôn ngữ |
+| A4 Admin | PASS | CRUD ngôn ngữ/bản dịch/tiền tệ + tỷ giá + ánh xạ tiền tệ + trình sửa + nhập/xem trước/áp dụng/xuất: vitest Admin 57 file / 1825 test; ảnh desktop/tablet/mobile × sáng/tối ở `r1/shots/admin-*` (không có cuộn ngang) |
+| A5 Ngôn ngữ thứ 4 | PASS (có lưu ý) | `a5-admin.mjs` trên trình duyệt, gói thử `es` (nhãn `[ES]`, **không phải ngôn ngữ phát hành**): nhập → xem trước → áp dụng bật ngay → Customer phục vụ `es` ngay, **cùng PID API/Customer/Admin, không build/khởi động lại** → xuất rồi nhập lại (không đổi) → sửa tay giữ/ghi đè → tệp hỏng bị từ chối → gói thiếu khóa thành bản nháp không bao giờ công khai → xóa qua UI. Lưu ý: ca “xem trước cũ” và “mất phản hồi khi áp dụng” chỉ được kiểm bằng vitest/integration (không có kịch bản trình duyệt); một lỗi `409` trong console là lần từ chối có chủ đích |
+| A6 Hồi quy | PASS (CI: xem PR) | Backend Release: unit 416 + integration 1052 (PostgreSQL) pass; `has-pending-model-changes` sạch; Customer vitest 1205 + tsc + `next lint` sạch + `next build` (production); Admin vitest 1825 + tsc + eslint + build; E2E đặt phòng vi/en/fr: mỗi ngôn ngữ đúng 1 hold + 1 xác nhận; auth/Staff/Website authz và các guard cũ nằm trong bộ test backend/Admin (không đổi role map, session, thuật toán đặt phòng) |
+
+### Dịch thuật — số liệu trung thực
+
+- Gói phát hành: 1212 tin nhắn + 225 nội dung mỗi ngôn ngữ (vi/en/fr), 100% khóa bắt buộc, không bản nháp nào được bật công khai.
+- Quy trình: LibreTranslate cục bộ soạn **nháp** (nguồn khai báo, ICU-aware, fr dịch từ en, chặn mất biến); toàn bộ chuỗi giá/giữ phòng/hủy/xác nhận/thanh toán/lỗi và ≥100 chuỗi đại diện được rà **toàn bộ bởi implementer (Claude)** — chưa có người bản ngữ en/fr kiểm. Chất lượng thô thấp với văn bản miền khách sạn tiếng Việt: các lô đã ghi (`r1/mt-stats.md`) cần sửa khoảng 80–95% ô (ví dụ lô luồng đặt phòng 103 khóa: vi 87, fr 75 ô phải sửa; lô xác thực 45 khóa: 41/41); chỉ nhãn ngắn thông dụng dùng được nguyên. Có lần mô hình dịch “Huế” thành từ thô tục và “Địa chỉ email” thành “Chile”; cả hai đều bị chặn/sửa. Các dòng ghi chuẩn trong `mt-stats.md` cộng lại 232 khóa, 35 khóa tái dùng từ bản dịch có sẵn; các lô đầu ghi theo định dạng khác nên không có tổng duy nhất. Dùng token: **không đo được** từ công cụ; thời gian thực đo được: lô 103 khóa/400 đơn vị = 25,5 s, lô 183 khóa = 76 s.
+- 68 + 14 + 15 + 8 + 7 + … khóa `customer.tpl.*` (chữ mẫu của template) viết/duyệt tay theo cùng quy trình.
+
+### Giới hạn / NOT RUN
+
+- Dịch toàn bộ Admin vận hành (Calendar, màn TailAdmin) và bộ chọn ngôn ngữ toàn Admin: **ngoài R1, để PR sau**.
+- Tiêu đề nguồn bên ngoài, tên riêng, dữ liệu mẫu, tên tệp ảnh, thông báo Google Maps không dịch (xem coverage §2).
+- Chưa kiểm bản dịch en/fr bởi người bản ngữ; chưa kiểm trên thiết bị di động thật (chỉ khung nhìn giả lập).
+- Triển khai/migration lên môi trường thật: không làm (cấm theo prompt).
+- Harness: `/pay-done` chỉ kiểm bằng mã 307 vì proxy TLS của harness không chuyển giao thức.
+
