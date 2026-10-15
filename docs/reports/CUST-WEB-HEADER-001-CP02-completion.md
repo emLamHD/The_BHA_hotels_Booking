@@ -2,7 +2,8 @@
 
 - **Work item:** `CUST-WEB-HEADER-001-CP02`. `IMPLEMENTER: CLAUDE` (Sonnet 5.5) + `REVIEWER: CODEX_READ_ONLY` (Owner gọi). `EXECUTION_MODE: IMPLEMENT_TEST_DRAFT_PR`. `NEXT_PHASE: NOT_AUTHORIZED`.
 - **Branch:** `feature/cust-web-header-001-cp02-site-localization-settings` → Draft PR vào `develop`. `BASELINE_SHA` = `3f4254d4e05dcb310f258131014637d26ddf57d7` (PR #118 đã merged; Owner xác nhận đã dọn nhánh — không xác minh trên máy Owner).
-- **Cây đã kiểm chứng:** `Front_End/Admin_Web` = `55066b813996297bbabf91222dc35f8ac5617aa5`, `Back_End` = `0923cedeeb60f440854a6837850f053a4a2d056c` (cây sạch khi build/chạy các suite; commit docs không đổi hai cây này). SHA commit, URL PR và CI: xem PR body.
+- **Review:** Codex đã chạy một lần (Owner gọi) tại `923336a5b8a11a20a5238b46357f6022459ee229`; một finding P2 → correction `CUST-WEB-HEADER-001-CP02-C1` (§8). **Head sau correction: re-review pending** (Owner gọi lại).
+- **Cây đã kiểm chứng (CP02 gốc, tại `923336a`):** `Front_End/Admin_Web` = `55066b813996297bbabf91222dc35f8ac5617aa5`, `Back_End` = `0923cedeeb60f440854a6837850f053a4a2d056c` (cây sạch khi build/chạy các suite; commit docs không đổi hai cây này). SHA commit, URL PR và CI: xem PR body.
 - **Skills:** `diagnosing-bugs` ALLOWED_IF_TRIGGERED — không gọi được qua công cụ Skill, làm theo `SKILL.md` thủ công khi gặp lỗi (xem §7). Graphify: không dùng.
 - **Phạm vi:** Back_End + Admin_Web + docs. **Không** đổi Customer_Web, menu/CMS, Calendar role map/session policy/local gates, dependency/lockfile, CI/CD.
 
@@ -70,7 +71,7 @@ Kịch bản và harness (không chứa bí mật, nằm ngoài repo): `~/bha-ev
 4. **PR lớn** (~7,1k dòng backend, ~4,1k Admin, chưa tính docs): vượt mục tiêu 100–400 dòng (chỉ là mục tiêu, không phải trần); phần lớn là migration (EF Designer + snapshot ≈ 2,4k) và test (≈ 3,9k). Số GitHub additions/deletions: xem PR body.
 5. **Sửa ngoài kế hoạch, có giải thích:** `Button` template không có `type` nên nút Hủy trong `<form>` sẽ submit — thêm prop tùy chọn (mặc định không đổi hành vi cho mọi nơi cũ); wrapper bảng thêm `relative` vì cell `sr-only` gây cuộn ngang mobile.
 6. **Đọc có Origin lạ + cookie hợp lệ trả 200** khi gọi không qua trình duyệt (Playwright `request`); CORS chỉ chặn việc *đọc* của trình duyệt, cookie `SameSite=Strict` chặn gửi chéo site — cùng hành vi với các đọc Calendar hiện có (đã xác minh trong mã: `StaffRequestBoundaryFilter` bỏ qua `GET`/`HEAD` — "every Staff request other than a read" — và `StaffCalendarAccessFilter` dùng chính filter đó), không phải regression. Mọi `POST` vẫn bị biên Staff kiểm Origin/JSON.
-7. **Chưa kiểm bằng trình duyệt:** sign-out đang chờ làm các ghi mới bị từ chối (chỉ có test đơn vị `WebsiteAccessGate`); không có gì thật được deploy; Customer_Web chưa dùng API công khai.
+7. ~~Chưa kiểm bằng trình duyệt: sign-out đang chờ~~ — **đã khép ở C1** (§8.3, trình duyệt thật). Không có gì thật được deploy; Customer_Web chưa dùng API công khai.
 8. **Không chạy `npm ci`:** lockfile và dependency không đổi (chỉ `node_modules` có sẵn); `npm test/tsc/lint/build` đều chạy trên cây hiện có. Container tạm `the-bha-cp02-pg` (127.0.0.1:55440) và `staff.env` (mode 600, mật khẩu chỉ cho dữ liệu thử) trong thư mục scratchpad **được giữ** cho các vòng sửa sau review; xóa khi Owner đóng work item.
 9. **Quy trình:** bước E2E "Manager không quyền" đỏ hai lần liên tiếp với cùng lỗi (đăng nhập bị 429) trước khi tôi chẩn đoán qua nhật ký API; theo CLAUDE.md lẽ ra phải gọi advisor ở lần lặp thứ hai — **không làm**. Lỗi là của harness, không phải của sản phẩm.
 10. **Harness:** nâng giới hạn đăng nhập Staff (`StaffAuthentication__LoginRateLimiting__PermitLimit=500`) và dùng thư mục khóa Data Protection tạm cho API chạy `Production`; chỉ trong harness.
@@ -83,10 +84,49 @@ Kịch bản và harness (không chứa bí mật, nằm ngoài repo): `~/bha-ev
 
 ## 6. Rủi ro / NOT RUN
 
-- **Codex review: NOT RUN — chờ Owner gọi.** Chưa deploy; không áp migration lên môi trường nào ngoài DB tạm; Customer_Web chưa đọc cấu hình này (phase sau, chưa được cho phép).
+- **Codex review:** đã chạy tại `923336a` (một finding, xem §8); head sau C1 **chờ Owner gọi lại**. Chưa deploy; không áp migration lên môi trường nào ngoài DB tạm; Customer_Web chưa đọc cấu hình này (phase sau, chưa được cho phép).
 - Vercel/CI: chỉ xác nhận sau khi PR có HEAD cuối (PR body).
 
 ## 7. Chẩn đoán (`diagnosing-bugs`, làm tay) và công cụ
 
 - Các lỗi đã chẩn đoán có vòng phản hồi: 598 test đỏ do `ExecuteSqlRaw` hiểu `{what}` là placeholder (đỏ → nhân đôi ngoặc → xanh); nút Hủy submit form (test panel đỏ → thêm `type` → xanh + test hồi quy); dialog xóa biến mất khi dòng bị xóa (test đỏ → giữ bản chụp dòng); cuộn ngang mobile (đo 594/417/547px → `relative` → 390px); 429 đăng nhập trong E2E (nhật ký API → nâng giới hạn harness).
 - Mô hình chính Sonnet 5.5; advisor Opus 5.5 được gọi trước khi chốt kế hoạch và trước khi báo xong (trừ lần lặp lỗi nêu ở mục 4.9); Haiku 5.5 chỉ cho tra cứu chỉ-đọc. Không có agent nào ghi vào repo.
+
+## 8. Correction `CUST-WEB-HEADER-001-CP02-C1-CURRENT-ISO-CURRENCIES`
+
+`CORRECTION_START_HEAD` = `923336a5b8a11a20a5238b46357f6022459ee229`. Implementer Claude (Sonnet 5.5); reviewer Codex read-only do Owner gọi.
+
+### 8.1 Finding gốc của Codex (nguyên văn) và disposition của OC
+> **[P2] Exclude withdrawn ISO currency codes** — `Back_End/src/TheBha.Domain/Website/WebsiteRules.cs:84-86`: `ZWL` is included even though it was withdrawn and replaced by `ZWG`; the same list includes the withdrawn `SVC`. Because this list is the server's currency validator, an operator can create and activate these codes and the public config will present them as supported currencies, contrary to the documented active-ISO-only rule. Remove withdrawn codes or validate against a maintained current ISO list.
+
+**Disposition OC:** `CORRECTION_REQUIRED`. Phần "danh sách lỗi thời" được chấp nhận; phần "`SVC` đã withdrawn" **bị bác** theo dữ liệu chính thức của SIX (SVC còn trong List One). Đoạn dưới là kết quả OC/implementer đối chiếu, tách khỏi review gốc.
+
+### 8.2 Thay đổi
+- **Nguồn (SIX, tải và đối chiếu trong phiên này, 2026-10-15):** List One `Pblshd=2026-09-17` (178 mã khác nhau); List Three `Pblshd=2026-01-01`; amendment 176 (XCG thay ANG, hiệu lực 2025-03-31) và 177 (ZWG thay ZWL, hiệu lực 2024-06-25; ZWL hết hạn 2024-09). Hai amendment đều có hiệu lực trước ngày xuất bản List One nên không có thay đổi nào chưa phản ánh.
+- **Danh sách** = List One trừ các mã không phải tiền tệ theo policy sản phẩm hiện có (funds BOV CHE CHW CLF COU MXV USN UYI UYW; kim loại XAG XAU XPD XPT; XTS; XXX; đơn vị tài khoản XBA–XBD, XDR, XSU, XUA). Kết quả đối chiếu toàn bộ 157 mã cũ với danh sách đó chỉ lệch bốn mã:
+  - **Bỏ:** `ZWL` (List Three, 2024-09), `ANG` (List Three, 2025-03), `BGN` (List Three, 2026-01) — 155 mã còn lại.
+  - **Thêm:** `XCG` (Caribbean Guilder, 2 chữ số thập phân; List One; amendment 176).
+  - **Giữ:** `SVC` (El Salvador Colon) và `ZWG` (Zimbabwe Gold) — vẫn trong List One; không thêm blacklist riêng cho SVC.
+- **Phân loại OC chưa nêu — `XAD`:** List One có `XAD` (Arab Accounting Dinar, ARAB MONETARY FUND, 2 chữ số thập phân), không thuộc nhóm "N.A.". Đây là đơn vị tài khoản của một quỹ, cùng nhóm với XDR/XUA đã bị loại theo policy nên **giữ loại trừ** (và có test từ chối); **OC xác nhận lại** nếu muốn khác.
+- Chỉ đổi `WebsiteRules.cs` (dữ liệu + comment nguồn/as-of) và test. Không đổi chữ ký, chuẩn hóa trim/uppercase, mã lỗi; không migration/seed; list vẫn offline.
+- **Dữ liệu đã lưu:** truy vấn chỉ-đọc DB tạm trước khi sửa: 0 dòng `ZWL/ANG/BGN` (DB hiện có VND, USD, EUR, GBP); không cần cleanup. Lưu ý: `FindCurrencyAsync` cũng dùng `Iso4217.TryNormalize`, nên một dòng withdrawn đã tồn tại ở môi trường nào đó sẽ không còn thao tác được qua API — chưa có môi trường nào như vậy (tính năng chưa deploy).
+
+### 8.3 Kiểm chứng
+- **Red (trước sửa, cùng test mới):** unit `dotnet test Back_End/tests/TheBha.UnitTests -c Release --no-build --filter "FullyQualifiedName~WebsiteRulesTests"` → **6 đỏ** (ZWL, zwl, ANG, " bgn ", XCG, " xcg ") / 93 xanh; integration `… TheBha.IntegrationTests … --filter "FullyQualifiedName~WebsiteCurrenciesApiTests"` → **5 đỏ** (400 trên `code` cho ZWL/zwl/ANG/BGN; XCG tạo→rate→bật→public config) / 24 xanh. Test bảo vệ (SVC, ZWG, VND/USD/EUR; XAD/XDR/XTS/XXX/CHE bị từ chối) xanh cả trước lẫn sau.
+- **Green (sau sửa):** unit **99/99**; integration **29/29** (log: `~/bha-evidence/CUST-WEB-HEADER-001-CP02/{red,green}-{unit,int}.log`).
+- **Build + full suite Release trên PostgreSQL thật:** build 0 warning/0 error; unit **343** pass, integration **1007** pass, 0 fail (không so với số cũ; tăng do test mới).
+- **Trình duyệt (Chrome 153, Admin build không đổi qua TLS 3001, API mới qua proxy lỗi, PG tạm; mật khẩu thử sinh trong biến môi trường của shell, không ghi đĩa/không in):** 6/6 bước:
+  1. `ZWL`/`ANG`/`BGN`: server trả 400, lỗi hiển thị cạnh ô mã ("code must be an active ISO 4217 currency code such as USD."), không dòng nào được lưu, không có trong public config.
+  2. `XCG` (tỷ giá giả `14000.5`, chỉ trong DB tạm — không phải tỷ giá thực): tạo → đặt rate → bật → `GET /api/v1/website/config` có `XCG` với `14000.5`.
+  3. `SVC` tạo được.
+  4. Manager không quyền: không gửi request website nào, API trực tiếp 403, ẩn danh 401.
+  5. **Logout pending, không mở dialog** (proxy giữ phản hồi logout 5 giây; click thật): Sign out thành "Signing out…" (disabled), Add/Edit/Rate/Toggle/Default/Delete đều disabled, click ép buộc không mở dialog; **0** `POST` settings (đếm bằng `page.on('request')` và nhật ký proxy), đúng một `POST logout`.
+  6. **Logout pending, đang mở form rate:** modal che nút Sign out nên click thật không tới được — nút được kích bằng `dispatchEvent('click')` (nêu rõ). Trong lúc chờ: Save và ô nhập disabled; click ép buộc, Enter và `requestSubmit()` không gửi gì (**0** settings `POST` theo cả trình duyệt lẫn proxy; không dựa vào 401 của server vì proxy đã chuyển tiếp logout trước đó). Sau logout xác nhận: về `/signin?returnTo=%2Fwebsite%2Fcurrencies`, panel gỡ, `me`/đọc/ghi từ cùng context đều 401, `/website/currencies` lại yêu cầu đăng nhập, rate trong DB không đổi. Phạm vi một trang một context; đa tab không thuộc thiết kế và không kiểm.
+- Script/ảnh (ngoài repo, không chứa bí mật): `~/bha-evidence/CUST-WEB-HEADER-001-CP02/c1-harness/`, `c1-shots/`, `c1-e2e-results.json`.
+- **Cây mới:** `Back_End` = `8c39294fdf4e0782a228eebaf72b859ea471b97b`; `Front_End/Admin_Web` = `55066b813996297bbabf91222dc35f8ac5617aa5` **không đổi**. Bộ E2E 38/38 trước đây (e2e1–e2e3) vẫn là bằng chứng lịch sử của `Back_End` `0923ced…` + Admin `55066b8…`; **không chạy lại** ở C1 và không gán sang cây backend mới. Admin test/lint/tsc không chạy lại local (cây Admin không đổi); CI của PR là regression bổ sung.
+- Exit 82 của `dotnet test` trong sandbox của reviewer không được tái hiện trên máy này (unit 343 và integration 1007 xanh) và không được coi là lỗi sản phẩm.
+
+### 8.4 Giới hạn / NOT RUN
+- Re-review: **NOT RUN — chờ Owner gọi lại** trên head sau correction. Không merge/Ready/deploy; phase 3 chưa mở.
+- `diagnosing-bugs`: không gọi được qua công cụ Skill (`disable-model-invocation`); `SKILL.md` được đọc và làm theo thủ công (vòng phản hồi = test đỏ trước sửa, xanh sau).
+- Advisor (Opus 5.5) được gọi trước khi chốt kế hoạch C1; gợi ý đã dùng: kiểm tra `checkCurrencyCode` của Admin chỉ kiểm hình dạng (nên server quyết định — đúng), không đọc `staff.env` (mật khẩu thử sinh mới), giữ `XAD` bị loại, kiểm chứng mạng-vắng-mặt cho logout.
