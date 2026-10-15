@@ -174,7 +174,10 @@ builder.Services
     })
     .AddJsonOptions(options =>
         options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
-builder.Services.AddProblemDetails();
+// CUST-WEB-HEADER-001-CP02-C2: every problem of a public route (controller, rate limiter, cookie challenge, exception handler)
+// carries a stable `code`; the title, detail and status are unchanged.
+builder.Services.AddProblemDetails(options =>
+    options.CustomizeProblemDetails = context => PublicProblemCodes.Apply(context.HttpContext, context.ProblemDetails));
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
@@ -281,6 +284,19 @@ builder.Services.AddCors(options =>
                 .AllowAnyHeader()
                 .AllowAnyMethod()
                 .AllowCredentials();
+        }
+    });
+    // CUST-WEB-HEADER-001-CP02-C2: the anonymous website reads (config, dictionary, display prices) hold no
+    // secret and use no cookie, so both front ends may call them from the browser: the Customer origins and the
+    // Admin origins, uncredentialed, GET and POST (display prices are a read-only calculation) and Content-Type only.
+    options.AddPolicy("website-public", policy =>
+    {
+        var origins = cors.AllowedOrigins.Concat(cors.AdminOrigins).Distinct(StringComparer.Ordinal).ToArray();
+        if (origins.Length > 0)
+        {
+            policy.WithOrigins(origins)
+                .WithHeaders("Content-Type", "If-None-Match")
+                .WithMethods("GET", "POST");
         }
     });
     // PMS-CAL-001.1: separate, uncredentialed policy for the unauthenticated

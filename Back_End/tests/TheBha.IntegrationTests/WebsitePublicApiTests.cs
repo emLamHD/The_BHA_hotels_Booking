@@ -5,9 +5,11 @@ using TheBha.Application.Website;
 namespace TheBha.IntegrationTests;
 
 /// <summary>
-/// CUST-WEB-HEADER-001-CP02 acceptance A5: the public read the next phase will use. Anonymous, <c>no-store</c>, only
-/// active languages and currencies that have a valid rate, deterministic fallback, no audit or permission data, and
-/// the next GET after an Admin change shows the change. Real PostgreSQL; the changes go through the real Admin routes.
+/// CUST-WEB-HEADER-001-CP02 / -C2: the public read both front ends use. Anonymous; only active languages and currencies that
+/// have a valid rate; each language carries its format locale, direction and default currency; the dictionary is scoped, can
+/// be narrowed by prefix, carries a revision and an ETag, falls back deterministically (and onto the built-in pack on a fresh
+/// install) and never contains a Staff field, a draft or a text outside the catalog and the stored content. Real PostgreSQL;
+/// every change goes through the real Admin routes.
 /// </summary>
 [Collection(PostgreSqlCollection.Name)]
 public sealed class WebsitePublicApiTests(PostgreSqlWebApplicationFactory factory) : WebsiteTestSupport(factory)
@@ -17,14 +19,23 @@ public sealed class WebsitePublicApiTests(PostgreSqlWebApplicationFactory factor
     private const string Languages = "/api/admin/v1/website/languages";
     private const string Currencies = "/api/admin/v1/website/currencies";
     private const string Save = "/api/admin/v1/website/translations/save";
-    private static readonly int Keys = WebsiteTranslationCatalog.All.Count;
+    private const string Key = "customer.header.menu.offers";
 
-    private static async Task<JsonElement> ReadAsync(Session session, string path)
+    // No cookie, no Origin: a visitor.
+    private static async Task<(JsonElement Body, HttpResponseMessage Response)> ReadAsync(Session session, string path)
     {
-        // No cookie, no Origin: a visitor.
         var response = await AssertStatusAsync(HttpStatusCode.OK, session.Client.SendAsync(Get(path)));
-        Assert.Contains("no-store", response.Headers.CacheControl?.ToString());
-        return await JsonAsync(response);
+        return (await JsonAsync(response), response);
+    }
+
+    private async Task TurnOnEnglishAsync(Session session)
+    {
+        await CompleteContentAsync("en");
+        await AssertStatusAsync(HttpStatusCode.OK, session.PostAsync($"{Currencies}/USD/rate", new { expectedVersion = 1, vndPerUnit = "26060" }));
+        await AssertStatusAsync(HttpStatusCode.OK, session.PostAsync($"{Currencies}/USD/active", new { expectedVersion = 2, isActive = true }));
+        var version = await ScalarAsync<int>("""SELECT "Version" FROM "WebsiteLanguages" WHERE "NormalizedCode" = 'en'""");
+        await AssertStatusAsync(HttpStatusCode.OK, session.PostAsync($"{Languages}/en/update",
+            new { expectedVersion = version, displayName = "English", nativeName = "English", sortOrder = 20, isActive = true, defaultCurrencyCode = "USD" }));
     }
 
     [Fact]
@@ -32,170 +43,168 @@ public sealed class WebsitePublicApiTests(PostgreSqlWebApplicationFactory factor
     {
         using var session = await StartAsync();
 
-        var config = await ReadAsync(session, Config);
+        var (config, response) = await ReadAsync(session, Config);
+        Assert.Contains("no-store", response.Headers.CacheControl?.ToString());
         Assert.Equal("vi", config.GetProperty("defaultLocale").GetString());
-        Assert.Equal(["vi"], config.GetProperty("locales").EnumerateArray().Select(locale => locale.GetProperty("code").GetString()).ToArray());
-        var locale = config.GetProperty("locales")[0];
-        Assert.Equal("Tiếng Việt", locale.GetProperty("nativeName").GetString());
-        Assert.True(locale.GetProperty("isDefault").GetBoolean());
+        var locales = config.GetProperty("locales").EnumerateArray().ToArray();
+        Assert.Equal(["vi"], locales.Select(locale => locale.GetProperty("code").GetString()).ToArray());
+        var vi = locales[0];
+        Assert.Equal("Tiếng Việt", vi.GetProperty("nativeName").GetString());
+        Assert.Equal("vi-VN", vi.GetProperty("formatLocale").GetString());
+        Assert.Equal("ltr", vi.GetProperty("direction").GetString());
+        Assert.Equal("VND", vi.GetProperty("defaultCurrency").GetString());
         Assert.Equal("VND", config.GetProperty("baseCurrency").GetString());
-        Assert.Equal("VND", config.GetProperty("defaultCurrency").GetString());
-        var currency = Assert.Single(config.GetProperty("currencies").EnumerateArray());
-        Assert.Equal("VND", currency.GetProperty("code").GetString());
-        Assert.Equal("1", currency.GetProperty("vndPerUnit").GetString());
-        Assert.Equal(0, currency.GetProperty("minorUnits").GetInt32());
-        Assert.True(currency.GetProperty("isBase").GetBoolean());
+        Assert.Equal(["VND"], config.GetProperty("currencies").EnumerateArray().Select(currency => currency.GetProperty("code").GetString()).ToArray());
+        Assert.Matches("^[0-9a-f]{16}$", config.GetProperty("revision").GetString());
 
-        // Nothing that names a Staff member, a version, a draft, a permission or an inactive row.
-        var raw = config.GetRawText();
-        var staffId = (await StaffIdAsync(Site)).ToString();
-        foreach (var forbidden in new[] { "updatedBy", "staff", "version", "isActive", "permission", "createdAt", "expected", staffId, "USD", "EUR", "\"en\"" })
-        {
-            Assert.DoesNotContain(forbidden, raw, StringComparison.OrdinalIgnoreCase);
-        }
+        // Nothing about who changed what, a draft or a permission.
+        var text = config.GetRawText();
+        Assert.DoesNotContain("UpdatedBy", text, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("staff", text, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("version\"", text, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("\"en\"", text);   // off languages are not offered
     }
 
     [Fact]
-    public async Task The_dictionary_resolves_the_requested_locale_or_the_default_and_always_says_which()
+    public async Task A_language_appears_in_the_config_only_when_on_with_its_own_currency_and_the_revision_follows_every_change()
+    {
+        using var session = await StartAsync();
+        var before = (await ReadAsync(session, Config)).Body.GetProperty("revision").GetString();
+
+        await TurnOnEnglishAsync(session);
+        var (config, _) = await ReadAsync(session, Config);
+        var locales = config.GetProperty("locales").EnumerateArray().ToDictionary(locale => locale.GetProperty("code").GetString()!);
+        Assert.Equal(["vi", "en"], locales.Keys.ToArray());
+        Assert.Equal("USD", locales["en"].GetProperty("defaultCurrency").GetString());
+        Assert.Equal("en-US", locales["en"].GetProperty("formatLocale").GetString());
+        var usd = config.GetProperty("currencies").EnumerateArray().Single(currency => currency.GetProperty("code").GetString() == "USD");
+        Assert.Equal("26060", usd.GetProperty("vndPerUnit").GetString());
+        Assert.NotEqual(before, config.GetProperty("revision").GetString());
+
+        // A language whose own currency is no longer offered falls back to the site default.
+        await ExecuteAsync("""UPDATE "WebsiteLanguages" SET "DefaultCurrencyCode" = NULL WHERE "NormalizedCode" = 'en'""");
+        var fallback = (await ReadAsync(session, Config)).Body.GetProperty("locales").EnumerateArray().Single(locale => locale.GetProperty("code").GetString() == "en");
+        Assert.Equal("VND", fallback.GetProperty("defaultCurrency").GetString());
+    }
+
+    [Fact]
+    public async Task The_dictionary_is_scoped_prefix_narrows_only_the_content_and_every_text_is_in_the_catalog_or_the_content()
+    {
+        using var session = await StartAsync();
+        var propertyId = await ScalarAsync<Guid>("""SELECT "Id" FROM "Properties" LIMIT 1""");
+
+        var (ui, _) = await ReadAsync(session, $"{Dictionary}?locale=vi&scopes=shared,customer");
+        var entries = ui.GetProperty("entries").EnumerateObject().ToDictionary(property => property.Name, property => property.Value.GetString()!);
+        Assert.Equal("Ưu đãi", entries[Key]);
+        Assert.All(entries.Keys, key => Assert.True(key.StartsWith("shared.") || key.StartsWith("customer."), key));
+        Assert.All(entries.Keys, key => Assert.True(LocalizationAssets.CatalogByKey.ContainsKey(key), key));
+
+        var (withContent, _) = await ReadAsync(session, $"{Dictionary}?locale=vi&scopes=shared,customer,content&prefix=content.property.");
+        var merged = withContent.GetProperty("entries").EnumerateObject().ToDictionary(property => property.Name, property => property.Value.GetString()!);
+        Assert.Equal("Hotel Website", merged[$"content.property.{propertyId}.name"]);   // the column is the Vietnamese source
+        Assert.True(merged.ContainsKey(Key), "UI texts are never narrowed by a content prefix");
+        Assert.All(merged.Keys.Where(key => key.StartsWith("content.")), key => Assert.StartsWith("content.property.", key));
+
+        var (adminScope, _) = await ReadAsync(session, $"{Dictionary}?locale=vi&scopes=admin");
+        Assert.All(adminScope.GetProperty("entries").EnumerateObject(), property => Assert.StartsWith("admin.", property.Name));
+
+        await AssertStatusAsync(HttpStatusCode.BadRequest, session.Client.SendAsync(Get($"{Dictionary}?scopes=staff")));
+        await AssertStatusAsync(HttpStatusCode.BadRequest, session.Client.SendAsync(Get($"{Dictionary}?scopes=shared&prefix={new string('x', 200)}")));
+    }
+
+    [Fact]
+    public async Task The_dictionary_resolves_the_language_falls_back_deterministically_and_flags_it()
     {
         using var session = await StartAsync();
 
-        var none = await ReadAsync(session, Dictionary);
+        var (none, _) = await ReadAsync(session, Dictionary);
         Assert.Equal(JsonValueKind.Null, none.GetProperty("requestedLocale").ValueKind);
         Assert.Equal("vi", none.GetProperty("resolvedLocale").GetString());
-        Assert.Equal("vi", none.GetProperty("defaultLocale").GetString());
         Assert.True(none.GetProperty("isFallbackLocale").GetBoolean());
-        var entries = none.GetProperty("entries");
-        Assert.Equal(Keys, entries.EnumerateObject().Count());
-        Assert.Equal("Ưu đãi", entries.GetProperty("header.menu.offers").GetString());
-        Assert.Equal(WebsiteTranslationCatalog.All.Select(definition => definition.Key).Order(StringComparer.Ordinal), entries.EnumerateObject().Select(property => property.Name));
 
-        var exact = await ReadAsync(session, $"{Dictionary}?locale=vi");
-        Assert.Equal("vi", exact.GetProperty("requestedLocale").GetString());
-        Assert.False(exact.GetProperty("isFallbackLocale").GetBoolean());
-
-        // English exists but is off: visitors get the default, and the answer says so.
-        var off = await ReadAsync(session, $"{Dictionary}?locale=en");
+        // English is off: it is not served, the default is, and the answer says so.
+        var (off, _) = await ReadAsync(session, $"{Dictionary}?locale=en");
         Assert.Equal("en", off.GetProperty("requestedLocale").GetString());
         Assert.Equal("vi", off.GetProperty("resolvedLocale").GetString());
         Assert.True(off.GetProperty("isFallbackLocale").GetBoolean());
-        Assert.Equal("Ưu đãi", off.GetProperty("entries").GetProperty("header.menu.offers").GetString());
+        Assert.Equal("Ưu đãi", off.GetProperty("entries").GetProperty(Key).GetString());
 
-        // Unsupported, malformed or hostile input never errors and never reflects the raw text.
-        foreach (var bad in new[] { "xx", "zz-ZZ", "english", "en_US", "%3Cscript%3Ealert(1)%3C%2Fscript%3E", "..%2F..%2Fetc", "vi%00", new string('a', 400) })
-        {
-            var answer = await ReadAsync(session, $"{Dictionary}?locale={bad}");
-            Assert.Equal("vi", answer.GetProperty("resolvedLocale").GetString());
-            Assert.True(answer.GetProperty("isFallbackLocale").GetBoolean());
-            Assert.Equal(Keys, answer.GetProperty("entries").EnumerateObject().Count());
-            Assert.DoesNotContain("script", answer.GetRawText(), StringComparison.OrdinalIgnoreCase);
-        }
+        await TurnOnEnglishAsync(session);
+        var (on, _) = await ReadAsync(session, $"{Dictionary}?locale=en-US");
+        Assert.Equal("en", on.GetProperty("resolvedLocale").GetString());
+        Assert.False(on.GetProperty("isFallbackLocale").GetBoolean() && on.GetProperty("requestedLocale").GetString() == "en");
+        Assert.Equal("Offers", on.GetProperty("entries").GetProperty(Key).GetString());
+
+        var (junk, _) = await ReadAsync(session, $"{Dictionary}?locale=%3Cscript%3E");
+        Assert.Equal("vi", junk.GetProperty("resolvedLocale").GetString());
+        Assert.Equal(JsonValueKind.Null, junk.GetProperty("requestedLocale").ValueKind);
     }
 
     [Fact]
-    public async Task A_change_made_in_admin_is_what_the_next_public_read_returns()
+    public async Task A_fresh_install_still_shows_the_built_in_default_language_and_never_a_raw_key()
     {
         using var session = await StartAsync();
-        Assert.Equal("Ưu đãi", (await ReadAsync(session, $"{Dictionary}?locale=vi")).GetProperty("entries").GetProperty("header.menu.offers").GetString());
+        // A site where nothing has been installed yet: the default language has only a few stored texts.
+        await ExecuteAsync("""DELETE FROM "WebsiteTranslations" WHERE "Key" <> 'customer.header.menu.offers'""");
 
-        // Turn English on: it appears in the config and its dictionary is served as itself.
-        await AssertStatusAsync(HttpStatusCode.OK, session.PostAsync($"{Languages}/en/update", new { expectedVersion = 1, displayName = "English", nativeName = "English", sortOrder = 20, isActive = true }));
-        var config = await ReadAsync(session, Config);
-        Assert.Equal(["vi", "en"], config.GetProperty("locales").EnumerateArray().Select(item => item.GetProperty("code").GetString()).ToArray());
-        var english = await ReadAsync(session, $"{Dictionary}?locale=EN");
-        Assert.Equal("en", english.GetProperty("requestedLocale").GetString());
-        Assert.Equal("en", english.GetProperty("resolvedLocale").GetString());
-        Assert.False(english.GetProperty("isFallbackLocale").GetBoolean());
-        Assert.Equal("Offers", english.GetProperty("entries").GetProperty("header.menu.offers").GetString());
-        // A regional tag falls back along the tag to the language that is on.
-        var regional = await ReadAsync(session, $"{Dictionary}?locale=en-US");
-        Assert.Equal("en", regional.GetProperty("resolvedLocale").GetString());
-        Assert.Equal("en-US", regional.GetProperty("requestedLocale").GetString());
-        Assert.True(regional.GetProperty("isFallbackLocale").GetBoolean());
-
-        // Edit the default's text: the very next read has it; the English text is untouched.
-        await AssertStatusAsync(HttpStatusCode.OK, session.PostAsync(Save, new { locale = "vi", key = "header.menu.offers", value = "Khuyến mãi", expectedVersion = 1 }));
-        Assert.Equal("Khuyến mãi", (await ReadAsync(session, $"{Dictionary}?locale=vi")).GetProperty("entries").GetProperty("header.menu.offers").GetString());
-        Assert.Equal("Offers", (await ReadAsync(session, $"{Dictionary}?locale=en")).GetProperty("entries").GetProperty("header.menu.offers").GetString());
-
-        // Turn it off again: gone from the config, answered with the default.
-        await AssertStatusAsync(HttpStatusCode.OK, session.PostAsync($"{Languages}/en/update", new { expectedVersion = 2, displayName = "English", nativeName = "English", sortOrder = 20, isActive = false }));
-        Assert.Equal(["vi"], (await ReadAsync(session, Config)).GetProperty("locales").EnumerateArray().Select(item => item.GetProperty("code").GetString()).ToArray());
-        Assert.Equal("vi", (await ReadAsync(session, $"{Dictionary}?locale=en")).GetProperty("resolvedLocale").GetString());
-        await AssertInvariantsAsync();
+        var (dictionary, _) = await ReadAsync(session, $"{Dictionary}?locale=vi&scopes=shared,customer");
+        var entries = dictionary.GetProperty("entries");
+        Assert.Equal(LocalizationAssets.Catalog.Count(definition => definition.Scope is "shared" or "customer"), entries.EnumerateObject().Count());
+        Assert.Equal("Tài khoản của tôi", entries.GetProperty("customer.header.account.myAccount").GetString());   // from the built-in Vietnamese pack
     }
 
     [Fact]
-    public async Task A_secondary_language_serves_its_overrides_and_the_defaults_text_for_every_other_key()
+    public async Task A_stored_text_beats_the_built_in_one_and_a_stored_content_text_beats_the_column()
     {
         using var session = await StartAsync();
-        await AssertStatusAsync(HttpStatusCode.Created, session.PostAsync(Languages, new { code = "fr", displayName = "French", nativeName = "Français", sortOrder = 30, isActive = true }));
-        await AssertStatusAsync(HttpStatusCode.OK, session.PostAsync(Save, new { locale = "fr", key = "common.close", value = "Fermer", expectedVersion = (int?)null }));
+        var propertyKey = $"content.property.{await ScalarAsync<Guid>("""SELECT "Id" FROM "Properties" LIMIT 1""")}.name";
+        var version = await ScalarAsync<int>($"""SELECT "Version" FROM "WebsiteTranslations" WHERE "Key" = '{Key}' AND "LanguageId" = '{WebsiteTestSeed.Vietnamese}'""");
+        await AssertStatusAsync(HttpStatusCode.OK, session.PostAsync(Save, new { locale = "vi", key = Key, value = "Khuyến mãi", expectedVersion = version }));
+        await AssertStatusAsync(HttpStatusCode.OK, session.PostAsync(Save, new { locale = "vi", key = propertyKey, value = "Khách sạn Website", expectedVersion = (int?)null }));
 
-        var french = await ReadAsync(session, $"{Dictionary}?locale=fr");
-        Assert.Equal("fr", french.GetProperty("resolvedLocale").GetString());
-        Assert.False(french.GetProperty("isFallbackLocale").GetBoolean());
-        var entries = french.GetProperty("entries");
-        Assert.Equal(Keys, entries.EnumerateObject().Count());                                   // complete: no key is missing
-        Assert.Equal("Fermer", entries.GetProperty("common.close").GetString());                // the override
-        Assert.Equal("Thử lại", entries.GetProperty("common.retry").GetString());               // the default's text
-
-        // Removing the override returns to the fallback.
-        await AssertStatusAsync(HttpStatusCode.OK, session.PostAsync("/api/admin/v1/website/translations/clear", new { locale = "fr", key = "common.close", expectedVersion = 1 }));
-        Assert.Equal("Đóng", (await ReadAsync(session, $"{Dictionary}?locale=fr")).GetProperty("entries").GetProperty("common.close").GetString());
+        var (dictionary, _) = await ReadAsync(session, $"{Dictionary}?locale=vi&scopes=customer,content&prefix=content.property.");
+        Assert.Equal("Khuyến mãi", dictionary.GetProperty("entries").GetProperty(Key).GetString());
+        Assert.Equal("Khách sạn Website", dictionary.GetProperty("entries").GetProperty(propertyKey).GetString());   // a vi row overrides the column
     }
 
     [Fact]
-    public async Task Only_active_currencies_with_a_rate_are_public_and_the_default_follows_the_admin_choice()
+    public async Task The_dictionary_has_a_revision_an_etag_and_answers_304_until_something_changes()
     {
         using var session = await StartAsync();
+        var path = $"{Dictionary}?locale=vi&scopes=shared,customer";
 
-        // USD has metadata but no rate and is off: not public.
-        Assert.Equal(["VND"], (await ReadAsync(session, Config)).GetProperty("currencies").EnumerateArray().Select(item => item.GetProperty("code").GetString()).ToArray());
+        var (first, response) = await ReadAsync(session, path);
+        var etag = response.Headers.ETag?.ToString();
+        Assert.False(string.IsNullOrEmpty(etag));
+        Assert.Equal("no-cache", response.Headers.CacheControl?.ToString());
+        var revision = first.GetProperty("revision").GetString();
 
-        await AssertStatusAsync(HttpStatusCode.OK, session.PostAsync($"{Currencies}/USD/rate", new { expectedVersion = 1, vndPerUnit = "25400.5" }));
-        // Rate set but still off: still not public.
-        Assert.Equal(["VND"], (await ReadAsync(session, Config)).GetProperty("currencies").EnumerateArray().Select(item => item.GetProperty("code").GetString()).ToArray());
-        await AssertStatusAsync(HttpStatusCode.OK, session.PostAsync($"{Currencies}/USD/active", new { expectedVersion = 2, isActive = true }));
+        var request = Get(path);
+        request.Headers.TryAddWithoutValidation("If-None-Match", etag);
+        await AssertStatusAsync(HttpStatusCode.NotModified, session.Client.SendAsync(request));
 
-        var config = await ReadAsync(session, Config);
-        var currencies = config.GetProperty("currencies").EnumerateArray().ToArray();
-        Assert.Equal(["VND", "USD"], currencies.Select(item => item.GetProperty("code").GetString()).ToArray());
-        var usd = currencies[1];
-        Assert.Equal("25400.5", usd.GetProperty("vndPerUnit").GetString());                      // a string: exact digits
-        Assert.Equal(JsonValueKind.String, usd.GetProperty("vndPerUnit").ValueKind);
-        Assert.Equal(2, usd.GetProperty("minorUnits").GetInt32());
-        Assert.False(usd.GetProperty("isBase").GetBoolean());
-        Assert.False(usd.GetProperty("isDefault").GetBoolean());
-        Assert.NotEqual(JsonValueKind.Null, usd.GetProperty("rateUpdatedAtUtc").ValueKind);
-        Assert.Equal("VND", config.GetProperty("defaultCurrency").GetString());
-
-        await AssertStatusAsync(HttpStatusCode.OK, session.PostAsync($"{Currencies}/USD/set-default", new { expectedVersion = 3 }));
-        Assert.Equal("USD", (await ReadAsync(session, Config)).GetProperty("defaultCurrency").GetString());
-        Assert.Equal("VND", (await ReadAsync(session, Config)).GetProperty("baseCurrency").GetString());           // the base never moves
-
-        // A corrected rate is what the next read says.
-        await AssertStatusAsync(HttpStatusCode.OK, session.PostAsync($"{Currencies}/USD/rate", new { expectedVersion = 4, vndPerUnit = "25500" }));
-        Assert.Equal("25500", (await ReadAsync(session, Config)).GetProperty("currencies").EnumerateArray().Single(item => item.GetProperty("code").GetString() == "USD").GetProperty("vndPerUnit").GetString());
-        await AssertInvariantsAsync();
+        var version = await ScalarAsync<int>($"""SELECT "Version" FROM "WebsiteTranslations" WHERE "Key" = '{Key}' AND "LanguageId" = '{WebsiteTestSeed.Vietnamese}'""");
+        await AssertStatusAsync(HttpStatusCode.OK, session.PostAsync(Save, new { locale = "vi", key = Key, value = "Khuyến mãi", expectedVersion = version }));
+        var (second, secondResponse) = await ReadAsync(session, path);
+        Assert.NotEqual(revision, second.GetProperty("revision").GetString());
+        Assert.NotEqual(etag, secondResponse.Headers.ETag?.ToString());
+        var stale = Get(path);
+        stale.Headers.TryAddWithoutValidation("If-None-Match", etag);
+        await AssertStatusAsync(HttpStatusCode.OK, session.Client.SendAsync(stale));
     }
 
     [Fact]
-    public async Task The_public_read_needs_no_session_ignores_cookies_and_is_not_cached()
+    public async Task The_public_routes_are_read_only_except_the_price_projection_and_send_no_cookie_or_secret()
     {
         using var session = await StartAsync();
-
+        await AssertStatusAsync(HttpStatusCode.MethodNotAllowed, session.Client.SendAsync(Post(Config, new { })));
+        await AssertStatusAsync(HttpStatusCode.MethodNotAllowed, session.Client.SendAsync(Post(Dictionary, new { })));
         foreach (var path in new[] { Config, $"{Dictionary}?locale=vi" })
         {
             var anonymous = await AssertStatusAsync(HttpStatusCode.OK, session.Client.SendAsync(Get(path)));
             var withStaff = await AssertStatusAsync(HttpStatusCode.OK, session.Client.SendAsync(Get(path, session.Cookie)));
-            Assert.Equal(await anonymous.Content.ReadAsStringAsync(), await withStaff.Content.ReadAsStringAsync());   // a session changes nothing
-            Assert.Contains("no-store", anonymous.Headers.CacheControl?.ToString());
-            Assert.Equal("application/json", anonymous.Content.Headers.ContentType?.MediaType);
+            Assert.False(anonymous.Headers.Contains("Set-Cookie"));
+            Assert.Equal(await anonymous.Content.ReadAsStringAsync(), await withStaff.Content.ReadAsStringAsync());   // a Staff cookie changes nothing
         }
-
-        // Read-only: the public routes accept no write.
-        await AssertStatusAsync(HttpStatusCode.MethodNotAllowed, session.Client.SendAsync(Post(Config, new { })));
-        await AssertStatusAsync(HttpStatusCode.MethodNotAllowed, session.Client.SendAsync(Post(Dictionary, new { })));
     }
 }

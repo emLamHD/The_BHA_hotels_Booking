@@ -5,6 +5,7 @@ import React, { FC, Fragment, useEffect, useState } from "react";
 import DatePickerCustomHeaderTwoMonth from "@/components/DatePickerCustomHeaderTwoMonth";
 import DatePickerCustomDay from "@/components/DatePickerCustomDay";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface StayDatesRangeInputProps {
   className?: string;
   /** CP02-C3: controlled range (the shared stay search draft); without `onDatesChange` the field is the template's own. */
@@ -21,6 +22,7 @@ const StayDatesRangeInput: FC<StayDatesRangeInputProps> = ({
   onDatesChange,
   minDate,
 }) => {
+  const t = useT();
   const [ownStart, setStartDate] = useState<Date | null>(null);
   const [ownEnd, setEndDate] = useState<Date | null>(null);
   const startDate = onDatesChange ? controlledStart ?? null : ownStart;
@@ -40,7 +42,7 @@ const StayDatesRangeInput: FC<StayDatesRangeInputProps> = ({
     <div>
       <div className="p-5">
         <span className="block font-semibold text-xl sm:text-2xl">
-          {` When's your trip?`}
+          {" "}{t("customer.heroSearchForm2Mobile.datesRangeInput.whenSYourTrip")}
         </span>
       </div>
       <div

@@ -4,11 +4,13 @@ import { Popover, Transition } from "@headlessui/react";
 import Input from "@/shared/Input";
 import React, { FC, Fragment } from "react";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 interface Props {
   className?: string;
 }
 
 const SearchDropdown: FC<Props> = ({ className = "" }) => {
+  const t = useT();
   const inputRef = React.createRef<HTMLInputElement>();
 
   return (
@@ -46,7 +48,7 @@ const SearchDropdown: FC<Props> = ({ className = "" }) => {
                       ref={inputRef}
                       rounded="rounded-full"
                       type="search"
-                      placeholder="Type and press enter"
+                      placeholder={t("customer.header.searchDropdown.typeAndPressEnter")}
                     />
                     <input type="submit" hidden value="" />
                   </form>

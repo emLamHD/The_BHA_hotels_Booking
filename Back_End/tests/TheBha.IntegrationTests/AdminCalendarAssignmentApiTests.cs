@@ -439,7 +439,7 @@ public sealed class AdminCalendarAssignmentApiTests(PostgreSqlWebApplicationFact
     // ---------------------------------------------------------------
 
     // CUST-WEB-HEADER-001-CP02: the website-settings Admin mutations (every one is a POST under the Staff
-    // permission); exact paths, so a thirteenth must be added here on purpose.
+    // permission); exact paths, so a new one must be added here on purpose.
     private static readonly string[] WebsiteMutationPaths =
     [
         "/api/admin/v1/website/languages",
@@ -453,7 +453,10 @@ public sealed class AdminCalendarAssignmentApiTests(PostgreSqlWebApplicationFact
         "/api/admin/v1/website/currencies/{code}/rate",
         "/api/admin/v1/website/currencies/{code}/active",
         "/api/admin/v1/website/currencies/{code}/set-default",
-        "/api/admin/v1/website/currencies/{code}/delete"
+        "/api/admin/v1/website/currencies/{code}/delete",
+        // CUST-WEB-HEADER-001-CP02-C2: installing a language pack (preview changes nothing; apply is one atomic transaction).
+        "/api/admin/v1/website/language-packs/preview",
+        "/api/admin/v1/website/language-packs/apply"
     ];
 
     [Fact]
@@ -488,7 +491,7 @@ public sealed class AdminCalendarAssignmentApiTests(PostgreSqlWebApplicationFact
             // routes: a new one is added here deliberately, never by weakening
             // the assertion. PMS-ADMIN-AUTH-001-CP03 adds the Staff session
             // login and logout (asserted in full by StaffAuthenticationTests).
-            // CUST-WEB-HEADER-001-CP02 adds the twelve website-settings mutations, each
+            // CUST-WEB-HEADER-001-CP02 adds the website-settings mutations (twelve, and C2 the two language-pack ones), each
             // named in WebsiteMutationPaths below and asserted in full by the Website*ApiTests.
             if (path.Name.StartsWith("/api/admin/", StringComparison.Ordinal) &&
                 path.Name != $"{ExpectedPath}/{{segmentId}}/move" &&

@@ -8,29 +8,7 @@ import {
   CheckIcon,
 } from "@heroicons/react/24/outline";
 import { FC, Fragment, useState } from "react";
-import { headerCurrency } from "./CurrencyDropdown";
-
-export const headerLanguage = [
-  {
-    id: "vi",
-    name: "Tiếng Việt",
-    description: "Việt Nam",
-    active: true,
-  },
-  {
-    id: "en",
-    name: "English",
-    description: "United States",
-  },
-  {
-    id: "fr",
-    name: "Français",
-    description: "France",
-  },
-];
-
-export const LANG_CURRENCY_NOTE =
-  "Bản demo: lựa chọn này chưa được áp dụng. Trang vẫn hiển thị tiếng Việt và giá bằng VND.";
+import { useI18n } from "@/lib/i18n/I18nProvider";
 
 interface LangDropdownProps {
   panelClassName?: string;
@@ -45,26 +23,38 @@ const OPTION_CLASS =
   "flex w-full items-center justify-between p-2 text-left transition duration-150 ease-in-out rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500";
 
 /**
- * CUST-WEB-001-CP08a-C2: the template's Language / Currency tabs as a UI preview. The options are buttons
- * (not `href="##"` links, which would navigate to `/#`); picking one only moves the check mark and says, in a
- * live region, that nothing is applied. It keeps no state anywhere (no storage, no URL, no provider), changes
- * no price or request, and a reload shows the defaults again. Used by the header's popover and, inline, by
- * the mobile menu.
+ * CUST-WEB-HEADER-001-CP02-C2: the Language / Currency tabs. Both lists come from the website settings the Admin
+ * keeps (the languages that are on, the currencies that are on and have a rate); nothing here names a language or a
+ * currency. Choosing a language shows the whole site in it and brings that language's own default currency; choosing
+ * a currency changes the currency only. The choice is remembered in two cookies, applied by the server on the next
+ * render, and never sent to the booking API. Used by the header's popover and, inline, by the mobile menu.
  */
 export const LangCurrencyTabs: FC = () => {
-  const [language, setLanguage] = useState(headerLanguage[0].id);
-  const [currency, setCurrency] = useState(headerCurrency[0].id);
+  const { t, locales, currencies, locale, currency, formatLocale, setLocale, setCurrency, switching } = useI18n();
   const [message, setMessage] = useState("");
-  const choose = (kind: "language" | "currency", id: string, name: string) => {
-    if (kind === "language") setLanguage(id);
-    else setCurrency(id);
-    setMessage(`Đã chọn ${name} — chưa áp dụng.`);
+  const languageNames = new Intl.DisplayNames([formatLocale], { type: "language" });
+  const currencyNames = new Intl.DisplayNames([formatLocale], { type: "currency" });
+  const safeName = (names: Intl.DisplayNames, code: string, fallback: string) => {
+    try {
+      return names.of(code) ?? fallback;
+    } catch {
+      return fallback;
+    }
+  };
+
+  const chooseLanguage = (code: string, nativeName: string, defaultCurrency: string | null) => {
+    setMessage(t("customer.header.selector.languageChanged", { language: nativeName, currency: defaultCurrency ?? currency }));
+    setLocale(code);
+  };
+  const chooseCurrency = (code: string) => {
+    setMessage(t("customer.header.selector.currencyChanged", { currency: code }));
+    setCurrency(code);
   };
 
   return (
     <Tab.Group>
       <Tab.List className="flex space-x-1 rounded-full bg-gray-100 dark:bg-slate-700 p-1">
-        {["Ngôn ngữ", "Tiền tệ"].map((category) => (
+        {[t("customer.header.menu.language"), t("customer.header.menu.currency")].map((category) => (
           <Tab
             key={category}
             className={({ selected }) =>
@@ -84,47 +74,50 @@ export const LangCurrencyTabs: FC = () => {
       <Tab.Panels className="mt-4">
         <Tab.Panel className="rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500">
           <div className="grid gap-1 sm:grid-cols-2">
-            {headerLanguage.map((item) => (
+            {locales.map((item) => (
               <button
-                key={item.id}
+                key={item.code}
                 type="button"
-                aria-pressed={language === item.id}
-                onClick={() => choose("language", item.id, item.name)}
-                className={`${OPTION_CLASS} ${language === item.id ? "bg-gray-100 dark:bg-gray-700" : "opacity-80"}`}
+                lang={item.code}
+                aria-pressed={locale === item.code}
+                disabled={switching}
+                onClick={() => chooseLanguage(item.code, item.nativeName, item.defaultCurrency)}
+                className={`${OPTION_CLASS} ${locale === item.code ? "bg-gray-100 dark:bg-gray-700" : "opacity-80"}`}
               >
                 <span>
-                  <span className="block text-sm font-medium">{item.name}</span>
-                  <span className="block text-xs text-gray-500 dark:text-gray-400">{item.description}</span>
+                  <span className="block text-sm font-medium">{item.nativeName}</span>
+                  <span className="block text-xs text-gray-500 dark:text-gray-400">{safeName(languageNames, item.code, item.displayName)}</span>
                 </span>
-                {language === item.id && <CheckIcon className="h-4 w-4" aria-hidden="true" />}
+                {locale === item.code && <CheckIcon className="h-4 w-4" aria-hidden="true" />}
               </button>
             ))}
           </div>
         </Tab.Panel>
         <Tab.Panel className="rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500">
           <div className="grid gap-1 sm:grid-cols-2">
-            {headerCurrency.map((item) => (
+            {currencies.map((item) => (
               <button
-                key={item.id}
+                key={item.code}
                 type="button"
-                aria-pressed={currency === item.id}
-                onClick={() => choose("currency", item.id, item.name)}
-                className={`${OPTION_CLASS} ${currency === item.id ? "bg-gray-100 dark:bg-gray-700" : "opacity-80"}`}
+                aria-pressed={currency === item.code}
+                disabled={switching}
+                onClick={() => chooseCurrency(item.code)}
+                className={`${OPTION_CLASS} ${currency === item.code ? "bg-gray-100 dark:bg-gray-700" : "opacity-80"}`}
               >
                 <span className="flex items-center">
-                  <item.icon className="w-[18px] h-[18px]" aria-hidden="true" />
+                  <BanknotesIcon className="w-[18px] h-[18px]" aria-hidden="true" />
                   <span className="ml-2">
-                    <span className="block text-sm font-medium">{item.name}</span>
-                    <span className="block text-xs text-gray-500 dark:text-gray-400">{item.description}</span>
+                    <span className="block text-sm font-medium">{item.code}</span>
+                    <span className="block text-xs text-gray-500 dark:text-gray-400">{safeName(currencyNames, item.code, item.name)}</span>
                   </span>
                 </span>
-                {currency === item.id && <CheckIcon className="h-4 w-4" aria-hidden="true" />}
+                {currency === item.code && <CheckIcon className="h-4 w-4" aria-hidden="true" />}
               </button>
             ))}
           </div>
         </Tab.Panel>
       </Tab.Panels>
-      <p className="mt-4 text-xs text-gray-600 dark:text-gray-300">{LANG_CURRENCY_NOTE}</p>
+      <p className="mt-4 text-xs text-gray-600 dark:text-gray-300">{t("customer.header.selector.rateNote")}</p>
       <p role="status" aria-live="polite" className="mt-1 min-h-[1rem] text-xs font-medium text-primary-700 dark:text-primary-300">
         {message}
       </p>
@@ -136,13 +129,14 @@ const LangDropdown: FC<LangDropdownProps> = ({
   panelClassName = "top-full right-0 max-w-sm w-96",
   className = "hidden md:flex",
 }) => {
+  const { t } = useI18n();
   return (
     <>
       <Popover className={`LangDropdown relative ${className}`}>
         {({ open }) => (
           <>
             <Popover.Button
-              aria-label="Ngôn ngữ và tiền tệ"
+              aria-label={t("customer.header.menu.languageCurrency")}
               className={`
                 ${open ? "" : "text-opacity-80"}
              group self-center h-10 sm:h-12 px-3 py-1.5 inline-flex items-center text-sm text-gray-800 dark:text-neutral-200 font-medium hover:text-opacity-100 hover:bg-neutral-100 active:bg-neutral-200 dark:hover:bg-neutral-800 dark:active:bg-neutral-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 rounded-full`}

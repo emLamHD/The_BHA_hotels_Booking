@@ -5,12 +5,12 @@ using TheBha.Application.Website;
 namespace TheBha.Api.Controllers;
 
 /// <summary>
-/// CUST-WEB-HEADER-001-CP02: the UI translations of the website. The keys are fixed in source (and seeded by a
-/// migration); an operator edits values only, as plain text that keeps each key's placeholders. A language other
-/// than the default has a row only where it overrides the default: <c>save</c> creates or changes it
-/// (<c>expectedVersion: null</c> means "no override yet", so two editors cannot both create it), <c>clear</c>
-/// removes it and the default's text applies again. The default language always keeps a value for every key, so
-/// <c>clear</c> there is refused. Same access rules as the languages routes.
+/// CUST-WEB-HEADER-001-CP02 / -C2: the translations of the website (UI texts and content). The keys come from the
+/// embedded catalog and from the stored content; an operator edits texts only, as plain text in the message syntax that
+/// keeps each key's placeholders. The list is filtered, counted and paged by the server (scope, module, status, search).
+/// <c>save</c> creates or changes a text (<c>expectedVersion: null</c> means "no text saved yet", so two editors cannot
+/// both create it) and marks it as edited by hand; <c>clear</c> removes it. The default language always keeps a text for
+/// every key, so <c>clear</c> there is refused. Same access rules as the languages routes.
 /// </summary>
 [Route("api/admin/v1/website/translations")]
 public sealed class AdminWebsiteTranslationsController(IWebsiteSettingsStore store) : AdminWebsiteControllerBase
@@ -20,9 +20,18 @@ public sealed class AdminWebsiteTranslationsController(IWebsiteSettingsStore sto
     [ProducesResponseType(typeof(WebsiteTranslationListDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<ActionResult> List(
-        [FromQuery] string locale, [FromQuery] string? group, [FromQuery(Name = "q")] string? search, CancellationToken cancellationToken)
+        [FromQuery] string locale,
+        [FromQuery] string? scope,
+        [FromQuery] string? group,
+        [FromQuery] string? status,
+        [FromQuery(Name = "q")] string? search,
+        [FromQuery(Name = "reference")] string? referenceLocale,
+        [FromQuery] int page,
+        [FromQuery] int pageSize,
+        CancellationToken cancellationToken)
     {
-        var list = await store.ListTranslationsAsync(locale, group, search, cancellationToken);
+        var list = await store.ListTranslationsAsync(
+            new TranslationQuery(locale, scope, group, status, search, referenceLocale, page, pageSize), cancellationToken);
         return list is null
             ? Fail(StatusCodes.Status404NotFound, "Website setting not found", null, "locale", $"The language {locale} does not exist.")
             : Ok(list);

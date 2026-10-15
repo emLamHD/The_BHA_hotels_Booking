@@ -16,6 +16,15 @@ public sealed record CreateWebsiteLanguageRequest
     [JsonRequired] public string NativeName { get; init; } = string.Empty;
     [JsonRequired] public int SortOrder { get; init; }
     [JsonRequired] public bool IsActive { get; init; }
+
+    /// <summary>The currency a visitor gets when they pick this language; <c>null</c> = the site default.</summary>
+    public string? DefaultCurrencyCode { get; init; }
+
+    /// <summary><c>ltr</c> (default) or <c>rtl</c>.</summary>
+    public string? Direction { get; init; }
+
+    /// <summary>The BCP 47 tag used for dates and numbers (<c>fr-FR</c>); defaults to the code.</summary>
+    public string? FormatLocale { get; init; }
 }
 
 public sealed record UpdateWebsiteLanguageRequest
@@ -25,6 +34,22 @@ public sealed record UpdateWebsiteLanguageRequest
     [JsonRequired] public string NativeName { get; init; } = string.Empty;
     [JsonRequired] public int SortOrder { get; init; }
     [JsonRequired] public bool IsActive { get; init; }
+    public string? DefaultCurrencyCode { get; init; }
+    public string? Direction { get; init; }
+    public string? FormatLocale { get; init; }
+}
+
+/// <summary>
+/// A pack to check or install: either one of the library (<c>builtInPackId</c>) or the text of an uploaded file
+/// (<c>json</c>) — never a URL. <c>previewToken</c> (apply only) is the token of the preview the operator confirmed.
+/// </summary>
+public sealed record WebsiteLanguagePackRequest
+{
+    public string? BuiltInPackId { get; init; }
+    public string? Json { get; init; }
+    [JsonRequired] public string Mode { get; init; } = PackModes.KeepManual;
+    public string? PreviewToken { get; init; }
+    public bool Enable { get; init; }
 }
 
 public sealed record WebsiteVersionRequest

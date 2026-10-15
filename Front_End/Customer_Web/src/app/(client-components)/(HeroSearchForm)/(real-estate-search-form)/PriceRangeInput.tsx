@@ -7,6 +7,7 @@ import convertNumbThousand from "@/utils/convertNumbThousand";
 import ButtonSubmit from "../ButtonSubmit";
 import { CurrencyDollarIcon } from "@heroicons/react/24/outline";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface PriceRangeInputProps {
   onChange?: (data: any) => void;
   fieldClassName?: string;
@@ -16,6 +17,7 @@ const PriceRangeInput: FC<PriceRangeInputProps> = ({
   onChange,
   fieldClassName = "[ nc-hero-field-padding ]",
 }) => {
+  const t = useT();
   const [rangePrices, setRangePrices] = useState([100000, 4000000]);
 
   return (
@@ -40,9 +42,7 @@ const PriceRangeInput: FC<PriceRangeInputProps> = ({
                     rangePrices[0] / 1000
                   )}k ~ $${convertNumbThousand(rangePrices[1] / 1000)}k`}
                 </span>
-                <span className="block mt-1 text-sm text-neutral-400 leading-none font-light ">
-                  Choose price range
-                </span>
+                <span className="block mt-1 text-sm text-neutral-400 leading-none font-light ">{t("customer.heroSearchForm.realEstateSearchForm.priceRangeInput.choosePriceRange")}</span>
               </div>
             </Popover.Button>
 
@@ -68,7 +68,7 @@ const PriceRangeInput: FC<PriceRangeInputProps> = ({
             <Popover.Panel className="absolute left-0 lg:right-0 z-10 w-full sm:min-w-[340px] max-w-sm bg-white dark:bg-neutral-800 top-full mt-3 py-5 sm:py-6 px-4 sm:px-8 rounded-3xl shadow-xl">
               <div className="relative flex flex-col space-y-8">
                 <div className="space-y-5">
-                  <span className="font-medium">Range Price </span>
+                  <span className="font-medium">{t("customer.heroSearchForm.realEstateSearchForm.priceRangeInput.rangePrice")}</span>
                   <Slider
                     range
                     className="text-red-400"
@@ -86,9 +86,7 @@ const PriceRangeInput: FC<PriceRangeInputProps> = ({
                     <label
                       htmlFor="minPrice"
                       className="block text-sm font-medium text-neutral-700 dark:text-neutral-300"
-                    >
-                      Min price
-                    </label>
+                    >{t("customer.common.minPrice")}</label>
                     <div className="mt-1 relative rounded-md">
                       <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                         <span className="text-neutral-500 sm:text-sm">$</span>
@@ -107,9 +105,7 @@ const PriceRangeInput: FC<PriceRangeInputProps> = ({
                     <label
                       htmlFor="maxPrice"
                       className="block text-sm font-medium text-neutral-700 dark:text-neutral-300"
-                    >
-                      Max price
-                    </label>
+                    >{t("customer.common.maxPrice")}</label>
                     <div className="mt-1 relative rounded-md">
                       <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                         <span className="text-neutral-500 sm:text-sm">$</span>

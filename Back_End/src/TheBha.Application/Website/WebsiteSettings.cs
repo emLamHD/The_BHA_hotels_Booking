@@ -33,6 +33,11 @@ public static class WebsiteErrorCodes
     public const string BaseCurrencyFixed = "base-currency-fixed";
     public const string CurrencyInUse = "currency-in-use";
     public const string CurrencyInactive = "currency-inactive";
+    public const string LanguageIncomplete = "language-incomplete";
+    public const string StalePreview = "stale-preview";
+    public const string PackInvalid = "pack-invalid";
+    public const string PackIncompatible = "pack-incompatible";
+    public const string UnknownCurrency = "unknown-currency";
 }
 
 public sealed record WebsiteMutationResult<T>(
@@ -64,31 +69,66 @@ public sealed record WebsiteLanguageDto(
     bool IsActive,
     bool IsDefault,
     int Version,
+    string? DefaultCurrencyCode,
+    string Direction,
+    string FormatLocale,
+    string? PackId,
+    string? PackVersion,
+    int RequiredKeys,
     int TranslatedKeys,
-    int TotalKeys,
+    int MissingKeys,
+    int OutdatedKeys,
+    int ManualKeys,
+    bool IsComplete,
     DateTimeOffset UpdatedAtUtc,
     Guid? UpdatedByStaffId);
 
+/// <summary>One row of the translation editor. <c>Status</c>: <c>translated</c>, <c>missing</c> or <c>outdated</c> (the reference text changed since).</summary>
 public sealed record WebsiteTranslationRowDto(
     string Key,
+    string Scope,
     string Group,
-    string SourceText,
+    string? Context,
     IReadOnlyList<string> Placeholders,
+    string SourceText,
     string? Value,
-    string EffectiveValue,
-    bool HasOverride,
-    bool IsFallback,
+    string Status,
+    bool IsManual,
     int? Version,
     DateTimeOffset? UpdatedAtUtc);
 
+public sealed record FacetCount(string Name, int Count);
+
+public sealed record TranslationFacets(
+    int Required,
+    int Translated,
+    int Missing,
+    int Outdated,
+    int Manual,
+    IReadOnlyList<FacetCount> Scopes,
+    IReadOnlyList<FacetCount> Groups);
+
+/// <summary>A page of the editor. Filtering, paging and counting are the server's: the editor lists thousands of rows.</summary>
 public sealed record WebsiteTranslationListDto(
     string Locale,
-    bool IsDefaultLocale,
+    string ReferenceLocale,
     string DefaultLocale,
-    int TranslatedKeys,
-    int TotalKeys,
-    IReadOnlyList<string> Groups,
+    bool IsDefaultLocale,
+    int Total,
+    int Page,
+    int PageSize,
+    TranslationFacets Facets,
     IReadOnlyList<WebsiteTranslationRowDto> Rows);
+
+public sealed record TranslationQuery(
+    string Locale,
+    string? Scope,
+    string? Group,
+    string? Status,
+    string? Search,
+    string? ReferenceLocale,
+    int Page,
+    int PageSize);
 
 public sealed record WebsiteCurrencyDto(
     string Code,
@@ -108,9 +148,13 @@ public sealed record WebsiteCurrencyDto(
 
 // ---- Commands: the actor is the verified Staff id, always taken from the session, never from a request ----
 
-public sealed record CreateLanguageCommand(string Code, string DisplayName, string NativeName, int SortOrder, bool IsActive, Guid ActorStaffId);
+public sealed record CreateLanguageCommand(
+    string Code, string DisplayName, string NativeName, int SortOrder, bool IsActive,
+    string? DefaultCurrencyCode, string? Direction, string? FormatLocale, Guid ActorStaffId);
 
-public sealed record UpdateLanguageCommand(string Code, int ExpectedVersion, string DisplayName, string NativeName, int SortOrder, bool IsActive, Guid ActorStaffId);
+public sealed record UpdateLanguageCommand(
+    string Code, int ExpectedVersion, string DisplayName, string NativeName, int SortOrder, bool IsActive,
+    string? DefaultCurrencyCode, string? Direction, string? FormatLocale, Guid ActorStaffId);
 
 public sealed record LanguageVersionCommand(string Code, int ExpectedVersion, Guid ActorStaffId);
 
@@ -139,7 +183,7 @@ public interface IWebsiteSettingsStore
     Task<IReadOnlyList<WebsiteLanguageDto>> ListLanguagesAsync(CancellationToken cancellationToken);
 
     /// <summary><c>null</c> when the language does not exist.</summary>
-    Task<WebsiteTranslationListDto?> ListTranslationsAsync(string locale, string? group, string? search, CancellationToken cancellationToken);
+    Task<WebsiteTranslationListDto?> ListTranslationsAsync(TranslationQuery query, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<WebsiteCurrencyDto>> ListCurrenciesAsync(CancellationToken cancellationToken);
 
@@ -170,7 +214,14 @@ public interface IWebsiteSettingsStore
 
 // ---- Public contract (phase 3 reads it; nothing here names a Staff member, a draft or a permission) ----
 
-public sealed record PublicLocaleDto(string Code, string DisplayName, string NativeName, bool IsDefault);
+public sealed record PublicLocaleDto(
+    string Code,
+    string DisplayName,
+    string NativeName,
+    bool IsDefault,
+    string FormatLocale,
+    string Direction,
+    string? DefaultCurrency);
 
 public sealed record PublicCurrencyDto(
     string Code,
@@ -187,25 +238,30 @@ public sealed record PublicWebsiteConfigDto(
     IReadOnlyList<PublicLocaleDto> Locales,
     string BaseCurrency,
     string DefaultCurrency,
-    IReadOnlyList<PublicCurrencyDto> Currencies);
+    IReadOnlyList<PublicCurrencyDto> Currencies,
+    string Revision);
 
 /// <summary>
 /// The dictionary of the locale that was actually used. An unsupported or disabled locale is answered with
-/// the default's (<c>IsFallbackLocale</c>; <c>RequestedLocale</c> is <c>null</c> when none or a malformed one was given); a key a
-/// secondary locale has not overridden carries the default's text.
+/// the default's (<c>IsFallbackLocale</c>; <c>RequestedLocale</c> is <c>null</c> when none or a malformed one was given).
+/// <c>Revision</c> changes whenever any text it contains could have changed (an installed pack, an edit, a catalog or content change),
+/// so a server render and a client that were given the same revision hold the same texts.
 /// </summary>
 public sealed record PublicDictionaryDto(
     string? RequestedLocale,
     string ResolvedLocale,
     string DefaultLocale,
     bool IsFallbackLocale,
+    string Revision,
     IReadOnlyDictionary<string, string> Entries);
+
+public sealed record PublicDictionaryQuery(string? Locale, IReadOnlyList<string> Scopes, IReadOnlyList<string> Prefixes);
 
 public interface IWebsitePublicReader
 {
     Task<PublicWebsiteConfigDto> GetConfigAsync(CancellationToken cancellationToken);
 
-    Task<PublicDictionaryDto> GetDictionaryAsync(string? requestedLocale, CancellationToken cancellationToken);
+    Task<PublicDictionaryDto> GetDictionaryAsync(PublicDictionaryQuery query, CancellationToken cancellationToken);
 }
 
 /// <summary>Per-field input rules shared by the admin API and the store; one place, one wording.</summary>
@@ -242,6 +298,23 @@ public static class WebsiteInputValidation
         return PlainText(displayName, "displayName", WebsiteFieldLimits.LanguageName)
             ?? PlainText(nativeName, "nativeName", WebsiteFieldLimits.LanguageName)
             ?? SortOrder(sortOrder);
+    }
+
+    public static (string Field, string Message)? LanguageFormat(string? defaultCurrencyCode, string? direction, string? formatLocale)
+    {
+        if (!string.IsNullOrWhiteSpace(direction) && direction is not ("ltr" or "rtl"))
+        {
+            return ("direction", "direction must be ltr or rtl.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(formatLocale) && !LanguageTag.TryNormalize(formatLocale, out _, out _))
+        {
+            return ("formatLocale", "formatLocale must be a BCP 47 tag such as fr-FR.");
+        }
+
+        return !string.IsNullOrWhiteSpace(defaultCurrencyCode) && !Iso4217.TryNormalize(defaultCurrencyCode, out _)
+            ? ("defaultCurrencyCode", "defaultCurrencyCode must be a current ISO 4217 code such as EUR.")
+            : null;
     }
 
     public static (string Field, string Message)? Currency(string? code, string? name, string? symbol, int minorUnits, int sortOrder, bool codeRequired = true)

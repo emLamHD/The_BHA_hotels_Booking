@@ -8,6 +8,7 @@ import { useStaySearch } from "@/components/StaySearchProvider";
 import { brandInfo } from "@/lib/stayListingQuery";
 import { dateToIso, isoToDate, todayLocal } from "@/lib/staySearch";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 const FORM_CLASS =
   "w-full relative mt-8 flex rounded-full shadow-xl dark:shadow-2xl bg-white dark:bg-neutral-800 ";
 
@@ -33,6 +34,7 @@ const TemplateStaySearchForm: FC = () => (
  * field are the same action through the same function.
  */
 const LiveStaySearchForm: FC = () => {
+  const t = useT();
   const ctx = useStaySearch();
   const problemRef = useRef<HTMLParagraphElement>(null);
   const problemId = ctx?.problem?.id;
@@ -51,7 +53,7 @@ const LiveStaySearchForm: FC = () => {
   return (
     <div>
       <form
-        aria-label="Tìm phòng"
+        aria-label={t("customer.common.findARoom")}
         className={FORM_CLASS}
         onSubmit={(event) => {
           event.preventDefault();

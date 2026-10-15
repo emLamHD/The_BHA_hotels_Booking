@@ -5,17 +5,18 @@ using TheBha.Domain.Website;
 namespace TheBha.Infrastructure.Persistence;
 
 /// <summary>
-/// CUST-WEB-HEADER-001-CP02: the admin half of the website localisation settings. Every mutation is one
+/// CUST-WEB-HEADER-001-CP02 / -C2: the admin half of the website localisation settings. Every mutation is one
 /// transaction that takes the site-wide advisory lock first (before any read), compares the caller's
 /// <c>ExpectedVersion</c> against the row it then reads, and applies the cross-row rules — exactly one default
-/// of each kind, a default is active, an active currency has a rate, VND is fixed — as ordered statements, so
-/// two requests can never leave zero or two defaults or an active currency without a rate. The CHECK
-/// constraints, the partial unique indexes and the deferred triggers of the migration repeat those rules in
-/// the database for anything that bypasses this class.
+/// of each kind, a default is active, an active language is complete, an active currency has a rate, VND is
+/// fixed — as ordered statements, so two requests can never leave zero or two defaults or an active currency
+/// without a rate. The CHECK constraints, the partial unique indexes and the deferred triggers of the
+/// migrations repeat those rules in the database for anything that bypasses this class.
 /// </summary>
-internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvider timeProvider) : IWebsiteSettingsStore
+internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvider timeProvider, IContentCatalog content) : IWebsiteSettingsStore
 {
-    private static readonly string[] CatalogKeys = [.. WebsiteTranslationCatalog.All.Select(definition => definition.Key)];
+    private const int DefaultPageSize = 50;
+    private const int MaximumPageSize = 200;
 
     // ------------------------------------------------------------------ reads
 
@@ -24,14 +25,14 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
         var languages = await database.WebsiteLanguages.AsNoTracking()
             .OrderBy(language => language.SortOrder).ThenBy(language => language.NormalizedCode)
             .ToListAsync(cancellationToken);
-        var counts = await TranslatedCountsAsync(cancellationToken);
-        return [.. languages.Select(language => ToDto(language, counts.GetValueOrDefault(language.Id)))];
+        var model = await WebsiteLocalizationModel.LoadAsync(content, cancellationToken);
+        var coverage = await CoverageByLanguageAsync(model, languages, cancellationToken);
+        return [.. languages.Select(language => ToDto(language, coverage[language.Id]))];
     }
 
-    public async Task<WebsiteTranslationListDto?> ListTranslationsAsync(
-        string locale, string? group, string? search, CancellationToken cancellationToken)
+    public async Task<WebsiteTranslationListDto?> ListTranslationsAsync(TranslationQuery query, CancellationToken cancellationToken)
     {
-        if (!LanguageTag.TryNormalize(locale, out _, out var normalized))
+        if (!LanguageTag.TryNormalize(query.Locale, out _, out var normalized))
         {
             return null;
         }
@@ -44,30 +45,55 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
             return null;
         }
 
-        var rows = await database.WebsiteTranslations.AsNoTracking()
-            .Where(translation => (translation.LanguageId == language.Id || translation.LanguageId == defaultLanguage.Id) &&
-                                  CatalogKeys.Contains(translation.Key))
-            .ToListAsync(cancellationToken);
-        var own = rows.Where(row => row.LanguageId == language.Id).ToDictionary(row => row.Key, StringComparer.Ordinal);
-        var defaults = rows.Where(row => row.LanguageId == defaultLanguage.Id).ToDictionary(row => row.Key, StringComparer.Ordinal);
+        var referenceLanguage = LanguageTag.TryNormalize(query.ReferenceLocale, out _, out var referenceNormalized)
+            ? languages.SingleOrDefault(candidate => candidate.NormalizedCode == referenceNormalized) ?? defaultLanguage
+            : defaultLanguage;
+        var model = await WebsiteLocalizationModel.LoadAsync(content, cancellationToken);
+        var reference = await model.ReferenceTextsAsync(database, referenceLanguage, referenceLanguage.Code, cancellationToken);
+        var own = (await database.WebsiteTranslations.AsNoTracking().Where(row => row.LanguageId == language.Id).ToListAsync(cancellationToken))
+            .ToDictionary(row => row.Key, StringComparer.Ordinal);
+        var isContentSource = IsContentSource(language);
+        var isReference = language.Id == referenceLanguage.Id;
 
-        var needle = search?.Trim();
-        var listed = WebsiteTranslationCatalog.All
-            .Where(definition => string.IsNullOrEmpty(group) || definition.Group == group)
-            .Select(definition => BuildRow(definition, own.GetValueOrDefault(definition.Key), defaults.GetValueOrDefault(definition.Key), language.IsDefault))
-            .Where(row => string.IsNullOrEmpty(needle) ||
-                          row.Key.Contains(needle, StringComparison.OrdinalIgnoreCase) ||
-                          row.SourceText.Contains(needle, StringComparison.OrdinalIgnoreCase) ||
-                          row.EffectiveValue.Contains(needle, StringComparison.OrdinalIgnoreCase))
+        var all = model.Required
+            .Select(item => (Item: item, Row: own.GetValueOrDefault(item.Key), Status: WebsiteLocalizationModel.StatusOf(item, own.GetValueOrDefault(item.Key), isContentSource, isReference, reference)))
+            .ToList();
+        var facets = new TranslationFacets(
+            all.Count,
+            all.Count(entry => entry.Status != "missing"),
+            all.Count(entry => entry.Status == "missing"),
+            all.Count(entry => entry.Status == "outdated"),
+            all.Count(entry => entry.Row?.IsManual == true),
+            [.. all.GroupBy(entry => entry.Item.Scope).OrderBy(group => group.Key, StringComparer.Ordinal).Select(group => new FacetCount(group.Key, group.Count()))],
+            [.. all.Where(entry => string.IsNullOrEmpty(query.Scope) || entry.Item.Scope == query.Scope)
+                .GroupBy(entry => entry.Item.Group).OrderBy(group => group.Key, StringComparer.Ordinal).Select(group => new FacetCount(group.Key, group.Count()))]);
+
+        var needle = query.Search?.Trim();
+        var filtered = all
+            .Where(entry => string.IsNullOrEmpty(query.Scope) || entry.Item.Scope == query.Scope)
+            .Where(entry => string.IsNullOrEmpty(query.Group) || entry.Item.Group == query.Group)
+            .Where(entry => query.Status switch
+            {
+                "missing" => entry.Status == "missing",
+                "outdated" => entry.Status == "outdated",
+                "translated" => entry.Status != "missing",
+                "manual" => entry.Row?.IsManual == true,
+                "todo" => entry.Status != "translated",
+                _ => true
+            })
+            .Where(entry => string.IsNullOrEmpty(needle) ||
+                            entry.Item.Key.Contains(needle, StringComparison.OrdinalIgnoreCase) ||
+                            (reference.GetValueOrDefault(entry.Item.Key) ?? string.Empty).Contains(needle, StringComparison.OrdinalIgnoreCase) ||
+                            (entry.Row?.Value ?? string.Empty).Contains(needle, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        var pageSize = Math.Clamp(query.PageSize <= 0 ? DefaultPageSize : query.PageSize, 1, MaximumPageSize);
+        var page = Math.Max(1, query.Page);
+        var rows = filtered.Skip((page - 1) * pageSize).Take(pageSize)
+            .Select(entry => BuildRow(entry.Item, entry.Row, entry.Status, reference))
             .ToList();
         return new WebsiteTranslationListDto(
-            language.Code,
-            language.IsDefault,
-            defaultLanguage.Code,
-            own.Count,
-            WebsiteTranslationCatalog.All.Count,
-            WebsiteTranslationCatalog.Groups,
-            listed);
+            language.Code, referenceLanguage.Code, defaultLanguage.Code, language.IsDefault, filtered.Count, page, pageSize, facets, rows);
     }
 
     public async Task<IReadOnlyList<WebsiteCurrencyDto>> ListCurrenciesAsync(CancellationToken cancellationToken) =>
@@ -81,7 +107,8 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
     public async Task<WebsiteMutationResult<WebsiteLanguageDto>> CreateLanguageAsync(
         CreateLanguageCommand command, CancellationToken cancellationToken)
     {
-        if (WebsiteInputValidation.Language(command.Code, command.DisplayName, command.NativeName, command.SortOrder) is { } invalid)
+        if ((WebsiteInputValidation.Language(command.Code, command.DisplayName, command.NativeName, command.SortOrder)
+             ?? WebsiteInputValidation.LanguageFormat(command.DefaultCurrencyCode, command.Direction, command.FormatLocale)) is { } invalid)
         {
             return WebsiteMutationResult<WebsiteLanguageDto>.Invalid(invalid.Field, invalid.Message);
         }
@@ -89,23 +116,39 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
         return await InLockAsync(async now =>
         {
             var language = new WebsiteLanguage(
-                Guid.NewGuid(), command.Code, command.DisplayName, command.NativeName, command.SortOrder, command.IsActive, now, command.ActorStaffId);
+                Guid.NewGuid(), command.Code, command.DisplayName, command.NativeName, command.SortOrder, false, now, command.ActorStaffId);
             if (await database.WebsiteLanguages.AnyAsync(existing => existing.NormalizedCode == language.NormalizedCode, cancellationToken))
             {
                 return WebsiteMutationResult<WebsiteLanguageDto>.Conflict(
                     WebsiteErrorCodes.AlreadyExists, $"The language {language.Code} already exists. A code is an identity: use a new row for a new code.", "code");
             }
 
+            if (await CheckCurrencyAsync(command.DefaultCurrencyCode, requireActive: false, cancellationToken) is { } badCurrency)
+            {
+                return badCurrency;
+            }
+
+            language.InitializeFormat(command.FormatLocale, command.Direction ?? "ltr", command.DefaultCurrencyCode);
             database.WebsiteLanguages.Add(language);
             await database.SaveChangesAsync(cancellationToken);
-            return WebsiteMutationResult<WebsiteLanguageDto>.Success(ToDto(language, 0));
+            var created = ToDto(language, new LanguageCoverage(0, 0, 0, 0, 0));
+            // A new language has no texts: it starts off (a pack, or the editor, fills it) — turning it on is a separate, checked step.
+            if (command.IsActive)
+            {
+                return WebsiteMutationResult<WebsiteLanguageDto>.Conflict(
+                    WebsiteErrorCodes.LanguageIncomplete, $"{language.Code} has no texts yet, so it cannot be turned on. Install a language pack or translate it first.", "isActive");
+            }
+
+            return WebsiteMutationResult<WebsiteLanguageDto>.Success(await WithCoverageAsync(language, created, cancellationToken));
         }, cancellationToken);
     }
 
     public async Task<WebsiteMutationResult<WebsiteLanguageDto>> UpdateLanguageAsync(
         UpdateLanguageCommand command, CancellationToken cancellationToken)
     {
-        if ((WebsiteInputValidation.Version(command.ExpectedVersion) ?? WebsiteInputValidation.Language(command.Code, command.DisplayName, command.NativeName, command.SortOrder, codeRequired: false)) is { } invalid)
+        if ((WebsiteInputValidation.Version(command.ExpectedVersion)
+             ?? WebsiteInputValidation.Language(command.Code, command.DisplayName, command.NativeName, command.SortOrder, codeRequired: false)
+             ?? WebsiteInputValidation.LanguageFormat(command.DefaultCurrencyCode, command.Direction, command.FormatLocale)) is { } invalid)
         {
             return WebsiteMutationResult<WebsiteLanguageDto>.Invalid(invalid.Field, invalid.Message);
         }
@@ -128,9 +171,24 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
                     WebsiteErrorCodes.DefaultLanguageRequired, "The default language cannot be turned off. Make another active language the default first.", "isActive");
             }
 
-            language.Edit(command.DisplayName, command.NativeName, command.SortOrder, command.IsActive, now, command.ActorStaffId);
+            var coverage = await CoverageOfAsync(language, cancellationToken);
+            if (command.IsActive && !language.IsActive && !coverage.IsComplete)
+            {
+                return WebsiteMutationResult<WebsiteLanguageDto>.Conflict(
+                    WebsiteErrorCodes.LanguageIncomplete,
+                    $"{language.Code} still lacks {coverage.Missing} of {coverage.Required} texts, so it cannot be turned on yet. Finish the translation first.", "isActive");
+            }
+
+            if (await CheckCurrencyAsync(command.DefaultCurrencyCode, requireActive: command.IsActive, cancellationToken) is { } badCurrency)
+            {
+                return badCurrency;
+            }
+
+            language.Edit(
+                command.DisplayName, command.NativeName, command.SortOrder, command.IsActive,
+                command.FormatLocale ?? language.FormatLocale, command.Direction ?? language.Direction, command.DefaultCurrencyCode, now, command.ActorStaffId);
             await database.SaveChangesAsync(cancellationToken);
-            return WebsiteMutationResult<WebsiteLanguageDto>.Success(ToDto(language, await TranslatedCountAsync(language.Id, cancellationToken)));
+            return WebsiteMutationResult<WebsiteLanguageDto>.Success(ToDto(language, coverage));
         }, cancellationToken);
     }
 
@@ -154,10 +212,10 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
                 return stale;
             }
 
-            var translated = await TranslatedCountAsync(target.Id, cancellationToken);
+            var coverage = await CoverageOfAsync(target, cancellationToken);
             if (target.IsDefault)
             {
-                return WebsiteMutationResult<WebsiteLanguageDto>.Success(ToDto(target, translated));
+                return WebsiteMutationResult<WebsiteLanguageDto>.Success(ToDto(target, coverage));
             }
 
             if (!target.IsActive)
@@ -166,12 +224,12 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
                     WebsiteErrorCodes.DefaultLanguageRequired, "Only an active language can be the default. Turn it on first.");
             }
 
-            // The default is the fallback for every other language, so it must have a value for every managed key.
-            if (translated < WebsiteTranslationCatalog.All.Count)
+            // The default is the fallback for every other language, so it must have a text for every required key.
+            if (!coverage.IsComplete)
             {
                 return WebsiteMutationResult<WebsiteLanguageDto>.Conflict(
                     WebsiteErrorCodes.DefaultLanguageIncomplete,
-                    $"{target.Code} has {WebsiteTranslationCatalog.All.Count - translated} of {WebsiteTranslationCatalog.All.Count} managed keys without a value; the default language must have all of them.");
+                    $"{target.Code} lacks {coverage.Missing} of {coverage.Required} required texts; the default language must have all of them.");
             }
 
             // The partial unique index allows one default at a time, so the old one is cleared before the new one is set.
@@ -180,7 +238,7 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
             await database.SaveChangesAsync(cancellationToken);
             target.MarkDefault(true, now, command.ActorStaffId);
             await database.SaveChangesAsync(cancellationToken);
-            return WebsiteMutationResult<WebsiteLanguageDto>.Success(ToDto(target, translated));
+            return WebsiteMutationResult<WebsiteLanguageDto>.Success(ToDto(target, coverage));
         }, cancellationToken);
     }
 
@@ -213,16 +271,11 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
             if (language.IsActive)
             {
                 return WebsiteMutationResult<bool>.Conflict(
-                    WebsiteErrorCodes.LanguageInUse, $"{language.Code} is active and visitors can pick it. Turn it off instead; nothing is deleted.");
+                    WebsiteErrorCodes.LanguageInUse, $"{language.Code} is active and visitors can pick it. Turn it off first; nothing is deleted.");
             }
 
-            var translated = await database.WebsiteTranslations.CountAsync(row => row.LanguageId == language.Id, cancellationToken);
-            if (translated > 0)
-            {
-                return WebsiteMutationResult<bool>.Conflict(
-                    WebsiteErrorCodes.LanguageInUse, $"{language.Code} has {translated} saved translation(s). It cannot be deleted without losing them; keep it turned off.");
-            }
-
+            // An installed pack is thousands of rows: removing the language removes them with it (the editor said how many).
+            await database.WebsiteTranslations.Where(row => row.LanguageId == language.Id).ExecuteDeleteAsync(cancellationToken);
             database.WebsiteLanguages.Remove(language);
             await database.SaveChangesAsync(cancellationToken);
             return WebsiteMutationResult<bool>.Success(true);
@@ -234,65 +287,64 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
     public async Task<WebsiteMutationResult<WebsiteTranslationRowDto>> SaveTranslationAsync(
         SaveTranslationCommand command, CancellationToken cancellationToken)
     {
-        if (!WebsiteTranslationCatalog.ByKey.TryGetValue(command.Key ?? string.Empty, out var definition))
-        {
-            return WebsiteMutationResult<WebsiteTranslationRowDto>.NotFound($"'{command.Key}' is not a managed translation key.");
-        }
-
         if (command.ExpectedVersion is < 1)
         {
-            return WebsiteMutationResult<WebsiteTranslationRowDto>.Invalid("expectedVersion", "expectedVersion must be null (no override yet) or the version the editor loaded.");
-        }
-
-        if (TranslationText.Validate(command.Value, definition.Placeholders) is { } problem)
-        {
-            return WebsiteMutationResult<WebsiteTranslationRowDto>.Invalid("value", problem);
+            return WebsiteMutationResult<WebsiteTranslationRowDto>.Invalid("expectedVersion", "expectedVersion must be null (no text saved yet) or the version the editor loaded.");
         }
 
         return await InLockAsync(async now =>
         {
+            var model = await WebsiteLocalizationModel.LoadAsync(content, cancellationToken);
+            if (!model.ByKey.TryGetValue(command.Key ?? string.Empty, out var item))
+            {
+                return WebsiteMutationResult<WebsiteTranslationRowDto>.NotFound($"'{command.Key}' is not a managed translation key.");
+            }
+
+            if (TranslationText.Validate(command.Value, item.Placeholders) is { } problem)
+            {
+                return WebsiteMutationResult<WebsiteTranslationRowDto>.Invalid("value", problem);
+            }
+
             if (await FindLanguageAsync(command.Locale, cancellationToken) is not { } language)
             {
                 return WebsiteMutationResult<WebsiteTranslationRowDto>.NotFound($"The language {command.Locale} does not exist.");
             }
 
             var row = await database.WebsiteTranslations.SingleOrDefaultAsync(
-                translation => translation.LanguageId == language.Id && translation.Key == definition.Key, cancellationToken);
+                translation => translation.LanguageId == language.Id && translation.Key == item.Key, cancellationToken);
             if (row is null && command.ExpectedVersion is not null)
             {
                 return WebsiteMutationResult<WebsiteTranslationRowDto>.Conflict(
-                    WebsiteErrorCodes.StaleVersion, "That override no longer exists. Reload and try again.");
+                    WebsiteErrorCodes.StaleVersion, "That text no longer exists. Reload and try again.");
             }
 
             if (row is not null && command.ExpectedVersion != row.Version)
             {
-                return WebsiteMutationResult<WebsiteTranslationRowDto>.Conflict(WebsiteErrorCodes.StaleVersion, StaleText($"{language.Code}/{definition.Key}"));
+                return WebsiteMutationResult<WebsiteTranslationRowDto>.Conflict(WebsiteErrorCodes.StaleVersion, StaleText($"{language.Code}/{item.Key}"));
             }
 
+            var reference = await ReferenceTextsForAsync(model, cancellationToken);
+            var isReference = reference.Language?.Id == language.Id;
+            var sourceHash = isReference || !reference.Texts.TryGetValue(item.Key, out var referenceText) ? null : SourceText.Hash(referenceText);
             var value = command.Value.Trim();
             if (row is null)
             {
-                row = new WebsiteTranslation(language.Id, definition.Key, value, now, command.ActorStaffId);
+                row = new WebsiteTranslation(language.Id, item.Key, value, true, sourceHash, now, command.ActorStaffId);
                 database.WebsiteTranslations.Add(row);
             }
             else
             {
-                row.Change(value, now, command.ActorStaffId);
+                row.Change(value, true, sourceHash, now, command.ActorStaffId);
             }
 
             await database.SaveChangesAsync(cancellationToken);
-            return WebsiteMutationResult<WebsiteTranslationRowDto>.Success(await RowAsync(definition, language, cancellationToken));
+            return WebsiteMutationResult<WebsiteTranslationRowDto>.Success(BuildRow(item, row, "translated", reference.Texts));
         }, cancellationToken);
     }
 
     public async Task<WebsiteMutationResult<WebsiteTranslationRowDto>> ClearTranslationAsync(
         ClearTranslationCommand command, CancellationToken cancellationToken)
     {
-        if (!WebsiteTranslationCatalog.ByKey.TryGetValue(command.Key ?? string.Empty, out var definition))
-        {
-            return WebsiteMutationResult<WebsiteTranslationRowDto>.NotFound($"'{command.Key}' is not a managed translation key.");
-        }
-
         if (WebsiteInputValidation.Version(command.ExpectedVersion) is { } invalid)
         {
             return WebsiteMutationResult<WebsiteTranslationRowDto>.Invalid(invalid.Field, invalid.Message);
@@ -300,6 +352,12 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
 
         return await InLockAsync(async _ =>
         {
+            var model = await WebsiteLocalizationModel.LoadAsync(content, cancellationToken);
+            if (!model.ByKey.TryGetValue(command.Key ?? string.Empty, out var item))
+            {
+                return WebsiteMutationResult<WebsiteTranslationRowDto>.NotFound($"'{command.Key}' is not a managed translation key.");
+            }
+
             if (await FindLanguageAsync(command.Locale, cancellationToken) is not { } language)
             {
                 return WebsiteMutationResult<WebsiteTranslationRowDto>.NotFound($"The language {command.Locale} does not exist.");
@@ -308,24 +366,25 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
             if (language.IsDefault)
             {
                 return WebsiteMutationResult<WebsiteTranslationRowDto>.Conflict(
-                    WebsiteErrorCodes.DefaultLanguageRequired, "The default language must keep a value for every key. Edit the value instead of removing it.");
+                    WebsiteErrorCodes.DefaultLanguageRequired, "The default language must keep a text for every key. Edit the text instead of removing it.");
             }
 
             var row = await database.WebsiteTranslations.SingleOrDefaultAsync(
-                translation => translation.LanguageId == language.Id && translation.Key == definition.Key, cancellationToken);
+                translation => translation.LanguageId == language.Id && translation.Key == item.Key, cancellationToken);
             if (row is null)
             {
-                return WebsiteMutationResult<WebsiteTranslationRowDto>.NotFound($"{language.Code} has no override for {definition.Key}.");
+                return WebsiteMutationResult<WebsiteTranslationRowDto>.NotFound($"{language.Code} has no text for {item.Key}.");
             }
 
             if (row.Version != command.ExpectedVersion)
             {
-                return WebsiteMutationResult<WebsiteTranslationRowDto>.Conflict(WebsiteErrorCodes.StaleVersion, StaleText($"{language.Code}/{definition.Key}"));
+                return WebsiteMutationResult<WebsiteTranslationRowDto>.Conflict(WebsiteErrorCodes.StaleVersion, StaleText($"{language.Code}/{item.Key}"));
             }
 
             database.WebsiteTranslations.Remove(row);
             await database.SaveChangesAsync(cancellationToken);
-            return WebsiteMutationResult<WebsiteTranslationRowDto>.Success(await RowAsync(definition, language, cancellationToken));
+            var reference = await ReferenceTextsForAsync(model, cancellationToken);
+            return WebsiteMutationResult<WebsiteTranslationRowDto>.Success(BuildRow(item, null, "missing", reference.Texts));
         }, cancellationToken);
     }
 
@@ -406,6 +465,12 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
             {
                 return Task.FromResult<WebsiteMutationResult<WebsiteCurrencyDto>?>(WebsiteMutationResult<WebsiteCurrencyDto>.Conflict(
                     WebsiteErrorCodes.DefaultCurrencyRequired, "The default display currency cannot be turned off. Make another currency the default first."));
+            }
+
+            if (!command.IsActive && database.WebsiteLanguages.Any(language => language.IsActive && language.DefaultCurrencyCode == currency.Code))
+            {
+                return Task.FromResult<WebsiteMutationResult<WebsiteCurrencyDto>?>(WebsiteMutationResult<WebsiteCurrencyDto>.Conflict(
+                    WebsiteErrorCodes.CurrencyInUse, $"{currency.Code} is the default currency of an active language. Give that language another default currency first."));
             }
 
             currency.SetActive(command.IsActive, now, command.ActorStaffId);
@@ -496,6 +561,12 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
                     WebsiteErrorCodes.CurrencyInUse, $"{currency.Code} is on and visitors can pick it. Turn it off instead.");
             }
 
+            if (await database.WebsiteLanguages.AnyAsync(language => language.DefaultCurrencyCode == currency.Code, cancellationToken))
+            {
+                return WebsiteMutationResult<bool>.Conflict(
+                    WebsiteErrorCodes.CurrencyInUse, $"{currency.Code} is the default currency of a language. Give that language another default currency first.");
+            }
+
             database.WebsiteCurrencies.Remove(currency);
             await database.SaveChangesAsync(cancellationToken);
             return WebsiteMutationResult<bool>.Success(true);
@@ -504,34 +575,9 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
 
     // ----------------------------------------------------------------- helpers
 
-    /// <summary>One transaction, the site-wide lock first, then the work; any non-success rolls everything back.</summary>
-    private async Task<WebsiteMutationResult<T>> InLockAsync<T>(
-        Func<DateTimeOffset, Task<WebsiteMutationResult<T>>> work, CancellationToken cancellationToken)
-    {
-        await using var transaction = await database.Database.BeginTransactionAsync(cancellationToken);
-        try
-        {
-            await AdvisoryLockCoordinator.AcquireKeyAsync(database, BookingAdvisoryLockKeys.ForWebsiteSettings(), cancellationToken);
-            database.ChangeTracker.Clear();
-            var result = await work(timeProvider.GetUtcNow());
-            if (result.Status == WebsiteMutationStatus.Succeeded)
-            {
-                await transaction.CommitAsync(cancellationToken);
-            }
-            else
-            {
-                await transaction.RollbackAsync(cancellationToken);
-            }
-
-            return result;
-        }
-        catch (DbUpdateConcurrencyException)
-        {
-            // Unreachable while every writer takes the lock; if one ever does not, the version token still says no.
-            await transaction.RollbackAsync(cancellationToken);
-            return WebsiteMutationResult<T>.Conflict(WebsiteErrorCodes.StaleVersion, "The row was changed by someone else. Reload and try again.");
-        }
-    }
+    private Task<WebsiteMutationResult<T>> InLockAsync<T>(
+        Func<DateTimeOffset, Task<WebsiteMutationResult<T>>> work, CancellationToken cancellationToken) =>
+        WebsiteTransaction.InLockAsync(database, timeProvider, work, cancellationToken);
 
     private async Task<WebsiteMutationResult<WebsiteCurrencyDto>> InCurrencyAsync(
         string code,
@@ -584,47 +630,87 @@ internal sealed class WebsiteSettingsStore(TheBhaDbContext database, TimeProvide
             ? await database.WebsiteCurrencies.SingleOrDefaultAsync(currency => currency.Code == normalized, cancellationToken)
             : null;
 
-    private async Task<Dictionary<Guid, int>> TranslatedCountsAsync(CancellationToken cancellationToken) =>
-        await database.WebsiteTranslations.AsNoTracking()
-            .Where(translation => CatalogKeys.Contains(translation.Key))
-            .GroupBy(translation => translation.LanguageId)
-            .Select(group => new { group.Key, Count = group.Count() })
-            .ToDictionaryAsync(item => item.Key, item => item.Count, cancellationToken);
-
-    private async Task<int> TranslatedCountAsync(Guid languageId, CancellationToken cancellationToken) =>
-        await database.WebsiteTranslations.CountAsync(
-            translation => translation.LanguageId == languageId && CatalogKeys.Contains(translation.Key), cancellationToken);
-
-    private async Task<WebsiteTranslationRowDto> RowAsync(
-        TranslationKeyDefinition definition, WebsiteLanguage language, CancellationToken cancellationToken)
+    /// <summary>A language's default currency must exist; an ACTIVE language needs it on, so a visitor who picks the language is never given an unusable currency.</summary>
+    private async Task<WebsiteMutationResult<WebsiteLanguageDto>?> CheckCurrencyAsync(string? code, bool requireActive, CancellationToken cancellationToken)
     {
-        var defaultId = language.IsDefault
-            ? language.Id
-            : await database.WebsiteLanguages.Where(candidate => candidate.IsDefault).Select(candidate => candidate.Id).SingleAsync(cancellationToken);
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            return null;
+        }
+
+        if (await FindCurrencyAsync(code, cancellationToken) is not { } currency)
+        {
+            return WebsiteMutationResult<WebsiteLanguageDto>.Conflict(
+                WebsiteErrorCodes.UnknownCurrency, $"The currency {code.Trim().ToUpperInvariant()} does not exist. Add it on the Currencies screen first.", "defaultCurrencyCode");
+        }
+
+        return requireActive && !currency.IsActive
+            ? WebsiteMutationResult<WebsiteLanguageDto>.Conflict(
+                WebsiteErrorCodes.CurrencyInactive, $"{currency.Code} is off. Turn it on (it needs a rate) before an active language uses it as its default.", "defaultCurrencyCode")
+            : null;
+    }
+
+    private static bool IsContentSource(WebsiteLanguage language) =>
+        string.Equals(language.NormalizedCode, ContentSource.Locale, StringComparison.OrdinalIgnoreCase);
+
+    private async Task<Dictionary<Guid, LanguageCoverage>> CoverageByLanguageAsync(
+        WebsiteLocalizationModel model, IReadOnlyList<WebsiteLanguage> languages, CancellationToken cancellationToken)
+    {
+        var defaultLanguage = languages.FirstOrDefault(language => language.IsDefault);
+        var reference = await model.ReferenceTextsAsync(database, defaultLanguage, defaultLanguage?.Code ?? ContentSource.Locale, cancellationToken);
         var rows = await database.WebsiteTranslations.AsNoTracking()
-            .Where(translation => translation.Key == definition.Key && (translation.LanguageId == language.Id || translation.LanguageId == defaultId))
+            .Select(row => new { row.LanguageId, row.Key, row.IsManual, row.SourceHash })
             .ToListAsync(cancellationToken);
-        return BuildRow(definition, rows.SingleOrDefault(row => row.LanguageId == language.Id), rows.SingleOrDefault(row => row.LanguageId == defaultId), language.IsDefault);
+        var byLanguage = rows.GroupBy(row => row.LanguageId)
+            .ToDictionary(group => group.Key, group => group.ToDictionary(row => row.Key, row => new CoverageRow(row.IsManual, row.SourceHash), StringComparer.Ordinal));
+        var result = new Dictionary<Guid, LanguageCoverage>();
+        foreach (var language in languages)
+        {
+            var own = byLanguage.GetValueOrDefault(language.Id) ?? new Dictionary<string, CoverageRow>(StringComparer.Ordinal);
+            result[language.Id] = model.CoverageOf(own, IsContentSource(language), defaultLanguage?.Id == language.Id, reference);
+        }
+
+        return result;
+    }
+
+    private async Task<LanguageCoverage> CoverageOfAsync(WebsiteLanguage language, CancellationToken cancellationToken)
+    {
+        var model = await WebsiteLocalizationModel.LoadAsync(content, cancellationToken);
+        var languages = await database.WebsiteLanguages.AsNoTracking().ToListAsync(cancellationToken);
+        return (await CoverageByLanguageAsync(model, languages, cancellationToken))[language.Id];
+    }
+
+    private async Task<WebsiteLanguageDto> WithCoverageAsync(WebsiteLanguage language, WebsiteLanguageDto fallback, CancellationToken cancellationToken) =>
+        ToDto(language, await CoverageOfAsync(language, cancellationToken)) is var dto ? dto : fallback;
+
+    private async Task<(WebsiteLanguage? Language, Dictionary<string, string> Texts)> ReferenceTextsForAsync(
+        WebsiteLocalizationModel model, CancellationToken cancellationToken)
+    {
+        var reference = await database.WebsiteLanguages.AsNoTracking().SingleOrDefaultAsync(language => language.IsDefault, cancellationToken);
+        return (reference, await model.ReferenceTextsAsync(database, reference, reference?.Code ?? ContentSource.Locale, cancellationToken));
     }
 
     private static WebsiteTranslationRowDto BuildRow(
-        TranslationKeyDefinition definition, WebsiteTranslation? own, WebsiteTranslation? fallback, bool isDefaultLanguage) =>
+        RequiredKey item, WebsiteTranslation? own, string status, IReadOnlyDictionary<string, string> reference) =>
         new(
-            definition.Key,
-            definition.Group,
-            definition.Vietnamese,
-            definition.Placeholders,
+            item.Key,
+            item.Scope,
+            item.Group,
+            item.Context,
+            item.Placeholders,
+            reference.GetValueOrDefault(item.Key) ?? item.Content?.SourceText ?? string.Empty,
             own?.Value,
-            own?.Value ?? fallback?.Value ?? definition.Vietnamese,
-            own is not null,
-            !isDefaultLanguage && own is null,
+            status,
+            own?.IsManual ?? false,
             own?.Version,
             own?.UpdatedAtUtc);
 
-    private static WebsiteLanguageDto ToDto(WebsiteLanguage language, int translated) =>
+    private static WebsiteLanguageDto ToDto(WebsiteLanguage language, LanguageCoverage coverage) =>
         new(
-            language.Code, language.DisplayName, language.NativeName, language.SortOrder, language.IsActive, language.IsDefault,
-            language.Version, translated, WebsiteTranslationCatalog.All.Count, language.UpdatedAtUtc, language.UpdatedByStaffId);
+            language.Code, language.DisplayName, language.NativeName, language.SortOrder, language.IsActive, language.IsDefault, language.Version,
+            language.DefaultCurrencyCode, language.Direction, language.FormatLocale, language.PackId, language.PackVersion,
+            coverage.Required, coverage.Translated, coverage.Missing, coverage.Outdated, coverage.Manual, coverage.IsComplete,
+            language.UpdatedAtUtc, language.UpdatedByStaffId);
 
     private static WebsiteCurrencyDto ToDto(WebsiteCurrency currency) =>
         new(

@@ -13,16 +13,29 @@ using TheBha.Infrastructure.Persistence;
 namespace TheBha.IntegrationTests;
 
 /// <summary>
-/// CUST-WEB-HEADER-001-CP02 acceptance A1: migration 10 applies to a database that already holds booking and Staff
-/// data, leaves every existing row untouched, gives no Staff the website permission, seeds Vietnamese (active
-/// default), English (present, off), VND (base, rate 1) and USD/EUR (off, no rate); the seed is frozen and equals the key
-/// catalog; running the migration command again overwrites nothing; its guarded Down() refuses to drop anything an
-/// operator administered. Each test owns a disposable database so it controls which migration is applied.
+/// CUST-WEB-HEADER-001-CP02 acceptance A1 (migrations 10 and 11): they apply to a database that already holds booking and
+/// Staff data, leave every existing row untouched, give no Staff the website permission, seed Vietnamese (active default,
+/// VND), English (present, off, USD), VND (base, rate 1) and USD/EUR (off, no rate) with the 24 starter texts in the
+/// namespaced key scheme; running the migration command again overwrites nothing; the guarded Down() methods refuse to
+/// drop anything an operator administered or installed. Each test owns a disposable database so it controls which
+/// migration is applied.
 /// </summary>
 public sealed class WebsiteSettingsMigrationTests : IAsyncLifetime
 {
     private const string V9Migration = "20261001141847_AddStaffIdentityFoundation";
     private const string V10Migration = "20261015050047_AddWebsiteLocalizationSettings";
+    private const string V11Migration = "20261015095908_AddRuntimeLanguagePacks";
+
+    /// <summary>The 24 texts migration 10 seeded, under the keys migration 11 gave them (the old note about a selector that did nothing is retired).</summary>
+    private static readonly string[] StarterKeys =
+    [
+        "customer.header.account.account", "customer.header.account.createAccount", "customer.header.account.myAccount", "customer.header.account.signIn",
+        "customer.header.account.signOut", "customer.header.menu.blog", "customer.header.menu.currency", "customer.header.menu.language",
+        "customer.header.menu.languageCurrency", "customer.header.menu.menu", "customer.header.menu.offers", "customer.header.menu.openMenu",
+        "customer.header.menu.riverside", "customer.header.menu.services", "customer.header.menu.templates", "customer.header.theme.toDark",
+        "customer.header.theme.toLight", "shared.common.clearFilters", "shared.common.close", "shared.common.error.generic",
+        "shared.common.error.loadFailed", "shared.common.error.network", "shared.common.loading", "shared.common.retry"
+    ];
     private static readonly DateTimeOffset Now = DateTimeOffset.Parse("2026-10-15T00:00:00Z");
     private static readonly DateOnly CheckIn = new(2026, 11, 1);
     private static readonly DateOnly CheckOut = new(2026, 11, 3);
@@ -44,18 +57,19 @@ public sealed class WebsiteSettingsMigrationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_fresh_database_gets_the_frozen_seed_and_it_equals_the_key_catalog()
+    public async Task A_fresh_database_gets_the_frozen_seed_in_the_namespaced_key_scheme()
     {
         await using var context = CreateContext();
         await context.Database.MigrateAsync();
 
-        Assert.Equal(10, (await context.Database.GetAppliedMigrationsAsync()).Count());
+        Assert.Equal(11, (await context.Database.GetAppliedMigrationsAsync()).Count());
         Assert.Empty(await context.Database.GetPendingMigrationsAsync());
 
-        // Languages: Vietnamese is the active default, English exists for the operator but is off.
+        // Languages: Vietnamese is the active default, English exists for the operator but is off; each has its format and currency.
         Assert.Equal(
-            ["vi|Tiếng Việt|true|true|1", "en|English|false|false|1"],
-            await RowsAsync("""SELECT "NormalizedCode" || '|' || "NativeName" || '|' || "IsActive"::text || '|' || "IsDefault"::text || '|' || "Version"::text FROM "WebsiteLanguages" ORDER BY "SortOrder" """));
+            ["vi|Tiếng Việt|true|true|vi-VN|VND|ltr", "en|English|false|false|en-US|USD|ltr"],
+            await RowsAsync("""SELECT "NormalizedCode" || '|' || "NativeName" || '|' || "IsActive"::text || '|' || "IsDefault"::text || '|' || "FormatLocale" || '|' || COALESCE("DefaultCurrencyCode",'') || '|' || "Direction" FROM "WebsiteLanguages" ORDER BY "SortOrder" """));
+        Assert.Equal(0, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteLanguages" WHERE "PackId" IS NOT NULL"""));   // nothing is installed from a pack yet
         Assert.Equal(WebsiteTestSeed.Vietnamese, await ScalarAsync<Guid>("""SELECT "Id" FROM "WebsiteLanguages" WHERE "NormalizedCode" = 'vi' """));
         Assert.Equal(WebsiteTestSeed.English, await ScalarAsync<Guid>("""SELECT "Id" FROM "WebsiteLanguages" WHERE "NormalizedCode" = 'en' """));
 
@@ -66,23 +80,39 @@ public sealed class WebsiteSettingsMigrationTests : IAsyncLifetime
         Assert.Equal(2, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteCurrencies" WHERE "VndPerUnit" IS NULL AND "RateUpdatedAtUtc" IS NULL AND NOT "IsActive" """));
         Assert.Equal(0, await ScalarAsync<int>("""SELECT count(*) FROM "StaffAccounts" """));
 
-        // Translations: both languages have every catalog key, with the catalog's text, and nothing else.
-        var expected = WebsiteTranslationCatalog.All.SelectMany(definition => new[]
-        {
-            $"vi|{definition.Key}|{definition.Vietnamese}|1",
-            $"en|{definition.Key}|{definition.English}|1"
-        }).Order(StringComparer.Ordinal).ToArray();
+        // Translations: both languages have exactly the 24 starter texts, under their new keys, with the built-in packs' texts.
+        var vi = LocalizationAssets.BuiltInPack("vi")!.Messages;
+        var en = LocalizationAssets.BuiltInPack("en")!.Messages;
+        var expected = StarterKeys.SelectMany(key => new[] { $"vi|{key}|{vi[key]}|1", $"en|{key}|{en[key]}|1" }).Order(StringComparer.Ordinal).ToArray();
         var actual = (await RowsAsync(
             """SELECT l."NormalizedCode" || '|' || t."Key" || '|' || t."Value" || '|' || t."Version"::text FROM "WebsiteTranslations" t JOIN "WebsiteLanguages" l ON l."Id" = t."LanguageId" """))
             .Order(StringComparer.Ordinal).ToArray();
         Assert.Equal(expected, actual);
-        Assert.Equal(WebsiteTranslationCatalog.All.Count * 2, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteTranslations" """));
+        Assert.Equal(0, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteTranslations" WHERE "IsManual" OR "SourceHash" IS NOT NULL"""));
+        Assert.Equal(0, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteTranslations" WHERE "Key" LIKE 'header.%' OR "Key" LIKE 'common.%'"""));
 
-        // The test seed (what every other test starts from) is the same thing, built from the catalog.
-        await ExecuteAsync(WebsiteTestSeed.InsertSql().Replace("{{", "{"));
-        Assert.Equal(expected, (await RowsAsync(
-            """SELECT l."NormalizedCode" || '|' || t."Key" || '|' || t."Value" || '|' || t."Version"::text FROM "WebsiteTranslations" t JOIN "WebsiteLanguages" l ON l."Id" = t."LanguageId" """))
-            .Order(StringComparer.Ordinal).ToArray());
+        // Every starter key is still in the catalog, so the renamed rows are read by the product.
+        Assert.All(StarterKeys, key => Assert.True(LocalizationAssets.CatalogByKey.ContainsKey(key), key));
+
+        // The test seed (what every other test starts from) is a superset of it and keeps the same identities.
+        await ExecuteAsync(WebsiteTestSeed.InsertSql());
+        Assert.Equal(2, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteLanguages" """));
+        Assert.Equal(LocalizationAssets.Catalog.Count * 2, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteTranslations" """));
+    }
+
+    [Fact]
+    public async Task Migration_11_renames_the_texts_an_operator_already_edited_and_keeps_their_values()
+    {
+        await using var context = CreateContext();
+        var migrator = context.GetInfrastructure().GetRequiredService<IMigrator>();
+        await migrator.MigrateAsync(V10Migration);
+        await ExecuteAsync("""UPDATE "WebsiteTranslations" SET "Value" = 'Ưu đãi riêng', "Version" = 3 WHERE "Key" = 'header.menu.offers' AND "LanguageId" = '7b0c8a10-0001-4000-8000-000000000001'""");
+
+        await migrator.MigrateAsync(V11Migration);
+
+        Assert.Equal("Ưu đãi riêng", await ScalarAsync<string>("""SELECT "Value" FROM "WebsiteTranslations" WHERE "Key" = 'customer.header.menu.offers' AND "LanguageId" = '7b0c8a10-0001-4000-8000-000000000001'"""));
+        Assert.Equal(3, await ScalarAsync<int>("""SELECT "Version" FROM "WebsiteTranslations" WHERE "Key" = 'customer.header.menu.offers' AND "LanguageId" = '7b0c8a10-0001-4000-8000-000000000001'"""));
+        Assert.Equal(0, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteTranslations" WHERE "Key" = 'header.menu.offers'"""));
     }
 
     [Fact]
@@ -98,7 +128,7 @@ public sealed class WebsiteSettingsMigrationTests : IAsyncLifetime
         Assert.True(before["InventoryHolds"].Rows >= 1);
         Assert.Equal(1, before["StaffAccounts"].Rows);
 
-        await migrator.MigrateAsync(V10Migration);
+        await migrator.MigrateAsync(V11Migration);
 
         Assert.Empty(await context.Database.GetPendingMigrationsAsync());
         var after = await TableFingerprintsAsync();
@@ -127,16 +157,16 @@ public sealed class WebsiteSettingsMigrationTests : IAsyncLifetime
         await ExecuteAsync(
             """
             UPDATE "WebsiteLanguages" SET "DisplayName" = 'Operator renamed', "Version" = 2, "IsActive" = true WHERE "NormalizedCode" = 'en';
-            UPDATE "WebsiteTranslations" SET "Value" = 'Ưu đãi riêng', "Version" = 3 WHERE "Key" = 'header.menu.offers' AND "LanguageId" = '7b0c8a10-0001-4000-8000-000000000001';
+            UPDATE "WebsiteTranslations" SET "Value" = 'Ưu đãi riêng', "Version" = 3 WHERE "Key" = 'customer.header.menu.offers' AND "LanguageId" = '7b0c8a10-0001-4000-8000-000000000001';
             UPDATE "WebsiteCurrencies" SET "VndPerUnit" = 25400.5, "RateUpdatedAtUtc" = now(), "IsActive" = true, "Name" = 'Operator dollar', "Version" = 4 WHERE "Code" = 'USD';
-            INSERT INTO "WebsiteLanguages" VALUES (gen_random_uuid(),'fr','fr','French','Français',30,true,false,1,now(),now(),NULL);
+            INSERT INTO "WebsiteLanguages" ("Id","Code","NormalizedCode","DisplayName","NativeName","SortOrder","IsActive","IsDefault","Version","CreatedAtUtc","UpdatedAtUtc","FormatLocale") VALUES (gen_random_uuid(),'fr','fr','French','Français',30,true,false,1,now(),now(),'fr');
             """);
         var before = await RowsAsync("""SELECT 'L' || "NormalizedCode" || "DisplayName" || "Version"::text || "IsActive"::text FROM "WebsiteLanguages" UNION ALL SELECT 'T' || "Key" || "Value" || "Version"::text FROM "WebsiteTranslations" UNION ALL SELECT 'C' || "Code" || "Name" || COALESCE("VndPerUnit"::text,'-') || "Version"::text FROM "WebsiteCurrencies" """);
 
         await context.Database.MigrateAsync();
         await context.Database.MigrateAsync();
 
-        Assert.Equal(10, (await context.Database.GetAppliedMigrationsAsync()).Count());
+        Assert.Equal(11, (await context.Database.GetAppliedMigrationsAsync()).Count());
         Assert.Equal(
             before.Order(StringComparer.Ordinal).ToArray(),
             (await RowsAsync("""SELECT 'L' || "NormalizedCode" || "DisplayName" || "Version"::text || "IsActive"::text FROM "WebsiteLanguages" UNION ALL SELECT 'T' || "Key" || "Value" || "Version"::text FROM "WebsiteTranslations" UNION ALL SELECT 'C' || "Code" || "Name" || COALESCE("VndPerUnit"::text,'-') || "Version"::text FROM "WebsiteCurrencies" """))
@@ -146,38 +176,74 @@ public sealed class WebsiteSettingsMigrationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Down_drops_an_untouched_seed_and_refuses_anything_administered_or_granted()
+    public async Task Down_of_migration_11_restores_the_old_keys_and_refuses_anything_installed_or_edited()
     {
         await using var context = CreateContext();
         var migrator = context.GetInfrastructure().GetRequiredService<IMigrator>();
         await migrator.MigrateAsync();
+
+        // Each change is administered data migration 11 cannot restore: refused atomically, with nothing changed.
+        (string Change, string Undo)[] changes =
+        [
+            ("""UPDATE "WebsiteLanguages" SET "PackId" = 'bha-en', "PackVersion" = '1' WHERE "NormalizedCode" = 'en'""", """UPDATE "WebsiteLanguages" SET "PackId" = NULL, "PackVersion" = NULL WHERE "NormalizedCode" = 'en'"""),
+            ("""UPDATE "WebsiteTranslations" SET "IsManual" = true WHERE "Key" = 'shared.common.close' AND "LanguageId" = '7b0c8a10-0001-4000-8000-000000000002'""", """UPDATE "WebsiteTranslations" SET "IsManual" = false"""),
+            ("""INSERT INTO "WebsiteTranslations" ("LanguageId","Key","Value","Version","UpdatedAtUtc") VALUES ('7b0c8a10-0001-4000-8000-000000000002','content.property.00000000-0000-0000-0000-000000000001.name','x',1,now())""", """DELETE FROM "WebsiteTranslations" WHERE "Key" LIKE 'content.%'"""),
+            ("""UPDATE "WebsiteTranslations" SET "Value" = repeat('x', 1500) WHERE "Key" = 'shared.common.close' AND "LanguageId" = '7b0c8a10-0001-4000-8000-000000000002'""", """UPDATE "WebsiteTranslations" SET "Value" = 'Close' WHERE "Key" = 'shared.common.close' AND "LanguageId" = '7b0c8a10-0001-4000-8000-000000000002'"""),
+            ("""INSERT INTO "WebsiteTranslations" ("LanguageId","Key","Value","Version","UpdatedAtUtc") VALUES ('7b0c8a10-0001-4000-8000-000000000002','customer.extra.one','x',1,now())""", """DELETE FROM "WebsiteTranslations" WHERE "Key" = 'customer.extra.one'"""),
+            ("""INSERT INTO "WebsiteLanguages" ("Id","Code","NormalizedCode","DisplayName","NativeName","SortOrder","IsActive","IsDefault","Version","CreatedAtUtc","UpdatedAtUtc","FormatLocale") VALUES (gen_random_uuid(),'fr','fr','French','Français',30,false,false,1,now(),now(),'fr')""", """DELETE FROM "WebsiteLanguages" WHERE "NormalizedCode" = 'fr'""")
+        ];
+        foreach (var (change, undo) in changes)
+        {
+            await ExecuteAsync(change);
+            var refused = await Assert.ThrowsAsync<PostgresException>(() => migrator.MigrateAsync(V10Migration));
+            Assert.Equal("P0001", refused.SqlState);
+            Assert.Equal(11, (await context.Database.GetAppliedMigrationsAsync()).Count());
+            await ExecuteAsync(undo);
+        }
+
+        // Untouched, it goes down: the old key scheme is back (the retired note is not), the new columns are gone, and Up restores the same seed.
+        await migrator.MigrateAsync(V10Migration);
+        Assert.Equal(0, await ScalarAsync<int>("""SELECT count(*) FROM information_schema.columns WHERE table_name = 'WebsiteLanguages' AND column_name IN ('FormatLocale','DefaultCurrencyCode','Direction','PackId','PackVersion')"""));
+        Assert.Equal(0, await ScalarAsync<int>("""SELECT count(*) FROM information_schema.columns WHERE table_name = 'WebsiteTranslations' AND column_name IN ('IsManual','SourceHash')"""));
+        Assert.Equal(2, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteTranslations" WHERE "Key" = 'header.menu.offers'"""));
+        Assert.Equal(0, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteTranslations" WHERE "Key" LIKE 'customer.%' OR "Key" LIKE 'shared.%'"""));
+        await migrator.MigrateAsync();
+        Assert.Equal(StarterKeys.Length * 2, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteTranslations" """));
+        Assert.Equal("USD", await ScalarAsync<string>("""SELECT "DefaultCurrencyCode" FROM "WebsiteLanguages" WHERE "NormalizedCode" = 'en'"""));
+    }
+
+    [Fact]
+    public async Task Down_of_migration_10_drops_an_untouched_seed_and_refuses_anything_administered_or_granted()
+    {
+        await using var context = CreateContext();
+        var migrator = context.GetInfrastructure().GetRequiredService<IMigrator>();
+        await migrator.MigrateAsync(V10Migration);
 
         // Untouched: Down succeeds, the tables and the column are gone, and Up restores the same seed.
         await migrator.MigrateAsync(V9Migration);
         Assert.Equal(0, await ScalarAsync<int>("""SELECT count(*) FROM information_schema.tables WHERE table_name LIKE 'Website%' """));
         Assert.Equal(0, await ScalarAsync<int>("""SELECT count(*) FROM information_schema.columns WHERE table_name = 'StaffAccounts' AND column_name = 'CanManageWebsite' """));
         Assert.Equal(0, await ScalarAsync<int>("""SELECT count(*) FROM pg_proc WHERE proname LIKE 'WebsiteSettings_AssertOneDefault%' """));
-        await migrator.MigrateAsync();
-        Assert.Equal(WebsiteTranslationCatalog.All.Count * 2, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteTranslations" """));
+        await migrator.MigrateAsync(V10Migration);
+        Assert.Equal(25 * 2, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteTranslations" """));
 
         // Each kind of administered change is refused atomically, with nothing dropped.
-        string[] changes =
+        (string Change, string Undo)[] changes =
         [
-            """INSERT INTO "WebsiteLanguages" VALUES (gen_random_uuid(),'fr','fr','French','Français',30,false,false,1,now(),now(),NULL)""",
-            """UPDATE "WebsiteLanguages" SET "Version" = 2 WHERE "NormalizedCode" = 'en'""",
-            """UPDATE "WebsiteCurrencies" SET "Version" = 2 WHERE "Code" = 'USD'""",
-            """INSERT INTO "WebsiteCurrencies" VALUES ('GBP','Pound','£',2,40,false,false,false,NULL,NULL,NULL,'manual',1,now(),now(),NULL)""",
-            """UPDATE "WebsiteTranslations" SET "Version" = 2 WHERE "Key" = 'common.close' AND "LanguageId" = '7b0c8a10-0001-4000-8000-000000000002'"""
+            ("""INSERT INTO "WebsiteLanguages" VALUES (gen_random_uuid(),'fr','fr','French','Français',30,false,false,1,now(),now(),NULL)""", """DELETE FROM "WebsiteLanguages" WHERE "NormalizedCode" = 'fr'"""),
+            ("""UPDATE "WebsiteLanguages" SET "Version" = 2 WHERE "NormalizedCode" = 'en'""", """UPDATE "WebsiteLanguages" SET "Version" = 1 WHERE "NormalizedCode" = 'en'"""),
+            ("""UPDATE "WebsiteCurrencies" SET "Version" = 2 WHERE "Code" = 'USD'""", """UPDATE "WebsiteCurrencies" SET "Version" = 1 WHERE "Code" = 'USD'"""),
+            ("""INSERT INTO "WebsiteCurrencies" VALUES ('GBP','Pound','£',2,40,false,false,false,NULL,NULL,NULL,'manual',1,now(),now(),NULL)""", """DELETE FROM "WebsiteCurrencies" WHERE "Code" = 'GBP'"""),
+            ("""UPDATE "WebsiteTranslations" SET "Version" = 2 WHERE "Key" = 'common.close' AND "LanguageId" = '7b0c8a10-0001-4000-8000-000000000002'""", """UPDATE "WebsiteTranslations" SET "Version" = 1 WHERE "Key" = 'common.close'""")
         ];
-        foreach (var change in changes)
+        foreach (var (change, undo) in changes)
         {
             await ExecuteAsync(change);
             var refused = await Assert.ThrowsAsync<PostgresException>(() => migrator.MigrateAsync(V9Migration));
             Assert.Equal("P0001", refused.SqlState);
             Assert.Equal(10, (await context.Database.GetAppliedMigrationsAsync()).Count());
             Assert.True(await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteLanguages" """) >= 2);
-            // Put the seed back so the next change is judged on its own.
-            await ExecuteAsync(WebsiteTestSeed.InsertSql().Replace("{{", "{"));
+            await ExecuteAsync(undo);
         }
 
         // A granted permission is refused too.

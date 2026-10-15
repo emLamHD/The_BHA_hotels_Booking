@@ -3,7 +3,8 @@ import Image from "next/image";
 import Link from "next/link";
 import type { Route } from "next";
 import { MockOffer, OFFER_BADGE, OFFER_REAL_CTA } from "@/data/homepageOffers";
-import { discountPercent, formatVnd } from "@/lib/homepageContent";
+import { discountPercent } from "@/lib/homepageContent";
+import Money from "@/components/Money";
 import { OFFERS_PATH, RESULTS_PATH } from "@/lib/riversideHomeContent";
 
 /**
@@ -43,12 +44,12 @@ const OfferCard: FC<{ offer: MockOffer; highlighted?: boolean; sizes?: string }>
           <p>
             <span className="block text-sm text-neutral-500 line-through dark:text-neutral-400">
               <span className="sr-only">Giá gốc minh hoạ </span>
-              {formatVnd(offer.originalPrice)}
+              <Money vnd={offer.originalPrice} />
             </span>
             <span className="flex items-baseline gap-x-2 whitespace-nowrap">
               <span className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
                 <span className="sr-only">Giá ưu đãi minh hoạ </span>
-                {formatVnd(offer.discountPrice)}
+                <Money vnd={offer.discountPrice} />
               </span>
               <span className="text-xs text-neutral-500 dark:text-neutral-400">/ đêm (minh hoạ)</span>
             </span>

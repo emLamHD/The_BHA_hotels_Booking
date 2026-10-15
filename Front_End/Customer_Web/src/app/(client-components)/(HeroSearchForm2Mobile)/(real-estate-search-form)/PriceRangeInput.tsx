@@ -5,6 +5,7 @@ import { FC } from "react";
 import Slider from "rc-slider";
 import convertNumbThousand from "@/utils/convertNumbThousand";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface PriceRangeInputProps {
   onChange?: (e: number[]) => void;
   defaultValue?: number[];
@@ -14,6 +15,7 @@ const PriceRangeInput: FC<PriceRangeInputProps> = ({
   onChange,
   defaultValue,
 }) => {
+  const t = useT();
   const [rangePrices, setRangePrices] = useState(
     defaultValue || [100000, 4000000]
   );
@@ -25,9 +27,7 @@ const PriceRangeInput: FC<PriceRangeInputProps> = ({
 
   return (
     <div className="p-5">
-      <span className="block font-semibold text-xl sm:text-2xl">
-        Range Price?
-      </span>
+      <span className="block font-semibold text-xl sm:text-2xl">{t("customer.heroSearchForm2Mobile.realEstateSearchForm.priceRangeInput.rangePrice")}</span>
       <div className="relative flex flex-col space-y-8 mt-7">
         <Slider
           range
@@ -48,9 +48,7 @@ const PriceRangeInput: FC<PriceRangeInputProps> = ({
             <label
               htmlFor="minPrice"
               className="block text-sm font-medium text-neutral-700 dark:text-neutral-300"
-            >
-              Min price
-            </label>
+            >{t("customer.common.minPrice")}</label>
             <div className="mt-1 relative rounded-md">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <span className="text-neutral-500 sm:text-sm">$</span>
@@ -69,9 +67,7 @@ const PriceRangeInput: FC<PriceRangeInputProps> = ({
             <label
               htmlFor="maxPrice"
               className="block text-sm font-medium text-neutral-700 dark:text-neutral-300"
-            >
-              Max price
-            </label>
+            >{t("customer.common.maxPrice")}</label>
             <div className="mt-1 relative rounded-md">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <span className="text-neutral-500 sm:text-sm">$</span>

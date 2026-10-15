@@ -24,6 +24,8 @@ internal sealed class WebsiteLanguageConfiguration : IEntityTypeConfiguration<We
             table.HasCheckConstraint("CK_WebsiteLanguages_SortOrder", "\"SortOrder\" BETWEEN 0 AND 10000");
             table.HasCheckConstraint("CK_WebsiteLanguages_DefaultIsActive", "NOT \"IsDefault\" OR \"IsActive\"");
             table.HasCheckConstraint("CK_WebsiteLanguages_Version", "\"Version\" >= 1");
+            table.HasCheckConstraint("CK_WebsiteLanguages_Direction", "\"Direction\" IN ('ltr', 'rtl')");
+            table.HasCheckConstraint("CK_WebsiteLanguages_FormatLocale", "btrim(\"FormatLocale\") <> ''");
         });
 
         builder.HasKey(language => language.Id);
@@ -32,12 +34,18 @@ internal sealed class WebsiteLanguageConfiguration : IEntityTypeConfiguration<We
         builder.Property(language => language.DisplayName).HasMaxLength(WebsiteFieldLimits.LanguageName).IsRequired();
         builder.Property(language => language.NativeName).HasMaxLength(WebsiteFieldLimits.LanguageName).IsRequired();
         builder.Property(language => language.Version).IsConcurrencyToken();
+        builder.Property(language => language.DefaultCurrencyCode).HasMaxLength(3).IsFixedLength();
+        builder.Property(language => language.Direction).HasMaxLength(3).HasDefaultValue("ltr").IsRequired();
+        builder.Property(language => language.FormatLocale).HasMaxLength(WebsiteFieldLimits.FormatLocale).IsRequired();
+        builder.Property(language => language.PackId).HasMaxLength(WebsiteFieldLimits.PackId);
+        builder.Property(language => language.PackVersion).HasMaxLength(WebsiteFieldLimits.PackVersion);
         builder.Property(language => language.CreatedAtUtc).HasColumnType("timestamp with time zone");
         builder.Property(language => language.UpdatedAtUtc).HasColumnType("timestamp with time zone");
 
         builder.HasIndex(language => language.NormalizedCode).IsUnique().HasDatabaseName("UX_WebsiteLanguages_NormalizedCode");
         builder.HasIndex(language => language.IsDefault).IsUnique().HasFilter("\"IsDefault\"").HasDatabaseName("UX_WebsiteLanguages_OneDefault");
         builder.HasOne<StaffAccount>().WithMany().HasForeignKey(language => language.UpdatedByStaffId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<WebsiteCurrency>().WithMany().HasForeignKey(language => language.DefaultCurrencyCode).OnDelete(DeleteBehavior.Restrict);
     }
 }
 
@@ -47,16 +55,18 @@ internal sealed class WebsiteTranslationConfiguration : IEntityTypeConfiguration
     {
         builder.ToTable("WebsiteTranslations", table =>
         {
-            table.HasCheckConstraint("CK_WebsiteTranslations_Key", "\"Key\" ~ '^[a-z][a-zA-Z0-9]*(\\.[a-z][a-zA-Z0-9]*)+$'");
+            table.HasCheckConstraint("CK_WebsiteTranslations_Key", "\"Key\" ~ '^[a-z][a-zA-Z0-9]*(\\.[a-zA-Z0-9][a-zA-Z0-9_-]*)+$'");
             table.HasCheckConstraint(
                 "CK_WebsiteTranslations_Value",
-                "btrim(\"Value\") <> '' AND char_length(\"Value\") <= 1000");
+                "btrim(\"Value\") <> '' AND char_length(\"Value\") <= 4000");
             table.HasCheckConstraint("CK_WebsiteTranslations_Version", "\"Version\" >= 1");
         });
 
         builder.HasKey(translation => new { translation.LanguageId, translation.Key });
         builder.Property(translation => translation.Key).HasMaxLength(WebsiteFieldLimits.TranslationKey).IsRequired();
         builder.Property(translation => translation.Value).HasMaxLength(WebsiteFieldLimits.TranslationValue).IsRequired();
+        builder.Property(translation => translation.IsManual).HasDefaultValue(false);
+        builder.Property(translation => translation.SourceHash).HasMaxLength(WebsiteFieldLimits.SourceHash);
         builder.Property(translation => translation.Version).IsConcurrencyToken();
         builder.Property(translation => translation.UpdatedAtUtc).HasColumnType("timestamp with time zone");
 

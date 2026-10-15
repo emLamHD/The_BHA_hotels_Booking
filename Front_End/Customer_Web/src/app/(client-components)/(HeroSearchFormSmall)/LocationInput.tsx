@@ -8,6 +8,7 @@ import { useRef } from "react";
 import useOutsideAlerter from "@/hooks/useOutsideAlerter";
 import { MapPinIcon } from "@heroicons/react/24/outline";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface LocationInputProps {
   onInputDone?: (value: string) => void;
   placeHolder?: string;
@@ -25,6 +26,7 @@ const LocationInput: FC<LocationInputProps> = ({
   className = "nc-flex-1.5",
   divHideVerticalLineClass = "left-10 -right-0.5",
 }) => {
+  const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -59,9 +61,7 @@ const LocationInput: FC<LocationInputProps> = ({
   const renderRecentSearches = () => {
     return (
       <>
-        <h3 className="block mt-2 sm:mt-0 px-4 sm:px-8 font-semibold text-base text-neutral-800 dark:text-neutral-100">
-          Recent searches
-        </h3>
+        <h3 className="block mt-2 sm:mt-0 px-4 sm:px-8 font-semibold text-base text-neutral-800 dark:text-neutral-100">{t("customer.common.recentSearches")}</h3>
         <div className="mt-2">
           {[
             "Hamptons, Suffolk County, NY",

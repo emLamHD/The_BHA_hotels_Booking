@@ -14,7 +14,11 @@ public static class WebsiteFieldLimits
     public const int CurrencyName = 100;
     public const int CurrencySymbol = 10;
     public const int TranslationKey = 200;
-    public const int TranslationValue = 1000;
+    public const int TranslationValue = 4000;
+    public const int FormatLocale = 35;
+    public const int PackId = 100;
+    public const int PackVersion = 50;
+    public const int SourceHash = 16;
     public const int SortOrderMaximum = 10_000;
     public const int MinorUnitsMaximum = 4;
 
@@ -141,14 +145,12 @@ public static partial class ExchangeRate
 }
 
 /// <summary>
-/// A translation value is plain text: no markup, no control characters, not blank, and the placeholders
-/// (<c>{name}</c>) are exactly the ones the key declares — none lost, none added, no stray brace.
+/// A translation value is plain text in the <see cref="IcuMessage"/> subset: no markup, no control characters, not
+/// blank, well-formed, and the variables it uses are exactly the ones the key declares — none lost, none added. A
+/// key that declares nothing may not use any.
 /// </summary>
-public static partial class TranslationText
+public static class TranslationText
 {
-    [GeneratedRegex("\\{([A-Za-z][A-Za-z0-9]*)\\}")]
-    private static partial Regex Token();
-
     /// <summary>The error text for the first broken rule, or <c>null</c> when the value is acceptable.</summary>
     public static string? Validate(string? value, IReadOnlyCollection<string> declaredPlaceholders)
     {
@@ -172,21 +174,19 @@ public static partial class TranslationText
             return "The translation is plain text: '<' and '>' are not allowed.";
         }
 
-        var found = Token().Matches(value).Select(match => match.Groups[1].Value).ToList();
-        var stray = Token().Replace(value, string.Empty);
-        if (stray.Contains('{') || stray.Contains('}'))
+        var analysis = IcuMessage.Analyze(value);
+        if (!analysis.IsValid)
         {
-            return "The translation has a '{' or '}' that is not a placeholder like {name}.";
+            return analysis.Error;
         }
 
-        var missing = declaredPlaceholders.Where(name => !found.Contains(name, StringComparer.Ordinal)).ToArray();
+        var missing = declaredPlaceholders.Where(name => !analysis.Variables.Contains(name, StringComparer.Ordinal)).ToArray();
         if (missing.Length > 0)
         {
             return $"The translation must keep the placeholder {string.Join(", ", missing.Select(name => "{" + name + "}"))}.";
         }
 
-        var unexpected = found.Distinct(StringComparer.Ordinal)
-            .Where(name => !declaredPlaceholders.Contains(name, StringComparer.Ordinal)).ToArray();
+        var unexpected = analysis.Variables.Where(name => !declaredPlaceholders.Contains(name, StringComparer.Ordinal)).ToArray();
         return unexpected.Length > 0
             ? $"The translation has the placeholder {string.Join(", ", unexpected.Select(name => "{" + name + "}"))}, which this key does not declare."
             : null;

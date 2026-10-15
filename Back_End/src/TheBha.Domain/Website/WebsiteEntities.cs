@@ -36,6 +36,7 @@ public sealed class WebsiteLanguage
         NativeName = DomainGuard.Required(nativeName, nameof(nativeName), WebsiteFieldLimits.LanguageName);
         SortOrder = CheckSortOrder(sortOrder);
         IsActive = isActive;
+        FormatLocale = canonical;
         Version = 1;
         CreatedAtUtc = UpdatedAtUtc = nowUtc;
         UpdatedByStaffId = actorStaffId;
@@ -54,12 +55,72 @@ public sealed class WebsiteLanguage
     public DateTimeOffset UpdatedAtUtc { get; private set; }
     public Guid? UpdatedByStaffId { get; private set; }
 
+    /// <summary>The currency a visitor gets when they pick this language (<c>null</c> = the site's default currency). Data, not code: nothing switches on a language code.</summary>
+    public string? DefaultCurrencyCode { get; private set; }
+
+    /// <summary><c>ltr</c> or <c>rtl</c>.</summary>
+    public string Direction { get; private set; } = "ltr";
+
+    /// <summary>The BCP 47 tag handed to <c>Intl</c> for dates, numbers and plurals; defaults to the code.</summary>
+    public string FormatLocale { get; private set; } = string.Empty;
+
+    /// <summary>The language pack this language was last installed from, and its version; <c>null</c> for a hand-made language.</summary>
+    public string? PackId { get; private set; }
+
+    public string? PackVersion { get; private set; }
+
     public void Edit(string displayName, string nativeName, int sortOrder, bool isActive, DateTimeOffset nowUtc, Guid? actorStaffId)
     {
         DisplayName = DomainGuard.Required(displayName, nameof(displayName), WebsiteFieldLimits.LanguageName);
         NativeName = DomainGuard.Required(nativeName, nameof(nativeName), WebsiteFieldLimits.LanguageName);
         SortOrder = CheckSortOrder(sortOrder);
         IsActive = isActive;
+        Touch(nowUtc, actorStaffId);
+    }
+
+    /// <summary>Sets the format locale, direction and default currency without a new version: for a language that is being created.</summary>
+    public void InitializeFormat(string? formatLocale, string direction, string? defaultCurrencyCode)
+    {
+        if (direction is not ("ltr" or "rtl"))
+        {
+            throw new DomainException("direction must be ltr or rtl.");
+        }
+
+        var format = string.IsNullOrWhiteSpace(formatLocale) ? Code : formatLocale.Trim();
+        if (!LanguageTag.TryNormalize(format, out var canonical, out _))
+        {
+            throw new DomainException("formatLocale must be a BCP 47 tag such as fr-FR.");
+        }
+
+        FormatLocale = canonical;
+        Direction = direction;
+        DefaultCurrencyCode = string.IsNullOrWhiteSpace(defaultCurrencyCode) ? null : defaultCurrencyCode.Trim().ToUpperInvariant();
+    }
+
+    /// <summary>The currency itself is validated against <c>WebsiteCurrencies</c> by the store. One change, one new version.</summary>
+    public void SetFormat(string? formatLocale, string direction, string? defaultCurrencyCode, DateTimeOffset nowUtc, Guid? actorStaffId)
+    {
+        InitializeFormat(formatLocale, direction, defaultCurrencyCode);
+        Touch(nowUtc, actorStaffId);
+    }
+
+    /// <summary>An edit of everything an operator can change on a language, as one new version.</summary>
+    public void Edit(
+        string displayName, string nativeName, int sortOrder, bool isActive,
+        string? formatLocale, string direction, string? defaultCurrencyCode, DateTimeOffset nowUtc, Guid? actorStaffId)
+    {
+        DisplayName = DomainGuard.Required(displayName, nameof(displayName), WebsiteFieldLimits.LanguageName);
+        NativeName = DomainGuard.Required(nativeName, nameof(nativeName), WebsiteFieldLimits.LanguageName);
+        SortOrder = CheckSortOrder(sortOrder);
+        IsActive = isActive;
+        InitializeFormat(formatLocale, direction, defaultCurrencyCode);
+        Touch(nowUtc, actorStaffId);
+    }
+
+    public void SetPack(string? packId, string? packVersion, DateTimeOffset nowUtc, Guid? actorStaffId)
+    {
+        PackId = string.IsNullOrWhiteSpace(packId) ? null : DomainGuard.Required(packId, nameof(packId), WebsiteFieldLimits.PackId);
+        PackVersion = string.IsNullOrWhiteSpace(packVersion) ? null : DomainGuard.Required(packVersion, nameof(packVersion), WebsiteFieldLimits.PackVersion);
         Touch(nowUtc, actorStaffId);
     }
 
@@ -92,11 +153,13 @@ public sealed class WebsiteTranslation
     {
     }
 
-    public WebsiteTranslation(Guid languageId, string key, string value, DateTimeOffset nowUtc, Guid? actorStaffId)
+    public WebsiteTranslation(Guid languageId, string key, string value, bool isManual, string? sourceHash, DateTimeOffset nowUtc, Guid? actorStaffId)
     {
         LanguageId = DomainGuard.RequiredId(languageId, nameof(languageId));
         Key = DomainGuard.Required(key, nameof(key), WebsiteFieldLimits.TranslationKey);
         Value = value;
+        IsManual = isManual;
+        SourceHash = sourceHash;
         Version = 1;
         UpdatedAtUtc = nowUtc;
         UpdatedByStaffId = actorStaffId;
@@ -109,12 +172,26 @@ public sealed class WebsiteTranslation
     public DateTimeOffset UpdatedAtUtc { get; private set; }
     public Guid? UpdatedByStaffId { get; private set; }
 
-    public void Change(string value, DateTimeOffset nowUtc, Guid? actorStaffId)
+    /// <summary>True when a person typed or confirmed this value in the editor; a pack installed with "keep my edits" never replaces it.</summary>
+    public bool IsManual { get; private set; }
+
+    /// <summary>Hash of the reference-language text this value was translated from; a different hash now means the translation is outdated. <c>null</c> = unknown.</summary>
+    public string? SourceHash { get; private set; }
+
+    public void Change(string value, bool isManual, string? sourceHash, DateTimeOffset nowUtc, Guid? actorStaffId)
     {
         Value = value;
+        IsManual = isManual;
+        SourceHash = sourceHash;
         Version++;
         UpdatedAtUtc = nowUtc;
         UpdatedByStaffId = actorStaffId;
+    }
+
+    public void Place(bool isManual, string? sourceHash)
+    {
+        IsManual = isManual;
+        SourceHash = sourceHash;
     }
 }
 

@@ -10,6 +10,7 @@ import DatePickerCustomDay from "@/components/DatePickerCustomDay";
 import ClearDataButton from "../ClearDataButton";
 import ButtonSubmit from "../ButtonSubmit";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface RentalCarDatesRangeInputProps {
   className?: string;
   fieldClassName?: string;
@@ -21,6 +22,7 @@ const RentalCarDatesRangeInput: FC<RentalCarDatesRangeInputProps> = ({
   fieldClassName = "[ nc-hero-field-padding ]",
   hasButtonSubmit = true,
 }) => {
+  const t = useT();
   const [startDate, setStartDate] = useState<Date | null>(
     new Date("2023/03/01")
   );
@@ -53,7 +55,7 @@ const RentalCarDatesRangeInput: FC<RentalCarDatesRangeInputProps> = ({
               : ""}
           </span>
           <span className="block mt-1 text-sm text-neutral-400 leading-none font-light">
-            {"Pick up - Drop off"}
+            {t("customer.common.pickUpDropOff")}
           </span>
         </div>
       </>

@@ -20,6 +20,7 @@ import {
   RIVERSIDE_SECTION_LINKS,
 } from "@/lib/riversideHomeContent";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 const LINK_CLASS = "text-neutral-6000 dark:text-neutral-300 hover:text-black dark:hover:text-white";
 
 /**
@@ -31,6 +32,7 @@ const LINK_CLASS = "text-neutral-6000 dark:text-neutral-300 hover:text-black dar
  * (The small-screen app bar, FooterNav, is mounted once by the root layout, not here.)
  */
 const Footer: React.FC = () => {
+  const t = useT();
   const { state, identityChange } = useCustomerSession();
   const entry = describeAuthEntry(
     state.status,
@@ -48,44 +50,32 @@ const Footer: React.FC = () => {
           <p className="text-neutral-6000 dark:text-neutral-300">{RIVERSIDE_ADDRESS}</p>
         </div>
 
-        <nav aria-label="Khám phá" className="text-sm">
-          <h2 className="font-semibold text-neutral-700 dark:text-neutral-200">Khám phá</h2>
+        <nav aria-label={t("customer.footer.explore")} className="text-sm">
+          <h2 className="font-semibold text-neutral-700 dark:text-neutral-200">{t("customer.footer.explore")}</h2>
           <ul className="mt-5 space-y-4">
             <li>
-              <Link href={HOME_PATH as Route} className={LINK_CLASS}>
-                Trang chủ
-              </Link>
+              <Link href={HOME_PATH as Route} className={LINK_CLASS}>{t("customer.footer.home")}</Link>
             </li>
             <li>
-              <Link href={RIVERSIDE_PATH as Route} className={LINK_CLASS}>
-                Riverside
-              </Link>
+              <Link href={RIVERSIDE_PATH as Route} className={LINK_CLASS}>{t("customer.footer.riverside")}</Link>
             </li>
             <li>
-              <Link href={OFFERS_PATH as Route} className={LINK_CLASS}>
-                Ưu đãi
-              </Link>
+              <Link href={OFFERS_PATH as Route} className={LINK_CLASS}>{t("customer.footer.offers")}</Link>
             </li>
             <li>
-              <Link href={BLOG_PATH as Route} className={LINK_CLASS}>
-                Blog
-              </Link>
+              <Link href={BLOG_PATH as Route} className={LINK_CLASS}>{t("customer.common.blog")}</Link>
             </li>
             <li>
-              <Link href={blogCategoryPath("diem-den-noi-bat") as Route} className={LINK_CLASS}>
-                Điểm đến nổi bật
-              </Link>
+              <Link href={blogCategoryPath("diem-den-noi-bat") as Route} className={LINK_CLASS}>{t("customer.footer.featuredDestinations")}</Link>
             </li>
           </ul>
         </nav>
 
-        <nav aria-label="Đặt phòng" className="text-sm">
-          <h2 className="font-semibold text-neutral-700 dark:text-neutral-200">Đặt phòng</h2>
+        <nav aria-label={t("customer.footer.booking")} className="text-sm">
+          <h2 className="font-semibold text-neutral-700 dark:text-neutral-200">{t("customer.footer.booking")}</h2>
           <ul className="mt-5 space-y-4">
             <li>
-              <Link href={RESULTS_PATH as Route} className={LINK_CLASS}>
-                Tìm phòng
-              </Link>
+              <Link href={RESULTS_PATH as Route} className={LINK_CLASS}>{t("customer.common.findARoom")}</Link>
             </li>
             {RIVERSIDE_SECTION_LINKS.map((item) => (
               <li key={item.id}>
@@ -97,8 +87,8 @@ const Footer: React.FC = () => {
           </ul>
         </nav>
 
-        <nav aria-label="Tài khoản" className="text-sm">
-          <h2 className="font-semibold text-neutral-700 dark:text-neutral-200">Tài khoản</h2>
+        <nav aria-label={t("customer.footer.account")} className="text-sm">
+          <h2 className="font-semibold text-neutral-700 dark:text-neutral-200">{t("customer.footer.account")}</h2>
           <ul className="mt-5 space-y-4">
             <li>
               <Link href={entry.href as Route} className={LINK_CLASS}>
@@ -107,15 +97,11 @@ const Footer: React.FC = () => {
             </li>
             {showSignup && (
               <li>
-                <Link href={"/signup" as Route} className={LINK_CLASS}>
-                  Tạo tài khoản
-                </Link>
+                <Link href={"/signup" as Route} className={LINK_CLASS}>{t("customer.common.createAccount")}</Link>
               </li>
             )}
             <li>
-              <Link href={MEDIA_CREDITS_PATH as Route} className={LINK_CLASS}>
-                Nguồn ảnh
-              </Link>
+              <Link href={MEDIA_CREDITS_PATH as Route} className={LINK_CLASS}>{t("customer.footer.photoCredits")}</Link>
             </li>
           </ul>
         </nav>

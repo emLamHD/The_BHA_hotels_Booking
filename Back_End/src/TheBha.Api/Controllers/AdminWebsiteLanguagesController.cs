@@ -30,7 +30,9 @@ public sealed class AdminWebsiteLanguagesController(IWebsiteSettingsStore store)
     public async Task<ActionResult> Create([FromBody] CreateWebsiteLanguageRequest request, CancellationToken cancellationToken) =>
         Respond(
             await store.CreateLanguageAsync(
-                new CreateLanguageCommand(request.Code, request.DisplayName, request.NativeName, request.SortOrder, request.IsActive, ActorStaffId),
+                new CreateLanguageCommand(
+                    request.Code, request.DisplayName, request.NativeName, request.SortOrder, request.IsActive,
+                    request.DefaultCurrencyCode, request.Direction, request.FormatLocale, ActorStaffId),
                 cancellationToken),
             language => StatusCode(StatusCodes.Status201Created, language));
 
@@ -43,7 +45,9 @@ public sealed class AdminWebsiteLanguagesController(IWebsiteSettingsStore store)
     public async Task<ActionResult> Update(string code, [FromBody] UpdateWebsiteLanguageRequest request, CancellationToken cancellationToken) =>
         Respond(
             await store.UpdateLanguageAsync(
-                new UpdateLanguageCommand(code, request.ExpectedVersion, request.DisplayName, request.NativeName, request.SortOrder, request.IsActive, ActorStaffId),
+                new UpdateLanguageCommand(
+                    code, request.ExpectedVersion, request.DisplayName, request.NativeName, request.SortOrder, request.IsActive,
+                    request.DefaultCurrencyCode, request.Direction, request.FormatLocale, ActorStaffId),
                 cancellationToken),
             language => Ok(language));
 

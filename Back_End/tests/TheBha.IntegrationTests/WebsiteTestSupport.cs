@@ -222,9 +222,35 @@ public abstract class WebsiteTestSupport(PostgreSqlWebApplicationFactory factory
         Assert.Equal(1, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteCurrencies" WHERE "IsDefault" """));
         Assert.Equal(0, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteCurrencies" WHERE "IsActive" AND "VndPerUnit" IS NULL"""));
         Assert.Equal(1, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteCurrencies" WHERE "IsBase" AND "Code" = 'VND' AND "VndPerUnit" = 1 AND "IsActive" """));
-        // The default language still has a value for every managed key.
+        // The default language still has a text for every catalog key.
         Assert.Equal(
-            TheBha.Application.Website.WebsiteTranslationCatalog.All.Count,
-            await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteTranslations" t JOIN "WebsiteLanguages" l ON l."Id" = t."LanguageId" WHERE l."IsDefault" """));
+            TheBha.Application.Website.LocalizationAssets.Catalog.Count,
+            await ScalarAsync<int>(
+                $"""SELECT count(*) FROM "WebsiteTranslations" t JOIN "WebsiteLanguages" l ON l."Id" = t."LanguageId" WHERE l."IsDefault" AND t."Key" NOT LIKE 'content.%' """));
+    }
+
+    /// <summary>
+    /// Gives <paramref name="code"/> a stored text for every stored-content field the database has right now (the test
+    /// Property's name, address…), copied from the content column — the one thing the test seed leaves out — so a language that
+    /// is complete in the catalog is complete overall.
+    /// </summary>
+    protected async Task CompleteContentAsync(string code)
+    {
+        await using var scope = factory.Services.CreateAsyncScope();
+        var content = await scope.ServiceProvider.GetRequiredService<TheBha.Application.Website.IContentCatalog>().ListAsync(CancellationToken.None);
+        var languageId = await ScalarAsync<Guid>($"""SELECT "Id" FROM "WebsiteLanguages" WHERE "NormalizedCode" = '{code}' """);
+        foreach (var entry in content)
+        {
+            await ExecuteAsync(
+                $"""INSERT INTO "WebsiteTranslations" ("LanguageId","Key","Value","Version","UpdatedAtUtc","IsManual") VALUES ('{languageId}','{entry.Key}','{entry.SourceText.Replace("'", "''")}',1,now(),false) ON CONFLICT DO NOTHING""");
+        }
+    }
+
+    protected async Task ExecuteAsync(string sql)
+    {
+        await using var connection = new NpgsqlConnection(factory.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand(sql, connection);
+        await command.ExecuteNonQueryAsync();
     }
 }

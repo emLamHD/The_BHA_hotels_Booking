@@ -7,7 +7,9 @@ import PriceRangeInput from "./PriceRangeInput";
 import PropertyTypeSelect from "./PropertyTypeSelect";
 import { ClassOfProperties } from "../../type";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 const RealestateSearchForm = () => {
+  const t = useT();
   //
   const [fieldNameShow, setFieldNameShow] = useState<
     "location" | "propertyType" | "price"
@@ -54,7 +56,7 @@ const RealestateSearchForm = () => {
             className={`w-full flex justify-between text-sm font-medium p-4`}
             onClick={() => setFieldNameShow("location")}
           >
-            <span className="text-neutral-400">Where</span>
+            <span className="text-neutral-400">{t("customer.heroSearchForm2Mobile.realEstateSearchForm.realestateSearchForm.where")}</span>
             <span>{locationInputTo || "Location"}</span>
           </button>
         ) : (
@@ -97,7 +99,7 @@ const RealestateSearchForm = () => {
             className={`w-full flex justify-between text-sm font-medium p-4`}
             onClick={() => setFieldNameShow("propertyType")}
           >
-            <span className="text-neutral-400">Property</span>
+            <span className="text-neutral-400">{t("customer.heroSearchForm2Mobile.realEstateSearchForm.realestateSearchForm.property")}</span>
             <span className="truncate ml-5">
               {typeOfPropertyText || "Add property"}
             </span>
@@ -128,7 +130,7 @@ const RealestateSearchForm = () => {
             className={`w-full flex justify-between text-sm font-medium p-4`}
             onClick={() => setFieldNameShow("price")}
           >
-            <span className="text-neutral-400">Price</span>
+            <span className="text-neutral-400">{t("customer.heroSearchForm2Mobile.realEstateSearchForm.realestateSearchForm.price")}</span>
             <span>
               {`$${convertNumbThousand(
                 rangePrices[0] / 1000

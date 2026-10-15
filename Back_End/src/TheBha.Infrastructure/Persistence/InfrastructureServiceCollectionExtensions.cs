@@ -64,6 +64,9 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<IReservationBoardQuery, ReservationBoardQuery>();
         services.AddScoped<IWebsiteSettingsStore, WebsiteSettingsStore>();
         services.AddScoped<IWebsitePublicReader, WebsitePublicReader>();
+        services.AddScoped<IContentCatalog, ContentCatalog>();
+        services.AddScoped<IWebsiteLanguagePacks, WebsiteLanguagePackService>();
+        services.AddScoped<IWebsiteDisplayPricing, WebsiteDisplayPricing>();
         services.AddScoped<DevelopmentDataSeeder>();
         services.AddScoped<TheBha.Infrastructure.Persistence.Demo.RiversideDemoSeeder>();
 

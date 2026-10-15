@@ -7,6 +7,7 @@ import DatePickerCustomDay from "@/components/DatePickerCustomDay";
 import DatePicker from "react-datepicker";
 import ClearDataButton from "../ClearDataButton";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface StayDatesRangeInputProps {
   className?: string;
   fieldClassName?: string;
@@ -16,6 +17,7 @@ const StayDatesRangeInput: FC<StayDatesRangeInputProps> = ({
   className = "[ lg:nc-flex-2 ]",
   fieldClassName = "[ nc-hero-field-padding--small ]",
 }) => {
+  const t = useT();
   const [startDate, setStartDate] = useState<Date | null>(
     new Date("2023/02/06")
   );
@@ -46,7 +48,7 @@ const StayDatesRangeInput: FC<StayDatesRangeInputProps> = ({
               : ""}
           </span>
           <span className="block mt-1 text-sm text-neutral-400 leading-none font-light">
-            {"Check in - Check out"}
+            {t("customer.heroSearchFormSmall.staySearchForm.stayDatesRangeInput.checkInCheckOut")}
           </span>
         </div>
       </>

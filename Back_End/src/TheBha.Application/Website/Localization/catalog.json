@@ -1,0 +1,640 @@
+{
+ "schema": "bha.message-catalog/1",
+ "messages": [
+  {
+   "key": "customer.common.adults",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.ages02",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.ages13OrAbove",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.ages212",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.blog",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.children",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.childrenUnder2HaveNo",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.createAccount",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.darkMode",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.differentDropOff",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.dropOff",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.dropOffLocation",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.findARoom",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.infants",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.maxPrice",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.minPrice",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.oneWay",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.pickUp",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.pickUpDropOff",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.pickUpLocation",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.recentSearches",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.roundTrip",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.sameDropOff",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.when",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.whereDoYouWantTo",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.whereYouWantToFly",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.footer.account",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.footer.booking",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.footer.explore",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.footer.featuredDestinations",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.footer.home",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.footer.offers",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.footer.photoCredits",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.footer.riverside",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.account.account",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.account.createAccount",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.account.myAccount",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.account.signIn",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.account.signOut",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.avatarDropdown.myAccount",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.avatarDropdown.myBookings",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.avatarDropdown.notAvailableYet",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.avatarDropdown.signIn",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.avatarDropdown.wishlist",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.avatarDropdown.youAreNotSignedIn",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.blogNavDropdown.openTheBlogCategories",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.dropdownTravelers.onlyStaysAtTheBha",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.dropdownTravelers.sample",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.dropdownTravelers.services",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.header3.addGuests",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.header3.checkIn",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.header3.listYourProperty",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.header3.location",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.langDropdownSingle.language",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.menu.blog",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.menu.currency",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.menu.language",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.menu.languageCurrency",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.menu.menu",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.menu.offers",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.menu.openMenu",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.menu.riverside",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.menu.services",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.menu.templates",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.nav.primary",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.notifyDropdown.notifications",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.searchDropdown.typeAndPressEnter",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.selector.currencyChanged",
+   "scope": "customer",
+   "placeholders": [
+    "currency"
+   ]
+  },
+  {
+   "key": "customer.header.selector.languageChanged",
+   "scope": "customer",
+   "placeholders": [
+    "currency",
+    "language"
+   ]
+  },
+  {
+   "key": "customer.header.selector.rateNote",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.templatesDropdown.sampleTemplates",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.templatesDropdown.thePagesBelowAreChisfis",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.theme.toDark",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.theme.toLight",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm.guestsInput.adults",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm.guestsInput.ages13OrAbove",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm.guestsInput.ages212",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm.guestsInput.children",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm.guestsInput.numberOfApartments",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm.guestsInput.rooms",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm.realEstateSearchForm.priceRangeInput.choosePriceRange",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm.realEstateSearchForm.priceRangeInput.rangePrice",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm.realEstateSearchForm.propertyTypeSelect.propertyType",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm2Mobile.datesRangeInput.whenSYourTrip",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm2Mobile.flightSearchForm.flightSearchForm.flightType",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm2Mobile.flightSearchForm.flightSearchForm.ticketClass",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm2Mobile.flightSearchForm.flightSearchForm.who",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm2Mobile.guestsInput.numberOfApartments",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm2Mobile.guestsInput.rooms",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm2Mobile.guestsInput.whoSComing",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm2Mobile.heroSearchForm2Mobile.clearAll",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm2Mobile.heroSearchForm2Mobile.close",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm2Mobile.heroSearchForm2Mobile.findARoomAtThe",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm2Mobile.heroSearchForm2RealEstateMobile.anywhereAnyWeekAddGuests",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm2Mobile.heroSearchForm2RealEstateMobile.clearAll",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm2Mobile.heroSearchForm2RealEstateMobile.whereTo",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm2Mobile.realEstateSearchForm.priceRangeInput.rangePrice",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm2Mobile.realEstateSearchForm.propertyTypeSelect.propertyTypes",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm2Mobile.realEstateSearchForm.realestateSearchForm.price",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm2Mobile.realEstateSearchForm.realestateSearchForm.property",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm2Mobile.realEstateSearchForm.realestateSearchForm.where",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchFormSmall.buttonSubmit.search",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchFormSmall.guestsInput.guests",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchFormSmall.staySearchForm.stayDatesRangeInput.checkInCheckOut",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.meta.description",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.meta.title",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.shared.buttonClose.close",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.shared.comment.reply",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.shared.heading2.233Stays",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.shared.heading2.2Guests",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.shared.heading2.aug1218",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.shared.logo.theBhaRiverside",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.shared.menuBar.openMenu",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.shared.navigation.navMobile.languageAndCurrency",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.shared.navigation.navMobile.menu",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.shared.navigation.navMobile.servicedApartmentsAtBookDirect",
+   "scope": "customer",
+   "placeholders": [
+    "RIVERSIDEADDRESS",
+    "RIVERSIDENAME"
+   ]
+  },
+  {
+   "key": "customer.shared.nextPrev.next",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.shared.nextPrev.prev",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "shared.common.clearFilters",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.common.close",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.common.error.generic",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.common.error.loadFailed",
+   "scope": "shared",
+   "placeholders": [
+    "what"
+   ]
+  },
+  {
+   "key": "shared.common.error.network",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.common.loading",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.common.retry",
+   "scope": "shared",
+   "placeholders": []
+  }
+ ]
+}

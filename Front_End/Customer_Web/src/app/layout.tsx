@@ -11,6 +11,8 @@ import { BookingHoldProvider } from "./BookingHoldProvider";
 import { CustomerSessionProvider } from "./CustomerSessionProvider";
 import HoldReceiptRedirector from "@/components/HoldReceiptRedirector";
 import { StaySearchProvider } from "@/components/StaySearchProvider";
+import { I18nProvider } from "@/lib/i18n/I18nProvider";
+import { getI18n, getT } from "@/lib/i18n/server";
 
 const poppins = Poppins({
   subsets: ["latin"],
@@ -26,10 +28,11 @@ const headerFont = Be_Vietnam_Pro({
   variable: "--font-header",
 });
 
-export const metadata = {
-  title: "The BHA — Đặt phòng trực tiếp",
-  description: "Chọn loại phòng, xem giá theo đêm, giữ phòng và xác nhận đặt phòng tại The BHA.",
-};
+// CUST-WEB-HEADER-001-CP02-C2: the document's language, direction, title and description follow the visitor's language.
+export async function generateMetadata() {
+  const t = await getT();
+  return { title: t("customer.meta.title"), description: t("customer.meta.description") };
+}
 
 /**
  * CUST-WEB-SHOWCASE-001-CP02-C3: the Chisfis root layout as the template ships it (sticky header with
@@ -37,28 +40,32 @@ export const metadata = {
  * in-memory hold and token survive client navigation; HoldReceiptRedirector sends the guest to the
  * receipt page once a hold exists.
  */
-export default function RootLayout({
+export default async function RootLayout({
   children,
   params,
 }: {
   children: React.ReactNode;
   params: any;
 }) {
+  // The visitor's language, currency and dictionary, read once per request and shared by every server component below.
+  const snapshot = await getI18n();
   return (
-    <html lang="vi" className={`${poppins.className} ${headerFont.variable}`}>
+    <html lang={snapshot.locale} dir={snapshot.direction} className={`${poppins.className} ${headerFont.variable}`}>
       <body className="bg-white text-base dark:bg-neutral-900 text-neutral-900 dark:text-neutral-200">
-        <CustomerSessionProvider>
-          <BookingHoldProvider>
-            <StaySearchProvider>
-              <ClientCommons />
-              <SiteHeader />
-              <HoldReceiptRedirector />
-              {children}
-              <FooterNav />
-              <Footer />
-            </StaySearchProvider>
-          </BookingHoldProvider>
-        </CustomerSessionProvider>
+        <I18nProvider snapshot={snapshot}>
+          <CustomerSessionProvider>
+            <BookingHoldProvider>
+              <StaySearchProvider>
+                <ClientCommons />
+                <SiteHeader />
+                <HoldReceiptRedirector />
+                {children}
+                <FooterNav />
+                <Footer />
+              </StaySearchProvider>
+            </BookingHoldProvider>
+          </CustomerSessionProvider>
+        </I18nProvider>
       </body>
     </html>
   );

@@ -1186,10 +1186,27 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("DefaultCurrencyCode")
+                        .HasMaxLength(3)
+                        .HasColumnType("character(3)")
+                        .IsFixedLength();
+
+                    b.Property<string>("Direction")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)")
+                        .HasDefaultValue("ltr");
+
                     b.Property<string>("DisplayName")
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<string>("FormatLocale")
+                        .IsRequired()
+                        .HasMaxLength(35)
+                        .HasColumnType("character varying(35)");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
@@ -1207,6 +1224,14 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
+                    b.Property<string>("PackId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("PackVersion")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
                     b.Property<int>("SortOrder")
                         .HasColumnType("integer");
 
@@ -1221,6 +1246,8 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("DefaultCurrencyCode");
 
                     b.HasIndex("IsDefault")
                         .IsUnique()
@@ -1239,6 +1266,10 @@ namespace TheBha.Infrastructure.Persistence.Migrations
 
                             t.HasCheckConstraint("CK_WebsiteLanguages_DefaultIsActive", "NOT \"IsDefault\" OR \"IsActive\"");
 
+                            t.HasCheckConstraint("CK_WebsiteLanguages_Direction", "\"Direction\" IN ('ltr', 'rtl')");
+
+                            t.HasCheckConstraint("CK_WebsiteLanguages_FormatLocale", "btrim(\"FormatLocale\") <> ''");
+
                             t.HasCheckConstraint("CK_WebsiteLanguages_Names", "btrim(\"DisplayName\") <> '' AND btrim(\"NativeName\") <> ''");
 
                             t.HasCheckConstraint("CK_WebsiteLanguages_SortOrder", "\"SortOrder\" BETWEEN 0 AND 10000");
@@ -1256,6 +1287,15 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<bool>("IsManual")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<string>("SourceHash")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
                     b.Property<DateTimeOffset>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -1264,8 +1304,8 @@ namespace TheBha.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("Value")
                         .IsRequired()
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
 
                     b.Property<int>("Version")
                         .IsConcurrencyToken()
@@ -1277,9 +1317,9 @@ namespace TheBha.Infrastructure.Persistence.Migrations
 
                     b.ToTable("WebsiteTranslations", null, t =>
                         {
-                            t.HasCheckConstraint("CK_WebsiteTranslations_Key", "\"Key\" ~ '^[a-z][a-zA-Z0-9]*(\\.[a-z][a-zA-Z0-9]*)+$'");
+                            t.HasCheckConstraint("CK_WebsiteTranslations_Key", "\"Key\" ~ '^[a-z][a-zA-Z0-9]*(\\.[a-zA-Z0-9][a-zA-Z0-9_-]*)+$'");
 
-                            t.HasCheckConstraint("CK_WebsiteTranslations_Value", "btrim(\"Value\") <> '' AND char_length(\"Value\") <= 1000");
+                            t.HasCheckConstraint("CK_WebsiteTranslations_Value", "btrim(\"Value\") <> '' AND char_length(\"Value\") <= 4000");
 
                             t.HasCheckConstraint("CK_WebsiteTranslations_Version", "\"Version\" >= 1");
                         });
@@ -1807,6 +1847,11 @@ namespace TheBha.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("TheBha.Domain.Website.WebsiteLanguage", b =>
                 {
+                    b.HasOne("TheBha.Domain.Website.WebsiteCurrency", null)
+                        .WithMany()
+                        .HasForeignKey("DefaultCurrencyCode")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("TheBha.Infrastructure.Identity.StaffAccount", null)
                         .WithMany()
                         .HasForeignKey("UpdatedByStaffId")

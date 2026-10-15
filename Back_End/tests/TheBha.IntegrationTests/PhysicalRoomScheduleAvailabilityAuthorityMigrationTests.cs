@@ -24,6 +24,7 @@ public sealed class PhysicalRoomScheduleAvailabilityAuthorityMigrationTests : IA
     private const string V8Migration = "20260826035254_PhysicalRoomScheduleAvailabilityAuthority";
     private const string V9Migration = "20261001141847_AddStaffIdentityFoundation";
     private const string V10Migration = "20261015050047_AddWebsiteLocalizationSettings";
+    private const string V11Migration = "20261015095908_AddRuntimeLanguagePacks";
 
     private static readonly Guid PropertyId = Guid.Parse("80000000-0000-0000-0000-000000000001");
     private static readonly Guid RoomTypeId = Guid.Parse("80000000-0000-0000-0000-000000000002");
@@ -87,7 +88,7 @@ public sealed class PhysicalRoomScheduleAvailabilityAuthorityMigrationTests : IA
         var applied = await context.Database.GetAppliedMigrationsAsync();
         Assert.Equal(8, applied.Count());
         Assert.Contains(applied, migration => migration.EndsWith("_PhysicalRoomScheduleAvailabilityAuthority"));
-        Assert.Equal([V9Migration, V10Migration], await context.Database.GetPendingMigrationsAsync());
+        Assert.Equal([V9Migration, V10Migration, V11Migration], await context.Database.GetPendingMigrationsAsync());
     }
 
     [Fact]
@@ -109,7 +110,7 @@ public sealed class PhysicalRoomScheduleAvailabilityAuthorityMigrationTests : IA
         Assert.Equal(0, await ScalarAsync<long>(connection, "SELECT COUNT(*) FROM \"RoomBlocks\""));
         Assert.Equal(0, await ScalarAsync<long>(connection, "SELECT COUNT(*) FROM \"RoomOccupancySegments\""));
         Assert.Equal(0, await ScalarAsync<long>(connection, "SELECT COUNT(*) FROM \"RoomOccupancySegmentAudits\""));
-        Assert.Equal([V9Migration, V10Migration], await context.Database.GetPendingMigrationsAsync());
+        Assert.Equal([V9Migration, V10Migration, V11Migration], await context.Database.GetPendingMigrationsAsync());
     }
 
     [Fact]

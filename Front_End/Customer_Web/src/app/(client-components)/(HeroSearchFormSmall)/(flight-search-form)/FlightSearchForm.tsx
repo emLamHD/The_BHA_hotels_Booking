@@ -9,6 +9,7 @@ import NcInputNumber from "@/components/NcInputNumber";
 import FlightDateRangeInput from "./FlightDateRangeInput";
 import { GuestsObject } from "../../type";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface FlightSearchFormProps {}
 
 const flightClass = [
@@ -27,6 +28,7 @@ const flightClass = [
 ];
 
 const FlightSearchForm: FC<FlightSearchFormProps> = ({}) => {
+  const t = useT();
   const [dropOffLocationType, setDropOffLocationType] = useState<
     "roundTrip" | "oneWay" | ""
   >("roundTrip");
@@ -91,8 +93,8 @@ const FlightSearchForm: FC<FlightSearchFormProps> = ({}) => {
                     onChange={(value) => handleChangeData(value, "guestAdults")}
                     max={10}
                     min={1}
-                    label="Adults"
-                    desc="Ages 13 or above"
+                    label={t("customer.common.adults")}
+                    desc={t("customer.common.ages13OrAbove")}
                   />
                   <NcInputNumber
                     className="w-full mt-6"
@@ -101,8 +103,8 @@ const FlightSearchForm: FC<FlightSearchFormProps> = ({}) => {
                       handleChangeData(value, "guestChildren")
                     }
                     max={4}
-                    label="Children"
-                    desc="Ages 2–12"
+                    label={t("customer.common.children")}
+                    desc={t("customer.common.ages212")}
                   />
 
                   <NcInputNumber
@@ -112,8 +114,8 @@ const FlightSearchForm: FC<FlightSearchFormProps> = ({}) => {
                       handleChangeData(value, "guestInfants")
                     }
                     max={4}
-                    label="Infants"
-                    desc="Ages 0–2"
+                    label={t("customer.common.infants")}
+                    desc={t("customer.common.ages02")}
                   />
                 </Popover.Panel>
               </Transition>
@@ -188,9 +190,7 @@ const FlightSearchForm: FC<FlightSearchFormProps> = ({}) => {
               : "border border-neutral-300 dark:border-neutral-700"
           }`}
           onClick={(e) => setDropOffLocationType("roundTrip")}
-        >
-          Round-trip
-        </div>
+        >{t("customer.common.roundTrip")}</div>
         <div
           className={`py-1.5 px-4 flex items-center rounded-full font-medium text-xs cursor-pointer select-none ${
             dropOffLocationType === "oneWay"
@@ -198,9 +198,7 @@ const FlightSearchForm: FC<FlightSearchFormProps> = ({}) => {
               : "border border-neutral-300 dark:border-neutral-700"
           }`}
           onClick={(e) => setDropOffLocationType("oneWay")}
-        >
-          One-way
-        </div>
+        >{t("customer.common.oneWay")}</div>
 
         <div className=" border-r border-slate-200 dark:border-slate-700 "></div>
 
@@ -221,13 +219,13 @@ const FlightSearchForm: FC<FlightSearchFormProps> = ({}) => {
         <div className="flex w-full rounded-full border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800">
           <LocationInput
             placeHolder="Flying from"
-            desc="Where do you want to fly from?"
+            desc={t("customer.common.whereDoYouWantTo")}
             className="flex-1"
           />
           <div className="self-center border-r border-slate-200 dark:border-slate-700 h-8"></div>
           <LocationInput
             placeHolder="Flying to"
-            desc="Where you want to fly to?"
+            desc={t("customer.common.whereYouWantToFly")}
             className="flex-1"
             divHideVerticalLineClass=" -inset-x-0.5"
           />

@@ -36,14 +36,29 @@ public sealed class WebsiteSettingsConcurrencyTests(PostgreSqlWebApplicationFact
     /// <summary>Makes a language active and complete (a copy of English), so it can be the default.</summary>
     private async Task AddCompleteLanguageAsync(Session session, string code)
     {
-        await AssertStatusAsync(HttpStatusCode.Created, session.PostAsync(Languages, new { code, displayName = code, nativeName = code, sortOrder = 40, isActive = true }));
-        await using var context = Factory.CreateDbContext();
-        await context.Database.ExecuteSqlInterpolatedAsync(
-            $"""
-            INSERT INTO "WebsiteTranslations" ("LanguageId","Key","Value","Version","UpdatedAtUtc","UpdatedByStaffId")
-            SELECT (SELECT "Id" FROM "WebsiteLanguages" WHERE "NormalizedCode" = {code}), "Key", "Value", 1, now(), NULL
-            FROM "WebsiteTranslations" WHERE "LanguageId" = {WebsiteTestSeed.English}
-            """);
+        await AssertStatusAsync(HttpStatusCode.Created, session.PostAsync(Languages, new { code, displayName = code, nativeName = code, sortOrder = 40, isActive = false, defaultCurrencyCode = "VND" }));
+        await using (var context = Factory.CreateDbContext())
+        {
+            await context.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                INSERT INTO "WebsiteTranslations" ("LanguageId","Key","Value","Version","UpdatedAtUtc","UpdatedByStaffId")
+                SELECT (SELECT "Id" FROM "WebsiteLanguages" WHERE "NormalizedCode" = {code}), "Key", "Value", 1, now(), NULL
+                FROM "WebsiteTranslations" WHERE "LanguageId" = {WebsiteTestSeed.English}
+                """);
+        }
+
+        await AssertStatusAsync(HttpStatusCode.OK, session.PostAsync($"{Languages}/{code}/update",
+            new { expectedVersion = await VersionAsync(code), displayName = code, nativeName = code, sortOrder = 40, isActive = true, defaultCurrencyCode = "VND" }));
+    }
+
+    /// <summary>English complete (stored content included), its currency on, English turned on — the only way it can be switched on now.</summary>
+    private async Task TurnEnglishOnAsync(Session session)
+    {
+        await CompleteContentAsync("en");
+        await AssertStatusAsync(HttpStatusCode.OK, session.PostAsync($"{Currencies}/USD/rate", new { expectedVersion = 1, vndPerUnit = "26060" }));
+        await AssertStatusAsync(HttpStatusCode.OK, session.PostAsync($"{Currencies}/USD/active", new { expectedVersion = 2, isActive = true }));
+        await AssertStatusAsync(HttpStatusCode.OK, session.PostAsync($"{Languages}/en/update",
+            new { expectedVersion = await VersionAsync("en"), displayName = "English", nativeName = "English", sortOrder = 20, isActive = true, defaultCurrencyCode = "USD" }));
     }
 
     private async Task<int> VersionAsync(string code) =>
@@ -53,7 +68,7 @@ public sealed class WebsiteSettingsConcurrencyTests(PostgreSqlWebApplicationFact
     public async Task Concurrent_default_switches_leave_exactly_one_active_complete_default()
     {
         using var session = await StartAsync();
-        await AssertStatusAsync(HttpStatusCode.OK, session.PostAsync($"{Languages}/en/update", new { expectedVersion = 1, displayName = "English", nativeName = "English", sortOrder = 20, isActive = true }));
+        await TurnEnglishOnAsync(session);
         await AddCompleteLanguageAsync(session, "fr");
         await AddCompleteLanguageAsync(session, "de");
 
@@ -78,7 +93,7 @@ public sealed class WebsiteSettingsConcurrencyTests(PostgreSqlWebApplicationFact
     public async Task A_disable_racing_a_default_switch_never_leaves_an_inactive_default()
     {
         using var session = await StartAsync();
-        await AssertStatusAsync(HttpStatusCode.OK, session.PostAsync($"{Languages}/en/update", new { expectedVersion = 1, displayName = "English", nativeName = "English", sortOrder = 20, isActive = true }));
+        await TurnEnglishOnAsync(session);
 
         var sawSwitch = false;
         var sawDisable = false;
@@ -133,7 +148,7 @@ public sealed class WebsiteSettingsConcurrencyTests(PostgreSqlWebApplicationFact
         }
 
         // Two editors creating the same override: one creates it, the other is told it already exists.
-        foreach (var key in new[] { "common.close", "common.retry", "common.loading" })
+        foreach (var key in new[] { "shared.common.close", "shared.common.retry", "shared.common.loading" })
         {
             var created = await RaceAsync(
                 () => session.PostAsync(Save, new { locale = "fr", key, value = "un", expectedVersion = (int?)null }),
@@ -169,6 +184,7 @@ public sealed class WebsiteSettingsConcurrencyTests(PostgreSqlWebApplicationFact
                     """
                     UPDATE "WebsiteCurrencies" SET "IsDefault" = false WHERE "Code" <> 'VND' AND "IsDefault";
                     UPDATE "WebsiteCurrencies" SET "IsDefault" = true WHERE "Code" = 'VND' AND NOT "IsDefault";
+                    UPDATE "WebsiteLanguages" SET "DefaultCurrencyCode" = NULL WHERE "DefaultCurrencyCode" = 'USD';
                     DELETE FROM "WebsiteCurrencies" WHERE "Code" = 'USD';
                     INSERT INTO "WebsiteCurrencies" VALUES ('USD','US dollar','$',2,20,false,false,false,25000,now(),NULL,'manual',1,now(),now(),NULL);
                     """);

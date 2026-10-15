@@ -38,7 +38,8 @@ public sealed class AntiforgeryProblemDetailsResultFilter : IAlwaysRunResultFilt
         {
             Title = "Invalid antiforgery token",
             Status = StatusCodes.Status400BadRequest,
-            Detail = "A valid antiforgery token is required for this operation."
+            Detail = "A valid antiforgery token is required for this operation.",
+            Extensions = { ["code"] = "auth.csrf-invalid" }
         })
         {
             StatusCode = StatusCodes.Status400BadRequest,

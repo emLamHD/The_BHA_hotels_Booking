@@ -9,12 +9,14 @@ import { BLOG_NAV_ITEMS } from "@/data/navigation";
 import { BLOG_PATH } from "@/lib/riversideHomeContent";
 import { NAV_MAIN_SPLIT_LEFT, NAV_SUB_TEXT } from "@/shared/headerTypography";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 /**
  * CUST-WEB-001-CP08a-C2: the "Blog" entry of the header. The name is a link to `/blog`; beside it a small button
  * opens the categories (a template-style dropdown that also opens on hover). The button is keyboard- and
  * screen-reader-operable (Enter/Space opens, Esc closes), which the template's hover-only menu is not.
  */
 export default function BlogNavDropdown() {
+  const t = useT();
   const buttonRef = useRef<HTMLButtonElement>(null);
   return (
     <Popover className="BlogNavDropdown relative flex items-center">
@@ -28,12 +30,10 @@ export default function BlogNavDropdown() {
             if (open) close();
           }}
         >
-          <Link href={BLOG_PATH as Route} className={NAV_MAIN_SPLIT_LEFT} onClick={() => close()}>
-            Blog
-          </Link>
+          <Link href={BLOG_PATH as Route} className={NAV_MAIN_SPLIT_LEFT} onClick={() => close()}>{t("customer.common.blog")}</Link>
           <Popover.Button
             ref={buttonRef}
-            aria-label="Mở danh mục Blog"
+            aria-label={t("customer.header.blogNavDropdown.openTheBlogCategories")}
             className="inline-flex items-center rounded-r-full py-2 pl-1 pr-3 text-neutral-400 hover:bg-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:hover:bg-neutral-800"
           >
             <ChevronDownIcon className={`h-4 w-4 transition-transform ${open ? "-rotate-180" : ""}`} aria-hidden="true" />

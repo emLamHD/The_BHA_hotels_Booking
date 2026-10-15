@@ -12,6 +12,7 @@ import TemplatesDropdown from "./TemplatesDropdown";
 import HeroSearchForm2MobileFactory from "../(HeroSearchForm2Mobile)/HeroSearchForm2MobileFactory";
 import { PRIMARY_NAV } from "@/lib/riversideHomeContent";
 import { HEADER_FONT, NAV_MAIN_ITEM } from "@/shared/headerTypography";
+import { useT } from "@/lib/i18n/I18nProvider";
 
 export interface MainNav2Props {
   className?: string;
@@ -27,16 +28,17 @@ export interface MainNav2Props {
  * notifications are not rendered: there is no feature or data behind either.
  */
 const MainNav2: FC<MainNav2Props> = ({ className = "" }) => {
+  const t = useT();
   return (
     <div className={`MainNav2 relative z-10 ${HEADER_FONT} ${className}`}>
       <div className="px-4 h-16 md:h-20 lg:container flex items-center justify-between gap-1 sm:gap-2">
         <div className="hidden md:flex items-center flex-shrink-0 space-x-3 lg:space-x-6 xl:space-x-8">
           <Logo className="w-28 lg:w-32 self-center" />
           <div className="hidden lg:block self-center h-10 border-l border-neutral-300 dark:border-neutral-500"></div>
-          <nav aria-label="Điều hướng chính" className="hidden lg:flex items-center space-x-1">
+          <nav aria-label={t("customer.header.nav.primary")} className="hidden lg:flex items-center space-x-1">
             {PRIMARY_NAV.filter((item) => item.id !== "blog").map((item) => (
               <Link key={item.id} href={item.href as Route} className={NAV_MAIN_ITEM}>
-                {item.name}
+                {t(`customer.header.menu.${item.id}`)}
               </Link>
             ))}
             <BlogNavDropdown />

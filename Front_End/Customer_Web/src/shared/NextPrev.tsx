@@ -3,6 +3,7 @@
 import React, { FC } from "react";
 import twFocusClass from "@/utils/twFocusClass";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface NextPrevProps {
   className?: string;
   currentPage?: number;
@@ -22,6 +23,7 @@ const NextPrev: FC<NextPrevProps> = ({
   onlyNext = false,
   onlyPrev = false,
 }) => {
+  const t = useT();
   return (
     <div
       className={`nc-NextPrev relative flex items-center text-neutral-900 dark:text-neutral-300 ${className}`}
@@ -34,7 +36,7 @@ const NextPrev: FC<NextPrevProps> = ({
             !onlyPrev ? "mr-[6px]" : ""
           } bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-6000 dark:hover:border-neutral-500 rounded-full flex items-center justify-center hover:border-neutral-300 ${twFocusClass()}`}
           onClick={onClickPrev}
-          title="Prev"
+          title={t("customer.shared.nextPrev.prev")}
           data-glide-dir="<"
         >
           <i className="las la-angle-left"></i>
@@ -44,7 +46,7 @@ const NextPrev: FC<NextPrevProps> = ({
         <button
           className={`${btnClassName} bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-6000 dark:hover:border-neutral-500 rounded-full flex items-center justify-center hover:border-neutral-300 ${twFocusClass()}`}
           onClick={onClickNext}
-          title="Next"
+          title={t("customer.shared.nextPrev.next")}
           data-glide-dir=">"
         >
           <i className="las la-angle-right"></i>

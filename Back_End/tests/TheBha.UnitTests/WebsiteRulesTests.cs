@@ -163,7 +163,7 @@ public sealed class WebsiteRulesTests
     [InlineData("Đã có lỗi khi tải {what}.", "what", null)]
     [InlineData("Loading {what} failed", "what", null)]
     [InlineData("Đóng", "", null)]
-    [InlineData("Plain: {not closed", "", "not a placeholder")]
+    [InlineData("Plain: {not closed", "", "never closed")]
     [InlineData("{what} and {other}", "what", "does not declare")]
     [InlineData("Lost it", "what", "must keep")]
     [InlineData("<b>Đóng</b>", "", "plain text")]
@@ -171,8 +171,8 @@ public sealed class WebsiteRulesTests
     [InlineData("two\nlines", "", "control")]
     [InlineData("", "", "empty")]
     [InlineData("   ", "", "empty")]
-    [InlineData("{}", "", "not a placeholder")]
-    [InlineData("{1bad}", "", "not a placeholder")]
+    [InlineData("{}", "", "not a valid placeholder")]
+    [InlineData("{1bad}", "", "not a valid placeholder")]
     public void Translation_text_must_be_plain_and_keep_exactly_its_placeholders(string value, string declared, string? errorContains)
     {
         var placeholders = declared.Length == 0 ? Array.Empty<string>() : declared.Split(',');
@@ -259,27 +259,5 @@ public sealed class WebsiteRulesTests
 
         Assert.Throws<DomainException>(() => new WebsiteCurrency("ABC", "x", "x", 2, 1, Now, staff));
         Assert.Throws<DomainException>(() => new WebsiteCurrency("USD", "x", "$", 5, 1, Now, staff));
-    }
-
-    [Fact]
-    public void The_managed_key_catalog_is_consistent()
-    {
-        var keyPattern = new Regex(@"^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)+$");
-        var catalog = WebsiteTranslationCatalog.All;
-
-        Assert.Equal(catalog.Count, catalog.Select(definition => definition.Key).Distinct(StringComparer.Ordinal).Count());
-        Assert.NotEmpty(catalog);
-        foreach (var definition in catalog)
-        {
-            Assert.Matches(keyPattern, definition.Key);
-            Assert.Contains(definition.Group, WebsiteTranslationCatalog.Groups);
-            Assert.False(string.IsNullOrWhiteSpace(definition.Source), definition.Key);
-            // Both seeded texts obey the same rules an operator's edit has to obey.
-            Assert.Null(TranslationText.Validate(definition.Vietnamese, definition.Placeholders));
-            Assert.Null(TranslationText.Validate(definition.English, definition.Placeholders));
-        }
-
-        Assert.Contains(catalog, definition => definition.Placeholders.Count > 0);
-        Assert.Equal(catalog.Count, WebsiteTranslationCatalog.ByKey.Count);
     }
 }

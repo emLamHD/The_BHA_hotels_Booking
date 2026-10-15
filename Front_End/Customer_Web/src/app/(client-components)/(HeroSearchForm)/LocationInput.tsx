@@ -4,6 +4,7 @@ import { ClockIcon, MapPinIcon } from "@heroicons/react/24/outline";
 import React, { useState, useRef, useEffect, FC } from "react";
 import ClearDataButton from "./ClearDataButton";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface LocationInputProps {
   placeHolder?: string;
   desc?: string;
@@ -31,6 +32,7 @@ const LocationInput: FC<LocationInputProps> = ({
   onSelect,
   optionsHeading = "Choose a stay",
 }) => {
+  const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -111,9 +113,7 @@ const LocationInput: FC<LocationInputProps> = ({
   const renderRecentSearches = () => {
     return (
       <>
-        <h3 className="block mt-2 sm:mt-0 px-4 sm:px-8 font-semibold text-base sm:text-lg text-neutral-800 dark:text-neutral-100">
-          Recent searches
-        </h3>
+        <h3 className="block mt-2 sm:mt-0 px-4 sm:px-8 font-semibold text-base sm:text-lg text-neutral-800 dark:text-neutral-100">{t("customer.common.recentSearches")}</h3>
         <div className="mt-2">
           {[
             "Hamptons, Suffolk County, NY",

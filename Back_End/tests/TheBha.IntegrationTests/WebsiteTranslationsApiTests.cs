@@ -1,214 +1,163 @@
 using System.Net;
+using System.Text.Json;
 using TheBha.Application.Website;
 
 namespace TheBha.IntegrationTests;
 
 /// <summary>
-/// CUST-WEB-HEADER-001-CP02 acceptance A3 (translations): list by language and group, search, save and clear a value,
-/// the placeholder and plain-text rules, the default language that always keeps a value for every key, and the
-/// fallback to the default when a secondary language has no override. Real PostgreSQL through the real Admin routes.
+/// CUST-WEB-HEADER-001-CP02 / -C2 acceptance (translations): the editor lists, filters, counts and pages on the server; a text
+/// is plain message-syntax text that keeps its key's variables; saving marks it as edited by hand and remembers the reference
+/// text it was made from, so a later change of that text shows it as outdated; a stored-content field is a key like any other.
+/// Real PostgreSQL through the real Admin routes.
 /// </summary>
 [Collection(PostgreSqlCollection.Name)]
 public sealed class WebsiteTranslationsApiTests(PostgreSqlWebApplicationFactory factory) : WebsiteTestSupport(factory)
 {
-    private const string List = "/api/admin/v1/website/translations";
-    private const string Save = "/api/admin/v1/website/translations/save";
-    private const string Clear = "/api/admin/v1/website/translations/clear";
-    private const string Languages = "/api/admin/v1/website/languages";
-    private static readonly int Keys = WebsiteTranslationCatalog.All.Count;
+    private const string Url = "/api/admin/v1/website/translations";
+    private const string Key = "customer.header.menu.offers";
+    private const string Placeholder = "shared.common.error.loadFailed";
 
-    private static object Put(string locale, string key, string value, int? version) => new { locale, key, value, expectedVersion = version };
+    private async Task<JsonElement> ListAsync(Session session, string query) =>
+        await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, session.GetAsync($"{Url}?{query}")));
 
-    private static async Task CreateFrenchAsync(Session session) =>
-        await AssertStatusAsync(HttpStatusCode.Created, session.PostAsync(
-            Languages, new { code = "fr", displayName = "French", nativeName = "Français", sortOrder = 30, isActive = true }));
+    private static JsonElement RowOf(JsonElement list, string key) =>
+        list.GetProperty("rows").EnumerateArray().Single(row => row.GetProperty("key").GetString() == key);
+
+    private async Task<string> PropertyNameKeyAsync() =>
+        $"content.property.{await ScalarAsync<Guid>("""SELECT "Id" FROM "Properties" LIMIT 1""")}.name";
 
     [Fact]
-    public async Task The_list_shows_every_managed_key_with_its_source_value_and_placeholders_for_the_default_language()
+    public async Task The_list_is_server_filtered_counted_and_paged_with_the_reference_text_beside_each_row()
     {
         using var session = await StartAsync();
 
-        var vi = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, session.GetAsync($"{List}?locale=vi")));
-        Assert.Equal("vi", vi.GetProperty("locale").GetString());
-        Assert.True(vi.GetProperty("isDefaultLocale").GetBoolean());
-        Assert.Equal(Keys, vi.GetProperty("translatedKeys").GetInt32());
-        Assert.Equal(Keys, vi.GetProperty("totalKeys").GetInt32());
-        Assert.Equal([.. WebsiteTranslationCatalog.Groups], vi.GetProperty("groups").EnumerateArray().Select(group => group.GetString()!).ToArray());
-        var rows = vi.GetProperty("rows").EnumerateArray().ToArray();
-        Assert.Equal(Keys, rows.Length);
-        Assert.All(rows, row =>
-        {
-            Assert.True(row.GetProperty("hasOverride").GetBoolean());
-            Assert.False(row.GetProperty("isFallback").GetBoolean());
-            Assert.Equal(row.GetProperty("sourceText").GetString(), row.GetProperty("value").GetString());
-            Assert.Equal(1, row.GetProperty("version").GetInt32());
-        });
+        var all = await ListAsync(session, "locale=vi&pageSize=10");
+        Assert.Equal("vi", all.GetProperty("locale").GetString());
+        Assert.Equal("vi", all.GetProperty("referenceLocale").GetString());
+        Assert.True(all.GetProperty("isDefaultLocale").GetBoolean());
+        Assert.Equal(10, all.GetProperty("rows").GetArrayLength());
+        var facets = all.GetProperty("facets");
+        Assert.Equal(all.GetProperty("total").GetInt32(), facets.GetProperty("required").GetInt32());
+        Assert.Equal(0, facets.GetProperty("missing").GetInt32());                       // Vietnamese is complete (content is its own column)
+        Assert.Contains(facets.GetProperty("scopes").EnumerateArray(), scope => scope.GetProperty("name").GetString() == "customer");
+        Assert.Contains(facets.GetProperty("scopes").EnumerateArray(), scope => scope.GetProperty("name").GetString() == "content");
 
-        var withPlaceholder = rows.Single(row => row.GetProperty("key").GetString() == "common.error.loadFailed");
-        Assert.Equal(["what"], withPlaceholder.GetProperty("placeholders").EnumerateArray().Select(item => item.GetString()).ToArray());
-        Assert.Equal("Đã có lỗi khi tải {what}.", withPlaceholder.GetProperty("sourceText").GetString());
+        var page2 = await ListAsync(session, "locale=vi&pageSize=10&page=2");
+        Assert.Empty(all.GetProperty("rows").EnumerateArray().Select(row => row.GetProperty("key").GetString())
+            .Intersect(page2.GetProperty("rows").EnumerateArray().Select(row => row.GetProperty("key").GetString())));
 
-        var en = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, session.GetAsync($"{List}?locale=EN")));
-        Assert.False(en.GetProperty("isDefaultLocale").GetBoolean());
-        Assert.Equal("vi", en.GetProperty("defaultLocale").GetString());
-        var offers = en.GetProperty("rows").EnumerateArray().Single(row => row.GetProperty("key").GetString() == "header.menu.offers");
-        Assert.Equal("Offers", offers.GetProperty("value").GetString());
-        Assert.Equal("Ưu đãi", offers.GetProperty("sourceText").GetString());
+        var scoped = await ListAsync(session, "locale=vi&scope=shared&pageSize=200");
+        Assert.All(scoped.GetProperty("rows").EnumerateArray(), row => Assert.Equal("shared", row.GetProperty("scope").GetString()));
+        var grouped = await ListAsync(session, "locale=vi&scope=customer&group=header&pageSize=200");
+        Assert.All(grouped.GetProperty("rows").EnumerateArray(), row => Assert.Equal("header", row.GetProperty("group").GetString()));
+
+        var found = await ListAsync(session, "locale=vi&q=Ưu đãi&pageSize=200");
+        Assert.Equal("Ưu đãi", RowOf(found, Key).GetProperty("sourceText").GetString());
+        Assert.Equal("translated", RowOf(found, Key).GetProperty("status").GetString());
+
+        var placeholder = RowOf(await ListAsync(session, $"locale=vi&q={Placeholder}"), Placeholder);
+        Assert.Equal(["what"], placeholder.GetProperty("placeholders").EnumerateArray().Select(item => item.GetString()).ToArray());
+        await AssertStatusAsync(HttpStatusCode.NotFound, session.GetAsync($"{Url}?locale=zz"));
     }
 
     [Fact]
-    public async Task The_list_filters_by_group_and_searches_key_source_and_value_without_regard_to_case()
+    public async Task English_shows_its_missing_stored_content_as_missing_and_never_as_translated()
     {
         using var session = await StartAsync();
+        var key = await PropertyNameKeyAsync();
 
-        async Task<string[]> Keys_(string query) =>
-            [.. (await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, session.GetAsync($"{List}?{query}")))).GetProperty("rows")
-                .EnumerateArray().Select(row => row.GetProperty("key").GetString()!)];
+        var missing = await ListAsync(session, "locale=en&status=missing&pageSize=200");
+        var row = RowOf(missing, key);
+        Assert.Equal("missing", row.GetProperty("status").GetString());
+        Assert.Equal(JsonValueKind.Null, row.GetProperty("value").ValueKind);
+        Assert.Equal("Hotel Website", row.GetProperty("sourceText").GetString());        // the column's text is the source
+        Assert.All(missing.GetProperty("rows").EnumerateArray(), item => Assert.Equal("content", item.GetProperty("scope").GetString()));
+        Assert.Equal(missing.GetProperty("total").GetInt32(), missing.GetProperty("facets").GetProperty("missing").GetInt32());
 
-        var account = await Keys_("locale=vi&group=header-account");
-        Assert.Equal(WebsiteTranslationCatalog.All.Where(definition => definition.Group == "header-account").Select(definition => definition.Key), account);
-        Assert.Equal(["header.menu.offers"], await Keys_("locale=vi&q=%C6%AFu%20%C4%91%C3%A3i"));          // "Ưu đãi", the source text
-        Assert.Equal(["header.menu.offers"], await Keys_("locale=vi&q=header.menu.OFFERS"));                 // the key
-        Assert.Contains("header.menu.riverside", await Keys_("locale=en&q=RIVERSIDE"));
-        Assert.Equal(["header.menu.offers"], await Keys_("locale=en&q=offers&group=header-menu"));           // the English value
-        Assert.Empty(await Keys_("locale=vi&q=zzzz-not-there"));
-        Assert.Empty(await Keys_("locale=vi&group=no-such-group"));
-
-        await AssertStatusAsync(HttpStatusCode.NotFound, session.GetAsync($"{List}?locale=zz"));
-        await AssertStatusAsync(HttpStatusCode.NotFound, session.GetAsync($"{List}?locale=english"));
+        var translated = await ListAsync(session, "locale=en&status=translated&pageSize=200");
+        Assert.DoesNotContain(translated.GetProperty("rows").EnumerateArray(), item => item.GetProperty("key").GetString() == key);
     }
 
     [Fact]
-    public async Task A_secondary_language_falls_back_to_the_default_until_an_override_is_saved_and_returns_when_it_is_cleared()
+    public async Task Saving_a_text_creates_it_marks_it_manual_remembers_its_source_and_a_second_creator_is_refused()
     {
         using var session = await StartAsync();
-        await CreateFrenchAsync(session);
+        var key = await PropertyNameKeyAsync();
 
-        var before = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, session.GetAsync($"{List}?locale=fr&q=common.close")));
-        Assert.Equal(0, before.GetProperty("translatedKeys").GetInt32());
-        var fallbackRow = before.GetProperty("rows")[0];
-        Assert.False(fallbackRow.GetProperty("hasOverride").GetBoolean());
-        Assert.True(fallbackRow.GetProperty("isFallback").GetBoolean());
-        Assert.Equal("Đóng", fallbackRow.GetProperty("effectiveValue").GetString());
-        Assert.Equal(JsonValueKindNull, fallbackRow.GetProperty("value").ValueKind);
-        Assert.Equal(JsonValueKindNull, fallbackRow.GetProperty("version").ValueKind);
+        var created = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, session.PostAsync($"{Url}/save", new { locale = "en", key, value = "  Hotel Website (EN)  ", expectedVersion = (int?)null })));
+        Assert.Equal("Hotel Website (EN)", created.GetProperty("value").GetString());
+        Assert.True(created.GetProperty("isManual").GetBoolean());
+        Assert.Equal("translated", created.GetProperty("status").GetString());
+        Assert.Equal(1, created.GetProperty("version").GetInt32());
+        Assert.Equal(SourceText.Hash("Hotel Website"), await ScalarAsync<string>($"""SELECT "SourceHash" FROM "WebsiteTranslations" WHERE "Key" = '{key}' AND "LanguageId" = '{WebsiteTestSeed.English}'"""));
+        Assert.Equal(await StaffIdAsync(Site), await ScalarAsync<Guid>($"""SELECT "UpdatedByStaffId" FROM "WebsiteTranslations" WHERE "Key" = '{key}' AND "LanguageId" = '{WebsiteTestSeed.English}'"""));
 
-        // Creating the override: expectedVersion null means "none exists yet".
-        var saved = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, session.PostAsync(Save, Put("fr", "common.close", "Fermer", null))));
-        Assert.Equal("Fermer", saved.GetProperty("value").GetString());
-        Assert.Equal("Fermer", saved.GetProperty("effectiveValue").GetString());
-        Assert.True(saved.GetProperty("hasOverride").GetBoolean());
-        Assert.False(saved.GetProperty("isFallback").GetBoolean());
-        Assert.Equal(1, saved.GetProperty("version").GetInt32());
-        Assert.Equal(1, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteTranslations" t JOIN "WebsiteLanguages" l ON l."Id" = t."LanguageId" WHERE l."NormalizedCode" = 'fr' """));
-        Assert.Equal(await StaffIdAsync(Site), await ScalarAsync<Guid>("""SELECT t."UpdatedByStaffId" FROM "WebsiteTranslations" t JOIN "WebsiteLanguages" l ON l."Id" = t."LanguageId" WHERE l."NormalizedCode" = 'fr' """));
+        var second = await AssertStatusAsync(HttpStatusCode.Conflict, session.PostAsync($"{Url}/save", new { locale = "en", key, value = "Other", expectedVersion = (int?)null }));
+        Assert.Equal(WebsiteErrorCodes.StaleVersion, (await ProblemAsync(second)).Code);
 
-        // The language list now counts it.
-        var languages = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, session.GetAsync(Languages)));
-        Assert.Equal(1, languages.EnumerateArray().Single(language => language.GetProperty("code").GetString() == "fr").GetProperty("translatedKeys").GetInt32());
-
-        // Clearing returns to the default's text; clearing again finds nothing.
-        var cleared = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, session.PostAsync(Clear, new { locale = "fr", key = "common.close", expectedVersion = 1 })));
-        Assert.False(cleared.GetProperty("hasOverride").GetBoolean());
-        Assert.True(cleared.GetProperty("isFallback").GetBoolean());
-        Assert.Equal("Đóng", cleared.GetProperty("effectiveValue").GetString());
-        await AssertStatusAsync(HttpStatusCode.NotFound, session.PostAsync(Clear, new { locale = "fr", key = "common.close", expectedVersion = 1 }));
-        Assert.Equal(0, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteTranslations" t JOIN "WebsiteLanguages" l ON l."Id" = t."LanguageId" WHERE l."NormalizedCode" = 'fr' """));
-        await AssertInvariantsAsync();
+        var changed = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, session.PostAsync($"{Url}/save", new { locale = "en", key, value = "Hotel Website EN", expectedVersion = 1 })));
+        Assert.Equal(2, changed.GetProperty("version").GetInt32());
+        var stale = await AssertStatusAsync(HttpStatusCode.Conflict, session.PostAsync($"{Url}/save", new { locale = "en", key, value = "Stale", expectedVersion = 1 }));
+        Assert.Equal(WebsiteErrorCodes.StaleVersion, (await ProblemAsync(stale)).Code);
+        Assert.Equal("Hotel Website EN", await ScalarAsync<string>($"""SELECT "Value" FROM "WebsiteTranslations" WHERE "Key" = '{key}' AND "LanguageId" = '{WebsiteTestSeed.English}'"""));
     }
 
-    private const System.Text.Json.JsonValueKind JsonValueKindNull = System.Text.Json.JsonValueKind.Null;
-
-    [Fact]
-    public async Task Saving_checks_versions_so_two_editors_cannot_both_create_or_both_overwrite()
+    [Theory]
+    [InlineData("Đã có lỗi khi tải.", "value")]                                          // lost {what}
+    [InlineData("Could not load {what} {who}.", "value")]                                // added {who}
+    [InlineData("<b>Could not load {what}</b>", "value")]                                // markup
+    [InlineData("Could not load {what", "value")]                                        // broken message
+    [InlineData("  ", "value")]
+    public async Task A_text_that_breaks_the_rules_of_its_key_is_a_400_on_value(string value, string field)
     {
         using var session = await StartAsync();
-        await CreateFrenchAsync(session);
-
-        await AssertStatusAsync(HttpStatusCode.OK, session.PostAsync(Save, Put("fr", "common.retry", "Réessayer", null)));
-        // The second editor also loaded "no override": their create is refused, the first value stays.
-        var duplicate = await AssertStatusAsync(HttpStatusCode.Conflict, session.PostAsync(Save, Put("fr", "common.retry", "Encore", null)));
-        Assert.Equal(WebsiteErrorCodes.StaleVersion, (await ProblemAsync(duplicate)).Code);
-        Assert.Equal("Réessayer", await ScalarAsync<string>("""SELECT "Value" FROM "WebsiteTranslations" WHERE "Key" = 'common.retry' AND "LanguageId" IN (SELECT "Id" FROM "WebsiteLanguages" WHERE "NormalizedCode" = 'fr')"""));
-
-        var updated = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, session.PostAsync(Save, Put("fr", "common.retry", "Réessayez", 1))));
-        Assert.Equal(2, updated.GetProperty("version").GetInt32());
-        await AssertStatusAsync(HttpStatusCode.Conflict, session.PostAsync(Save, Put("fr", "common.retry", "Stale", 1)));          // stale
-        await AssertStatusAsync(HttpStatusCode.Conflict, session.PostAsync(Save, Put("fr", "common.retry", "Future", 7)));         // not the current version
-        await AssertStatusAsync(HttpStatusCode.Conflict, session.PostAsync(Save, Put("fr", "common.close", "Fermer", 1)));         // no such override
-        await AssertStatusAsync(HttpStatusCode.Conflict, session.PostAsync(Clear, new { locale = "fr", key = "common.retry", expectedVersion = 1 }));
-        Assert.Equal("Réessayez", await ScalarAsync<string>("""SELECT "Value" FROM "WebsiteTranslations" WHERE "Key" = 'common.retry' AND "LanguageId" IN (SELECT "Id" FROM "WebsiteLanguages" WHERE "NormalizedCode" = 'fr')"""));
-        await AssertStatusAsync(HttpStatusCode.OK, session.PostAsync(Clear, new { locale = "fr", key = "common.retry", expectedVersion = 2 }));
+        var refused = await AssertStatusAsync(HttpStatusCode.BadRequest, session.PostAsync($"{Url}/save", new { locale = "en", key = Placeholder, value, expectedVersion = 1 }));
+        Assert.Equal((WebsiteErrorCodes.Validation, field), await ProblemAsync(refused));
+        Assert.NotEqual(value.Trim(), await ScalarAsync<string>($"""SELECT "Value" FROM "WebsiteTranslations" WHERE "Key" = '{Placeholder}' AND "LanguageId" = '{WebsiteTestSeed.English}'"""));
     }
 
     [Fact]
-    public async Task A_value_is_plain_text_that_keeps_exactly_the_placeholders_its_key_declares()
+    public async Task A_plural_sentence_with_the_declared_variable_is_accepted_and_unknown_keys_or_languages_are_404()
     {
         using var session = await StartAsync();
-        await CreateFrenchAsync(session);
-        const string Key = "common.error.loadFailed";   // declares {what}
-
-        async Task Refused(string value, string expectedFragment)
-        {
-            var refused = await AssertStatusAsync(HttpStatusCode.BadRequest, session.PostAsync(Save, Put("fr", Key, value, null)));
-            Assert.Equal((WebsiteErrorCodes.Validation, "value"), await ProblemAsync(refused));
-            Assert.Contains(expectedFragment, await refused.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
-        }
-
-        await Refused("Erreur lors du chargement", "must keep");                    // placeholder lost
-        await Refused("Erreur {what} {other}", "does not declare");                 // placeholder added
-        await Refused("Erreur {what", "not a placeholder");                          // stray brace
-        await Refused("<b>Erreur</b> {what}", "plain text");                          // markup
-        await Refused("<script>alert(1)</script> {what}", "plain text");
-        await Refused("Erreur\n{what}", "control");                                  // control character
-        await Refused("   ", "empty");
-        await Refused("", "empty");
-        await Refused(new string('x', 1001) + "{what}", "exceed");
-
-        Assert.Equal(0, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteTranslations" t JOIN "WebsiteLanguages" l ON l."Id" = t."LanguageId" WHERE l."NormalizedCode" = 'fr' """));
-        var ok = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, session.PostAsync(Save, Put("fr", Key, "  Erreur lors du chargement de {what}.  ", null))));
-        Assert.Equal("Erreur lors du chargement de {what}.", ok.GetProperty("value").GetString());   // stored trimmed
-
-        // A key without a placeholder cannot gain one.
-        var extra = await AssertStatusAsync(HttpStatusCode.BadRequest, session.PostAsync(Save, Put("fr", "common.close", "Fermer {what}", null)));
-        Assert.Equal("value", (await ProblemAsync(extra)).Field);
+        await AssertStatusAsync(HttpStatusCode.OK, session.PostAsync($"{Url}/save", new { locale = "en", key = Placeholder, value = "{what, plural, one {1 thing failed to load} other {# things failed to load}}", expectedVersion = 1 }));
+        await AssertStatusAsync(HttpStatusCode.NotFound, session.PostAsync($"{Url}/save", new { locale = "en", key = "customer.nope.nothing", value = "x", expectedVersion = (int?)null }));
+        await AssertStatusAsync(HttpStatusCode.NotFound, session.PostAsync($"{Url}/save", new { locale = "zz", key = Key, value = "x", expectedVersion = (int?)null }));
+        await AssertStatusAsync(HttpStatusCode.NotFound, session.PostAsync($"{Url}/save", new { locale = "en", key = "content.property.00000000-0000-0000-0000-000000000009.name", value = "x", expectedVersion = (int?)null }));
     }
 
     [Fact]
-    public async Task Unknown_keys_and_languages_are_404_and_a_bad_version_is_400_never_a_500()
+    public async Task A_translation_becomes_outdated_when_the_reference_text_changes_and_up_to_date_again_when_it_is_saved()
     {
         using var session = await StartAsync();
-        await CreateFrenchAsync(session);
+        var viVersion = await ScalarAsync<int>($"""SELECT "Version" FROM "WebsiteTranslations" WHERE "Key" = '{Key}' AND "LanguageId" = '{WebsiteTestSeed.Vietnamese}'""");
+        Assert.Equal("translated", RowOf(await ListAsync(session, $"locale=en&q={Key}"), Key).GetProperty("status").GetString());
 
-        await AssertStatusAsync(HttpStatusCode.NotFound, session.PostAsync(Save, Put("fr", "common.notAKey", "x", null)));
-        await AssertStatusAsync(HttpStatusCode.NotFound, session.PostAsync(Save, Put("fr", "", "x", null)));
-        await AssertStatusAsync(HttpStatusCode.NotFound, session.PostAsync(Save, Put("zz", "common.close", "x", null)));
-        await AssertStatusAsync(HttpStatusCode.NotFound, session.PostAsync(Clear, new { locale = "fr", key = "common.notAKey", expectedVersion = 1 }));
-        Assert.Equal((WebsiteErrorCodes.Validation, "expectedVersion"), await ProblemAsync(await AssertStatusAsync(HttpStatusCode.BadRequest, session.PostAsync(Save, Put("fr", "common.close", "x", 0)))));
-        Assert.Equal((WebsiteErrorCodes.Validation, "expectedVersion"), await ProblemAsync(await AssertStatusAsync(HttpStatusCode.BadRequest, session.PostAsync(Clear, new { locale = "fr", key = "common.close", expectedVersion = 0 }))));
-        await AssertStatusAsync(HttpStatusCode.BadRequest, session.PostAsync(Save, """{"locale":"fr","key":"common.close"}"""));
-        await AssertStatusAsync(HttpStatusCode.BadRequest, session.PostAsync(Save, """{"locale":"fr","key":"common.close","value":"x","expectedVersion":"abc"}"""));
-        Assert.Equal(0, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteTranslations" t JOIN "WebsiteLanguages" l ON l."Id" = t."LanguageId" WHERE l."NormalizedCode" = 'fr' """));
+        // Changing the Vietnamese (reference) text: English was made from the old one.
+        await AssertStatusAsync(HttpStatusCode.OK, session.PostAsync($"{Url}/save", new { locale = "vi", key = Key, value = "Khuyến mãi", expectedVersion = viVersion }));
+        var outdated = await ListAsync(session, $"locale=en&q={Key}");
+        Assert.Equal("outdated", RowOf(outdated, Key).GetProperty("status").GetString());
+        Assert.True(outdated.GetProperty("facets").GetProperty("outdated").GetInt32() >= 1);
+        Assert.Contains(RowOf(await ListAsync(session, "locale=en&status=todo&pageSize=200"), Key).GetProperty("key").GetString(), Key);
+
+        var enVersion = await ScalarAsync<int>($"""SELECT "Version" FROM "WebsiteTranslations" WHERE "Key" = '{Key}' AND "LanguageId" = '{WebsiteTestSeed.English}'""");
+        await AssertStatusAsync(HttpStatusCode.OK, session.PostAsync($"{Url}/save", new { locale = "en", key = Key, value = "Deals", expectedVersion = enVersion }));
+        Assert.Equal("translated", RowOf(await ListAsync(session, $"locale=en&q={Key}"), Key).GetProperty("status").GetString());
     }
 
     [Fact]
-    public async Task The_default_language_keeps_a_value_for_every_key_it_can_be_edited_but_never_cleared()
+    public async Task Clearing_removes_a_text_of_a_non_default_language_and_is_refused_for_the_default()
     {
         using var session = await StartAsync();
+        var version = await ScalarAsync<int>($"""SELECT "Version" FROM "WebsiteTranslations" WHERE "Key" = '{Key}' AND "LanguageId" = '{WebsiteTestSeed.English}'""");
 
-        var cleared = await AssertStatusAsync(HttpStatusCode.Conflict, session.PostAsync(Clear, new { locale = "vi", key = "header.menu.offers", expectedVersion = 1 }));
-        Assert.Equal(WebsiteErrorCodes.DefaultLanguageRequired, (await ProblemAsync(cleared)).Code);
-        Assert.Equal(Keys, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteTranslations" t JOIN "WebsiteLanguages" l ON l."Id" = t."LanguageId" WHERE l."IsDefault" """));
+        var cleared = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, session.PostAsync($"{Url}/clear", new { locale = "en", key = Key, expectedVersion = version })));
+        Assert.Equal("missing", cleared.GetProperty("status").GetString());
+        Assert.Equal(0, await ScalarAsync<int>($"""SELECT count(*) FROM "WebsiteTranslations" WHERE "Key" = '{Key}' AND "LanguageId" = '{WebsiteTestSeed.English}'"""));
+        await AssertStatusAsync(HttpStatusCode.NotFound, session.PostAsync($"{Url}/clear", new { locale = "en", key = Key, expectedVersion = version }));
 
-        // Editing needs the existing version; the "create" form is refused because the row exists.
-        await AssertStatusAsync(HttpStatusCode.Conflict, session.PostAsync(Save, Put("vi", "header.menu.offers", "Khuyến mãi", null)));
-        var edited = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, session.PostAsync(Save, Put("vi", "header.menu.offers", "Khuyến mãi", 1))));
-        Assert.Equal(2, edited.GetProperty("version").GetInt32());
-        Assert.Equal("Khuyến mãi", edited.GetProperty("value").GetString());
-        Assert.Equal("Ưu đãi", edited.GetProperty("sourceText").GetString());         // the original wording stays visible
-        // An empty value would leave the default without text: refused.
-        await AssertStatusAsync(HttpStatusCode.BadRequest, session.PostAsync(Save, Put("vi", "header.menu.offers", "", 2)));
-        Assert.Equal("Khuyến mãi", await ScalarAsync<string>("""SELECT "Value" FROM "WebsiteTranslations" WHERE "Key" = 'header.menu.offers' AND "LanguageId" IN (SELECT "Id" FROM "WebsiteLanguages" WHERE "IsDefault")"""));
+        var refused = await AssertStatusAsync(HttpStatusCode.Conflict, session.PostAsync($"{Url}/clear", new { locale = "vi", key = Key, expectedVersion = 1 }));
+        Assert.Equal(WebsiteErrorCodes.DefaultLanguageRequired, (await ProblemAsync(refused)).Code);
         await AssertInvariantsAsync();
     }
 }

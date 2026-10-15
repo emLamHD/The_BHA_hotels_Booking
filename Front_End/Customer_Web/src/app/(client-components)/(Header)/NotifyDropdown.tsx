@@ -8,6 +8,7 @@ import avatar4 from "@/images/avatars/Image-4.png";
 import avatar5 from "@/images/avatars/Image-5.png";
 import avatar6 from "@/images/avatars/Image-6.png";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 const notifications = [
   {
     name: "Eden Tuan",
@@ -37,6 +38,7 @@ interface Props {
 }
 
 const NotifyDropdown: FC<Props> = ({ className = "" }) => {
+  const t = useT();
   return (
     <>
       <Popover className={`relative flex ${className}`}>
@@ -62,7 +64,7 @@ const NotifyDropdown: FC<Props> = ({ className = "" }) => {
               <Popover.Panel className="absolute z-10 w-screen max-w-xs sm:max-w-sm px-4 top-full -right-28 sm:right-0 sm:px-0">
                 <div className="overflow-hidden rounded-2xl shadow-lg ring-1 ring-black ring-opacity-5">
                   <div className="relative grid gap-8 bg-white dark:bg-neutral-800 p-7">
-                    <h3 className="text-xl font-semibold">Notifications</h3>
+                    <h3 className="text-xl font-semibold">{t("customer.header.notifyDropdown.notifications")}</h3>
                     {notifications.map((item, index) => (
                       <a
                         key={index}

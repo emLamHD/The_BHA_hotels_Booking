@@ -10,4 +10,9 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- The message catalog and the built-in language packs are data files, not code: a language is added by a file. -->
+    <EmbeddedResource Include="Website\Localization\**\*.json" LogicalName="bha-localization/%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
 </Project>

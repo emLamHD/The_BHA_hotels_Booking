@@ -5,6 +5,7 @@ import { ChevronDownIcon } from "@heroicons/react/24/solid";
 import { GlobeAltIcon } from "@heroicons/react/24/outline";
 import { FC, Fragment } from "react";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export const headerLanguage = [
   {
     id: "English",
@@ -52,6 +53,7 @@ interface LangDropdownProps {
 const LangDropdown: FC<LangDropdownProps> = ({
   panelClassName = "z-10 w-screen max-w-[280px] px-4 mt-4 right-0 sm:px-0",
 }) => {
+  const t = useT();
   return (
     <div className="LangDropdown">
       <Popover className="relative">
@@ -64,7 +66,7 @@ const LangDropdown: FC<LangDropdownProps> = ({
             >
               <GlobeAltIcon className="w-[18px] h-[18px] opacity-80" />
 
-              <span className="ml-2 select-none">Language</span>
+              <span className="ml-2 select-none">{t("customer.header.langDropdownSingle.language")}</span>
               <ChevronDownIcon
                 className={`${open ? "-rotate-180" : "text-opacity-70"}
                   ml-2 h-4 w-4  group-hover:text-opacity-80 transition ease-in-out duration-150`}

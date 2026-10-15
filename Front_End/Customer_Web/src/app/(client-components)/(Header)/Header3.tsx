@@ -14,6 +14,7 @@ import HeroSearchFormSmall from "../(HeroSearchFormSmall)/HeroSearchFormSmall";
 import { StaySearchFormFields } from "../type";
 import { MagnifyingGlassIcon } from "@heroicons/react/24/outline";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 interface Header3Props {
   className?: string;
 }
@@ -24,6 +25,7 @@ if (typeof window !== "undefined") {
 }
 
 const Header3: FC<Header3Props> = ({ className = "" }) => {
+  const t = useT();
   const headerInnerRef = useRef<HTMLDivElement>(null);
   //
   const [showHeroSearch, setShowHeroSearch] =
@@ -108,25 +110,19 @@ const Header3: FC<Header3Props> = ({ className = "" }) => {
           <span
             onClick={() => setShowHeroSearch("location")}
             className="block pl-5 pr-4 cursor-pointer py-3"
-          >
-            Location
-          </span>
+          >{t("customer.header.header3.location")}</span>
           <span className="h-5 w-[1px] bg-neutral-300 dark:bg-neutral-700"></span>
           <span
             onClick={() => setShowHeroSearch("dates")}
             className="block px-4 cursor-pointer py-3 "
-          >
-            Check In
-          </span>
+          >{t("customer.header.header3.checkIn")}</span>
           <span className="h-5 w-[1px] bg-neutral-300 dark:bg-neutral-700"></span>
           <span
             onClick={() => {
               setShowHeroSearch("guests");
             }}
             className="block px-4 cursor-pointer font-normal py-3"
-          >
-            Add guests
-          </span>
+          >{t("customer.header.header3.addGuests")}</span>
         </div>
 
         <div
@@ -189,9 +185,7 @@ const Header3: FC<Header3Props> = ({ className = "" }) => {
                 <Link
                   href={"/add-listing/1"}
                   className="self-center hidden xl:inline-flex px-4 py-2 border border-neutral-300 hover:border-neutral-400 dark:border-neutral-700 rounded-full items-center text-sm text-gray-700 dark:text-neutral-300 font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-opacity-75"
-                >
-                  List your property
-                </Link>
+                >{t("customer.header.header3.listYourProperty")}</Link>
 
                 <NotifyDropdown />
                 <AvatarDropdown />

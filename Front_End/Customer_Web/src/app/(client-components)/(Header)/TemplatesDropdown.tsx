@@ -7,7 +7,9 @@ import Link from "next/link";
 import Collection from "@/components/Collection";
 import { NAV_MAIN_ITEM } from "@/shared/headerTypography";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export default function TemplatesDropdown() {
+  const t = useT();
   const renderMegaMenuNavlink = (
     item: NavItemType,
     index: number,
@@ -38,7 +40,7 @@ export default function TemplatesDropdown() {
             <Popover.Button
               className={`${open ? "" : "text-opacity-80"} group h-10 sm:h-12 ${NAV_MAIN_ITEM}`}
             >
-              <span className="">Giao diện mẫu</span>
+              <span className="">{t("customer.header.templatesDropdown.sampleTemplates")}</span>
               <ChevronDownIcon
                 className={`${open ? "-rotate-180" : ""}
                   ml-1 h-4 w-4 transition ease-in-out duration-150 `}
@@ -57,9 +59,7 @@ export default function TemplatesDropdown() {
               <Popover.Panel className="absolute z-20 top-full w-full inset-x-0">
                 <div className="bg-white dark:bg-neutral-900 shadow-lg">
                   <div className="container">
-                    <p className="border-t border-slate-200 pt-6 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300">
-                      Các trang dưới đây là giao diện mẫu Chisfis với nội dung minh hoạ, chưa phải dữ liệu thật của The BHA.
-                    </p>
+                    <p className="border-t border-slate-200 pt-6 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300">{t("customer.header.templatesDropdown.thePagesBelowAreChisfis")}</p>
                     <div className="flex text-sm py-8">
                       <div className="flex-1 grid grid-cols-5 gap-6 xl:gap-8 pr-6 xl:pr-8">
                         {NAVIGATION_DEMO_2.map((item, index) => (
