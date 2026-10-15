@@ -222,11 +222,11 @@ public abstract class WebsiteTestSupport(PostgreSqlWebApplicationFactory factory
         Assert.Equal(1, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteCurrencies" WHERE "IsDefault" """));
         Assert.Equal(0, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteCurrencies" WHERE "IsActive" AND "VndPerUnit" IS NULL"""));
         Assert.Equal(1, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteCurrencies" WHERE "IsBase" AND "Code" = 'VND' AND "VndPerUnit" = 1 AND "IsActive" """));
-        // The default language still has a text for every catalog key.
+        // The default language still has a text for every catalog key (static content included; a stored-content field is the database's, not the catalog's).
         Assert.Equal(
             TheBha.Application.Website.LocalizationAssets.Catalog.Count,
             await ScalarAsync<int>(
-                $"""SELECT count(*) FROM "WebsiteTranslations" t JOIN "WebsiteLanguages" l ON l."Id" = t."LanguageId" WHERE l."IsDefault" AND t."Key" NOT LIKE 'content.%' """));
+                $"""SELECT count(*) FROM "WebsiteTranslations" t JOIN "WebsiteLanguages" l ON l."Id" = t."LanguageId" WHERE l."IsDefault" AND t."Key" !~ '^content\.(property|roomType|ratePlan|amenity|media)\.' """));
     }
 
     /// <summary>

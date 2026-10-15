@@ -2,6 +2,896 @@
  "schema": "bha.message-catalog/1",
  "messages": [
   {
+   "key": "content.benefit.hold.badge",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.benefit.hold.body",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.benefit.hold.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.benefit.price.badge",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.benefit.price.body",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.benefit.price.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.benefit.types.badge",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.benefit.types.body",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.benefit.types.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.category.diem-den-noi-bat.description",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.category.diem-den-noi-bat.name",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.category.tin-du-lich.description",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.category.tin-du-lich.name",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.gallery.entrance-logo.alt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.gallery.hero.alt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.gallery.intro.alt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.gallery.lobby-shelves.alt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.gallery.lobby-sofa.alt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.gallery.rooftop-pool-day.alt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.gallery.rooftop-pool-night.alt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.gallery.rooftop-pool-seating.alt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.hero.danang-skyline-night.alt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.hero.danang-skyline-night.caption",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.hero.dragon-bridge-dusk.alt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.hero.dragon-bridge-dusk.caption",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.hero.han-river-bridge-night.alt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.hero.han-river-bridge-night.caption",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.hero.my-khe-beach.alt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.hero.my-khe-beach.caption",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.nav.blog.name",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.nav.faq.name",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.nav.guide.name",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.nav.offers.name",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.nav.riverside.name",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.nav.rooms.name",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.offer.cuoi-tuan-can-ho-2-phong-ngu.imageAlt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.offer.cuoi-tuan-can-ho-2-phong-ngu.summary",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.offer.cuoi-tuan-can-ho-2-phong-ngu.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.offer.dat-som-can-ho-1-phong-ngu.imageAlt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.offer.dat-som-can-ho-1-phong-ngu.summary",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.offer.dat-som-can-ho-1-phong-ngu.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.offer.giua-tuan-yen-tinh.imageAlt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.offer.giua-tuan-yen-tinh.summary",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.offer.giua-tuan-yen-tinh.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.offer.ky-nghi-gan-ho-boi.imageAlt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.offer.ky-nghi-gan-ho-boi.summary",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.offer.ky-nghi-gan-ho-boi.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.offer.nhom-ban-can-ho-2-phong-ngu.imageAlt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.offer.nhom-ban-can-ho-2-phong-ngu.summary",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.offer.nhom-ban-can-ho-2-phong-ngu.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.offer.o-dai-ngay-can-ho-thoang.imageAlt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.offer.o-dai-ngay-can-ho-thoang.summary",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.offer.o-dai-ngay-can-ho-thoang.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.bai-bien-my-khe.coverAlt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.bai-bien-my-khe.excerpt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.bai-bien-my-khe.shortTitle",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.bai-bien-my-khe.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.ban-dao-son-tra.coverAlt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.ban-dao-son-tra.excerpt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.ban-dao-son-tra.shortTitle",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.ban-dao-son-tra.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.cau-rong-song-han.coverAlt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.cau-rong-song-han.excerpt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.cau-rong-song-han.shortTitle",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.cau-rong-song-han.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.co-do-hue.coverAlt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.co-do-hue.excerpt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.co-do-hue.shortTitle",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.co-do-hue.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.diff-2026-khep-lai.coverAlt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.diff-2026-khep-lai.excerpt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.diff-2026-khep-lai.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.du-lich-da-nang-9-thang-2026.coverAlt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.du-lich-da-nang-9-thang-2026.excerpt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.du-lich-da-nang-9-thang-2026.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.mau-chuan-bi-chuyen-di-da-nang.coverAlt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.mau-chuan-bi-chuyen-di-da-nang.excerpt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.mau-chuan-bi-chuyen-di-da-nang.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.mau-doc-gia-truoc-khi-dat-phong.coverAlt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.mau-doc-gia-truoc-khi-dat-phong.excerpt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.mau-doc-gia-truoc-khi-dat-phong.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.ngu-hanh-son.coverAlt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.ngu-hanh-son.excerpt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.ngu-hanh-son.shortTitle",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.ngu-hanh-son.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.pho-co-hoi-an.coverAlt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.pho-co-hoi-an.excerpt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.pho-co-hoi-an.shortTitle",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.pho-co-hoi-an.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.su-kien-cuoi-nam-2026.coverAlt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.su-kien-cuoi-nam-2026.excerpt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.su-kien-cuoi-nam-2026.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.bai-bien-my-khe.s1h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.bai-bien-my-khe.s1p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.bai-bien-my-khe.s1p2",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.bai-bien-my-khe.s2h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.bai-bien-my-khe.s2p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.bai-bien-my-khe.s2p2",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.bai-bien-my-khe.s3h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.bai-bien-my-khe.s3p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.ban-dao-son-tra.s1h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.ban-dao-son-tra.s1p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.ban-dao-son-tra.s2h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.ban-dao-son-tra.s2p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.ban-dao-son-tra.s3h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.ban-dao-son-tra.s3p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.ban-dao-son-tra.s3p2",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.cau-rong-song-han.s1h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.cau-rong-song-han.s1p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.cau-rong-song-han.s2h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.cau-rong-song-han.s2p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.cau-rong-song-han.s3h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.cau-rong-song-han.s3p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.co-do-hue.s1h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.co-do-hue.s1p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.co-do-hue.s2h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.co-do-hue.s2p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.co-do-hue.s3h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.co-do-hue.s3p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.diff-2026-khep-lai.s1h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.diff-2026-khep-lai.s1p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.diff-2026-khep-lai.s2h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.diff-2026-khep-lai.s2p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.diff-2026-khep-lai.s3h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.diff-2026-khep-lai.s3p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.diff-2026-khep-lai.s3p2",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.du-lich-da-nang-9-thang-2026.s1b1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.du-lich-da-nang-9-thang-2026.s1b2",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.du-lich-da-nang-9-thang-2026.s1h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.du-lich-da-nang-9-thang-2026.s1p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.du-lich-da-nang-9-thang-2026.s2h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.du-lich-da-nang-9-thang-2026.s2p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.du-lich-da-nang-9-thang-2026.s3h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.du-lich-da-nang-9-thang-2026.s3p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.mau-chuan-bi-chuyen-di-da-nang.s1h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.mau-chuan-bi-chuyen-di-da-nang.s1p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.mau-chuan-bi-chuyen-di-da-nang.s2b1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.mau-chuan-bi-chuyen-di-da-nang.s2b2",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.mau-chuan-bi-chuyen-di-da-nang.s2b3",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.mau-chuan-bi-chuyen-di-da-nang.s2h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.mau-chuan-bi-chuyen-di-da-nang.s2p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.mau-doc-gia-truoc-khi-dat-phong.s1h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.mau-doc-gia-truoc-khi-dat-phong.s1p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.mau-doc-gia-truoc-khi-dat-phong.s2b1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.mau-doc-gia-truoc-khi-dat-phong.s2b2",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.mau-doc-gia-truoc-khi-dat-phong.s2b3",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.mau-doc-gia-truoc-khi-dat-phong.s2h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.mau-doc-gia-truoc-khi-dat-phong.s2p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.ngu-hanh-son.s1h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.ngu-hanh-son.s1p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.ngu-hanh-son.s2h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.ngu-hanh-son.s2p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.ngu-hanh-son.s2p2",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.ngu-hanh-son.s3h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.ngu-hanh-son.s3p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.pho-co-hoi-an.s1h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.pho-co-hoi-an.s1p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.pho-co-hoi-an.s2h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.pho-co-hoi-an.s2p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.pho-co-hoi-an.s3h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.pho-co-hoi-an.s3p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.su-kien-cuoi-nam-2026.s1b1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.su-kien-cuoi-nam-2026.s1b2",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.su-kien-cuoi-nam-2026.s1b3",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.su-kien-cuoi-nam-2026.s1h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.su-kien-cuoi-nam-2026.s1p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.su-kien-cuoi-nam-2026.s2b1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.su-kien-cuoi-nam-2026.s2b2",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.su-kien-cuoi-nam-2026.s2h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.su-kien-cuoi-nam-2026.s2p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.su-kien-cuoi-nam-2026.s3h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.su-kien-cuoi-nam-2026.s3p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.step.1.body",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.step.1.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.step.2.body",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.step.2.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.step.3.body",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.step.3.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
    "key": "customer.about.page.aboutUs",
    "scope": "customer",
    "placeholders": []

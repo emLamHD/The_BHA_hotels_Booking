@@ -77,6 +77,12 @@ public sealed class WebsiteLanguagePacksApiTests(PostgreSqlWebApplicationFactory
                 writer.WriteString(entry.Key, "ES " + entry.SourceText);
             }
 
+            // The static content of the site (posts, offers, navigation…) is part of what a language must cover.
+            foreach (var definition in LocalizationAssets.Catalog.Where(definition => definition.Scope == MessageScopes.Content).OrderBy(definition => definition.Key, StringComparer.Ordinal))
+            {
+                writer.WriteString(definition.Key, MarkSpanish(reference[definition.Key]));
+            }
+
             writer.WriteEndObject();
             writer.WriteEndObject();
         }

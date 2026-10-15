@@ -49,6 +49,17 @@ for (const scope of ["shared", "customer", "admin"]) {
     messages.push(entry);
   }
 }
+// Static content of the site (posts, offers, the hero, the navigation, the booking guide) is part of what a language must cover.
+// A stored-content field of the database (a property, a room type, a rate plan, an amenity, a picture) is NOT listed here: those
+// are required only while the entity exists, and the server reads them from the database.
+const STORED = new Set(["property", "roomType", "ratePlan", "amenity", "media"]);
+for (const [key, text] of Object.entries(reference.content ?? {})) {
+  const entity = key.split(".")[1];
+  if (!key.startsWith("content.") || STORED.has(entity)) continue;
+  const entry = { key, scope: "content", placeholders: variables(text) };
+  if (context.get(key)) entry.context = context.get(key);
+  messages.push(entry);
+}
 messages.sort((a, b) => a.key.localeCompare(b.key, "en"));
 const text = JSON.stringify({ schema: "bha.message-catalog/1", messages }, null, 1) + "\n";
 if (process.argv.includes("--check")) {
