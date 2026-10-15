@@ -116,7 +116,10 @@ const RoomDetailsLoader: FC<{ ids: RoomIdentity; searchDraft: AvailabilityDraft 
       if (isRequestCancelledError(error) || controller.signal.aborted) return;
       setLoaded({ kind: "error", message: apiErrorKey(error, "customer.room.loadError.generic") });
     });
-  }, [ids]);
+    // A language/currency switch re-renders this with an equal-but-new `ids` object: reloading would unmount the hold form and
+    // lose what the guest typed. The load is keyed by the two ids only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ids.propertyId, ids.roomTypeId]);
 
   useEffect(() => {
     load();
