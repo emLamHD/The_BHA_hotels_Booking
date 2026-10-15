@@ -6691,6 +6691,11 @@
    "placeholders": []
   },
   {
+   "key": "customer.tpl.d155d06d",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.tpl.d21f5ed3",
    "scope": "customer",
    "placeholders": [

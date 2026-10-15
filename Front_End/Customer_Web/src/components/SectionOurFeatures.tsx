@@ -43,7 +43,7 @@ const SectionOurFeatures: FC<SectionOurFeaturesProps> = ({
             <span className="block mt-5 text-neutral-500 dark:text-neutral-400">{t("customer.sectionOurFeatures.withAFreeListingYou")}</span>
           </li>
           <li className="space-y-4">
-            <Badge color="green" name="Exposure " />
+            <Badge color="green" name="Exposure" />
             <span className="block text-xl font-semibold">{t("customer.sectionOurFeatures.reachMillionsWithChisfis")}</span>
             <span className="block mt-5 text-neutral-500 dark:text-neutral-400">{t("customer.sectionOurFeatures.millionsOfPeopleAreSearching")}</span>
           </li>
