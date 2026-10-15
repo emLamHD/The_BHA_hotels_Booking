@@ -7,6 +7,7 @@ import Link from "next/link";
 import Image from "next/image";
 
 import { useT } from "@/lib/i18n/I18nProvider";
+import { Tpl } from "@/lib/i18n/Tpl";
 export interface CardCategory6Props {
   className?: string;
   taxonomy: TaxonomyType;
@@ -32,7 +33,7 @@ const CardCategory6: FC<CardCategory6Props> = ({
       />
       <div className="absolute bottom-0 inset-x-0 p-4 sm:p-6 text-white">
         <span className="absolute inset-0 bg-gradient-to-t from-black/60"></span>
-        <h2 className={`relative text-lg lg:text-xl font-semibold`}>{name}</h2>
+        <h2 className={`relative text-lg lg:text-xl font-semibold`}><Tpl text={name} /></h2>
         <span className={`relative block mt-1.5 text-sm text-neutral-100`}>
           {convertNumbThousand(count)}{" "}{t("customer.common.properties")}</span>
       </div>

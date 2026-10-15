@@ -8,6 +8,7 @@ import Collection from "@/components/Collection";
 import { NAV_MAIN_ITEM } from "@/shared/headerTypography";
 
 import { useT } from "@/lib/i18n/I18nProvider";
+import { Tpl } from "@/lib/i18n/Tpl";
 export default function TemplatesDropdown() {
   const t = useT();
   const renderMegaMenuNavlink = (
@@ -26,7 +27,7 @@ export default function TemplatesDropdown() {
           }}
           onClick={close}
         >
-          {item.name}
+          <Tpl text={item.name} />
         </Link>
       </li>
     );
@@ -65,7 +66,7 @@ export default function TemplatesDropdown() {
                         {NAVIGATION_DEMO_2.map((item, index) => (
                           <div key={index}>
                             <p className="font-medium text-slate-900 dark:text-neutral-200">
-                              {item.name}
+                              <Tpl text={item.name} />
                             </p>
                             <ul className="grid space-y-4 mt-4">
                               {item.children?.map((item, index) =>

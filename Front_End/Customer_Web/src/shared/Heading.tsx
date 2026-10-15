@@ -1,4 +1,8 @@
 import React, { HTMLAttributes, ReactNode } from "react";
+import { Tpl } from "@/lib/i18n/Tpl";
+
+/** Plain text goes through the template translation (shown as written when the pack has no entry); other nodes are shown as they are. */
+const text = (node: ReactNode) => (typeof node === "string" ? <Tpl text={node} /> : node);
 
 export interface HeadingProps extends HTMLAttributes<HTMLHeadingElement> {
   fontClass?: string;
@@ -21,11 +25,11 @@ const Heading: React.FC<HeadingProps> = ({
         }
       >
         <h2 className={`text-3xl md:text-4xl font-semibold`} {...args}>
-          {children || `Section Heading`}
+          {text(children) || <Tpl text="Section Heading" />}
         </h2>
         {desc && (
           <span className="block mt-2 md:mt-3 font-normal text-base sm:text-lg text-neutral-500 dark:text-neutral-400">
-            {desc}
+            {text(desc)}
           </span>
         )}
       </div>

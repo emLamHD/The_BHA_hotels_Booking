@@ -11,6 +11,7 @@ import Link from "next/link";
 
 import { useT } from "@/lib/i18n/I18nProvider";
 import DemoPrice from "@/components/DemoPrice";
+import { Tpl } from "@/lib/i18n/Tpl";
 export interface ExperiencesCardHProps {
   className?: string;
   data?: ExperiencesDataType;
@@ -60,7 +61,7 @@ const ExperiencesCardH: FC<ExperiencesCardHProps> = ({
           <div className="flex items-center space-x-2">
             {isAds && <Badge name="ADS" color="green" />}
             <h2 className="text-lg font-medium capitalize">
-              <span className="line-clamp-1">{title}</span>
+              <span className="line-clamp-1"><Tpl text={title} /></span>
             </h2>
           </div>
           <div className="flex items-center space-x-4 text-sm text-neutral-500 dark:text-neutral-400">
@@ -70,7 +71,7 @@ const ExperiencesCardH: FC<ExperiencesCardHProps> = ({
               <span className="hidden sm:inline-block  text-base">
                 <i className="las la-map-marked"></i>
               </span>
-              <span className="sm:ml-2"> {address}</span>
+              <span className="sm:ml-2"> <Tpl text={address} /></span>
             </div>
           </div>
         </div>
@@ -95,7 +96,7 @@ const ExperiencesCardH: FC<ExperiencesCardHProps> = ({
             <Avatar imgUrl={author.avatar} userName={author.displayName} />
             <span className="hidden sm:inline-block">
               <span className="hidden sm:inline">{t("customer.common.hostedBy")}</span>{" "}
-              {author.displayName}
+              <Tpl text={author.displayName} />
             </span>
           </div>
           <span className="text-base font-semibold text-secondary-700">

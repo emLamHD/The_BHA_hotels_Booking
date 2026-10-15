@@ -8,6 +8,7 @@ import Badge from "@/shared/Badge";
 import Link from "next/link";
 
 import { useT } from "@/lib/i18n/I18nProvider";
+import { Tpl } from "@/lib/i18n/Tpl";
 export interface CardAuthorBoxProps {
   className?: string;
   author: AuthorType;
@@ -41,7 +42,7 @@ const CardAuthorBox: FC<CardAuthorBoxProps> = ({
       />
       <div className="mt-3">
         <h2 className={`text-base font-medium`}>
-          <span className="line-clamp-1">{displayName}</span>
+          <span className="line-clamp-1"><Tpl text={displayName} /></span>
         </h2>
         <span
           className={`block mt-1.5 text-sm text-neutral-500 dark:text-neutral-400`}

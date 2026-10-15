@@ -11,6 +11,7 @@ import Link from "next/link";
 
 import { useT } from "@/lib/i18n/I18nProvider";
 import DemoPrice from "@/components/DemoPrice";
+import { Tpl } from "@/lib/i18n/Tpl";
 export interface CarCardHProps {
   className?: string;
   data?: CarDataType;
@@ -58,7 +59,7 @@ const CarCardH: FC<CarCardHProps> = ({ className = "", data = DEMO_DATA }) => {
           <div className="flex items-center space-x-2">
             {isAds && <Badge name="ADS" color="green" />}
             <h2 className="text-xl font-semibold capitalize">
-              <span className="line-clamp-1">{title}</span>
+              <span className="line-clamp-1"><Tpl text={title} /></span>
             </h2>
           </div>
           <div className="flex items-center space-x-4 text-sm text-neutral-500 dark:text-neutral-400">
@@ -68,7 +69,7 @@ const CarCardH: FC<CarCardHProps> = ({ className = "", data = DEMO_DATA }) => {
               <span className="hidden sm:inline-block  text-base">
                 <i className="las la-map-marked"></i>
               </span>
-              <span className="sm:ml-2 line-clamp-1"> {address}</span>
+              <span className="sm:ml-2 line-clamp-1"> <Tpl text={address} /></span>
             </div>
           </div>
         </div>
@@ -106,7 +107,7 @@ const CarCardH: FC<CarCardHProps> = ({ className = "", data = DEMO_DATA }) => {
             <Avatar imgUrl={author.avatar} userName={author.displayName} />
             <span className="hidden sm:inline-block">
               <span className="hidden sm:inline">{t("customer.common.carOwner")}</span>{" "}
-              {author.displayName}
+              <Tpl text={author.displayName} />
             </span>
           </div>
           <span className="text-lg font-semibold text-secondary-700">

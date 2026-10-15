@@ -18,6 +18,7 @@ import { useSwipeable } from "react-swipeable";
 import { variants } from "@/utils/animationVariants";
 
 import { useT } from "@/lib/i18n/I18nProvider";
+import { Tpl } from "@/lib/i18n/Tpl";
 export interface SectionClientSayProps {
   className?: string;
   data?: typeof DEMO_DATA;
@@ -157,14 +158,14 @@ const SectionClientSay: FC<SectionClientSayProps> = ({
                 >
                   <>
                     <span className="block text-2xl">
-                      {currentItem.content}
+                      <Tpl text={currentItem.content} />
                     </span>
                     <span className="block mt-8 text-2xl font-semibold">
-                      {currentItem.clientName}
+                      <Tpl text={currentItem.clientName} />
                     </span>
                     <div className="flex items-center space-x-2 text-lg mt-2 text-neutral-400">
                       <MapPinIcon className="h-5 w-5" />
-                      <span>{currentItem.clientAddress}</span>
+                      <span><Tpl text={currentItem.clientAddress} /></span>
                     </div>
                   </>
                 </motion.div>

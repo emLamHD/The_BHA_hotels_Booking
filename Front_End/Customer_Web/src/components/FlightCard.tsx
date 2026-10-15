@@ -5,6 +5,7 @@ import React, { FC, useState } from "react";
 
 import { useT } from "@/lib/i18n/I18nProvider";
 import DemoPrice from "@/components/DemoPrice";
+import { Tpl } from "@/lib/i18n/Tpl";
 export interface FlightCardProps {
   className?: string;
   data: {
@@ -137,7 +138,7 @@ const FlightCard: FC<FlightCardProps> = ({ className = "", data }) => {
           <div className="hidden lg:block  min-w-[150px] flex-[4] ">
             <div className="font-medium text-lg">11:00 - 20:00</div>
             <div className="text-sm text-neutral-500 font-normal mt-0.5">
-              {data.airlines.name}
+              <Tpl text={data.airlines.name} />
             </div>
           </div>
 

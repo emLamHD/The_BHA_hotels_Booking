@@ -5,6 +5,7 @@ import Avatar from "@/shared/Avatar";
 import convertNumbThousand from "@/utils/convertNumbThousand";
 import Link from "next/link";
 import Image from "next/image";
+import { Tpl } from "@/lib/i18n/Tpl";
 
 export interface CardAuthorBox2Props {
   className?: string;
@@ -61,12 +62,12 @@ const CardAuthorBox2: FC<CardAuthorBox2Props> = ({
         </span>
         <div className="mt-6">
           <h2 className={`text-base font-medium`}>
-            <span className="line-clamp-1">{displayName}</span>
+            <span className="line-clamp-1"><Tpl text={displayName} /></span>
           </h2>
           <span
             className={`block mt-1 text-sm text-neutral-500 dark:text-neutral-400`}
           >
-            @{jobName}
+            @<Tpl text={jobName} />
           </span>
         </div>
       </div>

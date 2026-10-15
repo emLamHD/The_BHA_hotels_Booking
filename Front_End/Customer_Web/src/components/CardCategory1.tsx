@@ -4,6 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 
 import { useT } from "@/lib/i18n/I18nProvider";
+import { Tpl } from "@/lib/i18n/Tpl";
 export interface CardCategory1Props {
   className?: string;
   taxonomy: TaxonomyType;
@@ -37,7 +38,7 @@ const CardCategory1: FC<CardCategory1Props> = ({
             size === "large" ? "text-lg" : "text-base"
           } nc-card-title text-neutral-900 dark:text-neutral-100 font-semibold`}
         >
-          {name}
+          <Tpl text={name} />
         </h2>
         <span
           className={`${

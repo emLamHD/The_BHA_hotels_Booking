@@ -7,6 +7,7 @@ import Textarea from "@/shared/Textarea";
 import ButtonPrimary from "@/shared/ButtonPrimary";
 
 import { getT } from "@/lib/i18n/server";
+import { Tpl } from "@/lib/i18n/Tpl";
 export interface PageContactProps {}
 
 const info = [
@@ -36,10 +37,10 @@ async function PageContact(_props: PageContactProps) {
               {info.map((item, index) => (
                 <div key={index}>
                   <h3 className="uppercase font-semibold text-sm dark:text-neutral-200 tracking-wider">
-                    {item.title}
+                    <Tpl text={item.title} />
                   </h3>
                   <span className="block mt-2 text-neutral-500 dark:text-neutral-400">
-                    {item.desc}
+                    <Tpl text={item.desc} />
                   </span>
                 </div>
               ))}

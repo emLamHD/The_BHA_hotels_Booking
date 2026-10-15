@@ -9,6 +9,7 @@ import Image, { StaticImageData } from "next/image";
 import Heading from "@/shared/Heading";
 
 import { useT } from "@/lib/i18n/I18nProvider";
+import { Tpl } from "@/lib/i18n/Tpl";
 export interface SectionHowItWorkProps {
   className?: string;
   data?: {
@@ -84,9 +85,9 @@ const SectionHowItWork: FC<SectionHowItWorkProps> = ({
               />
             )}
             <div className="text-center mt-auto">
-              <h3 className="text-xl font-semibold">{item.title}</h3>
+              <h3 className="text-xl font-semibold"><Tpl text={item.title} /></h3>
               <span className="block mt-5 text-neutral-500 dark:text-neutral-400">
-                {item.desc}
+                <Tpl text={item.desc} />
               </span>
             </div>
           </div>

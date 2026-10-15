@@ -2,6 +2,7 @@
 
 import React, { FC } from "react";
 import DemoPrice from "@/components/DemoPrice";
+import { Tpl } from "@/lib/i18n/Tpl";
 
 export interface CheckboxProps {
   label?: string;
@@ -36,7 +37,7 @@ const Checkbox: FC<CheckboxProps> = ({
           className="ml-3.5 flex flex-col flex-1 justify-center"
         >
           <span className=" text-neutral-900 dark:text-neutral-100">
-            {label}
+            <Tpl text={label} />
           </span>
           {subLabel && (
             <p className="mt-1 text-neutral-500 dark:text-neutral-400 text-sm font-light">

@@ -5,6 +5,7 @@ import ButtonPrimary from "@/shared/ButtonPrimary";
 import Input from "@/shared/Input";
 
 import { useT } from "@/lib/i18n/I18nProvider";
+import { Tpl } from "@/lib/i18n/Tpl";
 export interface PageAddListing5Props {}
 
 const PageAddListing5: FC<PageAddListing5Props> = () => {
@@ -28,7 +29,7 @@ const PageAddListing5: FC<PageAddListing5Props> = () => {
           htmlFor={id + name}
           className="ml-3 block text-sm font-medium text-neutral-700 dark:text-neutral-300"
         >
-          {label}
+          <Tpl text={label} />
         </label>
       </div>
     );
@@ -38,7 +39,7 @@ const PageAddListing5: FC<PageAddListing5Props> = () => {
     return (
       <div className="flex items-center justify-between py-3">
         <span className="text-neutral-6000 dark:text-neutral-400 font-medium">
-          {text}
+          <Tpl text={text} />
         </span>
         <i className="text-2xl text-neutral-400 las la-times-circle hover:text-neutral-900 dark:hover:text-neutral-100 cursor-pointer"></i>
       </div>

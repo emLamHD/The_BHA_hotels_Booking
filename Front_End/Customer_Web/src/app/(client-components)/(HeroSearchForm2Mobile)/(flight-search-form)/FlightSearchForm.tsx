@@ -7,6 +7,7 @@ import { GuestsObject } from "../../type";
 import converSelectedDateToString from "@/utils/converSelectedDateToString";
 
 import { useT } from "@/lib/i18n/I18nProvider";
+import { Tpl } from "@/lib/i18n/Tpl";
 const FlightSearchForm = () => {
   const t = useT();
   //
@@ -202,7 +203,7 @@ const FlightSearchForm = () => {
           htmlFor={id + name}
           className="ml-3 block text-sm font-medium text-neutral-700 dark:text-neutral-300"
         >
-          {label}
+          <Tpl text={label} />
         </label>
       </div>
     );

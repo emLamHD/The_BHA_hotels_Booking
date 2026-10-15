@@ -12,6 +12,7 @@ import Link from "next/link";
 
 import { useT } from "@/lib/i18n/I18nProvider";
 import DemoPrice from "@/components/DemoPrice";
+import { Tpl } from "@/lib/i18n/Tpl";
 export interface CarCardProps {
   className?: string;
   data?: CarDataType;
@@ -70,13 +71,13 @@ const CarCard: FC<CarCardProps> = ({
                   : "text-base font-medium"
               }`}
             >
-              <span className="line-clamp-1">{title}</span>
+              <span className="line-clamp-1"><Tpl text={title} /></span>
             </h2>
           </div>
           <div className="flex items-center text-neutral-500 dark:text-neutral-400 text-sm space-x-2">
             <span className="">{t("customer.carCard.seats", { seats })}</span>
             <span>-</span>
-            <span className="">{gearshift} </span>
+            <span className=""><Tpl text={gearshift} /> </span>
           </div>
         </div>
         <div className="w-14  border-b border-neutral-100 dark:border-neutral-800"></div>

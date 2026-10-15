@@ -17,6 +17,7 @@ import ButtonSecondary from "@/shared/ButtonSecondary";
 import SocialsList from "@/shared/SocialsList";
 
 import { useT } from "@/lib/i18n/I18nProvider";
+import { Tpl } from "@/lib/i18n/Tpl";
 export interface AuthorPageProps {}
 
 const AuthorPage: FC<AuthorPageProps> = ({}) => {
@@ -133,7 +134,7 @@ const AuthorPage: FC<AuthorPageProps> = ({}) => {
                           : "text-neutral-500 dark:text-neutral-400 dark:hover:text-neutral-100 hover:text-neutral-900 hover:bg-neutral-100 dark:hover:bg-neutral-800"
                       } `}
                     >
-                      {item}
+                      <Tpl text={item} />
                     </button>
                   )}
                 </Tab>

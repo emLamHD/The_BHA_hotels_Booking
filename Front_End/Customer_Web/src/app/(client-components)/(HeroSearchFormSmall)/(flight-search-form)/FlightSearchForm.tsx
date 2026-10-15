@@ -10,6 +10,7 @@ import FlightDateRangeInput from "./FlightDateRangeInput";
 import { GuestsObject } from "../../type";
 
 import { useT } from "@/lib/i18n/I18nProvider";
+import { Tpl } from "@/lib/i18n/Tpl";
 export interface FlightSearchFormProps {}
 
 const flightClass = [
@@ -166,7 +167,7 @@ const FlightSearchForm: FC<FlightSearchFormProps> = ({}) => {
                           }}
                           className="flex items-center p-2 transition duration-150 ease-in-out rounded-lg hover:bg-neutral-100 dark:hover:bg-gray-700 focus:outline-none focus-visible:ring focus-visible:ring-orange-500 focus-visible:ring-opacity-50"
                         >
-                          <p className="text-sm font-medium ">{item.name}</p>
+                          <p className="text-sm font-medium "><Tpl text={item.name} /></p>
                         </a>
                       ))}
                     </div>

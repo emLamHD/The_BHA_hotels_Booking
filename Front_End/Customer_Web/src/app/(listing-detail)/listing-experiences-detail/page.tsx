@@ -22,6 +22,7 @@ import { Route } from "next";
 
 import { useT } from "@/lib/i18n/I18nProvider";
 import DemoPrice from "@/components/DemoPrice";
+import { Tpl } from "@/lib/i18n/Tpl";
 export interface ListingExperiencesDetailPageProps {}
 
 const ListingExperiencesDetailPage: FC<
@@ -124,7 +125,7 @@ const ListingExperiencesDetailPage: FC<
             .map((item) => (
               <div key={item.name} className="flex items-center space-x-3">
                 <i className="las la-check-circle text-2xl"></i>
-                <span>{item.name}</span>
+                <span><Tpl text={item.name} /></span>
               </div>
             ))}
         </div>

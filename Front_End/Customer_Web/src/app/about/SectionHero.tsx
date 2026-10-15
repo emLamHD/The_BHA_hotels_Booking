@@ -1,6 +1,7 @@
 import Image, { StaticImageData } from "next/image";
 import React, { FC, ReactNode } from "react";
 import ButtonPrimary from "@/shared/ButtonPrimary";
+import { Tpl } from "@/lib/i18n/Tpl";
 
 export interface SectionHeroProps {
   className?: string;
@@ -25,9 +26,9 @@ const SectionHero: FC<SectionHeroProps> = ({
             {heading}
           </h2>
           <span className="block text-base xl:text-lg text-neutral-6000 dark:text-neutral-400">
-            {subHeading}
+            <Tpl text={subHeading} />
           </span>
-          {!!btnText && <ButtonPrimary href="/login">{btnText}</ButtonPrimary>}
+          {!!btnText && <ButtonPrimary href="/login"><Tpl text={btnText} /></ButtonPrimary>}
         </div>
         <div className="flex-grow">
           <Image className="w-full" src={rightImg} alt="" />

@@ -12,6 +12,7 @@ import Link from "next/link";
 
 import { useT } from "@/lib/i18n/I18nProvider";
 import DemoPrice from "@/components/DemoPrice";
+import { Tpl } from "@/lib/i18n/Tpl";
 export interface StayCardHProps {
   className?: string;
   data?: StayDataType;
@@ -103,7 +104,7 @@ const StayCardH: FC<StayCardHProps> = ({
           <div className="flex items-center space-x-2">
             {isAds && <Badge name="ADS" color="green" />}
             <h2 className="text-lg font-medium capitalize">
-              <span className="line-clamp-1">{title}</span>
+              <span className="line-clamp-1"><Tpl text={title} /></span>
             </h2>
           </div>
         </div>

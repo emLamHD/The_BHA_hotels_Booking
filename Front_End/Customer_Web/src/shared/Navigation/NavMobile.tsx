@@ -15,6 +15,7 @@ import { RIVERSIDE_ADDRESS, RIVERSIDE_NAME } from "@/lib/riversideHomeContent";
 import { HEADER_FONT, NAV_SUB_TEXT } from "@/shared/headerTypography";
 
 import { useT } from "@/lib/i18n/I18nProvider";
+import { Tpl } from "@/lib/i18n/Tpl";
 export interface NavMobileProps {
   data?: NavItemType[];
   onClickClose?: () => void;
@@ -42,7 +43,7 @@ const NavMobile: React.FC<NavMobileProps> = ({ data = NAVIGATION_BHA, onClickClo
       return (
         <li key={item.id}>
           <Link href={item.href as Route} className={cls} onClick={onClickClose}>
-            {item.name}
+            <Tpl text={item.name} />
           </Link>
         </li>
       );
@@ -53,7 +54,7 @@ const NavMobile: React.FC<NavMobileProps> = ({ data = NAVIGATION_BHA, onClickClo
           <>
             <div className="flex items-center">
               <Link href={item.href as Route} className={cls} onClick={onClickClose}>
-                {item.name}
+                <Tpl text={item.name} />
               </Link>
               <Disclosure.Button aria-label={t(open ? "customer.menu.collapse" : "customer.menu.expand", { name: item.name })} className={TOGGLE_CLASS}>
                 <ChevronDownIcon className={`h-5 w-5 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true" />

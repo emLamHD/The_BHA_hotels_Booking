@@ -9,6 +9,7 @@ import avatar5 from "@/images/avatars/Image-5.png";
 import avatar6 from "@/images/avatars/Image-6.png";
 
 import { useT } from "@/lib/i18n/I18nProvider";
+import { Tpl } from "@/lib/i18n/Tpl";
 const notifications = [
   {
     name: "Eden Tuan",
@@ -77,13 +78,13 @@ const NotifyDropdown: FC<Props> = ({ className = "" }) => {
                         />
                         <div className="ml-3 sm:ml-4 space-y-1">
                           <p className="text-sm font-medium text-gray-900 dark:text-gray-200">
-                            {item.name}
+                            <Tpl text={item.name} />
                           </p>
                           <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                            {item.description}
+                            <Tpl text={item.description} />
                           </p>
                           <p className="text-xs text-gray-400 dark:text-gray-400">
-                            {item.time}
+                            <Tpl text={item.time} />
                           </p>
                         </div>
                         <span className="absolute right-1 top-1/2 transform -translate-y-1/2 w-2 h-2 rounded-full bg-blue-500"></span>

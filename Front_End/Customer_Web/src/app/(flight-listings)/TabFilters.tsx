@@ -12,6 +12,7 @@ import { XMarkIcon } from "@heroicons/react/24/outline";
 
 import { useT } from "@/lib/i18n/I18nProvider";
 import DemoPrice from "@/components/DemoPrice";
+import { Tpl } from "@/lib/i18n/Tpl";
 // DEMO DATA
 const typeOfAirlines = [
   {
@@ -114,7 +115,7 @@ const TabFilters = () => {
                   }`
                 }
               >
-                {category}
+                <Tpl text={category} />
               </Tab>
             ))}
           </Tab.List>

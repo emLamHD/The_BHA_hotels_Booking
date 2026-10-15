@@ -12,6 +12,7 @@ import Link from "next/link";
 
 import { useT } from "@/lib/i18n/I18nProvider";
 import DemoPrice from "@/components/DemoPrice";
+import { Tpl } from "@/lib/i18n/Tpl";
 export interface PropertyCardHProps {
   className?: string;
   data?: StayDataType;
@@ -110,7 +111,7 @@ const PropertyCardH: FC<PropertyCardHProps> = ({
           <div className="flex items-center space-x-2">
             {isAds && <Badge name="ADS" color="green" />}
             <h2 className="text-lg font-medium capitalize">
-              <span className="line-clamp-2">{title}</span>
+              <span className="line-clamp-2"><Tpl text={title} /></span>
             </h2>
           </div>
           {renderTienIch()}
