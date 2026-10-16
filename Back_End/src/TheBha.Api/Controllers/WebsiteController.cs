@@ -17,7 +17,7 @@ namespace TheBha.Api.Controllers;
 [ApiController]
 [EnableCors("website-public")]
 [Route("api/v1/website")]
-public sealed class WebsiteController(IWebsitePublicReader reader, IWebsiteDisplayPricing pricing) : ControllerBase
+public sealed class WebsiteController(IWebsitePublicReader reader, IWebsiteDisplayPricing pricing, IWebsiteMenus menus) : ControllerBase
 {
     /// <summary>Active locales (each with its format locale, direction and default currency), active currencies, the defaults, and VND as the base currency.</summary>
     [HttpGet("config")]
@@ -54,6 +54,24 @@ public sealed class WebsiteController(IWebsitePublicReader reader, IWebsiteDispl
         Response.Headers.CacheControl = "no-cache";
         Response.Headers.ETag = etag;
         return Request.Headers.IfNoneMatch.Contains(etag) ? StatusCode(StatusCodes.Status304NotModified) : Ok(dictionary);
+    }
+
+    /// <summary>
+    /// CUST-WEB-HEADER-001-CP04: the header navigation for <c>locale</c> (resolved like <c>dictionary</c>): the enabled entries of the
+    /// main row and of the secondary group, labels already in the visitor's language. Revalidated on every request
+    /// (<c>no-cache</c> + ETag), so a Save in the Admin is visible to the next request. An empty list is a real answer. It never
+    /// carries a draft, a Staff id or any administrative field; <c>generatedAtUtc</c> lets a client keep the newest answer.
+    /// </summary>
+    [HttpGet("menus")]
+    [ProducesResponseType(typeof(PublicMenuDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status304NotModified)]
+    public async Task<ActionResult> Menus([FromQuery] string? locale, CancellationToken cancellationToken)
+    {
+        var menu = await menus.GetPublicAsync(locale, cancellationToken);
+        var etag = "W/\"" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(menu.Revision + "|" + menu.Locale))).ToLowerInvariant()[..24] + "\"";
+        Response.Headers.CacheControl = "no-cache";
+        Response.Headers.ETag = etag;
+        return Request.Headers.IfNoneMatch.Contains(etag) ? StatusCode(StatusCodes.Status304NotModified) : Ok(menu);
     }
 
     /// <summary>

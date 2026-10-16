@@ -56,6 +56,12 @@ internal sealed class ContentCatalog(TheBhaDbContext database) : IContentCatalog
             Add(entries, "media", media.Id, "altText", media.AltText);
         }
 
+        // CUST-WEB-HEADER-001-CP04: a header menu entry's label (the content source language's text); the other languages' labels are translation rows.
+        foreach (var item in await database.WebsiteMenuItems.AsNoTracking().Select(item => new { item.Id, item.Label }).ToListAsync(cancellationToken))
+        {
+            Add(entries, "menuItem", item.Id, "label", item.Label);
+        }
+
         entries.Sort((left, right) => string.CompareOrdinal(left.Key, right.Key));
         return entries;
     }

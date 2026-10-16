@@ -23,8 +23,10 @@ public sealed class WebsiteSettingsAuthorizationTests(PostgreSqlWebApplicationFa
     private const string LanguagesUrl = "/api/admin/v1/website/languages";
     private const string TranslationsUrl = "/api/admin/v1/website/translations?locale=vi";
     private const string CurrenciesUrl = "/api/admin/v1/website/currencies";
+    private const string MenusUrl = "/api/admin/v1/website/menus";                 // CUST-WEB-HEADER-001-CP04
+    private const string MenusSaveUrl = MenusUrl + "/save";
 
-    private static readonly string[] AllReads = [LanguagesUrl, TranslationsUrl, CurrenciesUrl];
+    private static readonly string[] AllReads = [LanguagesUrl, TranslationsUrl, CurrenciesUrl, MenusUrl];
 
     [Fact]
     public async Task Only_a_staff_account_with_the_website_flag_reads_or_writes_regardless_of_membership_or_role()
@@ -55,6 +57,15 @@ public sealed class WebsiteSettingsAuthorizationTests(PostgreSqlWebApplicationFa
         Assert.Equal(2, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteLanguages" """));
         await AssertStatusAsync(HttpStatusCode.Created, client.SendAsync(Post(LanguagesUrl, body, site)));
         Assert.Equal(3, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteLanguages" """));
+
+        // The menu save follows the same matrix; emptying the menu would be the visible damage, so the count proves nothing got through.
+        var revision = (await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, client.SendAsync(Get(MenusUrl, site))))).GetProperty("revision").GetString();
+        var clear = new { expectedRevision = revision, items = Array.Empty<object>() };
+        await AssertStatusAsync(HttpStatusCode.Unauthorized, client.SendAsync(Post(MenusSaveUrl, clear)));
+        await AssertStatusAsync(HttpStatusCode.Unauthorized, client.SendAsync(Post(MenusSaveUrl, clear, customer)));
+        await AssertStatusAsync(HttpStatusCode.Forbidden, client.SendAsync(Post(MenusSaveUrl, clear, desk)));
+        await AssertStatusAsync(HttpStatusCode.Forbidden, client.SendAsync(Post(MenusSaveUrl, clear, manager)));
+        Assert.Equal(54, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteMenuItems" """));
     }
 
     [Fact]
@@ -199,6 +210,12 @@ public sealed class WebsiteSettingsAuthorizationTests(PostgreSqlWebApplicationFa
         await AssertStatusAsync(HttpStatusCode.UnsupportedMediaType, client.SendAsync(Post(LanguagesUrl, body, site, contentType: null)));
         Assert.Equal(2, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteLanguages" """));
 
+        var clear = new { expectedRevision = "x", items = Array.Empty<object>() };
+        await AssertStatusAsync(HttpStatusCode.Forbidden, client.SendAsync(Post(MenusSaveUrl, clear, site, origins: ["https://evil.example"])));
+        await AssertStatusAsync(HttpStatusCode.Forbidden, client.SendAsync(Post(MenusSaveUrl, clear, site, origins: [])));
+        await AssertStatusAsync(HttpStatusCode.UnsupportedMediaType, client.SendAsync(Post(MenusSaveUrl, clear, site, contentType: "text/plain")));
+        Assert.Equal(54, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteMenuItems" """));
+
         // A read needs no Origin, and the refusals are never cached.
         var read = await AssertStatusAsync(HttpStatusCode.OK, client.SendAsync(Get(LanguagesUrl, site)));
         Assert.Contains("no-store", read.Headers.CacheControl?.ToString());
@@ -261,7 +278,9 @@ public sealed class WebsiteSettingsAuthorizationTests(PostgreSqlWebApplicationFa
         }
 
         await AssertStatusAsync(HttpStatusCode.NotFound, client.SendAsync(Post(LanguagesUrl, body)));
+        await AssertStatusAsync(HttpStatusCode.NotFound, client.SendAsync(Post(MenusSaveUrl, new { expectedRevision = "x", items = Array.Empty<object>() })));
         Assert.Equal(2, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteLanguages" """));
+        Assert.Equal(54, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteMenuItems" """));
         // The public read does not depend on the Admin mode.
         await AssertStatusAsync(HttpStatusCode.OK, client.SendAsync(Get("/api/v1/website/config")));
     }

@@ -226,7 +226,8 @@ public sealed class PostgreSqlWebApplicationFactory : WebApplicationFactory<Prog
                 "Amenities",
                 "Media",
                 "RoomTypes",
-                "Properties"
+                "Properties",
+                "WebsiteMenuItems"
             CASCADE;
             """);
 
@@ -234,6 +235,8 @@ public sealed class PostgreSqlWebApplicationFactory : WebApplicationFactory<Prog
         // from the migration's seed, rebuilt from the catalog (CUST-WEB-HEADER-001-CP02).
         // ExecuteSqlRaw formats its text: the literal braces of a placeholder such as {what} are doubled.
         await context.Database.ExecuteSqlRawAsync(WebsiteTestSeed.InsertSql().Replace("{", "{{").Replace("}", "}}"));
+        // CUST-WEB-HEADER-001-CP04: and the header menu as migration 12 seeds it (the tree, its version row and the en labels).
+        await context.Database.ExecuteSqlRawAsync(TheBha.Infrastructure.Persistence.WebsiteMenuSeed.Sql);
     }
 }
 

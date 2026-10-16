@@ -38,6 +38,8 @@ public sealed class TheBhaDbContext(DbContextOptions<TheBhaDbContext> options)
     public DbSet<WebsiteLanguage> WebsiteLanguages => Set<WebsiteLanguage>();
     public DbSet<WebsiteTranslation> WebsiteTranslations => Set<WebsiteTranslation>();
     public DbSet<WebsiteCurrency> WebsiteCurrencies => Set<WebsiteCurrency>();
+    public DbSet<WebsiteMenuItem> WebsiteMenuItems => Set<WebsiteMenuItem>();
+    public DbSet<WebsiteMenuState> WebsiteMenuState => Set<WebsiteMenuState>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
