@@ -13,6 +13,8 @@ import HoldReceiptRedirector from "@/components/HoldReceiptRedirector";
 import { StaySearchProvider } from "@/components/StaySearchProvider";
 import { I18nProvider } from "@/lib/i18n/I18nProvider";
 import { getI18n, getT } from "@/lib/i18n/server";
+import { MenuProvider } from "@/lib/menus/MenuProvider";
+import { getMenuSnapshot } from "@/lib/menus/server";
 
 const poppins = Poppins({
   subsets: ["latin"],
@@ -49,22 +51,26 @@ export default async function RootLayout({
 }) {
   // The visitor's language, currency and dictionary, read once per request and shared by every server component below.
   const snapshot = await getI18n();
+  // The header navigation in the same language, read fresh for every request (it is the Admin's data, not a build artifact).
+  const menu = await getMenuSnapshot(snapshot.locale);
   return (
     <html lang={snapshot.locale} dir={snapshot.direction} className={`${poppins.className} ${headerFont.variable}`}>
       <body className="bg-white text-base dark:bg-neutral-900 text-neutral-900 dark:text-neutral-200">
         <I18nProvider snapshot={snapshot}>
-          <CustomerSessionProvider>
-            <BookingHoldProvider>
-              <StaySearchProvider>
-                <ClientCommons />
-                <SiteHeader />
-                <HoldReceiptRedirector />
-                {children}
-                <FooterNav />
-                <Footer />
-              </StaySearchProvider>
-            </BookingHoldProvider>
-          </CustomerSessionProvider>
+          <MenuProvider initial={menu}>
+            <CustomerSessionProvider>
+              <BookingHoldProvider>
+                <StaySearchProvider>
+                  <ClientCommons />
+                  <SiteHeader />
+                  <HoldReceiptRedirector />
+                  {children}
+                  <FooterNav />
+                  <Footer />
+                </StaySearchProvider>
+              </BookingHoldProvider>
+            </CustomerSessionProvider>
+          </MenuProvider>
         </I18nProvider>
       </body>
     </html>

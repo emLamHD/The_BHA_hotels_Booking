@@ -47,13 +47,6 @@ export interface SiteNavItem {
   href?: string;
 }
 
-/** The public navigation: Riverside, offers, blog. Every entry leads somewhere that works. */
-export const PRIMARY_NAV: readonly SiteNavItem[] = [
-  { id: "riverside", name: "Riverside", href: RIVERSIDE_PATH },
-  { id: "offers", name: "Ưu đãi", href: OFFERS_PATH },
-  { id: "blog", name: "Blog", href: BLOG_PATH },
-];
-
 /** The sections of the Riverside page the footer links to. */
 export const RIVERSIDE_SECTION_LINKS: readonly SiteNavItem[] = [
   { id: "rooms", name: "Loại phòng", section: HOME_SECTION.rooms },
