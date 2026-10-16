@@ -92,6 +92,12 @@ function MenuEditor({ initial, reload, readError }: { initial: WebsiteMenu; relo
   const working = write.status.phase === "pending" || checking;
   const locked = working || write.status.phase === "unverified" || host.signingOut;
   useLeaveGuard(dirty);
+  // Sign out (a button of the gate, not a link) asks too while there is a draft.
+  const setUnsaved = host.setUnsaved;
+  useEffect(() => {
+    setUnsaved(dirty);
+    return () => setUnsaved(false);
+  }, [dirty, setUnsaved]);
 
   const selected = selectedId ? find(draft, selectedId) : null;
   const serverField = write.status.phase === "refused" ? locateField(write.status.failure.field, draft) : null;

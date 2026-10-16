@@ -22,7 +22,7 @@ vi.mock("@/lib/api/website", async (importOriginal) => ({
 
 import MenusPanel from "./MenusPanel";
 import { ALLOWED, btn, deferred, ok, renderInGate } from "./websiteTestUtils";
-import { fetchStaffSession } from "@/lib/api/staff";
+import { fetchStaffSession, staffLogout } from "@/lib/api/staff";
 import { getMenu, saveMenu, type MenuItem, type MenuLocale, type WebsiteMenu } from "@/lib/api/website";
 import { canonical } from "@/lib/website/menuModel";
 
@@ -328,6 +328,36 @@ describe("the preview and the leave guard", () => {
     link.remove();
     confirm.mockRestore();
     jsdomNavigation.mockRestore();
+  });
+
+  it("Sign out asks before it throws an unsaved draft away: no keeps the draft and the session, yes signs out", async () => {
+    const logout = vi.mocked(staffLogout);
+    logout.mockReset();
+    logout.mockResolvedValue({ kind: "ok" } as never);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    await open();
+    await select("faq");
+    await userEvent.type(screen.getByTestId("label-vi"), "!");
+    await userEvent.click(screen.getByRole("button", { name: "Đăng xuất" }));
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(logout).not.toHaveBeenCalled();
+    expect((screen.getByTestId("label-vi") as HTMLInputElement).value).toBe("FAQ!");
+    confirm.mockReturnValue(true);
+    await userEvent.click(screen.getByRole("button", { name: "Đăng xuất" }));
+    await waitFor(() => expect(logout).toHaveBeenCalledTimes(1));
+    confirm.mockRestore();
+  });
+
+  it("Sign out with nothing unsaved asks nothing", async () => {
+    const logout = vi.mocked(staffLogout);
+    logout.mockReset();
+    logout.mockResolvedValue({ kind: "ok" } as never);
+    const confirm = vi.spyOn(window, "confirm");
+    await open();
+    await userEvent.click(screen.getByRole("button", { name: "Đăng xuất" }));
+    await waitFor(() => expect(logout).toHaveBeenCalledTimes(1));
+    expect(confirm).not.toHaveBeenCalled();
+    confirm.mockRestore();
   });
 
   it("a failed re-read does not throw the draft away", async () => {

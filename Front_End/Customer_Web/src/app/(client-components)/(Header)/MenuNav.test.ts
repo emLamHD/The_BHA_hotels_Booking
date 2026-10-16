@@ -90,6 +90,12 @@ describe("the mobile drawer shows the same tree: the main row, then the secondar
     expect(html).not.toContain('aria-label="Mở rộng Hai"');
   });
 
+  it("an entry whose link is only # is one expander row, not a dead link", () => {
+    const html = render(menu([node("1", "Dịch vụ", "#", [node("2", "Lưu trú", "/listing-stay")])]), React.createElement(NavMobile, {}));
+    expect(html).not.toContain('href="#"');
+    expect(html).toContain('aria-label="Mở rộng Dịch vụ"');
+  });
+
   it("an emptied or missing menu leaves the drawer with its controls only", () => {
     for (const value of [null, menu([])]) {
       const html = render(value, React.createElement(NavMobile, {}));

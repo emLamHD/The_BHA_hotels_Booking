@@ -37,11 +37,21 @@ export function MenuLink({ node, className, onClick, children }: { node: MenuNod
   );
 }
 
+/** The click that follows a hover-open within this time is the same gesture, not a request to close. */
+const HOVER_CLICK_GRACE_MS = 600;
+function keepHoverOpen(event: React.MouseEvent, open: boolean, state: { at: number; programmatic: boolean }) {
+  if (state.programmatic || !open || Date.now() - state.at > HOVER_CLICK_GRACE_MS) return;
+  event.preventDefault();
+  event.stopPropagation();
+}
+
 const PANEL_LINK = `block rounded-md px-3 py-2 ${NAV_SUB_TEXT} break-words text-neutral-600 hover:bg-neutral-100 hover:text-neutral-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:text-neutral-300 dark:hover:bg-neutral-800 dark:hover:text-neutral-200`;
 
 function NavEntry({ node }: { node: MenuNode }) {
   const t = useT();
   const buttonRef = useRef<HTMLButtonElement>(null);
+  // A list that opened under the pointer must not be closed by the click that follows the same movement.
+  const hoverOpened = useRef({ at: 0, programmatic: false });
   if (node.children.length === 0) {
     return (
       <MenuLink node={node} className={`${NAV_MAIN_ITEM} max-w-[11rem] min-w-0`}>
@@ -59,14 +69,17 @@ function NavEntry({ node }: { node: MenuNode }) {
         <div
           className="flex min-w-0 items-center"
           onMouseEnter={() => {
-            if (!wide && !open) buttonRef.current?.click();
+            if (wide || open) return;
+            hoverOpened.current = { at: Date.now(), programmatic: true };
+            buttonRef.current?.click();
+            hoverOpened.current.programmatic = false;
           }}
           onMouseLeave={() => {
             if (!wide && open) close();
           }}
         >
           {toggleOnly ? (
-            <Popover.Button ref={buttonRef} title={node.label} className={`${NAV_MAIN_ITEM} max-w-[11rem] min-w-0`}>
+            <Popover.Button ref={buttonRef} title={node.label} onClickCapture={(event: React.MouseEvent) => keepHoverOpen(event, open, hoverOpened.current)} className={`${NAV_MAIN_ITEM} max-w-[11rem] min-w-0`}>
               <span className="truncate">{node.label}</span>
               <ChevronDownIcon className={`ml-1 h-4 w-4 flex-shrink-0 transition-transform ${open ? "-rotate-180" : ""}`} aria-hidden="true" />
             </Popover.Button>
@@ -78,6 +91,7 @@ function NavEntry({ node }: { node: MenuNode }) {
               <Popover.Button
                 ref={buttonRef}
                 aria-label={expandLabel}
+                onClickCapture={(event: React.MouseEvent) => keepHoverOpen(event, open, hoverOpened.current)}
                 className="inline-flex items-center rounded-r-full py-2 pl-1 pr-3 text-neutral-400 hover:bg-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:hover:bg-neutral-800"
               >
                 <ChevronDownIcon className={`h-4 w-4 transition-transform ${open ? "-rotate-180" : ""}`} aria-hidden="true" />

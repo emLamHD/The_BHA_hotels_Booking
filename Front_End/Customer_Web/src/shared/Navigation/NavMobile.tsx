@@ -46,15 +46,26 @@ const NavMobile: React.FC<NavMobileProps> = ({ onClickClose }) => {
         </li>
       );
     }
+    // A `#` entry has no page of its own: its whole row is the expander (as its panel is on the desktop).
+    const toggleOnly = item.href === "#";
     return (
       <Disclosure as="li" key={item.id}>
         {({ open }) => (
           <>
             <div className="flex items-center">
-              <MenuLink node={item} className={cls} onClick={onClickClose} />
-              <Disclosure.Button aria-label={t(open ? "customer.menu.collapse" : "customer.menu.expand", { name: item.label })} className={TOGGLE_CLASS}>
-                <ChevronDownIcon className={`h-5 w-5 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true" />
-              </Disclosure.Button>
+              {toggleOnly ? (
+                <Disclosure.Button aria-label={t(open ? "customer.menu.collapse" : "customer.menu.expand", { name: item.label })} className={`${cls} justify-between text-left`}>
+                  <span className="min-w-0 break-words">{item.label}</span>
+                  <ChevronDownIcon className={`h-5 w-5 flex-shrink-0 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true" />
+                </Disclosure.Button>
+              ) : (
+                <>
+                  <MenuLink node={item} className={cls} onClick={onClickClose} />
+                  <Disclosure.Button aria-label={t(open ? "customer.menu.collapse" : "customer.menu.expand", { name: item.label })} className={TOGGLE_CLASS}>
+                    <ChevronDownIcon className={`h-5 w-5 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true" />
+                  </Disclosure.Button>
+                </>
+              )}
             </div>
             <Disclosure.Panel as="ul" className="space-y-0.5 pb-1 pl-5">
               {item.children.map((child) => renderNode(child, depth + 1))}

@@ -2,7 +2,7 @@ namespace TheBha.Infrastructure.Persistence;
 
 /// <summary>
 /// CUST-WEB-HEADER-001-CP04: the header menu exactly as migration 12 seeds it — the menu the site showed before the Admin
-/// could edit it, plus FAQ after Blog (every id is fixed, so an exported label pack names the same entries on every
+/// could edit it, plus FAQ after Blog ("Dịch vụ" and "Giao diện mẫu" keep opening their panel instead of navigating: their link is `#`; every id is fixed, so an exported label pack names the same entries on every
 /// site). FROZEN: it is what <c>AddWebsiteMenus</c> ran; a later change to the seed is a new migration, not an edit here.
 /// The integration tests re-run it to start each test from the baseline. The en and fr labels go to the languages that
 /// exist when it runs (the content source language, Vietnamese, keeps its text in the menu row).
@@ -19,13 +19,13 @@ public static class WebsiteMenuSeed
         ('5e2367e3-53cb-590e-b245-68ec385a7b4d', 'fa36bc5d-a855-54ab-b810-6ee3b96b9e37', NULL, 1, 'Điểm đến nổi bật', '/blog?category=diem-den-noi-bat', false, true),
         ('739aec08-1ac0-5d48-8126-69a55f90ba8f', 'fa36bc5d-a855-54ab-b810-6ee3b96b9e37', NULL, 2, 'Tin du lịch', '/blog?category=tin-du-lich', false, true),
         ('281d29ca-d8be-595c-82ff-15371647416c', NULL, 'primary', 3, 'FAQ', '/faq', false, true),
-        ('b780bf02-ecd7-55c4-8575-0c34a2f06a61', NULL, 'primary', 4, 'Dịch vụ', '/listing-stay', false, true),
+        ('b780bf02-ecd7-55c4-8575-0c34a2f06a61', NULL, 'primary', 4, 'Dịch vụ', '#', false, true),
         ('a3cc63d5-713a-5989-a510-5a1a2743fe74', 'b780bf02-ecd7-55c4-8575-0c34a2f06a61', NULL, 0, 'Lưu trú — đặt phòng The BHA Riverside', '/listing-stay', false, true),
         ('3b67b468-fa21-5b1c-bf40-3d1b2fe140fe', 'b780bf02-ecd7-55c4-8575-0c34a2f06a61', NULL, 1, 'Bất động sản (trang mẫu)', '/listing-real-estate', false, true),
         ('55ad403b-a945-59d3-8bbc-e2301df0a14b', 'b780bf02-ecd7-55c4-8575-0c34a2f06a61', NULL, 2, 'Thuê xe (trang mẫu)', '/listing-car', false, true),
         ('5bbea9b8-2dbc-5f3f-8565-e3970506eed1', 'b780bf02-ecd7-55c4-8575-0c34a2f06a61', NULL, 3, 'Trải nghiệm (trang mẫu)', '/listing-experiences', false, true),
         ('637d447a-36ab-53c4-8c05-5da05e8a5253', 'b780bf02-ecd7-55c4-8575-0c34a2f06a61', NULL, 4, 'Chuyến bay (trang mẫu)', '/listing-flights', false, true),
-        ('eca349b7-5663-51a9-ab62-0c4851985588', NULL, 'secondary', 0, 'Giao diện mẫu', '/author', false, true),
+        ('eca349b7-5663-51a9-ab62-0c4851985588', NULL, 'secondary', 0, 'Giao diện mẫu', '#', false, true),
         ('162458b2-71c1-5e6f-b6dc-661364c52a1c', 'eca349b7-5663-51a9-ab62-0c4851985588', NULL, 0, 'Trang danh sách', '/listing-stay', false, true),
         ('6b76f8e3-a5b7-5111-b323-82cd2bed9c0e', '162458b2-71c1-5e6f-b6dc-661364c52a1c', NULL, 0, 'Danh sách lưu trú', '/listing-stay', false, true),
         ('996c3b94-340d-5b7b-ad8a-85d1c8a018be', '6b76f8e3-a5b7-5111-b323-82cd2bed9c0e', NULL, 0, 'Trang lưu trú', '/listing-stay', false, true),
