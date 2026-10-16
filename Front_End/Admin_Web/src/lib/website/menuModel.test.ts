@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { MenuItem, MenuLocale } from "@/lib/api/website";
 import {
   addItem, canonical, checkHref, checkLabel, depthOf, draftProblems, fingerprint, hasBlockingProblem, indent, locateField, moveWithinSiblings,
-  outdent, patchItem, previewTree, problemsOf, removeItem, setPlacement, summarizeChanges, type Move,
+  outdent, patchItem, previewTree, problemsOf, rebaseDraft, removeItem, setPlacement, summarizeChanges, type Move,
 } from "./menuModel";
 
 const LOCALES: MenuLocale[] = [
@@ -148,5 +148,33 @@ describe("the preview is what a visitor would see", () => {
     expect(previewTree(TREE, "vi", "vi").primary.find((node) => node.id === "b")?.children.map((node) => node.id)).toEqual(["b1", "b2"]);
     expect(previewTree(TREE, "en", "vi").secondary.map((node) => node.href)).toEqual(["/s"]);
     expect(previewTree([], "vi", "vi")).toEqual({ primary: [], secondary: [] });
+  });
+});
+
+describe("after a stale save, my edits go on top of what someone else saved", () => {
+  it("content edits are laid over the server's tree: the other editor's changes to other entries stay", () => {
+    const theirs = patchItem(TREE, "a", { href: "/their-link" });                       // another editor changed A
+    const mine = patchItem(TREE, "c", { labels: { vi: "C của tôi", en: null, fr: null } });   // I changed C
+    const rebased = rebaseDraft(TREE, mine, theirs);
+    expect(rebased.how).toBe("merged");
+    expect(rebased.items.find((entry) => entry.id === "a")?.href).toBe("/their-link");
+    expect(rebased.items.find((entry) => entry.id === "c")?.labels.vi).toBe("C của tôi");
+    expect(ids(rebased.items)).toBe(ids(theirs));
+  });
+
+  it("an entry both of us edited takes my edit; an entry the other editor added is kept; one they moved stays where they put it", () => {
+    const theirs = ok(addItem(ok(moveWithinSiblings(patchItem(TREE, "b", { href: "/theirs" }), "c", -1)), null, "primary", { vi: "Mới" }, "n"));
+    const mine = patchItem(TREE, "b", { href: "/mine" });
+    const rebased = rebaseDraft(TREE, mine, theirs);
+    expect(rebased.items.find((entry) => entry.id === "b")?.href).toBe("/mine");
+    expect(rebased.items.some((entry) => entry.id === "n")).toBe(true);
+    expect(ids(rebased.items)).toBe(ids(theirs));
+  });
+
+  it("when I changed the structure the draft is kept as it is and the screen says so", () => {
+    const mine = ok(removeItem(TREE, "b21"));
+    const rebased = rebaseDraft(TREE, mine, patchItem(TREE, "a", { href: "/theirs" }));
+    expect(rebased.how).toBe("kept");
+    expect(ids(rebased.items)).toBe(ids(mine));
   });
 });

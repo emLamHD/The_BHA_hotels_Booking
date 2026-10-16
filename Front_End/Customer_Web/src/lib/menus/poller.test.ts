@@ -45,6 +45,22 @@ describe("the menu's freshness loop", () => {
     expect(MENU_POLL_MS).toBeLessThanOrEqual(10_000);
   });
 
+  it("events that arrive together (focus, visibility, a navigation) make one check, not three; a later one is honoured", async () => {
+    const { poller, log } = harness();
+    poller.start();
+    poller.checkNow();
+    await vi.advanceTimersByTimeAsync(100);
+    poller.checkNow();
+    poller.checkNow();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(log.fetches).toBe(1);
+    await vi.advanceTimersByTimeAsync(1_000);
+    poller.checkNow();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(log.fetches).toBe(2);
+    poller.stop();
+  });
+
   it("asks for nothing while the tab is hidden, and checks at once when it is asked to once visible", async () => {
     let visible = false;
     const { poller, log } = harness({ visible: () => visible });

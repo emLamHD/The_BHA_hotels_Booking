@@ -8,6 +8,9 @@ import type { MenuSnapshot } from "./menu";
 /** Between two checks while the tab is visible. Small on purpose: the Admin promises a Save shows on an open tab within 15 seconds, request time included. */
 export const MENU_POLL_MS = 10_000;
 
+/** A check asked for by an event (focus, becoming visible, a navigation) is dropped when one started less than this long ago: the events often arrive together. */
+export const MENU_MIN_GAP_MS = 1_000;
+
 export interface MenuPollerDeps {
   /** One request for the current language; rejects on a network or HTTP failure, resolves `null` for a body that is not a menu. */
   fetchMenu: (signal: AbortSignal) => Promise<MenuSnapshot | null>;
@@ -28,11 +31,13 @@ export function createMenuPoller(deps: MenuPollerDeps): MenuPoller {
   let stopped = true;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let inFlight: AbortController | null = null;
+  let lastStart = Number.NEGATIVE_INFINITY;
 
   const check = async () => {
     if (stopped || inFlight || !deps.isVisible()) return;
     const controller = new AbortController();
     inFlight = controller;
+    lastStart = Date.now();
     try {
       const menu = await deps.fetchMenu(controller.signal);
       if (!menu) throw new Error("not a menu");
@@ -68,7 +73,7 @@ export function createMenuPoller(deps: MenuPollerDeps): MenuPoller {
       inFlight = null;
     },
     checkNow() {
-      void check();
+      if (Date.now() - lastStart >= MENU_MIN_GAP_MS) void check();
     },
   };
 }

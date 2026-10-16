@@ -14,7 +14,7 @@ import Checkbox from "@/components/form/input/Checkbox";
 import { getMenu, saveMenu, type MenuItem, type MenuLocale, type MenuPlacement, type WebsiteMenu } from "@/lib/api/website";
 import {
   MAX_DEPTH, addItem, childrenOf, depthOf, descendantIds, draftProblems, find, fingerprint, hasBlockingProblem, indent, locateField,
-  moveWithinSiblings, newId, outdent, patchItem, previewTree, removeItem, setPlacement, siblingsOf, summarizeChanges, type ItemProblems, type Move, type PreviewNode,
+  moveWithinSiblings, newId, outdent, patchItem, previewTree, rebaseDraft, removeItem, setPlacement, siblingsOf, summarizeChanges, type ItemProblems, type Move, type PreviewNode,
 } from "@/lib/website/menuModel";
 import { refusalText } from "@/lib/website/wording";
 import { useWebsiteHost } from "./WebsiteAccessGate";
@@ -169,9 +169,14 @@ function MenuEditor({ initial, reload, readError }: { initial: WebsiteMenu; relo
     const fresh = await readServer();
     if (!fresh) return;
     write.reset();
+    const rebased = rebaseDraft(base.items, draft, fresh.items);
     setBase(fresh);
+    setDraft(rebased.items);
+    const when = `Đã tải bản mới nhất của máy chủ (${fresh.items.length} mục, lưu lúc ${formatWhen(fresh.updatedAtUtc)}).`;
     setServerNote(
-      `Đã tải bản mới nhất của máy chủ (${fresh.items.length} mục, lưu lúc ${formatWhen(fresh.updatedAtUtc)}). Bản nháp của bạn được giữ nguyên: Lưu sẽ áp nó lên trên bản này, còn Huỷ bỏ nháp và dùng bản này.`
+      rebased.how === "merged"
+        ? `${when} Thay đổi của bạn được giữ và đặt lên trên bản mới, nên thay đổi của người khác ở các mục bạn không sửa vẫn còn. Kiểm tra rồi bấm Lưu; Huỷ bỏ nháp và dùng bản này.`
+        : `${when} Bạn đã thêm, xoá hoặc chuyển mục nên không gộp tự động được: bản nháp được giữ nguyên và Lưu sẽ thay cả cây trên máy chủ bằng bản nháp này. Huỷ bỏ nháp và dùng bản mới.`
     );
   };
 

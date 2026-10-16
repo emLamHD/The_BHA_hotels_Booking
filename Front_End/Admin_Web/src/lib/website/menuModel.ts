@@ -255,3 +255,33 @@ export function previewTree(items: readonly MenuItem[], locale: string, defaultC
   const placed = (placement: MenuPlacement) => items.filter((item) => item.parentId === null && item.placement === placement && item.isEnabled).map(build);
   return { primary: placed("primary"), secondary: placed("secondary") };
 }
+
+// ---------------------------------------------------------------- after a stale save: keep my edits, take what others changed
+
+const contentOf = (item: MenuItem) => JSON.stringify([item.isEnabled, item.href, item.openInNewTab, Object.entries(item.labels).map(([code, text]) => [code, (text ?? "").trim()]).filter(([, text]) => text !== "").sort(([a], [b]) => (a < b ? -1 : 1))]);
+const structureOf = (items: readonly MenuItem[]) => JSON.stringify(canonical(items).map((item) => [item.id, item.parentId, item.placement]));
+
+export interface Rebased {
+  items: MenuItem[];
+  /** `merged`: only the entries I edited keep my values, everything else is the server's. `kept`: I changed the structure (added, deleted or moved entries), so my draft stands as it is and its Save will replace the server's tree. */
+  how: "merged" | "kept";
+}
+
+/**
+ * The draft after the latest server tree has been loaded. When the operator changed only the content of entries (label, link,
+ * on/off, tab), those edits are laid over the server's tree, so another editor's changes to other entries (or to the structure)
+ * are not undone by this operator's Save. When the operator changed the structure the two cannot be combined mechanically:
+ * the draft is kept untouched and the screen says that Save will replace the server's tree.
+ */
+export function rebaseDraft(oldBase: readonly MenuItem[], draft: readonly MenuItem[], latest: readonly MenuItem[]): Rebased {
+  if (structureOf(oldBase) !== structureOf(draft)) return { items: [...draft], how: "kept" };
+  const mine = new Map(draft.map((item) => [item.id, item]));
+  const was = new Map(oldBase.map((item) => [item.id, item]));
+  return {
+    items: latest.map((item) => {
+      const edited = mine.get(item.id);
+      return edited && was.has(item.id) && contentOf(edited) !== contentOf(was.get(item.id)!) ? { ...item, isEnabled: edited.isEnabled, href: edited.href, openInNewTab: edited.openInNewTab, labels: edited.labels } : item;
+    }),
+    how: "merged",
+  };
+}

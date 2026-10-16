@@ -230,13 +230,29 @@ describe("two editors: a stale revision keeps the draft", () => {
 
     read.mockResolvedValueOnce(ok(menu(ITEMS, { revision: "rev-9", version: 9 })));
     await userEvent.click(screen.getByTestId("reload-latest"));
-    expect(await screen.findByTestId("server-note")).toHaveTextContent("Bản nháp của bạn được giữ nguyên");
+    expect(await screen.findByTestId("server-note")).toHaveTextContent("Thay đổi của bạn được giữ và đặt lên trên bản mới");
     expect((screen.getByTestId("label-vi") as HTMLInputElement).value).toBe("Hỏi đáp");
 
     save.mockResolvedValueOnce(ok(menu(ITEMS, { revision: "rev-10", version: 10 })));
     await press("menu-save");
     await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
     expect(save.mock.calls[1][0]).toBe("rev-9");
+  });
+});
+
+describe("two editors: when the draft changed the structure it cannot be merged and the screen says Save will replace the tree", () => {
+  it("keeps the draft as it is, with the warning", async () => {
+    save.mockResolvedValueOnce(refused(409, "stale-version"));
+    await open();
+    await select("blog-news");
+    await press("remove-item");
+    await press("menu-save");
+    await screen.findByTestId("write-refused");
+    read.mockResolvedValueOnce(ok(menu(ITEMS.map((entry) => (entry.id === "faq" ? { ...entry, href: "/theirs" } : entry)), { revision: "rev-9", version: 9 })));
+    await userEvent.click(screen.getByTestId("reload-latest"));
+    expect(await screen.findByTestId("server-note")).toHaveTextContent("không gộp tự động được");
+    expect(screen.queryByTestId("select-blog-news")).toBeNull();                       // my deletion is still in the draft
+    expect(screen.getByTestId("menu-state")).toHaveTextContent("xoá 1");
   });
 });
 
