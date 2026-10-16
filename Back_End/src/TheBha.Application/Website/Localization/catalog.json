@@ -1,0 +1,7146 @@
+{
+ "schema": "bha.message-catalog/1",
+ "messages": [
+  {
+   "key": "content.benefit.hold.badge",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.benefit.hold.body",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.benefit.hold.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.benefit.price.badge",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.benefit.price.body",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.benefit.price.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.benefit.types.badge",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.benefit.types.body",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.benefit.types.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.category.diem-den-noi-bat.description",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.category.diem-den-noi-bat.name",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.category.tin-du-lich.description",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.category.tin-du-lich.name",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.gallery.entrance-logo.alt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.gallery.hero.alt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.gallery.intro.alt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.gallery.lobby-shelves.alt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.gallery.lobby-sofa.alt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.gallery.rooftop-pool-day.alt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.gallery.rooftop-pool-night.alt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.gallery.rooftop-pool-seating.alt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.hero.danang-skyline-night.alt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.hero.danang-skyline-night.caption",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.hero.dragon-bridge-dusk.alt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.hero.dragon-bridge-dusk.caption",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.hero.han-river-bridge-night.alt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.hero.han-river-bridge-night.caption",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.hero.my-khe-beach.alt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.hero.my-khe-beach.caption",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.nav.blog.name",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.nav.faq.name",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.nav.guide.name",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.nav.offers.name",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.nav.riverside.name",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.nav.rooms.name",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.offer.cuoi-tuan-can-ho-2-phong-ngu.imageAlt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.offer.cuoi-tuan-can-ho-2-phong-ngu.summary",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.offer.cuoi-tuan-can-ho-2-phong-ngu.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.offer.dat-som-can-ho-1-phong-ngu.imageAlt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.offer.dat-som-can-ho-1-phong-ngu.summary",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.offer.dat-som-can-ho-1-phong-ngu.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.offer.giua-tuan-yen-tinh.imageAlt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.offer.giua-tuan-yen-tinh.summary",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.offer.giua-tuan-yen-tinh.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.offer.ky-nghi-gan-ho-boi.imageAlt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.offer.ky-nghi-gan-ho-boi.summary",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.offer.ky-nghi-gan-ho-boi.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.offer.nhom-ban-can-ho-2-phong-ngu.imageAlt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.offer.nhom-ban-can-ho-2-phong-ngu.summary",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.offer.nhom-ban-can-ho-2-phong-ngu.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.offer.o-dai-ngay-can-ho-thoang.imageAlt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.offer.o-dai-ngay-can-ho-thoang.summary",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.offer.o-dai-ngay-can-ho-thoang.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.bai-bien-my-khe.coverAlt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.bai-bien-my-khe.excerpt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.bai-bien-my-khe.shortTitle",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.bai-bien-my-khe.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.ban-dao-son-tra.coverAlt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.ban-dao-son-tra.excerpt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.ban-dao-son-tra.shortTitle",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.ban-dao-son-tra.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.cau-rong-song-han.coverAlt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.cau-rong-song-han.excerpt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.cau-rong-song-han.shortTitle",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.cau-rong-song-han.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.co-do-hue.coverAlt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.co-do-hue.excerpt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.co-do-hue.shortTitle",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.co-do-hue.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.diff-2026-khep-lai.coverAlt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.diff-2026-khep-lai.excerpt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.diff-2026-khep-lai.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.du-lich-da-nang-9-thang-2026.coverAlt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.du-lich-da-nang-9-thang-2026.excerpt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.du-lich-da-nang-9-thang-2026.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.mau-chuan-bi-chuyen-di-da-nang.coverAlt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.mau-chuan-bi-chuyen-di-da-nang.excerpt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.mau-chuan-bi-chuyen-di-da-nang.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.mau-doc-gia-truoc-khi-dat-phong.coverAlt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.mau-doc-gia-truoc-khi-dat-phong.excerpt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.mau-doc-gia-truoc-khi-dat-phong.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.ngu-hanh-son.coverAlt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.ngu-hanh-son.excerpt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.ngu-hanh-son.shortTitle",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.ngu-hanh-son.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.pho-co-hoi-an.coverAlt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.pho-co-hoi-an.excerpt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.pho-co-hoi-an.shortTitle",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.pho-co-hoi-an.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.su-kien-cuoi-nam-2026.coverAlt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.su-kien-cuoi-nam-2026.excerpt",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.post.su-kien-cuoi-nam-2026.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.bai-bien-my-khe.s1h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.bai-bien-my-khe.s1p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.bai-bien-my-khe.s1p2",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.bai-bien-my-khe.s2h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.bai-bien-my-khe.s2p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.bai-bien-my-khe.s2p2",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.bai-bien-my-khe.s3h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.bai-bien-my-khe.s3p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.ban-dao-son-tra.s1h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.ban-dao-son-tra.s1p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.ban-dao-son-tra.s2h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.ban-dao-son-tra.s2p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.ban-dao-son-tra.s3h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.ban-dao-son-tra.s3p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.ban-dao-son-tra.s3p2",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.cau-rong-song-han.s1h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.cau-rong-song-han.s1p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.cau-rong-song-han.s2h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.cau-rong-song-han.s2p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.cau-rong-song-han.s3h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.cau-rong-song-han.s3p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.co-do-hue.s1h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.co-do-hue.s1p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.co-do-hue.s2h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.co-do-hue.s2p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.co-do-hue.s3h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.co-do-hue.s3p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.diff-2026-khep-lai.s1h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.diff-2026-khep-lai.s1p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.diff-2026-khep-lai.s2h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.diff-2026-khep-lai.s2p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.diff-2026-khep-lai.s3h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.diff-2026-khep-lai.s3p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.diff-2026-khep-lai.s3p2",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.du-lich-da-nang-9-thang-2026.s1b1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.du-lich-da-nang-9-thang-2026.s1b2",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.du-lich-da-nang-9-thang-2026.s1h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.du-lich-da-nang-9-thang-2026.s1p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.du-lich-da-nang-9-thang-2026.s2h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.du-lich-da-nang-9-thang-2026.s2p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.du-lich-da-nang-9-thang-2026.s3h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.du-lich-da-nang-9-thang-2026.s3p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.mau-chuan-bi-chuyen-di-da-nang.s1h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.mau-chuan-bi-chuyen-di-da-nang.s1p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.mau-chuan-bi-chuyen-di-da-nang.s2b1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.mau-chuan-bi-chuyen-di-da-nang.s2b2",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.mau-chuan-bi-chuyen-di-da-nang.s2b3",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.mau-chuan-bi-chuyen-di-da-nang.s2h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.mau-chuan-bi-chuyen-di-da-nang.s2p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.mau-doc-gia-truoc-khi-dat-phong.s1h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.mau-doc-gia-truoc-khi-dat-phong.s1p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.mau-doc-gia-truoc-khi-dat-phong.s2b1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.mau-doc-gia-truoc-khi-dat-phong.s2b2",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.mau-doc-gia-truoc-khi-dat-phong.s2b3",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.mau-doc-gia-truoc-khi-dat-phong.s2h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.mau-doc-gia-truoc-khi-dat-phong.s2p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.ngu-hanh-son.s1h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.ngu-hanh-son.s1p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.ngu-hanh-son.s2h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.ngu-hanh-son.s2p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.ngu-hanh-son.s2p2",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.ngu-hanh-son.s3h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.ngu-hanh-son.s3p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.pho-co-hoi-an.s1h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.pho-co-hoi-an.s1p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.pho-co-hoi-an.s2h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.pho-co-hoi-an.s2p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.pho-co-hoi-an.s3h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.pho-co-hoi-an.s3p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.su-kien-cuoi-nam-2026.s1b1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.su-kien-cuoi-nam-2026.s1b2",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.su-kien-cuoi-nam-2026.s1b3",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.su-kien-cuoi-nam-2026.s1h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.su-kien-cuoi-nam-2026.s1p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.su-kien-cuoi-nam-2026.s2b1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.su-kien-cuoi-nam-2026.s2b2",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.su-kien-cuoi-nam-2026.s2h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.su-kien-cuoi-nam-2026.s2p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.su-kien-cuoi-nam-2026.s3h",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.postBody.su-kien-cuoi-nam-2026.s3p1",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.step.1.body",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.step.1.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.step.2.body",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.step.2.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.step.3.body",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "content.step.3.title",
+   "scope": "content",
+   "placeholders": []
+  },
+  {
+   "key": "customer.about.page.aboutUs",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.about.sectionFounder.founder",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.about.sectionStatistic.fastFacts",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.account.feature.billing",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.account.feature.password",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.account.feature.savelists",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.accountPages.account.accountSessionPanel.account",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.accountPages.account.accountSessionPanel.accountDetails",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.accountPages.account.accountSessionPanel.accountEmail",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.accountPages.account.accountSessionPanel.forNowYouCanOnly",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.accountPages.account.accountSessionPanel.youAreNotSignedIn",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.accountPages.accountUnavailable.backToYourAccount",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.accountPages.accountUnavailable.isnTAvailableInThe",
+   "scope": "customer",
+   "placeholders": [
+    "feature"
+   ]
+  },
+  {
+   "key": "customer.accountPages.accountUnavailable.thisFeatureIsnTAvailable",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.accountPages.nav.account",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.layout.goBack",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing1.aCatchyNameUsuallyIncludes",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing1.cabin",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing1.chooseAPropertyType",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing1.choosingListingCategories",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing1.cottage",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing1.entirePlace",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing1.entirePlaceGuestsHaveThe",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing1.farmStay",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing1.hotel",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing1.hotelProfessionalHospitalityBusinessesThat",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing1.houseboat",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing1.lighthouse",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing1.placeName",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing1.placesName",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing1.privateRoom",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing1.rentalForm",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing1.shareRoom",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing1.villa",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing10.congratulations",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing10.edit",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing10.excellentCongratulationsOnCompletingThe",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing10.preview",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing10.thisIsYourListing",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing2.1110PennsylvaniaAvenueNwWashington",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing2.city",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing2.countryRegion",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing2.detailedAddress",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing2.france",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing2.korea",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing2.postalCode",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing2.roomNumberOptional",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing2.singapore",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing2.state",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing2.street",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing2.thailand",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing2.useCurrentLocation",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing2.vietNam",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing2.yourPlaceLocation",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing3.acreageM2",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing3.bathroom",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing3.bedroom",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing3.kitchen",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing3.sizeOfYourLocation",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing4.airConditioning",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing4.amenities",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing4.antiTheftKey",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing4.babyCot",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing4.bathroomHeaters",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing4.bbqGrill",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing4.clothesDryer",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing4.clothHook",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing4.desk",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing4.detergent",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing4.diningTable",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing4.dishwasher",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing4.dryer",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing4.extraCushion",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing4.fan",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing4.fireExtinguisher",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing4.fireSiren",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing4.freeToiletries",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing4.fridge",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing4.gasStove",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing4.heater",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing4.hotPot",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing4.internet",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing4.kettle",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing4.makeupTable",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing4.manyCustomersHaveSearchedFor",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing4.otherAmenities",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing4.privateEntrance",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing4.safeAmenities",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing4.safeVault",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing4.toaster",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing4.toiletPaper",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing4.towel",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing4.tv",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing4.wardrobe",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing4.washingMachine",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing4.wifi",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing5.additionalRules",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing5.addTag",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing5.cooking",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing5.guestsMustAgreeToYour",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing5.noSmoking",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing5.partyOrganizing",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing5.pet",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing5.setHouseRulesForYour",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing6.mentionTheBestFeaturesOf",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing6.yourPlaceDescriptionForClient",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing7.aFewBeautifulPhotosWill",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing7.coverImage",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing7.orDragAndDrop",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing7.picturesOfThePlace",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing7.pngJpgGifUpTo",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing7.uploadAFile",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing8.basePriceFridaySunday",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing8.basePriceMondayThuday",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing8.currency",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing8.eurro",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing8.everyMonth",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing8.longTermPriceMonthlyDiscount",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing8.priceYourSpace",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing8.theHostSRevenueIs",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing8.usd",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing8.vnd",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing9.editingYourCalendarIsEasy",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing9.howLongCanGuestsStay",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing9.nightsMax",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing9.nightsMin",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing9.setYourAvailability",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.addListing.stepIndex.pageAddListing9.shorterTripsCanMeanMore",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.blocked.booking.login",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.blocked.booking.logout",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.blocked.identityChange",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.blocked.receipt.login",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.blocked.receipt.logout",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.blocked.sessionNotReady",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.entry.account",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.entry.accountEmail",
+   "scope": "customer",
+   "placeholders": [
+    "email"
+   ]
+  },
+  {
+   "key": "customer.auth.entry.attention",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.entry.checking",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.entry.session",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.entry.signIn",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.entry.signingOut",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.entry.signOut",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.failed.login",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.failed.logout",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.link.backToBooking",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.link.openReceipt",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.login.badCredentials",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.login.badCredentialsKept",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.login.cannotProcess",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.login.cannotProcessKept",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.login.success",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.login.unconfirmed",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.logout.cannotProcess",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.logout.noSession",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.logout.success",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.logout.unconfirmed",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.lost.login.anonymous",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.lost.login.authenticated",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.lost.logout.anonymous",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.lost.logout.authenticated",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.notice.checking",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.notice.recovering",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.notice.transport",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.notice.unknown",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.notice.unresolved",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.rateLimited",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.receipt.busy",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.receipt.changed",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.redirecting.account",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.redirecting.home",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.unresolved.refused",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.unresolved.succeeded",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.unresolved.unknown",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.validation.emailInvalid",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.validation.emailRequired",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.validation.emailTooLong",
+   "scope": "customer",
+   "placeholders": [
+    "max"
+   ]
+  },
+  {
+   "key": "customer.auth.validation.passwordRequired",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.auth.validation.passwordTooLong",
+   "scope": "customer",
+   "placeholders": [
+    "max"
+   ]
+  },
+  {
+   "key": "customer.author.page.haNoiVietNam",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.author.page.joinedInMarch2016",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.author.page.kevinFrancis",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.author.page.kevinFrancisSListings",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.author.page.kevinFrancisSListingsIs",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.author.page.providingLakeViewsTheSymphony",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.author.page.reviews23Reviews",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.author.page.showMeMore",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.author.page.speakingEnglish",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.author.page.viewMore20Reviews",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.index.description",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.index.title",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.metaTitle",
+   "scope": "customer",
+   "placeholders": [
+    "name"
+   ]
+  },
+  {
+   "key": "customer.blog.metaTitleIndex",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.page.all",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.page.categories",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.page.eachArticleListsItsSources",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.reportDate",
+   "scope": "customer",
+   "placeholders": [
+    "date"
+   ]
+  },
+  {
+   "key": "customer.blog.sampleLabel",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.sampleNotReal",
+   "scope": "customer",
+   "placeholders": [
+    "label"
+   ]
+  },
+  {
+   "key": "customer.blog.sectionLatestPosts.latestArticles",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.sectionLatestPosts.showMeMore",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.slug.guideLine",
+   "scope": "customer",
+   "placeholders": [
+    "date"
+   ]
+  },
+  {
+   "key": "customer.blog.slug.newsLine",
+   "scope": "customer",
+   "placeholders": [
+    "published",
+    "updated"
+   ]
+  },
+  {
+   "key": "customer.blog.slug.notFoundTitle",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.slug.page.backToTheBlog",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.slug.page.photo",
+   "scope": "customer",
+   "placeholders": [
+    "author"
+   ]
+  },
+  {
+   "key": "customer.blog.slug.page.references",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.slug.page.relatedArticles",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.slug.page.theContentIsSummarisedIn",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.slug.page.thisIsASampleArticle",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.slug.page.wikimediaCommons",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.updated",
+   "scope": "customer",
+   "placeholders": [
+    "date"
+   ]
+  },
+  {
+   "key": "customer.blog.widgetCategories.trendingTopic",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.widgetPosts.popularPosts",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.widgetTags.discoverMoreTags",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.adults",
+   "scope": "customer",
+   "placeholders": [
+    "adults"
+   ]
+  },
+  {
+   "key": "customer.booking.children",
+   "scope": "customer",
+   "placeholders": [
+    "children"
+   ]
+  },
+  {
+   "key": "customer.booking.designedFor",
+   "scope": "customer",
+   "placeholders": [
+    "guests"
+   ]
+  },
+  {
+   "key": "customer.booking.guests",
+   "scope": "customer",
+   "placeholders": [
+    "guests"
+   ]
+  },
+  {
+   "key": "customer.booking.hold.alreadyConfirmed",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.hold.confirmationNumber",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.hold.confirmed",
+   "scope": "customer",
+   "placeholders": [
+    "time"
+   ]
+  },
+  {
+   "key": "customer.booking.hold.confirming",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.hold.confirmReservation",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.hold.confirmUncertain",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.hold.create",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.hold.created",
+   "scope": "customer",
+   "placeholders": [
+    "time"
+   ]
+  },
+  {
+   "key": "customer.booking.hold.creating",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.hold.email",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.hold.existingHold",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.hold.expires",
+   "scope": "customer",
+   "placeholders": [
+    "time"
+   ]
+  },
+  {
+   "key": "customer.booking.hold.fullName",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.hold.holdCreated",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.hold.holdExists",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.hold.holdId",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.hold.holdThisRoom",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.hold.holdUncertain",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.hold.keepTab",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.hold.noNightly",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.hold.phone",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.hold.reservationConfirmed",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.hold.retryConfirmation",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.hold.retryExactConfirmation",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.hold.retryExactRequest",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.hold.status",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.hold.status.Active",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.hold.status.Cancelled",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.hold.status.Confirmed",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.hold.status.Expired",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.hold.total",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.infants",
+   "scope": "customer",
+   "placeholders": [
+    "infants"
+   ]
+  },
+  {
+   "key": "customer.booking.nights",
+   "scope": "customer",
+   "placeholders": [
+    "nights"
+   ]
+  },
+  {
+   "key": "customer.booking.offer.holdThisRoom",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.offer.photoAlt",
+   "scope": "customer",
+   "placeholders": [
+    "name"
+   ]
+  },
+  {
+   "key": "customer.booking.offer.photoPending",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.offer.ratePlanFallback",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.offer.requestedAvailable",
+   "scope": "customer",
+   "placeholders": [
+    "available",
+    "rooms"
+   ]
+  },
+  {
+   "key": "customer.booking.offer.roomTypeFallback",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.offer.total",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.reservation.status.Cancelled",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.reservation.status.Confirmed",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.rooms",
+   "scope": "customer",
+   "placeholders": [
+    "rooms"
+   ]
+  },
+  {
+   "key": "customer.booking.status.confirmed.action",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.status.confirmed.barAction",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.status.confirmed.barText",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.status.confirmed.message",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.status.inProgress.action",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.status.inProgress.barAction",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.status.inProgress.barText",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.status.inProgress.message",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.upTo",
+   "scope": "customer",
+   "placeholders": [
+    "guests"
+   ]
+  },
+  {
+   "key": "customer.carCard.car",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.carCard.seats",
+   "scope": "customer",
+   "placeholders": [
+    "seats"
+   ]
+  },
+  {
+   "key": "customer.cardAuthorBox.newYork",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.cardCategory1.articles",
+   "scope": "customer",
+   "placeholders": [
+    "count"
+   ]
+  },
+  {
+   "key": "customer.cardCategory3.places",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.cardCategory4.archive",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.cardCategoryBox1.19MinutesDrive",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.carListings.layout.1512Cars",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.carListings.sectionGridHasMap.searchAssIMoveThe",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.carListings.tabFilters.bags",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.carListings.tabFilters.car",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.carListings.tabFilters.carSpecifications",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.carListings.tabFilters.carType",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.carListings.tabFilters.guestsBags",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.carListings.tabFilters.insurance",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.carListings.tabFilters.mileage",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.carListings.tabFilters.moreFilters",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.carListings.tabFilters.moreFilters3",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.carListings.tabFilters.passengers",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.carListings.tabFilters.passengersBags",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.carListings.tabFilters.supplier",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.carListings.tabFilters.typeOfCar",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.checkout.pageMain.2Beds2Baths",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.checkout.pageMain.cardHolder",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.checkout.pageMain.cardNumber",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.checkout.pageMain.confirmAndPay",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.checkout.pageMain.confirmAndPayment",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.checkout.pageMain.creditCard",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.checkout.pageMain.cvc",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.checkout.pageMain.date",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.checkout.pageMain.email",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.checkout.pageMain.expirationDate",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.checkout.pageMain.hotelRoomInTokyoJappan",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.checkout.pageMain.mastercard",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.checkout.pageMain.messagerForAuthor",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.checkout.pageMain.password",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.checkout.pageMain.paypal",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.checkout.pageMain.payWith",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.checkout.pageMain.priceDetail",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.checkout.pageMain.serviceCharge",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.checkout.pageMain.theLoungeBar",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.checkout.pageMain.total",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.checkout.pageMain.viewBookingDetails",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.checkout.pageMain.visa",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.checkout.pageMain.writeAFewSentencesAbout",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.checkout.pageMain.yourTrip",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.checkout.perNightTimes",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.checkout.perPersonTimes",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.collection.showMore",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.commentListing.reviewIn",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.commentListing.theLoungeBar",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.112Properties",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.12Places",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.233Cars",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.233Experiences",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.2Bags",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.2Guests",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.3Baths",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.4Seats",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.6Beds",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.adults",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.adults2",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.ages02",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.ages13OrAbove",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.ages13OrAbove2",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.ages212",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.ages2122",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.apply",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.aug1218",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.autoGearbox",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.backToHome",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.backToHome2",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.beds",
+   "scope": "customer",
+   "placeholders": [
+    "bedrooms",
+    "name"
+   ]
+  },
+  {
+   "key": "customer.common.beds2",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.blog",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.blog2",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.breadcrumb",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.cancellationPolicy",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.carOwner",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.carsInTokyo",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.checkInCheckOut",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.children",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.children2",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.childrenUnder2HaveNo",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.clear",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.createAccount",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.createAnAccount",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.darkMode",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.day",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.differentDropOff",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.dropOff",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.dropOffLocation",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.emailAddress",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.experiences",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.experiencesFilters",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.experiencesInTokyo",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.exploreByTypesOfStays",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.fastResponseWithinAFew",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.filters3",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.findARoom",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.findARoom2",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.generalAmenities",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.guests",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.home",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.hostedBy",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.include",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.includedInThePrice",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.infants",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.jappan",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.joinedInMarch2016",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.kevinFrancis",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.location",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.maxPrice",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.maxPrice2",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.minPrice",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.minPrice2",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.mondayAugust121000",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.mondayAugust161000",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.night",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.oneWay",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.onSale",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.password",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.person",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.photo1",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.photoCredits",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.photos",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.pickUp",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.pickUpDropOff",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.pickUpLocation",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.pricePerDay",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.properties",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.providingLakeViewsTheSymphony",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.rangePrices",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.recentSearches",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.reserve",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.responseRate100",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.retry",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.reviews23Reviews",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.roomOffers",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.roundTrip",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.sameDropOff",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.sanDiegoCaUnitedStates",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.save",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.searchAsIMoveThe",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.seeHostProfile",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.selectDate",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.session",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.shareYourThoughts",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.showAllPhotos",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.showMap",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.showMeMore",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.signIn",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.tenExampleCom",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.thingsToKnow",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.tokyoJappan",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.tokyoJappan2",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.total",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.typeOfExperiences",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.viewMore20Reviews",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.weReImpartialAndIndependent",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.when",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.whereDoYouWantTo",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.whereYouWantToFly",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.common.youAreSignedInAs",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.contact.page.contact",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.contact.page.emailAddress",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.contact.page.exampleDoe",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.contact.page.exampleExampleCom",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.contact.page.fullName",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.contact.page.message",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.contact.page.sendMessage",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.contact.page.socials",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.customerAuthNotice.checkAgain",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.darkMode.toDark",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.darkMode.toLight",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.datePicker.choose",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.datePicker.month",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.datePicker.notAvailable",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.datePicker.week",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.datePickerCustomHeaderTwoMonth.nextMonth",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.datePickerCustomHeaderTwoMonth.previousMonth",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.experienceListings.layout.1599Experiences",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.experienceListings.tabFilters.timeOfDay",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.experiencesCardH.3Hours",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.experiencesCardH.makingACupOfCoffee",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.experiencesCardH.upTo6People",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.faq.datesGuests.a",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.faq.datesGuests.q",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.faq.holdVsConfirm.a",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.faq.holdVsConfirm.q",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.faq.payment.a",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.faq.payment.q",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.faq.reload.a",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.faq.reload.q",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.faq.snapshot.a",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.faq.snapshot.q",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.faq.times.a",
+   "scope": "customer",
+   "placeholders": [
+    "checkIn",
+    "checkOut"
+   ]
+  },
+  {
+   "key": "customer.faq.times.none",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.faq.times.q",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightCard.1Stop",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightCard.2Hours15MinutesBkk",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightCard.7h45m",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightCard.7Hours15Minutes",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightCard.anaBusinessClassBoeing787",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightCard.han",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightCard.hnd",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightCard.hndSin",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightCard.nonstop",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightCard.roundTrip",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightCard.sin",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightCard.singaporeInternationalAirportSin",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightCard.tokyoInternationalAirportHnd",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightCard.transitTime15Hours45",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightCard.tripTime7Hours45",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightListings.listingFlights.page.1599Flights",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightListings.listingFlights.page.exploreTopDestination",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightListings.sectionGridFilterCard.22Flights",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightListings.sectionGridFilterCard.roundTrip",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightListings.sectionGridFilterCard.showMore",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightListings.sectionGridFilterCard.singaporeTokyo",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightListings.tabFilters.airlines",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightListings.tabFilters.allAirlines",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightListings.tabFilters.arrivalTime",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightListings.tabFilters.departureTime",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightListings.tabFilters.flightFilters",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightListings.tabFilters.flights",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightListings.tabFilters.flightTime",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightListings.tabFilters.flightTimes",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightListings.tabFilters.lessThanHours",
+   "scope": "customer",
+   "placeholders": [
+    "tripTimes"
+   ]
+  },
+  {
+   "key": "customer.flightListings.tabFilters.pricePerPerson",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightListings.tabFilters.stopPoints",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightListings.tabFilters.stripTimes",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.flightListings.tabFilters.tripTime",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.footer.account",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.footer.booking",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.footer.explore",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.footer.featuredDestinations",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.footer.home",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.footer.offers",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.footer.photoCredits",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.footer.riverside",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.footerNav.home",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.footerNav.menu",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.footerNav.search",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.gallery.updating",
+   "scope": "customer",
+   "placeholders": [
+    "room"
+   ]
+  },
+  {
+   "key": "customer.gallery.viewAll",
+   "scope": "customer",
+   "placeholders": [
+    "count"
+   ]
+  },
+  {
+   "key": "customer.gallery.viewPhoto",
+   "scope": "customer",
+   "placeholders": [
+    "name"
+   ]
+  },
+  {
+   "key": "customer.gallerySlider.listingCardGallery",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.account.account",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.account.createAccount",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.account.myAccount",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.account.signIn",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.account.signOut",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.avatarDropdown.myAccount",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.avatarDropdown.myBookings",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.avatarDropdown.notAvailableYet",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.avatarDropdown.signIn",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.avatarDropdown.wishlist",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.avatarDropdown.youAreNotSignedIn",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.blogNavDropdown.openTheBlogCategories",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.dropdownTravelers.onlyStaysAtTheBha",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.dropdownTravelers.sample",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.dropdownTravelers.services",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.header3.addGuests",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.header3.checkIn",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.header3.listYourProperty",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.header3.location",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.langDropdownSingle.language",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.menu.blog",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.menu.currency",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.menu.language",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.menu.languageCurrency",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.menu.menu",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.menu.offers",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.menu.openMenu",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.menu.riverside",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.menu.services",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.menu.templates",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.nav.primary",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.notifyDropdown.notifications",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.searchDropdown.typeAndPressEnter",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.selector.currencyChanged",
+   "scope": "customer",
+   "placeholders": [
+    "currency"
+   ]
+  },
+  {
+   "key": "customer.header.selector.languageChanged",
+   "scope": "customer",
+   "placeholders": [
+    "currency",
+    "language"
+   ]
+  },
+  {
+   "key": "customer.header.selector.rateNote",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.templatesDropdown.sampleTemplates",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.templatesDropdown.thePagesBelowAreChisfis",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.theme.toDark",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.header.theme.toLight",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.headerFilter.viewAll",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.hero.pause",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.hero.resume",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.hero.slideLabel",
+   "scope": "customer",
+   "placeholders": [
+    "caption",
+    "n"
+   ]
+  },
+  {
+   "key": "customer.heroSearchForm.guestsInput.adults",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm.guestsInput.ages13OrAbove",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm.guestsInput.ages212",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm.guestsInput.children",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm.guestsInput.numberOfApartments",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm.guestsInput.rooms",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm.realEstateSearchForm.priceRangeInput.choosePriceRange",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm.realEstateSearchForm.priceRangeInput.rangePrice",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm.realEstateSearchForm.propertyTypeSelect.propertyType",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm2Mobile.datesRangeInput.whenSYourTrip",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm2Mobile.flightSearchForm.flightSearchForm.flightType",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm2Mobile.flightSearchForm.flightSearchForm.ticketClass",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm2Mobile.flightSearchForm.flightSearchForm.who",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm2Mobile.guestsInput.numberOfApartments",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm2Mobile.guestsInput.rooms",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm2Mobile.guestsInput.whoSComing",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm2Mobile.heroSearchForm2Mobile.clearAll",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm2Mobile.heroSearchForm2Mobile.close",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm2Mobile.heroSearchForm2Mobile.findARoomAtThe",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm2Mobile.heroSearchForm2RealEstateMobile.anywhereAnyWeekAddGuests",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm2Mobile.heroSearchForm2RealEstateMobile.clearAll",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm2Mobile.heroSearchForm2RealEstateMobile.whereTo",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm2Mobile.realEstateSearchForm.priceRangeInput.rangePrice",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm2Mobile.realEstateSearchForm.propertyTypeSelect.propertyTypes",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm2Mobile.realEstateSearchForm.realestateSearchForm.price",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm2Mobile.realEstateSearchForm.realestateSearchForm.property",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchForm2Mobile.realEstateSearchForm.realestateSearchForm.where",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchFormSmall.buttonSubmit.search",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchFormSmall.guestsInput.guests",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.heroSearchFormSmall.staySearchForm.stayDatesRangeInput.checkInCheckOut",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.home2.page.exploreByTypesOfStays",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.home2.page.suggestionsForDiscovery",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeDestinationSection.featuredDestinations",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeDestinationSection.placesWorthKnowingInDa",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeDestinationSection.readTheGuide",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeDestinationSection.seeMoreDestinations",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeFeaturedRooms.chooseAnApartmentTypeThen",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeFeaturedRooms.chooseDatesToSeePrices",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeFeaturedRooms.hasNoRoomTypesYet",
+   "scope": "customer",
+   "placeholders": [
+    "RIVERSIDENAME"
+   ]
+  },
+  {
+   "key": "customer.home.homeFeaturedRooms.isNotInTheBooking",
+   "scope": "customer",
+   "placeholders": [
+    "RIVERSIDENAME"
+   ]
+  },
+  {
+   "key": "customer.home.homeFeaturedRooms.loadingRooms",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeFeaturedRooms.loadingRoomTypes",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeFeaturedRooms.roomTypesAt",
+   "scope": "customer",
+   "placeholders": [
+    "RIVERSIDENAME"
+   ]
+  },
+  {
+   "key": "customer.home.homeFeaturedRooms.tryAgain",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeFeaturedRooms.viewAllRoomTypes",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeHeroCarousel.bookDirectAndSeeThe",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeHeroCarousel.daNang",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeHeroCarousel.nextPhoto",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeHeroCarousel.photosOfDaNang",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeHeroCarousel.previousPhoto",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeHeroCarousel.theBhaDaNang",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeHeroCarousel.xemRiverside",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeLocationMap.locationOf",
+   "scope": "customer",
+   "placeholders": [
+    "RIVERSIDENAME"
+   ]
+  },
+  {
+   "key": "customer.home.homeLocationMap.openInGoogleMaps",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeLocationMap.opensInANewTab",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeNewsletter.subscribe",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeNewsletter.subscribeDemoYourEmailIs",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeNewsletter.tenExampleCom",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeNewsletter.yourEmail",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeNewsSection.seeMoreNews",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeNewsSection.summariesOfPublicTravelNews",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeNewsSection.topNews",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeOfferSection.sampleRoomOffers",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeOfferSection.seeMoreOffers",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeRiversideTeaser.discoverRiverside",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeRiversideTeaser.realBooking",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeRiversideTeaser.roomTypes",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeRiversideTeaser.seeRealRoomsAndPrices",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeRiversideTeaser.servicedApartmentsAtChooseDates",
+   "scope": "customer",
+   "placeholders": [
+    "RIVERSIDEADDRESS"
+   ]
+  },
+  {
+   "key": "customer.home.homeSlider.next",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.homeSlider.previous",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.map.title",
+   "scope": "customer",
+   "placeholders": [
+    "address",
+    "name"
+   ]
+  },
+  {
+   "key": "customer.home.offerCard.nightSample",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.offerCard.sampleOfferPrice",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.offerCard.sampleOriginalPrice",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.pending.availability",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.pending.empty",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.pending.error",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.pending.loading",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.pending.roomTypes",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.riversideHomeContent.bookDirectClearAtEvery",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.riversideHomeContent.exploreTheSpace",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.riversideHomeContent.goodToKnow",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.riversideHomeContent.howToBook",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.riversideHomeContent.location",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.riversideHomeContent.locationAndThingsToKnow",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.riversideHomeContent.seeAvailableRooms",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.riversideHomeContent.startSearchingForARoom",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.riversideHomeContent.theRooftopPoolLobbyAnd",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.riversideHomeContent.threeStepsRightOnThis",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.riversideHomeSections.exploreRoomTypes",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.riversideHomeSections.propertyAmenities",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.sectionDowloadApp.mobileApps",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.sectionGridFeatureProperty.images",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.sectionGridFeatureProperty.loadError",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.sectionGridFeatureProperty.loadingProperties",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.sectionGridFeatureProperty.noPropertiesAreAvailableRight",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.sectionGridRoomTypes.loadError",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.sectionGridRoomTypes.loadingRoomTypes",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.sectionGridRoomTypes.noRoomTypesAreAvailable",
+   "scope": "customer",
+   "placeholders": [
+    "propertyName"
+   ]
+  },
+  {
+   "key": "customer.home.sectionGridRoomTypes.realRoomTypesFromThe",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.sectionGridRoomTypes.roomTypes",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.home.sectionGridRoomTypes.roomTypesAt",
+   "scope": "customer",
+   "placeholders": [
+    "propertyName"
+   ]
+  },
+  {
+   "key": "customer.homeSearch.brand",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.homeSearch.dates",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.homeSearch.generic",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.homeSearch.pickDates",
+   "scope": "customer",
+   "placeholders": [
+    "party"
+   ]
+  },
+  {
+   "key": "customer.homeSearch.title",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.like.copied",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.like.copyFailed",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.like.saved",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.like.savedLabel",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.like.shared",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.like.unsaved",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.likeSaveBtns.share",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.layout.exploreByTypesOfStays",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingCarDetail.page.bmw3SeriesSedan",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingCarDetail.page.carDescriptions",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingCarDetail.page.carOwner",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingCarDetail.page.lockInThisFantasticPrice",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingCarDetail.page.photo0",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingCarDetail.page.pickUpAndDropOff",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingCarDetail.page.questionsAreAtTheHeart",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingCarDetail.page.questionsAreAtTheHeart2",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingCarDetail.page.saintPetersburgCityCenter",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingCarDetail.page.specialNote",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingCarDetail.page.untilTheAllNewTucson",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingCarDetail.page.vehicleParametersUtilities",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingCarDetail.page.weAskedOurselvesHowCan",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingCarDetail.rentalCarDatesRangeInput.pickUpDropOff",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.guestsInput.ages02",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.guestsInput.guests",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.guestsInput.infants",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.07300800Our",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.1030ArriveBaiDinh",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.1215EnjoyTheBuffet",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.1330VisitTrangAn",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.1545ArriveAtMua",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.17302000Return",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.35Hours",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.anyExperienceCanBeCanceled",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.baiDinhPagodaExplorer",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.englishVietnames",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.experiencesDescriptions",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.formalWearToVisitBai",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.guestRequirements",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.hostInformation",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.itIsOneFullDay",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.muaCaveHikingTakePicture",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.serviceCharge",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.trangAnBoatTourMua",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.trangAnBoatTourMua2",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.trangAnTourOnBoat",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.upTo10GuestsAges",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.upTo10People",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.weWillPickUpFrom",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingExperiencesDetail.page.whatToBring",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingStayDetail.guestsInput.childrenUnder2HaveNo",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingStayDetail.guestsInput.guests",
+   "scope": "customer",
+   "placeholders": [
+    "totalGuests"
+   ]
+  },
+  {
+   "key": "customer.listingDetail.listingStayDetail.guestsInput.numberOfApartments",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingStayDetail.guestsInput.rooms",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingStayDetail.page.loadingRooms",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.listingStayDetail.roomHeaderGallery.photosAreBeingUpdated",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.sectionDateRange.availability",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingDetail.sectionDateRange.pricesMayIncreaseOnWeekends",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingImageGallery.sharedModal.downloadFullsizeVersion",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.listingImageGallery.sharedModal.openFullsizeVersion",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.login.loginForm.forNowYouCanOnly",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.login.loginForm.signingOut",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.login.loginForm.signOut",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.login.loginForm.viewAccount",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.login.loginForm.youCanBookWithoutAn",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.media.changesNote",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.media.photoBy",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.media.photoNumber",
+   "scope": "customer",
+   "placeholders": [
+    "number"
+   ]
+  },
+  {
+   "key": "customer.media.photoOf",
+   "scope": "customer",
+   "placeholders": [
+    "name"
+   ]
+  },
+  {
+   "key": "customer.media.photosOf",
+   "scope": "customer",
+   "placeholders": [
+    "name"
+   ]
+  },
+  {
+   "key": "customer.mediaCredits.page.author",
+   "scope": "customer",
+   "placeholders": [
+    "author"
+   ]
+  },
+  {
+   "key": "customer.mediaCredits.page.fileUsedOnThisSite",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.mediaCredits.page.licence",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.mediaCredits.page.originalPageOnWikimediaCommons",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.mediaCredits.page.photosOfDaNangAnd",
+   "scope": "customer",
+   "placeholders": [
+    "MEDIACHANGESNOTE"
+   ]
+  },
+  {
+   "key": "customer.mediaCredits.page.photosOfTheBhaRiverside",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.menu.collapse",
+   "scope": "customer",
+   "placeholders": [
+    "name"
+   ]
+  },
+  {
+   "key": "customer.menu.expand",
+   "scope": "customer",
+   "placeholders": [
+    "name"
+   ]
+  },
+  {
+   "key": "customer.meta.account",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.meta.description",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.meta.home.description",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.meta.home.title",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.meta.login",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.meta.mediaCredits.description",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.meta.mediaCredits.title",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.meta.offers.description",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.meta.offers.title",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.meta.paydone",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.meta.riverside.description",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.meta.riverside.title",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.meta.signup",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.meta.title",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.meta.unavailable",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.modalSelectDate.clearDates",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.modalSelectDate.whenSYourTrip",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.modalSelectGuests.clearData",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.nav.accommodation",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.nav.accommodationDesc",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.nav.bookDirect",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.nav.carRental",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.nav.experiences",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.nav.flights",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.nav.realEstate",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.nav.templateDesc",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.benefit",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.disclosure",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.heading",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.invalid",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.notStored",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.required",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.notFound.returnHomePage",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.notFound.thePageYouWereLooking",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.offers.badge",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.offers.disclosure",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.offers.discountAria",
+   "scope": "customer",
+   "placeholders": [
+    "percent"
+   ]
+  },
+  {
+   "key": "customer.offers.page.findRoomsAndSeeReal",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.offers.realCta",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.propertyCardH.1200SqFit",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.propertyCardH.4Network",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.propertyCardH.family",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.propertyLiveCard.checkIn",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.propertyLiveCard.checkOut",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.propertyLiveCard.photosAreBeingUpdated",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.rating.sampleFull",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.rating.sampleShort",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.realEstateListings.sectionGridFilterCard.233Property",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.realEstateListings.sectionGridFilterCard.propertyInTokyo",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.realEstateListings.tabFilters.bathrooms",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.realEstateListings.tabFilters.bedrooms",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.realEstateListings.tabFilters.roomsAndBeds",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.realEstateListings.tabFilters.roomsOfBeds",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.realEstateListings.tabFilters.typeOfProperty",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.receipt.backToRoom",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.receipt.bookingCode",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.receipt.closeNote",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.receipt.closeQuestion",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.receipt.closeReceipt",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.receipt.closeWarn",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.receipt.closeWarnWithCode",
+   "scope": "customer",
+   "placeholders": [
+    "code"
+   ]
+  },
+  {
+   "key": "customer.receipt.confirm",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.receipt.confirmedAt",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.receipt.confirming",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.receipt.details",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.receipt.expiresAt",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.receipt.guests",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.receipt.holdCode",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.receipt.holdStatus",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.receipt.keepReceipt",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.receipt.moreProperties",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.receipt.noOnlinePayment",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.receipt.payment",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.receipt.recovery.none",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.receipt.recovery.resume",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.receipt.recovery.submitting",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.receipt.recovery.title",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.receipt.recovery.uncertain",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.receipt.resend",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.receipt.retryConfirm",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.receipt.status",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.receipt.stayDates",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.receipt.sub.confirmed",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.receipt.sub.held",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.receipt.title.confirmed",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.receipt.title.held",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.receipt.total",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.receipt.uncertain",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.receipt.yourBooking",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.room.allRooms",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.room.amenities",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.room.amenitiesHint",
+   "scope": "customer",
+   "placeholders": [
+    "property"
+   ]
+  },
+  {
+   "key": "customer.room.book",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.room.checkIn",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.room.checkInFrom",
+   "scope": "customer",
+   "placeholders": [
+    "time"
+   ]
+  },
+  {
+   "key": "customer.room.checkInOut",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.room.checkOut",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.room.checkOutBefore",
+   "scope": "customer",
+   "placeholders": [
+    "time"
+   ]
+  },
+  {
+   "key": "customer.room.commonAreas",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.room.commonAreasHint",
+   "scope": "customer",
+   "placeholders": [
+    "property"
+   ]
+  },
+  {
+   "key": "customer.room.detailsPending",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.room.info",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.room.invalidLink.body",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.room.invalidLink.title",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.room.loadError.generic",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.room.loadError.title",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.room.loading",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.room.mobilePriceHint",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.room.notChosen.body",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.room.notChosen.title",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.room.otherRoomBlocked",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.room.otherRooms",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.room.otherRoomsHint",
+   "scope": "customer",
+   "placeholders": [
+    "property"
+   ]
+  },
+  {
+   "key": "customer.room.priceForDates",
+   "scope": "customer",
+   "placeholders": [
+    "room"
+   ]
+  },
+  {
+   "key": "customer.room.propertyFallback",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.room.unknownProperty.body",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.room.unknownProperty.title",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.room.unknownRoomType.body",
+   "scope": "customer",
+   "placeholders": [
+    "property"
+   ]
+  },
+  {
+   "key": "customer.room.unknownRoomType.title",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.room.viewRooms",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.search.adults",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.search.children",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.search.dates.add",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.search.dates.label",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.search.dateShort",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.search.description",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.search.empty",
+   "scope": "customer",
+   "placeholders": [
+    "property",
+    "summary"
+   ]
+  },
+  {
+   "key": "customer.search.emptyRoom",
+   "scope": "customer",
+   "placeholders": [
+    "property",
+    "room",
+    "summary"
+   ]
+  },
+  {
+   "key": "customer.search.genericError",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.search.guests.add",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.search.heading",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.search.initial",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.search.loading",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.search.offerLabel",
+   "scope": "customer",
+   "placeholders": [
+    "property",
+    "rate",
+    "room"
+   ]
+  },
+  {
+   "key": "customer.search.pickProperty",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.search.property",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.search.propertyFallback",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.search.retry",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.search.rooms",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.search.showing",
+   "scope": "customer",
+   "placeholders": [
+    "name",
+    "summary"
+   ]
+  },
+  {
+   "key": "customer.search.submit",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.search.submitShort",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.search.who",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionBecomeAnAuthor.accompanyingUsYouHaveA",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionBecomeAnAuthor.becomeAnAuthor",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionBecomeAnAuthor.whyDidYouChooseUs",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionClientSay.goodNewsFromFarAway",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionClientSay.letSSeeWhatPeople",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionGridAuthorBox.becomeAHost",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionGridAuthorBox.ratingBasedOnCustomerReviews",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionGridAuthorBox.top10AuthorOfThe",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionGridCategoryBox.discoverGreatPlacesNearWhere",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionGridCategoryBox.exploreNearby",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionHero.servicedApartmentsInDaNang",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionHero2.findYourBest",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionHero2.smartRealEstate",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionHero3.bookingTaxFreeFromChis",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionHero3.keepCalmTravelOn",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionHero3.newGeneration",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionHero3.ofBooking",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionHowItWork.howItWork",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionHowItWork.keepCalmTravelOn",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionOurFeatures.aHolidayLettingsListingGives",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionOurFeatures.bennefits",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionOurFeatures.costEffectiveAdvertising",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionOurFeatures.happeningCities",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionOurFeatures.millionsOfPeopleAreSearching",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionOurFeatures.reachMillionsWithChisfis",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionOurFeatures.secureAndSimple",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionOurFeatures.withAFreeListingYou",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionSubscribe2.enterYourEmail",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionSubscribe2.getMoreDiscount",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionSubscribe2.getPremiumMagazines",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionSubscribe2.joinOurNewsletter",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionSubscribe2.readAndShareNewPerspectives",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionVideos.checkOutOurHottestVideos",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.sectionVideos.theVideos",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.service.previewLabel",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.shared.buttonClose.close",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.shared.comment.reply",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.shared.heading2.233Stays",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.shared.heading2.2Guests",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.shared.heading2.aug1218",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.shared.logo.theBhaRiverside",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.shared.menuBar.openMenu",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.shared.navigation.navMobile.languageAndCurrency",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.shared.navigation.navMobile.menu",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.shared.navigation.navMobile.servicedApartmentsAtBookDirect",
+   "scope": "customer",
+   "placeholders": [
+    "RIVERSIDEADDRESS",
+    "RIVERSIDENAME"
+   ]
+  },
+  {
+   "key": "customer.shared.nextPrev.next",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.shared.nextPrev.prev",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.showcaseUnavailable.notFound.backToTheBookingPage",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.showcaseUnavailable.notFound.thisDemoOnlyCoversViewing",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.showcaseUnavailable.notFound.thisFeatureIsNotIn",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.signup.created.anonymous",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.signup.created.authenticated",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.signup.created.unknown",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.signup.exists",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.signup.invalid",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.signup.passwordRequirements",
+   "scope": "customer",
+   "placeholders": [
+    "min"
+   ]
+  },
+  {
+   "key": "customer.signup.rateLimited",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.signup.signupForm.alreadyHaveAnAccount",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.signup.signupForm.confirmPassword",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.signup.signupForm.goToYourAccount",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.signup.signupForm.signInWithTheEmail",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.signup.signupForm.signUpResult",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.signup.signupForm.toCreateADifferentAccount",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.signup.uncertain",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.signup.validation.confirmationMismatch",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.signup.validation.confirmationRequired",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.signup.validation.passwordMin",
+   "scope": "customer",
+   "placeholders": [
+    "min"
+   ]
+  },
+  {
+   "key": "customer.startRating.sampleRatingNotAGuest",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stay.apartment",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stay.perNight",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stay.pickDates",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stay.sampleRatingTitle",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stay.searchingPrice",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stay.soldOut",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stay.totalForNights",
+   "scope": "customer",
+   "placeholders": [
+    "nights"
+   ]
+  },
+  {
+   "key": "customer.stayCardH.6Bedrooms",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayCardH.6Guests",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayCardH.in",
+   "scope": "customer",
+   "placeholders": [
+    "address",
+    "name"
+   ]
+  },
+  {
+   "key": "customer.stayCardH.noSmoking",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayCardH.wifi",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayList.clearFilters",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayList.countAt",
+   "scope": "customer",
+   "placeholders": [
+    "count",
+    "property"
+   ]
+  },
+  {
+   "key": "customer.stayList.countAvailable",
+   "scope": "customer",
+   "placeholders": [
+    "count"
+   ]
+  },
+  {
+   "key": "customer.stayList.empty",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayList.field.adults",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayList.field.brand",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayList.field.checkIn",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayList.field.checkOut",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayList.field.children",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayList.field.rooms",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayList.field.stay",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayList.invalid.hint",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayList.invalid.title",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayList.loading",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayList.loadingRooms",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayList.missing",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayList.noMatch.hint",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayList.noMatch.title",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayList.priceNote",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayList.problem.blank",
+   "scope": "customer",
+   "placeholders": [
+    "field"
+   ]
+  },
+  {
+   "key": "customer.stayList.problem.invalid",
+   "scope": "customer",
+   "placeholders": [
+    "field"
+   ]
+  },
+  {
+   "key": "customer.stayList.problem.missing",
+   "scope": "customer",
+   "placeholders": [
+    "field"
+   ]
+  },
+  {
+   "key": "customer.stayList.problem.outOfRange",
+   "scope": "customer",
+   "placeholders": [
+    "field"
+   ]
+  },
+  {
+   "key": "customer.stayList.problem.repeated",
+   "scope": "customer",
+   "placeholders": [
+    "field"
+   ]
+  },
+  {
+   "key": "customer.stayList.problem.unknown",
+   "scope": "customer",
+   "placeholders": [
+    "field"
+   ]
+  },
+  {
+   "key": "customer.stayList.reload",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayList.searching",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayList.searchRejected",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayList.serviceTrouble",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayList.unsupportedBrand",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayList.viewRiverside",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.listingStay.page.loading",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.listingStaySearchForm.clearFilters",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.listingStaySearchForm.findARoom",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.sectionGridFilterCard.chooseYourDatesAndGuests",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.sectionGridFilterCard.findARoomAtThe",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.sectionGridHasMap.searchAsIMoveThe",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.sectionGridHasMap.showMap",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.tabFilters.amenities",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.tabFilters.apply",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.tabFilters.bathrooms",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.tabFilters.bedrooms",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.tabFilters.beds",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.tabFilters.clear",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.tabFilters.facilities",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.tabFilters.houseRules",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.tabFilters.maxPrice",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.tabFilters.minPrice",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.tabFilters.moreFilters",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.tabFilters.moreFilters3",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.tabFilters.pricePerDay",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.tabFilters.propertyType",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.tabFilters.rangePrices",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.tabFilters.roomsAndBeds",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.tabFilters.roomsOfBeds",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.stayListings.tabFilters.typeOfPlace",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.subscription.page.popular",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.subscription.page.pricingToFitTheNeeds",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.subscription.page.submit",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.subscription.page.subscription",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.00d644e0",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.01253bf6",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.01f4412e",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.053f004e",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.072a8a9f",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.07cc2e49",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.08b28ac4",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.08c13be7",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.0a6e4c68",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.134db098",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.13daef5e",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.14be7555",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.15554cf6",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.18fe85ae",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.19f4fb8c",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.224d574a",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.24144ab0",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.24efdf25",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.272e9ea7",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.2b8d5d95",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.2bd2d295",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.2d39aee2",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.2e14d662",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.2e976348",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.3ac4ad38",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.3b363206",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.3b527379",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.3c73fb74",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.3cfe9b45",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.412c0a09",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.41f23689",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.42c10d1a",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.4c64d4ed",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.504443a0",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.50b6b3b3",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.5221f9e8",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.546d19d2",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.5bc08dc6",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.5be9ef7c",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.5c8f4b61",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.6015cdfe",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.608f893f",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.61116d1c",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.6447104e",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.6940a489",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.6a7b5b60",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.6c753e11",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.6cc2cb35",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.6d2c72ca",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.6d8c9eba",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.724297a0",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.733dfb5c",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.7ccef1cf",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.7fc4b6dc",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.823661df",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.850d6c27",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.8645ac7e",
+   "scope": "customer",
+   "placeholders": [
+    "price1"
+   ]
+  },
+  {
+   "key": "customer.tpl.87dc5eae",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.8ad2ab2c",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.8c292c25",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.8e4c5199",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.95276dd6",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.955e2f27",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.97599e09",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.995228a5",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.9a86933e",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.9ded06aa",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.a1ff7df0",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.a24d57e9",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.a437a37f",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.a534dcd1",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.a6bbee1f",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.a9b59e94",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.aa033ce6",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.ab43d664",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.ac4fe479",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.ace216ae",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.adea5b32",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.ae7b2cc3",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.b554bc44",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.b6017bdf",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.b605221b",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.b726ee1f",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.b7cad9bc",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.bbdcf845",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.bbfa1d12",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.be212b51",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.bee63639",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.c54d244b",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.c646a2c9",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.c7e09f71",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.cada780b",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.cc3830eb",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.d0b54adf",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.d131be1c",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.d155d06d",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.d21f5ed3",
+   "scope": "customer",
+   "placeholders": [
+    "price1"
+   ]
+  },
+  {
+   "key": "customer.tpl.d2e7705c",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.d45f6bd6",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.d5000949",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.d55bda07",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.d668c627",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.d72f84dd",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.db60480b",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.dc9e1ad2",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.de897825",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.dfa9c4c2",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.e4d4aff3",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.e54c0a54",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.e566cf1b",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.ea4e9d86",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.ed90e891",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.ee2d9b75",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.f2b57f97",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.f54a5bb2",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.f5fad29f",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.f62789e7",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.f6d7956c",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.f9f2a5c5",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.tpl.fa6d2b95",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.validation.checkInRequired",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.validation.checkOutRequired",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.validation.datesInvalid",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.validation.emailInvalid",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.validation.fullNameControl",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.validation.fullNameRequired",
+   "scope": "customer",
+   "placeholders": [
+    "max"
+   ]
+  },
+  {
+   "key": "customer.validation.phoneInvalid",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.auth.account-exists",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.auth.csrf-invalid",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.auth.forbidden",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.auth.invalid-credentials",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.auth.rate-limited",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.auth.registration-invalid",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.auth.required",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.auth.session-invalid",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.booking.credential-invalid",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.booking.selection-not-found",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.config",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.error.unexpected",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.error.unknown",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.hold.expired",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.hold.idempotency-conflict",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.hold.not-cancellable",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.hold.not-confirmable",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.hold.not-found",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.hold.offer-not-holdable",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.hold.pricing-out-of-range",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.hold.pricing-unavailable",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.hold.rooms-unavailable",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.holdGeneric",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.network",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.property.not-found",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.request.conflict",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.request.invalid",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.request.not-found",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.reservation.not-cancellable",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.reservation.not-found",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.room-type.not-found",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.validation.adults-required",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.validation.check-in-past",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.validation.children-negative",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.validation.dates-order",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.validation.email-invalid",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.validation.full-name-invalid",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.validation.idempotency-key-invalid",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.validation.idempotency-key-required",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.validation.occupancy-exceeds",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.validation.phone-invalid",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.validation.property-required",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.validation.rate-plan-required",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.validation.reason-required",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.validation.reason-too-long",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.validation.room-type-required",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.validation.rooms-required",
+   "scope": "shared",
+   "placeholders": [
+    "rooms"
+   ]
+  },
+  {
+   "key": "shared.apiError.validation.rooms-too-many",
+   "scope": "shared",
+   "placeholders": [
+    "rooms"
+   ]
+  },
+  {
+   "key": "shared.apiError.validation.stay-too-long",
+   "scope": "shared",
+   "placeholders": [
+    "nights"
+   ]
+  },
+  {
+   "key": "shared.common.clearFilters",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.common.close",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.common.error.generic",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.common.error.loadFailed",
+   "scope": "shared",
+   "placeholders": [
+    "what"
+   ]
+  },
+  {
+   "key": "shared.common.error.network",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.common.loading",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.common.retry",
+   "scope": "shared",
+   "placeholders": []
+  }
+ ]
+}

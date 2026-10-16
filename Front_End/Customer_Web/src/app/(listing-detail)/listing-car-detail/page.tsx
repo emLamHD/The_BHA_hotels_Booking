@@ -19,9 +19,12 @@ import SectionDateRange from "../SectionDateRange";
 import RentalCarDatesRangeInput from "./RentalCarDatesRangeInput";
 import { Route } from "next";
 
+import { useT } from "@/lib/i18n/I18nProvider";
+import DemoPrice from "@/components/DemoPrice";
 export interface ListingCarDetailPageProps {}
 
 const ListingCarDetailPage: FC<ListingCarDetailPageProps> = ({}) => {
+  const t = useT();
   // USE STATE
 
   const thisPathname = usePathname();
@@ -41,9 +44,7 @@ const ListingCarDetailPage: FC<ListingCarDetailPageProps> = ({}) => {
         </div>
 
         {/* 2 */}
-        <h2 className="text-2xl sm:text-3xl lg:text-4xl font-semibold">
-          BMW 3 Series Sedan
-        </h2>
+        <h2 className="text-2xl sm:text-3xl lg:text-4xl font-semibold">{t("customer.listingDetail.listingCarDetail.page.bmw3SeriesSedan")}</h2>
 
         {/* 3 */}
         <div className="flex items-center space-x-4">
@@ -51,18 +52,15 @@ const ListingCarDetailPage: FC<ListingCarDetailPageProps> = ({}) => {
           <span>·</span>
           <span>
             <i className="las la-map-marker-alt"></i>
-            <span className="ml-1"> Tokyo, Jappan</span>
+            <span className="ml-1">{" "}{t("customer.common.tokyoJappan")}</span>
           </span>
         </div>
 
         {/* 4 */}
         <div className="flex items-center">
           <Avatar hasChecked sizeClass="h-10 w-10" radius="rounded-full" />
-          <span className="ml-2.5 text-neutral-500 dark:text-neutral-400">
-            Car owner{" "}
-            <span className="text-neutral-900 dark:text-neutral-200 font-medium">
-              Kevin Francis
-            </span>
+          <span className="ml-2.5 text-neutral-500 dark:text-neutral-400">{t("customer.common.carOwner")}{" "}
+            <span className="text-neutral-900 dark:text-neutral-200 font-medium">{t("customer.common.kevinFrancis")}</span>
           </span>
         </div>
 
@@ -73,15 +71,15 @@ const ListingCarDetailPage: FC<ListingCarDetailPageProps> = ({}) => {
         <div className="flex items-center justify-between xl:justify-start space-x-8 xl:space-x-12 text-sm text-neutral-700 dark:text-neutral-300">
           <div className="flex flex-col sm:flex-row items-center space-y-3 sm:space-y-0 text-center sm:text-left sm:space-x-3 ">
             <i className="las la-user-friends text-2xl"></i>
-            <span className="">4 seats</span>
+            <span className="">{t("customer.common.4Seats")}</span>
           </div>
           <div className="flex flex-col sm:flex-row items-center space-y-3 sm:space-y-0 text-center sm:text-left sm:space-x-3 ">
             <i className="las la-dharmachakra text-2xl"></i>
-            <span className=""> Auto gearbox</span>
+            <span className="">{" "}{t("customer.common.autoGearbox")}</span>
           </div>
           <div className="flex flex-col sm:flex-row items-center space-y-3 sm:space-y-0 text-center sm:text-left sm:space-x-3 ">
             <i className="las la-suitcase text-2xl"></i>
-            <span className=""> 2 bags</span>
+            <span className="">{" "}{t("customer.common.2Bags")}</span>
           </div>
         </div>
       </div>
@@ -93,12 +91,9 @@ const ListingCarDetailPage: FC<ListingCarDetailPageProps> = ({}) => {
     return (
       <div className="listingSection__wrap">
         <div>
-          <h2 className="text-2xl font-semibold">
-            Vehicle parameters & utilities{" "}
+          <h2 className="text-2xl font-semibold">{t("customer.listingDetail.listingCarDetail.page.vehicleParametersUtilities")}
           </h2>
-          <span className="block mt-2 text-neutral-500 dark:text-neutral-400">
-            Questions are at the heart of making things great.
-          </span>
+          <span className="block mt-2 text-neutral-500 dark:text-neutral-400">{t("customer.listingDetail.listingCarDetail.page.questionsAreAtTheHeart")}</span>
         </div>
         <div className="w-14 border-b border-neutral-200 dark:border-neutral-700"></div>
         {/* 6 */}
@@ -109,7 +104,7 @@ const ListingCarDetailPage: FC<ListingCarDetailPageProps> = ({}) => {
               <div className="w-10 flex-shrink-0">
                 <Image src={item.icon} alt="" />
               </div>
-              <span>{item.name}</span>
+              <DemoPrice value={item.name} />
             </div>
           ))}
         </div>
@@ -120,20 +115,11 @@ const ListingCarDetailPage: FC<ListingCarDetailPageProps> = ({}) => {
   const renderSection2 = () => {
     return (
       <div className="listingSection__wrap">
-        <h2 className="text-2xl font-semibold">Car descriptions</h2>
+        <h2 className="text-2xl font-semibold">{t("customer.listingDetail.listingCarDetail.page.carDescriptions")}</h2>
         <div className="w-14 border-b border-neutral-200 dark:border-neutral-700"></div>
         <div className="text-neutral-6000 dark:text-neutral-300">
-          <p>
-            Until the all-new TUCSON hits the dealer showrooms you can check it
-            out in our Showroom Walkaround video. Watch the video and join our
-            product specialist as he gives you an up-close look of our latest
-            SUV
-            <br />
-            <br />
-            Questions are at the heart of making things great. Watch our
-            celebrity-filled TV ad and you’ll see that when we say “everything,”
-            we mean everything.
-          </p>
+          <p>{t("customer.listingDetail.listingCarDetail.page.untilTheAllNewTucson")}<br />
+            <br />{t("customer.listingDetail.listingCarDetail.page.questionsAreAtTheHeart2")}</p>
         </div>
       </div>
     );
@@ -143,10 +129,8 @@ const ListingCarDetailPage: FC<ListingCarDetailPageProps> = ({}) => {
     return (
       <div className="listingSection__wrap">
         <div>
-          <h2 className="text-2xl font-semibold">Include </h2>
-          <span className="block mt-2 text-neutral-500 dark:text-neutral-400">
-            Included in the price
-          </span>
+          <h2 className="text-2xl font-semibold">{t("customer.common.include")}</h2>
+          <span className="block mt-2 text-neutral-500 dark:text-neutral-400">{t("customer.common.includedInThePrice")}</span>
         </div>
         <div className="w-14 border-b border-neutral-200 dark:border-neutral-700"></div>
         {/* 6 */}
@@ -156,7 +140,7 @@ const ListingCarDetailPage: FC<ListingCarDetailPageProps> = ({}) => {
             .map((item) => (
               <div key={item.name} className="flex items-center space-x-3">
                 <i className="las la-check-circle text-2xl"></i>
-                <span>{item.name}</span>
+                <DemoPrice value={item.name} />
               </div>
             ))}
         </div>
@@ -168,7 +152,7 @@ const ListingCarDetailPage: FC<ListingCarDetailPageProps> = ({}) => {
     return (
       <div className="listingSection__wrap">
         {/* HEADING */}
-        <h2 className="text-2xl font-semibold">Car Owner</h2>
+        <h2 className="text-2xl font-semibold">{t("customer.listingDetail.listingCarDetail.page.carOwner")}</h2>
         <div className="w-14 border-b border-neutral-200 dark:border-neutral-700"></div>
 
         {/* host */}
@@ -180,23 +164,17 @@ const ListingCarDetailPage: FC<ListingCarDetailPageProps> = ({}) => {
             radius="rounded-full"
           />
           <div>
-            <a className="block text-xl font-medium" href="##">
-              Kevin Francis
-            </a>
+            <a className="block text-xl font-medium" href="##">{t("customer.common.kevinFrancis")}</a>
             <div className="mt-1.5 flex items-center text-sm text-neutral-500 dark:text-neutral-400">
               <StartRating />
               <span className="mx-2">·</span>
-              <span> 12 places</span>
+              <span>{" "}{t("customer.common.12Places")}</span>
             </div>
           </div>
         </div>
 
         {/* desc */}
-        <span className="block text-neutral-6000 dark:text-neutral-300">
-          Providing lake views, The Symphony 9 Tam Coc in Ninh Binh provides
-          accommodation, an outdoor swimming pool, a bar, a shared lounge, a
-          garden and barbecue facilities...
-        </span>
+        <span className="block text-neutral-6000 dark:text-neutral-300">{t("customer.common.providingLakeViewsTheSymphony")}</span>
 
         {/* info */}
         <div className="block text-neutral-500 dark:text-neutral-400 space-y-2.5">
@@ -215,7 +193,7 @@ const ListingCarDetailPage: FC<ListingCarDetailPageProps> = ({}) => {
                 d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
               />
             </svg>
-            <span>Joined in March 2016</span>
+            <span>{t("customer.common.joinedInMarch2016")}</span>
           </div>
           <div className="flex items-center space-x-3">
             <svg
@@ -232,7 +210,7 @@ const ListingCarDetailPage: FC<ListingCarDetailPageProps> = ({}) => {
                 d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"
               />
             </svg>
-            <span>Response rate - 100%</span>
+            <span>{t("customer.common.responseRate100")}</span>
           </div>
           <div className="flex items-center space-x-3">
             <svg
@@ -250,14 +228,14 @@ const ListingCarDetailPage: FC<ListingCarDetailPageProps> = ({}) => {
               />
             </svg>
 
-            <span>Fast response - within a few hours</span>
+            <span>{t("customer.common.fastResponseWithinAFew")}</span>
           </div>
         </div>
 
         {/* == */}
         <div className="w-14 border-b border-neutral-200 dark:border-neutral-700"></div>
         <div>
-          <ButtonSecondary href="/author">See host profile</ButtonSecondary>
+          <ButtonSecondary href="/author">{t("customer.common.seeHostProfile")}</ButtonSecondary>
         </div>
       </div>
     );
@@ -267,7 +245,7 @@ const ListingCarDetailPage: FC<ListingCarDetailPageProps> = ({}) => {
     return (
       <div className="listingSection__wrap">
         {/* HEADING */}
-        <h2 className="text-2xl font-semibold">Reviews (23 reviews)</h2>
+        <h2 className="text-2xl font-semibold">{t("customer.common.reviews23Reviews")}</h2>
         <div className="w-14 border-b border-neutral-200 dark:border-neutral-700"></div>
 
         {/* Content */}
@@ -278,7 +256,7 @@ const ListingCarDetailPage: FC<ListingCarDetailPageProps> = ({}) => {
               fontClass=""
               sizeClass="h-16 px-4 py-3"
               rounded="rounded-3xl"
-              placeholder="Share your thoughts ..."
+              placeholder={t("customer.common.shareYourThoughts")}
             />
             <ButtonCircle
               className="absolute right-2 top-1/2 transform -translate-y-1/2"
@@ -296,7 +274,7 @@ const ListingCarDetailPage: FC<ListingCarDetailPageProps> = ({}) => {
           <CommentListing className="py-8" />
           <CommentListing className="py-8" />
           <div className="pt-8">
-            <ButtonSecondary>View more 20 reviews</ButtonSecondary>
+            <ButtonSecondary>{t("customer.common.viewMore20Reviews")}</ButtonSecondary>
           </div>
         </div>
       </div>
@@ -308,10 +286,8 @@ const ListingCarDetailPage: FC<ListingCarDetailPageProps> = ({}) => {
       <div className="listingSection__wrap">
         {/* HEADING */}
         <div>
-          <h2 className="text-2xl font-semibold">Location</h2>
-          <span className="block mt-2 text-neutral-500 dark:text-neutral-400">
-            San Diego, CA, United States of America (SAN-San Diego Intl.)
-          </span>
+          <h2 className="text-2xl font-semibold">{t("customer.common.location")}</h2>
+          <span className="block mt-2 text-neutral-500 dark:text-neutral-400">{t("customer.common.sanDiegoCaUnitedStates")}</span>
         </div>
         <div className="w-14 border-b border-neutral-200 dark:border-neutral-700" />
 
@@ -336,28 +312,20 @@ const ListingCarDetailPage: FC<ListingCarDetailPageProps> = ({}) => {
     return (
       <div className="listingSection__wrap">
         {/* HEADING */}
-        <h2 className="text-2xl font-semibold">Things to know</h2>
+        <h2 className="text-2xl font-semibold">{t("customer.common.thingsToKnow")}</h2>
         <div className="w-14 border-b border-neutral-200 dark:border-neutral-700" />
 
         {/* CONTENT */}
         <div>
-          <h4 className="text-lg font-semibold">Cancellation policy</h4>
-          <span className="block mt-3 text-neutral-500 dark:text-neutral-400">
-            Lock in this fantastic price today, cancel free of charge anytime.
-            Reserve now and pay at pick-up.
-          </span>
+          <h4 className="text-lg font-semibold">{t("customer.common.cancellationPolicy")}</h4>
+          <span className="block mt-3 text-neutral-500 dark:text-neutral-400">{t("customer.listingDetail.listingCarDetail.page.lockInThisFantasticPrice")}</span>
         </div>
         <div className="w-14 border-b border-neutral-200 dark:border-neutral-700" />
 
         {/* CONTENT */}
         <div>
-          <h4 className="text-lg font-semibold">Special Note</h4>
-          <span className="block mt-3 text-neutral-500 dark:text-neutral-400">
-            We asked ourselves, “How can we make the dash not only look better,
-            but also give the driver a better look outside?” The unexpected
-            answer is having no hood above the available 10.25-inch digital
-            instrument cluster...
-          </span>
+          <h4 className="text-lg font-semibold">{t("customer.listingDetail.listingCarDetail.page.specialNote")}</h4>
+          <span className="block mt-3 text-neutral-500 dark:text-neutral-400">{t("customer.listingDetail.listingCarDetail.page.weAskedOurselvesHowCan")}</span>
         </div>
       </div>
     );
@@ -369,10 +337,8 @@ const ListingCarDetailPage: FC<ListingCarDetailPageProps> = ({}) => {
         {/* PRICE */}
         <div className="flex justify-between">
           <span className="text-3xl font-semibold">
-            $19
-            <span className="ml-1 text-base font-normal text-neutral-500 dark:text-neutral-400">
-              /day
-            </span>
+            <DemoPrice value="$19" />
+            <span className="ml-1 text-base font-normal text-neutral-500 dark:text-neutral-400">{t("customer.common.day")}</span>
           </span>
           <StartRating />
         </div>
@@ -385,19 +351,19 @@ const ListingCarDetailPage: FC<ListingCarDetailPageProps> = ({}) => {
         {/* SUM */}
         <div className="flex flex-col space-y-4 ">
           <div className="flex justify-between text-neutral-6000 dark:text-neutral-300">
-            <span>$19 x 3 day</span>
-            <span>$57</span>
+            <span>{t("customer.checkout.perNightTimes")}</span>
+            <DemoPrice value="$57" />
           </div>
 
           <div className="border-b border-neutral-200 dark:border-neutral-700"></div>
           <div className="flex justify-between font-semibold">
-            <span>Total</span>
-            <span>$199</span>
+            <span>{t("customer.common.total")}</span>
+            <DemoPrice value="$199" />
           </div>
         </div>
 
         {/* SUBMIT */}
-        <ButtonPrimary href={"/checkout"}>Reserve</ButtonPrimary>
+        <ButtonPrimary href={"/checkout"}>{t("customer.common.reserve")}</ButtonPrimary>
       </div>
     );
   };
@@ -405,9 +371,7 @@ const ListingCarDetailPage: FC<ListingCarDetailPageProps> = ({}) => {
   const renderSidebarDetail = () => {
     return (
       <div className="listingSection__wrap lg:shadow-xl">
-        <span className="text-2xl font-semibold block">
-          Pick up and drop off
-        </span>
+        <span className="text-2xl font-semibold block">{t("customer.listingDetail.listingCarDetail.page.pickUpAndDropOff")}</span>
         <div className="mt-8 flex">
           <div className="flex-shrink-0 flex flex-col items-center py-2">
             <span className="block w-6 h-6 rounded-full border border-neutral-400"></span>
@@ -416,20 +380,12 @@ const ListingCarDetailPage: FC<ListingCarDetailPageProps> = ({}) => {
           </div>
           <div className="ml-4 space-y-14 text-sm">
             <div className="flex flex-col space-y-2">
-              <span className=" text-neutral-500 dark:text-neutral-400">
-                Monday, August 12 · 10:00
-              </span>
-              <span className=" font-semibold">
-                Saint Petersburg City Center
-              </span>
+              <span className=" text-neutral-500 dark:text-neutral-400">{t("customer.common.mondayAugust121000")}</span>
+              <span className=" font-semibold">{t("customer.listingDetail.listingCarDetail.page.saintPetersburgCityCenter")}</span>
             </div>
             <div className="flex flex-col space-y-2">
-              <span className=" text-neutral-500 dark:text-neutral-400">
-                Monday, August 16 · 10:00
-              </span>
-              <span className=" font-semibold">
-                Saint Petersburg City Center
-              </span>
+              <span className=" text-neutral-500 dark:text-neutral-400">{t("customer.common.mondayAugust161000")}</span>
+              <span className=" font-semibold">{t("customer.listingDetail.listingCarDetail.page.saintPetersburgCityCenter")}</span>
             </div>
           </div>
         </div>
@@ -449,7 +405,7 @@ const ListingCarDetailPage: FC<ListingCarDetailPageProps> = ({}) => {
             <Image
               fill
               src={PHOTOS[0]}
-              alt="photo 0"
+              alt={t("customer.listingDetail.listingCarDetail.page.photo0")}
               className="object-cover rounded-md sm:rounded-xl"
               sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 50vw"
             />
@@ -465,7 +421,7 @@ const ListingCarDetailPage: FC<ListingCarDetailPageProps> = ({}) => {
               fill
               className="object-cover rounded-md sm:rounded-xl"
               src={PHOTOS[1]}
-              alt="photo 1"
+              alt={t("customer.common.photo1")}
               sizes="400px"
             />
             <div className="absolute inset-0 bg-neutral-900 bg-opacity-20 opacity-0 hover:opacity-100 transition-opacity"></div>
@@ -484,7 +440,7 @@ const ListingCarDetailPage: FC<ListingCarDetailPageProps> = ({}) => {
                   fill
                   className="object-cover w-full h-full rounded-md sm:rounded-xl "
                   src={item || ""}
-                  alt="photos"
+                  alt={t("customer.common.photos")}
                   sizes="400px"
                 />
               </div>
@@ -503,9 +459,7 @@ const ListingCarDetailPage: FC<ListingCarDetailPageProps> = ({}) => {
           >
             <Squares2X2Icon className="h-5 w-5" />
 
-            <span className="ml-2 text-neutral-800 text-sm font-medium">
-              Show all photos
-            </span>
+            <span className="ml-2 text-neutral-800 text-sm font-medium">{t("customer.common.showAllPhotos")}</span>
           </div>
         </div>
       </header>

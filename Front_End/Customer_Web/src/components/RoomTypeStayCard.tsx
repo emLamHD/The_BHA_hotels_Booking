@@ -8,11 +8,9 @@ import BtnLikeIcon from "@/components/BtnLikeIcon";
 import StartRating from "@/components/StartRating";
 import { PropertyDto, RoomTypeDto } from "@/lib/api/propertyTypes";
 import { selectGalleryImages, visibleImages } from "@/lib/api/mediaPresentation";
-import { formatCurrencyAmount } from "@/lib/api/availabilityPresentation";
+import Amount from "@/components/Amount";
+import { useI18n } from "@/lib/i18n/I18nProvider";
 import { RoomQuote } from "@/lib/roomQuote";
-
-/** "Tối đa 4 khách": the room type's maximum occupancy as the catalog states it, nothing about beds or rooms. */
-const formatMaxGuests = (maxOccupancy: number) => `Tối đa ${maxOccupancy} khách`;
 
 /** What the card knows about price: nothing asked yet, being asked, no room for the dates, or an answer. */
 export type RoomCardPrice =
@@ -54,7 +52,8 @@ const RoomTypeStayCard: FC<RoomTypeStayCardProps> = ({
   showWishlist = true,
 }) => {
   const [failedUrls, setFailedUrls] = useState<string[]>([]);
-  const name = roomType.name ?? "Room type";
+  const { t, content } = useI18n();
+  const name = content("roomType", roomType.id, "name", roomType.name ?? t("customer.booking.offer.roomTypeFallback"));
 
   const gallery = useMemo(
     () =>
@@ -72,16 +71,16 @@ const RoomTypeStayCard: FC<RoomTypeStayCardProps> = ({
           <span className="text-base font-semibold">
             {quote.uniformNightlyAmount !== null ? (
               <>
-                {formatCurrencyAmount(quote.uniformNightlyAmount, quote.currencyCode)}
+                <Amount amount={quote.uniformNightlyAmount} currencyCode={quote.currencyCode} />
                 {` `}
-                <span className="text-sm text-neutral-500 dark:text-neutral-400 font-normal">/đêm</span>
+                <span className="text-sm text-neutral-500 dark:text-neutral-400 font-normal">{t("customer.stay.perNight")}</span>
               </>
             ) : (
               <>
-                {formatCurrencyAmount(quote.totalAmount, quote.currencyCode)}
+                <Amount amount={quote.totalAmount} currencyCode={quote.currencyCode} />
                 {` `}
                 <span className="text-sm text-neutral-500 dark:text-neutral-400 font-normal">
-                  tổng {quote.nights} đêm
+                  {t("customer.stay.totalForNights", { nights: quote.nights })}
                 </span>
               </>
             )}
@@ -89,11 +88,11 @@ const RoomTypeStayCard: FC<RoomTypeStayCardProps> = ({
         );
       }
       case "loading":
-        return <span className="text-sm text-neutral-500 dark:text-neutral-400">Đang tìm giá…</span>;
+        return <span className="text-sm text-neutral-500 dark:text-neutral-400">{t("customer.stay.searchingPrice")}</span>;
       case "unavailable":
-        return <span className="text-sm font-medium text-red-600 dark:text-red-400">Hết phòng cho ngày đã chọn</span>;
+        return <span className="text-sm font-medium text-red-600 dark:text-red-400">{t("customer.stay.soldOut")}</span>;
       default:
-        return <span className="text-sm font-medium text-neutral-700 dark:text-neutral-200">Chọn ngày để xem giá</span>;
+        return <span className="text-sm font-medium text-neutral-700 dark:text-neutral-200">{t("customer.stay.pickDates")}</span>;
     }
   };
 
@@ -117,7 +116,7 @@ const RoomTypeStayCard: FC<RoomTypeStayCardProps> = ({
           <Link href={href as Route} aria-label={name} className="block w-full">
             <div className="aspect-w-12 aspect-h-11 w-full overflow-hidden rounded-lg bg-neutral-100 dark:bg-neutral-800">
               <div className="flex items-center justify-center p-4 text-center text-xs text-neutral-500 dark:text-neutral-400">
-                Ảnh đang được cập nhật
+                {t("customer.booking.offer.photoPending")}
               </div>
             </div>
           </Link>
@@ -129,7 +128,7 @@ const RoomTypeStayCard: FC<RoomTypeStayCardProps> = ({
         <div className="mt-3 space-y-3">
           <div className="space-y-2">
             <span className="text-sm text-neutral-500 dark:text-neutral-400">
-              Căn hộ · {formatMaxGuests(roomType.maxOccupancy)}
+              {t("customer.stay.apartment")} · {t("customer.booking.upTo", { guests: roomType.maxOccupancy })}
             </span>
             <div className="flex items-center space-x-2">
               <h2 className="font-semibold text-neutral-900 dark:text-white text-base">
@@ -146,14 +145,14 @@ const RoomTypeStayCard: FC<RoomTypeStayCardProps> = ({
                 />
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
-              <span className="">{property.name ?? "The BHA"}</span>
+              <span className="">{content("property", property.id, "name", property.name ?? "The BHA")}</span>
             </div>
           </div>
           <div className="w-14 border-b border-neutral-100 dark:border-neutral-800"></div>
           <div className="flex justify-between items-center">
             {renderPrice()}
             {showRating && (
-              <span className="shrink-0" title="Đánh giá mẫu (không phải đánh giá của khách)">
+              <span className="shrink-0" title={t("customer.stay.sampleRatingTitle")}>
                 <StartRating sample="short" className="whitespace-nowrap" />
               </span>
             )}

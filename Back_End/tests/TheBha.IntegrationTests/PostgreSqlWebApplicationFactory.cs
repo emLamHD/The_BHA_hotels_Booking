@@ -229,6 +229,11 @@ public sealed class PostgreSqlWebApplicationFactory : WebApplicationFactory<Prog
                 "Properties"
             CASCADE;
             """);
+
+        // The CASCADE above also emptied the website tables (they reference StaffAccounts); every test starts
+        // from the migration's seed, rebuilt from the catalog (CUST-WEB-HEADER-001-CP02).
+        // ExecuteSqlRaw formats its text: the literal braces of a placeholder such as {what} are doubled.
+        await context.Database.ExecuteSqlRawAsync(WebsiteTestSeed.InsertSql().Replace("{", "{{").Replace("}", "}}"));
     }
 }
 

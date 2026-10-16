@@ -21,10 +21,20 @@ export interface StaffMembership {
   role: string;
 }
 
+/** The one site-wide permission of the website settings (CUST-WEB-HEADER-001-CP02, ADR 0008). */
+export const WEBSITE_SETTINGS_PERMISSION = "WebsiteSettingsManage";
+
 export interface StaffSession {
   staffAccountId: string;
   email: string;
   memberships: StaffMembership[];
+  /**
+   * The global permissions the server read from its database for this account (CUST-WEB-HEADER-001-CP02). Display
+   * only: every request is authorized on the server again. A server that does not send the field, or sends
+   * something that is not a list of names, grants nothing here. Optional in the type so a session built without it
+   * (an older fixture, a caller that never asked) reads as "none"; {@link parseStaffSession} always sets it.
+   */
+  permissions?: string[];
 }
 
 export type StaffLoginOutcome =
@@ -91,7 +101,11 @@ export function parseStaffSession(data: unknown): StaffSession | null {
       role: membership.role,
     });
   }
-  return { staffAccountId: candidate.staffAccountId, email: candidate.email, memberships };
+  // A missing or malformed `permissions` is "none": it closes the website pages and leaves the Calendar as it was.
+  const permissions = Array.isArray(candidate.permissions)
+    ? candidate.permissions.filter((entry): entry is string => isString(entry) && entry !== "")
+    : [];
+  return { staffAccountId: candidate.staffAccountId, email: candidate.email, memberships, permissions };
 }
 
 /**

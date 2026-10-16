@@ -1,9 +1,10 @@
+import { testT } from "@/lib/i18n/testkit";
 import { describe, expect, it, vi } from "vitest";
 import type { CustomerSessionState } from "@/lib/customerSession";
 import { registerCustomer } from "@/lib/api/authService";
 import { ApiHttpError, ApiNetworkError, ApiValidationError } from "@/lib/api/errors";
 import {
-  PASSWORD_REQUIREMENTS,
+  PASSWORD_MIN_LENGTH,
   SignupOutcome,
   createSignupOwner,
   presentSignupOutcome,
@@ -28,6 +29,8 @@ const credentials = { email: "bob@example.test", password: PASSWORD };
 
 /* ------------------------------------------------------------------ validation */
 
+const t = testT("vi");
+
 describe("validateSignupInput", () => {
   it("accepts a well-formed form, trims the email, and keeps the password exactly as typed", () => {
     const password = "  Pa55 word!!  ";
@@ -38,18 +41,18 @@ describe("validateSignupInput", () => {
   });
 
   it.each([
-    ["", PASSWORD, PASSWORD, "email", "Nhập địa chỉ email."],
-    ["   ", PASSWORD, PASSWORD, "email", "Nhập địa chỉ email."],
-    ["not-an-email", PASSWORD, PASSWORD, "email", "Địa chỉ email chưa hợp lệ."],
-    ["a@b@c", PASSWORD, PASSWORD, "email", "Địa chỉ email chưa hợp lệ."],
-    [`${"a".repeat(250)}@x.test`, PASSWORD, PASSWORD, "email", "Email tối đa 256 ký tự."],
-    ["bob@example.test", "", "", "password", "Nhập mật khẩu."],
-    ["bob@example.test", " ".repeat(14), " ".repeat(14), "password", "Nhập mật khẩu."],
-    ["bob@example.test", "Aa1!aaaaaaa", "Aa1!aaaaaaa", "password", "Mật khẩu cần ít nhất 12 ký tự."],
-    ["bob@example.test", `Aa1!${"a".repeat(125)}`, `Aa1!${"a".repeat(125)}`, "password", "Mật khẩu tối đa 128 ký tự."],
-    ["bob@example.test", PASSWORD, "", "confirmation", "Nhập lại mật khẩu."],
-    ["bob@example.test", PASSWORD, `${PASSWORD} `, "confirmation", "Mật khẩu nhập lại không khớp."],
-    ["bob@example.test", PASSWORD, "aa1!AAAAAAAA", "confirmation", "Mật khẩu nhập lại không khớp."],
+    ["", PASSWORD, PASSWORD, "email", "customer.auth.validation.emailRequired"],
+    ["   ", PASSWORD, PASSWORD, "email", "customer.auth.validation.emailRequired"],
+    ["not-an-email", PASSWORD, PASSWORD, "email", "customer.auth.validation.emailInvalid"],
+    ["a@b@c", PASSWORD, PASSWORD, "email", "customer.auth.validation.emailInvalid"],
+    [`${"a".repeat(250)}@x.test`, PASSWORD, PASSWORD, "email", "customer.auth.validation.emailTooLong"],
+    ["bob@example.test", "", "", "password", "customer.auth.validation.passwordRequired"],
+    ["bob@example.test", " ".repeat(14), " ".repeat(14), "password", "customer.auth.validation.passwordRequired"],
+    ["bob@example.test", "Aa1!aaaaaaa", "Aa1!aaaaaaa", "password", "customer.signup.validation.passwordMin"],
+    ["bob@example.test", `Aa1!${"a".repeat(125)}`, `Aa1!${"a".repeat(125)}`, "password", "customer.auth.validation.passwordTooLong"],
+    ["bob@example.test", PASSWORD, "", "confirmation", "customer.signup.validation.confirmationRequired"],
+    ["bob@example.test", PASSWORD, `${PASSWORD} `, "confirmation", "customer.signup.validation.confirmationMismatch"],
+    ["bob@example.test", PASSWORD, "aa1!AAAAAAAA", "confirmation", "customer.signup.validation.confirmationMismatch"],
   ])("refuses %j / password %j / confirmation %j (focus %s)", (email, password, confirmation, focus, message) => {
     const result = validateSignupInput(email, password, confirmation);
     expect(result.ok).toBe(false);
@@ -122,13 +125,13 @@ describe("presentSignupOutcome", () => {
   const outcomes: SignupOutcome[] = ["created", "invalid", "exists", "rate-limited", "uncertain"];
 
   it("says created and not signed in only when the provider has verified an anonymous session; link carries nothing", () => {
-    const view = presentSignupOutcome("created", "anonymous");
+    const view = presentSignupOutcome("created", "anonymous", t);
     expect(view.message).toBe("Tạo tài khoản thành công. Bạn chưa đăng nhập.");
     expect(view.link).toEqual({ href: "/login", label: "Đăng nhập" });
   });
 
   it("does not claim 'not signed in' when the provider says the customer is signed in", () => {
-    const message = presentSignupOutcome("created", "authenticated").message;
+    const message = presentSignupOutcome("created", "authenticated", t).message;
     expect(message).toBe("Tạo tài khoản thành công. Việc đăng ký không thay đổi phiên đăng nhập hiện tại.");
     expect(message).not.toContain("chưa đăng nhập");
   });
@@ -136,7 +139,7 @@ describe("presentSignupOutcome", () => {
   it.each<CustomerSessionState["status"]>(["unknown", "loading"])(
     "says nothing about the current session while the provider does not know it (%s)",
     (status) => {
-      const view = presentSignupOutcome("created", status);
+      const view = presentSignupOutcome("created", status, t);
       expect(view.message).toBe("Tạo tài khoản thành công. Việc đăng ký không tự đăng nhập.");
       expect(view.message).not.toContain("chưa đăng nhập");
       expect(view.message).not.toContain("hiện tại");
@@ -147,7 +150,7 @@ describe("presentSignupOutcome", () => {
 
   it("keeps the account outcome while the session knowledge changes (same created result, re-presented per status)", () => {
     const statuses: CustomerSessionState["status"][] = ["unknown", "anonymous", "unknown", "authenticated", "loading"];
-    const views = statuses.map((status) => presentSignupOutcome("created", status));
+    const views = statuses.map((status) => presentSignupOutcome("created", status, t));
     expect(views.every((view) => view.outcome === "created" && view.tone === "success")).toBe(true);
     expect(views.map((view) => view.message)).toEqual([
       "Tạo tài khoản thành công. Việc đăng ký không tự đăng nhập.",
@@ -162,34 +165,34 @@ describe("presentSignupOutcome", () => {
     "never changes a failure outcome's wording with the session status (%s)",
     (status) => {
       for (const outcome of ["invalid", "exists", "rate-limited", "uncertain"] as const) {
-        expect(presentSignupOutcome(outcome, status)).toEqual(presentSignupOutcome(outcome, "anonymous"));
+        expect(presentSignupOutcome(outcome, status, t)).toEqual(presentSignupOutcome(outcome, "anonymous", t));
       }
     }
   );
 
   it("calls only 201 a success", () => {
-    expect(outcomes.filter((outcome) => presentSignupOutcome(outcome, "anonymous").tone === "success")).toEqual(["created"]);
+    expect(outcomes.filter((outcome) => presentSignupOutcome(outcome, "anonymous", t).tone === "success")).toEqual(["created"]);
   });
 
   it("never says an uncertain attempt did or did not create the account, and offers login", () => {
-    const view = presentSignupOutcome("uncertain", "anonymous");
+    const view = presentSignupOutcome("uncertain", "anonymous", t);
     expect(view.message).toContain("Chưa xác nhận được tài khoản đã được tạo hay chưa");
     expect(view.message).not.toMatch(/thành công|không được tạo|chưa được tạo/);
     expect(view.link?.href).toBe("/login");
   });
 
   it("does not turn a conflict into ownership or success, and does not invent a wait time", () => {
-    expect(presentSignupOutcome("exists", "anonymous").message).not.toMatch(/thành công|đã tạo/);
-    expect(presentSignupOutcome("rate-limited", "anonymous").message).not.toMatch(/\d/);
+    expect(presentSignupOutcome("exists", "anonymous", t).message).not.toMatch(/thành công|đã tạo/);
+    expect(presentSignupOutcome("rate-limited", "anonymous", t).message).not.toMatch(/\d/);
   });
 
   it("lists the password requirements for a refused (400) request", () => {
-    expect(presentSignupOutcome("invalid", "anonymous").message).toContain(PASSWORD_REQUIREMENTS);
+    expect(presentSignupOutcome("invalid", "anonymous", t).message).toContain(t("customer.signup.passwordRequirements", { min: PASSWORD_MIN_LENGTH }));
   });
 
   it("shows nothing but its own wording: no server text, no credentials", () => {
     for (const outcome of outcomes) {
-      const text = JSON.stringify(presentSignupOutcome(outcome, "anonymous"));
+      const text = JSON.stringify(presentSignupOutcome(outcome, "anonymous", t));
       expect(text).not.toContain("SECRET");
       expect(text).not.toContain(PASSWORD);
       expect(text).not.toContain("bob@example.test");

@@ -1,3 +1,5 @@
+"use client";
+
 import CardAuthorBox from "@/components/CardAuthorBox";
 import CardAuthorBox2 from "@/components/CardAuthorBox2";
 import Heading from "@/shared/Heading";
@@ -7,6 +9,7 @@ import React, { FC } from "react";
 import ButtonPrimary from "@/shared/ButtonPrimary";
 import ButtonSecondary from "@/shared/ButtonSecondary";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface SectionGridAuthorBoxProps {
   className?: string;
   authors?: AuthorType[];
@@ -22,14 +25,13 @@ const SectionGridAuthorBox: FC<SectionGridAuthorBoxProps> = ({
   boxCard = "box1",
   gridClassName = "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 ",
 }) => {
+  const t = useT();
   return (
     <div
       className={`nc-SectionGridAuthorBox relative ${className}`}
       data-nc-id="SectionGridAuthorBox"
     >
-      <Heading desc="Rating based on customer reviews" isCenter>
-        Top 10 author of the month
-      </Heading>
+      <Heading desc={t("customer.sectionGridAuthorBox.ratingBasedOnCustomerReviews")} isCenter>{t("customer.sectionGridAuthorBox.top10AuthorOfThe")}</Heading>
       <div className={`grid gap-6 md:gap-8 ${gridClassName}`}>
         {authors.map((author, index) =>
           boxCard === "box2" ? (
@@ -44,8 +46,8 @@ const SectionGridAuthorBox: FC<SectionGridAuthorBoxProps> = ({
         )}
       </div>
       <div className="mt-16 flex flex-col sm:flex-row justify-center space-y-3 sm:space-y-0 sm:space-x-5">
-        <ButtonSecondary loading>Show me more </ButtonSecondary>
-        <ButtonPrimary>Become a host</ButtonPrimary>
+        <ButtonSecondary loading>{t("customer.common.showMeMore")}</ButtonSecondary>
+        <ButtonPrimary>{t("customer.sectionGridAuthorBox.becomeAHost")}</ButtonPrimary>
       </div>
     </div>
   );

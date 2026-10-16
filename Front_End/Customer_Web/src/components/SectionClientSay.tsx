@@ -17,6 +17,8 @@ import Image from "next/image";
 import { useSwipeable } from "react-swipeable";
 import { variants } from "@/utils/animationVariants";
 
+import { useT } from "@/lib/i18n/I18nProvider";
+import { Tpl } from "@/lib/i18n/Tpl";
 export interface SectionClientSayProps {
   className?: string;
   data?: typeof DEMO_DATA;
@@ -50,6 +52,7 @@ const SectionClientSay: FC<SectionClientSayProps> = ({
   className = "",
   data = DEMO_DATA,
 }) => {
+  const t = useT();
   const [index, setIndex] = useState(0);
   const [direction, setDirection] = useState(0);
 
@@ -84,32 +87,32 @@ const SectionClientSay: FC<SectionClientSayProps> = ({
         <Image
           className="absolute top-9 -left-20"
           src={clientSay1}
-          alt="client 1"
+          alt=""
         />
         <Image
           className="absolute bottom-[100px] right-full mr-40"
           src={clientSay2}
-          alt="client 2"
+          alt=""
         />
         <Image
           className="absolute top-full left-[140px]"
           src={clientSay3}
-          alt="client 3"
+          alt=""
         />
         <Image
           className="absolute -bottom-10 right-[140px]"
           src={clientSay4}
-          alt="client 4"
+          alt=""
         />
         <Image
           className="absolute left-full ml-32 bottom-[80px]"
           src={clientSay5}
-          alt="client 5"
+          alt=""
         />
         <Image
           className="absolute -right-10 top-10 "
           src={clientSay6}
-          alt="client 6"
+          alt=""
         />
       </div>
     );
@@ -117,9 +120,7 @@ const SectionClientSay: FC<SectionClientSayProps> = ({
 
   return (
     <div className={`nc-SectionClientSay relative ${className} `}>
-      <Heading desc="Let's see what people think of Chisfis" isCenter>
-        Good news from far away
-      </Heading>
+      <Heading desc={t("customer.sectionClientSay.letSSeeWhatPeople")} isCenter>{t("customer.sectionClientSay.goodNewsFromFarAway")}</Heading>
       <div className="relative md:mb-16 max-w-2xl mx-auto">
         {renderBg()}
         <Image className="mx-auto" src={clientSayMain} alt="" />
@@ -157,14 +158,14 @@ const SectionClientSay: FC<SectionClientSayProps> = ({
                 >
                   <>
                     <span className="block text-2xl">
-                      {currentItem.content}
+                      <Tpl text={currentItem.content} />
                     </span>
                     <span className="block mt-8 text-2xl font-semibold">
-                      {currentItem.clientName}
+                      <Tpl text={currentItem.clientName} />
                     </span>
                     <div className="flex items-center space-x-2 text-lg mt-2 text-neutral-400">
                       <MapPinIcon className="h-5 w-5" />
-                      <span>{currentItem.clientAddress}</span>
+                      <span><Tpl text={currentItem.clientAddress} /></span>
                     </div>
                   </>
                 </motion.div>

@@ -6,7 +6,10 @@ import DatesRangeInput from "../DatesRangeInput";
 import { GuestsObject } from "../../type";
 import converSelectedDateToString from "@/utils/converSelectedDateToString";
 
+import { useT } from "@/lib/i18n/I18nProvider";
+import { Tpl } from "@/lib/i18n/Tpl";
 const FlightSearchForm = () => {
+  const t = useT();
   //
   const [fieldNameShow, setFieldNameShow] = useState<
     "locationPickup" | "locationDropoff" | "dates" | "guests" | "general"
@@ -45,7 +48,7 @@ const FlightSearchForm = () => {
             className={`w-full flex justify-between text-sm font-medium p-4`}
             onClick={() => setFieldNameShow("locationPickup")}
           >
-            <span className="text-neutral-400">Pick up</span>
+            <span className="text-neutral-400">{t("customer.common.pickUp")}</span>
             <span>{locationInputPickUp || "Location"}</span>
           </button>
         ) : (
@@ -77,7 +80,7 @@ const FlightSearchForm = () => {
             className={`w-full flex justify-between text-sm font-medium p-4`}
             onClick={() => setFieldNameShow("locationDropoff")}
           >
-            <span className="text-neutral-400">Drop off</span>
+            <span className="text-neutral-400">{t("customer.common.dropOff")}</span>
             <span>{locationInputDropOff || "Location"}</span>
           </button>
         ) : (
@@ -110,7 +113,7 @@ const FlightSearchForm = () => {
             className={`w-full flex justify-between text-sm font-medium p-4  `}
             onClick={() => setFieldNameShow("dates")}
           >
-            <span className="text-neutral-400">When</span>
+            <span className="text-neutral-400">{t("customer.common.when")}</span>
             <span>
               {startDate
                 ? converSelectedDateToString([startDate, endDate])
@@ -139,14 +142,12 @@ const FlightSearchForm = () => {
             className={`w-full flex justify-between text-sm font-medium p-4`}
             onClick={() => setFieldNameShow("general")}
           >
-            <span className="text-neutral-400">Flight type?</span>
+            <span className="text-neutral-400">{t("customer.heroSearchForm2Mobile.flightSearchForm.flightSearchForm.flightType")}</span>
             <span>{`${dropOffLocationType}, ${flightClassState}`}</span>
           </button>
         ) : (
           <div className="p-5">
-            <span className="block font-semibold text-xl sm:text-2xl">
-              Flight type?
-            </span>
+            <span className="block font-semibold text-xl sm:text-2xl">{t("customer.heroSearchForm2Mobile.flightSearchForm.flightSearchForm.flightType")}</span>
             <div className="relative mt-5">
               <div className="flex space-x-2">
                 <div
@@ -156,9 +157,7 @@ const FlightSearchForm = () => {
                       : "border border-neutral-300 dark:border-neutral-700"
                   }`}
                   onClick={(e) => setDropOffLocationType("Round-trip")}
-                >
-                  Round-trip
-                </div>
+                >{t("customer.common.roundTrip")}</div>
                 <div
                   className={`py-1.5 px-4 flex items-center rounded-full font-medium text-xs cursor-pointer select-none ${
                     dropOffLocationType === "One-way"
@@ -166,15 +165,11 @@ const FlightSearchForm = () => {
                       : "border border-neutral-300 dark:border-neutral-700"
                   }`}
                   onClick={(e) => setDropOffLocationType("One-way")}
-                >
-                  One-way
-                </div>
+                >{t("customer.common.oneWay")}</div>
               </div>
 
               <div className="mt-6">
-                <label className="text-base font-semibold" htmlFor="">
-                  Ticket Class:
-                </label>
+                <label className="text-base font-semibold" htmlFor="">{t("customer.heroSearchForm2Mobile.flightSearchForm.flightSearchForm.ticketClass")}</label>
                 <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
                   {renderRadio("class", "Economy", "Economy")}
                   {renderRadio("class", "Business", "Business")}
@@ -208,7 +203,7 @@ const FlightSearchForm = () => {
           htmlFor={id + name}
           className="ml-3 block text-sm font-medium text-neutral-700 dark:text-neutral-300"
         >
-          {label}
+          <Tpl text={label} />
         </label>
       </div>
     );
@@ -220,11 +215,11 @@ const FlightSearchForm = () => {
     if (guestInput.guestAdults || guestInput.guestChildren) {
       const guest =
         (guestInput.guestAdults || 0) + (guestInput.guestChildren || 0);
-      guestSelected += `${guest} guests`;
+      guestSelected += t("customer.booking.guests", { guests: guest });
     }
 
     if (guestInput.guestInfants) {
-      guestSelected += `, ${guestInput.guestInfants} infants`;
+      guestSelected += `, ${t("customer.booking.infants", { infants: guestInput.guestInfants })}`;
     }
 
     return (
@@ -240,8 +235,8 @@ const FlightSearchForm = () => {
             className={`w-full flex justify-between text-sm font-medium p-4`}
             onClick={() => setFieldNameShow("guests")}
           >
-            <span className="text-neutral-400">Who</span>
-            <span>{guestSelected || `Add guests`}</span>
+            <span className="text-neutral-400">{t("customer.heroSearchForm2Mobile.flightSearchForm.flightSearchForm.who")}</span>
+            <span>{guestSelected || <Tpl text="Add guests" />}</span>
           </button>
         ) : (
           <GuestsInput defaultValue={guestInput} onChange={setGuestInput} />

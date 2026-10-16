@@ -4,6 +4,7 @@ import logoImg from "@/images/logo_the_bha_riverside.png";
 import logoDarkImg from "@/images/logo_the_bha_riverside_dark.png";
 import Link from "next/link";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface LogoProps {
   img?: StaticImageData;
   imgDark?: StaticImageData;
@@ -18,13 +19,14 @@ export interface LogoProps {
  * `sizes` is the widest placement (w-32): without it the browser fetches the 1920px rendition of a 128px logo.
  */
 const Logo: React.FC<LogoProps> = ({ img = logoImg, imgDark = logoDarkImg, className = "w-24" }) => {
+  const t = useT();
   return (
     <Link
       href="/"
       className={`ttnc-logo inline-block text-primary-6000 focus:outline-none focus:ring-0 ${className}`}
     >
-      <Image className="block w-full h-auto dark:hidden" src={img} alt="The BHA Riverside" sizes="128px" priority />
-      <Image className="hidden w-full h-auto dark:block" src={imgDark} alt="The BHA Riverside" sizes="128px" priority />
+      <Image className="block w-full h-auto dark:hidden" src={img} alt={t("customer.shared.logo.theBhaRiverside")} sizes="128px" priority />
+      <Image className="hidden w-full h-auto dark:block" src={imgDark} alt={t("customer.shared.logo.theBhaRiverside")} sizes="128px" priority />
     </Link>
   );
 };

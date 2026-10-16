@@ -1,6 +1,7 @@
 import Label from "@/components/Label";
 import React from "react";
 import { FC } from "react";
+import { Tpl } from "@/lib/i18n/Tpl";
 
 export interface FormItemProps {
   className?: string;
@@ -17,11 +18,11 @@ const FormItem: FC<FormItemProps> = ({
 }) => {
   return (
     <div className={className}>
-      {label && <Label>{label}</Label>}
+      {label && <Label><Tpl text={label} /></Label>}
       <div className="mt-1">{children}</div>
       {desc && (
         <span className="block mt-3 text-xs text-neutral-500 dark:text-neutral-400 ">
-          {desc}
+          <Tpl text={desc} />
         </span>
       )}
     </div>

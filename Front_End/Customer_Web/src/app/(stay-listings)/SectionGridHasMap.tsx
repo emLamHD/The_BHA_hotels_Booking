@@ -11,10 +11,12 @@ import TabFilters from "./TabFilters";
 import Heading2 from "@/shared/Heading2";
 import StayCard2 from "@/components/StayCard2";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 const DEMO_STAYS = DEMO_STAY_LISTINGS.filter((_, i) => i < 12);
 export interface SectionGridHasMapProps {}
 
 const SectionGridHasMap: FC<SectionGridHasMapProps> = () => {
+  const t = useT();
   const [currentHoverID, setCurrentHoverID] = useState<string | number>(-1);
   const [showFullMapFixed, setShowFullMapFixed] = useState(false);
 
@@ -49,7 +51,7 @@ const SectionGridHasMap: FC<SectionGridHasMapProps> = () => {
             onClick={() => setShowFullMapFixed(true)}
           >
             <i className="text-lg las la-map"></i>
-            <span>Show map</span>
+            <span>{t("customer.stayListings.sectionGridHasMap.showMap")}</span>
           </div>
         )}
 
@@ -71,7 +73,7 @@ const SectionGridHasMap: FC<SectionGridHasMapProps> = () => {
               <Checkbox
                 className="text-xs xl:text-sm"
                 name="xx"
-                label="Search as I move the map"
+                label={t("customer.stayListings.sectionGridHasMap.searchAsIMoveThe")}
               />
             </div>
             <GoogleMapReact

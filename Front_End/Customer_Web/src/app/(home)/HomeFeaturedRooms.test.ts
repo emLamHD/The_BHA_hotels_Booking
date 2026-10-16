@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import React from "react";
-import { renderToStaticMarkup } from "react-dom/server";
+import { renderWithI18n } from "@/lib/i18n/testkit";
 import { BookingHoldProvider } from "@/app/BookingHoldProvider";
 import { StaySearchContextValue, StaySearchProvider, useStaySearch } from "@/components/StaySearchProvider";
 import HomeFeaturedRooms from "./HomeFeaturedRooms";
@@ -22,7 +22,7 @@ vi.mock("next/navigation", () => ({
 const wrap = (child: React.ReactElement) =>
   React.createElement(BookingHoldProvider, null, React.createElement(StaySearchProvider, null, child));
 
-const markup = renderToStaticMarkup(wrap(React.createElement(HomeFeaturedRooms)));
+const markup = renderWithI18n(wrap(React.createElement(HomeFeaturedRooms)));
 
 describe("HomeFeaturedRooms first render", () => {
   it("is the Riverside room-types section with the #rooms anchor exactly once", () => {
@@ -55,7 +55,7 @@ describe("the shared stay search no longer carries a quote path", () => {
     captured = useStaySearch();
     return null;
   };
-  renderToStaticMarkup(wrap(React.createElement(Probe)));
+  renderWithI18n(wrap(React.createElement(Probe)));
 
   it("holds a draft, the Riverside catalog and a submit, and nothing that reads or keeps offers", () => {
     expect(captured).not.toBeNull();

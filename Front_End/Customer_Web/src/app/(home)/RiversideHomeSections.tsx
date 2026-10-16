@@ -11,6 +11,7 @@ import { OPEN_SEARCH_EVENT } from "@/lib/homepageSearch";
 import { HOME_SECTION, HOME_SECTION_IDS, amenityNames, buildFaq, checkTimes } from "@/lib/riversideHomeContent";
 import { SHOWCASE_SECTION_NAVIGATION_EVENT } from "@/lib/routePolicy";
 
+import { useI18n, useT } from "@/lib/i18n/I18nProvider";
 /** The id of the hero's search form: the "Tìm phòng" button scrolls to it on large screens. */
 export const HERO_SEARCH_ID = "tim-phong";
 
@@ -57,6 +58,7 @@ const SECONDARY_LINK_CLASS =
  * a link to the room types on this page.
  */
 export const HeroActions: FC = () => {
+  const t = useT();
   const onSearch = () => {
     if (window.matchMedia("(max-width: 1023px)").matches) {
       window.dispatchEvent(new Event(OPEN_SEARCH_EVENT));
@@ -69,23 +71,20 @@ export const HeroActions: FC = () => {
   };
   return (
     <div className="flex flex-wrap gap-3">
-      <ButtonPrimary type="button" onClick={onSearch} sizeClass="px-5 py-4 sm:px-7">
-        Tìm phòng
-      </ButtonPrimary>
-      <ShowcaseNavLink section={HOME_SECTION.rooms} className={SECONDARY_LINK_CLASS}>
-        Khám phá loại phòng
-      </ShowcaseNavLink>
+      <ButtonPrimary type="button" onClick={onSearch} sizeClass="px-5 py-4 sm:px-7">{t("customer.common.findARoom2")}</ButtonPrimary>
+      <ShowcaseNavLink section={HOME_SECTION.rooms} className={SECONDARY_LINK_CLASS}>{t("customer.home.riversideHomeSections.exploreRoomTypes")}</ShowcaseNavLink>
     </div>
   );
 };
 
 /** The property's amenities exactly as the booking system names them; nothing is shown while it has none. */
 export const PropertyAmenities: FC = () => {
-  const names = amenityNames(useStaySearch()?.riverside);
+  const { t, content } = useI18n();
+  const names = amenityNames(useStaySearch()?.riverside, (amenity) => content("amenity", amenity.id, "name", amenity.name ?? amenity.code))
   if (names.length === 0) return null;
   return (
     <div className="mt-10">
-      <h3 className="text-sm font-medium text-neutral-500 dark:text-neutral-400">Tiện ích của chỗ nghỉ</h3>
+      <h3 className="text-sm font-medium text-neutral-500 dark:text-neutral-400">{t("customer.home.riversideHomeSections.propertyAmenities")}</h3>
       <ul className="mt-3 flex flex-wrap gap-2">
         {names.map((name) => (
           <li
@@ -102,7 +101,8 @@ export const PropertyAmenities: FC = () => {
 
 /** The questions of `buildFaq`; the check-in/out answer carries the times the booking system holds, when it has them. */
 export const HomeFaq: FC = () => {
-  const items = buildFaq(checkTimes(useStaySearch()?.riverside));
+  const t = useT();
+  const items = buildFaq(checkTimes(useStaySearch()?.riverside), t);
   return (
     <div className="divide-y divide-neutral-200 rounded-3xl border border-neutral-200 dark:divide-neutral-700 dark:border-neutral-700">
       {items.map((item) => (

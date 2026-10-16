@@ -21,6 +21,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The one ICU vector file the C# validator and both TypeScript formatters run. -->
+    <Content Include="..\..\src\TheBha.Application\Website\Localization\icu-vectors.json" Link="icu-vectors.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\TheBha.Domain\TheBha.Domain.csproj" />
     <ProjectReference Include="..\..\src\TheBha.Application\TheBha.Application.csproj" />
   </ItemGroup>

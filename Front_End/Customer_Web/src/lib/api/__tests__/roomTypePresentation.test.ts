@@ -1,3 +1,4 @@
+import { testT } from "@/lib/i18n/testkit";
 import { describe, expect, it } from "vitest";
 import {
   formatDesignedForOccupancy,
@@ -6,31 +7,33 @@ import {
 import { selectCoverImage } from "../propertyPresentation";
 import { MediaDto, RoomTypeDto } from "../propertyTypes";
 
+const t = testT("en");
+
 describe("formatDesignedForOccupancy", () => {
   it("uses singular 'guest' for an occupancy of exactly one", () => {
-    expect(formatDesignedForOccupancy(1)).toBe("Designed for 1 guest");
+    expect(formatDesignedForOccupancy(1, t)).toBe("Designed for 1 guest");
   });
 
   it("uses plural 'guests' for an occupancy greater than one", () => {
-    expect(formatDesignedForOccupancy(2)).toBe("Designed for 2 guests");
+    expect(formatDesignedForOccupancy(2, t)).toBe("Designed for 2 guests");
   });
 
   it("does not mention beds, bedrooms, physical rooms, or availability", () => {
-    expect(formatDesignedForOccupancy(4)).not.toMatch(/bed|room|available/i);
+    expect(formatDesignedForOccupancy(4, t)).not.toMatch(/bed|room|available/i);
   });
 });
 
 describe("formatMaxOccupancy", () => {
   it("uses singular 'guest' for a maximum occupancy of exactly one", () => {
-    expect(formatMaxOccupancy(1)).toBe("Up to 1 guest");
+    expect(formatMaxOccupancy(1, t)).toBe("Up to 1 guest");
   });
 
   it("uses plural 'guests' for a maximum occupancy greater than one", () => {
-    expect(formatMaxOccupancy(4)).toBe("Up to 4 guests");
+    expect(formatMaxOccupancy(4, t)).toBe("Up to 4 guests");
   });
 
   it("does not mention beds, bedrooms, physical rooms, or availability", () => {
-    expect(formatMaxOccupancy(4)).not.toMatch(/bed|room|available/i);
+    expect(formatMaxOccupancy(4, t)).not.toMatch(/bed|room|available/i);
   });
 });
 

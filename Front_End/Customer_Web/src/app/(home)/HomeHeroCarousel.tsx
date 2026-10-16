@@ -1,6 +1,6 @@
 "use client";
 
-import React, { FC, KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
+import React, { useMemo, FC, KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import type { Route } from "next";
@@ -21,6 +21,8 @@ import { AUTOPLAY_INTERVAL_MS, nextIndex, prevIndex, shouldAutoplay } from "@/li
 import { OPEN_SEARCH_EVENT } from "@/lib/homepageSearch";
 import { RIVERSIDE_PATH } from "@/lib/riversideHomeContent";
 
+import { useI18n, useT } from "@/lib/i18n/I18nProvider";
+import { localizeHeroSlide } from "@/lib/i18n/staticContent";
 /** The two hero actions share one height, weight and radius: a solid white primary and a glass secondary, both legible over any picture. */
 const ACTION_BASE_CLASS =
   "inline-flex h-12 items-center justify-center gap-2 rounded-full px-6 text-sm font-semibold shadow-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black/40 sm:h-14 sm:px-8 sm:text-base";
@@ -53,7 +55,9 @@ function startSearch() {
  * The pictures show Đà Nẵng, not the property's rooms; the caption names the place and credits the photograph.
  */
 const HomeHeroCarousel: FC = () => {
-  const slides = HERO_SLIDES;
+  const t = useT();
+  const { content } = useI18n();
+  const slides = useMemo(() => HERO_SLIDES.map((slide) => localizeHeroSlide(slide, content)), [content]);
   const [index, setIndex] = useState(0);
   const [hovered, setHovered] = useState(false);
   const [focusWithin, setFocusWithin] = useState(false);
@@ -124,12 +128,12 @@ const HomeHeroCarousel: FC = () => {
   const credit = creditForFile(active.file);
 
   return (
-    <section aria-label="Đà Nẵng" className="nc-HomeHeroCarousel relative lg:mb-16">
+    <section aria-label={t("customer.home.homeHeroCarousel.daNang")} className="nc-HomeHeroCarousel relative lg:mb-16">
       <div
         ref={regionRef}
         role="group"
         aria-roledescription="carousel"
-        aria-label="Ảnh Đà Nẵng"
+        aria-label={t("customer.home.homeHeroCarousel.photosOfDaNang")}
         className="relative"
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
@@ -168,16 +172,12 @@ const HomeHeroCarousel: FC = () => {
 
           <div className="container absolute inset-0 flex flex-col justify-center pb-10 sm:pb-6">
             <div className="max-w-2xl space-y-4 sm:space-y-6">
-              <h1 className="text-3xl font-medium !leading-[114%] text-white sm:text-5xl lg:text-6xl">The BHA — Đà Nẵng</h1>
-              <p className="max-w-md text-base text-white/90 sm:text-lg">Đặt phòng trực tiếp, xem giá từng đêm.</p>
+              <h1 className="text-3xl font-medium !leading-[114%] text-white sm:text-5xl lg:text-6xl">{t("customer.home.homeHeroCarousel.theBhaDaNang")}</h1>
+              <p className="max-w-md text-base text-white/90 sm:text-lg">{t("customer.home.homeHeroCarousel.bookDirectAndSeeThe")}</p>
               <div className="flex flex-wrap gap-3">
                 <button type="button" onClick={startSearch} className={PRIMARY_ACTION_CLASS}>
-                  <MagnifyingGlassIcon className="h-5 w-5" aria-hidden="true" />
-                  Tìm phòng
-                </button>
-                <Link href={RIVERSIDE_PATH as Route} className={SECONDARY_ACTION_CLASS}>
-                  Xem Riverside
-                  <ArrowRightIcon className="h-5 w-5" aria-hidden="true" />
+                  <MagnifyingGlassIcon className="h-5 w-5" aria-hidden="true" />{t("customer.common.findARoom2")}</button>
+                <Link href={RIVERSIDE_PATH as Route} className={SECONDARY_ACTION_CLASS}>{t("customer.home.homeHeroCarousel.xemRiverside")}<ArrowRightIcon className="h-5 w-5" aria-hidden="true" />
                 </Link>
               </div>
             </div>
@@ -189,19 +189,17 @@ const HomeHeroCarousel: FC = () => {
               <span className="mx-1.5" aria-hidden="true">
                 ·
               </span>
-              {credit && <span>{creditLine(credit)}</span>}
+              {credit && <span>{creditLine(credit, t("customer.media.photoBy"))}</span>}
               <span className="mx-1.5" aria-hidden="true">
                 ·
               </span>
-              <Link href={MEDIA_CREDITS_PATH as Route} className="underline underline-offset-2 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-white">
-                Nguồn ảnh
-              </Link>
+              <Link href={MEDIA_CREDITS_PATH as Route} className="underline underline-offset-2 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-white">{t("customer.common.photoCredits")}</Link>
             </p>
             <div className="flex flex-shrink-0 items-center gap-2">
-              <button type="button" aria-label="Ảnh trước" onClick={prev} className={ROUND_BUTTON_CLASS}>
+              <button type="button" aria-label={t("customer.home.homeHeroCarousel.previousPhoto")} onClick={prev} className={ROUND_BUTTON_CLASS}>
                 <ChevronLeftIcon className="h-5 w-5" aria-hidden="true" />
               </button>
-              <button type="button" aria-label="Ảnh tiếp theo" onClick={next} className={ROUND_BUTTON_CLASS}>
+              <button type="button" aria-label={t("customer.home.homeHeroCarousel.nextPhoto")} onClick={next} className={ROUND_BUTTON_CLASS}>
                 <ChevronRightIcon className="h-5 w-5" aria-hidden="true" />
               </button>
             </div>
@@ -213,7 +211,7 @@ const HomeHeroCarousel: FC = () => {
                 <li key={slide.id}>
                   <button
                     type="button"
-                    aria-label={`Ảnh ${slideIndex + 1}: ${slide.caption}`}
+                    aria-label={t("customer.hero.slideLabel", { n: slideIndex + 1, caption: slide.caption })}
                     aria-current={slideIndex === index ? "true" : undefined}
                     onClick={() => go(slideIndex)}
                     className="group flex h-6 w-6 items-center justify-center focus:outline-none"
@@ -229,7 +227,7 @@ const HomeHeroCarousel: FC = () => {
             </ul>
             <button
               type="button"
-              aria-label={pausedByVisitor ? "Bật tự động chuyển ảnh" : "Tạm dừng tự động chuyển ảnh"}
+              aria-label={pausedByVisitor ? t("customer.hero.resume") : t("customer.hero.pause")}
               onClick={() => setPausedByVisitor((value) => !value)}
               className="flex h-8 w-8 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-sm hover:bg-black/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
             >

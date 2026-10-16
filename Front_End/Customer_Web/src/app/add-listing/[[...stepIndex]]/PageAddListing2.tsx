@@ -10,53 +10,53 @@ import Input from "@/shared/Input";
 import Select from "@/shared/Select";
 import FormItem from "../FormItem";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface PageAddListing2Props {}
 
 const PageAddListing2: FC<PageAddListing2Props> = () => {
+  const t = useT();
   return (
     <>
-      <h2 className="text-2xl font-semibold">Your place location</h2>
+      <h2 className="text-2xl font-semibold">{t("customer.addListing.stepIndex.pageAddListing2.yourPlaceLocation")}</h2>
       <div className="w-14 border-b border-neutral-200 dark:border-neutral-700"></div>
       {/* FORM */}
       <div className="space-y-8">
         <ButtonSecondary>
           <MapPinIcon className="w-5 h-5 text-neutral-500 dark:text-neutral-400" />
-          <span className="ml-3">Use current location</span>
+          <span className="ml-3">{t("customer.addListing.stepIndex.pageAddListing2.useCurrentLocation")}</span>
         </ButtonSecondary>
         {/* ITEM */}
-        <FormItem label="Country/Region">
+        <FormItem label={t("customer.addListing.stepIndex.pageAddListing2.countryRegion")}>
           <Select>
-            <option value="Viet Nam">Viet Nam</option>
-            <option value="Thailand">Thailand</option>
-            <option value="France">France</option>
-            <option value="Singapore">Singapore</option>
-            <option value="Jappan">Jappan</option>
-            <option value="Korea">Korea</option>
+            <option value="Viet Nam">{t("customer.addListing.stepIndex.pageAddListing2.vietNam")}</option>
+            <option value="Thailand">{t("customer.addListing.stepIndex.pageAddListing2.thailand")}</option>
+            <option value="France">{t("customer.addListing.stepIndex.pageAddListing2.france")}</option>
+            <option value="Singapore">{t("customer.addListing.stepIndex.pageAddListing2.singapore")}</option>
+            <option value="Jappan">{t("customer.common.jappan")}</option>
+            <option value="Korea">{t("customer.addListing.stepIndex.pageAddListing2.korea")}</option>
             <option value="...">...</option>
           </Select>
         </FormItem>
-        <FormItem label="Street">
+        <FormItem label={t("customer.addListing.stepIndex.pageAddListing2.street")}>
           <Input placeholder="..." />
         </FormItem>
-        <FormItem label="Room number (optional)">
+        <FormItem label={t("customer.addListing.stepIndex.pageAddListing2.roomNumberOptional")}>
           <Input />
         </FormItem>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 md:gap-5">
-          <FormItem label="City">
+          <FormItem label={t("customer.addListing.stepIndex.pageAddListing2.city")}>
             <Input />
           </FormItem>
-          <FormItem label="State">
+          <FormItem label={t("customer.addListing.stepIndex.pageAddListing2.state")}>
             <Input />
           </FormItem>
-          <FormItem label="Postal code">
+          <FormItem label={t("customer.addListing.stepIndex.pageAddListing2.postalCode")}>
             <Input />
           </FormItem>
         </div>
         <div>
-          <Label>Detailed address</Label>
-          <span className="block mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-            1110 Pennsylvania Avenue NW, Washington, DC 20230
-          </span>
+          <Label>{t("customer.addListing.stepIndex.pageAddListing2.detailedAddress")}</Label>
+          <span className="block mt-1 text-sm text-neutral-500 dark:text-neutral-400">{t("customer.addListing.stepIndex.pageAddListing2.1110PennsylvaniaAvenueNwWashington")}</span>
           <div className="mt-4">
             <div className="aspect-w-5 aspect-h-5 sm:aspect-h-3">
               <div className="rounded-xl overflow-hidden">

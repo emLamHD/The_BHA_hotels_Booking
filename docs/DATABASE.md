@@ -102,6 +102,8 @@ The current migration chain is:
 7. `20260823084717_CommercialCommitmentV2Foundation`
 8. `20260826035254_PhysicalRoomScheduleAvailabilityAuthority`
 9. `20261001141847_AddStaffIdentityFoundation`
+10. `20261015050047_AddWebsiteLocalizationSettings`
+11. `20261015095908_AddRuntimeLanguagePacks`
 
 `PMS-BE-001.1` (migration 7) replaces the single-RoomType `BookingHold`/
 `BookingHoldNight` and `Reservation`/`ReservationNight` commercial authority
@@ -171,6 +173,46 @@ user name, `IsActive`/`DisabledAtUtc` consistency check) and
 parents) — ADR 0007. Customer tables are unchanged. `Down()` is guarded: it
 fails atomically while either new table has rows. No Staff sign-in, endpoint
 or bootstrap command exists yet, and the seed creates no Staff.
+
+`CUST-WEB-HEADER-001-CP02` (migration 10, `AddWebsiteLocalizationSettings`)
+adds `WebsiteLanguages`, `WebsiteTranslations`, `WebsiteCurrencies` and the
+column `StaffAccounts.CanManageWebsite boolean NOT NULL DEFAULT false`
+(ADR 0008). Existing rows are untouched: the new column defaults to `false`,
+so no Staff account gains the permission. The migration freezes its own seed
+(language `vi` active and default; `en` present but off with 25 managed keys;
+currency VND base/default/on with rate 1; USD and EUR off with no rate; 50
+translation rows) and installs CHECK constraints, partial unique indexes and
+two `DEFERRABLE INITIALLY DEFERRED` constraint triggers (`SQLSTATE XBHA3`,
+`XBHA4`) that keep exactly one default language and one default currency.
+`VndPerUnit` is `numeric(20,8)`: VND per one unit of the currency. `Down()` is
+guarded: it fails atomically if any account holds the permission, any language
+other than `vi`/`en` or currency other than VND/USD/EUR exists, or any
+language, currency or translation row has a version above 1 or belongs to a
+non-seed language. It does **not** detect the deletion of a seed row that was
+never edited (for example clearing one seed `en` translation or deleting USD
+leaves every remaining row at version 1), so a rollback after such a deletion
+silently drops the remaining seed. Design: `docs/design/CUST-WEB-HEADER-001-CP02-website-localization-settings.md`.
+
+`CUST-WEB-HEADER-001-CP02-C2/R1` (migration 11, `AddRuntimeLanguagePacks`)
+turns the language data into **runtime language packs**: `WebsiteLanguages`
+gains `PackId`, `PackVersion`, `Direction` (`ltr`/`rtl`), `FormatLocale` (the
+BCP 47 tag used by `Intl` for dates and numbers) and `DefaultCurrencyCode`
+(the display currency a visitor gets with that language until they choose
+another); `WebsiteTranslations` gains `SourceHash` (hash of the reference text
+a translation was made from, so an edited source marks it stale) and
+`IsManual` (an Admin edit that a later pack import keeps unless the operator
+chooses "overwrite"). `Value` becomes `varchar(4000)` and the two CHECK
+constraints on `Key`/`Value` of migration 10 are dropped (the server validates
+keys against the pack catalog and messages as ICU syntax). Existing keys are
+renamed into the catalog's naming and the 50 seed translation rows of migration
+10 are removed: the seed languages `vi`/`en` stay, and the texts come back when
+the built-in packs are installed from the Admin. No currency or booking row is
+changed, and **no booking amount is ever stored in another currency**:
+reservations stay in VND. `Down()` raises an exception while installed packs or
+administered translations exist. The migration adds no rates; rates are
+entered by the operator in the Admin (see `docs/runbooks/CUST-WEB-HEADER-001-languages-and-rates.md`). Apply it
+with the normal `dotnet ef database update` command; apply order is 10 → 11.
+Design: `docs/design/CUST-WEB-HEADER-001-CP02-website-localization-settings.md` §9.
 
 Run the update command before the development seed. The API never calls
 `EnsureCreated()` and never applies a migration during startup.

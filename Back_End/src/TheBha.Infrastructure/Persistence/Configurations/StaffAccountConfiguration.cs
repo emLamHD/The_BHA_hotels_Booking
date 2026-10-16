@@ -17,6 +17,7 @@ internal sealed class StaffAccountConfiguration : IEntityTypeConfiguration<Staff
         builder.Property(account => account.NormalizedUserName).HasMaxLength(256).IsRequired();
         builder.Property(account => account.Email).HasMaxLength(256).IsRequired();
         builder.Property(account => account.NormalizedEmail).HasMaxLength(256).IsRequired();
+        builder.Property(account => account.CanManageWebsite).HasDefaultValue(false);
         builder.Property(account => account.CreatedAtUtc).HasColumnType("timestamp with time zone");
         builder.Property(account => account.DisabledAtUtc).HasColumnType("timestamp with time zone");
         builder.HasIndex(account => account.NormalizedUserName)

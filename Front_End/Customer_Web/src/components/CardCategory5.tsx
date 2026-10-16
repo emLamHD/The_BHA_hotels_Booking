@@ -4,6 +4,8 @@ import convertNumbThousand from "@/utils/convertNumbThousand";
 import Link from "next/link";
 import Image from "next/image";
 
+import { useT } from "@/lib/i18n/I18nProvider";
+import { Tpl } from "@/lib/i18n/Tpl";
 export interface CardCategory5Props {
   className?: string;
   taxonomy: TaxonomyType;
@@ -13,6 +15,7 @@ const CardCategory5: FC<CardCategory5Props> = ({
   className = "",
   taxonomy,
 }) => {
+  const t = useT();
   const { count, name, href = "/", thumbnail } = taxonomy;
   return (
     <Link
@@ -36,13 +39,12 @@ const CardCategory5: FC<CardCategory5Props> = ({
         <h2
           className={`text-base sm:text-lg text-neutral-900 dark:text-neutral-100 font-medium truncate`}
         >
-          {name}
+          <Tpl text={name} />
         </h2>
         <span
           className={`block mt-2 text-sm text-neutral-6000 dark:text-neutral-400`}
         >
-          {convertNumbThousand(count)} properties
-        </span>
+          {convertNumbThousand(count)}{" "}{t("customer.common.properties")}</span>
       </div>
     </Link>
   );

@@ -7,6 +7,7 @@ import NavItem from "@/shared/NavItem";
 import ButtonSecondary from "@/shared/ButtonSecondary";
 import { ArrowRightIcon } from "@heroicons/react/24/outline";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface HeaderFilterProps {
   tabActive: string;
   tabs: string[];
@@ -22,6 +23,7 @@ const HeaderFilter: FC<HeaderFilterProps> = ({
   heading = "Latest Articles 🎈",
   onClickTab = () => {},
 }) => {
+  const t = useT();
   const [tabActiveState, setTabActiveState] = useState(tabActive);
 
   useEffect(() => {
@@ -54,7 +56,7 @@ const HeaderFilter: FC<HeaderFilterProps> = ({
         <span className="hidden sm:block flex-shrink-0">
           <ButtonSecondary href="/listing-stay" className="!leading-none">
             <div className="flex items-center justify-center">
-              <span>View all</span>
+              <span>{t("customer.headerFilter.viewAll")}</span>
               <ArrowRightIcon className="w-5 h-5 ml-3" />
             </div>
           </ButtonSecondary>

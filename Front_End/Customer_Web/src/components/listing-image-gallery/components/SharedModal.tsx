@@ -18,6 +18,7 @@ import { range } from "../utils/range";
 import type { ListingGalleryImage } from "../utils/types";
 import Twitter from "./Icons/Twitter";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 interface SharedModalProps {
   index: number;
   images?: ListingGalleryImage[];
@@ -37,6 +38,7 @@ export default function SharedModal({
   currentPhoto,
   direction,
 }: SharedModalProps) {
+  const t = useT();
   const [loaded, setLoaded] = useState(false);
 
   let filteredImages = images?.filter((img: ListingGalleryImage) =>
@@ -131,7 +133,7 @@ export default function SharedModal({
                     href={currentImage?.url}
                     className="rounded-full bg-black/50 p-2 text-white/75 backdrop-blur-lg transition hover:bg-black/75 hover:text-white"
                     target="_blank"
-                    title="Open fullsize version"
+                    title={t("customer.listingImageGallery.sharedModal.openFullsizeVersion")}
                     rel="noreferrer"
                   >
                     <ArrowTopRightOnSquareIcon className="h-5 w-5" />
@@ -141,7 +143,7 @@ export default function SharedModal({
                     href={`https://twitter.com/intent/tweet?text=Check%20out%20this%20pic%20from%20Chisfis%20!%0A%0A${location.href}`}
                     className="rounded-full bg-black/50 p-2 text-white/75 backdrop-blur-lg transition hover:bg-black/75 hover:text-white"
                     target="_blank"
-                    title="Open fullsize version"
+                    title={t("customer.listingImageGallery.sharedModal.openFullsizeVersion")}
                     rel="noreferrer"
                   >
                     <Twitter className="h-5 w-5" />
@@ -152,7 +154,7 @@ export default function SharedModal({
                     downloadPhoto(currentImage?.url || "", `${index}.jpg`)
                   }
                   className="rounded-full bg-black/50 p-2 text-white/75 backdrop-blur-lg transition hover:bg-black/75 hover:text-white"
-                  title="Download fullsize version"
+                  title={t("customer.listingImageGallery.sharedModal.downloadFullsizeVersion")}
                 >
                   <ArrowDownTrayIcon className="h-5 w-5" />
                 </button>

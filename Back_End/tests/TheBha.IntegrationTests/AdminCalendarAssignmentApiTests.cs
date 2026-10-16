@@ -438,6 +438,27 @@ public sealed class AdminCalendarAssignmentApiTests(PostgreSqlWebApplicationFact
     // Acceptance 5: the published contract
     // ---------------------------------------------------------------
 
+    // CUST-WEB-HEADER-001-CP02: the website-settings Admin mutations (every one is a POST under the Staff
+    // permission); exact paths, so a new one must be added here on purpose.
+    private static readonly string[] WebsiteMutationPaths =
+    [
+        "/api/admin/v1/website/languages",
+        "/api/admin/v1/website/languages/{code}/update",
+        "/api/admin/v1/website/languages/{code}/set-default",
+        "/api/admin/v1/website/languages/{code}/delete",
+        "/api/admin/v1/website/translations/save",
+        "/api/admin/v1/website/translations/clear",
+        "/api/admin/v1/website/currencies",
+        "/api/admin/v1/website/currencies/{code}/update",
+        "/api/admin/v1/website/currencies/{code}/rate",
+        "/api/admin/v1/website/currencies/{code}/active",
+        "/api/admin/v1/website/currencies/{code}/set-default",
+        "/api/admin/v1/website/currencies/{code}/delete",
+        // CUST-WEB-HEADER-001-CP02-C2: installing a language pack (preview changes nothing; apply is one atomic transaction).
+        "/api/admin/v1/website/language-packs/preview",
+        "/api/admin/v1/website/language-packs/apply"
+    ];
+
     [Fact]
     public async Task OpenApi_publishes_exactly_this_one_admin_write_route_and_no_actor_fields()
     {
@@ -470,6 +491,8 @@ public sealed class AdminCalendarAssignmentApiTests(PostgreSqlWebApplicationFact
             // routes: a new one is added here deliberately, never by weakening
             // the assertion. PMS-ADMIN-AUTH-001-CP03 adds the Staff session
             // login and logout (asserted in full by StaffAuthenticationTests).
+            // CUST-WEB-HEADER-001-CP02 adds the website-settings mutations (twelve, and C2 the two language-pack ones), each
+            // named in WebsiteMutationPaths below and asserted in full by the Website*ApiTests.
             if (path.Name.StartsWith("/api/admin/", StringComparison.Ordinal) &&
                 path.Name != $"{ExpectedPath}/{{segmentId}}/move" &&
                 path.Name != $"{ExpectedPath}/{{segmentId}}/unassign" &&
@@ -478,7 +501,8 @@ public sealed class AdminCalendarAssignmentApiTests(PostgreSqlWebApplicationFact
                 path.Name != "/api/admin/v1/properties/{propertyId}/operational-blocks/{segmentId}/cancel" &&
                 path.Name != "/api/admin/v1/properties/{propertyId}/operational-blocks/{segmentId}/move" &&
                 path.Name != "/api/admin/v1/auth/login" &&
-                path.Name != "/api/admin/v1/auth/logout")
+                path.Name != "/api/admin/v1/auth/logout" &&
+                !WebsiteMutationPaths.Contains(path.Name))
             {
                 foreach (var method in new[] { "post", "put", "patch", "delete" })
                 {

@@ -32,7 +32,6 @@ const CC_BY_4 = "https://creativecommons.org/licenses/by/4.0";
 const CC_BY_SA_4 = "https://creativecommons.org/licenses/by-sa/4.0";
 
 /** What was done to every original; CC BY and CC BY-SA ask that changes are indicated. */
-export const MEDIA_CHANGES_NOTE = "Đã cắt khung, thu nhỏ và chuyển sang định dạng WebP.";
 
 export const MEDIA_CREDITS: readonly MediaCredit[] = [
   {
@@ -125,9 +124,9 @@ export function creditForFile(file: string): MediaCredit | undefined {
   return MEDIA_CREDITS.find((credit) => credit.files.indexOf(file) !== -1);
 }
 
-/** One line for a caption: "Ảnh: <author> · <licence>". The credits page carries the links. */
-export function creditLine(credit: MediaCredit): string {
-  return `Ảnh: ${credit.author.replace(/^\.\s*/, "")} · ${credit.license}`;
+/** One line for a caption: "<photo label>: <author> · <licence>" (the label is the visitor's language). The credits page carries the links. */
+export function creditLine(credit: MediaCredit, photoLabel: string): string {
+  return `${photoLabel}: ${credit.author.replace(/^\.\s*/, "")} · ${credit.license}`;
 }
 
 export interface HeroSlide {

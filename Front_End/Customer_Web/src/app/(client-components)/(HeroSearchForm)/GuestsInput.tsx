@@ -10,6 +10,7 @@ import { PathName } from "@/routers/types";
 import { UserPlusIcon } from "@heroicons/react/24/outline";
 import { GuestsObject } from "../type";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 /**
  * CP02-C3: the live stay search's party, owned by the shared draft. The booking API knows adults,
  * children and rooms; it has no separate infant count, so the live popover offers exactly those.
@@ -40,6 +41,7 @@ const GuestsInput: FC<GuestsInputProps> = ({
   hasButtonSubmit = true,
   live,
 }) => {
+  const t = useT();
   const [guestAdultsInputValue, setGuestAdultsInputValue] = useState(2);
   const [guestChildrenInputValue, setGuestChildrenInputValue] = useState(1);
   const [guestInfantsInputValue, setGuestInfantsInputValue] = useState(1);
@@ -86,14 +88,10 @@ const GuestsInput: FC<GuestsInputProps> = ({
               </div>
               <div className="flex-grow">
                 <span className="block xl:text-lg font-semibold">
-                  {live ? `${totalGuests} khách` : `${totalGuests || ""} Guests`}
+                  {live || totalGuests ? t("customer.booking.guests", { guests: totalGuests }) : t("customer.search.who")}
                 </span>
                 <span className="block mt-1 text-sm text-neutral-400 leading-none font-light">
-                  {live
-                    ? `${live.rooms} phòng`
-                    : totalGuests
-                      ? "Guests"
-                      : "Add guests"}
+                  {live ? t("customer.booking.rooms", { rooms: live.rooms }) : t("customer.search.guests.add")}
                 </span>
               </div>
 
@@ -141,16 +139,16 @@ const GuestsInput: FC<GuestsInputProps> = ({
                     onChange={(value) => live.onChange({ adults: value })}
                     max={10}
                     min={1}
-                    label="Người lớn"
-                    desc="Từ 13 tuổi trở lên"
+                    label={t("customer.heroSearchForm.guestsInput.adults")}
+                    desc={t("customer.heroSearchForm.guestsInput.ages13OrAbove")}
                   />
                   <NcInputNumber
                     className="w-full mt-6"
                     value={live.children}
                     onChange={(value) => live.onChange({ children: value })}
                     max={4}
-                    label="Trẻ em"
-                    desc="Từ 2 đến 12 tuổi"
+                    label={t("customer.heroSearchForm.guestsInput.children")}
+                    desc={t("customer.heroSearchForm.guestsInput.ages212")}
                   />
                   <NcInputNumber
                     className="w-full mt-6"
@@ -158,12 +156,10 @@ const GuestsInput: FC<GuestsInputProps> = ({
                     onChange={(value) => live.onChange({ rooms: value })}
                     max={10}
                     min={1}
-                    label="Phòng"
-                    desc="Số căn hộ"
+                    label={t("customer.heroSearchForm.guestsInput.rooms")}
+                    desc={t("customer.heroSearchForm.guestsInput.numberOfApartments")}
                   />
-                  <p className="mt-5 text-xs text-neutral-500 dark:text-neutral-400">
-                    Trẻ dưới 2 tuổi chưa có lựa chọn riêng khi đặt phòng.
-                  </p>
+                  <p className="mt-5 text-xs text-neutral-500 dark:text-neutral-400">{t("customer.common.childrenUnder2HaveNo")}</p>
                 </>
               ) : (
                 <>
@@ -173,16 +169,16 @@ const GuestsInput: FC<GuestsInputProps> = ({
                 onChange={(value) => handleChangeData(value, "guestAdults")}
                 max={10}
                 min={1}
-                label="Adults"
-                desc="Ages 13 or above"
+                label={t("customer.common.adults")}
+                desc={t("customer.common.ages13OrAbove")}
               />
               <NcInputNumber
                 className="w-full mt-6"
                 defaultValue={guestChildrenInputValue}
                 onChange={(value) => handleChangeData(value, "guestChildren")}
                 max={4}
-                label="Children"
-                desc="Ages 2–12"
+                label={t("customer.common.children")}
+                desc={t("customer.common.ages212")}
               />
 
               <NcInputNumber
@@ -190,8 +186,8 @@ const GuestsInput: FC<GuestsInputProps> = ({
                 defaultValue={guestInfantsInputValue}
                 onChange={(value) => handleChangeData(value, "guestInfants")}
                 max={4}
-                label="Infants"
-                desc="Ages 0–2"
+                label={t("customer.common.infants")}
+                desc={t("customer.common.ages02")}
               />
                 </>
               )}

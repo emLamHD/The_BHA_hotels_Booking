@@ -2,12 +2,14 @@
 
 import React, { Fragment, useState } from "react";
 import { FC } from "react";
-import DatePicker from "react-datepicker";
+import DatePicker from "@/components/LocalizedDatePicker";
 import { Popover, Transition } from "@headlessui/react";
 import { CalendarIcon } from "@heroicons/react/24/outline";
 import DatePickerCustomHeaderTwoMonth from "@/components/DatePickerCustomHeaderTwoMonth";
 import DatePickerCustomDay from "@/components/DatePickerCustomDay";
 import ClearDataButton from "../ClearDataButton";
+import { useI18n } from "@/lib/i18n/I18nProvider";
+import { Tpl } from "@/lib/i18n/Tpl";
 
 export interface ExperiencesDateSingleInputProps {
   className?: string;
@@ -18,6 +20,7 @@ const ExperiencesDateSingleInput: FC<ExperiencesDateSingleInputProps> = ({
   className = "",
   fieldClassName = "[ nc-hero-field-padding ]",
 }) => {
+  const { formatLocale } = useI18n();
   const [startDate, setStartDate] = useState<Date | null>(
     new Date("2023/03/01")
   );
@@ -37,20 +40,20 @@ const ExperiencesDateSingleInput: FC<ExperiencesDateSingleInputProps> = ({
         </div>
         <div className="flex-grow text-left">
           <span className="block xl:text-lg font-semibold">
-            {startDate?.toLocaleDateString("en-US", {
+            {startDate?.toLocaleDateString(formatLocale, {
               month: "short",
               day: "2-digit",
-            }) || "Date"}
+            }) || <Tpl text="Date" />}
             {endDate
               ? " - " +
-                endDate?.toLocaleDateString("en-US", {
+                endDate?.toLocaleDateString(formatLocale, {
                   month: "short",
                   day: "2-digit",
                 })
               : ""}
           </span>
           <span className="block mt-1 text-sm text-neutral-400 leading-none font-light">
-            {startDate ? "Date" : `Add dates`}
+            {startDate ? <Tpl text="Date" /> : <Tpl text="Add dates" />}
           </span>
         </div>
       </>

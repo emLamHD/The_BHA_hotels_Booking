@@ -8,13 +8,13 @@ import DatesRangeInput from "../DatesRangeInput";
 import { useStaySearch } from "@/components/StaySearchProvider";
 import { brandInfo } from "@/lib/stayListingQuery";
 import { dateToIso, isoToDate, todayLocal } from "@/lib/staySearch";
+import { useI18n } from "@/lib/i18n/I18nProvider";
 
 /** The only place offered to search: House and Villa are not bookable online, so the picker does not offer them. */
 const RIVERSIDE_LABEL = brandInfo("riverside").label;
 
-/** "10/11 - 12/11": the picked days as the guest reads them (no English month names). */
-const dayMonth = (date: Date | null) =>
-  date ? `${String(date.getDate()).padStart(2, "0")}/${String(date.getMonth() + 1).padStart(2, "0")}` : "";
+/** "10 Nov - 12 Nov": the picked days in the visitor's own format (month names from `Intl`). */
+const dayMonth = (date: Date | null, locale: string) => (date ? new Intl.DateTimeFormat(locale, { day: "numeric", month: "short" }).format(date) : "");
 
 /**
  * `live` (CP02-C3) connects the form to the shared stay search: location, dates and party are the draft.
@@ -22,6 +22,7 @@ const dayMonth = (date: Date | null) =>
  * CP08a: the modal only holds this form now, so the home and header searches use it with `live`.
  */
 const StaySearchForm = ({ live = false }: { live?: boolean }) => {
+  const { t, formatLocale } = useI18n();
   const ctx = useStaySearch();
   const shared = live ? ctx : null;
   //
@@ -68,14 +69,14 @@ const StaySearchForm = ({ live = false }: { live?: boolean }) => {
             className={`w-full flex justify-between text-sm font-medium p-4`}
             onClick={() => setFieldNameShow("location")}
           >
-            <span className="text-neutral-400">{shared ? "Chỗ nghỉ" : "Where"}</span>
-            <span>{locationInputTo || (shared ? "Chọn chỗ nghỉ" : "Location")}</span>
+            <span className="text-neutral-400">{t("customer.search.property")}</span>
+            <span>{locationInputTo || t("customer.search.pickProperty")}</span>
           </button>
         ) : (
           <LocationInput
             defaultValue={locationInputTo}
             options={shared ? [RIVERSIDE_LABEL] : undefined}
-            headingText={shared ? "Chỗ nghỉ" : undefined}
+            headingText={shared ? t("customer.search.property") : undefined}
             onChange={(value) => {
               if (shared) shared.updateDraft({ brand: value });
               else setLocationInputTo(value);
@@ -103,13 +104,13 @@ const StaySearchForm = ({ live = false }: { live?: boolean }) => {
             className={`w-full flex justify-between text-sm font-medium p-4  `}
             onClick={() => setFieldNameShow("dates")}
           >
-            <span className="text-neutral-400">{shared ? "Ngày" : "When"}</span>
+            <span className="text-neutral-400">{t("customer.search.dateShort")}</span>
             <span>
               {startDate
-                ? `${dayMonth(startDate)}${endDate ? ` - ${dayMonth(endDate)}` : ""}`
+                ? `${dayMonth(startDate, formatLocale)}${endDate ? ` - ${dayMonth(endDate, formatLocale)}` : ""}`
                 : shared
-                  ? "Thêm ngày"
-                  : "Add date"}
+                  ? t("customer.search.dates.add")
+                  : t("customer.search.dates.add")}
             </span>
           </button>
         ) : (
@@ -129,15 +130,15 @@ const StaySearchForm = ({ live = false }: { live?: boolean }) => {
     let guestSelected = "";
     if (shared) {
       const total = shared.draft.adults + shared.draft.children;
-      guestSelected = `${total} khách, ${shared.draft.rooms} phòng`;
+      guestSelected = `${t("customer.booking.guests", { guests: total })}, ${t("customer.booking.rooms", { rooms: shared.draft.rooms })}`;
     } else if (guestInput.guestAdults || guestInput.guestChildren) {
       const guest =
         (guestInput.guestAdults || 0) + (guestInput.guestChildren || 0);
-      guestSelected += `${guest} guests`;
+      guestSelected += t("customer.booking.guests", { guests: guest });
     }
 
     if (!shared && guestInput.guestInfants) {
-      guestSelected += `, ${guestInput.guestInfants} infants`;
+      guestSelected += `, ${t("customer.booking.infants", { infants: guestInput.guestInfants })}`;
     }
 
     return (
@@ -153,8 +154,8 @@ const StaySearchForm = ({ live = false }: { live?: boolean }) => {
             className={`w-full flex justify-between text-sm font-medium p-4`}
             onClick={() => setFieldNameShow("guests")}
           >
-            <span className="text-neutral-400">{shared ? "Khách" : "Who"}</span>
-            <span>{guestSelected || (shared ? "Thêm khách" : `Add guests`)}</span>
+            <span className="text-neutral-400">{t("customer.search.who")}</span>
+            <span>{guestSelected || t("customer.search.guests.add")}</span>
           </button>
         ) : (
           <GuestsInput

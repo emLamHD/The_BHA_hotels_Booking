@@ -2,6 +2,8 @@ import { StarIcon } from "@heroicons/react/24/solid";
 import React, { FC } from "react";
 import Avatar from "@/shared/Avatar";
 
+import { useT } from "@/lib/i18n/I18nProvider";
+import { Tpl } from "@/lib/i18n/Tpl";
 interface CommentListingDataType {
   name: string;
   avatar?: string;
@@ -29,6 +31,7 @@ const CommentListing: FC<CommentListingProps> = ({
   data = DEMO_DATA,
   hasListingTitle,
 }) => {
+  const t = useT();
   return (
     <div
       className={`nc-CommentListing flex space-x-4 ${className}`}
@@ -46,18 +49,18 @@ const CommentListing: FC<CommentListingProps> = ({
         <div className="flex justify-between space-x-3">
           <div className="flex flex-col">
             <div className="text-sm font-semibold">
-              <span>{data.name}</span>
+              <span><Tpl text={data.name} /></span>
               {hasListingTitle && (
                 <>
                   <span className="text-neutral-500 dark:text-neutral-400 font-normal">
-                    {` review in `}
+                    {" "}{t("customer.commentListing.reviewIn")}
                   </span>
-                  <a href="/">The Lounge & Bar</a>
+                  <a href="/">{t("customer.commentListing.theLoungeBar")}</a>
                 </>
               )}
             </div>
             <span className="text-sm text-neutral-500 dark:text-neutral-400 mt-0.5">
-              {data.date}
+              <Tpl text={data.date} />
             </span>
           </div>
           <div className="flex text-yellow-500">
@@ -69,7 +72,7 @@ const CommentListing: FC<CommentListingProps> = ({
           </div>
         </div>
         <span className="block mt-3 text-neutral-6000 dark:text-neutral-300">
-          {data.comment}
+          <Tpl text={data.comment} />
         </span>
       </div>
     </div>

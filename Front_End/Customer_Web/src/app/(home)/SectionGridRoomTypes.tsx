@@ -6,22 +6,16 @@ import ButtonSecondary from "@/shared/ButtonSecondary";
 import RoomTypeLiveCard from "@/components/RoomTypeLiveCard";
 import { getRoomTypes } from "@/lib/api/roomTypeService";
 import { PropertyDto, RoomTypeDto } from "@/lib/api/propertyTypes";
-import { ApiConfigError, ApiHttpError, ApiNetworkError } from "@/lib/api/errors";
+import { apiErrorKey } from "@/lib/api/errorMessages";
 import { isRequestCancelledError } from "@/lib/api/httpClient";
 
+import { useI18n } from "@/lib/i18n/I18nProvider";
+import { useApiMessage } from "@/lib/i18n/apiMessage";
 type LoadStatus = "loading" | "success" | "error";
 
+/** The pack key of the message for a failed load; the section translates it when it renders. */
 function describeError(error: unknown): string {
-  if (error instanceof ApiConfigError) {
-    return "The room type service is not configured correctly.";
-  }
-  if (error instanceof ApiNetworkError) {
-    return "We couldn't reach the room type service. Check your connection and try again.";
-  }
-  if (error instanceof ApiHttpError) {
-    return error.problem.detail ?? error.problem.title;
-  }
-  return "Something went wrong while loading room types.";
+  return apiErrorKey(error, "customer.home.sectionGridRoomTypes.loadError");
 }
 
 interface PropertyRoomTypesProps {
@@ -38,6 +32,8 @@ const PropertyRoomTypes: FC<PropertyRoomTypesProps> = ({
   propertyId,
   propertyName,
 }) => {
+  const { t, content } = useI18n();
+  const apiMessage = useApiMessage();
   const [status, setStatus] = useState<LoadStatus>("loading");
   const [roomTypes, setRoomTypes] = useState<RoomTypeDto[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -79,8 +75,7 @@ const PropertyRoomTypes: FC<PropertyRoomTypesProps> = ({
 
   return (
     <div className="nc-PropertyRoomTypes">
-      <h3 className="text-xl font-semibold text-neutral-900 dark:text-neutral-50 mb-6">
-        Room types at {propertyName}
+      <h3 className="text-xl font-semibold text-neutral-900 dark:text-neutral-50 mb-6">{t("customer.home.sectionGridRoomTypes.roomTypesAt", { propertyName })}
       </h3>
 
       {status === "loading" && (
@@ -88,9 +83,7 @@ const PropertyRoomTypes: FC<PropertyRoomTypesProps> = ({
           role="status"
           aria-live="polite"
           className="py-10 text-center text-neutral-500 dark:text-neutral-400"
-        >
-          Loading room types…
-        </div>
+        >{t("customer.home.sectionGridRoomTypes.loadingRoomTypes")}</div>
       )}
 
       {status === "error" && (
@@ -99,9 +92,9 @@ const PropertyRoomTypes: FC<PropertyRoomTypesProps> = ({
           className="py-10 flex flex-col items-center text-center space-y-4"
         >
           <p className="text-neutral-600 dark:text-neutral-300">
-            {propertyName}: {errorMessage}
+            {propertyName}: {errorMessage ? apiMessage(errorMessage) : null}
           </p>
-          <ButtonSecondary onClick={loadRoomTypes}>Retry</ButtonSecondary>
+          <ButtonSecondary onClick={loadRoomTypes}>{t("customer.common.retry")}</ButtonSecondary>
         </div>
       )}
 
@@ -109,9 +102,7 @@ const PropertyRoomTypes: FC<PropertyRoomTypesProps> = ({
         <div
           role="status"
           className="py-10 text-center text-neutral-500 dark:text-neutral-400"
-        >
-          No room types are available for {propertyName} right now.
-        </div>
+        >{t("customer.home.sectionGridRoomTypes.noRoomTypesAreAvailable", { propertyName })}</div>
       )}
 
       {status === "success" && roomTypes.length > 0 && (
@@ -139,22 +130,22 @@ const SectionGridRoomTypes: FC<SectionGridRoomTypesProps> = ({
   className = "",
   properties,
 }) => {
+  const { t, content } = useI18n();
+  const apiMessage = useApiMessage();
   if (properties.length === 0) {
     return null;
   }
 
   return (
     <div className={`nc-SectionGridRoomTypes relative ${className}`}>
-      <Heading desc="Real room types from The BHA Hotels catalog">
-        Room types
-      </Heading>
+      <Heading desc={t("customer.home.sectionGridRoomTypes.realRoomTypesFromThe")}>{t("customer.home.sectionGridRoomTypes.roomTypes")}</Heading>
 
       <div className="space-y-16">
         {properties.map((property) => (
           <PropertyRoomTypes
             key={property.id}
             propertyId={property.id}
-            propertyName={property.name ?? "Property"}
+            propertyName={content("property", property.id, "name", property.name ?? t("customer.search.propertyFallback"))}
           />
         ))}
       </div>

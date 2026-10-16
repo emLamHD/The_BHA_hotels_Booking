@@ -5,12 +5,13 @@
  * `validateNewsletterEmail` therefore never contains the address.
  */
 
-export const NEWSLETTER_HEADING = "Nhận ưu đãi từ The BHA";
-export const NEWSLETTER_BENEFIT = "Đăng ký để nhận thông tin ưu đãi và bài viết du lịch mới.";
-export const NEWSLETTER_DISCLOSURE = "Bản demo: email chỉ được kiểm tra định dạng, không được gửi đi hay lưu lại.";
-export const NEWSLETTER_NOT_STORED_MESSAGE = "Bản demo chưa tiếp nhận đăng ký. Email chưa được lưu.";
-export const NEWSLETTER_REQUIRED_MESSAGE = "Vui lòng nhập email.";
-export const NEWSLETTER_INVALID_MESSAGE = "Email chưa đúng định dạng. Ví dụ: ten@example.com.";
+/** Pack message KEYS: the form translates them when it renders. */
+export const NEWSLETTER_HEADING = "customer.newsletter.heading";
+export const NEWSLETTER_BENEFIT = "customer.newsletter.benefit";
+export const NEWSLETTER_DISCLOSURE = "customer.newsletter.disclosure";
+export const NEWSLETTER_NOT_STORED_MESSAGE = "customer.newsletter.notStored";
+export const NEWSLETTER_REQUIRED_MESSAGE = "customer.newsletter.required";
+export const NEWSLETTER_INVALID_MESSAGE = "customer.newsletter.invalid";
 
 export type NewsletterValidation = { ok: true } | { ok: false; message: string };
 

@@ -8,7 +8,10 @@ import ButtonSubmit from "./ButtonSubmit";
 import { useTimeoutFn } from "react-use";
 import RealestateSearchForm from "./(real-estate-search-form)/RealestateSearchForm";
 
+import { useT } from "@/lib/i18n/I18nProvider";
+import { Tpl } from "@/lib/i18n/Tpl";
 const HeroSearchForm2RealEstateMobile = () => {
+  const t = useT();
   const [showModal, setShowModal] = useState(false);
 
   // FOR RESET ALL DATA WHEN CLICK CLEAR BUTTON
@@ -32,11 +35,9 @@ const HeroSearchForm2RealEstateMobile = () => {
         <MagnifyingGlassIcon className="flex-shrink-0 w-5 h-5" />
 
         <div className="ml-3 flex-1 text-left overflow-hidden">
-          <span className="block font-medium text-sm">Where to?</span>
+          <span className="block font-medium text-sm">{t("customer.heroSearchForm2Mobile.heroSearchForm2RealEstateMobile.whereTo")}</span>
           <span className="block mt-0.5 text-xs font-light text-neutral-500 dark:text-neutral-400 ">
-            <span className="line-clamp-1">
-              Anywhere • Any week • Add guests
-            </span>
+            <span className="line-clamp-1">{t("customer.heroSearchForm2Mobile.heroSearchForm2RealEstateMobile.anywhereAnyWeekAddGuests")}</span>
           </span>
         </div>
 
@@ -95,7 +96,7 @@ const HeroSearchForm2RealEstateMobile = () => {
                                     selected ? "text-black dark:text-white" : ""
                                   }  `}
                                 >
-                                  {item}
+                                  <Tpl text={item} />
                                 </div>
                                 {selected && (
                                   <span className="absolute inset-x-0 top-full border-b-2 border-black dark:border-white"></span>
@@ -132,9 +133,7 @@ const HeroSearchForm2RealEstateMobile = () => {
                             setShowDialog(false);
                             resetIsShowingDialog();
                           }}
-                        >
-                          Clear all
-                        </button>
+                        >{t("customer.heroSearchForm2Mobile.heroSearchForm2RealEstateMobile.clearAll")}</button>
                         <ButtonSubmit
                           onClick={() => {
                             closeModal();

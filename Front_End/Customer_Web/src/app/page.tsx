@@ -1,5 +1,6 @@
 import React from "react";
 import type { Metadata } from "next";
+import { getT } from "@/lib/i18n/server";
 import BgGlassmorphism from "@/components/BgGlassmorphism";
 import HomeHeroCarousel from "./(home)/HomeHeroCarousel";
 import HomeOfferSection from "./(home)/HomeOfferSection";
@@ -9,11 +10,10 @@ import HomeNewsSection from "./(home)/HomeNewsSection";
 import HomeNewsletter from "./(home)/HomeNewsletter";
 import HomeLocationMap from "./(home)/HomeLocationMap";
 
-export const metadata: Metadata = {
-  title: "The BHA — Đặt phòng trực tiếp tại Đà Nẵng",
-  description:
-    "Khám phá Đà Nẵng cùng The BHA: tìm phòng, xem giá từng đêm tại The BHA Riverside, đọc cẩm nang điểm đến và tin du lịch.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getT();
+  return { title: t("customer.meta.home.title"), description: t("customer.meta.home.description") };
+}
 
 /**
  * CUST-WEB-001-CP08a-C2: the booking portal. A full-width Đà Nẵng slideshow with the real search, sample offers

@@ -21,7 +21,7 @@ const INERT = { inert: "" } as Record<string, string>;
 const ServicePreview: FC<ServicePreviewProps> = ({
   children,
   className = "",
-  label = "Dịch vụ đang được phát triển · Nội dung mẫu",
+  label,
   id,
 }) => (
   <section id={id} className={`nc-ServicePreview relative scroll-mt-28 ${className}`}>

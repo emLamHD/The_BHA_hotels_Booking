@@ -12,6 +12,7 @@ import PrevBtn from "./PrevBtn";
 import NextBtn from "./NextBtn";
 import { variants } from "@/utils/animationVariants";
 import { useWindowSize } from "react-use";
+import { Tpl } from "@/lib/i18n/Tpl";
 
 export interface SectionSliderNewCategoriesProps {
   className?: string;
@@ -172,7 +173,7 @@ const SectionSliderNewCategories: FC<SectionSliderNewCategoriesProps> = ({
   return (
     <div className={`nc-SectionSliderNewCategories ${className}`}>
       <Heading desc={subHeading} isCenter={sliderStyle === "style2"}>
-        {heading}
+        <Tpl text={heading} />
       </Heading>
       <MotionConfig
         transition={{

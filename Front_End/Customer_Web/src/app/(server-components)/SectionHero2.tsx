@@ -1,14 +1,18 @@
+"use client";
+
 import React, { FC } from "react";
 import imagePng from "@/images/hero-right-3.png";
 import Image from "next/image";
 import HeroRealEstateSearchForm from "../(client-components)/(HeroSearchForm)/(real-estate-search-form)/HeroRealEstateSearchForm";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface SectionHero2Props {
   className?: string;
   children?: React.ReactNode;
 }
 
 const SectionHero2: FC<SectionHero2Props> = ({ className = "", children }) => {
+  const t = useT();
   return (
     <div className={`nc-SectionHero2 relative ${className}`}>
       <div className="absolute inset-y-0 w-5/6 xl:w-3/4 right-0 flex-grow">
@@ -21,9 +25,7 @@ const SectionHero2: FC<SectionHero2Props> = ({ className = "", children }) => {
             {children ? (
               children
             ) : (
-              <h2 className="font-semibold text-4xl md:text-5xl xl:text-7xl !leading-[110%]">
-                Find Your Best <br /> Smart Real Estate
-              </h2>
+              <h2 className="font-semibold text-4xl md:text-5xl xl:text-7xl !leading-[110%]">{t("customer.sectionHero2.findYourBest")}{" "}<br />{" "}{t("customer.sectionHero2.smartRealEstate")}</h2>
             )}
           </div>
         </div>

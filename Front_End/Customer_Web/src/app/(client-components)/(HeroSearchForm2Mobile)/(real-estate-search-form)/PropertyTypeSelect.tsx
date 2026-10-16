@@ -5,6 +5,7 @@ import { FC } from "react";
 import Checkbox from "@/shared/Checkbox";
 import { ClassOfProperties } from "../../type";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 // DEMO DATA
 
 export interface PropertyTypeSelectProps {
@@ -16,6 +17,7 @@ const PropertyTypeSelect: FC<PropertyTypeSelectProps> = ({
   onChange,
   defaultValue,
 }) => {
+  const t = useT();
   const [typeOfProperty, setTypeOfProperty] = React.useState<
     ClassOfProperties[]
   >(defaultValue || []);
@@ -27,9 +29,7 @@ const PropertyTypeSelect: FC<PropertyTypeSelectProps> = ({
 
   return (
     <div className="p-5">
-      <span className="block font-semibold text-xl sm:text-2xl">
-        Property types
-      </span>
+      <span className="block font-semibold text-xl sm:text-2xl">{t("customer.heroSearchForm2Mobile.realEstateSearchForm.propertyTypeSelect.propertyTypes")}</span>
       <div className="relative flex flex-col space-y-5 mt-7">
         {typeOfProperty.map((item, index) => (
           <div key={item.name} className="">

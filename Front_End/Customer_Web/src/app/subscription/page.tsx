@@ -3,6 +3,9 @@ import React, { FC } from "react";
 import ButtonPrimary from "@/shared/ButtonPrimary";
 import ButtonSecondary from "@/shared/ButtonSecondary";
 
+import { getT } from "@/lib/i18n/server";
+import DemoPrice from "@/components/DemoPrice";
+import { Tpl } from "@/lib/i18n/Tpl";
 export interface PageSubcriptionProps {}
 
 export interface PricingItem {
@@ -51,7 +54,8 @@ const pricings: PricingItem[] = [
   },
 ];
 
-const PageSubcription: FC<PageSubcriptionProps> = () => {
+async function PageSubcription(_props: PageSubcriptionProps) {
+  const t = await getT();
   const renderPricingItem = (pricing: PricingItem, index: number) => {
     return (
       <div
@@ -63,18 +67,16 @@ const PageSubcription: FC<PageSubcriptionProps> = () => {
         }`}
       >
         {pricing.isPopular && (
-          <span className="bg-primary-500 text-white px-3 py-1 tracking-widest text-xs absolute right-3 top-3 rounded-full z-10">
-            POPULAR
-          </span>
+          <span className="bg-primary-500 text-white px-3 py-1 tracking-widest text-xs absolute right-3 top-3 rounded-full z-10">{t("customer.subscription.page.popular")}</span>
         )}
         <div className="mb-8">
           <h3 className="block text-sm uppercase tracking-widest text-neutral-6000 dark:text-neutral-300 mb-2 font-medium">
-            {pricing.name}
+            <Tpl text={pricing.name} />
           </h3>
           <h2 className="text-5xl leading-none flex items-center text-neutral-900 dark:text-neutral-300">
-            <span>{pricing.pricing}</span>
+            <DemoPrice value={pricing.pricing} />
             <span className="text-lg ml-1 font-normal text-neutral-500">
-              {pricing.per}
+              <Tpl text={pricing.per} />
             </span>
           </h2>
         </div>
@@ -85,21 +87,21 @@ const PageSubcription: FC<PageSubcriptionProps> = () => {
                 <CheckIcon className="w-5 h-5" aria-hidden="true" />
               </span>
               <span className="text-neutral-700 dark:text-neutral-300">
-                {item}
+                <Tpl text={item} />
               </span>
             </li>
           ))}
         </nav>
         <div className="flex flex-col mt-auto">
           {pricing.isPopular ? (
-            <ButtonPrimary>Submit</ButtonPrimary>
+            <ButtonPrimary>{t("customer.subscription.page.submit")}</ButtonPrimary>
           ) : (
             <ButtonSecondary>
-              <span className="font-medium">Submit</span>
+              <span className="font-medium">{t("customer.subscription.page.submit")}</span>
             </ButtonSecondary>
           )}
           <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-3">
-            {pricing.desc}
+            <Tpl text={pricing.desc} />
           </p>
         </div>
       </div>
@@ -110,12 +112,8 @@ const PageSubcription: FC<PageSubcriptionProps> = () => {
     <div className={`nc-PageSubcription container pb-24 lg:pb-32 `}>
       <header className="text-center max-w-2xl mx-auto my-20">
         <h2 className="flex items-center text-3xl leading-[115%] md:text-5xl md:leading-[115%] font-semibold text-neutral-900 dark:text-neutral-100 justify-center">
-          <span className="mr-4 text-3xl md:text-4xl leading-none">💎</span>
-          Subscription
-        </h2>
-        <span className="block text-sm mt-2 text-neutral-700 sm:text-base dark:text-neutral-200">
-          Pricing to fit the needs of any companie size.
-        </span>
+          <span className="mr-4 text-3xl md:text-4xl leading-none">💎</span>{t("customer.subscription.page.subscription")}</h2>
+        <span className="block text-sm mt-2 text-neutral-700 sm:text-base dark:text-neutral-200">{t("customer.subscription.page.pricingToFitTheNeeds")}</span>
       </header>
       <section className="text-neutral-600 text-sm md:text-base overflow-hidden">
         <div className="grid lg:grid-cols-3 gap-5 xl:gap-8">
@@ -124,6 +122,6 @@ const PageSubcription: FC<PageSubcriptionProps> = () => {
       </section>
     </div>
   );
-};
+}
 
 export default PageSubcription;

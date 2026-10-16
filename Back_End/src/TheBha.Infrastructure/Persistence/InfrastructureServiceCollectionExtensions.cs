@@ -5,6 +5,7 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 using TheBha.Application.Bookings;
 using TheBha.Application.Properties;
 using TheBha.Application.Scheduling;
+using TheBha.Application.Website;
 
 namespace TheBha.Infrastructure.Persistence;
 
@@ -61,6 +62,11 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<IOperationalBlockMutationStore, OperationalBlockMutationStore>();
         services.AddScoped<IReservationBoardDataSource, ReservationBoardDataLoader>();
         services.AddScoped<IReservationBoardQuery, ReservationBoardQuery>();
+        services.AddScoped<IWebsiteSettingsStore, WebsiteSettingsStore>();
+        services.AddScoped<IWebsitePublicReader, WebsitePublicReader>();
+        services.AddScoped<IContentCatalog, ContentCatalog>();
+        services.AddScoped<IWebsiteLanguagePacks, WebsiteLanguagePackService>();
+        services.AddScoped<IWebsiteDisplayPricing, WebsiteDisplayPricing>();
         services.AddScoped<DevelopmentDataSeeder>();
         services.AddScoped<TheBha.Infrastructure.Persistence.Demo.RiversideDemoSeeder>();
 

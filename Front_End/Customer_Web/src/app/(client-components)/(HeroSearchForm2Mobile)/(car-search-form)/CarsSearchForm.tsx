@@ -4,7 +4,9 @@ import React, { useState } from "react";
 import DatesRangeInput from "../DatesRangeInput";
 import LocationInput from "../LocationInput";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 const CarsSearchForm = () => {
+  const t = useT();
   //
   const [fieldNameShow, setFieldNameShow] = useState<
     "locationPickup" | "locationDropoff" | "dates"
@@ -37,7 +39,7 @@ const CarsSearchForm = () => {
             className={`w-full flex justify-between text-sm font-medium p-4`}
             onClick={() => setFieldNameShow("locationPickup")}
           >
-            <span className="text-neutral-400">Pick up</span>
+            <span className="text-neutral-400">{t("customer.common.pickUp")}</span>
             <span>{locationInputPickUp || "Location"}</span>
           </button>
         ) : (
@@ -73,7 +75,7 @@ const CarsSearchForm = () => {
             className={`w-full flex justify-between text-sm font-medium p-4`}
             onClick={() => setFieldNameShow("locationDropoff")}
           >
-            <span className="text-neutral-400">Drop off</span>
+            <span className="text-neutral-400">{t("customer.common.dropOff")}</span>
             <span>{locationInputDropOff || "Location"}</span>
           </button>
         ) : (
@@ -106,7 +108,7 @@ const CarsSearchForm = () => {
             className={`w-full flex justify-between text-sm font-medium p-4  `}
             onClick={() => setFieldNameShow("dates")}
           >
-            <span className="text-neutral-400">When</span>
+            <span className="text-neutral-400">{t("customer.common.when")}</span>
             <span>
               {startDate
                 ? converSelectedDateToString([startDate, endDate])
@@ -130,9 +132,7 @@ const CarsSearchForm = () => {
               : "border border-neutral-300 dark:border-neutral-700"
           }`}
           onClick={(e) => setDropOffLocationType("same")}
-        >
-          Same drop off
-        </div>
+        >{t("customer.common.sameDropOff")}</div>
         <div
           className={`py-1.5 px-4 flex items-center rounded-full font-medium text-xs cursor-pointer ${
             dropOffLocationType === "different"
@@ -140,9 +140,7 @@ const CarsSearchForm = () => {
               : "border border-neutral-300 dark:border-neutral-700"
           }`}
           onClick={(e) => setDropOffLocationType("different")}
-        >
-          Different drop off
-        </div>
+        >{t("customer.common.differentDropOff")}</div>
       </div>
     );
   };

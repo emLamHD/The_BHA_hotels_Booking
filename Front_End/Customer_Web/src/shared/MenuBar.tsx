@@ -4,6 +4,7 @@ import NavMobile from "./Navigation/NavMobile";
 import { Bars3Icon } from "@heroicons/react/24/outline";
 import { usePathname } from "next/navigation";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface MenuBarProps {
   className?: string;
   iconClassName?: string;
@@ -12,6 +13,7 @@ const MenuBar: React.FC<MenuBarProps> = ({
   className = "p-2.5 rounded-lg text-neutral-700 dark:text-neutral-300",
   iconClassName = "h-8 w-8",
 }) => {
+  const t = useT();
   const [isVisable, setIsVisable] = useState(false);
 
   const pathname = usePathname();
@@ -68,7 +70,7 @@ const MenuBar: React.FC<MenuBarProps> = ({
     <>
       <button
         type="button"
-        aria-label="Mở menu"
+        aria-label={t("customer.shared.menuBar.openMenu")}
         onClick={handleOpenMenu}
         className={`focus:outline-none flex items-center justify-center ${className}`}
       >

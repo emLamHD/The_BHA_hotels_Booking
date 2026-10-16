@@ -1,5 +1,6 @@
 "use client";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 import {
   HomeIcon,
   MagnifyingGlassIcon,
@@ -33,23 +34,23 @@ interface NavItem {
  */
 const NAV: NavItem[] = [
   {
-    name: "Trang chủ",
+    name: "customer.footerNav.home",
     link: "/",
     icon: HomeIcon,
   },
   {
-    name: "Tìm phòng",
+    name: "customer.footerNav.search",
     link: "/listing-stay",
     icon: MagnifyingGlassIcon,
   },
   {
-    name: "Đăng nhập",
+    name: "customer.auth.entry.signIn",
     link: "/login",
     icon: UserCircleIcon,
     auth: true,
   },
   {
-    name: "Menu",
+    name: "customer.footerNav.menu",
     icon: MenuBar,
   },
 ];
@@ -59,10 +60,12 @@ const FooterNav = () => {
 
   const pathname = usePathname();
   const { state, identityChange } = useCustomerSession();
+  const t = useT();
   const authEntry = describeAuthEntry(
     state.status,
     identityChange.phase,
-    state.status === "authenticated" ? state.customer.email : null
+    state.status === "authenticated" ? state.customer.email : null,
+    t
   );
 
   useEffect(() => {
@@ -138,7 +141,7 @@ const FooterNav = () => {
             isActive ? "text-red-600" : ""
           }`}
         >
-          {item.name}
+          {item.auth ? authEntry.label : t(item.name)}
         </span>
       </Link>
     ) : (
@@ -156,7 +159,7 @@ const FooterNav = () => {
         }}
       >
         <item.icon iconClassName="w-6 h-6" className={``} />
-        <span className="text-[11px] leading-none mt-1">{item.name}</span>
+        <span className="text-[11px] leading-none mt-1">{t(item.name)}</span>
       </div>
     );
   };

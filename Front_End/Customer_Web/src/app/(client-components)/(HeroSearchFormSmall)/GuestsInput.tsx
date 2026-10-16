@@ -9,6 +9,8 @@ import { PathName } from "@/routers/types";
 import NcInputNumber from "@/components/NcInputNumber";
 import { GuestsObject } from "../type";
 
+import { useT } from "@/lib/i18n/I18nProvider";
+import { Tpl } from "@/lib/i18n/Tpl";
 export interface GuestsInputProps {
   className?: string;
   fieldClassName?: string;
@@ -22,6 +24,7 @@ const GuestsInput: FC<GuestsInputProps> = ({
   autoFocus = false,
   submitLink,
 }) => {
+  const t = useT();
   const refContainer = React.createRef<HTMLDivElement>();
   const [isOpen, setIsOpen] = useState(false);
   useOutsideAlerter(refContainer, () => setIsOpen(false));
@@ -73,10 +76,9 @@ const GuestsInput: FC<GuestsInputProps> = ({
         >
           <div className="flex-1 text-left">
             <span className="block font-semibold">
-              {totalGuests || ""} Guests
-            </span>
+              {totalGuests || ""}{t("customer.heroSearchFormSmall.guestsInput.guests")}</span>
             <span className="block mt-1 text-sm text-neutral-400 leading-none font-light">
-              {totalGuests ? "Guests" : "Add guests"}
+              <Tpl text={totalGuests ? "Guests" : "Add guests"} />
             </span>
           </div>
         </div>
@@ -108,16 +110,16 @@ const GuestsInput: FC<GuestsInputProps> = ({
             onChange={(value) => handleChangeData(value, "guestAdults")}
             max={10}
             min={1}
-            label="Adults"
-            desc="Ages 13 or above"
+            label={t("customer.common.adults")}
+            desc={t("customer.common.ages13OrAbove")}
           />
           <NcInputNumber
             className="w-full mt-6"
             defaultValue={guestChildrenInputValue}
             onChange={(value) => handleChangeData(value, "guestChildren")}
             max={4}
-            label="Children"
-            desc="Ages 2–12"
+            label={t("customer.common.children")}
+            desc={t("customer.common.ages212")}
           />
 
           <NcInputNumber
@@ -125,8 +127,8 @@ const GuestsInput: FC<GuestsInputProps> = ({
             defaultValue={guestInfantsInputValue}
             onChange={(value) => handleChangeData(value, "guestInfants")}
             max={4}
-            label="Infants"
-            desc="Ages 0–2"
+            label={t("customer.common.infants")}
+            desc={t("customer.common.ages02")}
           />
         </div>
       )}

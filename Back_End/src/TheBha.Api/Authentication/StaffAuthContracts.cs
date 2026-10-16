@@ -13,11 +13,15 @@ public sealed record StaffLoginRequest(
 /// <summary>
 /// The signed-in Staff member, read from the database on every call. It never carries the
 /// password hash, the security stamp or anything the session cookie is built from.
+/// <c>Permissions</c> (CUST-WEB-HEADER-001-CP02) are the global permissions the database grants now
+/// (<c>WebsiteSettingsManage</c>); a client that does not know the field must treat it as none. Display only:
+/// every request is authorized on the server again.
 /// </summary>
 public sealed record StaffSessionResponse(
     Guid StaffAccountId,
     string Email,
-    IReadOnlyList<StaffMembershipResponse> Memberships);
+    IReadOnlyList<StaffMembershipResponse> Memberships,
+    IReadOnlyList<string> Permissions);
 
 /// <summary>One Property membership; ordered by Property name, then id (ordinal).</summary>
 public sealed record StaffMembershipResponse(

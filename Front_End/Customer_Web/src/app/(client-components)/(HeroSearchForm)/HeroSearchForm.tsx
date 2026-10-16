@@ -5,6 +5,7 @@ import StaySearchForm from "./(stay-search-form)/StaySearchForm";
 import ExperiencesSearchForm from "./(experiences-search-form)/ExperiencesSearchForm";
 import RentalCarSearchForm from "./(car-search-form)/RentalCarSearchForm";
 import FlightSearchForm from "./(flight-search-form)/FlightSearchForm";
+import { Tpl } from "@/lib/i18n/Tpl";
 
 export type SearchTab = "Stays" | "Experiences" | "Cars" | "Flights";
 
@@ -40,7 +41,7 @@ const HeroSearchForm: FC<HeroSearchFormProps> = ({
               {active && (
                 <span className="block w-2.5 h-2.5 rounded-full bg-neutral-800 dark:bg-neutral-100 mr-2" />
               )}
-              <span>{tab}</span>
+              <span><Tpl text={tab} /></span>
             </li>
           );
         })}

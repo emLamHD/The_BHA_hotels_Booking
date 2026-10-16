@@ -1,9 +1,13 @@
+"use client";
+
 import React, { FC } from "react";
 import Image from "next/image";
 import StaySearchForm from "../(client-components)/(HeroSearchForm)/(stay-search-form)/StaySearchForm";
 import { HeroActions, HERO_SEARCH_ID } from "../(home)/RiversideHomeSections";
 import { HERO_IMAGE, RIVERSIDE_NAME, mediaUrl } from "@/lib/riversideHomeContent";
 
+import { useI18n, useT } from "@/lib/i18n/I18nProvider";
+import { localizeImage } from "@/lib/i18n/staticContent";
 export interface SectionHeroProps {
   className?: string;
 }
@@ -15,21 +19,21 @@ export interface SectionHeroProps {
  * copy, its stock illustration and the Experiences/Cars/Flights tabs are not part of it.
  */
 const SectionHero: FC<SectionHeroProps> = ({ className = "" }) => {
+  const t = useT();
+  const { content } = useI18n();
   return (
     <div className={`nc-SectionHero flex flex-col-reverse lg:flex-col relative ${className}`}>
       <div className="flex flex-col lg:flex-row lg:items-center">
         <div className="flex-shrink-0 lg:w-1/2 flex flex-col items-start space-y-8 sm:space-y-10 pb-14 lg:pb-64 xl:pr-14 lg:mr-10 xl:mr-0">
           <h1 className="font-medium text-4xl md:text-5xl xl:text-7xl !leading-[114%] ">{RIVERSIDE_NAME}</h1>
-          <p className="text-base md:text-lg text-neutral-500 dark:text-neutral-400">
-            Căn hộ lưu trú tại Đà Nẵng. Chọn ngày, xem giá từng đêm và đặt phòng trực tiếp ngay trên trang.
-          </p>
+          <p className="text-base md:text-lg text-neutral-500 dark:text-neutral-400">{t("customer.sectionHero.servicedApartmentsInDaNang")}</p>
           <HeroActions />
         </div>
         <div className="flex-grow">
           <Image
             className="w-full rounded-3xl object-cover"
             src={mediaUrl(HERO_IMAGE.file)}
-            alt={HERO_IMAGE.alt}
+            alt={localizeImage(HERO_IMAGE, "hero", content).alt}
             width={HERO_IMAGE.width}
             height={HERO_IMAGE.height}
             sizes="(min-width: 1024px) 50vw, 100vw"

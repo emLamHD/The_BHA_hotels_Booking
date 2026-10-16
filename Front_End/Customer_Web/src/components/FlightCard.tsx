@@ -3,6 +3,9 @@
 import Image from "next/image";
 import React, { FC, useState } from "react";
 
+import { useT } from "@/lib/i18n/I18nProvider";
+import DemoPrice from "@/components/DemoPrice";
+import { Tpl } from "@/lib/i18n/Tpl";
 export interface FlightCardProps {
   className?: string;
   data: {
@@ -16,6 +19,7 @@ export interface FlightCardProps {
 }
 
 const FlightCard: FC<FlightCardProps> = ({ className = "", data }) => {
+  const t = useT();
   const [isOpen, setIsOpen] = useState(false);
 
   const renderDetailTop = () => {
@@ -40,27 +44,19 @@ const FlightCard: FC<FlightCardProps> = ({ className = "", data }) => {
             </div>
             <div className="ml-4 space-y-10 text-sm">
               <div className="flex flex-col space-y-1">
-                <span className=" text-neutral-500 dark:text-neutral-400">
-                  Monday, August 12 · 10:00
-                </span>
-                <span className=" font-semibold">
-                  Tokyo International Airport (HND)
-                </span>
+                <span className=" text-neutral-500 dark:text-neutral-400">{t("customer.common.mondayAugust121000")}</span>
+                <span className=" font-semibold">{t("customer.flightCard.tokyoInternationalAirportHnd")}</span>
               </div>
               <div className="flex flex-col space-y-1">
-                <span className=" text-neutral-500 dark:text-neutral-400">
-                  Monday, August 16 · 10:00
-                </span>
-                <span className=" font-semibold">
-                  Singapore International Airport (SIN)
-                </span>
+                <span className=" text-neutral-500 dark:text-neutral-400">{t("customer.common.mondayAugust161000")}</span>
+                <span className=" font-semibold">{t("customer.flightCard.singaporeInternationalAirportSin")}</span>
               </div>
             </div>
           </div>
           <div className="border-l border-neutral-200 dark:border-neutral-700 md:mx-6 lg:mx-10"></div>
           <ul className="text-sm text-neutral-500 dark:text-neutral-400 space-y-1 md:space-y-2">
-            <li>Trip time: 7 hours 45 minutes</li>
-            <li>ANA · Business class · Boeing 787 · NH 847</li>
+            <li>{t("customer.flightCard.tripTime7Hours45")}</li>
+            <li>{t("customer.flightCard.anaBusinessClassBoeing787")}</li>
           </ul>
         </div>
       </div>
@@ -74,9 +70,7 @@ const FlightCard: FC<FlightCardProps> = ({ className = "", data }) => {
         {renderDetailTop()}
         <div className="my-7 md:my-10 space-y-5 md:pl-24">
           <div className="border-t border-neutral-200 dark:border-neutral-700" />
-          <div className="text-neutral-700 dark:text-neutral-300 text-sm md:text-base">
-            Transit time: 15 hours 45 minutes - Bangkok (BKK)
-          </div>
+          <div className="text-neutral-700 dark:text-neutral-300 text-sm md:text-base">{t("customer.flightCard.transitTime15Hours45")}</div>
           <div className="border-t border-neutral-200 dark:border-neutral-700" />
         </div>
         {renderDetailTop()}
@@ -120,27 +114,23 @@ const FlightCard: FC<FlightCardProps> = ({ className = "", data }) => {
             <div className="flex font-semibold">
               <div>
                 <span>11:00</span>
-                <span className="flex items-center text-sm text-neutral-500 font-normal mt-0.5">
-                  HND
-                </span>
+                <span className="flex items-center text-sm text-neutral-500 font-normal mt-0.5">{t("customer.flightCard.hnd")}</span>
               </div>
               <span className="w-12 flex justify-center">
                 <i className=" text-2xl las la-long-arrow-alt-right"></i>
               </span>
               <div>
                 <span>20:00</span>
-                <span className="flex items-center text-sm text-neutral-500 font-normal mt-0.5">
-                  SIN
-                </span>
+                <span className="flex items-center text-sm text-neutral-500 font-normal mt-0.5">{t("customer.flightCard.sin")}</span>
               </div>
             </div>
 
             <div className="text-sm text-neutral-500 font-normal mt-0.5">
-              <span className="VG3hNb">Nonstop</span>
+              <span className="VG3hNb">{t("customer.flightCard.nonstop")}</span>
               <span className="mx-2">·</span>
-              <span>7h 45m</span>
+              <span>{t("customer.flightCard.7h45m")}</span>
               <span className="mx-2">·</span>
-              <span>HAN</span>
+              <span>{t("customer.flightCard.han")}</span>
             </div>
           </div>
 
@@ -148,36 +138,30 @@ const FlightCard: FC<FlightCardProps> = ({ className = "", data }) => {
           <div className="hidden lg:block  min-w-[150px] flex-[4] ">
             <div className="font-medium text-lg">11:00 - 20:00</div>
             <div className="text-sm text-neutral-500 font-normal mt-0.5">
-              {data.airlines.name}
+              <Tpl text={data.airlines.name} />
             </div>
           </div>
 
           {/* TIMME */}
           <div className="hidden lg:block flex-[4] whitespace-nowrap">
-            <div className="font-medium text-lg"> HND - SIN</div>
-            <div className="text-sm text-neutral-500 font-normal mt-0.5">
-              7 hours 15 minutes
-            </div>
+            <div className="font-medium text-lg">{" "}{t("customer.flightCard.hndSin")}</div>
+            <div className="text-sm text-neutral-500 font-normal mt-0.5">{t("customer.flightCard.7Hours15Minutes")}</div>
           </div>
 
           {/* TYPE */}
           <div className="hidden lg:block flex-[4] whitespace-nowrap">
-            <div className="font-medium text-lg">1 stop</div>
-            <div className="text-sm text-neutral-500 font-normal mt-0.5">
-              2 hours 15 minutes BKK
-            </div>
+            <div className="font-medium text-lg">{t("customer.flightCard.1Stop")}</div>
+            <div className="text-sm text-neutral-500 font-normal mt-0.5">{t("customer.flightCard.2Hours15MinutesBkk")}</div>
           </div>
 
           {/* PRICE */}
           <div className="flex-[4] whitespace-nowrap sm:text-right">
             <div>
               <span className="text-xl font-semibold text-secondary-6000">
-                {data.price}
+                <DemoPrice value={data.price} />
               </span>
             </div>
-            <div className="text-xs sm:text-sm text-neutral-500 font-normal mt-0.5">
-              round-trip
-            </div>
+            <div className="text-xs sm:text-sm text-neutral-500 font-normal mt-0.5">{t("customer.flightCard.roundTrip")}</div>
           </div>
         </div>
       </div>

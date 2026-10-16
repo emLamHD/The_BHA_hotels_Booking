@@ -5,19 +5,21 @@ import Link from "next/link";
 import type { Route } from "next";
 import { notFound } from "next/navigation";
 import BgGlassmorphism from "@/components/BgGlassmorphism";
-import { MEDIA_CHANGES_NOTE, MEDIA_CREDITS_PATH, creditForFile, travelMediaUrl } from "@/data/heroSlides";
-import { SAMPLE_POST_LABEL, TRAVEL_POSTS } from "@/data/travelPosts";
+import { MEDIA_CREDITS_PATH, creditForFile, travelMediaUrl } from "@/data/heroSlides";
+import { TRAVEL_POSTS } from "@/data/travelPosts";
 import {
   blogCategoryPath,
   findCategory,
   findPostBySegments,
-  formatPostDate,
   isSafeSourceUrl,
   relatedPosts,
 } from "@/lib/homepageContent";
 import { BLOG_PATH } from "@/lib/riversideHomeContent";
 import PostCard from "../PostCard";
 
+import { formatStayDate } from "@/lib/i18n/dateFormat";
+import { getContent, getT } from "@/lib/i18n/server";
+import { localizeCategory, localizePost } from "@/lib/i18n/staticContent";
 interface PostPageProps {
   params: { slug?: string[] };
 }
@@ -33,9 +35,11 @@ export function generateStaticParams() {
   return TRAVEL_POSTS.map((post) => ({ slug: [post.slug] }));
 }
 
-export function generateMetadata({ params }: PostPageProps): Metadata {
-  const post = findPostBySegments(params.slug);
-  if (!post) return { title: "Không tìm thấy bài viết — The BHA" };
+export async function generateMetadata({ params }: PostPageProps): Promise<Metadata> {
+  const [t, { c }] = await Promise.all([getT(), getContent()]);
+  const registryPost = findPostBySegments(params.slug);
+  if (!registryPost) return { title: t("customer.blog.slug.notFoundTitle") };
+  const post = localizePost(registryPost, c);
   return { title: `${post.title} — The BHA`, description: post.excerpt };
 }
 
@@ -45,10 +49,14 @@ export function generateMetadata({ params }: PostPageProps): Metadata {
  * plain text (nothing from the web is injected as HTML), its sources as `https` links that open safely,
  * related posts — and no author, comment, counter or template filler.
  */
-export default function PostPage({ params }: PostPageProps) {
-  const post = findPostBySegments(params.slug);
-  if (!post) notFound();
-  const category = findCategory(post.category);
+export default async function PostPage({ params }: PostPageProps) {
+  const [t, { c, formatLocale }] = await Promise.all([getT(), getContent("content.postBody.")]);
+  const registryPost = findPostBySegments(params.slug);
+  if (!registryPost) notFound();
+  const post = localizePost(registryPost, c);
+  const registryCategory = findCategory(post.category);
+  const category = registryCategory ? localizeCategory(registryCategory, c) : undefined;
+  const date = (iso: string) => formatStayDate(iso, formatLocale);
   const credit = creditForFile(post.cover);
   const related = relatedPosts(post);
 
@@ -57,18 +65,14 @@ export default function PostPage({ params }: PostPageProps) {
       <BgGlassmorphism />
       <div className="container relative pb-20 pt-10 lg:pb-28 lg:pt-14">
         <article className="mx-auto max-w-3xl">
-          <nav aria-label="Breadcrumb" className="text-sm text-neutral-500 dark:text-neutral-400">
+          <nav aria-label={t("customer.common.breadcrumb")} className="text-sm text-neutral-500 dark:text-neutral-400">
             <ol className="flex flex-wrap items-center gap-2">
               <li>
-                <Link href={"/" as Route} className="hover:underline">
-                  Trang chủ
-                </Link>
+                <Link href={"/" as Route} className="hover:underline">{t("customer.common.home")}</Link>
               </li>
               <li aria-hidden="true">/</li>
               <li>
-                <Link href={BLOG_PATH as Route} className="hover:underline">
-                  Blog
-                </Link>
+                <Link href={BLOG_PATH as Route} className="hover:underline">{t("customer.common.blog2")}</Link>
               </li>
               {category && (
                 <>
@@ -96,10 +100,10 @@ export default function PostPage({ params }: PostPageProps) {
             <p className="text-neutral-600 dark:text-neutral-300">{post.excerpt}</p>
             <p className="text-sm text-neutral-500 dark:text-neutral-400">
               {post.sample
-                ? `${SAMPLE_POST_LABEL}: nội dung chưa phải tin thật`
+                ? t("customer.blog.sampleNotReal", { label: t("customer.blog.sampleLabel") })
                 : post.kind === "news"
-                ? `Tóm tắt từ bản tin ngày ${formatPostDate(post.publishedAt)} · cập nhật ${formatPostDate(post.updatedAt)}`
-                : `Cẩm nang cập nhật ${formatPostDate(post.updatedAt)}`}
+                ? t("customer.blog.slug.newsLine", { published: date(post.publishedAt), updated: date(post.updatedAt) })
+                : t("customer.blog.slug.guideLine", { date: date(post.updatedAt) })}
             </p>
           </header>
 
@@ -116,19 +120,14 @@ export default function PostPage({ params }: PostPageProps) {
               />
             </div>
             {credit && (
-              <figcaption className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
-                Ảnh: {credit.author} ·{" "}
+              <figcaption className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">{t("customer.blog.slug.page.photo", { author: credit.author })}{" "}
                 <a href={credit.licenseUrl} target="_blank" rel="noopener noreferrer" className="underline">
                   {credit.license}
                 </a>{" "}
                 ·{" "}
-                <a href={credit.sourceUrl} target="_blank" rel="noopener noreferrer" className="underline">
-                  Wikimedia Commons
-                </a>
-                . {MEDIA_CHANGES_NOTE}{" "}
-                <Link href={MEDIA_CREDITS_PATH as Route} className="underline">
-                  Nguồn ảnh
-                </Link>
+                <a href={credit.sourceUrl} target="_blank" rel="noopener noreferrer" className="underline">{t("customer.blog.slug.page.wikimediaCommons")}</a>
+                . {t("customer.media.changesNote")}{" "}
+                <Link href={MEDIA_CREDITS_PATH as Route} className="underline">{t("customer.common.photoCredits")}</Link>
               </figcaption>
             )}
           </figure>
@@ -156,14 +155,10 @@ export default function PostPage({ params }: PostPageProps) {
           </div>
 
           {post.sample ? (
-            <p role="note" className="mt-12 rounded-3xl border border-neutral-200 p-6 text-sm text-neutral-600 dark:border-neutral-700 dark:text-neutral-300">
-              Đây là bài mẫu minh hoạ bố cục, không có nguồn vì không tóm tắt bản tin nào. Bài sẽ được thay bằng bản tóm tắt có nguồn khi có tin thật.
-            </p>
+            <p role="note" className="mt-12 rounded-3xl border border-neutral-200 p-6 text-sm text-neutral-600 dark:border-neutral-700 dark:text-neutral-300">{t("customer.blog.slug.page.thisIsASampleArticle")}</p>
           ) : (
             <section aria-labelledby="sources-heading" className="mt-12 rounded-3xl border border-neutral-200 p-6 dark:border-neutral-700">
-              <h2 id="sources-heading" className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-                Nguồn tham khảo
-              </h2>
+              <h2 id="sources-heading" className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">{t("customer.blog.slug.page.references")}</h2>
               <ul className="mt-4 space-y-3 text-sm">
                 {post.sources
                   .filter((source) => isSafeSourceUrl(source.url))
@@ -174,23 +169,19 @@ export default function PostPage({ params }: PostPageProps) {
                       </a>
                       <span className="block text-neutral-500 dark:text-neutral-400">
                         {source.publisher}
-                        {source.publishedAt ? ` · ${formatPostDate(source.publishedAt)}` : ""}
+                        {source.publishedAt ? ` · ${date(source.publishedAt)}` : ""}
                       </span>
                     </li>
                   ))}
               </ul>
-              <p className="mt-4 text-xs text-neutral-500 dark:text-neutral-400">
-                Nội dung được tóm lược từ các nguồn công khai ở trên bằng lời của chúng tôi và có thể đã thay đổi. Hãy đọc bản gốc trước khi lên kế hoạch.
-              </p>
+              <p className="mt-4 text-xs text-neutral-500 dark:text-neutral-400">{t("customer.blog.slug.page.theContentIsSummarisedIn")}</p>
             </section>
           )}
         </article>
 
         {related.length > 0 && (
           <section aria-labelledby="related-heading" className="mx-auto mt-16 max-w-6xl">
-            <h2 id="related-heading" className="text-2xl font-semibold text-neutral-900 dark:text-neutral-50">
-              Bài viết liên quan
-            </h2>
+            <h2 id="related-heading" className="text-2xl font-semibold text-neutral-900 dark:text-neutral-50">{t("customer.blog.slug.page.relatedArticles")}</h2>
             <ul className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
               {related.map((item) => (
                 <li key={item.id}>
@@ -199,9 +190,7 @@ export default function PostPage({ params }: PostPageProps) {
               ))}
             </ul>
             <p className="mt-8">
-              <Link href={BLOG_PATH as Route} className="font-medium text-primary-700 underline underline-offset-2 dark:text-primary-300">
-                ← Quay lại Blog
-              </Link>
+              <Link href={BLOG_PATH as Route} className="font-medium text-primary-700 underline underline-offset-2 dark:text-primary-300">{t("customer.blog.slug.page.backToTheBlog")}</Link>
             </p>
           </section>
         )}

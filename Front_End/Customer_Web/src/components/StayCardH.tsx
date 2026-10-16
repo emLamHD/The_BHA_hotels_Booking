@@ -1,3 +1,5 @@
+"use client";
+
 import React, { FC } from "react";
 import GallerySlider from "@/components/GallerySlider";
 import { DEMO_STAY_LISTINGS } from "@/data/listings";
@@ -8,6 +10,9 @@ import SaleOffBadge from "@/components/SaleOffBadge";
 import Badge from "@/shared/Badge";
 import Link from "next/link";
 
+import { useT } from "@/lib/i18n/I18nProvider";
+import DemoPrice from "@/components/DemoPrice";
+import { Tpl, useTpl } from "@/lib/i18n/Tpl";
 export interface StayCardHProps {
   className?: string;
   data?: StayDataType;
@@ -19,6 +24,8 @@ const StayCardH: FC<StayCardHProps> = ({
   className = "",
   data = DEMO_DATA,
 }) => {
+  const t = useT();
+  const tp = useTpl();
   const {
     galleryImgs,
     listingCategory,
@@ -55,43 +62,31 @@ const StayCardH: FC<StayCardHProps> = ({
         <div className="space-y-3">
           <div className="flex items-center space-x-3">
             <i className="las la-user text-lg"></i>
-            <span className="text-sm text-neutral-500 dark:text-neutral-400">
-              6 guests
-            </span>
+            <span className="text-sm text-neutral-500 dark:text-neutral-400">{t("customer.stayCardH.6Guests")}</span>
           </div>
           <div className="flex items-center space-x-3">
             <i className="las la-bed text-lg"></i>
-            <span className="text-sm text-neutral-500 dark:text-neutral-400">
-              6 beds
-            </span>
+            <span className="text-sm text-neutral-500 dark:text-neutral-400">{t("customer.common.6Beds")}</span>
           </div>
         </div>
         <div className="space-y-3">
           <div className="flex items-center space-x-3">
             <i className="las la-bath text-lg"></i>
-            <span className="text-sm text-neutral-500 dark:text-neutral-400">
-              3 baths
-            </span>
+            <span className="text-sm text-neutral-500 dark:text-neutral-400">{t("customer.common.3Baths")}</span>
           </div>
           <div className="flex items-center space-x-3">
             <i className="las la-smoking-ban text-lg"></i>
-            <span className="text-sm text-neutral-500 dark:text-neutral-400">
-              No smoking
-            </span>
+            <span className="text-sm text-neutral-500 dark:text-neutral-400">{t("customer.stayCardH.noSmoking")}</span>
           </div>
         </div>
         <div className="space-y-3">
           <div className="flex items-center space-x-3">
             <i className="las la-door-open text-lg"></i>
-            <span className="text-sm text-neutral-500 dark:text-neutral-400">
-              6 bedrooms
-            </span>
+            <span className="text-sm text-neutral-500 dark:text-neutral-400">{t("customer.stayCardH.6Bedrooms")}</span>
           </div>
           <div className="flex items-center space-x-3">
             <i className="las la-wifi text-lg"></i>
-            <span className="text-sm text-neutral-500 dark:text-neutral-400">
-              Wifi
-            </span>
+            <span className="text-sm text-neutral-500 dark:text-neutral-400">{t("customer.stayCardH.wifi")}</span>
           </div>
         </div>
       </div>
@@ -104,13 +99,13 @@ const StayCardH: FC<StayCardHProps> = ({
         <div className="space-y-2">
           <div className="text-sm text-neutral-500 dark:text-neutral-400">
             <span>
-              {listingCategory.name} in {address}
+              {t("customer.stayCardH.in", { name: tp(listingCategory.name), address })}
             </span>
           </div>
           <div className="flex items-center space-x-2">
             {isAds && <Badge name="ADS" color="green" />}
             <h2 className="text-lg font-medium capitalize">
-              <span className="line-clamp-1">{title}</span>
+              <span className="line-clamp-1"><Tpl text={title} /></span>
             </h2>
           </div>
         </div>
@@ -120,11 +115,9 @@ const StayCardH: FC<StayCardHProps> = ({
         <div className="flex justify-between items-end">
           <StartRating reviewCount={reviewCount} point={reviewStart} />
           <span className="text-base font-semibold text-secondary-500">
-            {price}
+            <DemoPrice value={price} />
             {` `}
-            <span className="text-sm text-neutral-500 dark:text-neutral-400 font-normal">
-              /night
-            </span>
+            <span className="text-sm text-neutral-500 dark:text-neutral-400 font-normal">{t("customer.common.night")}</span>
           </span>
         </div>
       </div>

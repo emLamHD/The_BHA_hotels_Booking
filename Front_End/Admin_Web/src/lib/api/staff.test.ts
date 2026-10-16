@@ -3,7 +3,7 @@
  * calls — what goes on the wire, and what each answer means.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchStaffSession, parseStaffSession, staffLogin, staffLogout } from "./staff";
+import { fetchStaffSession, parseStaffSession, staffLogin, staffLogout, WEBSITE_SETTINGS_PERMISSION } from "./staff";
 
 const BASE_URL = "https://localhost:7145";
 const SESSION = {
@@ -81,7 +81,8 @@ describe("fetchStaffSession", () => {
   it("reads me with the Staff cookie and returns exactly the backend shape", async () => {
     const fetchSpy = respond(200, { ...SESSION, extra: "ignored" });
     vi.stubGlobal("fetch", fetchSpy);
-    expect(await fetchStaffSession()).toEqual({ kind: "authenticated", session: SESSION });
+    // CUST-WEB-HEADER-001-CP02: a server that sends no `permissions` is read as "none".
+    expect(await fetchStaffSession()).toEqual({ kind: "authenticated", session: { ...SESSION, permissions: [] } });
     const [url, init] = fetchSpy.mock.calls[0];
     expect(url).toBe(`${BASE_URL}/api/admin/v1/me`);
     expect(init.method).toBe("GET");
@@ -114,6 +115,19 @@ describe("fetchStaffSession", () => {
       vi.fn().mockResolvedValue(new Response(typeof body === "string" ? body : JSON.stringify(body), { status: 200 }))
     );
     expect((await fetchStaffSession()).kind).toBe("error");
+  });
+
+  // CUST-WEB-HEADER-001-CP02: the global permissions of `me`/login. Display only; the server authorizes every request.
+  it("reads the permissions the server reports and treats a missing or malformed field as none", () => {
+    expect(parseStaffSession({ ...SESSION, permissions: ["WebsiteSettingsManage"] })?.permissions).toEqual(["WebsiteSettingsManage"]);
+    expect(parseStaffSession({ ...SESSION, permissions: [] })?.permissions).toEqual([]);
+    expect(parseStaffSession(SESSION)?.permissions).toEqual([]);
+    expect(parseStaffSession({ ...SESSION, permissions: "WebsiteSettingsManage" })?.permissions).toEqual([]);
+    expect(parseStaffSession({ ...SESSION, permissions: { WebsiteSettingsManage: true } })?.permissions).toEqual([]);
+    expect(parseStaffSession({ ...SESSION, permissions: null })?.permissions).toEqual([]);
+    // Entries that are not names are dropped; the session itself stays valid (the Calendar keeps working).
+    expect(parseStaffSession({ ...SESSION, permissions: ["WebsiteSettingsManage", 7, null, "", {}] })?.permissions).toEqual(["WebsiteSettingsManage"]);
+    expect(WEBSITE_SETTINGS_PERMISSION).toBe("WebsiteSettingsManage");
   });
 
   it("keeps an unknown role as data — the UI grants it nothing", () => {

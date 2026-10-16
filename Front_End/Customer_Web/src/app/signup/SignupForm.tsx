@@ -6,9 +6,9 @@ import type { Route } from "next";
 import { useCustomerSession } from "@/app/CustomerSessionProvider";
 import { CustomerSessionNotice } from "@/components/CustomerAuthNotice";
 import { registerCustomer } from "@/lib/api/authService";
-import { ACCOUNT_PAGE, LOGIN_PAGE } from "@/lib/customerAuthUi";
+import { ACCOUNT_PAGE, EMAIL_MAX_LENGTH, LOGIN_PAGE, PASSWORD_MAX_LENGTH } from "@/lib/customerAuthUi";
 import {
-  PASSWORD_REQUIREMENTS,
+  PASSWORD_MIN_LENGTH,
   SignupFieldErrors,
   SignupOutcome,
   SignupOwner,
@@ -20,6 +20,7 @@ import ButtonPrimary from "@/shared/ButtonPrimary";
 import ButtonSecondary from "@/shared/ButtonSecondary";
 import Input from "@/shared/Input";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 const HEADING_CLASS =
   "my-20 flex items-center text-3xl leading-[115%] md:text-5xl md:leading-[115%] font-semibold text-neutral-900 dark:text-neutral-100 justify-center";
 const ERROR_CLASS = "mt-1 text-sm text-red-600 dark:text-red-400";
@@ -39,6 +40,7 @@ const TONE_CLASS = {
  * and both fields are emptied when an attempt ends (the inputs themselves are removed with the page).
  */
 const SignupForm: FC = () => {
+  const t = useT();
   const { state, identityChange } = useCustomerSession();
   const ownerRef = useRef<SignupOwner | null>(null);
   const emailRef = useRef<HTMLInputElement>(null);
@@ -95,7 +97,7 @@ const SignupForm: FC = () => {
   // field) until the session has been read, or an attempt of this page is under way.
   const checking = state.status === "loading" && !identityBusy && !pending;
   const blocked = identityBusy;
-  const presentation = outcome ? presentSignupOutcome(outcome, state.status) : null;
+  const presentation = outcome ? presentSignupOutcome(outcome, state.status, t) : null;
   const created = outcome === "created";
   const emailError = fieldErrors.email;
   const passwordError = fieldErrors.password;
@@ -104,9 +106,7 @@ const SignupForm: FC = () => {
   const renderForm = () => (
     <form className="grid grid-cols-1 gap-6" method="post" noValidate onSubmit={onSubmit} aria-busy={pending}>
       <div className="block">
-        <label htmlFor="signup-email" className="block text-neutral-800 dark:text-neutral-200">
-          Địa chỉ email
-        </label>
+        <label htmlFor="signup-email" className="block text-neutral-800 dark:text-neutral-200">{t("customer.common.emailAddress")}</label>
         <Input
           id="signup-email"
           name="email"
@@ -120,19 +120,17 @@ const SignupForm: FC = () => {
           readOnly={pending || blocked}
           aria-invalid={emailError ? true : undefined}
           aria-describedby={emailError ? "signup-email-error" : undefined}
-          placeholder="ten@example.com"
+          placeholder={t("customer.common.tenExampleCom")}
           className="mt-1"
         />
         {emailError && (
           <p id="signup-email-error" role="alert" className={ERROR_CLASS}>
-            {emailError}
+            {t(emailError, { max: EMAIL_MAX_LENGTH })}
           </p>
         )}
       </div>
       <div className="block">
-        <label htmlFor="signup-password" className="block text-neutral-800 dark:text-neutral-200">
-          Mật khẩu
-        </label>
+        <label htmlFor="signup-password" className="block text-neutral-800 dark:text-neutral-200">{t("customer.common.password")}</label>
         <Input
           id="signup-password"
           name="password"
@@ -146,18 +144,16 @@ const SignupForm: FC = () => {
           className="mt-1"
         />
         <p id="signup-password-hint" className={HINT_CLASS}>
-          {PASSWORD_REQUIREMENTS}
+          {t("customer.signup.passwordRequirements", { min: PASSWORD_MIN_LENGTH })}
         </p>
         {passwordError && (
           <p id="signup-password-error" role="alert" className={ERROR_CLASS}>
-            {passwordError}
+            {t(passwordError, { min: PASSWORD_MIN_LENGTH, max: PASSWORD_MAX_LENGTH })}
           </p>
         )}
       </div>
       <div className="block">
-        <label htmlFor="signup-confirmation" className="block text-neutral-800 dark:text-neutral-200">
-          Nhập lại mật khẩu
-        </label>
+        <label htmlFor="signup-confirmation" className="block text-neutral-800 dark:text-neutral-200">{t("customer.signup.signupForm.confirmPassword")}</label>
         <Input
           id="signup-confirmation"
           name="confirmPassword"
@@ -172,42 +168,36 @@ const SignupForm: FC = () => {
         />
         {confirmationError && (
           <p id="signup-confirmation-error" role="alert" className={ERROR_CLASS}>
-            {confirmationError}
+            {t(confirmationError)}
           </p>
         )}
       </div>
-      <ButtonPrimary type="submit" loading={pending} disabled={pending || blocked}>
-        Tạo tài khoản
-      </ButtonPrimary>
+      <ButtonPrimary type="submit" loading={pending} disabled={pending || blocked}>{t("customer.common.createAnAccount")}</ButtonPrimary>
     </form>
   );
 
   const renderSigned = (email: string) => (
-    <section aria-label="Phiên đăng nhập" className="space-y-4 rounded-2xl border border-neutral-200 p-6 dark:border-neutral-700">
-      <p className="text-sm text-neutral-500 dark:text-neutral-400">Bạn đang đăng nhập bằng</p>
+    <section aria-label={t("customer.common.session")} className="space-y-4 rounded-2xl border border-neutral-200 p-6 dark:border-neutral-700">
+      <p className="text-sm text-neutral-500 dark:text-neutral-400">{t("customer.common.youAreSignedInAs")}</p>
       <p className="break-all text-lg font-semibold text-neutral-900 dark:text-neutral-100">{email}</p>
-      <p className="text-sm text-neutral-600 dark:text-neutral-300">
-        Để tạo một tài khoản khác, hãy đăng xuất trước.
-      </p>
+      <p className="text-sm text-neutral-600 dark:text-neutral-300">{t("customer.signup.signupForm.toCreateADifferentAccount")}</p>
       <div className="flex flex-wrap gap-3">
-        <ButtonPrimary href={ACCOUNT_PAGE as Route}>Đến trang tài khoản</ButtonPrimary>
-        <ButtonSecondary href="/">Về trang chủ</ButtonSecondary>
+        <ButtonPrimary href={ACCOUNT_PAGE as Route}>{t("customer.signup.signupForm.goToYourAccount")}</ButtonPrimary>
+        <ButtonSecondary href="/">{t("customer.common.backToHome2")}</ButtonSecondary>
       </div>
     </section>
   );
 
   const renderCreated = () => (
-    <section aria-label="Kết quả đăng ký" className="space-y-4 rounded-2xl border border-neutral-200 p-6 dark:border-neutral-700">
-      <p className="text-sm text-neutral-600 dark:text-neutral-300">
-        Hãy đăng nhập bằng email và mật khẩu vừa tạo để tiếp tục.
-      </p>
-      <ButtonPrimary href={LOGIN_PAGE as Route}>Đăng nhập</ButtonPrimary>
+    <section aria-label={t("customer.signup.signupForm.signUpResult")} className="space-y-4 rounded-2xl border border-neutral-200 p-6 dark:border-neutral-700">
+      <p className="text-sm text-neutral-600 dark:text-neutral-300">{t("customer.signup.signupForm.signInWithTheEmail")}</p>
+      <ButtonPrimary href={LOGIN_PAGE as Route}>{t("customer.common.signIn")}</ButtonPrimary>
     </section>
   );
 
   return (
     <>
-      <h2 className={HEADING_CLASS}>Tạo tài khoản</h2>
+      <h2 className={HEADING_CLASS}>{t("customer.common.createAnAccount")}</h2>
       <div className="max-w-md mx-auto space-y-6">
         <CustomerSessionNotice />
         {presentation && (
@@ -230,11 +220,8 @@ const SignupForm: FC = () => {
           renderForm()
         )}
         {!checking && !authenticated && !created && (
-          <p className="block text-center text-sm text-neutral-600 dark:text-neutral-400">
-            Đã có tài khoản?{" "}
-            <Link href={LOGIN_PAGE as Route} className="font-semibold underline">
-              Đăng nhập
-            </Link>
+          <p className="block text-center text-sm text-neutral-600 dark:text-neutral-400">{t("customer.signup.signupForm.alreadyHaveAnAccount")}{" "}
+            <Link href={LOGIN_PAGE as Route} className="font-semibold underline">{t("customer.common.signIn")}</Link>
           </p>
         )}
       </div>

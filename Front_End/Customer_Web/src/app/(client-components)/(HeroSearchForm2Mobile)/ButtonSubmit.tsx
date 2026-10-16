@@ -1,5 +1,6 @@
 import React, { FC } from "react";
 import { PathName } from "@/routers/types";
+import { Tpl } from "@/lib/i18n/Tpl";
 
 interface Props {
   className?: string;
@@ -37,7 +38,7 @@ const ButtonSubmit: FC<Props> = ({
           d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
         />
       </svg>
-      <span className="ml-2">{label}</span>
+      <span className="ml-2"><Tpl text={label} quiet /></span>
     </button>
   );
 };

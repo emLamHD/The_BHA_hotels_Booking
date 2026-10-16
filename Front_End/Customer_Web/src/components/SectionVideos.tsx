@@ -6,6 +6,7 @@ import NcPlayIcon2 from "@/shared/NcPlayIcon2";
 import Image from "next/image";
 import React, { FC, useState } from "react";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface VideoType {
   id: string;
   title: string;
@@ -54,6 +55,7 @@ const SectionVideos: FC<SectionVideosProps> = ({
   videos = VIDEOS_DEMO,
   className = "",
 }) => {
+  const t = useT();
   const [isPlay, setIsPlay] = useState(false);
   const [currentVideo, setCurrentVideo] = useState(0);
 
@@ -128,11 +130,8 @@ const SectionVideos: FC<SectionVideosProps> = ({
   return (
     <div className={`nc-SectionVideos ${className}`}>
       <Heading
-        desc="Check out our hottest videos. View more and share more new
-          perspectives on just about any topic. Everyone’s welcome."
-      >
-        🎬 The Videos
-      </Heading>
+        desc={t("customer.sectionVideos.checkOutOurHottestVideos")}
+      >{t("customer.sectionVideos.theVideos")}</Heading>
 
       <div className="flex flex-col relative sm:pr-4 sm:py-4 md:pr-6 md:py-6 xl:pr-14 xl:py-14 lg:flex-row">
         <div className="absolute -top-4 -bottom-4 -right-4 w-2/3 rounded-3xl bg-primary-100 bg-opacity-40 z-0 sm:rounded-[50px] md:top-0 md:bottom-0 md:right-0 xl:w-1/2 dark:bg-neutral-800 dark:bg-opacity-40"></div>

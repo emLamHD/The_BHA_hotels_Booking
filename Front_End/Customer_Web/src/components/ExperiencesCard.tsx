@@ -1,3 +1,5 @@
+"use client";
+
 import React, { FC } from "react";
 import GallerySlider from "@/components/GallerySlider";
 import { DEMO_EXPERIENCES_LISTINGS } from "@/data/listings";
@@ -9,6 +11,9 @@ import Badge from "@/shared/Badge";
 import Link from "next/link";
 import { MapPinIcon } from "@heroicons/react/24/outline";
 
+import { useT } from "@/lib/i18n/I18nProvider";
+import DemoPrice from "@/components/DemoPrice";
+import { Tpl } from "@/lib/i18n/Tpl";
 export interface ExperiencesCardProps {
   className?: string;
   ratioClass?: string;
@@ -24,6 +29,7 @@ const ExperiencesCard: FC<ExperiencesCardProps> = ({
   data = DEMO_DATA,
   ratioClass = "aspect-w-3 aspect-h-3",
 }) => {
+  const t = useT();
   const {
     galleryImgs,
     address,
@@ -59,7 +65,7 @@ const ExperiencesCard: FC<ExperiencesCardProps> = ({
         <div className="space-y-2">
           <div className="flex items-center text-neutral-500 dark:text-neutral-400 text-sm space-x-2">
             {size === "default" && <MapPinIcon className="w-4 h-4" />}
-            <span className="">{address}</span>
+            <span className=""><Tpl text={address} /></span>
           </div>
 
           <div className="flex items-center space-x-2">
@@ -69,19 +75,17 @@ const ExperiencesCard: FC<ExperiencesCardProps> = ({
                 size === "default" ? "text-base" : "text-base"
               }`}
             >
-              <span className="line-clamp-1">{title}</span>
+              <span className="line-clamp-1"><Tpl text={title} /></span>
             </h2>
           </div>
         </div>
         <div className="border-b border-neutral-100 dark:border-neutral-800"></div>
         <div className="flex justify-between items-center">
           <span className="text-base font-semibold">
-            {price}
+            <DemoPrice value={price} />
             {` `}
             {size === "default" && (
-              <span className="text-sm text-neutral-500 dark:text-neutral-400 font-normal">
-                /person
-              </span>
+              <span className="text-sm text-neutral-500 dark:text-neutral-400 font-normal">{t("customer.common.person")}</span>
             )}
           </span>
           <StartRating reviewCount={reviewCount} point={reviewStart} />

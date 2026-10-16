@@ -1,3 +1,4 @@
+import { testT } from "@/lib/i18n/testkit";
 import { describe, expect, it } from "vitest";
 import {
   NEWSLETTER_DISCLOSURE,
@@ -36,9 +37,9 @@ describe("newsletter e-mail check", () => {
   });
 
   it("the messages never say it worked or promise a message", () => {
-    for (const text of [NEWSLETTER_NOT_STORED_MESSAGE, NEWSLETTER_DISCLOSURE]) {
+    for (const text of [NEWSLETTER_NOT_STORED_MESSAGE, NEWSLETTER_DISCLOSURE].map((key) => testT("vi")(key))) {
       expect(text).not.toMatch(/thành công|cảm ơn|sẽ gửi|đã đăng ký/i);
     }
-    expect(NEWSLETTER_NOT_STORED_MESSAGE).toBe("Bản demo chưa tiếp nhận đăng ký. Email chưa được lưu.");
+    expect(testT("vi")(NEWSLETTER_NOT_STORED_MESSAGE)).toBe("Bản demo chưa tiếp nhận đăng ký. Email chưa được lưu.");
   });
 });

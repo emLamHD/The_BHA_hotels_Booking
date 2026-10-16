@@ -4,9 +4,10 @@ import React, { Fragment, useState, FC } from "react";
 import { Popover, Transition } from "@headlessui/react";
 import DatePickerCustomHeaderTwoMonth from "@/components/DatePickerCustomHeaderTwoMonth";
 import DatePickerCustomDay from "@/components/DatePickerCustomDay";
-import DatePicker from "react-datepicker";
+import DatePicker from "@/components/LocalizedDatePicker";
 import ClearDataButton from "../ClearDataButton";
 
+import { useI18n, useT } from "@/lib/i18n/I18nProvider";
 export interface StayDatesRangeInputProps {
   className?: string;
   fieldClassName?: string;
@@ -16,6 +17,8 @@ const StayDatesRangeInput: FC<StayDatesRangeInputProps> = ({
   className = "[ lg:nc-flex-2 ]",
   fieldClassName = "[ nc-hero-field-padding--small ]",
 }) => {
+  const t = useT();
+  const { formatLocale } = useI18n();
   const [startDate, setStartDate] = useState<Date | null>(
     new Date("2023/02/06")
   );
@@ -33,20 +36,20 @@ const StayDatesRangeInput: FC<StayDatesRangeInputProps> = ({
       <>
         <div className="flex-grow text-left">
           <span className="block xl:text-base font-semibold">
-            {startDate?.toLocaleDateString("en-US", {
+            {startDate?.toLocaleDateString(formatLocale, {
               month: "short",
               day: "2-digit",
             }) || "Add dates"}
             {endDate
               ? " - " +
-                endDate?.toLocaleDateString("en-US", {
+                endDate?.toLocaleDateString(formatLocale, {
                   month: "short",
                   day: "2-digit",
                 })
               : ""}
           </span>
           <span className="block mt-1 text-sm text-neutral-400 leading-none font-light">
-            {"Check in - Check out"}
+            {t("customer.heroSearchFormSmall.staySearchForm.stayDatesRangeInput.checkInCheckOut")}
           </span>
         </div>
       </>

@@ -1,12 +1,16 @@
+"use client";
+
 import React from "react";
 import { FC } from "react";
 import Avatar from "@/shared/Avatar";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface CommentProps {
   isSmall?: boolean;
 }
 
 const Comment: FC<CommentProps> = ({ isSmall }) => {
+  const t = useT();
   return (
     <div className="nc-CommentCard flex ">
       <div className="pt-1">
@@ -33,7 +37,7 @@ const Comment: FC<CommentProps> = ({ isSmall }) => {
         <div>
           <button
             className="inline-flex items-center min-w-[68px] rounded-full text-neutral-6000 bg-neutral-100 dark:text-neutral-200 dark:bg-neutral-800 px-3 h-8 hover:bg-teal-50 hover:text-teal-600 dark:hover:text-teal-500 focus:outline-none "
-            title="Reply"
+            title={t("customer.shared.comment.reply")}
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -49,9 +53,7 @@ const Comment: FC<CommentProps> = ({ isSmall }) => {
                 d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"
               ></path>
             </svg>
-            <span className="text-xs leading-none text-neutral-900 dark:text-neutral-200">
-              Reply
-            </span>
+            <span className="text-xs leading-none text-neutral-900 dark:text-neutral-200">{t("customer.shared.comment.reply")}</span>
           </button>
         </div>
       </div>

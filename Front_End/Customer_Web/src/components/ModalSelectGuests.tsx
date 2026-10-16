@@ -6,11 +6,13 @@ import { XMarkIcon } from "@heroicons/react/24/solid";
 import ButtonPrimary from "@/shared/ButtonPrimary";
 import GuestsInput from "@/app/(client-components)/(HeroSearchForm2Mobile)/GuestsInput";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 interface ModalSelectGuestsProps {
   renderChildren?: (p: { openModal: () => void }) => React.ReactNode;
 }
 
 const ModalSelectGuests: FC<ModalSelectGuestsProps> = ({ renderChildren }) => {
+  const t = useT();
   const [showModal, setShowModal] = useState(false);
 
   // FOR RESET ALL DATA WHEN CLICK CLEAR BUTTON
@@ -27,7 +29,7 @@ const ModalSelectGuests: FC<ModalSelectGuestsProps> = ({ renderChildren }) => {
     return renderChildren ? (
       renderChildren({ openModal })
     ) : (
-      <button onClick={openModal}>Select Date</button>
+      <button onClick={openModal}>{t("customer.common.selectDate")}</button>
     );
   };
 
@@ -78,17 +80,13 @@ const ModalSelectGuests: FC<ModalSelectGuestsProps> = ({ renderChildren }) => {
                         type="button"
                         className="underline font-semibold flex-shrink-0"
                         onClick={() => {}}
-                      >
-                        Clear data
-                      </button>
+                      >{t("customer.modalSelectGuests.clearData")}</button>
                       <ButtonPrimary
                         sizeClass="px-6 py-3 !rounded-xl"
                         onClick={() => {
                           closeModal();
                         }}
-                      >
-                        Save
-                      </ButtonPrimary>
+                      >{t("customer.common.save")}</ButtonPrimary>
                     </div>
                   </>
                 </Dialog.Panel>

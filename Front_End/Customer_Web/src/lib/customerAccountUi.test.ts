@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ApiHttpError } from "@/lib/api/errors";
 import type { CustomerIdentity } from "@/lib/api/authService";
 import { describeAuthEntry } from "@/lib/customerAuthUi";
+import { testT } from "@/lib/i18n/testkit";
 import { AccountView, describeAccountView } from "@/lib/customerAccountUi";
 import { IdentityChangePhase, createCustomerIdentityCoordinator } from "@/lib/customerIdentityChange";
 import { CustomerSessionState, createCustomerSessionController } from "@/lib/customerSession";
@@ -206,7 +207,7 @@ describe("the entry and the page agree", () => {
   it("the entry offers /account exactly when the page would show the account", () => {
     for (const state of STATES) {
       for (const phase of PHASES) {
-        const entry = describeAuthEntry(state.status, phase, state.customer?.email ?? null);
+        const entry = describeAuthEntry(state.status, phase, state.customer?.email ?? null, testT("vi"));
         const view = describeAccountView(state, phase);
         if (entry.href === "/account") expect(view.kind).toBe("ready");
       }

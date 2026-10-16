@@ -1,8 +1,11 @@
+import type { Metadata } from "next";
+import { getT } from "@/lib/i18n/server";
 import LoginForm from "./LoginForm";
 
-export const metadata = {
-  title: "Đăng nhập — The BHA",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getT();
+  return { title: t("customer.meta.login") };
+}
 
 /**
  * CUST-WEB-001-CP02: the template's login layout, connected to the Customer session. Social login and

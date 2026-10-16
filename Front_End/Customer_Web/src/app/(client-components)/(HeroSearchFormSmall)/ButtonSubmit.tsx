@@ -4,6 +4,7 @@ import React, { FC } from "react";
 import { PathName } from "@/routers/types";
 import Link from "next/link";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 interface Props {
   className?: string;
   href: PathName;
@@ -13,6 +14,7 @@ const ButtonSubmit: FC<Props> = ({
   className = "",
   href = "/listing-stay-map",
 }) => {
+  const t = useT();
   return (
     <Link
       href={href}
@@ -22,7 +24,7 @@ const ButtonSubmit: FC<Props> = ({
         (document.querySelector(".nc-Footer") as HTMLElement | null)?.click();
       }}
     >
-      <span className="mr-3 md:hidden">Search</span>
+      <span className="mr-3 md:hidden">{t("customer.heroSearchFormSmall.buttonSubmit.search")}</span>
       <svg
         xmlns="http://www.w3.org/2000/svg"
         className="h-6 w-6"

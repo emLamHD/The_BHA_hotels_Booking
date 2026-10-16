@@ -1,4 +1,5 @@
 import React, { FC } from "react";
+import { Tpl } from "@/lib/i18n/Tpl";
 
 export interface SaleOffBadgeProps {
   className?: string;
@@ -14,7 +15,7 @@ const SaleOffBadge: FC<SaleOffBadgeProps> = ({
       className={`nc-SaleOffBadge flex items-center justify-center text-xs py-0.5 px-3 bg-red-700 text-red-50 rounded-full ${className}`}
       data-nc-id="SaleOffBadge"
     >
-      {desc}
+      <Tpl text={desc} />
     </div>
   );
 };

@@ -11,7 +11,9 @@ import { imageGallery as listingCarImageGallery } from "./listing-car-detail/con
 import { imageGallery as listingExperienceImageGallery } from "./listing-experiences-detail/constant";
 import { Route } from "next";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 const DetailtLayout = ({ children }: { children: ReactNode }) => {
+  const t = useT();
   const router = useRouter();
   const thisPathname = usePathname();
   const searchParams = useSearchParams();
@@ -60,7 +62,7 @@ const DetailtLayout = ({ children }: { children: ReactNode }) => {
         <div className="relative py-16">
           <BackgroundSection />
           <SectionSliderNewCategories
-            heading="Explore by types of stays"
+            heading={t("customer.listingDetail.layout.exploreByTypesOfStays")}
             subHeading="Explore houses based on 10 types of stays"
             categoryCardType="card5"
             itemPerRow={5}

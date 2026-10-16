@@ -1,4 +1,5 @@
-import type { PropertyDto } from "@/lib/api/propertyTypes";
+import type { Translate } from "@/lib/i18n/types";
+import type { AmenityDto, PropertyDto } from "@/lib/api/propertyTypes";
 
 /**
  * CUST-WEB-001-CP08a: the words, links and pictures of the Riverside home page, with where each one comes
@@ -67,7 +68,7 @@ export const RIVERSIDE_FULL_ADDRESS = "162 Nghiêm Xuân Yêm, phường Ngũ H�
 
 const mapQuery = (address: string) => encodeURIComponent(`${RIVERSIDE_NAME}, ${address}`);
 /** Keyless Google Maps embed of the property (a plain iframe: no script, no API key, nothing of the visitor is sent by this site). */
-export const riversideMapEmbedUrl = (address: string = RIVERSIDE_FULL_ADDRESS) => `https://www.google.com/maps?q=${mapQuery(address)}&output=embed&hl=vi`;
+export const riversideMapEmbedUrl = (address: string = RIVERSIDE_FULL_ADDRESS, language: string = "vi") => `https://www.google.com/maps?q=${mapQuery(address)}&output=embed&hl=${encodeURIComponent(language)}`;
 /** The same place in the Google Maps site/app, for directions. */
 export const riversideMapLink = (address: string = RIVERSIDE_FULL_ADDRESS) => `https://www.google.com/maps/search/?api=1&query=${mapQuery(address)}`;
 export const HOLD_MINUTES = 15;
@@ -175,10 +176,14 @@ export function checkTimes(property: Pick<PropertyDto, "checkInTime" | "checkOut
 }
 
 /** The property's amenities exactly as the catalog names them; nothing is added. */
-export function amenityNames(property: Pick<PropertyDto, "amenities"> | null | undefined): string[] {
+export function amenityNames(
+  property: Pick<PropertyDto, "amenities"> | null | undefined,
+  /** The visitor-language name of an amenity (pack content); the catalog's own name when omitted. */
+  nameOf: (amenity: AmenityDto) => string | null = (amenity) => amenity.name
+): string[] {
   const names: string[] = [];
   for (const amenity of property?.amenities ?? []) {
-    const name = amenity.name?.trim();
+    const name = nameOf(amenity)?.trim();
     if (name && names.indexOf(name) === -1) names.push(name);
   }
   return names;
@@ -190,43 +195,15 @@ export interface HomeFaqItem {
   answer: string;
 }
 
-/** The questions a guest has before booking, answered from how the booking page behaves today. */
-export function buildFaq(times: { checkIn: string; checkOut: string } | null): HomeFaqItem[] {
+/** The questions a guest has before booking, answered from how the booking page behaves today (pack messages `customer.faq.*`). */
+export function buildFaq(times: { checkIn: string; checkOut: string } | null, t: Translate): HomeFaqItem[] {
+  const item = (id: string, key: string, answer: string): HomeFaqItem => ({ id, question: t(`customer.faq.${key}.q`), answer });
   return [
-    {
-      id: "dates-guests",
-      question: "Tôi chọn ngày, số khách và số phòng như thế nào?",
-      answer:
-        "Dùng ô tìm kiếm để chọn ngày nhận phòng, ngày trả phòng, số người lớn, số trẻ em và số phòng. Mỗi lần tìm tối đa 30 đêm và từ 1 đến 10 phòng. Sức chứa theo từng loại phòng và quy tắc về ngày do hệ thống đặt phòng kiểm tra.",
-    },
-    {
-      id: "snapshot",
-      question: "Kết quả tìm phòng có nghĩa là phòng đã được giữ cho tôi?",
-      answer:
-        "Không. Kết quả cho biết tình trạng và giá tại thời điểm bạn tìm. Phòng chỉ được giữ khi bạn tạo giữ chỗ ở trang loại phòng.",
-    },
-    {
-      id: "hold-vs-confirm",
-      question: "Giữ chỗ và xác nhận đặt phòng khác nhau thế nào?",
-      answer: `Giữ chỗ giữ phòng cho bạn trong ${HOLD_MINUTES} phút. Chỉ khi bạn xác nhận trước khi hết thời gian đó thì đặt phòng mới được ghi nhận và có mã xác nhận.`,
-    },
-    {
-      id: "payment",
-      question: "Tôi thanh toán như thế nào?",
-      answer: "Trang này chưa thu tiền trực tuyến và chưa gửi email xác nhận. Việc xác nhận đặt phòng ở đây không phải là thanh toán.",
-    },
-    {
-      id: "reload",
-      question: "Nếu tôi tải lại trang hoặc đóng tab khi đang đặt phòng?",
-      answer:
-        "Thông tin giữ chỗ và biên nhận hiện chỉ nằm trong tab đang mở, nên tải lại hoặc đóng tab sẽ làm mất màn hình đó. Hãy ghi lại mã xác nhận ngay khi đặt phòng được xác nhận.",
-    },
-    {
-      id: "times",
-      question: "Giờ nhận phòng và trả phòng là khi nào?",
-      answer: times
-        ? `Hệ thống đặt phòng hiện ghi giờ nhận phòng ${times.checkIn} và giờ trả phòng ${times.checkOut}.`
-        : "Giờ nhận phòng và trả phòng được hiển thị trên trang của từng loại phòng.",
-    },
+    item("dates-guests", "datesGuests", t("customer.faq.datesGuests.a")),
+    item("snapshot", "snapshot", t("customer.faq.snapshot.a")),
+    item("hold-vs-confirm", "holdVsConfirm", t("customer.faq.holdVsConfirm.a")),
+    item("payment", "payment", t("customer.faq.payment.a")),
+    item("reload", "reload", t("customer.faq.reload.a")),
+    item("times", "times", times ? t("customer.faq.times.a", { checkIn: times.checkIn, checkOut: times.checkOut }) : t("customer.faq.times.none")),
   ];
 }

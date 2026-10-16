@@ -47,6 +47,14 @@ public sealed class StaffAuthOperationFilter(AdminCalendarAccess access) : IOper
             return;
         }
 
+        if (context.ApiDescription.ActionDescriptor.EndpointMetadata
+                .OfType<StaffWebsitePermissionAttribute>()
+                .FirstOrDefault() is { } website)
+        {
+            DocumentWebsite(operation, context, website.Permission);
+            return;
+        }
+
         if (context.MethodInfo.DeclaringType != typeof(StaffAuthController))
         {
             return;
@@ -124,6 +132,36 @@ public sealed class StaffAuthOperationFilter(AdminCalendarAccess access) : IOper
             (confirmable ? $", or {nameof(StaffPermission.AssignmentCrossRoomType)} for a confirmed cross-RoomType request" : string.Empty) +
             "; the Origin is not exactly one approved Admin origin" +
             (confirmable ? "; or the store refuses an unconfirmed or reasonless cross-RoomType placement." : "."));
+    }
+
+    /// <summary>
+    /// CUST-WEB-HEADER-001-CP02: a website-settings action is documented for the mode this host runs. In Staff mode
+    /// it needs the Staff session and the global permission (no Property); in LocalGate it does not exist (404).
+    /// </summary>
+    private void DocumentWebsite(OpenApiOperation operation, OperationFilterContext context, StaffGlobalPermission permission)
+    {
+        var rule =
+            $"AccessMode=Staff: requires the {StaffAuthentication.CookieName} Staff session and the global {permission} " +
+            "permission (the account's CanManageWebsite flag, read from the database on every request; no Property involved); " +
+            "401 without a valid session, 403 without the permission, and for a write exactly one approved Origin (403) and " +
+            "UTF-8 JSON (415) before the body is read. The audit actor is the verified Staff id, never a request value. " +
+            "AccessMode=LocalGate: the route is closed (404); the website settings have no local-gate path.";
+        if (access.Mode != AdminCalendarAccessMode.Staff)
+        {
+            operation.Security = [];
+            operation.Description = $"This host runs AccessMode=LocalGate. {rule}";
+            return;
+        }
+
+        operation.Security = [StaffCookieRequirement()];
+        operation.Description = $"This host runs AccessMode=Staff. {rule}";
+        var problem = context.SchemaGenerator.GenerateSchema(typeof(ProblemDetails), context.SchemaRepository);
+        operation.Responses["401"] = ProblemResponse(problem, "No valid Staff session (AccessMode=Staff).");
+        operation.Responses["403"] = ProblemResponse(problem, $"The account lacks {permission}, or the Origin is not exactly one approved Admin origin.");
+        if (!HttpMethods.IsGet(context.ApiDescription.HttpMethod ?? string.Empty))
+        {
+            operation.Responses["415"] = ProblemResponse(problem, "The body is not UTF-8 application/json.");
+        }
     }
 
     private static OpenApiResponse ProblemResponse(OpenApiSchema schema, string description) => new()

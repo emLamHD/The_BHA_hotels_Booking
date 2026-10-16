@@ -112,12 +112,12 @@ public sealed class StaffAuthController(
 
     private async Task<StaffSessionResponse?> ReadSessionAsync(Guid staffId)
     {
-        var email = await database.StaffAccounts
+        var account = await database.StaffAccounts
             .AsNoTracking()
-            .Where(account => account.Id == staffId)
-            .Select(account => account.Email)
+            .Where(candidate => candidate.Id == staffId)
+            .Select(candidate => new { candidate.Email, candidate.CanManageWebsite })
             .SingleOrDefaultAsync(HttpContext.RequestAborted);
-        if (email is null)
+        if (account is null)
         {
             return null;
         }
@@ -131,11 +131,12 @@ public sealed class StaffAuthController(
             .ToListAsync(HttpContext.RequestAborted);
         return new StaffSessionResponse(
             staffId,
-            email,
+            account.Email!,
             memberships
                 .OrderBy(membership => membership.PropertyName, StringComparer.Ordinal)
                 .ThenBy(membership => membership.PropertyId)
-                .ToArray());
+                .ToArray(),
+            StaffPermissions.GlobalNames(account.CanManageWebsite));
     }
 
     private ObjectResult AuthenticationFailed() =>

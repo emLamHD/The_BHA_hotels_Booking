@@ -19,6 +19,7 @@ import {
 import type { IdentityCommandResult } from "@/lib/customerIdentityChange";
 import { buildRoomDetailsHref, inProgressBookingTarget } from "@/lib/roomDetailsRoute";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 /**
  * CUST-WEB-001-CP02: the shared auth status UI. It only renders what `lib/customerAuthUi` decides from the
  * provider's state; the only way it reaches the API is a guarded command passed in by its caller.
@@ -36,16 +37,18 @@ const REFRESH_CLASS =
   "mt-2 inline-flex rounded-full border border-neutral-300 px-3 py-1 text-xs font-medium text-neutral-700 hover:bg-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:border-neutral-600 dark:text-neutral-200 dark:hover:bg-neutral-700";
 
 /** "Kiểm tra lại": a read of `me` only — it never repeats a login or logout. */
-const RefreshButton: FC<{ onClick: () => void }> = ({ onClick }) => (
-  <button type="button" onClick={onClick} className={REFRESH_CLASS}>
-    Kiểm tra lại
-  </button>
+const RefreshButton: FC<{ onClick: () => void }> = ({ onClick }) => {
+  const t = useT();
+  return (
+  <button type="button" onClick={onClick} className={REFRESH_CLASS}>{t("customer.customerAuthNotice.checkAgain")}</button>
 );
+};
 
 /** What the provider says is going on with the session: checking, busy (booking locked) or needing a re-check. */
 export const CustomerSessionNotice: FC<{ className?: string }> = ({ className = "" }) => {
   const { state, identityChange, refreshSession } = useCustomerSession();
-  const notice = describeSessionNotice(state.status, identityChange.phase);
+  const t = useT();
+  const notice = describeSessionNotice(state.status, identityChange.phase, t);
   if (!notice) return null;
   return (
     <div
@@ -135,10 +138,11 @@ export function useAuthCommand(command: AuthCommand): AuthCommandRunner {
     return started;
   }, []);
 
+  const t = useT();
   const target = inProgressBookingTarget(booking);
   const presentation =
     outcome && !isStalePresentation(outcome, identityChange.phase, booking.phase)
-      ? presentIdentityCommandResult(command, outcome, { bookingHref: target ? buildRoomDetailsHref(target) : null })
+      ? presentIdentityCommandResult(command, outcome, { bookingHref: target ? buildRoomDetailsHref(target) : null }, t)
       : null;
 
   return {

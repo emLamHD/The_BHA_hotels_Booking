@@ -8,6 +8,8 @@ import avatar4 from "@/images/avatars/Image-4.png";
 import avatar5 from "@/images/avatars/Image-5.png";
 import avatar6 from "@/images/avatars/Image-6.png";
 
+import { useT } from "@/lib/i18n/I18nProvider";
+import { Tpl } from "@/lib/i18n/Tpl";
 const notifications = [
   {
     name: "Eden Tuan",
@@ -37,6 +39,7 @@ interface Props {
 }
 
 const NotifyDropdown: FC<Props> = ({ className = "" }) => {
+  const t = useT();
   return (
     <>
       <Popover className={`relative flex ${className}`}>
@@ -62,7 +65,7 @@ const NotifyDropdown: FC<Props> = ({ className = "" }) => {
               <Popover.Panel className="absolute z-10 w-screen max-w-xs sm:max-w-sm px-4 top-full -right-28 sm:right-0 sm:px-0">
                 <div className="overflow-hidden rounded-2xl shadow-lg ring-1 ring-black ring-opacity-5">
                   <div className="relative grid gap-8 bg-white dark:bg-neutral-800 p-7">
-                    <h3 className="text-xl font-semibold">Notifications</h3>
+                    <h3 className="text-xl font-semibold">{t("customer.header.notifyDropdown.notifications")}</h3>
                     {notifications.map((item, index) => (
                       <a
                         key={index}
@@ -75,13 +78,13 @@ const NotifyDropdown: FC<Props> = ({ className = "" }) => {
                         />
                         <div className="ml-3 sm:ml-4 space-y-1">
                           <p className="text-sm font-medium text-gray-900 dark:text-gray-200">
-                            {item.name}
+                            <Tpl text={item.name} />
                           </p>
                           <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                            {item.description}
+                            <Tpl text={item.description} />
                           </p>
                           <p className="text-xs text-gray-400 dark:text-gray-400">
-                            {item.time}
+                            <Tpl text={item.time} />
                           </p>
                         </div>
                         <span className="absolute right-1 top-1/2 transform -translate-y-1/2 w-2 h-2 rounded-full bg-blue-500"></span>

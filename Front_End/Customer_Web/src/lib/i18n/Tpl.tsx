@@ -1,0 +1,42 @@
+"use client";
+
+import React from "react";
+import { useI18n } from "./I18nProvider";
+import { tplKey } from "./tpl";
+
+/** Renders a template text in the visitor's language (see `tpl.ts`). */
+const reported = new Set<string>();
+
+/** A template text with no key in the pack is shown as written and reported once (the Admin counts it as missing, never as translated). */
+export function reportMissingTpl(text: string, locale: string) {
+  if (typeof window === "undefined" || reported.has(text) || !/\p{L}{2}/u.test(text)) return;
+  reported.add(text);
+  console.warn(`[i18n] missing template text (${locale}): ${text}`);
+}
+
+/** `quiet`: for a component that also receives texts already translated by `t()`; a miss there is not a missing template text. */
+export function Tpl({ text, quiet = false }: { text: string; quiet?: boolean }) {
+  const { t, has, locale } = useI18n();
+  const key = tplKey(text);
+  if (!has(key)) {
+    if (!quiet) reportMissingTpl(text, locale);
+    return <>{text}</>;
+  }
+  return <>{t(key)}</>;
+}
+
+/** For an attribute that needs a string (`placeholder`, `aria-label`). */
+export function useTpl() {
+  const { t, has, locale } = useI18n();
+  return (text: string) => {
+    if (has(tplKey(text))) return t(tplKey(text));
+    reportMissingTpl(text, locale);
+    return text;
+  };
+}
+
+/** Like `useTpl`, for a component that receives text that may already be translated: never reports a miss. */
+export function useQuietTpl() {
+  const { t, has } = useI18n();
+  return (text: string) => (has(tplKey(text)) ? t(tplKey(text)) : text);
+}

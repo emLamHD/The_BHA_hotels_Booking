@@ -1,0 +1,97 @@
+using System.Security.Cryptography;
+using System.Text;
+using Microsoft.AspNetCore.Cors;
+using Microsoft.AspNetCore.Mvc;
+using TheBha.Application.Website;
+using TheBha.Domain.Website;
+
+namespace TheBha.Api.Controllers;
+
+/// <summary>
+/// CUST-WEB-HEADER-001-CP02 / -C2: the public read of the website settings, called by both front ends. Anonymous,
+/// no cookie, no secret: active languages and currencies (an active currency always has a rate), the defaults, the
+/// dictionary of the chosen language and the display-price projection — never who changed what, a draft, a
+/// permission or any Staff data. <c>dictionary</c> carries a revision and an ETag and is revalidated on every
+/// request (<c>no-cache</c>), so an installed pack or an edited text is visible to the next request.
+/// </summary>
+[ApiController]
+[EnableCors("website-public")]
+[Route("api/v1/website")]
+public sealed class WebsiteController(IWebsitePublicReader reader, IWebsiteDisplayPricing pricing) : ControllerBase
+{
+    /// <summary>Active locales (each with its format locale, direction and default currency), active currencies, the defaults, and VND as the base currency.</summary>
+    [HttpGet("config")]
+    [ProducesResponseType(typeof(PublicWebsiteConfigDto), StatusCodes.Status200OK)]
+    public async Task<ActionResult<PublicWebsiteConfigDto>> Config(CancellationToken cancellationToken)
+    {
+        Response.Headers.CacheControl = "no-store";
+        return Ok(await reader.GetConfigAsync(cancellationToken));
+    }
+
+    /// <summary>
+    /// The dictionary of <c>locale</c> (<c>en</c>, <c>en-US</c>), limited to the <c>scopes</c> (comma separated:
+    /// <c>shared</c>, <c>customer</c>, <c>admin</c>, <c>content</c>; default shared, customer, content) and, when
+    /// given, the <c>content</c> keys are narrowed to those that start with one of the <c>prefix</c> values (UI scopes are never narrowed). A locale that is unsupported, disabled or not a
+    /// tag is answered with the default's dictionary and <c>isFallbackLocale: true</c>; <c>resolvedLocale</c> always says
+    /// which one was used. A text the resolved language lacks carries a fallback; the Admin never counts that as translated.
+    /// </summary>
+    [HttpGet("dictionary")]
+    [ProducesResponseType(typeof(PublicDictionaryDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status304NotModified)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult> Dictionary(
+        [FromQuery] string? locale, [FromQuery] string? scopes, [FromQuery] string[]? prefix, CancellationToken cancellationToken)
+    {
+        var wanted = (scopes ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct(StringComparer.Ordinal).ToArray();
+        if (wanted.Any(scope => !MessageScopes.IsPublic(scope)) || (prefix?.Length ?? 0) > 20 || (prefix ?? []).Any(item => item.Length > 120))
+        {
+            return Problem(statusCode: StatusCodes.Status400BadRequest, title: "Invalid dictionary request", detail: "scopes must be shared, customer, admin or content; at most 20 prefixes of at most 120 characters.");
+        }
+
+        var dictionary = await reader.GetDictionaryAsync(new PublicDictionaryQuery(locale, wanted, prefix ?? []), cancellationToken);
+        var etag = "W/\"" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+            string.Join('|', dictionary.Revision, dictionary.ResolvedLocale, string.Join(',', wanted), string.Join(',', prefix ?? []))))).ToLowerInvariant()[..24] + "\"";
+        Response.Headers.CacheControl = "no-cache";
+        Response.Headers.ETag = etag;
+        return Request.Headers.IfNoneMatch.Contains(etag) ? StatusCode(StatusCodes.Status304NotModified) : Ok(dictionary);
+    }
+
+    /// <summary>
+    /// Converts VND amounts a client already holds into the chosen currency, in exact decimal arithmetic with one rate
+    /// snapshot per request (the response says which). A read-only calculation: it changes and reads no price, hold or
+    /// reservation, which is why it needs no antiforgery token (the Next.js server calls it while rendering). A currency
+    /// that is off or has no rate is a 409, never a made-up rate.
+    /// </summary>
+    [HttpPost("display-prices")]
+    [IgnoreAntiforgeryToken]
+    [ProducesResponseType(typeof(DisplayPriceResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<ActionResult> DisplayPrices([FromBody] DisplayPriceRequest request, CancellationToken cancellationToken)
+    {
+        Response.Headers.CacheControl = "no-store";
+        var result = await pricing.QuoteAsync(request, cancellationToken);
+        return result.Status switch
+        {
+            WebsiteMutationStatus.Succeeded => Ok(result.Value),
+            WebsiteMutationStatus.Invalid => ProblemWith(StatusCodes.Status400BadRequest, "Invalid display price request", result),
+            _ => ProblemWith(StatusCodes.Status409Conflict, "Display price unavailable", result)
+        };
+    }
+
+    private ObjectResult ProblemWith<T>(int status, string title, WebsiteMutationResult<T> result)
+    {
+        var problem = new ProblemDetails { Status = status, Title = title, Detail = result.Message };
+        if (result.Code is not null)
+        {
+            problem.Extensions["code"] = result.Code;
+        }
+
+        if (result.Field is not null)
+        {
+            problem.Extensions["field"] = result.Field;
+        }
+
+        return new ObjectResult(problem) { StatusCode = status, ContentTypes = { "application/problem+json" } };
+    }
+}

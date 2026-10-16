@@ -2,6 +2,7 @@ import { TwMainColor } from "@/data/types";
 import { Route } from "@/routers/types";
 import Link from "next/link";
 import React, { FC, ReactNode } from "react";
+import { Tpl } from "@/lib/i18n/Tpl";
 
 export interface BadgeProps {
   className?: string;
@@ -63,11 +64,11 @@ const Badge: FC<BadgeProps> = ({
       href={href || ""}
       className={`transition-colors hover:text-white duration-300 ${CLASSES} ${getColorClass()}`}
     >
-      {name}
+      {typeof name === "string" ? <Tpl text={name} quiet /> : name}
     </Link>
   ) : (
     <span className={`${CLASSES} ${getColorClass(false)} ${className}`}>
-      {name}
+      {typeof name === "string" ? <Tpl text={name} quiet /> : name}
     </span>
   );
 };

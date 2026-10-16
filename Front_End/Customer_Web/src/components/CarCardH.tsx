@@ -9,6 +9,9 @@ import Avatar from "@/shared/Avatar";
 import Image from "next/image";
 import Link from "next/link";
 
+import { useT } from "@/lib/i18n/I18nProvider";
+import DemoPrice from "@/components/DemoPrice";
+import { Tpl } from "@/lib/i18n/Tpl";
 export interface CarCardHProps {
   className?: string;
   data?: CarDataType;
@@ -17,6 +20,7 @@ export interface CarCardHProps {
 const DEMO_DATA: CarDataType = DEMO_CAR_LISTINGS[0];
 
 const CarCardH: FC<CarCardHProps> = ({ className = "", data = DEMO_DATA }) => {
+  const t = useT();
   const {
     address,
     title,
@@ -55,7 +59,7 @@ const CarCardH: FC<CarCardHProps> = ({ className = "", data = DEMO_DATA }) => {
           <div className="flex items-center space-x-2">
             {isAds && <Badge name="ADS" color="green" />}
             <h2 className="text-xl font-semibold capitalize">
-              <span className="line-clamp-1">{title}</span>
+              <span className="line-clamp-1"><Tpl text={title} /></span>
             </h2>
           </div>
           <div className="flex items-center space-x-4 text-sm text-neutral-500 dark:text-neutral-400">
@@ -65,41 +69,35 @@ const CarCardH: FC<CarCardHProps> = ({ className = "", data = DEMO_DATA }) => {
               <span className="hidden sm:inline-block  text-base">
                 <i className="las la-map-marked"></i>
               </span>
-              <span className="sm:ml-2 line-clamp-1"> {address}</span>
+              <span className="sm:ml-2 line-clamp-1"> <Tpl text={address} /></span>
             </div>
           </div>
         </div>
         <div className="hidden sm:block w-14 border-b border-neutral-200/80 dark:border-neutral-700 my-4"></div>
         {/* SHOW MOBILE */}
         <div className="flex sm:hidden items-center text-sm text-neutral-500 dark:text-neutral-400 space-x-2 mt-4 sm:mt-0">
-          <span>4 seats</span>
+          <span>{t("customer.common.4Seats")}</span>
           <span>· </span>
-          <span>Auto gearbox</span>
+          <span>{t("customer.common.autoGearbox")}</span>
           <span>· </span>
-          <span>4 seats</span>
+          <span>{t("customer.common.4Seats")}</span>
         </div>
         {/* SHOW DESK */}
         <div className="hidden sm:flex items-center space-x-8">
           {/* --- */}
           <div className="flex items-center space-x-2">
             <i className="las la-user-friends text-xl"></i>
-            <span className="text-sm text-neutral-500 dark:text-neutral-400">
-              4 seats
-            </span>
+            <span className="text-sm text-neutral-500 dark:text-neutral-400">{t("customer.common.4Seats")}</span>
           </div>
           {/* --- */}
           <div className="flex items-center space-x-2">
             <i className="las la-dharmachakra text-xl"></i>
-            <span className="text-sm text-neutral-500 dark:text-neutral-400">
-              Auto gearbox
-            </span>
+            <span className="text-sm text-neutral-500 dark:text-neutral-400">{t("customer.common.autoGearbox")}</span>
           </div>
           {/* --- */}
           <div className="flex items-center space-x-2">
             <i className="las la-suitcase text-xl"></i>
-            <span className="text-sm text-neutral-500 dark:text-neutral-400">
-              2 bags
-            </span>
+            <span className="text-sm text-neutral-500 dark:text-neutral-400">{t("customer.common.2Bags")}</span>
           </div>
         </div>
 
@@ -108,16 +106,14 @@ const CarCardH: FC<CarCardHProps> = ({ className = "", data = DEMO_DATA }) => {
           <div className="flex items-center space-x-3 text-sm text-neutral-700  dark:text-neutral-300">
             <Avatar imgUrl={author.avatar} userName={author.displayName} />
             <span className="hidden sm:inline-block">
-              <span className="hidden sm:inline">Car owner </span>{" "}
-              {author.displayName}
+              <span className="hidden sm:inline">{t("customer.common.carOwner")}</span>{" "}
+              <Tpl text={author.displayName} />
             </span>
           </div>
           <span className="text-lg font-semibold text-secondary-700">
-            {price}
+            <DemoPrice value={price} />
             {` `}
-            <span className="text-sm text-neutral-500 dark:text-neutral-400 font-normal">
-              /day
-            </span>
+            <span className="text-sm text-neutral-500 dark:text-neutral-400 font-normal">{t("customer.common.day")}</span>
           </span>
         </div>
       </div>

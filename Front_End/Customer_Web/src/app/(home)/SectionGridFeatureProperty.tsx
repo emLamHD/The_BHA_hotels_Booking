@@ -10,11 +10,13 @@ import SectionGridRoomTypes from "./SectionGridRoomTypes";
 import SectionAvailabilitySearch from "./SectionAvailabilitySearch";
 import { getProperties } from "@/lib/api/propertyService";
 import { PropertyDto } from "@/lib/api/propertyTypes";
-import { ApiConfigError, ApiHttpError, ApiNetworkError } from "@/lib/api/errors";
+import { apiErrorKey } from "@/lib/api/errorMessages";
 import { isRequestCancelledError } from "@/lib/api/httpClient";
 import { SHOWCASE_SECTION_NAVIGATION_EVENT } from "@/lib/routePolicy";
 import { createAnchorAlignment } from "@/lib/anchorAlignment";
 
+import { useI18n } from "@/lib/i18n/I18nProvider";
+import { useApiMessage } from "@/lib/i18n/apiMessage";
 export interface SectionGridFeaturePropertyProps {
   className?: string;
   gridClass?: string;
@@ -28,17 +30,9 @@ const ALIGNED_SECTIONS = new Set(["catalog", "room-types", "booking"]);
 const USER_TAKEOVER_EVENTS = ["wheel", "touchstart", "keydown", "mousedown"] as const;
 const ALIGNMENT_WINDOW_MS = 5000;
 
+/** The pack key of the message for a failed load; the section translates it when it renders. */
 function describeError(error: unknown): string {
-  if (error instanceof ApiConfigError) {
-    return "The property service is not configured correctly.";
-  }
-  if (error instanceof ApiNetworkError) {
-    return "We couldn't reach the property service. Check your connection and try again.";
-  }
-  if (error instanceof ApiHttpError) {
-    return error.problem.detail ?? error.problem.title;
-  }
-  return "Something went wrong while loading properties.";
+  return apiErrorKey(error, "customer.home.sectionGridFeatureProperty.loadError");
 }
 
 const SectionGridFeatureProperty: FC<SectionGridFeaturePropertyProps> = ({
@@ -47,6 +41,8 @@ const SectionGridFeatureProperty: FC<SectionGridFeaturePropertyProps> = ({
   heading = "Featured properties",
   subHeading = "Real properties from The BHA Hotels catalog",
 }) => {
+  const { t, content } = useI18n();
+  const apiMessage = useApiMessage();
   const [status, setStatus] = useState<LoadStatus>("loading");
   const [properties, setProperties] = useState<PropertyDto[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -123,9 +119,7 @@ const SectionGridFeatureProperty: FC<SectionGridFeaturePropertyProps> = ({
           role="status"
           aria-live="polite"
           className="py-16 text-center text-neutral-500 dark:text-neutral-400"
-        >
-          Loading properties…
-        </div>
+        >{t("customer.home.sectionGridFeatureProperty.loadingProperties")}</div>
       )}
 
       {status === "error" && (
@@ -133,8 +127,8 @@ const SectionGridFeatureProperty: FC<SectionGridFeaturePropertyProps> = ({
           role="alert"
           className="py-16 flex flex-col items-center text-center space-y-4"
         >
-          <p className="text-neutral-600 dark:text-neutral-300">{errorMessage}</p>
-          <ButtonSecondary onClick={loadProperties}>Retry</ButtonSecondary>
+          <p className="text-neutral-600 dark:text-neutral-300">{errorMessage ? apiMessage(errorMessage) : null}</p>
+          <ButtonSecondary onClick={loadProperties}>{t("customer.common.retry")}</ButtonSecondary>
         </div>
       )}
 
@@ -142,9 +136,7 @@ const SectionGridFeatureProperty: FC<SectionGridFeaturePropertyProps> = ({
         <div
           role="status"
           className="py-16 text-center text-neutral-500 dark:text-neutral-400"
-        >
-          No properties are available right now.
-        </div>
+        >{t("customer.home.sectionGridFeatureProperty.noPropertiesAreAvailableRight")}</div>
       )}
 
       {ready && (
@@ -163,8 +155,8 @@ const SectionGridFeatureProperty: FC<SectionGridFeaturePropertyProps> = ({
           .filter((property) => selectGalleryImages(property.media).length > 1)
           .map((property) => (
             <div key={`gallery-${property.id}`} className="mt-8">
-              <h3 className="mb-3 text-lg font-medium">Hình ảnh {property.name ?? "chỗ nghỉ"}</h3>
-              <MediaGallery media={property.media} name={property.name ?? "Property"} aspectClass="aspect-[16/9]" />
+              <h3 className="mb-3 text-lg font-medium">{t("customer.home.sectionGridFeatureProperty.images")}{" "}{content("property", property.id, "name", property.name ?? t("customer.search.propertyFallback"))}</h3>
+              <MediaGallery media={property.media} name={content("property", property.id, "name", property.name ?? t("customer.search.propertyFallback"))} aspectClass="aspect-[16/9]" />
             </div>
           ))}
 
@@ -175,7 +167,7 @@ const SectionGridFeatureProperty: FC<SectionGridFeaturePropertyProps> = ({
         {ready ? (
           <SectionGridRoomTypes properties={properties} />
         ) : (
-          <PendingNote status={status} what="Loại phòng" />
+          <PendingNote status={status} what={t("customer.home.pending.roomTypes")} />
         )}
       </div>
 
@@ -183,7 +175,7 @@ const SectionGridFeatureProperty: FC<SectionGridFeaturePropertyProps> = ({
         {ready ? (
           <SectionAvailabilitySearch properties={properties} />
         ) : (
-          <PendingNote status={status} what="Tìm phòng trống" />
+          <PendingNote status={status} what={t("customer.home.pending.availability")} />
         )}
       </div>
     </div>
@@ -191,15 +183,19 @@ const SectionGridFeatureProperty: FC<SectionGridFeaturePropertyProps> = ({
 };
 
 /** What the room-type and booking areas say until the catalog is usable. */
-const PendingNote: FC<{ status: LoadStatus; what: string }> = ({ status, what }) => (
+const PendingNote: FC<{ status: LoadStatus; what: string }> = ({ status, what }) => {
+  const { t, content } = useI18n();
+  const apiMessage = useApiMessage();
+  return (
   <div role="status" className="rounded-2xl border border-dashed border-neutral-300 px-4 py-10 text-center text-sm text-neutral-500 dark:border-neutral-700 dark:text-neutral-400">
     <p className="mb-1 font-medium text-neutral-700 dark:text-neutral-200">{what}</p>
     {status === "loading"
-      ? "Đang tải danh sách chỗ nghỉ — phần này sẽ hiện ngay khi tải xong."
+      ? t("customer.home.pending.loading")
       : status === "error"
-        ? "Chưa tải được danh sách chỗ nghỉ. Bấm Retry ở mục Chỗ nghỉ phía trên để thử lại."
-        : "Hiện chưa có chỗ nghỉ nào để đặt."}
+        ? t("customer.home.pending.error")
+        : t("customer.home.pending.empty")}
   </div>
-);
+  );
+};
 
 export default SectionGridFeatureProperty;

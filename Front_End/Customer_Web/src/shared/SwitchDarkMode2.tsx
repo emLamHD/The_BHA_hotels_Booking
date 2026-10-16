@@ -4,6 +4,7 @@ import { useThemeMode } from "@/utils/useThemeMode";
 import { Switch } from "@headlessui/react";
 import React from "react";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface SwitchDarkMode2Props {
   className?: string;
 }
@@ -12,6 +13,7 @@ export interface SwitchDarkMode2Props {
 const SwitchDarkMode2: React.FC<SwitchDarkMode2Props> = ({
   className = "",
 }) => {
+  const t = useT();
   const { _toogleDarkMode, isDarkMode } = useThemeMode();
 
   return (
@@ -22,7 +24,7 @@ const SwitchDarkMode2: React.FC<SwitchDarkMode2Props> = ({
         className={`${isDarkMode ? "bg-teal-900" : "bg-teal-600"}
           relative inline-flex h-[22px] w-[42px] shrink-0 cursor-pointer rounded-full border-4 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-opacity-75`}
       >
-        <span className="sr-only">Chế độ tối</span>
+        <span className="sr-only">{t("customer.common.darkMode")}</span>
         <span
           aria-hidden="true"
           className={`${isDarkMode ? "translate-x-5" : "translate-x-0"}

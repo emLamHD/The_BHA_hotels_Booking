@@ -11,11 +11,13 @@ import TabFilters from "./TabFilters";
 import Heading2 from "@/shared/Heading2";
 import PropertyCardH from "@/components/PropertyCardH";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 const DEMO_EXPERIENCES = DEMO_STAY_LISTINGS.filter((_, i) => i < 12);
 
 export interface SectionGridHasMapProps {}
 
 const SectionGridHasMap: FC<SectionGridHasMapProps> = () => {
+  const t = useT();
   const [currentHoverID, setCurrentHoverID] = useState<string | number>(-1);
   const [showFullMapFixed, setShowFullMapFixed] = useState(false);
 
@@ -25,14 +27,9 @@ const SectionGridHasMap: FC<SectionGridHasMapProps> = () => {
         {/* CARDSSSS */}
         <div className="min-h-screen w-full xl:w-[780px] 2xl:w-[880px] flex-shrink-0 xl:px-8 ">
           <Heading2
-            heading="Experiences in Tokyo"
+            heading={t("customer.common.experiencesInTokyo")}
             subHeading={
-              <span className="block text-neutral-500 dark:text-neutral-400 mt-3">
-                233 experiences
-                <span className="mx-2">·</span>
-                Aug 12 - 18
-                <span className="mx-2">·</span>2 Guests
-              </span>
+              <span className="block text-neutral-500 dark:text-neutral-400 mt-3">{t("customer.common.233Experiences")}<span className="mx-2">·</span>{t("customer.common.aug1218")}<span className="mx-2">·</span>{t("customer.common.2Guests")}</span>
             }
           />
           <div className="mb-8 lg:mb-11">
@@ -59,7 +56,7 @@ const SectionGridHasMap: FC<SectionGridHasMapProps> = () => {
           onClick={() => setShowFullMapFixed(true)}
         >
           <i className="text-lg las la-map"></i>
-          <span>Show map</span>
+          <span>{t("customer.common.showMap")}</span>
         </div>
 
         {/* MAPPPPP */}
@@ -80,7 +77,7 @@ const SectionGridHasMap: FC<SectionGridHasMapProps> = () => {
               <Checkbox
                 className="text-xs xl:text-sm text-neutral-800"
                 name="xx"
-                label="Search as I move the map"
+                label={t("customer.common.searchAsIMoveThe")}
               />
             </div>
             {/* BELLOW IS MY GOOGLE API KEY -- PLEASE DELETE AND TYPE YOUR API KEY */}

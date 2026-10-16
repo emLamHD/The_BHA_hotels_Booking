@@ -4,9 +4,11 @@ import React, { FC, useState } from "react";
 import LocationInput from "../LocationInput";
 import RentalCarDatesRangeInput from "./RentalCarDatesRangeInput";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface RentalCarSearchFormProps {}
 
 const RentalCarSearchForm: FC<RentalCarSearchFormProps> = ({}) => {
+  const t = useT();
   const [dropOffLocationType, setDropOffLocationType] = useState<
     "same" | "different"
   >("different");
@@ -21,9 +23,7 @@ const RentalCarSearchForm: FC<RentalCarSearchFormProps> = ({}) => {
               : "border border-neutral-300 dark:border-neutral-700"
           }`}
           onClick={(e) => setDropOffLocationType("different")}
-        >
-          Different drop off
-        </div>
+        >{t("customer.common.differentDropOff")}</div>
         <div
           className={`py-1.5 px-4 flex items-center rounded-full font-medium text-xs cursor-pointer mr-2 my-1 sm:mr-3 ${
             dropOffLocationType === "same"
@@ -31,9 +31,7 @@ const RentalCarSearchForm: FC<RentalCarSearchFormProps> = ({}) => {
               : "border border-neutral-300 dark:border-neutral-700"
           }`}
           onClick={(e) => setDropOffLocationType("same")}
-        >
-          Same drop off
-        </div>
+        >{t("customer.common.sameDropOff")}</div>
       </div>
     );
   };
@@ -46,7 +44,7 @@ const RentalCarSearchForm: FC<RentalCarSearchFormProps> = ({}) => {
       <div className={`relative flex flex-row`}>
         <LocationInput
           placeHolder="City or Airport"
-          desc="Pick up location"
+          desc={t("customer.common.pickUpLocation")}
           className="flex-1"
         />
         {isDdropOffdifferent && (
@@ -54,7 +52,7 @@ const RentalCarSearchForm: FC<RentalCarSearchFormProps> = ({}) => {
             <div className="self-center border-r border-slate-200 dark:border-slate-700 h-8"></div>
             <LocationInput
               placeHolder="City or Airport"
-              desc="Drop off location"
+              desc={t("customer.common.dropOffLocation")}
               className="flex-1"
               divHideVerticalLineClass="-inset-x-0.5"
             />

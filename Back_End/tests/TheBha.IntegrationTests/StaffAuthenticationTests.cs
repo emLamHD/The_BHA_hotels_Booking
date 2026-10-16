@@ -1024,7 +1024,9 @@ public sealed class StaffAuthenticationTests(PostgreSqlWebApplicationFactory fac
         }
 
         var root = JsonDocument.Parse(body).RootElement;
-        Assert.Equal(["staffAccountId", "email", "memberships"], root.EnumerateObject().Select(property => property.Name).ToArray());
+        // CUST-WEB-HEADER-001-CP02 added `permissions`: the global permissions the database grants (none here).
+        Assert.Equal(["staffAccountId", "email", "memberships", "permissions"], root.EnumerateObject().Select(property => property.Name).ToArray());
+        Assert.Empty(root.GetProperty("permissions").EnumerateArray());
         Assert.Equal(staff.Id, root.GetProperty("staffAccountId").GetGuid());
         Assert.Equal(Email, root.GetProperty("email").GetString());
         var memberships = root.GetProperty("memberships").EnumerateArray().ToArray();

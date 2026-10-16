@@ -5,7 +5,9 @@ import ButtonPrimary from "@/shared/ButtonPrimary";
 import { AvailabilityOfferDto } from "@/lib/api/availabilityTypes";
 import { selectCoverImage } from "@/lib/api/propertyPresentation";
 import { coverHasFailed } from "@/lib/api/mediaPresentation";
-import { formatCurrencyAmount } from "@/lib/api/availabilityPresentation";
+import PriceBreakdown from "@/components/PriceBreakdown";
+import { useDateFormat } from "@/lib/i18n/dates";
+import { useI18n } from "@/lib/i18n/I18nProvider";
 
 export interface AvailabilityOfferCardProps {
   className?: string;
@@ -25,11 +27,13 @@ const AvailabilityOfferCard: FC<AvailabilityOfferCardProps> = ({
   holdDisabled = false,
   hideMedia = false,
 }) => {
+  const { t, content } = useI18n();
+  const dates = useDateFormat();
   // The URL that failed, not a flag: a different cover is never judged by an old failure.
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const coverImage = selectCoverImage(data.media);
   const useApiImage = !coverHasFailed(coverImage, failedUrl);
-  const roomTypeName = data.roomTypeName ?? "Room type";
+  const roomTypeName = content("roomType", data.roomTypeId, "name", data.roomTypeName ?? t("customer.booking.offer.roomTypeFallback"));
   const nightlyRates = data.nightlyRates ?? [];
 
   return (
@@ -45,7 +49,7 @@ const AvailabilityOfferCard: FC<AvailabilityOfferCardProps> = ({
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={coverImage!.url!}
-            alt={coverImage!.altText ?? `${roomTypeName} photo`}
+            alt={coverImage!.altText ?? t("customer.booking.offer.photoAlt", { name: roomTypeName })}
             className="absolute inset-0 w-full h-full object-cover"
             loading="lazy"
             onError={() => setFailedUrl(coverImage!.url)}
@@ -53,7 +57,7 @@ const AvailabilityOfferCard: FC<AvailabilityOfferCardProps> = ({
         ) : (
           // CUST-WEB-SHOWCASE-001-CP01: no bundled template bitmap without rights evidence.
           <div className="absolute inset-0 flex items-center justify-center p-4 text-center text-xs text-neutral-500 dark:text-neutral-400">
-            Ảnh đang được cập nhật
+            {t("customer.booking.offer.photoPending")}
           </div>
         )}
       </div>
@@ -66,42 +70,32 @@ const AvailabilityOfferCard: FC<AvailabilityOfferCardProps> = ({
 
         {data.roomTypeDescription && (
           <p className="text-sm text-neutral-500 dark:text-neutral-400 line-clamp-2">
-            {data.roomTypeDescription}
+            {content("roomType", data.roomTypeId, "description", data.roomTypeDescription)}
           </p>
         )}
 
         <div className="text-xs font-medium text-neutral-600 dark:text-neutral-300">
-          {data.ratePlanName ?? "Rate plan"}
+          {content("ratePlan", data.ratePlanId, "name", data.ratePlanName ?? t("customer.booking.offer.ratePlanFallback"))}
         </div>
 
         <div className="text-xs text-neutral-500 dark:text-neutral-400">
-          {data.checkIn} → {data.checkOut} · {data.nights} night
-          {data.nights === 1 ? "" : "s"}
+          {dates.stayDate(data.checkIn)} → {dates.stayDate(data.checkOut)} · {t("customer.booking.nights", { nights: data.nights })}
         </div>
 
         <div className="text-xs text-neutral-500 dark:text-neutral-400">
-          Requested {data.requestedRooms} room{data.requestedRooms === 1 ? "" : "s"} ·{" "}
-          {data.availableRooms} available
+          {t("customer.booking.offer.requestedAvailable", { rooms: data.requestedRooms, available: data.availableRooms })}
         </div>
-
-        {nightlyRates.length > 0 && (
-          <ul className="text-xs text-neutral-500 dark:text-neutral-400 divide-y divide-neutral-100 dark:divide-neutral-800">
-            {nightlyRates.map((rate) => (
-              <li key={rate.stayDate} className="flex justify-between gap-4 py-1">
-                <span>{rate.stayDate}</span>
-                <span>{formatCurrencyAmount(rate.amount, data.currencyCode)}</span>
-              </li>
-            ))}
-          </ul>
-        )}
 
         <div className="w-14 border-b border-neutral-200/80 dark:border-neutral-700"></div>
 
-        <div className="flex justify-between items-center">
-          <span className="text-sm text-neutral-500 dark:text-neutral-400">Total</span>
-          <span className="text-base font-semibold text-secondary-500">
-            {formatCurrencyAmount(data.totalAmount, data.currencyCode)}
-          </span>
+        <div className="text-xs text-neutral-500 dark:text-neutral-400">
+          <PriceBreakdown
+            rows={nightlyRates.map((rate) => ({ key: rate.stayDate, label: dates.stayDate(rate.stayDate), amount: rate.amount }))}
+            totalAmount={data.totalAmount}
+            currencyCode={data.currencyCode}
+            totalLabel={<span className="text-sm">{t("customer.booking.offer.total")}</span>}
+            totalClassName="mt-2 flex justify-between items-center"
+          />
         </div>
 
         {onHold && (
@@ -111,7 +105,7 @@ const AvailabilityOfferCard: FC<AvailabilityOfferCardProps> = ({
             disabled={holdDisabled}
             onClick={onHold}
           >
-            Hold this room
+            {t("customer.booking.offer.holdThisRoom")}
           </ButtonPrimary>
         )}
       </div>

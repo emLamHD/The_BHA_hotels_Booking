@@ -2,16 +2,19 @@ import { ChevronLeftIcon, ChevronRightIcon } from "@heroicons/react/24/outline";
 import React from "react";
 import { ReactDatePickerCustomHeaderProps } from "react-datepicker";
 
+import { useI18n, useT } from "@/lib/i18n/I18nProvider";
 const DatePickerCustomHeaderTwoMonth = ({
   monthDate,
   customHeaderCount,
   decreaseMonth,
   increaseMonth,
 }: ReactDatePickerCustomHeaderProps) => {
+  const t = useT();
+  const { formatLocale } = useI18n();
   return (
     <div>
       <button
-        aria-label="Previous Month"
+        aria-label={t("customer.datePickerCustomHeaderTwoMonth.previousMonth")}
         className={
           "react-datepicker__navigation react-datepicker__navigation--previous absolute -top-1 left-0 flex items-center justify-center p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"
         }
@@ -24,13 +27,13 @@ const DatePickerCustomHeaderTwoMonth = ({
         </span>
       </button>
       <span className="react-datepicker__current-month">
-        {monthDate.toLocaleString("en-US", {
+        {monthDate.toLocaleString(formatLocale, {
           month: "long",
           year: "numeric",
         })}
       </span>
       <button
-        aria-label="Next Month"
+        aria-label={t("customer.datePickerCustomHeaderTwoMonth.nextMonth")}
         className="react-datepicker__navigation react-datepicker__navigation--next absolute -top-1 -right-0 flex items-center justify-center p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full"
         style={customHeaderCount === 0 ? { visibility: "hidden" } : {}}
         type="button"

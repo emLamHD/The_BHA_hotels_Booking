@@ -82,6 +82,7 @@ function toProblemDetails(status: number, data: unknown): ProblemDetails {
       status: typeof data.status === "number" ? data.status : status,
       detail: typeof data.detail === "string" ? data.detail : undefined,
       instance: typeof data.instance === "string" ? data.instance : undefined,
+      code: typeof data.code === "string" ? data.code : undefined,
     };
   }
 

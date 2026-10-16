@@ -5,6 +5,8 @@ import Checkbox from "@/shared/Checkbox";
 import { ClassOfProperties } from "../../type";
 import { HomeIcon } from "@heroicons/react/24/outline";
 
+import { useT } from "@/lib/i18n/I18nProvider";
+import { Tpl } from "@/lib/i18n/Tpl";
 const defaultPropertyType: ClassOfProperties[] = [
   {
     name: "Duplex House",
@@ -38,6 +40,7 @@ const PropertyTypeSelect: FC<PropertyTypeSelectProps> = ({
   onChange,
   fieldClassName = "[ nc-hero-field-padding ]",
 }) => {
+  const t = useT();
   const [typeOfProperty, setTypeOfProperty] =
     React.useState<ClassOfProperties[]>(defaultPropertyType);
 
@@ -66,12 +69,10 @@ const PropertyTypeSelect: FC<PropertyTypeSelectProps> = ({
             <div className="flex-1">
               <span className="block xl:text-lg font-semibold overflow-hidden">
                 <span className="line-clamp-1">
-                  {typeOfPropertyText || `Type`}
+                  {typeOfPropertyText ? <Tpl text={typeOfPropertyText} /> : <Tpl text="Type" />}
                 </span>
               </span>
-              <span className="block mt-1 text-sm text-neutral-400 leading-none font-light ">
-                Property type
-              </span>
+              <span className="block mt-1 text-sm text-neutral-400 leading-none font-light ">{t("customer.heroSearchForm.realEstateSearchForm.propertyTypeSelect.propertyType")}</span>
             </div>
           </Popover.Button>
 

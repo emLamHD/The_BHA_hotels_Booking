@@ -14,6 +14,7 @@ import {
 } from "@/lib/stayListingQuery";
 import type { AvailabilityDraft } from "@/lib/api/availabilityValidation";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface SectionGridFilterCardProps {
   className?: string;
 }
@@ -25,6 +26,7 @@ export interface SectionGridFilterCardProps {
  * listings, filter tabs and pagination are gone from this page; nothing here holds a room.
  */
 const SectionGridFilterCard: FC<SectionGridFilterCardProps> = ({ className = "" }) => {
+  const t = useT();
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryString = searchParams?.toString() ?? "";
@@ -48,10 +50,8 @@ const SectionGridFilterCard: FC<SectionGridFilterCardProps> = ({ className = "" 
   return (
     <div className={`nc-SectionGridFilterCard relative ${className}`} data-nc-id="SectionGridFilterCard">
       <div className="mb-8 lg:mb-10">
-        <h1 className="text-4xl font-semibold">Tìm phòng tại The BHA</h1>
-        <span className="mt-3 block text-neutral-500 dark:text-neutral-400">
-          Chọn ngày và số khách để xem loại phòng còn trống và giá. Kết quả chưa giữ phòng.
-        </span>
+        <h1 className="text-4xl font-semibold">{t("customer.stayListings.sectionGridFilterCard.findARoomAtThe")}</h1>
+        <span className="mt-3 block text-neutral-500 dark:text-neutral-400">{t("customer.stayListings.sectionGridFilterCard.chooseYourDatesAndGuests")}</span>
       </div>
 
       <div className="mb-8 lg:mb-11">

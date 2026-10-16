@@ -20,6 +20,7 @@ import { AuthPresentationView, CustomerSessionNotice, useAuthCommand } from "@/c
 import { describeAuthEntry } from "@/lib/customerAuthUi";
 import { ACCOUNT_PATH } from "@/lib/riversideHomeContent";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 interface Props {
   className?: string;
   /** Where the panel hangs from the button. The far-right instance of a narrow header passes `right-0`. */
@@ -42,12 +43,13 @@ const ICON_CLASS = "flex items-center justify-center flex-shrink-0 text-neutral-
  * When logout removes the focused button, focus stays on the account button, so Esc still closes the menu.
  */
 export default function AvatarDropdown({ className = "", panelClassName = "-right-10 sm:right-0" }: Props) {
+  const t = useT();
   const { state, identityChange, guardedLogout } = useCustomerSession();
   const logout = useAuthCommand("logout");
   const pathname = usePathname();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const email = state.status === "authenticated" ? state.customer.email : null;
-  const entry = describeAuthEntry(state.status, identityChange.phase, email);
+  const entry = describeAuthEntry(state.status, identityChange.phase, email, t);
 
   return (
     <>
@@ -95,7 +97,7 @@ export default function AvatarDropdown({ className = "", panelClassName = "-righ
                       )}
                       <div className="min-w-0 flex-grow">
                         <h4 className="font-semibold">
-                          {email || state.status === "anonymous" ? "Tài khoản" : "Phiên đăng nhập"}
+                          {email || state.status === "anonymous" ? t("customer.auth.entry.account") : t("customer.auth.entry.session")}
                         </h4>
                         {email ? (
                           <p className="text-xs mt-0.5 break-all" title={email}>
@@ -103,9 +105,7 @@ export default function AvatarDropdown({ className = "", panelClassName = "-righ
                           </p>
                         ) : (
                           state.status === "anonymous" && (
-                            <p className="text-xs mt-0.5">
-                              Bạn chưa đăng nhập. Bạn vẫn có thể đặt phòng không cần tài khoản.
-                            </p>
+                            <p className="text-xs mt-0.5">{t("customer.header.avatarDropdown.youAreNotSignedIn")}</p>
                           )
                         )}
                       </div>
@@ -122,7 +122,7 @@ export default function AvatarDropdown({ className = "", panelClassName = "-righ
                           <UserCircleIcon className="h-6 w-6" aria-hidden="true" />
                         </div>
                         <div className="ml-4">
-                          <p className="text-sm font-medium ">{"Đăng nhập"}</p>
+                          <p className="text-sm font-medium ">{t("customer.header.avatarDropdown.signIn")}</p>
                         </div>
                       </Link>
                     )}
@@ -133,7 +133,7 @@ export default function AvatarDropdown({ className = "", panelClassName = "-righ
                           <UserPlusIcon className="h-6 w-6" aria-hidden="true" />
                         </div>
                         <div className="ml-4">
-                          <p className="text-sm font-medium ">{"Tạo tài khoản"}</p>
+                          <p className="text-sm font-medium ">{t("customer.common.createAccount")}</p>
                         </div>
                       </Link>
                     )}
@@ -143,7 +143,7 @@ export default function AvatarDropdown({ className = "", panelClassName = "-righ
                         <UserCircleIcon className="h-6 w-6" aria-hidden="true" />
                       </div>
                       <div className="ml-4">
-                        <p className="text-sm font-medium ">{"Tài khoản của tôi"}</p>
+                        <p className="text-sm font-medium ">{t("customer.header.avatarDropdown.myAccount")}</p>
                       </div>
                     </Link>
 
@@ -152,8 +152,8 @@ export default function AvatarDropdown({ className = "", panelClassName = "-righ
                         <CalendarDaysIcon className="h-6 w-6" aria-hidden="true" />
                       </div>
                       <div className="ml-4">
-                        <p className="text-sm font-medium ">{"Đặt phòng của tôi"}</p>
-                        <p className="text-xs text-neutral-500 dark:text-neutral-400">{"Chưa hỗ trợ"}</p>
+                        <p className="text-sm font-medium ">{t("customer.header.avatarDropdown.myBookings")}</p>
+                        <p className="text-xs text-neutral-500 dark:text-neutral-400">{t("customer.header.avatarDropdown.notAvailableYet")}</p>
                       </div>
                     </div>
 
@@ -162,8 +162,8 @@ export default function AvatarDropdown({ className = "", panelClassName = "-righ
                         <HeartIcon className="h-6 w-6" aria-hidden="true" />
                       </div>
                       <div className="ml-4">
-                        <p className="text-sm font-medium ">{"Danh sách yêu thích"}</p>
-                        <p className="text-xs text-neutral-500 dark:text-neutral-400">{"Chưa hỗ trợ"}</p>
+                        <p className="text-sm font-medium ">{t("customer.header.avatarDropdown.wishlist")}</p>
+                        <p className="text-xs text-neutral-500 dark:text-neutral-400">{t("customer.header.avatarDropdown.notAvailableYet")}</p>
                       </div>
                     </Link>
 
@@ -174,7 +174,7 @@ export default function AvatarDropdown({ className = "", panelClassName = "-righ
                         </div>
                         <div className="ml-4">
                           <p className="text-sm font-medium " aria-hidden="true">
-                            {"Chế độ tối"}
+                            {t("customer.common.darkMode")}
                           </p>
                         </div>
                       </div>
@@ -197,7 +197,7 @@ export default function AvatarDropdown({ className = "", panelClassName = "-righ
                           <ArrowRightOnRectangleIcon className="h-6 w-6" aria-hidden="true" />
                         </div>
                         <div className="ml-4">
-                          <p className="text-sm font-medium ">{logout.working ? "Đang đăng xuất…" : "Đăng xuất"}</p>
+                          <p className="text-sm font-medium ">{logout.working ? t("customer.auth.entry.signingOut") : t("customer.auth.entry.signOut")}</p>
                         </div>
                       </button>
                     )}

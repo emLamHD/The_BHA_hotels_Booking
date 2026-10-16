@@ -4,6 +4,7 @@ import NcInputNumber from "@/components/NcInputNumber";
 import { FC } from "react";
 import { GuestsObject } from "../type";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 /** CP02-C3: the live party (adults, children, rooms) owned by the shared stay search draft. */
 export interface LiveMobileGuests {
   adults: number;
@@ -25,6 +26,7 @@ const GuestsInput: FC<GuestsInputProps> = ({
   className = "",
   live,
 }) => {
+  const t = useT();
   const [guestAdultsInputValue, setGuestAdultsInputValue] = useState(
     defaultValue?.guestAdults || 0
   );
@@ -69,23 +71,23 @@ const GuestsInput: FC<GuestsInputProps> = ({
   if (live) {
     return (
       <div className={`flex flex-col relative p-5 ${className}`}>
-        <span className="mb-5 block font-semibold text-xl sm:text-2xl">{`Who's coming?`}</span>
+        <span className="mb-5 block font-semibold text-xl sm:text-2xl">{t("customer.heroSearchForm2Mobile.guestsInput.whoSComing")}</span>
         <NcInputNumber
           className="w-full"
           value={live.adults}
           onChange={(value) => live.onChange({ adults: value })}
           max={10}
           min={1}
-          label="Adults"
-          desc="Ages 13 or above"
+          label={t("customer.common.adults")}
+          desc={t("customer.common.ages13OrAbove")}
         />
         <NcInputNumber
           className="w-full mt-6"
           value={live.children}
           onChange={(value) => live.onChange({ children: value })}
           max={4}
-          label="Children"
-          desc="Ages 2–12"
+          label={t("customer.common.children")}
+          desc={t("customer.common.ages212")}
         />
         <NcInputNumber
           className="w-full mt-6"
@@ -93,12 +95,10 @@ const GuestsInput: FC<GuestsInputProps> = ({
           onChange={(value) => live.onChange({ rooms: value })}
           max={10}
           min={1}
-          label="Rooms"
-          desc="Number of apartments"
+          label={t("customer.heroSearchForm2Mobile.guestsInput.rooms")}
+          desc={t("customer.heroSearchForm2Mobile.guestsInput.numberOfApartments")}
         />
-        <p className="mt-5 text-xs text-neutral-500 dark:text-neutral-400">
-          Trẻ dưới 2 tuổi chưa có lựa chọn riêng khi đặt phòng.
-        </p>
+        <p className="mt-5 text-xs text-neutral-500 dark:text-neutral-400">{t("customer.common.childrenUnder2HaveNo")}</p>
       </div>
     );
   }
@@ -106,23 +106,23 @@ const GuestsInput: FC<GuestsInputProps> = ({
   return (
     <div className={`flex flex-col relative p-5 ${className}`}>
       <span className="mb-5 block font-semibold text-xl sm:text-2xl">
-        {`Who's coming?`}
+        {t("customer.heroSearchForm2Mobile.guestsInput.whoSComing")}
       </span>
       <NcInputNumber
         className="w-full"
         defaultValue={guestAdultsInputValue}
         onChange={(value) => handleChangeData(value, "guestAdults")}
         max={20}
-        label="Adults"
-        desc="Ages 13 or above"
+        label={t("customer.common.adults")}
+        desc={t("customer.common.ages13OrAbove")}
       />
       <NcInputNumber
         className="w-full mt-6"
         defaultValue={guestChildrenInputValue}
         onChange={(value) => handleChangeData(value, "guestChildren")}
         max={20}
-        label="Children"
-        desc="Ages 2–12"
+        label={t("customer.common.children")}
+        desc={t("customer.common.ages212")}
       />
 
       <NcInputNumber
@@ -130,8 +130,8 @@ const GuestsInput: FC<GuestsInputProps> = ({
         defaultValue={guestInfantsInputValue}
         onChange={(value) => handleChangeData(value, "guestInfants")}
         max={20}
-        label="Infants"
-        desc="Ages 0–2"
+        label={t("customer.common.infants")}
+        desc={t("customer.common.ages02")}
       />
     </div>
   );

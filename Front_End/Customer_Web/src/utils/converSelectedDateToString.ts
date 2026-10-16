@@ -1,14 +1,14 @@
 import { DateRage } from "@/app/(client-components)/type";
 
-const converSelectedDateToString = ([startDate, endDate]: DateRage) => {
+const converSelectedDateToString = ([startDate, endDate]: DateRage, locale: string = "en-US") => {
   const dateString =
-    (startDate?.toLocaleDateString("en-US", {
+    (startDate?.toLocaleDateString(locale, {
       month: "short",
       day: "2-digit",
     }) || "") +
     (endDate
       ? " - " +
-        endDate?.toLocaleDateString("en-US", {
+        endDate?.toLocaleDateString(locale, {
           month: "short",
           day: "2-digit",
         })

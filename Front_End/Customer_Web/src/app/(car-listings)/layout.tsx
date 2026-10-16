@@ -7,7 +7,9 @@ import SectionSliderNewCategories from "@/components/SectionSliderNewCategories"
 import SectionSubscribe2 from "@/components/SectionSubscribe2";
 import SectionGridAuthorBox from "@/components/SectionGridAuthorBox";
 
-const Layout = ({ children }: { children: ReactNode }) => {
+import { getT } from "@/lib/i18n/server";
+const Layout = async ({ children }: { children: ReactNode }) => {
+  const t = await getT();
   return (
     <div className={`nc-ListingCarMapPage relative `}>
       <BgGlassmorphism />
@@ -21,7 +23,7 @@ const Layout = ({ children }: { children: ReactNode }) => {
           listingType={
             <>
               <i className="text-2xl las la-car"></i>
-              <span className="ml-2.5">1512 cars</span>
+              <span className="ml-2.5">{t("customer.carListings.layout.1512Cars")}</span>
             </>
           }
         />
@@ -35,7 +37,7 @@ const Layout = ({ children }: { children: ReactNode }) => {
         <div className="relative py-16">
           <BackgroundSection />
           <SectionSliderNewCategories
-            heading="Explore by types of stays"
+            heading={t("customer.common.exploreByTypesOfStays")}
             subHeading="Explore houses based on 10 types of stays"
             categoryCardType="card5"
             itemPerRow={5}

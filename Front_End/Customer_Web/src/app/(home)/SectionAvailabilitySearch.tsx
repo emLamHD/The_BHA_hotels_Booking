@@ -19,12 +19,11 @@ import { bookingFlowRoomTypeId, filterOffersForRoomType, sameId } from "@/lib/ro
 import StayDatesRangeInput from "@/app/(listing-detail)/listing-stay-detail/StayDatesRangeInput";
 import RoomGuestsInput from "@/app/(listing-detail)/listing-stay-detail/GuestsInput";
 import { dateToIso, isoToDate, todayLocal } from "@/lib/staySearch";
-import {
-  ApiConfigError,
-  ApiHttpError,
-  ApiNetworkError,
-  ApiValidationError,
-} from "@/lib/api/errors";
+import { apiErrorKey } from "@/lib/api/errorMessages";
+import { useApiMessage } from "@/lib/i18n/apiMessage";
+import { useDateFormat } from "@/lib/i18n/dates";
+import { useI18n } from "@/lib/i18n/I18nProvider";
+import { partyLine } from "@/lib/i18n/party";
 import { isRequestCancelledError } from "@/lib/api/httpClient";
 
 export interface SectionAvailabilitySearchProps {
@@ -63,21 +62,9 @@ function localDateIso(offsetDays: number): string {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
+/** The pack key of the message for a failed search; the form translates it when it renders. */
 function describeError(error: unknown): string {
-  if (error instanceof ApiConfigError) {
-    return "The availability service is not configured correctly.";
-  }
-  if (error instanceof ApiNetworkError) {
-    return "We couldn't reach the availability service. Check your connection and try again.";
-  }
-  if (error instanceof ApiValidationError) {
-    const firstFieldMessage = Object.values(error.errors).flat()[0];
-    return firstFieldMessage ?? error.problem.detail ?? error.problem.title;
-  }
-  if (error instanceof ApiHttpError) {
-    return error.problem.detail ?? error.problem.title;
-  }
-  return "Something went wrong while searching availability.";
+  return apiErrorKey(error, "customer.search.genericError");
 }
 
 const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
@@ -87,6 +74,9 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
   initialDraft,
   autoSearch = false,
 }) => {
+  const { t, content } = useI18n();
+  const dates = useDateFormat();
+  const apiMessage = useApiMessage();
   const compact = !!lockedRoomType;
   const lockedRoomTypeId = lockedRoomType?.id;
   const [propertyId, setPropertyId] = useState<string>(properties[0]?.id ?? "");
@@ -220,7 +210,7 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
       setFieldErrors,
       runSearch: (query) => {
         const property = properties.find((item) => item.id === propertyId);
-        runSearch(propertyId, query, property?.name ?? "Property");
+        runSearch(propertyId, query, property?.name ?? t("customer.search.propertyFallback"));
       },
     });
   };
@@ -248,7 +238,11 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
         children: submittedQuery.children,
         rooms: submittedQuery.rooms,
       },
-      `${offer.roomTypeName ?? "Room type"} · ${offer.ratePlanName ?? "Rate plan"} at ${submittedQuery.propertyName}`
+      t("customer.search.offerLabel", {
+        room: content("roomType", offer.roomTypeId, "name", offer.roomTypeName ?? t("customer.booking.offer.roomTypeFallback")),
+        rate: content("ratePlan", offer.ratePlanId, "name", offer.ratePlanName ?? t("customer.booking.offer.ratePlanFallback")),
+        property: content("property", submittedQuery.propertyId, "name", submittedQuery.propertyName),
+      })
     );
   };
 
@@ -307,12 +301,12 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
       </div>
       {(fieldErrors.checkIn || fieldErrors.checkOut || fieldErrors.adults || fieldErrors.children || fieldErrors.rooms) && (
         <p role="alert" className="text-xs text-red-600 dark:text-red-400">
-          {fieldErrors.checkIn ?? fieldErrors.checkOut ?? fieldErrors.adults ?? fieldErrors.children ?? fieldErrors.rooms}
+          {apiMessage(fieldErrors.checkIn ?? fieldErrors.checkOut ?? fieldErrors.adults ?? fieldErrors.children ?? fieldErrors.rooms ?? "")}
         </p>
       )}
       <div>
         <ButtonPrimary type="submit" className="w-full" disabled={flowLocked}>
-          Search availability
+          {t("customer.search.submit")}
         </ButtonPrimary>
       </div>
     </form>
@@ -321,8 +315,8 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
   return (
     <div className={`nc-SectionAvailabilitySearch relative ${className}`}>
       {!compact && (
-        <Heading desc="Search real stay offers with live nightly rates and inventory">
-          Check availability
+        <Heading desc={t("customer.search.description")}>
+          {t("customer.search.heading")}
         </Heading>
       )}
 
@@ -343,7 +337,7 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
                 htmlFor="availability-property"
                 className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1"
               >
-                Property
+                {t("customer.search.property")}
               </label>
               <Select
                 id="availability-property"
@@ -353,7 +347,7 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
               >
                 {properties.map((property) => (
                   <option key={property.id} value={property.id}>
-                    {property.name ?? "Property"}
+                    {content("property", property.id, "name", property.name ?? t("customer.search.propertyFallback"))}
                   </option>
                 ))}
               </Select>
@@ -365,7 +359,7 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
               htmlFor="availability-checkin"
               className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1"
             >
-              Check-in
+              {t("customer.room.checkIn")}
             </label>
             <Input
               id="availability-checkin"
@@ -394,7 +388,7 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
               htmlFor="availability-checkout"
               className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1"
             >
-              Check-out
+              {t("customer.room.checkOut")}
             </label>
             <Input
               id="availability-checkout"
@@ -413,7 +407,7 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
                 role="alert"
                 className="mt-1 text-xs text-red-600 dark:text-red-400"
               >
-                {fieldErrors.checkOut}
+                {apiMessage(fieldErrors.checkOut)}
               </p>
             )}
           </div>
@@ -423,7 +417,7 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
               htmlFor="availability-adults"
               className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1"
             >
-              Adults
+              {t("customer.search.adults")}
             </label>
             <Input
               id="availability-adults"
@@ -445,7 +439,7 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
                 role="alert"
                 className="mt-1 text-xs text-red-600 dark:text-red-400"
               >
-                {fieldErrors.adults}
+                {apiMessage(fieldErrors.adults)}
               </p>
             )}
           </div>
@@ -455,7 +449,7 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
               htmlFor="availability-children"
               className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1"
             >
-              Children
+              {t("customer.search.children")}
             </label>
             <Input
               id="availability-children"
@@ -477,7 +471,7 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
                 role="alert"
                 className="mt-1 text-xs text-red-600 dark:text-red-400"
               >
-                {fieldErrors.children}
+                {apiMessage(fieldErrors.children)}
               </p>
             )}
           </div>
@@ -487,7 +481,7 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
               htmlFor="availability-rooms"
               className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1"
             >
-              Rooms
+              {t("customer.search.rooms")}
             </label>
             <Input
               id="availability-rooms"
@@ -510,7 +504,7 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
                 role="alert"
                 className="mt-1 text-xs text-red-600 dark:text-red-400"
               >
-                {fieldErrors.rooms}
+                {apiMessage(fieldErrors.rooms)}
               </p>
             )}
           </div>
@@ -518,7 +512,7 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
 
         <div>
           <ButtonPrimary type="submit" disabled={flowLocked}>
-            Search availability
+            {t("customer.search.submit")}
           </ButtonPrimary>
         </div>
       </form>
@@ -527,7 +521,7 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
       <div className={compact ? "mt-6" : "mt-8"}>
         {status === "initial" && (
           <p className="text-sm text-neutral-500 dark:text-neutral-400">
-            Enter your dates and guests, then search to see real stay offers.
+            {t("customer.search.initial")}
           </p>
         )}
 
@@ -537,7 +531,7 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
             aria-live="polite"
             className="py-10 text-center text-neutral-500 dark:text-neutral-400"
           >
-            Searching availability…
+            {t("customer.search.loading")}
           </div>
         )}
 
@@ -546,9 +540,9 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
             role="alert"
             className="py-10 flex flex-col items-center text-center space-y-4"
           >
-            <p className="text-neutral-600 dark:text-neutral-300">{errorMessage}</p>
+            <p className="text-neutral-600 dark:text-neutral-300">{apiMessage(errorMessage ?? "")}</p>
             <ButtonSecondary onClick={handleRetryLastSearch} disabled={flowLocked}>
-              Retry last search
+              {t("customer.search.retry")}
             </ButtonSecondary>
           </div>
         )}
@@ -558,18 +552,28 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
             role="status"
             className="py-10 text-center text-neutral-500 dark:text-neutral-400"
           >
-            No offers{lockedRoomType ? ` for ${lockedRoomType.name}` : ""} matched {submittedQuery.checkIn} →{" "}
-            {submittedQuery.checkOut} for {submittedQuery.adults} adult(s), {submittedQuery.children}{" "}
-            child(ren), {submittedQuery.rooms} room(s) at {submittedQuery.propertyName}.
+            {lockedRoomType
+              ? t("customer.search.emptyRoom", {
+                  room: content("roomType", lockedRoomType.id, "name", lockedRoomType.name),
+                  property: content("property", submittedQuery.propertyId, "name", submittedQuery.propertyName),
+                  summary: partyLine(t, dates, submittedQuery),
+                })
+              : t("customer.search.empty", {
+                  property: content("property", submittedQuery.propertyId, "name", submittedQuery.propertyName),
+                  summary: partyLine(t, dates, submittedQuery),
+                })}
           </div>
         )}
 
         {status === "success" && submittedQuery && (
           <>
             <p className="text-sm text-neutral-500 dark:text-neutral-400 mb-4">
-              Showing offers for {lockedRoomType?.name ?? submittedQuery.propertyName}: {submittedQuery.checkIn} →{" "}
-              {submittedQuery.checkOut} · {submittedQuery.adults} adult(s),{" "}
-              {submittedQuery.children} child(ren) · {submittedQuery.rooms} room(s)
+              {t("customer.search.showing", {
+                name: lockedRoomType
+                  ? content("roomType", lockedRoomType.id, "name", lockedRoomType.name)
+                  : content("property", submittedQuery.propertyId, "name", submittedQuery.propertyName),
+                summary: partyLine(t, dates, submittedQuery),
+              })}
             </p>
             <div
               className={

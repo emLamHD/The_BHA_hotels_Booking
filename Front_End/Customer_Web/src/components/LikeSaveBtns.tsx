@@ -2,6 +2,7 @@
 
 import React, { FC, useEffect, useState } from "react";
 
+import { useT } from "@/lib/i18n/I18nProvider";
 export interface LikeSaveBtnsProps {
   /** Public address to share (identity and search only — never a token or contact). */
   shareUrl?: string;
@@ -40,6 +41,7 @@ const BUTTON =
  * — no account, no wishlist backend — and says so.
  */
 const LikeSaveBtns: FC<LikeSaveBtnsProps> = ({ shareUrl, shareTitle, saveKey }) => {
+  const t = useT();
   const [saved, setSaved] = useState(false);
   const [feedback, setFeedback] = useState("");
 
@@ -52,14 +54,14 @@ const LikeSaveBtns: FC<LikeSaveBtnsProps> = ({ shareUrl, shareTitle, saveKey }) 
     try {
       if (typeof navigator.share === "function") {
         await navigator.share({ url, title: shareTitle });
-        setFeedback("Đã mở chia sẻ");
+        setFeedback(t("customer.like.shared"));
         return;
       }
       await navigator.clipboard.writeText(url);
-      setFeedback("Đã sao chép liên kết");
+      setFeedback(t("customer.like.copied"));
     } catch {
       // a dismissed share sheet is not an error worth reporting; a failed copy is
-      if (typeof navigator.share !== "function") setFeedback("Không sao chép được liên kết");
+      if (typeof navigator.share !== "function") setFeedback(t("customer.like.copyFailed"));
     }
   };
 
@@ -67,7 +69,7 @@ const LikeSaveBtns: FC<LikeSaveBtnsProps> = ({ shareUrl, shareTitle, saveKey }) 
     const next = !saved;
     setSaved(next);
     writeSaved(saveKey, next);
-    setFeedback(next ? "Đã lưu trên thiết bị này" : "Đã bỏ lưu");
+    setFeedback(next ? t("customer.like.saved") : t("customer.like.unsaved"));
   };
 
   return (
@@ -88,7 +90,7 @@ const LikeSaveBtns: FC<LikeSaveBtnsProps> = ({ shareUrl, shareTitle, saveKey }) 
               d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
             />
           </svg>
-          <span className="hidden sm:block ml-2.5">Share</span>
+          <span className="hidden sm:block ml-2.5">{t("customer.likeSaveBtns.share")}</span>
         </button>
         <button type="button" onClick={toggleSave} aria-pressed={saved} className={BUTTON}>
           <svg
@@ -105,7 +107,7 @@ const LikeSaveBtns: FC<LikeSaveBtnsProps> = ({ shareUrl, shareTitle, saveKey }) 
               d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
             />
           </svg>
-          <span className="hidden sm:block ml-2.5">{saved ? "Saved" : "Save"}</span>
+          <span className="hidden sm:block ml-2.5">{saved ? t("customer.like.savedLabel") : t("customer.common.save")}</span>
         </button>
       </div>
       <span role="status" aria-live="polite" className="sr-only">

@@ -14,6 +14,8 @@ import { LangCurrencyTabs } from "@/app/(client-components)/(Header)/LangDropdow
 import { RIVERSIDE_ADDRESS, RIVERSIDE_NAME } from "@/lib/riversideHomeContent";
 import { HEADER_FONT, NAV_SUB_TEXT } from "@/shared/headerTypography";
 
+import { useT } from "@/lib/i18n/I18nProvider";
+import { Tpl } from "@/lib/i18n/Tpl";
 export interface NavMobileProps {
   data?: NavItemType[];
   onClickClose?: () => void;
@@ -34,13 +36,14 @@ const TOGGLE_CLASS =
  * button are not part of it.
  */
 const NavMobile: React.FC<NavMobileProps> = ({ data = NAVIGATION_BHA, onClickClose }) => {
+  const t = useT();
   const renderNode = (item: NavItemType, depth: number): React.ReactNode => {
     const cls = depth === 0 ? ITEM_CLASS : CHILD_CLASS;
     if (!item.children || item.children.length === 0) {
       return (
         <li key={item.id}>
           <Link href={item.href as Route} className={cls} onClick={onClickClose}>
-            {item.name}
+            <Tpl text={item.name} />
           </Link>
         </li>
       );
@@ -51,9 +54,9 @@ const NavMobile: React.FC<NavMobileProps> = ({ data = NAVIGATION_BHA, onClickClo
           <>
             <div className="flex items-center">
               <Link href={item.href as Route} className={cls} onClick={onClickClose}>
-                {item.name}
+                <Tpl text={item.name} />
               </Link>
-              <Disclosure.Button aria-label={`${open ? "Thu gọn" : "Mở rộng"} ${item.name}`} className={TOGGLE_CLASS}>
+              <Disclosure.Button aria-label={t(open ? "customer.menu.collapse" : "customer.menu.expand", { name: item.name })} className={TOGGLE_CLASS}>
                 <ChevronDownIcon className={`h-5 w-5 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true" />
               </Disclosure.Button>
             </div>
@@ -80,10 +83,9 @@ const NavMobile: React.FC<NavMobileProps> = ({ data = NAVIGATION_BHA, onClickClo
           </div>
         </div>
         <p className="mt-5 text-sm text-neutral-700 dark:text-neutral-300">
-          {RIVERSIDE_NAME} — căn hộ lưu trú tại {RIVERSIDE_ADDRESS}. Đặt phòng trực tiếp ngay trên trang.
-        </p>
+          {t("customer.shared.navigation.navMobile.servicedApartmentsAtBookDirect", { RIVERSIDENAME: RIVERSIDE_NAME, RIVERSIDEADDRESS: RIVERSIDE_ADDRESS })}</p>
       </div>
-      <nav aria-label="Menu" className="px-2 py-4">
+      <nav aria-label={t("customer.shared.navigation.navMobile.menu")} className="px-2 py-4">
         <ul className="flex flex-col space-y-1">{data.map((item) => renderNode(item, 0))}</ul>
       </nav>
       <div className="px-2 py-4">
@@ -92,7 +94,7 @@ const NavMobile: React.FC<NavMobileProps> = ({ data = NAVIGATION_BHA, onClickClo
             <>
               <Disclosure.Button className="flex w-full items-center rounded-lg px-4 py-3 text-left text-base font-medium text-neutral-900 hover:bg-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:text-white dark:hover:bg-neutral-800">
                 <GlobeAltIcon className="mr-3 h-5 w-5 text-neutral-500" aria-hidden="true" />
-                <span className="flex-1">Ngôn ngữ và tiền tệ</span>
+                <span className="flex-1">{t("customer.shared.navigation.navMobile.languageAndCurrency")}</span>
                 <ChevronDownIcon className={`h-5 w-5 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true" />
               </Disclosure.Button>
               <Disclosure.Panel className="px-2 pb-4 pt-2">

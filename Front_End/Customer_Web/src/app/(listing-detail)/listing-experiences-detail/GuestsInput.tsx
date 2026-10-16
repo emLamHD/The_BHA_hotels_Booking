@@ -7,11 +7,14 @@ import { UserPlusIcon } from "@heroicons/react/24/outline";
 import ClearDataButton from "@/app/(client-components)/(HeroSearchForm)/ClearDataButton";
 import { GuestsObject } from "@/app/(client-components)/type";
 
+import { useT } from "@/lib/i18n/I18nProvider";
+import { Tpl } from "@/lib/i18n/Tpl";
 export interface GuestsInputProps {
   className?: string;
 }
 
 const GuestsInput: FC<GuestsInputProps> = ({ className = "flex-1" }) => {
+  const t = useT();
   const [guestAdultsInputValue, setGuestAdultsInputValue] = useState(2);
   const [guestChildrenInputValue, setGuestChildrenInputValue] = useState(1);
   const [guestInfantsInputValue, setGuestInfantsInputValue] = useState(1);
@@ -56,10 +59,9 @@ const GuestsInput: FC<GuestsInputProps> = ({ className = "flex-1" }) => {
               </div>
               <div className="flex-grow">
                 <span className="block xl:text-lg font-semibold">
-                  {totalGuests || ""} Guests
-                </span>
+                  {totalGuests || ""}{" "}{t("customer.listingDetail.listingExperiencesDetail.guestsInput.guests")}</span>
                 <span className="block mt-1 text-sm text-neutral-400 leading-none font-light">
-                  {totalGuests ? "Guests" : "Add guests"}
+                  <Tpl text={totalGuests ? "Guests" : "Add guests"} />
                 </span>
               </div>
 
@@ -91,16 +93,16 @@ const GuestsInput: FC<GuestsInputProps> = ({ className = "flex-1" }) => {
                 onChange={(value) => handleChangeData(value, "guestAdults")}
                 max={10}
                 min={1}
-                label="Adults"
-                desc="Ages 13 or above"
+                label={t("customer.common.adults2")}
+                desc={t("customer.common.ages13OrAbove2")}
               />
               <NcInputNumber
                 className="w-full mt-6"
                 defaultValue={guestChildrenInputValue}
                 onChange={(value) => handleChangeData(value, "guestChildren")}
                 max={4}
-                label="Children"
-                desc="Ages 2–12"
+                label={t("customer.common.children2")}
+                desc={t("customer.common.ages2122")}
               />
 
               <NcInputNumber
@@ -108,8 +110,8 @@ const GuestsInput: FC<GuestsInputProps> = ({ className = "flex-1" }) => {
                 defaultValue={guestInfantsInputValue}
                 onChange={(value) => handleChangeData(value, "guestInfants")}
                 max={4}
-                label="Infants"
-                desc="Ages 0–2"
+                label={t("customer.listingDetail.listingExperiencesDetail.guestsInput.infants")}
+                desc={t("customer.listingDetail.listingExperiencesDetail.guestsInput.ages02")}
               />
             </Popover.Panel>
           </Transition>

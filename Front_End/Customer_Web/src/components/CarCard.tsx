@@ -1,3 +1,5 @@
+"use client";
+
 import React, { FC } from "react";
 import { DEMO_CAR_LISTINGS } from "@/data/listings";
 import { CarDataType } from "@/data/types";
@@ -8,6 +10,9 @@ import Badge from "@/shared/Badge";
 import Image from "next/image";
 import Link from "next/link";
 
+import { useT } from "@/lib/i18n/I18nProvider";
+import DemoPrice from "@/components/DemoPrice";
+import { Tpl } from "@/lib/i18n/Tpl";
 export interface CarCardProps {
   className?: string;
   data?: CarDataType;
@@ -21,6 +26,7 @@ const CarCard: FC<CarCardProps> = ({
   className = "",
   data = DEMO_DATA,
 }) => {
+  const t = useT();
   const {
     featuredImage,
     title,
@@ -42,7 +48,7 @@ const CarCard: FC<CarCardProps> = ({
           <Image
             fill
             src={featuredImage}
-            alt="car"
+            alt={t("customer.carCard.car")}
             sizes="(max-width: 640px) 100vw, 350px"
           />
         </div>
@@ -65,24 +71,22 @@ const CarCard: FC<CarCardProps> = ({
                   : "text-base font-medium"
               }`}
             >
-              <span className="line-clamp-1">{title}</span>
+              <span className="line-clamp-1"><Tpl text={title} /></span>
             </h2>
           </div>
           <div className="flex items-center text-neutral-500 dark:text-neutral-400 text-sm space-x-2">
-            <span className="">{seats} seats</span>
+            <span className="">{t("customer.carCard.seats", { seats })}</span>
             <span>-</span>
-            <span className="">{gearshift} </span>
+            <span className=""><Tpl text={gearshift} /> </span>
           </div>
         </div>
         <div className="w-14  border-b border-neutral-100 dark:border-neutral-800"></div>
         <div className="flex justify-between items-center">
           <span className="text-base font-semibold">
-            {price}
+            <DemoPrice value={price} />
             {` `}
             {size === "default" && (
-              <span className="text-sm text-neutral-500 dark:text-neutral-400 font-normal">
-                /day
-              </span>
+              <span className="text-sm text-neutral-500 dark:text-neutral-400 font-normal">{t("customer.common.day")}</span>
             )}
           </span>
           <StartRating reviewCount={reviewCount} point={reviewStart} />

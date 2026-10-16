@@ -8,6 +8,8 @@ import { useRef } from "react";
 import useOutsideAlerter from "@/hooks/useOutsideAlerter";
 import { MapPinIcon } from "@heroicons/react/24/outline";
 
+import { useT } from "@/lib/i18n/I18nProvider";
+import { useQuietTpl } from "@/lib/i18n/Tpl";
 export interface LocationInputProps {
   onInputDone?: (value: string) => void;
   placeHolder?: string;
@@ -25,6 +27,8 @@ const LocationInput: FC<LocationInputProps> = ({
   className = "nc-flex-1.5",
   divHideVerticalLineClass = "left-10 -right-0.5",
 }) => {
+  const t = useT();
+  const tp = useQuietTpl();
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -59,9 +63,7 @@ const LocationInput: FC<LocationInputProps> = ({
   const renderRecentSearches = () => {
     return (
       <>
-        <h3 className="block mt-2 sm:mt-0 px-4 sm:px-8 font-semibold text-base text-neutral-800 dark:text-neutral-100">
-          Recent searches
-        </h3>
+        <h3 className="block mt-2 sm:mt-0 px-4 sm:px-8 font-semibold text-base text-neutral-800 dark:text-neutral-100">{t("customer.common.recentSearches")}</h3>
         <div className="mt-2">
           {[
             "Hamptons, Suffolk County, NY",
@@ -124,14 +126,14 @@ const LocationInput: FC<LocationInputProps> = ({
         <div className="flex-1">
           <input
             className={`block w-full bg-transparent border-none focus:ring-0 p-0 focus:outline-none focus:placeholder-neutral-400 xl:text-base font-semibold placeholder-neutral-800 dark:placeholder-neutral-200 truncate`}
-            placeholder={placeHolder}
+            placeholder={tp(placeHolder)}
             value={value}
             autoFocus={showPopover}
             onChange={(e) => setValue(e.currentTarget.value)}
             ref={inputRef}
           />
           <span className="block mt-0.5 text-sm text-neutral-400 font-light ">
-            <span className="line-clamp-1">{!!value ? placeHolder : desc}</span>
+            <span className="line-clamp-1">{!!value ? tp(placeHolder) : tp(desc)}</span>
           </span>
           {value && showPopover && (
             <ClearDataButton onClick={() => setValue("")} />

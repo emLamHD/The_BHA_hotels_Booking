@@ -7,7 +7,9 @@ import ShowcaseNavLink from "@/components/ShowcaseNavLink";
 import { getProperties } from "@/lib/api/propertyService";
 import { getRoomTypes } from "@/lib/api/roomTypeService";
 import { PropertyDto, RoomTypeDto } from "@/lib/api/propertyTypes";
-import { ApiConfigError, ApiHttpError, ApiNetworkError } from "@/lib/api/errors";
+import { apiErrorKey } from "@/lib/api/errorMessages";
+import { useApiMessage } from "@/lib/i18n/apiMessage";
+import { useI18n } from "@/lib/i18n/I18nProvider";
 import { isRequestCancelledError } from "@/lib/api/httpClient";
 import {
   RoomIdentity,
@@ -19,14 +21,6 @@ import { parseSearchQuery } from "@/lib/staySearch";
 import type { AvailabilityDraft } from "@/lib/api/availabilityValidation";
 import RoomDetailsContent from "./RoomDetailsContent";
 
-function describeError(error: unknown, what: string): string {
-  if (error instanceof ApiConfigError) return `Dịch vụ ${what} chưa được cấu hình đúng.`;
-  if (error instanceof ApiNetworkError) {
-    return `Không kết nối được tới dịch vụ ${what}. Kiểm tra kết nối rồi thử lại.`;
-  }
-  if (error instanceof ApiHttpError) return error.problem.detail ?? error.problem.title;
-  return `Đã có lỗi khi tải ${what}.`;
-}
 
 const Message: FC<{ role: "status" | "alert"; title: string; children?: ReactNode }> = ({ role, title, children }) => (
   <div role={role} className="mx-auto flex max-w-xl flex-col items-center space-y-4 py-24 text-center">
@@ -35,14 +29,17 @@ const Message: FC<{ role: "status" | "alert"; title: string; children?: ReactNod
   </div>
 );
 
-const BackToRooms: FC = () => (
+const BackToRooms: FC = () => {
+  const { t } = useI18n();
+  return (
   <ShowcaseNavLink
     section="rooms"
     className="inline-flex items-center justify-center rounded-full bg-primary-6000 px-6 py-3 font-medium text-neutral-50 hover:bg-primary-700"
   >
-    Xem các loại phòng
+    {t("customer.room.viewRooms")}
   </ShowcaseNavLink>
-);
+  );
+};
 
 /**
  * Reads and validates the room identity from the URL, then mounts the loader keyed by that identity,
@@ -51,20 +48,22 @@ const BackToRooms: FC = () => (
  */
 const RoomDetailsRoot: FC = () => {
   const searchParams = useSearchParams();
+  const { t, content } = useI18n();
+  const apiMessage = useApiMessage();
   const parsed = parseRoomDetailsQuery(searchParams);
 
   if (parsed.kind === "missing") {
     return (
-      <Message role="status" title="Chưa chọn phòng">
-        <p>Hãy chọn một loại phòng ở trang chủ để xem chi tiết và đặt phòng.</p>
+      <Message role="status" title={t("customer.room.notChosen.title")}>
+        <p>{t("customer.room.notChosen.body")}</p>
         <BackToRooms />
       </Message>
     );
   }
   if (parsed.kind === "invalid") {
     return (
-      <Message role="alert" title="Liên kết phòng không hợp lệ">
-        <p>Địa chỉ này không xác định được một loại phòng. Hãy mở lại từ danh sách phòng.</p>
+      <Message role="alert" title={t("customer.room.invalidLink.title")}>
+        <p>{t("customer.room.invalidLink.body")}</p>
         <BackToRooms />
       </Message>
     );
@@ -90,6 +89,8 @@ type Loaded =
   | { kind: "ready"; property: PropertyDto; roomType: RoomTypeDto; roomTypes: RoomTypeDto[] };
 
 const RoomDetailsLoader: FC<{ ids: RoomIdentity; searchDraft: AvailabilityDraft | null }> = ({ ids, searchDraft }) => {
+  const { t, content } = useI18n();
+  const apiMessage = useApiMessage();
   const [loaded, setLoaded] = useState<Loaded>({ kind: "loading" });
   const request = useRef<AbortController | null>(null);
 
@@ -113,9 +114,12 @@ const RoomDetailsLoader: FC<{ ids: RoomIdentity; searchDraft: AvailabilityDraft 
       setLoaded(roomType ? { kind: "ready", property, roomType, roomTypes } : { kind: "unknown-room-type", property });
     })().catch((error) => {
       if (isRequestCancelledError(error) || controller.signal.aborted) return;
-      setLoaded({ kind: "error", message: describeError(error, "phòng") });
+      setLoaded({ kind: "error", message: apiErrorKey(error, "customer.room.loadError.generic") });
     });
-  }, [ids]);
+    // A language/currency switch re-renders this with an equal-but-new `ids` object: reloading would unmount the hold form and
+    // lose what the guest typed. The load is keyed by the two ids only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ids.propertyId, ids.roomTypeId]);
 
   useEffect(() => {
     load();
@@ -126,27 +130,27 @@ const RoomDetailsLoader: FC<{ ids: RoomIdentity; searchDraft: AvailabilityDraft 
     case "loading":
       return (
         <div role="status" aria-live="polite" className="py-24 text-center text-neutral-500 dark:text-neutral-400">
-          Đang tải phòng…
+          {t("customer.room.loading")}
         </div>
       );
     case "error":
       return (
-        <Message role="alert" title="Chưa tải được phòng">
-          <p>{loaded.message}</p>
-          <ButtonSecondary onClick={load}>Thử lại</ButtonSecondary>
+        <Message role="alert" title={t("customer.room.loadError.title")}>
+          <p>{apiMessage(loaded.message)}</p>
+          <ButtonSecondary onClick={load}>{t("customer.common.retry")}</ButtonSecondary>
         </Message>
       );
     case "unknown-property":
       return (
-        <Message role="alert" title="Không tìm thấy chỗ nghỉ">
-          <p>Chỗ nghỉ trong liên kết này không có trong hệ thống đặt phòng.</p>
+        <Message role="alert" title={t("customer.room.unknownProperty.title")}>
+          <p>{t("customer.room.unknownProperty.body")}</p>
           <BackToRooms />
         </Message>
       );
     case "unknown-room-type":
       return (
-        <Message role="alert" title="Không tìm thấy loại phòng">
-          <p>Loại phòng này không thuộc {loaded.property.name ?? "chỗ nghỉ"} hoặc không còn mở đặt.</p>
+        <Message role="alert" title={t("customer.room.unknownRoomType.title")}>
+          <p>{t("customer.room.unknownRoomType.body", { property: content("property", loaded.property.id, "name", loaded.property.name ?? t("customer.room.propertyFallback")) })}</p>
           <BackToRooms />
         </Message>
       );

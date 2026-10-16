@@ -12,6 +12,9 @@ import { OPEN_SEARCH_EVENT, draftPatchFromListingQuery, summarizeDraft } from "@
 import { LISTING_STAY_PATH, parseStayListingQuery } from "@/lib/stayListingQuery";
 import { initialStayDraft } from "@/lib/staySearch";
 
+import { useApiMessage } from "@/lib/i18n/apiMessage";
+import { useT } from "@/lib/i18n/I18nProvider";
+import { Tpl } from "@/lib/i18n/Tpl";
 /**
  * The compact search of every header under `lg` (and of the room page, where the app bar is hidden).
  * CUST-WEB-001-CP08a: it is the live Riverside search only — the template's Experiences/Cars/Flights tabs
@@ -21,6 +24,8 @@ import { initialStayDraft } from "@/lib/staySearch";
  * page's valid Riverside search into the draft, which stays a draft until Search.
  */
 const HeroSearchForm2Mobile = () => {
+  const t = useT();
+  const apiMessage = useApiMessage();
   const [showModal, setShowModal] = useState(false);
   const stay = useStaySearch();
   const problemRef = useRef<HTMLParagraphElement>(null);
@@ -63,7 +68,7 @@ const HeroSearchForm2Mobile = () => {
   }, [problemId, showModal]);
 
   if (!stay) return null;
-  const summary = summarizeDraft(stay.draft);
+  const summary = summarizeDraft(stay.draft, t);
 
   const renderButtonOpenModal = () => {
     return (
@@ -71,15 +76,15 @@ const HeroSearchForm2Mobile = () => {
         type="button"
         ref={triggerRef}
         onClick={openModal}
-        aria-label="Tìm phòng"
+        aria-label={t("customer.common.findARoom")}
         className="relative flex items-center w-full border border-neutral-200 dark:border-neutral-6000 px-4 py-2 pr-11 rounded-full shadow-lg"
       >
         <MagnifyingGlassIcon className="flex-shrink-0 w-5 h-5" />
 
         <div className="ml-3 flex-1 text-left overflow-hidden">
-          <span className="block font-medium text-sm line-clamp-1">{summary.title}</span>
+          <span className="block font-medium text-sm line-clamp-1"><Tpl text={summary.title} quiet /></span>
           <span className="block mt-0.5 text-xs font-light text-neutral-500 dark:text-neutral-400 ">
-            <span className="line-clamp-1">{summary.subtitle}</span>
+            <span className="line-clamp-1"><Tpl text={summary.subtitle} quiet /></span>
           </span>
         </div>
 
@@ -127,14 +132,12 @@ const HeroSearchForm2Mobile = () => {
                   {showDialog && (
                     <>
                       <div className="absolute left-4 top-4">
-                        <button type="button" aria-label="Đóng" onClick={closeModal}>
+                        <button type="button" aria-label={t("customer.heroSearchForm2Mobile.heroSearchForm2Mobile.close")} onClick={closeModal}>
                           <XMarkIcon className="w-5 h-5 text-black dark:text-white" />
                         </button>
                       </div>
 
-                      <Dialog.Title className="pt-12 text-center font-semibold text-base text-black dark:text-white">
-                        Tìm phòng tại The BHA Riverside
-                      </Dialog.Title>
+                      <Dialog.Title className="pt-12 text-center font-semibold text-base text-black dark:text-white">{t("customer.heroSearchForm2Mobile.heroSearchForm2Mobile.findARoomAtThe")}</Dialog.Title>
                       <div className="flex-1 pt-3 px-1.5 sm:px-4 flex overflow-hidden">
                         <div className="flex-1 overflow-y-auto hiddenScrollbar py-4">
                           <div className="transition-opacity animate-[myblur_0.4s_ease-in-out]">
@@ -150,7 +153,7 @@ const HeroSearchForm2Mobile = () => {
                           tabIndex={-1}
                           className="px-4 py-2 text-sm text-red-600 bg-white focus:outline-none dark:bg-neutral-900 dark:text-red-400"
                         >
-                          {stay.problem.message}
+                          {apiMessage(stay.problem.message)}
                         </p>
                       )}
                       <div className="px-4 py-3 bg-white dark:bg-neutral-900 border-t border-neutral-200 dark:border-neutral-700 flex justify-between">
@@ -162,11 +165,9 @@ const HeroSearchForm2Mobile = () => {
                             setShowDialog(false);
                             resetIsShowingDialog();
                           }}
-                        >
-                          Xoá tất cả
-                        </button>
+                        >{t("customer.heroSearchForm2Mobile.heroSearchForm2Mobile.clearAll")}</button>
                         <ButtonSubmit
-                          label="Tìm phòng"
+                          label={t("customer.common.findARoom")}
                           onClick={() => {
                             // An incomplete search keeps the modal open and says why; a valid one starts
                             // exactly one navigation and the modal closes.

@@ -5,12 +5,12 @@ import { Popover, Transition } from "@headlessui/react";
 import { CalendarIcon } from "@heroicons/react/24/outline";
 import DatePickerCustomHeaderTwoMonth from "@/components/DatePickerCustomHeaderTwoMonth";
 import DatePickerCustomDay from "@/components/DatePickerCustomDay";
-import DatePicker from "react-datepicker";
+import DatePicker from "@/components/LocalizedDatePicker";
 import ClearDataButton from "../ClearDataButton";
+import { useI18n } from "@/lib/i18n/I18nProvider";
 
-/** "10/11": the picked day as a Vietnamese guest reads it, whatever the browser's own date format is. */
-const dayMonthLabel = (date: Date) =>
-  `${String(date.getDate()).padStart(2, "0")}/${String(date.getMonth() + 1).padStart(2, "0")}`;
+/** "10 Nov" / "10/11": the picked day in the visitor's own format (month names from `Intl`, not from a table in code). */
+const dayMonthLabel = (date: Date, locale: string) => new Intl.DateTimeFormat(locale, { day: "numeric", month: "short" }).format(date);
 
 export interface StayDatesRangeInputProps {
   className?: string;
@@ -36,6 +36,7 @@ const StayDatesRangeInput: FC<StayDatesRangeInputProps> = ({
   minDate,
   disabled,
 }) => {
+  const { t, formatLocale } = useI18n();
   const [ownStart, setStartDate] = useState<Date | null>(null);
   const [ownEnd, setEndDate] = useState<Date | null>(null);
   const controlled = !!onDatesChange;
@@ -63,18 +64,18 @@ const StayDatesRangeInput: FC<StayDatesRangeInputProps> = ({
           <span className="block xl:text-lg font-semibold">
             {(startDate &&
               (controlled
-                ? dayMonthLabel(startDate)
-                : startDate.toLocaleDateString("en-US", { month: "short", day: "2-digit" }))) ||
-              (controlled ? "Thêm ngày" : "Add dates")}
+                ? dayMonthLabel(startDate, formatLocale)
+                : startDate.toLocaleDateString(formatLocale, { month: "short", day: "2-digit" }))) ||
+              t("customer.search.dates.add")}
             {endDate
               ? " - " +
                 (controlled
-                  ? dayMonthLabel(endDate)
-                  : endDate.toLocaleDateString("en-US", { month: "short", day: "2-digit" }))
+                  ? dayMonthLabel(endDate, formatLocale)
+                  : endDate.toLocaleDateString(formatLocale, { month: "short", day: "2-digit" }))
               : ""}
           </span>
           <span className="block mt-1 text-sm text-neutral-400 leading-none font-light">
-            {controlled ? "Nhận phòng - Trả phòng" : "Check in - Check out"}
+            {t("customer.search.dates.label")}
           </span>
         </div>
       </>
