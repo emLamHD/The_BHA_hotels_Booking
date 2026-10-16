@@ -4,7 +4,7 @@ import { renderWithI18n } from "@/lib/i18n/testkit";
 import { MenuContext } from "@/lib/menus/MenuProvider";
 import type { MenuNode, MenuSnapshot } from "@/lib/menus/menu";
 import NavMobile from "@/shared/Navigation/NavMobile";
-import { PrimaryNav, SecondaryNav, fitCount } from "./MenuNav";
+import { PrimaryNav, SecondaryNav, fitCount, isCurrentPage } from "./MenuNav";
 
 // The logo is a statically imported picture, which this node-only test setup cannot resolve; nothing here is about it.
 vi.mock("@/shared/Logo", () => ({ default: () => null }));
@@ -122,5 +122,17 @@ describe("the main row fits itself to the room it has", () => {
     const html = render(menu([node("1", "Một", "/1"), node("2", "Hai", "/2"), node("3", "Ba", "/3")]), React.createElement(PrimaryNav));
     for (const label of ["Một", "Hai", "Ba"]) expect(html).toContain(label);
     expect(html).not.toContain("···");
+  });
+});
+
+describe("the page being shown is marked in a dropdown", () => {
+  it("an internal link is current when its path is the page's; a query-filtered or external link never is", () => {
+    expect(isCurrentPage("/blog", "/blog")).toBe(true);
+    expect(isCurrentPage("/blog#top", "/blog")).toBe(true);
+    expect(isCurrentPage("/blog?category=tin-du-lich", "/blog")).toBe(false);   // a filtered view is not "the blog"
+    expect(isCurrentPage("/faq", "/blog")).toBe(false);
+    expect(isCurrentPage("https://example.com/blog", "/blog")).toBe(false);
+    expect(isCurrentPage("#faq", "/blog")).toBe(false);
+    expect(isCurrentPage("/blog", null)).toBe(false);
   });
 });

@@ -1,10 +1,11 @@
 "use client";
 
 import { Popover, Transition } from "@headlessui/react";
-import { ChevronDownIcon } from "@heroicons/react/24/solid";
+import { ArrowTopRightOnSquareIcon, ChevronDownIcon } from "@heroicons/react/24/solid";
 import Link from "next/link";
 import type { Route } from "next";
 import React, { Fragment, useCallback, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { usePathname } from "next/navigation";
 import { useT } from "@/lib/i18n/I18nProvider";
 import { isExternalHref, type MenuNode } from "@/lib/menus/menu";
 import { useMenu } from "@/lib/menus/MenuProvider";
@@ -18,20 +19,20 @@ import { NAV_MAIN_ITEM, NAV_MAIN_SPLIT_LEFT, NAV_SUB_TEXT } from "@/shared/heade
  * (with the full text as the tooltip) rather than allowed to push the header's controls off the screen.
  */
 
-export function MenuLink({ node, className, onClick, children }: { node: MenuNode; className?: string; onClick?: () => void; children?: ReactNode }) {
+export function MenuLink({ node, className, onClick, children, current }: { node: MenuNode; className?: string; onClick?: () => void; children?: ReactNode; current?: boolean }) {
   const external = isExternalHref(node.href);
   const target = node.newTab ? "_blank" : undefined;
   const rel = node.newTab || external ? "noopener noreferrer" : undefined;
   const content = children ?? node.label;
   if (external || node.href.startsWith("#")) {
     return (
-      <a href={node.href} target={target} rel={rel} className={className} onClick={onClick} title={node.label}>
+      <a href={node.href} target={target} rel={rel} className={className} onClick={onClick} title={node.label} aria-current={current ? "page" : undefined}>
         {content}
       </a>
     );
   }
   return (
-    <Link href={node.href as Route} target={target} rel={rel} className={className} onClick={onClick} title={node.label}>
+    <Link href={node.href as Route} target={target} rel={rel} className={className} onClick={onClick} title={node.label} aria-current={current ? "page" : undefined}>
       {content}
     </Link>
   );
@@ -45,7 +46,26 @@ function keepHoverOpen(event: React.MouseEvent, open: boolean, state: { at: numb
   event.stopPropagation();
 }
 
-const PANEL_LINK = `block rounded-md px-3 py-2 ${NAV_SUB_TEXT} break-words text-neutral-600 hover:bg-neutral-100 hover:text-neutral-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:text-neutral-300 dark:hover:bg-neutral-800 dark:hover:text-neutral-200`;
+/** An item of a small dropdown: a soft rounded row that tints on hover/focus, with the page the visitor is on marked. */
+const PANEL_LINK = `group flex items-center justify-between gap-3 rounded-xl px-3.5 py-2.5 ${NAV_SUB_TEXT} break-words text-neutral-700 transition-colors hover:bg-primary-50 hover:text-primary-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:text-neutral-200 dark:hover:bg-neutral-800 dark:hover:text-white`;
+const PANEL_LINK_CURRENT = "bg-neutral-100 font-medium text-neutral-900 dark:bg-neutral-800 dark:text-white";
+
+/** Whether `href` (an internal link, query and fragment ignored) is the page being shown. */
+export function isCurrentPage(href: string, pathname: string | null): boolean {
+  if (!pathname || href[0] !== "/") return false;
+  const path = href.split(/[?#]/)[0];
+  return path === pathname && !href.includes("?");
+}
+
+function DropdownItem({ node, close }: { node: MenuNode; close: () => void }) {
+  const current = isCurrentPage(node.href, usePathname());
+  return (
+    <MenuLink node={node} onClick={close} className={`${PANEL_LINK} ${current ? PANEL_LINK_CURRENT : ""}`} current={current}>
+      <span className="min-w-0">{node.label}</span>
+      {(node.newTab || isExternalHref(node.href)) && <ArrowTopRightOnSquareIcon className="h-3.5 w-3.5 flex-shrink-0 text-neutral-400 group-hover:text-primary-500" aria-hidden="true" />}
+    </MenuLink>
+  );
+}
 
 function NavEntry({ node }: { node: MenuNode }) {
   const t = useT();
@@ -129,11 +149,11 @@ function NavEntry({ node }: { node: MenuNode }) {
                 </div>
               </Popover.Panel>
             ) : (
-              <Popover.Panel className="absolute left-0 top-full z-20 w-60 pt-2">
-                <ul className="grid space-y-1 rounded-lg bg-white py-4 text-sm shadow-lg ring-1 ring-black ring-opacity-5 dark:bg-neutral-900 dark:ring-white dark:ring-opacity-10">
+              <Popover.Panel className="absolute left-0 top-full z-20 w-max min-w-[15rem] max-w-[min(22rem,calc(100vw-2rem))] pt-2">
+                <ul className="flex flex-col gap-0.5 overflow-hidden rounded-2xl bg-white p-2 shadow-xl ring-1 ring-black/5 dark:bg-neutral-900 dark:ring-white/10">
                   {node.children.map((child) => (
-                    <li key={child.id} className="px-2">
-                      <MenuLink node={child} onClick={() => close()} className={PANEL_LINK} />
+                    <li key={child.id}>
+                      <DropdownItem node={child} close={() => close()} />
                     </li>
                   ))}
                 </ul>
