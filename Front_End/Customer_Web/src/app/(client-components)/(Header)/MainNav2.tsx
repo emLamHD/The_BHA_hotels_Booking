@@ -28,7 +28,7 @@ const MainNav2: FC<MainNav2Props> = ({ className = "" }) => {
     <div className={`MainNav2 relative z-10 ${HEADER_FONT} ${className}`}>
       <div className="px-4 h-16 md:h-20 lg:container flex items-center justify-between gap-1 sm:gap-2">
         {/* The menu is data (see lib/menus): the row can shrink and truncate a long label, but never pushes the controls on the right off the screen. */}
-        <div className="hidden md:flex items-center min-w-0 flex-shrink space-x-3 lg:space-x-6 xl:space-x-8">
+        <div className="hidden md:flex items-center min-w-0 md:flex-none lg:flex-1 space-x-3 lg:space-x-6 xl:space-x-8">
           <Logo className="w-28 lg:w-32 flex-shrink-0 self-center" />
           {hasPrimary && <div className="hidden lg:block self-center h-10 border-l border-neutral-300 dark:border-neutral-500"></div>}
           <PrimaryNav />
@@ -40,7 +40,7 @@ const MainNav2: FC<MainNav2Props> = ({ className = "" }) => {
           <HeroSearchForm2MobileFactory />
         </div>
 
-        <div className="flex items-center flex-shrink-0 justify-end text-neutral-700 dark:text-neutral-100 lg:flex-1">
+        <div className="flex items-center flex-shrink-0 justify-end text-neutral-700 dark:text-neutral-100">
           <SecondaryNav />
           <LangDropdown className="hidden lg:flex" />
           <SwitchDarkMode />

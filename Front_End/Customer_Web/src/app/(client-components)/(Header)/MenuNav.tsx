@@ -4,7 +4,7 @@ import { Popover, Transition } from "@headlessui/react";
 import { ChevronDownIcon } from "@heroicons/react/24/solid";
 import Link from "next/link";
 import type { Route } from "next";
-import React, { Fragment, useRef, type ReactNode } from "react";
+import React, { Fragment, useCallback, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useT } from "@/lib/i18n/I18nProvider";
 import { isExternalHref, type MenuNode } from "@/lib/menus/menu";
 import { useMenu } from "@/lib/menus/MenuProvider";
@@ -148,17 +148,86 @@ function MenuTreeItem({ node, close }: { node: MenuNode; close: () => void }) {
   );
 }
 
-/** The main row on the left of the header. */
+const MORE_WIDTH = 84;
+const GAP = 4;
+
+/**
+ * How many of the main row's entries fit in `available` pixels, given their natural widths; when not all fit, room is kept for the
+ * "more" button. At least one entry is always shown.
+ */
+export function fitCount(widths: readonly number[], available: number): number {
+  const total = widths.reduce((sum, width) => sum + width + GAP, 0);
+  if (total <= available) return widths.length;
+  let used = MORE_WIDTH;
+  let count = 0;
+  for (const width of widths) {
+    if (used + width + GAP > available) break;
+    used += width + GAP;
+    count++;
+  }
+  return Math.max(1, count);
+}
+
+/** The main row on the left of the header. Entries that do not fit move into a "more" list, so a long or large menu never pushes the controls off the screen. */
 export function PrimaryNav() {
   const t = useT();
   const nodes = useMenu().menu?.primary ?? [];
+  const nav = useRef<HTMLElement>(null);
+  const key = nodes.map((node) => `${node.id}:${node.label}`).join("|");
+  // First render of a menu: every entry is shown so its natural width can be measured; after that the row fits itself to its width.
+  const [fit, setFit] = useState<{ key: string; widths: number[]; shown: number } | null>(null);
+  const measuring = fit?.key !== key;
+
+  useLayoutEffect(() => {
+    const el = nav.current;
+    if (!el) return;
+    if (measuring) {
+      const widths = Array.from(el.querySelectorAll<HTMLElement>(":scope > [data-nav-entry]")).map((child) => child.offsetWidth);
+      setFit({ key, widths, shown: fitCount(widths, el.clientWidth) });
+      return;
+    }
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => setFit((previous) => (previous ? { ...previous, shown: fitCount(previous.widths, el.clientWidth) } : previous)));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [key, measuring]);
+
   if (nodes.length === 0) return null;
+  const visible = measuring || !fit ? nodes.length : Math.min(fit.shown, nodes.length);
+  const overflow = nodes.slice(visible);
   return (
-    <nav aria-label={t("customer.header.nav.primary")} className="hidden min-w-0 items-center space-x-1 lg:flex">
-      {nodes.map((node) => (
-        <NavEntry key={node.id} node={node} />
+    <nav aria-label={t("customer.header.nav.primary")} ref={nav} className="hidden min-w-0 flex-1 flex-nowrap items-center [overflow-x:clip] lg:flex" style={{ columnGap: GAP }}>
+      {nodes.map((node, index) => (
+        <div key={node.id} data-nav-entry className={`flex flex-shrink-0 ${index < visible ? "" : "hidden"}`}>
+          <NavEntry node={node} />
+        </div>
       ))}
+      {overflow.length > 0 && <MoreMenu nodes={overflow} />}
     </nav>
+  );
+}
+
+function MoreMenu({ nodes }: { nodes: MenuNode[] }) {
+  const t = useT();
+  return (
+    <Popover className="relative flex flex-shrink-0 items-center">
+      {({ close }) => (
+        <>
+          <Popover.Button className={NAV_MAIN_ITEM} aria-label={t("customer.header.menu.menu")}>
+            <span>···</span>
+          </Popover.Button>
+          <Popover.Panel className="absolute left-0 top-full z-20 max-h-[70vh] w-72 overflow-y-auto pt-2">
+            <ul className="grid space-y-1 rounded-lg bg-white py-4 text-sm shadow-lg ring-1 ring-black ring-opacity-5 dark:bg-neutral-900 dark:ring-white dark:ring-opacity-10">
+              {nodes.map((node) => (
+                <li key={node.id} className="px-2">
+                  <MenuTreeItem node={node} close={close} />
+                </li>
+              ))}
+            </ul>
+          </Popover.Panel>
+        </>
+      )}
+    </Popover>
   );
 }
 

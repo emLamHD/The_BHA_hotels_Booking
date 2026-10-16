@@ -4,7 +4,7 @@ import { renderWithI18n } from "@/lib/i18n/testkit";
 import { MenuContext } from "@/lib/menus/MenuProvider";
 import type { MenuNode, MenuSnapshot } from "@/lib/menus/menu";
 import NavMobile from "@/shared/Navigation/NavMobile";
-import { PrimaryNav, SecondaryNav } from "./MenuNav";
+import { PrimaryNav, SecondaryNav, fitCount } from "./MenuNav";
 
 // The logo is a statically imported picture, which this node-only test setup cannot resolve; nothing here is about it.
 vi.mock("@/shared/Logo", () => ({ default: () => null }));
@@ -101,5 +101,20 @@ describe("the mobile drawer shows the same tree: the main row, then the secondar
   it("follows the Admin: a label removed from the tree is gone from the drawer (no built-in group survives)", () => {
     const html = render(menu([node("1", "Chỉ một", "/1")]), React.createElement(NavMobile, {}));
     for (const gone of ["Giao diện mẫu", "Dịch vụ", "Blog", "Ưu đãi"]) expect(html).not.toContain(gone);
+  });
+});
+
+describe("the main row fits itself to the room it has", () => {
+  it("shows every entry when they all fit, and otherwise as many as fit beside the 'more' button (never fewer than one)", () => {
+    expect(fitCount([100, 100, 100], 400)).toBe(3);
+    expect(fitCount([100, 100, 100, 100], 300)).toBe(2);       // 84 (more) + 2 × 104 = 292 ≤ 300
+    expect(fitCount([300, 300], 100)).toBe(1);
+    expect(fitCount([], 100)).toBe(0);
+  });
+
+  it("before it has been measured every entry is rendered (so there is something to measure) and no 'more' button exists", () => {
+    const html = render(menu([node("1", "Một", "/1"), node("2", "Hai", "/2"), node("3", "Ba", "/3")]), React.createElement(PrimaryNav));
+    for (const label of ["Một", "Hai", "Ba"]) expect(html).toContain(label);
+    expect(html).not.toContain("···");
   });
 });
