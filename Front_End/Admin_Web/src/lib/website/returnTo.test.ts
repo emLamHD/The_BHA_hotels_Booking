@@ -1,11 +1,11 @@
 /**
- * CUST-WEB-HEADER-001-CP02: the sign-in return target is an exact allowlist — the three website pages and /calendar.
+ * CUST-WEB-HEADER-001-CP02: the sign-in return target is an exact allowlist — the website pages and /calendar.
  */
 import { describe, expect, it } from "vitest";
 import { DEFAULT_RETURN_TO, WEBSITE_PAGES, resolveReturnTo, signInUrlFor } from "./returnTo";
 
 describe("resolveReturnTo", () => {
-  it.each(["/calendar", "/website/languages", "/website/translations", "/website/currencies"])("accepts the allowed page %s", (page) => {
+  it.each(["/calendar", "/website/languages", "/website/translations", "/website/currencies", "/website/menus"])("accepts the allowed page %s", (page) => {
     expect(resolveReturnTo(page)).toBe(page);
   });
 
@@ -34,8 +34,8 @@ describe("resolveReturnTo", () => {
     expect(resolveReturnTo(value as string | string[] | null | undefined)).toBe(DEFAULT_RETURN_TO);
   });
 
-  it("lists exactly three website pages", () => {
-    expect([...WEBSITE_PAGES]).toEqual(["/website/languages", "/website/translations", "/website/currencies"]);
+  it("lists exactly the four website pages", () => {
+    expect([...WEBSITE_PAGES]).toEqual(["/website/languages", "/website/translations", "/website/currencies", "/website/menus"]);
   });
 });
 

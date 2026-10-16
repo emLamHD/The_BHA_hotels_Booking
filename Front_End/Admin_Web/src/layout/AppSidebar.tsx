@@ -50,6 +50,7 @@ const navItems: NavItem[] = [
       { name: "Ngôn ngữ & bản dịch", path: "/website/languages", pro: false },
       { name: "Bản dịch", path: "/website/translations", pro: false },
       { name: "Tiền tệ & tỷ giá", path: "/website/currencies", pro: false },
+      { name: "Menu", path: "/website/menus", pro: false },
     ],
   },
 

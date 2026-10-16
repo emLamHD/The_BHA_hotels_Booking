@@ -21,6 +21,17 @@ const REFUSALS: Record<string, string> = {
   "stale-preview": "Bản xem trước đã cũ vì dữ liệu đã thay đổi. Hãy kiểm tra gói lại rồi áp dụng.",
   "pack-invalid": "Gói không hợp lệ. Chưa có gì được thay đổi.",
   "pack-incompatible": "Gói không tương thích với danh mục hiện tại. Chưa có gì được thay đổi.",
+  "menu-url-invalid": "Link không hợp lệ. Dùng đường dẫn bắt đầu bằng /, một mốc #, hoặc địa chỉ https://.",
+  "menu-label-invalid": "Nhãn chỉ là chữ thường: không dùng < >, không ký tự điều khiển, tối đa 80 ký tự.",
+  "menu-label-required": "Thiếu nhãn bắt buộc (tiếng Việt và ngôn ngữ mặc định).",
+  "menu-duplicate-item": "Một mục xuất hiện hai lần trong menu.",
+  "menu-parent-missing": "Mục cha không tồn tại.",
+  "menu-cycle": "Không thể đặt một mục vào bên trong chính nó hoặc mục con của nó.",
+  "menu-too-deep": "Menu chỉ có tối đa 4 cấp.",
+  "menu-too-many": "Menu có quá nhiều mục (tối đa 200).",
+  "menu-placement-invalid": "Mục cấp cao nhất cần thuộc hàng chính hoặc nhóm phụ.",
+  "menu-delete-has-children": "Không thể xoá mục còn mục con. Hãy chuyển hoặc xoá các mục con trước.",
+  "menu-unknown-locale": "Có nhãn cho một ngôn ngữ không tồn tại.",
 };
 
 /** A refusal in Vietnamese, with the server's own detail appended where it names the value that was rejected. */
