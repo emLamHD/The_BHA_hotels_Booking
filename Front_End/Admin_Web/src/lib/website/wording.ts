@@ -46,6 +46,7 @@ const REFUSALS: Record<string, string> = {
   "hero-image-unsupported": "Chỉ nhận ảnh JPEG, PNG hoặc WebP (không nhận SVG, GIF, ảnh động hay tệp khác).",
   "hero-image-corrupt": "Tệp ảnh bị hỏng hoặc chưa đủ dữ liệu. Hãy xuất lại ảnh rồi tải lên.",
   "hero-image-dimensions": "Kích thước ảnh không phù hợp (nhỏ nhất 320×160, lớn nhất 8000 px mỗi cạnh và 40 megapixel).",
+  "hero-upload-unreadable": "Không đọc được tệp tải lên: tệp lớn hơn 11 MB hoặc không phải một lần tải ảnh hợp lệ.",
   "hero-storage-not-configured": "Máy chủ chưa cấu hình nơi lưu ảnh (WebsiteMedia:RootPath) nên chưa tải ảnh lên được.",
 };
 

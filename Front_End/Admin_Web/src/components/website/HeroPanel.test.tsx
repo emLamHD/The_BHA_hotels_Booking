@@ -36,7 +36,7 @@ const LOCALES: MenuLocale[] = [
   { code: "fr", displayName: "French", nativeName: "Français", isDefault: false, isActive: true, isContentSource: false },
 ];
 const media = (id: string, over: Partial<HeroMedia> = {}): HeroMedia => ({
-  id, kind: "seed", url: `/api/v1/website/hero/media/${id}`, seedFile: `hero-${id}.webp`, contentType: "image/webp", byteSize: 90_000, width: 1920, height: 900, createdAtUtc: "2026-10-16T00:00:00+00:00", ...over,
+  id, kind: "seed", url: `/api/admin/v1/website/hero/media/${id}`, seedFile: `hero-${id}.webp`, contentType: "image/webp", byteSize: 90_000, width: 1920, height: 900, createdAtUtc: "2026-10-16T00:00:00+00:00", ...over,
 });
 const slide = (id: string): HeroSlide => ({
   id: `s-${id}`, mediaId: id, focalPosition: "40% 50%", alt: { vi: `Ảnh ${id}`, en: `Photo ${id}`, fr: null }, caption: { vi: `Chú thích ${id}`, en: `Caption ${id}`, fr: null },
@@ -84,7 +84,7 @@ describe("the list and the editor", () => {
   it("shows every slide with its thumbnail and caption, the saved state, and nothing to save", async () => {
     await open();
     expect(order()).toEqual(["s-a", "s-b", "s-c", "s-d"]);
-    expect(screen.getAllByTestId("slide-thumb").map((image) => image.getAttribute("src"))).toContain("https://localhost:7145/api/v1/website/hero/media/a");
+    expect(screen.getAllByTestId("slide-thumb").map((image) => image.getAttribute("src"))).toContain("https://localhost:7145/api/admin/v1/website/hero/media/a");
     expect(within(screen.getByTestId("slide-s-b")).getByText("Chú thích b")).toBeInTheDocument();
     expect(screen.getByTestId("hero-state")).toHaveTextContent("Đã lưu — phiên bản 1");
     expect(btn("hero-save")).toBeDisabled();
@@ -316,6 +316,18 @@ describe("Save", () => {
     expect(screen.getByTestId("hero-state")).toHaveTextContent("Có thay đổi chưa lưu");
   });
 
+  it("the language selector is the operator's again after a refusal that moved it", async () => {
+    save.mockResolvedValueOnce(refused(400, "hero-text-invalid", "texts.title.en"));
+    await open();
+    await userEvent.selectOptions(screen.getByTestId("field-font"), "system-serif");
+    await press("hero-save");
+    await waitFor(() => expect((screen.getByTestId("edit-locale") as HTMLSelectElement).value).toBe("en"));
+    expect(field("field-title").value).toBe("The BHA — Da Nang");
+    await userEvent.selectOptions(screen.getByTestId("edit-locale"), "vi");
+    expect((screen.getByTestId("edit-locale") as HTMLSelectElement).value).toBe("vi");
+    expect(field("field-title").value).toBe("The BHA — Đà Nẵng");
+  });
+
   it("a stale revision keeps the draft; loading the latest keeps it too and says Save will replace the server's hero", async () => {
     save.mockResolvedValueOnce(refused(409, "stale-version"));
     await open();
@@ -377,6 +389,28 @@ describe("leaving", () => {
     confirm.mockReturnValue(true);
     await userEvent.click(screen.getByRole("button", { name: "Đăng xuất" }));
     await waitFor(() => expect(logout).toHaveBeenCalledTimes(1));
+    confirm.mockRestore();
+  });
+
+  it("while a sign-out is pending nothing can be saved, uploaded or edited", async () => {
+    const logout = vi.mocked(staffLogout);
+    const gate = deferred<{ kind: "ok" }>();
+    logout.mockReset();
+    logout.mockReturnValue(gate.promise as never);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    await open();
+    await userEvent.type(field("field-title"), "!");
+    await userEvent.click(screen.getByRole("button", { name: "Đăng xuất" }));
+    await waitFor(() => expect(logout).toHaveBeenCalledTimes(1));
+    expect(btn("hero-save")).toBeDisabled();
+    expect(btn("add-upload")).toBeDisabled();
+    expect(screen.getByTestId("up-s-b")).toBeDisabled();
+    expect(field("field-title")).toBeDisabled();
+    await choosePicture(png());
+    expect(send).not.toHaveBeenCalled();
+    fireEvent.click(btn("hero-save"));
+    expect(save).not.toHaveBeenCalled();
+    gate.resolve({ kind: "ok" });
     confirm.mockRestore();
   });
 

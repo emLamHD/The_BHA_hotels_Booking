@@ -582,7 +582,7 @@ async function call<T>(method: "GET" | "POST", path: string, body: unknown, opti
     return { kind: "refused", status: response.status, ...(await readProblem(response)) };
   }
   if (response.status === 413) {
-    // The server's request-size limit answered before the picture check could (a body far over 10 MB): nothing was stored.
+    // A size limit in front of the API (a proxy) answered before the picture check could: nothing was stored.
     return { kind: "refused", status: 413, code: "hero-image-too-large", field: "file", detail: "The picture is larger than 10 MB." };
   }
   if (response.status >= 500) {
@@ -784,7 +784,7 @@ export const uploadHeroImage = (file: File) => {
   return call<HeroMedia>("POST", `${SETTINGS}/hero/media`, form, { write: true, parse: parseHeroMedia });
 };
 
-/** Where a recorded picture can be shown from (the API serves it at an id-addressed path), or `null` when the API base is not configured. */
+/** Where a recorded picture can be shown from (the Admin route `/api/admin/v1/website/hero/media/<id>`, Staff session only — a proxied Admin carries it like every other Admin call), or `null` when the API base is not configured. */
 export function heroImageSrc(path: string): string | null {
   const base = getApiBaseUrl();
   return base.ok ? `${base.baseUrl}${path}` : null;

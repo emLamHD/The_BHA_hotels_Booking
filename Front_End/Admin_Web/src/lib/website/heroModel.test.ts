@@ -17,7 +17,7 @@ const hero = (slides: HeroSlide[] = [slide("a"), slide("b"), slide("c")]): Websi
   texts: { title: { vi: "Tiêu đề", en: "Title" }, description: { vi: "Mô tả", en: null }, primaryAction: { vi: "Tìm phòng", en: null }, secondaryAction: { vi: "Xem", en: null } },
   slides, media: [],
 });
-const media = (id: string): HeroMedia => ({ id, kind: "upload", url: `/api/v1/website/hero/media/${id}`, seedFile: null, contentType: "image/png", byteSize: 100, width: 1920, height: 900, createdAtUtc: "2026-10-17T00:00:00Z" });
+const media = (id: string): HeroMedia => ({ id, kind: "upload", url: `/api/admin/v1/website/hero/media/${id}`, seedFile: null, contentType: "image/png", byteSize: 100, width: 1920, height: 900, createdAtUtc: "2026-10-17T00:00:00Z" });
 const draft = () => draftOf(hero());
 const ids = (d: ReturnType<typeof draft>) => d.slides.map((item) => item.id);
 

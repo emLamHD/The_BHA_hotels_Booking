@@ -20,6 +20,7 @@ import {
   ACCEPTED_TYPES, MAX_LENGTH, MAX_SLIDES, MAX_UPLOAD_BYTES, SHARED_FIELDS, addSlide, draftOf, draftProblems, fingerprint, isRequiredLocale, locateField,
   moveSlide, patchSharedText, patchSlideText, previewText, removeSlide, replaceSlideMedia, summarizeChanges, toBody, type FieldTarget, type HeroDraft, type Move, type SharedField,
 } from "@/lib/website/heroModel";
+import { newId } from "@/lib/website/menuModel";
 import { refusalText } from "@/lib/website/wording";
 import { useLeaveGuard } from "./useLeaveGuard";
 import { useWebsiteHost } from "./WebsiteAccessGate";
@@ -101,7 +102,7 @@ function HeroEditor({ initial, reload, readError }: { initial: WebsiteHero; relo
   const target: FieldTarget | null = write.status.phase === "refused" ? locateField(write.status.failure.field, draft) : null;
   const serverMessage = write.status.phase === "refused" ? refusalText(write.status.failure) : null;
   const showErrors = submitted || target !== null;
-  const shownLocale = target && "locale" in target && target.locale ? target.locale : editLocale;
+  const shownLocale = editLocale;      // a refusal that names a language moves it (in `save`); choosing another afterwards is the operator's
 
   const apply = (move: Move) => {
     if (move.ok) {
@@ -119,7 +120,6 @@ function HeroEditor({ initial, reload, readError }: { initial: WebsiteHero; relo
     setMoveNote(null);
   };
 
-  const newId = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now().toString(16)}-0000-4000-8000-${Math.random().toString(16).slice(2).padEnd(12, "0").slice(0, 12)}`);
 
   const applyMedia = (media: HeroMedia, at: PickTarget) => {
     if (at.kind === "add") {
@@ -301,7 +301,7 @@ function HeroEditor({ initial, reload, readError }: { initial: WebsiteHero; relo
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">Ảnh banner ({draft.slides.length}/{MAX_SLIDES})</h2>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Gợi ý ảnh ngang 1920×900. JPEG, PNG hoặc WebP, tối đa 10 MB; ảnh khác tỷ lệ vẫn dùng được (cắt vừa khung).</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Gợi ý ảnh ngang 1920×900 và nén xuống khoảng 500 KB (ảnh được gửi nguyên bản cho khách, không tự thu nhỏ). JPEG, PNG hoặc WebP, tối đa 10 MB; ảnh khác tỷ lệ vẫn dùng được (cắt vừa khung).</p>
               </div>
               <div className="flex flex-wrap gap-2">
                 <ActionButton variant="outline" onClick={() => choose({ kind: "add" })} disabled={locked || draft.slides.length >= MAX_SLIDES} testId="add-upload">Tải ảnh lên</ActionButton>
@@ -373,7 +373,7 @@ function HeroEditor({ initial, reload, readError }: { initial: WebsiteHero; relo
               <LocaleSelect locales={locales} value={shownLocale} onChange={setEditLocale} testId="edit-locale" />
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              Dùng chung cho mọi ảnh. Banner có chiều cao cố định nên nên viết ngắn: trên điện thoại và máy tính bảng tiêu đề và mô tả hiện tối đa 2 dòng (máy tính: 3 và 4 dòng), dài hơn bị cắt bằng dấu …, nhãn nút dài bị cắt cho vừa dòng. Nhập từng ngôn ngữ ở đây; bản dịch cũng nằm ở màn <Link href="/website/translations" className="underline">Bản dịch</Link> (khoá content.heroSlideshow.main.*), nên gói ngôn ngữ nhập/xuất vẫn mang theo.
+              Dùng chung cho mọi ảnh. Banner có chiều cao cố định nên hãy viết ngắn: trên điện thoại và máy tính bảng tiêu đề và mô tả hiện tối đa 2 dòng (máy tính: 3 và 4 dòng), dài hơn bị cắt bằng dấu …, nhãn nút dài bị cắt cho vừa dòng. Nhập từng ngôn ngữ ở đây; bản dịch cũng nằm ở màn <Link href="/website/translations" className="underline">Bản dịch</Link> (khoá content.heroSlideshow.main.*), nên gói ngôn ngữ nhập/xuất vẫn mang theo.
             </p>
             <fieldset className="flex flex-col gap-3" disabled={locked}>
               {SHARED_FIELDS.map((field) => {

@@ -314,7 +314,7 @@ public sealed class WebsiteHeroApiTests(PostgreSqlWebApplicationFactory factory)
         Assert.Equal("upload", media.GetProperty("kind").GetString());
         Assert.Equal("image/png", media.GetProperty("contentType").GetString());
         Assert.Equal([640, 320], new[] { media.GetProperty("width").GetInt32(), media.GetProperty("height").GetInt32() });
-        Assert.Equal($"/api/v1/website/hero/media/{id}", media.GetProperty("url").GetString());
+        Assert.Equal($"/api/admin/v1/website/hero/media/{id}", media.GetProperty("url").GetString());           // the Admin's own, Staff-only route
         Assert.Equal(JsonValueKind.Null, media.GetProperty("seedFile").ValueKind);
         var key = await ScalarAsync<string>($"""SELECT "StorageKey" FROM "WebsiteHeroMedia" WHERE "Id" = '{id}' """);
         Assert.Equal($"hero/{id:N}.png", key);
@@ -327,10 +327,15 @@ public sealed class WebsiteHeroApiTests(PostgreSqlWebApplicationFactory factory)
         Assert.Equal(before.GetProperty("revision").GetString(), (await AdminAsync(session)).GetProperty("revision").GetString());
         Assert.DoesNotContain(id.ToString(), (await PublicAsync(session)).GetRawText());
 
-        // The picture is served from its own URL with its recorded type.
-        var served = await AssertStatusAsync(HttpStatusCode.OK, session.Client.SendAsync(Get(media.GetProperty("url").GetString()!)));
+        // The editor sees it from the Admin's route (Staff session + permission), with its recorded type; the route is not public.
+        var adminUrl = media.GetProperty("url").GetString()!;
+        var served = await AssertStatusAsync(HttpStatusCode.OK, session.GetAsync(adminUrl));
         Assert.Equal("image/png", served.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("nosniff", served.Headers.GetValues("X-Content-Type-Options").Single());
         Assert.Equal(png, await served.Content.ReadAsByteArrayAsync());
+        Assert.Equal(HttpStatusCode.Unauthorized, (await session.Client.SendAsync(Get(adminUrl))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await session.Client.SendAsync(Get(adminUrl, await LoginAsync(session.Client, Desk)))).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await session.GetAsync($"{Url}/media/{Guid.NewGuid()}")).StatusCode);
 
         // A Save that names it as a new slide publishes it; a replaced picture keeps its slide, texts and old file.
         var body = SaveBody(before);
@@ -355,7 +360,7 @@ public sealed class WebsiteHeroApiTests(PostgreSqlWebApplicationFactory factory)
         // After a restart of the API the uploaded picture is still there and still served.
         using var restarted = CreateHost();
         using var client = CreateHttpsClient(restarted);
-        var again = await AssertStatusAsync(HttpStatusCode.OK, client.SendAsync(Get(media.GetProperty("url").GetString()!)));
+        var again = await AssertStatusAsync(HttpStatusCode.OK, client.SendAsync(Get($"/api/v1/website/hero/media/{id}")));
         Assert.Equal(png, await again.Content.ReadAsByteArrayAsync());
     }
 
@@ -405,6 +410,25 @@ public sealed class WebsiteHeroApiTests(PostgreSqlWebApplicationFactory factory)
     }
 
     [Fact]
+    public async Task A_body_far_over_the_limit_or_not_multipart_is_the_heros_own_refusal_not_a_framework_one_and_stores_nothing()
+    {
+        using var session = await StartAsync();
+        var rows = await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteHeroMedia" """);
+
+        var huge = await AssertStatusAsync(HttpStatusCode.BadRequest, UploadAsync(session, new byte[24 * 1024 * 1024]));
+        var (code, field) = await ProblemAsync(huge);
+        Assert.Equal("file", field);
+        Assert.Contains(code, new[] { HeroErrorCodes.UploadUnreadable, HeroErrorCodes.ImageTooLarge });
+        var truncated = UploadRequest(Fixture("valid.png"), cookie: session.Cookie);
+        truncated.Content = new StringContent("--not-the-boundary\r\ngarbage", System.Text.Encoding.UTF8, "multipart/form-data");
+        truncated.Content.Headers.Remove("Content-Type");
+        truncated.Content.Headers.TryAddWithoutValidation("Content-Type", "multipart/form-data; boundary=xyz");
+        var broken = await AssertStatusAsync(HttpStatusCode.BadRequest, session.Client.SendAsync(truncated));
+        Assert.Equal((HeroErrorCodes.UploadUnreadable, "file"), await ProblemAsync(broken));
+        Assert.Equal(rows, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteHeroMedia" """));
+    }
+
+    [Fact]
     public async Task A_save_never_publishes_a_picture_whose_file_is_gone_and_never_deletes_one_in_use()
     {
         using var session = await StartAsync();
@@ -418,7 +442,7 @@ public sealed class WebsiteHeroApiTests(PostgreSqlWebApplicationFactory factory)
         var refused = await AssertStatusAsync(HttpStatusCode.BadRequest, SaveAsync(session, body));
         Assert.Equal((HeroErrorCodes.MediaMissing, "slides[0].mediaId"), await ProblemAsync(refused));
         Assert.Equal(1, await ScalarAsync<int>("""SELECT "Version" FROM "WebsiteHero" """));
-        Assert.Equal(HttpStatusCode.NotFound, (await session.Client.SendAsync(Get(media.GetProperty("url").GetString()!))).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await session.GetAsync(media.GetProperty("url").GetString()!)).StatusCode);
 
         // A failed or refused Save, a replaced slide and a deleted slide leave every recorded picture's file where it is.
         await File.WriteAllBytesAsync(path, Fixture("valid.png"));

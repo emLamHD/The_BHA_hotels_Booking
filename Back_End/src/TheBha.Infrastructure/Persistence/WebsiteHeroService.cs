@@ -216,6 +216,9 @@ internal sealed class WebsiteHeroService(TheBhaDbContext database, TimeProvider 
 
     private static string MediaUrl(Guid id) => $"/api/v1/website/hero/media/{id}";
 
+    /// <summary>The Admin's own route to a picture (Staff session + permission): it works for a picture no slide uses yet, and follows the Admin's proxy and cookie.</summary>
+    private static string AdminMediaUrl(Guid id) => $"/api/admin/v1/website/hero/media/{id}";
+
     private static string? SeedFileOf(WebsiteHeroMedia media) =>
         media.Kind == HeroMediaKind.Seed ? media.StorageKey["seed/".Length..] : null;
 
@@ -224,7 +227,7 @@ internal sealed class WebsiteHeroService(TheBhaDbContext database, TimeProvider 
     private static string SlideKey(Guid id, string field) => ContentKey.For(SlideEntity, id.ToString(), field);
 
     private static HeroMediaDto ToMediaDto(WebsiteHeroMedia media) =>
-        new(media.Id, media.Kind, MediaUrl(media.Id), SeedFileOf(media), media.ContentType, media.ByteSize, media.Width, media.Height, media.CreatedAtUtc);
+        new(media.Id, media.Kind, AdminMediaUrl(media.Id), SeedFileOf(media), media.ContentType, media.ByteSize, media.Width, media.Height, media.CreatedAtUtc);
 
     private static IReadOnlyList<WebsiteLanguage> OrderLanguages(IEnumerable<WebsiteLanguage> languages) =>
         [.. languages.OrderBy(language => language.SortOrder).ThenBy(language => language.NormalizedCode)];

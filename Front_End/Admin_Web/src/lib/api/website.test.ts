@@ -275,7 +275,7 @@ const HERO = {
   locales: [{ code: "vi", displayName: "Vietnamese", nativeName: "Tiếng Việt", isDefault: true, isActive: true, isContentSource: true }],
   texts: { title: { vi: "T" }, description: { vi: "D" }, primaryAction: { vi: "P" }, secondaryAction: { vi: "S" } },
   slides: [{ id: "s1", mediaId: "m1", focalPosition: "50% 50%", alt: { vi: "a" }, caption: { vi: "c" } }],
-  media: [{ id: "m1", kind: "seed", url: "/api/v1/website/hero/media/m1", seedFile: "hero-a.webp", contentType: "image/webp", byteSize: 10, width: 1920, height: 900, createdAtUtc: "2026-10-17T00:00:00Z" }],
+  media: [{ id: "m1", kind: "seed", url: "/api/admin/v1/website/hero/media/m1", seedFile: "hero-a.webp", contentType: "image/webp", byteSize: 10, width: 1920, height: 900, createdAtUtc: "2026-10-17T00:00:00Z" }],
 };
 const DRAFT = {
   fontKey: "system-serif" as const, autoplayEnabled: false, intervalSeconds: 9,
@@ -352,7 +352,7 @@ describe("the home hero", () => {
     expect((await uploadHeroImage(file)).kind).toBe("unverified");
   });
 
-  it("shows a picture from the API's origin plus its id-addressed path", () => {
-    expect(heroImageSrc("/api/v1/website/hero/media/m1")).toBe(`${BASE}/api/v1/website/hero/media/m1`);
+  it("shows a picture from the API's origin plus its Staff-only id-addressed path", () => {
+    expect(heroImageSrc("/api/admin/v1/website/hero/media/m1")).toBe(`${BASE}/api/admin/v1/website/hero/media/m1`);
   });
 });

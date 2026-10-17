@@ -30,6 +30,30 @@ public sealed class AdminWebsiteHeroController(IWebsiteHero hero) : AdminWebsite
         return Ok(await hero.GetAdminAsync(cancellationToken));
     }
 
+    /// <summary>
+    /// One picture's bytes for the editor's thumbnails and preview — any recorded picture, a published one or not. Same Staff session and
+    /// permission as the rest of the screen; the public route serves the pictures a visitor sees.
+    /// </summary>
+    [HttpGet("media/{id:guid}")]
+    [StaffWebsitePermission(StaffGlobalPermission.WebsiteSettingsManage)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Media(Guid id, CancellationToken cancellationToken)
+    {
+        var file = await hero.OpenMediaAsync(id, cancellationToken);
+        if (file is null)
+        {
+            return NotFound();
+        }
+
+        Response.Headers.CacheControl = "private, max-age=3600";
+        Response.Headers["X-Content-Type-Options"] = "nosniff";
+        Response.Headers.ContentSecurityPolicy = "default-src 'none'; sandbox";
+        return File(file.Content, file.ContentType);
+    }
+
     [HttpPost("save")]
     [StaffWebsitePermission(StaffGlobalPermission.WebsiteSettingsManage)]
     [ProducesResponseType(typeof(HeroAdminDto), StatusCodes.Status200OK)]

@@ -21,6 +21,13 @@ namespace TheBha.Api.Authentication;
 /// </para>
 ///
 /// <para>
+/// CUST-WEB-HERO-001-CP01: the one exception to "JSON only" is an action marked
+/// <see cref="AllowStaffMultipartUploadAttribute"/> (the hero picture upload). It takes
+/// <c>multipart/form-data</c> <em>instead of</em> JSON (anything else is a 415), after the same HTTPS, session, permission
+/// and Origin checks. No other Staff route has the attribute, and every one of them still answers multipart with 415.
+/// </para>
+///
+/// <para>
 /// The allowlist is the startup-validated <c>Cors:AdminOrigins</c> snapshot, captured once
 /// like the local gate's, so a later configuration change cannot widen it. An empty list
 /// refuses every Staff write: the boundary fails closed.

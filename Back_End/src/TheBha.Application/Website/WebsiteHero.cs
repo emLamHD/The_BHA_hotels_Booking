@@ -25,6 +25,7 @@ public static class HeroErrorCodes
     public const string ImageCorrupt = "hero-image-corrupt";
     public const string ImageDimensions = "hero-image-dimensions";
     public const string StorageNotConfigured = "hero-storage-not-configured";
+    public const string UploadUnreadable = "hero-upload-unreadable";
 }
 
 public sealed record HeroTextsDto(
@@ -58,7 +59,7 @@ public sealed record HeroSlideDto(
     IReadOnlyDictionary<string, string?> Alt,
     IReadOnlyDictionary<string, string?> Caption);
 
-/// <summary>A picture the Admin can use: its serving path (relative to the API), its size and, for a built-in photograph, the file whose credit the Customer shows.</summary>
+/// <summary>A picture the Admin can use: its Staff-only serving path (relative to the API, under <c>/api/admin/v1</c> so a proxied Admin carries it with its session), its size and, for a built-in photograph, the file whose credit the Customer shows.</summary>
 public sealed record HeroMediaDto(
     Guid Id,
     string Kind,
