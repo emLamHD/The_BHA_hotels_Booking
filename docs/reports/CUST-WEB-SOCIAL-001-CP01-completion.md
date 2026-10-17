@@ -38,10 +38,11 @@ The `m.me/thebha` URL above was only a syntactically valid test fixture used to 
 - Branch: feature/cust-web-social-001-cp01-floating-contact-actions
 - Base: develop at 6cb2cb247a257980dde467899ae6cae3349a2a4f
 - Start HEAD: 6cb2cb247a257980dde467899ae6cae3349a2a4f
-- Validation HEAD / final HEAD: record after final commit.
-- Draft PR: record after creation.
-- CI: record after the final PR head completes.
+- Source validation HEAD: 795ed19cc3248c3dc695e4272e085e941fb37d6c (source and tests; subsequent change is this handoff report only).
+- Final HEAD: the report/handoff commit on this branch; exact SHA is shown by the linked PR.
+- Draft PR: [#123](https://github.com/emLamHD/The_BHA_hotels_Booking/pull/123), draft, base `develop`.
+- CI: pending for PR head `795ed19cc3248c3dc695e4272e085e941fb37d6c`; report will be updated after the final report commit's checks.
 
 Owner setup steps: open Admin → Website → Social media. For Messenger, use the Facebook Page's real username and https://m.me/<username-cua-trang>; do not use its display name. Open the destination yourself, then enable and Save. For Zalo, enter the number linked to the account that should receive contacts, test its generated zalo.me link, then enable and Save.
 
-Status: implementation and local checks complete; Draft PR CI and Owner product/diff review remain.
+Status: implementation and local checks complete. The live vi/en/fr browser matrix is partial because only vi is active in the isolated test DB; Draft PR CI and Owner product/diff review remain.
