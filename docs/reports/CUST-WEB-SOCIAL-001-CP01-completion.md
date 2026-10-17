@@ -41,8 +41,8 @@ The `m.me/thebha` URL above was only a syntactically valid test fixture used to 
 - Source validation HEAD: 795ed19cc3248c3dc695e4272e085e941fb37d6c (source and tests; subsequent change is this handoff report only).
 - Final HEAD: the report/handoff commit on this branch; exact SHA is shown by the linked PR.
 - Draft PR: [#123](https://github.com/emLamHD/The_BHA_hotels_Booking/pull/123), draft, base `develop`.
-- CI: pending for PR head `795ed19cc3248c3dc695e4272e085e941fb37d6c`; report will be updated after the final report commit's checks.
+- CI passed on PR head `82196e2c35cac289e7563c52d09cd5d69fa6048d` (source-identical handoff-doc commit): Backend 7m50, backend image suite 5m28, Admin, Frontend, Build image, Plan, and Vercel preview. Publish and production deploy jobs were skipped. This completion-report update is docs-only; see the PR's checks for the exact final head.
 
 Owner setup steps: open Admin → Website → Social media. For Messenger, use the Facebook Page's real username and https://m.me/<username-cua-trang>; do not use its display name. Open the destination yourself, then enable and Save. For Zalo, enter the number linked to the account that should receive contacts, test its generated zalo.me link, then enable and Save.
 
-Status: implementation and local checks complete. The live vi/en/fr browser matrix is partial because only vi is active in the isolated test DB; Draft PR CI and Owner product/diff review remain.
+Status: INCOMPLETE for the strict acceptance matrix: A3's live en/fr browser checks could not be run because the isolated DB exposes only vi. The vi/en/fr label tests, responsive viewport/theme assertions, A1/A2/A4 checks, and CI are complete. Messenger/Zalo remain unconfigured by Owner. Draft PR is ready for direct Owner review with these limitations visible.
