@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, FC, KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
+import React, { FC, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import type { Route } from "next";
@@ -8,21 +8,16 @@ import { useSwipeable } from "react-swipeable";
 import { ArrowRightIcon, ChevronLeftIcon, ChevronRightIcon, MagnifyingGlassIcon, PauseIcon, PlayIcon } from "@heroicons/react/24/solid";
 import StaySearchForm from "../(client-components)/(HeroSearchForm)/(stay-search-form)/StaySearchForm";
 import { HERO_SEARCH_ID } from "./RiversideHomeSections";
-import {
-  HERO_HEIGHT,
-  HERO_SLIDES,
-  HERO_WIDTH,
-  MEDIA_CREDITS_PATH,
-  creditForFile,
-  creditLine,
-  travelMediaUrl,
-} from "@/data/heroSlides";
-import { AUTOPLAY_INTERVAL_MS, nextIndex, prevIndex, shouldAutoplay } from "@/lib/heroCarousel";
+import { HERO_HEIGHT, HERO_WIDTH, MEDIA_CREDITS_PATH, creditForFile, creditLine } from "@/data/heroSlides";
+import { nextIndex, prevIndex, resolveActive, scheduleAutoplay, shouldAutoplay } from "@/lib/heroCarousel";
+import { heroFontStyle, type HeroSnapshot } from "@/lib/hero/hero";
+import { useHeroSnapshot } from "@/lib/hero/useHeroSnapshot";
 import { OPEN_SEARCH_EVENT } from "@/lib/homepageSearch";
 import { RIVERSIDE_PATH } from "@/lib/riversideHomeContent";
 
-import { useI18n, useT } from "@/lib/i18n/I18nProvider";
-import { localizeHeroSlide } from "@/lib/i18n/staticContent";
+import { useT } from "@/lib/i18n/I18nProvider";
+
+
 /** The two hero actions share one height, weight and radius: a solid white primary and a glass secondary, both legible over any picture. */
 const ACTION_BASE_CLASS =
   "inline-flex h-12 items-center justify-center gap-2 rounded-full px-6 text-sm font-semibold shadow-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black/40 sm:h-14 sm:px-8 sm:text-base";
@@ -52,13 +47,21 @@ function startSearch() {
  * The slideshow only changes the picture: it never navigates, submits or touches the search draft. Autoplay
  * (`lib/heroCarousel`) stops for hover, focus inside, a hidden tab, a swipe, reduced motion and the visitor's
  * pause; its timer is cleared on every change and on unmount. Only the first picture is loaded with priority.
- * The pictures show Đà Nẵng, not the property's rooms; the caption names the place and credits the photograph.
+ *
+ * CUST-WEB-HERO-001-CP01: the slides, texts, font, interval and the autoplay switch are the Admin's (`lib/hero`), read by the page
+ * on the server and kept current while this component is mounted. The picture on screen is held by its slide id; the timer is
+ * keyed on that id, the interval, the Admin's switch and the list of ids only, so a poll that changes nothing (or only a text) neither
+ * re-arms it nor remounts anything, and the search form below is never touched. With no hero at all (the API unreachable on the
+ * first load) the frame, the texts from the language catalog and the search stay; there is simply no picture.
  */
-const HomeHeroCarousel: FC = () => {
+const HomeHeroCarousel: FC<{ initial: HeroSnapshot | null }> = ({ initial }) => {
   const t = useT();
-  const { content } = useI18n();
-  const slides = useMemo(() => HERO_SLIDES.map((slide) => localizeHeroSlide(slide, content)), [content]);
-  const [index, setIndex] = useState(0);
+  const { hero } = useHeroSnapshot(initial);
+  const slides = useMemo(() => hero?.slides ?? [], [hero?.slides]);
+  const ids = useMemo(() => slides.map((slide) => slide.id), [slides]);
+  const idsKey = ids.join("|");
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const lastIndex = useRef(0);
   const [hovered, setHovered] = useState(false);
   const [focusWithin, setFocusWithin] = useState(false);
   const [documentHidden, setDocumentHidden] = useState(false);
@@ -66,6 +69,12 @@ const HomeHeroCarousel: FC = () => {
   const [pausedByVisitor, setPausedByVisitor] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
   const regionRef = useRef<HTMLDivElement>(null);
+
+  const { index, id: shownId } = resolveActive(ids, activeId, lastIndex.current);
+  useEffect(() => {
+    lastIndex.current = index;
+    if (shownId !== activeId) setActiveId(shownId);
+  }, [index, shownId, activeId]);
 
   useEffect(() => {
     const query = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -82,7 +91,10 @@ const HomeHeroCarousel: FC = () => {
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, []);
 
+  const adminEnabled = hero?.autoplayEnabled ?? false;
+  const intervalMs = (hero?.intervalSeconds ?? 0) * 1000;
   const autoplay = shouldAutoplay({
+    adminEnabled,
     slideCount: slides.length,
     reducedMotion,
     hovered,
@@ -92,16 +104,22 @@ const HomeHeroCarousel: FC = () => {
     pausedByVisitor,
   });
 
-  // One timer for the picture on screen; any change (slide, hover, focus, pause…) clears and re-arms it.
+  // One timer for the picture on screen; any change of the slide, the interval, the Admin's switch or the slides' ids, or of hover,
+  // focus or pause, clears it and arms one new one. Texts and font are not in the list: editing them re-arms nothing.
   useEffect(() => {
-    if (!autoplay) return;
-    const timer = window.setTimeout(() => setIndex((current) => nextIndex(current, slides.length)), AUTOPLAY_INTERVAL_MS);
-    return () => window.clearTimeout(timer);
-  }, [autoplay, index, slides.length]);
+    return scheduleAutoplay(autoplay && shownId !== null, intervalMs, () =>
+      setActiveId((current) => {
+        const from = ids.indexOf(current ?? shownId ?? "");
+        return ids[nextIndex(from < 0 ? 0 : from, ids.length)] ?? null;
+      })
+    );
+    // `ids` is keyed by `idsKey`: a new array with the same ids must not re-arm the timer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoplay, shownId, intervalMs, idsKey]);
 
-  const go = useCallback((target: number) => setIndex(target), []);
-  const next = useCallback(() => setIndex((current) => nextIndex(current, slides.length)), [slides.length]);
-  const prev = useCallback(() => setIndex((current) => prevIndex(current, slides.length)), [slides.length]);
+  const go = useCallback((target: number) => setActiveId(ids[target] ?? null), [ids]);
+  const next = useCallback(() => setActiveId(ids[nextIndex(index, ids.length)] ?? null), [ids, index]);
+  const prev = useCallback(() => setActiveId(ids[prevIndex(index, ids.length)] ?? null), [ids, index]);
 
   const swipe = useSwipeable({
     onSwipeStart: () => setDragging(true),
@@ -125,7 +143,9 @@ const HomeHeroCarousel: FC = () => {
   };
 
   const active = slides[index];
-  const credit = creditForFile(active.file);
+  const credit = active?.seedFile ? creditForFile(active.seedFile) : undefined;
+  const fontStyle = heroFontStyle(hero?.fontKey ?? "default");
+  const manyPictures = slides.length > 1;
 
   return (
     <section aria-label={t("customer.home.homeHeroCarousel.daNang")} className="nc-HomeHeroCarousel relative lg:mb-16">
@@ -155,15 +175,20 @@ const HomeHeroCarousel: FC = () => {
                 aria-hidden={!isActive}
                 className={`absolute inset-0 ${reducedMotion ? "" : "transition-opacity duration-700"} ${isActive ? "opacity-100" : "opacity-0"}`}
               >
+                {/* The API serves every picture (built-in ones too) at an id-addressed URL, so the Next optimizer is bypassed: a new picture is a new URL. */}
                 <Image
-                  src={travelMediaUrl(slide.file)}
+                  src={slide.imageUrl}
+                  unoptimized
                   alt={isActive ? slide.alt : ""}
                   width={HERO_WIDTH}
                   height={HERO_HEIGHT}
                   sizes="100vw"
                   priority={slideIndex === 0}
+                  onError={(event) => {
+                    event.currentTarget.style.visibility = "hidden";
+                  }}
                   className="h-full w-full object-cover sm:!object-center"
-                  style={{ objectPosition: slide.mobilePosition }}
+                  style={{ objectPosition: slide.focalPosition }}
                 />
               </div>
             );
@@ -172,12 +197,16 @@ const HomeHeroCarousel: FC = () => {
 
           <div className="container absolute inset-0 flex flex-col justify-center pb-10 sm:pb-6">
             <div className="max-w-2xl space-y-4 sm:space-y-6">
-              <h1 className="text-3xl font-medium !leading-[114%] text-white sm:text-5xl lg:text-6xl">{t("customer.home.homeHeroCarousel.theBhaDaNang")}</h1>
-              <p className="max-w-md text-base text-white/90 sm:text-lg">{t("customer.home.homeHeroCarousel.bookDirectAndSeeThe")}</p>
+              <h1 style={fontStyle} className="text-3xl font-medium !leading-[114%] text-white sm:text-5xl lg:text-6xl">
+                {hero?.title ?? t("customer.home.homeHeroCarousel.theBhaDaNang")}
+              </h1>
+              <p style={fontStyle} className="max-w-md text-base text-white/90 sm:text-lg">
+                {hero?.description ?? t("customer.home.homeHeroCarousel.bookDirectAndSeeThe")}
+              </p>
               <div className="flex flex-wrap gap-3">
                 <button type="button" onClick={startSearch} className={PRIMARY_ACTION_CLASS}>
-                  <MagnifyingGlassIcon className="h-5 w-5" aria-hidden="true" />{t("customer.common.findARoom2")}</button>
-                <Link href={RIVERSIDE_PATH as Route} className={SECONDARY_ACTION_CLASS}>{t("customer.home.homeHeroCarousel.xemRiverside")}<ArrowRightIcon className="h-5 w-5" aria-hidden="true" />
+                  <MagnifyingGlassIcon className="h-5 w-5" aria-hidden="true" />{hero?.primaryAction ?? t("customer.common.findARoom2")}</button>
+                <Link href={RIVERSIDE_PATH as Route} className={SECONDARY_ACTION_CLASS}>{hero?.secondaryAction ?? t("customer.home.homeHeroCarousel.xemRiverside")}<ArrowRightIcon className="h-5 w-5" aria-hidden="true" />
                 </Link>
               </div>
             </div>
@@ -185,16 +214,13 @@ const HomeHeroCarousel: FC = () => {
 
           <div className="container absolute inset-x-0 bottom-3 flex items-end justify-between gap-3 sm:bottom-4 lg:bottom-[76px]">
             <p className="min-w-0 text-xs text-white/90 sm:text-sm">
-              <span>{active.caption}</span>
-              <span className="mx-1.5" aria-hidden="true">
-                ·
-              </span>
+              {active && <span>{active.caption}</span>}
+              {active && <span className="mx-1.5" aria-hidden="true">·</span>}
               {credit && <span>{creditLine(credit, t("customer.media.photoBy"))}</span>}
-              <span className="mx-1.5" aria-hidden="true">
-                ·
-              </span>
+              {credit && <span className="mx-1.5" aria-hidden="true">·</span>}
               <Link href={MEDIA_CREDITS_PATH as Route} className="underline underline-offset-2 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-white">{t("customer.common.photoCredits")}</Link>
             </p>
+            {manyPictures && (
             <div className="flex flex-shrink-0 items-center gap-2">
               <button type="button" aria-label={t("customer.home.homeHeroCarousel.previousPhoto")} onClick={prev} className={ROUND_BUTTON_CLASS}>
                 <ChevronLeftIcon className="h-5 w-5" aria-hidden="true" />
@@ -203,8 +229,10 @@ const HomeHeroCarousel: FC = () => {
                 <ChevronRightIcon className="h-5 w-5" aria-hidden="true" />
               </button>
             </div>
+            )}
           </div>
 
+          {manyPictures && (
           <div className="absolute inset-x-0 bottom-14 flex items-center justify-center gap-2 sm:bottom-16 lg:bottom-[76px] lg:left-1/2 lg:right-auto lg:-translate-x-1/2">
             <ul className="flex items-center gap-2">
               {slides.map((slide, slideIndex) => (
@@ -229,11 +257,12 @@ const HomeHeroCarousel: FC = () => {
               type="button"
               aria-label={pausedByVisitor ? t("customer.hero.resume") : t("customer.hero.pause")}
               onClick={() => setPausedByVisitor((value) => !value)}
-              className="flex h-8 w-8 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-sm hover:bg-black/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              className={`${adminEnabled ? "flex" : "hidden"} h-8 w-8 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-sm hover:bg-black/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-white`}
             >
               {pausedByVisitor ? <PlayIcon className="h-4 w-4" aria-hidden="true" /> : <PauseIcon className="h-4 w-4" aria-hidden="true" />}
             </button>
           </div>
+          )}
         </div>
       </div>
 

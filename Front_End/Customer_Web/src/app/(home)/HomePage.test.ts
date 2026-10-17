@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/i18n/server", async () => (await import("@/lib/i18n/testkit")).serverModuleMock());
+vi.mock("@/lib/hero/server", () => ({ getHeroSnapshot: vi.fn() }));
 import React from "react";
 import { renderPage, renderWithI18n } from "@/lib/i18n/testkit";
 import PageHome from "@/app/page";
@@ -8,7 +9,8 @@ import PageRiverside from "@/app/riverside/page";
 import OffersPage from "@/app/offers/page";
 import MediaCreditsPage from "@/app/media-credits/page";
 import { MOCK_OFFERS } from "@/data/homepageOffers";
-import { HERO_SLIDES } from "@/data/heroSlides";
+import { getHeroSnapshot } from "@/lib/hero/server";
+import type { HeroSnapshot } from "@/lib/hero/hero";
 import { TRAVEL_POSTS } from "@/data/travelPosts";
 import { BookingHoldProvider } from "@/app/BookingHoldProvider";
 
@@ -17,11 +19,23 @@ import { BookingHoldProvider } from "@/app/BookingHoldProvider";
  * browser run covers behaviour; these pin the contract that does not need one: one H1, the real links, the
  * mock/real boundary, and that the portal is not the Riverside landing page.
  */
+/** What the API serves today: the four built-in photographs, the way migration 13 seeds them. */
+const API = "https://api.test/api/v1/website/hero/media";
+const SEEDS = ["hero-dragon-bridge-dusk.webp", "hero-my-khe-beach.webp", "hero-danang-skyline.webp", "hero-han-river-night.webp"];
+const HERO: HeroSnapshot = {
+  revision: "r1", locale: "vi", generatedAt: Date.parse("2026-10-17T01:00:00Z"), fontKey: "default", autoplayEnabled: true, intervalSeconds: 6,
+  title: "The BHA — Đà Nẵng", description: "Đặt phòng trực tiếp, xem giá từng đêm.", primaryAction: "Tìm phòng", secondaryAction: "Xem Riverside",
+  slides: SEEDS.map((file, index) => ({
+    id: `slide-${index}`, imageUrl: `${API}/aaaaaaaa-0000-0000-0000-00000000000${index}`, seedFile: file, focalPosition: "50% 50%", alt: `Ảnh ${index}`, caption: `Chú thích ${index}`,
+  })),
+};
+
 let home = "";
 let riverside = "";
 let offers = "";
 let credits = "";
 beforeAll(async () => {
+  vi.mocked(getHeroSnapshot).mockResolvedValue(HERO);
   home = await renderPage(PageHome);
   riverside = renderWithI18n(React.createElement(BookingHoldProvider, null, (await PageRiverside()) as React.ReactElement));
   offers = await renderPage(OffersPage, { searchParams: { offer: MOCK_OFFERS[2].slug } });
@@ -33,10 +47,32 @@ const count = (markup: string, needle: string) => markup.split(needle).length - 
 describe("the home page is the booking portal", () => {
   it("has one H1 and a slideshow of at least three distinct pictures, only the first with priority", () => {
     expect(count(home, "<h1")).toBe(1);
-    const files = HERO_SLIDES.map((slide) => slide.file);
-    for (const file of files) expect(home).toContain(encodeURIComponent(`/media/the-bha-travel/${file}`));
-    expect(files.length).toBeGreaterThanOrEqual(3);
+    for (const slide of HERO.slides) expect(home).toContain(slide.imageUrl);
+    expect(HERO.slides.length).toBeGreaterThanOrEqual(3);
     expect(count(home, 'fetchPriority="high"') + count(home, 'fetchpriority="high"')).toBe(1);
+  });
+
+  it("draws the Admin's texts, with the chosen font only on the title and the description", async () => {
+    expect(home).toContain("Đặt phòng trực tiếp, xem giá từng đêm.");
+    expect(home).not.toMatch(/<h1[^>]*font-family/);                                      // the theme default sets no family
+    vi.mocked(getHeroSnapshot).mockResolvedValueOnce({ ...HERO, fontKey: "system-serif", title: "Khách sạn mới", primaryAction: "Đặt ngay" });
+    const serif = await renderPage(PageHome);
+    expect(serif).toMatch(/<h1 style="font-family:ui-serif[^"]*"[^>]*>Khách sạn mới<\/h1>/);
+    expect(serif).toMatch(/<p style="font-family:ui-serif[^"]*" class="max-w-md/);
+    expect(serif).toContain("Đặt ngay");
+    expect(count(serif, "font-family")).toBe(2);                                          // not the header, the search form or anything else
+    expect(count(serif, "<h1")).toBe(1);
+  });
+
+  it("with no hero at all (the API down on the first load) keeps one H1, the catalog's texts and the search, and draws no picture", async () => {
+    vi.mocked(getHeroSnapshot).mockResolvedValueOnce(null);
+    const degraded = await renderPage(PageHome);
+    expect(count(degraded, "<h1")).toBe(1);
+    expect(degraded).toContain("The BHA — Đà Nẵng");
+    expect(degraded).toContain('href="/riverside"');
+    expect(degraded).toContain('id="tim-phong"');
+    expect(degraded).not.toContain(API);
+    expect(degraded).not.toContain('aria-label="Ảnh trước"');                              // nothing to move between
   });
 
   it("leads to the pages the Owner named, with real URLs", () => {

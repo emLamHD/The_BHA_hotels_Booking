@@ -83,7 +83,7 @@ export function parseMenu(json: unknown): MenuSnapshot | null {
  * language switch); within a language never an older answer over a newer one (answers can arrive out of order); a language
  * change is the one case a new answer wins without being newer, because the labels it replaces are in the wrong language.
  */
-export function shouldAcceptMenu(current: MenuSnapshot | null, next: MenuSnapshot, activeLocale: string): boolean {
+export function shouldAcceptMenu<T extends { locale: string; generatedAt: number }>(current: T | null, next: T, activeLocale: string): boolean {
   if (next.locale !== activeLocale) return false;
   if (!current || current.locale !== next.locale) return true;
   return next.generatedAt > current.generatedAt;

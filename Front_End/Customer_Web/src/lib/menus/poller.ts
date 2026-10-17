@@ -11,11 +11,11 @@ export const MENU_POLL_MS = 10_000;
 /** A check asked for by an event (focus, becoming visible, a navigation) is dropped when one started less than this long ago: the events often arrive together. */
 export const MENU_MIN_GAP_MS = 1_000;
 
-export interface MenuPollerDeps {
+export interface MenuPollerDeps<T = MenuSnapshot> {
   /** One request for the current language; rejects on a network or HTTP failure, resolves `null` for a body that is not a menu. */
-  fetchMenu: (signal: AbortSignal) => Promise<MenuSnapshot | null>;
+  fetchMenu: (signal: AbortSignal) => Promise<T | null>;
   isVisible: () => boolean;
-  onMenu: (menu: MenuSnapshot) => void;
+  onMenu: (menu: T) => void;
   onStale: (stale: boolean) => void;
   intervalMs: number;
 }
@@ -27,7 +27,8 @@ export interface MenuPoller {
   checkNow: () => void;
 }
 
-export function createMenuPoller(deps: MenuPollerDeps): MenuPoller {
+/** CUST-WEB-HERO-001-CP01: generic over the snapshot, so the home hero uses this same loop (one request at a time, none while hidden). */
+export function createMenuPoller<T = MenuSnapshot>(deps: MenuPollerDeps<T>): MenuPoller {
   let stopped = true;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let inFlight: AbortController | null = null;

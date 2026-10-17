@@ -1,5 +1,4 @@
 import type { MockOffer } from "@/data/homepageOffers";
-import type { HeroSlide } from "@/data/heroSlides";
 import type { PostCategory, TravelPost } from "@/data/travelPosts";
 import type { HomeBenefit, HomeImage, HomeStep, SiteNavItem } from "@/lib/riversideHomeContent";
 import { formatMessage } from "./format";
@@ -50,12 +49,6 @@ export function localizePost(post: TravelPost, c: ContentFn): TravelPost {
     })),
   };
 }
-
-export const localizeHeroSlide = (slide: HeroSlide, c: ContentFn): HeroSlide => ({
-  ...slide,
-  alt: c("hero", slide.id, "alt", slide.alt),
-  caption: c("hero", slide.id, "caption", slide.caption),
-});
 
 export const localizeNavItem = (item: SiteNavItem, c: ContentFn): SiteNavItem => ({ ...item, name: c("nav", item.id, "name", item.name) });
 
