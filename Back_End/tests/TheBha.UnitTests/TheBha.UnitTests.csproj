@@ -26,6 +26,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- CUST-WEB-HERO-001-CP01: real pictures (and damaged / unsupported ones) the image inspector reads. -->
+    <Content Include="Fixtures\hero\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\TheBha.Domain\TheBha.Domain.csproj" />
     <ProjectReference Include="..\..\src\TheBha.Application\TheBha.Application.csproj" />
   </ItemGroup>

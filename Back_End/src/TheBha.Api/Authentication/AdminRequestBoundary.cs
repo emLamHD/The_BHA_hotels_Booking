@@ -92,4 +92,13 @@ public static class AdminRequestBoundary
 
         return true;
     }
+
+    /// <summary>
+    /// CUST-WEB-HERO-001-CP01: <c>multipart/form-data</c> with a boundary. Only a route that carries
+    /// <see cref="AllowStaffMultipartUploadAttribute"/> may accept it; every other Staff write stays JSON-only.
+    /// </summary>
+    public static bool IsMultipartFormData(string? contentType) =>
+        MediaTypeHeaderValue.TryParse(contentType, out var mediaType) &&
+        mediaType.MediaType.Equals("multipart/form-data", StringComparison.OrdinalIgnoreCase) &&
+        !StringSegment.IsNullOrEmpty(HeaderUtilities.RemoveQuotes(mediaType.Boundary));
 }

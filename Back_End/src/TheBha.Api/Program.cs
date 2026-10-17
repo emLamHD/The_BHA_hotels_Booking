@@ -173,7 +173,11 @@ builder.Services
         options.Filters.Add(new AntiforgeryProblemDetailsResultFilter());
     })
     .AddJsonOptions(options =>
-        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()))
+    // CUST-WEB-HERO-001-CP01: an IFormFile parameter (only the hero picture upload has one) would otherwise add an inferred
+    // [Consumes("multipart/form-data")], answering a wrong body type at action selection, ahead of the Staff boundary filter that
+    // must answer it (415 after 401/403/Origin, like every other Staff route).
+    .ConfigureApiBehaviorOptions(options => options.SuppressConsumesConstraintForFormFileParameters = true);
 // CUST-WEB-HEADER-001-CP02-C2: every problem of a public route (controller, rate limiter, cookie challenge, exception handler)
 // carries a stable `code`; the title, detail and status are unchanged.
 builder.Services.AddProblemDetails(options =>

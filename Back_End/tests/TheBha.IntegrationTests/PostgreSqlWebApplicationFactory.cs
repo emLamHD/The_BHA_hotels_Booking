@@ -97,6 +97,9 @@ public sealed class PostgreSqlWebApplicationFactory : WebApplicationFactory<Prog
     }
 
     public string DatabaseName { get; }
+
+    /// <summary>CUST-WEB-HERO-001-CP01: this host's own picture directory, outside the source and build output, removed with the host.</summary>
+    public string MediaRoot { get; } = Path.Combine(Path.GetTempPath(), "bha-hero-media-" + Guid.NewGuid().ToString("N"));
     public string ConnectionString { get; }
     public MutableTimeProvider Clock { get; } = new(TimeProvider.System.GetUtcNow());
 
@@ -104,6 +107,7 @@ public sealed class PostgreSqlWebApplicationFactory : WebApplicationFactory<Prog
     {
         builder.UseEnvironment("Development");
         builder.UseSetting("ConnectionStrings:TheBhaDatabase", ConnectionString);
+        builder.UseSetting("WebsiteMedia:RootPath", MediaRoot);
 
         // The host default (`reloadOnChange: true`) puts an inotify watch on
         // every appsettings file, and this suite builds one host per boundary
@@ -188,6 +192,11 @@ public sealed class PostgreSqlWebApplicationFactory : WebApplicationFactory<Prog
         await using var command = connection.CreateCommand();
         command.CommandText = $"DROP DATABASE IF EXISTS \"{DatabaseName}\" WITH (FORCE)";
         await command.ExecuteNonQueryAsync();
+
+        if (Directory.Exists(MediaRoot))
+        {
+            Directory.Delete(MediaRoot, recursive: true);
+        }
     }
 
     public TheBhaDbContext CreateDbContext()
@@ -227,7 +236,10 @@ public sealed class PostgreSqlWebApplicationFactory : WebApplicationFactory<Prog
                 "Media",
                 "RoomTypes",
                 "Properties",
-                "WebsiteMenuItems"
+                "WebsiteMenuItems",
+                "WebsiteHeroSlides",
+                "WebsiteHeroMedia",
+                "WebsiteHero"
             CASCADE;
             """);
 
@@ -237,6 +249,8 @@ public sealed class PostgreSqlWebApplicationFactory : WebApplicationFactory<Prog
         await context.Database.ExecuteSqlRawAsync(WebsiteTestSeed.InsertSql().Replace("{", "{{").Replace("}", "}}"));
         // CUST-WEB-HEADER-001-CP04: and the header menu as migration 12 seeds it (the tree, its version row and the en labels).
         await context.Database.ExecuteSqlRawAsync(TheBha.Infrastructure.Persistence.WebsiteMenuSeed.Sql);
+        // CUST-WEB-HERO-001-CP01: and the home hero as migration 13 seeds it.
+        await context.Database.ExecuteSqlRawAsync(TheBha.Infrastructure.Persistence.WebsiteHeroSeed.Sql);
     }
 }
 

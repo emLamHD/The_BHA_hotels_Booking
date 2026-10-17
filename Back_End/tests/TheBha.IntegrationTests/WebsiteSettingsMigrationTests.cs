@@ -25,6 +25,7 @@ public sealed class WebsiteSettingsMigrationTests : IAsyncLifetime
     private const string V9Migration = "20261001141847_AddStaffIdentityFoundation";
     private const string V10Migration = "20261015050047_AddWebsiteLocalizationSettings";
     private const string V11Migration = "20261015095908_AddRuntimeLanguagePacks";
+    private const string V12Migration = "20261016014037_AddWebsiteMenus";
 
     /// <summary>The 24 texts migration 10 seeded, under the keys migration 11 gave them (the old note about a selector that did nothing is retired).</summary>
     private static readonly string[] StarterKeys =
@@ -62,7 +63,7 @@ public sealed class WebsiteSettingsMigrationTests : IAsyncLifetime
         await using var context = CreateContext();
         await context.Database.MigrateAsync();
 
-        Assert.Equal(12, (await context.Database.GetAppliedMigrationsAsync()).Count());
+        Assert.Equal(13, (await context.Database.GetAppliedMigrationsAsync()).Count());
         Assert.Empty(await context.Database.GetPendingMigrationsAsync());
 
         // Languages: Vietnamese is the active default, English exists for the operator but is off; each has its format and currency.
@@ -85,7 +86,7 @@ public sealed class WebsiteSettingsMigrationTests : IAsyncLifetime
         var en = LocalizationAssets.BuiltInPack("en")!.Messages;
         var expected = StarterKeys.SelectMany(key => new[] { $"vi|{key}|{vi[key]}|1", $"en|{key}|{en[key]}|1" }).Order(StringComparer.Ordinal).ToArray();
         var actual = (await RowsAsync(
-            """SELECT l."NormalizedCode" || '|' || t."Key" || '|' || t."Value" || '|' || t."Version"::text FROM "WebsiteTranslations" t JOIN "WebsiteLanguages" l ON l."Id" = t."LanguageId" WHERE t."Key" NOT LIKE 'content.menuItem.%' """))
+            """SELECT l."NormalizedCode" || '|' || t."Key" || '|' || t."Value" || '|' || t."Version"::text FROM "WebsiteTranslations" t JOIN "WebsiteLanguages" l ON l."Id" = t."LanguageId" WHERE t."Key" NOT LIKE 'content.menuItem.%' AND t."Key" NOT LIKE 'content.hero%' """))
             .Order(StringComparer.Ordinal).ToArray();
         Assert.Equal(expected, actual);
 
@@ -94,7 +95,10 @@ public sealed class WebsiteSettingsMigrationTests : IAsyncLifetime
         Assert.Equal(54, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteTranslations" WHERE "Key" LIKE 'content.menuItem.%' AND "LanguageId" = '7b0c8a10-0001-4000-8000-000000000002' AND NOT "IsManual" """));
         Assert.Equal(0, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteTranslations" WHERE "Key" LIKE 'content.menuItem.%' AND "LanguageId" = '7b0c8a10-0001-4000-8000-000000000001' """));
         Assert.Equal("FAQ", await ScalarAsync<string>("""SELECT "Label" FROM "WebsiteMenuItems" WHERE "ParentId" IS NULL AND "Placement" = 'primary' ORDER BY "SortOrder" OFFSET 3 LIMIT 1"""));
-        Assert.Equal(0, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteTranslations" WHERE ("IsManual" OR "SourceHash" IS NOT NULL) AND "Key" NOT LIKE 'content.menuItem.%'"""));
+        Assert.Equal(0, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteTranslations" WHERE ("IsManual" OR "SourceHash" IS NOT NULL) AND "Key" NOT LIKE 'content.menuItem.%' AND "Key" NOT LIKE 'content.hero%'"""));
+        // Migration 13: the home hero the Customer had in code, with its en texts (hash-stamped, not hand-edited).
+        Assert.Equal(12, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteTranslations" WHERE ("Key" LIKE 'content.heroSlideshow.%' OR "Key" LIKE 'content.heroSlide.%') AND "LanguageId" = '7b0c8a10-0001-4000-8000-000000000002' AND NOT "IsManual" AND "SourceHash" IS NOT NULL"""));
+        Assert.Equal((1, 4, 4), (await ScalarAsync<int>("""SELECT "Version" FROM "WebsiteHero" """), await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteHeroSlides" """), await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteHeroMedia" """)));
         Assert.Equal(0, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteTranslations" WHERE "Key" LIKE 'header.%' OR "Key" LIKE 'common.%'"""));
 
         // Every starter key is still in the catalog, so the renamed rows are read by the product.
@@ -180,7 +184,7 @@ public sealed class WebsiteSettingsMigrationTests : IAsyncLifetime
 
         Assert.Equal("Offres", await ScalarAsync<string>("""SELECT t."Value" FROM "WebsiteTranslations" t JOIN "WebsiteLanguages" l ON l."Id" = t."LanguageId" WHERE l."NormalizedCode" = 'fr' AND t."Key" LIKE 'content.menuItem.%' AND t."Value" = 'Offres' """));
         // Everything that existed is untouched (the operator's edit included); the only new rows are the menu's.
-        var after = (await RowsAsync(Existing + """ """)).Where(row => !row.StartsWith("Tcontent.menuItem.", StringComparison.Ordinal)).Order(StringComparer.Ordinal).ToArray();
+        var after = (await RowsAsync(Existing + """ """)).Where(row => !row.StartsWith("Tcontent.menuItem.", StringComparison.Ordinal) && !row.StartsWith("Tcontent.hero", StringComparison.Ordinal)).Order(StringComparer.Ordinal).ToArray();
         Assert.Equal(before, after);
         Assert.Equal("Ưu đãi riêng", await ScalarAsync<string>("""SELECT "Value" FROM "WebsiteTranslations" WHERE "Key" = 'customer.header.menu.offers' AND "LanguageId" = '7b0c8a10-0001-4000-8000-000000000001' """));
 
@@ -196,6 +200,58 @@ public sealed class WebsiteSettingsMigrationTests : IAsyncLifetime
         Assert.Equal(before, (await RowsAsync(Existing)).Order(StringComparer.Ordinal).ToArray());
         await migrator.MigrateAsync();
         Assert.Equal(54, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteMenuItems" """));
+    }
+
+    [Fact]
+    public async Task Migration_13_seeds_the_hero_once_keeps_every_older_row_as_it_was_and_goes_down_cleanly()
+    {
+        await using var context = CreateContext();
+        var migrator = context.GetInfrastructure().GetRequiredService<IMigrator>();
+        await migrator.MigrateAsync(V12Migration);
+        await ExecuteAsync(
+            """
+            INSERT INTO "WebsiteLanguages" ("Id","Code","NormalizedCode","DisplayName","NativeName","SortOrder","IsActive","IsDefault","Version","CreatedAtUtc","UpdatedAtUtc","FormatLocale") VALUES (gen_random_uuid(),'fr','fr','French','Français',30,true,false,1,now(),now(),'fr');
+            UPDATE "WebsiteMenuItems" SET "Label" = 'Của tôi' WHERE "Label" = 'FAQ';
+            UPDATE "WebsiteTranslations" SET "Value" = 'Ưu đãi riêng', "Version" = 3 WHERE "Key" = 'customer.header.menu.offers' AND "LanguageId" = '7b0c8a10-0001-4000-8000-000000000001';
+            """);
+        const string Existing = """SELECT 'L' || "NormalizedCode" || "DisplayName" || "Version"::text || "IsActive"::text FROM "WebsiteLanguages" UNION ALL SELECT 'T' || "Key" || "Value" || "Version"::text FROM "WebsiteTranslations" UNION ALL SELECT 'C' || "Code" || COALESCE("VndPerUnit"::text,'') || "Version"::text FROM "WebsiteCurrencies" UNION ALL SELECT 'M' || "Id"::text || "Label" || "Href" FROM "WebsiteMenuItems" """;
+        var before = (await RowsAsync(Existing)).Order(StringComparer.Ordinal).ToArray();
+
+        await migrator.MigrateAsync();
+
+        // The hero the Customer had in code: four credited photographs in order, default font, autoplay on, 6 seconds.
+        Assert.Equal((1, "default", true, 6), (
+            await ScalarAsync<int>("""SELECT "Version" FROM "WebsiteHero" """), await ScalarAsync<string>("""SELECT "FontKey" FROM "WebsiteHero" """),
+            await ScalarAsync<bool>("""SELECT "AutoplayEnabled" FROM "WebsiteHero" """), await ScalarAsync<int>("""SELECT "IntervalSeconds" FROM "WebsiteHero" """)));
+        Assert.Equal(4, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteHeroSlides" """));
+        Assert.Equal(4, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteHeroMedia" WHERE "Kind" = 'seed' """));
+        Assert.Equal("Cầu Rồng và sông Hàn lúc hoàng hôn|Bãi biển Mỹ Khê|Đường chân trời Đà Nẵng lúc chạng vạng|Sông Hàn về đêm", await ScalarAsync<string>("""SELECT string_agg("Caption", '|' ORDER BY "SortOrder") FROM "WebsiteHeroSlides" """));
+        // The languages that existed got their texts (4 shared + 2 per slide each); Vietnamese keeps its text in the row itself.
+        foreach (var (code, rows) in new[] { ("en", 12), ("fr", 12), ("vi", 0) })
+        {
+            Assert.Equal(rows, await ScalarAsync<int>($"""SELECT count(*) FROM "WebsiteTranslations" t JOIN "WebsiteLanguages" l ON l."Id" = t."LanguageId" WHERE l."NormalizedCode" = '{code}' AND (t."Key" LIKE 'content.heroSlideshow.%' OR t."Key" LIKE 'content.heroSlide.%') """));
+        }
+
+        Assert.Equal("Voir Riverside", await ScalarAsync<string>("""SELECT t."Value" FROM "WebsiteTranslations" t JOIN "WebsiteLanguages" l ON l."Id" = t."LanguageId" WHERE l."NormalizedCode" = 'fr' AND t."Key" = 'content.heroSlideshow.main.secondaryAction' """));
+        // Everything that existed is untouched (the operator's edits included); the only new rows are the hero's.
+        var after = (await RowsAsync(Existing)).Where(row => !row.StartsWith("Tcontent.hero", StringComparison.Ordinal)).Order(StringComparer.Ordinal).ToArray();
+        Assert.Equal(before, after);
+
+        // Running the migrations again never reseeds or overwrites what an operator changed in the hero.
+        await ExecuteAsync("""UPDATE "WebsiteHero" SET "Version" = 7, "FontKey" = 'system-serif', "IntervalSeconds" = 20, "Title" = 'Của tôi'; DELETE FROM "WebsiteHeroSlides" WHERE "SortOrder" = 3""");
+        await migrator.MigrateAsync();
+        Assert.Equal((7, "system-serif", 20, "Của tôi", 3), (
+            await ScalarAsync<int>("""SELECT "Version" FROM "WebsiteHero" """), await ScalarAsync<string>("""SELECT "FontKey" FROM "WebsiteHero" """),
+            await ScalarAsync<int>("""SELECT "IntervalSeconds" FROM "WebsiteHero" """), await ScalarAsync<string>("""SELECT "Title" FROM "WebsiteHero" """),
+            await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteHeroSlides" """)));
+
+        // Down removes the hero and its texts and nothing else; Up again restores the seed.
+        await migrator.MigrateAsync(V12Migration);
+        Assert.Equal(0, await ScalarAsync<int>("""SELECT count(*) FROM information_schema.tables WHERE table_name IN ('WebsiteHero', 'WebsiteHeroSlides', 'WebsiteHeroMedia')"""));
+        Assert.Equal(0, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteTranslations" WHERE "Key" LIKE 'content.hero%'"""));
+        Assert.Equal(before, (await RowsAsync(Existing)).Order(StringComparer.Ordinal).ToArray());
+        await migrator.MigrateAsync();
+        Assert.Equal(4, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteHeroSlides" """));
     }
 
     [Fact]
@@ -215,7 +271,7 @@ public sealed class WebsiteSettingsMigrationTests : IAsyncLifetime
         await context.Database.MigrateAsync();
         await context.Database.MigrateAsync();
 
-        Assert.Equal(12, (await context.Database.GetAppliedMigrationsAsync()).Count());
+        Assert.Equal(13, (await context.Database.GetAppliedMigrationsAsync()).Count());
         Assert.Equal(
             before.Order(StringComparer.Ordinal).ToArray(),
             (await RowsAsync("""SELECT 'L' || "NormalizedCode" || "DisplayName" || "Version"::text || "IsActive"::text FROM "WebsiteLanguages" UNION ALL SELECT 'T' || "Key" || "Value" || "Version"::text FROM "WebsiteTranslations" UNION ALL SELECT 'C' || "Code" || "Name" || COALESCE("VndPerUnit"::text,'-') || "Version"::text FROM "WebsiteCurrencies" """))
@@ -257,8 +313,8 @@ public sealed class WebsiteSettingsMigrationTests : IAsyncLifetime
         Assert.Equal(2, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteTranslations" WHERE "Key" = 'header.menu.offers'"""));
         Assert.Equal(0, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteTranslations" WHERE "Key" LIKE 'customer.%' OR "Key" LIKE 'shared.%'"""));
         await migrator.MigrateAsync();
-        // Migration 12 seeds the header menu labels (en) on top of the starter texts; they are counted in their own test.
-        Assert.Equal(StarterKeys.Length * 2, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteTranslations" WHERE "Key" NOT LIKE 'content.menuItem.%' """));
+        // Migrations 12 and 13 seed the header menu labels and the hero texts (en) on top of the starter texts; they are counted in their own tests.
+        Assert.Equal(StarterKeys.Length * 2, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteTranslations" WHERE "Key" NOT LIKE 'content.menuItem.%' AND "Key" NOT LIKE 'content.hero%' """));
         Assert.Equal("USD", await ScalarAsync<string>("""SELECT "DefaultCurrencyCode" FROM "WebsiteLanguages" WHERE "NormalizedCode" = 'en'"""));
     }
 

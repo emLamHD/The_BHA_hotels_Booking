@@ -25,4 +25,9 @@
     <ProjectReference Include="..\..\src\TheBha.Api\TheBha.Api.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- CUST-WEB-HERO-001-CP01: small real pictures the upload tests send. -->
+    <Content Include="Fixtures\hero\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

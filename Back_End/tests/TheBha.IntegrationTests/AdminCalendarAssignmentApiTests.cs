@@ -458,7 +458,10 @@ public sealed class AdminCalendarAssignmentApiTests(PostgreSqlWebApplicationFact
         "/api/admin/v1/website/language-packs/preview",
         "/api/admin/v1/website/language-packs/apply",
         // CUST-WEB-HEADER-001-CP04: saving the header navigation (tree, links, labels) in one transaction.
-        "/api/admin/v1/website/menus/save"
+        "/api/admin/v1/website/menus/save",
+        // CUST-WEB-HERO-001-CP01: saving the home hero in one transaction, and uploading one picture (the only multipart route).
+        "/api/admin/v1/website/hero/save",
+        "/api/admin/v1/website/hero/media"
     ];
 
     [Fact]

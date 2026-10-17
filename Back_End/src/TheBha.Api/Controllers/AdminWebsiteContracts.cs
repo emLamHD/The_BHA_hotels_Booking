@@ -165,3 +165,34 @@ public abstract class AdminWebsiteControllerBase : ControllerBase
         return new ObjectResult(problem) { StatusCode = status, ContentTypes = { "application/problem+json" } };
     }
 }
+
+/// <summary>
+/// CUST-WEB-HERO-001-CP01: the whole home hero as the editor holds it. <c>ExpectedRevision</c> is the revision it loaded; <c>Slides</c> is in
+/// slideshow order; every text maps a language code to its text.
+/// </summary>
+public sealed record SaveWebsiteHeroRequest
+{
+    [JsonRequired] public string ExpectedRevision { get; init; } = string.Empty;
+    [JsonRequired] public string FontKey { get; init; } = string.Empty;
+    [JsonRequired] public bool AutoplayEnabled { get; init; }
+    [JsonRequired] public int IntervalSeconds { get; init; }
+    [JsonRequired] public WebsiteHeroTextsRequest Texts { get; init; } = new();
+    [JsonRequired] public IReadOnlyList<WebsiteHeroSlideRequest> Slides { get; init; } = [];
+}
+
+public sealed record WebsiteHeroTextsRequest
+{
+    public Dictionary<string, string?>? Title { get; init; }
+    public Dictionary<string, string?>? Description { get; init; }
+    public Dictionary<string, string?>? PrimaryAction { get; init; }
+    public Dictionary<string, string?>? SecondaryAction { get; init; }
+}
+
+public sealed record WebsiteHeroSlideRequest
+{
+    [JsonRequired] public Guid Id { get; init; }
+    [JsonRequired] public Guid MediaId { get; init; }
+    public string? FocalPosition { get; init; }
+    public Dictionary<string, string?>? Alt { get; init; }
+    public Dictionary<string, string?>? Caption { get; init; }
+}
