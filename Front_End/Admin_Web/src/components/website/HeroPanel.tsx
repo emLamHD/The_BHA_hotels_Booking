@@ -30,6 +30,28 @@ import { ActionButton, Banner, ErrorPanel, LoadingPanel, PageHeader, TextField, 
 const PANEL = "rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]";
 const SMALL_BUTTON =
   "inline-flex items-center rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 focus:outline-hidden focus-visible:ring-3 focus-visible:ring-brand-500/20 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-white/5";
+/** The three actions an operator looks for first — add a picture, reuse one, drop the draft — stand out from the small row buttons. */
+const TONES = {
+  primary: "bg-brand-500 text-white shadow-theme-xs hover:bg-brand-600",
+  brand: "bg-brand-50 text-brand-700 ring-1 ring-inset ring-brand-300 hover:bg-brand-100 dark:bg-brand-500/15 dark:text-brand-300 dark:ring-brand-500/50 dark:hover:bg-brand-500/25",
+  warning: "bg-warning-50 text-warning-800 ring-1 ring-inset ring-warning-400 hover:bg-warning-100 dark:bg-warning-500/15 dark:text-warning-300 dark:ring-warning-500/50 dark:hover:bg-warning-500/25",
+} as const;
+
+function ToneButton({ tone, onClick, disabled, testId, children }: { tone: keyof typeof TONES; onClick: () => void; disabled?: boolean; testId: string; children: React.ReactNode }) {
+  return (
+    <span data-testid={testId} className="inline-flex">
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition focus:outline-hidden focus-visible:ring-3 focus-visible:ring-brand-500/30 ${TONES[tone]} ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
+      >
+        {children}
+      </button>
+    </span>
+  );
+}
+
 const SELECT =
   "h-11 w-full rounded-lg border border-gray-300 bg-transparent px-3 text-sm text-gray-800 focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90";
 
@@ -272,7 +294,7 @@ function HeroEditor({ initial, reload, readError }: { initial: WebsiteHero; relo
           {submitted && problems.blocking > 0 && <span className="ml-2 text-error-600 dark:text-error-400" data-testid="hero-blocking">Còn {problems.blocking} chỗ cần sửa trước khi lưu.</span>}
         </p>
         <div className="flex gap-2">
-          <ActionButton variant="outline" onClick={cancel} disabled={!dirty || working} testId="hero-cancel">Huỷ thay đổi</ActionButton>
+          <ToneButton tone="warning" onClick={cancel} disabled={!dirty || working} testId="hero-cancel">Huỷ thay đổi</ToneButton>
           <ActionButton onClick={() => void save()} disabled={!dirty || locked} testId="hero-save">{write.status.phase === "pending" ? "Đang lưu…" : "Lưu banner"}</ActionButton>
         </div>
       </div>
@@ -304,8 +326,8 @@ function HeroEditor({ initial, reload, readError }: { initial: WebsiteHero; relo
                 <p className="text-xs text-gray-500 dark:text-gray-400">Gợi ý ảnh ngang 1920×900 và nén xuống khoảng 500 KB (ảnh được gửi nguyên bản cho khách, không tự thu nhỏ). JPEG, PNG hoặc WebP, tối đa 10 MB; ảnh khác tỷ lệ vẫn dùng được (cắt vừa khung).</p>
               </div>
               <div className="flex flex-wrap gap-2">
-                <ActionButton variant="outline" onClick={() => choose({ kind: "add" })} disabled={locked || draft.slides.length >= MAX_SLIDES} testId="add-upload">Tải ảnh lên</ActionButton>
-                <ActionButton variant="outline" onClick={() => setPicker(picker?.kind === "add" ? null : { kind: "add" })} disabled={locked || draft.slides.length >= MAX_SLIDES} testId="add-library">Chọn ảnh đã có</ActionButton>
+                <ToneButton tone="primary" onClick={() => choose({ kind: "add" })} disabled={locked || draft.slides.length >= MAX_SLIDES} testId="add-upload">+ Tải ảnh lên</ToneButton>
+                <ToneButton tone="brand" onClick={() => setPicker(picker?.kind === "add" ? null : { kind: "add" })} disabled={locked || draft.slides.length >= MAX_SLIDES} testId="add-library">Chọn ảnh đã có</ToneButton>
               </div>
             </div>
             {problems.slides && showErrors && <p className="mb-2 text-xs text-error-500" data-testid="slides-problem">{problems.slides}</p>}
