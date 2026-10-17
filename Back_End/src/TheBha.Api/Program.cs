@@ -173,7 +173,30 @@ builder.Services
         options.Filters.Add(new AntiforgeryProblemDetailsResultFilter());
     })
     .AddJsonOptions(options =>
-        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()))
+    // CUST-WEB-HERO-001-CP01: an IFormFile parameter (only the hero picture upload has one) would otherwise add an inferred
+    // [Consumes("multipart/form-data")], answering a wrong body type at action selection, ahead of the Staff boundary filter that
+    // must answer it (415 after 401/403/Origin, like every other Staff route).
+    .ConfigureApiBehaviorOptions(options =>
+    {
+        options.SuppressConsumesConstraintForFormFileParameters = true;
+
+        // CUST-WEB-HERO-001-CP01: a multipart body the framework could not read (over the upload's size limit, or not valid multipart)
+        // fails model binding before the action runs. On the upload action that is a refusal with the hero's own code and field, the
+        // shape the Admin already shows; every other route keeps the framework's default answer.
+        var framework = options.InvalidModelStateResponseFactory;
+        options.InvalidModelStateResponseFactory = context =>
+            context.HttpContext.GetEndpoint()?.Metadata.GetMetadata<AllowStaffMultipartUploadAttribute>() is not null
+                ? new ObjectResult(new ProblemDetails
+                {
+                    Status = StatusCodes.Status400BadRequest,
+                    Title = "Invalid website setting",
+                    Detail = "The upload could not be read: it is larger than 11 MB or is not a valid file upload.",
+                    Extensions = { ["code"] = TheBha.Application.Website.HeroErrorCodes.UploadUnreadable, ["field"] = "file" }
+                })
+                { StatusCode = StatusCodes.Status400BadRequest, ContentTypes = { "application/problem+json" } }
+                : framework(context);
+    });
 // CUST-WEB-HEADER-001-CP02-C2: every problem of a public route (controller, rate limiter, cookie challenge, exception handler)
 // carries a stable `code`; the title, detail and status are unchanged.
 builder.Services.AddProblemDetails(options =>

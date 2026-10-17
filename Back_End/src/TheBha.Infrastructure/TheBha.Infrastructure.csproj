@@ -12,6 +12,11 @@
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.11" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- CUST-WEB-HERO-001-CP01: the four photographs the hero started with (credits: Customer_Web media-credits page), served by the API like an upload. -->
+    <EmbeddedResource Include="HeroMedia\Seed\*.webp" LogicalName="bha-hero-seed/%(Filename)%(Extension)" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>

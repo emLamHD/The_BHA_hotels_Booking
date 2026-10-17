@@ -17,7 +17,7 @@ namespace TheBha.Api.Controllers;
 [ApiController]
 [EnableCors("website-public")]
 [Route("api/v1/website")]
-public sealed class WebsiteController(IWebsitePublicReader reader, IWebsiteDisplayPricing pricing, IWebsiteMenus menus) : ControllerBase
+public sealed class WebsiteController(IWebsitePublicReader reader, IWebsiteDisplayPricing pricing, IWebsiteMenus menus, IWebsiteHero hero) : ControllerBase
 {
     /// <summary>Active locales (each with its format locale, direction and default currency), active currencies, the defaults, and VND as the base currency.</summary>
     [HttpGet("config")]
@@ -72,6 +72,44 @@ public sealed class WebsiteController(IWebsitePublicReader reader, IWebsiteDispl
         Response.Headers.CacheControl = "no-cache";
         Response.Headers.ETag = etag;
         return Request.Headers.IfNoneMatch.Contains(etag) ? StatusCode(StatusCodes.Status304NotModified) : Ok(menu);
+    }
+
+    /// <summary>
+    /// CUST-WEB-HERO-001-CP01: the home page hero for <c>locale</c> (resolved like <c>dictionary</c>): the saved slides, texts, font and timing,
+    /// revalidated on every request (<c>no-cache</c> + ETag) so a Save in the Admin is visible to the next request. Never a draft, a Staff id or
+    /// an administrative field; <c>generatedAtUtc</c> lets a client keep the newest answer.
+    /// </summary>
+    [HttpGet("hero")]
+    [ProducesResponseType(typeof(PublicHeroDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status304NotModified)]
+    public async Task<ActionResult> Hero([FromQuery] string? locale, CancellationToken cancellationToken)
+    {
+        var body = await hero.GetPublicAsync(locale, cancellationToken);
+        var etag = "W/\"" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(body.Revision + "|" + body.Locale))).ToLowerInvariant()[..24] + "\"";
+        Response.Headers.CacheControl = "no-cache";
+        Response.Headers.ETag = etag;
+        return Request.Headers.IfNoneMatch.Contains(etag) ? StatusCode(StatusCodes.Status304NotModified) : Ok(body);
+    }
+
+    /// <summary>
+    /// One hero picture by its server-generated id. A picture never changes (a new file is a new id), so it is cached for a year. The content type
+    /// is the one recorded at upload, never sniffed; the id is random and unlisted, so a picture uploaded but not yet saved into the slideshow is not discoverable.
+    /// </summary>
+    [HttpGet("hero/media/{id:guid}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> HeroMedia(Guid id, CancellationToken cancellationToken)
+    {
+        var file = await hero.OpenMediaAsync(id, cancellationToken);
+        if (file is null)
+        {
+            return NotFound();
+        }
+
+        Response.Headers.CacheControl = "public, max-age=31536000, immutable";
+        Response.Headers["X-Content-Type-Options"] = "nosniff";
+        Response.Headers.ContentSecurityPolicy = "default-src 'none'; sandbox";
+        return File(file.Content, file.ContentType);
     }
 
     /// <summary>

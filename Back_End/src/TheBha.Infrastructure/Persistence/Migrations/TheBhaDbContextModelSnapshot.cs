@@ -1172,6 +1172,175 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("TheBha.Domain.Website.WebsiteHeroMedia", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("ByteSize")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedByStaffId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Height")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)");
+
+                    b.Property<string>("StorageKey")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<int>("Width")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAtUtc")
+                        .HasDatabaseName("IX_WebsiteHeroMedia_CreatedAt");
+
+                    b.HasIndex("CreatedByStaffId");
+
+                    b.HasIndex("StorageKey")
+                        .IsUnique()
+                        .HasDatabaseName("UX_WebsiteHeroMedia_StorageKey");
+
+                    b.ToTable("WebsiteHeroMedia", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_WebsiteHeroMedia_ContentType", "\"ContentType\" IN ('image/jpeg', 'image/png', 'image/webp')");
+
+                            t.HasCheckConstraint("CK_WebsiteHeroMedia_Kind", "\"Kind\" IN ('seed', 'upload')");
+
+                            t.HasCheckConstraint("CK_WebsiteHeroMedia_Size", "\"ByteSize\" BETWEEN 1 AND 10485760 AND \"Width\" BETWEEN 1 AND 8000 AND \"Height\" BETWEEN 1 AND 8000");
+
+                            t.HasCheckConstraint("CK_WebsiteHeroMedia_StorageKey", "\"StorageKey\" ~ '^(seed|hero)/[A-Za-z0-9][A-Za-z0-9._-]*$' AND \"StorageKey\" !~ '\\.\\.'");
+                        });
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Website.WebsiteHeroSettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("AutoplayEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<string>("FontKey")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<int>("IntervalSeconds")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("PrimaryActionLabel")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
+
+                    b.Property<string>("SecondaryActionLabel")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedByStaffId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UpdatedByStaffId");
+
+                    b.ToTable("WebsiteHero", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_WebsiteHero_Font", "\"FontKey\" IN ('default', 'be-vietnam-pro', 'system-sans', 'system-serif')");
+
+                            t.HasCheckConstraint("CK_WebsiteHero_Interval", "\"IntervalSeconds\" BETWEEN 3 AND 60");
+
+                            t.HasCheckConstraint("CK_WebsiteHero_Singleton", "\"Id\" = 1");
+
+                            t.HasCheckConstraint("CK_WebsiteHero_Texts", "btrim(\"Title\") <> '' AND char_length(\"Title\") <= 80 AND btrim(\"Description\") <> '' AND char_length(\"Description\") <= 160 AND btrim(\"PrimaryActionLabel\") <> '' AND char_length(\"PrimaryActionLabel\") <= 24 AND btrim(\"SecondaryActionLabel\") <> '' AND char_length(\"SecondaryActionLabel\") <= 24");
+
+                            t.HasCheckConstraint("CK_WebsiteHero_Version", "\"Version\" >= 1");
+                        });
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Website.WebsiteHeroSlide", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Alt")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Caption")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<string>("FocalPosition")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<Guid>("MediaId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MediaId")
+                        .HasDatabaseName("IX_WebsiteHeroSlides_Media");
+
+                    b.HasIndex("SortOrder")
+                        .IsUnique()
+                        .HasDatabaseName("UX_WebsiteHeroSlides_Sort");
+
+                    b.ToTable("WebsiteHeroSlides", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_WebsiteHeroSlides_Alt", "btrim(\"Alt\") <> '' AND char_length(\"Alt\") <= 200");
+
+                            t.HasCheckConstraint("CK_WebsiteHeroSlides_Caption", "btrim(\"Caption\") <> '' AND char_length(\"Caption\") <= 60");
+
+                            t.HasCheckConstraint("CK_WebsiteHeroSlides_Focal", "\"FocalPosition\" ~ '^[0-9]{1,3}% [0-9]{1,3}%$'");
+
+                            t.HasCheckConstraint("CK_WebsiteHeroSlides_SortOrder", "\"SortOrder\" BETWEEN 0 AND 9");
+                        });
+                });
+
             modelBuilder.Entity("TheBha.Domain.Website.WebsiteLanguage", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1921,6 +2090,31 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("UpdatedByStaffId")
                         .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Website.WebsiteHeroMedia", b =>
+                {
+                    b.HasOne("TheBha.Infrastructure.Identity.StaffAccount", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByStaffId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Website.WebsiteHeroSettings", b =>
+                {
+                    b.HasOne("TheBha.Infrastructure.Identity.StaffAccount", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedByStaffId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Website.WebsiteHeroSlide", b =>
+                {
+                    b.HasOne("TheBha.Domain.Website.WebsiteHeroMedia", null)
+                        .WithMany()
+                        .HasForeignKey("MediaId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("TheBha.Domain.Website.WebsiteLanguage", b =>

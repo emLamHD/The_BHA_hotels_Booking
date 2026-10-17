@@ -105,6 +105,7 @@ The current migration chain is:
 10. `20261015050047_AddWebsiteLocalizationSettings`
 11. `20261015095908_AddRuntimeLanguagePacks`
 12. `20261016014037_AddWebsiteMenus`
+13. `20261017084454_AddWebsiteHero`
 
 `PMS-BE-001.1` (migration 7) replaces the single-RoomType `BookingHold`/
 `BookingHoldNight` and `Reservation`/`ReservationNight` commercial authority
@@ -234,6 +235,29 @@ label rows. No booking, customer, staff, language, currency or rate row is chang
 (counts before/after are in the CP04 report). Apply with the normal
 `dotnet ef database update`; order 11 → 12. Design:
 `docs/design/CUST-WEB-HEADER-001-CP04-dynamic-menus-faq.md`.
+
+`CUST-WEB-HERO-001-CP01` (migration 13, `AddWebsiteHero`) adds the home page hero:
+`WebsiteHeroMedia` (`Id` server-generated, `Kind` `seed`/`upload`, `StorageKey`
+relative — `seed/<file>` or `hero/<id>.<ext>`, never a disk path — `ContentType`
+`image/jpeg|png|webp`, `ByteSize` ≤ 10 MB, `Width`/`Height` ≤ 8000, who/when),
+`WebsiteHeroSlides` (`Id`, `MediaId` FK `RESTRICT`, unique `SortOrder` 0–9,
+`FocalPosition` `"40% 50%"`, the Vietnamese `Alt` ≤ 200 and `Caption` ≤ 60) and the
+one-row `WebsiteHero` (`Version`, `FontKey` one of four tokens, `AutoplayEnabled`,
+`IntervalSeconds` 3–60, the Vietnamese title ≤ 80, description ≤ 160 and two button
+labels ≤ 24, `UpdatedAtUtc/By`) that versions the whole hero. Other languages' texts
+are `WebsiteTranslations` rows keyed `content.heroSlideshow.main.<field>` and
+`content.heroSlide.<slideId>.{alt|caption}`. The file bytes are not in the database:
+uploads are files under `WebsiteMedia:RootPath` (see
+`docs/runbooks/CUST-WEB-HERO-001-hero-media.md`); a recorded picture is never deleted
+by the application. The migration seeds, once, the four built-in photographs (fixed
+ids; their files are embedded in `TheBha.Infrastructure`), the current texts and order
+(autoplay on, 6 s, default font) and, for the languages that exist when it runs, their
+`en`/`fr` texts (12 rows each); nothing re-seeds at startup and a re-run never
+overwrites an edit. `Down()` removes the three tables and the hero's text rows (files
+on disk stay). No booking, customer, staff, menu, language, currency or rate row is
+changed (per-table counts before/after on a populated 12 → 13 migration are in the
+report). Apply with the normal `dotnet ef database update`; order 12 → 13. Design:
+`docs/design/CUST-WEB-HERO-001-CP01-admin-hero-slideshow.md`.
 
 Run the update command before the development seed. The API never calls
 `EnsureCreated()` and never applies a migration during startup.

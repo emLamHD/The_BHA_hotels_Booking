@@ -226,7 +226,7 @@ public abstract class WebsiteTestSupport(PostgreSqlWebApplicationFactory factory
         Assert.Equal(
             TheBha.Application.Website.LocalizationAssets.Catalog.Count,
             await ScalarAsync<int>(
-                $"""SELECT count(*) FROM "WebsiteTranslations" t JOIN "WebsiteLanguages" l ON l."Id" = t."LanguageId" WHERE l."IsDefault" AND t."Key" !~ '^content\.(property|roomType|ratePlan|amenity|media|menuItem)\.' """));
+                $"""SELECT count(*) FROM "WebsiteTranslations" t JOIN "WebsiteLanguages" l ON l."Id" = t."LanguageId" WHERE l."IsDefault" AND t."Key" !~ '^content\.(property|roomType|ratePlan|amenity|media|menuItem|heroSlideshow|heroSlide)\.' """));
     }
 
     /// <summary>

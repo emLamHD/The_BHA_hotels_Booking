@@ -1,6 +1,7 @@
 import React from "react";
 import type { Metadata } from "next";
-import { getT } from "@/lib/i18n/server";
+import { getI18n, getT } from "@/lib/i18n/server";
+import { getHeroSnapshot } from "@/lib/hero/server";
 import BgGlassmorphism from "@/components/BgGlassmorphism";
 import HomeHeroCarousel from "./(home)/HomeHeroCarousel";
 import HomeOfferSection from "./(home)/HomeOfferSection";
@@ -21,13 +22,15 @@ export async function generateMetadata(): Promise<Metadata> {
  * the Riverside landing page — that is `/riverside` — and it renders no price, availability or catalog data of
  * its own: the booking system answers only when a search or a room page asks.
  */
-function PageHome() {
+async function PageHome() {
+  // CUST-WEB-HERO-001-CP01: the hero is the Admin's, read per request (no-store) in the visitor's language; a failed read keeps the last good copy.
+  const hero = await getHeroSnapshot((await getI18n()).locale);
   return (
     <main className="nc-PageHome relative overflow-hidden">
       {/* GLASSMOPHIN */}
       <BgGlassmorphism />
 
-      <HomeHeroCarousel />
+      <HomeHeroCarousel initial={hero} />
 
       <div className="container relative mb-24 mt-16 space-y-20 lg:mb-28 lg:mt-12 lg:space-y-28">
         <HomeOfferSection />

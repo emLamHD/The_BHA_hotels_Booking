@@ -162,3 +162,81 @@ internal sealed class WebsiteMenuStateConfiguration : IEntityTypeConfiguration<W
         builder.HasOne<StaffAccount>().WithMany().HasForeignKey(state => state.UpdatedByStaffId).OnDelete(DeleteBehavior.Restrict);
     }
 }
+
+// CUST-WEB-HERO-001-CP01: the home page hero. A picture row states its own limits; a slide points at a picture (never deleted, so the
+// restriction can never leave a slide without one); the settings row is the one version of the whole hero.
+internal sealed class WebsiteHeroMediaConfiguration : IEntityTypeConfiguration<WebsiteHeroMedia>
+{
+    public void Configure(EntityTypeBuilder<WebsiteHeroMedia> builder)
+    {
+        builder.ToTable("WebsiteHeroMedia", table =>
+        {
+            table.HasCheckConstraint("CK_WebsiteHeroMedia_Kind", "\"Kind\" IN ('seed', 'upload')");
+            table.HasCheckConstraint("CK_WebsiteHeroMedia_StorageKey", "\"StorageKey\" ~ '^(seed|hero)/[A-Za-z0-9][A-Za-z0-9._-]*$' AND \"StorageKey\" !~ '\\.\\.'");
+            table.HasCheckConstraint("CK_WebsiteHeroMedia_ContentType", "\"ContentType\" IN ('image/jpeg', 'image/png', 'image/webp')");
+            table.HasCheckConstraint("CK_WebsiteHeroMedia_Size", "\"ByteSize\" BETWEEN 1 AND 10485760 AND \"Width\" BETWEEN 1 AND 8000 AND \"Height\" BETWEEN 1 AND 8000");
+        });
+
+        builder.HasKey(media => media.Id);
+        builder.Property(media => media.Id).ValueGeneratedNever();
+        builder.Property(media => media.Kind).HasMaxLength(8).IsRequired();
+        builder.Property(media => media.StorageKey).HasMaxLength(HeroLimits.MaxStorageKey).IsRequired();
+        builder.Property(media => media.ContentType).HasMaxLength(40).IsRequired();
+        builder.Property(media => media.CreatedAtUtc).HasColumnType("timestamp with time zone");
+        builder.HasIndex(media => media.StorageKey).IsUnique().HasDatabaseName("UX_WebsiteHeroMedia_StorageKey");
+        builder.HasIndex(media => media.CreatedAtUtc).HasDatabaseName("IX_WebsiteHeroMedia_CreatedAt");
+        builder.HasOne<StaffAccount>().WithMany().HasForeignKey(media => media.CreatedByStaffId).OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+internal sealed class WebsiteHeroSlideConfiguration : IEntityTypeConfiguration<WebsiteHeroSlide>
+{
+    public void Configure(EntityTypeBuilder<WebsiteHeroSlide> builder)
+    {
+        builder.ToTable("WebsiteHeroSlides", table =>
+        {
+            table.HasCheckConstraint("CK_WebsiteHeroSlides_SortOrder", "\"SortOrder\" BETWEEN 0 AND 9");
+            table.HasCheckConstraint("CK_WebsiteHeroSlides_Alt", "btrim(\"Alt\") <> '' AND char_length(\"Alt\") <= 200");
+            table.HasCheckConstraint("CK_WebsiteHeroSlides_Caption", "btrim(\"Caption\") <> '' AND char_length(\"Caption\") <= 60");
+            table.HasCheckConstraint("CK_WebsiteHeroSlides_Focal", "\"FocalPosition\" ~ '^[0-9]{1,3}% [0-9]{1,3}%$'");
+        });
+
+        builder.HasKey(slide => slide.Id);
+        builder.Property(slide => slide.Id).ValueGeneratedNever();
+        builder.Property(slide => slide.FocalPosition).HasMaxLength(HeroLimits.MaxFocal).IsRequired();
+        builder.Property(slide => slide.Alt).HasMaxLength(HeroLimits.MaxAlt).IsRequired();
+        builder.Property(slide => slide.Caption).HasMaxLength(HeroLimits.MaxCaption).IsRequired();
+        builder.HasOne<WebsiteHeroMedia>().WithMany().HasForeignKey(slide => slide.MediaId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(slide => slide.SortOrder).IsUnique().HasDatabaseName("UX_WebsiteHeroSlides_Sort");
+        builder.HasIndex(slide => slide.MediaId).HasDatabaseName("IX_WebsiteHeroSlides_Media");
+    }
+}
+
+internal sealed class WebsiteHeroSettingsConfiguration : IEntityTypeConfiguration<WebsiteHeroSettings>
+{
+    public void Configure(EntityTypeBuilder<WebsiteHeroSettings> builder)
+    {
+        builder.ToTable("WebsiteHero", table =>
+        {
+            table.HasCheckConstraint("CK_WebsiteHero_Singleton", "\"Id\" = 1");
+            table.HasCheckConstraint("CK_WebsiteHero_Version", "\"Version\" >= 1");
+            table.HasCheckConstraint("CK_WebsiteHero_Font", "\"FontKey\" IN ('default', 'be-vietnam-pro', 'system-sans', 'system-serif')");
+            table.HasCheckConstraint("CK_WebsiteHero_Interval", "\"IntervalSeconds\" BETWEEN 3 AND 60");
+            table.HasCheckConstraint(
+                "CK_WebsiteHero_Texts",
+                "btrim(\"Title\") <> '' AND char_length(\"Title\") <= 80 AND btrim(\"Description\") <> '' AND char_length(\"Description\") <= 160 " +
+                "AND btrim(\"PrimaryActionLabel\") <> '' AND char_length(\"PrimaryActionLabel\") <= 24 AND btrim(\"SecondaryActionLabel\") <> '' AND char_length(\"SecondaryActionLabel\") <= 24");
+        });
+
+        builder.HasKey(settings => settings.Id);
+        builder.Property(settings => settings.Id).ValueGeneratedNever();
+        builder.Property(settings => settings.Version).IsConcurrencyToken();
+        builder.Property(settings => settings.FontKey).HasMaxLength(16).IsRequired();
+        builder.Property(settings => settings.Title).HasMaxLength(HeroLimits.MaxTitle).IsRequired();
+        builder.Property(settings => settings.Description).HasMaxLength(HeroLimits.MaxDescription).IsRequired();
+        builder.Property(settings => settings.PrimaryActionLabel).HasMaxLength(HeroLimits.MaxAction).IsRequired();
+        builder.Property(settings => settings.SecondaryActionLabel).HasMaxLength(HeroLimits.MaxAction).IsRequired();
+        builder.Property(settings => settings.UpdatedAtUtc).HasColumnType("timestamp with time zone");
+        builder.HasOne<StaffAccount>().WithMany().HasForeignKey(settings => settings.UpdatedByStaffId).OnDelete(DeleteBehavior.Restrict);
+    }
+}

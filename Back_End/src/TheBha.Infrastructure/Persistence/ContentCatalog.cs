@@ -62,18 +62,37 @@ internal sealed class ContentCatalog(TheBhaDbContext database) : IContentCatalog
             Add(entries, "menuItem", item.Id, "label", item.Label);
         }
 
+        // CUST-WEB-HERO-001-CP01: the home hero's texts (the content source language's text); the other languages' are translation rows.
+        var hero = await database.WebsiteHero.AsNoTracking().SingleOrDefaultAsync(cancellationToken);
+        if (hero is not null)
+        {
+            Add(entries, "heroSlideshow", "main", "title", hero.Title);
+            Add(entries, "heroSlideshow", "main", "description", hero.Description);
+            Add(entries, "heroSlideshow", "main", "primaryAction", hero.PrimaryActionLabel);
+            Add(entries, "heroSlideshow", "main", "secondaryAction", hero.SecondaryActionLabel);
+        }
+
+        foreach (var slide in await database.WebsiteHeroSlides.AsNoTracking().Select(item => new { item.Id, item.Alt, item.Caption }).ToListAsync(cancellationToken))
+        {
+            Add(entries, "heroSlide", slide.Id, "alt", slide.Alt);
+            Add(entries, "heroSlide", slide.Id, "caption", slide.Caption);
+        }
+
         entries.Sort((left, right) => string.CompareOrdinal(left.Key, right.Key));
         return entries;
     }
 
-    private static void Add(List<ContentEntry> entries, string entity, Guid id, string field, string? text)
+    private static void Add(List<ContentEntry> entries, string entity, Guid id, string field, string? text) =>
+        Add(entries, entity, id.ToString(), field, text);
+
+    private static void Add(List<ContentEntry> entries, string entity, string id, string field, string? text)
     {
         if (string.IsNullOrWhiteSpace(text))
         {
             return;
         }
 
-        var key = ContentKey.For(entity, id.ToString(), field);
-        entries.Add(new ContentEntry(key, entity, id.ToString(), field, text.Trim()));
+        var key = ContentKey.For(entity, id, field);
+        entries.Add(new ContentEntry(key, entity, id, field, text.Trim()));
     }
 }

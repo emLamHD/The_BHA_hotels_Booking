@@ -1,6 +1,6 @@
 /**
  * CUST-WEB-001-CP08a-C2: the licensed photographs of the booking-portal home page, with the credit each
- * licence asks for, and the hero slides built from them.
+ * licence asks for. The hero slides themselves are the Admin's (`lib/hero`); the four built-in photographs are served by the API.
  *
  * Every record mirrors `scripts/homepage-media/manifest.json` (written by `build_media.py` from the file's own
  * Wikimedia Commons page: author, licence, licence URL, original checksum). `heroSlides.test.ts` reads that
@@ -129,47 +129,6 @@ export function creditLine(credit: MediaCredit, photoLabel: string): string {
   return `${photoLabel}: ${credit.author.replace(/^\.\s*/, "")} · ${credit.license}`;
 }
 
-export interface HeroSlide {
-  id: string;
-  file: string;
-  alt: string;
-  /** Short caption naming the place shown (not a claim about the property or its rooms). */
-  caption: string;
-  /** CSS `object-position` for narrow screens, where the 1920×900 picture is cropped to a taller frame. */
-  mobilePosition: string;
-}
-
+/** The picture's size; the API stores the real size of every picture, and the frame crops with `object-cover`, so this only gives the image element its aspect. */
 export const HERO_WIDTH = 1920;
 export const HERO_HEIGHT = 900;
-
-/** The first slide is the lightest file; it is the only one loaded with priority. */
-export const HERO_SLIDES: readonly HeroSlide[] = [
-  {
-    id: "dragon-bridge-dusk",
-    file: "hero-dragon-bridge-dusk.webp",
-    alt: "Cầu Rồng và sông Hàn lúc hoàng hôn, Đà Nẵng",
-    caption: "Cầu Rồng và sông Hàn lúc hoàng hôn",
-    mobilePosition: "40% 50%",
-  },
-  {
-    id: "my-khe-beach",
-    file: "hero-my-khe-beach.webp",
-    alt: "Bãi biển Mỹ Khê với hàng dừa, Đà Nẵng",
-    caption: "Bãi biển Mỹ Khê",
-    mobilePosition: "50% 50%",
-  },
-  {
-    id: "danang-skyline-night",
-    file: "hero-danang-skyline.webp",
-    alt: "Đường chân trời Đà Nẵng lúc chạng vạng",
-    caption: "Đường chân trời Đà Nẵng lúc chạng vạng",
-    mobilePosition: "50% 50%",
-  },
-  {
-    id: "han-river-bridge-night",
-    file: "hero-han-river-night.webp",
-    alt: "Cầu quay sông Hàn về đêm, Đà Nẵng",
-    caption: "Sông Hàn về đêm",
-    mobilePosition: "60% 50%",
-  },
-];

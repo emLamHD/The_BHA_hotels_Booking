@@ -25,8 +25,9 @@ public sealed class WebsiteSettingsAuthorizationTests(PostgreSqlWebApplicationFa
     private const string CurrenciesUrl = "/api/admin/v1/website/currencies";
     private const string MenusUrl = "/api/admin/v1/website/menus";                 // CUST-WEB-HEADER-001-CP04
     private const string MenusSaveUrl = MenusUrl + "/save";
+    private const string HeroUrl = "/api/admin/v1/website/hero";                  // CUST-WEB-HERO-001-CP01
 
-    private static readonly string[] AllReads = [LanguagesUrl, TranslationsUrl, CurrenciesUrl, MenusUrl];
+    private static readonly string[] AllReads = [LanguagesUrl, TranslationsUrl, CurrenciesUrl, MenusUrl, HeroUrl];
 
     [Fact]
     public async Task Only_a_staff_account_with_the_website_flag_reads_or_writes_regardless_of_membership_or_role()

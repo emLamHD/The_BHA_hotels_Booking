@@ -17,6 +17,7 @@ import {
   moveWithinSiblings, newId, outdent, patchItem, previewTree, rebaseDraft, removeItem, setPlacement, siblingsOf, summarizeChanges, type ItemProblems, type Move, type PreviewNode,
 } from "@/lib/website/menuModel";
 import { refusalText } from "@/lib/website/wording";
+import { useLeaveGuard } from "./useLeaveGuard";
 import { useWebsiteHost } from "./WebsiteAccessGate";
 import { useWebsiteList, useWriteAction } from "./useWebsiteData";
 import { ActionButton, Banner, ErrorPanel, LoadingPanel, PageHeader, TextField, WriteFeedback, formatWhen } from "./WebsiteUi";
@@ -29,33 +30,6 @@ const PLACEMENTS: { id: MenuPlacement; title: string; hint: string }[] = [
 const PANEL = "rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]";
 const SMALL_BUTTON =
   "inline-flex items-center rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 focus:outline-hidden focus-visible:ring-3 focus-visible:ring-brand-500/20 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-white/5";
-
-/** Leaving with unsaved changes asks first: closing the tab, and following any link of this app. */
-function useLeaveGuard(dirty: boolean) {
-  useEffect(() => {
-    if (!dirty) return;
-    const warn = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = "";
-    };
-    const onClick = (event: MouseEvent) => {
-      const anchor = (event.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
-      if (!anchor || anchor.target === "_blank" || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey) return;
-      const url = new URL(anchor.href, window.location.href);
-      if (url.origin !== window.location.origin || (url.pathname === window.location.pathname && url.search === window.location.search)) return;
-      if (!window.confirm("Bạn có thay đổi menu chưa lưu. Rời trang này sẽ bỏ chúng. Vẫn rời đi?")) {
-        event.preventDefault();
-        event.stopPropagation();
-      }
-    };
-    window.addEventListener("beforeunload", warn);
-    document.addEventListener("click", onClick, true);
-    return () => {
-      window.removeEventListener("beforeunload", warn);
-      document.removeEventListener("click", onClick, true);
-    };
-  }, [dirty]);
-}
 
 export default function MenusPanel() {
   const { state, reload } = useWebsiteList(getMenu, []);
@@ -91,7 +65,7 @@ function MenuEditor({ initial, reload, readError }: { initial: WebsiteMenu; relo
   const changes = useMemo(() => summarizeChanges(base.items, draft), [base.items, draft]);
   const working = write.status.phase === "pending" || checking;
   const locked = working || write.status.phase === "unverified" || host.signingOut;
-  useLeaveGuard(dirty);
+  useLeaveGuard(dirty, "Bạn có thay đổi menu chưa lưu. Rời trang này sẽ bỏ chúng. Vẫn rời đi?");
   // Sign out (a button of the gate, not a link) asks too while there is a draft.
   const setUnsaved = host.setUnsaved;
   useEffect(() => {

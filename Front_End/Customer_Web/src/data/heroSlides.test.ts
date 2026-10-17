@@ -1,8 +1,8 @@
-import { existsSync, readdirSync } from "fs";
+import { existsSync, readFileSync, readdirSync } from "fs";
 import path from "path";
 import { describe, expect, it } from "vitest";
 import manifest from "../../scripts/homepage-media/manifest.json";
-import { HERO_SLIDES, MEDIA_CREDITS, creditForFile, creditLine, travelMediaUrl } from "./heroSlides";
+import { MEDIA_CREDITS, creditForFile, creditLine, travelMediaUrl } from "./heroSlides";
 
 interface Derivative {
   file: string;
@@ -70,21 +70,25 @@ describe("home photographs: credits, manifest and files agree", () => {
   });
 });
 
-describe("hero slides", () => {
-  it("are at least three distinct, credited photographs", () => {
-    expect(HERO_SLIDES.length).toBeGreaterThanOrEqual(3);
-    expect(new Set(HERO_SLIDES.map((slide) => slide.file)).size).toBe(HERO_SLIDES.length);
-    expect(new Set(HERO_SLIDES.map((slide) => creditForFile(slide.file)?.id)).size).toBe(HERO_SLIDES.length);
-    for (const slide of HERO_SLIDES) {
-      expect(creditForFile(slide.file), slide.file).toBeDefined();
-      expect(slide.alt.trim().length).toBeGreaterThan(0);
-      const derivative = entries.flatMap((entry) => entry.derivatives).find((d) => d.file === slide.file);
-      expect([derivative?.width, derivative?.height]).toEqual([1920, 900]);
+describe("the built-in hero photographs (served by the API since CUST-WEB-HERO-001-CP01)", () => {
+  const backend = path.resolve(__dirname, "../../../../Back_End/src/TheBha.Infrastructure");
+  const seeded = Array.from(readFileSync(path.join(backend, "Persistence/WebsiteHeroSeed.cs"), "utf8").matchAll(/'seed\/(hero-[a-z0-9-]+\.webp)'/g)).map((match) => match[1]);
+
+  it("the API seeds at least three, each credited and each with the dimensions its row states", () => {
+    expect(seeded.length).toBeGreaterThanOrEqual(3);
+    expect(new Set(seeded.map((file) => creditForFile(file)?.id)).size).toBe(seeded.length);
+    const sql = readFileSync(path.join(backend, "Persistence/WebsiteHeroSeed.cs"), "utf8");
+    for (const file of seeded) {
+      expect(creditForFile(file), file).toBeDefined();
+      const derivative = entries.flatMap((entry) => entry.derivatives).find((d) => d.file === file);
+      expect(sql, file).toContain(`'seed/${file}', 'image/webp', ${readFileSync(path.join(mediaDir, file)).length}, ${derivative?.width}, ${derivative?.height}`);
     }
   });
 
-  it("claim nothing about the property's rooms or their view", () => {
-    const text = JSON.stringify(HERO_SLIDES);
-    expect(text).not.toMatch(/phòng|view|tầm nhìn từ|The BHA/i);
+  it("the copies embedded in the API are byte for byte the files the credits page and the manifest describe", () => {
+    expect(readdirSync(path.join(backend, "HeroMedia/Seed")).sort()).toEqual([...seeded].sort());
+    for (const file of seeded) {
+      expect(readFileSync(path.join(backend, "HeroMedia/Seed", file)).equals(readFileSync(path.join(mediaDir, file))), file).toBe(true);
+    }
   });
 });

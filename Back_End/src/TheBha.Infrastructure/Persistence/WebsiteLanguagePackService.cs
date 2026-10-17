@@ -17,7 +17,8 @@ internal sealed class WebsiteLanguagePackService(
     TheBhaDbContext database, TimeProvider timeProvider, IContentCatalog content, IWebsiteSettingsStore settings) : IWebsiteLanguagePacks
 {
     private const int MaxIssues = 300;
-    private const string MenuEntity = "menuItem";
+    // Entities whose Vietnamese text is a column edited on its own Admin screen (Menu, Hero banner): a pack never rewrites it.
+    private static readonly HashSet<string> SourceColumnEntities = ["menuItem", "heroSlideshow", "heroSlide"];
 
     private static readonly JsonWriterOptions WriterOptions = new() { Indented = true, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
@@ -200,10 +201,10 @@ internal sealed class WebsiteLanguagePackService(
                 continue;
             }
 
-            if (isContentSource && item.Content is { Entity: MenuEntity })
+            if (isContentSource && item.Content is { } owned && SourceColumnEntities.Contains(owned.Entity))
             {
                 ignored++;
-                Issue(key, "info", "source-column", "The Vietnamese label of a menu entry is edited on the Menu screen; the pack does not change it.");
+                Issue(key, "info", "source-column", "The Vietnamese text of a menu entry or of the home banner is edited on its own Admin screen; the pack does not change it.");
                 continue;
             }
 

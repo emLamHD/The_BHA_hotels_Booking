@@ -21,7 +21,7 @@ import {
 } from "@/lib/riversideHomeContent";
 
 import { useI18n, useT } from "@/lib/i18n/I18nProvider";
-import { localizeBenefit, localizeHeroSlide, localizeImage, localizeNavItem, localizeStep } from "@/lib/i18n/staticContent";
+import { localizeBenefit, localizeImage, localizeNavItem, localizeStep } from "@/lib/i18n/staticContent";
 const BADGE_COLORS = ["blue", "green", "red"] as const;
 
 /**

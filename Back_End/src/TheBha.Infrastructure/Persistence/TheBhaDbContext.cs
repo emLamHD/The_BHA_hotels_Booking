@@ -40,6 +40,9 @@ public sealed class TheBhaDbContext(DbContextOptions<TheBhaDbContext> options)
     public DbSet<WebsiteCurrency> WebsiteCurrencies => Set<WebsiteCurrency>();
     public DbSet<WebsiteMenuItem> WebsiteMenuItems => Set<WebsiteMenuItem>();
     public DbSet<WebsiteMenuState> WebsiteMenuState => Set<WebsiteMenuState>();
+    public DbSet<WebsiteHeroMedia> WebsiteHeroMedia => Set<WebsiteHeroMedia>();
+    public DbSet<WebsiteHeroSlide> WebsiteHeroSlides => Set<WebsiteHeroSlide>();
+    public DbSet<WebsiteHeroSettings> WebsiteHero => Set<WebsiteHeroSettings>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

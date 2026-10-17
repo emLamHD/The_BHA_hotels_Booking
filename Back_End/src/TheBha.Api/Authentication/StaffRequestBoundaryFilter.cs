@@ -21,6 +21,13 @@ namespace TheBha.Api.Authentication;
 /// </para>
 ///
 /// <para>
+/// CUST-WEB-HERO-001-CP01: the one exception to "JSON only" is an action marked
+/// <see cref="AllowStaffMultipartUploadAttribute"/> (the hero picture upload). It takes
+/// <c>multipart/form-data</c> <em>instead of</em> JSON (anything else is a 415), after the same HTTPS, session, permission
+/// and Origin checks. No other Staff route has the attribute, and every one of them still answers multipart with 415.
+/// </para>
+///
+/// <para>
 /// The allowlist is the startup-validated <c>Cors:AdminOrigins</c> snapshot, captured once
 /// like the local gate's, so a later configuration change cannot widen it. An empty list
 /// refuses every Staff write: the boundary fails closed.
@@ -53,12 +60,19 @@ public sealed class StaffRequestBoundaryFilter(string[] allowedAdminOrigins) : I
             return;
         }
 
-        if (!AdminRequestBoundary.IsJsonContentType(request.ContentType))
+        // The one exception to "JSON only": an action that says so with AllowStaffMultipartUploadAttribute (the hero picture upload)
+        // takes multipart/form-data instead — and only that, so the exception never widens what the route accepts.
+        var multipartAllowed = context.ActionDescriptor.EndpointMetadata.OfType<AllowStaffMultipartUploadAttribute>().Any();
+        if (multipartAllowed
+                ? !AdminRequestBoundary.IsMultipartFormData(request.ContentType)
+                : !AdminRequestBoundary.IsJsonContentType(request.ContentType))
         {
             context.Result = Problem(
                 StatusCodes.Status415UnsupportedMediaType,
                 "Unsupported media type",
-                $"The request body must be sent as {AdminRequestBoundary.JsonMediaType} encoded as {AdminRequestBoundary.SupportedCharset}.");
+                multipartAllowed
+                    ? "The picture must be sent as multipart/form-data."
+                    : $"The request body must be sent as {AdminRequestBoundary.JsonMediaType} encoded as {AdminRequestBoundary.SupportedCharset}.");
         }
     }
 
@@ -72,4 +86,13 @@ public sealed class StaffRequestBoundaryFilter(string[] allowedAdminOrigins) : I
             StatusCode = statusCode,
             ContentTypes = { "application/problem+json" }
         };
+}
+
+/// <summary>
+/// CUST-WEB-HERO-001-CP01: marks the one Admin action allowed to receive <c>multipart/form-data</c> (the hero picture upload). It is
+/// metadata the Staff boundary reads; it grants nothing else, and no other route has it.
+/// </summary>
+[AttributeUsage(AttributeTargets.Method, AllowMultiple = false, Inherited = false)]
+public sealed class AllowStaffMultipartUploadAttribute : Attribute
+{
 }
