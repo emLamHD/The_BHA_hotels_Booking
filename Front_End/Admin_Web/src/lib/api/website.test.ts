@@ -17,10 +17,12 @@ import {
   listLanguages,
   exportPack,
   getHero,
+  getSocialSettings,
   heroImageSrc,
   listTranslations,
   previewPack,
   saveHero,
+  saveSocialSettings,
   saveTranslation,
   setCurrencyActive,
   setCurrencyRate,
@@ -52,6 +54,9 @@ const LIST = {
   facets: { required: 1, translated: 0, missing: 1, outdated: 0, manual: 0, scopes: [{ name: "customer", count: 1 }], groups: [{ name: "common", count: 1 }] },
   rows: [ROW],
 };
+const SOCIAL = { revision: 1, updatedAtUtc: "2026-10-17T00:00:00Z", phoneEnabled: true, phoneNumber: "0899474888",
+  phoneHref: "tel:+84899474888", messengerEnabled: false, messengerUrl: null, zaloEnabled: false, zaloNumber: null,
+  zaloUrl: null, backToTopEnabled: true };
 
 function respond(status: number, body?: unknown) {
   return vi.fn().mockResolvedValue(
@@ -72,6 +77,17 @@ afterEach(() => {
 });
 
 describe("what goes on the wire", () => {
+  it("reads and saves Social media as one revisioned document", async () => {
+    const read = respond(200, SOCIAL); vi.stubGlobal("fetch", read);
+    expect(await getSocialSettings()).toEqual({ kind: "ok", data: SOCIAL });
+    expect(read.mock.calls[0][0]).toBe(`${BASE}/api/admin/v1/website/social-media`);
+    const write = respond(200, { ...SOCIAL, revision: 2, messengerEnabled: true, messengerUrl: "https://m.me/thebha" });
+    vi.stubGlobal("fetch", write);
+    await saveSocialSettings(1, { phoneEnabled: true, phoneNumber: "0899474888", messengerEnabled: true,
+      messengerUrl: "https://m.me/thebha", zaloEnabled: false, zaloNumber: null, backToTopEnabled: true });
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(write.mock.calls[0][1].body).expectedRevision).toBe(1);
+  });
   it("reads with the Staff cookie, no body, no cache", async () => {
     const spy = respond(200, [LANGUAGE]);
     vi.stubGlobal("fetch", spy);
@@ -354,5 +370,42 @@ describe("the home hero", () => {
 
   it("shows a picture from the API's origin plus its Staff-only id-addressed path", () => {
     expect(heroImageSrc("/api/admin/v1/website/hero/media/m1")).toBe(`${BASE}/api/admin/v1/website/hero/media/m1`);
+  });
+});
+
+describe("floating contact settings", () => {
+  const settings = {
+    revision: 2, updatedAtUtc: "2026-10-17T01:00:00Z", updatedByStaffId: "staff-id",
+    phoneEnabled: true, phoneNumber: "0899474888", phoneHref: "tel:+84899474888",
+    messengerEnabled: false, messengerUrl: null, zaloEnabled: false, zaloNumber: null, zaloUrl: null,
+    backToTopEnabled: true,
+  };
+  const draft = {
+    phoneEnabled: true, phoneNumber: "0899474888", messengerEnabled: false, messengerUrl: null,
+    zaloEnabled: false, zaloNumber: null, backToTopEnabled: false,
+  };
+
+  it("reads the Staff settings and rejects malformed settings", async () => {
+    const fetchMock = respond(200, settings);
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await getSocialSettings()).toMatchObject({ kind: "ok", data: { revision: 2, phoneHref: "tel:+84899474888" } });
+    expect(fetchMock.mock.calls[0][0]).toBe(`${BASE}/api/admin/v1/website/social-media`);
+    vi.stubGlobal("fetch", respond(200, { ...settings, revision: -1 }));
+    expect((await getSocialSettings()).kind).toBe("invalid-response");
+  });
+
+  it("saves one complete draft with its expected revision and never retries a stale or lost write", async () => {
+    const fetchMock = respond(200, { ...settings, revision: 3, backToTopEnabled: false });
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await saveSocialSettings(2, draft)).toMatchObject({ kind: "ok", data: { revision: 3 } });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe(`${BASE}/api/admin/v1/website/social-media/save`);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ expectedRevision: 2, ...draft });
+    vi.stubGlobal("fetch", respond(409, { code: "stale-version", detail: "stale" }));
+    expect(await saveSocialSettings(2, draft)).toMatchObject({ kind: "refused", status: 409, code: "stale-version" });
+    const lost = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
+    vi.stubGlobal("fetch", lost);
+    expect((await saveSocialSettings(2, draft)).kind).toBe("unverified");
+    expect(lost).toHaveBeenCalledTimes(1);
   });
 });

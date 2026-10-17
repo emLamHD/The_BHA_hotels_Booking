@@ -240,3 +240,25 @@ internal sealed class WebsiteHeroSettingsConfiguration : IEntityTypeConfiguratio
         builder.HasOne<StaffAccount>().WithMany().HasForeignKey(settings => settings.UpdatedByStaffId).OnDelete(DeleteBehavior.Restrict);
     }
 }
+
+internal sealed class WebsiteSocialSettingsConfiguration : IEntityTypeConfiguration<WebsiteSocialSettings>
+{
+    public void Configure(EntityTypeBuilder<WebsiteSocialSettings> builder)
+    {
+        builder.ToTable("WebsiteSocialSettings", table =>
+        {
+            table.HasCheckConstraint("CK_WebsiteSocialSettings_Singleton", "\"Id\" = 1");
+            table.HasCheckConstraint("CK_WebsiteSocialSettings_Version", "\"Version\" >= 1");
+        });
+        builder.HasKey(row => row.Id);
+        builder.Property(row => row.Id).ValueGeneratedNever();
+        builder.Property(row => row.Version).IsConcurrencyToken();
+        builder.Property(row => row.PhoneNumber).HasMaxLength(20).IsRequired();
+        builder.Property(row => row.PhoneHref).HasMaxLength(32).IsRequired();
+        builder.Property(row => row.MessengerUrl).HasMaxLength(240);
+        builder.Property(row => row.ZaloNumber).HasMaxLength(20);
+        builder.Property(row => row.ZaloUrl).HasMaxLength(64);
+        builder.Property(row => row.UpdatedAtUtc).HasColumnType("timestamp with time zone");
+        builder.HasOne<StaffAccount>().WithMany().HasForeignKey(row => row.UpdatedByStaffId).OnDelete(DeleteBehavior.Restrict);
+    }
+}

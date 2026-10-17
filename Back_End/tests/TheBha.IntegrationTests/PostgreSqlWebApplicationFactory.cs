@@ -239,7 +239,8 @@ public sealed class PostgreSqlWebApplicationFactory : WebApplicationFactory<Prog
                 "WebsiteMenuItems",
                 "WebsiteHeroSlides",
                 "WebsiteHeroMedia",
-                "WebsiteHero"
+                "WebsiteHero",
+                "WebsiteSocialSettings"
             CASCADE;
             """);
 
@@ -251,6 +252,7 @@ public sealed class PostgreSqlWebApplicationFactory : WebApplicationFactory<Prog
         await context.Database.ExecuteSqlRawAsync(TheBha.Infrastructure.Persistence.WebsiteMenuSeed.Sql);
         // CUST-WEB-HERO-001-CP01: and the home hero as migration 13 seeds it.
         await context.Database.ExecuteSqlRawAsync(TheBha.Infrastructure.Persistence.WebsiteHeroSeed.Sql);
+        await context.Database.ExecuteSqlRawAsync(TheBha.Infrastructure.Persistence.WebsiteSocialSeed.Sql);
     }
 }
 

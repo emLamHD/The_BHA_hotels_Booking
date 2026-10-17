@@ -63,7 +63,7 @@ public sealed class WebsiteSettingsMigrationTests : IAsyncLifetime
         await using var context = CreateContext();
         await context.Database.MigrateAsync();
 
-        Assert.Equal(13, (await context.Database.GetAppliedMigrationsAsync()).Count());
+        Assert.Equal(14, (await context.Database.GetAppliedMigrationsAsync()).Count());
         Assert.Empty(await context.Database.GetPendingMigrationsAsync());
 
         // Languages: Vietnamese is the active default, English exists for the operator but is off; each has its format and currency.
@@ -99,6 +99,7 @@ public sealed class WebsiteSettingsMigrationTests : IAsyncLifetime
         // Migration 13: the home hero the Customer had in code, with its en texts (hash-stamped, not hand-edited).
         Assert.Equal(12, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteTranslations" WHERE ("Key" LIKE 'content.heroSlideshow.%' OR "Key" LIKE 'content.heroSlide.%') AND "LanguageId" = '7b0c8a10-0001-4000-8000-000000000002' AND NOT "IsManual" AND "SourceHash" IS NOT NULL"""));
         Assert.Equal((1, 4, 4), (await ScalarAsync<int>("""SELECT "Version" FROM "WebsiteHero" """), await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteHeroSlides" """), await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteHeroMedia" """)));
+        Assert.Equal("1|true|0899474888|tel:+84899474888|false|false|true", await ScalarAsync<string>("""SELECT "Version"::text || '|' || "PhoneEnabled"::text || '|' || "PhoneNumber" || '|' || "PhoneHref" || '|' || "MessengerEnabled"::text || '|' || "ZaloEnabled"::text || '|' || "BackToTopEnabled"::text FROM "WebsiteSocialSettings" """));
         Assert.Equal(0, await ScalarAsync<int>("""SELECT count(*) FROM "WebsiteTranslations" WHERE "Key" LIKE 'header.%' OR "Key" LIKE 'common.%'"""));
 
         // Every starter key is still in the catalog, so the renamed rows are read by the product.
@@ -271,7 +272,7 @@ public sealed class WebsiteSettingsMigrationTests : IAsyncLifetime
         await context.Database.MigrateAsync();
         await context.Database.MigrateAsync();
 
-        Assert.Equal(13, (await context.Database.GetAppliedMigrationsAsync()).Count());
+        Assert.Equal(14, (await context.Database.GetAppliedMigrationsAsync()).Count());
         Assert.Equal(
             before.Order(StringComparer.Ordinal).ToArray(),
             (await RowsAsync("""SELECT 'L' || "NormalizedCode" || "DisplayName" || "Version"::text || "IsActive"::text FROM "WebsiteLanguages" UNION ALL SELECT 'T' || "Key" || "Value" || "Version"::text FROM "WebsiteTranslations" UNION ALL SELECT 'C' || "Code" || "Name" || COALESCE("VndPerUnit"::text,'-') || "Version"::text FROM "WebsiteCurrencies" """))
