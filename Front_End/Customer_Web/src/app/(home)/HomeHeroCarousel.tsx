@@ -197,7 +197,7 @@ const HomeHeroCarousel: FC<{ initial: HeroSnapshot | null }> = ({ initial }) => 
           })}
           <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-gradient-to-r from-black/65 via-black/30 to-transparent" />
 
-          <div className="container absolute inset-0 flex flex-col justify-center pb-12 sm:pb-6">
+          <div className="container absolute inset-0 flex flex-col justify-center pb-10 sm:pb-6">
             <div className="max-w-2xl space-y-4 sm:space-y-6">
               <h1 style={fontStyle} className="line-clamp-2 break-words lg:line-clamp-3 text-3xl font-medium !leading-[114%] text-white sm:text-5xl lg:text-6xl">
                 {hero?.title ?? t("customer.home.homeHeroCarousel.theBhaDaNang")}
@@ -205,7 +205,8 @@ const HomeHeroCarousel: FC<{ initial: HeroSnapshot | null }> = ({ initial }) => 
               <p style={fontStyle} className="line-clamp-2 max-w-md break-words lg:line-clamp-4 text-base text-white/90 sm:text-lg">
                 {hero?.description ?? t("customer.home.homeHeroCarousel.bookDirectAndSeeThe")}
               </p>
-              <div className="flex flex-wrap gap-3">
+              {/* One row, never two: a long label is shortened with an ellipsis (its full text is the title), so the buttons stay clear of the dots and caption below. */}
+              <div className="flex gap-3">
                 <button type="button" onClick={startSearch} title={primaryLabel} className={PRIMARY_ACTION_CLASS}>
                   <MagnifyingGlassIcon className="h-5 w-5 flex-shrink-0" aria-hidden="true" />
                   <span className="truncate">{primaryLabel}</span>
