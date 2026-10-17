@@ -71,6 +71,7 @@ public static class InfrastructureServiceCollectionExtensions
         // CUST-WEB-HERO-001-CP01: where uploaded hero pictures live is the host's choice (WebsiteMedia:RootPath); unset = uploads unavailable, nothing else changes.
         services.AddSingleton<IHeroMediaStorage>(new TheBha.Infrastructure.HeroMedia.LocalHeroMediaStorage(configuration["WebsiteMedia:RootPath"]));
         services.AddScoped<IWebsiteHero, WebsiteHeroService>();
+        services.AddScoped<IWebsiteSocialSettings, WebsiteSocialSettingsService>();
         services.AddScoped<DevelopmentDataSeeder>();
         services.AddScoped<TheBha.Infrastructure.Persistence.Demo.RiversideDemoSeeder>();
 

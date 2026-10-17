@@ -17,7 +17,7 @@ namespace TheBha.Api.Controllers;
 [ApiController]
 [EnableCors("website-public")]
 [Route("api/v1/website")]
-public sealed class WebsiteController(IWebsitePublicReader reader, IWebsiteDisplayPricing pricing, IWebsiteMenus menus, IWebsiteHero hero) : ControllerBase
+public sealed class WebsiteController(IWebsitePublicReader reader, IWebsiteDisplayPricing pricing, IWebsiteMenus menus, IWebsiteHero hero, IWebsiteSocialSettings social) : ControllerBase
 {
     /// <summary>Active locales (each with its format locale, direction and default currency), active currencies, the defaults, and VND as the base currency.</summary>
     [HttpGet("config")]
@@ -89,6 +89,14 @@ public sealed class WebsiteController(IWebsitePublicReader reader, IWebsiteDispl
         Response.Headers.CacheControl = "no-cache";
         Response.Headers.ETag = etag;
         return Request.Headers.IfNoneMatch.Contains(etag) ? StatusCode(StatusCodes.Status304NotModified) : Ok(body);
+    }
+
+    [HttpGet("social-media")]
+    [ProducesResponseType(typeof(WebsiteSocialPublicDto), StatusCodes.Status200OK)]
+    public async Task<ActionResult<WebsiteSocialPublicDto>> SocialMedia(CancellationToken cancellationToken)
+    {
+        Response.Headers.CacheControl = "no-store";
+        return Ok(await social.GetPublicAsync(cancellationToken));
     }
 
     /// <summary>

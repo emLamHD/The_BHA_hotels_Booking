@@ -32,7 +32,7 @@ public sealed class PropertyInventoryPersistenceTests(PostgreSqlWebApplicationFa
         Assert.Contains(applied, migration => migration.EndsWith("_AddStaffIdentityFoundation"));
         Assert.Contains(applied, migration => migration.EndsWith("_AddWebsiteLocalizationSettings"));
         Assert.Contains(applied, migration => migration.EndsWith("_AddRuntimeLanguagePacks"));
-        Assert.Equal(13, applied.Count());
+        Assert.Equal(14, applied.Count());
         Assert.Empty(pending);
         var major = await PostgresVersionSupport.ServerMajorAsync(factory.ConnectionString);
         Assert.True(

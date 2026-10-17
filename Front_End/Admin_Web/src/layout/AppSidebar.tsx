@@ -52,6 +52,7 @@ const navItems: NavItem[] = [
       { name: "Tiền tệ & tỷ giá", path: "/website/currencies", pro: false },
       { name: "Menu", path: "/website/menus", pro: false },
       { name: "Banner trang chủ", path: "/website/hero", pro: false },
+      { name: "Social media", path: "/website/social-media", pro: false },
     ],
   },
 

@@ -1525,6 +1525,67 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("TheBha.Domain.Website.WebsiteSocialSettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("BackToTopEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("MessengerEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("MessengerUrl")
+                        .HasMaxLength(240)
+                        .HasColumnType("character varying(240)");
+
+                    b.Property<bool>("PhoneEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("PhoneHref")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("PhoneNumber")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedByStaffId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("ZaloEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("ZaloNumber")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("ZaloUrl")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UpdatedByStaffId");
+
+                    b.ToTable("WebsiteSocialSettings", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_WebsiteSocialSettings_Singleton", "\"Id\" = 1");
+
+                            t.HasCheckConstraint("CK_WebsiteSocialSettings_Version", "\"Version\" >= 1");
+                        });
+                });
+
             modelBuilder.Entity("TheBha.Domain.Website.WebsiteTranslation", b =>
                 {
                     b.Property<Guid>("LanguageId")
@@ -2139,6 +2200,14 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                 });
 
             modelBuilder.Entity("TheBha.Domain.Website.WebsiteMenuState", b =>
+                {
+                    b.HasOne("TheBha.Infrastructure.Identity.StaffAccount", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedByStaffId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Website.WebsiteSocialSettings", b =>
                 {
                     b.HasOne("TheBha.Infrastructure.Identity.StaffAccount", null)
                         .WithMany()

@@ -196,3 +196,15 @@ public sealed record WebsiteHeroSlideRequest
     public Dictionary<string, string?>? Alt { get; init; }
     public Dictionary<string, string?>? Caption { get; init; }
 }
+
+public sealed record SaveWebsiteSocialRequest
+{
+    [JsonRequired] public int ExpectedRevision { get; init; }
+    [JsonRequired] public bool PhoneEnabled { get; init; }
+    public string? PhoneNumber { get; init; }
+    [JsonRequired] public bool MessengerEnabled { get; init; }
+    public string? MessengerUrl { get; init; }
+    [JsonRequired] public bool ZaloEnabled { get; init; }
+    public string? ZaloNumber { get; init; }
+    [JsonRequired] public bool BackToTopEnabled { get; init; }
+}

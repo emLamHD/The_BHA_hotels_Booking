@@ -7,7 +7,7 @@
 
 export const DEFAULT_RETURN_TO = "/calendar";
 
-export const WEBSITE_PAGES = ["/website/languages", "/website/translations", "/website/currencies", "/website/menus", "/website/hero"] as const;
+export const WEBSITE_PAGES = ["/website/languages", "/website/translations", "/website/currencies", "/website/menus", "/website/hero", "/website/social-media"] as const;
 
 const ALLOWED: ReadonlySet<string> = new Set<string>([DEFAULT_RETURN_TO, ...WEBSITE_PAGES]);
 

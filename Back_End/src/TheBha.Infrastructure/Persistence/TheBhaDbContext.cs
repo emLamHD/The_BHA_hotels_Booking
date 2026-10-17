@@ -43,6 +43,7 @@ public sealed class TheBhaDbContext(DbContextOptions<TheBhaDbContext> options)
     public DbSet<WebsiteHeroMedia> WebsiteHeroMedia => Set<WebsiteHeroMedia>();
     public DbSet<WebsiteHeroSlide> WebsiteHeroSlides => Set<WebsiteHeroSlide>();
     public DbSet<WebsiteHeroSettings> WebsiteHero => Set<WebsiteHeroSettings>();
+    public DbSet<WebsiteSocialSettings> WebsiteSocialSettings => Set<WebsiteSocialSettings>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
