@@ -8,7 +8,6 @@ import {
   HOME_SECTION,
   HOME_SECTION_IDS,
   INTRO_IMAGE,
-  PRIMARY_NAV,
   RIVERSIDE_PATH,
   RIVERSIDE_SECTION_LINKS,
   riversideSectionHref,
@@ -56,22 +55,7 @@ describe("pictures: every one is a published manifest entry, described and sized
   });
 });
 
-describe("navigation: every entry leads somewhere that exists", () => {
-  it("the primary entries are Riverside, offers and blog, each a page of its own and not a dead '#'", () => {
-    expect(PRIMARY_NAV.map((item) => item.href)).toEqual(["/riverside", "/offers", "/blog"]);
-    for (const item of PRIMARY_NAV) {
-      expect(item.section).toBeUndefined();
-      expect(item.name.trim().length).toBeGreaterThan(0);
-      expect(item.href).not.toMatch(/^#+$/);
-    }
-    expect(new Set(PRIMARY_NAV.map((item) => item.id)).size).toBe(PRIMARY_NAV.length);
-  });
-
-  it("the four old anchor entries are not in the primary navigation", () => {
-    const names = PRIMARY_NAV.map((item) => item.name).join("|");
-    for (const gone of ["Loại phòng", "Tìm phòng", "Hướng dẫn đặt phòng", "Thông tin cần biết"]) expect(names).not.toContain(gone);
-  });
-
+describe("Riverside page sections (the header menu itself is data from the API, see lib/menus)", () => {
   it("section links name sections the Riverside page has, and resolve to /riverside#section", () => {
     for (const item of RIVERSIDE_SECTION_LINKS) {
       expect(HOME_SECTION_IDS).toContain(item.section);
@@ -83,13 +67,6 @@ describe("navigation: every entry leads somewhere that exists", () => {
   it("section ids are stable ASCII anchors", () => {
     for (const id of HOME_SECTION_IDS) expect(id).toMatch(/^[a-z0-9-]+$/);
     expect(Object.values(HOME_SECTION)).toEqual([...HOME_SECTION_IDS]);
-  });
-
-  it("offers neither template routes nor unsupported destinations", () => {
-    const targets = [...PRIMARY_NAV, ...RIVERSIDE_SECTION_LINKS].map((item) => item.href ?? item.section).join(" ");
-    for (const banned of ["/about", "/contact", "/checkout", "/author", "/add-listing", "/account-savelists", "/listing-stay-map"]) {
-      expect(targets).not.toContain(banned);
-    }
   });
 });
 

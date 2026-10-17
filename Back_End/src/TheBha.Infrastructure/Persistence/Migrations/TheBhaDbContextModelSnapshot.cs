@@ -1278,6 +1278,84 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("TheBha.Domain.Website.WebsiteMenuItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Href")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<bool>("OpenInNewTab")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Placement")
+                        .HasMaxLength(9)
+                        .HasColumnType("character varying(9)");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ParentId", "SortOrder")
+                        .HasDatabaseName("IX_WebsiteMenuItems_Parent_Sort");
+
+                    b.ToTable("WebsiteMenuItems", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_WebsiteMenuItems_Href", "char_length(\"Href\") BETWEEN 1 AND 2048 AND \"Href\" !~ '[[:cntrl:][:space:]\\\\]'");
+
+                            t.HasCheckConstraint("CK_WebsiteMenuItems_Label", "btrim(\"Label\") <> '' AND char_length(\"Label\") <= 80");
+
+                            t.HasCheckConstraint("CK_WebsiteMenuItems_NotOwnParent", "\"ParentId\" IS NULL OR \"ParentId\" <> \"Id\"");
+
+                            t.HasCheckConstraint("CK_WebsiteMenuItems_Placement", "(\"ParentId\" IS NULL) = (\"Placement\" IS NOT NULL) AND (\"Placement\" IS NULL OR \"Placement\" IN ('primary', 'secondary'))");
+
+                            t.HasCheckConstraint("CK_WebsiteMenuItems_SortOrder", "\"SortOrder\" BETWEEN 0 AND 10000");
+                        });
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Website.WebsiteMenuState", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedByStaffId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UpdatedByStaffId");
+
+                    b.ToTable("WebsiteMenu", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_WebsiteMenu_Singleton", "\"Id\" = 1");
+
+                            t.HasCheckConstraint("CK_WebsiteMenu_Version", "\"Version\" >= 1");
+                        });
+                });
+
             modelBuilder.Entity("TheBha.Domain.Website.WebsiteTranslation", b =>
                 {
                     b.Property<Guid>("LanguageId")
@@ -1852,6 +1930,22 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         .HasForeignKey("DefaultCurrencyCode")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("TheBha.Infrastructure.Identity.StaffAccount", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedByStaffId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Website.WebsiteMenuItem", b =>
+                {
+                    b.HasOne("TheBha.Domain.Website.WebsiteMenuItem", null)
+                        .WithMany()
+                        .HasForeignKey("ParentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Website.WebsiteMenuState", b =>
+                {
                     b.HasOne("TheBha.Infrastructure.Identity.StaffAccount", null)
                         .WithMany()
                         .HasForeignKey("UpdatedByStaffId")

@@ -115,3 +115,50 @@ internal sealed class WebsiteCurrencyConfiguration : IEntityTypeConfiguration<We
         builder.HasOne<StaffAccount>().WithMany().HasForeignKey(currency => currency.RateUpdatedByStaffId).OnDelete(DeleteBehavior.Restrict);
     }
 }
+
+// CUST-WEB-HEADER-001-CP04: the header navigation. A root has a placement and a child has none; no row is its own
+// parent; a link has no whitespace, control character or backslash. The cycle and depth rules need the whole tree
+// and are the service's, under the website lock.
+internal sealed class WebsiteMenuItemConfiguration : IEntityTypeConfiguration<WebsiteMenuItem>
+{
+    public void Configure(EntityTypeBuilder<WebsiteMenuItem> builder)
+    {
+        builder.ToTable("WebsiteMenuItems", table =>
+        {
+            table.HasCheckConstraint(
+                "CK_WebsiteMenuItems_Placement",
+                "(\"ParentId\" IS NULL) = (\"Placement\" IS NOT NULL) AND (\"Placement\" IS NULL OR \"Placement\" IN ('primary', 'secondary'))");
+            table.HasCheckConstraint("CK_WebsiteMenuItems_NotOwnParent", "\"ParentId\" IS NULL OR \"ParentId\" <> \"Id\"");
+            table.HasCheckConstraint("CK_WebsiteMenuItems_Label", "btrim(\"Label\") <> '' AND char_length(\"Label\") <= 80");
+            table.HasCheckConstraint(
+                "CK_WebsiteMenuItems_Href",
+                "char_length(\"Href\") BETWEEN 1 AND 2048 AND \"Href\" !~ '[[:cntrl:][:space:]\\\\]'");
+            table.HasCheckConstraint("CK_WebsiteMenuItems_SortOrder", "\"SortOrder\" BETWEEN 0 AND 10000");
+        });
+
+        builder.HasKey(item => item.Id);
+        builder.Property(item => item.Placement).HasMaxLength(9);
+        builder.Property(item => item.Label).HasMaxLength(MenuLimits.MaxLabel).IsRequired();
+        builder.Property(item => item.Href).HasMaxLength(MenuLimits.MaxHref).IsRequired();
+        builder.HasOne<WebsiteMenuItem>().WithMany().HasForeignKey(item => item.ParentId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(item => new { item.ParentId, item.SortOrder }).HasDatabaseName("IX_WebsiteMenuItems_Parent_Sort");
+    }
+}
+
+internal sealed class WebsiteMenuStateConfiguration : IEntityTypeConfiguration<WebsiteMenuState>
+{
+    public void Configure(EntityTypeBuilder<WebsiteMenuState> builder)
+    {
+        builder.ToTable("WebsiteMenu", table =>
+        {
+            table.HasCheckConstraint("CK_WebsiteMenu_Singleton", "\"Id\" = 1");
+            table.HasCheckConstraint("CK_WebsiteMenu_Version", "\"Version\" >= 1");
+        });
+
+        builder.HasKey(state => state.Id);
+        builder.Property(state => state.Id).ValueGeneratedNever();
+        builder.Property(state => state.Version).IsConcurrencyToken();
+        builder.Property(state => state.UpdatedAtUtc).HasColumnType("timestamp with time zone");
+        builder.HasOne<StaffAccount>().WithMany().HasForeignKey(state => state.UpdatedByStaffId).OnDelete(DeleteBehavior.Restrict);
+    }
+}

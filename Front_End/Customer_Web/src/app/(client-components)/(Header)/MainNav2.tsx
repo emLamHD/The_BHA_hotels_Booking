@@ -1,18 +1,13 @@
 import React, { FC } from "react";
-import Link from "next/link";
-import type { Route } from "next";
 import Logo from "@/shared/Logo";
 import MenuBar from "@/shared/MenuBar";
 import SwitchDarkMode from "@/shared/SwitchDarkMode";
 import AvatarDropdown from "./AvatarDropdown";
-import BlogNavDropdown from "./BlogNavDropdown";
-import DropdownTravelers from "./DropdownTravelers";
 import LangDropdown from "./LangDropdown";
-import TemplatesDropdown from "./TemplatesDropdown";
+import { PrimaryNav, SecondaryNav } from "./MenuNav";
 import HeroSearchForm2MobileFactory from "../(HeroSearchForm2Mobile)/HeroSearchForm2MobileFactory";
-import { PRIMARY_NAV } from "@/lib/riversideHomeContent";
-import { HEADER_FONT, NAV_MAIN_ITEM } from "@/shared/headerTypography";
-import { useT } from "@/lib/i18n/I18nProvider";
+import { HEADER_FONT } from "@/shared/headerTypography";
+import { useMenu } from "@/lib/menus/MenuProvider";
 
 export interface MainNav2Props {
   className?: string;
@@ -28,22 +23,15 @@ export interface MainNav2Props {
  * notifications are not rendered: there is no feature or data behind either.
  */
 const MainNav2: FC<MainNav2Props> = ({ className = "" }) => {
-  const t = useT();
+  const hasPrimary = (useMenu().menu?.primary.length ?? 0) > 0;
   return (
     <div className={`MainNav2 relative z-10 ${HEADER_FONT} ${className}`}>
       <div className="px-4 h-16 md:h-20 lg:container flex items-center justify-between gap-1 sm:gap-2">
-        <div className="hidden md:flex items-center flex-shrink-0 space-x-3 lg:space-x-6 xl:space-x-8">
-          <Logo className="w-28 lg:w-32 self-center" />
-          <div className="hidden lg:block self-center h-10 border-l border-neutral-300 dark:border-neutral-500"></div>
-          <nav aria-label={t("customer.header.nav.primary")} className="hidden lg:flex items-center space-x-1">
-            {PRIMARY_NAV.filter((item) => item.id !== "blog").map((item) => (
-              <Link key={item.id} href={item.href as Route} className={NAV_MAIN_ITEM}>
-                {t(`customer.header.menu.${item.id}`)}
-              </Link>
-            ))}
-            <BlogNavDropdown />
-            <DropdownTravelers />
-          </nav>
+        {/* The menu is data (see lib/menus): the row can shrink and truncate a long label, but never pushes the controls on the right off the screen. */}
+        <div className="hidden md:flex items-center min-w-0 md:flex-none lg:flex-1 space-x-3 lg:space-x-6 xl:space-x-8">
+          <Logo className="w-28 lg:w-32 flex-shrink-0 self-center" />
+          {hasPrimary && <div className="hidden lg:block self-center h-10 border-l border-neutral-300 dark:border-neutral-500"></div>}
+          <PrimaryNav />
         </div>
 
         {/* The compact search's two text lines must clamp to one line each (the pill's own `block` class cancels
@@ -52,8 +40,8 @@ const MainNav2: FC<MainNav2Props> = ({ className = "" }) => {
           <HeroSearchForm2MobileFactory />
         </div>
 
-        <div className="flex items-center flex-shrink-0 justify-end text-neutral-700 dark:text-neutral-100 lg:flex-1">
-          <TemplatesDropdown />
+        <div className="flex items-center flex-shrink-0 justify-end text-neutral-700 dark:text-neutral-100">
+          <SecondaryNav />
           <LangDropdown className="hidden lg:flex" />
           <SwitchDarkMode />
           <AvatarDropdown panelClassName="right-0" />

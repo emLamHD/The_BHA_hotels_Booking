@@ -159,6 +159,40 @@ export type PackMode = "keep-manual" | "overwrite";
 /** A pack to check or install: one of the library, or the text of an uploaded file — never a URL. */
 export type PackSource = { builtInPackId: string } | { json: string };
 
+/** One language as the menu editor lists it; the content source language (Vietnamese) keeps its label in the menu row itself. */
+export interface MenuLocale {
+  code: string;
+  displayName: string;
+  nativeName: string;
+  isDefault: boolean;
+  isActive: boolean;
+  isContentSource: boolean;
+}
+
+export type MenuPlacement = "primary" | "secondary";
+
+/** One entry of the header navigation. `labels` has one text per language (`null` = none yet: the visitor then sees the default language's). */
+export interface MenuItem {
+  id: string;
+  parentId: string | null;
+  /** `primary` (the main row) or `secondary` (the group on the right) for a top-level entry; `null` for a sub-entry. */
+  placement: MenuPlacement | null;
+  isEnabled: boolean;
+  href: string;
+  openInNewTab: boolean;
+  labels: Record<string, string | null>;
+}
+
+export interface WebsiteMenu {
+  /** The tree's version and every label's: what a Save must quote. */
+  revision: string;
+  version: number;
+  updatedAtUtc: string;
+  locales: MenuLocale[];
+  /** In tree order: the main row first, each entry followed by its sub-entries. */
+  items: MenuItem[];
+}
+
 export type WebsiteFailure =
   | { kind: "unauthenticated" }
   | { kind: "denied" }
@@ -349,6 +383,33 @@ export function parsePackApplyResult(data: unknown): PackApplyResult | null {
   const language = parseLanguage(data.language);
   if (counts === null || language === null || !isBool(data.enabled)) return null;
   return { counts, enabled: data.enabled, language };
+}
+
+const parseMenuLocale = (data: unknown): MenuLocale | null =>
+  isRec(data) && isStr(data.code) && data.code !== "" && isStr(data.displayName) && isStr(data.nativeName) && isBool(data.isDefault) && isBool(data.isActive) && isBool(data.isContentSource)
+    ? { code: data.code, displayName: data.displayName, nativeName: data.nativeName, isDefault: data.isDefault, isActive: data.isActive, isContentSource: data.isContentSource }
+    : null;
+
+export function parseMenuItem(data: unknown): MenuItem | null {
+  if (!isRec(data) || !isRec(data.labels)) return null;
+  if (
+    !isStr(data.id) || data.id === "" || !strOrNull(data.parentId) || !strOrNull(data.placement) || !(data.placement === null || data.placement === "primary" || data.placement === "secondary") ||
+    !isBool(data.isEnabled) || !isStr(data.href) || !isBool(data.openInNewTab) || !Object.values(data.labels).every(strOrNull)
+  ) {
+    return null;
+  }
+  return {
+    id: data.id, parentId: data.parentId, placement: data.placement as MenuPlacement | null, isEnabled: data.isEnabled, href: data.href,
+    openInNewTab: data.openInNewTab, labels: { ...(data.labels as Record<string, string | null>) },
+  };
+}
+
+export function parseMenu(data: unknown): WebsiteMenu | null {
+  if (!isRec(data)) return null;
+  const locales = parseList(data.locales, parseMenuLocale);
+  const items = parseList(data.items, parseMenuItem);
+  if (locales === null || items === null || !isStr(data.revision) || data.revision === "" || !isNum(data.version) || !isStr(data.updatedAtUtc)) return null;
+  return { revision: data.revision, version: data.version, updatedAtUtc: data.updatedAtUtc, locales, items };
 }
 
 const parseLanguages = (data: unknown) => parseList(data, parseLanguage);
@@ -557,3 +618,25 @@ export const setDefaultCurrency = (code: string, expectedVersion: number) =>
 
 export const deleteCurrency = (code: string, expectedVersion: number) =>
   call<void>("POST", `${SETTINGS}/currencies/${encode(code)}/delete`, { expectedVersion }, { write: true, noContent: true });
+
+// ---------------------------------------------------------------- header navigation (menu)
+
+export const getMenu = (signal?: AbortSignal) => call<WebsiteMenu>("GET", `${SETTINGS}/menus`, undefined, { write: false, parse: parseMenu, signal });
+
+/**
+ * Applies the whole tree, links and labels in one transaction, or nothing. `expectedRevision` is the revision the editor
+ * loaded; a stale one is a refusal (`stale-version`) and the draft is kept. A lost answer is `unverified`: read the server before sending again.
+ */
+export const saveMenu = (expectedRevision: string, items: MenuItem[]) =>
+  call<WebsiteMenu>(
+    "POST",
+    `${SETTINGS}/menus/save`,
+    {
+      expectedRevision,
+      items: items.map((item) => ({
+        id: item.id, parentId: item.parentId, placement: item.placement, isEnabled: item.isEnabled, href: item.href,
+        openInNewTab: item.openInNewTab, labels: item.labels,
+      })),
+    },
+    { write: true, parse: parseMenu }
+  );

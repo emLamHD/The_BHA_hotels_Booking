@@ -34,6 +34,8 @@ export interface WebsiteHost {
   onUnauthenticated: () => void;
   /** A message the gate shows above the page (for example a 403 that `me` did not explain). */
   notify: (message: string | null) => void;
+  /** A screen with a draft tells the gate, so Sign out asks before it throws the draft away. */
+  setUnsaved: (unsaved: boolean) => void;
 }
 
 const WebsiteHostContext = createContext<WebsiteHost | null>(null);
@@ -70,6 +72,10 @@ function WebsiteBoundary({ returnTo, children }: { returnTo: string; children: R
   const writingRef = useRef(false);
   const [signingOut, setSigningOut] = useState(false);
   const signingOutRef = useRef(false);
+  const unsavedRef = useRef(false);
+  const setUnsaved = useCallback((unsaved: boolean) => {
+    unsavedRef.current = unsaved;
+  }, []);
   const [signOutMessage, setSignOutMessage] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -103,12 +109,14 @@ function WebsiteBoundary({ returnTo, children }: { returnTo: string; children: R
       },
       onUnauthenticated: expire,
       notify: setNotice,
+      setUnsaved,
     }),
-    [signingOut, refresh, expire, failAccessCheck]
+    [signingOut, refresh, expire, failAccessCheck, setUnsaved]
   );
 
   const handleSignOut = useCallback(async () => {
     if (writingRef.current || signingOutRef.current) return;
+    if (unsavedRef.current && !window.confirm("Bạn có thay đổi chưa lưu trên màn hình này. Đăng xuất sẽ bỏ chúng. Vẫn đăng xuất?")) return;
     signingOutRef.current = true;
     setSigningOut(true);
     setSignOutMessage(null);

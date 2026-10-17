@@ -106,6 +106,27 @@ public sealed record SetWebsiteCurrencyActiveRequest
 }
 
 /// <summary>
+/// The whole header navigation as the editor holds it. <c>ExpectedRevision</c> is the revision it loaded. <c>Items</c>
+/// is the flat list in tree order (siblings in the order they appear); <c>Labels</c> maps a language code to its label.
+/// </summary>
+public sealed record SaveWebsiteMenuRequest
+{
+    [JsonRequired] public string ExpectedRevision { get; init; } = string.Empty;
+    [JsonRequired] public IReadOnlyList<WebsiteMenuItemRequest> Items { get; init; } = [];
+}
+
+public sealed record WebsiteMenuItemRequest
+{
+    [JsonRequired] public Guid Id { get; init; }
+    public Guid? ParentId { get; init; }
+    public string? Placement { get; init; }
+    [JsonRequired] public bool IsEnabled { get; init; }
+    [JsonRequired] public string Href { get; init; } = string.Empty;
+    [JsonRequired] public bool OpenInNewTab { get; init; }
+    public Dictionary<string, string?>? Labels { get; init; }
+}
+
+/// <summary>
 /// The shared shape of every website-settings controller: Staff mode only (a filter per action, never per
 /// controller), no antiforgery token (the Staff boundary checks Origin and JSON instead), the verified Staff id
 /// as the actor, and one mapping of a store outcome to a problem with a machine-readable <c>code</c> and the

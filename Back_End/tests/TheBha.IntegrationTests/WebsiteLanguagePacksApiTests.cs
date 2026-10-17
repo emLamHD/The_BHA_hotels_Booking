@@ -369,4 +369,47 @@ public sealed class WebsiteLanguagePacksApiTests(PostgreSqlWebApplicationFactory
         var refused = await AssertStatusAsync(HttpStatusCode.Conflict, session.PostAsync($"{Url}/preview", File(template)));
         Assert.Equal(WebsiteErrorCodes.PackInvalid, (await ProblemAsync(refused)).Code);
     }
+
+    [Fact]
+    public async Task Installing_the_Vietnamese_pack_never_undoes_a_menu_rename_but_other_languages_still_carry_the_labels_by_id()
+    {
+        using var session = await StartAsync();
+        var offers = await ScalarAsync<Guid>("""SELECT "Id" FROM "WebsiteMenuItems" WHERE "Label" = 'Ưu đãi' AND "ParentId" IS NULL""");
+        var key = $"content.menuItem.{offers}.label";
+
+        // Rename the entry in the Menu editor: the column changes, no Vietnamese translation row exists.
+        var current = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, session.GetAsync("/api/admin/v1/website/menus")));
+        var items = current.GetProperty("items").EnumerateArray().Select(item =>
+        {
+            var copy = JsonSerializer.Deserialize<Dictionary<string, object?>>(item.GetRawText())!;
+            if (item.GetProperty("id").GetGuid() == offers)
+            {
+                var labels = JsonSerializer.Deserialize<Dictionary<string, string?>>(item.GetProperty("labels").GetRawText())!;
+                labels["vi"] = "Khuyến mại hè";
+                copy["labels"] = labels;
+            }
+
+            return copy;
+        }).ToArray();
+        await AssertStatusAsync(HttpStatusCode.OK, session.PostAsync("/api/admin/v1/website/menus/save", new { expectedRevision = current.GetProperty("revision").GetString(), items }));
+        Assert.Equal(0, await ScalarAsync<int>($"""SELECT count(*) FROM "WebsiteTranslations" WHERE "Key" = '{key}' AND "LanguageId" = '{WebsiteTestSeed.Vietnamese}'"""));
+
+        // Installing the Vietnamese pack, in either mode, leaves the rename alone and says why it skipped the menu labels.
+        foreach (var mode in new[] { PackModes.KeepManual, PackModes.Overwrite })
+        {
+            var preview = await PreviewAsync(session, Builtin("bha-vi", mode));
+            Assert.Contains(preview.GetProperty("issues").EnumerateArray(), issue => issue.GetProperty("code").GetString() == "source-column" && issue.GetProperty("key").GetString() == key);
+            await ApplyAsync(session, Builtin("bha-vi", mode, preview.GetProperty("previewToken").GetString()));
+            Assert.Equal(0, await ScalarAsync<int>($"""SELECT count(*) FROM "WebsiteTranslations" WHERE "Key" LIKE 'content.menuItem.%' AND "LanguageId" = '{WebsiteTestSeed.Vietnamese}'"""));
+            Assert.Equal("Khuyến mại hè", await ScalarAsync<string>($"""SELECT "Label" FROM "WebsiteMenuItems" WHERE "Id" = '{offers}'"""));
+            var published = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, session.Client.SendAsync(Get("/api/v1/website/menus?locale=vi"))));
+            Assert.Equal("Khuyến mại hè", published.GetProperty("primary").EnumerateArray().Select(node => node.GetProperty("label").GetString()).ElementAt(1));
+        }
+
+        // Another language's pack still carries the label by the entry's id.
+        var english = await PreviewAsync(session, Builtin("bha-en", PackModes.Overwrite));
+        Assert.DoesNotContain(english.GetProperty("issues").EnumerateArray(), issue => issue.GetProperty("code").GetString() == "source-column");
+        await ApplyAsync(session, Builtin("bha-en", PackModes.Overwrite, english.GetProperty("previewToken").GetString()));
+        Assert.Equal("Offers", await ScalarAsync<string>($"""SELECT "Value" FROM "WebsiteTranslations" WHERE "Key" = '{key}' AND "LanguageId" = '{WebsiteTestSeed.English}'"""));
+    }
 }

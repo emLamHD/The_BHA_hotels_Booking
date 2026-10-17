@@ -67,6 +67,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<IContentCatalog, ContentCatalog>();
         services.AddScoped<IWebsiteLanguagePacks, WebsiteLanguagePackService>();
         services.AddScoped<IWebsiteDisplayPricing, WebsiteDisplayPricing>();
+        services.AddScoped<IWebsiteMenus, WebsiteMenuService>();
         services.AddScoped<DevelopmentDataSeeder>();
         services.AddScoped<TheBha.Infrastructure.Persistence.Demo.RiversideDemoSeeder>();
 

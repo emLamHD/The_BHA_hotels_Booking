@@ -104,6 +104,7 @@ The current migration chain is:
 9. `20261001141847_AddStaffIdentityFoundation`
 10. `20261015050047_AddWebsiteLocalizationSettings`
 11. `20261015095908_AddRuntimeLanguagePacks`
+12. `20261016014037_AddWebsiteMenus`
 
 `PMS-BE-001.1` (migration 7) replaces the single-RoomType `BookingHold`/
 `BookingHoldNight` and `Reservation`/`ReservationNight` commercial authority
@@ -213,6 +214,26 @@ administered translations exist. The migration adds no rates; rates are
 entered by the operator in the Admin (see `docs/runbooks/CUST-WEB-HEADER-001-languages-and-rates.md`). Apply it
 with the normal `dotnet ef database update` command; apply order is 10 → 11.
 Design: `docs/design/CUST-WEB-HEADER-001-CP02-website-localization-settings.md` §9.
+
+`CUST-WEB-HEADER-001-CP04` (migration 12, `AddWebsiteMenus`) adds the site-wide
+header navigation: `WebsiteMenuItems` (`Id`, `ParentId` self-FK `RESTRICT`,
+`Placement` `primary`/`secondary` for a root and `NULL` for a child, `SortOrder`,
+`Label` = the Vietnamese text, `Href`, `OpenInNewTab`, `IsEnabled`) and the
+one-row `WebsiteMenu` (`Version`, `UpdatedAtUtc`, `UpdatedByStaffId`) that
+versions the whole tree. CHECKs: a root has a placement and a child has none, no
+row is its own parent, label 1–80 characters, link 1–2048 characters without
+whitespace, control character or backslash. Cycle and depth (≤ 4) rules need the
+whole tree and are enforced by the Save under the website advisory lock. The
+other languages' labels are not columns: they are `WebsiteTranslations` rows keyed
+`content.menuItem.<id>.label`, so packs, coverage and the Translations screen carry
+them by the entry's stable id. The migration seeds, once, the menu the header showed
+before (plus FAQ after Blog: 54 entries with fixed ids) and, for the languages that
+exist when it runs, their `en`/`fr` labels (108 rows); nothing re-seeds at startup
+and a re-run never overwrites an edit. `Down()` removes the menu tables and the
+label rows. No booking, customer, staff, language, currency or rate row is changed
+(counts before/after are in the CP04 report). Apply with the normal
+`dotnet ef database update`; order 11 → 12. Design:
+`docs/design/CUST-WEB-HEADER-001-CP04-dynamic-menus-faq.md`.
 
 Run the update command before the development seed. The API never calls
 `EnsureCreated()` and never applies a migration during startup.

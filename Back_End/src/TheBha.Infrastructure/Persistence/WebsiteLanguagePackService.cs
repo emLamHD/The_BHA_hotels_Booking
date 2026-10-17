@@ -17,6 +17,7 @@ internal sealed class WebsiteLanguagePackService(
     TheBhaDbContext database, TimeProvider timeProvider, IContentCatalog content, IWebsiteSettingsStore settings) : IWebsiteLanguagePacks
 {
     private const int MaxIssues = 300;
+    private const string MenuEntity = "menuItem";
 
     private static readonly JsonWriterOptions WriterOptions = new() { Indented = true, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
@@ -184,6 +185,9 @@ internal sealed class WebsiteLanguagePackService(
             }
         }
 
+        // The content source language's text of a menu entry is the menu row's own column, edited on the Menu screen: a pack for
+        // that language never creates or changes a stored text for it (it would silently undo a rename). Other languages carry them by id.
+        var isContentSource = string.Equals(normalized, ContentSource.Locale, StringComparison.OrdinalIgnoreCase);
         var inPack = 0;
         foreach (var (key, text) in pack.All)
         {
@@ -193,6 +197,13 @@ internal sealed class WebsiteLanguagePackService(
                 ignored++;
                 Issue(key, "info", ContentKey.TryParse(key, out _, out _, out _) ? "unknown-content" : "unknown-key",
                     ContentKey.TryParse(key, out _, out _, out _) ? "This content does not exist in this site; it was skipped." : "This key is not in the catalog; it was skipped.");
+                continue;
+            }
+
+            if (isContentSource && item.Content is { Entity: MenuEntity })
+            {
+                ignored++;
+                Issue(key, "info", "source-column", "The Vietnamese label of a menu entry is edited on the Menu screen; the pack does not change it.");
                 continue;
             }
 
@@ -232,7 +243,6 @@ internal sealed class WebsiteLanguagePackService(
             }
         }
 
-        var isContentSource = string.Equals(normalized, ContentSource.Locale, StringComparison.OrdinalIgnoreCase);
         var missingAfter = model.Required.Count(item =>
             !existing.ContainsKey(item.Key) && !coveredKeys.Contains(item.Key) && !(isContentSource && item.Content is not null));
         var obsolete = existing.Keys.Count(key => !model.ByKey.ContainsKey(key));

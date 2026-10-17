@@ -456,7 +456,9 @@ public sealed class AdminCalendarAssignmentApiTests(PostgreSqlWebApplicationFact
         "/api/admin/v1/website/currencies/{code}/delete",
         // CUST-WEB-HEADER-001-CP02-C2: installing a language pack (preview changes nothing; apply is one atomic transaction).
         "/api/admin/v1/website/language-packs/preview",
-        "/api/admin/v1/website/language-packs/apply"
+        "/api/admin/v1/website/language-packs/apply",
+        // CUST-WEB-HEADER-001-CP04: saving the header navigation (tree, links, labels) in one transaction.
+        "/api/admin/v1/website/menus/save"
     ];
 
     [Fact]

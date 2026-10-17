@@ -62,16 +62,7 @@ internal sealed class WebsitePublicReader(TheBhaDbContext database, IContentCata
         var defaultLanguage = languages.SingleOrDefault(language => language.IsDefault)
             ?? throw new InvalidOperationException("The website settings have no active default language.");
 
-        string? requested = null;
-        var resolved = defaultLanguage;
-        if (LanguageTag.TryNormalize(query.Locale, out var canonical, out var normalized))
-        {
-            requested = canonical;
-            // Exact tag first, then the tag with its region and then its script dropped (en-US -> en).
-            resolved = Candidates(normalized)
-                .Select(candidate => languages.SingleOrDefault(language => language.NormalizedCode == candidate))
-                .FirstOrDefault(language => language is not null) ?? defaultLanguage;
-        }
+        var (requested, resolved) = Resolve(languages, defaultLanguage, query.Locale);
 
         var model = await WebsiteLocalizationModel.LoadAsync(content, cancellationToken);
         var scopes = query.Scopes.Count == 0 ? [MessageScopes.Shared, MessageScopes.Customer, MessageScopes.Content] : query.Scopes;
@@ -120,6 +111,20 @@ internal sealed class WebsitePublicReader(TheBhaDbContext database, IContentCata
             requested is null || !string.Equals(requested, resolved.Code, StringComparison.OrdinalIgnoreCase),
             revision,
             entries);
+    }
+
+    /// <summary>The language a request resolves to: the exact tag, then the tag with its region and script dropped (en-US -> en), else the default. Shared with the menu read so both answer in the same language.</summary>
+    internal static (string? Requested, WebsiteLanguage Resolved) Resolve(IReadOnlyList<WebsiteLanguage> active, WebsiteLanguage defaultLanguage, string? locale)
+    {
+        if (!LanguageTag.TryNormalize(locale, out var canonical, out var normalized))
+        {
+            return (null, defaultLanguage);
+        }
+
+        var resolved = Candidates(normalized)
+            .Select(candidate => active.SingleOrDefault(language => language.NormalizedCode == candidate))
+            .FirstOrDefault(language => language is not null) ?? defaultLanguage;
+        return (canonical, resolved);
     }
 
     private static IEnumerable<string> Candidates(string normalized)
