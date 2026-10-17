@@ -1240,8 +1240,8 @@ namespace TheBha.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("Description")
                         .IsRequired()
-                        .HasMaxLength(300)
-                        .HasColumnType("character varying(300)");
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
 
                     b.Property<string>("FontKey")
                         .IsRequired()
@@ -1253,18 +1253,18 @@ namespace TheBha.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("PrimaryActionLabel")
                         .IsRequired()
-                        .HasMaxLength(40)
-                        .HasColumnType("character varying(40)");
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
 
                     b.Property<string>("SecondaryActionLabel")
                         .IsRequired()
-                        .HasMaxLength(40)
-                        .HasColumnType("character varying(40)");
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
 
                     b.Property<string>("Title")
                         .IsRequired()
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
 
                     b.Property<DateTimeOffset>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone");
@@ -1288,7 +1288,7 @@ namespace TheBha.Infrastructure.Persistence.Migrations
 
                             t.HasCheckConstraint("CK_WebsiteHero_Singleton", "\"Id\" = 1");
 
-                            t.HasCheckConstraint("CK_WebsiteHero_Texts", "btrim(\"Title\") <> '' AND char_length(\"Title\") <= 120 AND btrim(\"Description\") <> '' AND char_length(\"Description\") <= 300 AND btrim(\"PrimaryActionLabel\") <> '' AND char_length(\"PrimaryActionLabel\") <= 40 AND btrim(\"SecondaryActionLabel\") <> '' AND char_length(\"SecondaryActionLabel\") <= 40");
+                            t.HasCheckConstraint("CK_WebsiteHero_Texts", "btrim(\"Title\") <> '' AND char_length(\"Title\") <= 80 AND btrim(\"Description\") <> '' AND char_length(\"Description\") <= 160 AND btrim(\"PrimaryActionLabel\") <> '' AND char_length(\"PrimaryActionLabel\") <= 24 AND btrim(\"SecondaryActionLabel\") <> '' AND char_length(\"SecondaryActionLabel\") <= 24");
 
                             t.HasCheckConstraint("CK_WebsiteHero_Version", "\"Version\" >= 1");
                         });
@@ -1306,8 +1306,8 @@ namespace TheBha.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("Caption")
                         .IsRequired()
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
 
                     b.Property<string>("FocalPosition")
                         .IsRequired()
@@ -1333,7 +1333,7 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("CK_WebsiteHeroSlides_Alt", "btrim(\"Alt\") <> '' AND char_length(\"Alt\") <= 200");
 
-                            t.HasCheckConstraint("CK_WebsiteHeroSlides_Caption", "btrim(\"Caption\") <> '' AND char_length(\"Caption\") <= 120");
+                            t.HasCheckConstraint("CK_WebsiteHeroSlides_Caption", "btrim(\"Caption\") <> '' AND char_length(\"Caption\") <= 60");
 
                             t.HasCheckConstraint("CK_WebsiteHeroSlides_Focal", "\"FocalPosition\" ~ '^[0-9]{1,3}% [0-9]{1,3}%$'");
 

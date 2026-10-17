@@ -10,11 +10,11 @@ public static class HeroLimits
     public const int MinIntervalSeconds = 3;
     public const int MaxIntervalSeconds = 60;
     public const int DefaultIntervalSeconds = 6;
-    public const int MaxTitle = 120;
-    public const int MaxDescription = 300;
-    public const int MaxAction = 40;
+    public const int MaxTitle = 80;
+    public const int MaxDescription = 160;
+    public const int MaxAction = 24;
     public const int MaxAlt = 200;
-    public const int MaxCaption = 120;
+    public const int MaxCaption = 60;
     public const int MaxFocal = 16;
 
     /// <summary>10 MB per file.</summary>

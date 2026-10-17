@@ -110,7 +110,7 @@ describe("problems stop a Save and name their field", () => {
     const problems = draftProblems(d, LOCALES);
     expect(problems.texts.title.vi).toBeDefined();
     expect(problems.slideTexts.a.alt.vi).toMatch(/< >/);
-    expect(problems.slideTexts.b.caption.en).toMatch(/\/120/);
+    expect(problems.slideTexts.b.caption.en).toMatch(/\/60/);
     expect(problems.interval).toBeTruthy();
     expect(problems.fontKey).toBeTruthy();
     expect(problems.blocking).toBe(5);

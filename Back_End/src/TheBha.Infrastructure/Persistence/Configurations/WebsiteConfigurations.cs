@@ -197,7 +197,7 @@ internal sealed class WebsiteHeroSlideConfiguration : IEntityTypeConfiguration<W
         {
             table.HasCheckConstraint("CK_WebsiteHeroSlides_SortOrder", "\"SortOrder\" BETWEEN 0 AND 9");
             table.HasCheckConstraint("CK_WebsiteHeroSlides_Alt", "btrim(\"Alt\") <> '' AND char_length(\"Alt\") <= 200");
-            table.HasCheckConstraint("CK_WebsiteHeroSlides_Caption", "btrim(\"Caption\") <> '' AND char_length(\"Caption\") <= 120");
+            table.HasCheckConstraint("CK_WebsiteHeroSlides_Caption", "btrim(\"Caption\") <> '' AND char_length(\"Caption\") <= 60");
             table.HasCheckConstraint("CK_WebsiteHeroSlides_Focal", "\"FocalPosition\" ~ '^[0-9]{1,3}% [0-9]{1,3}%$'");
         });
 
@@ -224,8 +224,8 @@ internal sealed class WebsiteHeroSettingsConfiguration : IEntityTypeConfiguratio
             table.HasCheckConstraint("CK_WebsiteHero_Interval", "\"IntervalSeconds\" BETWEEN 3 AND 60");
             table.HasCheckConstraint(
                 "CK_WebsiteHero_Texts",
-                "btrim(\"Title\") <> '' AND char_length(\"Title\") <= 120 AND btrim(\"Description\") <> '' AND char_length(\"Description\") <= 300 " +
-                "AND btrim(\"PrimaryActionLabel\") <> '' AND char_length(\"PrimaryActionLabel\") <= 40 AND btrim(\"SecondaryActionLabel\") <> '' AND char_length(\"SecondaryActionLabel\") <= 40");
+                "btrim(\"Title\") <> '' AND char_length(\"Title\") <= 80 AND btrim(\"Description\") <> '' AND char_length(\"Description\") <= 160 " +
+                "AND btrim(\"PrimaryActionLabel\") <> '' AND char_length(\"PrimaryActionLabel\") <= 24 AND btrim(\"SecondaryActionLabel\") <> '' AND char_length(\"SecondaryActionLabel\") <= 24");
         });
 
         builder.HasKey(settings => settings.Id);

@@ -20,10 +20,10 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                     FontKey = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: false),
                     AutoplayEnabled = table.Column<bool>(type: "boolean", nullable: false),
                     IntervalSeconds = table.Column<int>(type: "integer", nullable: false),
-                    Title = table.Column<string>(type: "character varying(120)", maxLength: 120, nullable: false),
-                    Description = table.Column<string>(type: "character varying(300)", maxLength: 300, nullable: false),
-                    PrimaryActionLabel = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: false),
-                    SecondaryActionLabel = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: false),
+                    Title = table.Column<string>(type: "character varying(80)", maxLength: 80, nullable: false),
+                    Description = table.Column<string>(type: "character varying(160)", maxLength: 160, nullable: false),
+                    PrimaryActionLabel = table.Column<string>(type: "character varying(24)", maxLength: 24, nullable: false),
+                    SecondaryActionLabel = table.Column<string>(type: "character varying(24)", maxLength: 24, nullable: false),
                     UpdatedAtUtc = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     UpdatedByStaffId = table.Column<Guid>(type: "uuid", nullable: true)
                 },
@@ -33,7 +33,7 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                     table.CheckConstraint("CK_WebsiteHero_Font", "\"FontKey\" IN ('default', 'be-vietnam-pro', 'system-sans', 'system-serif')");
                     table.CheckConstraint("CK_WebsiteHero_Interval", "\"IntervalSeconds\" BETWEEN 3 AND 60");
                     table.CheckConstraint("CK_WebsiteHero_Singleton", "\"Id\" = 1");
-                    table.CheckConstraint("CK_WebsiteHero_Texts", "btrim(\"Title\") <> '' AND char_length(\"Title\") <= 120 AND btrim(\"Description\") <> '' AND char_length(\"Description\") <= 300 AND btrim(\"PrimaryActionLabel\") <> '' AND char_length(\"PrimaryActionLabel\") <= 40 AND btrim(\"SecondaryActionLabel\") <> '' AND char_length(\"SecondaryActionLabel\") <= 40");
+                    table.CheckConstraint("CK_WebsiteHero_Texts", "btrim(\"Title\") <> '' AND char_length(\"Title\") <= 80 AND btrim(\"Description\") <> '' AND char_length(\"Description\") <= 160 AND btrim(\"PrimaryActionLabel\") <> '' AND char_length(\"PrimaryActionLabel\") <= 24 AND btrim(\"SecondaryActionLabel\") <> '' AND char_length(\"SecondaryActionLabel\") <= 24");
                     table.CheckConstraint("CK_WebsiteHero_Version", "\"Version\" >= 1");
                     table.ForeignKey(
                         name: "FK_WebsiteHero_StaffAccounts_UpdatedByStaffId",
@@ -81,13 +81,13 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                     SortOrder = table.Column<int>(type: "integer", nullable: false),
                     FocalPosition = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: false),
                     Alt = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
-                    Caption = table.Column<string>(type: "character varying(120)", maxLength: 120, nullable: false)
+                    Caption = table.Column<string>(type: "character varying(60)", maxLength: 60, nullable: false)
                 },
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_WebsiteHeroSlides", x => x.Id);
                     table.CheckConstraint("CK_WebsiteHeroSlides_Alt", "btrim(\"Alt\") <> '' AND char_length(\"Alt\") <= 200");
-                    table.CheckConstraint("CK_WebsiteHeroSlides_Caption", "btrim(\"Caption\") <> '' AND char_length(\"Caption\") <= 120");
+                    table.CheckConstraint("CK_WebsiteHeroSlides_Caption", "btrim(\"Caption\") <> '' AND char_length(\"Caption\") <= 60");
                     table.CheckConstraint("CK_WebsiteHeroSlides_Focal", "\"FocalPosition\" ~ '^[0-9]{1,3}% [0-9]{1,3}%$'");
                     table.CheckConstraint("CK_WebsiteHeroSlides_SortOrder", "\"SortOrder\" BETWEEN 0 AND 9");
                     table.ForeignKey(

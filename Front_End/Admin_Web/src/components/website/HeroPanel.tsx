@@ -328,8 +328,8 @@ function HeroEditor({ initial, reload, readError }: { initial: WebsiteHero; relo
                 const isSelected = slide.id === selectedId;
                 return (
                   <li key={slide.id} data-testid={`slide-${slide.id}`} className={`rounded-xl border p-2 ${isSelected ? "border-brand-300 bg-brand-50 dark:border-brand-700 dark:bg-brand-500/10" : "border-gray-200 dark:border-gray-800"}`}>
-                    <div className="flex flex-wrap items-center gap-3">
-                      <button type="button" onClick={() => { setSelectedId(slide.id); setPreviewIndex(index); }} aria-current={isSelected ? "true" : undefined} data-testid={`select-${slide.id}`} className="flex min-w-0 flex-1 items-center gap-3 text-left focus:outline-hidden focus-visible:ring-3 focus-visible:ring-brand-500/20">
+                    <div className="flex flex-col gap-2">
+                      <button type="button" onClick={() => { setSelectedId(slide.id); setPreviewIndex(index); }} aria-current={isSelected ? "true" : undefined} data-testid={`select-${slide.id}`} className="flex w-full min-w-0 items-center gap-3 text-left focus:outline-hidden focus-visible:ring-3 focus-visible:ring-brand-500/20">
                         <Thumb media={media} />
                         <span className="min-w-0">
                           <span className="block text-sm font-medium text-gray-800 dark:text-white/90">Ảnh {index + 1}</span>
@@ -341,8 +341,8 @@ function HeroEditor({ initial, reload, readError }: { initial: WebsiteHero; relo
                       <div className="flex flex-wrap gap-1.5">
                         <button type="button" className={SMALL_BUTTON} disabled={locked || index === 0} onClick={() => apply(moveSlide(draft, slide.id, -1))} data-testid={`up-${slide.id}`} aria-label={`Đưa ảnh ${index + 1} lên`}>Lên</button>
                         <button type="button" className={SMALL_BUTTON} disabled={locked || index === draft.slides.length - 1} onClick={() => apply(moveSlide(draft, slide.id, 1))} data-testid={`down-${slide.id}`} aria-label={`Đưa ảnh ${index + 1} xuống`}>Xuống</button>
-                        <button type="button" className={SMALL_BUTTON} disabled={locked} onClick={() => choose({ kind: "replace", slideId: slide.id })} data-testid={`replace-upload-${slide.id}`}>Thay bằng ảnh tải lên</button>
-                        <button type="button" className={SMALL_BUTTON} disabled={locked} onClick={() => setPicker(picker?.kind === "replace" && picker.slideId === slide.id ? null : { kind: "replace", slideId: slide.id })} data-testid={`replace-library-${slide.id}`}>Thay bằng ảnh đã có</button>
+                        <button type="button" className={SMALL_BUTTON} disabled={locked} onClick={() => choose({ kind: "replace", slideId: slide.id })} data-testid={`replace-upload-${slide.id}`}>Thay ảnh (tải lên)</button>
+                        <button type="button" className={SMALL_BUTTON} disabled={locked} onClick={() => setPicker(picker?.kind === "replace" && picker.slideId === slide.id ? null : { kind: "replace", slideId: slide.id })} data-testid={`replace-library-${slide.id}`}>Thay ảnh (đã có)</button>
                         <button type="button" className={`${SMALL_BUTTON} !border-error-300 !text-error-700 dark:!text-error-300`} disabled={locked} onClick={() => remove(slide.id)} data-testid={`remove-${slide.id}`}>Xoá</button>
                       </div>
                     </div>
@@ -373,7 +373,7 @@ function HeroEditor({ initial, reload, readError }: { initial: WebsiteHero; relo
               <LocaleSelect locales={locales} value={shownLocale} onChange={setEditLocale} testId="edit-locale" />
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              Dùng chung cho mọi ảnh. Nhập từng ngôn ngữ ở đây; bản dịch cũng nằm ở màn <Link href="/website/translations" className="underline">Bản dịch</Link> (khoá content.heroSlideshow.main.*), nên gói ngôn ngữ nhập/xuất vẫn mang theo.
+              Dùng chung cho mọi ảnh. Banner có chiều cao cố định nên nên viết ngắn: trên điện thoại và máy tính bảng tiêu đề và mô tả hiện tối đa 2 dòng (máy tính: 3 và 4 dòng), dài hơn bị cắt bằng dấu …, nhãn nút dài bị cắt cho vừa dòng. Nhập từng ngôn ngữ ở đây; bản dịch cũng nằm ở màn <Link href="/website/translations" className="underline">Bản dịch</Link> (khoá content.heroSlideshow.main.*), nên gói ngôn ngữ nhập/xuất vẫn mang theo.
             </p>
             <fieldset className="flex flex-col gap-3" disabled={locked}>
               {SHARED_FIELDS.map((field) => {

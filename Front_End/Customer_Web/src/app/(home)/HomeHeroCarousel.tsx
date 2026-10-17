@@ -20,7 +20,7 @@ import { useT } from "@/lib/i18n/I18nProvider";
 
 /** The two hero actions share one height, weight and radius: a solid white primary and a glass secondary, both legible over any picture. */
 const ACTION_BASE_CLASS =
-  "inline-flex h-12 items-center justify-center gap-2 rounded-full px-6 text-sm font-semibold shadow-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black/40 sm:h-14 sm:px-8 sm:text-base";
+  "inline-flex h-12 min-w-0 max-w-full items-center justify-center gap-2 rounded-full px-6 text-sm font-semibold shadow-lg transition-colors sm:max-w-[calc(50%-0.375rem)] focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black/40 sm:h-14 sm:px-8 sm:text-base";
 const PRIMARY_ACTION_CLASS = `${ACTION_BASE_CLASS} bg-white text-neutral-900 hover:bg-neutral-100`;
 const SECONDARY_ACTION_CLASS = `${ACTION_BASE_CLASS} border border-white/70 bg-black/25 text-white backdrop-blur-sm hover:bg-black/40`;
 const ROUND_BUTTON_CLASS =
@@ -146,6 +146,8 @@ const HomeHeroCarousel: FC<{ initial: HeroSnapshot | null }> = ({ initial }) => 
   const credit = active?.seedFile ? creditForFile(active.seedFile) : undefined;
   const fontStyle = heroFontStyle(hero?.fontKey ?? "default");
   const manyPictures = slides.length > 1;
+  const primaryLabel = hero?.primaryAction ?? t("customer.common.findARoom2");
+  const secondaryLabel = hero?.secondaryAction ?? t("customer.home.homeHeroCarousel.xemRiverside");
 
   return (
     <section aria-label={t("customer.home.homeHeroCarousel.daNang")} className="nc-HomeHeroCarousel relative lg:mb-16">
@@ -195,25 +197,29 @@ const HomeHeroCarousel: FC<{ initial: HeroSnapshot | null }> = ({ initial }) => 
           })}
           <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-gradient-to-r from-black/65 via-black/30 to-transparent" />
 
-          <div className="container absolute inset-0 flex flex-col justify-center pb-10 sm:pb-6">
+          <div className="container absolute inset-0 flex flex-col justify-center pb-12 sm:pb-6">
             <div className="max-w-2xl space-y-4 sm:space-y-6">
-              <h1 style={fontStyle} className="text-3xl font-medium !leading-[114%] text-white sm:text-5xl lg:text-6xl">
+              <h1 style={fontStyle} className="line-clamp-2 break-words lg:line-clamp-3 text-3xl font-medium !leading-[114%] text-white sm:text-5xl lg:text-6xl">
                 {hero?.title ?? t("customer.home.homeHeroCarousel.theBhaDaNang")}
               </h1>
-              <p style={fontStyle} className="max-w-md text-base text-white/90 sm:text-lg">
+              <p style={fontStyle} className="line-clamp-2 max-w-md break-words lg:line-clamp-4 text-base text-white/90 sm:text-lg">
                 {hero?.description ?? t("customer.home.homeHeroCarousel.bookDirectAndSeeThe")}
               </p>
               <div className="flex flex-wrap gap-3">
-                <button type="button" onClick={startSearch} className={PRIMARY_ACTION_CLASS}>
-                  <MagnifyingGlassIcon className="h-5 w-5" aria-hidden="true" />{hero?.primaryAction ?? t("customer.common.findARoom2")}</button>
-                <Link href={RIVERSIDE_PATH as Route} className={SECONDARY_ACTION_CLASS}>{hero?.secondaryAction ?? t("customer.home.homeHeroCarousel.xemRiverside")}<ArrowRightIcon className="h-5 w-5" aria-hidden="true" />
+                <button type="button" onClick={startSearch} title={primaryLabel} className={PRIMARY_ACTION_CLASS}>
+                  <MagnifyingGlassIcon className="h-5 w-5 flex-shrink-0" aria-hidden="true" />
+                  <span className="truncate">{primaryLabel}</span>
+                </button>
+                <Link href={RIVERSIDE_PATH as Route} title={secondaryLabel} className={SECONDARY_ACTION_CLASS}>
+                  <span className="truncate">{secondaryLabel}</span>
+                  <ArrowRightIcon className="h-5 w-5 flex-shrink-0" aria-hidden="true" />
                 </Link>
               </div>
             </div>
           </div>
 
           <div className="container absolute inset-x-0 bottom-3 flex items-end justify-between gap-3 sm:bottom-4 lg:bottom-[76px]">
-            <p className="min-w-0 text-xs text-white/90 sm:text-sm">
+            <p className="min-w-0 break-words text-xs text-white/90 sm:text-sm lg:max-w-[calc(50%-6rem)]">
               {active && <span>{active.caption}</span>}
               {active && <span className="mx-1.5" aria-hidden="true">·</span>}
               {credit && <span>{creditLine(credit, t("customer.media.photoBy"))}</span>}
@@ -233,7 +239,7 @@ const HomeHeroCarousel: FC<{ initial: HeroSnapshot | null }> = ({ initial }) => 
           </div>
 
           {manyPictures && (
-          <div className="absolute inset-x-0 bottom-14 flex items-center justify-center gap-2 sm:bottom-16 lg:bottom-[76px] lg:left-1/2 lg:right-auto lg:-translate-x-1/2">
+          <div className="absolute inset-x-0 bottom-16 flex items-center justify-center gap-2 sm:bottom-16 lg:bottom-[76px] lg:left-1/2 lg:right-auto lg:-translate-x-1/2">
             <ul className="flex items-center gap-2">
               {slides.map((slide, slideIndex) => (
                 <li key={slide.id}>

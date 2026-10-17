@@ -17,7 +17,8 @@ export const ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/webp"] as const
 
 export const SHARED_FIELDS = ["title", "description", "primaryAction", "secondaryAction"] as const;
 export type SharedField = (typeof SHARED_FIELDS)[number];
-export const MAX_LENGTH = { title: 120, description: 300, primaryAction: 40, secondaryAction: 40, alt: 200, caption: 120 } as const;
+// Short on purpose: the Customer's hero has a fixed height, so a long text would be cut by the picture's frame (it also clamps).
+export const MAX_LENGTH = { title: 80, description: 160, primaryAction: 24, secondaryAction: 24, alt: 200, caption: 60 } as const;
 
 export interface HeroDraft {
   fontKey: HeroFontKey;

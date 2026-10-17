@@ -20,7 +20,7 @@ public sealed class StaffIdentityMigrationTests : IAsyncLifetime
     private const string V10Migration = "20261015050047_AddWebsiteLocalizationSettings";
     private const string V11Migration = "20261015095908_AddRuntimeLanguagePacks";
     private const string V12Migration = "20261016014037_AddWebsiteMenus";
-    private const string V13Migration = "20261017073607_AddWebsiteHero";
+    private const string V13Migration = "20261017084454_AddWebsiteHero";
     private static readonly Guid PropertyId = Guid.Parse("90000000-0000-0000-0000-000000000011");
     private static readonly Guid CustomerId = Guid.Parse("90000000-0000-0000-0000-000000000012");
 

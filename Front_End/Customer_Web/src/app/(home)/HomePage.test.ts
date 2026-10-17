@@ -58,7 +58,7 @@ describe("the home page is the booking portal", () => {
     vi.mocked(getHeroSnapshot).mockResolvedValueOnce({ ...HERO, fontKey: "system-serif", title: "Khách sạn mới", primaryAction: "Đặt ngay" });
     const serif = await renderPage(PageHome);
     expect(serif).toMatch(/<h1 style="font-family:ui-serif[^"]*"[^>]*>Khách sạn mới<\/h1>/);
-    expect(serif).toMatch(/<p style="font-family:ui-serif[^"]*" class="max-w-md/);
+    expect(serif).toMatch(/<p style="font-family:ui-serif[^"]*" class="[^"]*max-w-md/);
     expect(serif).toContain("Đặt ngay");
     expect(count(serif, "font-family")).toBe(2);                                          // not the header, the search form or anything else
     expect(count(serif, "<h1")).toBe(1);
