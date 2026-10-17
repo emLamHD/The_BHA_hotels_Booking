@@ -16,8 +16,11 @@ import {
   listCurrencies,
   listLanguages,
   exportPack,
+  getHero,
+  heroImageSrc,
   listTranslations,
   previewPack,
+  saveHero,
   saveTranslation,
   setCurrencyActive,
   setCurrencyRate,
@@ -25,6 +28,7 @@ import {
   setDefaultLanguage,
   updateCurrency,
   updateLanguage,
+  uploadHeroImage,
 } from "./website";
 
 const BASE = "https://localhost:7145";
@@ -262,4 +266,93 @@ describe("input checks (the server still decides)", () => {
     "refuses rate %j",
     (text) => expect(checkRateText(text)).not.toBeNull()
   );
+});
+
+// ---------------------------------------------------------------- CUST-WEB-HERO-001-CP01: the home hero
+
+const HERO = {
+  revision: "rev-1", version: 1, updatedAtUtc: "2026-10-17T01:00:00+00:00", fontKey: "default", autoplayEnabled: true, intervalSeconds: 6,
+  locales: [{ code: "vi", displayName: "Vietnamese", nativeName: "Tiếng Việt", isDefault: true, isActive: true, isContentSource: true }],
+  texts: { title: { vi: "T" }, description: { vi: "D" }, primaryAction: { vi: "P" }, secondaryAction: { vi: "S" } },
+  slides: [{ id: "s1", mediaId: "m1", focalPosition: "50% 50%", alt: { vi: "a" }, caption: { vi: "c" } }],
+  media: [{ id: "m1", kind: "seed", url: "/api/v1/website/hero/media/m1", seedFile: "hero-a.webp", contentType: "image/webp", byteSize: 10, width: 1920, height: 900, createdAtUtc: "2026-10-17T00:00:00Z" }],
+};
+const DRAFT = {
+  fontKey: "system-serif" as const, autoplayEnabled: false, intervalSeconds: 9,
+  texts: { title: { vi: "T2" }, description: { vi: "D" }, primaryAction: { vi: "P" }, secondaryAction: { vi: "S" } },
+  slides: HERO.slides,
+};
+
+describe("the home hero", () => {
+  it("reads with the Staff cookie, and a body that is not a hero (a bad font, a missing list) is invalid, not trusted", async () => {
+    const fetchMock = respond(200, HERO);
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await getHero();
+    expect(result).toMatchObject({ kind: "ok", data: { revision: "rev-1", slides: [{ id: "s1" }], media: [{ seedFile: "hero-a.webp" }] } });
+    expect(fetchMock.mock.calls[0][0]).toBe(`${BASE}/api/admin/v1/website/hero`);
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: "GET", credentials: "include", cache: "no-store" });
+    for (const bad of [{ ...HERO, fontKey: "comic" }, { ...HERO, slides: undefined }, { ...HERO, media: [{}] }, { ...HERO, revision: "" }]) {
+      vi.stubGlobal("fetch", respond(200, bad));
+      expect((await getHero()).kind).toBe("invalid-response");
+    }
+  });
+
+  it("saves the whole hero as JSON, once, with the revision it loaded, and sends nothing the server decides", async () => {
+    const fetchMock = respond(200, { ...HERO, version: 2, revision: "rev-2" });
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await saveHero("rev-1", DRAFT);
+    expect(result).toMatchObject({ kind: "ok", data: { version: 2 } });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe(`${BASE}/api/admin/v1/website/hero/save`);
+    const init = fetchMock.mock.calls[0][1];
+    expect(init).toMatchObject({ method: "POST", credentials: "include", headers: { "Content-Type": "application/json" } });
+    expect(JSON.parse(init.body)).toEqual({
+      expectedRevision: "rev-1", fontKey: "system-serif", autoplayEnabled: false, intervalSeconds: 9, texts: DRAFT.texts,
+      slides: [{ id: "s1", mediaId: "m1", focalPosition: "50% 50%", alt: { vi: "a" }, caption: { vi: "c" } }],
+    });
+  });
+
+  it("a stale save is a refusal with the code, and a lost answer is unverified and not retried", async () => {
+    vi.stubGlobal("fetch", respond(409, { title: "x", code: "stale-version", detail: "stale" }));
+    expect(await saveHero("rev-1", DRAFT)).toMatchObject({ kind: "refused", status: 409, code: "stale-version" });
+    const lost = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
+    vi.stubGlobal("fetch", lost);
+    expect((await saveHero("rev-1", DRAFT)).kind).toBe("unverified");
+    expect(lost).toHaveBeenCalledTimes(1);
+  });
+
+  it("uploads one picture as multipart form data with a part named file, and lets the browser set the content type with its boundary", async () => {
+    const media = { ...HERO.media[0], id: "m2", kind: "upload", seedFile: null };
+    const fetchMock = respond(200, media);
+    vi.stubGlobal("fetch", fetchMock);
+    const file = new File([new Uint8Array([1, 2, 3])], "banner.png", { type: "image/png" });
+    const result = await uploadHeroImage(file);
+    expect(result).toMatchObject({ kind: "ok", data: { id: "m2", kind: "upload" } });
+    const init = fetchMock.mock.calls[0][1];
+    expect(fetchMock.mock.calls[0][0]).toBe(`${BASE}/api/admin/v1/website/hero/media`);
+    expect(init.body).toBeInstanceOf(FormData);
+    expect((init.body as FormData).get("file")).toBeInstanceOf(File);
+    expect(init.headers).toEqual({ Accept: "application/json" });                 // no Content-Type: a hand-set one would lack the boundary
+    expect(init).toMatchObject({ method: "POST", credentials: "include", redirect: "error" });
+  });
+
+  it("a refused picture carries the server's code and field; a body over the server's size limit is a refusal too; a lost answer is unverified and never retried", async () => {
+    const file = new File([new Uint8Array([1])], "x.png", { type: "image/png" });
+    vi.stubGlobal("fetch", respond(400, { title: "Invalid", code: "hero-image-corrupt", field: "file", detail: "damaged" }));
+    expect(await uploadHeroImage(file)).toMatchObject({ kind: "refused", status: 400, code: "hero-image-corrupt", field: "file" });
+    vi.stubGlobal("fetch", respond(413));
+    expect(await uploadHeroImage(file)).toMatchObject({ kind: "refused", status: 413, code: "hero-image-too-large" });
+    vi.stubGlobal("fetch", respond(409, { code: "hero-storage-not-configured", detail: "no root" }));
+    expect(await uploadHeroImage(file)).toMatchObject({ kind: "refused", status: 409, code: "hero-storage-not-configured" });
+    const lost = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
+    vi.stubGlobal("fetch", lost);
+    expect((await uploadHeroImage(file)).kind).toBe("unverified");
+    expect(lost).toHaveBeenCalledTimes(1);
+    vi.stubGlobal("fetch", respond(200, { not: "a picture" }));
+    expect((await uploadHeroImage(file)).kind).toBe("unverified");
+  });
+
+  it("shows a picture from the API's origin plus its id-addressed path", () => {
+    expect(heroImageSrc("/api/v1/website/hero/media/m1")).toBe(`${BASE}/api/v1/website/hero/media/m1`);
+  });
 });

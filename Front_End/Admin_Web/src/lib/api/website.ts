@@ -17,6 +17,7 @@
  * words shown to the operator are Vietnamese; a server `detail` (English) is kept for the cases no code explains.
  */
 
+import { HERO_FONT_KEYS, type HeroFontKey } from "@/lib/website/heroFonts";
 import { describeApiBaseUrlError, getApiBaseUrl } from "./env";
 import { getAccessMode } from "./accessMode";
 
@@ -191,6 +192,58 @@ export interface WebsiteMenu {
   locales: MenuLocale[];
   /** In tree order: the main row first, each entry followed by its sub-entries. */
   items: MenuItem[];
+}
+
+// ---------------------------------------------------------------- the home page hero (CUST-WEB-HERO-001-CP01)
+
+export type { HeroFontKey };
+
+/** One text per language (`null` = none yet: the visitor then sees the default language's). */
+export type LocalizedText = Record<string, string | null>;
+
+export interface HeroSlide {
+  id: string;
+  mediaId: string;
+  /** CSS `object-position` for narrow screens. */
+  focalPosition: string;
+  alt: LocalizedText;
+  caption: LocalizedText;
+}
+
+/** A picture the hero can use. `url` is a path on the API; `seedFile` names a built-in photograph (whose credit the Customer shows). */
+export interface HeroMedia {
+  id: string;
+  kind: "seed" | "upload";
+  url: string;
+  seedFile: string | null;
+  contentType: string;
+  byteSize: number;
+  width: number;
+  height: number;
+  createdAtUtc: string;
+}
+
+export interface HeroTexts {
+  title: LocalizedText;
+  description: LocalizedText;
+  primaryAction: LocalizedText;
+  secondaryAction: LocalizedText;
+}
+
+export interface WebsiteHero {
+  /** The hero's version and every text's: what a Save must quote. */
+  revision: string;
+  version: number;
+  updatedAtUtc: string;
+  locales: MenuLocale[];
+  fontKey: HeroFontKey;
+  autoplayEnabled: boolean;
+  intervalSeconds: number;
+  texts: HeroTexts;
+  /** In slideshow order. */
+  slides: HeroSlide[];
+  /** Every picture the site has ever recorded, newest first (built-in ones last). */
+  media: HeroMedia[];
 }
 
 export type WebsiteFailure =
@@ -412,6 +465,46 @@ export function parseMenu(data: unknown): WebsiteMenu | null {
   return { revision: data.revision, version: data.version, updatedAtUtc: data.updatedAtUtc, locales, items };
 }
 
+const isLocalized = (value: unknown): value is LocalizedText => isRec(value) && Object.values(value).every(strOrNull);
+
+function parseHeroSlide(data: unknown): HeroSlide | null {
+  if (!isRec(data) || !isStr(data.id) || data.id === "" || !isStr(data.mediaId) || !isStr(data.focalPosition) || !isLocalized(data.alt) || !isLocalized(data.caption)) return null;
+  return { id: data.id, mediaId: data.mediaId, focalPosition: data.focalPosition, alt: { ...data.alt }, caption: { ...data.caption } };
+}
+
+export function parseHeroMedia(data: unknown): HeroMedia | null {
+  if (
+    !isRec(data) || !isStr(data.id) || data.id === "" || !(data.kind === "seed" || data.kind === "upload") || !isStr(data.url) ||
+    !strOrNull(data.seedFile) || !isStr(data.contentType) || !isNum(data.byteSize) || !isNum(data.width) || !isNum(data.height) || !isStr(data.createdAtUtc)
+  ) {
+    return null;
+  }
+  return {
+    id: data.id, kind: data.kind, url: data.url, seedFile: data.seedFile, contentType: data.contentType, byteSize: data.byteSize,
+    width: data.width, height: data.height, createdAtUtc: data.createdAtUtc,
+  };
+}
+
+export function parseHero(data: unknown): WebsiteHero | null {
+  if (!isRec(data) || !isRec(data.texts)) return null;
+  const locales = parseList(data.locales, parseMenuLocale);
+  const slides = parseList(data.slides, parseHeroSlide);
+  const media = parseList(data.media, parseHeroMedia);
+  const texts = data.texts;
+  if (
+    locales === null || slides === null || media === null || !isStr(data.revision) || data.revision === "" || !isNum(data.version) || !isStr(data.updatedAtUtc) ||
+    !HERO_FONT_KEYS.includes(data.fontKey as HeroFontKey) || !isBool(data.autoplayEnabled) || !isNum(data.intervalSeconds) ||
+    !isLocalized(texts.title) || !isLocalized(texts.description) || !isLocalized(texts.primaryAction) || !isLocalized(texts.secondaryAction)
+  ) {
+    return null;
+  }
+  return {
+    revision: data.revision, version: data.version, updatedAtUtc: data.updatedAtUtc, locales, fontKey: data.fontKey as HeroFontKey,
+    autoplayEnabled: data.autoplayEnabled, intervalSeconds: data.intervalSeconds, slides, media,
+    texts: { title: { ...texts.title }, description: { ...texts.description }, primaryAction: { ...texts.primaryAction }, secondaryAction: { ...texts.secondaryAction } },
+  };
+}
+
 const parseLanguages = (data: unknown) => parseList(data, parseLanguage);
 const parseCurrencies = (data: unknown) => parseList(data, parseCurrency);
 const parseLibrary = (data: unknown) => parseList(data, parseLibraryPack);
@@ -467,8 +560,12 @@ async function call<T>(method: "GET" | "POST", path: string, body: unknown, opti
   try {
     response = await fetch(destination.url, {
       method,
-      headers: method === "POST" ? { Accept: "application/json", "Content-Type": "application/json" } : { Accept: options.text ? "application/json, text/plain" : "application/json" },
-      body: method === "POST" ? JSON.stringify(body ?? {}) : undefined,
+      // A FormData body (the hero picture) carries its own multipart Content-Type with the boundary: it must not be set here.
+      headers:
+        method === "POST"
+          ? body instanceof FormData ? { Accept: "application/json" } : { Accept: "application/json", "Content-Type": "application/json" }
+          : { Accept: options.text ? "application/json, text/plain" : "application/json" },
+      body: method === "POST" ? (body instanceof FormData ? body : JSON.stringify(body ?? {})) : undefined,
       credentials: "include",
       cache: "no-store",
       redirect: "error",
@@ -483,6 +580,10 @@ async function call<T>(method: "GET" | "POST", path: string, body: unknown, opti
   if (response.status === 403) return { kind: "denied" };
   if (response.status === 400 || response.status === 404 || response.status === 409) {
     return { kind: "refused", status: response.status, ...(await readProblem(response)) };
+  }
+  if (response.status === 413) {
+    // The server's request-size limit answered before the picture check could (a body far over 10 MB): nothing was stored.
+    return { kind: "refused", status: 413, code: "hero-image-too-large", field: "file", detail: "The picture is larger than 10 MB." };
   }
   if (response.status >= 500) {
     return write
@@ -640,3 +741,51 @@ export const saveMenu = (expectedRevision: string, items: MenuItem[]) =>
     },
     { write: true, parse: parseMenu }
   );
+
+// ---------------------------------------------------------------- the home page hero
+
+export const getHero = (signal?: AbortSignal) => call<WebsiteHero>("GET", `${SETTINGS}/hero`, undefined, { write: false, parse: parseHero, signal });
+
+/** What a Save sends: the whole hero. Texts and slides carry every language the editor holds. */
+export interface HeroDraftBody {
+  fontKey: WebsiteHero["fontKey"];
+  autoplayEnabled: boolean;
+  intervalSeconds: number;
+  texts: HeroTexts;
+  slides: HeroSlide[];
+}
+
+/**
+ * Applies slides, order, texts, font and timing in one transaction, or nothing. `expectedRevision` is the revision the editor loaded; a stale
+ * one is a refusal (`stale-version`) and the draft is kept. A lost answer is `unverified`: read the server before sending again.
+ */
+export const saveHero = (expectedRevision: string, draft: HeroDraftBody) =>
+  call<WebsiteHero>(
+    "POST",
+    `${SETTINGS}/hero/save`,
+    {
+      expectedRevision,
+      fontKey: draft.fontKey,
+      autoplayEnabled: draft.autoplayEnabled,
+      intervalSeconds: draft.intervalSeconds,
+      texts: draft.texts,
+      slides: draft.slides.map((slide) => ({ id: slide.id, mediaId: slide.mediaId, focalPosition: slide.focalPosition, alt: slide.alt, caption: slide.caption })),
+    },
+    { write: true, parse: parseHero }
+  );
+
+/**
+ * Sends one picture (`multipart/form-data`, a part named `file`). The server decides from the bytes; the picture is recorded but not part
+ * of the slideshow until a Save names it. A lost answer is `unverified` and is never retried: the picture may exist, so read the server.
+ */
+export const uploadHeroImage = (file: File) => {
+  const form = new FormData();
+  form.append("file", file, file.name);
+  return call<HeroMedia>("POST", `${SETTINGS}/hero/media`, form, { write: true, parse: parseHeroMedia });
+};
+
+/** Where a recorded picture can be shown from (the API serves it at an id-addressed path), or `null` when the API base is not configured. */
+export function heroImageSrc(path: string): string | null {
+  const base = getApiBaseUrl();
+  return base.ok ? `${base.baseUrl}${path}` : null;
+}

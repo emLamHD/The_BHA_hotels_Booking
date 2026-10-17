@@ -32,6 +32,21 @@ const REFUSALS: Record<string, string> = {
   "menu-placement-invalid": "Mục cấp cao nhất cần thuộc hàng chính hoặc nhóm phụ.",
   "menu-delete-has-children": "Không thể xoá mục còn mục con. Hãy chuyển hoặc xoá các mục con trước.",
   "menu-unknown-locale": "Có nhãn cho một ngôn ngữ không tồn tại.",
+  "hero-font-invalid": "Hãy chọn một trong các font trong danh sách.",
+  "hero-interval-invalid": "Thời gian giữa hai lần chuyển ảnh là số nguyên giây từ 3 đến 60.",
+  "hero-slides-count": "Banner cần từ 1 đến 10 ảnh.",
+  "hero-duplicate-slide": "Một ảnh xuất hiện hai lần trong danh sách.",
+  "hero-media-missing": "Ảnh này không còn dùng được. Hãy tải lại ảnh hoặc chọn ảnh khác.",
+  "hero-focal-invalid": "Vị trí lấy nét của ảnh không hợp lệ.",
+  "hero-text-invalid": "Văn bản chỉ là chữ thường: không dùng < >, không xuống dòng, không vượt quá độ dài cho phép.",
+  "hero-text-required": "Thiếu văn bản bắt buộc (tiếng Việt và ngôn ngữ mặc định).",
+  "hero-unknown-locale": "Có văn bản cho một ngôn ngữ không tồn tại.",
+  "hero-image-empty": "Chưa chọn tệp ảnh hoặc tệp rỗng.",
+  "hero-image-too-large": "Ảnh lớn hơn 10 MB.",
+  "hero-image-unsupported": "Chỉ nhận ảnh JPEG, PNG hoặc WebP (không nhận SVG, GIF, ảnh động hay tệp khác).",
+  "hero-image-corrupt": "Tệp ảnh bị hỏng hoặc chưa đủ dữ liệu. Hãy xuất lại ảnh rồi tải lên.",
+  "hero-image-dimensions": "Kích thước ảnh không phù hợp (nhỏ nhất 320×160, lớn nhất 8000 px mỗi cạnh và 40 megapixel).",
+  "hero-storage-not-configured": "Máy chủ chưa cấu hình nơi lưu ảnh (WebsiteMedia:RootPath) nên chưa tải ảnh lên được.",
 };
 
 /** A refusal in Vietnamese, with the server's own detail appended where it names the value that was rejected. */

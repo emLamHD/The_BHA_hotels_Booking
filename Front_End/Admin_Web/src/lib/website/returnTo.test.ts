@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_RETURN_TO, WEBSITE_PAGES, resolveReturnTo, signInUrlFor } from "./returnTo";
 
 describe("resolveReturnTo", () => {
-  it.each(["/calendar", "/website/languages", "/website/translations", "/website/currencies", "/website/menus"])("accepts the allowed page %s", (page) => {
+  it.each(["/calendar", "/website/languages", "/website/translations", "/website/currencies", "/website/menus", "/website/hero"])("accepts the allowed page %s", (page) => {
     expect(resolveReturnTo(page)).toBe(page);
   });
 
@@ -35,7 +35,7 @@ describe("resolveReturnTo", () => {
   });
 
   it("lists exactly the four website pages", () => {
-    expect([...WEBSITE_PAGES]).toEqual(["/website/languages", "/website/translations", "/website/currencies", "/website/menus"]);
+    expect([...WEBSITE_PAGES]).toEqual(["/website/languages", "/website/translations", "/website/currencies", "/website/menus", "/website/hero"]);
   });
 });
 
