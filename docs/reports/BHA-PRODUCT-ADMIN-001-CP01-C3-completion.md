@@ -7,6 +7,7 @@ Status: `IMPLEMENTATION_COMPLETE_WITH_BLOCKERS` — implementation and automated
 - `C3_START_HEAD`: `7673c8449370b04509d0512a09fa78e86af3e114`.
 - `FINAL_HEAD`: `c641d4d134a1541c5077187dc79c576e16af102e` (implementation, snapshot and report checkpoint; this line is included in the subsequent report-closeout commit).
 - Branch: `feature/bha-product-admin-001-cp01-riverside-room-types`; PR #124 remains OPEN/Draft.
+- PR #124 cumulative diff against `develop`: 52 files, 8,091 additions / 53 deletions. C3 delta from `C3_START_HEAD`: 24 files, 3,283 additions / 25 deletions. The PR exceeds the 100–400 line target because it carries the earlier C1/C2 catalog implementation in the same authorized PR; the additive EF migration designer snapshot alone contributes 2,459 generated lines. No split/second PR was requested.
 
 ## Changes
 
