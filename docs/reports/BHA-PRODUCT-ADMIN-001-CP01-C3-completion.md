@@ -5,6 +5,7 @@ Status: `IMPLEMENTATION_COMPLETE_WITH_BLOCKERS` — implementation and automated
 - Work item: `BHA-PRODUCT-ADMIN-001-CP01`, correction C3.
 - Implementer: CODEX; Owner Hồ Đình Lâm is the direct reviewer for this task. No reviewer, other coding agent, Orca or second checkout was used.
 - `C3_START_HEAD`: `7673c8449370b04509d0512a09fa78e86af3e114`.
+- `FINAL_HEAD`: `323098551990e8e8be1f61b43339e5bbd082f494` (implementation checkpoint; documentation closeout follows).
 - Branch: `feature/bha-product-admin-001-cp01-riverside-room-types`; PR #124 remains OPEN/Draft.
 
 ## Changes
@@ -12,7 +13,7 @@ Status: `IMPLEMENTATION_COMPLETE_WITH_BLOCKERS` — implementation and automated
 - Added Staff `WebsiteSettingsManage` routes for creating a Property, a RoomType under a Property, and listing/creating PhysicalRooms under a RoomType. Staff actor, HTTPS/Origin/CSRF and owner scope use the existing route boundary. Parent IDs resolve on the server; a PhysicalRoom cannot reference a RoomType from another Property.
 - Added additive migration `20261018154408_AddAdminCatalogCreateOperations`. Create and audit writes share a transaction. Each POST requires an `Idempotency-Key`; actor/request fingerprint and a PostgreSQL transaction advisory lock provide same-operation replay safety. Reusing a key with different request content conflicts. Database unique constraints remain authoritative for slug/code and room number (unique across RoomTypes within a Property).
 - Added three create modals inside the Property section. New records default inactive. Property creation selects the persisted API-read record; RoomType creation does not auto-create a PhysicalRoom or rate; physical-room status is constrained to Active/Inactive/OutOfService. List counts come from the current server summary filtered to main Riverside types; legacy sample types remain grouped separately.
-- Detail now lists real PhysicalRooms for its exact Property/RoomType with loading, error/retry and empty states. Creating a RoomType returns to its Property list after readback, using the existing dirty-draft guard. Create readback is required before refreshing summaries. Unknown create operations retain the request and key in Staff-scoped `sessionStorage` and restore the dialog after reload; a different Staff account will not replay the old request.
+- Detail now lists real PhysicalRooms for its exact Property/RoomType with loading, error/retry and empty states. Creating a RoomType returns to its Property list after readback, using the existing dirty-draft guard. Dirty create forms require confirmation before discard/navigation; a pending/unknown operation remains locked. Create readback is required before refreshing summaries. Unknown create operations retain the request and key in Staff-scoped `sessionStorage` and restore the dialog after reload; a different Staff account will not replay the old request.
 - The existing content, gallery, amenities and preview editor is retained. No update/delete/bulk operational room management was added.
 
 ## Acceptance status
@@ -32,6 +33,7 @@ Status: `IMPLEMENTATION_COMPLETE_WITH_BLOCKERS` — implementation and automated
 - Admin Web `npm test` — PASS, 1,969/1,969 across 64 files.
 - Admin Web `npx tsc --noEmit` — PASS; `npm run lint` — PASS; `npm run build` — PASS with `/products` generated.
 - `git diff --check` — PASS.
+- GitHub checks on `3230985`: Vercel Preview Comments PASS; both Vercel deployments were pending at last poll. Check states for the earlier implementation head are not used as final-head evidence.
 - Migration `20261018154408_AddAdminCatalogCreateOperations` applied to the verified local Development DB `thebha_dev`; `AdminCatalogCreateOperations` has 0 rows. Direct PostgreSQL readback confirms one matching property only: ID `10000000-0000-0000-0000-000000000001`, name `The BHA Riverside`, unchanged slug `the-bha-hotel`; 3 RIV types with 3/2/6 physical rooms, 6/6/9 RoomTypeMedia links, 10 PropertyMedia links; DLX-KING/FAMILY remain separate with 2/1 existing rooms and 1/1 media links. No C3 business rows were inserted into the Owner DB.
 - Local HTTP checks after restarting the API from the C3 Release build: `https://localhost:3001/products` returned 200; `https://localhost:7145/api/v1/properties` returned 200; Swagger includes all three new create/list route paths. `dotnet dev-certs https --trust` was attempted as requested, but the host reports the certificate is trusted only by some clients.
 
