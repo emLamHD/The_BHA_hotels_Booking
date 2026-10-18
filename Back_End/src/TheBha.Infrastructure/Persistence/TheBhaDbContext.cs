@@ -20,6 +20,8 @@ public sealed class TheBhaDbContext(DbContextOptions<TheBhaDbContext> options)
     public DbSet<Reservation> Reservations => Set<Reservation>();
     public DbSet<ReservationUnit> ReservationUnits => Set<ReservationUnit>();
     public DbSet<ReservationUnitNight> ReservationUnitNights => Set<ReservationUnitNight>();
+    public DbSet<CatalogContentAudit> CatalogContentAudits => Set<CatalogContentAudit>();
+    public DbSet<CatalogUpload> CatalogUploads => Set<CatalogUpload>();
     public DbSet<Property> Properties => Set<Property>();
     public DbSet<RoomType> RoomTypes => Set<RoomType>();
     public DbSet<RatePlan> RatePlans => Set<RatePlan>();

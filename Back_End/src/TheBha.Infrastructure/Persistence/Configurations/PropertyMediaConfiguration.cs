@@ -11,6 +11,7 @@ internal sealed class PropertyMediaConfiguration : IEntityTypeConfiguration<Prop
         builder.ToTable(
             "PropertyMedia",
             table => table.HasCheckConstraint("CK_PropertyMedia_SortOrder", "\"SortOrder\" >= 0"));
+        builder.Property(link => link.AltTextOverride).HasMaxLength(500);
         builder.HasKey(link => new { link.PropertyId, link.MediaId });
         builder.HasIndex(link => link.PropertyId).IsUnique().HasFilter("\"IsCover\"");
         builder.HasOne(link => link.Property).WithMany().HasForeignKey(link => link.PropertyId)

@@ -17,6 +17,9 @@ internal sealed class RoomTypeConfiguration : IEntityTypeConfiguration<RoomType>
                     "CK_RoomTypes_MaxOccupancy",
                     "\"MaxOccupancy\" >= \"BaseOccupancy\"");
             });
+        builder.Property(item => item.ContentVersion).HasDefaultValue(1).IsConcurrencyToken();
+        builder.Property(item => item.AreaSquareMeters).HasPrecision(8, 2);
+        builder.Property(item => item.BedDescription).HasMaxLength(500);
         builder.HasKey(roomType => roomType.Id);
         builder.HasAlternateKey(roomType => new { roomType.PropertyId, roomType.Id });
         builder.Property(roomType => roomType.Code).HasMaxLength(50).IsRequired();

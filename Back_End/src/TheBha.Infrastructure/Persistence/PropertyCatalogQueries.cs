@@ -42,7 +42,7 @@ internal sealed class PropertyCatalogQueries(TheBhaDbContext dbContext) : IPrope
                     .Select(link => new MediaDto(
                         link.Media.Id,
                         link.Media.Url,
-                        link.Media.AltText,
+                        link.AltTextOverride ?? link.Media.AltText,
                         link.Media.MediaType,
                         link.SortOrder,
                         link.IsCover))
@@ -86,7 +86,7 @@ internal sealed class PropertyCatalogQueries(TheBhaDbContext dbContext) : IPrope
                     .Select(link => new MediaDto(
                         link.Media.Id,
                         link.Media.Url,
-                        link.Media.AltText,
+                        link.AltTextOverride ?? link.Media.AltText,
                         link.Media.MediaType,
                         link.SortOrder,
                         link.IsCover))
@@ -141,7 +141,7 @@ internal sealed class PropertyCatalogQueries(TheBhaDbContext dbContext) : IPrope
                     .Select(link => new MediaDto(
                         link.Media.Id,
                         link.Media.Url,
-                        link.Media.AltText,
+                        link.AltTextOverride ?? link.Media.AltText,
                         link.Media.MediaType,
                         link.SortOrder,
                         link.IsCover))
@@ -187,7 +187,7 @@ internal sealed class PropertyCatalogQueries(TheBhaDbContext dbContext) : IPrope
                     .Select(link => new MediaDto(
                         link.Media.Id,
                         link.Media.Url,
-                        link.Media.AltText,
+                        link.AltTextOverride ?? link.Media.AltText,
                         link.Media.MediaType,
                         link.SortOrder,
                         link.IsCover))

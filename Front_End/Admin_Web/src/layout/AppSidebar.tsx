@@ -27,6 +27,7 @@ type NavItem = {
 };
 
 const navItems: NavItem[] = [
+  { icon: <BoxCubeIcon />, name: "Cơ sở & loại phòng", path: "/products" },
   {
     icon: <GridIcon />,
     name: "Dashboard",

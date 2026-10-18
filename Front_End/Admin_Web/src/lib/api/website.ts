@@ -571,7 +571,7 @@ async function readProblem(response: Response): Promise<{ code: string | null; f
   return { code: null, field: null, detail: `Máy chủ Admin trả lời HTTP ${response.status}.` };
 }
 
-async function call<T>(method: "GET" | "POST", path: string, body: unknown, options: CallOptions<T>): Promise<WebsiteResult<T>> {
+export async function call<T>(method: "GET" | "POST", path: string, body: unknown, options: CallOptions<T>): Promise<WebsiteResult<T>> {
   const destination = target(path);
   if (!destination.ok) return { kind: "config", message: destination.message };
   const { write } = options;
