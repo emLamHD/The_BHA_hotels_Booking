@@ -12,7 +12,7 @@ Status: `IMPLEMENTATION_COMPLETE_WITH_BLOCKERS` — implementation and automated
 - Added Staff `WebsiteSettingsManage` routes for creating a Property, a RoomType under a Property, and listing/creating PhysicalRooms under a RoomType. Staff actor, HTTPS/Origin/CSRF and owner scope use the existing route boundary. Parent IDs resolve on the server; a PhysicalRoom cannot reference a RoomType from another Property.
 - Added additive migration `20261018154408_AddAdminCatalogCreateOperations`. Create and audit writes share a transaction. Each POST requires an `Idempotency-Key`; actor/request fingerprint and a PostgreSQL transaction advisory lock provide same-operation replay safety. Reusing a key with different request content conflicts. Database unique constraints remain authoritative for slug/code and room number (unique across RoomTypes within a Property).
 - Added three create modals inside the Property section. New records default inactive. Property creation selects the persisted API-read record; RoomType creation does not auto-create a PhysicalRoom or rate; physical-room status is constrained to Active/Inactive/OutOfService. List counts come from the current server summary filtered to main Riverside types; legacy sample types remain grouped separately.
-- Detail now lists real PhysicalRooms for its exact Property/RoomType with loading, error/retry and empty states. Create readback is required before refreshing summaries. Unknown create operations retain the request and key in Staff-scoped `sessionStorage` and restore the dialog after reload; a different Staff account will not replay the old request.
+- Detail now lists real PhysicalRooms for its exact Property/RoomType with loading, error/retry and empty states. Creating a RoomType returns to its Property list after readback, using the existing dirty-draft guard. Create readback is required before refreshing summaries. Unknown create operations retain the request and key in Staff-scoped `sessionStorage` and restore the dialog after reload; a different Staff account will not replay the old request.
 - The existing content, gallery, amenities and preview editor is retained. No update/delete/bulk operational room management was added.
 
 ## Acceptance status
@@ -29,10 +29,10 @@ Status: `IMPLEMENTATION_COMPLETE_WITH_BLOCKERS` — implementation and automated
 - `dotnet build Back_End/TheBha.Booking.sln --configuration Release --no-restore` — PASS; one existing nullable warning at `WebsiteTranslationsApiTests.cs:141`.
 - Full `dotnet test Back_End/TheBha.Booking.sln --configuration Release --no-build` — PASS: Unit 543/543; PostgreSQL integration 1,100/1,100. A first run caught three stale expectations for the new migration and explicit route inventory; expectations were updated and the complete rerun passed.
 - `AdminCatalogApiTests` on PostgreSQL — PASS, 9/9 after adding explicit status readback.
-- Admin Web `npm test` — PASS, 1,968/1,968 across 64 files.
+- Admin Web `npm test` — PASS, 1,969/1,969 across 64 files.
 - Admin Web `npx tsc --noEmit` — PASS; `npm run lint` — PASS; `npm run build` — PASS with `/products` generated.
 - `git diff --check` — PASS.
-- Migration `20261018154408_AddAdminCatalogCreateOperations` applied to the previously verified local Development DB `thebha_dev`; it only adds the idempotency operation table/index. No test or sample Property/RoomType/PhysicalRoom rows were inserted into that database.
+- Migration `20261018154408_AddAdminCatalogCreateOperations` applied to the verified local Development DB `thebha_dev`; `AdminCatalogCreateOperations` has 0 rows. Direct PostgreSQL readback confirms one matching property only: ID `10000000-0000-0000-0000-000000000001`, name `The BHA Riverside`, unchanged slug `the-bha-hotel`; 3 RIV types with 3/2/6 physical rooms, 6/6/9 RoomTypeMedia links, 10 PropertyMedia links; DLX-KING/FAMILY remain separate with 2/1 existing rooms and 1/1 media links. No C3 business rows were inserted into the Owner DB.
 - Local HTTP checks after restarting the API from the C3 Release build: `https://localhost:3001/products` returned 200; `https://localhost:7145/api/v1/properties` returned 200; Swagger includes all three new create/list route paths. `dotnet dev-certs https --trust` was attempted as requested, but the host reports the certificate is trusted only by some clients.
 
 ## Owner live check

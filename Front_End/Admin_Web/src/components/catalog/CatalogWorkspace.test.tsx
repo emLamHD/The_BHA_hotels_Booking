@@ -131,12 +131,15 @@ describe("CatalogWorkspace correction regressions, real gate and hooks", () => {
     vi.mocked(getCatalogProducts).mockImplementation(async p => ok(p === "p1" ? [...rooms.map(summary), ...(includeCreated ? [created] : [])] : []));
     render(<WebsiteAccessGate returnTo="/products"><CatalogWorkspace /></WebsiteAccessGate>);
     await screen.findByText("3 loại phòng");
+    await userEvent.click((await screen.findAllByRole("button", { name: "Xem / Chỉnh sửa" }))[0]);
+    await screen.findByRole("heading", { name: "Phòng thuộc loại này" });
     await userEvent.click(screen.getByRole("button", { name: "Thêm loại phòng" }));
     await userEvent.type(screen.getByLabelText("Mã loại phòng *"), "NEW-ROOM");
     await userEvent.type(screen.getByLabelText("Tên *"), "New Room");
     includeCreated = true;
     await userEvent.click(screen.getByRole("button", { name: "Tạo" }));
     await screen.findByText("4 loại phòng");
+    expect(screen.queryByRole("button", { name: "← Quay lại danh sách" })).toBeNull();
     expect(createRoomType).toHaveBeenCalledTimes(1);
     expect(vi.mocked(createRoomType).mock.calls[0][0]).toBe("p1");
     expect(vi.mocked(createRoomType).mock.calls[0][1].isActive).toBe(false);
@@ -150,6 +153,19 @@ describe("CatalogWorkspace correction regressions, real gate and hooks", () => {
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(trigger).toHaveFocus();
+  });
+  it("confirms before discarding a dirty create form and keeps its values on Continue", async () => {
+    render(<WebsiteAccessGate returnTo="/products"><CatalogWorkspace /></WebsiteAccessGate>);
+    await userEvent.click(await screen.findByRole("button", { name: "Thêm cơ sở" }));
+    await userEvent.type(screen.getByLabelText("Tên cơ sở *"), "Draft property");
+    await userEvent.click(screen.getByRole("button", { name: "Hủy" }));
+    expect(await screen.findByRole("alertdialog", { name: "Bỏ thông tin đang nhập?" })).toBeInTheDocument();
+    expect(createProperty).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Tiếp tục nhập" }));
+    expect(screen.getByLabelText("Tên cơ sở *")).toHaveValue("Draft property");
+    await userEvent.click(screen.getByRole("button", { name: "Hủy" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Bỏ bản nháp" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
   it("creates a physical room under the opened type and uses the same idempotency key after an unknown result", async () => {
     const newRoom = { id: "physical-new", propertyId: "p1", roomTypeId: "r1", roomNumber: "R-101", floor: -1, operationalStatus: "Inactive" as const };

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { useStaffSession } from "@/components/auth/StaffSession";
@@ -20,7 +20,8 @@ const propertyName = (property: { name: string; slug: string }) =>
   ["the-bha-hotel", "the-bha-riverside"].includes(property.slug) && property.name === "The BHA Hotel" ? "The BHA Riverside" : property.name;
 const slugify = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[đĐ]/g, "d").toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 type CreateDialog = { kind: "property" | "room" | "physical"; operationId: string; propertyId: string; roomTypeId: string; unknown: boolean };
-type PendingCreate = { actorStaffId: string; dialog: CreateDialog; request: CreatePropertyInput | CreateRoomTypeInput | CreatePhysicalRoomInput };
+type CreateRequest = CreatePropertyInput | CreateRoomTypeInput | CreatePhysicalRoomInput;
+type PendingCreate = { actorStaffId: string; dialog: CreateDialog; request: CreateRequest };
 const pendingCreateStorageKey = "bha-admin-catalog-create-pending";
 const initialProperty = (name = ""): CreatePropertyInput => ({ name, slug: slugify(name), description: null, address: "", city: "", country: "", timeZone: "Asia/Ho_Chi_Minh", checkInTime: "14:00:00", checkOutTime: "12:00:00", isActive: false });
 const initialRoomType = (): CreateRoomTypeInput => ({ code: "", name: "", slug: "", description: null, baseOccupancy: 1, maxOccupancy: 2, areaSquareMeters: null, bedrooms: null, bedDescription: null, isActive: false });
@@ -57,8 +58,29 @@ export default function CatalogWorkspace() {
   const [propertyForm, setPropertyForm] = useState<CreatePropertyInput>(initialProperty());
   const [roomTypeForm, setRoomTypeForm] = useState<CreateRoomTypeInput>(initialRoomType());
   const [physicalRoomForm, setPhysicalRoomForm] = useState<CreatePhysicalRoomInput>(initialPhysicalRoom());
+  const [createBaseline, setCreateBaseline] = useState<CreateRequest>(initialProperty());
   const [createMessage, setCreateMessage] = useState("");
+  const [createDiscardPrompt, setCreateDiscardPrompt] = useState(false);
+  const [createLeaveTarget, setCreateLeaveTarget] = useState<string | null>(null);
   const createModalRef = useRef<HTMLElement | null>(null);
+  const activeCreateRequest: CreateRequest | null = createDialog?.kind === "property" ? propertyForm : createDialog?.kind === "room" ? roomTypeForm : createDialog?.kind === "physical" ? physicalRoomForm : null;
+  const createDirty = !!activeCreateRequest && JSON.stringify(activeCreateRequest) !== JSON.stringify(createBaseline);
+  const requestCreateDismiss = useCallback(() => {
+    if (!createDialog || busy.current || createDialog.unknown) return;
+    if (createDirty) setCreateDiscardPrompt(true);
+    else setCreateDialog(null);
+  }, [createDialog, createDirty]);
+  const discardCreateDraft = () => {
+    const target = createLeaveTarget;
+    setCreateLeaveTarget(null);
+    setCreateDiscardPrompt(false);
+    setCreateDialog(null);
+    setCreateMessage("");
+    if (target) {
+      if (dirty) setLeaveHref(target);
+      else router.push(target);
+    }
+  };
   const propertyData = props.state.status === "ready" ? props.state.data : [];
   const ownerId = owner || propertyData.find(isRiversideIdentity)?.id || "@unconfigured:the-bha-riverside";
   const selected = propertyData.find(x => x.id === ownerId);
@@ -154,9 +176,10 @@ export default function CatalogWorkspace() {
   const backToList = () => askSwitch({ propertyId: ownerId, roomId: "", view: { kind: "list" } });
   const openCreate = (kind: CreateDialog["kind"], propertyNameHint = "", roomTypeId = "") => {
     setCreateMessage("");
-    if (kind === "property") setPropertyForm(initialProperty(propertyNameHint));
-    if (kind === "room") setRoomTypeForm(initialRoomType());
-    if (kind === "physical") setPhysicalRoomForm(initialPhysicalRoom());
+    setCreateDiscardPrompt(false); setCreateLeaveTarget(null);
+    if (kind === "property") { const form = initialProperty(propertyNameHint); setPropertyForm(form); setCreateBaseline(form); }
+    if (kind === "room") { const form = initialRoomType(); setRoomTypeForm(form); setCreateBaseline(form); }
+    if (kind === "physical") { const form = initialPhysicalRoom(); setPhysicalRoomForm(form); setCreateBaseline(form); }
     setCreateDialog({ kind, operationId: crypto.randomUUID(), propertyId: currentId, roomTypeId, unknown: false });
   };
   const submitCreate = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -197,7 +220,7 @@ export default function CatalogWorkspace() {
         sessionStorage.removeItem(pendingCreateStorageKey);
         setCreateDialog(null); setCreateMessage("");
         if (target.kind === "property") { await props.reload(); switchAfterCreate = result.data.id; }
-        else if (target.kind === "room") { await products.reload(); }
+        else if (target.kind === "room") { await products.reload(); switchAfterCreate = target.propertyId; }
         else { await physicalRooms.reload(); await products.reload(); }
       } else if (result) {
         const message = result.kind === "refused" ? result.detail : describeFailure(result);
@@ -207,9 +230,9 @@ export default function CatalogWorkspace() {
       }
     } finally { busy.current = false; if (mounted.current) setWorking(false); if (switchAfterCreate) queueMicrotask(() => askSwitch({ propertyId: switchAfterCreate!, roomId: "", view: { kind: "list" } })); }
   };
-  useEffect(() => { host.setUnsaved(dirty || working || unknown); return () => host.setUnsaved(false); }, [dirty, working, unknown, host]);
+  useEffect(() => { host.setUnsaved(dirty || createDirty || working || unknown); return () => host.setUnsaved(false); }, [dirty, createDirty, working, unknown, host]);
   useEffect(() => {
-    if (!dirty && !locked && !unknown) return;
+    if (!dirty && !createDirty && !locked && !unknown) return;
     const beforeUnload = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
     const navigate = (event: MouseEvent) => {
       const anchor = (event.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
@@ -217,12 +240,16 @@ export default function CatalogWorkspace() {
       const url = new URL(anchor.href, window.location.href);
       if (url.origin !== window.location.origin || (url.pathname === window.location.pathname && url.search === window.location.search)) return;
       event.preventDefault(); event.stopPropagation();
-      if (!busy.current && !unknown) setLeaveHref(`${url.pathname}${url.search}${url.hash}`);
+      if (!busy.current && !unknown) {
+        const target = `${url.pathname}${url.search}${url.hash}`;
+        if (createDirty) { setCreateLeaveTarget(target); setCreateDiscardPrompt(true); }
+        else setLeaveHref(target);
+      }
     };
     window.addEventListener("beforeunload", beforeUnload);
     document.addEventListener("click", navigate, true);
     return () => { window.removeEventListener("beforeunload", beforeUnload); document.removeEventListener("click", navigate, true); };
-  }, [dirty, locked, unknown]);
+  }, [dirty, createDirty, locked, unknown]);
   const change = <K extends keyof CatalogBody>(key: K, value: CatalogBody[K]) => {
     if (busy.current || blocked) return;
     setDraft(x => x ? { ...x, [key]: value } : x);
@@ -311,12 +338,12 @@ export default function CatalogWorkspace() {
     return () => { document.removeEventListener("keydown", key); previous?.focus(); };
   }, [switchPrompt, leaveHref]);
   useEffect(() => {
-    if (!createDialog) return;
+    if (!createDialog || createDiscardPrompt) return;
     const previous = document.activeElement as HTMLElement | null;
     const dialog = createModalRef.current;
     dialog?.querySelector<HTMLElement>("input:not([type=hidden]):not(:disabled),select:not(:disabled),textarea:not(:disabled),button:not(:disabled)")?.focus();
     const key = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !busy.current && !createDialog.unknown) { setCreateDialog(null); setCreateMessage(""); }
+      if (event.key === "Escape" && !busy.current && !createDialog.unknown) requestCreateDismiss();
       if (event.key !== "Tab") return;
       const controls = Array.from(dialog?.querySelectorAll<HTMLElement>("input:not([type=hidden]):not(:disabled),select:not(:disabled),textarea:not(:disabled),button:not(:disabled),[href]") ?? []);
       if (!controls.length) return;
@@ -326,7 +353,24 @@ export default function CatalogWorkspace() {
     };
     document.addEventListener("keydown", key);
     return () => { document.removeEventListener("keydown", key); previous?.focus(); };
-  }, [createDialog]);
+  }, [createDialog, createDiscardPrompt, createDirty, requestCreateDismiss]);
+  useEffect(() => {
+    if (!createDiscardPrompt) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const dialog = document.querySelector<HTMLElement>("[data-create-discard]");
+    const buttons = () => Array.from(dialog?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? []);
+    buttons()[0]?.focus();
+    const key = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { setCreateDiscardPrompt(false); setCreateLeaveTarget(null); }
+      if (event.key !== "Tab") return;
+      const controls = buttons();
+      const first = controls[0], last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    };
+    document.addEventListener("keydown", key);
+    return () => { document.removeEventListener("keydown", key); previous?.focus(); };
+  }, [createDiscardPrompt]);
   if (props.state.status !== "ready") return <section role={props.state.status === "error" ? "alert" : "status"} className="rounded-2xl border border-gray-200 bg-white p-6 text-sm dark:border-gray-800 dark:bg-white/[0.03]">{props.state.status === "error" ? <>{props.state.message} <button className={btn} onClick={() => void props.reload()}>Thử lại</button></> : "Đang tải danh sách cơ sở…"}</section>;
   const propertyChoices = props.state.data;
   const hasRiverside = propertyChoices.some(isRiversideIdentity);
@@ -385,7 +429,7 @@ export default function CatalogWorkspace() {
     {unknown && <button disabled={locked} className={btn} onClick={() => void readAgain()}>Đọc lại trước khi tiếp tục</button>}
     {leaveHref && <div role="dialog" aria-modal="true" aria-labelledby="leave-title" className="fixed inset-0 z-99999 flex items-center justify-center bg-black/60 p-4"><section className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-5 text-gray-900 shadow-xl dark:border-gray-700 dark:bg-gray-900 dark:text-white"><h2 id="leave-title" className="text-lg font-semibold">Rời màn hình?</h2><p className="my-3 text-sm text-gray-700 dark:text-gray-300">Có nội dung chưa lưu. Bạn có thể lưu, bỏ nội dung sửa, hoặc tiếp tục ở lại.</p><div className="flex flex-wrap justify-end gap-2"><button className={btn} disabled={locked} onClick={() => { if (!busy.current) setLeaveHref(null); }}>Tiếp tục sửa</button><button className={btn} disabled={locked} onClick={() => void doSave().then(ok => { if (ok && leaveHref) { const target = leaveHref; setLeaveHref(null); router.push(target); } })}>Lưu rồi rời</button><button className="rounded-lg bg-brand-500 px-3 py-2 text-sm text-white hover:bg-brand-600 focus-visible:outline-2 focus-visible:outline-brand-500 disabled:cursor-not-allowed disabled:opacity-50" disabled={locked} onClick={() => { if (busy.current) return; const target = leaveHref; setLeaveHref(null); if (target) router.push(target); }}>Bỏ sửa và rời</button></div></section></div>}
     {switchPrompt && <div role="dialog" aria-modal="true" aria-labelledby="switch-title" className="fixed inset-0 z-99999 flex items-center justify-center bg-black/60 p-4"><section className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-5 text-gray-900 shadow-xl dark:border-gray-700 dark:bg-gray-900 dark:text-white"><h2 id="switch-title" className="text-lg font-semibold">Rời phần đang sửa?</h2><p className="my-3 text-sm text-gray-700 dark:text-gray-300">Có thay đổi chưa lưu. Bạn có thể lưu trước, bỏ phần sửa, hoặc tiếp tục chỉnh sửa.</p><div className="flex flex-wrap justify-end gap-2"><button className={btn} data-testid="switch-keep" disabled={locked} onClick={() => { if (!busy.current) setSwitchPrompt(null); }}>Tiếp tục sửa</button><button className={btn} onClick={() => void doSave().then(ok => { if (ok && switchPrompt) switchTo(switchPrompt); })} disabled={locked}>Lưu rồi chuyển</button><button className="rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600 focus-visible:outline-2 focus-visible:outline-brand-500 disabled:cursor-not-allowed disabled:opacity-50" disabled={locked} onClick={acceptSwitch}>{switchPrompt.view.kind === "list" ? "Bỏ sửa và về danh sách" : "Bỏ sửa và chuyển"}</button></div></section></div>}
-    {createDialog && <div className="fixed inset-0 z-99999 flex items-center justify-center overflow-y-auto bg-black/60 p-4" onMouseDown={e => { if (e.target === e.currentTarget && !busy.current && !createDialog.unknown) setCreateDialog(null); }}>
+    {createDialog && <div className="fixed inset-0 z-99999 flex items-center justify-center overflow-y-auto bg-black/60 p-4" onMouseDown={e => { if (e.target === e.currentTarget) requestCreateDismiss(); }}>
       <section ref={createModalRef} role="dialog" aria-modal="true" aria-labelledby="create-title" className="my-auto max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-gray-200 bg-white p-5 text-gray-900 shadow-xl dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100">
         <h2 id="create-title" className="text-xl font-semibold">{createDialog.kind === "property" ? "Thêm cơ sở" : createDialog.kind === "room" ? "Thêm loại phòng" : "Thêm phòng thực tế"}</h2>
         {createDialog.kind !== "property" && <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">Cơ sở cha: <strong>{selected ? propertyName(selected) : "—"}</strong></p>}
@@ -427,8 +471,16 @@ export default function CatalogWorkspace() {
           </>}
           </fieldset>
           {createMessage && !createDialog.unknown && <p role="alert" className="rounded-lg border border-error-200 bg-error-50 p-3 text-sm text-error-800 dark:border-error-500/30 dark:bg-error-500/10 dark:text-error-200">{createMessage}</p>}
-          <div className="flex justify-end gap-2 border-t border-gray-200 pt-4 dark:border-gray-700"><button type="button" className={btn} disabled={working || createDialog.unknown} onClick={() => setCreateDialog(null)}>Hủy</button><button type="submit" className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={working || host.signingOut || (createDialog.kind !== "property" && !selected)}>{working ? "Đang lưu và xác minh…" : createDialog.unknown ? "Xác minh lại cùng yêu cầu" : "Tạo"}</button></div>
+          <div className="flex justify-end gap-2 border-t border-gray-200 pt-4 dark:border-gray-700"><button type="button" className={btn} disabled={working || createDialog.unknown} onClick={requestCreateDismiss}>Hủy</button><button type="submit" className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={working || host.signingOut || (createDialog.kind !== "property" && !selected)}>{working ? "Đang lưu và xác minh…" : createDialog.unknown ? "Xác minh lại cùng yêu cầu" : "Tạo"}</button></div>
         </form>
+      </section>
+    </div>}
+
+    {createDiscardPrompt && createDialog && <div className="fixed inset-0 z-100000 flex items-center justify-center bg-black/70 p-4">
+      <section data-create-discard role="alertdialog" aria-modal="true" aria-labelledby="create-discard-title" className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-5 text-gray-900 shadow-xl dark:border-gray-700 dark:bg-gray-900 dark:text-white">
+        <h2 id="create-discard-title" className="text-lg font-semibold">Bỏ thông tin đang nhập?</h2>
+        <p className="my-3 text-sm text-gray-700 dark:text-gray-300">Biểu mẫu chưa được gửi. Nếu bỏ, dữ liệu đang nhập sẽ mất và chưa có thay đổi nào được lưu.</p>
+        <div className="flex flex-wrap justify-end gap-2"><button type="button" className={btn} onClick={() => { setCreateDiscardPrompt(false); setCreateLeaveTarget(null); }}>Tiếp tục nhập</button><button type="button" className="rounded-lg bg-error-600 px-3 py-2 text-sm font-semibold text-white hover:bg-error-700 focus-visible:outline-2 focus-visible:outline-error-500" onClick={discardCreateDraft}>{createLeaveTarget ? "Bỏ bản nháp và rời" : "Bỏ bản nháp"}</button></div>
       </section>
     </div>}
 
