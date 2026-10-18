@@ -4,7 +4,7 @@ Status: `IMPLEMENTATION_COMPLETE_WITH_BLOCKERS` — implementation and code chec
 
 - Work item: `BHA-PRODUCT-ADMIN-001-CP01`
 - Implementer: CODEX. Owner Hồ Đình Lâm is the direct reviewer under the work-item exception to the repository's paired CODEX/CLAUDE and AI-review handoff rules. No reviewer or other coding agent was invoked; self-check is not independent review.
-- Baseline: `d1d08d6fa5a622197e6e016f43890f988414df00` (`origin/develop`, fetched and verified)
+- BASELINE_SHA / START_HEAD: `d1d08d6fa5a622197e6e016f43890f988414df00` (`origin/develop`, fetched and verified)
 - Branch: `feature/bha-product-admin-001-cp01-riverside-room-types`
 
 ## Implementation
@@ -17,7 +17,7 @@ Migration `20261018044944_AddAdminCatalogContent` is additive: nullable descript
 
 ## Acceptance evidence
 
-- A1 — Partial: Admin route, database-backed choices and no-ID empty states are implemented. Live Staff/Riverside browser evidence is unavailable because the verified local `thebha_dev` database has no `StaffAccounts` table and no Riverside property. The official Riverside seeder refuses this database name; it was not bypassed.
+- A1 — Partial: Admin route, database-backed choices and no-ID empty states are implemented. Live Staff/Riverside browser evidence is unavailable because the verified local `thebha_dev` database has zero Staff accounts and no Riverside property. The official Riverside seeder refuses this database name; it was not bypassed.
 - A2 — Partial: PostgreSQL integration test proves save, reload, audit, nullable room metadata and stale 409. Riverside Owner data could not be exercised on the current database.
 - A3 — Not verified against DB: Git seed/manifest records 10/6/6/9 images and the existing covers, and code keeps each gallery owner-scoped. Current database has no Riverside row, so actual gallery counts/covers and drift could not be compared. No reseed performed.
 - A4 — Partial: a real WebP upload is validated, written to storage and served by private/public API routes after Save. API restart with that upload was not exercised.
@@ -26,13 +26,13 @@ Migration `20261018044944_AddAdminCatalogContent` is additive: nullable descript
 - A7 — Partial: targeted tests verify anonymous 401, missing global permission 403, missing property/room owner 404, and Staff-only private media; Origin and LocalGate use the existing shared Staff route boundary but catalog-specific negative tests were not added. Session revoke/disable was not directly repeated on catalog routes.
 - A8 — Partial: stale expectedVersion returns 409 and does not overwrite; UI preserves dirty draft, prevents duplicate writes, scopes response state by owner and offers save/discard/stay prompts. Browser-level delayed-response, property switching and sign-out evidence was not run.
 - A9 — Pass by targeted integration test and diff: physical-room count remains unchanged on catalog save; no RatePlan, rate, hold, reservation, assignment or inventory code is modified.
-- A10 — Not run: no browser automation was available without the disabled Orca tooling, and the local DB has no eligible Staff/Riverside account for a meaningful live flow. Desktop/mobile, keyboard/focus and image-error behavior remain Owner acceptance items.
+- A10 — Not run: Google Chrome is installed, but no permitted browser-control harness is available in this session; the local DB also has no eligible Staff/Riverside account for a meaningful live flow. Orca remains disabled and unused. Desktop/mobile, keyboard/focus and image-error behavior remain Owner acceptance items.
 
 ## Checks
 
 - `git fetch --prune origin` and baseline verification — PASS; `origin/develop` equals baseline SHA above.
 - `dotnet restore Back_End/TheBha.Booking.sln` — PASS.
-- `dotnet build Back_End/TheBha.Booking.sln --configuration Release --no-restore` — PASS, 0 warnings on the initial build. A later targeted test-project build has one pre-existing nullable warning in `WebsiteTranslationsApiTests.cs:141`.
+- `dotnet build Back_End/TheBha.Booking.sln --configuration Release --no-restore` — PASS on final code, 1 pre-existing nullable warning in `WebsiteTranslationsApiTests.cs:141`; no errors.
 - Targeted `AdminCatalogApiTests` on PostgreSQL 17.10 — PASS, 5/5.
 - Targeted migration/OpenAPI/catalog checks — PASS, 29/29.
 - `dotnet test Back_End/TheBha.Booking.sln --configuration Release --no-build` against real PostgreSQL 17.10 — PASS: unit 543/543; integration 1,088/1,088. A prior run exposed historic migration-count/route expectations and a fingerprint helper including new columns; both were corrected, targeted checks passed 29/29, then the full rerun passed.
@@ -46,4 +46,4 @@ Migration `20261018044944_AddAdminCatalogContent` is additive: nullable descript
 
 ## Handoff
 
-Draft PR URL/head, commits, final test results and diff size are to be added after the authorized push and PR read-back. No merge, Ready transition, deploy or branch deletion is authorized or performed. `CUSTOMER_WEB_UNCHANGED: yes`; `ORCA_NOT_USED: yes`; `OWNER_REVIEW_PENDING: yes`.
+Draft PR: [#124](https://github.com/emLamHD/The_BHA_hotels_Booking/pull/124), base `develop`, state `OPEN`, `isDraft=true`. GitHub read-back head `a6da58fd1aa5b4454e25b76c382f224e029e9530`; commit `a6da58f` (`feat(admin): add property and room catalog editor`). PR diff: 42 files, +3,795/−25. It exceeds the 100–400 line target because the generated EF migration designer/snapshot account for 2,554 lines; the rest is the complete Admin/API/storage and tests. This report update will produce the final head SHA. Working tree will be clean after the report commit/push. No merge, Ready transition, deploy or branch deletion was performed. `CUSTOMER_WEB_UNCHANGED: yes`; `ORCA_NOT_USED: yes`; `OWNER_REVIEW_PENDING: yes`.
