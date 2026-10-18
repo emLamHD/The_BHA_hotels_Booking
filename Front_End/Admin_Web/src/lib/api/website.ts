@@ -542,6 +542,7 @@ interface CallOptions<T> {
   /** The success body is plain text (an exported pack). */
   text?: boolean;
   signal?: AbortSignal;
+  headers?: Record<string, string>;
 }
 
 function target(path: string): { ok: true; url: string } | { ok: false; message: string } {
@@ -586,7 +587,7 @@ export async function call<T>(method: "GET" | "POST", path: string, body: unknow
       // A FormData body (the hero picture) carries its own multipart Content-Type with the boundary: it must not be set here.
       headers:
         method === "POST"
-          ? body instanceof FormData ? { Accept: "application/json" } : { Accept: "application/json", "Content-Type": "application/json" }
+          ? body instanceof FormData ? { Accept: "application/json", ...options.headers } : { Accept: "application/json", "Content-Type": "application/json", ...options.headers }
           : { Accept: options.text ? "application/json, text/plain" : "application/json" },
       body: method === "POST" ? (body instanceof FormData ? body : JSON.stringify(body ?? {})) : undefined,
       credentials: "include",

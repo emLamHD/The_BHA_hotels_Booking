@@ -16,6 +16,38 @@ public sealed class AdminCatalogController(IAdminCatalog catalog) : AdminWebsite
     [StaffWebsitePermission(StaffGlobalPermission.WebsiteSettingsManage)]
     public async Task<IActionResult> Products(Guid propertyId, CancellationToken ct) => Ok(await catalog.ListProductsAsync(propertyId, ct));
 
+    [HttpGet("properties/{propertyId:guid}/room-types/{roomTypeId:guid}/physical-rooms")]
+    [StaffWebsitePermission(StaffGlobalPermission.WebsiteSettingsManage)]
+    public async Task<IActionResult> PhysicalRooms(Guid propertyId, Guid roomTypeId, CancellationToken ct)
+    {
+        var rooms = await catalog.ListPhysicalRoomsAsync(propertyId, roomTypeId, ct);
+        return rooms is null ? NotFound() : Ok(rooms);
+    }
+
+    [HttpPost("properties")]
+    [StaffWebsitePermission(StaffGlobalPermission.WebsiteSettingsManage)]
+    public async Task<ActionResult> CreateProperty([FromBody] CreateCatalogProperty request, [FromHeader(Name = "Idempotency-Key")] Guid? operationId, CancellationToken ct)
+    {
+        if (operationId is null || operationId == Guid.Empty) return Fail(400, "Invalid request", "idempotency-key-required", "Idempotency-Key", "A unique request key is required.");
+        return Respond(await catalog.CreatePropertyAsync(request, operationId.Value, ActorStaffId, ct), saved => Ok(saved));
+    }
+
+    [HttpPost("properties/{propertyId:guid}/room-types")]
+    [StaffWebsitePermission(StaffGlobalPermission.WebsiteSettingsManage)]
+    public async Task<ActionResult> CreateRoomType(Guid propertyId, [FromBody] CreateCatalogRoomType request, [FromHeader(Name = "Idempotency-Key")] Guid? operationId, CancellationToken ct)
+    {
+        if (operationId is null || operationId == Guid.Empty) return Fail(400, "Invalid request", "idempotency-key-required", "Idempotency-Key", "A unique request key is required.");
+        return Respond(await catalog.CreateRoomTypeAsync(propertyId, request, operationId.Value, ActorStaffId, ct), saved => Ok(saved));
+    }
+
+    [HttpPost("properties/{propertyId:guid}/room-types/{roomTypeId:guid}/physical-rooms")]
+    [StaffWebsitePermission(StaffGlobalPermission.WebsiteSettingsManage)]
+    public async Task<ActionResult> CreatePhysicalRoom(Guid propertyId, Guid roomTypeId, [FromBody] CreateCatalogPhysicalRoom request, [FromHeader(Name = "Idempotency-Key")] Guid? operationId, CancellationToken ct)
+    {
+        if (operationId is null || operationId == Guid.Empty) return Fail(400, "Invalid request", "idempotency-key-required", "Idempotency-Key", "A unique request key is required.");
+        return Respond(await catalog.CreatePhysicalRoomAsync(propertyId, roomTypeId, request, operationId.Value, ActorStaffId, ct), saved => Ok(saved));
+    }
+
     [HttpGet("properties/{propertyId:guid}")]
     [HttpGet("properties/{propertyId:guid}/room-types/{roomTypeId:guid}")]
     [StaffWebsitePermission(StaffGlobalPermission.WebsiteSettingsManage)]

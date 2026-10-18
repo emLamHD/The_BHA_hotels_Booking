@@ -7,6 +7,10 @@ export interface CatalogProductSummary {
   baseOccupancy: number; maxOccupancy: number; physicalRoomCount: number; galleryCount: number;
   coverMediaId: string | null; coverAltText: string | null; isActive: boolean;
 }
+export interface CatalogPhysicalRoom { id: string; propertyId: string; roomTypeId: string; roomNumber: string; floor: number; operationalStatus: "Active" | "Inactive" | "OutOfService" }
+export interface CreatePropertyInput { name: string; slug: string; description: string | null; address: string; city: string; country: string; timeZone: string; checkInTime: string; checkOutTime: string; isActive: boolean }
+export interface CreateRoomTypeInput { code: string; name: string; slug: string; description: string | null; baseOccupancy: number; maxOccupancy: number; areaSquareMeters: number | null; bedrooms: number | null; bedDescription: string | null; isActive: boolean }
+export interface CreatePhysicalRoomInput { roomNumber: string; floor: number; operationalStatus: CatalogPhysicalRoom["operationalStatus"] }
 export interface GalleryItem { mediaId: string; url: string; altText: string | null; isCover: boolean }
 export interface Amenity { id: string; code: string; name: string; category: string }
 export interface CatalogEditor {
@@ -52,6 +56,11 @@ export const getCatalogProperties = (signal?: AbortSignal) => call<PropertyChoic
 export const getCatalogProducts = (propertyId: string, signal?: AbortSignal) => call<CatalogProductSummary[]>("GET", `${ownerPath(propertyId, null)}/products`, undefined, {
   write: false, signal, parse: x => Array.isArray(x) && x.every(v => parseProductSummary(v) !== null) ? x as CatalogProductSummary[] : null,
 });
+const parseRoom = (x: unknown): CatalogPhysicalRoom | null => rec(x) && [x.id, x.propertyId, x.roomTypeId, x.roomNumber].every(v => typeof v === "string") && Number.isInteger(x.floor) && ["Active", "Inactive", "OutOfService"].includes(String(x.operationalStatus)) ? x as unknown as CatalogPhysicalRoom : null;
+export const getPhysicalRooms = (p: string, r: string, signal?: AbortSignal) => call<CatalogPhysicalRoom[]>("GET", `${ownerPath(p, r)}/physical-rooms`, undefined, { write: false, signal, parse: x => Array.isArray(x) && x.every(v => parseRoom(v) !== null) ? x as CatalogPhysicalRoom[] : null });
+export const createProperty = (body: CreatePropertyInput, operationId: string) => call<PropertyChoice>("POST", "/api/admin/v1/catalog/properties", body, { write: true, headers: { "Idempotency-Key": operationId }, parse: x => rec(x) && [x.id, x.name, x.slug].every(v => typeof v === "string") ? x as unknown as PropertyChoice : null });
+export const createRoomType = (p: string, body: CreateRoomTypeInput, operationId: string) => call<CatalogProductSummary>("POST", `${ownerPath(p, null)}/room-types`, body, { write: true, headers: { "Idempotency-Key": operationId }, parse: parseProductSummary });
+export const createPhysicalRoom = (p: string, r: string, body: CreatePhysicalRoomInput, operationId: string) => call<CatalogPhysicalRoom>("POST", `${ownerPath(p, r)}/physical-rooms`, body, { write: true, headers: { "Idempotency-Key": operationId }, parse: parseRoom });
 export const getCatalog = (p: string, r: string | null, signal?: AbortSignal) => call("GET", ownerPath(p, r), undefined, { write: false, parse: parseEditor, signal });
 export const saveCatalog = (p: string, r: string | null, body: CatalogBody) => call("POST", `${ownerPath(p, r)}/save`, body, { write: true, parse: parseEditor });
 export function uploadCatalog(p: string, r: string | null, file: File) {

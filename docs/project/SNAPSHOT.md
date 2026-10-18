@@ -949,3 +949,5 @@ Work item đang thực thi là `CUST-WEB-001-CP01b` (branch `feature/cust-web-00
 Ready/merge; `CP02` (UI đăng nhập) chỉ mở khi Owner kích hoạt.
 Evidence: `docs/reports/CUST-WEB-001-CP01b-completion.md`, `docs/design/CUST-WEB-001-product-contract.md`. (Các đoạn First
 action cũ trỏ tới `CUST-WEB-SHOWCASE-001-CP01` và `PMS-CAL-001.2-CP04B` đã hết hiệu lực: PR #48 và #82 merged.)
+
+10. Cập nhật 2026-10-18 (`BHA-PRODUCT-ADMIN-001-CP01-C3`, Draft PR #124): Workspace `/products` có ba modal Thêm cơ sở/loại phòng/phòng bên trong khối Cơ sở; tạo Property, RoomType, PhysicalRoom qua Staff API có transaction/audit/idempotency key; RoomType summary chỉ đếm nhóm chính, legacy mẫu riêng; detail liệt kê PhysicalRoom thật. Migration `20261018154408_AddAdminCatalogCreateOperations` additive. Chi tiết và trạng thái kiểm thử/browser trong phần C3 của report completion.

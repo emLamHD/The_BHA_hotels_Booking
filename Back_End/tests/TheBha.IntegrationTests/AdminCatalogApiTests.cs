@@ -31,6 +31,107 @@ public sealed class AdminCatalogApiTests : WebsiteTestSupport
         Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(productRead)).StatusCode);
         using var deskProductRead = Get($"/api/admin/v1/catalog/properties/{propertyId}/products", desk);
         Assert.Equal(HttpStatusCode.Forbidden, (await client.SendAsync(deskProductRead)).StatusCode);
+        using var anonymousCreate = Post("/api/admin/v1/catalog/properties", new { });
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.SendAsync(anonymousCreate)).StatusCode);
+        using var deskCreate = Post("/api/admin/v1/catalog/properties", new { }, desk);
+        deskCreate.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString());
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.SendAsync(deskCreate)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Property_room_type_and_physical_room_creates_are_parent_bound_audited_and_idempotent()
+    {
+        using var session = await StartAsync();
+        var parentId = await ScalarAsync<Guid>("""SELECT "Id" FROM "Properties" WHERE "Slug" = 'website-cp02'""");
+
+        var missingCheckIn = new { name = "Missing Time Property", slug = "missing-time-property", description = (string?)null, address = "1 Sample Street", city = "Da Nang", country = "Vietnam", timeZone = "Asia/Ho_Chi_Minh", checkOutTime = "12:00:00", isActive = false };
+        Assert.Equal(HttpStatusCode.BadRequest, (await SendCreateAsync(session, "/api/admin/v1/catalog/properties", missingCheckIn, Guid.NewGuid())).StatusCode);
+
+        var propertyBody = new { name = "New Sample Property", slug = "new-sample-property", description = (string?)null, address = "1 Sample Street", city = "Da Nang", country = "Vietnam", timeZone = "Asia/Ho_Chi_Minh", checkInTime = "14:00:00", checkOutTime = "12:00:00", isActive = false };
+        var propertyKey = Guid.NewGuid();
+        var createdProperty = await SendCreateAsync(session, "/api/admin/v1/catalog/properties", propertyBody, propertyKey);
+        Assert.Equal(HttpStatusCode.OK, createdProperty.StatusCode);
+        var propertyId = (await JsonAsync(createdProperty)).GetProperty("id").GetGuid();
+        Assert.Equal(HttpStatusCode.OK, (await SendCreateAsync(session, "/api/admin/v1/catalog/properties", propertyBody, propertyKey)).StatusCode);
+        Assert.Equal(1, await ScalarAsync<int>($"""SELECT count(*) FROM "Properties" WHERE "Id" = '{propertyId}'"""));
+        Assert.Equal(1, await ScalarAsync<int>($"""SELECT count(*) FROM "CatalogContentAudits" WHERE "PropertyId" = '{propertyId}' AND "Action" = 'create-property' AND "ActorStaffId" = '{await StaffIdAsync(Site)}'"""));
+        var changedPropertyBody = new { name = "Changed Name", slug = propertyBody.slug, propertyBody.description, propertyBody.address, propertyBody.city, propertyBody.country, propertyBody.timeZone, propertyBody.checkInTime, propertyBody.checkOutTime, propertyBody.isActive };
+        Assert.Equal(HttpStatusCode.Conflict, (await SendCreateAsync(session, "/api/admin/v1/catalog/properties", changedPropertyBody, propertyKey)).StatusCode);
+        using (var noKey = Post("/api/admin/v1/catalog/properties", propertyBody, session.Cookie))
+            Assert.Equal(HttpStatusCode.BadRequest, (await session.Client.SendAsync(noKey)).StatusCode);
+
+        var roomBody = new { code = "NEW-ROOM", name = "New Sample Room", slug = "new-sample-room", description = (string?)null, baseOccupancy = 2, maxOccupancy = 3, areaSquareMeters = (decimal?)null, bedrooms = (int?)null, bedDescription = (string?)null, isActive = false };
+        var roomKey = Guid.NewGuid();
+        var createdType = await SendCreateAsync(session, $"/api/admin/v1/catalog/properties/{parentId}/room-types", roomBody, roomKey);
+        Assert.Equal(HttpStatusCode.OK, createdType.StatusCode);
+        var roomTypeId = (await JsonAsync(createdType)).GetProperty("roomTypeId").GetGuid();
+        Assert.Equal(0, (await JsonAsync(await session.GetAsync($"/api/admin/v1/catalog/properties/{parentId}/products"))).EnumerateArray().Single(x => x.GetProperty("roomTypeId").GetGuid() == roomTypeId).GetProperty("physicalRoomCount").GetInt32());
+        Assert.Equal(1, await ScalarAsync<int>($"""SELECT count(*) FROM "CatalogContentAudits" WHERE "RoomTypeId" = '{roomTypeId}' AND "Action" = 'create-room-type'"""));
+        Assert.Equal(HttpStatusCode.OK, (await SendCreateAsync(session, $"/api/admin/v1/catalog/properties/{parentId}/room-types", roomBody, roomKey)).StatusCode);
+        Assert.Equal(1, await ScalarAsync<int>($"""SELECT count(*) FROM "RoomTypes" WHERE "Id" = '{roomTypeId}'"""));
+        var invalidRoomBody = new { code = "BAD-ROOM", name = roomBody.name, slug = "bad-room", roomBody.description, baseOccupancy = 3, maxOccupancy = 2, roomBody.areaSquareMeters, roomBody.bedrooms, roomBody.bedDescription, roomBody.isActive };
+        Assert.Equal(HttpStatusCode.BadRequest, (await SendCreateAsync(session, $"/api/admin/v1/catalog/properties/{parentId}/room-types", invalidRoomBody, Guid.NewGuid())).StatusCode);
+
+        var roomBody2 = new { code = "NEW-ROOM-2", name = "Second Sample Room", slug = "second-sample-room", roomBody.description, roomBody.baseOccupancy, roomBody.maxOccupancy, roomBody.areaSquareMeters, roomBody.bedrooms, roomBody.bedDescription, roomBody.isActive };
+        var room2 = await JsonAsync(await SendCreateAsync(session, $"/api/admin/v1/catalog/properties/{parentId}/room-types", roomBody2, Guid.NewGuid()));
+        var roomType2 = room2.GetProperty("roomTypeId").GetGuid();
+        var physicalBody = new { roomNumber = "NEW-201", floor = -1, operationalStatus = "Inactive" };
+        var missingFloor = new { roomNumber = "NEW-NO-FLOOR", operationalStatus = "Inactive" };
+        Assert.Equal(HttpStatusCode.BadRequest, (await SendCreateAsync(session, $"/api/admin/v1/catalog/properties/{parentId}/room-types/{roomTypeId}/physical-rooms", missingFloor, Guid.NewGuid())).StatusCode);
+        var physicalKey = Guid.NewGuid();
+        var createdPhysical = await SendCreateAsync(session, $"/api/admin/v1/catalog/properties/{parentId}/room-types/{roomTypeId}/physical-rooms", physicalBody, physicalKey);
+        Assert.Equal(HttpStatusCode.OK, createdPhysical.StatusCode);
+        var physicalId = (await JsonAsync(createdPhysical)).GetProperty("id").GetGuid();
+        var replay = await SendCreateAsync(session, $"/api/admin/v1/catalog/properties/{parentId}/room-types/{roomTypeId}/physical-rooms", physicalBody, physicalKey);
+        Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+        Assert.Equal(physicalId, (await JsonAsync(replay)).GetProperty("id").GetGuid());
+        Assert.Equal(1, await ScalarAsync<int>($"""SELECT count(*) FROM "PhysicalRooms" WHERE "RoomNumber" = 'NEW-201'"""));
+        Assert.Equal("Inactive", await ScalarAsync<string>($"""SELECT "OperationalStatus" FROM "PhysicalRooms" WHERE "Id" = '{physicalId}'"""));
+        var physicalAudit = await ScalarAsync<string>($"""SELECT "After" FROM "CatalogContentAudits" WHERE "PropertyId" = '{parentId}' AND "RoomTypeId" = '{roomTypeId}' AND "Action" = 'create-physical-room'""");
+        Assert.Equal(physicalId, JsonDocument.Parse(physicalAudit).RootElement.GetProperty("id").GetGuid());
+        Assert.Equal(HttpStatusCode.Conflict, (await SendCreateAsync(session, $"/api/admin/v1/catalog/properties/{parentId}/room-types/{roomType2}/physical-rooms", physicalBody, Guid.NewGuid())).StatusCode);
+        var mismatchedBody = new { roomNumber = "WRONG-PARENT", physicalBody.floor, physicalBody.operationalStatus };
+        Assert.Equal(HttpStatusCode.NotFound, (await SendCreateAsync(session, $"/api/admin/v1/catalog/properties/{propertyId}/room-types/{roomTypeId}/physical-rooms", mismatchedBody, Guid.NewGuid())).StatusCode);
+        var listed = await JsonAsync(await session.GetAsync($"/api/admin/v1/catalog/properties/{parentId}/room-types/{roomTypeId}/physical-rooms"));
+        var listedRoom = Assert.Single(listed.EnumerateArray());
+        Assert.Equal(physicalId, listedRoom.GetProperty("id").GetGuid());
+        Assert.Equal(-1, listedRoom.GetProperty("floor").GetInt32());
+        foreach (var (number, status) in new[] { ("NEW-202", "Active"), ("NEW-203", "OutOfService") })
+        {
+            var response = await SendCreateAsync(session, $"/api/admin/v1/catalog/properties/{parentId}/room-types/{roomTypeId}/physical-rooms", new { roomNumber = number, floor = 2, operationalStatus = status }, Guid.NewGuid());
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+        var allRooms = await JsonAsync(await session.GetAsync($"/api/admin/v1/catalog/properties/{parentId}/room-types/{roomTypeId}/physical-rooms"));
+        Assert.Equal("Active", allRooms.EnumerateArray().Single(x => x.GetProperty("roomNumber").GetString() == "NEW-202").GetProperty("operationalStatus").GetString());
+        Assert.Equal("OutOfService", allRooms.EnumerateArray().Single(x => x.GetProperty("roomNumber").GetString() == "NEW-203").GetProperty("operationalStatus").GetString());
+        Assert.Equal(5, await ScalarAsync<int>($"""SELECT count(*) FROM "CatalogContentAudits" WHERE "PropertyId" = '{parentId}' AND "Action" IN ('create-room-type','create-physical-room')"""));
+    }
+
+    [Fact]
+    public async Task Concurrent_replay_of_same_physical_room_operation_creates_one_room()
+    {
+        using var session = await StartAsync();
+        var propertyId = await ScalarAsync<Guid>("""SELECT "Id" FROM "Properties" WHERE "Slug" = 'website-cp02'""");
+        var roomTypeId = Guid.NewGuid();
+        await using (var context = Factory.CreateDbContext())
+        {
+            context.RoomTypes.Add(new RoomType(roomTypeId, propertyId, "RACE-ROOM", "Race Room", "race-room", null, 1, 2, false, DateTimeOffset.UtcNow));
+            await context.SaveChangesAsync();
+        }
+        var operationId = Guid.NewGuid();
+        var body = new { roomNumber = "RACE-01", floor = 0, operationalStatus = "Inactive" };
+        var path = $"/api/admin/v1/catalog/properties/{propertyId}/room-types/{roomTypeId}/physical-rooms";
+        var responses = await Task.WhenAll(SendCreateAsync(session, path, body, operationId), SendCreateAsync(session, path, body, operationId));
+        Assert.All(responses, response => Assert.Equal(HttpStatusCode.OK, response.StatusCode));
+        Assert.Equal((await JsonAsync(responses[0])).GetProperty("id").GetGuid(), (await JsonAsync(responses[1])).GetProperty("id").GetGuid());
+        Assert.Equal(1, await ScalarAsync<int>($"""SELECT count(*) FROM "PhysicalRooms" WHERE "PropertyId" = '{propertyId}' AND "RoomNumber" = 'RACE-01'"""));
+    }
+
+    private static Task<HttpResponseMessage> SendCreateAsync(Session session, string path, object body, Guid operationId)
+    {
+        var request = Post(path, body, session.Cookie);
+        request.Headers.Add("Idempotency-Key", operationId.ToString());
+        return session.Client.SendAsync(request);
     }
 
     [Fact]

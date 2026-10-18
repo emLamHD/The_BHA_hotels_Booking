@@ -452,6 +452,43 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("TheBha.Domain.Properties.AdminCatalogCreateOperation", b =>
+                {
+                    b.Property<Guid>("ActorStaffId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OperationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("EntityId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("EntityType")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<Guid>("PropertyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RequestFingerprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("ActorStaffId", "OperationId");
+
+                    b.HasIndex("PropertyId");
+
+                    b.ToTable("AdminCatalogCreateOperations", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_AdminCatalogCreateOperations_Fingerprint", "\"RequestFingerprint\" ~ '^[0-9a-f]{64}$'");
+                        });
+                });
+
             modelBuilder.Entity("TheBha.Domain.Properties.Amenity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2052,6 +2089,15 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         .HasForeignKey("PropertyId", "ReservationUnitId")
                         .HasPrincipalKey("PropertyId", "Id")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Properties.AdminCatalogCreateOperation", b =>
+                {
+                    b.HasOne("TheBha.Domain.Properties.Property", null)
+                        .WithMany()
+                        .HasForeignKey("PropertyId")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 

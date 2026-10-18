@@ -18,7 +18,10 @@ public sealed class RoomType
         int baseOccupancy,
         int maxOccupancy,
         bool isActive,
-        DateTimeOffset createdAt)
+        DateTimeOffset createdAt,
+        decimal? areaSquareMeters = null,
+        int? bedrooms = null,
+        string? bedDescription = null)
     {
         if (baseOccupancy <= 0)
         {
@@ -39,6 +42,11 @@ public sealed class RoomType
         BaseOccupancy = baseOccupancy;
         MaxOccupancy = maxOccupancy;
         IsActive = isActive;
+        if (areaSquareMeters is <= 0 or > 10000 || bedrooms is < 0 or > 100)
+            throw new DomainException("Invalid catalog dimensions.");
+        AreaSquareMeters = areaSquareMeters;
+        Bedrooms = bedrooms;
+        BedDescription = DomainGuard.Optional(bedDescription, nameof(bedDescription), 500);
         CreatedAt = createdAt;
         UpdatedAt = createdAt;
     }

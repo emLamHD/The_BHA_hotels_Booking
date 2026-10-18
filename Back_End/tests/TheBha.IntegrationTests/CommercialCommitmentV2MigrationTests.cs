@@ -94,7 +94,7 @@ public sealed class CommercialCommitmentV2MigrationTests : IAsyncLifetime
         // target, so they are legitimately still pending here — this test only proves V7
         // applies cleanly in isolation, not that the whole chain is exhausted.
         Assert.Equal(
-            ["20260826035254_PhysicalRoomScheduleAvailabilityAuthority", "20261001141847_AddStaffIdentityFoundation", "20261015050047_AddWebsiteLocalizationSettings", "20261015095908_AddRuntimeLanguagePacks", "20261016014037_AddWebsiteMenus", "20261017084454_AddWebsiteHero", "20261017160333_AddWebsiteSocialSettings", "20261018044944_AddAdminCatalogContent"],
+            ["20260826035254_PhysicalRoomScheduleAvailabilityAuthority", "20261001141847_AddStaffIdentityFoundation", "20261015050047_AddWebsiteLocalizationSettings", "20261015095908_AddRuntimeLanguagePacks", "20261016014037_AddWebsiteMenus", "20261017084454_AddWebsiteHero", "20261017160333_AddWebsiteSocialSettings", "20261018044944_AddAdminCatalogContent", "20261018154408_AddAdminCatalogCreateOperations"],
             await context.Database.GetPendingMigrationsAsync());
     }
 
@@ -189,7 +189,7 @@ public sealed class CommercialCommitmentV2MigrationTests : IAsyncLifetime
         // See Fresh_database_applies_all_seven_migrations for why migrations 8, 9 and 10 are
         // legitimately still pending relative to this test's V7 target.
         Assert.Equal(
-            ["20260826035254_PhysicalRoomScheduleAvailabilityAuthority", "20261001141847_AddStaffIdentityFoundation", "20261015050047_AddWebsiteLocalizationSettings", "20261015095908_AddRuntimeLanguagePacks", "20261016014037_AddWebsiteMenus", "20261017084454_AddWebsiteHero", "20261017160333_AddWebsiteSocialSettings", "20261018044944_AddAdminCatalogContent"],
+            ["20260826035254_PhysicalRoomScheduleAvailabilityAuthority", "20261001141847_AddStaffIdentityFoundation", "20261015050047_AddWebsiteLocalizationSettings", "20261015095908_AddRuntimeLanguagePacks", "20261016014037_AddWebsiteMenus", "20261017084454_AddWebsiteHero", "20261017160333_AddWebsiteSocialSettings", "20261018044944_AddAdminCatalogContent", "20261018154408_AddAdminCatalogCreateOperations"],
             await context.Database.GetPendingMigrationsAsync());
     }
 

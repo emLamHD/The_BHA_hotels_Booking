@@ -1,4 +1,7 @@
 using System.Text.Json;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using TheBha.Application.Properties;
@@ -11,6 +14,107 @@ namespace TheBha.Infrastructure.Persistence;
 
 internal sealed class AdminCatalogService(TheBhaDbContext db, ICatalogMediaStorage storage, ICatalogImageDecoder decoder, TimeProvider clock) : IAdminCatalog
 {
+    public async Task<IReadOnlyList<CatalogPhysicalRoom>?> ListPhysicalRoomsAsync(Guid propertyId, Guid roomTypeId, CancellationToken ct)
+    {
+        if (!await db.RoomTypes.AsNoTracking().AnyAsync(x => x.Id == roomTypeId && x.PropertyId == propertyId, ct)) return null;
+        return await db.PhysicalRooms.AsNoTracking().Where(x => x.PropertyId == propertyId && x.RoomTypeId == roomTypeId)
+            .OrderBy(x => x.RoomNumber).Select(x => new CatalogPhysicalRoom(x.Id, x.PropertyId, x.RoomTypeId, x.RoomNumber, x.Floor, x.OperationalStatus.ToString())).ToListAsync(ct);
+    }
+
+    public async Task<WebsiteMutationResult<CatalogPropertyChoice>> CreatePropertyAsync(CreateCatalogProperty input, Guid operationId, Guid actor, CancellationToken ct)
+    {
+        var name = input.Name?.Trim() ?? ""; var slug = NormalizeSlug(input.Slug);
+        if (name.Length is 0 or > 200) return WebsiteMutationResult<CatalogPropertyChoice>.Invalid("name", "Tên cơ sở là bắt buộc và tối đa 200 ký tự.");
+        if (!ValidSlug(slug)) return WebsiteMutationResult<CatalogPropertyChoice>.Invalid("slug", "Slug chỉ gồm chữ thường không dấu, số và dấu gạch nối.");
+        if (string.IsNullOrWhiteSpace(input.Address) || input.Address.Trim().Length > 500) return WebsiteMutationResult<CatalogPropertyChoice>.Invalid("address", "Địa chỉ là bắt buộc và tối đa 500 ký tự.");
+        if (string.IsNullOrWhiteSpace(input.City) || input.City.Trim().Length > 120) return WebsiteMutationResult<CatalogPropertyChoice>.Invalid("city", "Thành phố là bắt buộc và tối đa 120 ký tự.");
+        if (string.IsNullOrWhiteSpace(input.Country) || input.Country.Trim().Length > 120) return WebsiteMutationResult<CatalogPropertyChoice>.Invalid("country", "Quốc gia là bắt buộc và tối đa 120 ký tự.");
+        if (string.IsNullOrWhiteSpace(input.TimeZone) || input.TimeZone.Length > 100 || !TimeZoneExists(input.TimeZone)) return WebsiteMutationResult<CatalogPropertyChoice>.Invalid("timeZone", "Hãy chọn múi giờ hợp lệ.");
+        var clean = input with { Name = name, Slug = slug, Description = input.Description?.Trim() };
+        if (clean.Description?.Length > 4000) return WebsiteMutationResult<CatalogPropertyChoice>.Invalid("description", "Mô tả tối đa 4000 ký tự.");
+        var fingerprint = Fingerprint(clean);
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        await LockCreateAsync(actor, operationId, ct);
+        var prior = await ExistingOperationAsync(actor, operationId, ct);
+        if (prior is not null)
+        {
+            if (prior.EntityType != "property" || prior.RequestFingerprint != fingerprint) return WebsiteMutationResult<CatalogPropertyChoice>.Conflict("idempotency-key-reused", "Khóa yêu cầu này đã được dùng cho nội dung khác.");
+            var found = await db.Properties.AsNoTracking().Where(x => x.Id == prior.EntityId).Select(x => new CatalogPropertyChoice(x.Id, x.Name, x.Slug)).SingleOrDefaultAsync(ct);
+            if (found is null) return WebsiteMutationResult<CatalogPropertyChoice>.Conflict("create-outcome-unknown", "Yêu cầu tạo đã ghi nhận nhưng không đọc được cơ sở. Hãy đọc lại trước khi tiếp tục.");
+            await tx.CommitAsync(ct); return WebsiteMutationResult<CatalogPropertyChoice>.Success(found);
+        }
+        var now = clock.GetUtcNow(); var id = Guid.NewGuid();
+        var property = new Property(id, clean.Name, clean.Slug, clean.Description, clean.Address.Trim(), clean.City.Trim(), clean.Country.Trim(), clean.TimeZone.Trim(), clean.CheckInTime, clean.CheckOutTime, clean.IsActive, now);
+        db.Properties.Add(property);
+        db.AdminCatalogCreateOperations.Add(new(operationId, actor, "property", id, id, fingerprint, now));
+        db.CatalogContentAudits.Add(new(id, null, actor, now, "create-property", "{}", JsonSerializer.Serialize(clean)));
+        try { await db.SaveChangesAsync(ct); await tx.CommitAsync(ct); return WebsiteMutationResult<CatalogPropertyChoice>.Success(new(id, property.Name, property.Slug)); }
+        catch (DbUpdateException e) when (UniqueViolation(e)) { return WebsiteMutationResult<CatalogPropertyChoice>.Conflict("already-exists", "Tên định danh hoặc slug đã được sử dụng.", "slug"); }
+    }
+
+    public async Task<WebsiteMutationResult<CatalogProductSummary>> CreateRoomTypeAsync(Guid propertyId, CreateCatalogRoomType input, Guid operationId, Guid actor, CancellationToken ct)
+    {
+        var code = input.Code?.Trim().ToUpperInvariant() ?? ""; var name = input.Name?.Trim() ?? ""; var slug = NormalizeSlug(input.Slug);
+        if (code.Length is 0 or > 50 || !Regex.IsMatch(code, "^[A-Z0-9][A-Z0-9_-]*$")) return WebsiteMutationResult<CatalogProductSummary>.Invalid("code", "Mã loại phòng gồm chữ Latin, số, gạch ngang hoặc gạch dưới; tối đa 50 ký tự.");
+        if (name.Length is 0 or > 200) return WebsiteMutationResult<CatalogProductSummary>.Invalid("name", "Tên loại phòng là bắt buộc và tối đa 200 ký tự.");
+        if (!ValidSlug(slug)) return WebsiteMutationResult<CatalogProductSummary>.Invalid("slug", "Slug chỉ gồm chữ thường không dấu, số và dấu gạch nối.");
+        if (input.BaseOccupancy <= 0 || input.MaxOccupancy < input.BaseOccupancy) return WebsiteMutationResult<CatalogProductSummary>.Invalid("occupancy", "Sức chứa tiêu chuẩn phải lớn hơn 0 và tối đa không nhỏ hơn tiêu chuẩn.");
+        if (input.AreaSquareMeters is <= 0 or > 10000 || input.Bedrooms is < 0 or > 100 || input.BedDescription?.Length > 500) return WebsiteMutationResult<CatalogProductSummary>.Invalid("details", "Diện tích, phòng ngủ hoặc mô tả giường không hợp lệ.");
+        if (input.Description?.Length > 4000) return WebsiteMutationResult<CatalogProductSummary>.Invalid("description", "Mô tả tối đa 4000 ký tự.");
+        var clean = input with { Code = code, Name = name, Slug = slug, Description = input.Description?.Trim(), BedDescription = input.BedDescription?.Trim() };
+        var fingerprint = Fingerprint(new { propertyId, request = clean });
+        await using var tx = await db.Database.BeginTransactionAsync(ct); await LockCreateAsync(actor, operationId, ct);
+        var prior = await ExistingOperationAsync(actor, operationId, ct);
+        if (prior is not null)
+        {
+            if (prior.EntityType != "room-type" || prior.RequestFingerprint != fingerprint) return WebsiteMutationResult<CatalogProductSummary>.Conflict("idempotency-key-reused", "Khóa yêu cầu này đã được dùng cho nội dung khác.");
+            var result = (await ListProductsAsync(propertyId, ct)).SingleOrDefault(x => x.RoomTypeId == prior.EntityId);
+            if (result is null) return WebsiteMutationResult<CatalogProductSummary>.Conflict("create-outcome-unknown", "Yêu cầu tạo đã ghi nhận nhưng không đọc được loại phòng.");
+            await tx.CommitAsync(ct); return WebsiteMutationResult<CatalogProductSummary>.Success(result);
+        }
+        if (!await db.Properties.AnyAsync(x => x.Id == propertyId, ct)) return WebsiteMutationResult<CatalogProductSummary>.NotFound("Cơ sở không tồn tại.");
+        var now = clock.GetUtcNow(); var room = new RoomType(Guid.NewGuid(), propertyId, code, name, slug, clean.Description, clean.BaseOccupancy, clean.MaxOccupancy, clean.IsActive, now, clean.AreaSquareMeters, clean.Bedrooms, clean.BedDescription);
+        db.RoomTypes.Add(room); db.CatalogContentAudits.Add(new(propertyId, room.Id, actor, now, "create-room-type", "{}", JsonSerializer.Serialize(clean)));
+        db.AdminCatalogCreateOperations.Add(new(operationId, actor, "room-type", room.Id, propertyId, fingerprint, now));
+        try { await db.SaveChangesAsync(ct); await tx.CommitAsync(ct); return WebsiteMutationResult<CatalogProductSummary>.Success(new(propertyId, room.Id, room.Code, room.Name, room.Description, room.BaseOccupancy, room.MaxOccupancy, 0, 0, null, null, room.IsActive)); }
+        catch (DbUpdateException e) when (UniqueViolation(e)) { return WebsiteMutationResult<CatalogProductSummary>.Conflict("already-exists", "Mã hoặc slug loại phòng đã tồn tại trong cơ sở này.", "code"); }
+    }
+
+    public async Task<WebsiteMutationResult<CatalogPhysicalRoom>> CreatePhysicalRoomAsync(Guid propertyId, Guid roomTypeId, CreateCatalogPhysicalRoom input, Guid operationId, Guid actor, CancellationToken ct)
+    {
+        var number = input.RoomNumber?.Trim() ?? "";
+        if (number.Length is 0 or > 50) return WebsiteMutationResult<CatalogPhysicalRoom>.Invalid("roomNumber", "Số phòng là bắt buộc và tối đa 50 ký tự.");
+        if (!Enum.TryParse<OperationalStatus>(input.OperationalStatus, true, out var status) || !Enum.IsDefined(status)) return WebsiteMutationResult<CatalogPhysicalRoom>.Invalid("operationalStatus", "Trạng thái phải là Active, Inactive hoặc OutOfService.");
+        var clean = input with { RoomNumber = number, OperationalStatus = status.ToString() };
+        var fingerprint = Fingerprint(new { propertyId, roomTypeId, request = clean });
+        await using var tx = await db.Database.BeginTransactionAsync(ct); await LockCreateAsync(actor, operationId, ct);
+        var prior = await ExistingOperationAsync(actor, operationId, ct);
+        if (prior is not null)
+        {
+            if (prior.EntityType != "physical-room" || prior.RequestFingerprint != fingerprint) return WebsiteMutationResult<CatalogPhysicalRoom>.Conflict("idempotency-key-reused", "Khóa yêu cầu này đã được dùng cho nội dung khác.");
+            var result = await db.PhysicalRooms.AsNoTracking().Where(x => x.Id == prior.EntityId && x.PropertyId == propertyId && x.RoomTypeId == roomTypeId)
+                .Select(x => new CatalogPhysicalRoom(x.Id, x.PropertyId, x.RoomTypeId, x.RoomNumber, x.Floor, x.OperationalStatus.ToString())).SingleOrDefaultAsync(ct);
+            if (result is null) return WebsiteMutationResult<CatalogPhysicalRoom>.Conflict("create-outcome-unknown", "Yêu cầu tạo đã ghi nhận nhưng không đọc được phòng.");
+            await tx.CommitAsync(ct); return WebsiteMutationResult<CatalogPhysicalRoom>.Success(result);
+        }
+        var roomType = await db.RoomTypes.SingleOrDefaultAsync(x => x.Id == roomTypeId && x.PropertyId == propertyId, ct);
+        if (roomType is null) return WebsiteMutationResult<CatalogPhysicalRoom>.NotFound("Loại phòng không thuộc cơ sở đã chọn.");
+        var now = clock.GetUtcNow(); var room = new PhysicalRoom(Guid.NewGuid(), propertyId, roomType, number, input.Floor, status, now);
+        db.PhysicalRooms.Add(room); db.CatalogContentAudits.Add(new(propertyId, roomTypeId, actor, now, "create-physical-room", "{}", JsonSerializer.Serialize(new { id = room.Id, room.RoomNumber, room.Floor, operationalStatus = status.ToString() })));
+        db.AdminCatalogCreateOperations.Add(new(operationId, actor, "physical-room", room.Id, propertyId, fingerprint, now));
+        try { await db.SaveChangesAsync(ct); await tx.CommitAsync(ct); return WebsiteMutationResult<CatalogPhysicalRoom>.Success(new(room.Id, propertyId, roomTypeId, room.RoomNumber, room.Floor, status.ToString())); }
+        catch (DbUpdateException e) when (UniqueViolation(e)) { return WebsiteMutationResult<CatalogPhysicalRoom>.Conflict("already-exists", "Số phòng này đã được dùng trong cơ sở.", "roomNumber"); }
+    }
+
+    private async Task LockCreateAsync(Guid actor, Guid operationId, CancellationToken ct) =>
+        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({actor.ToString() + ":" + operationId.ToString()}, 0))", ct);
+    private Task<AdminCatalogCreateOperation?> ExistingOperationAsync(Guid actor, Guid operationId, CancellationToken ct) =>
+        db.AdminCatalogCreateOperations.AsNoTracking().SingleOrDefaultAsync(x => x.ActorStaffId == actor && x.OperationId == operationId, ct);
+    private static string Fingerprint<T>(T value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(value)))).ToLowerInvariant();
+    private static string NormalizeSlug(string? value) => (value ?? "").Trim().ToLowerInvariant();
+    private static bool ValidSlug(string value) => value.Length is > 0 and <= 200 && Regex.IsMatch(value, "^[a-z0-9]+(?:-[a-z0-9]+)*$");
+    private static bool TimeZoneExists(string value) { try { _ = TimeZoneInfo.FindSystemTimeZoneById(value); return true; } catch (TimeZoneNotFoundException) { return false; } catch (InvalidTimeZoneException) { return false; } }
+    private static bool UniqueViolation(DbUpdateException e) => e.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation };
     public async Task<IReadOnlyList<CatalogPropertyChoice>> ListAsync(CancellationToken ct) =>
         await db.Properties.AsNoTracking().OrderBy(x => x.Name).Select(x => new CatalogPropertyChoice(x.Id, x.Name, x.Slug)).ToListAsync(ct);
 

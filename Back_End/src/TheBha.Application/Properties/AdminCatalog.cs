@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using TheBha.Application.Website;
 
 namespace TheBha.Application.Properties;
@@ -10,6 +11,33 @@ public sealed record CatalogProductSummary(
 public sealed record CatalogGalleryItem(Guid MediaId, string Url, string? AltText, bool IsCover);
 public sealed record CatalogGalleryInput(Guid MediaId, string? AltText, bool IsCover);
 public sealed record CatalogRoomChoice(Guid Id, string Code, string Name);
+public sealed record CatalogPhysicalRoom(Guid Id, Guid PropertyId, Guid RoomTypeId, string RoomNumber, int Floor, string OperationalStatus);
+public sealed record CreateCatalogProperty(
+    [property: JsonRequired] string Name,
+    [property: JsonRequired] string Slug,
+    string? Description,
+    [property: JsonRequired] string Address,
+    [property: JsonRequired] string City,
+    [property: JsonRequired] string Country,
+    [property: JsonRequired] string TimeZone,
+    [property: JsonRequired] TimeOnly CheckInTime,
+    [property: JsonRequired] TimeOnly CheckOutTime,
+    bool IsActive);
+public sealed record CreateCatalogRoomType(
+    [property: JsonRequired] string Code,
+    [property: JsonRequired] string Name,
+    [property: JsonRequired] string Slug,
+    string? Description,
+    [property: JsonRequired] int BaseOccupancy,
+    [property: JsonRequired] int MaxOccupancy,
+    decimal? AreaSquareMeters,
+    int? Bedrooms,
+    string? BedDescription,
+    bool IsActive);
+public sealed record CreateCatalogPhysicalRoom(
+    [property: JsonRequired] string RoomNumber,
+    [property: JsonRequired] int Floor,
+    [property: JsonRequired] string OperationalStatus);
 public sealed record CatalogEditorDto(
     Guid PropertyId, Guid? RoomTypeId, int Version, string SourceLocale, string Name, string? Description,
     string Slug, string? Code, string? Address, string? City, string? Country,
@@ -41,6 +69,10 @@ public interface IAdminCatalog
 {
     Task<IReadOnlyList<CatalogPropertyChoice>> ListAsync(CancellationToken ct);
     Task<IReadOnlyList<CatalogProductSummary>> ListProductsAsync(Guid propertyId, CancellationToken ct);
+    Task<IReadOnlyList<CatalogPhysicalRoom>?> ListPhysicalRoomsAsync(Guid propertyId, Guid roomTypeId, CancellationToken ct);
+    Task<WebsiteMutationResult<CatalogPropertyChoice>> CreatePropertyAsync(CreateCatalogProperty input, Guid operationId, Guid actor, CancellationToken ct);
+    Task<WebsiteMutationResult<CatalogProductSummary>> CreateRoomTypeAsync(Guid propertyId, CreateCatalogRoomType input, Guid operationId, Guid actor, CancellationToken ct);
+    Task<WebsiteMutationResult<CatalogPhysicalRoom>> CreatePhysicalRoomAsync(Guid propertyId, Guid roomTypeId, CreateCatalogPhysicalRoom input, Guid operationId, Guid actor, CancellationToken ct);
     Task<CatalogEditorDto?> GetAsync(Guid propertyId, Guid? roomTypeId, CancellationToken ct);
     Task<WebsiteMutationResult<CatalogEditorDto>> SaveAsync(Guid propertyId, Guid? roomTypeId, SaveCatalogContent input, Guid actor, CancellationToken ct);
     Task<WebsiteMutationResult<CatalogGalleryItem>> UploadAsync(Guid propertyId, Guid? roomTypeId, Stream stream, string publicOrigin, Guid actor, CancellationToken ct);

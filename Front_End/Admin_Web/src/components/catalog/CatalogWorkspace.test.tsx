@@ -9,11 +9,11 @@ import type { CatalogEditor } from "@/lib/api/catalog";
 const router = { push: vi.fn(), replace: vi.fn() };
 vi.mock("next/navigation", () => ({ useRouter: () => router }));
 vi.mock("@/lib/api/staff", async original => ({ ...await original<typeof import("@/lib/api/staff")>(), fetchStaffSession: vi.fn(), staffLogout: vi.fn() }));
-vi.mock("@/lib/api/catalog", async original => ({ ...await original<typeof import("@/lib/api/catalog")>(), getCatalogProperties: vi.fn(), getCatalogProducts: vi.fn(), getCatalog: vi.fn(), saveCatalog: vi.fn(), createAmenity: vi.fn(), uploadCatalog: vi.fn(), catalogImage: () => "/picture.webp" }));
+vi.mock("@/lib/api/catalog", async original => ({ ...await original<typeof import("@/lib/api/catalog")>(), getCatalogProperties: vi.fn(), getCatalogProducts: vi.fn(), getPhysicalRooms: vi.fn(), createProperty: vi.fn(), createRoomType: vi.fn(), createPhysicalRoom: vi.fn(), getCatalog: vi.fn(), saveCatalog: vi.fn(), createAmenity: vi.fn(), uploadCatalog: vi.fn(), catalogImage: () => "/picture.webp" }));
 import WebsiteAccessGate from "@/components/website/WebsiteAccessGate";
 import CatalogWorkspace from "./CatalogWorkspace";
 import { fetchStaffSession, staffLogout } from "@/lib/api/staff";
-import { createAmenity, getCatalog, getCatalogProducts, getCatalogProperties, saveCatalog, uploadCatalog, type CatalogProductSummary } from "@/lib/api/catalog";
+import { createAmenity, createProperty, createRoomType, createPhysicalRoom, getPhysicalRooms, getCatalog, getCatalogProducts, getCatalogProperties, saveCatalog, uploadCatalog, type CatalogProductSummary } from "@/lib/api/catalog";
 
 const rooms = ["r1", "r2", "r3"].map(id => ({ id, code: id, name: `Room ${id}` }));
 function editor(propertyId = "p1", roomTypeId: string | null = null): CatalogEditor {
@@ -49,11 +49,13 @@ async function add() {
 }
 beforeEach(() => {
   vi.resetAllMocks();
+  sessionStorage.clear();
   vi.stubEnv("NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE", "Staff");
   vi.mocked(fetchStaffSession).mockResolvedValue({ kind: "authenticated", session: ALLOWED });
   server = new Map([editor(), editor("p2"), ...rooms.map(r => editor("p1", r.id))].map(x => [key(x.propertyId, x.roomTypeId), x]));
   vi.mocked(getCatalogProperties).mockResolvedValue(ok([{ id: "p1", name: "The BHA Riverside", slug: "the-bha-riverside" }, { id: "p2", name: "Other", slug: "other" }]));
   vi.mocked(getCatalogProducts).mockImplementation(async p => ok(p === "p1" ? rooms.map(summary) : []));
+  vi.mocked(getPhysicalRooms).mockResolvedValue(ok([]));
   vi.mocked(getCatalog).mockImplementation(async (p, r) => ok(structuredClone(server.get(key(p, r))!)));
   vi.mocked(saveCatalog).mockImplementation(async (p, r, body) => {
     const current = server.get(key(p, r))!;
@@ -93,6 +95,84 @@ describe("CatalogWorkspace correction regressions, real gate and hooks", () => {
     expect(await screen.findByRole("heading", { name: "Cơ sở & loại phòng" })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Cơ sở" })).toHaveValue("p1");
     expect(screen.queryByRole("textbox", { name: /^Tên\s*\*/ })).toBeNull();
+  });
+  it("keeps the main room-type count separate from the two legacy sample rows", async () => {
+    vi.mocked(getCatalogProducts).mockResolvedValue(ok([
+      ...rooms.map(summary),
+      summary({ id: "legacy-dlx", code: "DLX-KING", name: "Deluxe King" }),
+      summary({ id: "legacy-family", code: "FAMILY", name: "Family Suite" }),
+    ]));
+    render(<WebsiteAccessGate returnTo="/products"><CatalogWorkspace /></WebsiteAccessGate>);
+    await screen.findByRole("heading", { name: "The BHA Riverside" });
+    expect(await screen.findByText("Dữ liệu mẫu cũ (2)")).toBeInTheDocument();
+    expect(screen.getByText("3 loại phòng")).toBeInTheDocument();
+  });
+  it("creates a property from the section and selects the server-read property without opening its editor", async () => {
+    const fresh = { id: "p3", name: "The BHA House", slug: "the-bha-house" };
+    vi.mocked(getCatalogProperties).mockResolvedValue(ok([{ id: "p1", name: "The BHA Riverside", slug: "the-bha-riverside" }, { id: "p2", name: "Other", slug: "other" }, fresh]));
+    vi.mocked(createProperty).mockResolvedValue(ok(fresh));
+    render(<WebsiteAccessGate returnTo="/products"><CatalogWorkspace /></WebsiteAccessGate>);
+    await userEvent.click(await screen.findByRole("button", { name: "Thêm cơ sở" }));
+    await userEvent.type(screen.getByLabelText("Tên cơ sở *"), fresh.name);
+    await userEvent.type(screen.getByLabelText("Địa chỉ *"), "Test address");
+    await userEvent.type(screen.getByLabelText("Thành phố *"), "Test city");
+    await userEvent.type(screen.getByLabelText("Quốc gia *"), "Test country");
+    await userEvent.click(screen.getByRole("button", { name: "Tạo" }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Cơ sở" })).toHaveValue("p3"));
+    expect(screen.queryByRole("textbox", { name: /^Tên\s*\*/ })).toBeNull();
+    expect(screen.getByText("Cơ sở này chưa có loại phòng để hiển thị.")).toBeInTheDocument();
+    expect(createProperty).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(createProperty).mock.calls[0][1]).toMatch(/^[0-9a-f-]{36}$/i);
+  });
+  it("creates a room type under the selected property and reflects its server summary without creating a physical room", async () => {
+    const created = summary({ id: "r4", code: "NEW-ROOM", name: "New Room" });
+    let includeCreated = false;
+    vi.mocked(createRoomType).mockResolvedValue(ok(created));
+    vi.mocked(getCatalogProducts).mockImplementation(async p => ok(p === "p1" ? [...rooms.map(summary), ...(includeCreated ? [created] : [])] : []));
+    render(<WebsiteAccessGate returnTo="/products"><CatalogWorkspace /></WebsiteAccessGate>);
+    await screen.findByText("3 loại phòng");
+    await userEvent.click(screen.getByRole("button", { name: "Thêm loại phòng" }));
+    await userEvent.type(screen.getByLabelText("Mã loại phòng *"), "NEW-ROOM");
+    await userEvent.type(screen.getByLabelText("Tên *"), "New Room");
+    includeCreated = true;
+    await userEvent.click(screen.getByRole("button", { name: "Tạo" }));
+    await screen.findByText("4 loại phòng");
+    expect(createRoomType).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(createRoomType).mock.calls[0][0]).toBe("p1");
+    expect(vi.mocked(createRoomType).mock.calls[0][1].isActive).toBe(false);
+    expect(createPhysicalRoom).not.toHaveBeenCalled();
+  });
+  it("moves focus into the create modal and restores it to the trigger after Escape", async () => {
+    render(<WebsiteAccessGate returnTo="/products"><CatalogWorkspace /></WebsiteAccessGate>);
+    const trigger = await screen.findByRole("button", { name: "Thêm cơ sở" });
+    await userEvent.click(trigger);
+    expect(screen.getByLabelText("Tên cơ sở *")).toHaveFocus();
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(trigger).toHaveFocus();
+  });
+  it("creates a physical room under the opened type and uses the same idempotency key after an unknown result", async () => {
+    const newRoom = { id: "physical-new", propertyId: "p1", roomTypeId: "r1", roomNumber: "R-101", floor: -1, operationalStatus: "Inactive" as const };
+    vi.mocked(createPhysicalRoom).mockResolvedValueOnce({ kind: "unverified", message: "Lost acknowledgement" }).mockResolvedValueOnce(ok(newRoom));
+    vi.mocked(getPhysicalRooms).mockResolvedValueOnce(ok([])).mockResolvedValue(ok([newRoom]));
+    const mountedWorkspace = render(<WebsiteAccessGate returnTo="/products"><CatalogWorkspace /></WebsiteAccessGate>);
+    await userEvent.click((await screen.findAllByRole("button", { name: "Xem / Chỉnh sửa" }))[0]);
+    await screen.findByRole("heading", { name: "Phòng thuộc loại này" });
+    await userEvent.click(screen.getByRole("button", { name: "Thêm phòng" }));
+    expect(screen.getByRole("combobox", { name: "Loại phòng cha *" })).toHaveValue("r1");
+    await userEvent.type(screen.getByLabelText("Số phòng *"), "R-101");
+    await userEvent.clear(screen.getByLabelText("Tầng *"));
+    await userEvent.type(screen.getByLabelText("Tầng *"), "-1");
+    await userEvent.click(screen.getByRole("button", { name: "Tạo" }));
+    mountedWorkspace.unmount();
+    render(<WebsiteAccessGate returnTo="/products"><CatalogWorkspace /></WebsiteAccessGate>);
+    await userEvent.click(await screen.findByRole("button", { name: "Xác minh lại cùng yêu cầu" }));
+    await userEvent.click((await screen.findAllByRole("button", { name: "Xem / Chỉnh sửa" }))[0]);
+    await screen.findByText("R-101");
+    expect(createPhysicalRoom).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(createPhysicalRoom).mock.calls[0][3]).toBe(vi.mocked(createPhysicalRoom).mock.calls[1][3]);
+    expect(vi.mocked(createPhysicalRoom).mock.calls[0][0]).toBe("p1");
+    expect(vi.mocked(createPhysicalRoom).mock.calls[0][1]).toBe("r1");
   });
   it("resolves the legacy Hotel row as Riverside without adding a duplicate placeholder", async () => {
     vi.mocked(getCatalogProperties).mockResolvedValue(ok([{ id: "p1", name: "The BHA Hotel", slug: "the-bha-hotel" }, { id: "p2", name: "Other", slug: "other" }]));

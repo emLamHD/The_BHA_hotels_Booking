@@ -21,6 +21,7 @@ public sealed class TheBhaDbContext(DbContextOptions<TheBhaDbContext> options)
     public DbSet<ReservationUnit> ReservationUnits => Set<ReservationUnit>();
     public DbSet<ReservationUnitNight> ReservationUnitNights => Set<ReservationUnitNight>();
     public DbSet<CatalogContentAudit> CatalogContentAudits => Set<CatalogContentAudit>();
+    public DbSet<AdminCatalogCreateOperation> AdminCatalogCreateOperations => Set<AdminCatalogCreateOperation>();
     public DbSet<CatalogUpload> CatalogUploads => Set<CatalogUpload>();
     public DbSet<Property> Properties => Set<Property>();
     public DbSet<RoomType> RoomTypes => Set<RoomType>();
