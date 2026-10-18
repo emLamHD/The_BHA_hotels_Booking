@@ -126,7 +126,20 @@ internal sealed class AdminCatalogService(TheBhaDbContext db, ICatalogMediaStora
         }
         catch
         {
-            await storage.DeleteUnrecordedAsync(key, CancellationToken.None);
+            // A failure after PostgreSQL committed (for example, a lost acknowledgement)
+            // is indistinguishable from a failed write at this call site. Only remove the
+            // bytes when a fresh database read confirms that no metadata row committed.
+            // If the database cannot answer, retain the file rather than breaking a
+            // possibly committed Media reference.
+            try
+            {
+                var recorded = await db.CatalogUploads.AsNoTracking().AnyAsync(x => x.MediaId == id, CancellationToken.None);
+                if (!recorded) await storage.DeleteUnrecordedAsync(key, CancellationToken.None);
+            }
+            catch
+            {
+                // Unknown commit state: leave an unlinked file for later operational cleanup.
+            }
             throw;
         }
     }
