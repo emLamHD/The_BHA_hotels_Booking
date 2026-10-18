@@ -3,6 +3,10 @@ using TheBha.Application.Website;
 namespace TheBha.Application.Properties;
 
 public sealed record CatalogPropertyChoice(Guid Id, string Name, string Slug);
+public sealed record CatalogProductSummary(
+    Guid PropertyId, Guid RoomTypeId, string Code, string Name, string? Description,
+    int BaseOccupancy, int MaxOccupancy, int PhysicalRoomCount, int GalleryCount,
+    Guid? CoverMediaId, string? CoverAltText, bool IsActive);
 public sealed record CatalogGalleryItem(Guid MediaId, string Url, string? AltText, bool IsCover);
 public sealed record CatalogGalleryInput(Guid MediaId, string? AltText, bool IsCover);
 public sealed record CatalogRoomChoice(Guid Id, string Code, string Name);
@@ -36,6 +40,7 @@ public interface ICatalogImageDecoder { CatalogImageInfo? Inspect(ReadOnlyMemory
 public interface IAdminCatalog
 {
     Task<IReadOnlyList<CatalogPropertyChoice>> ListAsync(CancellationToken ct);
+    Task<IReadOnlyList<CatalogProductSummary>> ListProductsAsync(Guid propertyId, CancellationToken ct);
     Task<CatalogEditorDto?> GetAsync(Guid propertyId, Guid? roomTypeId, CancellationToken ct);
     Task<WebsiteMutationResult<CatalogEditorDto>> SaveAsync(Guid propertyId, Guid? roomTypeId, SaveCatalogContent input, Guid actor, CancellationToken ct);
     Task<WebsiteMutationResult<CatalogGalleryItem>> UploadAsync(Guid propertyId, Guid? roomTypeId, Stream stream, string publicOrigin, Guid actor, CancellationToken ct);

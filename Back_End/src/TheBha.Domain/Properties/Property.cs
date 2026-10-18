@@ -66,6 +66,14 @@ public sealed class Property
         UpdatedAt = now;
     }
 
+    /// <summary>Normalizes the display name during the guarded local catalog seed, preserving identity and other content.</summary>
+    public void RenameForSeed(string name, DateTimeOffset now)
+    {
+        Name = DomainGuard.Required(name, nameof(name), 200);
+        ContentVersion++;
+        UpdatedAt = now;
+    }
+
     public void Deactivate(DateTimeOffset updatedAt)
     {
         IsActive = false;

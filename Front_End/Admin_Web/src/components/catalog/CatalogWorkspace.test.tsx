@@ -9,11 +9,11 @@ import type { CatalogEditor } from "@/lib/api/catalog";
 const router = { push: vi.fn(), replace: vi.fn() };
 vi.mock("next/navigation", () => ({ useRouter: () => router }));
 vi.mock("@/lib/api/staff", async original => ({ ...await original<typeof import("@/lib/api/staff")>(), fetchStaffSession: vi.fn(), staffLogout: vi.fn() }));
-vi.mock("@/lib/api/catalog", async original => ({ ...await original<typeof import("@/lib/api/catalog")>(), getCatalogProperties: vi.fn(), getCatalog: vi.fn(), saveCatalog: vi.fn(), createAmenity: vi.fn(), uploadCatalog: vi.fn(), catalogImage: () => "/picture.webp" }));
+vi.mock("@/lib/api/catalog", async original => ({ ...await original<typeof import("@/lib/api/catalog")>(), getCatalogProperties: vi.fn(), getCatalogProducts: vi.fn(), getCatalog: vi.fn(), saveCatalog: vi.fn(), createAmenity: vi.fn(), uploadCatalog: vi.fn(), catalogImage: () => "/picture.webp" }));
 import WebsiteAccessGate from "@/components/website/WebsiteAccessGate";
 import CatalogWorkspace from "./CatalogWorkspace";
 import { fetchStaffSession, staffLogout } from "@/lib/api/staff";
-import { createAmenity, getCatalog, getCatalogProperties, saveCatalog, uploadCatalog } from "@/lib/api/catalog";
+import { createAmenity, getCatalog, getCatalogProducts, getCatalogProperties, saveCatalog, uploadCatalog, type CatalogProductSummary } from "@/lib/api/catalog";
 
 const rooms = ["r1", "r2", "r3"].map(id => ({ id, code: id, name: `Room ${id}` }));
 function editor(propertyId = "p1", roomTypeId: string | null = null): CatalogEditor {
@@ -28,13 +28,18 @@ const name = () => screen.getByRole("textbox", { name: /^Tên\s*\*/ });
 const save = () => screen.getByRole("button", { name: "Lưu thay đổi" });
 async function open() {
   render(<WebsiteAccessGate returnTo="/products"><CatalogWorkspace /></WebsiteAccessGate>);
+  await screen.findByRole("heading", { name: "Cơ sở & loại phòng" });
+  await userEvent.click(await screen.findByRole("button", { name: "Chỉnh sửa thông tin cơ sở" }));
   await screen.findByRole("textbox", { name: /^Tên\s*\*/ });
 }
+const summary = (room: { id: string; code: string; name: string }): CatalogProductSummary => ({ propertyId: "p1", roomTypeId: room.id, code: room.code, name: room.name, description: "Room description", baseOccupancy: 2, maxOccupancy: 4, physicalRoomCount: 1, galleryCount: 1, coverMediaId: "m1", coverAltText: null, isActive: true });
 async function changeName(value: string) { await userEvent.clear(name()); await userEvent.type(name(), value); }
 async function switchOwner(control: "Cơ sở" | "Loại phòng", value: string, decision = "Bỏ sửa và chuyển") {
   await userEvent.selectOptions(screen.getByRole("combobox", { name: control }), value);
-  const dialog = await screen.findByRole("dialog");
-  await userEvent.click(within(dialog).getByRole("button", { name: decision }));
+  const dialog = screen.queryByRole("dialog");
+  if (dialog) await userEvent.click(within(dialog).getByRole("button", { name: decision.startsWith("Bỏ sửa") ? /^Bỏ sửa/ : decision }));
+  if (!screen.queryByRole("textbox", { name: /^Tên\s*\*/ }) && screen.queryByRole("button", { name: "Chỉnh sửa thông tin cơ sở" }))
+    await userEvent.click(screen.getByRole("button", { name: "Chỉnh sửa thông tin cơ sở" }));
 }
 async function add() {
   await userEvent.type(screen.getByRole("textbox", { name: "Mã tiện nghi" }), "desk");
@@ -47,7 +52,8 @@ beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE", "Staff");
   vi.mocked(fetchStaffSession).mockResolvedValue({ kind: "authenticated", session: ALLOWED });
   server = new Map([editor(), editor("p2"), ...rooms.map(r => editor("p1", r.id))].map(x => [key(x.propertyId, x.roomTypeId), x]));
-  vi.mocked(getCatalogProperties).mockResolvedValue(ok([{ id: "p1", name: "Riverside", slug: "the-bha-riverside" }, { id: "p2", name: "Other", slug: "other" }]));
+  vi.mocked(getCatalogProperties).mockResolvedValue(ok([{ id: "p1", name: "The BHA Riverside", slug: "the-bha-riverside" }, { id: "p2", name: "Other", slug: "other" }]));
+  vi.mocked(getCatalogProducts).mockImplementation(async p => ok(p === "p1" ? rooms.map(summary) : []));
   vi.mocked(getCatalog).mockImplementation(async (p, r) => ok(structuredClone(server.get(key(p, r))!)));
   vi.mocked(saveCatalog).mockImplementation(async (p, r, body) => {
     const current = server.get(key(p, r))!;
@@ -76,14 +82,36 @@ describe("CatalogWorkspace correction regressions, real gate and hooks", () => {
     expect(name()).toHaveValue("Tab A name");
     expect(screen.getByText(/Conflict/)).toBeInTheDocument();
   });
-  it("F2 retains all room choices through property → room A → room B → property, never another property's rooms", async () => {
-    await open(); await switchOwner("Loại phòng", "r1");
-    await waitFor(() => expect(name()).toHaveValue("Room r1"));
-    expect(within(screen.getByRole("combobox", { name: "Loại phòng" })).getAllByRole("option")).toHaveLength(4);
-    await switchOwner("Loại phòng", "r2"); await waitFor(() => expect(name()).toHaveValue("Room r2"));
-    await switchOwner("Loại phòng", ""); await waitFor(() => expect(name()).toHaveValue("Property p1"));
-    await switchOwner("Cơ sở", "p2"); await waitFor(() => expect(name()).toHaveValue("Property p2"));
-    expect(within(screen.getByRole("combobox", { name: "Loại phòng" })).getAllByRole("option")).toHaveLength(1);
+  it("starts with the product list, opens the selected product, and returns to the same property list", async () => {
+    render(<WebsiteAccessGate returnTo="/products"><CatalogWorkspace /></WebsiteAccessGate>);
+    expect(await screen.findByRole("heading", { name: "Cơ sở & loại phòng" })).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: /^Tên\s*\*/ })).toBeNull();
+    await screen.findAllByRole("button", { name: "Xem / Chỉnh sửa" });
+    await userEvent.click(screen.getAllByRole("button", { name: "Xem / Chỉnh sửa" })[1]);
+    await waitFor(() => expect(name()).toHaveValue("Room r2"));
+    await userEvent.click(screen.getByRole("button", { name: "← Quay lại danh sách" }));
+    expect(await screen.findByRole("heading", { name: "Cơ sở & loại phòng" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Cơ sở" })).toHaveValue("p1");
+    expect(screen.queryByRole("textbox", { name: /^Tên\s*\*/ })).toBeNull();
+  });
+  it("resolves the legacy Hotel row as Riverside without adding a duplicate placeholder", async () => {
+    vi.mocked(getCatalogProperties).mockResolvedValue(ok([{ id: "p1", name: "The BHA Hotel", slug: "the-bha-hotel" }, { id: "p2", name: "Other", slug: "other" }]));
+    render(<WebsiteAccessGate returnTo="/products"><CatalogWorkspace /></WebsiteAccessGate>);
+    const selector = await screen.findByRole("combobox", { name: "Cơ sở" });
+    expect(selector).toHaveValue("p1");
+    const riversideOptions = within(selector).getAllByRole("option").filter(option => option.textContent === "The BHA Riverside");
+    expect(riversideOptions).toHaveLength(1);
+    expect(screen.queryByText("The BHA Riverside — chưa thiết lập")).toBeNull();
+    expect(screen.getByRole("heading", { name: "The BHA Riverside" })).toBeInTheDocument();
+  });
+  it("keeps workspace controls themed in both Tailwind modes", async () => {
+    render(<WebsiteAccessGate returnTo="/products"><CatalogWorkspace /></WebsiteAccessGate>);
+    await screen.findByRole("heading", { name: "Cơ sở & loại phòng" });
+    const selector = screen.getByRole("combobox", { name: "Cơ sở" });
+    expect(selector.className).toContain("dark:bg-gray-900");
+    expect(selector.className).toContain("text-gray-900");
+    const card = (await screen.findAllByRole("article"))[0];
+    expect(card.className).toContain("dark:bg-white/[0.03]");
   });
   it.each(["save", "upload"] as const)("F3 reconciles unknown %s by owner readback without retrying the old mutation", async operation => {
     await open(); await changeName("Draft");
@@ -97,12 +125,16 @@ describe("CatalogWorkspace correction regressions, real gate and hooks", () => {
     await waitFor(() => expect(saveCatalog).toHaveBeenCalledTimes(operation === "save" ? 2 : 1));
     expect(uploadCatalog).toHaveBeenCalledTimes(operation === "upload" ? 1 : 0);
   });
-  it.each(["property", "room"] as const)("F4 discard removes the old %s draft and temporary fields permanently", async target => {
-    await open(); await changeName("Discard me"); await userEvent.type(screen.getByRole("textbox", { name: "Mã tiện nghi" }), "temporary");
-    await switchOwner(target === "property" ? "Cơ sở" : "Loại phòng", target === "property" ? "p2" : "r1");
-    await waitFor(() => expect(name()).toHaveValue(target === "property" ? "Property p2" : "Room r1"));
-    await switchOwner(target === "property" ? "Cơ sở" : "Loại phòng", target === "property" ? "p1" : "");
-    await waitFor(() => expect(name()).toHaveValue("Property p1"));
+  it("F4 discard removes the old product draft and temporary fields permanently", async () => {
+    await open(); await userEvent.click(screen.getByRole("button", { name: "← Quay lại danh sách" }));
+    await userEvent.click((await screen.findAllByRole("button", { name: "Xem / Chỉnh sửa" }))[0]);
+    await waitFor(() => expect(name()).toHaveValue("Room r1"));
+    await changeName("Discard me"); await userEvent.type(screen.getByRole("textbox", { name: "Mã tiện nghi" }), "temporary");
+    await userEvent.click(screen.getByRole("button", { name: "← Quay lại danh sách" }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: /^Bỏ sửa/ }));
+    await userEvent.click((await screen.findAllByRole("button", { name: "Xem / Chỉnh sửa" }))[0]);
+    await waitFor(() => expect(name()).toHaveValue("Room r1"));
     expect(screen.getByRole("textbox", { name: "Mã tiện nghi" })).toHaveValue("");
   });
   it("F5 locks every edit, switch, discard and sign-out through deferred Save AND readback", async () => {

@@ -12,6 +12,10 @@ public sealed class AdminCatalogController(IAdminCatalog catalog) : AdminWebsite
     [StaffWebsitePermission(StaffGlobalPermission.WebsiteSettingsManage)]
     public async Task<IActionResult> Properties(CancellationToken ct) => Ok(await catalog.ListAsync(ct));
 
+    [HttpGet("properties/{propertyId:guid}/products")]
+    [StaffWebsitePermission(StaffGlobalPermission.WebsiteSettingsManage)]
+    public async Task<IActionResult> Products(Guid propertyId, CancellationToken ct) => Ok(await catalog.ListProductsAsync(propertyId, ct));
+
     [HttpGet("properties/{propertyId:guid}")]
     [HttpGet("properties/{propertyId:guid}/room-types/{roomTypeId:guid}")]
     [StaffWebsitePermission(StaffGlobalPermission.WebsiteSettingsManage)]

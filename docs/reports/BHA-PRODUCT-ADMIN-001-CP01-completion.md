@@ -105,3 +105,52 @@ Correction checks (all ran on the correction tree):
 - The pre-correction PR head `2ac3476695db49bf941fdffd14ef4c627c3072d1` had Backend, Admin and Frontend CI pass (run `39100022711`). The correction commits were pushed after these local checks; their exact GitHub CI run/status is recorded in the Owner completion message against the verified PR head.
 
 `UI_LIVE: NOT_RUN`; no fake browser evidence is claimed. This section supersedes the initial report's evidence and blockers. `CUSTOMER_WEB_UNCHANGED: yes`; `ORCA_NOT_USED: yes`; no merge, Ready transition, deploy or branch deletion. `OWNER_REVIEW_PENDING: yes`.
+
+## Correction C2 — Product list, Riverside identity and live local database
+
+Owner-approved continuation `BHA-PRODUCT-ADMIN-001-CP01-C2` on the existing feature branch and Draft PR #124. `CORRECTION_START_HEAD`: `152ad77fb993be0a78b6f4abd37fa53884797c06`; baseline remains `d1d08d6fa5a622197e6e016f43890f988414df00`. Owner is the direct reviewer for this work item. No other coding agent or Orca was used.
+
+### What changed
+
+- `/products` now opens with the property-scoped product list. Summary cards show cover, code, name, description, occupancy, physical stock and gallery count; a selected card opens its detail editor and Back returns to the same property's list. Property editing is a separate action. The summary route is Staff/`WebsiteSettingsManage` protected and returns only summary fields, not galleries. House/Villa stay unconfigured when their rows do not exist.
+- The legacy Property `10000000-0000-0000-0000-000000000001`, previously displayed as `The BHA Hotel` with slug `the-bha-hotel`, is now named `The BHA Riverside`. ID, slug, memberships, room types, physical room links and reservations were preserved. No second Riverside Property was created. Existing DLX-KING/FAMILY stay in a separate `Dữ liệu mẫu cũ` section.
+- Theme tokens now cover the selector/options, list cards, editor fields, dialogs, states, badges, previews and image fallbacks in both light/dark mode. Failed images show an explanation and retry action. Existing F1–F5 draft/revision/unknown/sign-out protections remain covered after list/detail separation.
+- Embedded Riverside image reads resolve by exact controlled media URL path after checking the requested owner link. This supports historical Media IDs that differ from manifest IDs without fetching the stored URL.
+
+### Live local database operation and evidence
+
+Verified route: Admin `.env.local` points to `https://localhost:7145` → Development API launched from `Back_End/src/TheBha.Api` → `current_database() = thebha_dev`, PostgreSQL on loopback. The API's `GET /api/v1/properties` before seed returned only the legacy Hotel ID/name/slug above. No duplicate Hotel/Riverside slug row existed. Connection target was checked from local user-secrets without printing credentials; no connection string, password or cookie is recorded here.
+
+The new opt-in seed path requires both `--allow-existing-local-property` and an explicit `--property-id`, exact `--expected-database`/`current_database()` equality, Development and a loopback host. Default demo/showcase naming guard stays in place; Staging/Production, remote host, wrong database and unmatched flags are refused. The verified dry-run planned 260 inserts, one display-name update, and removal of only the two exact untouched placeholder PropertyMedia links from DevelopmentDataSeeder. Their shared Media rows and old room links were retained. Seed window: 60 nights, `2026-10-18` through `2026-12-16`.
+
+Apply added 3 RoomTypes (`RIV-1BR`, `RIV-1BR-OPEN`, `RIV-2BR`), 11 physical rooms (stock 3/2/6), 31 Media rows, 31 image links plus 2 PropertyAmenity links, and 180 missing DailyRoomRates in that finite window. It normalized the existing Property display name and did not change the slug. The second apply reported 0 inserts, 0 updates and 0 removals. PostgreSQL readback retained two legacy room types, their three physical rooms, all 7 existing reservations and the existing membership; exactly one row remains for the old/canonical Hotel/Riverside slug pair. Product galleries read back as 6/6/9; Property gallery as 10. Covers: `one-bedroom-living.webp`, `open-view-living.webp`, `two-bedroom-living.webp`, and Property `entrance-logo.webp`.
+
+Two temporary Staff accounts were bootstrapped only through the existing Staff CLI during local API verification, granted `WebsiteSettingsManage`, and then disabled through the CLI. No existing account was changed. API readback returned the renamed Property and all three main RIV products while keeping two legacy products for the separate legacy UI group. All 31 owner-scoped media requests returned `200 image/webp` with bytes; logout returned 204.
+
+### C2 acceptance and remaining live check
+
+| Criterion | Evidence |
+|---|---|
+| C2-A1 | Same Property ID/slug; one Hotel/Riverside identity row; API says The BHA Riverside; no second property; legacy stock/reservations/membership retained. |
+| C2-A2 | Component test starts in list without editor, renders selected property's cards, and resolves old Hotel as Riverside without a duplicate placeholder. |
+| C2-A3 | Component test selects a room, opens the matching detail and returns to the same property list; C1 save/readback and draft-safety regressions remain. |
+| C2-A4 | Light/dark token assertions and responsive list/grid classes; **live desktop/mobile screenshot not run** (no permitted browser-control harness in this session). |
+| C2-A5 | PostgreSQL owner/count/cover readback and 31/31 Staff HTTP image-byte reads; summary endpoint omits editor gallery. |
+| C2-A6 | Local Development dry-run/apply/re-apply above; unit/integration tests cover explicit target ID, duplicate-free same-property behavior and guard refusals. |
+| C2-A7 | C1 F1–F5 tests remain; no automatic retry for unknown writes; property/room ownership and revision handling remain guarded. |
+| C2-A8 | HTTPS Staff auth/read/logout and API authorization integration tests; migration/test suite runs on PostgreSQL; embedded-media test uses a non-manifest MediaId. No schema migration was added in C2. Browser sign-in and live light/dark/mobile remain unrun. |
+
+`UI_LIVE: NOT_RUN` because Chrome exists but no permitted browser-control harness is available; Orca is expressly prohibited. Owner can open `https://localhost:3001/products`; API remains at `https://localhost:7145`. Local checklist: sign in with the existing Owner Staff account; confirm three Riverside cards and covers; open each card and return; toggle the existing Admin theme to light and dark; check desktop width and a narrow mobile viewport; verify House/Villa empty states. Existing services are left running for this check.
+
+`CUSTOMER_WEB_UNCHANGED: yes`; `ORCA_NOT_USED: yes`. No merge, Ready transition, deploy, branch deletion or force-push. CI, final commit/PR head, full check results and final working-tree state are recorded in the handoff below after push.
+
+### C2 checks and handoff
+
+- `dotnet build Back_End/TheBha.Booking.sln --configuration Release --no-restore` — PASS; the only warning is the existing nullable warning at `WebsiteTranslationsApiTests.cs:141`.
+- Full `dotnet test Back_End/TheBha.Booking.sln --configuration Release` with the local PostgreSQL secret loaded only into the subprocess environment — unit 543/543 PASS, PostgreSQL integration 1,098/1,098 PASS. This includes C2 summary authorization/property scoping, controlled embedded bytes with a MediaId different from the manifest, existing-property target seed, opt-in guard refusal cases and idempotent target re-run.
+- Admin Web focused catalog suites after the last UI changes — 15/15 PASS; final full `npm test` — 1,963/1,963 across 64 files; `npx tsc --noEmit` and `npm run lint` — PASS; final `npm run build` — PASS and `/products` is generated.
+- Actual local HTTPS checks: `GET https://localhost:3001/products` 200; API `GET https://localhost:7145/api/v1/properties` 200; Staff catalog/API and all image bytes as detailed above. These HTTP checks do not constitute live-browser visual acceptance.
+- Manifest-to-database exact comparison — PASS: 31 rows match by owner, derivative filename, sort order and cover. API bytes check — PASS, 31/31 `image/webp`.
+- `git diff --check` — PASS; `Front_End/Customer_Web` has no changed files; C2 adds no migration. Branch is still `feature/bha-product-admin-001-cp01-riverside-room-types`, `origin/develop` still equals baseline, and pre-commit PR #124 remains OPEN/Draft at the C1 head. Final commit/push and post-push CI status are appended here after the full UI rerun.
+
+`IMPLEMENTATION_COMPLETE_WITH_BLOCKERS`: no permitted browser-control harness was available for required live light/dark and desktop/mobile visual acceptance. Code, local DB seed and HTTP/API evidence are complete; the app is left running at `https://localhost:3001/products` with API `https://localhost:7145` for Owner inspection. Do not treat this as full `PASS` until Owner completes the visual check.

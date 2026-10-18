@@ -2,7 +2,9 @@
 
 ## API and access
 
-GET /api/admin/v1/catalog/properties lists persisted properties. Detail uses GET /api/admin/v1/catalog/properties/{propertyId} and /room-types/{roomTypeId}. Save posts the editable content, owner-scoped amenities and ordered gallery to the matching /save route with expectedVersion. Upload posts one file to owner /media; POST .../amenities adds a simple amenity. Admin routes require HTTPS Staff session and global WebsiteSettingsManage; Calendar role or property membership grants no permission. Standard boundary checks Origin and JSON or explicitly allowed multipart. Actor comes from the Staff session. LocalGate closes these routes. Private thumbnails use owner-scoped Staff routes with nosniff; the public image route serves uploaded images only while linked.
+GET /api/admin/v1/catalog/properties lists persisted properties. The `/products` workspace first requests `GET /api/admin/v1/catalog/properties/{propertyId}/products`, a small property-scoped summary (counts and cover ID, no gallery) for each RoomType. It opens one editor only after a product is selected; the editor uses GET /api/admin/v1/catalog/properties/{propertyId} and /room-types/{roomTypeId}. Save posts editable content, owner-scoped amenities and ordered gallery to the matching /save route with expectedVersion. Upload posts one file to owner /media; POST .../amenities adds a simple amenity. Admin routes require HTTPS Staff session and global WebsiteSettingsManage; Calendar role or property membership grants no permission. Standard boundary checks Origin and JSON or explicitly allowed multipart. Actor comes from the Staff session. LocalGate closes these routes. Private thumbnails use owner-scoped Staff routes with nosniff; the public image route serves uploaded images only while linked.
+
+The property identity formerly named `The BHA Hotel` with slug `the-bha-hotel` is also the Owner-confirmed Riverside Property. Keep its ID and slug; display it as `The BHA Riverside` and resolve that identity in Admin without creating another Property. Older `DLX-KING`/`FAMILY` types remain in a separate legacy sample section. House/Villa are unconfigured until persisted Property rows exist.
 
 ## Editable and read-only fields
 
@@ -13,6 +15,8 @@ The editor writes existing content source columns (vi) and leaves WebsiteTransla
 ## Gallery and files
 
 Existing Riverside photos are embedded at build time from the existing Customer Web media files for private Admin preview; database IDs, URLs, manifest links, cover and order are untouched. No Customer file or proxy changes. Uploaded files use WebsiteMedia:RootPath/catalog/<server-guid>.<jpg|png|webp> on persistent storage, with metadata in CatalogUploads. Back up this directory with PostgreSQL and restore the same volume after restart/redeploy. Unlinked media and bytes are retained; there is no physical deletion or garbage collection. Public uploaded-image URL works only while linked; legacy Media.Url remains an absolute HTTP(S) URL.
+
+Admin resolves embedded seed bytes through an exact allowlisted Riverside media URL path after verifying the media is linked to the requested owner. It does not fetch `Media.Url`; this continues to work when a pre-existing Media row has a different ID from the manifest.
 
 ## Data and pricing
 
@@ -25,3 +29,7 @@ Each owner has a content version used as an EF concurrency token. Save compares 
 If a Save or upload response is unverified, the old mutation is never retried. A successful same-owner readback clears the unknown state and replaces the draft with persisted values. Failed, superseded or wrong-owner reads leave it unresolved. For an upload whose response was lost, the gallery read can confirm only which files are linked; it cannot identify an unlinked staged file, so the editor says the old upload may exist and requires an intentional new selection. After a database write exception, the service removes staged bytes only when a fresh query confirms the upload metadata did not commit. If database state cannot be read, it retains the bytes to protect a possibly committed Media reference; this may leave an orphan for future operational cleanup.
 
 Non-empty galleries require exactly one cover; removing it promotes the first remaining item. Unlinking never deletes global Media or files. Owner-scoped alt overrides prevent changing shared Media metadata. Draft gallery changes do not reach PostgreSQL until Save.
+
+## Existing local Development property seed
+
+The Riverside seed CLI keeps its default demo/showcase database-name guard. A separate, explicit existing-property opt-in requires `--allow-existing-local-property`, `--property-id`, `--expected-database` equal to `current_database()`, Development environment and a loopback PostgreSQL host. It resolves the exact existing Property ID, checks old/canonical Riverside identity and duplicate Hotel/Riverside slugs, renames only the display name, and adds only missing catalog rows/links. It preserves the existing slug, legacy room types, operational rows and operator-edited content. The seed window is finite and only fills missing daily rates in that window. Staging/Production, remote host, database mismatch and missing/mismatched opt-in flags are refused.

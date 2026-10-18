@@ -26,6 +26,60 @@ public sealed class AdminCatalogApiTests : WebsiteTestSupport
         var site = await LoginAsync(client, Site);
         Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(Get("/api/admin/v1/catalog/properties", site))).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await client.SendAsync(Get($"/api/admin/v1/catalog/properties/{Guid.NewGuid()}", site))).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync($"/api/admin/v1/catalog/properties/{propertyId}/products")).StatusCode);
+        using var productRead = Get($"/api/admin/v1/catalog/properties/{propertyId}/products", site);
+        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(productRead)).StatusCode);
+        using var deskProductRead = Get($"/api/admin/v1/catalog/properties/{propertyId}/products", desk);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.SendAsync(deskProductRead)).StatusCode);
+    }
+
+    [Fact]
+    public async Task ProductListReturnsSummaryWithoutGalleryPayloadAndStaysPropertyScoped()
+    {
+        using var session = await StartAsync();
+        var propertyId = await ScalarAsync<Guid>("""SELECT "Id" FROM "Properties" WHERE "Slug" = 'website-cp02'""");
+        await using (var context = Factory.CreateDbContext())
+        {
+            var room = new RoomType(Guid.NewGuid(), propertyId, "SUMMARY", "Summary room", "summary-room", "Description", 2, 4, true, DateTimeOffset.Parse("2026-10-15T00:00:00Z"));
+            context.RoomTypes.Add(room);
+            context.Add(new PhysicalRoom(Guid.NewGuid(), propertyId, room, "SUMMARY-01", 0, OperationalStatus.Active, DateTimeOffset.Parse("2026-10-15T00:00:00Z")));
+            context.Media.Add(new Media(Guid.NewGuid(), "https://media.example.test/summary.webp", "Cover", MediaType.Image, DateTimeOffset.UtcNow));
+            await context.SaveChangesAsync();
+            context.RoomTypeMedia.Add(new RoomTypeMedia(room.Id, context.Media.Local.Single().Id, 0, true));
+            await context.SaveChangesAsync();
+        }
+
+        using var response = await session.GetAsync($"/api/admin/v1/catalog/properties/{propertyId}/products");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var item = Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal("SUMMARY", item.GetProperty("code").GetString());
+        Assert.Equal(1, item.GetProperty("physicalRoomCount").GetInt32());
+        Assert.Equal(1, item.GetProperty("galleryCount").GetInt32());
+        Assert.True(item.GetProperty("coverMediaId").GetGuid() != Guid.Empty);
+        Assert.False(item.TryGetProperty("gallery", out _));
+    }
+
+    [Fact]
+    public async Task SeedImagePreviewResolvesByControlledUrlWhenDatabaseMediaIdDiffersFromManifest()
+    {
+        using var session = await StartAsync();
+        var propertyId = await ScalarAsync<Guid>("""SELECT "Id" FROM "Properties" WHERE "Slug" = 'website-cp02'""");
+        var roomId = Guid.NewGuid();
+        var mediaId = Guid.NewGuid();
+        await using (var context = Factory.CreateDbContext())
+        {
+            var room = new RoomType(roomId, propertyId, "EMBEDDED", "Embedded room", "embedded-room", null, 2, 2, true, DateTimeOffset.UtcNow);
+            context.RoomTypes.Add(room);
+            context.Media.Add(new Media(mediaId, "https://localhost:3000/media/the-bha-riverside/one-bedroom-living.webp", "Cover", MediaType.Image, DateTimeOffset.UtcNow));
+            context.RoomTypeMedia.Add(new RoomTypeMedia(roomId, mediaId, 0, true));
+            await context.SaveChangesAsync();
+        }
+
+        using var response = await session.GetAsync($"/api/admin/v1/catalog/properties/{propertyId}/room-types/{roomId}/media/{mediaId}");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("image/webp", response.Content.Headers.ContentType?.MediaType);
+        Assert.True((await response.Content.ReadAsByteArrayAsync()).Length > 100);
     }
 
     [Fact]

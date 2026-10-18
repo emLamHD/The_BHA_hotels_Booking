@@ -14,6 +14,30 @@ internal sealed class AdminCatalogService(TheBhaDbContext db, ICatalogMediaStora
     public async Task<IReadOnlyList<CatalogPropertyChoice>> ListAsync(CancellationToken ct) =>
         await db.Properties.AsNoTracking().OrderBy(x => x.Name).Select(x => new CatalogPropertyChoice(x.Id, x.Name, x.Slug)).ToListAsync(ct);
 
+    public async Task<IReadOnlyList<CatalogProductSummary>> ListProductsAsync(Guid propertyId, CancellationToken ct)
+    {
+        var products = await db.RoomTypes.AsNoTracking().Where(x => x.PropertyId == propertyId).OrderBy(x => x.Code)
+            .Select(x => new
+            {
+                x.PropertyId, RoomTypeId = x.Id, x.Code, x.Name, x.Description, x.BaseOccupancy, x.MaxOccupancy, x.IsActive,
+                PhysicalRoomCount = db.PhysicalRooms.Count(room => room.PropertyId == propertyId && room.RoomTypeId == x.Id),
+                GalleryCount = db.RoomTypeMedia.Count(link => link.RoomTypeId == x.Id),
+            }).ToListAsync(ct);
+        if (products.Count == 0) return [];
+
+        var ids = products.Select(x => x.RoomTypeId).ToArray();
+        var covers = await db.RoomTypeMedia.AsNoTracking().Where(link => ids.Contains(link.RoomTypeId) && link.IsCover)
+            .Select(link => new { link.RoomTypeId, link.MediaId, AltText = link.AltTextOverride ?? link.Media.AltText })
+            .ToDictionaryAsync(x => x.RoomTypeId, ct);
+        return products.Select(x =>
+        {
+            covers.TryGetValue(x.RoomTypeId, out var cover);
+            return new CatalogProductSummary(
+                x.PropertyId, x.RoomTypeId, x.Code, x.Name, x.Description, x.BaseOccupancy, x.MaxOccupancy,
+                x.PhysicalRoomCount, x.GalleryCount, cover?.MediaId, cover?.AltText, x.IsActive);
+        }).ToList();
+    }
+
     public async Task<CatalogEditorDto?> GetAsync(Guid propertyId, Guid? roomTypeId, CancellationToken ct)
     {
         var p = await db.Properties.AsNoTracking().SingleOrDefaultAsync(x => x.Id == propertyId, ct);
@@ -169,14 +193,24 @@ internal sealed class AdminCatalogService(TheBhaDbContext db, ICatalogMediaStora
             var file = await storage.OpenAsync(upload.StorageKey, ct);
             return file is null ? null : new(file, upload.ContentType);
         }
-        var linked = roomTypeId is null ? await db.PropertyMedia.AnyAsync(x => x.PropertyId == propertyId && x.MediaId == mediaId, ct)
-            : await db.RoomTypeMedia.AnyAsync(x => x.RoomTypeId == roomTypeId && x.MediaId == mediaId, ct);
-        if (!linked) return null;
+        var linkedUrl = roomTypeId is null
+            ? await db.PropertyMedia.AsNoTracking().Where(x => x.PropertyId == propertyId && x.MediaId == mediaId)
+                .Select(x => x.Media.Url).SingleOrDefaultAsync(ct)
+            : await db.RoomTypeMedia.AsNoTracking().Where(x => x.RoomTypeId == roomTypeId && x.MediaId == mediaId)
+                .Select(x => x.Media.Url).SingleOrDefaultAsync(ct);
+        if (linkedUrl is null) return null;
         // Only repository-controlled legacy bytes. Never fetch a Media.Url or resolve a client path.
-        var seed = RiversideDemoCatalog.Media.SingleOrDefault(x => x.Id == mediaId);
+        // Existing catalog Media IDs can differ from the manifest IDs when rows were deduplicated by URL.
+        var seed = RiversideDemoCatalog.Media.SingleOrDefault(x => IsSeedMediaUrl(linkedUrl, x.FileName));
         var stream = seed is null ? null : typeof(AdminCatalogService).Assembly.GetManifestResourceStream("bha-catalog-seed/" + seed.FileName);
         return stream is null ? null : new(stream, "image/webp");
     }
+
+    private static bool IsSeedMediaUrl(string url, string fileName) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var uri) &&
+        (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp) &&
+        string.IsNullOrEmpty(uri.UserInfo) && string.IsNullOrEmpty(uri.Query) && string.IsNullOrEmpty(uri.Fragment) &&
+        string.Equals(uri.AbsolutePath, RiversideDemoCatalog.MediaPathPrefix + fileName, StringComparison.Ordinal);
 
     public async Task<CatalogMediaFile?> OpenPublicAsync(Guid mediaId, CancellationToken ct)
     {

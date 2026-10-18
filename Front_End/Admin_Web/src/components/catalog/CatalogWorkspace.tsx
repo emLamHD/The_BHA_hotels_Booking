@@ -4,32 +4,63 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { useWebsiteHost } from "@/components/website/WebsiteAccessGate";
 import { useWebsiteList, useWriteAction, describeFailure } from "@/components/website/useWebsiteData";
-import { createAmenity, getCatalog, getCatalogProperties, saveCatalog, uploadCatalog, catalogImage, bodyOf, removeImage, type CatalogBody, type CatalogEditor, type GalleryItem } from "@/lib/api/catalog";
+import { createAmenity, getCatalog, getCatalogProducts, getCatalogProperties, saveCatalog, uploadCatalog, catalogImage, bodyOf, removeImage, type CatalogBody, type CatalogEditor, type CatalogProductSummary, type GalleryItem } from "@/lib/api/catalog";
 
-const box = "w-full rounded-lg border border-gray-300 bg-transparent px-3 py-2.5 text-sm dark:border-gray-700 dark:text-white";
-const btn = "rounded-lg border border-gray-300 px-3 py-2 text-sm hover:bg-gray-50 focus-visible:outline-2 focus-visible:outline-brand-500 disabled:opacity-50 dark:border-gray-700 dark:hover:bg-white/5";
+const box = "w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 disabled:cursor-not-allowed disabled:bg-gray-100 read-only:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:placeholder:text-gray-500 dark:disabled:bg-gray-800 dark:read-only:bg-gray-800";
+const btn = "rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 focus-visible:outline-2 focus-visible:outline-brand-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-white/5";
 const editorKey = (p: string, r: string | null) => `${p}:${r ?? "property"}`;
 type Draft = { key: string; body: CatalogBody; baseline: CatalogBody };
+type WorkspaceView = { kind: "list" } | { kind: "property" } | { kind: "product"; roomId: string };
+type WorkspaceTarget = { propertyId: string; roomId: string; view: WorkspaceView };
+const isRiversideIdentity = (property: { name: string; slug: string }) =>
+  ["the-bha-hotel", "the-bha-riverside"].includes(property.slug) &&
+  ["The BHA Hotel", "The BHA Riverside"].includes(property.name);
+const propertyName = (property: { name: string; slug: string }) =>
+  ["the-bha-hotel", "the-bha-riverside"].includes(property.slug) && property.name === "The BHA Hotel" ? "The BHA Riverside" : property.name;
+
+function CatalogPhoto({ src, alt, compact = false, retry = true }: { src: string | null; alt: string | null; compact?: boolean; retry?: boolean }) {
+  return <CatalogPhotoState key={src ?? "empty"} src={src} alt={alt} compact={compact} retry={retry} />;
+}
+
+function CatalogPhotoState({ src, alt, compact, retry }: { src: string | null; alt: string | null; compact: boolean; retry: boolean }) {
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  if (!src || failed) return <div role="img" aria-label={alt || "Ảnh chưa tải được"} className={`flex ${compact ? "aspect-[4/3]" : "aspect-video"} w-full flex-col items-center justify-center gap-2 rounded-lg bg-gray-100 p-3 text-center text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300`}>
+    <span>{failed ? "Không tải được ảnh này." : "Chưa có ảnh bìa."}</span>
+    {src && failed && retry && <button type="button" className={btn} onClick={() => { setFailed(false); setAttempt(x => x + 1); }}>Tải lại ảnh</button>}
+  </div>;
+  return <Image key={`${src}:${attempt}`} unoptimized width={960} height={720} src={src} alt={alt ?? ""} loading="lazy" onError={() => setFailed(true)} className={`w-full ${compact ? "aspect-[4/3]" : "aspect-video"} rounded-lg bg-gray-100 object-cover dark:bg-gray-800`} />;
+}
 
 export default function CatalogWorkspace() {
   const host = useWebsiteHost();
   const router = useRouter();
   const props = useWebsiteList(getCatalogProperties, []);
   const [owner, setOwner] = useState("");
-  const [room, setRoom] = useState("");
-  const [switchPrompt, setSwitchPrompt] = useState<{ propertyId: string; roomId: string } | null>(null);
+  const [view, setView] = useState<WorkspaceView>({ kind: "list" });
+  const [summaryRefreshing, setSummaryRefreshing] = useState(false);
+  const [switchPrompt, setSwitchPrompt] = useState<WorkspaceTarget | null>(null);
   const [leaveHref, setLeaveHref] = useState<string | null>(null);
   const [amenity, setAmenity] = useState({ code: "", name: "", category: "" });
   const propertyData = props.state.status === "ready" ? props.state.data : [];
-  const ownerId = owner || propertyData.find(x => x.slug === "the-bha-riverside")?.id || "@unconfigured:the-bha-riverside";
+  const ownerId = owner || propertyData.find(isRiversideIdentity)?.id || "@unconfigured:the-bha-riverside";
   const selected = propertyData.find(x => x.id === ownerId);
   const currentId = selected ? ownerId : "";
+  const room = view.kind === "product" ? view.roomId : "";
+  const isEditor = view.kind !== "list";
   const ownerKey = editorKey(currentId, room || null);
   const scope = useRef(ownerKey);
   scope.current = ownerKey;
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  const data = useWebsiteList(signal => currentId ? getCatalog(currentId, room || null, signal) : Promise.resolve({ kind: "network", message: "Chọn cơ sở đã có catalog." } as const), [currentId, room]);
+  const data = useWebsiteList(signal => isEditor && currentId ? getCatalog(currentId, room || null, signal) : Promise.resolve({ kind: "network", message: "Chọn cơ sở đã có catalog." } as const), [currentId, room, isEditor]);
+  const products = useWebsiteList(async signal => {
+    if (!currentId) return { kind: "network", message: "Chọn cơ sở đã có catalog." } as const;
+    const result = await getCatalogProducts(currentId, signal);
+    if (result.kind !== "ok") return result;
+    if (result.data.some(product => product.propertyId !== currentId)) return { kind: "invalid-response", message: "Danh sách trả về sản phẩm không thuộc cơ sở đã chọn. Hãy thử tải lại." } as const;
+    return { ...result, data: { propertyId: currentId, products: result.data } };
+  }, [currentId]);
   const load = data.reload;
   const [draftState, setDraftState] = useState<Draft | null>(null);
   const [note, setNote] = useState("");
@@ -63,19 +94,28 @@ export default function CatalogWorkspace() {
   const gallery = draft?.gallery ?? [];
   const matches = (fresh: CatalogEditor | null) => mounted.current && scope.current === ownerKey && fresh !== null && editorKey(fresh.propertyId, fresh.roomTypeId) === ownerKey;
   const finish = () => { busy.current = false; if (mounted.current) setWorking(false); };
-  const switchTo = (target: { propertyId: string; roomId: string }) => {
+  const switchTo = (target: WorkspaceTarget) => {
+    const returningToSameList = target.view.kind === "list" && target.propertyId === currentId;
     setDraftState(null);
     setNote(""); setFileError(""); setPreviewId(""); setAmenity({ code: "", name: "", category: "" });
     write.reset(); upload.reset(); addWrite.reset();
-    setOwner(target.propertyId); setRoom(target.roomId); setSwitchPrompt(null);
+    setOwner(target.propertyId); setView(target.view); setSwitchPrompt(null);
+    if (returningToSameList) {
+      setSummaryRefreshing(true);
+      void products.reload().finally(() => setSummaryRefreshing(false));
+    }
   };
-  const askSwitch = (propertyId: string, roomId: string) => {
-    if (busy.current || blocked || switchPrompt || editorKey(propertyId, roomId || null) === ownerKey) return;
-    setSwitchPrompt({ propertyId, roomId });
+  const currentViewKey = `${view.kind}:${view.kind === "product" ? view.roomId : ""}`;
+  const askSwitch = (target: WorkspaceTarget) => {
+    if (busy.current || blocked || switchPrompt || (target.propertyId === ownerId && `${target.view.kind}:${target.view.kind === "product" ? target.view.roomId : ""}` === currentViewKey)) return;
+    if (dirty) setSwitchPrompt(target);
+    else switchTo(target);
   };
   const acceptSwitch = () => { if (switchPrompt && !busy.current && !blocked) switchTo(switchPrompt); };
-  const propertyChanged = (id: string) => askSwitch(id, "");
-  const roomChanged = (id: string) => askSwitch(ownerId, id);
+  const propertyChanged = (id: string) => askSwitch({ propertyId: id, roomId: "", view: { kind: "list" } });
+  const openPropertyEditor = () => askSwitch({ propertyId: ownerId, roomId: "", view: { kind: "property" } });
+  const openProduct = (roomId: string) => askSwitch({ propertyId: ownerId, roomId, view: { kind: "product", roomId } });
+  const backToList = () => askSwitch({ propertyId: ownerId, roomId: "", view: { kind: "list" } });
   useEffect(() => { host.setUnsaved(dirty || working || unknown); return () => host.setUnsaved(false); }, [dirty, working, unknown, host]);
   useEffect(() => {
     if (!dirty && !locked && !unknown) return;
@@ -181,13 +221,26 @@ export default function CatalogWorkspace() {
   }, [switchPrompt, leaveHref]);
   if (props.state.status !== "ready") return <section role={props.state.status === "error" ? "alert" : "status"} className="rounded-2xl border border-gray-200 bg-white p-6 text-sm dark:border-gray-800 dark:bg-white/[0.03]">{props.state.status === "error" ? <>{props.state.message} <button className={btn} onClick={() => void props.reload()}>Thử lại</button></> : "Đang tải danh sách cơ sở…"}</section>;
   const propertyChoices = props.state.data;
-  return <div className="flex min-w-0 flex-col gap-5" data-testid="catalog-workspace">
-    <header><h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Cơ sở & loại phòng</h1><p className="mt-1 text-sm text-gray-500">Sửa nội dung, tiện nghi và thư viện ảnh; thông tin vận hành và giá được giữ nguyên.</p></header>
-    <fieldset disabled={blocked} className="grid gap-4 rounded-2xl border border-gray-200 bg-white p-4 sm:grid-cols-2 dark:border-gray-800 dark:bg-white/[0.03]">
-      <label className="text-sm font-medium">Cơ sở<select aria-label="Cơ sở" data-testid="property-select" className={`${box} mt-1`} value={ownerId} onChange={e => propertyChanged(e.target.value)}>{propertyChoices.map(p => <option value={p.id} key={p.id}>{p.name}</option>)}{[["the-bha-riverside", "Riverside"], ["the-bha-house", "House"], ["the-bha-villa", "Villa"]].filter(([slug]) => !propertyChoices.some(p => p.slug === slug)).map(([slug, name]) => <option value={"@unconfigured:" + slug} key={slug}>{name} — chưa thiết lập</option>)}</select></label>
-      {selected ? <label className="text-sm font-medium">Loại phòng<select aria-label="Loại phòng" data-testid="room-select" className={`${box} mt-1`} value={room} onChange={e => roomChanged(e.target.value)}><option value="">Thông tin cơ sở</option>{data.state.status === "ready" && data.state.data.propertyId === currentId && data.state.data.roomTypes.map(r => <option key={r.id} value={r.id}>{r.name} · {r.code}</option>)}</select></label> : <p role="status" className="self-center text-sm text-gray-500">Cơ sở này chưa thiết lập catalog. Chưa có nội dung để sửa.</p>}
+  const hasRiverside = propertyChoices.some(isRiversideIdentity);
+  const productList = products.state.status === "ready" && products.state.data.propertyId === currentId ? products.state.data.products : null;
+  const listLoading = summaryRefreshing || products.state.status === "loading" || (products.state.status === "ready" && productList === null);
+  const legacySamples = selected && isRiversideIdentity(selected) ? (productList ?? []).filter(x => ["DLX-KING", "FAMILY"].includes(x.code)) : [];
+  const productsToShow = (productList ?? []).filter(x => !legacySamples.some(sample => sample.roomTypeId === x.roomTypeId));
+  return <div className="flex min-w-0 flex-col gap-5 text-gray-900 dark:text-gray-100" data-testid="catalog-workspace">
+    <header className="flex flex-wrap items-start justify-between gap-3"><div><h1 className="text-2xl font-semibold text-gray-900 dark:text-white">{view.kind === "list" ? "Cơ sở & loại phòng" : view.kind === "property" ? "Thông tin cơ sở" : "Chi tiết sản phẩm"}</h1><p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{view.kind === "list" ? "Chọn cơ sở để xem các loại phòng; thông tin vận hành và giá được giữ nguyên." : "Sửa nội dung, tiện nghi và thư viện ảnh; thông tin vận hành và giá được giữ nguyên."}</p></div>{isEditor && <button type="button" className={btn} onClick={backToList} disabled={blocked}>← Quay lại danh sách</button>}</header>
+    <fieldset disabled={blocked} className="grid min-w-0 gap-4 rounded-2xl border border-gray-200 bg-white p-4 sm:grid-cols-[minmax(0,1fr)_auto] dark:border-gray-800 dark:bg-white/[0.03]">
+      <label className="min-w-0 text-sm font-medium text-gray-800 dark:text-gray-200">Cơ sở<select aria-label="Cơ sở" data-testid="property-select" className={`${box} mt-1`} value={ownerId} onChange={e => propertyChanged(e.target.value)}>{propertyChoices.map(p => <option className="bg-white text-gray-900 dark:bg-gray-900 dark:text-white" value={p.id} key={p.id}>{propertyName(p)}</option>)}{!hasRiverside && <option className="bg-white text-gray-900 dark:bg-gray-900 dark:text-white" value="@unconfigured:the-bha-riverside">The BHA Riverside — chưa thiết lập</option>}{[ ["the-bha-house", "The BHA House"], ["the-bha-villa", "The BHA Villa"] ].filter(([slug]) => !propertyChoices.some(p => p.slug === slug)).map(([slug, label]) => <option className="bg-white text-gray-900 dark:bg-gray-900 dark:text-white" value={"@unconfigured:" + slug} key={slug}>{label} — chưa thiết lập</option>)}</select></label>
+      {selected && view.kind === "list" && <button type="button" className={`${btn} self-end`} onClick={openPropertyEditor} disabled={blocked}>Chỉnh sửa thông tin cơ sở</button>}
+      {!selected && <p role="status" className="self-center text-sm text-gray-600 dark:text-gray-300">Cơ sở này chưa thiết lập catalog. Chưa có nội dung để sửa.</p>}
     </fieldset>
-    {!selected ? null : data.state.status === "loading" ? <p role="status" className="text-sm">Đang tải catalog…</p> : data.state.status === "error" ? <p role="alert" className="text-sm">{data.state.message} <button className={btn} onClick={() => void readAgain()}>Thử lại</button></p> : !base || !draft ? null : <fieldset disabled={blocked} className="min-w-0 space-y-5">
+    {view.kind === "list" && selected && <section aria-label="Danh sách sản phẩm" className="flex min-w-0 flex-col gap-4">
+      <div className="flex flex-wrap items-end justify-between gap-2"><div><h2 className="text-xl font-semibold text-gray-900 dark:text-white">{propertyName(selected)}</h2><p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{listLoading ? "Đang tải sản phẩm…" : `${productList?.length ?? 0} loại phòng`}</p></div>{products.state.status === "error" && <button type="button" className={btn} onClick={() => void products.reload()}>Thử lại</button>}</div>
+      {products.state.status === "error" ? <p role="alert" className="rounded-xl border border-error-200 bg-error-50 p-4 text-sm text-error-800 dark:border-error-500/30 dark:bg-error-500/10 dark:text-error-200">{products.state.message}</p> : listLoading ? <p role="status" className="rounded-xl border border-gray-200 bg-white p-5 text-sm text-gray-600 dark:border-gray-800 dark:bg-white/[0.03] dark:text-gray-300">Đang tải danh sách sản phẩm…</p> : productList?.length === 0 ? <p role="status" className="rounded-xl border border-gray-200 bg-white p-5 text-sm text-gray-600 dark:border-gray-800 dark:bg-white/[0.03] dark:text-gray-300">Cơ sở này chưa có loại phòng để hiển thị.</p> : <>
+        {productsToShow.length > 0 && <div className="grid min-w-0 gap-4 sm:grid-cols-2 xl:grid-cols-3">{productsToShow.map(product => <ProductCard key={product.roomTypeId} product={product} propertyId={currentId} onOpen={() => openProduct(product.roomTypeId)} />)}</div>}
+        {legacySamples.length > 0 && <details className="rounded-2xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-white/[0.02]"><summary className="cursor-pointer font-medium text-gray-800 dark:text-gray-200">Dữ liệu mẫu cũ ({legacySamples.length})</summary><p className="my-3 text-sm text-gray-600 dark:text-gray-300">Deluxe King và Family Suite là loại phòng mẫu cũ; dữ liệu và lịch sử hiện có được giữ riêng.</p><div className="grid min-w-0 gap-4 sm:grid-cols-2 xl:grid-cols-3">{legacySamples.map(product => <ProductCard key={product.roomTypeId} product={product} propertyId={currentId} onOpen={() => openProduct(product.roomTypeId)} />)}</div></details>}
+      </>}
+    </section>}
+    {isEditor && !selected ? <p role="status" className="text-sm text-gray-600 dark:text-gray-300">Cơ sở này chưa thiết lập catalog.</p> : isEditor && data.state.status === "loading" ? <p role="status" className="text-sm text-gray-600 dark:text-gray-300">Đang tải catalog…</p> : isEditor && data.state.status === "error" ? <p role="alert" className="text-sm text-error-700 dark:text-error-300">{data.state.message} <button className={btn} onClick={() => void readAgain()}>Thử lại</button></p> : isEditor && !base ? <p role="status" className="text-sm text-gray-600 dark:text-gray-300">Đang mở sản phẩm…</p> : isEditor && base && draft ? <fieldset disabled={blocked} className="min-w-0 space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-gray-50 p-3 text-xs text-gray-600 dark:bg-white/5 dark:text-gray-300"><span>{base.roomTypeId ? `${base.code} · ${base.physicalRoomCount} phòng vật lý · sức chứa ${base.baseOccupancy}–${base.maxOccupancy}` : `${base.slug} · ${base.physicalRoomCount} phòng vật lý`} · {base.isActive ? "Đang hoạt động" : "Ngừng hoạt động"} · giờ {base.checkInTime} / {base.checkOutTime} · {base.timeZone} · phiên bản bản sửa {draft.expectedVersion}</span><button disabled={!dirty || locked} className={btn} onClick={() => void readAgain()}>Bỏ sửa và tải lại</button></div>
       <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,.9fr)]">
         <section className="flex min-w-0 flex-col gap-4 rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]" aria-label="Thông tin catalog">
@@ -200,19 +253,33 @@ export default function CatalogWorkspace() {
         </section>
         <section className="flex min-w-0 flex-col gap-4 rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]" aria-label="Thư viện ảnh">
           <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold">Ảnh ({gallery.length})</h2><label className={`${btn} cursor-pointer`}>Tải ảnh lên<input aria-label="Tải ảnh lên" type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" disabled={locked} onChange={e => { void uploadFile(e.target.files?.[0]); e.currentTarget.value = ""; }} /></label></div>
-          {fileError && <p role="alert" className="text-sm text-red-600">{fileError}</p>}
-          {gallery.length === 0 ? <p className="text-sm text-gray-500">Chưa có ảnh. Gallery rỗng không có ảnh bìa.</p> : <ul className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">{gallery.map((item, i) => { const src = imageSource(item); return <li key={item.mediaId} className="min-w-0 overflow-hidden rounded-xl border border-gray-200 p-2 dark:border-gray-800"><button type="button" onClick={() => setPreviewId(item.mediaId)} className="w-full text-left focus-visible:outline-2 focus-visible:outline-brand-500" aria-label={`Xem trước ảnh ${i + 1}`}><Image unoptimized width={960} height={540} src={src ?? "/images/placeholder.svg"} alt={item.altText ?? ""} loading="lazy" onError={e => { e.currentTarget.style.opacity = "0.25"; }} className="aspect-video w-full rounded-lg bg-gray-100 object-cover dark:bg-gray-800" /></button><div className="mt-2 flex flex-wrap items-center justify-between gap-2"><label className="flex items-center gap-2 text-sm"><input type="radio" name="cover" checked={item.isCover} onChange={() => setCover(item.mediaId)} />Ảnh bìa</label><div className="flex gap-1"><button className={btn} aria-label={`Đưa ảnh ${i + 1} lên`} disabled={i === 0 || locked} onClick={() => move(i, -1)}>↑</button><button className={btn} aria-label={`Đưa ảnh ${i + 1} xuống`} disabled={i === gallery.length - 1 || locked} onClick={() => move(i, 1)}>↓</button><button className={btn} disabled={locked} onClick={() => remove(item.mediaId)}>Gỡ ảnh</button></div></div><label className="mt-2 block text-xs">Mô tả ảnh (alt)<input className={`${box} mt-1`} maxLength={500} value={item.altText ?? ""} onChange={e => change("gallery", gallery.map(x => x.mediaId === item.mediaId ? { ...x, altText: e.target.value } : x))} /></label></li>; })}</ul>}
-          <div className="rounded-xl border border-brand-200 bg-gray-50 p-4 dark:border-brand-700 dark:bg-white/5"><h3 className="mb-2 font-medium">Xem trước bản đang sửa</h3>{gallery.length ? <><Image unoptimized width={960} height={540} src={imageSource(gallery.find(x => x.mediaId === previewId) ?? gallery.find(x => x.isCover) ?? gallery[0]) ?? "/images/placeholder.svg"} alt={gallery.find(x => x.mediaId === previewId)?.altText ?? gallery.find(x => x.isCover)?.altText ?? ""} className="aspect-video max-h-72 w-full rounded-lg bg-gray-100 object-cover" onError={e => { e.currentTarget.style.opacity = "0.25"; }} /><p className="mt-2 font-semibold">{draft.name}</p><p className="text-sm text-gray-600 dark:text-gray-300">{draft.description || "Chưa có mô tả"}</p><p className="mt-1 text-xs">{base.amenities.filter(a => draft.amenityIds.includes(a.id)).map(a => a.name).join(" · ")}</p></> : <><p className="font-semibold">{draft.name}</p><p className="text-sm">{draft.description || "Chưa có mô tả"}</p></>}</div>
+          {fileError && <p role="alert" className="text-sm text-error-700 dark:text-error-300">{fileError}</p>}
+          {gallery.length === 0 ? <p className="text-sm text-gray-600 dark:text-gray-300">Chưa có ảnh. Gallery rỗng không có ảnh bìa.</p> : <ul className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">{gallery.map((item, i) => { const src = imageSource(item); return <li key={`${ownerKey}:${item.mediaId}`} className="min-w-0 overflow-hidden rounded-xl border border-gray-200 bg-white p-2 dark:border-gray-800 dark:bg-gray-900"><CatalogPhoto src={src} alt={item.altText} /><button type="button" className="mt-2 text-xs font-medium text-brand-600 underline hover:text-brand-700 dark:text-brand-300 dark:hover:text-brand-200" onClick={() => setPreviewId(item.mediaId)}>Xem trước ảnh</button><div className="mt-2 flex flex-wrap items-center justify-between gap-2"><label className="flex items-center gap-2 text-sm text-gray-800 dark:text-gray-200"><input type="radio" name="cover" checked={item.isCover} onChange={() => setCover(item.mediaId)} />Ảnh bìa</label><div className="flex flex-wrap gap-1"><button className={btn} aria-label={`Đưa ảnh ${i + 1} lên`} disabled={i === 0 || locked} onClick={() => move(i, -1)}>↑</button><button className={btn} aria-label={`Đưa ảnh ${i + 1} xuống`} disabled={i === gallery.length - 1 || locked} onClick={() => move(i, 1)}>↓</button><button className={btn} disabled={locked} onClick={() => remove(item.mediaId)}>Gỡ ảnh</button></div></div><label className="mt-2 block text-xs text-gray-700 dark:text-gray-300">Mô tả ảnh (alt)<input className={`${box} mt-1`} maxLength={500} value={item.altText ?? ""} onChange={e => change("gallery", gallery.map(x => x.mediaId === item.mediaId ? { ...x, altText: e.target.value } : x))} /></label></li>; })}</ul>}
+          <div className="rounded-xl border border-brand-200 bg-gray-50 p-4 text-gray-900 dark:border-brand-700 dark:bg-gray-900 dark:text-white"><h3 className="mb-2 font-medium">Xem trước bản đang sửa</h3>{gallery.length ? <><CatalogPhoto src={imageSource(gallery.find(x => x.mediaId === previewId) ?? gallery.find(x => x.isCover) ?? gallery[0])} alt={gallery.find(x => x.mediaId === previewId)?.altText ?? gallery.find(x => x.isCover)?.altText ?? ""} /><p className="mt-2 font-semibold">{draft.name}</p><p className="text-sm text-gray-700 dark:text-gray-300">{draft.description || "Chưa có mô tả"}</p><p className="mt-1 text-xs text-gray-700 dark:text-gray-300">{base.amenities.filter(a => draft.amenityIds.includes(a.id)).map(a => a.name).join(" · ")}</p></> : <><p className="font-semibold">{draft.name}</p><p className="text-sm text-gray-700 dark:text-gray-300">{draft.description || "Chưa có mô tả"}</p></>}</div>
         </section>
       </div>
       <section className="flex flex-wrap items-center gap-3 rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]"><button className="rounded-lg bg-brand-500 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50" disabled={!dirty || locked || write.status.phase === "unverified" || !gallery.every(x => x.altText == null || x.altText.length <= 500)} onClick={() => void doSave()}>{locked ? "Đang lưu…" : "Lưu thay đổi"}</button><span className="text-sm" role={note ? "status" : undefined}>{note || (dirty ? "Có thay đổi chưa lưu." : "Đã đồng bộ với máy chủ.")}</span></section>
-    </fieldset>}
+    </fieldset> : null}
     {unknown && <button disabled={locked} className={btn} onClick={() => void readAgain()}>Đọc lại trước khi tiếp tục</button>}
-    {leaveHref && <div role="dialog" aria-modal="true" aria-labelledby="leave-title" className="fixed inset-0 z-99999 flex items-center justify-center bg-black/50 p-4"><section className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl dark:bg-gray-900"><h2 id="leave-title" className="text-lg font-semibold">Rời màn hình?</h2><p className="my-3 text-sm">Có nội dung chưa lưu. Bạn có thể lưu, bỏ nội dung sửa, hoặc tiếp tục ở lại.</p><div className="flex flex-wrap justify-end gap-2"><button className={btn} disabled={locked} onClick={() => { if (!busy.current) setLeaveHref(null); }}>Tiếp tục sửa</button><button className={btn} disabled={locked} onClick={() => void doSave().then(ok => { if (ok && leaveHref) { const target = leaveHref; setLeaveHref(null); router.push(target); } })}>Lưu rồi rời</button><button className="rounded-lg bg-brand-500 px-3 py-2 text-sm text-white" disabled={locked} onClick={() => { if (busy.current) return; const target = leaveHref; setLeaveHref(null); if (target) router.push(target); }}>Bỏ sửa và rời</button></div></section></div>}
-    {switchPrompt && <div role="dialog" aria-modal="true" aria-labelledby="switch-title" className="fixed inset-0 z-99999 flex items-center justify-center bg-black/50 p-4"><section className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl dark:bg-gray-900"><h2 id="switch-title" className="text-lg font-semibold">Chuyển catalog?</h2><p className="my-3 text-sm">{dirty ? "Có nội dung chưa lưu. Bạn có thể lưu trước, bỏ phần sửa, hoặc tiếp tục ở lại." : "Mở catalog đã chọn?"}</p><div className="flex flex-wrap justify-end gap-2"><button className={btn} data-testid="switch-keep" disabled={locked} onClick={() => { if (!busy.current) setSwitchPrompt(null); }}>Tiếp tục sửa</button>{dirty && <button className={btn} onClick={() => void doSave().then(ok => { if (ok && switchPrompt) { switchTo(switchPrompt); } })} disabled={locked}>Lưu rồi chuyển</button>}<button className="rounded-lg bg-brand-500 px-3 py-2 text-sm text-white" disabled={locked} onClick={acceptSwitch}>Bỏ sửa và chuyển</button></div></section></div>}
+    {leaveHref && <div role="dialog" aria-modal="true" aria-labelledby="leave-title" className="fixed inset-0 z-99999 flex items-center justify-center bg-black/60 p-4"><section className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-5 text-gray-900 shadow-xl dark:border-gray-700 dark:bg-gray-900 dark:text-white"><h2 id="leave-title" className="text-lg font-semibold">Rời màn hình?</h2><p className="my-3 text-sm text-gray-700 dark:text-gray-300">Có nội dung chưa lưu. Bạn có thể lưu, bỏ nội dung sửa, hoặc tiếp tục ở lại.</p><div className="flex flex-wrap justify-end gap-2"><button className={btn} disabled={locked} onClick={() => { if (!busy.current) setLeaveHref(null); }}>Tiếp tục sửa</button><button className={btn} disabled={locked} onClick={() => void doSave().then(ok => { if (ok && leaveHref) { const target = leaveHref; setLeaveHref(null); router.push(target); } })}>Lưu rồi rời</button><button className="rounded-lg bg-brand-500 px-3 py-2 text-sm text-white hover:bg-brand-600 focus-visible:outline-2 focus-visible:outline-brand-500 disabled:cursor-not-allowed disabled:opacity-50" disabled={locked} onClick={() => { if (busy.current) return; const target = leaveHref; setLeaveHref(null); if (target) router.push(target); }}>Bỏ sửa và rời</button></div></section></div>}
+    {switchPrompt && <div role="dialog" aria-modal="true" aria-labelledby="switch-title" className="fixed inset-0 z-99999 flex items-center justify-center bg-black/60 p-4"><section className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-5 text-gray-900 shadow-xl dark:border-gray-700 dark:bg-gray-900 dark:text-white"><h2 id="switch-title" className="text-lg font-semibold">Rời phần đang sửa?</h2><p className="my-3 text-sm text-gray-700 dark:text-gray-300">Có thay đổi chưa lưu. Bạn có thể lưu trước, bỏ phần sửa, hoặc tiếp tục chỉnh sửa.</p><div className="flex flex-wrap justify-end gap-2"><button className={btn} data-testid="switch-keep" disabled={locked} onClick={() => { if (!busy.current) setSwitchPrompt(null); }}>Tiếp tục sửa</button><button className={btn} onClick={() => void doSave().then(ok => { if (ok && switchPrompt) switchTo(switchPrompt); })} disabled={locked}>Lưu rồi chuyển</button><button className="rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600 focus-visible:outline-2 focus-visible:outline-brand-500 disabled:cursor-not-allowed disabled:opacity-50" disabled={locked} onClick={acceptSwitch}>{switchPrompt.view.kind === "list" ? "Bỏ sửa và về danh sách" : "Bỏ sửa và chuyển"}</button></div></section></div>}
   </div>;
 }
 
 function Field({ label, value, onChange, max, area, type = "text", required = false }: { label: string; value: string | number; onChange: (x: string) => void; max?: number; area?: boolean; type?: string; required?: boolean }) {
-  return <label className="block min-w-0 text-sm font-medium">{label}{required && <span className="text-red-600"> *</span>}{area ? <textarea required={required} maxLength={max} rows={4} className={`${box} mt-1`} value={value} onChange={e => onChange(e.target.value)} /> : <input required={required} type={type} min={type === "number" ? 0 : undefined} maxLength={max} max={type === "number" ? 10000 : undefined} step={type === "number" ? "0.01" : undefined} className={`${box} mt-1`} value={value} onChange={e => onChange(e.target.value)} />}{max && <span className="mt-1 block text-xs text-gray-500">{String(value).length}/{max}</span>}</label>;
+  return <label className="block min-w-0 text-sm font-medium text-gray-800 dark:text-gray-200">{label}{required && <span className="text-error-600 dark:text-error-400"> *</span>}{area ? <textarea required={required} maxLength={max} rows={4} className={`${box} mt-1`} value={value} onChange={e => onChange(e.target.value)} /> : <input required={required} type={type} min={type === "number" ? 0 : undefined} maxLength={max} max={type === "number" ? 10000 : undefined} step={type === "number" ? "0.01" : undefined} className={`${box} mt-1`} value={value} onChange={e => onChange(e.target.value)} />}{max && <span className="mt-1 block text-xs text-gray-600 dark:text-gray-400">{String(value).length}/{max}</span>}</label>;
+}
+
+function ProductCard({ product, propertyId, onOpen }: { product: CatalogProductSummary; propertyId: string; onOpen: () => void }) {
+  const source = product.coverMediaId ? catalogImage(propertyId, product.roomTypeId, product.coverMediaId) : null;
+  return <article className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-sm dark:border-gray-800 dark:bg-white/[0.03]">
+    <div className="p-3"><CatalogPhoto src={source} alt={product.coverAltText} compact /></div>
+    <div className="flex min-w-0 flex-1 flex-col p-4 pt-1">
+      <div className="flex flex-wrap items-center justify-between gap-2"><span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-semibold text-gray-700 dark:bg-gray-800 dark:text-gray-200">{product.code}</span><span className={`rounded-full px-2.5 py-1 text-xs font-medium ${product.isActive ? "bg-success-50 text-success-700 dark:bg-success-500/10 dark:text-success-300" : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300"}`}>{product.isActive ? "Đang hoạt động" : "Ngừng hoạt động"}</span></div>
+      <h3 className="mt-3 text-lg font-semibold text-gray-900 dark:text-white">{product.name}</h3>
+      <p className="mt-1 min-h-10 text-sm text-gray-600 dark:text-gray-300">{product.description || "Chưa có mô tả."}</p>
+      <dl className="mt-4 grid grid-cols-2 gap-x-3 gap-y-2 border-t border-gray-200 pt-3 text-sm dark:border-gray-800"><div><dt className="text-gray-600 dark:text-gray-400">Sức chứa</dt><dd className="font-medium text-gray-900 dark:text-gray-100">{product.baseOccupancy}–{product.maxOccupancy} khách</dd></div><div><dt className="text-gray-600 dark:text-gray-400">Phòng vật lý</dt><dd className="font-medium text-gray-900 dark:text-gray-100">{product.physicalRoomCount}</dd></div><div><dt className="text-gray-600 dark:text-gray-400">Ảnh</dt><dd className="font-medium text-gray-900 dark:text-gray-100">{product.galleryCount}</dd></div></dl>
+      <button type="button" className="mt-4 w-full rounded-lg bg-brand-500 px-3 py-2.5 text-sm font-semibold text-white hover:bg-brand-600 focus-visible:outline-2 focus-visible:outline-brand-500 disabled:cursor-not-allowed disabled:opacity-50" onClick={onOpen}>Xem / Chỉnh sửa</button>
+    </div>
+  </article>;
 }

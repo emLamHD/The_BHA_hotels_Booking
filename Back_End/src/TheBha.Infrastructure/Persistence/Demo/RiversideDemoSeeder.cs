@@ -10,6 +10,7 @@ public sealed class RiversideSeedValidationException(string message) : Exception
 public sealed record RiversideSeedOptions
 {
     public const int MaxDays = 366;
+    public Guid? TargetPropertyId { get; init; }
 
     /// <summary>HTTPS origin that serves <see cref="RiversideDemoCatalog.MediaPathPrefix"/>; no trailing slash.</summary>
     public required string MediaOrigin { get; init; }
@@ -19,7 +20,7 @@ public sealed record RiversideSeedOptions
 
     public DateOnly ToExclusive => From.AddDays(Days);
 
-    public static bool TryCreate(string? mediaBaseUrl, DateOnly from, int days, out RiversideSeedOptions? options, out string? error)
+    public static bool TryCreate(string? mediaBaseUrl, DateOnly from, int days, out RiversideSeedOptions? options, out string? error, Guid? targetPropertyId = null)
     {
         options = null;
         if (days < 1 || days > MaxDays)
@@ -48,13 +49,13 @@ public sealed record RiversideSeedOptions
             return false;
         }
 
-        options = new RiversideSeedOptions { MediaOrigin = uri.GetLeftPart(UriPartial.Authority), From = from, Days = days };
+        options = new RiversideSeedOptions { MediaOrigin = uri.GetLeftPart(UriPartial.Authority), From = from, Days = days, TargetPropertyId = targetPropertyId };
         error = null;
         return true;
     }
 }
 
-public sealed record SeedTableCount(string Table, int Existing, int ToInsert);
+public sealed record SeedTableCount(string Table, int Existing, int ToInsert, int ToUpdate = 0, int ToDelete = 0);
 
 /// <summary>
 /// The outcome of a run: what exists, what would be (or was) inserted, what was left alone on
@@ -73,6 +74,8 @@ public sealed record RiversideSeedPlan(
 {
     public bool HasConflicts => Conflicts.Count > 0;
     public int TotalInserts => Tables.Sum(table => table.ToInsert);
+    public int TotalUpdates => Tables.Sum(table => table.ToUpdate);
+    public int TotalDeletes => Tables.Sum(table => table.ToDelete);
 }
 
 /// <summary>
@@ -106,6 +109,10 @@ public sealed class RiversideDemoSeeder(TheBhaDbContext dbContext, TimeProvider 
 {
     /// <summary>Serializes two operators applying at once (transaction-scoped advisory lock key).</summary>
     private const long ApplyLockKey = 7_311_002_001;
+    private const string LegacyPropertyCoverUrl = "https://images.example.com/the-bha/property-cover.jpg";
+    private const string LegacyPropertyLobbyUrl = "https://images.example.com/the-bha/lobby.jpg";
+    private const string OldHotelName = "The BHA Hotel";
+    private const string OldHotelSlug = "the-bha-hotel";
 
     public Task<RiversideSeedPlan> PlanAsync(RiversideSeedOptions options, CancellationToken cancellationToken) =>
         RunAsync(options, apply: false, cancellationToken);
@@ -130,9 +137,10 @@ public sealed class RiversideDemoSeeder(TheBhaDbContext dbContext, TimeProvider 
         var counts = new List<SeedTableCount>();
 
         // ---- Property ------------------------------------------------------------------
-        var property = await dbContext.Properties.AsNoTracking()
-            .SingleOrDefaultAsync(item => item.Slug == RiversideDemoCatalog.PropertySlug, cancellationToken);
-        var propertyId = property?.Id ?? RiversideDemoCatalog.PropertyId;
+        var property = options.TargetPropertyId is { } requestedPropertyId
+            ? await dbContext.Properties.AsNoTracking().SingleOrDefaultAsync(item => item.Id == requestedPropertyId, cancellationToken)
+            : await dbContext.Properties.AsNoTracking().SingleOrDefaultAsync(item => item.Slug == RiversideDemoCatalog.PropertySlug, cancellationToken);
+        var propertyId = options.TargetPropertyId ?? property?.Id ?? RiversideDemoCatalog.PropertyId;
         var timeZone = TimeZoneInfo.FindSystemTimeZoneById(property?.TimeZone ?? RiversideDemoCatalog.TimeZoneId);
         var localToday = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(now, timeZone).DateTime);
         if (options.From < localToday)
@@ -142,7 +150,38 @@ public sealed class RiversideDemoSeeder(TheBhaDbContext dbContext, TimeProvider 
         }
 
         var stageProperty = new List<object>();
-        if (property is null)
+        var normalizePropertyName = false;
+        if (options.TargetPropertyId is not null)
+        {
+            if (property is null)
+            {
+                conflicts.Add($"target property {propertyId} does not exist; the local-property seed never creates a second property.");
+            }
+            else
+            {
+                var aliases = await dbContext.Properties.AsNoTracking()
+                    .Where(item => item.Slug == OldHotelSlug || item.Slug == RiversideDemoCatalog.PropertySlug)
+                    .Select(item => new { item.Id, item.Name, item.Slug }).ToListAsync(cancellationToken);
+                var duplicates = aliases.Where(item => item.Id != propertyId).Select(item => item.Id).ToArray();
+                if (duplicates.Length > 0)
+                {
+                    conflicts.Add($"another Hotel/Riverside identity exists at {string.Join(", ", duplicates)}; no properties were merged.");
+                }
+
+                if (property.Slug is not (OldHotelSlug or RiversideDemoCatalog.PropertySlug) ||
+                    property.Name is not (OldHotelName or RiversideDemoCatalog.PropertyName))
+                {
+                    conflicts.Add($"target property {propertyId} does not match the verified Hotel/Riverside identity.");
+                }
+
+                normalizePropertyName = property.Name == OldHotelName;
+                if (!property.IsActive)
+                {
+                    warnings.Add("the existing Hotel/Riverside property is inactive; left as it is.");
+                }
+            }
+        }
+        else if (property is null)
         {
             if (await dbContext.Properties.AnyAsync(item => item.Id == propertyId, cancellationToken))
             {
@@ -161,6 +200,10 @@ public sealed class RiversideDemoSeeder(TheBhaDbContext dbContext, TimeProvider 
         }
 
         counts.Add(new("Properties", property is null ? 0 : 1, stageProperty.Count));
+        if (options.TargetPropertyId is not null)
+        {
+            counts.Add(new("Property display name", property is null ? 0 : 1, 0, normalizePropertyName ? 1 : 0));
+        }
 
         // ---- Amenities (global by code) -------------------------------------------------
         var amenityCodes = RiversideDemoCatalog.PropertyAmenities.Select(item => item.Code).ToArray();
@@ -335,9 +378,33 @@ public sealed class RiversideDemoSeeder(TheBhaDbContext dbContext, TimeProvider 
         var urls = RiversideDemoCatalog.Media.Select(item => options.MediaOrigin + RiversideDemoCatalog.MediaPathPrefix + item.FileName).ToArray();
         var existingMedia = (await dbContext.Media.AsNoTracking().Where(item => urls.Contains(item.Url)).ToListAsync(cancellationToken))
             .GroupBy(item => item.Url).ToDictionary(group => group.Key, group => group.OrderBy(item => item.CreatedAt).First());
-        var existingPropertyLinks = property is null
+        var propertyLinksWithMedia = property is null
             ? []
-            : await dbContext.PropertyMedia.AsNoTracking().Where(item => item.PropertyId == propertyId).ToListAsync(cancellationToken);
+            : await (from link in dbContext.PropertyMedia.AsNoTracking().Where(item => item.PropertyId == propertyId)
+                     join media in dbContext.Media.AsNoTracking() on link.MediaId equals media.Id
+                     select new { Link = link, media.Url }).ToListAsync(cancellationToken);
+        var existingPropertyLinks = propertyLinksWithMedia.Select(item => item.Link).ToList();
+        var legacyPropertyLinksToRemove = new List<PropertyMedia>();
+        if (options.TargetPropertyId is not null)
+        {
+            foreach (var item in propertyLinksWithMedia.Where(item => item.Url is LegacyPropertyCoverUrl or LegacyPropertyLobbyUrl))
+            {
+                var expected = item.Url == LegacyPropertyCoverUrl ? (SortOrder: 0, IsCover: true) : (SortOrder: 10, IsCover: false);
+                if (item.Link.SortOrder == expected.SortOrder && item.Link.IsCover == expected.IsCover &&
+                    string.IsNullOrEmpty(item.Link.AltTextOverride))
+                {
+                    // These two exact links are the DevelopmentDataSeeder placeholders; keep their Media rows and
+                    // remove only their untouched owner links so the Riverside gallery/cover can be canonical.
+                    legacyPropertyLinksToRemove.Add(item.Link);
+                }
+                else
+                {
+                    conflicts.Add("a legacy sample property image link has operator changes; it was preserved and must be reviewed before seeding the Riverside cover.");
+                }
+            }
+        }
+        var removedPropertyLinkIds = legacyPropertyLinksToRemove.Select(item => item.MediaId).ToHashSet();
+        var retainedPropertyLinks = existingPropertyLinks.Where(item => !removedPropertyLinkIds.Contains(item.MediaId)).ToList();
         var typeIdList = typeIds.Values.ToArray();
         var existingTypeLinks = existingTypes.Count == 0
             ? []
@@ -382,7 +449,7 @@ public sealed class RiversideDemoSeeder(TheBhaDbContext dbContext, TimeProvider 
             }
 
             var ownerHasCover = coverTaken.Contains(ownerKey) || (isProperty
-                ? existingPropertyLinks.Any(link => link.IsCover)
+                ? retainedPropertyLinks.Any(link => link.IsCover)
                 : existingTypeLinks.Any(link => link.RoomTypeId == ownerId && link.IsCover));
             var asCover = definition.IsCover && !ownerHasCover;
             // A cover that an earlier seed's cover is being replaced by is linked as a regular image first and
@@ -475,7 +542,11 @@ public sealed class RiversideDemoSeeder(TheBhaDbContext dbContext, TimeProvider 
 
         counts.Add(new("Media", existingMedia.Count, stageMedia.Count));
         counts.Add(new("Property/RoomType/Amenity links",
-            existingPropertyLinks.Count + existingTypeLinks.Count + existingAmenityLinks, stageLinks.Count));
+            retainedPropertyLinks.Count + existingTypeLinks.Count + existingAmenityLinks, stageLinks.Count));
+        if (legacyPropertyLinksToRemove.Count > 0)
+        {
+            counts.Add(new("Untouched legacy property image links", legacyPropertyLinksToRemove.Count, 0, ToDelete: legacyPropertyLinksToRemove.Count));
+        }
 
         var plan = new RiversideSeedPlan(
             options.From, options.ToExclusive, options.MediaOrigin, property is not null,
@@ -483,6 +554,33 @@ public sealed class RiversideDemoSeeder(TheBhaDbContext dbContext, TimeProvider 
         if (!apply || plan.HasConflicts)
         {
             return plan; // dry-run, or a conflict: nothing was written; the transaction (if any) rolls back
+        }
+
+        if (normalizePropertyName)
+        {
+            var trackedProperty = await dbContext.Properties.SingleAsync(item => item.Id == propertyId, cancellationToken);
+            if (trackedProperty.Name != OldHotelName || trackedProperty.Slug is not (OldHotelSlug or RiversideDemoCatalog.PropertySlug))
+            {
+                throw new InvalidOperationException("the target property identity changed after the dry-run; nothing was committed.");
+            }
+
+            trackedProperty.RenameForSeed(RiversideDemoCatalog.PropertyName, now);
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+
+        if (legacyPropertyLinksToRemove.Count > 0)
+        {
+            var ids = legacyPropertyLinksToRemove.Select(item => item.MediaId).ToArray();
+            var trackedLinks = await dbContext.PropertyMedia.Where(item => item.PropertyId == propertyId && ids.Contains(item.MediaId)).ToListAsync(cancellationToken);
+            if (trackedLinks.Count != legacyPropertyLinksToRemove.Count || trackedLinks.Any(item =>
+                    !legacyPropertyLinksToRemove.Any(expected => expected.MediaId == item.MediaId && expected.SortOrder == item.SortOrder &&
+                        expected.IsCover == item.IsCover && expected.AltTextOverride == item.AltTextOverride)))
+            {
+                throw new InvalidOperationException("a legacy property image link changed after the dry-run; nothing was committed.");
+            }
+
+            dbContext.PropertyMedia.RemoveRange(trackedLinks);
+            await dbContext.SaveChangesAsync(cancellationToken);
         }
 
         // ---- Apply: staged saves so dependencies exist first, then verify, then commit ----
