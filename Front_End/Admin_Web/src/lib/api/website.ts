@@ -246,6 +246,20 @@ export interface WebsiteHero {
   media: HeroMedia[];
 }
 
+export interface WebsiteSocialSettings {
+  revision: number;
+  updatedAtUtc: string;
+  phoneEnabled: boolean;
+  phoneNumber: string;
+  phoneHref: string;
+  messengerEnabled: boolean;
+  messengerUrl: string | null;
+  zaloEnabled: boolean;
+  zaloNumber: string | null;
+  zaloUrl: string | null;
+  backToTopEnabled: boolean;
+}
+
 export type WebsiteFailure =
   | { kind: "unauthenticated" }
   | { kind: "denied" }
@@ -503,6 +517,15 @@ export function parseHero(data: unknown): WebsiteHero | null {
     autoplayEnabled: data.autoplayEnabled, intervalSeconds: data.intervalSeconds, slides, media,
     texts: { title: { ...texts.title }, description: { ...texts.description }, primaryAction: { ...texts.primaryAction }, secondaryAction: { ...texts.secondaryAction } },
   };
+}
+
+export function parseSocialSettings(data: unknown): WebsiteSocialSettings | null {
+  if (!isRec(data) || !isNum(data.revision) || !Number.isSafeInteger(data.revision) || data.revision < 1 || !isStr(data.updatedAtUtc) || !isBool(data.phoneEnabled) ||
+      !isStr(data.phoneNumber) || !isStr(data.phoneHref) || !isBool(data.messengerEnabled) || !strOrNull(data.messengerUrl) ||
+      !isBool(data.zaloEnabled) || !strOrNull(data.zaloNumber) || !strOrNull(data.zaloUrl) || !isBool(data.backToTopEnabled)) return null;
+  return { revision: data.revision, updatedAtUtc: data.updatedAtUtc, phoneEnabled: data.phoneEnabled, phoneNumber: data.phoneNumber,
+    phoneHref: data.phoneHref, messengerEnabled: data.messengerEnabled, messengerUrl: data.messengerUrl,
+    zaloEnabled: data.zaloEnabled, zaloNumber: data.zaloNumber, zaloUrl: data.zaloUrl, backToTopEnabled: data.backToTopEnabled };
 }
 
 const parseLanguages = (data: unknown) => parseList(data, parseLanguage);
@@ -789,3 +812,12 @@ export function heroImageSrc(path: string): string | null {
   const base = getApiBaseUrl();
   return base.ok ? `${base.baseUrl}${path}` : null;
 }
+
+export const getSocialSettings = (signal?: AbortSignal) =>
+  call<WebsiteSocialSettings>("GET", `${SETTINGS}/social-media`, undefined, { write: false, parse: parseSocialSettings, signal });
+
+export type SocialSettingsDraft = Pick<WebsiteSocialSettings,
+  "phoneEnabled" | "phoneNumber" | "messengerEnabled" | "messengerUrl" | "zaloEnabled" | "zaloNumber" | "backToTopEnabled">;
+
+export const saveSocialSettings = (expectedRevision: number, draft: SocialSettingsDraft) =>
+  call<WebsiteSocialSettings>("POST", `${SETTINGS}/social-media/save`, { expectedRevision, ...draft }, { write: true, parse: parseSocialSettings });

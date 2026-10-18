@@ -461,7 +461,9 @@ public sealed class AdminCalendarAssignmentApiTests(PostgreSqlWebApplicationFact
         "/api/admin/v1/website/menus/save",
         // CUST-WEB-HERO-001-CP01: saving the home hero in one transaction, and uploading one picture (the only multipart route).
         "/api/admin/v1/website/hero/save",
-        "/api/admin/v1/website/hero/media"
+        "/api/admin/v1/website/hero/media",
+        // CUST-WEB-SOCIAL-001-CP01: saving all contact/back-to-top settings in one revisioned transaction.
+        "/api/admin/v1/website/social-media/save"
     ];
 
     [Fact]

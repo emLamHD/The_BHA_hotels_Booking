@@ -262,6 +262,13 @@ report). Apply with the normal `dotnet ef database update`; order 12 → 13. Des
 Run the update command before the development seed. The API never calls
 `EnsureCreated()` and never applies a migration during startup.
 
+Migration 14 (`AddWebsiteSocialSettings`) adds the singleton
+`WebsiteSocialSettings` table for the floating Customer contact actions. Its one-time
+seed enables Phone (`0899474888`, normalized `tel:+84899474888`) and Back to top;
+Messenger and Zalo start disabled with no destination. The row carries a revision,
+updated timestamp and optional Staff audit actor. Admin saves replace the settings
+atomically; normal startup never inserts or overwrites the row.
+
 ## Run the explicit development seed
 
 After applying migrations, run the seed only in Development:
