@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowUpIcon, PhoneIcon } from "@heroicons/react/24/outline";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getApiBaseUrl } from "@/lib/api/env";
@@ -63,17 +64,19 @@ export default function FloatingContactActions() {
   useEffect(() => { if (!settings?.phoneEnabled) setPhoneOpen(false); }, [settings?.phoneEnabled]);
   if (!settings) return null;
   const room = pathname?.startsWith("/listing-stay-detail");
-  const button = "flex h-11 w-11 items-center justify-center rounded-full bg-white text-neutral-800 shadow-lg ring-1 ring-black/10 transition hover:bg-neutral-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:bg-neutral-800 dark:text-white dark:ring-white/20";
+  const button = "flex h-11 w-11 items-center justify-center rounded-full shadow-lg ring-1 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-neutral-950";
+  const neutralButton = `${button} bg-white text-neutral-800 ring-black/10 hover:bg-neutral-50 dark:bg-neutral-800 dark:text-white dark:ring-white/20 dark:hover:bg-neutral-700`;
+  const phoneButton = `${button} bg-[#0a84ff] text-white ring-blue-900/10 hover:bg-[#0077e6] dark:bg-[#0a84ff] dark:text-white dark:ring-blue-200/30 dark:hover:bg-[#2997ff]`;
   return <aside aria-label="Contact" className={`fixed right-[max(1rem,env(safe-area-inset-right))] z-[35] flex flex-col items-end gap-2 md:bottom-6 ${room ? "bottom-[calc(5.5rem+env(safe-area-inset-bottom))]" : "bottom-[calc(4.75rem+env(safe-area-inset-bottom))]"}`}>
     {settings.phoneEnabled && settings.phoneNumber && settings.phoneHref && <div ref={phoneWrap} className="relative">
       {phoneOpen && <div role="dialog" aria-label={labels.phone} className="absolute bottom-0 right-14 whitespace-nowrap rounded-xl bg-white p-3 text-sm shadow-xl ring-1 ring-black/10 dark:bg-neutral-800 dark:ring-white/20">
         <p className="mb-1 select-text font-medium">{settings.phoneNumber}</p>
         <a ref={callLink} href={settings.phoneHref} className="text-primary-600 underline focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500">{labels.call} {settings.phoneNumber}</a>
       </div>}
-      <button type="button" className={button} aria-label={labels.phone} title={labels.phone} aria-expanded={phoneOpen} onClick={() => setPhoneOpen(open => !open)}><PhoneIcon className="h-6 w-6" /></button>
+      <button type="button" className={phoneButton} aria-label={labels.phone} title={labels.phone} aria-expanded={phoneOpen} onClick={() => setPhoneOpen(open => !open)}><PhoneIcon className="h-6 w-6" /></button>
     </div>}
     {settings.messengerEnabled && settings.messengerUrl && <a className={`${button} bg-[#0084ff] text-white hover:bg-[#0878df] dark:bg-[#0084ff]`} href={settings.messengerUrl} target="_blank" rel="noopener noreferrer" aria-label={labels.messenger} title={labels.messenger}><i aria-hidden="true" className="lab la-facebook-messenger text-2xl" /></a>}
-    {settings.zaloEnabled && settings.zaloUrl && <a className={`${button} bg-[#0068ff] text-white hover:bg-[#075bd4] dark:bg-[#0068ff]`} href={settings.zaloUrl} target="_blank" rel="noopener noreferrer" aria-label={labels.zalo} title={labels.zalo}><span aria-hidden="true" className="text-[11px] font-bold">Zalo</span></a>}
-    {settings.backToTopEnabled && showTop && <button type="button" className={button} aria-label={labels.top} title={labels.top} onClick={() => window.scrollTo({ top: 0, behavior: backToTopBehavior(window.matchMedia("(prefers-reduced-motion: reduce)").matches) })}><ArrowUpIcon className="h-6 w-6" /></button>}
+    {settings.zaloEnabled && settings.zaloUrl && <a className={`${button} overflow-hidden bg-white p-0.5 ring-black/10 hover:bg-neutral-100 dark:bg-white dark:ring-white/30 dark:hover:bg-neutral-100`} href={settings.zaloUrl} target="_blank" rel="noopener noreferrer" aria-label={labels.zalo} title={labels.zalo}><Image aria-hidden="true" src="/brand/zalo-share-logo.png" alt="" width={360} height={360} className="h-10 w-10 object-contain" /></a>}
+    {settings.backToTopEnabled && showTop && <button type="button" className={neutralButton} aria-label={labels.top} title={labels.top} onClick={() => window.scrollTo({ top: 0, behavior: backToTopBehavior(window.matchMedia("(prefers-reduced-motion: reduce)").matches) })}><ArrowUpIcon className="h-6 w-6" /></button>}
   </aside>;
 }

@@ -45,21 +45,21 @@ function Editor({ initial, reload }: { initial: WebsiteSocialSettings; reload: (
     <PageHeader title="Social media">Cấu hình cụm liên hệ nổi của Customer Web. Thứ tự Phone → Messenger → Zalo và ngưỡng Về đầu trang 400 px được cố định.</PageHeader>
     {saved && <Banner tone="success" testId="social-saved">{saved}</Banner>}
     <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
-      <p className="mb-4 text-sm">{dirty ? <span className="text-warning-700">Có thay đổi chưa lưu</span> : <>Đã lưu — phiên bản {base.revision}, {formatWhen(base.updatedAtUtc)}.</>}</p>
+      <p className="mb-4 text-sm text-gray-700 dark:text-gray-300">{dirty ? <span className="text-warning-700 dark:text-warning-300">Có thay đổi chưa lưu</span> : <>Đã lưu — phiên bản {base.revision}, {formatWhen(base.updatedAtUtc)}.</>}</p>
       <Channel title="Điện thoại" enabled={draft.phoneEnabled} onEnabled={v => patch({ phoneEnabled: v })}>
         <TextField label="Số điện thoại" value={draft.phoneNumber} onChange={v => patch({ phoneNumber: v })} error={fieldError("phoneNumber")} />
-        <p className="text-xs text-gray-500">Link gọi hiện tại: {base.phoneHref}</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400">Link gọi hiện tại: {base.phoneHref}</p>
       </Channel>
       <Channel title="Messenger" enabled={draft.messengerEnabled} onEnabled={v => patch({ messengerEnabled: v })}>
         <TextField label="Link chat Messenger" value={draft.messengerUrl ?? ""} onChange={v => patch({ messengerUrl: v || null })} error={fieldError("messengerUrl")} />
-        <p className="text-xs text-gray-500">Lấy username thật của Facebook Page, tạo <code>https://m.me/&lt;username-cua-trang&gt;</code>, tự mở thử link rồi mới bật và Lưu. Không dùng display name.</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400">Lấy username thật của Facebook Page, tạo <code>https://m.me/&lt;username-cua-trang&gt;</code>, tự mở thử link rồi mới bật và Lưu. Không dùng display name.</p>
       </Channel>
       <Channel title="Zalo" enabled={draft.zaloEnabled} onEnabled={v => patch({ zaloEnabled: v })}>
         <TextField label="Số điện thoại Zalo" value={draft.zaloNumber ?? ""} onChange={v => patch({ zaloNumber: v || null })} error={fieldError("zaloNumber")} />
-        <p className="text-xs text-gray-500">Nhập đúng số gắn với tài khoản cần nhận liên hệ, tự mở thử link rồi mới bật và Lưu.</p>
-        <p className="text-sm">Preview: {previewZalo ? <a className="text-brand-600 underline" href={previewZalo} target="_blank" rel="noopener noreferrer">{previewZalo}</a> : "Chưa có link hợp lệ"}</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400">Nhập đúng số gắn với tài khoản cần nhận liên hệ, tự mở thử link rồi mới bật và Lưu.</p>
+        <p className="text-sm text-gray-700 dark:text-gray-300">Preview: {previewZalo ? <a className="text-brand-600 underline dark:text-brand-400" href={previewZalo} target="_blank" rel="noopener noreferrer">{previewZalo}</a> : "Chưa có link hợp lệ"}</p>
       </Channel>
-      <Channel title="Về đầu trang" enabled={draft.backToTopEnabled} onEnabled={v => patch({ backToTopEnabled: v })}><p className="text-xs text-gray-500">Hiện sau khi cuộn quá 400 px.</p></Channel>
+      <Channel title="Về đầu trang" enabled={draft.backToTopEnabled} onEnabled={v => patch({ backToTopEnabled: v })}><p className="text-xs text-gray-500 dark:text-gray-400">Hiện sau khi cuộn quá 400 px.</p></Channel>
       <div className="mt-5 flex gap-2"><ActionButton variant="outline" onClick={() => { setDraft(draftOf(base)); write.reset(); }} disabled={!dirty || locked}>Huỷ</ActionButton><ActionButton onClick={() => void save()} disabled={!dirty || locked}>{write.status.phase === "pending" ? "Đang lưu…" : "Lưu"}</ActionButton></div>
     </div>
     <WriteFeedback status={write.status} working={write.status.phase === "pending"} serverNote={null} onReloadLatest={() => void check()} onCheckServer={() => void check()} fieldErrorOf={() => false} />
@@ -67,5 +67,5 @@ function Editor({ initial, reload }: { initial: WebsiteSocialSettings; reload: (
 }
 
 function Channel({ title, enabled, onEnabled, children }: { title: string; enabled: boolean; onEnabled: (value: boolean) => void; children: React.ReactNode }) {
-  return <section className="border-t border-gray-100 py-4 dark:border-gray-800"><div className="mb-3 flex items-center justify-between"><h2 className="font-semibold">{title}</h2><Checkbox checked={enabled} onChange={onEnabled} label={enabled ? "Bật" : "Tắt"} /></div><div className="space-y-2">{children}</div></section>;
+  return <section className="border-t border-gray-100 py-4 dark:border-gray-800"><div className="mb-3 flex items-center justify-between"><h2 className="font-semibold text-gray-800 dark:text-white/90">{title}</h2><Checkbox checked={enabled} onChange={onEnabled} label={enabled ? "Bật" : "Tắt"} /></div><div className="space-y-2">{children}</div></section>;
 }
