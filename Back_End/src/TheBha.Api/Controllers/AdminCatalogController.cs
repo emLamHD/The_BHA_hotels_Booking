@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Cors;
 using TheBha.Api.Authentication;
 using TheBha.Application.Properties;
 using TheBha.Application.Website;
@@ -8,6 +9,8 @@ namespace TheBha.Api.Controllers;
 [Route("api/admin/v1/catalog")]
 public sealed class AdminCatalogController(IAdminCatalog catalog) : AdminWebsiteControllerBase
 {
+    public const string CreateCorsPolicy = "admin-staff-catalog-create";
+
     [HttpGet("properties")]
     [StaffWebsitePermission(StaffGlobalPermission.WebsiteSettingsManage)]
     public async Task<IActionResult> Properties(CancellationToken ct) => Ok(await catalog.ListAsync(ct));
@@ -25,6 +28,7 @@ public sealed class AdminCatalogController(IAdminCatalog catalog) : AdminWebsite
     }
 
     [HttpPost("properties")]
+    [EnableCors(CreateCorsPolicy)]
     [StaffWebsitePermission(StaffGlobalPermission.WebsiteSettingsManage)]
     public async Task<ActionResult> CreateProperty([FromBody] CreateCatalogProperty request, [FromHeader(Name = "Idempotency-Key")] Guid? operationId, CancellationToken ct)
     {
@@ -33,6 +37,7 @@ public sealed class AdminCatalogController(IAdminCatalog catalog) : AdminWebsite
     }
 
     [HttpPost("properties/{propertyId:guid}/room-types")]
+    [EnableCors(CreateCorsPolicy)]
     [StaffWebsitePermission(StaffGlobalPermission.WebsiteSettingsManage)]
     public async Task<ActionResult> CreateRoomType(Guid propertyId, [FromBody] CreateCatalogRoomType request, [FromHeader(Name = "Idempotency-Key")] Guid? operationId, CancellationToken ct)
     {
@@ -41,6 +46,7 @@ public sealed class AdminCatalogController(IAdminCatalog catalog) : AdminWebsite
     }
 
     [HttpPost("properties/{propertyId:guid}/room-types/{roomTypeId:guid}/physical-rooms")]
+    [EnableCors(CreateCorsPolicy)]
     [StaffWebsitePermission(StaffGlobalPermission.WebsiteSettingsManage)]
     public async Task<ActionResult> CreatePhysicalRoom(Guid propertyId, Guid roomTypeId, [FromBody] CreateCatalogPhysicalRoom request, [FromHeader(Name = "Idempotency-Key")] Guid? operationId, CancellationToken ct)
     {

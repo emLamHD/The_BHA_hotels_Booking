@@ -39,6 +39,98 @@ public sealed class AdminCatalogApiTests : WebsiteTestSupport
     }
 
     [Fact]
+    public async Task Catalog_create_preflights_allow_only_the_required_admin_headers_and_do_not_mutate()
+    {
+        using var host = CreateHost();
+        var propertyId = await SeedStaffAsync(host);
+        var roomTypeId = Guid.NewGuid();
+        using var client = CreateHttpsClient(host);
+        var routes = new[]
+        {
+            "/api/admin/v1/catalog/properties",
+            $"/api/admin/v1/catalog/properties/{propertyId}/room-types",
+            $"/api/admin/v1/catalog/properties/{propertyId}/room-types/{roomTypeId}/physical-rooms",
+        };
+        var propertiesBefore = await ScalarAsync<int>("SELECT count(*) FROM \"Properties\"");
+        var roomTypesBefore = await ScalarAsync<int>("SELECT count(*) FROM \"RoomTypes\"");
+        var roomsBefore = await ScalarAsync<int>("SELECT count(*) FROM \"PhysicalRooms\"");
+        var auditsBefore = await ScalarAsync<int>("SELECT count(*) FROM \"CatalogContentAudits\"");
+        var operationsBefore = await ScalarAsync<int>("SELECT count(*) FROM \"AdminCatalogCreateOperations\"");
+
+        foreach (var route in routes)
+        {
+            using var preflight = new HttpRequestMessage(HttpMethod.Options, route);
+            preflight.Headers.Add("Origin", AdminOrigin);
+            preflight.Headers.Add("Access-Control-Request-Method", "POST");
+            preflight.Headers.TryAddWithoutValidation("Access-Control-Request-Headers", "content-type,idempotency-key");
+            using var response = await client.SendAsync(preflight);
+
+            Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+            Assert.Equal(AdminOrigin, Assert.Single(response.Headers.GetValues("Access-Control-Allow-Origin")));
+            Assert.Equal("true", Assert.Single(response.Headers.GetValues("Access-Control-Allow-Credentials")));
+            Assert.Contains("POST", Assert.Single(response.Headers.GetValues("Access-Control-Allow-Methods")), StringComparison.OrdinalIgnoreCase);
+            var allowedHeaders = string.Join(",", response.Headers.GetValues("Access-Control-Allow-Headers"))
+                .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            Assert.Contains("Content-Type", allowedHeaders, StringComparer.OrdinalIgnoreCase);
+            Assert.Contains("Idempotency-Key", allowedHeaders, StringComparer.OrdinalIgnoreCase);
+            Assert.False(response.Headers.Contains("Set-Cookie"));
+        }
+
+        using (var badOrigin = await SendPreflightAsync(client, routes[2], "https://evil.example", "POST", "content-type,idempotency-key"))
+            Assert.False(badOrigin.Headers.Contains("Access-Control-Allow-Origin"));
+        using (var badMethod = await SendPreflightAsync(client, routes[2], AdminOrigin, "PUT", "content-type,idempotency-key"))
+            Assert.False(badMethod.Headers.Contains("Access-Control-Allow-Methods"));
+        using (var badHeader = await SendPreflightAsync(client, routes[2], AdminOrigin, "POST", "content-type,idempotency-key,x-unlisted"))
+        {
+            var allowed = badHeader.Headers.TryGetValues("Access-Control-Allow-Headers", out var values) ? string.Join(",", values) : "";
+            Assert.DoesNotContain("x-unlisted", allowed, StringComparison.OrdinalIgnoreCase);
+        }
+        using (var loginPolicy = await SendPreflightAsync(client, "/api/admin/v1/auth/login", AdminOrigin, "POST", "content-type,idempotency-key"))
+        {
+            var allowed = loginPolicy.Headers.TryGetValues("Access-Control-Allow-Headers", out var values) ? string.Join(",", values) : "";
+            Assert.DoesNotContain("idempotency-key", allowed, StringComparison.OrdinalIgnoreCase);
+        }
+
+        Assert.Equal(propertiesBefore, await ScalarAsync<int>("SELECT count(*) FROM \"Properties\""));
+        Assert.Equal(roomTypesBefore, await ScalarAsync<int>("SELECT count(*) FROM \"RoomTypes\""));
+        Assert.Equal(roomsBefore, await ScalarAsync<int>("SELECT count(*) FROM \"PhysicalRooms\""));
+        Assert.Equal(auditsBefore, await ScalarAsync<int>("SELECT count(*) FROM \"CatalogContentAudits\""));
+        Assert.Equal(operationsBefore, await ScalarAsync<int>("SELECT count(*) FROM \"AdminCatalogCreateOperations\""));
+
+        using var deniedPost = Post(routes[2], new { roomNumber = "PREFLIGHT-MUST-NOT-CREATE", floor = 0, operationalStatus = "Inactive" }, origins: [AdminOrigin]);
+        deniedPost.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString());
+        using var deniedResponse = await client.SendAsync(deniedPost);
+        Assert.Equal(HttpStatusCode.Unauthorized, deniedResponse.StatusCode);
+        Assert.Equal(AdminOrigin, Assert.Single(deniedResponse.Headers.GetValues("Access-Control-Allow-Origin")));
+        Assert.Equal(roomsBefore, await ScalarAsync<int>("SELECT count(*) FROM \"PhysicalRooms\""));
+
+        var siteCookie = await LoginAsync(client, Site);
+        using var invalidCreate = Post("/api/admin/v1/catalog/properties", new { name = "", slug = "", address = "", city = "", country = "", timeZone = "Asia/Ho_Chi_Minh", checkInTime = "14:00:00", checkOutTime = "12:00:00", isActive = false }, siteCookie, [AdminOrigin]);
+        invalidCreate.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString());
+        using var invalidResponse = await client.SendAsync(invalidCreate);
+        Assert.Equal(HttpStatusCode.BadRequest, invalidResponse.StatusCode);
+        Assert.Equal(AdminOrigin, Assert.Single(invalidResponse.Headers.GetValues("Access-Control-Allow-Origin")));
+
+        using var wrongOriginCreate = Post("/api/admin/v1/catalog/properties", new { name = "Forbidden property", slug = "forbidden-property", address = "1 Sample Street", city = "Da Nang", country = "Vietnam", timeZone = "Asia/Ho_Chi_Minh", checkInTime = "14:00:00", checkOutTime = "12:00:00", isActive = false }, siteCookie, ["https://evil.example"]);
+        wrongOriginCreate.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString());
+        using var wrongOriginResponse = await client.SendAsync(wrongOriginCreate);
+        Assert.Equal(HttpStatusCode.Forbidden, wrongOriginResponse.StatusCode);
+        Assert.False(wrongOriginResponse.Headers.Contains("Access-Control-Allow-Origin"));
+        Assert.Equal(propertiesBefore, await ScalarAsync<int>("SELECT count(*) FROM \"Properties\""));
+        Assert.Equal(auditsBefore, await ScalarAsync<int>("SELECT count(*) FROM \"CatalogContentAudits\""));
+        Assert.Equal(operationsBefore, await ScalarAsync<int>("SELECT count(*) FROM \"AdminCatalogCreateOperations\""));
+    }
+
+    private static async Task<HttpResponseMessage> SendPreflightAsync(HttpClient client, string route, string origin, string method, string headers)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Options, route);
+        request.Headers.Add("Origin", origin);
+        request.Headers.Add("Access-Control-Request-Method", method);
+        request.Headers.TryAddWithoutValidation("Access-Control-Request-Headers", headers);
+        return await client.SendAsync(request);
+    }
+
+    [Fact]
     public async Task Property_room_type_and_physical_room_creates_are_parent_bound_audited_and_idempotent()
     {
         using var session = await StartAsync();

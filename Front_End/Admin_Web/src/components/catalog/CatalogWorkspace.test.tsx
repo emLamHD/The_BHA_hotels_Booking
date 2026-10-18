@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ALLOWED, WITHOUT_PERMISSION, deferred, ok } from "@/components/website/websiteTestUtils";
 import type { WebsiteResult } from "@/lib/api/website";
-import type { CatalogEditor } from "@/lib/api/catalog";
+import type { CatalogEditor, CatalogPhysicalRoom } from "@/lib/api/catalog";
 
 const router = { push: vi.fn(), replace: vi.fn() };
 vi.mock("next/navigation", () => ({ useRouter: () => router }));
@@ -182,13 +182,120 @@ describe("CatalogWorkspace correction regressions, real gate and hooks", () => {
     await userEvent.click(screen.getByRole("button", { name: "Tạo" }));
     mountedWorkspace.unmount();
     render(<WebsiteAccessGate returnTo="/products"><CatalogWorkspace /></WebsiteAccessGate>);
-    await userEvent.click(await screen.findByRole("button", { name: "Xác minh lại cùng yêu cầu" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Tiếp tục yêu cầu" }));
     await userEvent.click((await screen.findAllByRole("button", { name: "Xem / Chỉnh sửa" }))[0]);
     await screen.findByText("R-101");
     expect(createPhysicalRoom).toHaveBeenCalledTimes(2);
     expect(vi.mocked(createPhysicalRoom).mock.calls[0][3]).toBe(vi.mocked(createPhysicalRoom).mock.calls[1][3]);
     expect(vi.mocked(createPhysicalRoom).mock.calls[0][0]).toBe("p1");
     expect(vi.mocked(createPhysicalRoom).mock.calls[0][1]).toBe("r1");
+    expect(vi.mocked(createPhysicalRoom).mock.calls[0][2]).toEqual(vi.mocked(createPhysicalRoom).mock.calls[1][2]);
+  });
+  it("keeps an unknown create recovery after a later refusal and resumes with the same actor, parent, payload and key", async () => {
+    const newRoom = { id: "physical-new", propertyId: "p1", roomTypeId: "r1", roomNumber: "R-102", floor: 2, operationalStatus: "Inactive" as const };
+    vi.mocked(createPhysicalRoom)
+      .mockResolvedValueOnce({ kind: "unverified", message: "No acknowledgement" })
+      .mockResolvedValueOnce({ kind: "refused", status: 409, code: "already-exists", field: "roomNumber", detail: "Room number already exists" })
+      .mockResolvedValueOnce(ok(newRoom));
+    vi.mocked(getPhysicalRooms).mockResolvedValueOnce(ok([])).mockResolvedValue(ok([newRoom]));
+    const mountedWorkspace = render(<WebsiteAccessGate returnTo="/products"><CatalogWorkspace /></WebsiteAccessGate>);
+    await userEvent.click((await screen.findAllByRole("button", { name: "Xem / Chỉnh sửa" }))[0]);
+    await screen.findByRole("heading", { name: "Phòng thuộc loại này" });
+    await userEvent.click(screen.getByRole("button", { name: "Thêm phòng" }));
+    await userEvent.type(screen.getByLabelText("Số phòng *"), "R-102");
+    await userEvent.click(screen.getByRole("button", { name: "Tạo" }));
+    mountedWorkspace.unmount();
+
+    const resumed = render(<WebsiteAccessGate returnTo="/products"><CatalogWorkspace /></WebsiteAccessGate>);
+    const continueButton = await screen.findByRole("button", { name: "Tiếp tục yêu cầu" });
+    expect(continueButton).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Hủy" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Đọc lại trước khi tiếp tục" })).toBeNull();
+    const storedBefore = JSON.parse(sessionStorage.getItem("bha-admin-catalog-create-pending")!);
+    await userEvent.click(continueButton);
+    expect(await screen.findByRole("button", { name: "Tiếp tục yêu cầu" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Hủy" })).toBeDisabled();
+    const storedAfterRefusal = JSON.parse(sessionStorage.getItem("bha-admin-catalog-create-pending")!);
+    expect(storedAfterRefusal).toEqual(storedBefore);
+    expect(vi.mocked(createPhysicalRoom).mock.calls[0][3]).toBe(vi.mocked(createPhysicalRoom).mock.calls[1][3]);
+    expect(vi.mocked(createPhysicalRoom).mock.calls[1][0]).toBe(vi.mocked(createPhysicalRoom).mock.calls[0][0]);
+    expect(vi.mocked(createPhysicalRoom).mock.calls[1][1]).toBe(vi.mocked(createPhysicalRoom).mock.calls[0][1]);
+    expect(vi.mocked(createPhysicalRoom).mock.calls[1][2]).toEqual(vi.mocked(createPhysicalRoom).mock.calls[0][2]);
+
+    resumed.unmount();
+    render(<WebsiteAccessGate returnTo="/products"><CatalogWorkspace /></WebsiteAccessGate>);
+    await userEvent.click(await screen.findByRole("button", { name: "Tiếp tục yêu cầu" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(createPhysicalRoom).toHaveBeenCalledTimes(3);
+    expect(vi.mocked(createPhysicalRoom).mock.calls[2][3]).toBe(vi.mocked(createPhysicalRoom).mock.calls[0][3]);
+  });
+  it("allows cancel after a known pre-write refusal and does not restore that operation", async () => {
+    vi.mocked(createPhysicalRoom).mockResolvedValue({ kind: "config", message: "Admin API is not configured" });
+    const mountedWorkspace = render(<WebsiteAccessGate returnTo="/products"><CatalogWorkspace /></WebsiteAccessGate>);
+    await userEvent.click((await screen.findAllByRole("button", { name: "Xem / Chỉnh sửa" }))[0]);
+    await screen.findByRole("heading", { name: "Phòng thuộc loại này" });
+    await userEvent.click(screen.getByRole("button", { name: "Thêm phòng" }));
+    await userEvent.type(screen.getByLabelText("Số phòng *"), "R-103");
+    await userEvent.click(screen.getByRole("button", { name: "Tạo" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Admin API is not configured");
+    expect(screen.getByRole("button", { name: "Hủy" })).toBeEnabled();
+    expect(sessionStorage.getItem("bha-admin-catalog-create-pending")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Hủy" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Bỏ bản nháp" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    mountedWorkspace.unmount();
+    render(<WebsiteAccessGate returnTo="/products"><CatalogWorkspace /></WebsiteAccessGate>);
+    await screen.findByRole("heading", { name: "Cơ sở & loại phòng" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+  it("keeps an unknown recovery record when a different Staff account opens the workspace", async () => {
+    vi.mocked(createPhysicalRoom).mockResolvedValue({ kind: "unverified", message: "No acknowledgement" });
+    const first = render(<WebsiteAccessGate returnTo="/products"><CatalogWorkspace /></WebsiteAccessGate>);
+    await userEvent.click((await screen.findAllByRole("button", { name: "Xem / Chỉnh sửa" }))[0]);
+    await screen.findByRole("heading", { name: "Phòng thuộc loại này" });
+    await userEvent.click(screen.getByRole("button", { name: "Thêm phòng" }));
+    await userEvent.type(screen.getByLabelText("Số phòng *"), "R-104");
+    await userEvent.click(screen.getByRole("button", { name: "Tạo" }));
+    first.unmount();
+
+    const recovery = JSON.parse(sessionStorage.getItem("bha-admin-catalog-create-pending")!);
+    vi.mocked(fetchStaffSession).mockResolvedValue({ kind: "authenticated", session: { ...ALLOWED, staffAccountId: "22222222-2222-2222-2222-222222222222" } });
+    render(<WebsiteAccessGate returnTo="/products"><CatalogWorkspace /></WebsiteAccessGate>);
+    const continueButton = await screen.findByRole("button", { name: "Tiếp tục yêu cầu" });
+    expect(continueButton).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Hủy" })).toBeDisabled();
+    expect(screen.getByText(/đăng nhập lại đúng tài khoản/)).toBeInTheDocument();
+    expect(JSON.parse(sessionStorage.getItem("bha-admin-catalog-create-pending")!)).toEqual(recovery);
+    expect(createPhysicalRoom).toHaveBeenCalledTimes(1);
+  });
+  it("holds cancel, edits and a second submit through physical-room POST and readback", async () => {
+    const created = { id: "physical-slow", propertyId: "p1", roomTypeId: "r1", roomNumber: "R-SLOW", floor: 2, operationalStatus: "Inactive" as const };
+    const posting = deferred<WebsiteResult<CatalogPhysicalRoom>>();
+    const reading = deferred<WebsiteResult<CatalogPhysicalRoom[]>>();
+    vi.mocked(createPhysicalRoom).mockReturnValue(posting.promise);
+    const mountedWorkspace = render(<WebsiteAccessGate returnTo="/products"><CatalogWorkspace /></WebsiteAccessGate>);
+    await userEvent.click((await screen.findAllByRole("button", { name: "Xem / Chỉnh sửa" }))[0]);
+    await screen.findByRole("heading", { name: "Phòng thuộc loại này" });
+    await userEvent.click(screen.getByRole("button", { name: "Thêm phòng" }));
+    const roomNumber = screen.getByLabelText("Số phòng *");
+    await userEvent.type(roomNumber, "R-SLOW");
+    const form = screen.getByRole("button", { name: "Tạo" }).closest("form")!;
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+    expect(createPhysicalRoom).toHaveBeenCalledTimes(1);
+    expect(roomNumber).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Hủy" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Đang lưu và xác minh…" })).toBeDisabled();
+
+    vi.mocked(getPhysicalRooms).mockReturnValueOnce(reading.promise);
+    await act(async () => posting.resolve(ok(created)));
+    expect(screen.getByRole("button", { name: "Hủy" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Đang lưu và xác minh…" })).toBeDisabled();
+    await act(async () => reading.resolve(ok([created])));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(sessionStorage.getItem("bha-admin-catalog-create-pending")).toBeNull();
+    expect(createPhysicalRoom).toHaveBeenCalledTimes(1);
+    mountedWorkspace.unmount();
   });
   it("resolves the legacy Hotel row as Riverside without adding a duplicate placeholder", async () => {
     vi.mocked(getCatalogProperties).mockResolvedValue(ok([{ id: "p1", name: "The BHA Hotel", slug: "the-bha-hotel" }, { id: "p2", name: "Other", slug: "other" }]));

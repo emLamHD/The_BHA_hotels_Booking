@@ -19,10 +19,24 @@ const isRiversideIdentity = (property: { name: string; slug: string }) =>
 const propertyName = (property: { name: string; slug: string }) =>
   ["the-bha-hotel", "the-bha-riverside"].includes(property.slug) && property.name === "The BHA Hotel" ? "The BHA Riverside" : property.name;
 const slugify = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[đĐ]/g, "d").toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-type CreateDialog = { kind: "property" | "room" | "physical"; operationId: string; propertyId: string; roomTypeId: string; unknown: boolean };
+type CreateDialog = { kind: "property" | "room" | "physical"; operationId: string; actorStaffId: string; propertyId: string; roomTypeId: string; unknown: boolean };
 type CreateRequest = CreatePropertyInput | CreateRoomTypeInput | CreatePhysicalRoomInput;
 type PendingCreate = { actorStaffId: string; dialog: CreateDialog; request: CreateRequest };
 const pendingCreateStorageKey = "bha-admin-catalog-create-pending";
+function readPendingCreate(): PendingCreate | null {
+  try {
+    const raw = sessionStorage.getItem(pendingCreateStorageKey);
+    if (!raw) return null;
+    const value = JSON.parse(raw) as PendingCreate;
+    return value?.actorStaffId && value?.dialog?.operationId && value?.request ? value : null;
+  } catch { return null; }
+}
+function removePendingCreate(operationId: string) {
+  try {
+    const pending = readPendingCreate();
+    if (pending?.dialog.operationId === operationId) sessionStorage.removeItem(pendingCreateStorageKey);
+  } catch { /* A later recovery can safely replay the same idempotency key. */ }
+}
 const initialProperty = (name = ""): CreatePropertyInput => ({ name, slug: slugify(name), description: null, address: "", city: "", country: "", timeZone: "Asia/Ho_Chi_Minh", checkInTime: "14:00:00", checkOutTime: "12:00:00", isActive: false });
 const initialRoomType = (): CreateRoomTypeInput => ({ code: "", name: "", slug: "", description: null, baseOccupancy: 1, maxOccupancy: 2, areaSquareMeters: null, bedrooms: null, bedDescription: null, isActive: false });
 const initialPhysicalRoom = (): CreatePhysicalRoomInput => ({ roomNumber: "", floor: 1, operationalStatus: "Inactive" });
@@ -55,6 +69,8 @@ export default function CatalogWorkspace() {
   const [leaveHref, setLeaveHref] = useState<string | null>(null);
   const [amenity, setAmenity] = useState({ code: "", name: "", category: "" });
   const [createDialog, setCreateDialog] = useState<CreateDialog | null>(null);
+  const createDialogRef = useRef(createDialog);
+  createDialogRef.current = createDialog;
   const [propertyForm, setPropertyForm] = useState<CreatePropertyInput>(initialProperty());
   const [roomTypeForm, setRoomTypeForm] = useState<CreateRoomTypeInput>(initialRoomType());
   const [physicalRoomForm, setPhysicalRoomForm] = useState<CreatePhysicalRoomInput>(initialPhysicalRoom());
@@ -94,18 +110,17 @@ export default function CatalogWorkspace() {
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => {
     try {
-      const raw = sessionStorage.getItem(pendingCreateStorageKey);
-      if (!raw) return;
-      const pending = JSON.parse(raw) as PendingCreate;
-      if (!pending?.dialog?.operationId || !["property", "room", "physical"].includes(pending.dialog.kind) || !pending.request) return;
-      if (!actorStaffId || pending.actorStaffId !== actorStaffId) { sessionStorage.removeItem(pendingCreateStorageKey); return; }
-      const dialog = { ...pending.dialog, unknown: true };
+      const pending = readPendingCreate();
+      if (!pending || !["property", "room", "physical"].includes(pending.dialog.kind)) return;
+      const dialog = { ...pending.dialog, actorStaffId: pending.actorStaffId, unknown: true };
       setCreateDialog(dialog);
       if (dialog.kind === "property") setPropertyForm(pending.request as CreatePropertyInput);
       else if (dialog.kind === "room") setRoomTypeForm(pending.request as CreateRoomTypeInput);
       else setPhysicalRoomForm(pending.request as CreatePhysicalRoomInput);
       if (dialog.propertyId) setOwner(dialog.propertyId);
-      setCreateMessage("Tìm thấy yêu cầu tạo chưa được xác minh. Hãy xác minh lại cùng yêu cầu; không tạo khóa mới.");
+      setCreateMessage(pending.actorStaffId === actorStaffId
+        ? "Tìm thấy yêu cầu tạo chưa được xác minh. Tiếp tục sẽ gửi cùng nội dung với cùng mã yêu cầu; thao tác có thể được hoàn tất nếu lần trước chưa ghi."
+        : "Yêu cầu đang chờ thuộc tài khoản Staff khác. Hãy đăng nhập lại đúng tài khoản để tiếp tục; yêu cầu và mã khôi phục vẫn được giữ.");
     } catch { /* An unreadable local recovery record cannot authorize another request. */ }
   }, [actorStaffId]);
   const data = useWebsiteList(signal => isEditor && currentId ? getCatalog(currentId, room || null, signal) : Promise.resolve({ kind: "network", message: "Chọn cơ sở đã có catalog." } as const), [currentId, room, isEditor]);
@@ -131,7 +146,7 @@ export default function CatalogWorkspace() {
   const busy = useRef(false);
   const [working, setWorking] = useState(false);
   const locked = working || host.signingOut;
-  const unknown = [write, upload, addWrite].some(x => x.status.phase === "unverified");
+  const unknown = createDialog?.unknown === true || [write, upload, addWrite].some(x => x.status.phase === "unverified");
   const blocked = locked || unknown;
   const ready = data.state.status === "ready" ? data.state.data : null;
   const base = ready && editorKey(ready.propertyId, ready.roomTypeId) === ownerKey ? ready : null;
@@ -180,16 +195,23 @@ export default function CatalogWorkspace() {
     if (kind === "property") { const form = initialProperty(propertyNameHint); setPropertyForm(form); setCreateBaseline(form); }
     if (kind === "room") { const form = initialRoomType(); setRoomTypeForm(form); setCreateBaseline(form); }
     if (kind === "physical") { const form = initialPhysicalRoom(); setPhysicalRoomForm(form); setCreateBaseline(form); }
-    setCreateDialog({ kind, operationId: crypto.randomUUID(), propertyId: currentId, roomTypeId, unknown: false });
+    setCreateDialog({ kind, operationId: crypto.randomUUID(), actorStaffId, propertyId: currentId, roomTypeId, unknown: false });
   };
   const submitCreate = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const target = createDialog;
     if (!target || busy.current || locked || (blocked && !target.unknown)) return;
+    if (target.actorStaffId !== actorStaffId) { setCreateMessage("Hãy đăng nhập bằng tài khoản Staff đã bắt đầu yêu cầu này."); return; }
     const operationId = target.operationId;
-    const request = target.kind === "property" ? { ...propertyForm, checkInTime: propertyForm.checkInTime.length === 5 ? `${propertyForm.checkInTime}:00` : propertyForm.checkInTime, checkOutTime: propertyForm.checkOutTime.length === 5 ? `${propertyForm.checkOutTime}:00` : propertyForm.checkOutTime } : target.kind === "room" ? { ...roomTypeForm } : { ...physicalRoomForm };
-    try { sessionStorage.setItem(pendingCreateStorageKey, JSON.stringify({ actorStaffId, dialog: target, request } satisfies PendingCreate)); }
-    catch { setCreateMessage("Không thể lưu thông tin khôi phục của yêu cầu này trong trình duyệt. Chưa gửi dữ liệu; hãy bật lưu trữ phiên rồi thử lại."); return; }
+    const previous = target.unknown ? readPendingCreate() : null;
+    if (target.unknown && (!previous || previous.dialog.operationId !== target.operationId || previous.actorStaffId !== target.actorStaffId || previous.dialog.kind !== target.kind || previous.dialog.propertyId !== target.propertyId || previous.dialog.roomTypeId !== target.roomTypeId)) {
+      setCreateMessage("Không khớp được bản khôi phục của yêu cầu này. Chưa gửi lại; tải lại màn hình để nạp bản khôi phục gốc."); return;
+    }
+    const request = previous?.request ?? (target.kind === "property" ? { ...propertyForm, checkInTime: propertyForm.checkInTime.length === 5 ? `${propertyForm.checkInTime}:00` : propertyForm.checkInTime, checkOutTime: propertyForm.checkOutTime.length === 5 ? `${propertyForm.checkOutTime}:00` : propertyForm.checkOutTime } : target.kind === "room" ? { ...roomTypeForm } : { ...physicalRoomForm });
+    if (!target.unknown) {
+      try { sessionStorage.setItem(pendingCreateStorageKey, JSON.stringify({ actorStaffId, dialog: target, request } satisfies PendingCreate)); }
+      catch { setCreateMessage("Không thể lưu thông tin khôi phục của yêu cầu này trong trình duyệt. Chưa gửi dữ liệu; hãy bật lưu trữ phiên rồi thử lại."); return; }
+    }
     let switchAfterCreate: string | null = null;
     busy.current = true; setWorking(true); setCreateMessage("");
     addWrite.reset();
@@ -215,18 +237,31 @@ export default function CatalogWorkspace() {
         return readback.kind === "ok" && readback.data.some(x => x.id === created.data.id && x.roomNumber === created.data.roomNumber)
           ? { kind: "ok" as const, data: { id: created.data.id } } : { kind: "unverified" as const, message: "Phòng đã được gửi nhưng chưa đối chiếu được danh sách. Hãy xác minh lại bằng cùng yêu cầu." };
       });
-      if (!mounted.current) return;
+      if (!mounted.current || createDialogRef.current?.operationId !== operationId) return;
       if (result?.kind === "ok") {
-        sessionStorage.removeItem(pendingCreateStorageKey);
+        removePendingCreate(operationId);
         setCreateDialog(null); setCreateMessage("");
         if (target.kind === "property") { await props.reload(); switchAfterCreate = result.data.id; }
         else if (target.kind === "room") { await products.reload(); switchAfterCreate = target.propertyId; }
         else { await physicalRooms.reload(); await products.reload(); }
       } else if (result) {
         const message = result.kind === "refused" ? result.detail : describeFailure(result);
-        setCreateMessage(message);
-        if (result.kind === "unverified" || result.kind === "network" || result.kind === "invalid-response" || result.kind === "error") setCreateDialog(x => x ? { ...x, unknown: true } : x);
-        else sessionStorage.removeItem(pendingCreateStorageKey);
+        const currentAttemptWasDefinitelyRefused = result.kind === "refused" || result.kind === "config" || result.kind === "unauthenticated" || result.kind === "denied";
+        if (target.unknown || !currentAttemptWasDefinitelyRefused) {
+          setCreateDialog(x => x?.operationId === operationId ? { ...x, unknown: true } : x);
+          setCreateMessage(target.unknown
+            ? `Máy chủ chưa xác nhận yêu cầu cũ. Lần tiếp tục này: ${message} Giữ nguyên yêu cầu; khi có thể, tiếp tục bằng cùng mã để nhận kết quả cũ hoặc hoàn tất một lần.`
+            : `Chưa nhận được xác nhận cho yêu cầu tạo. ${message} Tiếp tục sẽ dùng đúng nội dung và mã yêu cầu này.`);
+        } else {
+          removePendingCreate(operationId);
+          setCreateDialog(x => x?.operationId === operationId ? { ...x, unknown: false } : x);
+          setCreateMessage(message);
+        }
+      } else {
+        // A null result means the shared Staff write gate refused to start the callback.
+        removePendingCreate(operationId);
+        setCreateDialog(x => x?.operationId === operationId ? { ...x, unknown: false } : x);
+        setCreateMessage("Yêu cầu chưa được gửi vì một thao tác Admin khác đang chạy. Hãy thử lại khi thao tác đó hoàn tất.");
       }
     } finally { busy.current = false; if (mounted.current) setWorking(false); if (switchAfterCreate) queueMicrotask(() => askSwitch({ propertyId: switchAfterCreate!, roomId: "", view: { kind: "list" } })); }
   };
@@ -276,7 +311,7 @@ export default function CatalogWorkspace() {
     } finally { finish(); }
   };
   const readAgain = async () => {
-    if (busy.current || locked || !host.beginWrite()) return;
+    if (busy.current || locked || createDialog?.unknown || !host.beginWrite()) return;
     const unknownUpload = upload.status.phase === "unverified";
     busy.current = true; setWorking(true);
     try {
@@ -426,14 +461,14 @@ export default function CatalogWorkspace() {
         : <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[420px] text-left text-sm"><thead className="border-b border-gray-200 text-gray-600 dark:border-gray-700 dark:text-gray-300"><tr><th className="p-2">Số phòng</th><th className="p-2">Tầng</th><th className="p-2">Trạng thái</th></tr></thead><tbody>{physicalRooms.state.data.map(x => <tr key={x.id} className="border-b border-gray-100 last:border-0 dark:border-gray-800"><td className="p-2 font-medium">{x.roomNumber}</td><td className="p-2">{x.floor}</td><td className="p-2">{x.operationalStatus === "Active" ? "Đang hoạt động" : x.operationalStatus === "Inactive" ? "Ngừng hoạt động" : "Ngoài khai thác"}</td></tr>)}</tbody></table></div>}
     </section>}
 
-    {unknown && <button disabled={locked} className={btn} onClick={() => void readAgain()}>Đọc lại trước khi tiếp tục</button>}
+    {unknown && !createDialog?.unknown && <button disabled={locked} className={btn} onClick={() => void readAgain()}>Đọc lại trước khi tiếp tục</button>}
     {leaveHref && <div role="dialog" aria-modal="true" aria-labelledby="leave-title" className="fixed inset-0 z-99999 flex items-center justify-center bg-black/60 p-4"><section className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-5 text-gray-900 shadow-xl dark:border-gray-700 dark:bg-gray-900 dark:text-white"><h2 id="leave-title" className="text-lg font-semibold">Rời màn hình?</h2><p className="my-3 text-sm text-gray-700 dark:text-gray-300">Có nội dung chưa lưu. Bạn có thể lưu, bỏ nội dung sửa, hoặc tiếp tục ở lại.</p><div className="flex flex-wrap justify-end gap-2"><button className={btn} disabled={locked} onClick={() => { if (!busy.current) setLeaveHref(null); }}>Tiếp tục sửa</button><button className={btn} disabled={locked} onClick={() => void doSave().then(ok => { if (ok && leaveHref) { const target = leaveHref; setLeaveHref(null); router.push(target); } })}>Lưu rồi rời</button><button className="rounded-lg bg-brand-500 px-3 py-2 text-sm text-white hover:bg-brand-600 focus-visible:outline-2 focus-visible:outline-brand-500 disabled:cursor-not-allowed disabled:opacity-50" disabled={locked} onClick={() => { if (busy.current) return; const target = leaveHref; setLeaveHref(null); if (target) router.push(target); }}>Bỏ sửa và rời</button></div></section></div>}
     {switchPrompt && <div role="dialog" aria-modal="true" aria-labelledby="switch-title" className="fixed inset-0 z-99999 flex items-center justify-center bg-black/60 p-4"><section className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-5 text-gray-900 shadow-xl dark:border-gray-700 dark:bg-gray-900 dark:text-white"><h2 id="switch-title" className="text-lg font-semibold">Rời phần đang sửa?</h2><p className="my-3 text-sm text-gray-700 dark:text-gray-300">Có thay đổi chưa lưu. Bạn có thể lưu trước, bỏ phần sửa, hoặc tiếp tục chỉnh sửa.</p><div className="flex flex-wrap justify-end gap-2"><button className={btn} data-testid="switch-keep" disabled={locked} onClick={() => { if (!busy.current) setSwitchPrompt(null); }}>Tiếp tục sửa</button><button className={btn} onClick={() => void doSave().then(ok => { if (ok && switchPrompt) switchTo(switchPrompt); })} disabled={locked}>Lưu rồi chuyển</button><button className="rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600 focus-visible:outline-2 focus-visible:outline-brand-500 disabled:cursor-not-allowed disabled:opacity-50" disabled={locked} onClick={acceptSwitch}>{switchPrompt.view.kind === "list" ? "Bỏ sửa và về danh sách" : "Bỏ sửa và chuyển"}</button></div></section></div>}
     {createDialog && <div className="fixed inset-0 z-99999 flex items-center justify-center overflow-y-auto bg-black/60 p-4" onMouseDown={e => { if (e.target === e.currentTarget) requestCreateDismiss(); }}>
       <section ref={createModalRef} role="dialog" aria-modal="true" aria-labelledby="create-title" className="my-auto max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-gray-200 bg-white p-5 text-gray-900 shadow-xl dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100">
         <h2 id="create-title" className="text-xl font-semibold">{createDialog.kind === "property" ? "Thêm cơ sở" : createDialog.kind === "room" ? "Thêm loại phòng" : "Thêm phòng thực tế"}</h2>
         {createDialog.kind !== "property" && <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">Cơ sở cha: <strong>{selected ? propertyName(selected) : "—"}</strong></p>}
-        {createDialog.unknown && <p role="status" className="mt-3 rounded-lg border border-warning-300 bg-warning-50 p-3 text-sm text-warning-800 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-200">{createMessage || "Kết quả chưa xác định. Giữ nguyên nội dung và khóa để xác minh."}</p>}
+        {createDialog.unknown && <p role="status" className="mt-3 rounded-lg border border-warning-300 bg-warning-50 p-3 text-sm text-warning-800 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-200">{createMessage || "Kết quả chưa xác định. Giữ nguyên nội dung và mã yêu cầu để tiếp tục an toàn."}</p>}
         <form className="mt-4 space-y-4" onSubmit={submitCreate}>
           <fieldset disabled={working || createDialog.unknown || (createDialog.kind !== "property" && !selected)} className="space-y-3">
           {createDialog.kind === "property" && <div className="grid gap-3 sm:grid-cols-2">
@@ -471,7 +506,7 @@ export default function CatalogWorkspace() {
           </>}
           </fieldset>
           {createMessage && !createDialog.unknown && <p role="alert" className="rounded-lg border border-error-200 bg-error-50 p-3 text-sm text-error-800 dark:border-error-500/30 dark:bg-error-500/10 dark:text-error-200">{createMessage}</p>}
-          <div className="flex justify-end gap-2 border-t border-gray-200 pt-4 dark:border-gray-700"><button type="button" className={btn} disabled={working || createDialog.unknown} onClick={requestCreateDismiss}>Hủy</button><button type="submit" className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={working || host.signingOut || (createDialog.kind !== "property" && !selected)}>{working ? "Đang lưu và xác minh…" : createDialog.unknown ? "Xác minh lại cùng yêu cầu" : "Tạo"}</button></div>
+          <div className="flex justify-end gap-2 border-t border-gray-200 pt-4 dark:border-gray-700"><button type="button" className={btn} disabled={working || createDialog.unknown} onClick={requestCreateDismiss}>Hủy</button><button type="submit" className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={working || host.signingOut || createDialog.actorStaffId !== actorStaffId || (createDialog.kind !== "property" && !selected)}>{working ? "Đang lưu và xác minh…" : createDialog.unknown ? "Tiếp tục yêu cầu" : "Tạo"}</button></div>
         </form>
       </section>
     </div>}
