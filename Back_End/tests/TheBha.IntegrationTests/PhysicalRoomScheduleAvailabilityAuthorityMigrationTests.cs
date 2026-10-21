@@ -91,7 +91,7 @@ public sealed class PhysicalRoomScheduleAvailabilityAuthorityMigrationTests : IA
         var applied = await context.Database.GetAppliedMigrationsAsync();
         Assert.Equal(8, applied.Count());
         Assert.Contains(applied, migration => migration.EndsWith("_PhysicalRoomScheduleAvailabilityAuthority"));
-        Assert.Equal([V9Migration, V10Migration, V11Migration, V12Migration, V13Migration, V14Migration, "20261018044944_AddAdminCatalogContent", "20261018154408_AddAdminCatalogCreateOperations", "20261021083007_AddBookingPromotions"], await context.Database.GetPendingMigrationsAsync());
+        Assert.Equal([V9Migration, V10Migration, V11Migration, V12Migration, V13Migration, V14Migration, "20261018044944_AddAdminCatalogContent", "20261018154408_AddAdminCatalogCreateOperations", "20261021083007_AddBookingPromotions", "20261021120804_AddBlogFoundation"], await context.Database.GetPendingMigrationsAsync());
     }
 
     [Fact]
@@ -113,7 +113,7 @@ public sealed class PhysicalRoomScheduleAvailabilityAuthorityMigrationTests : IA
         Assert.Equal(0, await ScalarAsync<long>(connection, "SELECT COUNT(*) FROM \"RoomBlocks\""));
         Assert.Equal(0, await ScalarAsync<long>(connection, "SELECT COUNT(*) FROM \"RoomOccupancySegments\""));
         Assert.Equal(0, await ScalarAsync<long>(connection, "SELECT COUNT(*) FROM \"RoomOccupancySegmentAudits\""));
-        Assert.Equal([V9Migration, V10Migration, V11Migration, V12Migration, V13Migration, V14Migration, "20261018044944_AddAdminCatalogContent", "20261018154408_AddAdminCatalogCreateOperations", "20261021083007_AddBookingPromotions"], await context.Database.GetPendingMigrationsAsync());
+        Assert.Equal([V9Migration, V10Migration, V11Migration, V12Migration, V13Migration, V14Migration, "20261018044944_AddAdminCatalogContent", "20261018154408_AddAdminCatalogCreateOperations", "20261021083007_AddBookingPromotions", "20261021120804_AddBlogFoundation"], await context.Database.GetPendingMigrationsAsync());
     }
 
     [Fact]

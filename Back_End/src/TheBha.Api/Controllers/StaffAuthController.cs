@@ -115,7 +115,7 @@ public sealed class StaffAuthController(
         var account = await database.StaffAccounts
             .AsNoTracking()
             .Where(candidate => candidate.Id == staffId)
-            .Select(candidate => new { candidate.Email, candidate.CanManageWebsite })
+            .Select(candidate => new { candidate.Email, candidate.CanManageWebsite, candidate.CanEditBlog, candidate.CanPublishBlog })
             .SingleOrDefaultAsync(HttpContext.RequestAborted);
         if (account is null)
         {
@@ -136,7 +136,7 @@ public sealed class StaffAuthController(
                 .OrderBy(membership => membership.PropertyName, StringComparer.Ordinal)
                 .ThenBy(membership => membership.PropertyId)
                 .ToArray(),
-            StaffPermissions.GlobalNames(account.CanManageWebsite));
+            StaffPermissions.GlobalNames(account.CanManageWebsite, account.CanEditBlog, account.CanPublishBlog));
     }
 
     private ObjectResult AuthenticationFailed() =>

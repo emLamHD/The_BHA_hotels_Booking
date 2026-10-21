@@ -22,7 +22,16 @@ public enum StaffPermission
 /// </summary>
 public enum StaffGlobalPermission
 {
-    WebsiteSettingsManage
+    WebsiteSettingsManage,
+
+    /// <summary>BHA-BLOG-001 (ADR 0010): write Blog drafts. Does not publish.</summary>
+    BlogEdit,
+
+    /// <summary>BHA-BLOG-001 (ADR 0010): publish, unpublish, archive and structure the Blog (categories, pins, settings).</summary>
+    BlogPublish,
+
+    /// <summary>BHA-BLOG-001 (ADR 0010): see the Blog Admin and upload a picture — satisfied by <see cref="BlogEdit"/> or <see cref="BlogPublish"/>.</summary>
+    BlogAccess
 }
 
 /// <summary>
@@ -46,8 +55,26 @@ public static class StaffPermissions
     };
 
     /// <summary>The names <c>me</c> and login report: the global permissions the database grants this account right now.</summary>
-    public static IReadOnlyList<string> GlobalNames(bool canManageWebsite) =>
-        canManageWebsite ? [nameof(StaffGlobalPermission.WebsiteSettingsManage)] : [];
+    public static IReadOnlyList<string> GlobalNames(bool canManageWebsite, bool canEditBlog = false, bool canPublishBlog = false)
+    {
+        var names = new List<string>();
+        if (canManageWebsite)
+        {
+            names.Add(nameof(StaffGlobalPermission.WebsiteSettingsManage));
+        }
+
+        if (canEditBlog)
+        {
+            names.Add(nameof(StaffGlobalPermission.BlogEdit));
+        }
+
+        if (canPublishBlog)
+        {
+            names.Add(nameof(StaffGlobalPermission.BlogPublish));
+        }
+
+        return names;
+    }
 }
 
 /// <summary>
@@ -95,6 +122,12 @@ public sealed class StaffAccessEvaluator(TheBhaDbContext database) : IStaffAcces
         {
             StaffGlobalPermission.WebsiteSettingsManage => database.StaffAccounts.AsNoTracking()
                 .AnyAsync(account => account.Id == staffId && account.IsActive && account.CanManageWebsite, cancellationToken),
+            StaffGlobalPermission.BlogEdit => database.StaffAccounts.AsNoTracking()
+                .AnyAsync(account => account.Id == staffId && account.IsActive && account.CanEditBlog, cancellationToken),
+            StaffGlobalPermission.BlogPublish => database.StaffAccounts.AsNoTracking()
+                .AnyAsync(account => account.Id == staffId && account.IsActive && account.CanPublishBlog, cancellationToken),
+            StaffGlobalPermission.BlogAccess => database.StaffAccounts.AsNoTracking()
+                .AnyAsync(account => account.Id == staffId && account.IsActive && (account.CanEditBlog || account.CanPublishBlog), cancellationToken),
             _ => Task.FromResult(false)
         };
 

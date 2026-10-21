@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using TheBha.Domain.Blog;
 using TheBha.Domain.Bookings;
 using TheBha.Infrastructure.Identity;
 using TheBha.Domain.Promotions;
@@ -52,6 +53,19 @@ public sealed class TheBhaDbContext(DbContextOptions<TheBhaDbContext> options)
     public DbSet<PromotionMedia> PromotionMedia => Set<PromotionMedia>();
     public DbSet<PromotionAudit> PromotionAudits => Set<PromotionAudit>();
     public DbSet<BookingPromotionApplication> BookingPromotionApplications => Set<BookingPromotionApplication>();
+    public DbSet<BlogCategory> BlogCategories => Set<BlogCategory>();
+    public DbSet<BlogCategoryTranslation> BlogCategoryTranslations => Set<BlogCategoryTranslation>();
+    public DbSet<BlogCategorySlug> BlogCategorySlugs => Set<BlogCategorySlug>();
+    public DbSet<BlogCategoryPin> BlogCategoryPins => Set<BlogCategoryPin>();
+    public DbSet<BlogPost> BlogPosts => Set<BlogPost>();
+    public DbSet<BlogPostTranslation> BlogPostTranslations => Set<BlogPostTranslation>();
+    public DbSet<BlogPostRevision> BlogPostRevisions => Set<BlogPostRevision>();
+    public DbSet<BlogRevisionCategory> BlogRevisionCategories => Set<BlogRevisionCategory>();
+    public DbSet<BlogRevisionMedia> BlogRevisionMedia => Set<BlogRevisionMedia>();
+    public DbSet<BlogPostSlug> BlogPostSlugs => Set<BlogPostSlug>();
+    public DbSet<BlogMedia> BlogMedia => Set<BlogMedia>();
+    public DbSet<BlogSettings> BlogSettings => Set<BlogSettings>();
+    public DbSet<BlogAudit> BlogAudits => Set<BlogAudit>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

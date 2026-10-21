@@ -38,6 +38,8 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<IAdminCatalog, AdminCatalogService>();
         services.AddScoped<TheBha.Application.Promotions.IAdminPromotions, AdminPromotionService>();
         services.AddScoped<TheBha.Application.Promotions.IWebsitePromotions, WebsitePromotionService>();
+        services.AddScoped<TheBha.Application.Blog.IAdminBlog, AdminBlogService>();
+        services.AddScoped<TheBha.Application.Blog.IWebsiteBlog, WebsiteBlogService>();
         services.AddSingleton<ICatalogMediaStorage>(new TheBha.Infrastructure.CatalogMedia.LocalCatalogMediaStorage(configuration["WebsiteMedia:RootPath"]));
         services.AddSingleton<ICatalogImageDecoder, TheBha.Infrastructure.CatalogMedia.CatalogImageDecoder>();
         services.AddSingleton(TimeProvider.System);
