@@ -19,6 +19,7 @@ import { useI18n } from "@/lib/i18n/I18nProvider";
 import { calculateNights } from "@/lib/api/availabilityValidation";
 import { selectGalleryImages } from "@/lib/api/mediaPresentation";
 import { BookingHoldNightDto, ReservationNightDto } from "@/lib/api/bookingHoldTypes";
+import type { AppliedPromotionDto } from "@/lib/api/availabilityTypes";
 import { buildRoomDetailsHref, inProgressBookingTarget, resolveProperty, resolveRoomType } from "@/lib/roomDetailsRoute";
 import { formatDesignedForOccupancy, formatMaxOccupancy } from "@/lib/api/roomTypePresentation";
 
@@ -33,6 +34,9 @@ interface Snapshot {
   currencyCode: string | null;
   totalAmount: number;
   nights: (BookingHoldNightDto | ReservationNightDto)[] | null;
+  listTotalAmount?: number | null;
+  discountTotalAmount?: number | null;
+  appliedPromotion?: AppliedPromotionDto | null;
 }
 
 const CalendarIcon = () => (
@@ -231,10 +235,12 @@ const PayDoneReceipt: FC = () => {
                   label: `${dates.stayDate(night.stayDate)} · ${t("customer.booking.rooms", { rooms: night.rooms })}`,
                   amount: night.nightTotal,
                   unitAmount: night.unitAmount,
+                  listAmount: night.listUnitAmount != null ? night.listUnitAmount * night.rooms : undefined,
                 }))}
                 totalAmount={data.totalAmount}
                 currencyCode={data.currencyCode}
                 totalLabel={t("customer.receipt.total")}
+                discount={{ listTotal: data.listTotalAmount ?? data.totalAmount, discountTotal: data.discountTotalAmount ?? 0, promotion: data.appliedPromotion }}
                 rowClassName="flex justify-between gap-4 py-2 font-medium text-neutral-900 dark:text-neutral-100"
                 totalClassName="flex items-center justify-between gap-4 pt-4"
                 totalValueClassName="text-lg font-semibold text-neutral-900 dark:text-neutral-100"

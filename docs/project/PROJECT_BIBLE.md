@@ -227,7 +227,7 @@ dưới — nó là TARGET/APPROVED, chưa implement, theo đúng nghĩa ở tr�
 - OTA/channel manager (adapter-specific schema/behavior deferred; boundary
   nguyên tắc đã ghi trong blueprint §13).
 - Payment và refund.
-- Promotion/coupon/discount.
+- Coupon/voucher code và ưu đãi cộng dồn (ưu đãi đặt phòng tự áp dụng đã là work item `BHA-BOOKING-PROMOTIONS-001`, xem `docs/design/BHA-BOOKING-PROMOTIONS-001-booking-promotions.md`).
 - Tax và service charge phức tạp.
 - Meal plan.
 - Multi-currency conversion.

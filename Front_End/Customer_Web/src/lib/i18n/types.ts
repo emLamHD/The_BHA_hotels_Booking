@@ -68,8 +68,7 @@ export const PROVIDER_CONTENT_PREFIXES = [
   "content.ratePlan.",
   "content.amenity.",
   "content.media.",
-  // the small static registries (offers, hero slides, navigation, booking guide); posts are read per page
-  "content.offer.",
+  // the small static registries (hero slides, navigation, booking guide); posts are read per page
   "content.hero.",
   "content.nav.",
   "content.gallery.",

@@ -5,6 +5,7 @@ using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using TheBha.Application.Bookings;
+using TheBha.Application.Promotions;
 using TheBha.Application.Properties;
 using TheBha.Domain.Bookings;
 using TheBha.Domain.Common;
@@ -228,13 +229,27 @@ internal sealed class BookingHoldCreationStore(
                 }
             }
 
+            // The one pricing function the quote also uses: the list rate, then the best Active promotion, if any.
+            var promotionRules = await PromotionPricingRuleLoader.LoadActiveAsync(
+                dbContext,
+                request.PropertyId,
+                cancellationToken);
+            PricedStay priced;
             NightlyCommitmentSnapshot[] itemNightPlan;
             try
             {
-                itemNightPlan = rates.Select(rate => new NightlyCommitmentSnapshot(
-                        rate.StayDate,
+                priced = PromotionPricing.Price(
+                    rates.Select(rate => new ListNight(rate.StayDate, rate.Amount)).ToList(),
+                    request.Rooms,
+                    ratePlan.CurrencyCode,
+                    request.RoomTypeId,
+                    localToday,
+                    promotionRules);
+                itemNightPlan = priced.Nights.Select(night => new NightlyCommitmentSnapshot(
+                        night.StayDate,
                         request.RatePlanId,
-                        rate.Amount))
+                        night.FinalAmount,
+                        night.ListAmount))
                     .ToArray();
             }
             catch (OverflowException)
@@ -243,6 +258,24 @@ internal sealed class BookingHoldCreationStore(
                     transaction,
                     BookingHoldCreationResult.Conflict(
                         "Current pricing exceeds the supported amount range."),
+                    cancellationToken);
+            }
+
+            // The guest confirmed a price. If it is not the price now, nothing is held: the new price is shown for a new decision.
+            // Replays returned earlier, before pricing, so a Hold that already exists is never re-priced.
+            if (request.ExpectedTotalAmount is { } expectedTotal &&
+                (expectedTotal != priced.FinalTotal ||
+                 !string.Equals(request.ExpectedCurrencyCode, ratePlan.CurrencyCode, StringComparison.Ordinal)))
+            {
+                return await RollbackResultAsync(
+                    transaction,
+                    BookingHoldCreationResult.PriceChanged(new PriceQuoteDto(
+                        ratePlan.CurrencyCode,
+                        priced.FinalTotal,
+                        priced.ListTotal,
+                        priced.DiscountTotal,
+                        priced.Nights.Select(night => new NightlyRateDto(night.StayDate, night.FinalAmount, night.ListAmount, night.DiscountAmount)).ToList(),
+                        priced.ToDto())),
                     cancellationToken);
             }
 
@@ -276,7 +309,17 @@ internal sealed class BookingHoldCreationStore(
                     request.IdempotencyKeyHash,
                     request.RequestFingerprint,
                     guestAccessTokenHash,
-                    itemNightPlan);
+                    itemNightPlan,
+                    priced.Promotion is { } applied
+                        ? new AppliedPromotionSnapshot(
+                            applied.Id,
+                            applied.Version,
+                            applied.Slug,
+                            applied.Title,
+                            applied.Kind,
+                            applied.Value,
+                            applied.CurrencyCode)
+                        : null);
             }
             catch (DomainException exception)
             {
@@ -361,6 +404,7 @@ internal sealed class BookingHoldCreationStore(
             .AsNoTracking()
             .Include(hold => hold.Items)
             .ThenInclude(item => item.Nights)
+            .Include(x => x.PromotionApplication)
             .SingleOrDefaultAsync(
                 hold => hold.IdempotencyKeyHash == idempotencyKeyHash,
                 cancellationToken);
@@ -411,10 +455,12 @@ internal sealed class BookingHoldCreationStore(
             .Select(group =>
             {
                 var unitAmount = group.First().UnitAmount;
+                var listUnitAmount = group.First().ListUnitAmount;
                 var rooms = group.Count();
-                return new BookingHoldNightDto(group.Key, rooms, unitAmount, unitAmount * rooms);
+                return new BookingHoldNightDto(group.Key, rooms, unitAmount, unitAmount * rooms, listUnitAmount, listUnitAmount - unitAmount);
             })
             .ToList();
+        var listTotal = hold.Items.SelectMany(item => item.Nights).Sum(night => night.ListUnitAmount);
 
         return new(
             hold.Id,
@@ -432,7 +478,10 @@ internal sealed class BookingHoldCreationStore(
             hold.CreatedAtUtc,
             hold.ExpiresAtUtc,
             nights,
-            guestAccessToken);
+            guestAccessToken,
+            listTotal,
+            listTotal - hold.TotalAmount,
+            PromotionSnapshotMapping.ToDto(hold.PromotionApplication));
     }
 
     private static bool IsIdempotencyUniqueViolation(DbUpdateException exception) =>

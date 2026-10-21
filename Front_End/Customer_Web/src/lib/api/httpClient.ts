@@ -1,5 +1,6 @@
 import axios, { AxiosInstance, AxiosRequestConfig } from "axios";
 import { getApiBaseUrl } from "./env";
+import { parsePriceQuote } from "./availabilityTypes";
 import {
   ApiConfigError,
   ApiHttpError,
@@ -83,6 +84,7 @@ function toProblemDetails(status: number, data: unknown): ProblemDetails {
       detail: typeof data.detail === "string" ? data.detail : undefined,
       instance: typeof data.instance === "string" ? data.instance : undefined,
       code: typeof data.code === "string" ? data.code : undefined,
+      quote: parsePriceQuote(data.quote) ?? undefined,
     };
   }
 

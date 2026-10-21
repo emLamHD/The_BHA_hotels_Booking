@@ -36,6 +36,8 @@ public static class InfrastructureServiceCollectionExtensions
 
         services.AddScoped<IPropertyCatalogQueries, PropertyCatalogQueries>();
         services.AddScoped<IAdminCatalog, AdminCatalogService>();
+        services.AddScoped<TheBha.Application.Promotions.IAdminPromotions, AdminPromotionService>();
+        services.AddScoped<TheBha.Application.Promotions.IWebsitePromotions, WebsitePromotionService>();
         services.AddSingleton<ICatalogMediaStorage>(new TheBha.Infrastructure.CatalogMedia.LocalCatalogMediaStorage(configuration["WebsiteMedia:RootPath"]));
         services.AddSingleton<ICatalogImageDecoder, TheBha.Infrastructure.CatalogMedia.CatalogImageDecoder>();
         services.AddSingleton(TimeProvider.System);
@@ -77,6 +79,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<IWebsiteSocialSettings, WebsiteSocialSettingsService>();
         services.AddScoped<DevelopmentDataSeeder>();
         services.AddScoped<TheBha.Infrastructure.Persistence.Demo.RiversideDemoSeeder>();
+        services.AddScoped<TheBha.Infrastructure.Persistence.Demo.PromotionDemoSeeder>();
 
         services
             .AddHealthChecks()

@@ -5,6 +5,7 @@ import { SelectedOfferSnapshot } from "../bookingHoldAttempt";
 import { BookingHoldFlowAction, BookingHoldFlowState, bookingHoldFlowReducer, initialBookingHoldFlowState } from "../bookingHoldFlow";
 import { ApiNetworkError } from "../errors";
 import { BookingHoldDto } from "../bookingHoldTypes";
+import { TEST_QUOTE } from "@/lib/api/quoteTestkit";
 
 const createBookingHoldMock = vi.fn();
 vi.mock("../bookingHoldService", () => ({
@@ -26,6 +27,7 @@ const OFFER: SelectedOfferSnapshot = {
   adults: 2,
   children: 0,
   rooms: 1,
+  quote: TEST_QUOTE,
 };
 const CONTACT = { fullName: "Jane Doe", email: "jane@example.com", phone: "+15551234567" };
 

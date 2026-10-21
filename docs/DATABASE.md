@@ -269,6 +269,26 @@ Messenger and Zalo start disabled with no destination. The row carries a revisio
 updated timestamp and optional Staff audit actor. Admin saves replace the settings
 atomically; normal startup never inserts or overwrites the row.
 
+Migration 17 (`AddBookingPromotions`, `BHA-BOOKING-PROMOTIONS-001`) adds booking
+promotions. `Promotions` is one row per promotion: the pricing rule (`Kind`
+`Percent`/`FixedAmount`, `Value`, `CurrencyCode` only for a fixed amount, the booking,
+stay and display windows as `date` in the Property's local time, `MinNights`,
+`AllRoomTypes` + `PromotionRoomTypes`) and the website content (Vietnamese `Title`,
+`Summary`, `BodyParagraphs text[]`, cover + alt text, `ShowOnHomepage`, `SortOrder`),
+with a unique `Slug`, a `Version` concurrency token and a unique
+`(CreatedByStaffId, CreateOperationId)` so a lost create can be retried without a
+duplicate. `Status` (`Draft`/`Active`/`Disabled`) is the only pricing switch;
+`ShowOnHomepage` only places the card. `PromotionMedia` (key `promo/<id>.<ext>`, owned
+by a Property), `PromotionAudits` (append-only, before/after JSON) and
+`BookingPromotionApplications` (one row per Hold that was priced by a promotion: id,
+version, title, kind, value, list and discount totals, linked to its Reservation at
+confirmation; never recalculated) complete the set. `InventoryHoldItemNights` and
+`ReservationUnitNights` gain `ListUnitAmount` (the rate before a promotion; `UnitAmount`
+stays what is paid; `CK: ListUnitAmount >= UnitAmount`), backfilled with
+`UnitAmount` for every existing row before it becomes `NOT NULL`. `Down()` refuses
+while any promotion or snapshot exists. Nothing else changes: `DailyRoomRates` is never
+modified by a promotion. Design: `docs/design/BHA-BOOKING-PROMOTIONS-001-booking-promotions.md`.
+
 ## Run the explicit development seed
 
 After applying migrations, run the seed only in Development:

@@ -48,6 +48,11 @@ const REFUSALS: Record<string, string> = {
   "hero-image-dimensions": "Kích thước ảnh không phù hợp (nhỏ nhất 320×160, lớn nhất 8000 px mỗi cạnh và 40 megapixel).",
   "hero-upload-unreadable": "Không đọc được tệp tải lên: tệp lớn hơn 11 MB hoặc không phải một lần tải ảnh hợp lệ.",
   "hero-storage-not-configured": "Máy chủ chưa cấu hình nơi lưu ảnh (WebsiteMedia:RootPath) nên chưa tải ảnh lên được.",
+  "slug-taken": "Đường dẫn (slug) này đã được một ưu đãi khác dùng. Hãy chọn đường dẫn khác.",
+  "idempotency-key-reused": "Thao tác tạo này đã được dùng cho một nội dung khác. Hãy mở lại màn hình tạo ưu đãi.",
+  "promotion-storage-not-configured": "Máy chủ chưa cấu hình nơi lưu ảnh (WebsiteMedia:RootPath) nên chưa tải ảnh bìa lên được.",
+  "promotion-image-too-small": "Ảnh bìa cần tối thiểu 600×400 điểm ảnh.",
+  "promotion-media-missing": "Ảnh bìa này không còn dùng được cho cơ sở này. Hãy tải ảnh lại.",
 };
 
 /** A refusal in Vietnamese, with the server's own detail appended where it names the value that was rejected. */

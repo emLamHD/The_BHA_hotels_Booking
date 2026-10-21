@@ -9,6 +9,7 @@ import StartRating from "@/components/StartRating";
 import { PropertyDto, RoomTypeDto } from "@/lib/api/propertyTypes";
 import { selectGalleryImages, visibleImages } from "@/lib/api/mediaPresentation";
 import Amount from "@/components/Amount";
+import PromotionBadge from "@/components/PromotionBadge";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { RoomQuote } from "@/lib/roomQuote";
 
@@ -67,16 +68,29 @@ const RoomTypeStayCard: FC<RoomTypeStayCardProps> = ({
     switch (price.state) {
       case "quoted": {
         const { quote } = price;
+        // Struck through only when the backend really discounted this quote.
+        const discounted = quote.promotion !== null && quote.listTotalAmount > quote.totalAmount;
         return (
           <span className="text-base font-semibold">
+            {discounted && quote.promotion && <PromotionBadge promotion={quote.promotion} className="mb-1 mr-2 align-middle" />}
             {quote.uniformNightlyAmount !== null ? (
               <>
+                {discounted && quote.uniformListNightlyAmount !== null && (
+                  <del data-testid="list-price" className="mr-1.5 text-sm font-normal text-neutral-400 dark:text-neutral-500">
+                    <Amount amount={quote.uniformListNightlyAmount} currencyCode={quote.currencyCode} />
+                  </del>
+                )}
                 <Amount amount={quote.uniformNightlyAmount} currencyCode={quote.currencyCode} />
                 {` `}
                 <span className="text-sm text-neutral-500 dark:text-neutral-400 font-normal">{t("customer.stay.perNight")}</span>
               </>
             ) : (
               <>
+                {discounted && (
+                  <del data-testid="list-price" className="mr-1.5 text-sm font-normal text-neutral-400 dark:text-neutral-500">
+                    <Amount amount={quote.listTotalAmount} currencyCode={quote.currencyCode} />
+                  </del>
+                )}
                 <Amount amount={quote.totalAmount} currencyCode={quote.currencyCode} />
                 {` `}
                 <span className="text-sm text-neutral-500 dark:text-neutral-400 font-normal">

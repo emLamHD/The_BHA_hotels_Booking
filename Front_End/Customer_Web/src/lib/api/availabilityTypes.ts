@@ -22,9 +22,35 @@ export interface AvailabilityQuery {
   rooms: number;
 }
 
+/**
+ * One night of one room. `amount` is what is paid (after a promotion), so `sum × rooms = totalAmount` holds; `listAmount` and
+ * `discountAmount` explain it (`amount = listAmount - discountAmount`). Both are absent from a server that predates promotions.
+ */
 export interface NightlyRateDto {
   stayDate: string;
   amount: number;
+  listAmount?: number | null;
+  discountAmount?: number | null;
+}
+
+/** The promotion that priced a quote, a hold or a reservation, as the backend chose it (the client never does). */
+export interface AppliedPromotionDto {
+  id: string;
+  slug: string;
+  title: string;
+  kind: "Percent" | "FixedAmount";
+  value: number;
+  currencyCode: string | null;
+}
+
+/** What the guest is shown and confirms: the price the backend quoted, with how it came about. */
+export interface PriceQuote {
+  currencyCode: string;
+  totalAmount: number;
+  listTotalAmount: number;
+  discountTotalAmount: number;
+  nightlyRates: NightlyRateDto[];
+  appliedPromotion: AppliedPromotionDto | null;
 }
 
 export interface AvailabilityOfferDto {
@@ -44,5 +70,42 @@ export interface AvailabilityOfferDto {
   requestedRooms: number;
   availableRooms: number;
   nightlyRates: NightlyRateDto[] | null;
+  /** The amount payable: after the promotion, if one applied. */
   totalAmount: number;
+  listTotalAmount?: number | null;
+  discountTotalAmount?: number | null;
+  appliedPromotion?: AppliedPromotionDto | null;
+}
+
+const isRecord = (x: unknown): x is Record<string, unknown> => typeof x === "object" && x !== null;
+
+export function parseAppliedPromotion(x: unknown): AppliedPromotionDto | null {
+  if (!isRecord(x) || typeof x.id !== "string" || typeof x.slug !== "string" || typeof x.title !== "string" || typeof x.value !== "number") return null;
+  if (x.kind !== "Percent" && x.kind !== "FixedAmount") return null;
+  return { id: x.id, slug: x.slug, title: x.title, kind: x.kind, value: x.value, currencyCode: typeof x.currencyCode === "string" ? x.currencyCode : null };
+}
+
+/** The quote a `hold.price-changed` answer carries, or `null` when it is not a usable quote (never guess a price). */
+export function parsePriceQuote(x: unknown): PriceQuote | null {
+  if (!isRecord(x) || typeof x.currencyCode !== "string" || typeof x.totalAmount !== "number" || typeof x.listTotalAmount !== "number" ||
+      typeof x.discountTotalAmount !== "number" || !Array.isArray(x.nightlyRates)) return null;
+  const nightly = x.nightlyRates.filter((r): r is NightlyRateDto => isRecord(r) && typeof r.stayDate === "string" && typeof r.amount === "number");
+  if (nightly.length !== x.nightlyRates.length) return null;
+  return {
+    currencyCode: x.currencyCode, totalAmount: x.totalAmount, listTotalAmount: x.listTotalAmount, discountTotalAmount: x.discountTotalAmount,
+    nightlyRates: nightly, appliedPromotion: x.appliedPromotion == null ? null : parseAppliedPromotion(x.appliedPromotion),
+  };
+}
+
+/** The quote of an offer as the card showed it: the figure the guest confirms when asking for a hold. */
+export function quoteOfOffer(offer: AvailabilityOfferDto): PriceQuote {
+  const discount = offer.discountTotalAmount ?? 0;
+  return {
+    currencyCode: offer.currencyCode ?? "",
+    totalAmount: offer.totalAmount,
+    listTotalAmount: offer.listTotalAmount ?? offer.totalAmount + discount,
+    discountTotalAmount: discount,
+    nightlyRates: offer.nightlyRates ?? [],
+    appliedPromotion: offer.appliedPromotion ?? null,
+  };
 }

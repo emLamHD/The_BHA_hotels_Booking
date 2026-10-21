@@ -1,4 +1,3 @@
-import { MOCK_OFFERS, MockOffer } from "@/data/homepageOffers";
 import { POST_CATEGORIES, PostCategory, TRAVEL_POSTS, TravelPost } from "@/data/travelPosts";
 import { BLOG_PATH } from "@/lib/riversideHomeContent";
 
@@ -7,26 +6,11 @@ import { BLOG_PATH } from "@/lib/riversideHomeContent";
  * `/blog/<slug>`, kept as pure functions so that what a URL means is tested rather than assumed.
  */
 
-// ---- offers (mock data; see data/homepageOffers.ts) -------------------------------------------------
-
-/** The badge shown on an offer: the whole percent the price falls by, from its own two prices. 0 when they are not a discount. */
-export function discountPercent(originalPrice: number, discountPrice: number): number {
-  if (!Number.isFinite(originalPrice) || !Number.isFinite(discountPrice)) return 0;
-  if (originalPrice <= 0 || discountPrice <= 0 || discountPrice >= originalPrice) return 0;
-  return Math.round(((originalPrice - discountPrice) / originalPrice) * 100);
-}
-
 /** 1089000 → "1.089.000 ₫". Formatted by hand so the server and the browser print the same characters. */
 export function formatVnd(amount: number): string {
   const whole = Math.round(amount);
   const digits = String(Math.abs(whole)).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
   return `${whole < 0 ? "-" : ""}${digits} ₫`;
-}
-
-/** The offer a `?offer=<slug>` names; an unknown, empty or repeated value highlights nothing. */
-export function resolveOfferHighlight(param: string | string[] | undefined): MockOffer | undefined {
-  if (typeof param !== "string") return undefined;
-  return MOCK_OFFERS.find((offer) => offer.slug === param);
 }
 
 // ---- blog -------------------------------------------------------------------------------------------

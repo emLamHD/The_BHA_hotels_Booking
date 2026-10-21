@@ -23,6 +23,7 @@ import {
 import { IdentityCommandResult, createCustomerIdentityCoordinator } from "@/lib/customerIdentityChange";
 import type { BookingIdentityGuard } from "@/lib/api/bookingHoldFlowController";
 import type { SessionReadOutcome } from "@/lib/customerSession";
+import { TEST_QUOTE } from "@/lib/api/quoteTestkit";
 
 const t = testT("vi");
 const createBookingHoldMock = vi.fn();
@@ -436,6 +437,7 @@ describe("receiptCloseTarget + finishBooking", () => {
     adults: 2,
     children: 0,
     rooms: 1,
+    quote: TEST_QUOTE,
   };
   const CONTACT = { fullName: "Jane Doe", email: "jane@example.com", phone: "+15551234567" };
   const HOLD = {

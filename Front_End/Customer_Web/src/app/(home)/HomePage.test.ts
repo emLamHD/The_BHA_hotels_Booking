@@ -2,13 +2,15 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/i18n/server", async () => (await import("@/lib/i18n/testkit")).serverModuleMock());
 vi.mock("@/lib/hero/server", () => ({ getHeroSnapshot: vi.fn() }));
+vi.mock("@/lib/promotions/server", () => ({ getPromotions: vi.fn(), getPromotion: vi.fn() }));
 import React from "react";
 import { renderPage, renderWithI18n } from "@/lib/i18n/testkit";
 import PageHome from "@/app/page";
 import PageRiverside from "@/app/riverside/page";
 import OffersPage from "@/app/offers/page";
 import MediaCreditsPage from "@/app/media-credits/page";
-import { MOCK_OFFERS } from "@/data/homepageOffers";
+import { getPromotions, type PromotionsResult } from "@/lib/promotions/server";
+import { CARDS } from "@/lib/promotions/promotionTestkit";
 import { getHeroSnapshot } from "@/lib/hero/server";
 import type { HeroSnapshot } from "@/lib/hero/hero";
 import { TRAVEL_POSTS } from "@/data/travelPosts";
@@ -36,9 +38,10 @@ let offers = "";
 let credits = "";
 beforeAll(async () => {
   vi.mocked(getHeroSnapshot).mockResolvedValue(HERO);
+  vi.mocked(getPromotions).mockResolvedValue({ status: "ok", items: CARDS });
   home = await renderPage(PageHome);
   riverside = renderWithI18n(React.createElement(BookingHoldProvider, null, (await PageRiverside()) as React.ReactElement));
-  offers = await renderPage(OffersPage, { searchParams: { offer: MOCK_OFFERS[2].slug } });
+  offers = await renderPage(OffersPage, { searchParams: {} });
   credits = await renderPage(MediaCreditsPage);
 });
 
@@ -92,12 +95,29 @@ describe("the home page is the booking portal", () => {
     for (const gone of ["#gioi-thieu", "#booking-guide", "#faq"]) expect(home).not.toContain(gone);
   });
 
-  it("shows the sample offers as sample data, with the real search as the only way to a real price", () => {
-    expect(count(home, "Ưu đãi minh hoạ")).toBeGreaterThanOrEqual(MOCK_OFFERS.length);
-    expect(home).toContain("chưa gắn với hệ thống đặt phòng");
-    expect(home).toContain("Xem phòng và giá thực tế");
+  it("shows the Admin's real offers: each card leads to its own page and states no price", () => {
+    for (const card of CARDS) {
+      expect(count(home, `id="offer-${card.slug}"`)).toBe(1);
+      expect(home).toContain(`href="/offers/${card.slug}"`);
+      expect(home).toContain(card.title);
+    }
+    expect(home).toContain("Giảm 15%");                                                  // the rule, said from its fields
+    expect(home).not.toMatch(/Ưu đãi minh hoạ|chưa gắn với hệ thống đặt phòng|Giá thật/); // no sample wording is left
+    expect(home).not.toMatch(/line-through/);                                              // nothing is struck through without dates
     expect(home).not.toContain("Giữ phòng");
     expect(home).not.toContain("<form action");
+  });
+
+  it("hides the whole offers block, with no sample in its place, when there is nothing public or the read failed", async () => {
+    const results: PromotionsResult[] = [{ status: "ok", items: [] }, { status: "error" }];
+    for (const result of results) {
+      vi.mocked(getPromotions).mockResolvedValueOnce(result);
+      const markup = await renderPage(PageHome);
+      expect(markup).not.toContain("offers-heading");
+      expect(markup).not.toContain("nc-HomeOfferSection");
+      expect(markup).not.toContain("nc-OfferCard");
+      expect(markup).toContain("<h1");                                                    // the rest of the page is intact
+    }
   });
 
   it("links every destination and news card to its own article", () => {
@@ -127,7 +147,7 @@ describe("the home page carries the property's map and no demo banner", () => {
     expect(home).toMatch(/href="https:\/\/www\.google\.com\/maps\/search\/\?api=1[^"]*"[^>]*rel="noopener noreferrer"/);
   });
 
-  it("the offers' price and button sit in one block pinned to the bottom of an equal-height card", () => {
+  it("the offers' button sits in one block pinned to the bottom of an equal-height card", () => {
     expect(home).toContain("mt-auto space-y-3 pt-2");
     expect(home).not.toContain("Bản demo: phòng, giá và đặt phòng");
   });
@@ -142,18 +162,27 @@ describe("/riverside keeps the Riverside composition", () => {
 });
 
 describe("/offers", () => {
-  it("renders every offer once, highlights only the named one, and says it is not connected to booking", () => {
-    for (const offer of MOCK_OFFERS) expect(count(offers, `id="offer-${offer.slug}"`)).toBe(1);
-    expect(count(offers, "border-primary-500 ring-2 ring-primary-500")).toBe(1);
-    expect(offers).toContain("chưa gắn với hệ thống đặt phòng");
+  it("lists every public promotion once, each with a link to its page, and no price", () => {
+    for (const card of CARDS) {
+      expect(count(offers, `id="offer-${card.slug}"`)).toBe(1);
+      expect(offers).toContain(`href="/offers/${card.slug}"`);
+    }
     expect(count(offers, "<h1")).toBe(1);
+    expect(offers).not.toMatch(/Ưu đãi minh hoạ|chưa gắn với hệ thống đặt phòng/);
+    expect(offers).not.toMatch(/line-through/);
   });
 
-  it("highlights nothing for an unknown or repeated value", async () => {
-    for (const offer of ["unknown", ["a", "b"] as unknown as string]) {
-      const markup = await renderPage(OffersPage, { searchParams: { offer } });
-      expect(count(markup, "border-primary-500 ring-2 ring-primary-500")).toBe(0);
-    }
+  it("says plainly when there is nothing to show, and when the read failed", async () => {
+    vi.mocked(getPromotions).mockResolvedValueOnce({ status: "ok", items: [] });
+    expect(await renderPage(OffersPage, { searchParams: {} })).toContain('data-testid="offers-empty"');
+    vi.mocked(getPromotions).mockResolvedValueOnce({ status: "error" });
+    const failed = await renderPage(OffersPage, { searchParams: {} });
+    expect(failed).toContain('data-testid="offers-unavailable"');
+    expect(failed).not.toContain("nc-OfferCard");
+  });
+
+  it("sends an old sample link (?offer=<slug>) back to the plain list", async () => {
+    await expect(renderPage(OffersPage, { searchParams: { offer: "dat-som-can-ho-1-phong-ngu" } })).rejects.toThrow(/NEXT_REDIRECT/);
   });
 });
 

@@ -1,4 +1,4 @@
-import type { AvailabilityOfferDto } from "@/lib/api/availabilityTypes";
+import type { AppliedPromotionDto, AvailabilityOfferDto } from "@/lib/api/availabilityTypes";
 import { sameId } from "@/lib/roomDetailsRoute";
 
 /**
@@ -13,6 +13,12 @@ export interface RoomQuote {
   /** The nightly amount when every night costs the same, otherwise null (the card shows the total only). */
   uniformNightlyAmount: number | null;
   ratePlanName: string | null;
+  /** What the same stay costs without a promotion; equal to `totalAmount` when none applied. */
+  listTotalAmount: number;
+  /** The list nightly amount when every night is the same, otherwise null. */
+  uniformListNightlyAmount: number | null;
+  /** The promotion the backend applied to this quote, if any. */
+  promotion: AppliedPromotionDto | null;
 }
 
 export function quoteForRoomType(
@@ -32,5 +38,8 @@ export function quoteForRoomType(
     nights: best.nights,
     uniformNightlyAmount: uniform ? first : null,
     ratePlanName: best.ratePlanName,
+    listTotalAmount: best.listTotalAmount ?? best.totalAmount,
+    uniformListNightlyAmount: uniform ? rates[0]?.listAmount ?? first : null,
+    promotion: best.appliedPromotion ?? null,
   };
 }

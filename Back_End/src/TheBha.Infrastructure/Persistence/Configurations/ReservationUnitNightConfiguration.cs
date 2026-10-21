@@ -20,11 +20,15 @@ internal sealed class ReservationUnitNightConfiguration
             table.HasCheckConstraint(
                 "CK_ReservationUnitNights_Amount",
                 "\"UnitAmount\" > 0");
+            table.HasCheckConstraint(
+                "CK_ReservationUnitNights_ListAmount",
+                "\"ListUnitAmount\" >= \"UnitAmount\"");
         });
 
         builder.HasKey(night => new { night.ReservationUnitId, night.StayDate });
         builder.Property(night => night.StayDate).HasColumnType("date");
         builder.Property(night => night.UnitAmount).HasPrecision(18, 2);
+        builder.Property(night => night.ListUnitAmount).HasPrecision(18, 2);
         builder.HasIndex(night => new { night.StayDate, night.ReservationUnitId });
 
         builder.HasOne<RatePlan>()

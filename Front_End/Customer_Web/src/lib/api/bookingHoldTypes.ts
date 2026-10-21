@@ -1,3 +1,5 @@
+import type { AppliedPromotionDto } from "./availabilityTypes";
+
 /**
  * Wire types for GET /api/v1/auth/csrf, POST /api/v1/booking-holds, and
  * POST /api/v1/booking-holds/{holdId}/confirm, matched to the live
@@ -34,13 +36,22 @@ export interface CreateBookingHoldRequest {
   fullName: string;
   email: string;
   phone: string;
+  /**
+   * The price the guest is confirming, from the quote they were shown. The backend decides the price; these only let it refuse
+   * (`409 hold.price-changed`, nothing held) when the price is no longer this one.
+   */
+  expectedTotalAmount?: number;
+  expectedCurrencyCode?: string;
 }
 
 export interface BookingHoldNightDto {
   stayDate: string;
   rooms: number;
+  /** What is paid per room for the night; `listUnitAmount - discountUnitAmount` when a promotion applied. */
   unitAmount: number;
   nightTotal: number;
+  listUnitAmount?: number | null;
+  discountUnitAmount?: number | null;
 }
 
 export interface BookingHoldDto {
@@ -60,6 +71,9 @@ export interface BookingHoldDto {
   expiresAtUtc: string;
   nights: BookingHoldNightDto[] | null;
   guestAccessToken: string | null;
+  listTotalAmount?: number | null;
+  discountTotalAmount?: number | null;
+  appliedPromotion?: AppliedPromotionDto | null;
 }
 
 /** Serialized ReservationStatus values (JsonStringEnumConverter). */
@@ -70,6 +84,8 @@ export interface ReservationNightDto {
   rooms: number;
   unitAmount: number;
   nightTotal: number;
+  listUnitAmount?: number | null;
+  discountUnitAmount?: number | null;
 }
 
 export interface ReservationDto {
@@ -93,4 +109,7 @@ export interface ReservationDto {
   cancelledAtUtc: string | null;
   cancellationReason: string | null;
   nights: ReservationNightDto[] | null;
+  listTotalAmount?: number | null;
+  discountTotalAmount?: number | null;
+  appliedPromotion?: AppliedPromotionDto | null;
 }

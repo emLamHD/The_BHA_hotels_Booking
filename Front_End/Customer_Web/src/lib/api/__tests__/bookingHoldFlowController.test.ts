@@ -8,6 +8,7 @@ import {
 import { SelectedOfferSnapshot } from "../bookingHoldAttempt";
 import { ApiHttpError, ApiNetworkError } from "../errors";
 import { BookingHoldDto, ReservationDto } from "../bookingHoldTypes";
+import { TEST_QUOTE } from "@/lib/api/quoteTestkit";
 
 const createBookingHoldMock = vi.fn();
 const confirmBookingHoldMock = vi.fn();
@@ -31,6 +32,7 @@ const OFFER: SelectedOfferSnapshot = {
   adults: 2,
   children: 0,
   rooms: 1,
+  quote: TEST_QUOTE,
 };
 const OTHER_OFFER: SelectedOfferSnapshot = { ...OFFER, roomTypeId: "30000000-0000-0000-0000-000000000002" };
 const CONTACT = { fullName: "Jane Doe", email: "jane@example.com", phone: "+15551234567" };
@@ -1251,5 +1253,129 @@ describe("finishBooking (explicit local receipt completion)", () => {
     rig.lock.locked = true;
     expect(rig.controller.finishBooking(RECEIPT_ID)).toBe(false);
     expect(rig.harness.getState().phase).toBe("reservation-result");
+  });
+});
+
+describe("createBookingHoldFlowController — price changed between the quote and the hold (BHA-BOOKING-PROMOTIONS-001)", () => {
+  const NEW_QUOTE = {
+    currencyCode: "VND",
+    totalAmount: 2550000,
+    listTotalAmount: 3000000,
+    discountTotalAmount: 450000,
+    nightlyRates: [
+      { stayDate: "2026-08-01", amount: 1275000, listAmount: 1500000, discountAmount: 225000 },
+      { stayDate: "2026-08-02", amount: 1275000, listAmount: 1500000, discountAmount: 225000 },
+    ],
+    appliedPromotion: { id: "pr", slug: "giam-15", title: "Giảm 15%", kind: "Percent" as const, value: 15, currencyCode: null },
+  };
+  const priceChanged = (quote: unknown = NEW_QUOTE) =>
+    new ApiHttpError(409, { title: "Booking Hold price changed", status: 409, code: "hold.price-changed", quote: quote as never });
+
+  async function selectedHarness() {
+    const { createBookingHoldFlowController } = await import("../bookingHoldFlowController");
+    const harness = createHarness();
+    const controller = createBookingHoldFlowController({ getState: harness.getState, dispatch: harness.dispatch, onAttemptStart: harness.onAttemptStart });
+    controller.selectOffer(OFFER, "label");
+    controller.updateContact(CONTACT);
+    return { harness, controller };
+  }
+
+  it("sends the price the guest was shown, and nothing else about price", async () => {
+    const { controller } = await selectedHarness();
+    createBookingHoldMock.mockResolvedValueOnce({ hold: holdFixture(), outcome: "created" });
+
+    controller.submit();
+
+    const request = createBookingHoldMock.mock.calls[0][0];
+    expect(request).toMatchObject({ expectedTotalAmount: 3000000, expectedCurrencyCode: "VND" });
+    expect(Object.keys(request).filter((key) => /amount|price|total|discount|promo/i.test(key)).sort()).toEqual(["expectedTotalAmount"]);
+  });
+
+  it("is a known refusal: the form stays, the new quote is held for the guest, and nothing is retried or resent", async () => {
+    const { harness, controller } = await selectedHarness();
+    createBookingHoldMock.mockRejectedValueOnce(priceChanged());
+
+    controller.submit();
+    await vi.waitFor(() => expect(harness.getState().phase).toBe("known-error"));
+
+    const state = harness.getState();
+    expect(state.priceChange).toEqual(NEW_QUOTE);
+    expect(state.errorMessage).toBeNull();
+    expect(state.attempt).toBeNull();                    // nothing to retry: this is not an unknown result
+    expect(state.offer?.quote.totalAmount).toBe(3000000); // the confirmed price is still the one the guest saw
+    expect(createBookingHoldMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("cannot ask for a hold again until the guest accepts the new price", async () => {
+    const { harness, controller } = await selectedHarness();
+    createBookingHoldMock.mockRejectedValueOnce(priceChanged());
+    controller.submit();
+    await vi.waitFor(() => expect(harness.getState().priceChange).not.toBeNull());
+
+    controller.submit();
+    controller.submit();
+
+    expect(createBookingHoldMock).toHaveBeenCalledTimes(1);
+    expect(harness.getState().phase).toBe("known-error");
+  });
+
+  it("after accepting, the next hold carries the new expected price and a NEW Idempotency-Key", async () => {
+    const { harness, controller } = await selectedHarness();
+    createBookingHoldMock.mockRejectedValueOnce(priceChanged());
+    controller.submit();
+    await vi.waitFor(() => expect(harness.getState().priceChange).not.toBeNull());
+    const firstKey = createBookingHoldMock.mock.calls[0][1];
+
+    controller.acceptPriceChange();
+    expect(harness.getState().priceChange).toBeNull();
+    expect(harness.getState().offer?.quote.totalAmount).toBe(2550000);
+    expect(createBookingHoldMock).toHaveBeenCalledTimes(1);   // accepting sends nothing
+
+    createBookingHoldMock.mockResolvedValueOnce({ hold: holdFixture({ totalAmount: 2550000 }), outcome: "created" });
+    controller.submit();
+
+    await vi.waitFor(() => expect(harness.getState().phase).toBe("active-session"));
+    const [request, secondKey] = createBookingHoldMock.mock.calls[1];
+    expect(request).toMatchObject({ expectedTotalAmount: 2550000, expectedCurrencyCode: "VND" });
+    expect(secondKey).not.toBe(firstKey);
+  });
+
+  it("an answer that never came is uncertain, and its retry carries the SAME payload and key — the payload is never changed", async () => {
+    const { harness, controller } = await selectedHarness();
+    createBookingHoldMock.mockRejectedValueOnce(new ApiNetworkError());
+    controller.submit();
+    await vi.waitFor(() => expect(harness.getState().phase).toBe("uncertain"));
+    expect(harness.getState().priceChange).toBeNull();
+    const [firstRequest, firstKey] = createBookingHoldMock.mock.calls[0];
+
+    createBookingHoldMock.mockResolvedValueOnce({ hold: holdFixture(), outcome: "replayed" });
+    controller.retryExact();
+
+    await vi.waitFor(() => expect(createBookingHoldMock).toHaveBeenCalledTimes(2));
+    expect(createBookingHoldMock.mock.calls[1][0]).toEqual(firstRequest);
+    expect(createBookingHoldMock.mock.calls[1][1]).toBe(firstKey);
+  });
+
+  it("a price-changed answer without a usable quote is an ordinary known error, never a guessed price", async () => {
+    const { harness, controller } = await selectedHarness();
+    createBookingHoldMock.mockRejectedValueOnce(new ApiHttpError(409, { title: "Booking Hold price changed", status: 409, code: "hold.price-changed" }));
+
+    controller.submit();
+    await vi.waitFor(() => expect(harness.getState().phase).toBe("known-error"));
+
+    expect(harness.getState().priceChange).toBeNull();
+    expect(harness.getState().errorMessage).toBe("shared.apiError.hold.price-changed");
+  });
+
+  it("accepting does nothing when there is no price change, and a new offer clears a pending one", async () => {
+    const { harness, controller } = await selectedHarness();
+    controller.acceptPriceChange();
+    expect(harness.getState().offer?.quote.totalAmount).toBe(3000000);
+
+    createBookingHoldMock.mockRejectedValueOnce(priceChanged());
+    controller.submit();
+    await vi.waitFor(() => expect(harness.getState().priceChange).not.toBeNull());
+    controller.selectOffer(OTHER_OFFER, "other");
+    expect(harness.getState().priceChange).toBeNull();
   });
 });

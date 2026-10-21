@@ -10,7 +10,10 @@ public enum StaffPermission
     BoardRead,
     AssignmentWrite,
     BlockWrite,
-    AssignmentCrossRoomType
+    AssignmentCrossRoomType,
+
+    /// <summary>ADR 0009: manage the booking promotions of the Property (read and write). Manager only.</summary>
+    PromotionManage
 }
 
 /// <summary>
@@ -37,7 +40,8 @@ public static class StaffPermissions
         StaffRole.Manager => permission is StaffPermission.BoardRead
             or StaffPermission.AssignmentWrite
             or StaffPermission.BlockWrite
-            or StaffPermission.AssignmentCrossRoomType,
+            or StaffPermission.AssignmentCrossRoomType
+            or StaffPermission.PromotionManage,
         _ => false
     };
 

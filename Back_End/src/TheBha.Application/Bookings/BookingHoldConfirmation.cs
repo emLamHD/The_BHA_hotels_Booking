@@ -1,4 +1,5 @@
 using TheBha.Application.Customers;
+using TheBha.Application.Promotions;
 using TheBha.Domain.Bookings;
 
 namespace TheBha.Application.Bookings;
@@ -7,7 +8,9 @@ public sealed record ReservationNightDto(
     DateOnly StayDate,
     int Rooms,
     decimal UnitAmount,
-    decimal NightTotal);
+    decimal NightTotal,
+    decimal? ListUnitAmount = null,
+    decimal? DiscountUnitAmount = null);
 
 public sealed record ReservationDto(
     Guid ReservationId,
@@ -29,7 +32,10 @@ public sealed record ReservationDto(
     DateTimeOffset ConfirmedAtUtc,
     DateTimeOffset? CancelledAtUtc,
     string? CancellationReason,
-    IReadOnlyList<ReservationNightDto> Nights);
+    IReadOnlyList<ReservationNightDto> Nights,
+    decimal? ListTotalAmount = null,
+    decimal? DiscountTotalAmount = null,
+    AppliedPromotionDto? AppliedPromotion = null);
 
 public enum BookingHoldConfirmationStatus
 {

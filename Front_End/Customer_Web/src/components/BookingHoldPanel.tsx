@@ -9,6 +9,7 @@ import PriceBreakdown from "@/components/PriceBreakdown";
 import { useApiMessage } from "@/lib/i18n/apiMessage";
 import { ActiveHoldSession } from "@/lib/api/bookingHoldAttempt";
 import { ReservationDto } from "@/lib/api/bookingHoldTypes";
+import type { PriceQuote } from "@/lib/api/availabilityTypes";
 import { useDateFormat } from "@/lib/i18n/dates";
 import { partyLine } from "@/lib/i18n/party";
 import { useI18n } from "@/lib/i18n/I18nProvider";
@@ -21,6 +22,25 @@ export interface BookingHoldPanelProps {
 /** The pack text of a status the API sent as a word (`Active`); a status this site has no text for is shown as sent. */
 function statusText(t: Translate, has: (key: string) => boolean, key: string, raw: string): string {
   return has(`${key}.${raw}`) ? t(`${key}.${raw}`) : raw;
+}
+
+/** The price the guest is about to confirm, with how a promotion changed it: exactly what is sent as the expected price. */
+function ConfirmedPrice({ quote, label }: { quote: PriceQuote; label: string }) {
+  const { t } = useI18n();
+  const dates = useDateFormat();
+  return (
+    <div data-testid="confirmed-price" className="space-y-1 text-sm">
+      <p className="font-medium text-neutral-700 dark:text-neutral-200">{label}</p>
+      <PriceBreakdown
+        rows={quote.nightlyRates.map((rate) => ({ key: rate.stayDate, label: dates.stayDate(rate.stayDate), amount: rate.amount, listAmount: rate.listAmount ?? undefined }))}
+        totalAmount={quote.totalAmount}
+        currencyCode={quote.currencyCode}
+        totalLabel={t("customer.booking.offer.total")}
+        discount={{ listTotal: quote.listTotalAmount, discountTotal: quote.discountTotalAmount, promotion: quote.appliedPromotion }}
+        totalClassName="mt-2 flex justify-between items-center border-t border-neutral-200/80 dark:border-neutral-700 pt-2"
+      />
+    </div>
+  );
 }
 
 /** Shared customer-safe Hold summary for every session-carrying lifecycle phase. */
@@ -37,10 +57,16 @@ function HoldSummary({ session }: { session: ActiveHoldSession }) {
       </p>
       <p className="text-neutral-600 dark:text-neutral-300">{partyLine(t, dates, hold)}</p>
       <PriceBreakdown
-        rows={(hold.nights ?? []).map((night) => ({ key: night.stayDate, label: dates.stayDate(night.stayDate), amount: night.nightTotal }))}
+        rows={(hold.nights ?? []).map((night) => ({
+          key: night.stayDate,
+          label: dates.stayDate(night.stayDate),
+          amount: night.nightTotal,
+          listAmount: night.listUnitAmount != null ? night.listUnitAmount * night.rooms : undefined,
+        }))}
         totalAmount={hold.totalAmount}
         currencyCode={hold.currencyCode}
         totalLabel={t("customer.booking.hold.total")}
+        discount={{ listTotal: hold.listTotalAmount ?? hold.totalAmount, discountTotal: hold.discountTotalAmount ?? 0, promotion: hold.appliedPromotion }}
       />
       <p className="text-neutral-500 dark:text-neutral-400">
         {t("customer.booking.hold.created", { time: dates.instant(hold.createdAtUtc) })} ·{" "}
@@ -75,10 +101,12 @@ function ReservationNights({ reservation }: { reservation: ReservationDto }) {
         label: `${dates.stayDate(night.stayDate)} · ${t("customer.booking.rooms", { rooms: night.rooms })}`,
         amount: night.nightTotal,
         unitAmount: night.unitAmount,
+        listAmount: night.listUnitAmount != null ? night.listUnitAmount * night.rooms : undefined,
       }))}
       totalAmount={reservation.totalAmount}
       currencyCode={reservation.currencyCode}
       totalLabel={t("customer.booking.hold.total")}
+      discount={{ listTotal: reservation.listTotalAmount ?? reservation.totalAmount, discountTotal: reservation.discountTotalAmount ?? 0, promotion: reservation.appliedPromotion }}
       rowClassName="flex justify-between gap-4 py-1 text-sm"
     />
   );
@@ -95,12 +123,12 @@ function ReservationNights({ reservation }: { reservation: ReservationDto }) {
  * with no arguments, and the panel reads only the reducer's own state.
  */
 const BookingHoldPanel: FC<BookingHoldPanelProps> = ({ className = "" }) => {
-  const { state, updateContact, submit, retryExact, confirmHold, retryConfirmationExact } =
+  const { state, updateContact, submit, retryExact, confirmHold, retryConfirmationExact, acceptPriceChange } =
     useBookingHoldFlow();
   const { t, has } = useI18n();
   const dates = useDateFormat();
   const message = useApiMessage();
-  const { phase, offer, offerLabel, contact, fieldErrors, errorMessage, session, reservationResult } =
+  const { phase, offer, offerLabel, contact, fieldErrors, errorMessage, session, reservationResult, priceChange } =
     state;
 
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -234,6 +262,18 @@ const BookingHoldPanel: FC<BookingHoldPanelProps> = ({ className = "" }) => {
       </h3>
       <p className="text-sm text-neutral-500 dark:text-neutral-400">{offerLabel}</p>
 
+      <ConfirmedPrice quote={offer.quote} label={t("customer.booking.priceChanged.confirming")} />
+      {priceChange && (
+        <div role="alert" data-testid="price-changed" className="space-y-3 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
+          <p className="font-medium">{t("customer.booking.priceChanged.title")}</p>
+          <p>{t("customer.booking.priceChanged.body")}</p>
+          <ConfirmedPrice quote={priceChange} label={t("customer.booking.priceChanged.current")} />
+          <ButtonPrimary type="button" onClick={acceptPriceChange}>
+            {t("customer.booking.priceChanged.accept")}
+          </ButtonPrimary>
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} noValidate className="space-y-4">
         <div>
           <label
@@ -329,7 +369,7 @@ const BookingHoldPanel: FC<BookingHoldPanelProps> = ({ className = "" }) => {
         )}
 
         {phase !== "uncertain" && (
-          <ButtonPrimary type="submit" loading={phase === "submitting"} disabled={locked}>
+          <ButtonPrimary type="submit" loading={phase === "submitting"} disabled={locked || priceChange !== null}>
             {phase === "submitting" ? t("customer.booking.hold.creating") : t("customer.booking.hold.create")}
           </ButtonPrimary>
         )}

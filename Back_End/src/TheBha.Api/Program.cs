@@ -151,6 +151,9 @@ builder.Services.AddScoped(serviceProvider => new AdminCalendarWriteGateFilter(
 // startup-validated Admin origins as the local write gate.
 builder.Services.AddScoped(_ => new StaffRequestBoundaryFilter(cors.AdminOrigins));
 
+// ADR 0009: the booking-promotion routes carry StaffCalendarPermission (a Property role decides) and do not exist in LocalGate mode.
+builder.Services.AddSingleton<WebsiteClosedInLocalGateFilter>();
+
 var dataProtectionKeysPath = builder.Configuration["DataProtection:KeysPath"];
 if (builder.Environment.IsProduction() && string.IsNullOrWhiteSpace(dataProtectionKeysPath))
 {
@@ -403,6 +406,17 @@ builder.Services.AddCors(options =>
                 .AllowCredentials();
         }
     });
+    // BHA-BOOKING-PROMOTIONS-001: the one promotion create route needs the same request header.
+    options.AddPolicy(AdminPromotionsController.CreateCorsPolicy, policy =>
+    {
+        if (cors.AdminOrigins.Length > 0)
+        {
+            policy.WithOrigins(cors.AdminOrigins)
+                .WithHeaders("Content-Type", "Idempotency-Key")
+                .WithMethods("POST")
+                .AllowCredentials();
+        }
+    });
     // PMS-ADMIN-AUTH-001-CP04: in Staff mode only, the Staff-authorized Calendar reads (the board)
     // are called with the Staff cookie, so they get a credentialed, GET-only policy for the
     // explicit HTTPS Admin origins. It is attached to those endpoints in place of admin-calendar
@@ -483,6 +497,14 @@ if (StaffBootstrapCommand.IsStaffCommand(args))
 if (RiversideDemoSeedCommand.IsCommand(args))
 {
     Environment.ExitCode = await RiversideDemoSeedCommand.RunAsync(
+        args, app.Services, app.Environment.EnvironmentName, Console.Out, app.Lifetime.ApplicationStopping);
+    return;
+}
+
+// BHA-BOOKING-PROMOTIONS-001: the demo promotions, under the same Development-only, named-database guard as the Riverside seed.
+if (PromotionDemoSeedCommand.IsCommand(args))
+{
+    Environment.ExitCode = await PromotionDemoSeedCommand.RunAsync(
         args, app.Services, app.Environment.EnvironmentName, Console.Out, app.Lifetime.ApplicationStopping);
     return;
 }
@@ -585,7 +607,8 @@ if (staffCalendarMode)
         // The catalog create actions carry their narrower explicit policy above.
         // Preserve it instead of replacing it with the shared Staff write policy.
         if (endpoint.Metadata.OfType<EnableCorsAttribute>()
-            .Any(attribute => attribute.PolicyName == AdminCatalogController.CreateCorsPolicy))
+            .Any(attribute => attribute.PolicyName == AdminCatalogController.CreateCorsPolicy ||
+                              attribute.PolicyName == AdminPromotionsController.CreateCorsPolicy))
         {
             return;
         }

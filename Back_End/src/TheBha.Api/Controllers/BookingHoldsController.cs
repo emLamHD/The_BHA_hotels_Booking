@@ -50,8 +50,22 @@ public sealed class BookingHoldsController(
                 request.Rooms,
                 request.FullName,
                 request.Email,
-                request.Phone),
+                request.Phone,
+                request.ExpectedTotalAmount,
+                request.ExpectedCurrencyCode),
             cancellationToken);
+        if (result.Status == BookingHoldCreationStatus.PriceChanged)
+        {
+            // A known refusal, not an unknown result: nothing was held. The body carries the price to confirm again.
+            var problem = ProblemDetailsFactory.CreateProblemDetails(
+                HttpContext,
+                StatusCodes.Status409Conflict,
+                "Booking Hold price changed",
+                detail: result.Error);
+            problem.Extensions["quote"] = result.Quote;
+            return new ObjectResult(problem) { StatusCode = StatusCodes.Status409Conflict };
+        }
+
         return result.Status switch
         {
             BookingHoldCreationStatus.Created =>

@@ -293,3 +293,28 @@ describe("confirmBookingHold", () => {
     expect(submitCsrfProtectedRequestMock).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("createBookingHold — the price being confirmed (BHA-BOOKING-PROMOTIONS-001)", () => {
+
+  it("sends the expected total and currency when it has them, and none of its own price fields otherwise", async () => {
+    const { createBookingHold } = await import("../bookingHoldService");
+    submitCsrfProtectedRequestMock.mockResolvedValue({ status: 201, data: { holdId: "h" } });
+
+    await createBookingHold({ ...REQUEST, expectedTotalAmount: 2550000, expectedCurrencyCode: "VND" }, "key-1");
+    await createBookingHold(REQUEST, "key-2");
+
+    const [, , withPrice] = submitCsrfProtectedRequestMock.mock.calls[0];
+    const [, , withoutPrice] = submitCsrfProtectedRequestMock.mock.calls[1];
+    expect(withPrice).toMatchObject({ expectedTotalAmount: 2550000, expectedCurrencyCode: "VND" });
+    expect(Object.keys(withoutPrice).some((key) => /expected|amount|price|total|discount|promo/i.test(key))).toBe(false);
+  });
+
+  it("never sends one half of the pair", async () => {
+    const { createBookingHold } = await import("../bookingHoldService");
+    submitCsrfProtectedRequestMock.mockResolvedValue({ status: 201, data: { holdId: "h" } });
+
+    await createBookingHold({ ...REQUEST, expectedTotalAmount: 1 }, "key-3");
+
+    expect(Object.keys(submitCsrfProtectedRequestMock.mock.calls[0][2])).not.toContain("expectedTotalAmount");
+  });
+});

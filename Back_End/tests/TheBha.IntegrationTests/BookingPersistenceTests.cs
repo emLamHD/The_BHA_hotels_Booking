@@ -282,8 +282,8 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
             () => raw.Database.ExecuteSqlInterpolatedAsync(
                 $"""
                 INSERT INTO "InventoryHoldItemNights"
-                    ("InventoryHoldItemId", "PropertyId", "StayDate", "RatePlanId", "UnitAmount")
-                VALUES ({firstItem.Id}, {firstItem.PropertyId}, {CheckIn}, {references.RatePlan.Id}, 100.25)
+                    ("InventoryHoldItemId", "PropertyId", "StayDate", "RatePlanId", "UnitAmount", "ListUnitAmount")
+                VALUES ({firstItem.Id}, {firstItem.PropertyId}, {CheckIn}, {references.RatePlan.Id}, 100.25, 100.25)
                 """),
             PostgresErrorCodes.UniqueViolation);
 
@@ -296,8 +296,8 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
             () => raw.Database.ExecuteSqlInterpolatedAsync(
                 $"""
                 INSERT INTO "ReservationUnitNights"
-                    ("ReservationUnitId", "PropertyId", "StayDate", "RatePlanId", "UnitAmount")
-                VALUES ({firstUnit.Id}, {firstUnit.PropertyId}, {CheckIn}, {references.RatePlan.Id}, 100.25)
+                    ("ReservationUnitId", "PropertyId", "StayDate", "RatePlanId", "UnitAmount", "ListUnitAmount")
+                VALUES ({firstUnit.Id}, {firstUnit.PropertyId}, {CheckIn}, {references.RatePlan.Id}, 100.25, 100.25)
                 """),
             PostgresErrorCodes.UniqueViolation);
 

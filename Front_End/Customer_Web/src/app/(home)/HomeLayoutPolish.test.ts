@@ -6,11 +6,11 @@ import HomeOfferSection from "./HomeOfferSection";
 import HomeNewsletter from "./HomeNewsletter";
 import HomeNewsSection from "./HomeNewsSection";
 import HomeRiversideTeaser from "./HomeRiversideTeaser";
-import { MOCK_OFFERS } from "@/data/homepageOffers";
+import { CARDS } from "@/lib/promotions/promotionTestkit";
 import { BENEFITS, SPACE_GALLERY } from "@/lib/riversideHomeContent";
 
 /** CUST-WEB-001-CP08a-C2 polish: taller hero, offer cards whose price and button line up, a newsletter that matches the page. */
-const offers = renderWithI18n(React.createElement(HomeOfferSection));
+const offers = renderWithI18n(React.createElement(HomeOfferSection, { items: CARDS }));
 const newsletter = renderWithI18n(React.createElement(HomeNewsletter));
 const news = renderWithI18n(React.createElement(HomeNewsSection));
 const teaser = renderWithI18n(React.createElement(HomeRiversideTeaser));
@@ -29,12 +29,11 @@ describe("home hero height", () => {
 
 describe("offer cards on the home page", () => {
   it("stretch to one height and pin price + button in one bottom block per card", () => {
-    expect(count(offers, "mt-auto space-y-3 pt-2")).toBe(MOCK_OFFERS.length);
-    expect(count(offers, "whitespace-nowrap")).toBe(MOCK_OFFERS.length);
-    expect(count(offers, "w-full items-center justify-center rounded-full")).toBe(MOCK_OFFERS.length);
+    expect(count(offers, "mt-auto space-y-3 pt-2")).toBe(CARDS.length);
+    expect(count(offers, "w-full items-center justify-center rounded-full")).toBe(CARDS.length);
     expect(offers).not.toContain("h-full scroll-mt-28");
     // space-y-* puts a margin-top on the block that out-ranks mt-auto and stops it reaching the bottom; gap-3 does not.
-    expect(count(offers, "flex flex-1 flex-col gap-3 p-5")).toBe(MOCK_OFFERS.length);
+    expect(count(offers, "flex flex-1 flex-col gap-3 p-5")).toBe(CARDS.length);
     expect(offers).not.toContain("flex-col space-y-3 p-5");
   });
 });

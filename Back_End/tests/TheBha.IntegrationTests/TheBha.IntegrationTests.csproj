@@ -29,6 +29,7 @@
     <!-- CUST-WEB-HERO-001-CP01: small real pictures the upload tests send. -->
     <Content Include="Fixtures\hero\*" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Fixtures\catalog\*" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Fixtures\promotion\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

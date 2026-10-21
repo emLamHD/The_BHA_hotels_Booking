@@ -1,3 +1,5 @@
+using TheBha.Application.Promotions;
+
 namespace TheBha.Application.Properties;
 
 public static class AvailabilitySearchLimits
@@ -7,12 +9,17 @@ public static class AvailabilitySearchLimits
 }
 
 public sealed record AvailabilitySearchRequest(Guid PropertyId, DateOnly CheckIn, DateOnly CheckOut, int Adults, int Children, int Rooms);
-public sealed record NightlyRateDto(DateOnly StayDate, decimal Amount);
+/// <summary>
+/// One night of one room. <see cref="Amount"/> is what is paid (after a promotion), so <c>sum × rooms = totalAmount</c> still holds;
+/// <see cref="ListAmount"/> and <see cref="DiscountAmount"/> explain it (<c>Amount = ListAmount - DiscountAmount</c>).
+/// </summary>
+public sealed record NightlyRateDto(DateOnly StayDate, decimal Amount, decimal? ListAmount = null, decimal? DiscountAmount = null);
 public sealed record AvailabilityOfferDto(
     Guid PropertyId, Guid RoomTypeId, string RoomTypeCode, string RoomTypeName, string? RoomTypeDescription,
     IReadOnlyList<MediaDto> Media, Guid RatePlanId, string RatePlanCode, string RatePlanName, string CurrencyCode,
     DateOnly CheckIn, DateOnly CheckOut, int Nights, int RequestedRooms, int AvailableRooms,
-    IReadOnlyList<NightlyRateDto> NightlyRates, decimal TotalAmount);
+    IReadOnlyList<NightlyRateDto> NightlyRates, decimal TotalAmount,
+    decimal? ListTotalAmount = null, decimal? DiscountTotalAmount = null, AppliedPromotionDto? AppliedPromotion = null);
 
 public enum AvailabilitySearchStatus { Success, Invalid, NotFound }
 public sealed record AvailabilitySearchResult(AvailabilitySearchStatus Status, IReadOnlyList<AvailabilityOfferDto> Offers, string? Error)
@@ -48,7 +55,8 @@ public sealed record AvailabilityData(
     IReadOnlyDictionary<Guid, int> ActiveRoomCounts,
     IReadOnlyList<AvailabilityInventoryControlData> InventoryControls,
     IReadOnlyList<AvailabilityCommittedDemandData> CommittedDemand,
-    IReadOnlyList<AvailabilityBlockedRoomData> BlockedRooms);
+    IReadOnlyList<AvailabilityBlockedRoomData> BlockedRooms,
+    IReadOnlyList<PromotionPricingRule>? PromotionRules = null);
 
 public interface IAvailabilityDataSource
 {
@@ -114,10 +122,14 @@ public sealed class AvailabilitySearch(IAvailabilityDataSource dataSource, TimeP
                 if (!rates.TryGetValue((roomType.Id, plan.Id), out var nightlyData) || nightlyData.Count != nights) continue;
                 var expectedDates = Enumerable.Range(0, nights).Select(offset => request.CheckIn.AddDays(offset));
                 if (!nightlyData.Select(x => x.StayDate).SequenceEqual(expectedDates)) continue;
-                var nightly = nightlyData.Select(x => new NightlyRateDto(x.StayDate, x.Amount)).ToList();
+                var priced = PromotionPricing.Price(
+                    nightlyData.Select(x => new ListNight(x.StayDate, x.Amount)).ToList(), request.Rooms, plan.CurrencyCode, roomType.Id, localToday,
+                    data.PromotionRules ?? []);
+                var nightly = priced.Nights.Select(x => new NightlyRateDto(x.StayDate, x.FinalAmount, x.ListAmount, x.DiscountAmount)).ToList();
                 offers.Add(new AvailabilityOfferDto(data.Property.Id, roomType.Id, roomType.Code, roomType.Name, roomType.Description,
                     roomType.Media, plan.Id, plan.Code, plan.Name, plan.CurrencyCode, request.CheckIn, request.CheckOut,
-                    nights, request.Rooms, availableRooms, nightly, nightly.Sum(x => x.Amount) * request.Rooms));
+                    nights, request.Rooms, availableRooms, nightly, priced.FinalTotal,
+                    priced.ListTotal, priced.DiscountTotal, priced.ToDto()));
             }
         }
         return AvailabilitySearchResult.Success(offers.OrderBy(x => x.RoomTypeCode).ThenBy(x => x.RatePlanCode).ThenBy(x => x.RoomTypeId).ThenBy(x => x.RatePlanId).ToList());

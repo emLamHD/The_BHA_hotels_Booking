@@ -37,7 +37,8 @@ public sealed class InventoryHold
         string idempotencyKeyHash,
         string requestFingerprint,
         string? guestAccessTokenHash,
-        IEnumerable<NightlyCommitmentSnapshot> itemNightPlan)
+        IEnumerable<NightlyCommitmentSnapshot> itemNightPlan,
+        AppliedPromotionSnapshot? promotion = null)
     {
         BookingGuard.ValidateHoldHeader(
             id,
@@ -100,6 +101,20 @@ public sealed class InventoryHold
         {
             throw new DomainException("totalAmount must be greater than zero.");
         }
+
+        var listTotal = _items.SelectMany(item => item.Nights).Sum(night => night.ListUnitAmount);
+        var discountTotal = listTotal - TotalAmount;
+        if (promotion is null)
+        {
+            if (discountTotal != 0)
+            {
+                throw new DomainException("A discounted night needs the promotion that priced it.");
+            }
+        }
+        else
+        {
+            PromotionApplication = new BookingPromotionApplication(Id, promotion, listTotal, discountTotal);
+        }
     }
 
     public Guid Id { get; private set; }
@@ -121,6 +136,9 @@ public sealed class InventoryHold
     public string RequestFingerprint { get; private set; } = string.Empty;
     public string? GuestAccessTokenHash { get; private set; }
     public IReadOnlyList<InventoryHoldItem> Items => _items.AsReadOnly();
+
+    /// <summary>The promotion that priced this Hold, copied at the Hold; <c>null</c> when no promotion applied.</summary>
+    public BookingPromotionApplication? PromotionApplication { get; private set; }
 
     public bool IsExpiredAt(DateTimeOffset utcNow)
     {
@@ -177,9 +195,16 @@ public sealed class InventoryHold
                 item.Nights.Select(night => new NightlyCommitmentSnapshot(
                     night.StayDate,
                     night.RatePlanId,
-                    night.UnitAmount)))));
+                    night.UnitAmount,
+                    night.ListUnitAmount)))));
 
         Status = BookingHoldStatus.Confirmed;
+        if (PromotionApplication is not null)
+        {
+            PromotionApplication.LinkReservation(reservationId);
+            reservation.AttachPromotionApplication(PromotionApplication);
+        }
+
         return reservation;
     }
 
@@ -260,6 +285,15 @@ public sealed class InventoryHold
             return false;
         }
 
+        if ((PromotionApplication is null) != (reservation.PromotionApplication is null) ||
+            (PromotionApplication is not null &&
+             (reservation.PromotionApplication!.PromotionId != PromotionApplication.PromotionId ||
+              reservation.PromotionApplication.PromotionVersion != PromotionApplication.PromotionVersion ||
+              reservation.PromotionApplication.DiscountTotalAmount != PromotionApplication.DiscountTotalAmount)))
+        {
+            return false;
+        }
+
         var unitsBySourceItem = reservation.Units
             .Where(unit => unit.SourceInventoryHoldItemId.HasValue)
             .ToDictionary(unit => unit.SourceInventoryHoldItemId!.Value);
@@ -282,11 +316,11 @@ public sealed class InventoryHold
 
             var expectedNights = item.Nights
                 .OrderBy(night => night.StayDate)
-                .Select(night => (night.StayDate, night.RatePlanId, night.UnitAmount))
+                .Select(night => (night.StayDate, night.RatePlanId, night.UnitAmount, night.ListUnitAmount))
                 .ToArray();
             var actualNights = unit.Nights
                 .OrderBy(night => night.StayDate)
-                .Select(night => (night.StayDate, night.RatePlanId, night.UnitAmount))
+                .Select(night => (night.StayDate, night.RatePlanId, night.UnitAmount, night.ListUnitAmount))
                 .ToArray();
             if (!expectedNights.SequenceEqual(actualNights))
             {

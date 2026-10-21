@@ -12,7 +12,7 @@ import { useBookingHoldFlow } from "@/app/BookingHoldProvider";
 import { runIfAvailabilitySearchAllowed } from "@/lib/api/bookingHoldFlowController";
 import { runAvailabilityFormSubmit } from "@/lib/api/availabilityFormSubmit";
 import { searchAvailability } from "@/lib/api/availabilityService";
-import { AvailabilityOfferDto, AvailabilityQuery } from "@/lib/api/availabilityTypes";
+import { AvailabilityOfferDto, AvailabilityQuery, quoteOfOffer } from "@/lib/api/availabilityTypes";
 import { AvailabilityDraft, AvailabilityFieldErrors } from "@/lib/api/availabilityValidation";
 import { PropertyDto } from "@/lib/api/propertyTypes";
 import { bookingFlowRoomTypeId, filterOffersForRoomType, sameId } from "@/lib/roomDetailsRoute";
@@ -237,6 +237,7 @@ const SectionAvailabilitySearch: FC<SectionAvailabilitySearchProps> = ({
         adults: submittedQuery.adults,
         children: submittedQuery.children,
         rooms: submittedQuery.rooms,
+        quote: quoteOfOffer(offer),
       },
       t("customer.search.offerLabel", {
         room: content("roomType", offer.roomTypeId, "name", offer.roomTypeName ?? t("customer.booking.offer.roomTypeFallback")),

@@ -20,11 +20,15 @@ internal sealed class InventoryHoldItemNightConfiguration
             table.HasCheckConstraint(
                 "CK_InventoryHoldItemNights_Amount",
                 "\"UnitAmount\" > 0");
+            table.HasCheckConstraint(
+                "CK_InventoryHoldItemNights_ListAmount",
+                "\"ListUnitAmount\" >= \"UnitAmount\"");
         });
 
         builder.HasKey(night => new { night.InventoryHoldItemId, night.StayDate });
         builder.Property(night => night.StayDate).HasColumnType("date");
         builder.Property(night => night.UnitAmount).HasPrecision(18, 2);
+        builder.Property(night => night.ListUnitAmount).HasPrecision(18, 2);
         builder.HasIndex(night => new { night.StayDate, night.InventoryHoldItemId });
 
         builder.HasOne<RatePlan>()

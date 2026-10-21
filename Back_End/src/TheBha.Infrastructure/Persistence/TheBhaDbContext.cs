@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using TheBha.Domain.Bookings;
 using TheBha.Infrastructure.Identity;
+using TheBha.Domain.Promotions;
 using TheBha.Domain.Properties;
 using TheBha.Domain.Scheduling;
 using TheBha.Domain.Website;
@@ -47,6 +48,10 @@ public sealed class TheBhaDbContext(DbContextOptions<TheBhaDbContext> options)
     public DbSet<WebsiteHeroSlide> WebsiteHeroSlides => Set<WebsiteHeroSlide>();
     public DbSet<WebsiteHeroSettings> WebsiteHero => Set<WebsiteHeroSettings>();
     public DbSet<WebsiteSocialSettings> WebsiteSocialSettings => Set<WebsiteSocialSettings>();
+    public DbSet<Promotion> Promotions => Set<Promotion>();
+    public DbSet<PromotionMedia> PromotionMedia => Set<PromotionMedia>();
+    public DbSet<PromotionAudit> PromotionAudits => Set<PromotionAudit>();
+    public DbSet<BookingPromotionApplication> BookingPromotionApplications => Set<BookingPromotionApplication>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -438,6 +438,16 @@ public sealed class AdminCalendarAssignmentApiTests(PostgreSqlWebApplicationFact
     // Acceptance 5: the published contract
     // ---------------------------------------------------------------
 
+    // BHA-BOOKING-PROMOTIONS-001 / ADR 0009: the per-Property promotion mutations (create, save, status, one picture upload), asserted in
+    // full by AdminPromotionsApiTests; a new one must be added here on purpose.
+    private static readonly string[] PromotionMutationPaths =
+    [
+        "/api/admin/v1/properties/{propertyId}/promotions",
+        "/api/admin/v1/properties/{propertyId}/promotions/{promotionId}/save",
+        "/api/admin/v1/properties/{propertyId}/promotions/{promotionId}/status",
+        "/api/admin/v1/properties/{propertyId}/promotions/media"
+    ];
+
     // CUST-WEB-HEADER-001-CP02: the website-settings Admin mutations (every one is a POST under the Staff
     // permission); exact paths, so a new one must be added here on purpose.
     private static readonly string[] WebsiteMutationPaths =
@@ -519,6 +529,7 @@ public sealed class AdminCalendarAssignmentApiTests(PostgreSqlWebApplicationFact
                 path.Name != "/api/admin/v1/catalog/properties/{propertyId}/room-types/{roomTypeId}/physical-rooms" &&
                 path.Name != "/api/admin/v1/auth/login" &&
                 path.Name != "/api/admin/v1/auth/logout" &&
+                !PromotionMutationPaths.Contains(path.Name) &&
                 !WebsiteMutationPaths.Contains(path.Name))
             {
                 foreach (var method in new[] { "post", "put", "patch", "delete" })

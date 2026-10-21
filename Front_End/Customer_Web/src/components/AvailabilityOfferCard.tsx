@@ -90,9 +90,10 @@ const AvailabilityOfferCard: FC<AvailabilityOfferCardProps> = ({
 
         <div className="text-xs text-neutral-500 dark:text-neutral-400">
           <PriceBreakdown
-            rows={nightlyRates.map((rate) => ({ key: rate.stayDate, label: dates.stayDate(rate.stayDate), amount: rate.amount }))}
+            rows={nightlyRates.map((rate) => ({ key: rate.stayDate, label: dates.stayDate(rate.stayDate), amount: rate.amount, listAmount: rate.listAmount ?? undefined }))}
             totalAmount={data.totalAmount}
             currencyCode={data.currencyCode}
+            discount={{ listTotal: data.listTotalAmount ?? data.totalAmount, discountTotal: data.discountTotalAmount ?? 0, promotion: data.appliedPromotion }}
             totalLabel={<span className="text-sm">{t("customer.booking.offer.total")}</span>}
             totalClassName="mt-2 flex justify-between items-center"
           />
