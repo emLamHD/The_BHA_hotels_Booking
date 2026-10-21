@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\TheBha.Application\TheBha.Application.csproj" />
@@ -10,10 +10,13 @@
     <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="8.0.0" />
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" Version="8.0.29" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.11" />
+    <PackageReference Include="SkiaSharp" Version="4.153.1" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.153.1" />
   </ItemGroup>
 
   <ItemGroup>
     <!-- CUST-WEB-HERO-001-CP01: the four photographs the hero started with (credits: Customer_Web media-credits page), served by the API like an upload. -->
+    <EmbeddedResource Include="../../../Front_End/Customer_Web/public/media/the-bha-riverside/*.webp" LogicalName="bha-catalog-seed/%(Filename)%(Extension)" />
     <EmbeddedResource Include="HeroMedia\Seed\*.webp" LogicalName="bha-hero-seed/%(Filename)%(Extension)" />
   </ItemGroup>
 

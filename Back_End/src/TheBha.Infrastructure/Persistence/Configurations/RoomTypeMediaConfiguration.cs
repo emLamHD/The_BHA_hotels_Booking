@@ -11,6 +11,7 @@ internal sealed class RoomTypeMediaConfiguration : IEntityTypeConfiguration<Room
         builder.ToTable(
             "RoomTypeMedia",
             table => table.HasCheckConstraint("CK_RoomTypeMedia_SortOrder", "\"SortOrder\" >= 0"));
+        builder.Property(link => link.AltTextOverride).HasMaxLength(500);
         builder.HasKey(link => new { link.RoomTypeId, link.MediaId });
         builder.HasIndex(link => link.RoomTypeId).IsUnique().HasFilter("\"IsCover\"");
         builder.HasOne(link => link.RoomType).WithMany().HasForeignKey(link => link.RoomTypeId)

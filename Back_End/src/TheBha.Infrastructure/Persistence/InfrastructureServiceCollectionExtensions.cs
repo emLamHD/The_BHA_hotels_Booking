@@ -35,6 +35,9 @@ public static class InfrastructureServiceCollectionExtensions
                 npgsqlOptions => npgsqlOptions.MigrationsAssembly("TheBha.Infrastructure")));
 
         services.AddScoped<IPropertyCatalogQueries, PropertyCatalogQueries>();
+        services.AddScoped<IAdminCatalog, AdminCatalogService>();
+        services.AddSingleton<ICatalogMediaStorage>(new TheBha.Infrastructure.CatalogMedia.LocalCatalogMediaStorage(configuration["WebsiteMedia:RootPath"]));
+        services.AddSingleton<ICatalogImageDecoder, TheBha.Infrastructure.CatalogMedia.CatalogImageDecoder>();
         services.AddSingleton(TimeProvider.System);
         services.AddScoped<IDailyRoomRateStore, DailyRoomRateStore>();
         services.AddScoped<IDailyRoomRatePricing, DailyRoomRatePricing>();

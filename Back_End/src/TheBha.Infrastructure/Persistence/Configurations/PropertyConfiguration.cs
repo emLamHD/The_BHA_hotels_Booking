@@ -9,6 +9,7 @@ internal sealed class PropertyConfiguration : IEntityTypeConfiguration<Property>
     public void Configure(EntityTypeBuilder<Property> builder)
     {
         builder.ToTable("Properties");
+        builder.Property(item => item.ContentVersion).HasDefaultValue(1).IsConcurrencyToken();
         builder.HasKey(property => property.Id);
         builder.Property(property => property.Name).HasMaxLength(200).IsRequired();
         builder.Property(property => property.Slug).HasMaxLength(200).IsRequired();

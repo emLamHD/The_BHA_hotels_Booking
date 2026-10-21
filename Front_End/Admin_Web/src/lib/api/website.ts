@@ -542,6 +542,7 @@ interface CallOptions<T> {
   /** The success body is plain text (an exported pack). */
   text?: boolean;
   signal?: AbortSignal;
+  headers?: Record<string, string>;
 }
 
 function target(path: string): { ok: true; url: string } | { ok: false; message: string } {
@@ -571,7 +572,7 @@ async function readProblem(response: Response): Promise<{ code: string | null; f
   return { code: null, field: null, detail: `Máy chủ Admin trả lời HTTP ${response.status}.` };
 }
 
-async function call<T>(method: "GET" | "POST", path: string, body: unknown, options: CallOptions<T>): Promise<WebsiteResult<T>> {
+export async function call<T>(method: "GET" | "POST", path: string, body: unknown, options: CallOptions<T>): Promise<WebsiteResult<T>> {
   const destination = target(path);
   if (!destination.ok) return { kind: "config", message: destination.message };
   const { write } = options;
@@ -586,7 +587,7 @@ async function call<T>(method: "GET" | "POST", path: string, body: unknown, opti
       // A FormData body (the hero picture) carries its own multipart Content-Type with the boundary: it must not be set here.
       headers:
         method === "POST"
-          ? body instanceof FormData ? { Accept: "application/json" } : { Accept: "application/json", "Content-Type": "application/json" }
+          ? body instanceof FormData ? { Accept: "application/json", ...options.headers } : { Accept: "application/json", "Content-Type": "application/json", ...options.headers }
           : { Accept: options.text ? "application/json, text/plain" : "application/json" },
       body: method === "POST" ? (body instanceof FormData ? body : JSON.stringify(body ?? {})) : undefined,
       credentials: "include",

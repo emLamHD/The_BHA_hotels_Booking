@@ -51,6 +51,29 @@ public sealed class Property
     public DateTimeOffset CreatedAt { get; private set; }
     public DateTimeOffset UpdatedAt { get; private set; }
 
+    public int ContentVersion { get; private set; } = 1;
+    public Guid? ContentUpdatedByStaffId { get; private set; }
+
+    public void EditContent(string name, string? description, string address, string city, string country, Guid actor, DateTimeOffset now)
+    {
+        Name = DomainGuard.Required(name, nameof(name), 200);
+        Description = DomainGuard.Optional(description, nameof(description), 4000);
+        Address = DomainGuard.Optional(address, nameof(address), 500) ?? string.Empty;
+        City = DomainGuard.Optional(city, nameof(city), 120) ?? string.Empty;
+        Country = DomainGuard.Optional(country, nameof(country), 120) ?? string.Empty;
+        ContentVersion++;
+        ContentUpdatedByStaffId = DomainGuard.RequiredId(actor, nameof(actor));
+        UpdatedAt = now;
+    }
+
+    /// <summary>Normalizes the display name during the guarded local catalog seed, preserving identity and other content.</summary>
+    public void RenameForSeed(string name, DateTimeOffset now)
+    {
+        Name = DomainGuard.Required(name, nameof(name), 200);
+        ContentVersion++;
+        UpdatedAt = now;
+    }
+
     public void Deactivate(DateTimeOffset updatedAt)
     {
         IsActive = false;

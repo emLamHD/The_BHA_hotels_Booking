@@ -63,7 +63,7 @@ public sealed class WebsiteSettingsMigrationTests : IAsyncLifetime
         await using var context = CreateContext();
         await context.Database.MigrateAsync();
 
-        Assert.Equal(14, (await context.Database.GetAppliedMigrationsAsync()).Count());
+        Assert.Equal(16, (await context.Database.GetAppliedMigrationsAsync()).Count());
         Assert.Empty(await context.Database.GetPendingMigrationsAsync());
 
         // Languages: Vietnamese is the active default, English exists for the operator but is off; each has its format and currency.
@@ -272,7 +272,7 @@ public sealed class WebsiteSettingsMigrationTests : IAsyncLifetime
         await context.Database.MigrateAsync();
         await context.Database.MigrateAsync();
 
-        Assert.Equal(14, (await context.Database.GetAppliedMigrationsAsync()).Count());
+        Assert.Equal(16, (await context.Database.GetAppliedMigrationsAsync()).Count());
         Assert.Equal(
             before.Order(StringComparer.Ordinal).ToArray(),
             (await RowsAsync("""SELECT 'L' || "NormalizedCode" || "DisplayName" || "Version"::text || "IsActive"::text FROM "WebsiteLanguages" UNION ALL SELECT 'T' || "Key" || "Value" || "Version"::text FROM "WebsiteTranslations" UNION ALL SELECT 'C' || "Code" || "Name" || COALESCE("VndPerUnit"::text,'-') || "Version"::text FROM "WebsiteCurrencies" """))
@@ -393,9 +393,20 @@ public sealed class WebsiteSettingsMigrationTests : IAsyncLifetime
             Guid.NewGuid(), "Existing Hotel", "existing-hotel", null, "1 Hotel Street", "Da Nang", "Vietnam",
             "Asia/Ho_Chi_Minh", new TimeOnly(14, 0), new TimeOnly(12, 0), true, Now);
         var roomType = new RoomType(Guid.NewGuid(), property.Id, "EXS", "Standard", "existing-standard", null, 2, 4, true, Now);
+        // Seed against the V9 schema without asking today's EF model to write the new CP01 columns.
+        await context.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "Properties" ("Id","Name","Slug","Description","Address","City","Country","TimeZone","CheckInTime","CheckOutTime","IsActive","CreatedAt","UpdatedAt")
+            VALUES ({property.Id},{property.Name},{property.Slug},{property.Description},{property.Address},{property.City},{property.Country},{property.TimeZone},{property.CheckInTime},{property.CheckOutTime},{property.IsActive},{property.CreatedAt},{property.UpdatedAt})
+            """);
+        await context.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "RoomTypes" ("Id","PropertyId","Code","Name","Slug","Description","BaseOccupancy","MaxOccupancy","IsActive","CreatedAt","UpdatedAt")
+            VALUES ({roomType.Id},{roomType.PropertyId},{roomType.Code},{roomType.Name},{roomType.Slug},{roomType.Description},{roomType.BaseOccupancy},{roomType.MaxOccupancy},{roomType.IsActive},{roomType.CreatedAt},{roomType.UpdatedAt})
+            """);
         var ratePlan = new RatePlan(Guid.NewGuid(), property.Id, "EXISTING", "existing", null, "VND", true, Now);
         var room = new PhysicalRoom(Guid.NewGuid(), property.Id, roomType, "E1", 1, OperationalStatus.Active, Now);
-        context.AddRange(property, roomType, ratePlan, room);
+        context.Attach(property);
+        context.Attach(roomType);
+        context.AddRange(ratePlan, room);
         var nights = Enumerable.Range(0, CheckOut.DayNumber - CheckIn.DayNumber)
             .Select(offset => new NightlyCommitmentSnapshot(CheckIn.AddDays(offset), ratePlan.Id, 100m)).ToArray();
         var hold = new InventoryHold(
@@ -428,9 +439,14 @@ public sealed class WebsiteSettingsMigrationTests : IAsyncLifetime
         var result = new Dictionary<string, (long, string)>();
         foreach (var table in tables)
         {
-            var row = table == "StaffAccounts"
-                ? "(t.\"Id\", t.\"IsActive\", t.\"CreatedAtUtc\", t.\"DisabledAtUtc\", t.\"UserName\", t.\"NormalizedUserName\", t.\"Email\", t.\"NormalizedEmail\", t.\"PasswordHash\", t.\"SecurityStamp\", t.\"ConcurrencyStamp\", t.\"LockoutEnabled\", t.\"AccessFailedCount\")::text"
-                : "t::text";
+            var row = table switch
+            {
+                "StaffAccounts" => "(t.\"Id\", t.\"IsActive\", t.\"CreatedAtUtc\", t.\"DisabledAtUtc\", t.\"UserName\", t.\"NormalizedUserName\", t.\"Email\", t.\"NormalizedEmail\", t.\"PasswordHash\", t.\"SecurityStamp\", t.\"ConcurrencyStamp\", t.\"LockoutEnabled\", t.\"AccessFailedCount\")::text",
+                "Properties" => "(to_jsonb(t) - 'ContentVersion' - 'ContentUpdatedByStaffId')::text",
+                "RoomTypes" => "(to_jsonb(t) - 'ContentVersion' - 'ContentUpdatedByStaffId' - 'AreaSquareMeters' - 'Bedrooms' - 'BedDescription')::text",
+                "PropertyMedia" or "RoomTypeMedia" => "(to_jsonb(t) - 'AltTextOverride')::text",
+                _ => "t::text"
+            };
             var rows = await ScalarAsync<long>($"SELECT count(*) FROM \"{table}\" t");
             var hash = await ScalarAsync<string>($"SELECT COALESCE(md5(string_agg({row}, '|' ORDER BY {row})), '') FROM \"{table}\" t");
             result[table] = (rows, hash);

@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using TheBha.Api.Seeding;
+using TheBha.Domain.Properties;
 using TheBha.Infrastructure.Persistence;
 using TheBha.Infrastructure.Persistence.Demo;
 
@@ -103,6 +104,68 @@ public sealed class RiversideDemoSeedCommandTests(PostgreSqlWebApplicationFactor
         {
             Assert.NotNull(refusal);
             Assert.Contains(refusalContains, refusal);
+        }
+    }
+
+    [Fact]
+    public void Existing_property_opt_in_requires_loopback_development_exact_database_and_both_flags()
+    {
+        var propertyId = Guid.NewGuid();
+        Assert.Null(RiversideDemoSeedCommand.RefuseTarget("Development", "thebha_dev", "thebha_dev", "localhost", propertyId, true));
+        Assert.Contains("loopback", RiversideDemoSeedCommand.RefuseTarget("Development", "thebha_dev", "thebha_dev", "db.example.test", propertyId, true));
+        Assert.Contains("does not match", RiversideDemoSeedCommand.RefuseTarget("Development", "thebha_dev", "other", "localhost", propertyId, true));
+        Assert.Contains("only with ASPNETCORE_ENVIRONMENT=Development", RiversideDemoSeedCommand.RefuseTarget("Staging", "thebha_dev", "thebha_dev", "localhost", propertyId, true));
+        Assert.Contains("must be used together", RiversideDemoSeedCommand.RefuseTarget("Development", "thebha_dev", "thebha_dev", "localhost", null, true));
+        Assert.Contains("must be used together", RiversideDemoSeedCommand.RefuseTarget("Development", "thebha_dev", "thebha_dev", "localhost", propertyId, false));
+    }
+
+    [Fact]
+    public async Task Explicit_target_seeds_existing_hotel_identity_without_replacing_legacy_stock_and_reruns_cleanly()
+    {
+        var propertyId = Guid.NewGuid();
+        var legacyRoomId = Guid.NewGuid();
+        await using (var scope = _services.CreateAsyncScope())
+        {
+            var context = scope.ServiceProvider.GetRequiredService<TheBhaDbContext>();
+            context.Properties.Add(new Property(propertyId, "The BHA Hotel", "the-bha-hotel", "Legacy", "Address", "Da Nang", "Vietnam", "Asia/Ho_Chi_Minh", new TimeOnly(14, 0), new TimeOnly(12, 0), true, Now));
+            var legacyRoom = new RoomType(legacyRoomId, propertyId, "FAMILY", "Family Suite", "family-suite", "Legacy room", 2, 4, true, Now);
+            context.RoomTypes.Add(legacyRoom);
+            context.PhysicalRooms.Add(new PhysicalRoom(Guid.NewGuid(), propertyId, legacyRoom, "LEGACY-01", 2, OperationalStatus.Active, Now));
+            await context.SaveChangesAsync();
+        }
+        Assert.True(RiversideSeedOptions.TryCreate("https://localhost:3000", DateOnly.Parse("2026-10-07"), 10, out var options, out _, propertyId));
+
+        RiversideSeedPlan first;
+        await using (var scope = _services.CreateAsyncScope())
+        {
+            var seeder = scope.ServiceProvider.GetRequiredService<RiversideDemoSeeder>();
+            first = await seeder.PlanAsync(options!, CancellationToken.None);
+        }
+        Assert.False(first.HasConflicts);
+        Assert.Equal(1, first.Tables.Single(x => x.Table == "Property display name").ToUpdate);
+        Assert.Equal(3, first.Tables.Single(x => x.Table == "RoomTypes").ToInsert);
+        Assert.Equal(11, first.Tables.Single(x => x.Table == "PhysicalRooms").ToInsert);
+        Assert.Equal(31, first.Tables.Single(x => x.Table == "Media").ToInsert);
+        Assert.Equal(33, first.Tables.Single(x => x.Table == "Property/RoomType/Amenity links").ToInsert);
+
+        await using (var scope = _services.CreateAsyncScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<RiversideDemoSeeder>().ApplyAsync(options!, CancellationToken.None);
+        }
+        await using (var scope = _services.CreateAsyncScope())
+        {
+            var context = scope.ServiceProvider.GetRequiredService<TheBhaDbContext>();
+            Assert.Equal("The BHA Riverside", (await context.Properties.SingleAsync(x => x.Id == propertyId)).Name);
+            Assert.Equal("the-bha-hotel", (await context.Properties.SingleAsync(x => x.Id == propertyId)).Slug);
+            Assert.True(await context.RoomTypes.AnyAsync(x => x.Id == legacyRoomId && x.Code == "FAMILY"));
+            Assert.Equal(12, await context.PhysicalRooms.CountAsync(x => x.PropertyId == propertyId));
+            Assert.Equal(3, await context.RoomTypes.CountAsync(x => x.PropertyId == propertyId && x.Code.StartsWith("RIV-")));
+            Assert.Equal(31, await context.PropertyMedia.CountAsync(x => x.PropertyId == propertyId) + await context.RoomTypeMedia.CountAsync(x => x.RoomType.PropertyId == propertyId && x.RoomType.Code.StartsWith("RIV-")));
+            var second = await scope.ServiceProvider.GetRequiredService<RiversideDemoSeeder>().PlanAsync(options!, CancellationToken.None);
+            Assert.False(second.HasConflicts);
+            Assert.Equal(0, second.TotalInserts);
+            Assert.Equal(0, second.TotalUpdates);
+            Assert.Equal(0, second.TotalDeletes);
         }
     }
 

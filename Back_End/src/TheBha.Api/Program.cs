@@ -391,6 +391,18 @@ builder.Services.AddCors(options =>
                 .AllowCredentials();
         }
     });
+    // BHA-PRODUCT-ADMIN-001-CP01-C3-C1: only the three Admin catalog create routes
+    // need this request header. Keep it separate from Calendar and general website writes.
+    options.AddPolicy(AdminCatalogController.CreateCorsPolicy, policy =>
+    {
+        if (cors.AdminOrigins.Length > 0)
+        {
+            policy.WithOrigins(cors.AdminOrigins)
+                .WithHeaders("Content-Type", "Idempotency-Key")
+                .WithMethods("POST")
+                .AllowCredentials();
+        }
+    });
     // PMS-ADMIN-AUTH-001-CP04: in Staff mode only, the Staff-authorized Calendar reads (the board)
     // are called with the Staff cookie, so they get a credentialed, GET-only policy for the
     // explicit HTTPS Admin origins. It is attached to those endpoints in place of admin-calendar
@@ -566,6 +578,14 @@ if (staffCalendarMode)
         // GET reads and POST mutations (every website mutation is a POST).
         if (!endpoint.Metadata.OfType<StaffCalendarPermissionAttribute>().Any() &&
             !endpoint.Metadata.OfType<StaffWebsitePermissionAttribute>().Any())
+        {
+            return;
+        }
+
+        // The catalog create actions carry their narrower explicit policy above.
+        // Preserve it instead of replacing it with the shared Staff write policy.
+        if (endpoint.Metadata.OfType<EnableCorsAttribute>()
+            .Any(attribute => attribute.PolicyName == AdminCatalogController.CreateCorsPolicy))
         {
             return;
         }

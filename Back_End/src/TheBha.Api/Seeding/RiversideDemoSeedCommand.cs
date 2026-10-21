@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Net;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using TheBha.Infrastructure.Persistence;
@@ -14,14 +15,17 @@ namespace TheBha.Api.Seeding;
 /// <code>
 /// --seed-riverside-demo --expected-database NAME --media-base-url https://ORIGIN
 ///                       --from YYYY-MM-DD [--days 60] (--dry-run | --apply)
+/// Local existing-property opt-in also requires --allow-existing-local-property --property-id GUID.
 /// </code>
 ///
 /// <para>
 /// The target is checked before anything is read: the environment must be Development, the
 /// operator names the database (<c>--expected-database</c>), that name must be a demo or
 /// showcase database, and it must equal <c>current_database()</c> of the connection actually in
-/// use. Production, Staging and any other environment are refused. The public API that serves
-/// the seeded data still runs Production; the seeder is a separate operator process.
+/// use. The narrowly explicit existing-property opt-in may target another exact Development
+/// database only on a loopback PostgreSQL host and with a Property ID. Production, Staging,
+/// remote hosts and mismatched names are refused. The public API that serves the seeded data
+/// still runs Production; the seeder is a separate operator process.
 /// </para>
 /// </summary>
 public static class RiversideDemoSeedCommand
@@ -36,24 +40,41 @@ public static class RiversideDemoSeedCommand
 
     public const int DefaultDays = 60;
 
-    private static readonly string[] ValueOptions = ["--expected-database", "--media-base-url", "--from", "--days"];
-    private static readonly string[] FlagOptions = ["--dry-run", "--apply"];
+    private static readonly string[] ValueOptions = ["--expected-database", "--media-base-url", "--from", "--days", "--property-id"];
+    private static readonly string[] FlagOptions = ["--dry-run", "--apply", "--allow-existing-local-property"];
 
     public static bool IsCommand(string[] args) => args.Contains(Verb, StringComparer.Ordinal);
 
     /// <summary>The environment and name rules; <c>null</c> means the target is acceptable.</summary>
     public static string? RefuseTarget(string environmentName, string expectedDatabase, string actualDatabase)
+        => RefuseTarget(environmentName, expectedDatabase, actualDatabase, null, null, false);
+
+    public static string? RefuseTarget(string environmentName, string expectedDatabase, string actualDatabase,
+        string? host, Guid? propertyId, bool allowExistingLocalProperty)
     {
         if (!string.Equals(environmentName, "Development", StringComparison.Ordinal))
         {
             return $"refused: the Riverside demo seed runs only with ASPNETCORE_ENVIRONMENT=Development (this process is '{environmentName}').";
         }
 
+        if ((propertyId is null) != !allowExistingLocalProperty)
+        {
+            return "refused: --property-id and --allow-existing-local-property must be used together.";
+        }
+
+        if ((allowExistingLocalProperty || host is not null) && !IsLoopbackHost(host))
+        {
+            return "refused: the Riverside seed is allowed only for a loopback PostgreSQL host.";
+        }
+
         if (string.IsNullOrWhiteSpace(expectedDatabase) ||
-            (!expectedDatabase.Contains("demo", StringComparison.OrdinalIgnoreCase) &&
+            (!allowExistingLocalProperty &&
+             !expectedDatabase.Contains("demo", StringComparison.OrdinalIgnoreCase) &&
              !expectedDatabase.Contains("showcase", StringComparison.OrdinalIgnoreCase)))
         {
-            return "refused: --expected-database must name a demo or showcase database (its name must contain 'demo' or 'showcase').";
+            return allowExistingLocalProperty
+                ? "refused: --expected-database must name the exact local Development database."
+                : "refused: --expected-database must name a demo or showcase database (its name must contain 'demo' or 'showcase').";
         }
 
         if (!string.Equals(expectedDatabase, actualDatabase, StringComparison.Ordinal))
@@ -62,6 +83,12 @@ public static class RiversideDemoSeedCommand
         }
 
         return null;
+    }
+
+    private static bool IsLoopbackHost(string? host)
+    {
+        if (string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase)) return true;
+        return IPAddress.TryParse(host, out var address) && IPAddress.IsLoopback(address);
     }
 
     public static async Task<int> RunAsync(
@@ -94,7 +121,8 @@ public static class RiversideDemoSeedCommand
         try
         {
             var actual = await context.Database.SqlQuery<string>($"SELECT current_database() AS \"Value\"").SingleAsync(cancellationToken);
-            var refusal = RefuseTarget(environmentName, parsed.ExpectedDatabase!, actual);
+            var refusal = RefuseTarget(environmentName, parsed.ExpectedDatabase!, actual, connection.Host,
+                parsed.PropertyId, parsed.AllowExistingLocalProperty);
             output.WriteLine($"riverside-seed: target {connection.Host}:{connection.Port}/{actual} (environment {environmentName})");
             if (refusal is not null)
             {
@@ -115,7 +143,7 @@ public static class RiversideDemoSeedCommand
             }
 
             output.WriteLine(parsed.Apply
-                ? $"riverside-seed: APPLIED — {plan.TotalInserts} rows inserted."
+                ? $"riverside-seed: APPLIED — {plan.TotalInserts} rows inserted, {plan.TotalUpdates} values updated, {plan.TotalDeletes} legacy links replaced."
                 : $"riverside-seed: DRY RUN — nothing was written; {plan.TotalInserts} rows would be inserted.");
             return Success;
         }
@@ -137,7 +165,7 @@ public static class RiversideDemoSeedCommand
         output.WriteLine($"riverside-seed: mode {(apply ? "apply" : "dry-run")}, nights {plan.From:yyyy-MM-dd}..{plan.ToExclusive.AddDays(-1):yyyy-MM-dd} ({(plan.ToExclusive.DayNumber - plan.From.DayNumber)}), media origin {plan.MediaOrigin}, property {(plan.PropertyExists ? "exists" : "will be created")}");
         foreach (var table in plan.Tables)
         {
-            output.WriteLine($"riverside-seed:   {table.Table,-34} existing {table.Existing,5}   insert {table.ToInsert,5}");
+            output.WriteLine($"riverside-seed:   {table.Table,-34} existing {table.Existing,5}   insert {table.ToInsert,5}   update {table.ToUpdate,3}   remove {table.ToDelete,3}");
         }
 
         foreach (var warning in plan.Warnings)
@@ -151,7 +179,8 @@ public static class RiversideDemoSeedCommand
         }
     }
 
-    private sealed record Parsed(string? Error, string? ExpectedDatabase, RiversideSeedOptions? Options, bool Apply);
+    private sealed record Parsed(string? Error, string? ExpectedDatabase, RiversideSeedOptions? Options, bool Apply,
+        Guid? PropertyId, bool AllowExistingLocalProperty);
 
     private static Parsed Parse(string[] args)
     {
@@ -200,6 +229,24 @@ public static class RiversideDemoSeedCommand
             }
         }
 
+        var hasPropertyId = values.TryGetValue("--property-id", out var rawPropertyId);
+        var allowExistingLocalProperty = flags.Contains("--allow-existing-local-property");
+        if (hasPropertyId != allowExistingLocalProperty)
+        {
+            return Fail("--property-id and --allow-existing-local-property must be used together.");
+        }
+
+        Guid? propertyId = null;
+        if (hasPropertyId)
+        {
+            if (!Guid.TryParse(rawPropertyId, out var parsedPropertyId) || parsedPropertyId == Guid.Empty)
+            {
+                return Fail("--property-id must be a non-empty GUID.");
+            }
+
+            propertyId = parsedPropertyId;
+        }
+
         if (!DateOnly.TryParseExact(values["--from"], "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var from))
         {
             return Fail("--from must be a date as YYYY-MM-DD.");
@@ -212,13 +259,13 @@ public static class RiversideDemoSeedCommand
             return Fail("--days must be a whole number.");
         }
 
-        if (!RiversideSeedOptions.TryCreate(values["--media-base-url"], from, days, out var options, out var error))
+        if (!RiversideSeedOptions.TryCreate(values["--media-base-url"], from, days, out var options, out var error, propertyId))
         {
             return Fail(error!);
         }
 
-        return new Parsed(null, values["--expected-database"], options, flags.Contains("--apply"));
+        return new Parsed(null, values["--expected-database"], options, flags.Contains("--apply"), propertyId, allowExistingLocalProperty);
 
-        static Parsed Fail(string message) => new(message, null, null, false);
+        static Parsed Fail(string message) => new(message, null, null, false, null, false);
     }
 }

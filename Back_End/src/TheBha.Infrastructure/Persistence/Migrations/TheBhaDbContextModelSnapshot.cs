@@ -452,6 +452,43 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("TheBha.Domain.Properties.AdminCatalogCreateOperation", b =>
+                {
+                    b.Property<Guid>("ActorStaffId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OperationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("EntityId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("EntityType")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<Guid>("PropertyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RequestFingerprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("ActorStaffId", "OperationId");
+
+                    b.HasIndex("PropertyId");
+
+                    b.ToTable("AdminCatalogCreateOperations", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_AdminCatalogCreateOperations_Fingerprint", "\"RequestFingerprint\" ~ '^[0-9a-f]{64}$'");
+                        });
+                });
+
             modelBuilder.Entity("TheBha.Domain.Properties.Amenity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -482,6 +519,74 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("Amenities", (string)null);
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Properties.CatalogContentAudit", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<Guid>("ActorStaffId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("After")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<DateTimeOffset>("AtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Before")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<Guid>("PropertyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("RoomTypeId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PropertyId", "AtUtc");
+
+                    b.HasIndex("PropertyId", "RoomTypeId");
+
+                    b.ToTable("CatalogContentAudits", (string)null);
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Properties.CatalogUpload", b =>
+                {
+                    b.Property<Guid>("MediaId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<Guid>("PropertyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("RoomTypeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("StorageKey")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.HasKey("MediaId");
+
+                    b.HasIndex("PropertyId", "RoomTypeId");
+
+                    b.ToTable("CatalogUploads", (string)null);
                 });
 
             modelBuilder.Entity("TheBha.Domain.Properties.DailyInventoryControl", b =>
@@ -669,6 +774,15 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         .HasMaxLength(120)
                         .HasColumnType("character varying(120)");
 
+                    b.Property<Guid?>("ContentUpdatedByStaffId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("ContentVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
+
                     b.Property<string>("Country")
                         .IsRequired()
                         .HasMaxLength(120)
@@ -732,6 +846,10 @@ namespace TheBha.Infrastructure.Persistence.Migrations
 
                     b.Property<Guid>("MediaId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("AltTextOverride")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
 
                     b.Property<bool>("IsCover")
                         .HasColumnType("boolean");
@@ -813,13 +931,33 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<decimal?>("AreaSquareMeters")
+                        .HasPrecision(8, 2)
+                        .HasColumnType("numeric(8,2)");
+
                     b.Property<int>("BaseOccupancy")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("BedDescription")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int?>("Bedrooms")
                         .HasColumnType("integer");
 
                     b.Property<string>("Code")
                         .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
+
+                    b.Property<Guid?>("ContentUpdatedByStaffId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("ContentVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -888,6 +1026,10 @@ namespace TheBha.Infrastructure.Persistence.Migrations
 
                     b.Property<Guid>("MediaId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("AltTextOverride")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
 
                     b.Property<bool>("IsCover")
                         .HasColumnType("boolean");
@@ -1948,6 +2090,51 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         .HasPrincipalKey("PropertyId", "Id")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Properties.AdminCatalogCreateOperation", b =>
+                {
+                    b.HasOne("TheBha.Domain.Properties.Property", null)
+                        .WithMany()
+                        .HasForeignKey("PropertyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Properties.CatalogContentAudit", b =>
+                {
+                    b.HasOne("TheBha.Domain.Properties.Property", null)
+                        .WithMany()
+                        .HasForeignKey("PropertyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("TheBha.Domain.Properties.RoomType", null)
+                        .WithMany()
+                        .HasForeignKey("PropertyId", "RoomTypeId")
+                        .HasPrincipalKey("PropertyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Properties.CatalogUpload", b =>
+                {
+                    b.HasOne("TheBha.Domain.Properties.Media", null)
+                        .WithMany()
+                        .HasForeignKey("MediaId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("TheBha.Domain.Properties.Property", null)
+                        .WithMany()
+                        .HasForeignKey("PropertyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("TheBha.Domain.Properties.RoomType", null)
+                        .WithMany()
+                        .HasForeignKey("PropertyId", "RoomTypeId")
+                        .HasPrincipalKey("PropertyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("TheBha.Domain.Properties.DailyInventoryControl", b =>

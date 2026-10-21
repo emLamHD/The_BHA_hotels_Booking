@@ -18,7 +18,10 @@ public sealed class RoomType
         int baseOccupancy,
         int maxOccupancy,
         bool isActive,
-        DateTimeOffset createdAt)
+        DateTimeOffset createdAt,
+        decimal? areaSquareMeters = null,
+        int? bedrooms = null,
+        string? bedDescription = null)
     {
         if (baseOccupancy <= 0)
         {
@@ -39,6 +42,11 @@ public sealed class RoomType
         BaseOccupancy = baseOccupancy;
         MaxOccupancy = maxOccupancy;
         IsActive = isActive;
+        if (areaSquareMeters is <= 0 or > 10000 || bedrooms is < 0 or > 100)
+            throw new DomainException("Invalid catalog dimensions.");
+        AreaSquareMeters = areaSquareMeters;
+        Bedrooms = bedrooms;
+        BedDescription = DomainGuard.Optional(bedDescription, nameof(bedDescription), 500);
         CreatedAt = createdAt;
         UpdatedAt = createdAt;
     }
@@ -54,6 +62,26 @@ public sealed class RoomType
     public bool IsActive { get; private set; }
     public DateTimeOffset CreatedAt { get; private set; }
     public DateTimeOffset UpdatedAt { get; private set; }
+
+    public int ContentVersion { get; private set; } = 1;
+    public Guid? ContentUpdatedByStaffId { get; private set; }
+    public decimal? AreaSquareMeters { get; private set; }
+    public int? Bedrooms { get; private set; }
+    public string? BedDescription { get; private set; }
+
+    public void EditContent(string name, string? description, decimal? area, int? bedrooms, string? beds, Guid actor, DateTimeOffset now)
+    {
+        if (area is <= 0 or > 10000 || bedrooms is < 0 or > 100)
+            throw new DomainException("Invalid catalog dimensions.");
+        Name = DomainGuard.Required(name, nameof(name), 200);
+        Description = DomainGuard.Optional(description, nameof(description), 4000);
+        AreaSquareMeters = area;
+        Bedrooms = bedrooms;
+        BedDescription = DomainGuard.Optional(beds, nameof(beds), 500);
+        ContentVersion++;
+        ContentUpdatedByStaffId = DomainGuard.RequiredId(actor, nameof(actor));
+        UpdatedAt = now;
+    }
 
     public void Deactivate(DateTimeOffset updatedAt)
     {

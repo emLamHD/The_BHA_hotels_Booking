@@ -463,7 +463,13 @@ public sealed class AdminCalendarAssignmentApiTests(PostgreSqlWebApplicationFact
         "/api/admin/v1/website/hero/save",
         "/api/admin/v1/website/hero/media",
         // CUST-WEB-SOCIAL-001-CP01: saving all contact/back-to-top settings in one revisioned transaction.
-        "/api/admin/v1/website/social-media/save"
+        "/api/admin/v1/website/social-media/save",
+        // BHA-PRODUCT-ADMIN-001-CP01: owner-scoped content saves, simple amenity creation and staged media upload.
+        "/api/admin/v1/catalog/properties/{propertyId}/save",
+        "/api/admin/v1/catalog/properties/{propertyId}/room-types/{roomTypeId}/save",
+        "/api/admin/v1/catalog/properties/{propertyId}/media",
+        "/api/admin/v1/catalog/properties/{propertyId}/room-types/{roomTypeId}/media",
+        "/api/admin/v1/catalog/properties/{propertyId}/amenities"
     ];
 
     [Fact]
@@ -494,7 +500,8 @@ public sealed class AdminCalendarAssignmentApiTests(PostgreSqlWebApplicationFact
             // AdminOperationalBlockCreateApiTests, and PMS-CAL-003-CP01 adds
             // exactly one more, single-segment block move, asserted in full by
             // AdminOperationalBlockMoveApiTests — every other Admin path must
-            // still publish no mutating operation at all. This list is the registry of authorized Admin mutation
+            // still publish no mutating operation at all. C3 adds three
+            // catalog-create routes, covered by AdminCatalogApiTests. This list is the registry of authorized Admin mutation
             // routes: a new one is added here deliberately, never by weakening
             // the assertion. PMS-ADMIN-AUTH-001-CP03 adds the Staff session
             // login and logout (asserted in full by StaffAuthenticationTests).
@@ -507,6 +514,9 @@ public sealed class AdminCalendarAssignmentApiTests(PostgreSqlWebApplicationFact
                 path.Name != "/api/admin/v1/properties/{propertyId}/operational-blocks" &&
                 path.Name != "/api/admin/v1/properties/{propertyId}/operational-blocks/{segmentId}/cancel" &&
                 path.Name != "/api/admin/v1/properties/{propertyId}/operational-blocks/{segmentId}/move" &&
+                path.Name != "/api/admin/v1/catalog/properties" &&
+                path.Name != "/api/admin/v1/catalog/properties/{propertyId}/room-types" &&
+                path.Name != "/api/admin/v1/catalog/properties/{propertyId}/room-types/{roomTypeId}/physical-rooms" &&
                 path.Name != "/api/admin/v1/auth/login" &&
                 path.Name != "/api/admin/v1/auth/logout" &&
                 !WebsiteMutationPaths.Contains(path.Name))
