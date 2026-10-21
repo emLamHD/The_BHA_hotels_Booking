@@ -5,7 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import type { Route } from "next";
 import type { PromotionCard } from "@/lib/promotions/promotions";
-import { promotionLabel } from "@/components/PromotionBadge";
+import { PromotionRule } from "@/components/PromotionBadge";
 import { OFFERS_PATH } from "@/lib/riversideHomeContent";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 
@@ -15,9 +15,8 @@ import { useI18n } from "@/lib/i18n/I18nProvider";
  * Its way in is the detail page, which leads to the right Property and room types.
  */
 const OfferCard: FC<{ promotion: PromotionCard; sizes?: string }> = ({ promotion, sizes = "(min-width: 1024px) 25vw, 80vw" }) => {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const { terms } = promotion;
-  const rule = promotionLabel(t, locale, { kind: terms.kind, value: terms.value, title: "" });
   return (
     <article
       id={`offer-${promotion.slug}`}
@@ -30,7 +29,7 @@ const OfferCard: FC<{ promotion: PromotionCard; sizes?: string }> = ({ promotion
           <Image src={promotion.coverImageUrl} alt={promotion.coverAltText ?? ""} width={800} height={600} sizes={sizes} unoptimized className="h-full w-full object-cover" />
         )}
         <span className="absolute left-3 top-3 rounded-full bg-white/95 px-3 py-1 text-xs font-medium text-neutral-800 shadow dark:bg-neutral-900/90 dark:text-neutral-100">{t("customer.offers.badge")}</span>
-        <span data-testid="offer-rule" className="absolute right-3 top-3 rounded-full bg-red-600 px-3 py-1 text-xs font-semibold text-white shadow">{rule}</span>
+        <span data-testid="offer-rule" className="absolute right-3 top-3 max-w-[70%] rounded-full bg-red-600 px-3 py-1 text-xs font-semibold text-white shadow"><PromotionRule kind={terms.kind} value={terms.value} currencyCode={terms.currencyCode} /></span>
       </div>
       <div className="flex flex-1 flex-col gap-3 p-5">
         <h3 id={`offer-title-${promotion.slug}`} className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">

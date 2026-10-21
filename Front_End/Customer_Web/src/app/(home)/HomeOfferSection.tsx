@@ -20,7 +20,7 @@ const HomeOfferSection: FC<{ items: PromotionCard[] }> = ({ items }) => {
   if (items.length === 0) return null;
   return (
     <section aria-labelledby="offers-heading" className="nc-HomeOfferSection relative">
-      <Heading id="offers-heading">{t("customer.common.roomOffers")}</Heading>
+      <Heading id="offers-heading" desc={t("customer.home.homeOfferSection.subtitle")}>{t("customer.common.roomOffers")}</Heading>
       <HomeSlider label={t("customer.common.roomOffers")}>
         {items.map((promotion) => (
           <li key={promotion.id} className="flex w-[80%] flex-shrink-0 snap-start sm:w-[46%] lg:w-[31.5%] xl:w-[23.5%]">

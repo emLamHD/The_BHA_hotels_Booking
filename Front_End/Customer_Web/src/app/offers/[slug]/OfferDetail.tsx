@@ -5,7 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import type { Route } from "next";
 import Amount from "@/components/Amount";
-import { promotionLabel } from "@/components/PromotionBadge";
+import { PromotionRule } from "@/components/PromotionBadge";
 import type { PromotionDetail } from "@/lib/promotions/promotions";
 import { periodKind } from "@/lib/promotions/promotions";
 import { buildRoomDetailsHref } from "@/lib/roomDetailsRoute";
@@ -21,7 +21,7 @@ const RIVERSIDE_SLUG = "the-bha-riverside";
  * (the backend decides, from the dates, whether a promotion applies).
  */
 export default function OfferDetail({ detail }: { detail: PromotionDetail }) {
-  const { t, locale, content } = useI18n();
+  const { t, content } = useI18n();
   const dates = useDateFormat();
   const { promotion, property, roomTypes } = detail;
   const { terms } = promotion;
@@ -50,7 +50,7 @@ export default function OfferDetail({ detail }: { detail: PromotionDetail }) {
       <div className="space-y-6">
         <header className="space-y-3">
           <span data-testid="offer-rule" className="inline-block rounded-full bg-red-600 px-3 py-1 text-xs font-semibold text-white">
-            {promotionLabel(t, locale, { kind: terms.kind, value: terms.value, title: "" })}
+            <PromotionRule kind={terms.kind} value={terms.value} currencyCode={terms.currencyCode} />
           </span>
           <h1 id="offer-title" className="text-3xl font-semibold text-neutral-900 dark:text-neutral-50 md:text-4xl">{promotion.title}</h1>
           <p className="text-lg text-neutral-600 dark:text-neutral-300">{promotion.summary}</p>

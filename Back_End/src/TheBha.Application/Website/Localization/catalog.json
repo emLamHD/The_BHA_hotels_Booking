@@ -4036,6 +4036,11 @@
    "placeholders": []
   },
   {
+   "key": "customer.home.homeOfferSection.subtitle",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.home.homeRiversideTeaser.discoverRiverside",
    "scope": "customer",
    "placeholders": []
@@ -4975,12 +4980,12 @@
    "placeholders": []
   },
   {
-   "key": "customer.promotion.fixedOff",
+   "key": "customer.promotion.listPrice",
    "scope": "customer",
    "placeholders": []
   },
   {
-   "key": "customer.promotion.listPrice",
+   "key": "customer.promotion.off",
    "scope": "customer",
    "placeholders": []
   },
@@ -4990,6 +4995,11 @@
    "placeholders": [
     "percent"
    ]
+  },
+  {
+   "key": "customer.promotion.perRoomNight",
+   "scope": "customer",
+   "placeholders": []
   },
   {
    "key": "customer.promotion.savings",
