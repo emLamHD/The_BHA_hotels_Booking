@@ -2,7 +2,7 @@
 
 - Work item: `BHA-BOOKING-PROMOTIONS-001` (implementer Claude, reviewer Codex read-only, invoked by Owner only).
 - Branch: `feature/bha-booking-promotions-001`, from `develop` `65135cea4126f6d3188fc13d928cc62ca8301ec4` (re-verified equal to `origin/develop` before branching).
-- Status: Owner decisions recorded below; implementation follows.
+- Status: implemented on this branch (Draft PR into `develop`); evidence in `docs/reports/BHA-BOOKING-PROMOTIONS-001-completion.md`.
 - Supersedes the `DEFERRED` line "Promotion/coupon/discount" in `docs/project/PROJECT_BIBLE.md`: this work item is that Epic.
 
 ## 1. Scope
@@ -92,3 +92,13 @@ Public (anonymous): `GET /api/v1/website/promotions?locale=`, `GET /api/v1/websi
 ## 7. Acceptance
 
 See the work item's P3 checklist: Staff creates a promotion with image and content and shows it on the homepage; the homepage card and the detail page match; edits and order reach the Customer without redeploy; hiding the card does not change the price; draft, hidden and out-of-window data never leave the public API; from the card the guest reaches booking, picks valid dates and sees the real discount through hold and confirm; a promotion changed or disabled after the hold does not change the confirmed price; desktop/mobile, light/dark and error states.
+
+## 8. Known limits (stated, not hidden)
+
+- **Promotion title language.** The quote carries the promotion's title in the content source language (Vietnamese). The Customer shows it only when the visitor reads Vietnamese; other languages read the rule ("15% off", "Save 200,000 ₫/room/night"). The public promotions API and the `/offers` pages are fully translated (server-resolved).
+- **Per-line currency rounding.** For a display currency other than VND the site converts and rounds each figure on its own (the existing `display-prices` rule); list price, saving and total can differ from each other by a minor unit. VND, the base currency, is exact.
+- **Rate-based validation is as of save time.** The Admin save checks the discount against the rates that exist then; rates added or lowered later are covered by the run-time rule (a promotion that would leave a night below the smallest valid amount is not applicable to that quote), not by a new error.
+- **Display order is a number.** There is no drag and drop; the order is site-wide while the permission is per Property, so a Manager of one Property can place their card among another's. It never affects a price.
+- **Brand lookup in Customer_Web.** The existing Featured/Riverside code finds the Riverside Property by slug `the-bha-riverside`. The promotion pages link by Property and room-type ids, so they work for the legacy slug `the-bha-hotel` too, but the extra "search rooms at Riverside" button is shown only for the Riverside slug.
+- **Picture storage** is the existing local disk (`WebsiteMedia:RootPath`); unused uploads are not garbage collected (same as the hero).
+- **Not in scope:** voucher codes, stacking, tax/fee/add-on discounts, payment, OTA, inventory and assignment behavior, customer authentication.
