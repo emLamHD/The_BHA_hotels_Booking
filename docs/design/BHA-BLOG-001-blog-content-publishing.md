@@ -259,4 +259,3 @@ The database (`BlogMedia`, `BlogMediaVariants`) and the media directory are one 
 ### 9.13 What CP03 and CP04 take from here, and what is left open
 
 CP03: the routes of §9.4 (library grid on `preview/thumb`, picker, upload with per-file progress through `media/{id}/detail` and the client `id`, usage panel before delete, focal-point editor writing `focalX/focalY`), the descriptive fields, and `description` as the default caption. CP04: `variants[]` for `<picture>` / `srcset` (WebP first, fallback second), `width`/`height` for layout, the 300 s picture cache. **Open for OC/Owner:** (1) how the focal point and the credit reach the public page without breaking edit ≠ publish (§9.1); (2) whether to extend the production runtime shape with a media mount (§9.12); (3) whether per-locale alt/caption suggestions are wanted.
-
