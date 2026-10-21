@@ -464,7 +464,10 @@ public sealed class AdminCalendarAssignmentApiTests(PostgreSqlWebApplicationFact
         "/api/admin/v1/website/blog/posts/{postId}/translations/{locale}/archive",
         "/api/admin/v1/website/blog/posts/{postId}/translations/{locale}/unarchive",
         "/api/admin/v1/website/blog/posts/{postId}/translations/{locale}/revisions/{revisionId}/restore",
-        "/api/admin/v1/website/blog/media"
+        "/api/admin/v1/website/blog/media",
+        "/api/admin/v1/website/blog/media/bulk",
+        "/api/admin/v1/website/blog/media/{id}/save",
+        "/api/admin/v1/website/blog/media/{id}/delete"
     ];
 
     // CUST-WEB-HEADER-001-CP02: the website-settings Admin mutations (every one is a POST under the Staff

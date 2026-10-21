@@ -131,8 +131,8 @@ public sealed class BlogMediaLibraryApiTests(PostgreSqlWebApplicationFactory fac
         Assert.Equal(("blog.media-batch-invalid", "files"), await ProblemOf(tooMany));
 
         // None; ids that do not match the files; ids that repeat; ids that are not Guids.
-        await AssertStatusAsync(HttpStatusCode.BadRequest, SendAsync(host, Multipart("/media/batch", host.Cookie(Editor), []))); // a body with no part at all is unreadable to the upload boundary
-        var noFile = Multipart("/media/batch", host.Cookie(Editor), [], [("note", "no picture here")]);
+        await AssertStatusAsync(HttpStatusCode.BadRequest, SendAsync(host, Multipart("/media/bulk", host.Cookie(Editor), []))); // a body with no part at all is unreadable to the upload boundary
+        var noFile = Multipart("/media/bulk", host.Cookie(Editor), [], [("note", "no picture here")]);
         Assert.Equal("blog.media-batch-invalid", await ErrorCodeAsync(await AssertStatusAsync(HttpStatusCode.BadRequest, SendAsync(host, noFile))));
         foreach (var ids in new[] { new[] { Guid.NewGuid() }, [Guid.NewGuid(), Guid.Empty], [Guid.Parse("11111111-1111-1111-1111-111111111111"), Guid.Parse("11111111-1111-1111-1111-111111111111")] })
         {
@@ -291,7 +291,7 @@ public sealed class BlogMediaLibraryApiTests(PostgreSqlWebApplicationFactory fac
             "original" => AdminGet($"/media/{id}", cookie),
             "preview" => AdminGet($"/media/{id}/preview/card", cookie),
             "upload" => Multipart("/media", cookie, [("file", "a.jpg", good)]),
-            "batch" => Multipart("/media/batch", cookie, [("files", "a.jpg", good)]),
+            "batch" => Multipart("/media/bulk", cookie, [("files", "a.jpg", good)]),
             "save" => AdminPost($"/media/{id}/save", new { expectedVersion = 1, displayName = "x", focalX = 0.5, focalY = 0.5 }, cookie),
             _ => AdminPost($"/media/{id}/delete", new { expectedVersion = 1 }, cookie)
         };
@@ -336,14 +336,14 @@ public sealed class BlogMediaLibraryApiTests(PostgreSqlWebApplicationFactory fac
         var good = BlogImageFixtures.Jpeg(1200, 800);
         var id = (await UploadPictureAsync(host, good)).GetProperty("id").GetGuid();
 
-        var other = Multipart("/media/batch", host.Cookie(Editor), [("files", "a.jpg", good)]);
+        var other = Multipart("/media/bulk", host.Cookie(Editor), [("files", "a.jpg", good)]);
         other.Headers.Remove("Origin");
         other.Headers.TryAddWithoutValidation("Origin", "https://evil.example");
         Assert.Equal(HttpStatusCode.Forbidden, (await SendAsync(host, other)).StatusCode);
         Assert.Equal(1, await RowsAsync());
 
         using var local = await StartBlogAsync(Api.AdminCalendarAccessMode.LocalGate);
-        foreach (var request in new[] { AdminGet("/media", null), AdminGet($"/media/{id}/detail", null), Multipart("/media/batch", null, [("files", "a.jpg", good)]) })
+        foreach (var request in new[] { AdminGet("/media", null), AdminGet($"/media/{id}/detail", null), Multipart("/media/bulk", null, [("files", "a.jpg", good)]) })
         {
             Assert.Equal(HttpStatusCode.NotFound, (await SendAsync(local, request)).StatusCode);
         }

@@ -32,6 +32,14 @@ WORKDIR /app
 # volume mounted there inherits that ownership.
 RUN mkdir -p /var/keys && chown app:app /var/keys
 
+# BHA-BLOG-001-CP02: uploaded pictures (Hero, Promotion, Blog originals and variants) belong on a durable volume mounted
+# here, with WebsiteMedia__RootPath=/var/media set by the operator. Like the key ring, the path is deliberately NOT set in
+# the image: with no volume and no setting, uploads answer 409 *-storage-not-configured instead of silently writing into a
+# container layer that the next recreate throws away. The directory exists and is owned by the unprivileged user so a fresh
+# named volume mounted there inherits that ownership. The image needs no codec package: SkiaSharp's Linux native assets
+# ship with the app.
+RUN mkdir -p /var/media && chown app:app /var/media
+
 COPY --from=build --chown=app:app /app/publish ./
 
 ENV ASPNETCORE_ENVIRONMENT=Production \

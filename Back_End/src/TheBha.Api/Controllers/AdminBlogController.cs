@@ -173,7 +173,7 @@ public sealed class AdminBlogController(IAdminBlog blog) : AdminWebsiteControlle
     /// answer carries the picture's <c>index</c> in the request and its id, and one that fails does not undo the rest. A client that is cut off reads the library
     /// (or each id) to see what arrived; nothing is retried or replayed by the server.
     /// </summary>
-    [HttpPost("media/batch")]
+    [HttpPost("media/bulk")]
     [StaffWebsitePermission(StaffGlobalPermission.BlogAccess)]
     [AllowStaffMultipartUpload]
     [RequestSizeLimit(BatchLimit)]

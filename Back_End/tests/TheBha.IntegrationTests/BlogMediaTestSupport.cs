@@ -52,7 +52,7 @@ public abstract class BlogMediaTestSupport(PostgreSqlWebApplicationFactory facto
     }
 
     protected Task<HttpResponseMessage> BatchAsync(BlogHost host, string cookie, IEnumerable<(string FileName, byte[] Bytes)> files, IEnumerable<Guid>? ids = null) =>
-        SendAsync(host, Multipart("/media/batch", cookie, files.Select(file => ("files", file.FileName, file.Bytes)), ids?.Select(id => ("ids", id.ToString()))));
+        SendAsync(host, Multipart("/media/bulk", cookie, files.Select(file => ("files", file.FileName, file.Bytes)), ids?.Select(id => ("ids", id.ToString()))));
 
     protected async Task<JsonElement> UploadPictureAsync(BlogHost host, byte[] bytes, string fileName = "picture.jpg", Guid? id = null, string? cookie = null, HttpStatusCode expected = HttpStatusCode.OK)
     {
