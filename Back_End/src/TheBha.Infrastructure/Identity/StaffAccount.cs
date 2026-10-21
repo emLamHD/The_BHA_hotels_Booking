@@ -20,4 +20,10 @@ public sealed class StaffAccount : IdentityUser<Guid>
     /// database on every request. It is independent of any membership or role.
     /// </summary>
     public bool CanManageWebsite { get; set; }
+
+    /// <summary>BHA-BLOG-001 (ADR 0010): site-wide right to write Blog drafts. Independent of <see cref="CanPublishBlog"/>; set only by the operator CLI.</summary>
+    public bool CanEditBlog { get; set; }
+
+    /// <summary>BHA-BLOG-001 (ADR 0010): site-wide right to publish, unpublish, archive and structure the Blog (categories, pins, settings).</summary>
+    public bool CanPublishBlog { get; set; }
 }

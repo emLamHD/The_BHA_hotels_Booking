@@ -35,7 +35,8 @@ public sealed class PropertyInventoryPersistenceTests(PostgreSqlWebApplicationFa
         Assert.Contains(applied, migration => migration.EndsWith("_AddAdminCatalogContent"));
         Assert.Contains(applied, migration => migration.EndsWith("_AddAdminCatalogCreateOperations"));
         Assert.Contains(applied, migration => migration.EndsWith("_AddBookingPromotions"));
-        Assert.Equal(17, applied.Count());
+        Assert.Contains(applied, migration => migration.EndsWith("_AddBlogFoundation"));
+        Assert.Equal(18, applied.Count());
         Assert.Empty(pending);
         var major = await PostgresVersionSupport.ServerMajorAsync(factory.ConnectionString);
         Assert.True(

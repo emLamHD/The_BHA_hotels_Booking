@@ -142,7 +142,7 @@ public sealed class StaffAuthOperationFilter(AdminCalendarAccess access) : IOper
     {
         var rule =
             $"AccessMode=Staff: requires the {StaffAuthentication.CookieName} Staff session and the global {permission} " +
-            "permission (the account's CanManageWebsite flag, read from the database on every request; no Property involved); " +
+            "permission (the account's CanManageWebsite / CanEditBlog / CanPublishBlog flag, read from the database on every request; no Property involved); " +
             "401 without a valid session, 403 without the permission, and for a write exactly one approved Origin (403) and " +
             "UTF-8 JSON (415) before the body is read. The audit actor is the verified Staff id, never a request value. " +
             "AccessMode=LocalGate: the route is closed (404); the website settings have no local-gate path.";

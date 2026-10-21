@@ -86,6 +86,540 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                     b.ToTable("AspNetUserTokens", (string)null);
                 });
 
+            modelBuilder.Entity("TheBha.Domain.Blog.BlogAudit", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<Guid>("ActorStaffId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("AtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CategoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Detail")
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("Locale")
+                        .HasMaxLength(35)
+                        .HasColumnType("character varying(35)");
+
+                    b.Property<Guid?>("PostId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("RevisionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("TranslationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("VersionAfter")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActorStaffId");
+
+                    b.HasIndex("CategoryId", "AtUtc");
+
+                    b.HasIndex("PostId", "AtUtc");
+
+                    b.ToTable("BlogAudits", (string)null);
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Blog.BlogCategory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedByStaffId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SystemKey")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedByStaffId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByStaffId");
+
+                    b.HasIndex("SystemKey")
+                        .IsUnique()
+                        .HasDatabaseName("UX_BlogCategories_SystemKey");
+
+                    b.HasIndex("UpdatedByStaffId");
+
+                    b.ToTable("BlogCategories", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_BlogCategories_SortOrder", "\"SortOrder\" BETWEEN 0 AND 9999");
+
+                            t.HasCheckConstraint("CK_BlogCategories_Version", "\"Version\" >= 1");
+                        });
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Blog.BlogCategoryPin", b =>
+                {
+                    b.Property<Guid>("CategoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("PostId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("PinnedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("PinnedByStaffId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("integer");
+
+                    b.HasKey("CategoryId", "PostId");
+
+                    b.HasIndex("PinnedByStaffId");
+
+                    b.HasIndex("PostId");
+
+                    b.HasIndex("CategoryId", "Position");
+
+                    b.ToTable("BlogCategoryPins", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_BlogCategoryPins_Position", "\"Position\" BETWEEN 0 AND 999");
+                        });
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Blog.BlogCategorySlug", b =>
+                {
+                    b.Property<string>("Locale")
+                        .HasMaxLength(35)
+                        .HasColumnType("character varying(35)");
+
+                    b.Property<string>("Slug")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<Guid>("CategoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsCurrent")
+                        .HasColumnType("boolean");
+
+                    b.HasKey("Locale", "Slug");
+
+                    b.HasIndex("CategoryId", "Locale")
+                        .IsUnique()
+                        .HasDatabaseName("UX_BlogCategorySlugs_Current")
+                        .HasFilter("\"IsCurrent\"");
+
+                    b.ToTable("BlogCategorySlugs", (string)null);
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Blog.BlogCategoryTranslation", b =>
+                {
+                    b.Property<Guid>("CategoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Locale")
+                        .HasMaxLength(35)
+                        .HasColumnType("character varying(35)");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<string>("Slug")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.HasKey("CategoryId", "Locale");
+
+                    b.ToTable("BlogCategoryTranslations", (string)null);
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Blog.BlogMedia", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("ByteSize")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedByStaffId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Height")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("StorageKey")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("Width")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByStaffId");
+
+                    b.HasIndex("StorageKey")
+                        .IsUnique();
+
+                    b.ToTable("BlogMedia", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_BlogMedia_Key", "\"StorageKey\" ~ '^blog/[0-9a-f]{32}\\.(jpg|png|webp)$'");
+
+                            t.HasCheckConstraint("CK_BlogMedia_Size", "\"ByteSize\" > 0 AND \"Width\" > 0 AND \"Height\" > 0");
+                        });
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Blog.BlogPost", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedByStaffId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByStaffId");
+
+                    b.ToTable("BlogPosts", (string)null);
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Blog.BlogPostRevision", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AuthorName")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("BodyJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("CoverAlt")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid?>("CoverMediaId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedByStaffId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("MetaDescription")
+                        .IsRequired()
+                        .HasMaxLength(170)
+                        .HasColumnType("character varying(170)");
+
+                    b.Property<string>("MetaTitle")
+                        .IsRequired()
+                        .HasMaxLength(70)
+                        .HasColumnType("character varying(70)");
+
+                    b.Property<int>("Number")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("OgImageMediaId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Origin")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<DateTimeOffset?>("PublishedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("PublishedByStaffId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("RestoredFromRevisionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Slug")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<string>("Summary")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<Guid>("TranslationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UpdatedByStaffId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CoverMediaId");
+
+                    b.HasIndex("CreatedByStaffId");
+
+                    b.HasIndex("OgImageMediaId");
+
+                    b.HasIndex("PublishedByStaffId");
+
+                    b.HasIndex("TranslationId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_BlogPostRevisions_OneDraft")
+                        .HasFilter("\"State\" = 'Draft'");
+
+                    b.HasIndex("UpdatedByStaffId");
+
+                    b.HasIndex("TranslationId", "Number")
+                        .IsUnique()
+                        .HasDatabaseName("UX_BlogPostRevisions_Number");
+
+                    b.ToTable("BlogPostRevisions", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_BlogPostRevisions_Number", "\"Number\" >= 1");
+
+                            t.HasCheckConstraint("CK_BlogPostRevisions_Published", "\"PublishedAtUtc\" IS NULL OR \"State\" = 'Frozen'");
+                        });
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Blog.BlogPostSlug", b =>
+                {
+                    b.Property<string>("Locale")
+                        .HasMaxLength(35)
+                        .HasColumnType("character varying(35)");
+
+                    b.Property<string>("Slug")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<Guid>("TranslationId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Locale", "Slug");
+
+                    b.HasIndex("TranslationId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_BlogPostSlugs_OneCurrent")
+                        .HasFilter("\"State\" = 'Current'");
+
+                    b.ToTable("BlogPostSlugs", (string)null);
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Blog.BlogPostTranslation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("DraftRevisionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("FirstPublishedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Locale")
+                        .IsRequired()
+                        .HasMaxLength(35)
+                        .HasColumnType("character varying(35)");
+
+                    b.Property<Guid>("PostId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("PublishedRevisionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UpdatedByStaffId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UpdatedByStaffId");
+
+                    b.HasIndex("Id", "DraftRevisionId");
+
+                    b.HasIndex("Id", "PublishedRevisionId");
+
+                    b.HasIndex("Locale", "Status");
+
+                    b.HasIndex("PostId", "Locale")
+                        .IsUnique()
+                        .HasDatabaseName("UX_BlogPostTranslations_PostLocale");
+
+                    b.ToTable("BlogPostTranslations", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_BlogPostTranslations_FirstPublished", "\"PublishedRevisionId\" IS NULL OR \"FirstPublishedAtUtc\" IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_BlogPostTranslations_Published", "\"Status\" <> 'Published' OR \"PublishedRevisionId\" IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_BlogPostTranslations_Unpublished", "\"Status\" <> 'Unpublished' OR \"PublishedRevisionId\" IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_BlogPostTranslations_Version", "\"Version\" >= 1");
+                        });
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Blog.BlogRevisionCategory", b =>
+                {
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CategoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsPrimary")
+                        .HasColumnType("boolean");
+
+                    b.HasKey("RevisionId", "CategoryId");
+
+                    b.HasIndex("CategoryId");
+
+                    b.HasIndex("RevisionId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_BlogRevisionCategories_Primary")
+                        .HasFilter("\"IsPrimary\"");
+
+                    b.ToTable("BlogRevisionCategories", (string)null);
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Blog.BlogRevisionMedia", b =>
+                {
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("MediaId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("RevisionId", "MediaId");
+
+                    b.HasIndex("MediaId");
+
+                    b.ToTable("BlogRevisionMedia", (string)null);
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Blog.BlogSettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("HomeSectionCategoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedByStaffId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("HomeSectionCategoryId");
+
+                    b.HasIndex("UpdatedByStaffId");
+
+                    b.ToTable("BlogSettings", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_BlogSettings_Single", "\"Id\" = 1");
+
+                            t.HasCheckConstraint("CK_BlogSettings_Version", "\"Version\" >= 1");
+                        });
+                });
+
             modelBuilder.Entity("TheBha.Domain.Bookings.BookingPromotionApplication", b =>
                 {
                     b.Property<Guid>("HoldId")
@@ -2187,7 +2721,17 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                     b.Property<int>("AccessFailedCount")
                         .HasColumnType("integer");
 
+                    b.Property<bool>("CanEditBlog")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<bool>("CanManageWebsite")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<bool>("CanPublishBlog")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
                         .HasDefaultValue(false);
@@ -2316,6 +2860,200 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Blog.BlogAudit", b =>
+                {
+                    b.HasOne("TheBha.Infrastructure.Identity.StaffAccount", null)
+                        .WithMany()
+                        .HasForeignKey("ActorStaffId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Blog.BlogCategory", b =>
+                {
+                    b.HasOne("TheBha.Infrastructure.Identity.StaffAccount", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByStaffId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("TheBha.Infrastructure.Identity.StaffAccount", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedByStaffId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Blog.BlogCategoryPin", b =>
+                {
+                    b.HasOne("TheBha.Domain.Blog.BlogCategory", null)
+                        .WithMany()
+                        .HasForeignKey("CategoryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("TheBha.Infrastructure.Identity.StaffAccount", null)
+                        .WithMany()
+                        .HasForeignKey("PinnedByStaffId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("TheBha.Domain.Blog.BlogPost", null)
+                        .WithMany()
+                        .HasForeignKey("PostId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Blog.BlogCategorySlug", b =>
+                {
+                    b.HasOne("TheBha.Domain.Blog.BlogCategory", null)
+                        .WithMany()
+                        .HasForeignKey("CategoryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Blog.BlogCategoryTranslation", b =>
+                {
+                    b.HasOne("TheBha.Domain.Blog.BlogCategory", null)
+                        .WithMany("Translations")
+                        .HasForeignKey("CategoryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Blog.BlogMedia", b =>
+                {
+                    b.HasOne("TheBha.Infrastructure.Identity.StaffAccount", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByStaffId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Blog.BlogPost", b =>
+                {
+                    b.HasOne("TheBha.Infrastructure.Identity.StaffAccount", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByStaffId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Blog.BlogPostRevision", b =>
+                {
+                    b.HasOne("TheBha.Domain.Blog.BlogMedia", null)
+                        .WithMany()
+                        .HasForeignKey("CoverMediaId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("TheBha.Infrastructure.Identity.StaffAccount", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByStaffId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("TheBha.Domain.Blog.BlogMedia", null)
+                        .WithMany()
+                        .HasForeignKey("OgImageMediaId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("TheBha.Infrastructure.Identity.StaffAccount", null)
+                        .WithMany()
+                        .HasForeignKey("PublishedByStaffId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("TheBha.Domain.Blog.BlogPostTranslation", null)
+                        .WithMany()
+                        .HasForeignKey("TranslationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("TheBha.Infrastructure.Identity.StaffAccount", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedByStaffId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Blog.BlogPostSlug", b =>
+                {
+                    b.HasOne("TheBha.Domain.Blog.BlogPostTranslation", null)
+                        .WithMany()
+                        .HasForeignKey("TranslationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Blog.BlogPostTranslation", b =>
+                {
+                    b.HasOne("TheBha.Domain.Blog.BlogPost", null)
+                        .WithMany("Translations")
+                        .HasForeignKey("PostId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("TheBha.Infrastructure.Identity.StaffAccount", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedByStaffId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("TheBha.Domain.Blog.BlogPostRevision", null)
+                        .WithMany()
+                        .HasForeignKey("Id", "DraftRevisionId")
+                        .HasPrincipalKey("TranslationId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("TheBha.Domain.Blog.BlogPostRevision", null)
+                        .WithMany()
+                        .HasForeignKey("Id", "PublishedRevisionId")
+                        .HasPrincipalKey("TranslationId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Blog.BlogRevisionCategory", b =>
+                {
+                    b.HasOne("TheBha.Domain.Blog.BlogCategory", null)
+                        .WithMany()
+                        .HasForeignKey("CategoryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("TheBha.Domain.Blog.BlogPostRevision", null)
+                        .WithMany("Categories")
+                        .HasForeignKey("RevisionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Blog.BlogRevisionMedia", b =>
+                {
+                    b.HasOne("TheBha.Domain.Blog.BlogMedia", null)
+                        .WithMany()
+                        .HasForeignKey("MediaId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("TheBha.Domain.Blog.BlogPostRevision", null)
+                        .WithMany("Media")
+                        .HasForeignKey("RevisionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Blog.BlogSettings", b =>
+                {
+                    b.HasOne("TheBha.Domain.Blog.BlogCategory", null)
+                        .WithMany()
+                        .HasForeignKey("HomeSectionCategoryId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("TheBha.Infrastructure.Identity.StaffAccount", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedByStaffId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("TheBha.Domain.Bookings.BookingPromotionApplication", b =>
@@ -2834,6 +3572,23 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         .HasForeignKey("StaffAccountId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Blog.BlogCategory", b =>
+                {
+                    b.Navigation("Translations");
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Blog.BlogPost", b =>
+                {
+                    b.Navigation("Translations");
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Blog.BlogPostRevision", b =>
+                {
+                    b.Navigation("Categories");
+
+                    b.Navigation("Media");
                 });
 
             modelBuilder.Entity("TheBha.Domain.Bookings.InventoryHold", b =>

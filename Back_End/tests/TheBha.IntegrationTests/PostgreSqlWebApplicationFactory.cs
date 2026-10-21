@@ -240,7 +240,20 @@ public sealed class PostgreSqlWebApplicationFactory : WebApplicationFactory<Prog
                 "WebsiteHeroSlides",
                 "WebsiteHeroMedia",
                 "WebsiteHero",
-                "WebsiteSocialSettings"
+                "WebsiteSocialSettings",
+                "BlogAudits",
+                "BlogCategoryPins",
+                "BlogRevisionMedia",
+                "BlogRevisionCategories",
+                "BlogPostSlugs",
+                "BlogPostRevisions",
+                "BlogPostTranslations",
+                "BlogPosts",
+                "BlogMedia",
+                "BlogSettings",
+                "BlogCategorySlugs",
+                "BlogCategoryTranslations",
+                "BlogCategories"
             CASCADE;
             """);
 
@@ -253,6 +266,9 @@ public sealed class PostgreSqlWebApplicationFactory : WebApplicationFactory<Prog
         // CUST-WEB-HERO-001-CP01: and the home hero as migration 13 seeds it.
         await context.Database.ExecuteSqlRawAsync(TheBha.Infrastructure.Persistence.WebsiteHeroSeed.Sql);
         await context.Database.ExecuteSqlRawAsync(TheBha.Infrastructure.Persistence.WebsiteSocialSeed.Sql);
+        // BHA-BLOG-001-CP01: and the featured-destinations category with the settings row, as migration AddBlogFoundation seeds them
+        // (for the languages that exist now: Vietnamese and English).
+        await context.Database.ExecuteSqlRawAsync(TheBha.Infrastructure.Persistence.BlogSeed.Sql);
     }
 }
 

@@ -448,6 +448,25 @@ public sealed class AdminCalendarAssignmentApiTests(PostgreSqlWebApplicationFact
         "/api/admin/v1/properties/{propertyId}/promotions/media"
     ];
 
+    // BHA-BLOG-001-CP01 / ADR 0010: the site-wide Blog mutations (every one a POST under a global Blog permission), asserted in full by
+    // BlogAdminApiTests; a new one must be added here on purpose.
+    private static readonly string[] BlogMutationPaths =
+    [
+        "/api/admin/v1/website/blog/settings/save",
+        "/api/admin/v1/website/blog/categories",
+        "/api/admin/v1/website/blog/categories/{categoryId}/save",
+        "/api/admin/v1/website/blog/categories/{categoryId}/delete",
+        "/api/admin/v1/website/blog/categories/{categoryId}/pins/save",
+        "/api/admin/v1/website/blog/posts",
+        "/api/admin/v1/website/blog/posts/{postId}/translations/{locale}/draft",
+        "/api/admin/v1/website/blog/posts/{postId}/translations/{locale}/publish",
+        "/api/admin/v1/website/blog/posts/{postId}/translations/{locale}/unpublish",
+        "/api/admin/v1/website/blog/posts/{postId}/translations/{locale}/archive",
+        "/api/admin/v1/website/blog/posts/{postId}/translations/{locale}/unarchive",
+        "/api/admin/v1/website/blog/posts/{postId}/translations/{locale}/revisions/{revisionId}/restore",
+        "/api/admin/v1/website/blog/media"
+    ];
+
     // CUST-WEB-HEADER-001-CP02: the website-settings Admin mutations (every one is a POST under the Staff
     // permission); exact paths, so a new one must be added here on purpose.
     private static readonly string[] WebsiteMutationPaths =
@@ -530,6 +549,7 @@ public sealed class AdminCalendarAssignmentApiTests(PostgreSqlWebApplicationFact
                 path.Name != "/api/admin/v1/auth/login" &&
                 path.Name != "/api/admin/v1/auth/logout" &&
                 !PromotionMutationPaths.Contains(path.Name) &&
+                !BlogMutationPaths.Contains(path.Name) &&
                 !WebsiteMutationPaths.Contains(path.Name))
             {
                 foreach (var method in new[] { "post", "put", "patch", "delete" })

@@ -14,7 +14,7 @@ internal sealed partial class LocalHeroMediaStorage(string? rootPath) : IHeroMed
 {
     private const string SeedResourcePrefix = "bha-hero-seed/";
 
-    [GeneratedRegex("^(hero|promo)/[0-9a-f]{32}\\.(jpg|png|webp)$")]
+    [GeneratedRegex("^(hero|promo|blog)/[0-9a-f]{32}\\.(jpg|png|webp)$")]
     private static partial Regex UploadKey();
 
     [GeneratedRegex("^seed/hero-[a-z0-9]+(-[a-z0-9]+)*\\.webp$")]

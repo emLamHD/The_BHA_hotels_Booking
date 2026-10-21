@@ -32,6 +32,8 @@ public static class StaffBootstrapCommand
         ["--staff-reset-password"] = ["--email"],
         // CUST-WEB-HEADER-001-CP02: the one way to grant or revoke the site-wide WebsiteSettingsManage permission.
         ["--staff-website-access"] = ["--email", "--enabled"],
+        // BHA-BLOG-001 (ADR 0010): the one way to set the site-wide BlogEdit and BlogPublish permissions. Both flags are always stated.
+        ["--staff-blog-access"] = ["--email", "--edit", "--publish"],
     };
 
     public static bool IsStaffCommand(string[] args) => args.Any(IsStaffArgument);
@@ -77,6 +79,7 @@ public static class StaffBootstrapCommand
                 "--staff-grant" => await GrantAsync(context, users, options, now),
                 "--staff-disable" => await DisableAsync(users, options, now),
                 "--staff-website-access" => await WebsiteAccessAsync(users, options),
+                "--staff-blog-access" => await BlogAccessAsync(users, options),
                 _ => await ResetPasswordAsync(users, options, password!),
             };
             if (succeeded)
@@ -251,6 +254,49 @@ public static class StaffBootstrapCommand
         return updated.Succeeded
             ? (true, $"website access {(enabled ? "granted to" : "revoked from")} Staff {account.Id}.")
             : (false, $"rejected by Identity ({Codes(updated)}); nothing was changed.");
+    }
+
+    /// <summary>
+    /// BHA-BLOG-001 (ADR 0010): sets <c>CanEditBlog</c> and <c>CanPublishBlog</c> exactly as stated (<c>true</c> or <c>false</c>, anything else is refused
+    /// so a typo cannot revoke). Granting is refused for a disabled account. Changes nothing else; the API reads both flags from the database on every request.
+    /// </summary>
+    private static async Task<(bool, string)> BlogAccessAsync(
+        UserManager<StaffAccount> users,
+        IReadOnlyDictionary<string, string> options)
+    {
+        if (!TryFlag(options["--edit"], out var edit) || !TryFlag(options["--publish"], out var publish))
+        {
+            return (false, "--edit and --publish must each be true or false; nothing was changed.");
+        }
+
+        var account = await users.FindByEmailAsync(options["--email"]);
+        if (account is null)
+        {
+            return (false, "the Staff account does not exist; nothing was changed.");
+        }
+
+        if ((edit || publish) && !account.IsActive)
+        {
+            return (false, $"Staff {account.Id} is disabled; Blog access is granted only to an active account; nothing was changed.");
+        }
+
+        if (account.CanEditBlog == edit && account.CanPublishBlog == publish)
+        {
+            return (true, $"Staff {account.Id} Blog access is already edit={edit.ToString().ToLowerInvariant()}, publish={publish.ToString().ToLowerInvariant()}; unchanged.");
+        }
+
+        account.CanEditBlog = edit;
+        account.CanPublishBlog = publish;
+        var updated = await users.UpdateAsync(account);
+        return updated.Succeeded
+            ? (true, $"Blog access of Staff {account.Id} set to edit={edit.ToString().ToLowerInvariant()}, publish={publish.ToString().ToLowerInvariant()}.")
+            : (false, $"rejected by Identity ({Codes(updated)}); nothing was changed.");
+    }
+
+    private static bool TryFlag(string value, out bool flag)
+    {
+        flag = string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
+        return flag || string.Equals(value, "false", StringComparison.OrdinalIgnoreCase);
     }
 
     private static async Task<(bool, string)> ResetPasswordAsync(
