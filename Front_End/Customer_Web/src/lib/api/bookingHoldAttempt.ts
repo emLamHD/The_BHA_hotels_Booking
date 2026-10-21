@@ -1,4 +1,4 @@
-import { AvailabilityQuery } from "./availabilityTypes";
+import { AvailabilityQuery, PriceQuote } from "./availabilityTypes";
 import { CreateBookingHoldRequest, BookingHoldDto } from "./bookingHoldTypes";
 import { CreateBookingHoldResult } from "./bookingHoldService";
 import { BookingFieldLimits } from "./bookingHoldValidationLimits";
@@ -8,6 +8,8 @@ export interface SelectedOfferSnapshot extends AvailabilityQuery {
   propertyId: string;
   roomTypeId: string;
   ratePlanId: string;
+  /** The price of exactly this offer as the guest was shown it. Sent as the price being confirmed; replaced only by an explicit acceptance of a new one. */
+  quote: PriceQuote;
 }
 
 export interface ContactInput {
@@ -103,6 +105,8 @@ export function buildBookingHoldRequest(
     fullName: normalized.fullName,
     email: normalized.email,
     phone: normalized.phone,
+    expectedTotalAmount: offer.quote.totalAmount,
+    expectedCurrencyCode: offer.quote.currencyCode,
   };
 }
 
@@ -122,7 +126,9 @@ export function requestsAreEqual(
     a.rooms === b.rooms &&
     a.fullName === b.fullName &&
     a.email === b.email &&
-    a.phone === b.phone
+    a.phone === b.phone &&
+    a.expectedTotalAmount === b.expectedTotalAmount &&
+    a.expectedCurrencyCode === b.expectedCurrencyCode
   );
 }
 

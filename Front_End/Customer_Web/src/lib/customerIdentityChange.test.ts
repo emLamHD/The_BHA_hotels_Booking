@@ -13,6 +13,7 @@ import { createCustomerIdentityCoordinator } from "@/lib/customerIdentityChange"
 import type { IdentitySessionPort } from "@/lib/customerIdentityChange";
 import { createCustomerSessionController } from "@/lib/customerSession";
 import type { SessionReadOutcome } from "@/lib/customerSession";
+import { TEST_QUOTE } from "@/lib/api/quoteTestkit";
 
 const createBookingHoldMock = vi.fn();
 const confirmBookingHoldMock = vi.fn();
@@ -419,6 +420,7 @@ const OFFER: SelectedOfferSnapshot = {
   adults: 2,
   children: 0,
   rooms: 1,
+  quote: TEST_QUOTE,
 };
 const CONTACT = { fullName: "Jane Doe", email: "jane@example.com", phone: "+15551234567" };
 const HOLD = {

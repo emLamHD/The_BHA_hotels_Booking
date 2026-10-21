@@ -1,4 +1,3 @@
-import type { MockOffer } from "@/data/homepageOffers";
 import type { PostCategory, TravelPost } from "@/data/travelPosts";
 import type { HomeBenefit, HomeImage, HomeStep, SiteNavItem } from "@/lib/riversideHomeContent";
 import { formatMessage } from "./format";
@@ -20,13 +19,6 @@ export function contentFrom(messages: Record<string, string>, formatLocale: stri
     return text === undefined ? fallback : formatMessage(text, formatLocale, {});
   };
 }
-
-export const localizeOffer = (offer: MockOffer, c: ContentFn): MockOffer => ({
-  ...offer,
-  title: c("offer", offer.slug, "title", offer.title),
-  summary: c("offer", offer.slug, "summary", offer.summary),
-  imageAlt: c("offer", offer.slug, "imageAlt", offer.imageAlt),
-});
 
 export const localizeCategory = (category: PostCategory, c: ContentFn): PostCategory => ({
   ...category,

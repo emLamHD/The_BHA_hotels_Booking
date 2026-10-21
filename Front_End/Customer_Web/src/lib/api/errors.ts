@@ -1,3 +1,5 @@
+import type { PriceQuote } from "./availabilityTypes";
+
 export interface ProblemDetails {
   type?: string;
   title: string;
@@ -6,6 +8,8 @@ export interface ProblemDetails {
   instance?: string;
   /** The API's stable machine-readable code (`hold.expired`); a visitor's message is chosen by it, never by the English text. */
   code?: string;
+  /** `hold.price-changed` only: the price now, for the guest to confirm again. Absent or unusable = no quote (nothing is guessed). */
+  quote?: PriceQuote;
 }
 
 export interface ValidationProblemDetails extends ProblemDetails {

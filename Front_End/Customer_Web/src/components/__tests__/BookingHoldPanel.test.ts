@@ -30,10 +30,12 @@ vi.mock("@/app/BookingHoldProvider", () => ({
     retryExact: () => undefined,
     confirmHold: () => undefined,
     retryConfirmationExact: () => undefined,
+    acceptPriceChange: () => undefined,
   }),
 }));
 
 import BookingHoldPanel from "../BookingHoldPanel";
+import { TEST_QUOTE } from "@/lib/api/quoteTestkit";
 
 const OFFER: SelectedOfferSnapshot = {
   propertyId: "10000000-0000-0000-0000-000000000001",
@@ -44,6 +46,7 @@ const OFFER: SelectedOfferSnapshot = {
   adults: 2,
   children: 0,
   rooms: 1,
+  quote: TEST_QUOTE,
 };
 
 const CONTACT = {

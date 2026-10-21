@@ -22,6 +22,11 @@ export interface BookingHoldFlowController {
   selectOffer: (offer: SelectedOfferSnapshot, label: string) => void;
   updateContact: (contact: ContactInput) => void;
   submit: () => void;
+  /**
+   * The guest has seen the new price after `hold.price-changed` and accepts it: the offer's confirmed price becomes the new one. It
+   * sends nothing; the guest then asks for the hold again (a new attempt with a new Idempotency-Key and the new expected price).
+   */
+  acceptPriceChange: () => void;
   retryExact: () => void;
   /**
    * Confirms the retained active Hold session (`active-session` only),
@@ -186,6 +191,12 @@ export function createBookingHoldFlowController(
           dispatch({ type: "attempt-uncertain", operationId: thisOperationId });
           return;
         }
+        // A known refusal, not an unknown result: the price is no longer the one the guest confirmed and NOTHING was held.
+        // It carries the new quote for the guest to confirm; without a usable quote it is an ordinary known error, never a guessed price.
+        if (error instanceof ApiHttpError && error.problem.code === "hold.price-changed" && error.problem.quote) {
+          dispatch({ type: "price-changed", operationId: thisOperationId, quote: error.problem.quote });
+          return;
+        }
         if (
           error instanceof ApiValidationError ||
           error instanceof ApiHttpError ||
@@ -306,6 +317,10 @@ export function createBookingHoldFlowController(
       if ((current.phase !== "selected" && current.phase !== "known-error") || !current.offer) {
         return;
       }
+      // A price the guest has not yet confirmed again: no hold can be asked for until they accept it.
+      if (current.priceChange) {
+        return;
+      }
 
       const errors = validateContact(current.contact);
       if (errors) {
@@ -319,6 +334,13 @@ export function createBookingHoldFlowController(
         idempotencyKey: generateIdempotencyKey(),
       };
       runAttempt(attempt, "submit");
+    },
+
+    acceptPriceChange() {
+      if (inFlight || identityLocked()) {
+        return;
+      }
+      dispatch({ type: "price-change-accepted" });
     },
 
     retryExact() {

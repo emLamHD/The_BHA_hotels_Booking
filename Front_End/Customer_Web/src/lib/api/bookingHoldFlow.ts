@@ -8,6 +8,7 @@ import {
   mergeHoldSession,
 } from "./bookingHoldAttempt";
 import { ConfirmBookingHoldResult, CreateBookingHoldResult } from "./bookingHoldService";
+import type { PriceQuote } from "./availabilityTypes";
 
 /**
  * The authoritative Booking Hold mutation phases. Equivalent to
@@ -38,6 +39,11 @@ export interface BookingHoldFlowState {
   /** The immutable in-flight/retryable attempt: exact body plus exact Idempotency-Key. */
   attempt: BookingHoldAttemptSnapshot | null;
   errorMessage: string | null;
+  /**
+   * `hold.price-changed`: the price now, for the guest to confirm again. While it is set no hold can be asked for (a known refusal,
+   * nothing was held); accepting it replaces the offer's confirmed price and clears it. Never set by an unknown result.
+   */
+  priceChange: PriceQuote | null;
   session: ActiveHoldSession | null;
   /** Monotonic identity of the current/most-recent operation; rejects stale completions. */
   operationId: number;
@@ -56,6 +62,7 @@ export const initialBookingHoldFlowState: BookingHoldFlowState = {
   fieldErrors: null,
   attempt: null,
   errorMessage: null,
+  priceChange: null,
   session: null,
   operationId: 0,
   confirmationAttempt: null,
@@ -70,6 +77,8 @@ export type BookingHoldFlowAction =
   | { type: "retry-requested"; operationId: number }
   | { type: "attempt-succeeded"; operationId: number; result: CreateBookingHoldResult }
   | { type: "attempt-known-error"; operationId: number; message: string }
+  | { type: "price-changed"; operationId: number; quote: PriceQuote }
+  | { type: "price-change-accepted" }
   | { type: "attempt-uncertain"; operationId: number }
   | { type: "search-reset" }
   | {
@@ -120,6 +129,7 @@ export function bookingHoldFlowReducer(
         attempt: null,
         fieldErrors: null,
         errorMessage: null,
+        priceChange: null,
       };
     }
 
@@ -175,6 +185,7 @@ export function bookingHoldFlowReducer(
         fieldErrors: null,
         attempt: null,
         errorMessage: null,
+        priceChange: null,
         // Reads state.session — the reducer's current state, never a stale
         // closure — so a same-Hold replay-null can never overwrite a
         // retained token from an earlier operation.
@@ -190,6 +201,21 @@ export function bookingHoldFlowReducer(
         return state;
       }
       return { ...state, phase: "known-error", attempt: null, errorMessage: action.message };
+    }
+
+    case "price-changed": {
+      if (state.phase !== "submitting" || action.operationId !== state.operationId) {
+        return state;
+      }
+      // A known refusal: nothing was held, so the contact form stays and the guest decides on the new price.
+      return { ...state, phase: "known-error", attempt: null, errorMessage: null, priceChange: action.quote };
+    }
+
+    case "price-change-accepted": {
+      if (state.phase !== "known-error" || !state.priceChange || !state.offer) {
+        return state;
+      }
+      return { ...state, offer: { ...state.offer, quote: state.priceChange }, priceChange: null, errorMessage: null };
     }
 
     case "attempt-uncertain": {
@@ -214,6 +240,7 @@ export function bookingHoldFlowReducer(
         attempt: null,
         fieldErrors: null,
         errorMessage: null,
+        priceChange: null,
       };
     }
 
@@ -265,6 +292,7 @@ export function bookingHoldFlowReducer(
         fieldErrors: null,
         attempt: null,
         errorMessage: null,
+        priceChange: null,
         session: null,
         operationId: state.operationId,
         confirmationAttempt: null,

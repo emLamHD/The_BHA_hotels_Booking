@@ -10,6 +10,7 @@ import {
 } from "../bookingHoldAttempt";
 import { CreateBookingHoldResult } from "../bookingHoldService";
 import { BookingHoldDto } from "../bookingHoldTypes";
+import { TEST_QUOTE } from "@/lib/api/quoteTestkit";
 
 const OFFER: SelectedOfferSnapshot = {
   propertyId: "10000000-0000-0000-0000-000000000001",
@@ -20,6 +21,7 @@ const OFFER: SelectedOfferSnapshot = {
   adults: 2,
   children: 0,
   rooms: 1,
+  quote: TEST_QUOTE,
 };
 
 const VALID_CONTACT = {
@@ -178,6 +180,9 @@ describe("buildBookingHoldRequest", () => {
       fullName: "Jane Doe",
       email: "jane.doe@example.com",
       phone: "+1 555 123 4567",
+      // The price the guest is confirming, from the quote they were shown: the only price-related fields ever sent.
+      expectedTotalAmount: OFFER.quote.totalAmount,
+      expectedCurrencyCode: OFFER.quote.currencyCode,
     });
   });
 

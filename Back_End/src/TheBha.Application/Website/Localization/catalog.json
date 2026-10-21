@@ -177,96 +177,6 @@
    "placeholders": []
   },
   {
-   "key": "content.offer.cuoi-tuan-can-ho-2-phong-ngu.imageAlt",
-   "scope": "content",
-   "placeholders": []
-  },
-  {
-   "key": "content.offer.cuoi-tuan-can-ho-2-phong-ngu.summary",
-   "scope": "content",
-   "placeholders": []
-  },
-  {
-   "key": "content.offer.cuoi-tuan-can-ho-2-phong-ngu.title",
-   "scope": "content",
-   "placeholders": []
-  },
-  {
-   "key": "content.offer.dat-som-can-ho-1-phong-ngu.imageAlt",
-   "scope": "content",
-   "placeholders": []
-  },
-  {
-   "key": "content.offer.dat-som-can-ho-1-phong-ngu.summary",
-   "scope": "content",
-   "placeholders": []
-  },
-  {
-   "key": "content.offer.dat-som-can-ho-1-phong-ngu.title",
-   "scope": "content",
-   "placeholders": []
-  },
-  {
-   "key": "content.offer.giua-tuan-yen-tinh.imageAlt",
-   "scope": "content",
-   "placeholders": []
-  },
-  {
-   "key": "content.offer.giua-tuan-yen-tinh.summary",
-   "scope": "content",
-   "placeholders": []
-  },
-  {
-   "key": "content.offer.giua-tuan-yen-tinh.title",
-   "scope": "content",
-   "placeholders": []
-  },
-  {
-   "key": "content.offer.ky-nghi-gan-ho-boi.imageAlt",
-   "scope": "content",
-   "placeholders": []
-  },
-  {
-   "key": "content.offer.ky-nghi-gan-ho-boi.summary",
-   "scope": "content",
-   "placeholders": []
-  },
-  {
-   "key": "content.offer.ky-nghi-gan-ho-boi.title",
-   "scope": "content",
-   "placeholders": []
-  },
-  {
-   "key": "content.offer.nhom-ban-can-ho-2-phong-ngu.imageAlt",
-   "scope": "content",
-   "placeholders": []
-  },
-  {
-   "key": "content.offer.nhom-ban-can-ho-2-phong-ngu.summary",
-   "scope": "content",
-   "placeholders": []
-  },
-  {
-   "key": "content.offer.nhom-ban-can-ho-2-phong-ngu.title",
-   "scope": "content",
-   "placeholders": []
-  },
-  {
-   "key": "content.offer.o-dai-ngay-can-ho-thoang.imageAlt",
-   "scope": "content",
-   "placeholders": []
-  },
-  {
-   "key": "content.offer.o-dai-ngay-can-ho-thoang.summary",
-   "scope": "content",
-   "placeholders": []
-  },
-  {
-   "key": "content.offer.o-dai-ngay-can-ho-thoang.title",
-   "scope": "content",
-   "placeholders": []
-  },
-  {
    "key": "content.post.bai-bien-my-khe.coverAlt",
    "scope": "content",
    "placeholders": []
@@ -2228,6 +2138,31 @@
    "placeholders": []
   },
   {
+   "key": "customer.booking.priceChanged.accept",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.priceChanged.body",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.priceChanged.confirming",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.priceChanged.current",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.booking.priceChanged.title",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.booking.reservation.status.Cancelled",
    "scope": "customer",
    "placeholders": []
@@ -4096,11 +4031,6 @@
    "placeholders": []
   },
   {
-   "key": "customer.home.homeOfferSection.sampleRoomOffers",
-   "scope": "customer",
-   "placeholders": []
-  },
-  {
    "key": "customer.home.homeOfferSection.seeMoreOffers",
    "scope": "customer",
    "placeholders": []
@@ -4149,21 +4079,6 @@
     "address",
     "name"
    ]
-  },
-  {
-   "key": "customer.home.offerCard.nightSample",
-   "scope": "customer",
-   "placeholders": []
-  },
-  {
-   "key": "customer.home.offerCard.sampleOfferPrice",
-   "scope": "customer",
-   "placeholders": []
-  },
-  {
-   "key": "customer.home.offerCard.sampleOriginalPrice",
-   "scope": "customer",
-   "placeholders": []
   },
   {
    "key": "customer.home.pending.availability",
@@ -4773,6 +4688,13 @@
    "placeholders": []
   },
   {
+   "key": "customer.meta.offerDetail.title",
+   "scope": "customer",
+   "placeholders": [
+    "title"
+   ]
+  },
+  {
    "key": "customer.meta.offers.description",
    "scope": "customer",
    "placeholders": []
@@ -4908,21 +4830,139 @@
    "placeholders": []
   },
   {
+   "key": "customer.offers.back",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.offers.badge",
    "scope": "customer",
    "placeholders": []
   },
   {
-   "key": "customer.offers.disclosure",
+   "key": "customer.offers.cardCta",
    "scope": "customer",
    "placeholders": []
   },
   {
-   "key": "customer.offers.discountAria",
+   "key": "customer.offers.detail.allRooms",
+   "scope": "customer",
+   "placeholders": [
+    "property"
+   ]
+  },
+  {
+   "key": "customer.offers.detail.bookingPeriod",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.offers.detail.chooseDates",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.offers.detail.conditions",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.offers.detail.discount",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.offers.detail.discountFixed",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.offers.detail.discountPercent",
    "scope": "customer",
    "placeholders": [
     "percent"
    ]
+  },
+  {
+   "key": "customer.offers.detail.findRooms",
+   "scope": "customer",
+   "placeholders": [
+    "property"
+   ]
+  },
+  {
+   "key": "customer.offers.detail.minNights",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.offers.detail.minNightsLine",
+   "scope": "customer",
+   "placeholders": [
+    "nights"
+   ]
+  },
+  {
+   "key": "customer.offers.detail.noPrice",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.offers.detail.noRooms",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.offers.detail.periodAny",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.offers.detail.periodFrom",
+   "scope": "customer",
+   "placeholders": [
+    "from"
+   ]
+  },
+  {
+   "key": "customer.offers.detail.periodRange",
+   "scope": "customer",
+   "placeholders": [
+    "from",
+    "to"
+   ]
+  },
+  {
+   "key": "customer.offers.detail.periodUntil",
+   "scope": "customer",
+   "placeholders": [
+    "to"
+   ]
+  },
+  {
+   "key": "customer.offers.detail.property",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.offers.detail.rooms",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.offers.detail.stayNote",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.offers.detail.stayPeriod",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.offers.empty",
+   "scope": "customer",
+   "placeholders": []
   },
   {
    "key": "customer.offers.page.findRoomsAndSeeReal",
@@ -4930,7 +4970,29 @@
    "placeholders": []
   },
   {
-   "key": "customer.offers.realCta",
+   "key": "customer.offers.unavailable",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.promotion.fixedOff",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.promotion.listPrice",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.promotion.percentOff",
+   "scope": "customer",
+   "placeholders": [
+    "percent"
+   ]
+  },
+  {
+   "key": "customer.promotion.savings",
    "scope": "customer",
    "placeholders": []
   },
@@ -6946,6 +7008,11 @@
   },
   {
    "key": "shared.apiError.hold.offer-not-holdable",
+   "scope": "shared",
+   "placeholders": []
+  },
+  {
+   "key": "shared.apiError.hold.price-changed",
    "scope": "shared",
    "placeholders": []
   },

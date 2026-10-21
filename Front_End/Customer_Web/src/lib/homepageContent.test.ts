@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { MOCK_OFFERS } from "@/data/homepageOffers";
 import { POST_CATEGORIES, TRAVEL_POSTS } from "@/data/travelPosts";
 import {
   blogCategoryPath,
-  discountPercent,
   findPostBySegments,
   formatPostDate,
   formatVnd,
@@ -15,55 +13,14 @@ import {
   postsInCategory,
   relatedPosts,
   resolveBlogFilter,
-  resolveOfferHighlight,
 } from "./homepageContent";
 
-describe("offers: mock prices and the percent they show", () => {
-  it("the badge is the whole percent of the price drop", () => {
-    expect(discountPercent(1000000, 800000)).toBe(20);
-    expect(discountPercent(1350000, 1089000)).toBe(19);
-    expect(discountPercent(1590000, 1247000)).toBe(22);
-    expect(discountPercent(1000000, 999999)).toBe(0);
-  });
-
-  it("shows no badge for a price that is not a discount", () => {
-    for (const [original, discount] of [[1000, 1000], [1000, 1200], [0, 0], [-5, -10], [1000, 0], [NaN, 5], [1000, Infinity]]) {
-      expect(discountPercent(original, discount)).toBe(0);
-    }
-  });
-
-  it("every sample offer is a real discount with a distinct slug, and the badge follows from its own prices", () => {
-    expect(MOCK_OFFERS.length).toBeGreaterThanOrEqual(6);
-    expect(new Set(MOCK_OFFERS.map((offer) => offer.slug)).size).toBe(MOCK_OFFERS.length);
-    expect(new Set(MOCK_OFFERS.map((offer) => offer.id)).size).toBe(MOCK_OFFERS.length);
-    for (const offer of MOCK_OFFERS) {
-      expect(Number.isInteger(offer.originalPrice) && Number.isInteger(offer.discountPrice)).toBe(true);
-      expect(offer.discountPrice).toBeLessThan(offer.originalPrice);
-      const percent = discountPercent(offer.originalPrice, offer.discountPrice);
-      expect(percent).toBeGreaterThan(0);
-      expect(percent).toBeLessThan(100);
-      expect(offer.image).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*\.webp$/);
-      expect(offer.slug).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
-    }
-  });
-
-  it("the sample offers say nothing about stock, time limits, ratings or reviews", () => {
-    const text = JSON.stringify(MOCK_OFFERS);
-    expect(text).not.toMatch(/còn \d|sắp hết|chỉ còn|hết hạn|đếm ngược|đánh giá|sao\b|review/i);
-  });
-
+describe("amounts", () => {
   it("amounts print the same everywhere", () => {
     expect(formatVnd(1089000)).toBe("1.089.000 ₫");
     expect(formatVnd(950)).toBe("950 ₫");
     expect(formatVnd(1000)).toBe("1.000 ₫");
     expect(formatVnd(0)).toBe("0 ₫");
-  });
-
-  it("?offer highlights one known slug and nothing else", () => {
-    expect(resolveOfferHighlight(MOCK_OFFERS[1].slug)?.id).toBe(MOCK_OFFERS[1].id);
-    for (const bad of [undefined, "", "unknown", MOCK_OFFERS[0].slug.toUpperCase(), [MOCK_OFFERS[0].slug, MOCK_OFFERS[1].slug], ["x"]]) {
-      expect(resolveOfferHighlight(bad as string)).toBeUndefined();
-    }
   });
 });
 

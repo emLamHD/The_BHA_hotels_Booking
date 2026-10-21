@@ -53,6 +53,10 @@ export async function createBookingHold(
       fullName: request.fullName,
       email: request.email,
       phone: request.phone,
+      // The price being confirmed, only when the caller has one; never a price the server should trust.
+      ...(request.expectedTotalAmount !== undefined && request.expectedCurrencyCode !== undefined
+        ? { expectedTotalAmount: request.expectedTotalAmount, expectedCurrencyCode: request.expectedCurrencyCode }
+        : {}),
     },
     {
       signal: options.signal,
