@@ -42,7 +42,7 @@ Backend: 13 tables, composite foreign keys and partial unique indexes (one draft
 |---|---|---|
 | Restore + build | `dotnet build TheBha.Booking.sln --configuration Release` | 0 errors |
 | Unit | `dotnet test TheBha.Booking.sln --configuration Release --no-build` | **651 / 651** (75 new for Blog) |
-| Integration (full backend suite) | same command, `ConnectionStrings__TheBhaDatabase` → local PostgreSQL | **1221 / 1221** (56 new Blog tests; the pinned registries — migration lists/counts, Admin mutation paths — updated on purpose) |
+| Integration (full backend suite) | same command, `ConnectionStrings__TheBhaDatabase` → local PostgreSQL | **1221 / 1221** (55 new Blog tests; develop at the base commit ran 576 unit + 1166 integration; the pinned registries — migration lists/counts, Admin mutation paths — updated on purpose) |
 | Migration | clean database `MigrateAsync`; `BlogMigrationTests`; `StaffIdentityMigrationTests` (V8 → latest, rollback refusals) | pass; model has no pending changes; `Down()` refuses with Blog content or permissions |
 | Whitespace | `git diff --check` | clean |
 | Frontend | not changed → not run | `NOT_RUN` (no Customer/Admin diff) |
