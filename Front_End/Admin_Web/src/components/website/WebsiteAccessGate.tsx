@@ -19,7 +19,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getAccessMode } from "@/lib/api/accessMode";
-import { WEBSITE_SETTINGS_PERMISSION } from "@/lib/api/staff";
+import { WEBSITE_SETTINGS_PERMISSION, type StaffSession } from "@/lib/api/staff";
 import { signInUrlFor } from "@/lib/website/returnTo";
 import { StaffSessionProvider, useStaffSession } from "@/components/auth/StaffSession";
 
@@ -46,7 +46,24 @@ export function useWebsiteHost(): WebsiteHost {
   return host;
 }
 
-export default function WebsiteAccessGate({ returnTo, children }: { returnTo: string; children: React.ReactNode }) {
+/**
+ * What the gate asks of the session. The default is the site-wide website permission; a screen governed by a Property role
+ * (BHA-BOOKING-PROMOTIONS-001, ADR 0009) passes its own check — still display only, the server decides again on every request.
+ */
+export interface GateRule {
+  isAllowed: (session: StaffSession) => boolean;
+  noPermission: React.ReactNode;
+  signInPrompt: string;
+}
+
+const WEBSITE_RULE: GateRule = {
+  isAllowed: (session) => (session.permissions ?? []).includes(WEBSITE_SETTINGS_PERMISSION),
+  noPermission:
+    "Tài khoản này không có quyền với cài đặt website. Quyền này do người vận hành cấp cho tài khoản Staff bằng dòng lệnh của Admin API và tách biệt với vai trò theo cơ sở lưu trú. Chưa có yêu cầu nào được gửi.",
+  signInPrompt: "Hãy đăng nhập để quản lý cài đặt website.",
+};
+
+export default function WebsiteAccessGate({ returnTo, children, rule = WEBSITE_RULE }: { returnTo: string; children: React.ReactNode; rule?: GateRule }) {
   const mode = getAccessMode();
   if (!mode.ok) {
     return <Panel role="alert" testId="website-config-error">{mode.message}</Panel>;
@@ -60,12 +77,12 @@ export default function WebsiteAccessGate({ returnTo, children }: { returnTo: st
   }
   return (
     <StaffSessionProvider>
-      <WebsiteBoundary returnTo={returnTo}>{children}</WebsiteBoundary>
+      <WebsiteBoundary returnTo={returnTo} rule={rule}>{children}</WebsiteBoundary>
     </StaffSessionProvider>
   );
 }
 
-function WebsiteBoundary({ returnTo, children }: { returnTo: string; children: React.ReactNode }) {
+function WebsiteBoundary({ returnTo, children, rule }: { returnTo: string; children: React.ReactNode; rule: GateRule }) {
   const { state, refresh, retry, expire, signOut, failAccessCheck } = useStaffSession();
   const router = useRouter();
   const [writing, setWriting] = useState(false);
@@ -150,7 +167,7 @@ function WebsiteBoundary({ returnTo, children }: { returnTo: string; children: R
     return (
       <Panel role="status" testId="staff-session-required">
         {state.reason === "expired" ? "Phiên đăng nhập Staff của bạn đã kết thúc. " : state.reason === "signed-out" ? "Bạn đã đăng xuất. " : ""}
-        Hãy đăng nhập để quản lý cài đặt website.{" "}
+        {rule.signInPrompt}{" "}
         <Link href={signInUrlFor(returnTo)} className="font-medium text-brand-500 hover:text-brand-600 dark:text-brand-400">
           Đăng nhập
         </Link>
@@ -158,7 +175,7 @@ function WebsiteBoundary({ returnTo, children }: { returnTo: string; children: R
     );
   }
 
-  const allowed = (state.session.permissions ?? []).includes(WEBSITE_SETTINGS_PERMISSION);
+  const allowed = rule.isAllowed(state.session);
   return (
     <div className="flex flex-col gap-3">
       <div
@@ -187,7 +204,7 @@ function WebsiteBoundary({ returnTo, children }: { returnTo: string; children: R
       </div>
       {!allowed ? (
         <Panel role="alert" testId="website-no-permission">
-          Tài khoản này không có quyền với cài đặt website. Quyền này do người vận hành cấp cho tài khoản Staff bằng dòng lệnh của Admin API và tách biệt với vai trò theo cơ sở lưu trú. Chưa có yêu cầu nào được gửi.
+          {rule.noPermission}
         </Panel>
       ) : (
         <WebsiteHostContext.Provider value={host}>

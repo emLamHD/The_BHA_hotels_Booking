@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { useSidebar } from "../context/SidebarContext";
 import {
   BoxCubeIcon,
+  DollarLineIcon,
   CalenderIcon,
   ChevronDownIcon,
   GridIcon,
@@ -28,6 +29,8 @@ type NavItem = {
 
 const navItems: NavItem[] = [
   { icon: <BoxCubeIcon />, name: "Cơ sở & loại phòng", path: "/products" },
+  // BHA-BOOKING-PROMOTIONS-001: a link is not authorization; the page asks the server (a Manager of the Property).
+  { icon: <DollarLineIcon />, name: "Ưu đãi đặt phòng", path: "/promotions" },
   {
     icon: <GridIcon />,
     name: "Dashboard",
