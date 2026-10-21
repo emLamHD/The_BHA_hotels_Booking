@@ -128,4 +128,3 @@ CP03 (Admin library screens, picker, focal editor, upload progress, usage panel)
 **Red → green.** On the unfixed source (`git diff HEAD -- Back_End/src` empty, i.e. `d9d1b41`): 7 of the 24 tests of `BlogMediaLibraryApiTests` failed — the four same-Guid cases and the repeat-at-the-end returned **200 and had stored pictures**; the page test got **HTTP 500**; the direct service call threw `Npgsql.PostgresException: 2201X: OFFSET must not be negative`. After the fix: 24 / 24. The positive F1 test passed before and after (it guards the behaviour that must not change).
 
 **Full check after the correction** and **CI** are in the hand-off message of CP02-C1 (they describe the head this file is part of). The container durability and codec fault-injection evidence above is unchanged: nothing in those components changed. The Admin flake noted earlier was outside the diff and is not touched.
-
