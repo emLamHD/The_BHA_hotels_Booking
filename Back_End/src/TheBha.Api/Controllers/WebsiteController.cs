@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Mvc;
+using TheBha.Application.Promotions;
 using TheBha.Application.Website;
 using TheBha.Domain.Website;
 
@@ -17,7 +18,7 @@ namespace TheBha.Api.Controllers;
 [ApiController]
 [EnableCors("website-public")]
 [Route("api/v1/website")]
-public sealed class WebsiteController(IWebsitePublicReader reader, IWebsiteDisplayPricing pricing, IWebsiteMenus menus, IWebsiteHero hero, IWebsiteSocialSettings social) : ControllerBase
+public sealed class WebsiteController(IWebsitePublicReader reader, IWebsiteDisplayPricing pricing, IWebsiteMenus menus, IWebsiteHero hero, IWebsiteSocialSettings social, IWebsitePromotions promotions) : ControllerBase
 {
     /// <summary>Active locales (each with its format locale, direction and default currency), active currencies, the defaults, and VND as the base currency.</summary>
     [HttpGet("config")]
@@ -86,6 +87,64 @@ public sealed class WebsiteController(IWebsitePublicReader reader, IWebsiteDispl
     {
         var body = await hero.GetPublicAsync(locale, cancellationToken);
         var etag = "W/\"" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(body.Revision + "|" + body.Locale))).ToLowerInvariant()[..24] + "\"";
+        Response.Headers.CacheControl = "no-cache";
+        Response.Headers.ETag = etag;
+        return Request.Headers.IfNoneMatch.Contains(etag) ? StatusCode(StatusCodes.Status304NotModified) : Ok(body);
+    }
+
+    /// <summary>
+    /// BHA-BOOKING-PROMOTIONS-001: the promotions that are public today, in the visitor's language, for the homepage and <c>/offers</c>. Revalidated on every
+    /// request (<c>no-cache</c> + ETag from the body): a card that stopped being public, by a save or just by the date, is gone from the next request.
+    /// Never a draft, a disabled or hidden promotion, a Staff id or an administrative field.
+    /// </summary>
+    [HttpGet("promotions")]
+    [ProducesResponseType(typeof(PublicPromotionListDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status304NotModified)]
+    public async Task<ActionResult> Promotions([FromQuery] string? locale, CancellationToken cancellationToken)
+    {
+        var body = await promotions.ListAsync(locale, cancellationToken);
+        return Revalidated(body.Revision, body.Locale, body);
+    }
+
+    /// <summary>One public promotion by slug. Public by the same rule as the list; anything else is a plain 404.</summary>
+    [HttpGet("promotions/{slug}")]
+    [ProducesResponseType(typeof(PublicPromotionDetailDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status304NotModified)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult> Promotion(string slug, [FromQuery] string? locale, CancellationToken cancellationToken)
+    {
+        var body = await promotions.GetAsync(slug, locale, cancellationToken);
+        if (body is null)
+        {
+            Response.Headers.CacheControl = "no-store";
+            return NotFound();
+        }
+
+        return Revalidated(body.Revision, body.Locale, body);
+    }
+
+    /// <summary>A cover picture, only while a public promotion uses it; short cache so hiding a promotion takes effect within minutes.</summary>
+    [HttpGet("promotions/media/{id:guid}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> PromotionMedia(Guid id, CancellationToken cancellationToken)
+    {
+        var file = await promotions.OpenMediaAsync(id, cancellationToken);
+        if (file is null)
+        {
+            Response.Headers.CacheControl = "no-store";
+            return NotFound();
+        }
+
+        Response.Headers.CacheControl = "public, max-age=300";
+        Response.Headers["X-Content-Type-Options"] = "nosniff";
+        Response.Headers.ContentSecurityPolicy = "default-src 'none'; sandbox";
+        return File(file.Content, file.ContentType);
+    }
+
+    private ActionResult Revalidated(string revision, string locale, object body)
+    {
+        var etag = "W/\"" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(revision + "|" + locale))).ToLowerInvariant()[..24] + "\"";
         Response.Headers.CacheControl = "no-cache";
         Response.Headers.ETag = etag;
         return Request.Headers.IfNoneMatch.Contains(etag) ? StatusCode(StatusCodes.Status304NotModified) : Ok(body);
