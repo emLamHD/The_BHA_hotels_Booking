@@ -341,15 +341,30 @@ public sealed class BlogPublicationApiTests(PostgreSqlWebApplicationFactory fact
             Assert.Equal(1, results.Count(r => r.StatusCode == HttpStatusCode.OK));
             Assert.All(results.Where(r => r.StatusCode != HttpStatusCode.OK), r => Assert.Equal(HttpStatusCode.Conflict, r.StatusCode));
 
-            // Whatever won, the translation is coherent: the public view equals the status, and exactly one version moved.
+            // Whatever won, the translation is coherent and the public view is exactly what that winner leaves.
             var after = Translation(await GetPostAsync(host, id), "vi");
             Assert.Equal(version + 1, after.GetProperty("version").GetInt32());
-            var status = after.GetProperty("status").GetString();
             var publicStatus = (await PublicAsync(host, $"/posts/dua-{round}?locale=vi")).StatusCode;
-            Assert.Equal(status == "Published" ? HttpStatusCode.OK : HttpStatusCode.NotFound, publicStatus);
-            if (status == "Published")
+            if (results[0].StatusCode == HttpStatusCode.OK)
             {
+                // Publish won: the edited draft is live, there is no draft left.
+                Assert.Equal("Published", after.GetProperty("status").GetString());
                 Assert.Equal($"Bài {round} sửa", (await PublicOkAsync(host, $"/posts/dua-{round}?locale=vi")).GetProperty("title").GetString());
+                Assert.False(after.GetProperty("hasDraft").GetBoolean());
+            }
+            else if (results[1].StatusCode == HttpStatusCode.OK)
+            {
+                // Unpublish won: hidden, and the draft is still there, untouched.
+                Assert.Equal("Unpublished", after.GetProperty("status").GetString());
+                Assert.Equal(HttpStatusCode.NotFound, publicStatus);
+                Assert.Equal($"Bài {round} sửa", after.GetProperty("draft").GetProperty("title").GetString());
+            }
+            else
+            {
+                // The update won: still published as before (the older title), and the draft now holds the new text.
+                Assert.Equal("Published", after.GetProperty("status").GetString());
+                Assert.Equal($"Bài {round}", (await PublicOkAsync(host, $"/posts/dua-{round}?locale=vi")).GetProperty("title").GetString());
+                Assert.Equal($"Bài {round} lại sửa", after.GetProperty("draft").GetProperty("title").GetString());
             }
         }
 

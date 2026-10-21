@@ -56,6 +56,8 @@ internal sealed partial class AdminBlogService(TheBhaDbContext db, IHeroMediaSto
                 PostgresErrorCodes.UniqueViolation when constraint is "PK_BlogPosts" or "PK_BlogCategories" =>
                     new BlogProblem(BlogErrorCodes.DuplicateId, "id", "This id is already used."),
                 PostgresErrorCodes.UniqueViolation => Stale,
+                // A deadlock or serialization failure rolled this transaction back whole; nothing changed, and the writer must look again.
+                PostgresErrorCodes.DeadlockDetected or PostgresErrorCodes.SerializationFailure => Stale,
                 PostgresErrorCodes.ForeignKeyViolation when constraint.Contains("BlogMedia", StringComparison.Ordinal) =>
                     new BlogProblem(BlogErrorCodes.MediaMissing, "media", "A picture is not available."),
                 PostgresErrorCodes.ForeignKeyViolation when constraint.Contains("BlogCategories", StringComparison.Ordinal) =>
@@ -64,6 +66,16 @@ internal sealed partial class AdminBlogService(TheBhaDbContext db, IHeroMediaSto
             };
         }
     }
+
+    /// <summary>
+    /// Reads the translation of <c>(post, locale)</c> and locks its row until the transaction ends. Every write on a translation starts here, so
+    /// concurrent writers queue on the row and each sees the committed result of the one before it — whoever is second finds a newer version
+    /// and is refused cleanly — and no two transactions ever take the translation and its revision in opposite orders (no deadlock).
+    /// </summary>
+    private async Task<BlogPostTranslation?> LockTranslationAsync(Guid postId, string locale, CancellationToken cancellationToken) =>
+        (await db.BlogPostTranslations
+            .FromSqlInterpolated($"SELECT * FROM \"BlogPostTranslations\" WHERE \"PostId\" = {postId} AND \"Locale\" = {locale} FOR UPDATE")
+            .ToListAsync(cancellationToken)).SingleOrDefault();
 
     private void Audit(
         Guid actor, string action, Guid? postId = null, Guid? translationId = null, Guid? categoryId = null, string? locale = null,

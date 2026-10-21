@@ -15,6 +15,10 @@ namespace TheBha.IntegrationTests;
 [Collection(PostgreSqlCollection.Name)]
 public sealed class BlogSchemaTests(PostgreSqlWebApplicationFactory factory) : BlogTestSupport(factory)
 {
+    /// <summary>A delete that a <c>RESTRICT</c> reference forbids: PostgreSQL reports it as 23503 or, in some versions, 23001.</summary>
+    private static void AssertRestricted(string sqlState) =>
+        Assert.True(sqlState is PostgresErrorCodes.ForeignKeyViolation or PostgresErrorCodes.RestrictViolation, sqlState);
+
     private async Task<string> RefusedAsync(string sql)
     {
         var exception = await Assert.ThrowsAsync<PostgresException>(() => ExecuteAsync(sql));
@@ -70,10 +74,10 @@ public sealed class BlogSchemaTests(PostgreSqlWebApplicationFactory factory) : B
         var unused = await UploadAsync(host, host.Cookie(Editor));
         await PublishedAsync(host, media, "tham-chieu");
 
-        Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, await RefusedAsync($"""DELETE FROM "BlogMedia" WHERE "Id" = '{media}'"""));
-        Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, await RefusedAsync($"""DELETE FROM "BlogCategories" WHERE "Id" = '{FeaturedCategory}'"""));
-        Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, await RefusedAsync("""DELETE FROM "BlogPosts" """));
-        Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, await RefusedAsync("""DELETE FROM "BlogPostRevisions" """));
+        AssertRestricted(await RefusedAsync($"""DELETE FROM "BlogMedia" WHERE "Id" = '{media}'"""));
+        AssertRestricted(await RefusedAsync($"""DELETE FROM "BlogCategories" WHERE "Id" = '{FeaturedCategory}'"""));
+        AssertRestricted(await RefusedAsync("""DELETE FROM "BlogPosts" """));
+        AssertRestricted(await RefusedAsync("""DELETE FROM "BlogPostRevisions" """));
         await ExecuteAsync($"""DELETE FROM "BlogMedia" WHERE "Id" = '{unused}'"""); // not referenced: allowed
 
         Assert.Equal(PostgresErrorCodes.CheckViolation, await RefusedAsync("""INSERT INTO "BlogSettings" ("Id","Version","UpdatedAtUtc") VALUES (2,1,now())"""));

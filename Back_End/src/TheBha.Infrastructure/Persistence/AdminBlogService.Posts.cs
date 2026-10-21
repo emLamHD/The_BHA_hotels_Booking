@@ -235,7 +235,7 @@ internal sealed partial class AdminBlogService
             return Fail<BlogPostAdminDto>(new BlogProblem(BlogErrorCodes.NotFound, "id", "The article does not exist."));
         }
 
-        var translation = await db.BlogPostTranslations.SingleOrDefaultAsync(t => t.PostId == command.PostId && t.Locale == locale, cancellationToken);
+        var translation = await LockTranslationAsync(command.PostId, locale, cancellationToken);
         var (content, _, problem) = await BuildContentAsync(command.Draft, cancellationToken);
         if (content is null)
         {
@@ -332,7 +332,7 @@ internal sealed partial class AdminBlogService
             return (null, null, problem);
         }
 
-        var translation = await db.BlogPostTranslations.SingleOrDefaultAsync(t => t.PostId == postId && t.Locale == normalized, cancellationToken);
+        var translation = await LockTranslationAsync(postId, normalized, cancellationToken);
         if (translation is null)
         {
             return (null, null, new BlogProblem(BlogErrorCodes.NotFound, "locale", "The article has no such translation."));
