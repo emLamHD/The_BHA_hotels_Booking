@@ -1,6 +1,9 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
+using TheBha.Application.Blog;
+using TheBha.Domain.Blog;
 using TheBha.Domain.Website;
 
 namespace TheBha.IntegrationTests;
@@ -346,6 +349,146 @@ public sealed class BlogMediaLibraryApiTests(PostgreSqlWebApplicationFactory fac
         foreach (var request in new[] { AdminGet("/media", null), AdminGet($"/media/{id}/detail", null), Multipart("/media/bulk", null, [("files", "a.jpg", good)]) })
         {
             Assert.Equal(HttpStatusCode.NotFound, (await SendAsync(local, request)).StatusCode);
+        }
+    }
+
+    // ---- BHA-BLOG-001-CP02-C1 ----
+
+    private static HttpRequestMessage BulkWithIds(string cookie, byte[] picture, params string[] ids) =>
+        Multipart("/media/bulk", cookie, ids.Select((_, index) => ("files", $"p{index}.jpg", picture)), ids.Select(id => ("ids", id)));
+
+    /// <summary>A refused request has no effect at all: no row, no variant, no file, no upload audit.</summary>
+    private async Task AssertNothingStoredAsync()
+    {
+        Assert.Equal(0, await RowsAsync());
+        Assert.Equal(0, await RowsAsync("BlogMediaVariants"));
+        Assert.Equal(0, await ScalarAsync<int>("""SELECT count(*)::int FROM "BlogAudits" WHERE "Action" = 'media.upload' """));
+        Assert.Empty(BlogFiles());
+    }
+
+    public static TheoryData<string[]> SameGuidWrittenTwoWays => new()
+    {
+        { ["11111111-2222-3333-4444-555555555555", "11111111222233334444555555555555"] }, // D and N
+        { ["abcdef01-2345-6789-abcd-ef0123456789", "ABCDEF01-2345-6789-ABCD-EF0123456789"] }, // lower and upper case hex
+        { ["{abcdef01-2345-6789-abcd-ef0123456789}", "abcdef01-2345-6789-abcd-ef0123456789"] }, // B and D
+        { ["(ABCDEF01-2345-6789-abcd-ef0123456789)", "abcdef0123456789abcdef0123456789".Insert(8, "-").Insert(13, "-").Insert(18, "-").Insert(23, "-")] }, // P and D, mixed case
+    };
+
+    [Theory]
+    [MemberData(nameof(SameGuidWrittenTwoWays))]
+    public async Task Two_ids_that_are_the_same_guid_in_different_text_refuse_the_whole_request_before_anything_is_stored(string[] ids)
+    {
+        using var host = await StartMediaAsync();
+        Assert.Equal(Guid.Parse(ids[0].Trim('{', '}', '(', ')')), Guid.Parse(ids[1].Trim('{', '}', '(', ')'))); // the fixture really is one Guid
+
+        var response = await AssertStatusAsync(HttpStatusCode.BadRequest, SendAsync(host, BulkWithIds(host.Cookie(Editor), BlogImageFixtures.Jpeg(1200, 800), ids)));
+
+        Assert.Equal(("blog.media-batch-invalid", "ids"), await ProblemOf(response));
+        await AssertNothingStoredAsync();
+    }
+
+    [Fact]
+    public async Task A_repeated_guid_at_the_end_of_the_list_still_refuses_the_whole_request_and_stores_nothing_of_the_valid_ones_before_it()
+    {
+        using var host = await StartMediaAsync();
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+
+        var response = await AssertStatusAsync(HttpStatusCode.BadRequest, SendAsync(host, BulkWithIds(
+            host.Cookie(Editor), BlogImageFixtures.Jpeg(1200, 800), first.ToString("D"), second.ToString("D"), first.ToString("N").ToUpperInvariant())));
+
+        Assert.Equal(("blog.media-batch-invalid", "ids"), await ProblemOf(response));
+        await AssertNothingStoredAsync(); // before the fix the first two were stored and only the third was refused
+    }
+
+    [Fact]
+    public async Task Different_guids_in_different_formats_are_all_taken_in_with_the_right_index_and_id_and_no_ids_still_works()
+    {
+        using var host = await StartMediaAsync();
+        Guid a = Guid.NewGuid(), b = Guid.NewGuid(), c = Guid.NewGuid();
+        var good = BlogImageFixtures.Jpeg(1200, 800);
+
+        var result = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, SendAsync(host, BulkWithIds(host.Cookie(Editor), good, a.ToString("D"), b.ToString("N").ToUpperInvariant(), "{" + c + "}"))));
+
+        Assert.Equal((3, 0), (result.GetProperty("succeeded").GetInt32(), result.GetProperty("failed").GetInt32()));
+        var items = result.GetProperty("items").EnumerateArray().ToArray();
+        Assert.Equal([0, 1, 2], items.Select(i => i.GetProperty("index").GetInt32()));
+        Assert.Equal([a, b, c], items.Select(i => i.GetProperty("id").GetGuid()));
+        Assert.Equal(3, await RowsAsync());
+        foreach (var id in new[] { a, b, c })
+        {
+            Assert.Equal("current", (await MediaDetailAsync(host, id)).GetProperty("pipeline").GetString());
+        }
+
+        // And with no ids at all the server names them.
+        var named = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, BatchAsync(host, host.Cookie(Editor), [("x.jpg", good), ("y.jpg", good)])));
+        Assert.Equal(2, named.GetProperty("succeeded").GetInt32());
+        Assert.Equal(5, await RowsAsync());
+    }
+
+    private async Task<JsonElement> ListAsync(BlogHost host, string query) =>
+        await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, SendAsync(host, AdminGet("/media" + query, host.Cookie(Editor)))));
+
+    [Fact]
+    public async Task A_page_number_far_past_the_end_is_an_empty_page_with_the_right_total_not_an_overflow()
+    {
+        using var host = await StartMediaAsync();
+        var ids = new List<Guid>();
+        foreach (var name in new[] { "a.jpg", "b.jpg", "c.jpg", "d.jpg", "e.jpg" })
+        {
+            Advance(TimeSpan.FromMinutes(1));
+            ids.Add((await UploadPictureAsync(host, BlogImageFixtures.Jpeg(1200, 800), name)).GetProperty("id").GetGuid());
+        }
+
+        await PublishedAsync(host, ids[0], "dung-anh-1");
+        await PublishedAsync(host, ids[1], "dung-anh-2"); // two used, three unused
+
+        // (page - 1) * size no longer fits an int: before the fix this wrapped to a negative offset and PostgreSQL refused it (500).
+        foreach (var (page, size) in new[] { (int.MaxValue, 24), (int.MaxValue, 50), (int.MaxValue, 2), (42949674, 50), (42949673, 50), (1431655766, 3), (1431655765, 3), (91, 24) })
+        {
+            var list = await ListAsync(host, $"?page={page}&pageSize={size}");
+            Assert.Equal(5, list.GetProperty("total").GetInt32());
+            Assert.Empty(list.GetProperty("items").EnumerateArray());
+            Assert.Equal((page, size), (list.GetProperty("page").GetInt32(), list.GetProperty("pageSize").GetInt32())); // not clamped to the first or the last page
+        }
+
+        // The total is the filtered one, also for a page out of range.
+        Assert.Equal(2, (await ListAsync(host, $"?usage=used&page={int.MaxValue}&pageSize=50")).GetProperty("total").GetInt32());
+        Assert.Equal(3, (await ListAsync(host, $"?usage=unused&page={int.MaxValue}")).GetProperty("total").GetInt32());
+        Assert.Equal(1, (await ListAsync(host, $"?q=c.jpg&page={int.MaxValue}&pageSize=7")).GetProperty("total").GetInt32());
+        Assert.Equal(0, (await ListAsync(host, $"?q=no-such-picture&page={int.MaxValue}")).GetProperty("total").GetInt32());
+
+        // The pages that exist are unchanged: newest first, each picture once.
+        var seen = new List<Guid>();
+        foreach (var page in new[] { 1, 2, 3, 4 })
+        {
+            seen.AddRange((await ListAsync(host, $"?pageSize=2&page={page}")).GetProperty("items").EnumerateArray().Select(i => i.GetProperty("id").GetGuid()));
+        }
+
+        Assert.Equal(Enumerable.Reverse(ids), seen);
+
+        // Page and size are normalized as before.
+        var defaults = await ListAsync(host, "?page=0&pageSize=0");
+        Assert.Equal((1, BlogMediaLimits.DefaultPageSize, 5), (defaults.GetProperty("page").GetInt32(), defaults.GetProperty("pageSize").GetInt32(), defaults.GetProperty("items").GetArrayLength()));
+        var negative = await ListAsync(host, "?page=-7&pageSize=500");
+        Assert.Equal((1, BlogLimits.MaxPageSize), (negative.GetProperty("page").GetInt32(), negative.GetProperty("pageSize").GetInt32()));
+    }
+
+    [Fact]
+    public async Task The_service_itself_does_not_overflow_for_a_caller_that_is_not_the_controller()
+    {
+        using var host = await StartMediaAsync();
+        await UploadPictureAsync(host, BlogImageFixtures.Jpeg(1200, 800));
+        using var scope = host.Host.Services.CreateScope();
+        var blog = scope.ServiceProvider.GetRequiredService<IAdminBlog>();
+
+        foreach (var (page, size) in new[] { (int.MaxValue, int.MaxValue), (int.MaxValue, 50), (int.MaxValue, 1), (int.MaxValue, 0), (int.MaxValue, -1) })
+        {
+            var list = await blog.ListMediaAsync(new BlogMediaListQuery(null, null, page, size), CancellationToken.None);
+            Assert.Equal(1, list.Total);
+            Assert.Empty(list.Items);
+            Assert.Equal(page, list.Page);
+            Assert.InRange(list.PageSize, 1, BlogLimits.MaxPageSize);
         }
     }
 }

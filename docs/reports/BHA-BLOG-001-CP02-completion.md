@@ -1,6 +1,6 @@
 # BHA-BLOG-001 — CP02 completion report
 
-- **IMPLEMENTATION:** PASS for CP02 only. **REVIEW:** NOT_RUN — the Owner invokes Codex.
+- **IMPLEMENTATION:** PASS for CP02 and its correction CP02-C1. **REVIEW:** the original review of `d9d1b41` was **RUN** by the Owner (two P2 findings, below); the review of the correction is **NOT_RUN** — the Owner invokes Codex again.
 - **Work item:** `BHA-BLOG-001-CP02` — picture library and image pipeline (backend). CP03 (Admin screens), CP04 (Customer) and CP05 (SEO) are **not** started.
 - **Roles:** `IMPLEMENTER: CLAUDE`, `REVIEWER: CODEX_READ_ONLY` (Owner only).
 - **Branch:** `feature/bha-blog-001-cp02-media-library-pipeline` (did not exist before; created in the single checkout).
@@ -97,3 +97,35 @@ Scratch PostgreSQL 17.10, database `thebha_cp02_docker` (dropped afterwards), im
 ## Next
 
 CP03 (Admin library screens, picker, focal editor, upload progress, usage panel) is the next step and **has not been started**.
+
+## Review of `d9d1b41` and correction CP02-C1
+
+**Original Codex review (RUN by the Owner).** Command `/codex:review --base origin/develop`; target: branch diff against `origin/develop` (`57eb0b9`); head reviewed: `d9d1b41bd0bf6857685c6bcab52b7ce6f70cd8fe`; result kept as received:
+
+> # Codex Review
+>
+> Target: branch diff against origin/develop
+>
+> The new batch endpoint can accept duplicate parsed IDs and partially process a request that should have been rejected up front. The media-list pagination also allows a large page value to overflow the database offset and fail the request.
+>
+> Full review comments:
+>
+> - [P2] Compare parsed GUIDs when validating batch IDs — /home/admin1/The_BHA_hotels_Booking/Back_End/src/TheBha.Api/Controllers/AdminBlogController.cs:202-202
+>   When two `ids` use different valid textual representations of the same GUID, `raw.Distinct()` treats them as distinct, so the request passes validation even though both uploads target the same media ID. The second upload then fails as a duplicate after the first has already been stored, contradicting the endpoint’s all-inputs-validated-before-processing behavior; compare the parsed GUID values instead.
+>
+> - [P2] Prevent page-offset overflow — /home/admin1/The_BHA_hotels_Booking/Back_End/src/TheBha.Infrastructure/Persistence/AdminBlogService.Media.cs:214-214
+>   For a sufficiently large positive `page`, `(page - 1) * size` overflows `int` and can become negative before it reaches `Skip`, turning a valid query parameter into a server error. Bound the page or calculate and validate the offset using a wider integer type before querying.
+
+**OC verdict:** `CORRECTION_REQUIRED`; both findings accepted. The implementer did not touch either before the OC correction prompt (`BHA-BLOG-001-CP02-C1`), as `CLAUDE.md` requires.
+
+**Correction `BHA-BLOG-001-CP02-C1`** (same implementer, same branch, same Draft PR #127; `START_HEAD` `d9d1b41`, `origin/develop` still `57eb0b9`):
+
+| Finding | Root cause (both confirmed by the red tests) | Fix | Regression tests (real PostgreSQL, real multipart / HTTP) |
+|---|---|---|---|
+| F1 | `raw.Distinct()` compared the *text* of the ids, so `D`/`N`/`B`/`P` forms and letter case of one Guid passed; the first picture was stored and only the second refused | each id parsed once; count, empty/invalid and uniqueness judged on `Guid` values (`HashSet<Guid>`), all before the first picture is taken in; same `400 blog.media-batch-invalid`, field `ids`; any valid Guid format still accepted | the same Guid as D+N, lower+upper, B+D, P+D (4 cases) → 400 and no row, variant, file or upload audit; a repeat at the end after a different valid id → 400 and nothing stored; three different Guids in D / upper N / B → 200 with the right index and id; no `ids` still works |
+| F2 | `.Skip((page - 1) * size)` multiplied two `int`s: `int.MaxValue` × 24 wrapped to a negative offset and PostgreSQL answered `OFFSET must not be negative` (500) | offset worked out as `long`; if `offset >= total` an empty page is returned without a query for rows; otherwise the offset is below an `int` total, so the cast is exact; `page`/`pageSize` returned as normalized, not clamped; the service is protected, not only the controller | `page=int.MaxValue` with sizes 24/50/2, the first page over the `int` offset limit for size 50 (42949674) and the last one under it (42949673), two further overflowing cases for size 3 (1431655765, 1431655766), an ordinary page past the end → 200, empty, right total, same `page`/`pageSize`; total filtered by `usage` and by `q`; real pages 1–4 in order with no repeat; `page=0`/`pageSize=0`/`page=-7`/`pageSize=500` normalized as before; the service called directly with `int.MaxValue` page and size |
+
+**Red → green.** On the unfixed source (`git diff HEAD -- Back_End/src` empty, i.e. `d9d1b41`): 7 of the 24 tests of `BlogMediaLibraryApiTests` failed — the four same-Guid cases and the repeat-at-the-end returned **200 and had stored pictures**; the page test got **HTTP 500**; the direct service call threw `Npgsql.PostgresException: 2201X: OFFSET must not be negative`. After the fix: 24 / 24. The positive F1 test passed before and after (it guards the behaviour that must not change).
+
+**Full check after the correction** and **CI** are in the hand-off message of CP02-C1 (they describe the head this file is part of). The container durability and codec fault-injection evidence above is unchanged: nothing in those components changed. The Admin flake noted earlier was outside the diff and is not touched.
+

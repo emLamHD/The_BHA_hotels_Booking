@@ -195,18 +195,23 @@ public sealed class AdminBlogController(IAdminBlog blog) : AdminWebsiteControlle
             return Fail(StatusCodes.Status413PayloadTooLarge, "Batch too large", BlogErrorCodes.MediaBatchInvalid, "files", $"A batch is at most {BlogMediaLimits.MaxBatchBytes / (1024 * 1024)} MB in all.");
         }
 
+        // Every id is parsed once and judged as a Guid, never as text: "…-…" and the 32-digit form, or upper and lower case, are one Guid. All of it is decided before
+        // the first picture is taken in, so a request that names one id twice has no effect at all.
         var raw = Request.Form["ids"];
         var ids = new Guid?[files.Count];
         if (raw.Count > 0)
         {
-            if (raw.Count != files.Count || raw.Any(value => !Guid.TryParse(value, out var id) || id == Guid.Empty) || raw.Distinct().Count() != raw.Count)
+            var seen = new HashSet<Guid>(raw.Count);
+            var valid = raw.Count == files.Count;
+            for (var index = 0; valid && index < raw.Count; index++)
             {
-                return Fail(StatusCodes.Status400BadRequest, "Invalid batch", BlogErrorCodes.MediaBatchInvalid, "ids", "Send one distinct Guid in ids for each picture, in the same order, or none.");
+                valid = Guid.TryParse(raw[index], out var id) && id != Guid.Empty && seen.Add(id);
+                ids[index] = valid ? id : null;
             }
 
-            for (var index = 0; index < ids.Length; index++)
+            if (!valid)
             {
-                ids[index] = Guid.Parse(raw[index]!);
+                return Fail(StatusCodes.Status400BadRequest, "Invalid batch", BlogErrorCodes.MediaBatchInvalid, "ids", "Send one distinct Guid in ids for each picture, in the same order, or none.");
             }
         }
 

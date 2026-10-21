@@ -230,8 +230,14 @@ internal sealed partial class AdminBlogService
         };
 
         var total = await rows.CountAsync(cancellationToken);
-        var pageRows = await rows.OrderByDescending(row => row.CreatedAtUtc).ThenBy(row => row.Id)
-            .Skip((page - 1) * size).Take(size).Include(row => row.Variants).ToListAsync(cancellationToken);
+
+        // The offset is worked out in 64 bits. A page past the last one is an empty page, answered without asking the database for it; only an offset below the
+        // (int) total can reach Skip, so the cast cannot lose anything.
+        var offset = (long)(page - 1) * size;
+        var pageRows = offset >= total
+            ? []
+            : await rows.OrderByDescending(row => row.CreatedAtUtc).ThenBy(row => row.Id)
+                .Skip((int)offset).Take(size).Include(row => row.Variants).ToListAsync(cancellationToken);
         var usage = await UsageSummariesAsync(pageRows.Select(row => row.Id).ToList(), cancellationToken);
         return new BlogMediaListDto([.. pageRows.Select(row => ToMediaDto(row, usage.GetValueOrDefault(row.Id) ?? new BlogMediaUsageSummaryDto(0, 0, 0)))], page, size, total);
     }
