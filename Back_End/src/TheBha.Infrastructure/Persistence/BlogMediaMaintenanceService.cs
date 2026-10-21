@@ -79,6 +79,8 @@ internal sealed class BlogMediaMaintenanceService(
                         Guid.NewGuid(), id, variant.Preset, variant.Format, key, variant.Width, variant.Height, variant.Bytes.Length, Convert.ToHexString(SHA256.HashData(variant.Bytes)).ToLowerInvariant()));
                 }
 
+                // Added explicitly: a new child with its key already set, put into the collection of a tracked parent, would otherwise be taken for an existing row (an UPDATE of nothing).
+                db.BlogMediaVariants.AddRange(variants);
                 row.CompleteProcessing(image.Width, image.Height, Convert.ToHexString(SHA256.HashData(bytes.Value.Span)).ToLowerInvariant(), variants);
                 try
                 {

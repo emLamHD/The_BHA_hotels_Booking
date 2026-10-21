@@ -3,6 +3,8 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
 using TheBha.Api;
 using TheBha.Infrastructure.Identity;
 using TheBha.Infrastructure.Persistence;
@@ -40,10 +42,15 @@ public abstract class BlogTestSupport(PostgreSqlWebApplicationFactory factory) :
     /// <summary>The host's clock is a fixed, settable one: a test moves time on purpose (publication dates, ordering) instead of sleeping.</summary>
     protected void Advance(TimeSpan span) => Factory.Clock.UtcNow += span;
 
-    protected async Task<BlogHost> StartBlogAsync(AdminCalendarAccessMode mode = AdminCalendarAccessMode.Staff)
+    /// <summary><paramref name="configure"/> replaces services of the host (a storage, a pipeline or a DbContext that fails on purpose); everything else is the real thing.</summary>
+    protected async Task<BlogHost> StartBlogAsync(AdminCalendarAccessMode mode = AdminCalendarAccessMode.Staff, Action<IServiceCollection>? configure = null)
     {
         Factory.Clock.UtcNow = DateTimeOffset.Parse("2026-10-21T08:00:00Z");
         var host = CreateHost(mode);
+        if (configure is not null)
+        {
+            host = host.WithWebHostBuilder(builder => builder.ConfigureTestServices(configure));
+        }
         var propertyId = await SeedStaffAsync(host);
         foreach (var (email, edit, publish) in new[] { (Editor, true, false), (Publisher, false, true), (Both, true, true) })
         {
