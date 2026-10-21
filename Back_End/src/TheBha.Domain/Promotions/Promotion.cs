@@ -69,6 +69,17 @@ public sealed class Promotion
     public string CreateFingerprint { get; private set; } = string.Empty;
     public List<PromotionRoomType> RoomTypes { get; private set; } = [];
 
+    /// <summary>
+    /// Whether the promotion may be shown publicly on <paramref name="propertyLocalToday"/> (D11): Active, placed on the homepage, inside its
+    /// display window and with its booking window not yet over. One rule for the list and for the detail page. Hiding the card or ending the
+    /// display window never stops the promotion from pricing; only <see cref="Status"/> does that.
+    /// </summary>
+    public bool IsPublicOn(DateOnly propertyLocalToday) =>
+        Status == PromotionStatus.Active && ShowOnHomepage &&
+        (DisplayFrom is null || propertyLocalToday >= DisplayFrom) &&
+        (DisplayTo is null || propertyLocalToday <= DisplayTo) &&
+        (BookingTo is null || propertyLocalToday <= BookingTo);
+
     public PromotionDetails ToDetails() => new(
         Slug, Title, Summary, BodyParagraphs, CoverMediaId, CoverAltText, Kind, Value, CurrencyCode, AllRoomTypes,
         RoomTypes.Select(x => x.RoomTypeId).OrderBy(x => x).ToList(), BookingFrom, BookingTo, StayFrom, StayTo, MinNights,
