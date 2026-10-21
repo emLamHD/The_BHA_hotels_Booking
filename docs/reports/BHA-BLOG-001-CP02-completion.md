@@ -8,7 +8,7 @@
 - **Draft PR:** https://github.com/emLamHD/The_BHA_hotels_Booking/pull/127 (Draft, base `develop`).
 - **FINAL_HEAD / CI:** given in the hand-off message (this file is part of the head it would describe).
 - **UI_LIVE:** `NOT_APPLICABLE` (no frontend file changed). This does not replace the HTTP/file/runtime evidence below.
-- **Skills / tools:** Graphify not used (no graph; source and tests read directly). `diagnosing-bugs` (allowed if triggered): applied once in spirit to the backfill failure (red test → cause → green test, below), not invoked as a separate skill run. Advisor consulted before locking the plan and before reporting.
+- **Skills / tools:** Graphify (`GRAPHIFY_POLICY: ALLOWED_IF_RELEVANT`): a graph exists at `graphify-out/` and was **not queried**; source and tests were read directly. `diagnosing-bugs` (`ALLOWED_IF_TRIGGERED`): **not invoked** — the one failure with an unknown cause (the backfill, below) had a direct, repeatable red→green loop (the failing test itself), so the heavy skill was not needed. Advisor consulted before locking the plan and before reporting.
 
 ## Governance notes
 
@@ -47,13 +47,17 @@
 |---|---|---|
 | Baseline before edits | Blog + Hero tests | 119 unit / 71 integration, 0 failed |
 | Build | `dotnet build Back_End/TheBha.Booking.sln --configuration Release` | 0 errors (pre-existing warnings only) |
-| **Full backend suite at the code HEAD** | `dotnet test Back_End/TheBha.Booking.sln --configuration Release --no-build` | **673 unit + 1276 integration, 0 failed** (8 min) |
+| **Full backend suite** (on `1db805f`, the last commit with code or test changes; later commits are documentation and one XML comment) | `dotnet test Back_End/TheBha.Booking.sln --configuration Release --no-build` | **673 unit + 1276 integration, 0 failed** (8 min). A first full run on the same work had 4 failures, all mine and fixed before this run: two Calendar OpenAPI contract tests (route name, write-path allowlist), a pinned migration count, and a test password that collided with a word in an output line |
 | New tests | `BlogMediaDomainTests` 22 · `BlogImagePipelineTests` 15 · `BlogMediaLibraryApiTests` 16 · `BlogMediaUsageApiTests` 6 · `BlogMediaServingApiTests` 5 · `BlogMediaFailureTests` 6 · `BlogMediaMaintenanceTests` 4 · `BlogMediaMigrationTests` 3 | all pass |
 | Whitespace | `git diff --check origin/develop...HEAD` | clean |
+| Compose | `docker compose -f deploy/showcase/compose.yaml config` with placeholder variables | valid; shows `WebsiteMedia__RootPath` and the `showcase-api-media` volume |
+| Deploy script tests | `python3 -m unittest` for `test_verify_key_persistence`, `test_backend_release_packet`, `test_backend_release` | 87 / 87 |
+| Migration artifacts | `deploy/showcase/migrations/idempotent.sql` was committed once (PR #83) and no later migration, CP01's included, updated it; the CD migration manifest is generated at release time from a clean checkout | nothing to regenerate |
+| Licence | `~/.nuget/packages/skiasharp/4.153.1/*.nuspec` | `license type="expression"` MIT |
 | Image | `docker build -t thebha-api:cp02 Back_End` | built (user `app`) |
 | Frontend | not changed | `NOT_RUN` |
 
-Mutation checks (a deliberate break must turn a test red; each was reverted with `git checkout`): orientation 6 matrix → the orientation-6 case red; publication gate forced open → 3 gate tests red; "always delete files after a failure" → the lost-acknowledgement test red.
+Mutation checks (a deliberate break must turn a test red; then the code was restored — the orientation one from a backup copy of the two files, the other two with `git checkout` — and rebuilt): orientation 6 matrix → the orientation-6 case red; publication gate forced open → 3 gate tests red; "always delete files after a failure" → the lost-acknowledgement test red.
 
 A real defect found by these tests and fixed: the backfill added variants (Guid keys already set) to the collection of a tracked parent, which EF took for existing rows (`DbUpdateConcurrencyException`, `PROBLEM: it changed while being processed`). Red → cause → `db.BlogMediaVariants.AddRange` → green. Uploads were not affected (they `Add` the root).
 

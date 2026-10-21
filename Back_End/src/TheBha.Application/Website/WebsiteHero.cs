@@ -138,7 +138,7 @@ public interface IHeroMediaStorage
 
     Task<bool> ExistsAsync(string key, CancellationToken cancellationToken);
 
-    /// <summary>Removes a file this request just wrote and no row refers to (the insert after it failed). Never used for a recorded picture.</summary>
+    /// <summary>Removes a file no row refers to: one this request just wrote (the insert after it failed), or — Blog only, CP02 — the files of a picture whose row was deleted in the transaction that just committed. Hero and Promotion never call it for a recorded picture.</summary>
     Task DeleteAsync(string key, CancellationToken cancellationToken);
 
     /// <summary>
