@@ -8,6 +8,9 @@ import { useWebsiteList, useWriteAction, describeFailure } from "@/components/we
 import { createAmenity, getCatalog, getCatalogProducts, getCatalogProperties, getPhysicalRooms, createProperty, createRoomType, createPhysicalRoom, saveCatalog, uploadCatalog, catalogImage, bodyOf, removeImage, type CatalogBody, type CatalogEditor, type CatalogProductSummary, type GalleryItem, type CreatePropertyInput, type CreateRoomTypeInput, type CreatePhysicalRoomInput } from "@/lib/api/catalog";
 
 const box = "w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 disabled:cursor-not-allowed disabled:bg-gray-100 read-only:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:placeholder:text-gray-500 dark:disabled:bg-gray-800 dark:read-only:bg-gray-800";
+// Typed number with 1-20 suggestions (datalist); the native spinner arrows are hidden.
+const countInput = " [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
+const COUNT_LIST = "catalog-count-options";
 const btn = "rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 focus-visible:outline-2 focus-visible:outline-brand-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-white/5";
 const editorKey = (p: string, r: string | null) => `${p}:${r ?? "property"}`;
 type Draft = { key: string; body: CatalogBody; baseline: CatalogBody };
@@ -484,15 +487,16 @@ export default function CatalogWorkspace() {
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={propertyForm.isActive} onChange={e => setPropertyForm(x => ({...x,isActive:e.target.checked}))} />Đang hoạt động (mặc định tắt)</label>
           </div>}
           {createDialog.kind === "room" && <div className="grid gap-3 sm:grid-cols-2">
+            <datalist id={COUNT_LIST}>{Array.from({ length: 20 }, (_, n) => <option key={n + 1} value={n + 1} />)}</datalist>
             <p className="rounded-lg bg-gray-50 p-3 text-sm dark:bg-gray-800 sm:col-span-2">Cơ sở cha: {selected ? propertyName(selected) : "—"}</p>
             <label className="text-sm">Mã loại phòng *<input required maxLength={50} pattern="[A-Za-z0-9][A-Za-z0-9_-]*" className={box + " mt-1 uppercase"} value={roomTypeForm.code} onChange={e => setRoomTypeForm(x => ({...x,code:e.target.value.toUpperCase()}))} /></label>
             <label className="text-sm">Tên *<input required maxLength={200} className={box + " mt-1"} value={roomTypeForm.name} onChange={e => setRoomTypeForm(x => ({...x,name:e.target.value,slug:x.slug===slugify(x.name)?slugify(e.target.value):x.slug}))} /></label>
             <label className="text-sm">Slug *<input required pattern="[a-z0-9]+(-[a-z0-9]+)*" maxLength={200} className={box + " mt-1"} value={roomTypeForm.slug} onChange={e => setRoomTypeForm(x => ({...x,slug:e.target.value.toLowerCase()}))} /></label>
             <label className="text-sm">Mô tả<textarea maxLength={4000} className={box + " mt-1"} value={roomTypeForm.description ?? ""} onChange={e => setRoomTypeForm(x => ({...x,description:e.target.value||null}))} /></label>
-            <label className="text-sm">Sức chứa tiêu chuẩn *<input required type="number" min={1} step={1} className={box + " mt-1"} value={roomTypeForm.baseOccupancy} onChange={e => setRoomTypeForm(x => ({...x,baseOccupancy:Number(e.target.value)}))} /></label>
-            <label className="text-sm">Sức chứa tối đa *<input required type="number" min={1} step={1} className={box + " mt-1"} value={roomTypeForm.maxOccupancy} onChange={e => setRoomTypeForm(x => ({...x,maxOccupancy:Number(e.target.value)}))} /></label>
+            <label className="text-sm">Sức chứa tiêu chuẩn *<input required type="number" list={COUNT_LIST} min={1} step={1} className={box + countInput + " mt-1"} value={roomTypeForm.baseOccupancy || ""} onChange={e => setRoomTypeForm(x => ({...x,baseOccupancy:Number(e.target.value)}))} /></label>
+            <label className="text-sm">Sức chứa tối đa *<input required type="number" list={COUNT_LIST} min={1} step={1} className={box + countInput + " mt-1"} value={roomTypeForm.maxOccupancy || ""} onChange={e => setRoomTypeForm(x => ({...x,maxOccupancy:Number(e.target.value)}))} /></label>
             <label className="text-sm">Diện tích (m²)<input type="number" min={0.01} max={10000} step="0.01" className={box + " mt-1"} value={roomTypeForm.areaSquareMeters ?? ""} onChange={e => setRoomTypeForm(x => ({...x,areaSquareMeters:e.target.value?Number(e.target.value):null}))} /></label>
-            <label className="text-sm">Phòng ngủ trong căn<input type="number" min={0} max={100} step={1} className={box + " mt-1"} value={roomTypeForm.bedrooms ?? ""} onChange={e => setRoomTypeForm(x => ({...x,bedrooms:e.target.value?Number(e.target.value):null}))} /></label>
+            <label className="text-sm">Phòng ngủ trong căn<input type="number" list={COUNT_LIST} min={0} max={100} step={1} className={box + countInput + " mt-1"} value={roomTypeForm.bedrooms ?? ""} onChange={e => setRoomTypeForm(x => ({...x,bedrooms:e.target.value?Number(e.target.value):null}))} /></label>
             <label className="text-sm sm:col-span-2">Mô tả giường<input maxLength={500} className={box + " mt-1"} value={roomTypeForm.bedDescription ?? ""} onChange={e => setRoomTypeForm(x => ({...x,bedDescription:e.target.value||null}))} /></label>
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={roomTypeForm.isActive} onChange={e => setRoomTypeForm(x => ({...x,isActive:e.target.checked}))} />Đang hoạt động (mặc định tắt; chưa tự mở bán)</label>
           </div>}

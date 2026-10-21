@@ -145,6 +145,23 @@ describe("CatalogWorkspace correction regressions, real gate and hooks", () => {
     expect(vi.mocked(createRoomType).mock.calls[0][1].isActive).toBe(false);
     expect(createPhysicalRoom).not.toHaveBeenCalled();
   });
+  it("offers typed counts with 1-20 suggestions on the room type occupancy and bedroom fields", async () => {
+    render(<WebsiteAccessGate returnTo="/products"><CatalogWorkspace /></WebsiteAccessGate>);
+    await screen.findByText("3 loại phòng");
+    await userEvent.click((await screen.findAllByRole("button", { name: "Xem / Chỉnh sửa" }))[0]);
+    await screen.findByRole("heading", { name: "Phòng thuộc loại này" });
+    await userEvent.click(screen.getByRole("button", { name: "Thêm loại phòng" }));
+    for (const label of ["Sức chứa tiêu chuẩn *", "Sức chứa tối đa *", "Phòng ngủ trong căn"]) {
+      const input = screen.getByLabelText(label) as HTMLInputElement;
+      expect(input.type).toBe("number");
+      fireEvent.change(input, { target: { value: "12" } });
+      expect(input.value).toBe("12");
+      fireEvent.change(input, { target: { value: "" } });
+      expect(input.value).toBe("");
+      const options = document.getElementById(input.getAttribute("list")!)!.querySelectorAll("option");
+      expect(Array.from(options, o => o.value)).toEqual(Array.from({ length: 20 }, (_, n) => String(n + 1)));
+    }
+  });
   it("moves focus into the create modal and restores it to the trigger after Escape", async () => {
     render(<WebsiteAccessGate returnTo="/products"><CatalogWorkspace /></WebsiteAccessGate>);
     const trigger = await screen.findByRole("button", { name: "Thêm cơ sở" });
