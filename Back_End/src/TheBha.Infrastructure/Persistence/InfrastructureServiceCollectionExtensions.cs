@@ -79,6 +79,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<IWebsiteSocialSettings, WebsiteSocialSettingsService>();
         services.AddScoped<DevelopmentDataSeeder>();
         services.AddScoped<TheBha.Infrastructure.Persistence.Demo.RiversideDemoSeeder>();
+        services.AddScoped<TheBha.Infrastructure.Persistence.Demo.PromotionDemoSeeder>();
 
         services
             .AddHealthChecks()

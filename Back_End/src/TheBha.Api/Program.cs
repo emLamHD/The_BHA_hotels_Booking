@@ -501,6 +501,14 @@ if (RiversideDemoSeedCommand.IsCommand(args))
     return;
 }
 
+// BHA-BOOKING-PROMOTIONS-001: the demo promotions, under the same Development-only, named-database guard as the Riverside seed.
+if (PromotionDemoSeedCommand.IsCommand(args))
+{
+    Environment.ExitCode = await PromotionDemoSeedCommand.RunAsync(
+        args, app.Services, app.Environment.EnvironmentName, Console.Out, app.Lifetime.ApplicationStopping);
+    return;
+}
+
 if (args.Contains("--seed-development", StringComparer.Ordinal))
 {
     if (!app.Environment.IsDevelopment())
