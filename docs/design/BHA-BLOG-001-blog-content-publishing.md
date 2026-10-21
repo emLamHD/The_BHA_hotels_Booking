@@ -1,6 +1,6 @@
 # BHA-BLOG-001 — Blog / Cẩm nang: content publishing foundation (CP01)
 
-- Status: CP01 implemented on `feature/bha-blog-001-cp01-content-publishing` (Draft PR into `develop`). CP02–CP05 are not started.
+- Status: CP01 implemented on `feature/bha-blog-001-cp01-content-publishing` (Draft PR into `develop`; migration 18 `AddBlogFoundation`, ADR 0010). CP02–CP05 are not started. Section 5 and 6 list the routes exactly as implemented.
 - Base: `origin/develop` @ `c7d5597` (contains PR #125, booking promotions — verified by content: `Promotion`, `PromotionManage`, `/offers`).
 - Reading guide: **[Owner]** = decided by the Owner in the Master Execution Prompt; **[Tech]** = a technical choice made here (reasoned, reversible before CP02).
 
@@ -63,38 +63,40 @@ Structured JSON, not HTML: `{"schemaVersion":1,"blocks":[…]}`, validated and r
 
 Inline: `{"text":…, "bold"?, "italic"?, "href"?}`. `href` is an internal path (`/…`, not `//`) or `https://…`; `javascript:`, `data:`, `http:`, protocol-relative and control characters are refused. Limits: ≤ 400 blocks, text ≤ 5 000 per node, body ≤ 200 000 bytes.
 
+Every text field (title, summary, alt, caption, author, SEO, category texts, and every text node of the body) is **plain text**: no control characters and no `<` or `>` (the same rule as the hero texts), so no text can ever be read as markup; quotes and ampersands are data. The author is a text the editor writes, never read from the Staff account.
+
 ## 4. Permissions [Owner/Tech] (ADR 0010)
 
-Blog content is brand-wide, so it uses **global** Staff permissions (no Property role grants it, a Manager of any Property gets nothing). Two flag columns on the Staff account, set only by the operator CLI (`--staff-blog-access --email … [--edit true|false] [--publish true|false]`), read from the database on every request:
+Blog content is brand-wide, so it uses **global** Staff permissions (no Property role grants it, a Manager of any Property gets nothing). Two flag columns on the Staff account, set only by the operator CLI (`--staff-blog-access --email … --edit true|false --publish true|false`; both always stated, anything but `true`/`false` refused), read from the database on every request:
 
 | Permission | Allows |
 |---|---|
-| `BlogEdit` | list/read posts, create posts and translations, save drafts, restore a revision to draft |
-| `BlogPublish` | publish, unpublish, archive, unarchive; create/update/delete categories; set pins; blog settings; upload media; **read** (it implies being able to see what it publishes) |
-| read | `BlogEdit` or `BlogPublish` |
+| `BlogEdit` | create posts and translations, save drafts, restore a revision to a draft |
+| `BlogPublish` | publish, unpublish, archive, unarchive; create/update/delete categories; set pins; Blog settings |
+| `BlogAccess` (= `BlogEdit` **or** `BlogPublish`) | read the whole Admin; upload a picture (so an editor can attach a cover to their own draft). Evaluated in the evaluator as its own enum value; the route attribute is unchanged |
 
 Edit does not imply publish **[Owner]**. Routes use `StaffWebsitePermissionAttribute`: HTTPS only, Staff session (401), permission (403), Origin + JSON boundary on writes, `Cache-Control: no-store`, closed (404) in `LocalGate`. The audit actor is the session's Staff id, never a body field. `me`/login report the names (`BlogEdit`, `BlogPublish`) for display only.
 
-## 5. Admin API (`api/admin/v1/website/blog`) — all `application/json`, errors `ProblemDetails` with `code`/`field`
+## 5. Admin API (`api/admin/v1/website/blog`) — `application/json`, every write is a `POST` (like the other website routes), errors are `ProblemDetails` with `code`/`field`
 
 | Route | Perm | Notes |
 |---|---|---|
-| `GET settings` / `PUT settings` | read / publish | `homeSectionCategoryId`, `version` |
-| `GET categories` | read | with per-locale texts, `inUse` counts, `version` |
-| `POST categories` | publish | client `id` (Guid), `translations{locale:{name,slug,description}}`, `sortOrder` |
-| `PUT categories/{id}` | publish | `expectedVersion`; upsert translations (a locale is never removed); slug change keeps the old as redirect |
-| `DELETE categories/{id}` | publish | refused `blog.category-in-use` if any revision, pin or the section references it |
-| `GET categories/{id}/pins` / `PUT categories/{id}/pins` | read / publish | `expectedVersion`, ordered `postIds`; each must be published in the category |
-| `GET posts?search&categoryId&status&locale&page&pageSize` | read | one row per post with a per-locale summary (status, title, slug, version, `hasDraft`, updatedAt/by) |
-| `GET posts/{id}` | read | per locale: status, version, `draft` and `published` revisions in full, firstPublishedAt, who/when |
-| `POST posts` | edit | client `id` (Guid; a repeat of an existing id → 409 `blog.duplicate-id`), first translation (locale + draft content) |
-| `PUT posts/{id}/translations/{locale}/draft` | edit | full draft; `expectedVersion` (0 creates the translation); incomplete allowed, malformed never |
-| `POST …/{locale}/publish` · `unpublish` · `archive` · `unarchive` | publish | `{expectedVersion}`; publish validates completely |
-| `GET …/{locale}/revisions` · `GET …/revisions/{revisionId}` | read | history, full content |
-| `POST …/{locale}/revisions/{revisionId}/restore` | edit | `{expectedVersion}`; creates/replaces the **draft** (a replaced draft is kept as a frozen revision); the public version is untouched; a slug that is no longer available is cleared |
-| `POST media` (multipart `file`) · `GET media/{id}` | publish · read | CP02 extends |
+| `GET settings` · `POST settings/save` | access · publish | `homeSectionCategoryId`, `expectedVersion` |
+| `GET categories` | access | per-locale texts, `revisionCount` / `pinCount` (what refers to it), `isHomeSection`, `version` |
+| `POST categories` | publish | client `id` (Guid; a repeat → 409 `blog.duplicate-id`), `sortOrder`, `translations{locale:{name,slug,description}}` |
+| `POST categories/{id}/save` | publish | `expectedVersion`; upserts the given languages (a language is never removed); a changed slug keeps the old one as a redirect the category owns |
+| `POST categories/{id}/delete` | publish | `204`; `409 blog.category-in-use` if any revision (published, draft or past), any pin or the section refers to it |
+| `GET categories/{id}/pins` · `POST categories/{id}/pins/save` | access · publish | `expectedVersion`, ordered `postIds` (replaces the list, ≤ 50, no duplicates); a **new** pin needs a post published in that category; `effective` reports whether a pin currently counts |
+| `GET posts?q&categoryId&status&locale&page&pageSize` | access | one row per post with a summary per language; a post matches a filter when any of its translations does (`locale` narrows both) |
+| `GET posts/{id}` | access | per language: `status`, `version`, `hasDraft`, `draft` and `published` revisions in full, `firstPublishedAtUtc`, who/when |
+| `POST posts` | edit | client `id`, `locale`, `draft` (a title is required to start); a repeat id → 409 `blog.duplicate-id` |
+| `POST posts/{id}/translations/{locale}/draft` | edit | `expectedVersion` (**0 creates the translation**), `draft`; incomplete allowed, malformed or dangling never |
+| `POST …/{locale}/publish` · `unpublish` · `archive` · `unarchive` | publish | `{expectedVersion}`; publish validates fully; publish with no draft on an `Unpublished` translation re-publishes the last published revision unchanged (dates do not move) |
+| `GET …/{locale}/revisions` · `GET …/revisions/{revisionId}` | access | history (newest first, `isDraft`, `isPublished`) and full content |
+| `POST …/{locale}/revisions/{revisionId}/restore` | edit | `{expectedVersion}`; creates the **draft**; a draft it replaces is kept as a frozen revision; the public version is untouched; a slug since given to another page is cleared |
+| `POST media` (multipart `file`) · `GET media/{id}` | access | one picture per call (PNG/JPEG/WebP by content, ≤ 10 MB, ≥ 600×400); CP02 extends |
 
-**Publish validation** (first failure, `400` + `code`/`field`): title, valid and available slug, summary, non-empty body, ≥ 1 category (a primary one when several), every category has a text **in this locale**, cover picture + cover alt, every referenced media/property exists, SEO limits. Draft saving validates only what could be unsafe or malformed (shapes, URLs, ids, lengths).
+**Publish validation** (first failure, `400` + `code`/`field`; the cover and cover-alt requirements are a **[Tech]** choice because the home cards are picture cards — relaxable in one place): title, valid slug, summary, a body with text, every body picture has alt text, ≥ 1 category (a main one when several), every category has a text **in this locale**, a cover picture and its alt. Media and Property references are checked at save time too, so a dangling id never gets stored. Draft saving validates only what could be unsafe or malformed (shapes, URLs, ids, lengths).
 
 **Preview (contract for CP03, nothing built)**: a Staff-only `GET …/translations/{locale}/preview` returning the draft in the *public detail shape*, `no-store`, never reachable without a session.
 
@@ -109,9 +111,9 @@ Edit does not imply publish **[Owner]**. Routes use `StaffWebsitePermissionAttri
 | `GET categories?locale` | categories with ≥ 1 published post in the locale (+ `postCount`) |
 | `GET categories/{slug}?locale` | category texts (`404` if it has no text in the locale; `301` for an old slug) |
 | `GET home-section?locale` | the settings' category (by id) + up to 6 posts (`limit` ≤ 12) in category order; `items: []` ⇒ the Customer hides the section |
-| `GET media/{id}` | the file, only while a published revision of a published translation uses it |
+| `GET media/{id}` | the file, only while a published revision of a published translation uses it (cover, OG image or a body picture) |
 
-List item: `id, slug, title, summary, cover{url,alt,width,height}, author, firstPublishedAt, modifiedAt, primaryCategory{slug,name}, categories[]`. Detail adds `body` (the validated JSON), `media{id→{url,width,height}}`, `properties{id→{slug,name}}`, `seo{metaTitle,metaDescription,ogImage}`, `alternates[{locale,slug}]` (other **published** translations only), `breadcrumb` (primary category). Cache: weak `ETag` + `Cache-Control: no-cache` (always revalidated → an unpublish is visible on the next request, tested); media `public, max-age=300` (a hidden picture can linger in a shared cache ≤ 5 minutes).
+List item: `id, slug, title, summary, cover{url,alt,width,height}, author, firstPublishedAt, modifiedAt, primaryCategory{slug,name}, categories[]`. Detail adds `body` (the validated JSON), `media{id→{url,width,height}}`, `properties{id→{slug,name}}`, `seo{metaTitle,metaDescription,ogImageUrl}`, `alternates[{locale,slug}]` (other **published** translations only). Every payload carries `contentHash` (what the `ETag` is made from; it is not a revision id). Cache: weak `ETag` + `Cache-Control: no-cache` (always revalidated → an unpublish is visible on the next request, tested; `304` when unchanged); media `public, max-age=300` (a hidden picture can linger in a shared cache ≤ 5 minutes).
 
 ## 7. Checkpoints
 
@@ -128,7 +130,9 @@ Out of scope for the whole first wave: scheduled publishing, personalization, pu
 ## 8. Known limits (CP01)
 
 - Category classification is per locale revision (§2); there is no cross-locale consistency check.
-- A category's translation cannot be removed, only edited.
-- Post creation is idempotent by client id only in the sense that a repeat is refused (409), not replayed.
+- A category's translation cannot be removed, only edited; there is no category deactivation (delete only when nothing refers to it).
+- The seed gives the featured category a text for the languages that exist when the migration runs; a language installed later has none until an editor adds it (publishing in that language is refused until then, `blog.category-locale-missing`).
+- The public detail resolves a Property's `slug` and `name` as stored (not localized); CP04 may use the content dictionary.
+- Post and category creation are idempotent by client id only in the sense that a repeat is refused (409 `blog.duplicate-id`), not replayed.
 - Media: one file per upload call, no variants, no WebP/AVIF conversion, no per-asset metadata (CP02).
 - `propertyIntro` stores a Property id; the public detail resolves slug and name at read time and drops a block whose Property is no longer public.

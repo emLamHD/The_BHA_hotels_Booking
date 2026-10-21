@@ -289,6 +289,24 @@ stays what is paid; `CK: ListUnitAmount >= UnitAmount`), backfilled with
 while any promotion or snapshot exists. Nothing else changes: `DailyRoomRates` is never
 modified by a promotion. Design: `docs/design/BHA-BOOKING-PROMOTIONS-001-booking-promotions.md`.
 
+Migration 18 (`AddBlogFoundation`, `BHA-BLOG-001-CP01`) adds the Blog, site-wide (no Property). `BlogPosts` is only an
+identity; every language is a `BlogPostTranslations` row (unique per post and language) with its own `Status`
+(`Draft`/`Published`/`Unpublished`/`Archived`), `Version` (the concurrency token of every write on it), a
+`DraftRevisionId` and a `PublishedRevisionId`, both composite foreign keys so a translation can only point at its own
+revisions, and `FirstPublishedAtUtc` (set once). `BlogPostRevisions` holds the content (title, slug, summary, body as
+versioned `jsonb`, cover, SEO, author as text); at most one `Draft` per translation (partial unique index), unique
+`(TranslationId, Number)`; a frozen revision never changes. `BlogRevisionCategories` (one primary per revision) and
+`BlogRevisionMedia` reference categories and pictures with `ON DELETE RESTRICT`, so nothing that any revision uses can be
+deleted. `BlogPostSlugs` makes `(Locale, Slug)` a primary key: a `Draft` reservation (max one per translation), the `Current`
+live address (max one) and `Redirect` old addresses, owned by the translation for ever. `BlogCategories` (stable id,
+`SystemKey`, `Version`) with `BlogCategoryTranslations` and `BlogCategorySlugs` (history, one current per category and
+language); `BlogCategoryPins` is the post–category order; `BlogMedia` (key `blog/<id>.<ext>`), `BlogSettings` (one row;
+`HomeSectionCategoryId` links the home section to a category by id) and `BlogAudits` (append-only, Staff actor).
+`StaffAccounts` gains `CanEditBlog` and `CanPublishBlog` (ADR 0010, default false). The migration seeds, idempotently, the
+category "Điểm đến nổi bật" (`SystemKey` `featured-destinations`) with its text for each of vi/en/fr that exists and the settings
+row; no post, picture or figure. `Down()` refuses while Blog content, a picture, an audit line, an edited category or a Blog
+permission exists. Design: `docs/design/BHA-BLOG-001-blog-content-publishing.md`.
+
 ## Run the explicit development seed
 
 After applying migrations, run the seed only in Development:
