@@ -121,6 +121,14 @@ public sealed class Reservation
     public string? GuestAccessTokenHash { get; private set; }
     public IReadOnlyList<ReservationUnit> Units => _units.AsReadOnly();
 
+    /// <summary>The promotion snapshot copied from the source Hold; <c>null</c> when no promotion applied.</summary>
+    public BookingPromotionApplication? PromotionApplication { get; private set; }
+
+    internal void AttachPromotionApplication(BookingPromotionApplication application)
+    {
+        PromotionApplication = application;
+    }
+
     /// <summary>
     /// Transitions this Reservation from <see cref="ReservationStatus.Confirmed"/> to
     /// <see cref="ReservationStatus.Cancelled"/>, enforced strictly before the Property-local

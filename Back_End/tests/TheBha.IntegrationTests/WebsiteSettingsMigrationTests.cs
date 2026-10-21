@@ -63,7 +63,7 @@ public sealed class WebsiteSettingsMigrationTests : IAsyncLifetime
         await using var context = CreateContext();
         await context.Database.MigrateAsync();
 
-        Assert.Equal(16, (await context.Database.GetAppliedMigrationsAsync()).Count());
+        Assert.Equal(17, (await context.Database.GetAppliedMigrationsAsync()).Count());
         Assert.Empty(await context.Database.GetPendingMigrationsAsync());
 
         // Languages: Vietnamese is the active default, English exists for the operator but is off; each has its format and currency.
@@ -272,7 +272,7 @@ public sealed class WebsiteSettingsMigrationTests : IAsyncLifetime
         await context.Database.MigrateAsync();
         await context.Database.MigrateAsync();
 
-        Assert.Equal(16, (await context.Database.GetAppliedMigrationsAsync()).Count());
+        Assert.Equal(17, (await context.Database.GetAppliedMigrationsAsync()).Count());
         Assert.Equal(
             before.Order(StringComparer.Ordinal).ToArray(),
             (await RowsAsync("""SELECT 'L' || "NormalizedCode" || "DisplayName" || "Version"::text || "IsActive"::text FROM "WebsiteLanguages" UNION ALL SELECT 'T' || "Key" || "Value" || "Version"::text FROM "WebsiteTranslations" UNION ALL SELECT 'C' || "Code" || "Name" || COALESCE("VndPerUnit"::text,'-') || "Version"::text FROM "WebsiteCurrencies" """))
@@ -414,7 +414,11 @@ public sealed class WebsiteSettingsMigrationTests : IAsyncLifetime
             CheckIn, CheckOut, 2, 0, "VND", Now, Hash("idempotency"), Hash("fingerprint"), Hash("guest"), nights);
         context.Add(hold);
         context.Add(hold.Confirm(Guid.NewGuid(), "BHA-EXISTING-1", Now));
+        // Today's model writes ListUnitAmount (migration 17), which the V9 schema does not have: add it for this seeding only and
+        // drop it again, so the upgrade under test still has to add and backfill it.
+        await ExecuteAsync("ALTER TABLE \"InventoryHoldItemNights\" ADD COLUMN \"ListUnitAmount\" numeric(18,2); ALTER TABLE \"ReservationUnitNights\" ADD COLUMN \"ListUnitAmount\" numeric(18,2);");
         await context.SaveChangesAsync();
+        await ExecuteAsync("ALTER TABLE \"InventoryHoldItemNights\" DROP COLUMN \"ListUnitAmount\"; ALTER TABLE \"ReservationUnitNights\" DROP COLUMN \"ListUnitAmount\";");
 
         await ExecuteAsync(
             $"""
@@ -445,6 +449,7 @@ public sealed class WebsiteSettingsMigrationTests : IAsyncLifetime
                 "Properties" => "(to_jsonb(t) - 'ContentVersion' - 'ContentUpdatedByStaffId')::text",
                 "RoomTypes" => "(to_jsonb(t) - 'ContentVersion' - 'ContentUpdatedByStaffId' - 'AreaSquareMeters' - 'Bedrooms' - 'BedDescription')::text",
                 "PropertyMedia" or "RoomTypeMedia" => "(to_jsonb(t) - 'AltTextOverride')::text",
+                "InventoryHoldItemNights" or "ReservationUnitNights" => "(to_jsonb(t) - 'ListUnitAmount')::text",
                 _ => "t::text"
             };
             var rows = await ScalarAsync<long>($"SELECT count(*) FROM \"{table}\" t");

@@ -204,7 +204,7 @@ public sealed class BookingHoldConfirmationApiTests(PostgreSqlWebApplicationFact
             await context.Database.ExecuteSqlInterpolatedAsync(
                 $"""
                  UPDATE "ReservationUnitNights"
-                 SET "UnitAmount" = 999999
+                 SET "UnitAmount" = 999999, "ListUnitAmount" = 999999
                  WHERE "ReservationUnitId" IN (
                      SELECT "Id" FROM "ReservationUnits" WHERE "ReservationId" = {reservationId}
                  )

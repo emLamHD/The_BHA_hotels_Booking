@@ -28,6 +28,7 @@ internal sealed class BookingHoldConfirmationStore(
             var hold = await dbContext.InventoryHolds
                 .Include(item => item.Items)
                 .ThenInclude(item => item.Nights)
+                .Include(x => x.PromotionApplication)
                 .SingleOrDefaultAsync(item => item.Id == holdId, cancellationToken);
             if (hold is null ||
                 !IsOwner(
@@ -47,6 +48,7 @@ internal sealed class BookingHoldConfirmationStore(
                 .AsNoTracking()
                 .Include(item => item.Units)
                 .ThenInclude(unit => unit.Nights)
+                .Include(x => x.PromotionApplication)
                 .SingleOrDefaultAsync(
                     item => item.SourceHoldId == holdId,
                     cancellationToken);
@@ -117,11 +119,13 @@ internal sealed class BookingHoldConfirmationStore(
                 .AsNoTracking()
                 .Include(item => item.Items)
                 .ThenInclude(item => item.Nights)
+                .Include(x => x.PromotionApplication)
                 .SingleOrDefaultAsync(item => item.Id == holdId, cancellationToken);
             var existing = await dbContext.Reservations
                 .AsNoTracking()
                 .Include(item => item.Units)
                 .ThenInclude(unit => unit.Nights)
+                .Include(x => x.PromotionApplication)
                 .SingleOrDefaultAsync(item => item.SourceHoldId == holdId, cancellationToken);
             if (reloadedHold is null || existing is null)
             {
@@ -179,10 +183,12 @@ internal sealed class BookingHoldConfirmationStore(
             .Select(group =>
             {
                 var unitAmount = group.First().UnitAmount;
+                var listUnitAmount = group.First().ListUnitAmount;
                 var rooms = group.Count();
-                return new ReservationNightDto(group.Key, rooms, unitAmount, unitAmount * rooms);
+                return new ReservationNightDto(group.Key, rooms, unitAmount, unitAmount * rooms, listUnitAmount, listUnitAmount - unitAmount);
             })
             .ToList();
+        var listTotal = reservation.Units.SelectMany(unit => unit.Nights).Sum(night => night.ListUnitAmount);
 
         return new(
             reservation.Id,
@@ -204,7 +210,10 @@ internal sealed class BookingHoldConfirmationStore(
             reservation.ConfirmedAtUtc,
             reservation.CancelledAtUtc,
             reservation.CancellationReason,
-            nights);
+            nights,
+            listTotal,
+            listTotal - reservation.TotalAmount,
+            PromotionSnapshotMapping.ToDto(reservation.PromotionApplication));
     }
 
     private static bool IsSourceHoldUniqueViolation(DbUpdateException exception) =>

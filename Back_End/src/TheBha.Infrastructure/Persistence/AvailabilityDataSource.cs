@@ -72,6 +72,7 @@ internal sealed class AvailabilityDataSource(TheBhaDbContext dbContext) : IAvail
         var blockedRooms = blockedRoomCounts
             .Select(entry => new AvailabilityBlockedRoomData(entry.Key.RoomTypeId, entry.Key.StayDate, entry.Value))
             .ToList();
+        var promotionRules = await PromotionPricingRuleLoader.LoadActiveAsync(dbContext, propertyId, cancellationToken);
         return new AvailabilityData(
             property,
             roomTypes,
@@ -80,6 +81,7 @@ internal sealed class AvailabilityDataSource(TheBhaDbContext dbContext) : IAvail
             activeCounts,
             controls,
             demand,
-            blockedRooms);
+            blockedRooms,
+            promotionRules);
     }
 }

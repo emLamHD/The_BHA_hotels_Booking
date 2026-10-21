@@ -60,6 +60,7 @@ public static class PublicProblemCodes
         ("Too many requests", null, "auth.rate-limited"),
 
         // conflicts
+        ("Booking Hold price changed", null, "hold.price-changed"),
         ("Booking Hold conflict", "Current pricing is unavailable", "hold.pricing-unavailable"),
         ("Booking Hold conflict", "The selected rooms are no longer available", "hold.rooms-unavailable"),
         ("Booking Hold conflict", "Current pricing exceeds", "hold.pricing-out-of-range"),

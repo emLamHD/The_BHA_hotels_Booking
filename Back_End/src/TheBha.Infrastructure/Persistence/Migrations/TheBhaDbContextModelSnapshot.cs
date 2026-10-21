@@ -86,6 +86,67 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                     b.ToTable("AspNetUserTokens", (string)null);
                 });
 
+            modelBuilder.Entity("TheBha.Domain.Bookings.BookingPromotionApplication", b =>
+                {
+                    b.Property<Guid>("HoldId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CurrencyCode")
+                        .HasMaxLength(3)
+                        .HasColumnType("character(3)")
+                        .IsFixedLength();
+
+                    b.Property<decimal>("DiscountTotalAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<decimal>("ListTotalAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<Guid>("PromotionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("PromotionVersion")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("ReservationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Slug")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<decimal>("Value")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.HasKey("HoldId");
+
+                    b.HasIndex("PromotionId");
+
+                    b.HasIndex("ReservationId")
+                        .IsUnique();
+
+                    b.ToTable("BookingPromotionApplications", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_BookingPromotionApplications_Amounts", "\"DiscountTotalAmount\" > 0 AND \"ListTotalAmount\" > \"DiscountTotalAmount\"");
+
+                            t.HasCheckConstraint("CK_BookingPromotionApplications_Value", "\"Value\" > 0 AND \"PromotionVersion\" >= 1");
+                        });
+                });
+
             modelBuilder.Entity("TheBha.Domain.Bookings.InventoryHold", b =>
                 {
                     b.Property<Guid>("Id")
@@ -232,6 +293,10 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                     b.Property<DateOnly>("StayDate")
                         .HasColumnType("date");
 
+                    b.Property<decimal>("ListUnitAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
                     b.Property<Guid>("PropertyId")
                         .HasColumnType("uuid");
 
@@ -255,6 +320,8 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                             t.HasCheckConstraint("CK_InventoryHoldItemNights_Amount", "\"UnitAmount\" > 0");
 
                             t.HasCheckConstraint("CK_InventoryHoldItemNights_Ids", "\"InventoryHoldItemId\" <> '00000000-0000-0000-0000-000000000000'::uuid AND \"PropertyId\" <> '00000000-0000-0000-0000-000000000000'::uuid AND \"RatePlanId\" <> '00000000-0000-0000-0000-000000000000'::uuid");
+
+                            t.HasCheckConstraint("CK_InventoryHoldItemNights_ListAmount", "\"ListUnitAmount\" >= \"UnitAmount\"");
                         });
                 });
 
@@ -426,6 +493,10 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                     b.Property<DateOnly>("StayDate")
                         .HasColumnType("date");
 
+                    b.Property<decimal>("ListUnitAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
                     b.Property<Guid>("PropertyId")
                         .HasColumnType("uuid");
 
@@ -449,7 +520,271 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                             t.HasCheckConstraint("CK_ReservationUnitNights_Amount", "\"UnitAmount\" > 0");
 
                             t.HasCheckConstraint("CK_ReservationUnitNights_Ids", "\"ReservationUnitId\" <> '00000000-0000-0000-0000-000000000000'::uuid AND \"PropertyId\" <> '00000000-0000-0000-0000-000000000000'::uuid AND \"RatePlanId\" <> '00000000-0000-0000-0000-000000000000'::uuid");
+
+                            t.HasCheckConstraint("CK_ReservationUnitNights_ListAmount", "\"ListUnitAmount\" >= \"UnitAmount\"");
                         });
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Promotions.Promotion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("AllRoomTypes")
+                        .HasColumnType("boolean");
+
+                    b.Property<string[]>("BodyParagraphs")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.Property<DateOnly?>("BookingFrom")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("BookingTo")
+                        .HasColumnType("date");
+
+                    b.Property<string>("CoverAltText")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<Guid?>("CoverMediaId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CreateFingerprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .IsFixedLength();
+
+                    b.Property<Guid>("CreateOperationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedByStaffId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CurrencyCode")
+                        .HasMaxLength(3)
+                        .HasColumnType("character(3)")
+                        .IsFixedLength();
+
+                    b.Property<DateOnly?>("DisplayFrom")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("DisplayTo")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<int>("MinNights")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("PropertyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("ShowOnHomepage")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Slug")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateOnly?>("StayFrom")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("StayTo")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Summary")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UpdatedByStaffId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Value")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CoverMediaId");
+
+                    b.HasIndex("Slug")
+                        .IsUnique()
+                        .HasDatabaseName("UX_Promotions_Slug");
+
+                    b.HasIndex("CreatedByStaffId", "CreateOperationId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_Promotions_CreateOperation");
+
+                    b.HasIndex("PropertyId", "Status");
+
+                    b.HasIndex("Status", "ShowOnHomepage", "SortOrder");
+
+                    b.ToTable("Promotions", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Promotions_BookingWindow", "\"BookingFrom\" IS NULL OR \"BookingTo\" IS NULL OR \"BookingTo\" >= \"BookingFrom\"");
+
+                            t.HasCheckConstraint("CK_Promotions_DisplayWindow", "\"DisplayFrom\" IS NULL OR \"DisplayTo\" IS NULL OR \"DisplayTo\" >= \"DisplayFrom\"");
+
+                            t.HasCheckConstraint("CK_Promotions_Fingerprint", "\"CreateFingerprint\" ~ '^[0-9a-f]{64}$'");
+
+                            t.HasCheckConstraint("CK_Promotions_FixedCurrency", "\"Kind\" <> 'FixedAmount' OR \"CurrencyCode\" ~ '^[A-Z]{3}$'");
+
+                            t.HasCheckConstraint("CK_Promotions_Homepage", "NOT \"ShowOnHomepage\" OR \"CoverMediaId\" IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_Promotions_MinNights", "\"MinNights\" BETWEEN 1 AND 30");
+
+                            t.HasCheckConstraint("CK_Promotions_Percent", "\"Kind\" <> 'Percent' OR (\"Value\" < 100 AND \"CurrencyCode\" IS NULL)");
+
+                            t.HasCheckConstraint("CK_Promotions_SortOrder", "\"SortOrder\" BETWEEN 0 AND 9999");
+
+                            t.HasCheckConstraint("CK_Promotions_StayWindow", "\"StayFrom\" IS NULL OR \"StayTo\" IS NULL OR \"StayTo\" >= \"StayFrom\"");
+
+                            t.HasCheckConstraint("CK_Promotions_Value", "\"Value\" > 0");
+
+                            t.HasCheckConstraint("CK_Promotions_Version", "\"Version\" >= 1");
+                        });
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Promotions.PromotionAudit", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<Guid>("ActorStaffId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("After")
+                        .HasColumnType("jsonb");
+
+                    b.Property<DateTimeOffset>("AtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Before")
+                        .HasColumnType("jsonb");
+
+                    b.Property<Guid>("PromotionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("PropertyId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PromotionId", "AtUtc");
+
+                    b.HasIndex("PropertyId", "PromotionId");
+
+                    b.ToTable("PromotionAudits", (string)null);
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Promotions.PromotionMedia", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("ByteSize")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedByStaffId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Height")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("PropertyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("StorageKey")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("Width")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StorageKey")
+                        .IsUnique();
+
+                    b.HasIndex("PropertyId", "CreatedAtUtc");
+
+                    b.ToTable("PromotionMedia", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_PromotionMedia_Key", "\"StorageKey\" ~ '^promo/[0-9a-f]{32}\\.(jpg|png|webp)$'");
+
+                            t.HasCheckConstraint("CK_PromotionMedia_Size", "\"ByteSize\" > 0 AND \"Width\" > 0 AND \"Height\" > 0");
+                        });
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Promotions.PromotionRoomType", b =>
+                {
+                    b.Property<Guid>("PromotionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("RoomTypeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("PropertyId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("PromotionId", "RoomTypeId");
+
+                    b.HasIndex("RoomTypeId");
+
+                    b.HasIndex("PropertyId", "PromotionId");
+
+                    b.HasIndex("PropertyId", "RoomTypeId");
+
+                    b.ToTable("PromotionRoomTypes", (string)null);
                 });
 
             modelBuilder.Entity("TheBha.Domain.Properties.AdminCatalogCreateOperation", b =>
@@ -1983,6 +2318,26 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("TheBha.Domain.Bookings.BookingPromotionApplication", b =>
+                {
+                    b.HasOne("TheBha.Domain.Bookings.InventoryHold", null)
+                        .WithOne("PromotionApplication")
+                        .HasForeignKey("TheBha.Domain.Bookings.BookingPromotionApplication", "HoldId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("TheBha.Domain.Promotions.Promotion", null)
+                        .WithMany()
+                        .HasForeignKey("PromotionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("TheBha.Domain.Bookings.Reservation", null)
+                        .WithOne("PromotionApplication")
+                        .HasForeignKey("TheBha.Domain.Bookings.BookingPromotionApplication", "ReservationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
             modelBuilder.Entity("TheBha.Domain.Bookings.InventoryHold", b =>
                 {
                     b.HasOne("TheBha.Infrastructure.Identity.CustomerAccount", null)
@@ -2089,6 +2444,56 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         .HasForeignKey("PropertyId", "ReservationUnitId")
                         .HasPrincipalKey("PropertyId", "Id")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Promotions.Promotion", b =>
+                {
+                    b.HasOne("TheBha.Domain.Promotions.PromotionMedia", null)
+                        .WithMany()
+                        .HasForeignKey("CoverMediaId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("TheBha.Domain.Properties.Property", null)
+                        .WithMany()
+                        .HasForeignKey("PropertyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Promotions.PromotionAudit", b =>
+                {
+                    b.HasOne("TheBha.Domain.Promotions.Promotion", null)
+                        .WithMany()
+                        .HasForeignKey("PropertyId", "PromotionId")
+                        .HasPrincipalKey("PropertyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Promotions.PromotionMedia", b =>
+                {
+                    b.HasOne("TheBha.Domain.Properties.Property", null)
+                        .WithMany()
+                        .HasForeignKey("PropertyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Promotions.PromotionRoomType", b =>
+                {
+                    b.HasOne("TheBha.Domain.Promotions.Promotion", null)
+                        .WithMany("RoomTypes")
+                        .HasForeignKey("PropertyId", "PromotionId")
+                        .HasPrincipalKey("PropertyId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("TheBha.Domain.Properties.RoomType", null)
+                        .WithMany()
+                        .HasForeignKey("PropertyId", "RoomTypeId")
+                        .HasPrincipalKey("PropertyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 
@@ -2434,6 +2839,8 @@ namespace TheBha.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("TheBha.Domain.Bookings.InventoryHold", b =>
                 {
                     b.Navigation("Items");
+
+                    b.Navigation("PromotionApplication");
                 });
 
             modelBuilder.Entity("TheBha.Domain.Bookings.InventoryHoldItem", b =>
@@ -2443,12 +2850,19 @@ namespace TheBha.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("TheBha.Domain.Bookings.Reservation", b =>
                 {
+                    b.Navigation("PromotionApplication");
+
                     b.Navigation("Units");
                 });
 
             modelBuilder.Entity("TheBha.Domain.Bookings.ReservationUnit", b =>
                 {
                     b.Navigation("Nights");
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Promotions.Promotion", b =>
+                {
+                    b.Navigation("RoomTypes");
                 });
 #pragma warning restore 612, 618
         }

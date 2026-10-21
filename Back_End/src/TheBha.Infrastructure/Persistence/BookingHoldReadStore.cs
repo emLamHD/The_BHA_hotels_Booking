@@ -15,6 +15,7 @@ internal sealed class BookingHoldReadStore(TheBhaDbContext dbContext) : IBooking
             .AsNoTracking()
             .Include(item => item.Items)
             .ThenInclude(item => item.Nights)
+            .Include(x => x.PromotionApplication)
             .Where(item => item.Id == holdId)
             .Where(item =>
                 (customerAccountId != null && item.CustomerAccountId == customerAccountId) ||

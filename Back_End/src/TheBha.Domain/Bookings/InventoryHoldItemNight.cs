@@ -16,6 +16,7 @@ public sealed class InventoryHoldItemNight
         StayDate = snapshot.StayDate;
         RatePlanId = snapshot.RatePlanId;
         UnitAmount = snapshot.UnitAmount;
+        ListUnitAmount = snapshot.ListUnitAmount ?? snapshot.UnitAmount;
     }
 
     public Guid InventoryHoldItemId { get; private set; }
@@ -23,4 +24,7 @@ public sealed class InventoryHoldItemNight
     public DateOnly StayDate { get; private set; }
     public Guid RatePlanId { get; private set; }
     public decimal UnitAmount { get; private set; }
+
+    /// <summary>The rate before a promotion; equal to <see cref="UnitAmount"/> when none applied.</summary>
+    public decimal ListUnitAmount { get; private set; }
 }

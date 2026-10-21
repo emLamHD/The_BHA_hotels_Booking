@@ -199,6 +199,14 @@ internal static partial class BookingGuard
 
             DomainGuard.RequiredId(night.RatePlanId, nameof(night.RatePlanId));
             ValidateMoney(night.UnitAmount, nameof(night.UnitAmount));
+            if (night.ListUnitAmount is { } listUnitAmount)
+            {
+                ValidateMoney(listUnitAmount, nameof(night.ListUnitAmount));
+                if (listUnitAmount < night.UnitAmount)
+                {
+                    throw new DomainException("ListUnitAmount cannot be lower than UnitAmount.");
+                }
+            }
         }
 
         return ordered;

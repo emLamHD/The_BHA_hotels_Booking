@@ -46,6 +46,7 @@ internal sealed class ReservationCancellationStore(
         var reservation = await dbContext.Reservations
             .Include(item => item.Units)
             .ThenInclude(unit => unit.Nights)
+            .Include(x => x.PromotionApplication)
             .Where(item => item.Id == reservationId)
             .Where(item =>
                 (customerAccountId != null && item.CustomerAccountId == customerAccountId) ||

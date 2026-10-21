@@ -23,6 +23,7 @@ internal sealed class BookingHoldCancellationStore(TheBhaDbContext dbContext)
         var hold = await dbContext.InventoryHolds
             .Include(item => item.Items)
             .ThenInclude(item => item.Nights)
+            .Include(x => x.PromotionApplication)
             .Where(item => item.Id == holdId)
             .Where(item =>
                 (customerAccountId != null && item.CustomerAccountId == customerAccountId) ||

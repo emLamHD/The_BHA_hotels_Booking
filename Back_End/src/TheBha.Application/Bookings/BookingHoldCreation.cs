@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using TheBha.Application.Customers;
+using TheBha.Application.Promotions;
 using TheBha.Application.Properties;
 using TheBha.Domain.Bookings;
 
@@ -25,13 +26,30 @@ public sealed record CreateBookingHoldRequest(
     int Rooms,
     string? FullName,
     string? Email,
-    string? Phone);
+    string? Phone,
+    decimal? ExpectedTotalAmount = null,
+    string? ExpectedCurrencyCode = null);
 
+/// <summary>
+/// <see cref="UnitAmount"/> is what is paid per room for the night. <see cref="ListUnitAmount"/> and
+/// <see cref="DiscountUnitAmount"/> explain it when a promotion applied (<c>UnitAmount = ListUnitAmount - DiscountUnitAmount</c>).
+/// </summary>
 public sealed record BookingHoldNightDto(
     DateOnly StayDate,
     int Rooms,
     decimal UnitAmount,
-    decimal NightTotal);
+    decimal NightTotal,
+    decimal? ListUnitAmount = null,
+    decimal? DiscountUnitAmount = null);
+
+/// <summary>The price a booking would get now: what a <c>hold.price-changed</c> answer shows the guest to confirm again.</summary>
+public sealed record PriceQuoteDto(
+    string CurrencyCode,
+    decimal TotalAmount,
+    decimal ListTotalAmount,
+    decimal DiscountTotalAmount,
+    IReadOnlyList<NightlyRateDto> NightlyRates,
+    AppliedPromotionDto? AppliedPromotion);
 
 public sealed record BookingHoldDto(
     Guid HoldId,
@@ -49,7 +67,10 @@ public sealed record BookingHoldDto(
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset ExpiresAtUtc,
     IReadOnlyList<BookingHoldNightDto> Nights,
-    string? GuestAccessToken);
+    string? GuestAccessToken,
+    decimal? ListTotalAmount = null,
+    decimal? DiscountTotalAmount = null,
+    AppliedPromotionDto? AppliedPromotion = null);
 
 public enum BookingHoldCreationStatus
 {
@@ -58,14 +79,19 @@ public enum BookingHoldCreationStatus
     Invalid,
     Unauthorized,
     NotFound,
-    Conflict
+    Conflict,
+    PriceChanged
 }
 
 public sealed record BookingHoldCreationResult(
     BookingHoldCreationStatus Status,
     BookingHoldDto? Hold,
-    string? Error)
+    string? Error,
+    PriceQuoteDto? Quote = null)
 {
+    public static BookingHoldCreationResult PriceChanged(PriceQuoteDto quote) =>
+        new(BookingHoldCreationStatus.PriceChanged, null, "The price changed since it was shown.", quote);
+
     public static BookingHoldCreationResult Created(BookingHoldDto hold) =>
         new(BookingHoldCreationStatus.Created, hold, null);
 
@@ -99,7 +125,9 @@ public sealed record PreparedBookingHoldRequest(
     string Phone,
     Guid? CustomerAccountId,
     string IdempotencyKeyHash,
-    string RequestFingerprint);
+    string RequestFingerprint,
+    decimal? ExpectedTotalAmount = null,
+    string? ExpectedCurrencyCode = null);
 
 public interface IBookingHoldCreationStore
 {
@@ -192,7 +220,9 @@ public sealed class BookingHoldCreation(
                 normalized.Phone!,
                 customerAccountId,
                 keyHash,
-                fingerprint),
+                fingerprint,
+                normalized.ExpectedTotalAmount,
+                normalized.ExpectedCurrencyCode),
             cancellationToken);
     }
 }
@@ -276,11 +306,33 @@ public static partial class BookingHoldRequestSecurity
             return "phone must be a valid contact phone.";
         }
 
+        // The price the guest is confirming: both or neither. Absent means a caller that does not check the price.
+        string? expectedCurrency = null;
+        if (request.ExpectedTotalAmount is not null || request.ExpectedCurrencyCode is not null)
+        {
+            if (request.ExpectedTotalAmount is not { } expectedTotal || request.ExpectedCurrencyCode is null)
+            {
+                return "expectedTotalAmount and expectedCurrencyCode must be sent together.";
+            }
+
+            if (expectedTotal <= 0 || decimal.Round(expectedTotal, 2) != expectedTotal || expectedTotal > 9_999_999_999_999_999.99m)
+            {
+                return "expectedTotalAmount must be a positive amount with at most two decimal places.";
+            }
+
+            expectedCurrency = request.ExpectedCurrencyCode.Trim().ToUpperInvariant();
+            if (!ExpectedCurrencyPattern().IsMatch(expectedCurrency))
+            {
+                return "expectedCurrencyCode must be a three-letter currency code.";
+            }
+        }
+
         normalized = request with
         {
             FullName = fullName,
             Email = email,
-            Phone = phone
+            Phone = phone,
+            ExpectedCurrencyCode = expectedCurrency
         };
         return null;
     }
@@ -315,6 +367,15 @@ public static partial class BookingHoldRequestSecurity
             customerAccountId is { } id
                 ? $"customer:{id:D}"
                 : "guest");
+        // Only when sent, so the fingerprint of a request without it (and of every Hold stored before) is unchanged.
+        if (normalizedRequest.ExpectedTotalAmount is { } expectedTotal)
+        {
+            Append(
+                hash,
+                "expected:" + expectedTotal.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) +
+                ":" + normalizedRequest.ExpectedCurrencyCode);
+        }
+
         return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
     }
 
@@ -332,6 +393,9 @@ public static partial class BookingHoldRequestSecurity
         hash.AppendData(length);
         hash.AppendData(bytes);
     }
+
+    [GeneratedRegex("^[A-Z]{3}$", RegexOptions.CultureInvariant)]
+    private static partial Regex ExpectedCurrencyPattern();
 
     [GeneratedRegex(
         "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",

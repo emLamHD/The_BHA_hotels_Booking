@@ -265,7 +265,7 @@ public sealed class RoomOccupancySegmentInvariantTests(PostgreSqlWebApplicationF
 
         await context.Database.ExecuteSqlInterpolatedAsync(
             $"""
-            UPDATE "ReservationUnitNights" SET "UnitAmount" = 999.00
+            UPDATE "ReservationUnitNights" SET "UnitAmount" = 999.00, "ListUnitAmount" = 999.00
             WHERE "ReservationUnitId" = {unit.Id} AND "StayDate" = {CheckIn}
             """);
 

@@ -11,6 +11,8 @@ public sealed record CreateBookingHoldApiRequest(
     int Rooms,
     string? FullName,
     string? Email,
-    string? Phone);
+    string? Phone,
+    decimal? ExpectedTotalAmount = null,
+    string? ExpectedCurrencyCode = null);
 
 public sealed record CancelReservationApiRequest(string? Reason);
