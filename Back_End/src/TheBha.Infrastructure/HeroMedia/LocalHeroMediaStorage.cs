@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using TheBha.Application.Website;
 
@@ -16,6 +17,10 @@ internal sealed partial class LocalHeroMediaStorage(string? rootPath) : IHeroMed
 
     [GeneratedRegex("^(hero|promo|blog)/[0-9a-f]{32}\\.(jpg|png|webp)$")]
     private static partial Regex UploadKey();
+
+    /// <summary>The half-written name <see cref="WriteAsync"/> uses; only a killed process leaves one behind.</summary>
+    [GeneratedRegex("^(hero|promo|blog)/[0-9a-f]{32}\\.(jpg|png|webp)\\.[0-9a-f]{32}\\.tmp$")]
+    private static partial Regex TemporaryKey();
 
     [GeneratedRegex("^seed/hero-[a-z0-9]+(-[a-z0-9]+)*\\.webp$")]
     private static partial Regex SeedKey();
@@ -82,7 +87,7 @@ internal sealed partial class LocalHeroMediaStorage(string? rootPath) : IHeroMed
 
     public Task DeleteAsync(string key, CancellationToken cancellationToken)
     {
-        if (ResolveUpload(key) is { } path)
+        if ((ResolveUpload(key) ?? ResolveTemporary(key)) is { } path)
         {
             TryDelete(path);
         }
@@ -90,13 +95,38 @@ internal sealed partial class LocalHeroMediaStorage(string? rootPath) : IHeroMed
         return Task.CompletedTask;
     }
 
-    private string? ResolveUpload(string key)
+    public async IAsyncEnumerable<StoredFile> ListAsync(string prefix, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        if (!IsConfigured || !UploadKey().IsMatch(key))
+        await Task.CompletedTask;
+        if (!IsConfigured || prefix is not ("hero/" or "promo/" or "blog/"))
         {
-            return null;
+            yield break;
         }
 
+        var directory = Path.Combine(Path.GetFullPath(rootPath!), prefix.TrimEnd('/'));
+        if (!Directory.Exists(directory))
+        {
+            yield break;
+        }
+
+        foreach (var path in Directory.EnumerateFiles(directory))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var key = prefix + Path.GetFileName(path);
+            var temporary = TemporaryKey().IsMatch(key);
+            if (temporary || UploadKey().IsMatch(key))
+            {
+                yield return new StoredFile(key, new DateTimeOffset(File.GetLastWriteTimeUtc(path), TimeSpan.Zero), temporary);
+            }
+        }
+    }
+
+    private string? ResolveTemporary(string key) => IsConfigured && TemporaryKey().IsMatch(key) ? ResolveUnder(key) : null;
+
+    private string? ResolveUpload(string key) => IsConfigured && UploadKey().IsMatch(key) ? ResolveUnder(key) : null;
+
+    private string? ResolveUnder(string key)
+    {
         var root = Path.GetFullPath(rootPath!);
         var full = Path.GetFullPath(Path.Combine(root, key));
         return full.StartsWith(root.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.Ordinal) ? full : null;

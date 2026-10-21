@@ -114,13 +114,14 @@ public sealed record BlogPinsDto(Guid CategoryId, int Version, IReadOnlyList<Blo
 
 public sealed record BlogSettingsDto(Guid? HomeSectionCategoryId, int Version, DateTimeOffset UpdatedAtUtc);
 
-public sealed record BlogMediaDto(Guid Id, string ContentType, long ByteSize, int Width, int Height, DateTimeOffset CreatedAtUtc);
-
 public sealed record BlogMediaFile(Stream Content, string ContentType);
 
 // ---- Public DTOs: published content only; no Staff id, no revision, no audit, no draft ----
 
-public sealed record PublicBlogCoverDto(string Url, string Alt, int Width, int Height);
+/// <summary>One published size of a picture (CP02): the same bytes for the same address, always, and only while a published article uses the picture.</summary>
+public sealed record PublicBlogVariantDto(string Preset, string Format, string Type, string Url, int Width, int Height);
+
+public sealed record PublicBlogCoverDto(string Url, string Alt, int Width, int Height, IReadOnlyList<PublicBlogVariantDto> Variants);
 
 public sealed record PublicBlogCategoryRefDto(string Slug, string Name, bool IsPrimary);
 
@@ -140,7 +141,7 @@ public sealed record PublicBlogPostItemDto(
 
 public sealed record PublicBlogPostListDto(string Locale, IReadOnlyList<PublicBlogPostItemDto> Items, int Page, int PageSize, int Total, string ContentHash);
 
-public sealed record PublicBlogMediaRefDto(string Url, int Width, int Height);
+public sealed record PublicBlogMediaRefDto(string Url, int Width, int Height, IReadOnlyList<PublicBlogVariantDto> Variants);
 
 public sealed record PublicBlogPropertyRefDto(string Slug, string Name);
 
@@ -218,9 +219,26 @@ public interface IAdminBlog
 
     Task<WebsiteMutationResult<BlogPostAdminDto>> RestoreAsync(RestoreBlogRevisionCommand command, CancellationToken cancellationToken);
 
-    Task<WebsiteMutationResult<BlogMediaDto>> UploadMediaAsync(Stream content, Guid actorStaffId, CancellationToken cancellationToken);
+    Task<WebsiteMutationResult<BlogMediaDto>> UploadMediaAsync(BlogMediaUpload upload, Guid actorStaffId, CancellationToken cancellationToken);
 
+    /// <summary>Each file is taken in on its own: one that is refused or fails does not undo the others. Count and size limits are the caller's, checked before this is called.</summary>
+    Task<BlogMediaBatchDto> UploadMediaBatchAsync(IReadOnlyList<BlogMediaUpload> uploads, Guid actorStaffId, CancellationToken cancellationToken);
+
+    Task<BlogMediaListDto> ListMediaAsync(BlogMediaListQuery query, CancellationToken cancellationToken);
+
+    Task<WebsiteMutationResult<BlogMediaDto>> GetMediaAsync(Guid mediaId, CancellationToken cancellationToken);
+
+    Task<WebsiteMutationResult<BlogMediaDto>> UpdateMediaAsync(UpdateBlogMediaCommand command, CancellationToken cancellationToken);
+
+    Task<WebsiteMutationResult<BlogMediaUsageDto>> GetMediaUsageAsync(Guid mediaId, CancellationToken cancellationToken);
+
+    Task<WebsiteMutationResult<bool>> DeleteMediaAsync(DeleteBlogMediaCommand command, CancellationToken cancellationToken);
+
+    /// <summary>The original bytes, private to the Admin.</summary>
     Task<BlogMediaFile?> OpenMediaAsync(Guid mediaId, CancellationToken cancellationToken);
+
+    /// <summary>A preset's WebP (or the original, for a picture the pipeline has not processed yet).</summary>
+    Task<BlogMediaFile?> OpenMediaPreviewAsync(Guid mediaId, string preset, CancellationToken cancellationToken);
 }
 
 /// <summary>The public, read-only side. Every method answers for one language and never falls back to another.</summary>
@@ -240,7 +258,11 @@ public interface IWebsiteBlog
 
     Task<PublicBlogHomeSectionDto> HomeSectionAsync(string locale, int limit, CancellationToken cancellationToken);
 
+    /// <summary>The legacy address: the article-size fallback of a processed picture, the original of an older one. Only while a published article uses it.</summary>
     Task<BlogMediaFile?> OpenMediaAsync(Guid mediaId, CancellationToken cancellationToken);
+
+    /// <summary>One variant at its exact address (picture, generation, preset, format). Only while a published article uses the picture.</summary>
+    Task<BlogMediaFile?> OpenMediaVariantAsync(Guid mediaId, int generation, string preset, string format, CancellationToken cancellationToken);
 }
 
 public static class BlogResults
@@ -251,7 +273,7 @@ public static class BlogResults
         BlogErrorCodes.NotFound => WebsiteMutationResult<T>.NotFound(problem.Message),
         BlogErrorCodes.StaleVersion or BlogErrorCodes.SlugTaken or BlogErrorCodes.CategoryInUse or BlogErrorCodes.Archived or
             BlogErrorCodes.InvalidState or BlogErrorCodes.DuplicateId or BlogErrorCodes.NothingToPublish or BlogErrorCodes.StorageNotConfigured or
-            BlogErrorCodes.PinNotPublished => WebsiteMutationResult<T>.Conflict(problem.Code, problem.Message, problem.Field),
+            BlogErrorCodes.PinNotPublished or BlogErrorCodes.MediaInUse => WebsiteMutationResult<T>.Conflict(problem.Code, problem.Message, problem.Field),
         _ => WebsiteMutationResult<T>.Invalid(problem.Field, problem.Message) with { Code = problem.Code }
     };
 }

@@ -290,8 +290,126 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("CreatedByStaffId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("Credit")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<double>("FocalX")
+                        .HasColumnType("double precision");
+
+                    b.Property<double>("FocalY")
+                        .HasColumnType("double precision");
+
+                    b.Property<int>("Generation")
+                        .HasColumnType("integer");
+
                     b.Property<int>("Height")
                         .HasColumnType("integer");
+
+                    b.Property<string>("Licence")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("OriginalFileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("OriginalSha256")
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .IsFixedLength();
+
+                    b.Property<string>("SourceUrl")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("StorageKey")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedByStaffId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
+
+                    b.Property<int>("Width")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAtUtc");
+
+                    b.HasIndex("CreatedByStaffId");
+
+                    b.HasIndex("StorageKey")
+                        .IsUnique();
+
+                    b.HasIndex("UpdatedByStaffId");
+
+                    b.ToTable("BlogMedia", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_BlogMedia_Focal", "\"FocalX\" BETWEEN 0 AND 1 AND \"FocalY\" BETWEEN 0 AND 1");
+
+                            t.HasCheckConstraint("CK_BlogMedia_Key", "\"StorageKey\" ~ '^blog/[0-9a-f]{32}\\.(jpg|png|webp)$'");
+
+                            t.HasCheckConstraint("CK_BlogMedia_Size", "\"ByteSize\" > 0 AND \"Width\" > 0 AND \"Height\" > 0");
+
+                            t.HasCheckConstraint("CK_BlogMedia_Version", "\"Version\" >= 1 AND \"Generation\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Blog.BlogMediaVariant", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("ByteSize")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Format")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)");
+
+                    b.Property<int>("Height")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("MediaId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Preset")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Sha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .IsFixedLength();
 
                     b.Property<string>("StorageKey")
                         .IsRequired()
@@ -303,16 +421,19 @@ namespace TheBha.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("CreatedByStaffId");
-
                     b.HasIndex("StorageKey")
                         .IsUnique();
 
-                    b.ToTable("BlogMedia", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_BlogMedia_Key", "\"StorageKey\" ~ '^blog/[0-9a-f]{32}\\.(jpg|png|webp)$'");
+                    b.HasIndex("MediaId", "Preset", "Format")
+                        .IsUnique();
 
-                            t.HasCheckConstraint("CK_BlogMedia_Size", "\"ByteSize\" > 0 AND \"Width\" > 0 AND \"Height\" > 0");
+                    b.ToTable("BlogMediaVariants", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_BlogMediaVariants_Key", "\"StorageKey\" ~ '^blog/[0-9a-f]{32}\\.(jpg|png|webp)$'");
+
+                            t.HasCheckConstraint("CK_BlogMediaVariants_Kind", "\"Preset\" IN ('thumb','card','article') AND \"Format\" IN ('webp','jpg','png')");
+
+                            t.HasCheckConstraint("CK_BlogMediaVariants_Size", "\"ByteSize\" > 0 AND \"Width\" > 0 AND \"Height\" > 0");
                         });
                 });
 
@@ -2933,6 +3054,20 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         .HasForeignKey("CreatedByStaffId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("TheBha.Infrastructure.Identity.StaffAccount", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedByStaffId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Blog.BlogMediaVariant", b =>
+                {
+                    b.HasOne("TheBha.Domain.Blog.BlogMedia", null)
+                        .WithMany("Variants")
+                        .HasForeignKey("MediaId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("TheBha.Domain.Blog.BlogPost", b =>
@@ -3580,6 +3715,11 @@ namespace TheBha.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("TheBha.Domain.Blog.BlogCategory", b =>
                 {
                     b.Navigation("Translations");
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Blog.BlogMedia", b =>
+                {
+                    b.Navigation("Variants");
                 });
 
             modelBuilder.Entity("TheBha.Domain.Blog.BlogPost", b =>

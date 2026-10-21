@@ -95,7 +95,7 @@ internal sealed class WebsiteBlogService(TheBhaDbContext db, IHeroMediaStorage s
     {
         var revisionIds = page.Select(p => p.Revision.Id).ToList();
         var mediaIds = page.Where(p => p.Revision.CoverMediaId != null).Select(p => p.Revision.CoverMediaId!.Value).Distinct().ToList();
-        var media = await db.BlogMedia.AsNoTracking().Where(m => mediaIds.Contains(m.Id)).ToDictionaryAsync(m => m.Id, cancellationToken);
+        var media = await db.BlogMedia.AsNoTracking().Include(m => m.Variants).Where(m => mediaIds.Contains(m.Id)).ToDictionaryAsync(m => m.Id, cancellationToken);
         var categories = await CategoryRefsAsync(locale, revisionIds, cancellationToken);
         return page.Select(p => ToItem(p, media, categories.GetValueOrDefault(p.Revision.Id) ?? [])).ToList();
     }
@@ -120,8 +120,23 @@ internal sealed class WebsiteBlogService(TheBhaDbContext db, IHeroMediaStorage s
     private static PublicBlogCoverDto Cover(BlogPostRevision revision, Dictionary<Guid, BlogMedia> media)
     {
         var file = media[revision.CoverMediaId!.Value];
-        return new PublicBlogCoverDto(MediaPath + file.Id, revision.CoverAlt, file.Width, file.Height);
+        var (width, height) = MainSize(file);
+        return new PublicBlogCoverDto(MediaPath + file.Id, revision.CoverAlt, width, height, Variants(file));
     }
+
+    /// <summary>The size of what the plain picture address serves: the article-size fallback of a processed picture, the original of an older one.</summary>
+    private static (int Width, int Height) MainSize(BlogMedia file) =>
+        ArticleFallback(file) is { } variant ? (variant.Width, variant.Height) : (file.Width, file.Height);
+
+    private static BlogMediaVariant? ArticleFallback(BlogMedia file) =>
+        file.Variants.FirstOrDefault(v => v.Preset == BlogMediaPresets.Article && BlogMediaFormats.IsFallback(v.Format));
+
+    /// <summary>The published sizes, smallest preset first and WebP before the fallback; each address names the generation, so the bytes under it never change.</summary>
+    private static List<PublicBlogVariantDto> Variants(BlogMedia file) =>
+        [.. file.Variants
+            .OrderBy(v => BlogMediaPresets.All.Select(preset => preset.Name).ToList().IndexOf(v.Preset))
+            .ThenBy(v => v.Format == BlogMediaFormats.Webp ? 0 : 1)
+            .Select(v => new PublicBlogVariantDto(v.Preset, v.Format, v.ContentType, $"{MediaPath}{file.Id}/{file.Generation}/{v.Preset}.{v.Format}", v.Width, v.Height))];
 
     // ---- detail ----
 
@@ -147,7 +162,7 @@ internal sealed class WebsiteBlogService(TheBhaDbContext db, IHeroMediaStorage s
 
         var media = await (from rm in db.BlogRevisionMedia.AsNoTracking()
                            where rm.RevisionId == pub.Revision.Id
-                           join m in db.BlogMedia.AsNoTracking() on rm.MediaId equals m.Id
+                           join m in db.BlogMedia.AsNoTracking().Include(media => media.Variants) on rm.MediaId equals m.Id
                            select m).ToDictionaryAsync(m => m.Id, cancellationToken);
         var categories = (await CategoryRefsAsync(locale, [pub.Revision.Id], cancellationToken)).GetValueOrDefault(pub.Revision.Id) ?? [];
         var (body, properties) = await PublicBodyAsync(pub.Revision.BodyJson, cancellationToken);
@@ -164,7 +179,7 @@ internal sealed class WebsiteBlogService(TheBhaDbContext db, IHeroMediaStorage s
             pub.Translation.PostId, locale, revision.Slug, revision.Title, revision.Summary, body, Cover(revision, media), revision.AuthorName,
             pub.Translation.FirstPublishedAtUtc!.Value, revision.PublishedAtUtc!.Value,
             categories.FirstOrDefault(c => c.IsPrimary), categories,
-            media.Values.ToDictionary(m => m.Id, m => new PublicBlogMediaRefDto(MediaPath + m.Id, m.Width, m.Height)),
+            media.Values.ToDictionary(m => m.Id, m => new PublicBlogMediaRefDto(MediaPath + m.Id, MainSize(m).Width, MainSize(m).Height, Variants(m))),
             properties,
             new PublicBlogSeoDto(
                 revision.MetaTitle.Length > 0 ? revision.MetaTitle : null,
@@ -263,21 +278,43 @@ internal sealed class WebsiteBlogService(TheBhaDbContext db, IHeroMediaStorage s
 
     // ---- media ----
 
-    /// <summary>A picture is public only while a published revision of a published translation uses it.</summary>
+    /// <summary>A picture is public only while a published revision of a published translation uses it. Decided on every request, before any byte, redirect or 304.</summary>
+    private Task<bool> IsPublicAsync(Guid mediaId, CancellationToken cancellationToken) =>
+        (from rm in db.BlogRevisionMedia.AsNoTracking()
+         where rm.MediaId == mediaId
+         join t in db.BlogPostTranslations.AsNoTracking() on rm.RevisionId equals t.PublishedRevisionId
+         where t.Status == BlogTranslationStatus.Published
+         select rm.MediaId).AnyAsync(cancellationToken);
+
     public async Task<BlogMediaFile?> OpenMediaAsync(Guid mediaId, CancellationToken cancellationToken)
     {
-        var inUse = await (from rm in db.BlogRevisionMedia.AsNoTracking()
-                           where rm.MediaId == mediaId
-                           join t in db.BlogPostTranslations.AsNoTracking() on rm.RevisionId equals t.PublishedRevisionId
-                           where t.Status == BlogTranslationStatus.Published
-                           select rm.MediaId).AnyAsync(cancellationToken);
-        if (!inUse)
+        if (!await IsPublicAsync(mediaId, cancellationToken))
         {
             return null;
         }
 
-        var row = await db.BlogMedia.AsNoTracking().SingleAsync(m => m.Id == mediaId, cancellationToken);
-        var stream = await storage.OpenReadAsync(row.StorageKey, cancellationToken);
-        return stream is null ? null : new BlogMediaFile(stream, row.ContentType);
+        var row = await db.BlogMedia.AsNoTracking().Include(m => m.Variants).SingleAsync(m => m.Id == mediaId, cancellationToken);
+
+        // A processed picture is never served as its original (private, and it may carry EXIF); a picture from before CP02 is, until the operator backfill has run.
+        var fallback = ArticleFallback(row);
+        var stream = await storage.OpenReadAsync(fallback?.StorageKey ?? row.StorageKey, cancellationToken);
+        return stream is null ? null : new BlogMediaFile(stream, fallback?.ContentType ?? row.ContentType);
+    }
+
+    public async Task<BlogMediaFile?> OpenMediaVariantAsync(Guid mediaId, int generation, string preset, string format, CancellationToken cancellationToken)
+    {
+        if (!BlogMediaPresets.IsKnown(preset) || !BlogMediaFormats.IsKnown(format) || !await IsPublicAsync(mediaId, cancellationToken))
+        {
+            return null;
+        }
+
+        var row = await db.BlogMedia.AsNoTracking().Include(m => m.Variants).SingleAsync(m => m.Id == mediaId, cancellationToken);
+        if (row.Generation != generation || row.Variants.FirstOrDefault(v => v.Preset == preset && v.Format == format) is not { } variant)
+        {
+            return null;
+        }
+
+        var stream = await storage.OpenReadAsync(variant.StorageKey, cancellationToken);
+        return stream is null ? null : new BlogMediaFile(stream, variant.ContentType);
     }
 }

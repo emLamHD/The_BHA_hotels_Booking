@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 using TheBha.Application.Blog;
 using TheBha.Application.Website;
@@ -14,7 +15,8 @@ namespace TheBha.Infrastructure.Persistence;
 /// token, so two writers on one version cannot both win). The Staff actor is the verified session's, passed in; permission is decided
 /// before this runs.
 /// </summary>
-internal sealed partial class AdminBlogService(TheBhaDbContext db, IHeroMediaStorage storage, TimeProvider clock) : IAdminBlog
+internal sealed partial class AdminBlogService(
+    TheBhaDbContext db, IHeroMediaStorage storage, IBlogImagePipeline pipeline, TimeProvider clock, ILogger<AdminBlogService> logger) : IAdminBlog
 {
     private static readonly BlogProblem Stale = new(BlogErrorCodes.StaleVersion, "expectedVersion", "It was changed by someone else. Reload and try again.");
 
@@ -53,7 +55,7 @@ internal sealed partial class AdminBlogService(TheBhaDbContext db, IHeroMediaSto
             {
                 PostgresErrorCodes.UniqueViolation when constraint.Contains("Slug", StringComparison.Ordinal) =>
                     new BlogProblem(BlogErrorCodes.SlugTaken, "slug", "Another page already uses this slug."),
-                PostgresErrorCodes.UniqueViolation when constraint is "PK_BlogPosts" or "PK_BlogCategories" =>
+                PostgresErrorCodes.UniqueViolation when constraint is "PK_BlogPosts" or "PK_BlogCategories" or "PK_BlogMedia" =>
                     new BlogProblem(BlogErrorCodes.DuplicateId, "id", "This id is already used."),
                 PostgresErrorCodes.UniqueViolation => Stale,
                 // A deadlock or serialization failure rolled this transaction back whole; nothing changed, and the writer must look again.

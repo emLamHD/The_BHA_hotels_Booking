@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Mvc;
 using TheBha.Application.Blog;
 using TheBha.Domain.Blog;
@@ -13,7 +14,7 @@ namespace TheBha.Api.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/v1/website/blog")]
-public sealed class WebsiteBlogController(IWebsiteBlog blog) : ControllerBase
+public sealed partial class WebsiteBlogController(IWebsiteBlog blog) : ControllerBase
 {
     [HttpGet("posts")]
     [ProducesResponseType(typeof(PublicBlogPostListDto), StatusCodes.Status200OK)]
@@ -97,13 +98,36 @@ public sealed class WebsiteBlogController(IWebsiteBlog blog) : ControllerBase
         return Revalidated(section.ContentHash, resolved, section);
     }
 
-    /// <summary>A picture, only while a published article uses it; a short cache so unpublishing takes effect within minutes.</summary>
+    /// <summary>
+    /// The plain picture address (kept from CP01): the article-size fallback of a processed picture, the original of an older one. Only while a published article uses it;
+    /// the check runs on every request, before any byte, so a conditional request after an unpublish is a 404, not a 304.
+    /// </summary>
     [HttpGet("media/{id:guid}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> Media(Guid id, CancellationToken cancellationToken)
+    public async Task<IActionResult> Media(Guid id, CancellationToken cancellationToken) => ServePicture(await blog.OpenMediaAsync(id, cancellationToken));
+
+    /// <summary>
+    /// One published size at an address that names the picture, its generation, the preset and the format (<c>…/media/{id}/1/card.webp</c>): the bytes under an address
+    /// never change. The same publication gate and the same short cache as the plain address.
+    /// </summary>
+    [HttpGet("media/{id:guid}/{generation:int}/{file}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> MediaVariant(Guid id, int generation, string file, CancellationToken cancellationToken)
     {
-        var file = await blog.OpenMediaAsync(id, cancellationToken);
+        var name = VariantFile().Match(file);
+        return name.Success
+            ? ServePicture(await blog.OpenMediaVariantAsync(id, generation, name.Groups["preset"].Value, name.Groups["format"].Value, cancellationToken))
+            : NotFoundNoStore();
+    }
+
+    [GeneratedRegex("^(?<preset>thumb|card|article)\\.(?<format>webp|jpg|png)$")]
+    private static partial Regex VariantFile();
+
+    /// <summary>A picture is cached for 300 seconds at most (<c>public, max-age=300</c>), so an unpublished one can linger in a shared cache that long and no longer; there is no stale-while-revalidate.</summary>
+    private IActionResult ServePicture(BlogMediaFile? file)
+    {
         if (file is null)
         {
             return NotFoundNoStore();
