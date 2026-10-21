@@ -12,7 +12,7 @@ using TheBha.Infrastructure.Persistence;
 namespace TheBha.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(TheBhaDbContext))]
-    [Migration("20261021114418_AddBlogFoundation")]
+    [Migration("20261021120804_AddBlogFoundation")]
     partial class AddBlogFoundation
     {
         /// <inheritdoc />
@@ -475,10 +475,13 @@ namespace TheBha.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Locale", "Slug");
 
-                    b.HasIndex("TranslationId")
+                    b.HasIndex(new[] { "TranslationId" }, "UX_BlogPostSlugs_OneCurrent")
                         .IsUnique()
-                        .HasDatabaseName("UX_BlogPostSlugs_OneCurrent")
                         .HasFilter("\"State\" = 'Current'");
+
+                    b.HasIndex(new[] { "TranslationId" }, "UX_BlogPostSlugs_OneDraft")
+                        .IsUnique()
+                        .HasFilter("\"State\" = 'Draft'");
 
                     b.ToTable("BlogPostSlugs", (string)null);
                 });

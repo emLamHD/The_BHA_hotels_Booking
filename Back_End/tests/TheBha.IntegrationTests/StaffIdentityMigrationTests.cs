@@ -25,7 +25,7 @@ public sealed class StaffIdentityMigrationTests : IAsyncLifetime
     private const string V15Migration = "20261018044944_AddAdminCatalogContent";
     private const string V16Migration = "20261018154408_AddAdminCatalogCreateOperations";
     private const string V17Migration = "20261021083007_AddBookingPromotions";
-    private const string V18Migration = "20261021114418_AddBlogFoundation";
+    private const string V18Migration = "20261021120804_AddBlogFoundation";
     private static readonly Guid PropertyId = Guid.Parse("90000000-0000-0000-0000-000000000011");
     private static readonly Guid CustomerId = Guid.Parse("90000000-0000-0000-0000-000000000012");
 

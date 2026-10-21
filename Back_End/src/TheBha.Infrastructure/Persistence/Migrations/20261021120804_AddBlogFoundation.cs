@@ -531,6 +531,13 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                 filter: "\"State\" = 'Current'");
 
             migrationBuilder.CreateIndex(
+                name: "UX_BlogPostSlugs_OneDraft",
+                table: "BlogPostSlugs",
+                column: "TranslationId",
+                unique: true,
+                filter: "\"State\" = 'Draft'");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_BlogPostTranslations_Id_DraftRevisionId",
                 table: "BlogPostTranslations",
                 columns: new[] { "Id", "DraftRevisionId" });

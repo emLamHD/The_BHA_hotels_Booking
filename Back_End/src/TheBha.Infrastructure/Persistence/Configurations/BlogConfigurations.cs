@@ -167,8 +167,8 @@ internal sealed class BlogPostSlugConfiguration : IEntityTypeConfiguration<BlogP
         b.Property(x => x.Locale).HasMaxLength(35);
         b.Property(x => x.Slug).HasMaxLength(BlogLimits.Slug);
         b.Property(x => x.State).HasConversion<string>().HasMaxLength(10);
-        b.HasIndex(x => x.TranslationId).IsUnique().HasFilter("\"State\" = 'Draft'").HasDatabaseName("UX_BlogPostSlugs_OneDraft");
-        b.HasIndex(x => x.TranslationId).IsUnique().HasFilter("\"State\" = 'Current'").HasDatabaseName("UX_BlogPostSlugs_OneCurrent");
+        b.HasIndex(x => x.TranslationId, "UX_BlogPostSlugs_OneDraft").IsUnique().HasFilter("\"State\" = 'Draft'");
+        b.HasIndex(x => x.TranslationId, "UX_BlogPostSlugs_OneCurrent").IsUnique().HasFilter("\"State\" = 'Current'");
         b.HasOne<BlogPostTranslation>().WithMany().HasForeignKey(x => x.TranslationId).OnDelete(DeleteBehavior.Restrict);
     }
 }
