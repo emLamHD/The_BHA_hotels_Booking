@@ -59,7 +59,7 @@ export default function PinsDialog({ category, canEdit, languages, onClose }: { 
     onClose();
   };
 
-  const name = Object.values(category.translations)[0]?.name ?? "chuyên mục";
+  const name = languages.map((code) => category.translations[code]?.name).find(Boolean) ?? Object.values(category.translations)[0]?.name ?? "chuyên mục";
   return (
     <DialogShell title={`Ghim bài — ${name}`} onClose={close} busy={working} testId="pins-dialog" wide>
       {(pins.state.status === "loading" || order === null) && pins.state.status !== "error" && <LoadingPanel what="danh sách ghim" />}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getSchema } from "@tiptap/core";
-import { Node as PmModelNode } from "@tiptap/pm/model";
+import { DOMParser as PmDOMParser, Node as PmModelNode } from "@tiptap/pm/model";
 import { BODY_LIMITS, bodyToDoc, canonicalBody, docToBody, isPlain, isSafeHref, mediaIdsOf, type PmNode } from "./bodyModel";
 import { schemaExtensions } from "./editorSchema";
 
@@ -228,5 +228,40 @@ describe("the server's link and text rules, ported", () => {
     expect(isPlain("Đà Nẵng — 5★ “hay”")).toBe(true);
     expect(isPlain("a<b")).toBe(false);
     expect(isPlain("a\tb")).toBe(false);
+  });
+});
+
+describe("pasted HTML goes through the schema", () => {
+  const paste = (html: string) => {
+    const holder = document.createElement("div");
+    holder.innerHTML = html;
+    const doc = PmDOMParser.fromSchema(schema).parse(holder);
+    return docToBody(doc.toJSON() as PmNode);
+  };
+
+  it("keeps a safe link and drops an unsafe one, keeping its text", () => {
+    const safe = paste('<p>a <a href="https://example.com/x">ok</a> <a href="/blog">in</a></p>');
+    expect(safe.body.blocks[0]).toEqual({ type: "paragraph", inlines: [{ text: "a " }, { text: "ok", href: "https://example.com/x" }, { text: " " }, { text: "in", href: "/blog" }] });
+    for (const href of ["javascript:alert(1)", "data:text/html,x", "http://example.com", "//evil.example", "vbscript:x"]) {
+      const result = paste(`<p>see <a href="${href}">here</a></p>`);
+      expect(JSON.stringify(result.body), href).not.toContain("href");
+      expect(result.body.blocks[0]).toEqual({ type: "paragraph", inlines: [{ text: "see here" }] });
+    }
+  });
+
+  it("keeps no script, style, image, iframe, event handler or unknown tag", () => {
+    const result = paste('<p onclick="x()">hi<script>alert(1)</script><img src="x" onerror="alert(1)"><iframe src="https://e.example"></iframe><style>p{}</style><u>under</u></p><div class="x">block</div>');
+    const text = JSON.stringify(result.body);
+    expect(text).not.toMatch(/script|onerror|onclick|iframe|style|img/);
+    expect(result.body.blocks.every((b) => b.type === "paragraph")).toBe(true);
+  });
+
+  it("turns nested lists, a second paragraph in an item and a heading with bold into the allowed shapes", () => {
+    const result = paste("<ul><li><p>one</p><p>two</p><ul><li>nested</li></ul></li></ul><h2>Head <b>bold</b></h2><h1>Top</h1>");
+    for (const block of result.body.blocks) {
+      if (block.type === "heading") expect(block.text).not.toContain("<");
+      if (block.type === "list") block.items.forEach((item) => expect(item.every((run) => typeof run.text === "string")).toBe(true));
+    }
+    expect(() => PmModelNode.fromJSON(schema, PmDOMParser.fromSchema(schema).parse((() => { const d = document.createElement("div"); d.innerHTML = "<ul><li><p>one</p><p>two</p></li></ul>"; return d; })()).toJSON()).check()).not.toThrow();
   });
 });
