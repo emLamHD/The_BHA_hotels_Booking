@@ -4,7 +4,7 @@
  * input, locks Save, and moves the version only when the person says "keep mine".
  */
 import React from "react";
-import { cleanup, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -256,6 +256,24 @@ describe("F4 — a stale version is an explicit comparison", () => {
     expect(name().value).toBe("Của tôi");
     expect(screen.queryByTestId("media-conflict")).toBeNull();
     expect(write).toHaveBeenCalledTimes(1);
+  });
+
+  it("a late answer of an older reload cannot override the newer one", async () => {
+    await open();
+    write.mockResolvedValueOnce(stale as never);
+    await type(name(), "Của tôi");
+    await userEvent.click(saveButton());
+    await screen.findByTestId("write-refused");
+    const first = deferred<ReturnType<typeof ok>>();
+    read.mockReturnValueOnce(first.promise as never); // the first reload: its answer is held
+    read.mockResolvedValueOnce(ok(media({ displayName: "Bản mới hơn", version: 7 })) as never); // the second reload answers at once
+    await userEvent.click(screen.getByTestId("reload-latest"));
+    await userEvent.click(screen.getByTestId("reload-latest"));
+    expect(await screen.findByTestId("media-conflict")).toHaveTextContent(/phiên bản 7/);
+    await act(async () => { first.resolve(ok(media({ displayName: "Bản cũ hơn", version: 5 }))); }); // arrives last, but it is about an older read
+    expect(screen.getByTestId("media-conflict")).toHaveTextContent(/phiên bản 7/);
+    expect(screen.getByTestId("media-conflict")).not.toHaveTextContent("Bản cũ hơn");
+    expect(name().value).toBe("Của tôi");
   });
 
   it("an answer that arrives after the dialog is gone changes nothing and reports nothing", async () => {
