@@ -1,6 +1,6 @@
 # BHA-BLOG-001 — CP03 completion report
 
-- **IMPLEMENTATION:** PASS for CP03 (C2 fix + Admin Blog). **REVIEW:** `NOT_RUN` — only the Owner invokes it (below).
+- **IMPLEMENTATION:** PASS for CP03 (C2 fix + Admin Blog) and for its correction CP03-C1 (below). **REVIEW:** the original review of `9097726` was **RUN** by the Owner (one P2, quoted verbatim below); the review of the correction is **NOT_RUN** — only the Owner invokes it.
 - **Work item:** `BHA-BLOG-001-CP03`. CP04 (Customer) and CP05 (SEO) are **not** started.
 - **Roles:** `IMPLEMENTER: CLAUDE`, `REVIEWER: CODEX_READ_ONLY` (Owner only).
 - **Branch:** `feature/bha-blog-001-cp03-admin-blog` (did not exist; created in the single checkout with `git switch -c`). **BASE_SHA = START_HEAD:** `cde026daca8611c16982543dbca407e4b5de929b` = `origin/develop` after `git fetch --prune origin`; tree clean; `REQUIRED_ANCESTOR` `22affeb4…` is an ancestor. Two old Orca linked worktrees exist on disk (`dry-run-orca-*`): noted, not used or touched (`RULES.md` §5).
@@ -106,8 +106,42 @@ The throwaway PostgreSQL cluster (`pgdata`, port 54329) was **stopped**; its dat
 - The Admin dev server was used for the browser run, the production build was checked separately (`npm run build`).
 - Review is the Owner's step. No blocker.
 
-## Review (Owner invokes — not me)
+## Review of `9097726` (RUN by the Owner) — original, kept as received
+
+Command `/codex:review --base origin/develop`; target: branch diff against `origin/develop` (`cde026d`); head reviewed: `90977265b29bcf3e0b7e0d279026ff0d9a231e82`; result:
+
+> # Codex Review
+>
+> Target: branch diff against origin/develop
+>
+> The new preview endpoint throws for archived translations that have never been published and have no draft. This is a reachable translation state and should be handled without a server error.
+>
+> Review comment:
+>
+> - [P2] Handle archived translations without a published revision — /home/admin1/The_BHA_hotels_Booking/Back_End/src/TheBha.Infrastructure/Persistence/AdminBlogService.Preview.cs:31-31
+>   When a translation is archived before its first publication, `PublishedRevisionId` remains null; if it also has no draft, this null-forgiving `.Value` throws and the Staff preview request returns a 500 instead of a controlled response. Select a revision only when one exists and return an appropriate not-found/state result otherwise.
+
+The implementer did not touch the finding before the OC correction prompt `BHA-BLOG-001-CP03-C1`, as `CLAUDE.md` requires.
+
+## CP03-C1 — correction (same implementer, same branch, same Draft PR #128)
+
+- **START_HEAD:** `90977265b29bcf3e0b7e0d279026ff0d9a231e82` (= local = remote = PR head at the start; #128 OPEN, Draft, base `develop`). `origin/develop` = `cde026daca8611c16982543dbca407e4b5de929b` = `BASELINE_SHA`, unchanged. **FINAL_HEAD / CI:** in the hand-off message. Two old Orca worktrees noted, not touched. Graphify `NOT_APPLICABLE` (not inspected). `diagnosing-bugs` not invoked: the failure had a direct red→green loop; the one unrelated flake is described below. Advisor consulted before the plan was fixed and before the report.
+- **Root cause.** `GetPreviewAsync` selected `translation.DraftRevisionId ?? translation.PublishedRevisionId!.Value`; with both null the `.Value` throws.
+- **Reachability — stated as found, not as Codex worded it.** The schema allows an Archived translation with both pointers null (its checks only require a published pointer for `Published` / `Unpublished`). But every write that moves the two pointers runs in **one transaction** (create, save draft, publish, restore — a `ClearDraft()` is always followed in the same transaction by a new draft or a publish), `Archive()` changes **only the status** (it does not clear a draft), and no current API route commits the state. So it is reachable **at the persistence level**, not through the API or the UI as they are now. It was therefore built as a **persistence fixture**: the real API up to the archive, then one SQL change that mirrors what `ClearDraft()` would leave (the draft revision frozen, the draft pointer null). The database accepted it under its real constraints. It is **not** claimed as a reproduced UI/API sequence.
+- **Red → green (PostgreSQL, HTTP).** On `9097726` the fixture test got **HTTP 500** (`"An error occurred while processing your request."`). After the fix (`1e0ddd3`): **404** `application/problem+json`, `Cache-Control: no-store`, detail `The translation has no revision to preview.`; the service returns a controlled `NotFound` result. By the Blog's convention a `NotFound` carries the message only — the body has no `code` / `field` extension (`BlogResults.From` is shared by every Blog route and was not touched).
+- **Fix.** Nullable selection, guarded before anything is queried; the order is unchanged (saved draft, else the published revision); nothing else is ever chosen for the editor, nothing is created or changed; no broad catch, no default id. An Archived translation that still has a draft or a published revision is previewed as before.
+- **Regression outcomes (all green):** archived with its draft → previews the draft (`source: draft`, `status: Archived`); published then archived → previews the published revision (public still 404); published with a newer draft → the draft is preferred and the public keeps the old one; a successful preview writes nothing; the 404 writes nothing — `Version`, `UpdatedAtUtc`, both pointers, status and the `BlogAudits` row count are identical before and after, for Editor, Publisher and Both; anonymous → 401, no Blog permission → 403, unknown post → 404, unknown language → 400, other language → 404 (unchanged); pictures of a draft stay Staff-only (existing tests).
+- **Same root, found, NOT fixed (out of scope; OC decision).** `AdminBlogService.Posts.cs:76` in `ListPostsAsync` reads `revisions[t.PublishedRevisionId!.Value]` for a row with no draft. With one fixture row present the **posts list endpoint answers 500 for everyone** (observed in the browser run). It is not produced by the API either. No other `PublishedRevisionId!` / `.Value` dereference exists in the Blog services (grep).
+- **Admin.** On this 404 the preview dialog does not crash and draws no article (the data is rendered only when the load is ready and the post/language match); it shows the shared not-found text "Mục này không còn tồn tại trên máy chủ." with "Thử lại". That wording is generic (it says "no longer exists" about a translation that does exist) and Retry cannot help; per the prompt it was **not** changed (no stale or crashing UI), and is noted for OC. Tests added: the 404 path, an earlier preview not staying on screen, an answer for another post/language not drawn.
+- **Checks (this correction).** Backend Release build 0 errors; full suite on PostgreSQL 17.10 (`thebha_test`): **676 unit + 1295 integration, 0 failed** (CP03 had 1292; +3 new). Admin on the same head: lint exit 0; build exit 0; `npm test` **73 files / 2100 tests, 0 failed**. **One flake, not in the diff:** on the first full run `WebsiteAccessGate.test.tsx > 403 when me cannot be read …` failed once (`TypeError … 'onDenied'` of a null host; a jsdom "navigation" message); the same file passed 3 of 3 alone and the whole suite passed on the re-run. I did not diagnose it further (it is outside this correction); it is probably the "Admin flake" already noted in the CP02 report. `git diff --check origin/develop...HEAD` clean.
+- **Browser smoke at `1e0ddd3` (real Admin `next dev` HTTPS + real API + a rebuilt throwaway database, Chrome 153).** Real lifecycle: draft-only preview; the same post archived through the UI and previewed (still the draft); a post published through the API, archived through the UI and previewed (the published revision). Persistence fixture (made last — it breaks the posts list on that database): over HTTPS the preview answers 404 problem+json; in the real Admin the post page opens, the dialog shows the shared 404 text, no article is drawn, nothing is written; no unexpected console errors. **UI_LIVE for C1: PASS for these items. The fixture state is not a UI lifecycle reproduction.**
+- **What was NOT re-run.** The CP03 acceptance evidence above keeps its SHA labels exactly as written (items 1, 8, 10, 11, 13 and the five-page responsive sweep on `fa8acdc`/`00e65ff`; 2–7, 9 and the 390 px preview on `4eb1f3f`/`85bfa75`). C1 changes one guard in the preview service and tests; nothing in those flows is touched, so they were not repeated.
+- **C2 (unchanged conclusion).** `using var srgb` is correct ownership; SkiaSharp 4.153.1's `CreateSrgb()` returns a shared instance whose `Dispose` is a no-op. No memory leak was measured and none is claimed.
+- **Limits / NOT_RUN.** The review of C1 is `NOT_RUN`. The PostgreSQL 17.10 used here differs from CI's 18.3. The fault-injection claim of "UI 404 via a fault" was not needed: the fixture state was served by the real API. No blocker.
+
+## Review of the correction (Owner invokes — not me)
 
 READY_FOR_CODEX_REVIEW
 Owner must now invoke:
 /codex:review --base origin/develop
+
