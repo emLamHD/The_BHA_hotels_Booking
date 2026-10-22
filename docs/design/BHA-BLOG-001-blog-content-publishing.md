@@ -315,6 +315,10 @@ The post list row now carries `coverMediaId` (the cover of the revision it shows
 - **A queue belongs to its page (C6).** Leaving the page stops what is waiting and aborts what is on the wire; the aborted picture is still "unconfirmed" (the server may have it) and nothing is retried, deleted or announced to a page that is gone. The client ids die with the page, so such a picture is found in the library, not reconciled; the host's write slot is given back when the aborted request ends.
 - **The focal point is a point of the picture (C6).** The frame is exactly as large as the picture and the pointer is measured against the picture itself; a drag is not cut short by the browser's own image drag.
 - **Navigation after a create uses the language that was created (C6).** The screen leaves a new post for `?locale=<the form's language>` - never for a default taken from a query that may be absent.
+- **Public reads reach the API in proxy mode (C7).** The editor reads the active languages (`/api/v1/website/config`) and the active Properties (`/api/v1/properties`) from the public API, uncredentialed. In the same-origin proxy deployment the Admin forwards exactly those two paths, besides `/api/admin/v1/*`; nothing else of `/api/v1`.
+- **Languages are the Blog's keys (C7).** The configuration's canonical `en-US` is `en-us` to the Blog (`LanguageTag.TryNormalize`: trim, shape check, case-fold). The conversion is done once, where the configuration is read (and on the `?locale` query); display names, order and the default flag are untouched, and a tag outside the shape is left as it is.
+- **A gap cursor selects no block (C7).** Between and after the atom blocks the cursor is a gap: inserting puts the block at the gap; moving and deleting need a selected block and are unavailable there.
+- **A page past the end is recovered (C7).** When the media total shrinks and the answer for the shown page is empty with a smaller total, the last page that exists is read; the empty-library message belongs to a total of 0 only.
 
 ### 10.5 Pictures
 
