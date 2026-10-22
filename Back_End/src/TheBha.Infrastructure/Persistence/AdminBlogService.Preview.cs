@@ -33,7 +33,9 @@ internal sealed partial class AdminBlogService
         var chosen = translation.DraftRevisionId ?? translation.PublishedRevisionId;
         if (chosen is not { } revisionId)
         {
-            return Fail<BlogPreviewDto>(new BlogProblem(BlogErrorCodes.NotFound, "revision", "The translation has no revision to preview."));
+            // `BlogResults.From` (shared by every Blog route) answers a NotFound with the message only; this one case also names itself, so the Admin can tell
+            // "the translation has nothing to show" from "no such post or translation" without comparing words.
+            return WebsiteMutationResult<BlogPreviewDto>.NotFound("The translation has no revision to preview.") with { Code = BlogErrorCodes.NotFound, Field = "revision" };
         }
 
         var revision = await db.BlogPostRevisions.AsNoTracking().Include(r => r.Categories).SingleAsync(r => r.Id == revisionId, cancellationToken);

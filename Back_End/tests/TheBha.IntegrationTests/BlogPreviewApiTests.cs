@@ -256,6 +256,9 @@ public sealed class BlogPreviewApiTests(PostgreSqlWebApplicationFactory factory)
             var problem = await JsonAsync(response);
             Assert.Equal(404, problem.GetProperty("status").GetInt32());
             Assert.Contains("no revision", problem.GetProperty("detail").GetString());
+            // C2/O2: a discriminator the Admin can read without comparing words; a missing translation or post stays a plain 404.
+            Assert.Equal("blog.not-found", problem.GetProperty("code").GetString());
+            Assert.Equal("revision", problem.GetProperty("field").GetString());
         }
 
         // The service itself answers with a controlled result rather than throwing.
@@ -275,7 +278,8 @@ public sealed class BlogPreviewApiTests(PostgreSqlWebApplicationFactory factory)
         Assert.Equal(HttpStatusCode.Forbidden, (await SendAsync(host, AdminGet(Url(id, "vi"), host.Cookie(Desk)))).StatusCode);
         var customer = await CustomerLoginAsync(host.Host, host.Client);
         Assert.Equal(HttpStatusCode.Unauthorized, (await SendAsync(host, AdminGet(Url(id, "vi"), customer))).StatusCode); // a customer session is not a Staff session
-        await AssertStatusAsync(HttpStatusCode.NotFound, SendAsync(host, AdminGet(Url(Guid.NewGuid(), "vi"), host.Cookie(Editor))));
+        var unknownPost = await JsonAsync(await AssertStatusAsync(HttpStatusCode.NotFound, SendAsync(host, AdminGet(Url(Guid.NewGuid(), "vi"), host.Cookie(Editor)))));
+        Assert.False(unknownPost.TryGetProperty("field", out _)); // not the "no revision" case
         await AssertStatusAsync(HttpStatusCode.BadRequest, SendAsync(host, AdminGet(Url(id, "xx"), host.Cookie(Editor))));
     }
 

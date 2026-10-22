@@ -51,11 +51,20 @@ internal sealed partial class AdminBlogService
         var total = await postIds.CountAsync(cancellationToken);
         var pageSize = Math.Clamp(query.PageSize, 1, 100);
         var page = Math.Max(query.Page, 1);
+
+        // (page - 1) * pageSize wraps in 32 bits for a large page and PostgreSQL refuses a negative OFFSET: worked out in 64 bits, and a page that starts at or
+        // past the end is an empty page with the real total - no query for rows, no clamping to another page, no swallowed error.
+        var offset = (long)(page - 1) * pageSize;
+        if (offset >= total)
+        {
+            return WebsiteMutationResult<BlogPostListDto>.Success(new BlogPostListDto([], page, pageSize, total));
+        }
+
         var ids = await db.BlogPosts.AsNoTracking()
             .Where(post => postIds.Contains(post.Id))
             .OrderByDescending(post => db.BlogPostTranslations.Where(t => t.PostId == post.Id).Max(t => t.UpdatedAtUtc))
             .ThenBy(post => post.Id)
-            .Skip((page - 1) * pageSize).Take(pageSize)
+            .Skip((int)offset).Take(pageSize)
             .Select(post => post.Id)
             .ToListAsync(cancellationToken);
 
@@ -73,9 +82,13 @@ internal sealed partial class AdminBlogService
                 own.Max(t => t.UpdatedAtUtc),
                 own.Select(t =>
                 {
-                    var shown = t.DraftRevisionId is { } draft ? revisions[draft] : revisions[t.PublishedRevisionId!.Value];
+                    // The saved draft, else the published revision. A translation with neither (the schema allows it, no API route commits it) is still a row: its
+                    // status, version and date, with no text and no cover - never dropped from the page or the total, never another revision chosen for it.
+                    var shownId = t.DraftRevisionId ?? t.PublishedRevisionId;
+                    var shown = shownId is { } revisionId ? revisions[revisionId] : null;
                     return new BlogTranslationRowDto(
-                        t.Locale, t.Status.ToString(), t.Version, shown.Title, shown.Slug, t.DraftRevisionId is not null, t.UpdatedAtUtc, Staff(emails, t.UpdatedByStaffId), shown.CoverMediaId);
+                        t.Locale, t.Status.ToString(), t.Version, shown?.Title ?? string.Empty, shown?.Slug ?? string.Empty, t.DraftRevisionId is not null, t.UpdatedAtUtc,
+                        Staff(emails, t.UpdatedByStaffId), shown?.CoverMediaId);
                 }).ToList());
         }).ToList();
         return WebsiteMutationResult<BlogPostListDto>.Success(new BlogPostListDto(items, page, pageSize, total));
