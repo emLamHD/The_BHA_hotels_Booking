@@ -273,6 +273,8 @@ public sealed class BlogPreviewApiTests(PostgreSqlWebApplicationFactory factory)
         // The rest of the contract is as before: no permission, no preview; an unknown post or language answers as it did.
         Assert.Equal(HttpStatusCode.Unauthorized, (await SendAsync(host, AdminGet(Url(id, "vi"), null))).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await SendAsync(host, AdminGet(Url(id, "vi"), host.Cookie(Desk)))).StatusCode);
+        var customer = await CustomerLoginAsync(host.Host, host.Client);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await SendAsync(host, AdminGet(Url(id, "vi"), customer))).StatusCode); // a customer session is not a Staff session
         await AssertStatusAsync(HttpStatusCode.NotFound, SendAsync(host, AdminGet(Url(Guid.NewGuid(), "vi"), host.Cookie(Editor))));
         await AssertStatusAsync(HttpStatusCode.BadRequest, SendAsync(host, AdminGet(Url(id, "xx"), host.Cookie(Editor))));
     }
