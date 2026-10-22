@@ -97,6 +97,12 @@ describe("the focal point is measured against the picture", () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
+  it("the browser's own drag of the picture is cancelled, so a pointer drag is not interrupted by it", async () => {
+    await open();
+    const image = await screen.findByTestId("focal-image");
+    expect(fireEvent.dragStart(image)).toBe(false); // false: default prevented
+  });
+
   it("the arrow keys still move the point by 0.01, and by 0.1 with Shift", async () => {
     const onChange = await open();
     await waitFor(() => expect(screen.getByTestId("focal-image")).toBeInTheDocument());

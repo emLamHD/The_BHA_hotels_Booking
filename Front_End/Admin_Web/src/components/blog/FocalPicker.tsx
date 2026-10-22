@@ -37,6 +37,8 @@ export default function FocalPicker({ mediaId, x, y, onChange, disabled }: { med
         aria-valuenow={Math.round(x * 100)}
         aria-disabled={disabled}
         className={`relative inline-block self-start max-w-full select-none overflow-hidden rounded-lg border border-gray-300 dark:border-gray-700 ${disabled ? "" : "cursor-crosshair"}`}
+        // Without this the browser starts dragging the <img> itself on the first move, which cancels the pointer capture: a drag would move the point once.
+        onDragStart={(e) => e.preventDefault()}
         onPointerDown={(e) => { if (disabled) return; (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId); set(e.clientX, e.clientY); }}
         onPointerMove={(e) => { if (!disabled && e.buttons === 1) set(e.clientX, e.clientY); }}
         onKeyDown={(e) => {
