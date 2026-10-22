@@ -4,17 +4,30 @@
  * BHA-BLOG-001-CP03: the pinned posts of one category. The whole list is saved at once against the category's version. A pin is only effective while the
  * post has a published revision in that category (the server reports `effective`); a new pin must be such a post. Order by drag and drop or by the up/down
  * buttons (the buttons are the keyboard way). It does not add a site-wide "featured" or a separate home list.
+ *
+ * The posts offered for pinning are read from the server a page at a time, with a search (`q`): a category may hold far more than one page, and a post on any
+ * page can be found and pinned. What has been arranged lives apart from the page being looked at, so paging, searching, a failed page or a late answer for an
+ * earlier page cannot change it. The list `listPosts` returns matches a post when ANY of its translations (draft or published) is in the category, so a few
+ * offered posts can still be refused by the server (`blog.pin-not-published`); that refusal is shown as it is.
  */
 
 import React, { useMemo, useState } from "react";
-import { getPins, listPosts, savePins, type BlogCategory } from "@/lib/api/blog";
+import { getPins, listPosts, savePins, type BlogCategory, type BlogPostRow } from "@/lib/api/blog";
 import { useWebsiteList, useWriteAction } from "@/components/website/useWebsiteData";
 import { ActionButton, Banner, DialogActions, DialogShell, ErrorPanel, LoadingPanel } from "@/components/website/WebsiteUi";
 import BlogWriteFeedback from "./BlogWriteFeedback";
 
+const CANDIDATE_PAGE = 20;
+const MAX_PINS = 50;
+
 export default function PinsDialog({ category, canEdit, languages, onClose }: { category: BlogCategory; canEdit: boolean; languages: string[]; onClose: () => void }) {
   const pins = useWebsiteList((signal) => getPins(category.id, signal), [category.id]);
-  const posts = useWebsiteList((signal) => listPosts({ categoryId: category.id, status: "Published", page: 1, pageSize: 100 }, signal), [category.id]);
+  const [typed, setTyped] = useState("");
+  const [q, setQ] = useState("");
+  const [page, setPage] = useState(1);
+  /** Titles of posts picked from a page that is no longer on screen. */
+  const [picked, setPicked] = useState<Map<string, string>>(new Map());
+  const posts = useWebsiteList((signal) => listPosts({ categoryId: category.id, status: "Published", q: q || undefined, page, pageSize: CANDIDATE_PAGE }, signal), [category.id, q, page]);
   const write = useWriteAction();
   const [edited, setOrder] = useState<string[] | null>(null);
   const [dragging, setDragging] = useState<number | null>(null);
@@ -29,13 +42,22 @@ export default function PinsDialog({ category, canEdit, languages, onClose }: { 
     const map = new Map<string, string>();
     for (const pin of server?.pins ?? []) map.set(pin.postId, languages.map((l) => pin.titles[l]).find(Boolean) ?? Object.values(pin.titles)[0] ?? pin.postId);
     if (posts.state.status === "ready") for (const row of posts.state.data.items) if (!map.has(row.id)) map.set(row.id, languages.map((l) => row.translations.find((t) => t.locale === l)?.title).find(Boolean) ?? row.translations[0]?.title ?? row.id);
+    for (const [postId, title] of picked) if (!map.has(postId)) map.set(postId, title);
     return map;
-  }, [server, posts.state, languages]);
+  }, [server, posts.state, languages, picked]);
 
   const effective = new Map((server?.pins ?? []).map((p) => [p.postId, p.effective]));
   const working = write.status.phase === "pending";
   const dirty = edited !== null && JSON.stringify(edited) !== JSON.stringify(serverOrder);
   const candidates = posts.state.status === "ready" ? posts.state.data.items.filter((row) => !order?.includes(row.id)) : [];
+  const total = posts.state.status === "ready" ? posts.state.data.total : 0;
+  const pages = Math.max(1, Math.ceil(total / CANDIDATE_PAGE));
+
+  const add = (row: BlogPostRow) => {
+    if (!order || order.includes(row.id) || order.length >= MAX_PINS) return;
+    setPicked((current) => new Map(current).set(row.id, languages.map((l) => row.translations.find((t) => t.locale === l)?.title).find(Boolean) ?? row.translations[0]?.title ?? row.id));
+    setOrder([...order, row.id]);
+  };
 
   const move = (from: number, to: number) => {
     if (!order || to < 0 || to >= order.length || from === to) return;
@@ -88,14 +110,33 @@ export default function PinsDialog({ category, canEdit, languages, onClose }: { 
             </ol>
           )}
           {canEdit && (
-            <div>
+            <section aria-label="Bài có thể ghim" data-testid="pin-candidates">
               <h3 className="mb-1 text-sm font-medium text-gray-800 dark:text-white/90">Bài đã xuất bản trong chuyên mục (chọn để ghim)</h3>
+              <form className="mb-2 flex flex-wrap items-center gap-2" role="search" onSubmit={(e) => { e.preventDefault(); setPage(1); setQ(typed.trim()); }}>
+                <input type="search" aria-label="Tìm bài để ghim" placeholder="Tiêu đề hoặc slug" value={typed} onChange={(e) => setTyped(e.target.value)} className="h-9 w-56 rounded-lg border border-gray-300 bg-transparent px-3 text-sm dark:border-gray-700 dark:text-white/90" />
+                <button type="submit" className="h-9 rounded-lg border border-gray-300 px-3 text-sm dark:border-gray-700">Tìm</button>
+                {q && <button type="button" className="h-9 rounded-lg border border-gray-300 px-3 text-sm dark:border-gray-700" onClick={() => { setTyped(""); setQ(""); setPage(1); }}>Xoá tìm kiếm</button>}
+              </form>
               {posts.state.status === "loading" && <p className="text-sm text-gray-500">Đang tải…</p>}
               {posts.state.status === "error" && <ErrorPanel message={posts.state.message} onRetry={() => void posts.reload()} />}
-              {posts.state.status === "ready" && (candidates.length === 0 ? <p className="text-sm text-gray-500">Không còn bài nào để ghim.</p> : (
-                <ul className="flex flex-wrap gap-2">{candidates.map((row) => <li key={row.id}><button type="button" disabled={working || order.length >= 50} onClick={() => setOrder([...order, row.id])} className="rounded-lg border border-gray-300 px-3 py-1 text-sm hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:hover:bg-white/5">+ {titles.get(row.id)}</button></li>)}</ul>
-              ))}
-            </div>
+              {posts.state.status === "ready" && (
+                <>
+                  <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">{total} bài{q ? ` khớp “${q}”` : " đã xuất bản trong chuyên mục"} · Trang {page} / {pages}</p>
+                  {order.length >= MAX_PINS && <p className="mb-2 text-xs text-warning-700 dark:text-warning-300">Đã ghim tối đa {MAX_PINS} bài; bỏ ghim một bài để thêm bài khác.</p>}
+                  {candidates.length === 0 ? (
+                    <p className="text-sm text-gray-500">
+                      {total === 0 ? "Không có bài nào khớp." : posts.state.data.items.length === 0 ? `Trang này không có bài nào (tổng ${total} bài); dùng nút chuyển trang.` : "Mọi bài ở trang này đã được ghim; xem các trang khác."}
+                    </p>
+                  ) : (
+                    <ul className="flex flex-wrap gap-2">{candidates.map((row) => <li key={row.id}><button type="button" disabled={working || order.length >= MAX_PINS} onClick={() => add(row)} className="rounded-lg border border-gray-300 px-3 py-1 text-sm hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:hover:bg-white/5">+ {titles.get(row.id)}</button></li>)}</ul>
+                  )}
+                </>
+              )}
+              <nav className="mt-2 flex items-center gap-2" aria-label="Phân trang bài có thể ghim">
+                <button type="button" className="rounded-lg border border-gray-300 px-3 py-1 text-sm disabled:opacity-50 dark:border-gray-700" disabled={page <= 1} onClick={() => setPage(page - 1)}>Trang trước</button>
+                <button type="button" className="rounded-lg border border-gray-300 px-3 py-1 text-sm disabled:opacity-50 dark:border-gray-700" disabled={posts.state.status === "ready" ? page >= pages : false} onClick={() => setPage(page + 1)}>Trang sau</button>
+              </nav>
+            </section>
           )}
           {!canEdit && <Banner tone="info">Chỉ tài khoản có quyền xuất bản Blog mới đổi được ghim.</Banner>}
           {note && <Banner tone="success" testId="pins-note" onDismiss={() => setNote(null)}>{note}</Banner>}
