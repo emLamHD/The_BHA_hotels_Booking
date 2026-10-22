@@ -45,6 +45,8 @@ interface Pending {
   snapshot: string;
   /** A restore: the revision that was asked for, fixed when it was sent (the history list or the form may have moved on since). */
   revisionId?: string;
+  /** The form as it was when this was sent: input that differs from it when the answer arrives was typed after, and is never replaced by that answer. */
+  live: string;
 }
 
 const FIELD_FOCUS: Record<string, string> = { title: "post-title", slug: "post-slug", summary: "post-summary", authorName: "post-author", coverAlt: "post-cover-alt", cover: "post-cover-pick", og: "post-og-pick", metaTitle: "post-meta-title", metaDescription: "post-meta-description", body: "body-editor" };
@@ -182,7 +184,7 @@ export default function TranslationForm({
     async (kind: Kind, expectedVersion: number, fn: () => Promise<WebsiteResult<BlogPost>>, extra: { basis?: string; revisionId?: string } = {}): Promise<BlogPost | null> => {
       // The version is the one this very request carries — not the one of the render that built the callback (a publish after a save carries the save's).
       // `basis` is what the request is judged against after a lost answer: for a publish after a save, the copy the save returned.
-      pending.current = { kind, expectedVersion, snapshot: extra.basis ?? snapshot, revisionId: extra.revisionId };
+      pending.current = { kind, expectedVersion, snapshot: extra.basis ?? snapshot, revisionId: extra.revisionId, live: liveRef.current };
       setNote(null);
       const result = await write.run(fn);
       return result?.kind === "ok" ? result.data : null;
@@ -302,7 +304,7 @@ export default function TranslationForm({
       : op.kind === "unarchive" ? latest.status !== "Archived"
       // A restore is the requested revision restored and nothing written since: the draft is a Restore of THAT revision and the version is exactly one on (a
       // restore bumps it once). Any other version, or another revision, or an edit made after it, is someone else's write — shown, never taken for ours.
-      : op.kind === "restore" ? latest.draft?.origin === "Restore" && latest.draft.restoredFromRevisionId === op.revisionId && latest.version === op.expectedVersion + 1
+      : op.kind === "restore" ? latest.draft?.origin === "Restore" && latest.draft.restoredFromRevisionId === op.revisionId && latest.version === op.expectedVersion + 1 && liveRef.current === op.live
       : true;
     if (matches) {
       write.reset();
@@ -314,7 +316,10 @@ export default function TranslationForm({
     } else {
       setConflict({ latest, post: result.data });
       write.reset();
-      setNote("Máy chủ đã thay đổi sau thao tác của bạn (có thể do người khác). Dữ liệu của bạn được giữ; hãy so sánh bên dưới.");
+      const typedSince = op.kind === "restore" && latest.draft?.origin === "Restore" && latest.draft.restoredFromRevisionId === op.revisionId && latest.version === op.expectedVersion + 1;
+      setNote(typedSince
+        ? "Máy chủ đã khôi phục đúng bản được yêu cầu, nhưng bạn đã nhập thêm sau khi xác nhận nên biểu mẫu chưa bị thay. Xem so sánh bên dưới rồi chọn."
+        : "Máy chủ đã thay đổi sau thao tác của bạn (có thể do người khác). Dữ liệu của bạn được giữ; hãy so sánh bên dưới.");
     }
   }, [id, locale, write, adopt, onPost, leave]);
 
@@ -339,8 +344,19 @@ export default function TranslationForm({
     async (revision: BlogRevisionSummary) => {
       const target = postId ?? createdRef.current?.id ?? null;
       if (target === null) return;
+      const atSend = liveRef.current;
       const next = await send("restore", version, () => restoreRevision(target, locale, revision.id, version), { revisionId: revision.id });
       if (!next) return;
+      const restored = translationOf(next, locale);
+      if (restored && liveRef.current !== atSend) {
+        // Typed after the person confirmed: the restored draft does not replace it. Both are shown; nothing is adopted or sent until they choose.
+        onPost(next);
+        setHistoryToken((n) => n + 1);
+        setConflict({ latest: restored, post: next });
+        setNote(`Đã khôi phục bản ${revision.number} thành bản nháp trên máy chủ, nhưng bạn đã nhập thêm sau khi xác nhận nên biểu mẫu chưa bị thay. Xem so sánh bên dưới rồi chọn.`);
+        return;
+      }
+
       adopt(next, { replaceForm: true });
       onPost(next);
       setNote(`Đã khôi phục bản ${revision.number} thành bản nháp. Chưa xuất bản.`);

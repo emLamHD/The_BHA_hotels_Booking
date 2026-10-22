@@ -577,3 +577,83 @@ describe("C3 F2 — restoring a revision whose answer was lost", () => {
     expect(screen.queryByTestId("post-history")).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------- C4 F1: input typed while a write is on its way
+
+describe("C4 F1 — the editor body typed while the first create is on its way", () => {
+  it("is kept and unsaved: the screen does not leave, and the next Save writes it to the created post at the version the create returned", async () => {
+    const { onCreated } = mount(EDITOR, { postId: null, initial: undefined });
+    const gate = deferred<ReturnType<typeof ok>>();
+    create.mockReturnValueOnce(gate.promise as never);
+    await userEvent.type(await title(), "Bài mới");
+    await userEvent.click(button("post-save"));
+    await screen.findByTestId("write-pending");
+    await userEvent.click(screen.getByTestId("body-stub")); // the editor reports a changed body while the create is pending
+    gate.resolve(ok(post(translation({ version: 1, draft: revision({ title: "Bài mới", slug: "bai-moi", summary: "", body: { schemaVersion: 1, blocks: [] } }) }), CLIENT_ID)) as never);
+    await waitFor(() => expect(screen.queryByTestId("write-pending")).toBeNull());
+    expect(onCreated).not.toHaveBeenCalled();
+    expect(screen.getByTestId("post-dirty")).toBeInTheDocument();
+    save.mockResolvedValueOnce(ok(post(translation({ version: 2, draft: revision({ title: "Bài mới", slug: "bai-moi", summary: "", body: { schemaVersion: 1, blocks: [{ type: "paragraph", inlines: [{ text: "mới" }] }] } }) }), CLIENT_ID)) as never);
+    await userEvent.click(button("post-save"));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0].slice(0, 3)).toEqual([CLIENT_ID, "vi", 1]);
+    expect(save.mock.calls[0][3]).toMatchObject({ body: { schemaVersion: 1, blocks: [{ type: "paragraph", inlines: [{ text: "mới" }] }] } });
+    expect(create).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe("C4 F1 (related) — a restore whose answer arrives after the person typed on", () => {
+  const A = "a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1";
+  const current = revision({ id: "cccccccc-0000-4000-8000-000000000001", number: 4, title: "Bản đang sửa", slug: "ban-dang-sua" });
+  beforeEach(() => {
+    history.mockResolvedValue(ok([{ id: A, number: 2, state: "Frozen", origin: "Edit", title: "Bản cũ 2", slug: "ban-cu-2", createdAtUtc: "2026-10-20T08:00:00Z", createdBy: null, publishedAtUtc: null, publishedBy: null, isDraft: false, isPublished: false }]) as never);
+  });
+  afterEach(() => {
+    history.mockImplementation((() => Promise.resolve({ kind: "ok", data: [] })) as never);
+  });
+  const restoredPost = () => ok(post(translation({ version: 7, draft: revision({ id: "dddddddd-0000-4000-8000-000000000009", number: 5, origin: "Restore", restoredFromRevisionId: A, title: "Bản cũ 2", slug: "ban-cu-2" }) })));
+  async function startRestore() {
+    mount(BOTH, { initial: translation({ version: 6, draft: current }) });
+    const gate = deferred<ReturnType<typeof ok>>();
+    restore.mockReturnValueOnce(gate.promise as never);
+    const rows = await screen.findAllByTestId("history-item");
+    await userEvent.click(within(rows[0]).getByRole("button", { name: /Khôi phục thành nháp/ }));
+    await userEvent.click(button("post-confirm-yes"));
+    await screen.findByTestId("write-pending");
+    return gate;
+  }
+
+  it("does not replace what was typed after the confirmation: a comparison opens, the input stays, nothing is sent", async () => {
+    const gate = await startRestore();
+    await userEvent.type(await title(), " + gõ thêm");
+    gate.resolve(restoredPost() as never);
+    expect(await screen.findByTestId("conflict-panel")).toHaveTextContent("Bản cũ 2");
+    expect((await title()).value).toBe("Bản đang sửa + gõ thêm");
+    expect(restore).toHaveBeenCalledTimes(1);
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("a lost answer that the server did apply, with input typed since, is a comparison too (the right revision was restored, the form is not replaced)", async () => {
+    mount(BOTH, { initial: translation({ version: 6, draft: current }) });
+    restore.mockResolvedValueOnce({ kind: "unverified", message: "Mất kết nối." } as never);
+    const rows = await screen.findAllByTestId("history-item");
+    await userEvent.click(within(rows[0]).getByRole("button", { name: /Khôi phục thành nháp/ }));
+    await userEvent.click(button("post-confirm-yes"));
+    await screen.findByTestId("write-unverified");
+    await userEvent.type(await title(), " + gõ thêm");
+    read.mockResolvedValue(restoredPost() as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    expect(await screen.findByTestId("conflict-panel")).toHaveTextContent("Bản cũ 2");
+    expect(screen.getByTestId("post-note")).toHaveTextContent(/đã khôi phục đúng bản được yêu cầu/);
+    expect((await title()).value).toBe("Bản đang sửa + gõ thêm");
+    expect(restore).toHaveBeenCalledTimes(1);
+  });
+
+  it("with nothing typed after the confirmation it replaces the draft as before", async () => {
+    const gate = await startRestore();
+    gate.resolve(restoredPost() as never);
+    await waitFor(() => expect((screen.getByTestId("post-title") as HTMLInputElement).value).toBe("Bản cũ 2"));
+    expect(screen.queryByTestId("conflict-panel")).toBeNull();
+  });
+});
