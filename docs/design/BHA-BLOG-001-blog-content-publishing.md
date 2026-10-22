@@ -319,6 +319,9 @@ The post list row now carries `coverMediaId` (the cover of the revision it shows
 - **Languages are the Blog's keys (C7).** The configuration's canonical `en-US` is `en-us` to the Blog (`LanguageTag.TryNormalize`: trim, shape check, case-fold). The conversion is done once, where the configuration is read (and on the `?locale` query); display names, order and the default flag are untouched, and a tag outside the shape is left as it is.
 - **A gap cursor selects no block (C7).** Between and after the atom blocks the cursor is a gap: inserting puts the block at the gap; moving and deleting need a selected block and are unavailable there.
 - **A page past the end is recovered (C7).** When the media total shrinks and the answer for the shown page is empty with a smaller total, the last page that exists is read; the empty-library message belongs to a total of 0 only.
+- **A move keeps its block selected (C8).** Moving a block with the toolbar leaves the selection on the moved block (a node selection stays a node selection, a caret or range keeps its offsets), so repeated clicks move the same block; one move is one undo step.
+- **A comparison shows the live form (C8).** The local side of a "load latest" comparison (categories, as for pictures and settings) is the form as it is now, not a copy taken when the read started or when the comparison opened; what is shown, what is compared and what "keep mine" writes are the same values. An older read's answer is dropped when the dialog, the category or the operation has changed.
+- **A lost media save is judged in the server's form (C8).** The server trims the five text fields (.NET `Trim`) and rounds the focal point to 4 decimals; the read-back is compared with that canonical form of the immutable snapshot (`serverTrim`, not JavaScript's `trim`), while input typed after the snapshot is judged against the raw snapshot and the form is never rewritten.
 
 ### 10.5 Pictures
 
