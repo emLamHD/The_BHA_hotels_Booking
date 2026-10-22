@@ -123,7 +123,8 @@ export default function SettingsScreen() {
     } else if (fresh.version === snap.expectedVersion) {
       setNote("Máy chủ chưa có thay đổi của bạn. Bạn có thể lưu lại.");
     } else {
-      setConflict({ fresh, mine: snap.choice, mineVersion: snap.expectedVersion, askUseServer: false });
+      // `mine` is what the select shows NOW (the person may have changed it while the answer was missing); the snapshot only decided what happened to the send.
+      setConflict({ fresh, mine: current, mineVersion: snap.expectedVersion, askUseServer: false });
       setNote(`Cấu hình đã đổi trên máy chủ (phiên bản ${fresh.version}) thành một giá trị khác lựa chọn đã gửi. Xem so sánh bên dưới; chưa có gì được gửi.`);
     }
   };

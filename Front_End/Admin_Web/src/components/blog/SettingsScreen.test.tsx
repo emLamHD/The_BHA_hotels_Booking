@@ -238,6 +238,23 @@ describe("F3 — an answer that never came", () => {
     expect(saveButton()).toBeDisabled();
     expect(write).toHaveBeenCalledTimes(1);
   });
+
+  it("the comparison shows, and 'keep mine' keeps, the choice on screen NOW — also when it changed after the send", async () => {
+    await lose(); // sent B at version 3
+    await userEvent.selectOptions(select(), "");
+    read.mockResolvedValueOnce(ok(settings(C, 5)) as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    const panel = await screen.findByTestId("settings-conflict");
+    expect(panel).toHaveTextContent("Không chọn"); // mine, as the select shows it
+    expect(panel).not.toHaveTextContent("Điểm đến"); // not the value that was sent
+    await userEvent.click(btn("settings-conflict-keep"));
+    expect(select().value).toBe("");
+    expect(saveButton()).not.toBeDisabled();
+    write.mockResolvedValueOnce(ok(settings(null, 6)) as never);
+    await userEvent.click(saveButton());
+    await waitFor(() => expect(write).toHaveBeenCalledTimes(2));
+    expect(write.mock.calls[1]).toEqual([5, null]);
+  });
 });
 
 describe("permissions", () => {
