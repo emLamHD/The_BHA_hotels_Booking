@@ -138,9 +138,24 @@ public interface IHeroMediaStorage
 
     Task<bool> ExistsAsync(string key, CancellationToken cancellationToken);
 
-    /// <summary>Removes a file this request just wrote and no row refers to (the insert after it failed). Never used for a recorded picture.</summary>
+    /// <summary>Removes a file no row refers to: one this request just wrote (the insert after it failed), or — Blog only, CP02 — the files of a picture whose row was deleted in the transaction that just committed. Hero and Promotion never call it for a recorded picture.</summary>
     Task DeleteAsync(string key, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// BHA-BLOG-001-CP02: the files this storage holds under <paramref name="prefix"/> (<c>blog/</c>), with when each was last written, for the operator command that finds
+    /// files no row refers to. Files that are not ours are never listed. A storage that cannot list lists nothing.
+    /// </summary>
+    IAsyncEnumerable<StoredFile> ListAsync(string prefix, CancellationToken cancellationToken) => NoFiles();
+
+    private static async IAsyncEnumerable<StoredFile> NoFiles()
+    {
+        await Task.CompletedTask;
+        yield break;
+    }
 }
+
+/// <summary>A file in storage. <c>IsTemporary</c> is a half-written file left by a process that was killed mid-write; it is never a recorded picture.</summary>
+public sealed record StoredFile(string Key, DateTimeOffset LastWriteUtc, bool IsTemporary);
 
 public sealed record HeroProblem(string Code, string Field, string Message);
 

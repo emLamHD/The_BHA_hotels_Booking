@@ -32,6 +32,9 @@ public static class BlogErrorCodes
     public const string InvalidState = "blog.invalid-state";
     public const string NothingToPublish = "blog.nothing-to-publish";
     public const string StorageNotConfigured = "blog.storage-not-configured";
+    public const string MediaInUse = "blog.media-in-use";
+    public const string MediaBatchInvalid = "blog.media-batch-invalid";
+    public const string MediaProcessingFailed = "blog.media-processing-failed";
 }
 
 /// <summary>A refusal: the code, the offending field and a sentence for the editor. Never thrown, always returned.</summary>

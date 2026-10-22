@@ -307,6 +307,19 @@ category "Điểm đến nổi bật" (`SystemKey` `featured-destinations`) with
 row; no post, picture or figure. `Down()` refuses while Blog content, a picture, an audit line, an edited category or a Blog
 permission exists. Design: `docs/design/BHA-BLOG-001-blog-content-publishing.md`.
 
+Migration 19 (`AddBlogMediaLibrary`, `BHA-BLOG-001-CP02`) turns `BlogMedia` into a library and adds `BlogMediaVariants`. New `BlogMedia`
+columns: `DisplayName`, `OriginalFileName`, `Description`, `Credit`, `SourceUrl`, `Licence` (plain text; `SourceUrl` is an https
+address), `FocalX`/`FocalY` (double, 0..1, default 0.5, check constraint), `Version` (concurrency token of those descriptive fields,
+default 1), `Generation` (0 = uploaded before CP02, original only; 1 = the current pipeline; part of every public variant address),
+`OriginalSha256` (char 64, null until a legacy picture is processed), `UpdatedAtUtc`, `UpdatedByStaffId` (FK, `RESTRICT`),
+index on `CreatedAtUtc`. `BlogMediaVariants(Id, MediaId → BlogMedia ON DELETE CASCADE, Preset, Format, StorageKey, Width, Height,
+ByteSize, Sha256)`: unique `(MediaId, Preset, Format)` and unique `StorageKey`; checks: preset ∈ thumb/card/article, format ∈
+webp/jpg/png (AVIF is not allowed), key `blog/<32 hex>.(jpg|png|webp)`, positive sizes. A picture CP01 already holds keeps its id,
+key and every reference; the migration gives it `DisplayName = 'Picture ' || left(id, 8)`, `UpdatedAtUtc = CreatedAtUtc`, focal
+0.5/0.5, `Generation` 0 and no variants (it is processed later by `--blog-media-maintain`, never by the migration). `Down()` refuses while any
+variant exists or any picture is processed or was edited. Files live under `WebsiteMedia:RootPath`; back the database and the
+directory up together (runbook `docs/runbooks/BHA-BLOG-001-blog-media.md`).
+
 ## Run the explicit development seed
 
 After applying migrations, run the seed only in Development:

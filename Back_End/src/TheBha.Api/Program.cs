@@ -509,6 +509,14 @@ if (PromotionDemoSeedCommand.IsCommand(args))
     return;
 }
 
+// BHA-BLOG-001-CP02: the operator's picture maintenance (backfill of pictures from before the pipeline, files nothing refers to). Any environment; the operator names the database.
+if (BlogMediaMaintenanceCommand.IsCommand(args))
+{
+    Environment.ExitCode = await BlogMediaMaintenanceCommand.RunAsync(
+        args, app.Services, app.Environment.EnvironmentName, Console.Out, app.Lifetime.ApplicationStopping);
+    return;
+}
+
 if (args.Contains("--seed-development", StringComparer.Ordinal))
 {
     if (!app.Environment.IsDevelopment())

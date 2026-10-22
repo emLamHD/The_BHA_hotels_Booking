@@ -126,14 +126,25 @@ public sealed class AdminBlogController(IAdminBlog blog) : AdminWebsiteControlle
     public async Task<ActionResult> Restore(Guid postId, string locale, Guid revisionId, [FromBody] VersionRequest request, CancellationToken cancellationToken) =>
         Respond(await blog.RestoreAsync(new RestoreBlogRevisionCommand(postId, locale, revisionId, request.ExpectedVersion, ActorStaffId), cancellationToken), post => Ok(post));
 
-    // ---- pictures ----
+    // ---- pictures (the library, CP02) ----
 
-    /// <summary>One picture as a <c>multipart/form-data</c> part named <c>file</c>. The bytes decide the type; the name and the client's media type are ignored.</summary>
+    private const int BatchLimit = (int)BlogMediaLimits.MaxBatchBytes + 1024 * 1024;
+
+    [HttpGet("media")]
+    [StaffWebsitePermission(StaffGlobalPermission.BlogAccess)]
+    public async Task<ActionResult<BlogMediaListDto>> MediaList(
+        [FromQuery] string? q, [FromQuery] string? usage, [FromQuery] int page = 1, [FromQuery] int pageSize = BlogMediaLimits.DefaultPageSize, CancellationToken cancellationToken = default) =>
+        Ok(await blog.ListMediaAsync(new BlogMediaListQuery(q, usage, page, pageSize), cancellationToken));
+
+    /// <summary>
+    /// One picture as a <c>multipart/form-data</c> part named <c>file</c>, plus an optional <c>id</c> part (a Guid the picture takes as its id; a repeat is a 409
+    /// <c>blog.duplicate-id</c>, so a client that lost the answer can read it back). The bytes decide the type; the name and the client's media type are ignored.
+    /// </summary>
     [HttpPost("media")]
     [StaffWebsitePermission(StaffGlobalPermission.BlogAccess)]
     [AllowStaffMultipartUpload]
     [RequestSizeLimit(UploadLimit)]
-    [RequestFormLimits(MultipartBodyLengthLimit = UploadLimit, ValueCountLimit = 4)]
+    [RequestFormLimits(MultipartBodyLengthLimit = UploadLimit, ValueCountLimit = 8)]
     public async Task<ActionResult> Upload(IFormFile? file, CancellationToken cancellationToken)
     {
         if (file is null || file.Length == 0)
@@ -141,22 +152,116 @@ public sealed class AdminBlogController(IAdminBlog blog) : AdminWebsiteControlle
             return Respond(WebsiteMutationResult<BlogMediaDto>.Invalid("file", "Choose a picture to upload.") with { Code = HeroErrorCodes.ImageEmpty }, media => Ok(media));
         }
 
-        await using var content = file.OpenReadStream();
-        return Respond(await blog.UploadMediaAsync(content, ActorStaffId, cancellationToken), media => Ok(media));
+        var raw = Request.Form["id"].ToString();
+        Guid? clientId = null;
+        if (raw.Length > 0)
+        {
+            if (!Guid.TryParse(raw, out var parsed) || parsed == Guid.Empty)
+            {
+                return Fail(StatusCodes.Status400BadRequest, "Invalid picture", BlogErrorCodes.Validation, "id", "The id is not a valid Guid.");
+            }
+
+            clientId = parsed;
+        }
+
+        return Respond(await blog.UploadMediaAsync(new BlogMediaUpload(file.OpenReadStream, file.FileName, clientId), ActorStaffId, cancellationToken), media => Ok(media));
     }
 
-    /// <summary>The bytes of any recorded picture, published or not, for the editor's thumbnails; the public route serves only what a visitor may see.</summary>
+    /// <summary>
+    /// Up to <see cref="BlogMediaLimits.MaxBatchFiles"/> pictures as <c>files</c> parts, together at most <see cref="BlogMediaLimits.MaxBatchBytes"/> bytes (a larger
+    /// request is refused before any picture is processed), with an optional <c>ids</c> part per picture in the same order. They are taken in one after the other; each
+    /// answer carries the picture's <c>index</c> in the request and its id, and one that fails does not undo the rest. A client that is cut off reads the library
+    /// (or each id) to see what arrived; nothing is retried or replayed by the server.
+    /// </summary>
+    [HttpPost("media/bulk")]
+    [StaffWebsitePermission(StaffGlobalPermission.BlogAccess)]
+    [AllowStaffMultipartUpload]
+    [RequestSizeLimit(BatchLimit)]
+    [RequestFormLimits(MultipartBodyLengthLimit = BatchLimit, ValueCountLimit = 64)]
+    public async Task<ActionResult> UploadBatch(List<IFormFile>? files, CancellationToken cancellationToken)
+    {
+        if (files is null or { Count: 0 })
+        {
+            return Fail(StatusCodes.Status400BadRequest, "Invalid batch", BlogErrorCodes.MediaBatchInvalid, "files", "Choose at least one picture.");
+        }
+
+        if (files.Count > BlogMediaLimits.MaxBatchFiles)
+        {
+            return Fail(StatusCodes.Status400BadRequest, "Invalid batch", BlogErrorCodes.MediaBatchInvalid, "files", $"A batch has at most {BlogMediaLimits.MaxBatchFiles} pictures.");
+        }
+
+        if (files.Sum(file => file.Length) > BlogMediaLimits.MaxBatchBytes)
+        {
+            return Fail(StatusCodes.Status413PayloadTooLarge, "Batch too large", BlogErrorCodes.MediaBatchInvalid, "files", $"A batch is at most {BlogMediaLimits.MaxBatchBytes / (1024 * 1024)} MB in all.");
+        }
+
+        // Every id is parsed once and judged as a Guid, never as text: "…-…" and the 32-digit form, or upper and lower case, are one Guid. All of it is decided before
+        // the first picture is taken in, so a request that names one id twice has no effect at all.
+        var raw = Request.Form["ids"];
+        var ids = new Guid?[files.Count];
+        if (raw.Count > 0)
+        {
+            var seen = new HashSet<Guid>(raw.Count);
+            var valid = raw.Count == files.Count;
+            for (var index = 0; valid && index < raw.Count; index++)
+            {
+                valid = Guid.TryParse(raw[index], out var id) && id != Guid.Empty && seen.Add(id);
+                ids[index] = valid ? id : null;
+            }
+
+            if (!valid)
+            {
+                return Fail(StatusCodes.Status400BadRequest, "Invalid batch", BlogErrorCodes.MediaBatchInvalid, "ids", "Send one distinct Guid in ids for each picture, in the same order, or none.");
+            }
+        }
+
+        var uploads = files.Select((file, index) => new BlogMediaUpload(file.OpenReadStream, file.FileName, ids[index])).ToList();
+        return Ok(await blog.UploadMediaBatchAsync(uploads, ActorStaffId, cancellationToken));
+    }
+
+    [HttpGet("media/{id:guid}/detail")]
+    [StaffWebsitePermission(StaffGlobalPermission.BlogAccess)]
+    public async Task<ActionResult> MediaDetail(Guid id, CancellationToken cancellationToken) => Respond(await blog.GetMediaAsync(id, cancellationToken), media => Ok(media));
+
+    /// <summary>Every revision that uses the picture — the draft being edited, the live one, and the ones kept in history (also of archived and unpublished articles).</summary>
+    [HttpGet("media/{id:guid}/usage")]
+    [StaffWebsitePermission(StaffGlobalPermission.BlogAccess)]
+    public async Task<ActionResult> MediaUsage(Guid id, CancellationToken cancellationToken) => Respond(await blog.GetMediaUsageAsync(id, cancellationToken), usage => Ok(usage));
+
+    /// <summary>Name, description, credit, source, licence and focal point. It changes nothing in any article and publishes nothing.</summary>
+    [HttpPost("media/{id:guid}/save")]
+    [StaffWebsitePermission(StaffGlobalPermission.BlogEdit)]
+    public async Task<ActionResult> SaveMedia(Guid id, [FromBody] SaveBlogMediaRequest request, CancellationToken cancellationToken) =>
+        Respond(
+            await blog.UpdateMediaAsync(
+                new UpdateBlogMediaCommand(id, request.ExpectedVersion, request.DisplayName, request.Description, request.Credit, request.SourceUrl, request.Licence, request.FocalX, request.FocalY, ActorStaffId),
+                cancellationToken),
+            media => Ok(media));
+
+    /// <summary>Deletes a picture nothing refers to (409 <c>blog.media-in-use</c> otherwise): its row, its variants and its files.</summary>
+    [HttpPost("media/{id:guid}/delete")]
+    [StaffWebsitePermission(StaffGlobalPermission.BlogPublish)]
+    public async Task<ActionResult> DeleteMedia(Guid id, [FromBody] VersionRequest request, CancellationToken cancellationToken) =>
+        Respond(await blog.DeleteMediaAsync(new DeleteBlogMediaCommand(id, request.ExpectedVersion, ActorStaffId), cancellationToken), _ => NoContent());
+
+    /// <summary>The original bytes of any recorded picture, published or not; the public routes serve only what a visitor may see. Never cached.</summary>
     [HttpGet("media/{id:guid}")]
     [StaffWebsitePermission(StaffGlobalPermission.BlogAccess)]
-    public async Task<IActionResult> Media(Guid id, CancellationToken cancellationToken)
+    public async Task<IActionResult> Media(Guid id, CancellationToken cancellationToken) => Serve(await blog.OpenMediaAsync(id, cancellationToken));
+
+    /// <summary>A preset (<c>thumb</c>, <c>card</c>, <c>article</c>) as WebP for the editor's thumbnails; the original for a picture the pipeline has not processed. Never cached.</summary>
+    [HttpGet("media/{id:guid}/preview/{preset}")]
+    [StaffWebsitePermission(StaffGlobalPermission.BlogAccess)]
+    public async Task<IActionResult> MediaPreview(Guid id, string preset, CancellationToken cancellationToken) => Serve(await blog.OpenMediaPreviewAsync(id, preset, cancellationToken));
+
+    private IActionResult Serve(BlogMediaFile? file)
     {
-        var file = await blog.OpenMediaAsync(id, cancellationToken);
         if (file is null)
         {
             return NotFound();
         }
 
-        Response.Headers.CacheControl = "private, max-age=3600";
+        Response.Headers.CacheControl = "no-store";
         Response.Headers["X-Content-Type-Options"] = "nosniff";
         Response.Headers.ContentSecurityPolicy = "default-src 'none'; sandbox";
         return File(file.Content, file.ContentType);
@@ -166,6 +271,18 @@ public sealed class AdminBlogController(IAdminBlog blog) : AdminWebsiteControlle
 public sealed record VersionRequest
 {
     [JsonRequired] public int ExpectedVersion { get; init; }
+}
+
+public sealed record SaveBlogMediaRequest
+{
+    [JsonRequired] public int ExpectedVersion { get; init; }
+    [JsonRequired] public string DisplayName { get; init; } = string.Empty;
+    public string? Description { get; init; }
+    public string? Credit { get; init; }
+    public string? SourceUrl { get; init; }
+    public string? Licence { get; init; }
+    [JsonRequired] public double FocalX { get; init; }
+    [JsonRequired] public double FocalY { get; init; }
 }
 
 public sealed record SaveBlogSettingsRequest

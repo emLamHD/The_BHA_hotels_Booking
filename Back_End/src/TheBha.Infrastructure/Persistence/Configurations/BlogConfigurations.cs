@@ -181,12 +181,47 @@ internal sealed class BlogMediaConfiguration : IEntityTypeConfiguration<BlogMedi
         {
             t.HasCheckConstraint("CK_BlogMedia_Size", "\"ByteSize\" > 0 AND \"Width\" > 0 AND \"Height\" > 0");
             t.HasCheckConstraint("CK_BlogMedia_Key", "\"StorageKey\" ~ '^blog/[0-9a-f]{32}\\.(jpg|png|webp)$'");
+            t.HasCheckConstraint("CK_BlogMedia_Focal", "\"FocalX\" BETWEEN 0 AND 1 AND \"FocalY\" BETWEEN 0 AND 1");
+            t.HasCheckConstraint("CK_BlogMedia_Version", "\"Version\" >= 1 AND \"Generation\" >= 0");
         });
         b.HasKey(x => x.Id);
         b.Property(x => x.StorageKey).HasMaxLength(100);
         b.Property(x => x.ContentType).HasMaxLength(40);
+        b.Property(x => x.DisplayName).HasMaxLength(BlogMediaLimits.DisplayName);
+        b.Property(x => x.OriginalFileName).HasMaxLength(BlogMediaLimits.FileName);
+        b.Property(x => x.Description).HasMaxLength(BlogMediaLimits.Description);
+        b.Property(x => x.Credit).HasMaxLength(BlogMediaLimits.Credit);
+        b.Property(x => x.SourceUrl).HasMaxLength(BlogMediaLimits.SourceUrl);
+        b.Property(x => x.Licence).HasMaxLength(BlogMediaLimits.Licence);
+        b.Property(x => x.OriginalSha256).HasMaxLength(64).IsFixedLength();
+        b.Property(x => x.Version).HasDefaultValue(1).IsConcurrencyToken();
         b.HasIndex(x => x.StorageKey).IsUnique();
+        b.HasIndex(x => x.CreatedAtUtc);
         b.HasOne<StaffAccount>().WithMany().HasForeignKey(x => x.CreatedByStaffId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<StaffAccount>().WithMany().HasForeignKey(x => x.UpdatedByStaffId).OnDelete(DeleteBehavior.Restrict);
+        b.HasMany(x => x.Variants).WithOne().HasForeignKey(x => x.MediaId).OnDelete(DeleteBehavior.Cascade);
+        b.Navigation(x => x.Variants).UsePropertyAccessMode(PropertyAccessMode.Field);
+    }
+}
+
+internal sealed class BlogMediaVariantConfiguration : IEntityTypeConfiguration<BlogMediaVariant>
+{
+    public void Configure(EntityTypeBuilder<BlogMediaVariant> b)
+    {
+        b.ToTable("BlogMediaVariants", t =>
+        {
+            t.HasCheckConstraint("CK_BlogMediaVariants_Size", "\"ByteSize\" > 0 AND \"Width\" > 0 AND \"Height\" > 0");
+            t.HasCheckConstraint("CK_BlogMediaVariants_Key", "\"StorageKey\" ~ '^blog/[0-9a-f]{32}\\.(jpg|png|webp)$'");
+            t.HasCheckConstraint("CK_BlogMediaVariants_Kind", "\"Preset\" IN ('thumb','card','article') AND \"Format\" IN ('webp','jpg','png')");
+        });
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Preset).HasMaxLength(20);
+        b.Property(x => x.Format).HasMaxLength(8);
+        b.Property(x => x.StorageKey).HasMaxLength(100);
+        b.Property(x => x.Sha256).HasMaxLength(64).IsFixedLength();
+        b.Ignore(x => x.ContentType);
+        b.HasIndex(x => x.StorageKey).IsUnique();
+        b.HasIndex(x => new { x.MediaId, x.Preset, x.Format }).IsUnique();
     }
 }
 

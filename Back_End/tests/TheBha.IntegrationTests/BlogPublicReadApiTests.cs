@@ -293,10 +293,13 @@ public sealed class BlogPublicReadApiTests(PostgreSqlWebApplicationFactory facto
         await AssertStatusAsync(HttpStatusCode.NotFound, PublicAsync(host, $"/media/{unused}"));
         await AssertStatusAsync(HttpStatusCode.NotFound, PublicAsync(host, $"/media/{Guid.NewGuid()}"));
         var file = await AssertStatusAsync(HttpStatusCode.OK, PublicAsync(host, $"/media/{media}"));
-        Assert.Equal("image/png", file.Content.Headers.ContentType!.MediaType);
+        // CP02: the plain address serves the article-size fallback of a processed picture (an opaque PNG becomes a JPEG), never the private original.
+        Assert.Equal("image/jpeg", file.Content.Headers.ContentType!.MediaType);
         Assert.Equal("public, max-age=300", file.Headers.CacheControl!.ToString());
         Assert.Equal("nosniff", file.Headers.GetValues("X-Content-Type-Options").Single());
-        Assert.Equal((await file.Content.ReadAsByteArrayAsync()).Length, new FileInfo(Path.Combine(AppContext.BaseDirectory, "Fixtures", "promotion", "cover.png")).Length);
+        var served = await file.Content.ReadAsByteArrayAsync();
+        Assert.Equal([0xFF, 0xD8], served[..2]);
+        Assert.NotEqual(File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Fixtures", "promotion", "cover.png")), served);
 
         // A picture used only by a draft is not public either, even though its id is in the draft.
         var draftOnly = await UploadAsync(host, host.Cookie(Editor));

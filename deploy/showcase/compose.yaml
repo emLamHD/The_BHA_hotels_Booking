@@ -5,7 +5,7 @@
 #   cp .env.example .env     # fill the placeholders; .env is gitignored
 #   docker compose --env-file .env up -d --build
 #
-# Never `docker compose down -v`: that deletes the database and the key ring. `down` is safe.
+# Never `docker compose down -v`: that deletes the database, the key ring and the uploaded pictures. `down` is safe.
 name: the-bha-showcase
 
 services:
@@ -43,12 +43,15 @@ services:
       Cors__AllowedOrigins__0: ${CUSTOMER_ORIGIN:?Set CUSTOMER_ORIGIN in .env}
       Cors__AdminOrigins__0: ${ADMIN_ORIGIN:?Set ADMIN_ORIGIN in .env}
       DataProtection__KeysPath: /var/keys
+      # BHA-BLOG-001-CP02: uploaded pictures (the Blog library as well as Hero and Promotion) on a durable volume.
+      WebsiteMedia__RootPath: /var/media
       # Trust X-Forwarded-For/-Proto from exactly the proxy below, and nothing else.
       Hosting__TrustedProxy__Enabled: "true"
       Hosting__TrustedProxy__KnownProxies__0: 172.28.0.10
       Hosting__TrustedProxy__ForwardLimit: "1"
     volumes:
       - showcase-api-keys:/var/keys
+      - showcase-api-media:/var/media
     # No published port: the only way in is the proxy, so no peer can reach Kestrel directly.
     expose:
       - "8080"
@@ -95,3 +98,4 @@ networks:
 volumes:
   showcase-pg-data:
   showcase-api-keys:
+  showcase-api-media:

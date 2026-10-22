@@ -64,6 +64,7 @@ public sealed class TheBhaDbContext(DbContextOptions<TheBhaDbContext> options)
     public DbSet<BlogRevisionMedia> BlogRevisionMedia => Set<BlogRevisionMedia>();
     public DbSet<BlogPostSlug> BlogPostSlugs => Set<BlogPostSlug>();
     public DbSet<BlogMedia> BlogMedia => Set<BlogMedia>();
+    public DbSet<BlogMediaVariant> BlogMediaVariants => Set<BlogMediaVariant>();
     public DbSet<BlogSettings> BlogSettings => Set<BlogSettings>();
     public DbSet<BlogAudit> BlogAudits => Set<BlogAudit>();
 

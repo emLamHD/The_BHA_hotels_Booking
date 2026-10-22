@@ -40,6 +40,9 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<TheBha.Application.Promotions.IWebsitePromotions, WebsitePromotionService>();
         services.AddScoped<TheBha.Application.Blog.IAdminBlog, AdminBlogService>();
         services.AddScoped<TheBha.Application.Blog.IWebsiteBlog, WebsiteBlogService>();
+        // BHA-BLOG-001-CP02: one pipeline per process, so the limit on pictures decoded at once holds across requests.
+        services.AddSingleton<TheBha.Application.Blog.IBlogImagePipeline, TheBha.Infrastructure.BlogImages.SkiaBlogImagePipeline>();
+        services.AddScoped<TheBha.Application.Blog.IBlogMediaMaintenance, BlogMediaMaintenanceService>();
         services.AddSingleton<ICatalogMediaStorage>(new TheBha.Infrastructure.CatalogMedia.LocalCatalogMediaStorage(configuration["WebsiteMedia:RootPath"]));
         services.AddSingleton<ICatalogImageDecoder, TheBha.Infrastructure.CatalogMedia.CatalogImageDecoder>();
         services.AddSingleton(TimeProvider.System);

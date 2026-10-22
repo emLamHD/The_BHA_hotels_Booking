@@ -477,7 +477,13 @@ public sealed class BlogMedia
     {
     }
 
-    public BlogMedia(Guid id, string storageKey, string contentType, long byteSize, int width, int height, Guid createdByStaffId, DateTimeOffset nowUtc)
+    /// <summary>
+    /// A processed picture (CP02): <paramref name="width"/> and <paramref name="height"/> are the oriented size, <paramref name="originalSha256"/> is the hash
+    /// of the bytes kept in private storage, and the variants are the published sizes written before this row exists.
+    /// </summary>
+    public BlogMedia(
+        Guid id, string storageKey, string contentType, long byteSize, int width, int height, string displayName, string originalFileName,
+        string originalSha256, Guid createdByStaffId, DateTimeOffset nowUtc, IEnumerable<BlogMediaVariant> variants)
     {
         Id = DomainGuard.RequiredId(id, nameof(id));
         StorageKey = DomainGuard.Required(storageKey, nameof(storageKey), 100);
@@ -485,8 +491,14 @@ public sealed class BlogMedia
         ByteSize = byteSize;
         Width = width;
         Height = height;
+        DisplayName = DomainGuard.Required(displayName, nameof(displayName), BlogMediaLimits.DisplayName);
+        OriginalFileName = originalFileName;
+        OriginalSha256 = DomainGuard.Required(originalSha256, nameof(originalSha256), 64);
         CreatedByStaffId = DomainGuard.RequiredId(createdByStaffId, nameof(createdByStaffId));
         CreatedAtUtc = nowUtc;
+        UpdatedAtUtc = nowUtc;
+        Generation = BlogMediaLimits.CurrentGeneration;
+        Variants.AddRange(variants);
     }
 
     public Guid Id { get; private set; }
@@ -497,6 +509,91 @@ public sealed class BlogMedia
     public int Height { get; private set; }
     public Guid CreatedByStaffId { get; private set; }
     public DateTimeOffset CreatedAtUtc { get; private set; }
+
+    // ---- CP02: what the library knows about the picture itself (not about one use of it: alt text and caption belong to the revision) ----
+
+    public string DisplayName { get; private set; } = string.Empty;
+    public string OriginalFileName { get; private set; } = string.Empty;
+    public string Description { get; private set; } = string.Empty;
+    public string Credit { get; private set; } = string.Empty;
+    public string SourceUrl { get; private set; } = string.Empty;
+    public string Licence { get; private set; } = string.Empty;
+
+    /// <summary>Where the subject sits, 0..1 across and down the picture. For the crop / <c>object-position</c> of CP03–CP04; not published in CP02.</summary>
+    public double FocalX { get; private set; } = 0.5;
+
+    public double FocalY { get; private set; } = 0.5;
+
+    /// <summary>Concurrency token of the descriptive fields above. Derived data (generation, size, variants) does not bump it.</summary>
+    public int Version { get; private set; } = 1;
+
+    /// <summary>0 = uploaded before the pipeline (original only); 1 = <see cref="BlogMediaLimits.CurrentGeneration"/>. Part of every variant address, so bytes never change under an address.</summary>
+    public int Generation { get; private set; }
+
+    public string? OriginalSha256 { get; private set; }
+    public DateTimeOffset UpdatedAtUtc { get; private set; }
+    public Guid? UpdatedByStaffId { get; private set; }
+    public List<BlogMediaVariant> Variants { get; private set; } = [];
+
+    public bool IsProcessed => Generation > 0;
+
+    public void UpdateDescription(
+        string displayName, string description, string credit, string sourceUrl, string licence, double focalX, double focalY, Guid actorStaffId, DateTimeOffset nowUtc)
+    {
+        DisplayName = DomainGuard.Required(displayName, nameof(displayName), BlogMediaLimits.DisplayName);
+        Description = description;
+        Credit = credit;
+        SourceUrl = sourceUrl;
+        Licence = licence;
+        FocalX = BlogMediaRules.RoundFocal(focalX);
+        FocalY = BlogMediaRules.RoundFocal(focalY);
+        UpdatedByStaffId = DomainGuard.RequiredId(actorStaffId, nameof(actorStaffId));
+        UpdatedAtUtc = nowUtc;
+        Version++;
+    }
+
+    /// <summary>The backfill of a picture uploaded before the pipeline: its variants, its hash and its oriented size. Descriptive fields and <see cref="Version"/> are untouched.</summary>
+    public void CompleteProcessing(int width, int height, string originalSha256, IEnumerable<BlogMediaVariant> variants)
+    {
+        Width = width;
+        Height = height;
+        OriginalSha256 = originalSha256;
+        Generation = BlogMediaLimits.CurrentGeneration;
+        Variants.AddRange(variants);
+    }
+}
+
+/// <summary>One published size of a picture. Immutable: a new generation writes new rows and new keys, never new bytes under an old key.</summary>
+public sealed class BlogMediaVariant
+{
+    private BlogMediaVariant()
+    {
+    }
+
+    public BlogMediaVariant(Guid id, Guid mediaId, string preset, string format, string storageKey, int width, int height, long byteSize, string sha256)
+    {
+        Id = DomainGuard.RequiredId(id, nameof(id));
+        MediaId = DomainGuard.RequiredId(mediaId, nameof(mediaId));
+        Preset = DomainGuard.Required(preset, nameof(preset), 20);
+        Format = DomainGuard.Required(format, nameof(format), 8);
+        StorageKey = DomainGuard.Required(storageKey, nameof(storageKey), 100);
+        Width = width;
+        Height = height;
+        ByteSize = byteSize;
+        Sha256 = DomainGuard.Required(sha256, nameof(sha256), 64);
+    }
+
+    public Guid Id { get; private set; }
+    public Guid MediaId { get; private set; }
+    public string Preset { get; private set; } = string.Empty;
+    public string Format { get; private set; } = string.Empty;
+    public string StorageKey { get; private set; } = string.Empty;
+    public int Width { get; private set; }
+    public int Height { get; private set; }
+    public long ByteSize { get; private set; }
+    public string Sha256 { get; private set; } = string.Empty;
+
+    public string ContentType => BlogMediaFormats.ContentType(Format);
 }
 
 /// <summary>The single settings row: which category feeds the home section, by id.</summary>
