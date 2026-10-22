@@ -83,7 +83,8 @@ export default function TranslationForm({
   properties: PropertyOption[];
   pickMedia: PickMedia;
   onPost: (post: BlogPost) => void;
-  onCreated: (post: BlogPost) => void;
+  /** The post this form created and the language it created it in: where the screen goes next is decided by those two, not by what the page's URL said. */
+  onCreated: (post: BlogPost, locale: string) => void;
   onStatus: (report: TranslationStatusReport) => void;
   /** The screen is still on `/posts/new` (the post may already exist, created by this form or by another language's form); defaults to `postId === null`. */
   newRoute?: boolean;
@@ -201,8 +202,8 @@ export default function TranslationForm({
     if (!made || leftRef.current) return;
     if (liveRef.current !== confirmedRef.current) return;
     leftRef.current = true;
-    onCreated(made);
-  }, [onCreated]);
+    onCreated(made, locale);
+  }, [onCreated, locale]);
 
   const doSave = useCallback(async (): Promise<BlogTranslation | null> => {
     if (!editable || problems.length > 0) return null;

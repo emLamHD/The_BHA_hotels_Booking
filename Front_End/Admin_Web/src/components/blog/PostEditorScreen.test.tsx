@@ -8,7 +8,9 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const router = vi.hoisted(() => ({ replace: vi.fn(), push: vi.fn() }));
-vi.mock("next/navigation", () => ({ useRouter: () => router, useSearchParams: () => new URLSearchParams("") }));
+/** The page's query string (`?locale=…`): a test sets it before it renders the screen. */
+const url = vi.hoisted(() => ({ query: "" }));
+vi.mock("next/navigation", () => ({ useRouter: () => router, useSearchParams: () => new URLSearchParams(url.query) }));
 vi.mock("@/lib/api/staff", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/api/staff")>()), fetchStaffSession: vi.fn(), staffLogout: vi.fn() }));
 vi.mock("@/lib/api/client", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/api/client")>()), fetchActiveProperties: vi.fn(() => Promise.resolve({ ok: true, data: [] })) }));
 vi.mock("@/lib/api/blog", async (importOriginal) => ({
@@ -29,7 +31,7 @@ vi.mock("./RichBodyEditor", () => ({
 
 import PostEditorScreen from "./PostEditorScreen";
 import { BOTH, deferred, ok, post, renderInBlogGate, revision, translation } from "./blogTestUtils";
-import { createPost, getPost, saveDraft, transitionPost } from "@/lib/api/blog";
+import { createPost, fetchActiveLanguages, getPost, saveDraft, transitionPost } from "@/lib/api/blog";
 import { fetchActiveProperties } from "@/lib/api/client";
 import { fetchStaffSession } from "@/lib/api/staff";
 
@@ -39,8 +41,15 @@ const save = vi.mocked(saveDraft);
 const readPost = vi.mocked(getPost);
 const properties = vi.mocked(fetchActiveProperties);
 
+const lang = (code: string, isDefault: boolean) => ({ code, displayName: code, nativeName: code, isDefault });
+const VI_DEFAULT = [lang("vi", true), lang("en", false)];
+const EN_DEFAULT = [lang("vi", false), lang("en", true)];
+const languages = vi.mocked(fetchActiveLanguages);
+
 beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE", "Staff");
+  url.query = "";
+  languages.mockResolvedValue({ kind: "ok", data: VI_DEFAULT } as never);
   vi.mocked(fetchStaffSession).mockResolvedValue({ kind: "authenticated", session: BOTH });
   for (const m of [create, transition, save, readPost, router.replace]) m.mockReset();
   properties.mockReset();
@@ -286,5 +295,120 @@ describe("C5 F3 — a failed properties lookup is shown, not turned into an edit
     expect(await screen.findByTestId("translation-form")).toBeInTheDocument();
     expect(screen.queryByTestId("website-load-error")).toBeNull();
     expect(screen.getByTestId("props-count")).toHaveTextContent("0");
+  });
+});
+
+
+// ---------------------------------------------------------------- C6 F4: leave for the language that was created, not for "vi"
+
+describe("C6 F4 — after a create the screen opens the translation that was just created", () => {
+  const draft = (locale: string, title: string, version = 1) => translation({ locale, version, draft: revision({ title, slug: "bai-moi", summary: "" }) });
+  const titleBox = () => screen.findByTestId("post-title") as Promise<HTMLInputElement>;
+  const saveButton = () => within(screen.getByTestId("post-save")).getByRole("button");
+
+  async function createAndLeave(query: string, activeLanguages: ReturnType<typeof lang>[], typed = "Bài mới") {
+    url.query = query;
+    languages.mockResolvedValue({ kind: "ok", data: activeLanguages } as never);
+    create.mockImplementation((async (id: string, locale: string) => ok(post(draft(locale, typed), id))) as never);
+    renderInBlogGate(<PostEditorScreen postId={null} />);
+    await userEvent.type(await titleBox(), typed);
+    await userEvent.click(saveButton());
+    await waitFor(() => expect(router.replace).toHaveBeenCalledTimes(1));
+    return { createdId: create.mock.calls[0][0] as string, createdLocale: create.mock.calls[0][1] as string };
+  }
+
+  it("English is the default, Vietnamese is also active, no query: creates English and leaves for English (exactly one create, nothing in Vietnamese)", async () => {
+    const { createdId, createdLocale } = await createAndLeave("", EN_DEFAULT);
+    expect(screen.getByTestId("translation-form")).toHaveAttribute("data-locale", "en");
+    expect(createdLocale).toBe("en");
+    expect(router.replace).toHaveBeenCalledWith(`/website/blog/posts/${createdId}?locale=en`);
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("Vietnamese is the default, no query: unchanged, leaves for Vietnamese", async () => {
+    const { createdId } = await createAndLeave("", VI_DEFAULT);
+    expect(router.replace).toHaveBeenCalledWith(`/website/blog/posts/${createdId}?locale=vi`);
+  });
+
+  it("an explicit ?locale=en wins over a Vietnamese default", async () => {
+    const { createdId, createdLocale } = await createAndLeave("locale=en", VI_DEFAULT);
+    expect(createdLocale).toBe("en");
+    expect(router.replace).toHaveBeenCalledWith(`/website/blog/posts/${createdId}?locale=en`);
+  });
+
+  it("an explicit ?locale=vi wins over an English default", async () => {
+    const { createdId, createdLocale } = await createAndLeave("locale=vi", EN_DEFAULT);
+    expect(createdLocale).toBe("vi");
+    expect(router.replace).toHaveBeenCalledWith(`/website/blog/posts/${createdId}?locale=vi`);
+  });
+
+  it("a ?locale that is not an active language falls back to the default - and the default is what is created and opened", async () => {
+    const { createdId, createdLocale } = await createAndLeave("locale=fr", EN_DEFAULT);
+    expect(createdLocale).toBe("en");
+    expect(router.replace).toHaveBeenCalledWith(`/website/blog/posts/${createdId}?locale=en`);
+  });
+
+  it("another default (a third language) is the language created and opened", async () => {
+    const { createdId, createdLocale } = await createAndLeave("", [lang("vi", false), lang("en", false), lang("ja", true)]);
+    expect(createdLocale).toBe("ja");
+    expect(router.replace).toHaveBeenCalledWith(`/website/blog/posts/${createdId}?locale=ja`);
+  });
+
+  it("a locale code that needs escaping in a URL is escaped", async () => {
+    const { createdId } = await createAndLeave("", [lang("vi", false), lang("zh-Hant", true)]);
+    expect(router.replace).toHaveBeenCalledWith(`/website/blog/posts/${createdId}?locale=zh-Hant`);
+  });
+
+  it("a language tab chosen by the person before the create is the one created and opened", async () => {
+    url.query = "";
+    languages.mockResolvedValue({ kind: "ok", data: EN_DEFAULT } as never);
+    create.mockImplementation((async (id: string, locale: string) => ok(post(draft(locale, "Bài mới"), id))) as never);
+    renderInBlogGate(<PostEditorScreen postId={null} />);
+    await userEvent.click(await screen.findByTestId("locale-tab-vi"));
+    await userEvent.type(await titleBox(), "Bài mới");
+    await userEvent.click(saveButton());
+    await waitFor(() => expect(router.replace).toHaveBeenCalledTimes(1));
+    expect(create.mock.calls[0][1]).toBe("vi");
+    expect(router.replace).toHaveBeenCalledWith(`/website/blog/posts/${create.mock.calls[0][0]}?locale=vi`);
+  });
+
+  it("save and publish on an English default: the publish goes to the English translation and the screen leaves for English", async () => {
+    url.query = "";
+    languages.mockResolvedValue({ kind: "ok", data: EN_DEFAULT } as never);
+    create.mockImplementation((async (id: string, locale: string) => ok(post(draft(locale, "Bài mới"), id))) as never);
+    transition.mockImplementation((async (id: string, locale: string) => ok(post(translation({ locale, version: 2, status: "Published", hasDraft: false, draft: null, published: revision({ title: "Bài mới", slug: "bai-moi", summary: "", state: "Frozen" }) }), id))) as never); // what was sent is what is published
+    renderInBlogGate(<PostEditorScreen postId={null} />);
+    await userEvent.type(await titleBox(), "Bài mới");
+    await userEvent.click(within(screen.getByTestId("post-publish")).getByRole("button"));
+    await waitFor(() => expect(router.replace).toHaveBeenCalledTimes(1));
+    const createdId = create.mock.calls[0][0];
+    expect(transition.mock.calls[0]).toEqual([createdId, "en", "publish", 1]);
+    expect(router.replace).toHaveBeenCalledWith(`/website/blog/posts/${createdId}?locale=en`);
+  });
+
+  it("newer unsaved edits: still no navigation; the next save writes English to the created post and then leaves for English", async () => {
+    url.query = "";
+    languages.mockResolvedValue({ kind: "ok", data: EN_DEFAULT } as never);
+    const gate = deferred<ReturnType<typeof ok>>();
+    create.mockReturnValueOnce(gate.promise as never);
+    renderInBlogGate(<PostEditorScreen postId={null} />);
+    await userEvent.type(await titleBox(), "Bài mới");
+    await userEvent.click(saveButton());
+    await screen.findByTestId("write-pending");
+    const createdId = create.mock.calls[0][0] as string;
+    expect(create.mock.calls[0][1]).toBe("en");
+    await userEvent.type(await titleBox(), " thêm");
+    gate.resolve(ok(post(draft("en", "Bài mới"), createdId)) as never);
+    await waitFor(() => expect(screen.queryByTestId("write-pending")).toBeNull());
+    expect(router.replace).not.toHaveBeenCalled();
+    expect((await titleBox()).value).toBe("Bài mới thêm");
+
+    save.mockImplementation((async (id: string, locale: string) => ok(post(draft(locale, "Bài mới thêm", 2), id))) as never);
+    await userEvent.click(saveButton());
+    await waitFor(() => expect(router.replace).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0].slice(0, 3)).toEqual([createdId, "en", 1]);
+    expect(router.replace).toHaveBeenCalledWith(`/website/blog/posts/${createdId}?locale=en`);
+    expect(create).toHaveBeenCalledTimes(1);
   });
 });

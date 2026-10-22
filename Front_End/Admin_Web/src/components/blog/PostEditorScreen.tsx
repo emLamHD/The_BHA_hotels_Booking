@@ -57,7 +57,8 @@ export default function PostEditorScreen({ postId }: { postId: string | null }) 
   );
   const onStatus = useCallback((next: TranslationStatusReport) => setReport((previous) => (previous.dirty === next.dirty && previous.busy === next.busy ? previous : next)), []);
   const onPost = useCallback((next: BlogPost) => setPost((previous) => (previous === null || previous.id === next.id ? next : previous)), []);
-  const onCreated = useCallback((next: BlogPost) => { setPost(next); router.replace(`/website/blog/posts/${next.id}?locale=${encodeURIComponent(locale ?? "vi")}`); }, [router, locale]);
+  // The language is the form's own (the one it created the translation in), not the raw query: with English as the default and no `?locale`, that is null.
+  const onCreated = useCallback((next: BlogPost, createdLocale: string) => { setPost(next); router.replace(`/website/blog/posts/${next.id}?locale=${encodeURIComponent(createdLocale)}`); }, [router]);
 
   const waiting = loaded.state.status === "loading" || languages.status === "loading" || categories.state.status === "loading" || properties.status === "loading";
   if (waiting) return <LoadingPanel what="bài viết" />;
