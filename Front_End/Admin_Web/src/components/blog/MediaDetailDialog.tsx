@@ -4,9 +4,14 @@
  * BHA-BLOG-001-CP03: one picture of the library — its descriptive fields and focal point (BlogEdit, against the picture's version), where it is used
  * (the usage panel, `total` and `truncated` as the server says), and deleting an unused one (BlogPublish). Editing a picture changes no article; deleting
  * is decided by the server, which refuses a picture any revision still uses.
+ *
+ * Writes (C4): a save takes an immutable SNAPSHOT of what it sends. Its answer acknowledges only that - whatever was typed (or moved on the focal picker)
+ * after the click stays, unsaved, on top of the confirmed version. A lost answer is read back and judged against the snapshot, never against the form as it
+ * is now. A stale version keeps the local input, shows the server's complete state beside it with both versions, and locks Save until the person chooses:
+ * "keep mine" (the only thing that moves the version the next Save carries; it sends nothing itself) or "use the server's copy" (confirmed first).
  */
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { deleteMedia, getMedia, getMediaUsage, mediaPreviewPath, saveMedia, type BlogMedia, type BlogMediaUsage } from "@/lib/api/blog";
 import { useWebsiteList, useWriteAction } from "@/components/website/useWebsiteData";
 import { ActionButton, Banner, DialogActions, DialogShell, ErrorPanel, LoadingPanel, TextAreaField, TextField } from "@/components/website/WebsiteUi";
@@ -27,6 +32,20 @@ interface Fields {
   focalY: number;
 }
 
+/** What one Save sent. Never changes after it is taken. */
+interface Snapshot {
+  expectedVersion: number;
+  fields: Fields;
+}
+
+/** The server's picture beside the local input, kept apart from the dialog's base version until the person chooses. */
+interface Conflict {
+  fresh: BlogMedia;
+  askUseServer: boolean;
+}
+
+const same = (a: Fields, b: Fields) => JSON.stringify(a) === JSON.stringify(b);
+
 const fieldsOf = (m: BlogMedia): Fields => ({ displayName: m.displayName, description: m.description, credit: m.credit, sourceUrl: m.sourceUrl, licence: m.licence, focalX: m.focalX, focalY: m.focalY });
 
 export default function MediaDetailDialog({ mediaId, onClose, onChanged }: { mediaId: string; onClose: () => void; onChanged: () => void }) {
@@ -41,12 +60,26 @@ export default function MediaDetailDialog({ mediaId, onClose, onChanged }: { med
   const [saved, setSaved] = useState<{ fields: Fields; version: number } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<Conflict | null>(null);
+  const snapshotRef = useRef<Snapshot | null>(null);
+  const editsRef = useRef<Fields | null>(null);
+  const opRef = useRef(0);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const media = detail.state.status === "ready" ? detail.state.data : null;
   const baseline = saved?.fields ?? (media ? fieldsOf(media) : null);
   const version = saved?.version ?? media?.version ?? 0;
   const fields = edits ?? baseline;
   const dirty = edits !== null && JSON.stringify(edits) !== JSON.stringify(baseline);
+  useEffect(() => {
+    editsRef.current = edits; // what is typed right now, for answers that arrive later
+  });
   useEffect(() => {
     host.setUnsaved(dirty);
     return () => host.setUnsaved(false);
@@ -55,40 +88,87 @@ export default function MediaDetailDialog({ mediaId, onClose, onChanged }: { med
   const working = save.status.phase === "pending" || remove.status.phase === "pending";
   const set = (patch: Partial<Fields>) => setEdits((current) => (baseline ? { ...(current ?? baseline), ...patch } : current));
 
-  const apply = (updated: BlogMedia) => {
+  /** The server's copy becomes the base. Input newer than `sent` (typed after it was taken) is kept - it is not part of what the server acknowledged. */
+  const apply = (updated: BlogMedia, sent: Fields) => {
     setSaved({ fields: fieldsOf(updated), version: updated.version });
-    setEdits(null);
-    setNote(null);
+    const live = editsRef.current;
+    if (live === null || same(live, sent)) {
+      setEdits(null);
+      setNote(null);
+    } else setNote("Đã lưu các giá trị đã gửi. Những chỉnh sửa bạn nhập sau khi bấm Lưu vẫn còn và chưa được lưu.");
     onChanged();
   };
 
   const doSave = async () => {
-    if (!fields) return;
-    const result = await save.run(() => saveMedia(mediaId, version, fields));
-    if (result?.kind === "ok") apply(result.data);
-  };
-
-  const checkServer = async () => {
-    const result = await getMedia(mediaId);
-    if (result.kind !== "ok" || !fields) return setNote(result.kind === "ok" ? null : describeBlogFailure(result));
-    if (JSON.stringify(fieldsOf(result.data)) === JSON.stringify(fields)) {
-      apply(result.data);
-      save.reset();
-      setNote("Máy chủ đã có đúng các giá trị bạn nhập; thay đổi đã được lưu.");
-    } else {
-      setNote(`Máy chủ đang ở phiên bản ${result.data.version}; chưa thấy đúng các giá trị bạn nhập nên chưa coi là đã lưu. Bạn có thể lưu lại.`);
-      if (result.data.version !== version) setNote("Ảnh đã được người khác thay đổi trên máy chủ. Hãy tải giá trị mới nhất để so sánh.");
+    if (!fields || conflict) return;
+    const snap: Snapshot = { expectedVersion: version, fields: { ...fields } };
+    snapshotRef.current = snap;
+    const result = await save.run(() => saveMedia(mediaId, snap.expectedVersion, snap.fields));
+    if (result?.kind === "ok") {
+      snapshotRef.current = null;
+      apply(result.data, snap.fields);
     }
   };
 
-  const reloadLatest = async () => {
+  /** The answer to a save was lost. Read, and judge what the server shows against what was SENT. Nothing is sent from here. */
+  const checkServer = async () => {
+    const snap = snapshotRef.current;
+    if (!snap) return;
+    const token = ++opRef.current;
     const result = await getMedia(mediaId);
-    if (result.kind === "ok") {
-      setSaved({ fields: fieldsOf(result.data), version: result.data.version });
-      setEdits(null);
-      save.reset();
-      setNote("Đã tải giá trị mới nhất từ máy chủ; thay đổi chưa lưu của bạn đã được thay thế.");
-    } else setNote(describeBlogFailure(result));
+    if (!mountedRef.current || opRef.current !== token || snapshotRef.current !== snap) return;
+    if (result.kind !== "ok") {
+      setNote(`${describeBlogFailure(result)} Chưa kiểm tra được máy chủ; thao tác vẫn là chưa xác nhận và dữ liệu của bạn vẫn còn.`);
+      return;
+    }
+
+    const fresh = result.data;
+    const matches = same(fieldsOf(fresh), snap.fields);
+    snapshotRef.current = null;
+    save.reset();
+    if (matches && fresh.version > snap.expectedVersion) {
+      apply(fresh, snap.fields);
+      const newer = editsRef.current !== null && !same(editsRef.current, snap.fields);
+      setNote(`Máy chủ đã có đúng các giá trị đã gửi (phiên bản ${fresh.version}). Đây là kết quả đọc lại, không phải gửi lại.${newer ? " Những chỉnh sửa mới hơn của bạn vẫn còn và chưa được lưu." : ""}`);
+    } else if (matches) {
+      setNote(`Máy chủ đang có đúng các giá trị này nhưng phiên bản chưa đổi (${fresh.version}), nên chưa đủ bằng chứng rằng lần lưu này đã chạy. Bạn có thể lưu lại.`);
+    } else if (fresh.version === snap.expectedVersion) {
+      setNote("Máy chủ chưa ghi nhận thay đổi này (ảnh vẫn như trước). Dữ liệu của bạn vẫn còn; bạn có thể lưu lại.");
+    } else {
+      setConflict({ fresh, askUseServer: false });
+      setNote(`Ảnh đã thay đổi trên máy chủ (phiên bản ${fresh.version}) thành giá trị khác. Xem so sánh bên dưới; chưa có gì được gửi.`);
+    }
+  };
+
+  /** After a stale version (409): read the server's copy and show it BESIDE the local input. The input and the base version are not touched. */
+  const reloadLatest = async () => {
+    const token = ++opRef.current;
+    const result = await getMedia(mediaId);
+    if (!mountedRef.current || opRef.current !== token) return;
+    if (result.kind !== "ok") {
+      setNote(`${describeBlogFailure(result)} Chưa tải được giá trị mới nhất; dữ liệu của bạn vẫn còn, hãy thử lại.`);
+      return;
+    }
+
+    save.reset();
+    setConflict({ fresh: result.data, askUseServer: false });
+    setNote(`Ảnh đã được thay đổi trên máy chủ (phiên bản ${result.data.version}). Xem so sánh bên dưới rồi chọn; chưa có gì được gửi.`);
+  };
+
+  const keepMine = () => {
+    if (!conflict) return;
+    // The ONLY place the version moves: the person has seen both and writes theirs on top of the server's version at the next Save.
+    setSaved({ fields: fieldsOf(conflict.fresh), version: conflict.fresh.version });
+    setConflict(null);
+    setNote(`Giữ thay đổi của bạn trên phiên bản ${conflict.fresh.version}. Chưa có gì được gửi — bấm Lưu để ghi.`);
+  };
+
+  const useServerCopy = () => {
+    if (!conflict) return;
+    setSaved({ fields: fieldsOf(conflict.fresh), version: conflict.fresh.version });
+    setEdits(null);
+    setConflict(null);
+    setNote(`Đã dùng giá trị trên máy chủ (phiên bản ${conflict.fresh.version}); thay đổi chưa lưu của bạn đã bị bỏ.`);
   };
 
   const doDelete = async () => {
@@ -136,6 +216,7 @@ export default function MediaDetailDialog({ mediaId, onClose, onChanged }: { med
           <UsagePanel state={usage.state} onRetry={() => void usage.reload()} />
           {!rights.edit && <Banner tone="info">Tài khoản này chỉ xem được ảnh; sửa thông tin cần quyền chỉnh sửa Blog.</Banner>}
           {note && <Banner tone="info" testId="media-note">{note}</Banner>}
+          {conflict && <ConflictPanel mine={fields} mineVersion={version} fresh={conflict.fresh} askUseServer={conflict.askUseServer} onKeep={keepMine} onAskUseServer={() => setConflict({ ...conflict, askUseServer: true })} onUseServer={useServerCopy} onCancelUseServer={() => setConflict({ ...conflict, askUseServer: false })} />}
           <BlogWriteFeedback status={save.status} working={working} onReloadLatest={() => void reloadLatest()} onCheckServer={() => void checkServer()} />
           <BlogWriteFeedback status={remove.status} working={working} />
           {confirmDelete && (
@@ -148,11 +229,42 @@ export default function MediaDetailDialog({ mediaId, onClose, onChanged }: { med
           <DialogActions>
             {rights.publish && <ActionButton variant="outline" onClick={() => setConfirmDelete(true)} disabled={working || confirmDelete || media.usage.revisions > 0} testId="media-delete">Xoá ảnh…</ActionButton>}
             <ActionButton variant="outline" onClick={close} disabled={working} testId="media-close">Đóng</ActionButton>
-            {rights.edit && <ActionButton onClick={() => void doSave()} disabled={working || !dirty || save.status.phase === "unverified"} testId="media-save">Lưu thông tin</ActionButton>}
+            {rights.edit && <ActionButton onClick={() => void doSave()} disabled={working || !dirty || save.status.phase === "unverified" || conflict !== null} testId="media-save">Lưu thông tin</ActionButton>}
           </DialogActions>
         </div>
       )}
     </DialogShell>
+  );
+}
+
+/** The local input (as it is now) and the server's complete state side by side. Nothing here sends anything. */
+function ConflictPanel({ mine, mineVersion, fresh, askUseServer, onKeep, onAskUseServer, onUseServer, onCancelUseServer }: { mine: Fields; mineVersion: number; fresh: BlogMedia; askUseServer: boolean; onKeep: () => void; onAskUseServer: () => void; onUseServer: () => void; onCancelUseServer: () => void }) {
+  const theirs = fieldsOf(fresh);
+  const rows: [string, string, string][] = [
+    ["Tên hiển thị", mine.displayName, theirs.displayName], ["Mô tả", mine.description, theirs.description], ["Tác giả / ghi công", mine.credit, theirs.credit],
+    ["Nguồn", mine.sourceUrl, theirs.sourceUrl], ["Giấy phép", mine.licence, theirs.licence], ["Điểm lấy nét ngang", String(mine.focalX), String(theirs.focalX)], ["Điểm lấy nét dọc", String(mine.focalY), String(theirs.focalY)],
+  ];
+  const differing = rows.filter(([, a, b]) => a !== b).length;
+  return (
+    <Banner tone="warning" testId="media-conflict">
+      <p className="font-medium">Bản của bạn (dựa trên phiên bản {mineVersion}) khác bản trên máy chủ (phiên bản {fresh.version}).</p>
+      <table className="mt-2 w-full text-left text-xs">
+        <thead><tr><th className="pr-3">Trường</th><th className="pr-3">Của bạn</th><th>Trên máy chủ</th></tr></thead>
+        <tbody>{rows.map(([label, a, b]) => <tr key={label} className={a !== b ? "font-semibold" : ""}><td className="pr-3 align-top">{label}</td><td className="pr-3 align-top break-words">{a || "—"}</td><td className="align-top break-words">{b || "—"}</td></tr>)}</tbody>
+      </table>
+      {askUseServer ? (
+        <div className="mt-3">
+          <p className="text-xs">Bỏ {differing} khác biệt của bạn và dùng bản của máy chủ? Thay đổi chưa lưu của bạn sẽ mất.</p>
+          <div className="mt-2 flex gap-2"><ActionButton onClick={onUseServer} testId="media-conflict-confirm">Đồng ý, dùng bản máy chủ</ActionButton><ActionButton variant="outline" onClick={onCancelUseServer}>Không</ActionButton></div>
+        </div>
+      ) : (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <ActionButton variant="outline" onClick={onKeep} testId="media-conflict-keep">Giữ thay đổi của tôi trên phiên bản {fresh.version}</ActionButton>
+          <ActionButton variant="outline" onClick={onAskUseServer} testId="media-conflict-use-server">Dùng bản của máy chủ…</ActionButton>
+        </div>
+      )}
+      <p className="mt-2 text-xs">Không có lựa chọn nào tự gửi gì lên máy chủ. “Giữ thay đổi của tôi” nghĩa là lần bấm Lưu tiếp theo sẽ ghi đè mọi giá trị khác nhau ở trên bằng cột bên trái, trên phiên bản {fresh.version}.</p>
+    </Banner>
   );
 }
 
