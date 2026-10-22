@@ -90,7 +90,7 @@ describe("next.config.ts", () => {
 
   it("rewrites /api/admin/v1/:path* (Staff) and exactly the two public reference reads the Admin makes, keeping the prefix", async () => {
     const config = await loadConfig({ API_PROXY_ORIGIN: `${API}/`, NEXT_PUBLIC_API_BASE_URL: ADMIN });
-    // CP03-C7: the Blog editor reads /api/v1/website/config (active languages) and /api/v1/properties (the property-intro block; the Calendar reads it too).
+    // CP03-C7: the Blog editor reads /api/v1/website/config (active languages) and /api/v1/properties (the property-intro block; the Calendar reads it only in LocalGate mode).
     // They are exact paths - not a /api/v1/:path* - so the Customer namespace is still not forwarded.
     expect(await config.rewrites!()).toEqual({
       beforeFiles: [
