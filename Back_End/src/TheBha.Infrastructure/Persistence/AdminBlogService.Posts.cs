@@ -62,7 +62,7 @@ internal sealed partial class AdminBlogService
         var rows = await db.BlogPostTranslations.AsNoTracking().Where(t => ids.Contains(t.PostId)).ToListAsync(cancellationToken);
         var revisionIds = rows.SelectMany(t => new[] { t.DraftRevisionId, t.PublishedRevisionId }).Where(id => id is not null).Select(id => id!.Value).ToList();
         var revisions = await db.BlogPostRevisions.AsNoTracking().Where(r => revisionIds.Contains(r.Id))
-            .Select(r => new { r.Id, r.Title, r.Slug }).ToDictionaryAsync(r => r.Id, cancellationToken);
+            .Select(r => new { r.Id, r.Title, r.Slug, r.CoverMediaId }).ToDictionaryAsync(r => r.Id, cancellationToken);
         var emails = await StaffEmailsAsync(rows.Select(t => (Guid?)t.UpdatedByStaffId), cancellationToken);
 
         var items = ids.Select(id =>
@@ -75,7 +75,7 @@ internal sealed partial class AdminBlogService
                 {
                     var shown = t.DraftRevisionId is { } draft ? revisions[draft] : revisions[t.PublishedRevisionId!.Value];
                     return new BlogTranslationRowDto(
-                        t.Locale, t.Status.ToString(), t.Version, shown.Title, shown.Slug, t.DraftRevisionId is not null, t.UpdatedAtUtc, Staff(emails, t.UpdatedByStaffId));
+                        t.Locale, t.Status.ToString(), t.Version, shown.Title, shown.Slug, t.DraftRevisionId is not null, t.UpdatedAtUtc, Staff(emails, t.UpdatedByStaffId), shown.CoverMediaId);
                 }).ToList());
         }).ToList();
         return WebsiteMutationResult<BlogPostListDto>.Success(new BlogPostListDto(items, page, pageSize, total));
