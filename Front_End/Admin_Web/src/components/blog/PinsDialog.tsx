@@ -9,10 +9,14 @@
  * page can be found and pinned. What has been arranged lives apart from the page being looked at, so paging, searching, a failed page or a late answer for an
  * earlier page cannot change it. The list `listPosts` returns matches a post when ANY of its translations (draft or published) is in the category, so a few
  * offered posts can still be refused by the server (`blog.pin-not-published`); that refusal is shown as it is.
+ *
+ * Saving: what is sent is an immutable snapshot (the version and the order). A lost answer is judged against it - verified only when the server shows that very
+ * order AND a version that moved on. A stale version reads the server's list apart from the local order and shows both with their versions; Save stays off, and the
+ * version moves only when the person chooses "keep mine" or confirms "use the server's order".
  */
 
-import React, { useMemo, useState } from "react";
-import { getPins, listPosts, savePins, type BlogCategory, type BlogPostRow } from "@/lib/api/blog";
+import React, { useMemo, useRef, useState } from "react";
+import { getPins, listPosts, savePins, type BlogCategory, type BlogPins, type BlogPostRow } from "@/lib/api/blog";
 import { useWebsiteList, useWriteAction } from "@/components/website/useWebsiteData";
 import { ActionButton, Banner, DialogActions, DialogShell, ErrorPanel, LoadingPanel } from "@/components/website/WebsiteUi";
 import BlogWriteFeedback from "./BlogWriteFeedback";
@@ -29,6 +33,11 @@ export default function PinsDialog({ category, canEdit, languages, onClose }: { 
   const [picked, setPicked] = useState<Map<string, string>>(new Map());
   const posts = useWebsiteList((signal) => listPosts({ categoryId: category.id, status: "Published", q: q || undefined, page, pageSize: CANDIDATE_PAGE }, signal), [category.id, q, page]);
   const write = useWriteAction();
+  const [conflict, setConflict] = useState<{ fresh: BlogPins; askUseServer: boolean } | null>(null);
+  /** The version the person chose to write on after seeing the server's list (null: the version last read). */
+  const [base, setBase] = useState<number | null>(null);
+  const snapRef = useRef<{ seq: number; expectedVersion: number; postIds: string[] } | null>(null);
+  const seqRef = useRef(0);
   const [edited, setOrder] = useState<string[] | null>(null);
   const [dragging, setDragging] = useState<number | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -66,14 +75,87 @@ export default function PinsDialog({ category, canEdit, languages, onClose }: { 
     setOrder(next);
   };
 
+  const version = base ?? server?.version ?? 0;
+  const titlesOf = (fresh: BlogPins) => setPicked((current) => { const next = new Map(current); for (const pin of fresh.pins) next.set(pin.postId, languages.map((l) => pin.titles[l]).find(Boolean) ?? Object.values(pin.titles)[0] ?? pin.postId); return next; });
+
   const doSave = async () => {
-    if (!server || !order) return;
-    const result = await write.run(() => savePins(category.id, server.version, order));
+    if (!server || !order || conflict) return;
+    const snap = { seq: ++seqRef.current, expectedVersion: version, postIds: [...order] };
+    snapRef.current = snap;
+    setNote(null);
+    const result = await write.run(() => savePins(category.id, snap.expectedVersion, snap.postIds));
     if (result?.kind === "ok") {
       setOrder(null);
+      setBase(null);
+      snapRef.current = null;
       void pins.reload();
       setNote("Đã lưu. Thứ tự ghim có hiệu lực ngay trong chuyên mục này.");
     }
+  };
+
+  /** The answer to a save was lost: read the list and judge it against what was SENT. Nothing is sent from here and the version is never moved by guessing. */
+  const checkSave = async () => {
+    const snap = snapRef.current;
+    if (!snap) return;
+    const result = await getPins(category.id);
+    if (snapRef.current?.seq !== snap.seq) return;
+    if (result.kind !== "ok") {
+      setNote("Chưa kiểm tra được máy chủ. Danh sách của bạn vẫn còn và thao tác vẫn là chưa xác nhận; hãy thử kiểm tra lại.");
+      return;
+    }
+
+    const fresh = result.data;
+    const sameOrder = JSON.stringify(fresh.pins.map((p) => p.postId)) === JSON.stringify(snap.postIds);
+    const moved = fresh.version > snap.expectedVersion;
+    write.reset();
+    if (sameOrder && moved) {
+      // Verified: the server holds exactly the order that was sent, at a version that moved on.
+      if (JSON.stringify(order) === JSON.stringify(snap.postIds)) setOrder(null);
+      setBase(fresh.version);
+      titlesOf(fresh);
+      void pins.reload();
+      setNote(`Đã xác nhận trên máy chủ: danh sách ghim có đúng thứ tự đã gửi (phiên bản ${fresh.version}). Đây là kết quả đọc lại, không phải gửi lại.`);
+    } else if (sameOrder) {
+      setNote(`Máy chủ đang có đúng thứ tự này nhưng phiên bản chưa đổi (${fresh.version}), nên chưa đủ bằng chứng rằng lần lưu này đã chạy; hệ thống không khẳng định gì thêm. Danh sách của bạn vẫn còn.`);
+    } else if (!moved) {
+      setNote("Máy chủ chưa ghi nhận thay đổi này (danh sách ghim vẫn như trước). Danh sách của bạn vẫn còn; bấm Lưu nếu muốn gửi lại.");
+    } else {
+      titlesOf(fresh);
+      setConflict({ fresh, askUseServer: false });
+      setNote(`Danh sách ghim đã đổi trên máy chủ (phiên bản ${fresh.version}). Danh sách của bạn được giữ; xem so sánh bên dưới.`);
+    }
+  };
+
+  /** After a stale version (409): read the server's list and show it BESIDE the local order. The version Save uses is not touched. */
+  const reloadLatest = async () => {
+    const result = await getPins(category.id);
+    if (result.kind !== "ok") {
+      setNote("Chưa tải được danh sách mới nhất từ máy chủ. Danh sách của bạn vẫn còn; hãy thử lại.");
+      return;
+    }
+
+    write.reset();
+    titlesOf(result.data);
+    setConflict({ fresh: result.data, askUseServer: false });
+    setNote(`Danh sách ghim đã được thay đổi trên máy chủ (phiên bản ${result.data.version}). Xem so sánh bên dưới rồi chọn; chưa có gì được gửi.`);
+  };
+
+  const keepMine = () => {
+    if (!conflict) return;
+    // The ONLY place the version moves: the person has seen both lists and chose to write theirs on top of the server's version.
+    setBase(conflict.fresh.version);
+    setConflict(null);
+    setNote(`Giữ danh sách của bạn trên phiên bản ${conflict.fresh.version}. Chưa có gì được gửi — bấm Lưu để ghi.`);
+  };
+
+  const useServerOrder = () => {
+    if (!conflict) return;
+    const version = conflict.fresh.version;
+    setOrder(null);
+    setBase(null);
+    setConflict(null);
+    void pins.reload();
+    setNote(`Đã dùng danh sách trên máy chủ (phiên bản ${version}); thứ tự chưa lưu của bạn đã bị bỏ.`);
   };
 
   const close = () => {
@@ -140,11 +222,32 @@ export default function PinsDialog({ category, canEdit, languages, onClose }: { 
           )}
           {!canEdit && <Banner tone="info">Chỉ tài khoản có quyền xuất bản Blog mới đổi được ghim.</Banner>}
           {note && <Banner tone="success" testId="pins-note" onDismiss={() => setNote(null)}>{note}</Banner>}
-          <BlogWriteFeedback status={write.status} working={working} onCheckServer={() => void pins.reload().then((latest) => { if (latest) { write.reset(); setNote(JSON.stringify(latest.pins.map((p) => p.postId)) === JSON.stringify(order) ? "Máy chủ đã có đúng danh sách ghim của bạn." : "Máy chủ chưa có danh sách của bạn; có thể lưu lại."); } })}
-            onReloadLatest={() => void pins.reload().then((latest) => { if (latest) { write.reset(); setNote(`Danh sách ghim đã đổi trên máy chủ (phiên bản ${latest.version}). Danh sách bạn sắp xếp vẫn còn; bấm Lưu nếu vẫn muốn dùng nó.`); } })} />
+          {conflict && (
+            <Banner tone="warning" testId="pins-conflict">
+              <p className="font-medium">Danh sách của bạn (dựa trên phiên bản {version}) khác danh sách trên máy chủ (phiên bản {conflict.fresh.version}).</p>
+              <div className="mt-2 grid gap-3 text-xs sm:grid-cols-2">
+                <div><p className="font-semibold">Của bạn</p><ol className="list-decimal pl-5">{order.map((postId) => <li key={postId}>{titles.get(postId) ?? postId}</li>)}{order.length === 0 && <li className="list-none">— không ghim bài nào —</li>}</ol></div>
+                <div><p className="font-semibold">Trên máy chủ</p><ol className="list-decimal pl-5">{conflict.fresh.pins.map((pin) => <li key={pin.postId}>{titles.get(pin.postId) ?? pin.postId}</li>)}{conflict.fresh.pins.length === 0 && <li className="list-none">— không ghim bài nào —</li>}</ol></div>
+              </div>
+              {conflict.askUseServer ? (
+                <div className="mt-3">
+                  <p className="text-xs">Bỏ thứ tự của bạn và dùng danh sách của máy chủ? Thay đổi chưa lưu của bạn sẽ mất.</p>
+                  <div className="mt-2 flex gap-2"><ActionButton onClick={useServerOrder} testId="pins-conflict-confirm">Đồng ý, dùng danh sách máy chủ</ActionButton><ActionButton variant="outline" onClick={() => setConflict({ ...conflict, askUseServer: false })}>Không</ActionButton></div>
+                </div>
+              ) : (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <ActionButton variant="outline" onClick={keepMine} testId="pins-conflict-keep">Giữ thứ tự của tôi trên phiên bản {conflict.fresh.version}</ActionButton>
+                  <ActionButton variant="outline" onClick={() => setConflict({ ...conflict, askUseServer: true })} testId="pins-conflict-use-server">Dùng danh sách của máy chủ…</ActionButton>
+                  <ActionButton variant="outline" onClick={() => setConflict(null)}>Đóng so sánh</ActionButton>
+                </div>
+              )}
+              <p className="mt-2 text-xs">“Giữ thứ tự của tôi” thay toàn bộ danh sách ghim bằng cột bên trái. Không có lựa chọn nào tự gửi gì lên máy chủ.</p>
+            </Banner>
+          )}
+          <BlogWriteFeedback status={write.status} working={working} onCheckServer={() => void checkSave()} onReloadLatest={() => void reloadLatest()} />
           <DialogActions>
             <ActionButton variant="outline" onClick={close} disabled={working} testId="pins-close">Đóng</ActionButton>
-            {canEdit && <ActionButton onClick={() => void doSave()} disabled={working || !dirty || write.status.phase === "unverified"} testId="pins-save">Lưu danh sách ghim</ActionButton>}
+            {canEdit && <ActionButton onClick={() => void doSave()} disabled={working || !dirty || write.status.phase === "unverified" || conflict !== null} testId="pins-save">Lưu danh sách ghim</ActionButton>}
           </DialogActions>
         </div>
       )}

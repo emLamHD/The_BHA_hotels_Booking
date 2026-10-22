@@ -129,3 +129,120 @@ describe("the candidates are paged by the server", () => {
     expect(screen.getByTestId("pin-candidates")).toHaveTextContent(/tối đa 50/i);
   });
 });
+
+// ---- F4 also says: Save keeps using expectedVersion and no conflict / reconciliation silently overwrites ----
+
+const stale = { kind: "refused", status: 409, code: "blog.stale-version", field: "expectedVersion", detail: "changed" } as const;
+const unverified = { kind: "unverified", message: "Mất kết nối." } as const;
+const pinsAt = (version: number, ids: number[]) => ({ ...currentPins(ids), version });
+const saveButton = () => within(screen.getByTestId("pins-save")).getByRole("button");
+
+describe("a save of the pin list: lost answers and stale versions", () => {
+  async function arrange(...clicks: string[]) {
+    mount();
+    await screen.findByText("+ Bài số 1");
+    for (const c of clicks) await userEvent.click(screen.getByRole("button", { name: c }));
+  }
+
+  it("a stale version shows the server's order beside the local one and does not move the version or allow Save", async () => {
+    await arrange("+ Bài số 1", "+ Bài số 2");
+    save.mockResolvedValueOnce(stale as never);
+    await userEvent.click(saveButton());
+    await screen.findByTestId("write-refused");
+    pins.mockResolvedValue(ok(pinsAt(6, [9, 8])) as never);
+    await userEvent.click(screen.getByTestId("reload-latest"));
+    const panel = await screen.findByTestId("pins-conflict");
+    expect(panel).toHaveTextContent(/phiên bản 4/);
+    expect(panel).toHaveTextContent(/phiên bản 6/);
+    for (const t of ["Bài số 1", "Bài số 2", "Bài số 9", "Bài số 8"]) expect(panel).toHaveTextContent(t);
+    expect(saveButton()).toBeDisabled();
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(pinned()).toHaveLength(2); // the local order is untouched
+  });
+
+  it("'keep mine on version N' is the only way the version moves; the next stale answer opens a new comparison", async () => {
+    await arrange("+ Bài số 1");
+    save.mockResolvedValueOnce(stale as never);
+    await userEvent.click(saveButton());
+    pins.mockResolvedValue(ok(pinsAt(6, [9])) as never);
+    await userEvent.click(await screen.findByTestId("reload-latest"));
+    await screen.findByTestId("pins-conflict");
+    await userEvent.click(within(screen.getByTestId("pins-conflict-keep")).getByRole("button"));
+    expect(saveButton()).not.toBeDisabled();
+    save.mockResolvedValueOnce(stale as never);
+    await userEvent.click(saveButton());
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    expect(save.mock.calls[1]).toEqual([category.id, 6, [id(1)]]); // written on the version the person chose, with their own order
+    pins.mockResolvedValue(ok(pinsAt(8, [7])) as never);
+    await userEvent.click(await screen.findByTestId("reload-latest"));
+    expect(await screen.findByTestId("pins-conflict")).toHaveTextContent(/phiên bản 8/);
+  });
+
+  it("'use the server's order' asks first, then shows it and takes its version", async () => {
+    await arrange("+ Bài số 1");
+    save.mockResolvedValueOnce(stale as never);
+    await userEvent.click(saveButton());
+    pins.mockResolvedValue(ok(pinsAt(6, [9, 8])) as never);
+    await userEvent.click(await screen.findByTestId("reload-latest"));
+    await userEvent.click(within(screen.getByTestId("pins-conflict-use-server")).getByRole("button"));
+    expect(pinned()).toHaveLength(1); // asked, not done
+    await userEvent.click(within(screen.getByTestId("pins-conflict-confirm")).getByRole("button"));
+    await waitFor(() => expect(pinned().map((t) => t!.includes("Bài số 9") || t!.includes("Bài số 8"))).toEqual([true, true]));
+    await userEvent.click(screen.getByRole("button", { name: "+ Bài số 3" }));
+    save.mockResolvedValueOnce(ok(pinsAt(7, [9, 8, 3])) as never);
+    await userEvent.click(saveButton());
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    expect(save.mock.calls[1]).toEqual([category.id, 6, [id(9), id(8), id(3)]]);
+  });
+
+  it("a lost answer that never reached the server: said so, the order is kept, Save uses the SAME version", async () => {
+    await arrange("+ Bài số 1", "+ Bài số 2");
+    save.mockResolvedValueOnce(unverified as never);
+    await userEvent.click(saveButton());
+    await screen.findByTestId("write-unverified");
+    await userEvent.click(screen.getByTestId("check-server")); // the server still shows version 4 and no pins
+    expect(await screen.findByTestId("pins-note")).toHaveTextContent(/chưa ghi nhận/i);
+    expect(pinned()).toHaveLength(2);
+    save.mockResolvedValueOnce(ok(pinsAt(5, [1, 2])) as never);
+    await userEvent.click(saveButton());
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    expect(save.mock.calls[1][1]).toBe(4);
+  });
+
+  it("a lost answer that committed: verified from the order sent AND the version moving on", async () => {
+    await arrange("+ Bài số 1", "+ Bài số 2");
+    save.mockResolvedValueOnce(unverified as never);
+    await userEvent.click(saveButton());
+    await screen.findByTestId("write-unverified");
+    pins.mockResolvedValue(ok(pinsAt(5, [1, 2])) as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    expect(await screen.findByTestId("pins-note")).toHaveTextContent(/phiên bản 5/);
+    expect(saveButton()).toBeDisabled(); // nothing left to save
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
+  it("the same order with an unchanged version is not taken for a recorded save", async () => {
+    mount([1, 2]);
+    await screen.findByText("+ Bài số 3");
+    await userEvent.click(screen.getByRole("button", { name: "+ Bài số 3" }));
+    save.mockResolvedValueOnce(unverified as never);
+    await userEvent.click(saveButton());
+    await screen.findByTestId("write-unverified");
+    pins.mockResolvedValue(ok(pinsAt(4, [1, 2, 3])) as never); // the server already has this order, but the version did not move
+    await userEvent.click(screen.getByTestId("check-server"));
+    expect(await screen.findByTestId("pins-note")).toHaveTextContent(/chưa đủ bằng chứng|không khẳng định/i);
+  });
+
+  it("someone else changed the pins while the answer was lost: a comparison, no verdict", async () => {
+    await arrange("+ Bài số 1");
+    save.mockResolvedValueOnce(unverified as never);
+    await userEvent.click(saveButton());
+    await screen.findByTestId("write-unverified");
+    pins.mockResolvedValue(ok(pinsAt(5, [7, 1])) as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    expect(await screen.findByTestId("pins-conflict")).toHaveTextContent(/phiên bản 5/);
+    expect(saveButton()).toBeDisabled();
+    expect(pinned()).toHaveLength(1);
+  });
+});
+
