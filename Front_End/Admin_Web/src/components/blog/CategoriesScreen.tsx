@@ -4,9 +4,13 @@
  * BHA-BLOG-001-CP03: categories — create, rename per language, change the order, delete — and the pinned posts of each. Structure is BlogPublish; everyone with
  * Blog access can read. A category's languages are never synchronised behind the person's back: each language is its own text, and a language left blank is
  * simply not sent. A category still referenced (by any revision, a pin or the home section) cannot be deleted, and the screen says what refers to it.
+ *
+ * Writes (C2): what is sent is an immutable SNAPSHOT taken when Save is pressed, so a later edit, another dialog or a late answer cannot change what a check
+ * judges. A lost answer is read back and judged against that snapshot - an update is never "saved" merely because the id exists - and only a verified outcome
+ * closes the dialog. A stale version keeps the server's copy apart from the local form and shows both; the version moves on only when the person chooses.
  */
 
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createCategory, deleteCategory, listCategories, saveCategory, type BlogCategory, type CategoryTexts } from "@/lib/api/blog";
 import { useWebsiteList, useWriteAction } from "@/components/website/useWebsiteData";
 import { ActionButton, DialogActions, DialogShell, ErrorPanel, LoadingPanel, PageHeader, TABLE_CLASSES, TextAreaField, TextField, Banner } from "@/components/website/WebsiteUi";
@@ -24,6 +28,30 @@ interface Draft {
   texts: Record<string, { name: string; slug: string; description: string }>;
 }
 
+/** What one Save sent. Never changes after it is taken. */
+interface Snapshot {
+  seq: number;
+  id: string;
+  isNew: boolean;
+  expectedVersion: number;
+  sortOrder: number;
+  texts: CategoryTexts;
+}
+
+/** The server's copy beside the local one, kept apart from the form until the person chooses. */
+interface Conflict {
+  kind: "update" | "create";
+  fresh: BlogCategory;
+  local: Draft;
+  askUseServer: boolean;
+}
+
+const same = (a: { name: string; slug: string; description: string | null }, b: { name: string; slug: string; description: string | null } | undefined) =>
+  !!b && a.name.trim() === b.name.trim() && a.slug.trim() === b.slug.trim() && (a.description ?? "").trim() === (b.description ?? "").trim();
+
+/** Only the locales that were sent are compared (the server never removes the others), with the trims the server applies. */
+const sentValuesMatch = (snap: Snapshot, fresh: BlogCategory) => fresh.sortOrder === snap.sortOrder && Object.entries(snap.texts).every(([code, text]) => same(text, fresh.translations[code]));
+
 const blankTexts = (codes: string[], from?: BlogCategory) =>
   Object.fromEntries(codes.map((code) => [code, { name: from?.translations[code]?.name ?? "", slug: from?.translations[code]?.slug ?? "", description: from?.translations[code]?.description ?? "" }]));
 
@@ -37,6 +65,13 @@ export default function CategoriesScreen() {
   const save = useWriteAction();
   const remove = useWriteAction();
   const [note, setNote] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<Conflict | null>(null);
+  const snapshotRef = useRef<Snapshot | null>(null);
+  const seqRef = useRef(0);
+  const draftRef = useRef<Draft | null>(null);
+  useEffect(() => {
+    draftRef.current = draft;
+  });
 
   if (list.state.status === "loading" || languages.status === "loading") return <LoadingPanel what="chuyên mục" />;
   if (list.state.status === "error") return <ErrorPanel message={list.state.message} onRetry={() => void list.reload()} />;
@@ -49,6 +84,8 @@ export default function CategoriesScreen() {
   const open = (category?: BlogCategory) => {
     save.reset();
     setNote(null);
+    setConflict(null);
+    snapshotRef.current = null;
     setDraft(category
       ? { id: category.id, isNew: false, version: category.version, sortOrder: String(category.sortOrder), texts: blankTexts([...new Set([...codes, ...Object.keys(category.translations)])], category) }
       : { id: crypto.randomUUID(), isNew: true, version: 0, sortOrder: String((categories.reduce((max, c) => Math.max(max, c.sortOrder), 0)) + 10), texts: blankTexts(codes) });
@@ -77,40 +114,121 @@ export default function CategoriesScreen() {
     return out;
   };
 
+  const textsKey = (d: Draft) => JSON.stringify([Number(d.sortOrder), textsToSend(d)]);
+  /** The dialog is still the one this request was made for (not closed, not another category, not another Save since). */
+  const current = (snap: Snapshot) => draftRef.current?.id === snap.id && snapshotRef.current?.seq === snap.seq;
+
+  const closeDialog = () => {
+    setDraft(null);
+    setConflict(null);
+    snapshotRef.current = null;
+  };
+
   const doSave = async () => {
-    if (!draft || problems(draft).length) return;
-    const texts = textsToSend(draft);
-    const order = Number(draft.sortOrder);
-    const result = await save.run(() => (draft.isNew ? createCategory(draft.id!, order, texts) : saveCategory(draft.id!, draft.version, order, texts)));
+    if (!draft || conflict || problems(draft).length) return;
+    const snap: Snapshot = { seq: ++seqRef.current, id: draft.id!, isNew: draft.isNew, expectedVersion: draft.version, sortOrder: Number(draft.sortOrder), texts: JSON.parse(JSON.stringify(textsToSend(draft))) };
+    snapshotRef.current = snap;
+    setNote(null);
+    const result = await save.run(() => (snap.isNew ? createCategory(snap.id, snap.sortOrder, snap.texts) : saveCategory(snap.id, snap.expectedVersion, snap.sortOrder, snap.texts)));
     if (result?.kind === "ok") {
-      setDraft(null);
+      if (current(snap)) closeDialog();
       void list.reload();
     }
   };
 
-  const checkCreate = async () => {
-    // The answer to the create was lost: the category may exist under the id this form already chose. Read, do not send.
-    const latest = await list.reload();
-    const found = latest?.find((c) => c.id === draft?.id);
-    if (found && draft) {
-      save.reset();
-      setDraft(null);
-      setNote("Máy chủ đã có chuyên mục này (cùng mã); không tạo thêm bản nào.");
-    } else {
-      setNote("Máy chủ chưa có chuyên mục này. Bấm Lưu để gửi lại với cùng mã — sẽ không tạo trùng.");
-      save.reset();
+  /**
+   * The answer to a save was lost. Read the categories and judge what the server shows against the snapshot that was SENT: the id existing proves nothing for an
+   * update. Nothing is sent from here and the version is never moved by guessing.
+   */
+  const checkSave = async () => {
+    const snap = snapshotRef.current;
+    if (!snap) return;
+    const result = await listCategories();
+    if (!current(snap)) return; // the dialog moved on while the server was being asked: this answer is not about what is on screen now
+    if (result.kind !== "ok") {
+      setNote("Chưa kiểm tra được máy chủ. Dữ liệu của bạn vẫn còn và thao tác vẫn là chưa xác nhận; hãy thử kiểm tra lại.");
+      return;
     }
+
+    void list.reload();
+    const fresh = result.data.find((c) => c.id === snap.id);
+    const matches = !!fresh && sentValuesMatch(snap, fresh);
+    const here = draftRef.current!;
+    if (!fresh) {
+      save.reset();
+      setNote(snap.isNew ? "Máy chủ chưa có chuyên mục này. Bấm Lưu để gửi lại với cùng mã — sẽ không tạo trùng." : "Chuyên mục này không còn trên máy chủ. Dữ liệu của bạn vẫn còn trong biểu mẫu.");
+      return;
+    }
+
+    if (matches && (snap.isNew || fresh.version > snap.expectedVersion)) {
+      // Verified: the server holds exactly what was sent, at a version that moved on (a create has none to move from).
+      save.reset();
+      if (textsKey(here) === JSON.stringify([snap.sortOrder, snap.texts])) {
+        closeDialog();
+        setNote(`Đã xác nhận trên máy chủ: chuyên mục có đúng các giá trị đã gửi (phiên bản ${fresh.version}). Đây là kết quả đọc lại, không phải gửi lại.`);
+      } else {
+        // The person kept typing while the server was asked: what they sent is confirmed, and their newer edits are written on top of that version.
+        setDraft({ ...here, isNew: false, version: fresh.version });
+        setNote(`Máy chủ đã có đúng các giá trị đã gửi (phiên bản ${fresh.version}). Những chỉnh sửa mới hơn của bạn vẫn còn và chưa được lưu.`);
+      }
+
+      return;
+    }
+
+    if (matches) {
+      save.reset();
+      setNote(`Máy chủ đang có đúng các giá trị này nhưng phiên bản chưa đổi (${fresh.version}), nên chưa đủ bằng chứng rằng lần lưu này đã chạy; hệ thống không khẳng định gì thêm. Biểu mẫu vẫn còn nguyên.`);
+      return;
+    }
+
+    if (!snap.isNew && fresh.version === snap.expectedVersion) {
+      save.reset();
+      setNote("Máy chủ chưa ghi nhận thay đổi này (chuyên mục vẫn như trước). Dữ liệu của bạn vẫn còn; bấm Lưu nếu muốn gửi lại.");
+      return;
+    }
+
+    // The server holds something else (another editor, or a different category under this id): show both, decide nothing.
+    save.reset();
+    setConflict({ kind: snap.isNew ? "create" : "update", fresh, local: JSON.parse(JSON.stringify(here)), askUseServer: false });
+    setNote(snap.isNew ? "Mã này đã có một chuyên mục với giá trị khác. Dữ liệu của bạn được giữ; xem so sánh bên dưới." : `Chuyên mục đã đổi trên máy chủ (phiên bản ${fresh.version}). Dữ liệu của bạn được giữ; xem so sánh bên dưới.`);
   };
 
+  /** After a stale version (409): read the server's copy and show it BESIDE the local one. The local version is not touched. */
   const reloadLatest = async () => {
-    const latest = await list.reload();
-    const fresh = latest?.find((c) => c.id === draft?.id);
-    if (fresh && draft) {
-      // Keep what was typed; only the version moves on, and only because the person asked to compare and continue.
-      save.reset();
-      setNote(`Chuyên mục đã được thay đổi trên máy chủ (phiên bản ${fresh.version}). Dữ liệu bạn nhập vẫn còn; đối chiếu bên dưới rồi bấm Lưu nếu vẫn muốn ghi đè.`);
-      setDraft({ ...draft, version: fresh.version });
+    const here = draftRef.current;
+    if (!here || !here.id) return;
+    const result = await listCategories();
+    if (draftRef.current?.id !== here.id) return;
+    if (result.kind !== "ok") {
+      setNote("Chưa tải được bản mới nhất từ máy chủ. Dữ liệu của bạn vẫn còn; hãy thử lại.");
+      return;
     }
+
+    const fresh = result.data.find((c) => c.id === here.id);
+    if (!fresh) {
+      setNote("Chuyên mục này không còn trên máy chủ.");
+      return;
+    }
+
+    void list.reload();
+    save.reset();
+    setConflict({ kind: "update", fresh, local: JSON.parse(JSON.stringify(here)), askUseServer: false });
+    setNote(`Chuyên mục đã được thay đổi trên máy chủ (phiên bản ${fresh.version}). Xem so sánh bên dưới rồi chọn; chưa có gì được gửi.`);
+  };
+
+  const keepMine = () => {
+    if (!conflict || !draftRef.current) return;
+    // The ONLY place the version moves: the person has seen both copies and chose to write theirs on top of the server's version.
+    setDraft({ ...draftRef.current, version: conflict.fresh.version });
+    setConflict(null);
+    setNote(`Giữ thay đổi của bạn trên phiên bản ${conflict.fresh.version}. Chưa có gì được gửi — bấm Lưu để ghi.`);
+  };
+
+  const useServerCopy = () => {
+    if (!conflict) return;
+    setDraft({ id: conflict.fresh.id, isNew: false, version: conflict.fresh.version, sortOrder: String(conflict.fresh.sortOrder), texts: blankTexts([...new Set([...codes, ...Object.keys(conflict.fresh.translations)])], conflict.fresh) });
+    setConflict(null);
+    setNote(`Đã thay biểu mẫu bằng bản trên máy chủ (phiên bản ${conflict.fresh.version}); thay đổi chưa lưu của bạn đã bị bỏ.`);
   };
 
   const doDelete = async () => {
@@ -131,7 +249,7 @@ export default function CategoriesScreen() {
     <div className="flex flex-col gap-4">
       <PageHeader title="Chuyên mục Blog">Tên, slug và mô tả theo từng ngôn ngữ. Đổi slug giữ lại slug cũ để chuyển hướng. Ghim quyết định bài nào lên đầu trong một chuyên mục.</PageHeader>
       {!rights.publish && <Banner tone="info">Bạn chỉ xem được chuyên mục; thay đổi cần quyền xuất bản Blog.</Banner>}
-      {note && <Banner tone="info" testId="categories-note" onDismiss={() => setNote(null)}>{note}</Banner>}
+      {note && !draft && <Banner tone="info" testId="categories-note" onDismiss={() => setNote(null)}>{note}</Banner>}
       <div className="flex justify-end">{rights.publish && <ActionButton onClick={() => open()} testId="category-new">Thêm chuyên mục</ActionButton>}</div>
       <div className={TABLE_CLASSES.wrap}>
         <table className={TABLE_CLASSES.table} data-testid="categories-table">
@@ -159,7 +277,7 @@ export default function CategoriesScreen() {
       </div>
 
       {draft && (
-        <DialogShell title={draft.isNew ? "Thêm chuyên mục" : "Sửa chuyên mục"} onClose={() => setDraft(null)} busy={working} testId="category-dialog" wide>
+        <DialogShell title={draft.isNew ? "Thêm chuyên mục" : "Sửa chuyên mục"} onClose={closeDialog} busy={working} testId="category-dialog" wide>
           <div className="flex flex-col gap-4">
             <TextField label="Thứ tự hiển thị" value={draft.sortOrder} onChange={(v) => setDraft({ ...draft, sortOrder: v })} inputMode="numeric" testId="category-order" />
             {Object.keys(draft.texts).map((code) => (
@@ -174,10 +292,12 @@ export default function CategoriesScreen() {
             ))}
             <p className="text-xs text-gray-500 dark:text-gray-400">Một ngôn ngữ để trống hoàn toàn thì không được gửi; ngôn ngữ đã có bản dịch không bị xoá khi sửa.</p>
             {problems(draft).length > 0 && <ul className="list-disc pl-5 text-xs text-error-500" role="alert">{problems(draft).map((p) => <li key={p}>{p}</li>)}</ul>}
-            <BlogWriteFeedback status={save.status} working={working} onReloadLatest={() => void reloadLatest()} onCheckServer={() => void checkCreate()} />
+            {note && <Banner tone="info" testId="categories-note" onDismiss={() => setNote(null)}>{note}</Banner>}
+            {conflict && <ConflictPanel conflict={conflict} codes={codes} onKeep={keepMine} onAskUseServer={() => setConflict({ ...conflict, askUseServer: true })} onUseServer={useServerCopy} onCancelUseServer={() => setConflict({ ...conflict, askUseServer: false })} onClose={() => setConflict(null)} />}
+            <BlogWriteFeedback status={save.status} working={working} onReloadLatest={() => void reloadLatest()} onCheckServer={() => void checkSave()} />
             <DialogActions>
-              <ActionButton variant="outline" onClick={() => setDraft(null)} disabled={working} testId="category-cancel">Đóng</ActionButton>
-              <ActionButton onClick={() => void doSave()} disabled={working || problems(draft).length > 0 || save.status.phase === "unverified"} testId="category-save">Lưu chuyên mục</ActionButton>
+              <ActionButton variant="outline" onClick={closeDialog} disabled={working} testId="category-cancel">Đóng</ActionButton>
+              <ActionButton onClick={() => void doSave()} disabled={working || problems(draft).length > 0 || save.status.phase === "unverified" || conflict !== null} testId="category-save">Lưu chuyên mục</ActionButton>
             </DialogActions>
           </div>
         </DialogShell>
@@ -197,5 +317,44 @@ export default function CategoriesScreen() {
 
       {pinsFor && <PinsDialog category={pinsFor} canEdit={rights.publish} languages={codes} onClose={() => { setPinsFor(null); void list.reload(); }} />}
     </div>
+  );
+}
+
+/** The local form and the server's copy side by side. Nothing here sends anything. */
+function ConflictPanel({ conflict, codes, onKeep, onAskUseServer, onUseServer, onCancelUseServer, onClose }: { conflict: Conflict; codes: string[]; onKeep: () => void; onAskUseServer: () => void; onUseServer: () => void; onCancelUseServer: () => void; onClose: () => void }) {
+  const { fresh, local } = conflict;
+  const locales = [...new Set([...codes, ...Object.keys(local.texts), ...Object.keys(fresh.translations)])].filter((code) => local.texts[code] && (local.texts[code].name || local.texts[code].slug || local.texts[code].description) || fresh.translations[code]);
+  const cell = (value: string | null | undefined) => (value ? value : "—");
+  const rows: [string, string, string][] = [["Thứ tự", local.sortOrder, String(fresh.sortOrder)]];
+  for (const code of locales) {
+    const mine = local.texts[code] ?? { name: "", slug: "", description: "" };
+    const theirs = fresh.translations[code];
+    rows.push([`[${code}] Tên`, mine.name, theirs?.name ?? ""], [`[${code}] Slug`, mine.slug, theirs?.slug ?? ""], [`[${code}] Mô tả`, mine.description, theirs?.description ?? ""]);
+  }
+
+  const differing = rows.filter(([, mine, theirs]) => mine.trim() !== theirs.trim()).length;
+  return (
+    <Banner tone="warning" testId="category-conflict">
+      <p className="font-medium">Bản của bạn (dựa trên phiên bản {local.version}) khác bản trên máy chủ (phiên bản {fresh.version}).</p>
+      <table className="mt-2 w-full text-left text-xs">
+        <thead><tr><th className="pr-3">Trường</th><th className="pr-3">Của bạn</th><th>Trên máy chủ</th></tr></thead>
+        <tbody>{rows.map(([name, mine, theirs]) => <tr key={name} className={mine.trim() !== theirs.trim() ? "font-semibold" : ""}><td className="pr-3 align-top">{name}</td><td className="pr-3 align-top break-words">{cell(mine)}</td><td className="align-top break-words">{cell(theirs)}</td></tr>)}</tbody>
+      </table>
+      {conflict.kind === "create" ? (
+        <p className="mt-2 text-xs">Mã này đã được một chuyên mục khác dùng. Hãy đóng và tạo lại để có mã mới; hệ thống không tự ghi đè.</p>
+      ) : conflict.askUseServer ? (
+        <div className="mt-3">
+          <p className="text-xs">Bỏ {differing} khác biệt của bạn và dùng bản của máy chủ? Thay đổi chưa lưu của bạn sẽ mất.</p>
+          <div className="mt-2 flex gap-2"><ActionButton onClick={onUseServer} testId="category-conflict-confirm">Đồng ý, dùng bản máy chủ</ActionButton><ActionButton variant="outline" onClick={onCancelUseServer}>Không</ActionButton></div>
+        </div>
+      ) : (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <ActionButton variant="outline" onClick={onKeep} testId="category-conflict-keep">Giữ thay đổi của tôi trên phiên bản {fresh.version}</ActionButton>
+          <ActionButton variant="outline" onClick={onAskUseServer} testId="category-conflict-use-server">Dùng bản của máy chủ…</ActionButton>
+          <ActionButton variant="outline" onClick={onClose}>Đóng so sánh</ActionButton>
+        </div>
+      )}
+      {conflict.kind === "update" && !conflict.askUseServer && <p className="mt-2 text-xs">“Giữ thay đổi của tôi” sẽ ghi đè mọi giá trị khác nhau ở trên bằng cột bên trái (một ngôn ngữ bạn để trống thì không bị gửi, nên không bị xoá). Không có lựa chọn nào tự gửi gì lên máy chủ.</p>}
+    </Banner>
   );
 }

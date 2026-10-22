@@ -1,0 +1,306 @@
+/**
+ * BHA-BLOG-001-CP03-C2 (F1, F2): saving a category. An update whose answer was lost is verified against what was SENT, not by the id existing; a stale
+ * version shows the server's copy next to the local one and moves the version only on an explicit choice; a locale that was not sent is never judged or removed.
+ */
+import React from "react";
+import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), push: vi.fn() }) }));
+vi.mock("@/lib/api/staff", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/api/staff")>()), fetchStaffSession: vi.fn(), staffLogout: vi.fn() }));
+vi.mock("@/lib/api/blog", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/api/blog")>()),
+  listCategories: vi.fn(), saveCategory: vi.fn(), createCategory: vi.fn(), deleteCategory: vi.fn(), getPins: vi.fn(), listPosts: vi.fn(),
+  fetchActiveLanguages: vi.fn(() => Promise.resolve({ kind: "ok", data: [{ code: "vi", displayName: "Vietnamese", nativeName: "Tiếng Việt", isDefault: true }, { code: "en", displayName: "English", nativeName: "English", isDefault: false }] })),
+}));
+
+import CategoriesScreen from "./CategoriesScreen";
+import { BOTH, deferred, ok, renderInBlogGate } from "./blogTestUtils";
+import { createCategory, listCategories, saveCategory, type BlogCategory } from "@/lib/api/blog";
+import { fetchStaffSession } from "@/lib/api/staff";
+
+const list = vi.mocked(listCategories);
+const save = vi.mocked(saveCategory);
+const create = vi.mocked(createCategory);
+
+const text = (name: string, slug: string, description: string | null = null) => ({ name, slug, description });
+const cat = (id: string, over: Partial<BlogCategory> = {}): BlogCategory => ({
+  id, systemKey: null, sortOrder: 20, version: 3, translations: { vi: text("Ẩm thực", "am-thuc", "Mô tả"), en: text("Cuisine", "cuisine") }, revisionCount: 0, pinCount: 0, isHomeSection: false, ...over,
+});
+const A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const unverified = { kind: "unverified", message: "Mất kết nối." } as const;
+const stale = { kind: "refused", status: 409, code: "blog.stale-version", field: "expectedVersion", detail: "changed" } as const;
+
+let server: BlogCategory[] = [];
+const rows = () => screen.findAllByTestId("category-row");
+const editRow = async (index: number) => { const r = await rows(); await userEvent.click(within(r[index]).getByTestId("category-edit").querySelector("button")!); await screen.findByTestId("category-dialog"); };
+const btn = (id: string) => within(screen.getByTestId(id)).getByRole("button");
+const name = () => screen.getByTestId("category-name-vi") as HTMLInputElement;
+
+beforeEach(() => {
+  vi.stubEnv("NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE", "Staff");
+  vi.mocked(fetchStaffSession).mockResolvedValue({ kind: "authenticated", session: BOTH });
+  for (const m of [list, save, create]) m.mockReset();
+  server = [cat(A)];
+  list.mockImplementation((() => Promise.resolve(ok(server))) as never);
+});
+afterEach(() => {
+  cleanup();
+  vi.unstubAllEnvs();
+});
+
+async function typeName(value: string) {
+  await userEvent.clear(name());
+  await userEvent.type(name(), value);
+}
+
+describe("F1 — an update whose answer was lost", () => {
+  it("that never reached the server: the category exists, but the edits are kept and nothing is called saved", async () => {
+    save.mockResolvedValueOnce(unverified as never);
+    renderInBlogGate(<CategoriesScreen />);
+    await editRow(0);
+    await typeName("Ẩm thực & quán ăn");
+    await userEvent.click(btn("category-save"));
+    await screen.findByTestId("write-unverified");
+    await userEvent.click(screen.getByTestId("check-server"));
+    expect(await screen.findByTestId("categories-note")).toHaveTextContent(/chưa ghi nhận/i);
+    expect(screen.getByTestId("category-dialog")).toBeInTheDocument(); // not closed
+    expect(name()).toHaveValue("Ẩm thực & quán ăn"); // the edit is still there
+    expect(screen.queryByText(/đã lưu/i)).toBeNull();
+    expect(save).toHaveBeenCalledTimes(1); // nothing was sent again
+    expect(btn("category-save")).not.toBeDisabled(); // the person may press Save themselves
+  });
+
+  it("that committed: verified from what was sent and the version moving on, then the dialog closes", async () => {
+    save.mockResolvedValueOnce(unverified as never);
+    renderInBlogGate(<CategoriesScreen />);
+    await editRow(0);
+    await typeName("Ẩm thực & quán ăn");
+    await userEvent.click(btn("category-save"));
+    await screen.findByTestId("write-unverified");
+    server = [cat(A, { version: 4, translations: { vi: text("Ẩm thực & quán ăn", "am-thuc", "Mô tả"), en: text("Cuisine", "cuisine") } })];
+    await userEvent.click(screen.getByTestId("check-server"));
+    await waitFor(() => expect(screen.queryByTestId("category-dialog")).toBeNull());
+    expect(screen.getByTestId("categories-note")).toHaveTextContent(/phiên bản 4/);
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
+  it("whose re-read failed: stays unconfirmed with the form intact", async () => {
+    save.mockResolvedValueOnce(unverified as never);
+    renderInBlogGate(<CategoriesScreen />);
+    await editRow(0);
+    await typeName("Đang sửa");
+    await userEvent.click(btn("category-save"));
+    await screen.findByTestId("write-unverified");
+    list.mockImplementation((() => Promise.resolve({ kind: "error", status: 503, message: "Máy chủ bận." })) as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    await waitFor(() => expect(screen.getByTestId("categories-note")).toHaveTextContent(/chưa kiểm tra được/i));
+    expect(screen.getByTestId("category-dialog")).toBeInTheDocument();
+    expect(name()).toHaveValue("Đang sửa");
+    expect(screen.getByTestId("write-unverified")).toBeInTheDocument();
+  });
+
+  it("whose re-read shows someone else's change: a comparison, the form kept, no save", async () => {
+    save.mockResolvedValueOnce(unverified as never);
+    renderInBlogGate(<CategoriesScreen />);
+    await editRow(0);
+    await typeName("Của tôi");
+    await userEvent.click(btn("category-save"));
+    await screen.findByTestId("write-unverified");
+    server = [cat(A, { version: 5, translations: { vi: text("Của người khác", "am-thuc"), en: text("Cuisine", "cuisine") } })];
+    await userEvent.click(screen.getByTestId("check-server"));
+    const panel = await screen.findByTestId("category-conflict");
+    expect(panel).toHaveTextContent("Của tôi");
+    expect(panel).toHaveTextContent("Của người khác");
+    expect(name()).toHaveValue("Của tôi");
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
+  it("with identical values but an unchanged version: says what is known, does not claim the request ran", async () => {
+    save.mockResolvedValueOnce(unverified as never);
+    renderInBlogGate(<CategoriesScreen />);
+    await editRow(0);
+    await userEvent.click(btn("category-save")); // nothing changed in the form
+    await screen.findByTestId("write-unverified");
+    await userEvent.click(screen.getByTestId("check-server"));
+    const note = await screen.findByTestId("categories-note");
+    expect(note).toHaveTextContent(/đúng các giá trị/i);
+    expect(note).toHaveTextContent(/không khẳng định|chưa đủ bằng chứng|chưa đổi/i);
+    expect(screen.getByTestId("category-dialog")).toBeInTheDocument();
+  });
+
+  it("while the check is pending the person keeps typing: the dialog stays, the newer text is kept, the base is the verified one", async () => {
+    save.mockResolvedValueOnce(unverified as never);
+    renderInBlogGate(<CategoriesScreen />);
+    await editRow(0);
+    await typeName("Bản gửi");
+    await userEvent.click(btn("category-save"));
+    await screen.findByTestId("write-unverified");
+    const gate = deferred<ReturnType<typeof ok>>();
+    list.mockImplementationOnce((() => gate.promise) as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    await userEvent.type(name(), " thêm");
+    server = [cat(A, { version: 4, translations: { vi: text("Bản gửi", "am-thuc", "Mô tả"), en: text("Cuisine", "cuisine") } })];
+    await act(async () => { gate.resolve(ok(server)); await Promise.resolve(); });
+    await waitFor(() => expect(screen.getByTestId("categories-note")).toHaveTextContent(/phiên bản 4/));
+    expect(screen.getByTestId("category-dialog")).toBeInTheDocument();
+    expect(name()).toHaveValue("Bản gửi thêm");
+    save.mockResolvedValueOnce(ok(cat(A, { version: 5 })) as never);
+    await userEvent.click(btn("category-save"));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    expect(save.mock.calls[1][1]).toBe(4); // the newer edit is written on the version the verified save produced
+  });
+
+  it("another category opened while the check is pending is not closed or confirmed by the old answer", async () => {
+    server = [cat(A), cat(B, { translations: { vi: text("Du lịch", "du-lich") }, version: 1 })];
+    save.mockResolvedValueOnce(unverified as never);
+    renderInBlogGate(<CategoriesScreen />);
+    await editRow(0);
+    await typeName("Bản gửi cho A");
+    await userEvent.click(btn("category-save"));
+    await screen.findByTestId("write-unverified");
+    const gate = deferred<ReturnType<typeof ok>>();
+    list.mockImplementationOnce((() => gate.promise) as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    await userEvent.click(btn("category-cancel"));
+    await editRow(1);
+    server = [cat(A, { version: 4, translations: { vi: text("Bản gửi cho A", "am-thuc", "Mô tả"), en: text("Cuisine", "cuisine") } }), cat(B, { translations: { vi: text("Du lịch", "du-lich") }, version: 1 })];
+    await act(async () => { gate.resolve(ok(server)); await Promise.resolve(); });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.getByTestId("category-dialog")).toBeInTheDocument(); // B's dialog
+    expect(name()).toHaveValue("Du lịch");
+    expect(screen.queryByTestId("categories-note")?.textContent ?? "").not.toMatch(/phiên bản 4/);
+  });
+
+  it("a locale that was not sent is not compared and not removed", async () => {
+    server = [cat(A, { translations: { vi: text("Ẩm thực", "am-thuc") } })];
+    save.mockResolvedValueOnce(unverified as never);
+    renderInBlogGate(<CategoriesScreen />);
+    await editRow(0);
+    await typeName("Ẩm thực mới");
+    await userEvent.click(btn("category-save"));
+    await screen.findByTestId("write-unverified");
+    expect(Object.keys(save.mock.calls[0][3])).toEqual(["vi"]); // en was blank: omitted
+    server = [cat(A, { version: 4, translations: { vi: text("Ẩm thực mới", "am-thuc"), en: text("Added by someone", "added") } })];
+    await userEvent.click(screen.getByTestId("check-server"));
+    await waitFor(() => expect(screen.queryByTestId("category-dialog")).toBeNull()); // verified on vi alone; en is theirs
+  });
+});
+
+describe("F1 — a create whose answer was lost", () => {
+  async function startCreate() {
+    server = [];
+    renderInBlogGate(<CategoriesScreen />);
+    await screen.findByTestId("category-new");
+    await userEvent.click(btn("category-new"));
+    await screen.findByTestId("category-dialog");
+    await userEvent.type(name(), "Mới");
+    await userEvent.type(screen.getByTestId("category-slug-vi"), "moi");
+    await userEvent.click(btn("category-save"));
+    await screen.findByTestId("write-unverified");
+  }
+
+  it("is found by its own id with the values that were sent: done, and nothing was sent twice", async () => {
+    create.mockResolvedValueOnce(unverified as never);
+    await startCreate();
+    const id = create.mock.calls[0][0];
+    server = [cat(id, { version: 1, sortOrder: 10, translations: { vi: text("Mới", "moi") } })];
+    await userEvent.click(screen.getByTestId("check-server"));
+    await waitFor(() => expect(screen.queryByTestId("category-dialog")).toBeNull());
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it("is not on the server: the same id is sent again only when the person presses Save", async () => {
+    create.mockResolvedValueOnce(unverified as never);
+    await startCreate();
+    const id = create.mock.calls[0][0];
+    await userEvent.click(screen.getByTestId("check-server"));
+    await screen.findByTestId("categories-note");
+    expect(create).toHaveBeenCalledTimes(1);
+    create.mockResolvedValueOnce(ok(cat(id, { version: 1 })) as never);
+    await userEvent.click(btn("category-save"));
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
+    expect(create.mock.calls[1][0]).toBe(id);
+  });
+
+  it("an id that exists with other values is not taken for the create", async () => {
+    create.mockResolvedValueOnce(unverified as never);
+    await startCreate();
+    const id = create.mock.calls[0][0];
+    server = [cat(id, { version: 1, translations: { vi: text("Khác hẳn", "khac-han") } })];
+    await userEvent.click(screen.getByTestId("check-server"));
+    expect(await screen.findByTestId("category-conflict")).toBeInTheDocument();
+    expect(screen.getByTestId("category-dialog")).toBeInTheDocument();
+  });
+});
+
+describe("F2 — a stale version", () => {
+  async function openStale(localName = "Bản của tôi") {
+    save.mockResolvedValueOnce(stale as never);
+    renderInBlogGate(<CategoriesScreen />);
+    await editRow(0);
+    await typeName(localName);
+    await userEvent.click(btn("category-save"));
+    await screen.findByTestId("write-refused");
+  }
+
+  it("shows the server's copy beside the local one and does not move the version or allow Save", async () => {
+    await openStale();
+    server = [cat(A, { version: 6, sortOrder: 40, translations: { vi: text("Bản của server", "am-thuc-server", "Mô tả server"), en: text("Cuisine", "cuisine") } })];
+    await userEvent.click(screen.getByTestId("reload-latest"));
+    const panel = await screen.findByTestId("category-conflict");
+    for (const t of ["Bản của tôi", "Bản của server", "am-thuc-server", "Mô tả server", "40"]) expect(panel).toHaveTextContent(t);
+    expect(panel).toHaveTextContent(/phiên bản 3/);
+    expect(panel).toHaveTextContent(/phiên bản 6/);
+    expect(name()).toHaveValue("Bản của tôi");
+    expect(btn("category-save")).toBeDisabled(); // not before a choice
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
+  it("'use the server's copy' asks first, then replaces the form and takes the server's version", async () => {
+    await openStale();
+    server = [cat(A, { version: 6, translations: { vi: text("Bản của server", "am-thuc"), en: text("Cuisine", "cuisine") } })];
+    await userEvent.click(screen.getByTestId("reload-latest"));
+    await userEvent.click(btn("category-conflict-use-server"));
+    expect(name()).toHaveValue("Bản của tôi"); // asked, not done
+    await userEvent.click(btn("category-conflict-confirm"));
+    await waitFor(() => expect(name()).toHaveValue("Bản của server"));
+    save.mockResolvedValueOnce(ok(cat(A, { version: 7 })) as never);
+    await userEvent.click(btn("category-save"));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    expect(save.mock.calls[1][1]).toBe(6);
+  });
+
+  it("'keep mine on the new version' is the only way the version moves; a locale only the server has is not deleted", async () => {
+    server = [cat(A, { translations: { vi: text("Ẩm thực", "am-thuc") } })];
+    await openStale();
+    server = [cat(A, { version: 6, translations: { vi: text("Của người khác", "am-thuc"), en: text("Added", "added") } })];
+    await userEvent.click(screen.getByTestId("reload-latest"));
+    await screen.findByTestId("category-conflict");
+    await userEvent.click(btn("category-conflict-keep"));
+    expect(btn("category-save")).not.toBeDisabled();
+    save.mockResolvedValueOnce(ok(cat(A, { version: 7 })) as never);
+    await userEvent.click(btn("category-save"));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    expect(save.mock.calls[1][1]).toBe(6);
+    expect(save.mock.calls[1][3].vi.name).toBe("Bản của tôi");
+    expect(Object.keys(save.mock.calls[1][3])).toEqual(["vi"]); // en is not in the request, so it is not removed
+  });
+
+  it("a second stale answer after the choice keeps the data and asks for a fresh comparison", async () => {
+    await openStale();
+    server = [cat(A, { version: 6 })];
+    await userEvent.click(screen.getByTestId("reload-latest"));
+    await userEvent.click(btn("category-conflict-keep"));
+    save.mockResolvedValueOnce(stale as never);
+    await userEvent.click(btn("category-save"));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    expect(await screen.findByTestId("write-refused")).toBeInTheDocument();
+    expect(name()).toHaveValue("Bản của tôi");
+    server = [cat(A, { version: 8, translations: { vi: text("Lần hai", "am-thuc"), en: text("Cuisine", "cuisine") } })];
+    await userEvent.click(screen.getByTestId("reload-latest"));
+    expect(await screen.findByTestId("category-conflict")).toHaveTextContent("Lần hai");
+  });
+});
