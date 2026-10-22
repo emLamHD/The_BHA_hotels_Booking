@@ -21,6 +21,8 @@ const lookup = vi.mocked(getMedia);
 
 interface Call { file: File; id: string; progress: (sent: number, total: number) => void; settle: (outcome: UploadOutcome) => void; abort: ReturnType<typeof vi.fn> }
 const calls: Call[] = [];
+/** When true, abort() asks the request to stop but does NOT settle it: the request is "still unwinding" until the test settles it. */
+let holdAbort = false;
 
 const media = (id: string, sha: string | null): BlogMedia => ({
   id, contentType: "image/png", byteSize: 10, width: 800, height: 600, createdAtUtc: "2026-10-21T08:00:00Z", displayName: "x", originalFileName: "x.png", description: "", credit: "", sourceUrl: "",
@@ -46,13 +48,14 @@ beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE", "Staff");
   vi.mocked(fetchStaffSession).mockResolvedValue({ kind: "authenticated", session: EDITOR });
   calls.length = 0;
+  holdAbort = false;
   queue = null;
   uploaded.mockReset();
   lookup.mockReset();
   upload.mockReset();
   upload.mockImplementation(((file: File, id: string, progress: Call["progress"]) => {
     const gate = deferred<UploadOutcome>();
-    const abort = vi.fn(() => gate.resolve({ kind: "aborted" }));
+    const abort = vi.fn(() => { if (!holdAbort) gate.resolve({ kind: "aborted" }); });
     calls.push({ file, id, progress, settle: gate.resolve, abort });
     return { done: gate.promise, abort };
   }) as never);
@@ -193,5 +196,110 @@ describe("cancelling", () => {
     act(() => queue!.resend(queue!.items[1].key));
     await waitFor(() => expect(calls).toHaveLength(2));
     expect(calls[1].file.name).toBe("b.png");
+  });
+});
+
+/** Lets everything already queued run (promises, effects) without waiting for a clock. */
+const flush = () => act(async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); });
+
+describe("C2 F3 — cancel, resend and the drain that is still unwinding", () => {
+  it("a picture resent while the cancelled one is still unwinding is sent once, after it settles", async () => {
+    holdAbort = true;
+    await start();
+    add(png("a.png"), png("b.png"), png("c.png"));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    act(() => queue!.cancel());
+    expect(calls[0].abort).toHaveBeenCalled();
+    expect(statuses()).toEqual(["a.png=sending", "b.png=cancelled", "c.png=cancelled"]); // A is still on the wire: its abort has not settled
+    const b = queue!.items[1];
+    act(() => queue!.resend(b.key));
+    expect(statuses()[1]).toBe("b.png=waiting");
+    await flush();
+    expect(upload).toHaveBeenCalledTimes(1); // only one request at a time: B waits for A to unwind
+
+    await settle(0, { kind: "aborted" });
+    await waitFor(() => expect(calls).toHaveLength(2));
+    expect(calls[1].file.name).toBe("b.png");
+    expect(calls[1].id).toBe(b.id); // the same id
+    await settle(1, { kind: "ok", media: media(calls[1].id, "sha-of-b.png") });
+    await flush();
+    expect(statuses()).toEqual(["a.png=unconfirmed", "b.png=done", "c.png=cancelled"]); // A: the server may have it; C: never asked for
+    expect(upload).toHaveBeenCalledTimes(2);
+  });
+
+  it("several clicks on Resend send the picture once", async () => {
+    holdAbort = true;
+    await start();
+    add(png("a.png"), png("b.png"));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    act(() => queue!.cancel());
+    const key = queue!.items[1].key;
+    act(() => { queue!.resend(key); queue!.resend(key); queue!.resend(key); });
+    await settle(0, { kind: "aborted" });
+    await waitFor(() => expect(calls).toHaveLength(2));
+    await settle(1, { kind: "ok", media: media(calls[1].id, "x") });
+    await flush();
+    expect(upload).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not restart the other cancelled pictures", async () => {
+    holdAbort = true;
+    await start();
+    add(png("a.png"), png("b.png"), png("c.png"));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    act(() => queue!.cancel());
+    act(() => queue!.resend(queue!.items[2].key)); // only C
+    await settle(0, { kind: "aborted" });
+    await waitFor(() => expect(calls).toHaveLength(2));
+    expect(calls[1].file.name).toBe("c.png");
+    await settle(1, { kind: "ok", media: media(calls[1].id, "x") });
+    await flush();
+    expect(statuses()).toEqual(["a.png=unconfirmed", "b.png=cancelled", "c.png=done"]);
+    expect(upload).toHaveBeenCalledTimes(2);
+  });
+
+  it("a second cancel while the resent picture is on the wire stops it the same way", async () => {
+    holdAbort = true;
+    await start();
+    add(png("a.png"), png("b.png"));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    act(() => queue!.cancel());
+    act(() => queue!.resend(queue!.items[1].key));
+    await settle(0, { kind: "aborted" });
+    await waitFor(() => expect(calls).toHaveLength(2));
+    act(() => queue!.cancel());
+    expect(calls[1].abort).toHaveBeenCalled();
+    await settle(1, { kind: "aborted" });
+    await flush();
+    expect(statuses()).toEqual(["a.png=unconfirmed", "b.png=unconfirmed"]);
+    expect(upload).toHaveBeenCalledTimes(2);
+  });
+
+  it("when the cancelled picture fails instead of aborting, the resent one is still sent", async () => {
+    holdAbort = true;
+    await start();
+    add(png("a.png"), png("b.png"));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    act(() => queue!.cancel());
+    act(() => queue!.resend(queue!.items[1].key));
+    await settle(0, { kind: "refused", status: 400, code: "hero-image-corrupt", detail: "Ảnh hỏng." });
+    await waitFor(() => expect(calls).toHaveLength(2));
+    await settle(1, { kind: "ok", media: media(calls[1].id, "x") });
+    await flush();
+    expect(statuses()).toEqual(["a.png=failed", "b.png=done"]);
+  });
+
+  it("a resend after everything is idle is sent, and a picture that is done is never sent again", async () => {
+    await start();
+    add(png("a.png"), png("b.png"));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    await settle(0, { kind: "ok", media: media(calls[0].id, "x") });
+    await waitFor(() => expect(calls).toHaveLength(2));
+    act(() => queue!.cancel());
+    await flush();
+    expect(statuses()).toEqual(["a.png=done", "b.png=unconfirmed"]);
+    act(() => queue!.resend(queue!.items[0].key)); // A is done: nothing to send
+    await flush();
+    expect(upload).toHaveBeenCalledTimes(2);
   });
 });

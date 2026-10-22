@@ -63,7 +63,8 @@ export function useUploadQueue({ onUploaded, hash = sha256Hex }: { onUploaded?: 
   const itemsRef = useRef<UploadItem[]>([]);
   const handles = useRef(new Map<string, UploadHandle>());
   const running = useRef(false);
-  const cancelledAll = useRef(false);
+  /** A resend or an add that came while a drain was still unwinding: that drain looks again before it ends, so the request is never lost. */
+  const kicked = useRef(false);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -153,15 +154,23 @@ export function useUploadQueue({ onUploaded, hash = sha256Hex }: { onUploaded?: 
   );
 
   const drain = useCallback(async () => {
-    if (running.current) return;
+    if (running.current) {
+      kicked.current = true;
+      return;
+    }
     running.current = true;
-    cancelledAll.current = false;
     try {
-      for (;;) {
-        const next = itemsRef.current.find((item) => item.status === "waiting");
-        if (!next || cancelledAll.current) break;
-        await sendOne(next);
-      }
+      do {
+        kicked.current = false;
+        for (;;) {
+          // One picture at a time. Only a picture that is `waiting` is sent: `cancel` turned every waiting one into `cancelled`, so what is left to send is
+          // exactly what was added or explicitly resent since.
+          const next = itemsRef.current.find((item) => item.status === "waiting");
+          if (!next) break;
+          await sendOne(next);
+        }
+        // Checked in the same step that gives the drain up: a resend cannot slip between "found nothing" and "not running".
+      } while (kicked.current);
     } finally {
       running.current = false;
     }
@@ -193,7 +202,6 @@ export function useUploadQueue({ onUploaded, hash = sha256Hex }: { onUploaded?: 
 
   /** Stops what has not been sent and aborts the one on the wire. The latter becomes `unconfirmed`, not failed: the server may already have it. */
   const cancel = useCallback(() => {
-    cancelledAll.current = true;
     itemsRef.current = itemsRef.current.map((item) => (item.status === "waiting" ? { ...item, status: "cancelled", message: "Đã huỷ trước khi gửi." } : item));
     setItems(itemsRef.current);
     handles.current.forEach((handle) => handle.abort());
