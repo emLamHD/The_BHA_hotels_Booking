@@ -245,4 +245,3 @@ describe("a save of the pin list: lost answers and stale versions", () => {
     expect(pinned()).toHaveLength(1);
   });
 });
-
