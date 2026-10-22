@@ -21,25 +21,30 @@ vi.mock("@/lib/api/blog", async (importOriginal) => ({
 vi.mock("./PostPreviewDialog", () => ({ default: () => <div data-testid="preview-stub" /> }));
 vi.mock("./MediaPickerDialog", () => ({ default: () => null }));
 vi.mock("./RichBodyEditor", () => ({
-  default: function Stub({ onChange }: { onChange: (s: { body: unknown; problems: unknown[] }) => void }) {
+  default: function Stub({ onChange, services }: { onChange: (s: { body: unknown; problems: unknown[] }) => void; services: { properties: unknown[] } }) {
     React.useEffect(() => onChange({ body: { schemaVersion: 1, blocks: [] }, problems: [] }), [onChange]);
-    return null;
+    return <span data-testid="props-count">{services.properties.length}</span>; // what the property-intro block would offer
   },
 }));
 
 import PostEditorScreen from "./PostEditorScreen";
 import { BOTH, deferred, ok, post, renderInBlogGate, revision, translation } from "./blogTestUtils";
-import { createPost, saveDraft, transitionPost } from "@/lib/api/blog";
+import { createPost, getPost, saveDraft, transitionPost } from "@/lib/api/blog";
+import { fetchActiveProperties } from "@/lib/api/client";
 import { fetchStaffSession } from "@/lib/api/staff";
 
 const create = vi.mocked(createPost);
 const transition = vi.mocked(transitionPost);
 const save = vi.mocked(saveDraft);
+const readPost = vi.mocked(getPost);
+const properties = vi.mocked(fetchActiveProperties);
 
 beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE", "Staff");
   vi.mocked(fetchStaffSession).mockResolvedValue({ kind: "authenticated", session: BOTH });
-  for (const m of [create, transition, save, router.replace]) m.mockReset();
+  for (const m of [create, transition, save, readPost, router.replace]) m.mockReset();
+  properties.mockReset();
+  properties.mockResolvedValue({ ok: true, data: [] } as never);
 });
 afterEach(() => {
   cleanup();
@@ -225,5 +230,61 @@ describe("C4 F1 — edits made while a new post is being created are never navig
     const gate = await startCreate("post-save");
     gate.resolve(ok(post(draftOf("Bài mới"), create.mock.calls[0][0])) as never);
     await waitFor(() => expect(router.replace).toHaveBeenCalledTimes(1));
+  });
+});
+
+// ---------------------------------------------------------------- C5 F3: the properties lookup is a required input of the editor
+
+describe("C5 F3 — a failed properties lookup is shown, not turned into an editor with no properties", () => {
+  const failure = { ok: false, error: { kind: "network", message: "Không gọi được máy chủ." } } as never;
+  const found = { ok: true, data: [{ id: "10000000-0000-4000-8000-000000000001", name: "The BHA Riverside" }, { id: "10000000-0000-4000-8000-000000000002", name: "The BHA Beach" }] } as never;
+  const retry = () => userEvent.click(within(screen.getByTestId("website-load-error")).getByRole("button", { name: "Thử lại" }));
+
+  it("new post: the editor does not open, the error says what failed and offers a retry that reads that lookup again and restores the options", async () => {
+    properties.mockResolvedValueOnce(failure);
+    renderInBlogGate(<PostEditorScreen postId={null} />);
+    expect(await screen.findByTestId("website-load-error")).toHaveTextContent(/cơ sở lưu trú/);
+    expect(screen.queryByTestId("translation-form")).toBeNull();
+    expect(properties).toHaveBeenCalledTimes(1); // no retry loop
+    properties.mockResolvedValueOnce(found);
+    await retry();
+    expect(await screen.findByTestId("translation-form")).toBeInTheDocument();
+    expect(screen.getByTestId("props-count")).toHaveTextContent("2");
+    expect(properties).toHaveBeenCalledTimes(2);
+  });
+
+  it("existing post: the same, and the post is not read again by the retry", async () => {
+    const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    readPost.mockResolvedValue(ok(post(translation({ version: 3, draft: revision({ title: "Bài đã có" }) }), id)) as never);
+    properties.mockResolvedValueOnce(failure);
+    renderInBlogGate(<PostEditorScreen postId={id} />);
+    await screen.findByTestId("website-load-error");
+    expect(screen.queryByTestId("translation-form")).toBeNull();
+    properties.mockResolvedValueOnce(found);
+    await retry();
+    expect(await screen.findByTestId("translation-form")).toBeInTheDocument();
+    expect((screen.getByTestId("post-title") as HTMLInputElement).value).toBe("Bài đã có");
+    expect(screen.getByTestId("props-count")).toHaveTextContent("2");
+    expect(readPost).toHaveBeenCalledTimes(1);
+  });
+
+  it("a retry that fails again stays on the error (one more request per click, nothing in between)", async () => {
+    properties.mockResolvedValue(failure);
+    renderInBlogGate(<PostEditorScreen postId={null} />);
+    await screen.findByTestId("website-load-error");
+    await retry();
+    await screen.findByTestId("website-load-error");
+    await retry();
+    await screen.findByTestId("website-load-error");
+    expect(properties).toHaveBeenCalledTimes(3);
+    expect(screen.queryByTestId("translation-form")).toBeNull();
+  });
+
+  it("an authoritative EMPTY list is not an error: the editor opens with no property options", async () => {
+    properties.mockResolvedValueOnce({ ok: true, data: [] } as never);
+    renderInBlogGate(<PostEditorScreen postId={null} />);
+    expect(await screen.findByTestId("translation-form")).toBeInTheDocument();
+    expect(screen.queryByTestId("website-load-error")).toBeNull();
+    expect(screen.getByTestId("props-count")).toHaveTextContent("0");
   });
 });

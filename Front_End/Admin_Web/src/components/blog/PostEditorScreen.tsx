@@ -29,7 +29,9 @@ export default function PostEditorScreen({ postId }: { postId: string | null }) 
   const router = useRouter();
   const search = useSearchParams();
   const languages = useActiveLanguages();
-  const properties = useActiveProperties();
+  // Read again only when the person asks (the retry of the error below): never on a timer, never as a side effect of anything else.
+  const [propertiesAttempt, setPropertiesAttempt] = useState(0);
+  const properties = useActiveProperties(propertiesAttempt);
   const categories = useWebsiteList((signal) => listCategories(signal), []);
   const loaded = useWebsiteList<BlogPost | null>(
     async (signal): Promise<WebsiteResult<BlogPost | null>> => (postId === null ? { kind: "ok", data: null } : getPost(postId, signal)),
@@ -62,6 +64,9 @@ export default function PostEditorScreen({ postId }: { postId: string | null }) 
   if (loaded.state.status === "error") return <ErrorPanel message={loaded.state.message} onRetry={() => void loaded.reload()} />;
   if (languages.status === "error") return <ErrorPanel message={languages.message} onRetry={() => window.location.reload()} />;
   if (categories.state.status === "error") return <ErrorPanel message={categories.state.message} onRetry={() => void categories.reload()} />;
+  // The active Properties are an input of the editor (the property-intro block offers them): a failed lookup is not an empty list. The editor opens only
+  // with an answer - an empty list that the server really sent is an answer.
+  if (properties.status === "error") return <ErrorPanel message={`Không tải được danh sách cơ sở lưu trú (khối giới thiệu cơ sở cần nó). ${properties.message}`} onRetry={() => setPropertiesAttempt((n) => n + 1)} />;
   if (postId === null && !rights.edit) return <Banner tone="info" testId="new-needs-edit">Tạo bài mới cần quyền chỉnh sửa Blog.</Banner>;
 
   const active = languages.data;
