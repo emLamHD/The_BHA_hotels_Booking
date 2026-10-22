@@ -96,4 +96,3 @@ describe("the posts list", () => {
     expect(screen.getByTestId("posts-total")).toHaveTextContent("2 bài");
   });
 });
-
