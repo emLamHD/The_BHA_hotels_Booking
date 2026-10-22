@@ -106,8 +106,9 @@ export default function PostEditorScreen({ postId }: { postId: string | null }) 
       {postId !== null && !current && <Banner tone="error">Không tìm thấy bài viết.</Banner>}
       {(postId === null || current) && (
         <TranslationForm
+          // The key keeps to the route's own id: once the post exists the form must not remount (the id handed to it below changes, the key does not).
           key={`${postId ?? clientId}:${selected}`}
-          postId={postId}
+          postId={postId ?? post?.id ?? null}
           clientId={clientId}
           locale={selected}
           initial={translation}

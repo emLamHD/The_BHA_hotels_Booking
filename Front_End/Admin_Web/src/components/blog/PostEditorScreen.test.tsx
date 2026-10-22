@@ -15,7 +15,7 @@ vi.mock("@/lib/api/blog", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/blog")>()),
   createPost: vi.fn(), saveDraft: vi.fn(), transitionPost: vi.fn(), getPost: vi.fn(), listCategories: vi.fn(() => Promise.resolve({ kind: "ok", data: [] })),
   listRevisions: vi.fn(() => Promise.resolve({ kind: "ok", data: [] })),
-  fetchActiveLanguages: vi.fn(() => Promise.resolve({ kind: "ok", data: [{ code: "vi", displayName: "Vietnamese", nativeName: "Tiếng Việt", isDefault: true }] })),
+  fetchActiveLanguages: vi.fn(() => Promise.resolve({ kind: "ok", data: [{ code: "vi", displayName: "Vietnamese", nativeName: "Tiếng Việt", isDefault: true }, { code: "en", displayName: "English", nativeName: "English", isDefault: false }] })),
   fetchStaffImage: vi.fn(() => Promise.resolve({ kind: "config", message: "no image in tests" })),
 }));
 vi.mock("./PostPreviewDialog", () => ({ default: () => <div data-testid="preview-stub" /> }));
@@ -29,16 +29,17 @@ vi.mock("./RichBodyEditor", () => ({
 
 import PostEditorScreen from "./PostEditorScreen";
 import { BOTH, ok, post, renderInBlogGate, revision, translation } from "./blogTestUtils";
-import { createPost, transitionPost } from "@/lib/api/blog";
+import { createPost, saveDraft, transitionPost } from "@/lib/api/blog";
 import { fetchStaffSession } from "@/lib/api/staff";
 
 const create = vi.mocked(createPost);
 const transition = vi.mocked(transitionPost);
+const save = vi.mocked(saveDraft);
 
 beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE", "Staff");
   vi.mocked(fetchStaffSession).mockResolvedValue({ kind: "authenticated", session: BOTH });
-  for (const m of [create, transition, router.replace]) m.mockReset();
+  for (const m of [create, transition, save, router.replace]) m.mockReset();
 });
 afterEach(() => {
   cleanup();
@@ -84,6 +85,25 @@ describe("C3 F1 — /posts/new, 'Lưu và xuất bản', through the screen", ()
     await userEvent.click(within(screen.getByTestId("post-publish")).getByRole("button"));
     await waitFor(() => expect(router.replace).toHaveBeenCalledTimes(1));
     expect(transition.mock.calls[1]).toEqual([createdId, "vi", "publish", 1]);
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it("a language tab opened on /posts/new after the post was created writes to THAT post, never a second create under the same id", async () => {
+    create.mockImplementation((async (id: string) => ok(post(translation({ version: 1, draft: revision({ title: "Bài mới", slug: "bai-moi", summary: "" }) }), id))) as never);
+    transition.mockResolvedValueOnce({ kind: "refused", status: 400, code: "blog.summary-required", field: "summary", detail: "Enter a summary." } as never);
+    renderInBlogGate(<PostEditorScreen postId={null} />);
+    await userEvent.type(await screen.findByTestId("post-title"), "Bài mới");
+    await userEvent.click(within(screen.getByTestId("post-publish")).getByRole("button"));
+    await screen.findByText(/Cần nhập tóm tắt để xuất bản/);
+    const createdId = create.mock.calls[0][0];
+    expect(router.replace).not.toHaveBeenCalled(); // still on /posts/new, the post exists
+
+    await userEvent.click(screen.getByTestId("locale-tab-en"));
+    save.mockImplementation((async (id: string) => ok(post(translation({ version: 1, locale: "en", draft: revision({ title: "New post" }) }), id))) as never);
+    await userEvent.type(await screen.findByTestId("post-title"), "New post");
+    await userEvent.click(within(screen.getByTestId("post-save")).getByRole("button"));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0].slice(0, 3)).toEqual([createdId, "en", 0]);
     expect(create).toHaveBeenCalledTimes(1);
   });
 });
