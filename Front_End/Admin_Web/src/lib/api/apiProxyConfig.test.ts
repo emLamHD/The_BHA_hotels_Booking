@@ -88,11 +88,29 @@ describe("next.config.ts", () => {
     expect(await config.rewrites!()).toEqual([]);
   });
 
-  it("rewrites only /api/admin/v1/:path* to the upstream, keeping the prefix", async () => {
+  it("rewrites /api/admin/v1/:path* (Staff) and exactly the two public reference reads the Admin makes, keeping the prefix", async () => {
     const config = await loadConfig({ API_PROXY_ORIGIN: `${API}/`, NEXT_PUBLIC_API_BASE_URL: ADMIN });
+    // CP03-C7: the Blog editor reads /api/v1/website/config (active languages) and /api/v1/properties (the property-intro block; the Calendar reads it too).
+    // They are exact paths - not a /api/v1/:path* - so the Customer namespace is still not forwarded.
     expect(await config.rewrites!()).toEqual({
-      beforeFiles: [{ source: "/api/admin/v1/:path*", destination: `${API}/api/admin/v1/:path*` }],
+      beforeFiles: [
+        { source: "/api/admin/v1/:path*", destination: `${API}/api/admin/v1/:path*` },
+        { source: "/api/v1/website/config", destination: `${API}/api/v1/website/config` },
+        { source: "/api/v1/properties", destination: `${API}/api/v1/properties` },
+      ],
     });
+  });
+
+  it("the forwarded sources match those paths and nothing else of /api/v1 (Next's own matcher)", async () => {
+    // @ts-expect-error -- Next's own compiled copy of the matcher it routes with has no typings
+    const { match } = (await import("next/dist/compiled/path-to-regexp")) as { match: (source: string) => (path: string) => unknown };
+    const config = await loadConfig({ API_PROXY_ORIGIN: API, NEXT_PUBLIC_API_BASE_URL: ADMIN });
+    const sources = ((await config.rewrites!()) as { beforeFiles: { source: string }[] }).beforeFiles.map((rule) => match(rule.source));
+    const forwarded = (path: string) => sources.some((matcher) => matcher(path) !== false);
+    for (const path of ["/api/admin/v1/me", "/api/admin/v1/website/blog/posts", "/api/v1/website/config", "/api/v1/properties"]) expect(forwarded(path), path).toBe(true);
+    for (const path of ["/api/v1/auth/csrf", "/api/v1/bookings", "/api/v1/properties/10000000-0000-0000-0000-000000000001", "/api/v1/website/configx", "/api/v1/website/config/x", "/api/v1", "/api/v1/website/blog/posts", "/health/ready", "/api/other"]) {
+      expect(forwarded(path), path).toBe(false);
+    }
   });
 
   it("preserves the webpack and turbopack SVG rules", async () => {
