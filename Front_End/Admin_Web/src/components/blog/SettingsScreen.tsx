@@ -56,6 +56,12 @@ export default function SettingsScreen() {
   const loaded = settings.state.status === "ready" ? settings.state.data : null;
   const base = pinned ?? loaded;
   const current = choice === undefined ? (base?.homeSectionCategoryId ?? null) : choice;
+  // The choice on screen right now. A read that was started earlier builds its comparison when it ANSWERS, from this - not from the `current` of the render
+  // whose click started it (the select stays editable while a read is pending).
+  const currentRef = useRef<string | null>(null);
+  useEffect(() => {
+    currentRef.current = current;
+  });
   const dirty = base !== null && choice !== undefined && choice !== base.homeSectionCategoryId;
   useEffect(() => {
     host.setUnsaved(dirty);
@@ -94,7 +100,7 @@ export default function SettingsScreen() {
     }
 
     write.reset();
-    setConflict({ fresh: result.data, mine: current, mineVersion: base.version, askUseServer: false });
+    setConflict({ fresh: result.data, mine: currentRef.current, mineVersion: base.version, askUseServer: false });
     setNote(`Cấu hình đã được thay đổi trên máy chủ (phiên bản ${result.data.version}). Xem so sánh bên dưới rồi chọn; chưa có gì được gửi.`);
   };
 
@@ -124,7 +130,7 @@ export default function SettingsScreen() {
       setNote("Máy chủ chưa có thay đổi của bạn. Bạn có thể lưu lại.");
     } else {
       // `mine` is what the select shows NOW (the person may have changed it while the answer was missing); the snapshot only decided what happened to the send.
-      setConflict({ fresh, mine: current, mineVersion: snap.expectedVersion, askUseServer: false });
+      setConflict({ fresh, mine: currentRef.current, mineVersion: snap.expectedVersion, askUseServer: false });
       setNote(`Cấu hình đã đổi trên máy chủ (phiên bản ${fresh.version}) thành một giá trị khác lựa chọn đã gửi. Xem so sánh bên dưới; chưa có gì được gửi.`);
     }
   };

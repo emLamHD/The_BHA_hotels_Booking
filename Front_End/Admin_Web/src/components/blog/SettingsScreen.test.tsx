@@ -3,7 +3,7 @@
  * version only on an explicit choice; a lost answer is judged against what was SENT, not against what the select shows now.
  */
 import React from "react";
-import { cleanup, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -16,7 +16,7 @@ vi.mock("@/lib/api/blog", async (importOriginal) => ({
 }));
 
 import SettingsScreen from "./SettingsScreen";
-import { BOTH, EDITOR, ok, renderInBlogGate } from "./blogTestUtils";
+import { BOTH, EDITOR, deferred, ok, renderInBlogGate } from "./blogTestUtils";
 import { getSettings, listCategories, saveSettings, type BlogCategory, type BlogSettings } from "@/lib/api/blog";
 import { fetchStaffSession } from "@/lib/api/staff";
 
@@ -275,5 +275,132 @@ describe("permissions", () => {
     await waitFor(() => expect(write).toHaveBeenCalledTimes(1));
     expect(write.mock.calls[0]).toEqual([3, null]);
     expect(await screen.findByText(/Phiên bản cấu hình: 4/)).toBeInTheDocument();
+  });
+});
+
+describe("C5 F2 — the choice made while a read is pending is the one the comparison shows and 'keep mine' keeps", () => {
+  type Gate = ReturnType<typeof deferred<ReturnType<typeof ok>>>;
+  const release = (gate: Gate, value: unknown) => act(async () => { gate.resolve(value as never); });
+
+  /** A lost save of B at version 3, then the read-back (check) held. */
+  async function holdCheck() {
+    await openAndPick(settings(A, 3), B);
+    write.mockResolvedValueOnce(unverified as never);
+    await userEvent.click(saveButton());
+    await screen.findByTestId("write-unverified");
+    const gate = deferred<ReturnType<typeof ok>>();
+    read.mockReturnValueOnce(gate.promise as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    return gate;
+  }
+  /** A stale save of B at version 3, then the reload ("Tải bản mới nhất") held. */
+  async function holdReload() {
+    await openAndPick(settings(A, 3), B);
+    write.mockResolvedValueOnce(stale as never);
+    await userEvent.click(saveButton());
+    await screen.findByTestId("write-refused");
+    const gate = deferred<ReturnType<typeof ok>>();
+    read.mockReturnValueOnce(gate.promise as never);
+    await userEvent.click(screen.getByTestId("reload-latest"));
+    return gate;
+  }
+
+  it("lost answer: a choice made to another category while the read is pending is the local side, and keep-mine writes it", async () => {
+    const gate = await holdCheck();
+    await userEvent.selectOptions(select(), C); // after the check was started
+    await release(gate, ok(settings(A, 5))); // the server holds something else (A at v5): a conflict
+    const panel = await screen.findByTestId("settings-conflict");
+    expect(panel).toHaveTextContent("Lễ hội"); // mine = C, the choice on screen now
+    expect(panel).not.toHaveTextContent("Điểm đến B");
+    expect(panel).toHaveTextContent(/phiên bản 5/);
+    expect(saveButton()).toBeDisabled();
+    expect(write).toHaveBeenCalledTimes(1);
+    await userEvent.click(btn("settings-conflict-keep"));
+    expect(select().value).toBe(C);
+    write.mockResolvedValueOnce(ok(settings(C, 6)) as never);
+    await userEvent.click(saveButton());
+    await waitFor(() => expect(write).toHaveBeenCalledTimes(2));
+    expect(write.mock.calls[1]).toEqual([5, C]);
+  });
+
+  it("lost answer: a choice of 'no category' (null) made meanwhile is kept the same way", async () => {
+    const gate = await holdCheck();
+    await userEvent.selectOptions(select(), "");
+    await release(gate, ok(settings(C, 5)));
+    expect(await screen.findByTestId("settings-conflict")).toHaveTextContent("Không chọn");
+    await userEvent.click(btn("settings-conflict-keep"));
+    expect(select().value).toBe("");
+    write.mockResolvedValueOnce(ok(settings(null, 6)) as never);
+    await userEvent.click(saveButton());
+    await waitFor(() => expect(write).toHaveBeenCalledTimes(2));
+    expect(write.mock.calls[1]).toEqual([5, null]);
+  });
+
+  it("stale answer: the reload held, a choice changed meanwhile: the comparison and keep-mine use the latest choice", async () => {
+    const gate = await holdReload();
+    await userEvent.selectOptions(select(), C);
+    await release(gate, ok(settings(A, 5)));
+    const panel = await screen.findByTestId("settings-conflict");
+    expect(panel).toHaveTextContent("Lễ hội");
+    expect(panel).not.toHaveTextContent("Điểm đến B");
+    expect(saveButton()).toBeDisabled();
+    await userEvent.click(btn("settings-conflict-keep"));
+    expect(select().value).toBe(C);
+    write.mockResolvedValueOnce(ok(settings(C, 6)) as never);
+    await userEvent.click(saveButton());
+    await waitFor(() => expect(write).toHaveBeenCalledTimes(2));
+    expect(write.mock.calls[1]).toEqual([5, C]);
+  });
+
+  it("a second race after that choice opens a new comparison that still shows the latest choice", async () => {
+    const gate = await holdReload();
+    await userEvent.selectOptions(select(), C);
+    await release(gate, ok(settings(A, 5)));
+    await screen.findByTestId("settings-conflict");
+    await userEvent.click(btn("settings-conflict-keep"));
+    write.mockResolvedValueOnce(stale as never);
+    await userEvent.click(saveButton());
+    await screen.findByTestId("write-refused");
+    read.mockResolvedValueOnce(ok(settings(B, 7)) as never);
+    await userEvent.click(screen.getByTestId("reload-latest"));
+    const panel = await screen.findByTestId("settings-conflict");
+    expect(panel).toHaveTextContent(/phiên bản 7/);
+    expect(panel).toHaveTextContent("Lễ hội");
+    expect(select().value).toBe(C);
+  });
+
+  it("the server's choice can still be taken explicitly (after a confirmation), dropping the latest local choice", async () => {
+    const gate = await holdCheck();
+    await userEvent.selectOptions(select(), C);
+    await release(gate, ok(settings(A, 5)));
+    await screen.findByTestId("settings-conflict");
+    await userEvent.click(btn("settings-conflict-use-server"));
+    expect(select().value).toBe(C); // asked first
+    await userEvent.click(btn("settings-conflict-confirm"));
+    await waitFor(() => expect(select().value).toBe(A));
+    expect(saveButton()).toBeDisabled();
+    expect(write).toHaveBeenCalledTimes(1);
+  });
+
+  it("a read that fails keeps the choice made meanwhile and the unconfirmed state", async () => {
+    const gate = await holdCheck();
+    await userEvent.selectOptions(select(), C);
+    await release(gate, { kind: "network", message: "Không đọc được." });
+    expect(await screen.findByTestId("settings-note")).toHaveTextContent(/Không đọc được/);
+    expect(select().value).toBe(C);
+    expect(screen.getByTestId("write-unverified")).toBeInTheDocument();
+  });
+
+  it("confirmed (the server holds what was sent): the choice made meanwhile stays, unsaved, on the confirmed version", async () => {
+    const gate = await holdCheck();
+    await userEvent.selectOptions(select(), C);
+    await release(gate, ok(settings(B, 4)));
+    expect(await screen.findByTestId("settings-note")).toHaveTextContent(/đã có đúng lựa chọn đã gửi \(phiên bản 4\)/);
+    expect(select().value).toBe(C);
+    expect(saveButton()).not.toBeDisabled();
+    write.mockResolvedValueOnce(ok(settings(C, 5)) as never);
+    await userEvent.click(saveButton());
+    await waitFor(() => expect(write).toHaveBeenCalledTimes(2));
+    expect(write.mock.calls[1]).toEqual([4, C]);
   });
 });
