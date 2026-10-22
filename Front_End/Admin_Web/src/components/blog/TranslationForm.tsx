@@ -66,6 +66,7 @@ export default function TranslationForm({
   onPost,
   onCreated,
   onStatus,
+  newRoute,
 }: {
   /** `null` while the post is being created (the first save). */
   postId: string | null;
@@ -79,6 +80,8 @@ export default function TranslationForm({
   onPost: (post: BlogPost) => void;
   onCreated: (post: BlogPost) => void;
   onStatus: (report: TranslationStatusReport) => void;
+  /** The screen is still on `/posts/new` (the post may already exist, created by this form or by another language's form); defaults to `postId === null`. */
+  newRoute?: boolean;
 }) {
   const rights = useBlogRights();
   const host = useWebsiteHost();
@@ -100,6 +103,7 @@ export default function TranslationForm({
   const pending = useRef<Pending | null>(null);
   /** The post this form created (the first save), as last known. The `postId` prop does not change until the screen has moved to the post's page. */
   const createdRef = useRef<BlogPost | null>(null);
+  const onNewRoute = useRef(newRoute ?? postId === null);
   const leftRef = useRef(false);
   const chainRef = useRef(false);
   const exists = postId !== null || tr !== undefined;
@@ -125,7 +129,8 @@ export default function TranslationForm({
   /** The server's copy of this translation becomes what "unchanged" means, and (when told to) what the form shows. */
   const adopt = useCallback(
     (post: BlogPost, options: { replaceForm: boolean }) => {
-      if (createdRef.current) createdRef.current = post;
+      // On /posts/new every answer of a form is about the post the screen has still to move to, even when another form (language) made it.
+      if (createdRef.current || onNewRoute.current) createdRef.current = post;
       const next = translationOf(post, locale);
       setTr(next);
       const revision = workingRevision(next);

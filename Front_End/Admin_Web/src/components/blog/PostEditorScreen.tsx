@@ -118,6 +118,7 @@ export default function PostEditorScreen({ postId }: { postId: string | null }) 
           onPost={onPost}
           onCreated={onCreated}
           onStatus={onStatus}
+          newRoute={postId === null}
         />
       )}
       {picker && (

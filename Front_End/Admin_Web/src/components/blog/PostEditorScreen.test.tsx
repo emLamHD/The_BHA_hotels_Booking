@@ -106,4 +106,42 @@ describe("C3 F1 — /posts/new, 'Lưu và xuất bản', through the screen", ()
     expect(save.mock.calls[0].slice(0, 3)).toEqual([createdId, "en", 0]);
     expect(create).toHaveBeenCalledTimes(1);
   });
+
+  it("a form remounted for another language of the created post still moves the screen to the post's page when it finishes", async () => {
+    create.mockImplementation((async (id: string) => ok(post(translation({ version: 1, draft: revision({ title: "Bài mới", slug: "bai-moi", summary: "" }) }), id))) as never);
+    transition.mockResolvedValueOnce({ kind: "refused", status: 400, code: "blog.summary-required", field: "summary", detail: "Enter a summary." } as never);
+    renderInBlogGate(<PostEditorScreen postId={null} />);
+    await userEvent.type(await screen.findByTestId("post-title"), "Bài mới");
+    await userEvent.click(within(screen.getByTestId("post-publish")).getByRole("button"));
+    await screen.findByText(/Cần nhập tóm tắt để xuất bản/);
+    const createdId = create.mock.calls[0][0];
+
+    // away to English and back: the Vietnamese form is a new instance, handed the created id
+    await userEvent.click(screen.getByTestId("locale-tab-en"));
+    await screen.findByTestId("post-new-translation");
+    await userEvent.click(screen.getByTestId("locale-tab-vi"));
+    await userEvent.type(await screen.findByTestId("post-summary"), "Đã có tóm tắt");
+    transition.mockImplementationOnce((async (id: string) => ok(post(translation({ version: 3, status: "Published", hasDraft: false, draft: null, published: revision({ state: "Frozen" }) }), id))) as never);
+    save.mockImplementation((async (id: string) => ok(post(translation({ version: 2, draft: revision({ title: "Bài mới", slug: "bai-moi", summary: "Đã có tóm tắt" }) }), id))) as never);
+    await userEvent.click(within(screen.getByTestId("post-publish")).getByRole("button"));
+    await waitFor(() => expect(router.replace).toHaveBeenCalledTimes(1));
+    expect(router.replace).toHaveBeenCalledWith(`/website/blog/posts/${createdId}?locale=vi`);
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it("a plain save in a language opened on /posts/new also moves the screen to the post's page", async () => {
+    create.mockImplementation((async (id: string) => ok(post(translation({ version: 1, draft: revision({ title: "Bài mới", slug: "bai-moi", summary: "" }) }), id))) as never);
+    transition.mockResolvedValueOnce({ kind: "refused", status: 400, code: "blog.summary-required", field: "summary", detail: "Enter a summary." } as never);
+    renderInBlogGate(<PostEditorScreen postId={null} />);
+    await userEvent.type(await screen.findByTestId("post-title"), "Bài mới");
+    await userEvent.click(within(screen.getByTestId("post-publish")).getByRole("button"));
+    await screen.findByText(/Cần nhập tóm tắt để xuất bản/);
+    const createdId = create.mock.calls[0][0];
+    await userEvent.click(screen.getByTestId("locale-tab-en"));
+    save.mockImplementation((async (id: string) => ok(post(translation({ version: 1, locale: "en", draft: revision({ title: "New post" }) }), id))) as never);
+    await userEvent.type(await screen.findByTestId("post-title"), "New post");
+    await userEvent.click(within(screen.getByTestId("post-save")).getByRole("button"));
+    await waitFor(() => expect(router.replace).toHaveBeenCalledTimes(1));
+    expect(router.replace).toHaveBeenCalledWith(`/website/blog/posts/${createdId}?locale=en`);
+  });
 });
