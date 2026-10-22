@@ -213,7 +213,6 @@ export default function MediaDetailDialog({ mediaId, onClose, onChanged }: { med
             <h3 className="mb-2 text-sm font-medium text-gray-800 dark:text-white/90">Điểm lấy nét</h3>
             <FocalPicker mediaId={media.id} x={fields.focalX} y={fields.focalY} onChange={(focalX, focalY) => set({ focalX, focalY })} disabled={!rights.edit} />
           </div>
-          <UsagePanel state={usage.state} onRetry={() => void usage.reload()} />
           {!rights.edit && <Banner tone="info">Tài khoản này chỉ xem được ảnh; sửa thông tin cần quyền chỉnh sửa Blog.</Banner>}
           {note && <Banner tone="info" testId="media-note">{note}</Banner>}
           {conflict && <ConflictPanel mine={fields} mineVersion={version} fresh={conflict.fresh} askUseServer={conflict.askUseServer} onKeep={keepMine} onAskUseServer={() => setConflict({ ...conflict, askUseServer: true })} onUseServer={useServerCopy} onCancelUseServer={() => setConflict({ ...conflict, askUseServer: false })} />}
@@ -226,6 +225,8 @@ export default function MediaDetailDialog({ mediaId, onClose, onChanged }: { med
               <div className="mt-2 flex gap-2"><ActionButton onClick={() => void doDelete()} disabled={working} testId="media-delete-yes">Xoá ảnh</ActionButton><ActionButton variant="outline" onClick={() => setConfirmDelete(false)} disabled={working}>Không xoá</ActionButton></div>
             </Banner>
           )}
+          {/* After the banners: a long usage list must not push a conflict comparison out of sight. */}
+          <UsagePanel state={usage.state} onRetry={() => void usage.reload()} />
           <DialogActions>
             {rights.publish && <ActionButton variant="outline" onClick={() => setConfirmDelete(true)} disabled={working || confirmDelete || media.usage.revisions > 0} testId="media-delete">Xoá ảnh…</ActionButton>}
             <ActionButton variant="outline" onClick={close} disabled={working} testId="media-close">Đóng</ActionButton>
