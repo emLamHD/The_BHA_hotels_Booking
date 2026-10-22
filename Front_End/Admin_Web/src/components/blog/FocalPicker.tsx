@@ -15,13 +15,16 @@ const clamp = (n: number) => Math.min(1, Math.max(0, Math.round(n * 1000) / 1000
 export default function FocalPicker({ mediaId, x, y, onChange, disabled }: { mediaId: string; x: number; y: number; onChange: (x: number, y: number) => void; disabled?: boolean }) {
   const frame = useRef<HTMLDivElement>(null);
   const set = (clientX: number, clientY: number) => {
-    const box = frame.current?.getBoundingClientRect();
+    // Measured against the picture itself, not the frame around it (that has a border); until the picture is there, the frame is all there is.
+    const box = (frame.current?.querySelector("img") ?? frame.current)?.getBoundingClientRect();
     if (!box || box.width === 0 || box.height === 0) return;
     onChange(clamp((clientX - box.left) / box.width), clamp((clientY - box.top) / box.height));
   };
   const path = mediaPreviewPath(mediaId, "article");
   const crops = [{ name: "Vuông 1:1", ratio: "1 / 1" }, { name: "Ngang 16:9", ratio: "16 / 9" }, { name: "Dọc 4:5", ratio: "4 / 5" }];
   return (
+    // A column: `self-start` keeps the frame as wide as the picture (a flex item would stretch to the column, and the marker, which is placed in % of the
+    // frame, would no longer be placed in % of the picture).
     <div className="flex flex-col gap-3" data-testid="focal-picker">
       <div
         ref={frame}
@@ -33,7 +36,7 @@ export default function FocalPicker({ mediaId, x, y, onChange, disabled }: { med
         aria-valuemax={100}
         aria-valuenow={Math.round(x * 100)}
         aria-disabled={disabled}
-        className={`relative inline-block max-w-full select-none overflow-hidden rounded-lg border border-gray-300 dark:border-gray-700 ${disabled ? "" : "cursor-crosshair"}`}
+        className={`relative inline-block self-start max-w-full select-none overflow-hidden rounded-lg border border-gray-300 dark:border-gray-700 ${disabled ? "" : "cursor-crosshair"}`}
         onPointerDown={(e) => { if (disabled) return; (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId); set(e.clientX, e.clientY); }}
         onPointerMove={(e) => { if (!disabled && e.buttons === 1) set(e.clientX, e.clientY); }}
         onKeyDown={(e) => {
