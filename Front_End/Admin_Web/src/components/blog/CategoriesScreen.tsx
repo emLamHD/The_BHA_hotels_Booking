@@ -131,8 +131,17 @@ export default function CategoriesScreen() {
     setNote(null);
     const result = await save.run(() => (snap.isNew ? createCategory(snap.id, snap.sortOrder, snap.texts) : saveCategory(snap.id, snap.expectedVersion, snap.sortOrder, snap.texts)));
     if (result?.kind === "ok") {
-      if (current(snap)) closeDialog();
       void list.reload();
+      if (!current(snap)) return;
+      // The answer acknowledges what was SENT. Whatever was typed after the click is newer than the request: it stays (the dialog does not close), it is
+      // written on the version this answer returned, and a category that was just created is from now on an update of itself (never a second create).
+      const here = draftRef.current!;
+      if (textsKey(here) === JSON.stringify([snap.sortOrder, snap.texts])) closeDialog();
+      else {
+        snapshotRef.current = null;
+        setDraft({ ...here, isNew: false, version: result.data.version });
+        setNote(`Đã lưu các giá trị đã gửi (phiên bản ${result.data.version}). Những chỉnh sửa bạn nhập sau khi bấm Lưu vẫn còn và chưa được lưu.`);
+      }
     }
   };
 

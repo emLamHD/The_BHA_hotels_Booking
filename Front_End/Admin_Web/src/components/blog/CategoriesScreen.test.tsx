@@ -304,3 +304,95 @@ describe("F2 — a stale version", () => {
     expect(await screen.findByTestId("category-conflict")).toHaveTextContent("Lần hai");
   });
 });
+
+describe("C4 F2 — a save that succeeds acknowledges only what was SENT", () => {
+  const nameEn = () => screen.getByTestId("category-name-en") as HTMLInputElement;
+  const slugEn = () => screen.getByTestId("category-slug-en") as HTMLInputElement;
+
+  it("update: newer edits typed while the request was on its way keep the dialog open, stay unsaved, and are written on the confirmed version", async () => {
+    renderInBlogGate(<CategoriesScreen />);
+    await editRow(0);
+    const gate = deferred<ReturnType<typeof ok>>();
+    save.mockReturnValueOnce(gate.promise as never);
+    await typeName("Đã gửi");
+    await userEvent.click(btn("category-save"));
+    await screen.findByTestId("write-pending");
+    expect(save.mock.calls[0][1]).toBe(3);
+    expect(save.mock.calls[0][3].vi.name).toBe("Đã gửi");
+
+    await userEvent.type(name(), " + mới"); // the same field again
+    await userEvent.clear(nameEn());
+    await userEvent.type(nameEn(), "Newer English"); // another language
+    await userEvent.clear(slugEn());
+    await userEvent.type(slugEn(), "newer-english");
+    server = [cat(A, { version: 4, translations: { vi: text("Đã gửi", "am-thuc", "Mô tả"), en: text("Cuisine", "cuisine") } })];
+    gate.resolve(ok(server[0]));
+    await waitFor(() => expect(screen.queryByTestId("write-pending")).toBeNull());
+
+    expect(screen.getByTestId("category-dialog")).toBeInTheDocument(); // not closed
+    expect(name()).toHaveValue("Đã gửi + mới");
+    expect(nameEn()).toHaveValue("Newer English");
+    expect(await screen.findByTestId("categories-note")).toHaveTextContent(/chưa được lưu/);
+    expect(btn("category-save")).not.toBeDisabled();
+
+    save.mockResolvedValueOnce(ok(cat(A, { version: 5 })) as never);
+    await userEvent.click(btn("category-save"));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    expect(save.mock.calls[1][1]).toBe(4); // the version the first save returned
+    expect(save.mock.calls[1][3].vi.name).toBe("Đã gửi + mới"); // the live input, not the first snapshot
+    expect(save.mock.calls[1][3].en.name).toBe("Newer English");
+    await waitFor(() => expect(screen.queryByTestId("category-dialog")).toBeNull()); // nothing newer now: closes
+  });
+
+  it("create: newer edits keep the dialog, and the next Save is an UPDATE of the created category (no second create)", async () => {
+    server = [];
+    renderInBlogGate(<CategoriesScreen />);
+    await screen.findByTestId("category-new");
+    await userEvent.click(btn("category-new"));
+    await screen.findByTestId("category-dialog");
+    const gate = deferred<ReturnType<typeof ok>>();
+    create.mockReturnValueOnce(gate.promise as never);
+    await userEvent.type(name(), "Mới");
+    await userEvent.type(screen.getByTestId("category-slug-vi"), "moi");
+    await userEvent.click(btn("category-save"));
+    await screen.findByTestId("write-pending");
+    const id = create.mock.calls[0][0];
+
+    await userEvent.type(name(), " hơn");
+    server = [cat(id, { version: 1, sortOrder: 10, translations: { vi: text("Mới", "moi") } })];
+    gate.resolve(ok(server[0]));
+    await waitFor(() => expect(screen.queryByTestId("write-pending")).toBeNull());
+    expect(screen.getByTestId("category-dialog")).toBeInTheDocument();
+    expect(name()).toHaveValue("Mới hơn");
+
+    save.mockResolvedValueOnce(ok(cat(id, { version: 2 })) as never);
+    await userEvent.click(btn("category-save"));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(save.mock.calls[0][0]).toBe(id);
+    expect(save.mock.calls[0][1]).toBe(1);
+    expect(save.mock.calls[0][3].vi.name).toBe("Mới hơn");
+  });
+
+  it("with nothing typed after the click the dialog closes as before", async () => {
+    renderInBlogGate(<CategoriesScreen />);
+    await editRow(0);
+    save.mockResolvedValueOnce(ok(cat(A, { version: 4 })) as never);
+    await typeName("Chỉ đã gửi");
+    await userEvent.click(btn("category-save"));
+    await waitFor(() => expect(screen.queryByTestId("category-dialog")).toBeNull());
+  });
+
+  it("an edit that goes back to what was sent is not 'newer'", async () => {
+    renderInBlogGate(<CategoriesScreen />);
+    await editRow(0);
+    const gate = deferred<ReturnType<typeof ok>>();
+    save.mockReturnValueOnce(gate.promise as never);
+    await typeName("Đã gửi");
+    await userEvent.click(btn("category-save"));
+    await userEvent.type(name(), "X");
+    await userEvent.type(name(), "{Backspace}");
+    gate.resolve(ok(cat(A, { version: 4 })));
+    await waitFor(() => expect(screen.queryByTestId("category-dialog")).toBeNull());
+  });
+});
