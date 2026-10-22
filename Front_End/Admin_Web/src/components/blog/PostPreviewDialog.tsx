@@ -18,7 +18,7 @@ export default function PostPreviewDialog({ postId, locale, dirtyNote, onClose }
   const preview = useWebsiteList((signal) => getPreview(postId, locale, signal), [postId, locale]);
   const data = preview.state.status === "ready" && preview.state.data.id === postId && preview.state.data.locale === locale ? preview.state.data : null;
   return (
-    <DialogShell title="Xem trước (riêng tư)" onClose={onClose} busy={false} testId="post-preview" wide>
+    <DialogShell title="Xem trước (riêng tư)" onClose={onClose} busy={false} testId="post-preview-dialog" wide>
       {preview.state.status === "loading" && <LoadingPanel what="bản xem trước" />}
       {preview.state.status === "error" && <ErrorPanel message={preview.state.message} onRetry={() => void preview.reload()} />}
       {data && (
