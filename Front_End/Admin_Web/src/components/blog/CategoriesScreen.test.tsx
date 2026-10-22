@@ -525,6 +525,42 @@ describe("C8 F2 — the comparison represents what is on screen now", () => {
     expect(panel).toHaveTextContent(/phiên bản 9/);
   });
 
+  it("the SAME category closed and reopened while 'load latest' is pending: the old answer does not open a comparison over the new dialog", async () => {
+    await openStale();
+    const gate = await holdLoadLatest();
+    await userEvent.click(btn("category-cancel"));
+    await editRow(0); // the same category, a fresh dialog: its id matches the old read's
+    await typeName("Hộp thoại mới");
+    await release(gate); // v6 server copy arrives late
+    expect(screen.queryByTestId("category-conflict")).toBeNull();
+    expect(name()).toHaveValue("Hộp thoại mới");
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
+  it("two 'load latest' reads answered in reverse order: the newer read decides, the older answer is dropped", async () => {
+    await openStale();
+    const first = await holdLoadLatest();
+    const second = await holdLoadLatest();
+    await release(second, [cat(A, { version: 6, translations: { vi: text("Bản mới nhất", "am-thuc"), en: text("Cuisine", "cuisine") } })]);
+    await screen.findByTestId("category-conflict");
+    await release(first, [cat(A, { version: 5, translations: { vi: text("Bản cũ hơn", "am-thuc"), en: text("Cuisine", "cuisine") } })]); // the older read finishes last
+    expect(screen.getByTestId("category-conflict")).toHaveTextContent("Bản mới nhất");
+    expect(screen.getByTestId("category-conflict")).toHaveTextContent(/phiên bản 6/);
+    expect(screen.getByTestId("category-conflict")).not.toHaveTextContent("Bản cũ hơn");
+  });
+
+  it("a Save pressed while 'load latest' is pending supersedes it: the old answer does not open a comparison over the new outcome", async () => {
+    await openStale();
+    const gate = await holdLoadLatest();
+    save.mockResolvedValueOnce(stale as never); // the Save is refused as stale again
+    await userEvent.click(btn("category-save"));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    await screen.findByTestId("write-refused");
+    await release(gate); // the read that started BEFORE that Save
+    expect(screen.queryByTestId("category-conflict")).toBeNull();
+    expect(name()).toHaveValue("Bản đã gửi");
+  });
+
   it("an answer for a dialog that was closed, or for another category, or an older 'load latest', is dropped", async () => {
     server = [cat(A), cat(B, { translations: { vi: text("Đồ uống", "do-uong") } })];
     await openStale();
