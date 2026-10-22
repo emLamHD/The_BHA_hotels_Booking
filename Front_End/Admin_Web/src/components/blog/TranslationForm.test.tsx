@@ -15,7 +15,7 @@ vi.mock("@/lib/api/blog", async (importOriginal) => ({
   listRevisions: vi.fn(() => Promise.resolve({ kind: "ok", data: [] })),
   fetchStaffImage: vi.fn(() => Promise.resolve({ kind: "config", message: "no image in tests" })),
 }));
-vi.mock("./PostPreviewDialog", () => ({ default: () => <div data-testid="preview-stub" /> }));
+vi.mock("./PostPreviewDialog", () => ({ default: ({ onClose }: { onClose: () => void }) => <button type="button" data-testid="preview-stub" onClick={onClose}>đóng xem trước</button> }));
 // The rich editor has its own tests; here it is a button that reports one changed body.
 vi.mock("./RichBodyEditor", () => ({
   default: function Stub({ onChange }: { onChange: (s: { body: unknown; problems: unknown[] }) => void }) {
@@ -26,7 +26,7 @@ vi.mock("./RichBodyEditor", () => ({
 
 import TranslationForm from "./TranslationForm";
 import { BOTH, EDITOR, POST_ID, PUBLISHER, deferred, ok, post, renderInBlogGate, revision, translation } from "./blogTestUtils";
-import { createPost, getPost, saveDraft, transitionPost } from "@/lib/api/blog";
+import { createPost, getPost, listRevisions, restoreRevision, saveDraft, transitionPost, type BlogRevisionSummary } from "@/lib/api/blog";
 import { fetchStaffSession } from "@/lib/api/staff";
 import type { StaffSession } from "@/lib/api/staff";
 
@@ -35,6 +35,8 @@ const save = vi.mocked(saveDraft);
 const create = vi.mocked(createPost);
 const transition = vi.mocked(transitionPost);
 const read = vi.mocked(getPost);
+const restore = vi.mocked(restoreRevision);
+const history = vi.mocked(listRevisions);
 
 const CLIENT_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const stale = { kind: "refused", status: 409, code: "blog.stale-version", field: "expectedVersion", detail: "It was changed by someone else." } as const;
@@ -55,7 +57,7 @@ const button = (id: string) => within(screen.getByTestId(id)).getByRole("button"
 
 beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE", "Staff");
-  for (const mock of [save, create, transition, read]) mock.mockReset();
+  for (const mock of [save, create, transition, read, restore]) mock.mockReset();
 });
 afterEach(() => {
   cleanup();
@@ -313,5 +315,263 @@ describe("unpublishing and archiving", () => {
     await userEvent.click(button("post-confirm-yes"));
     await waitFor(() => expect(transition).toHaveBeenCalledWith(POST_ID, "vi", "unpublish", 7));
     await waitFor(() => expect(screen.getByTestId("post-status")).toHaveTextContent("Đã gỡ"));
+  });
+});
+
+// ---------------------------------------------------------------- C3 F1: "Lưu và xuất bản" on a post that does not exist yet
+
+describe("C3 F1 — save and publish on a new post", () => {
+  // The component is rendered with postId === null and it STAYS null (nothing re-renders it with the new id), like the first render of /posts/new:
+  // the id the publish goes to must come from what the create returned, not from the prop.
+  const created = (version = 1) => ok(post(translation({ version, draft: revision({ title: "Bài mới", slug: "bai-moi" }) }), CLIENT_ID));
+  const live = ok(post(translation({ version: 2, status: "Published", hasDraft: false, draft: null, published: revision({ title: "Bài mới", slug: "bai-moi", state: "Frozen" }) }), CLIENT_ID));
+  const fresh = () => mount(BOTH, { postId: null, initial: undefined });
+  const typeNew = async () => {
+    const input = await title();
+    await userEvent.type(input, "Bài mới"); // the slug follows the title
+  };
+
+  it("sends one create and then one publish, to the created post, at the version the create returned", async () => {
+    const calls: string[] = [];
+    let onCreatedBefore = -1;
+    const { onCreated } = fresh();
+    create.mockImplementation((async () => { calls.push("create"); return created(); }) as never);
+    transition.mockImplementation((async () => { calls.push("publish"); onCreatedBefore = onCreated.mock.calls.length; return live; }) as never);
+    await typeNew();
+    expect(within(screen.getByTestId("post-publish")).getByRole("button")).toHaveTextContent("Lưu và xuất bản");
+    await userEvent.click(button("post-publish"));
+    await waitFor(() => expect(transition).toHaveBeenCalledTimes(1));
+    expect(calls).toEqual(["create", "publish"]);
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(create.mock.calls[0][0]).toBe(CLIENT_ID);
+    expect(transition.mock.calls[0]).toEqual([CLIENT_ID, "vi", "publish", 1]);
+    await waitFor(() => expect(screen.getByTestId("post-status")).toHaveTextContent("Đã xuất bản"));
+    // The screen is left for the post's own page only after the whole chain, never in the middle of it.
+    expect(onCreatedBefore).toBe(0);
+    await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1));
+  });
+
+  it("is still one create and one publish for a double click", async () => {
+    fresh();
+    const gate = deferred<ReturnType<typeof created>>();
+    create.mockReturnValue(gate.promise as never);
+    transition.mockResolvedValue(live as never);
+    await typeNew();
+    await userEvent.dblClick(button("post-publish"));
+    gate.resolve(created());
+    await waitFor(() => expect(transition).toHaveBeenCalledTimes(1));
+    await userEvent.click(screen.getByTestId("post-status")); // let anything else that was queued run
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(transition).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not publish when the create was refused, or when its answer is lost", async () => {
+    const { onCreated } = fresh();
+    create.mockResolvedValueOnce({ kind: "refused", status: 400, code: "blog.slug-invalid", field: "slug", detail: "bad" } as never);
+    await typeNew();
+    await userEvent.click(button("post-publish"));
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    await screen.findByText(/Slug không hợp lệ/);
+    create.mockResolvedValueOnce({ kind: "unverified", message: "Mất kết nối." } as never);
+    await userEvent.click(button("post-publish"));
+    await screen.findByTestId("write-unverified");
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(transition).not.toHaveBeenCalled();
+    expect(onCreated).not.toHaveBeenCalled();
+  });
+
+  it("a refused publish is shown as refused: the post exists as a draft, the form stays, and nothing says 'published'", async () => {
+    const { onCreated } = fresh();
+    create.mockResolvedValueOnce(created() as never);
+    transition.mockResolvedValueOnce({ kind: "refused", status: 400, code: "blog.summary-required", field: "summary", detail: "Enter a summary." } as never);
+    await typeNew();
+    await userEvent.click(button("post-publish"));
+    expect(await screen.findByText(/Cần nhập tóm tắt để xuất bản/)).toBeInTheDocument();
+    expect(screen.getByTestId("post-status")).toHaveTextContent("Bản nháp");
+    expect(onCreated).not.toHaveBeenCalled(); // leaving the page would lose the refusal
+    expect(create).toHaveBeenCalledTimes(1);
+
+    // The person fixes it and publishes again: it goes to the post that was created (no second create), and only then is the page left.
+    transition.mockResolvedValueOnce(live as never);
+    await userEvent.type(screen.getByTestId("post-summary").querySelector("textarea") ?? (screen.getByTestId("post-summary") as HTMLElement), "Tóm tắt");
+    save.mockResolvedValueOnce(ok(post(translation({ version: 2, draft: revision({ title: "Bài mới", slug: "bai-moi", summary: "Tóm tắt" }) }), CLIENT_ID)) as never);
+    await userEvent.click(button("post-publish"));
+    await waitFor(() => expect(transition).toHaveBeenCalledTimes(2));
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(save.mock.calls[0].slice(0, 3)).toEqual([CLIENT_ID, "vi", 1]);
+    expect(transition.mock.calls[1]).toEqual([CLIENT_ID, "vi", "publish", 2]);
+    await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1));
+  });
+
+  it("a publish whose answer is lost is read back by the created id, not resent, and not called done until the server shows it", async () => {
+    const { onCreated } = fresh();
+    create.mockResolvedValueOnce(created() as never);
+    transition.mockResolvedValueOnce({ kind: "unverified", message: "Mất kết nối." } as never);
+    await typeNew();
+    await userEvent.click(button("post-publish"));
+    await screen.findByTestId("write-unverified");
+    expect(onCreated).not.toHaveBeenCalled();
+
+    read.mockResolvedValueOnce(created() as never); // still a draft on the server
+    await userEvent.click(screen.getByTestId("check-server"));
+    expect(await screen.findByTestId("post-note")).toHaveTextContent(/chưa ghi nhận/);
+    expect(read).toHaveBeenCalledWith(CLIENT_ID);
+    expect(screen.getByTestId("post-status")).toHaveTextContent("Bản nháp");
+    expect(transition).toHaveBeenCalledTimes(1);
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(onCreated).not.toHaveBeenCalled();
+  });
+
+  it("a lost publish that the server did apply is recognised from the read-back, then the page is left", async () => {
+    const { onCreated } = fresh();
+    create.mockResolvedValueOnce(created() as never);
+    transition.mockResolvedValueOnce({ kind: "unverified", message: "Mất kết nối." } as never);
+    await typeNew();
+    await userEvent.click(button("post-publish"));
+    await screen.findByTestId("write-unverified");
+    read.mockResolvedValueOnce(live as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    expect(await screen.findByTestId("post-note")).toHaveTextContent(/đã ghi nhận thao tác \(phiên bản 2\)/);
+    expect(screen.getByTestId("post-status")).toHaveTextContent("Đã xuất bản");
+    expect(transition).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1));
+  });
+
+  it("save only still creates once and then leaves for the post's page; the form does not publish", async () => {
+    const { onCreated } = fresh();
+    create.mockResolvedValueOnce(created() as never);
+    await typeNew();
+    await userEvent.click(button("post-save"));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1));
+    expect(transition).not.toHaveBeenCalled();
+  });
+
+  it("save and preview keeps the preview open and leaves for the post's page when it is closed", async () => {
+    const { onCreated } = fresh();
+    create.mockResolvedValueOnce(created() as never);
+    await typeNew();
+    await userEvent.click(button("post-preview"));
+    await screen.findByTestId("preview-stub");
+    expect(onCreated).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByTestId("preview-stub"));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1));
+  });
+
+  it("an account that can publish but not edit cannot start a new post from here", async () => {
+    mount(PUBLISHER, { postId: null, initial: undefined });
+    await title();
+    expect(screen.queryByTestId("post-save")).toBeNull();
+    expect(within(screen.getByTestId("post-publish")).getByRole("button")).toBeDisabled();
+    expect(create).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------- C3 F2: a restore whose answer was lost
+
+describe("C3 F2 — restoring a revision whose answer was lost", () => {
+  const A = "a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1";
+  const B = "b2b2b2b2-b2b2-4b2b-8b2b-b2b2b2b2b2b2";
+  const summary = (id: string, number: number, over: Partial<BlogRevisionSummary> = {}): BlogRevisionSummary => ({
+    id, number, state: "Frozen", origin: "Edit", title: `Bản cũ ${number}`, slug: `ban-cu-${number}`, createdAtUtc: "2026-10-20T08:00:00Z", createdBy: null, publishedAtUtc: null, publishedBy: null, isDraft: false, isPublished: false, ...over,
+  });
+  const current = revision({ id: "cccccccc-0000-4000-8000-000000000001", number: 4, title: "Bản đang sửa", slug: "ban-dang-sua" });
+  const start = translation({ version: 6, draft: current });
+  const restored = (version: number, from: string, over: Partial<ReturnType<typeof revision>> = {}) =>
+    ok(post(translation({ version, draft: revision({ id: "dddddddd-0000-4000-8000-000000000009", number: 5, origin: "Restore", restoredFromRevisionId: from, title: "Bản cũ 2", slug: "ban-cu-2", ...over }) })));
+
+  beforeEach(() => {
+    history.mockResolvedValue(ok([summary(A, 2), summary(B, 3), summary(current.id, 4, { isDraft: true, state: "Draft" })]) as never);
+  });
+  afterEach(() => {
+    history.mockImplementation((() => Promise.resolve({ kind: "ok", data: [] })) as never);
+  });
+
+  async function loseRestoreOf(which: 0 | 1 = 0) {
+    mount(BOTH, { initial: start });
+    restore.mockResolvedValueOnce({ kind: "unverified", message: "Mất kết nối." } as never);
+    const rows = await screen.findAllByTestId("history-item");
+    await userEvent.click(within(rows[which]).getByRole("button", { name: /Khôi phục thành nháp/ }));
+    await userEvent.click(button("post-confirm-yes"));
+    await screen.findByTestId("write-unverified");
+    expect(restore).toHaveBeenCalledTimes(1);
+    expect(restore.mock.calls[0]).toEqual([POST_ID, "vi", which === 0 ? A : B, 6]);
+  }
+
+  const notDone = () => {
+    expect(screen.queryByText(/đã ghi nhận thao tác/)).toBeNull();
+    expect(screen.queryByText(/Đã khôi phục/)).toBeNull();
+    expect(restore).toHaveBeenCalledTimes(1); // never sent again
+    expect((screen.getByTestId("post-title") as HTMLInputElement).value).toBe("Bản đang sửa"); // the local form is untouched
+  };
+
+  it("that never reached the server while someone else saved: the version moved, but nothing says the restore happened", async () => {
+    await loseRestoreOf();
+    read.mockResolvedValue(ok(post(translation({ version: 7, draft: revision({ number: 4, origin: "Edit", title: "Người khác vừa lưu" }) }))) as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    expect(await screen.findByTestId("conflict-panel")).toHaveTextContent("Người khác vừa lưu");
+    notDone();
+  });
+
+  it("when someone else restored B while A was asked for, B is not taken for A", async () => {
+    await loseRestoreOf(0);
+    read.mockResolvedValue(restored(7, B, { title: "Bản cũ 3" }) as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    expect(await screen.findByTestId("conflict-panel")).toHaveTextContent("Bản cũ 3");
+    notDone();
+  });
+
+  it("when the server shows exactly A restored, one version on, it is recognised once, the form shows it, and nothing was resent", async () => {
+    await loseRestoreOf();
+    read.mockResolvedValue(restored(7, A) as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    expect(await screen.findByTestId("post-note")).toHaveTextContent(/đã ghi nhận thao tác \(phiên bản 7\)/);
+    expect((screen.getByTestId("post-title") as HTMLInputElement).value).toBe("Bản cũ 2");
+    expect(screen.queryByTestId("conflict-panel")).toBeNull();
+    expect(screen.queryByTestId("post-dirty")).toBeNull();
+    expect(restore).toHaveBeenCalledTimes(1);
+  });
+
+  it("when the restored draft was edited by someone else afterwards, 'restored from A' is not enough: it stays a comparison", async () => {
+    await loseRestoreOf();
+    read.mockResolvedValue(restored(8, A, { title: "Bản cũ 2 + sửa của người khác" }) as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    expect(await screen.findByTestId("conflict-panel")).toHaveTextContent("sửa của người khác");
+    notDone();
+  });
+
+  it("when the server did not move, it says so and keeps the form; when it cannot be read, it stays unverified", async () => {
+    await loseRestoreOf();
+    read.mockResolvedValueOnce({ kind: "network", message: "Không đọc được." } as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    expect(await screen.findByTestId("post-note")).toHaveTextContent(/Không đọc được/);
+    expect(screen.getByTestId("write-unverified")).toBeInTheDocument();
+    notDone();
+
+    read.mockResolvedValueOnce(ok(post(start)) as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    expect(await screen.findByTestId("post-note")).toHaveTextContent(/chưa ghi nhận/);
+    notDone();
+  });
+
+  it("an ordinary answer replaces the draft with the restored one and leaves the published copy alone", async () => {
+    mount(BOTH, { initial: translation({ version: 6, status: "Published", hasDraft: true, draft: current, published: revision({ id: "eeeeeeee-0000-4000-8000-000000000001", number: 3, state: "Frozen", title: "Đang đăng" }) }) });
+    restore.mockResolvedValueOnce(ok(post(translation({
+      version: 7, status: "Published", hasDraft: true,
+      draft: revision({ id: "dddddddd-0000-4000-8000-000000000009", number: 5, origin: "Restore", restoredFromRevisionId: A, title: "Bản cũ 2", slug: "ban-cu-2" }),
+      published: revision({ id: "eeeeeeee-0000-4000-8000-000000000001", number: 3, state: "Frozen", title: "Đang đăng" }),
+    }))) as never);
+    const rows = await screen.findAllByTestId("history-item");
+    await userEvent.click(within(rows[0]).getByRole("button", { name: /Khôi phục thành nháp/ }));
+    await userEvent.click(button("post-confirm-yes"));
+    await waitFor(() => expect((screen.getByTestId("post-title") as HTMLInputElement).value).toBe("Bản cũ 2"));
+    expect(screen.getByTestId("post-status")).toHaveTextContent("Đã xuất bản");
+    expect(screen.getByTestId("post-has-unpublished")).toBeInTheDocument();
+    expect(transition).not.toHaveBeenCalled();
+  });
+
+  it("a restore on a post that is not created yet is not offered", async () => {
+    mount(BOTH, { postId: null, initial: undefined });
+    await title();
+    expect(screen.queryByTestId("post-history")).toBeNull();
   });
 });

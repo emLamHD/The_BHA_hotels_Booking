@@ -11,7 +11,10 @@
  * - An unanswered write is never repeated by itself. The server is read; only what it shows decides what happened (`checkServer`).
  * - "Dirty" means different from the server's copy (fields trimmed as the server trims, body in its canonical form) — also after a save, whose answer
  *   becomes the new copy.
- * - Publishing publishes the saved draft: with unsaved edits it saves first (BlogEdit) and publishes what was saved.
+ * - Publishing publishes the saved draft: with unsaved edits it saves first (BlogEdit) and publishes what was saved. On a post that does not exist yet that
+ *   is a create and then a publish of the post just created: the id and version come from the create's answer (the `postId` prop is still `null` for the whole
+ *   chain), and the screen moves to the post's own page only when the chain is over — leaving in the middle would lose a refusal or an unverified answer.
+ * - A restore is only recognised after a lost answer when the server shows THAT revision restored, exactly one version on (`checkServer`).
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -37,6 +40,8 @@ interface Pending {
   kind: Kind;
   expectedVersion: number;
   snapshot: string;
+  /** A restore: the revision that was asked for, fixed when it was sent (the history list or the form may have moved on since). */
+  revisionId?: string;
 }
 
 const FIELD_FOCUS: Record<string, string> = { title: "post-title", slug: "post-slug", summary: "post-summary", authorName: "post-author", coverAlt: "post-cover-alt", cover: "post-cover-pick", og: "post-og-pick", metaTitle: "post-meta-title", metaDescription: "post-meta-description", body: "body-editor" };
@@ -93,6 +98,10 @@ export default function TranslationForm({
   const [conflict, setConflict] = useState<{ latest: BlogTranslation; post: BlogPost } | null>(null);
   const [historyToken, setHistoryToken] = useState(0);
   const pending = useRef<Pending | null>(null);
+  /** The post this form created (the first save), as last known. The `postId` prop does not change until the screen has moved to the post's page. */
+  const createdRef = useRef<BlogPost | null>(null);
+  const leftRef = useRef(false);
+  const chainRef = useRef(false);
   const exists = postId !== null || tr !== undefined;
   const id = postId ?? clientId;
   const version = tr?.version ?? 0;
@@ -116,6 +125,7 @@ export default function TranslationForm({
   /** The server's copy of this translation becomes what "unchanged" means, and (when told to) what the form shows. */
   const adopt = useCallback(
     (post: BlogPost, options: { replaceForm: boolean }) => {
+      if (createdRef.current) createdRef.current = post;
       const next = translationOf(post, locale);
       setTr(next);
       const revision = workingRevision(next);
@@ -153,9 +163,10 @@ export default function TranslationForm({
   // ---------------------------------------------------------------- sending
 
   const send = useCallback(
-    async (kind: Kind, expectedVersion: number, fn: () => Promise<WebsiteResult<BlogPost>>): Promise<BlogPost | null> => {
+    async (kind: Kind, expectedVersion: number, fn: () => Promise<WebsiteResult<BlogPost>>, extra: { basis?: string; revisionId?: string } = {}): Promise<BlogPost | null> => {
       // The version is the one this very request carries — not the one of the render that built the callback (a publish after a save carries the save's).
-      pending.current = { kind, expectedVersion, snapshot };
+      // `basis` is what the request is judged against after a lost answer: for a publish after a save, the copy the save returned.
+      pending.current = { kind, expectedVersion, snapshot: extra.basis ?? snapshot, revisionId: extra.revisionId };
       setNote(null);
       const result = await write.run(fn);
       return result?.kind === "ok" ? result.data : null;
@@ -163,10 +174,20 @@ export default function TranslationForm({
     [snapshot, write]
   );
 
+  /** Moves the screen to the post's own page, once, after a create and only when nothing is left to show here. */
+  const leave = useCallback(() => {
+    const made = createdRef.current;
+    if (!made || leftRef.current) return;
+    leftRef.current = true;
+    onCreated(made);
+  }, [onCreated]);
+
   const doSave = useCallback(async (): Promise<BlogTranslation | null> => {
     if (!editable || problems.length > 0) return null;
     const draft = draftOf(form, sendBody);
-    const next = await send(postId === null ? "create" : "save", version, () => (postId === null ? createPost(clientId, locale, draft) : saveDraft(postId, locale, version, draft)));
+    // The post this form writes to: the prop, or — on /posts/new, after the create — the post the create made.
+    const existing = postId ?? createdRef.current?.id ?? null;
+    const next = await send(existing === null ? "create" : "save", version, () => (existing === null ? createPost(clientId, locale, draft) : saveDraft(existing, locale, version, draft)));
     if (!next) return null;
     const saved = translationOf(next, locale);
     // The server trims and normalises; its answer is the copy. If that differs from what was typed, show the server's copy rather than a phantom "unsaved".
@@ -174,32 +195,49 @@ export default function TranslationForm({
     const copy = snapshotOfRevision(workingRevision(saved));
     adopt(next, { replaceForm: copy !== typed });
     if (copy !== typed) setNote("Đã lưu. Máy chủ chuẩn hoá lại một số chữ (ví dụ cắt khoảng trắng đầu/cuối); biểu mẫu đang hiện đúng bản đã lưu.");
+    // From here on the form writes to this post, whatever the prop says; the screen moves to its page when the person's action is over (`leave`).
+    if (existing === null) createdRef.current = next;
     onPost(next);
-    if (postId === null) onCreated(next);
     return saved ?? null;
-  }, [editable, problems.length, form, sendBody, send, postId, clientId, locale, version, snapshot, adopt, onPost, onCreated]);
+  }, [editable, problems.length, form, sendBody, send, postId, clientId, locale, version, snapshot, adopt, onPost]);
 
   const doTransition = useCallback(
-    async (action: BlogTransition, expected: number) => {
-      if (postId === null) return false;
-      const next = await send(action, expected, () => transitionPost(postId, locale, action, expected));
+    async (action: BlogTransition, expected: number, basis?: string) => {
+      const target = postId ?? createdRef.current?.id ?? null;
+      if (target === null) return false;
+      const next = await send(action, expected, () => transitionPost(target, locale, action, expected), { basis });
       if (!next) return false;
       adopt(next, { replaceForm: false });
       onPost(next);
+      leave();
       return true;
     },
-    [postId, locale, send, adopt, onPost]
+    [postId, locale, send, adopt, onPost, leave]
   );
 
+  /** "Save" on its own: after the first save of a new post the screen moves to the post's page. */
+  const saveOnly = useCallback(async () => {
+    if (await doSave()) leave();
+  }, [doSave, leave]);
+
   const publish = useCallback(async () => {
-    let expected = version;
-    if (dirty) {
-      if (!rights.edit) return;
-      const saved = await doSave();
-      if (!saved) return;
-      expected = saved.version;
+    // One chain at a time: between the save's answer and the publish's send the write slot is free for a moment, and a second click must not start another.
+    if (chainRef.current) return;
+    chainRef.current = true;
+    try {
+      let expected = version;
+      let basis: string | undefined;
+      if (dirty) {
+        if (!rights.edit) return;
+        const saved = await doSave();
+        if (!saved) return;
+        expected = saved.version;
+        basis = snapshotOfRevision(workingRevision(saved));
+      }
+      await doTransition("publish", expected, basis);
+    } finally {
+      chainRef.current = false;
     }
-    await doTransition("publish", expected);
   }, [dirty, rights.edit, version, doSave, doTransition]);
 
   const saveAndPreview = useCallback(async () => {
@@ -215,6 +253,7 @@ export default function TranslationForm({
   const checkServer = useCallback(async () => {
     const op = pending.current;
     const result = await getPost(id);
+    if (pending.current !== op) return; // another operation took over while the server was being read: this answer is not about it
     if (result.kind === "refused" && result.status === 404) {
       setNote(op?.kind === "create" ? "Máy chủ chưa có bài này. Bấm Lưu để gửi lại với cùng mã — sẽ không tạo trùng." : "Máy chủ báo bài không tồn tại.");
       write.reset();
@@ -238,23 +277,28 @@ export default function TranslationForm({
       : op.kind === "unpublish" ? latest.status === "Unpublished"
       : op.kind === "archive" ? latest.status === "Archived"
       : op.kind === "unarchive" ? latest.status !== "Archived"
+      // A restore is the requested revision restored and nothing written since: the draft is a Restore of THAT revision and the version is exactly one on (a
+      // restore bumps it once). Any other version, or another revision, or an edit made after it, is someone else's write — shown, never taken for ours.
+      : op.kind === "restore" ? latest.draft?.origin === "Restore" && latest.draft.restoredFromRevisionId === op.revisionId && latest.version === op.expectedVersion + 1
       : true;
     if (matches) {
       write.reset();
-      adopt(result.data, { replaceForm: false });
+      if (op.kind === "create") createdRef.current = result.data;
+      adopt(result.data, { replaceForm: op.kind === "restore" });
       onPost(result.data);
-      if (op.kind === "create") onCreated(result.data);
       setNote(`Máy chủ đã ghi nhận thao tác (phiên bản ${latest.version}); đây là kết quả đọc lại, không phải gửi lại.`);
+      leave();
     } else {
       setConflict({ latest, post: result.data });
       write.reset();
       setNote("Máy chủ đã thay đổi sau thao tác của bạn (có thể do người khác). Dữ liệu của bạn được giữ; hãy so sánh bên dưới.");
     }
-  }, [id, locale, write, adopt, onPost, onCreated]);
+  }, [id, locale, write, adopt, onPost, leave]);
 
   const loadLatest = useCallback(async () => {
-    if (postId === null) return;
-    const result = await getPost(postId);
+    const target = postId ?? createdRef.current?.id ?? null;
+    if (target === null) return;
+    const result = await getPost(target);
     if (result.kind !== "ok") {
       setNote(describeBlogFailure(result));
       return;
@@ -270,8 +314,9 @@ export default function TranslationForm({
 
   const restore = useCallback(
     async (revision: BlogRevisionSummary) => {
-      if (postId === null) return;
-      const next = await send("restore", version, () => restoreRevision(postId, locale, revision.id, version));
+      const target = postId ?? createdRef.current?.id ?? null;
+      if (target === null) return;
+      const next = await send("restore", version, () => restoreRevision(target, locale, revision.id, version), { revisionId: revision.id });
       if (!next) return;
       adopt(next, { replaceForm: true });
       onPost(next);
@@ -327,7 +372,7 @@ export default function TranslationForm({
       )}
 
       <div className="flex flex-wrap items-center gap-3 border-t border-gray-200 pt-4 dark:border-gray-800" data-testid="post-actions">
-        {rights.edit && <ActionButton onClick={() => void doSave()} disabled={blocked || !editable || !dirty || problems.length > 0} testId="post-save">Lưu bản nháp</ActionButton>}
+        {rights.edit && <ActionButton onClick={() => void saveOnly()} disabled={blocked || !editable || !dirty || problems.length > 0} testId="post-save">Lưu bản nháp</ActionButton>}
         <ActionButton variant="outline" onClick={() => void saveAndPreview()} disabled={blocked || (!exists && !rights.edit) || (!tr && !rights.edit) || (dirty && rights.edit && problems.length > 0)} testId="post-preview">{dirty && rights.edit ? "Lưu và xem trước" : "Xem trước"}</ActionButton>
         {rights.publish && status !== "Archived" && (
           <ActionButton onClick={() => void publish()} disabled={blocked || (!tr && !(rights.edit && dirty)) || (dirty && !rights.edit) || (dirty && problems.length > 0)} testId="post-publish">{dirty && rights.edit ? "Lưu và xuất bản" : status === "Unpublished" && !tr?.hasDraft ? "Xuất bản lại" : "Xuất bản"}</ActionButton>
@@ -339,7 +384,7 @@ export default function TranslationForm({
 
       {tr && <History postId={id} locale={locale} token={historyToken} canRestore={rights.edit && status !== "Archived"} blocked={blocked} onRestore={(rev) => setConfirm({ message: `Khôi phục bản ${rev.number} thành bản nháp? Bản nháp hiện tại${dirty ? " và các thay đổi chưa lưu" : ""} sẽ được thay (bản nháp cũ vẫn nằm trong lịch sử). Bản đang đăng không đổi.`, yes: () => void restore(rev) })} />}
 
-      {preview && <PostPreviewDialog postId={id} locale={locale} dirtyNote={preview.note} onClose={() => setPreview(null)} />}
+      {preview && <PostPreviewDialog postId={id} locale={locale} dirtyNote={preview.note} onClose={() => { setPreview(null); leave(); }} />}
     </div>
   );
 }
