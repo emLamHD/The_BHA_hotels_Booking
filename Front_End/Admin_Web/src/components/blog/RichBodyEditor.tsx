@@ -12,7 +12,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
-import { NodeSelection } from "@tiptap/pm/state";
+import { NodeSelection, Selection, TextSelection } from "@tiptap/pm/state";
 import { GapCursor } from "@tiptap/pm/gapcursor";
 import { Dropcursor, Gapcursor, UndoRedo } from "@tiptap/extensions";
 import { bodyToDoc, docToBody, isSafeHref, type BodyProblem, type BodyV1 } from "@/lib/blog/bodyModel";
@@ -55,10 +55,16 @@ function moveBlock(editor: Editor, direction: -1 | 1) {
   const target = index + direction;
   if (target < 0 || target >= count) return;
   const neighbour = editor.state.doc.child(target);
-  const { tr } = editor.state;
+  const { tr, selection } = editor.state;
   tr.delete(pos, pos + node.nodeSize);
   const insertAt = direction === -1 ? pos - neighbour.nodeSize : pos + neighbour.nodeSize;
   tr.insert(insertAt, node);
+  // Deleting the block moved the selection onto a neighbour; the selection belongs to the block that was moved, so that the next click moves the same block: a node
+  // selection stays a node selection, a text selection keeps its offsets inside the block (the copy is identical), anything wider starts at the block's text.
+  const inside = selection.from >= pos && selection.to <= pos + node.nodeSize;
+  if (inside && selection instanceof NodeSelection) tr.setSelection(NodeSelection.create(tr.doc, insertAt));
+  else if (inside) tr.setSelection(TextSelection.create(tr.doc, insertAt + (selection.anchor - pos), insertAt + (selection.head - pos)));
+  else tr.setSelection(Selection.near(tr.doc.resolve(insertAt + 1), 1));
   editor.view.dispatch(tr.scrollIntoView());
   editor.commands.focus();
 }

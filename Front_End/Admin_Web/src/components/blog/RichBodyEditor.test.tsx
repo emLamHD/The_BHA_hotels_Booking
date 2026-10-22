@@ -219,3 +219,115 @@ describe("C7 F3 — the toolbar with a real GapCursor selection", () => {
     await waitFor(() => expect(types(states)).toEqual(["paragraph", "paragraph"]));
   });
 });
+
+
+// ---------------------------------------------------------------- C8 F1: the selection follows a moved block
+
+describe("C8 F1 — repeated moves act on the same block", () => {
+  const editorOf = () => (screen.getByTestId("body-editor") as HTMLElement & { editor: Editor }).editor;
+  const button = (name: string) => screen.getByRole("button", { name });
+  const P = (text: string) => ({ type: "paragraph", inlines: [{ text }] });
+  const texts = (states: BodyState[]) => states[states.length - 1].body?.blocks.map((b) => (b.type === "paragraph" ? b.inlines.map((i) => i.text).join("") : b.type));
+  /** Puts a real text selection into the block whose text is `text`, at the given offsets inside it. */
+  const caretIn = (text: string, anchorOffset: number, headOffset = anchorOffset) => act(() => {
+    const editor = editorOf();
+    let start = -1;
+    editor.state.doc.descendants((node, offset) => { if (start < 0 && node.isTextblock && node.textContent === text) start = offset; });
+    expect(start, `a block "${text}"`).toBeGreaterThanOrEqual(0);
+    editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, start + 1 + anchorOffset, start + 1 + headOffset)));
+  });
+  const where = () => { const { selection } = editorOf().state; return { parent: selection.$from.parent.textContent, from: selection.$from.parentOffset, to: selection.$to.parentOffset }; };
+
+  it("A / B / C, caret in C: two clicks on 'up' give C / A / B WITHOUT selecting again, a third does nothing, and the caret stays in C", async () => {
+    const states = await open({ schemaVersion: 1, blocks: [P("A"), P("B"), P("Cxyz")] });
+    await screen.findByTestId("body-toolbar");
+    caretIn("Cxyz", 2);
+    await userEvent.click(button("↑ Khối"));
+    await waitFor(() => expect(texts(states)).toEqual(["A", "Cxyz", "B"]));
+    expect(where()).toEqual({ parent: "Cxyz", from: 2, to: 2 });
+    await userEvent.click(button("↑ Khối"));
+    await waitFor(() => expect(texts(states)).toEqual(["Cxyz", "A", "B"]));
+    expect(where()).toEqual({ parent: "Cxyz", from: 2, to: 2 });
+    await userEvent.click(button("↑ Khối")); // the boundary: nothing moves
+    expect(texts(states)).toEqual(["Cxyz", "A", "B"]);
+    expect(where()).toEqual({ parent: "Cxyz", from: 2, to: 2 });
+  });
+
+  it("and back down again, twice, ends where it began with the caret in the same place", async () => {
+    const states = await open({ schemaVersion: 1, blocks: [P("A"), P("B"), P("Cxyz")] });
+    await screen.findByTestId("body-toolbar");
+    caretIn("Cxyz", 1);
+    await userEvent.click(button("↑ Khối"));
+    await userEvent.click(button("↑ Khối"));
+    await waitFor(() => expect(texts(states)).toEqual(["Cxyz", "A", "B"]));
+    await userEvent.click(button("↓ Khối"));
+    await userEvent.click(button("↓ Khối"));
+    await waitFor(() => expect(texts(states)).toEqual(["A", "B", "Cxyz"]));
+    expect(where()).toEqual({ parent: "Cxyz", from: 1, to: 1 });
+    await userEvent.click(button("↓ Khối")); // the other boundary
+    expect(texts(states)).toEqual(["A", "B", "Cxyz"]);
+  });
+
+  it("a text RANGE inside the block is kept as a range", async () => {
+    const states = await open({ schemaVersion: 1, blocks: [P("A"), P("Cxyzw")] });
+    await screen.findByTestId("body-toolbar");
+    caretIn("Cxyzw", 1, 4);
+    await userEvent.click(button("↑ Khối"));
+    await waitFor(() => expect(texts(states)).toEqual(["Cxyzw", "A"]));
+    expect(where()).toEqual({ parent: "Cxyzw", from: 1, to: 4 });
+  });
+
+  it("an atom block (gallery) stays NODE-selected through repeated moves in both directions", async () => {
+    const GALLERY = { type: "gallery", items: [{ mediaId: M1, alt: "a" }, { mediaId: M2, alt: "b" }] };
+    const states = await open({ schemaVersion: 1, blocks: [P("Mở"), { type: "toc" }, GALLERY, { type: "image", mediaId: M1, alt: "x" }] });
+    await screen.findByTestId("body-toolbar");
+    act(() => { const editor = editorOf(); let at = -1; editor.state.doc.forEach((n, offset) => { if (n.type.name === "gallery") at = offset; }); editor.view.dispatch(editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, at))); });
+    const selected = () => (editorOf().state.selection instanceof NodeSelection ? (editorOf().state.selection as NodeSelection).node.type.name : "(not a node selection)");
+    await userEvent.click(button("↓ Khối"));
+    await waitFor(() => expect(texts(states)).toEqual(["Mở", "toc", "image", "gallery"]));
+    expect(selected()).toBe("gallery");
+    await userEvent.click(button("↓ Khối")); // boundary
+    expect(texts(states)).toEqual(["Mở", "toc", "image", "gallery"]);
+    await userEvent.click(button("↑ Khối"));
+    await userEvent.click(button("↑ Khối"));
+    await userEvent.click(button("↑ Khối"));
+    await waitFor(() => expect(texts(states)).toEqual(["gallery", "Mở", "toc", "image"]));
+    expect(selected()).toBe("gallery");
+    await userEvent.click(button("↑ Khối")); // boundary
+    expect(texts(states)).toEqual(["gallery", "Mở", "toc", "image"]);
+  });
+
+  it("a caret inside a list item keeps its place when the list moves", async () => {
+    const states = await open({ schemaVersion: 1, blocks: [P("Trên"), { type: "list", ordered: false, items: [[{ text: "Một" }], [{ text: "Hai ba" }]] }] });
+    await screen.findByTestId("body-toolbar");
+    caretIn("Hai ba", 3);
+    await userEvent.click(button("↑ Khối"));
+    await waitFor(() => expect(states[states.length - 1].body?.blocks.map((b) => b.type)).toEqual(["list", "paragraph"]));
+    expect(where()).toEqual({ parent: "Hai ba", from: 3, to: 3 });
+    await userEvent.click(button("↓ Khối"));
+    await waitFor(() => expect(states[states.length - 1].body?.blocks.map((b) => b.type)).toEqual(["paragraph", "list"]));
+    expect(where()).toEqual({ parent: "Hai ba", from: 3, to: 3 });
+  });
+
+  it("one move is one undo step, and redo moves it again", async () => {
+    const states = await open({ schemaVersion: 1, blocks: [P("A"), P("B"), P("C")] });
+    await screen.findByTestId("body-toolbar");
+    caretIn("C", 1);
+    await userEvent.click(button("↑ Khối"));
+    await waitFor(() => expect(texts(states)).toEqual(["A", "C", "B"]));
+    await userEvent.click(button("Hoàn tác"));
+    await waitFor(() => expect(texts(states)).toEqual(["A", "B", "C"]));
+    await userEvent.click(button("Làm lại"));
+    await waitFor(() => expect(texts(states)).toEqual(["A", "C", "B"]));
+  });
+
+  it("the move saves as the intended body (serialisation)", async () => {
+    const states = await open({ schemaVersion: 1, blocks: [P("A"), { type: "toc" }, P("Cxyz")] });
+    await screen.findByTestId("body-toolbar");
+    caretIn("Cxyz", 2);
+    await userEvent.click(button("↑ Khối"));
+    await userEvent.click(button("↑ Khối"));
+    await waitFor(() => expect(states[states.length - 1].body?.blocks).toEqual([P("Cxyz"), P("A"), { type: "toc" }]));
+    expect(states[states.length - 1].problems).toEqual([]);
+  });
+});
