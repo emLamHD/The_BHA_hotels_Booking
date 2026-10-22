@@ -81,4 +81,19 @@ describe("the posts list", () => {
     renderInBlogGate(<PostsScreen />);
     expect(await screen.findByTestId("posts-empty")).toBeInTheDocument();
   });
+
+  it("C2 O1 — a translation with no content at all is labelled 'Chưa có nội dung', not left blank, and does not hide the others", async () => {
+    const empty = { locale: "vi", status: "Archived", version: 3, title: "", slug: "", hasDraft: false, updatedAtUtc: "2026-10-21T08:00:00Z", updatedBy: null, coverMediaId: null };
+    const normal = page(["Bài bình thường"]);
+    list.mockResolvedValue(ok({ ...normal, total: 2, items: [{ id: "fixture-1", updatedAtUtc: "2026-10-21T08:00:00Z", translations: [empty] }, ...normal.items] }) as never);
+    renderInBlogGate(<PostsScreen />);
+    await screen.findByText("Bài bình thường");
+    const rows = screen.getAllByTestId("post-row");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent("Chưa có nội dung");
+    expect(rows[0]).not.toHaveTextContent("(chưa có tiêu đề)");
+    expect(rows[1]).not.toHaveTextContent("Chưa có nội dung");
+    expect(screen.getByTestId("posts-total")).toHaveTextContent("2 bài");
+  });
 });
+

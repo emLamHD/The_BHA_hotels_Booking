@@ -38,7 +38,10 @@ export default function PostsScreen() {
   const pages = list.state.status === "ready" ? Math.max(1, Math.ceil(list.state.data.total / PAGE_SIZE)) : 1;
   const codes = languages.status === "ready" ? languages.data.map((l) => l.code) : [];
 
-  const titleOf = (row: BlogPostRow) => row.translations.find((t) => t.locale === (locale || codes[0]))?.title || row.translations[0]?.title || "(chưa có tiêu đề)";
+  const shownTranslation = (row: BlogPostRow) => row.translations.find((t) => t.locale === (locale || codes[0])) ?? row.translations[0];
+  // A translation with no draft and no published revision has no text at all (the server lists it that way); a real draft or published one always has a title.
+  const hasNoContent = (row: BlogPostRow) => { const t = shownTranslation(row); return !!t && t.title === "" && !t.hasDraft; };
+  const titleOf = (row: BlogPostRow) => (hasNoContent(row) ? "Chưa có nội dung" : row.translations.find((t) => t.locale === (locale || codes[0]))?.title || row.translations[0]?.title || "(chưa có tiêu đề)");
   const coverOf = (row: BlogPostRow) => (row.translations.find((t) => t.locale === (locale || codes[0])) ?? row.translations[0])?.coverMediaId ?? null;
 
   return (

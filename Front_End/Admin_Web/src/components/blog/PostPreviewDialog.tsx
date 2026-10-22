@@ -7,20 +7,38 @@
  */
 
 import React from "react";
-import { getPreview } from "@/lib/api/blog";
+import { getPreview, type BlogPreview } from "@/lib/api/blog";
+import type { WebsiteResult } from "@/lib/api/website";
 import { useWebsiteList } from "@/components/website/useWebsiteData";
 import { ActionButton, Banner, DialogActions, DialogShell, ErrorPanel, LoadingPanel, formatWhen } from "@/components/website/WebsiteUi";
 import BodyRenderer from "./BodyRenderer";
 import { StaffImage } from "./useStaffImage";
 import { STATUS_LABEL } from "@/lib/blog/blogModel";
 
+const NO_REVISION = "no-revision" as const;
+
 export default function PostPreviewDialog({ postId, locale, dirtyNote, onClose }: { postId: string; locale: string; dirtyNote?: string | null; onClose: () => void }) {
-  const preview = useWebsiteList((signal) => getPreview(postId, locale, signal), [postId, locale]);
-  const data = preview.state.status === "ready" && preview.state.data.id === postId && preview.state.data.locale === locale ? preview.state.data : null;
+  // A 404 that names itself (`blog.not-found` on `revision`) means the translation exists but has nothing to show; every other failure keeps its usual path
+  // (a missing post / translation is the generic not-found text, a read error offers Retry).
+  const preview = useWebsiteList<BlogPreview | typeof NO_REVISION>(
+    async (signal): Promise<WebsiteResult<BlogPreview | typeof NO_REVISION>> => {
+      const result = await getPreview(postId, locale, signal);
+      return result.kind === "refused" && result.status === 404 && result.code === "blog.not-found" && result.field === "revision" ? { kind: "ok", data: NO_REVISION } : result;
+    },
+    [postId, locale]
+  );
+  const ready = preview.state.status === "ready" ? preview.state.data : null;
+  const data = ready !== null && ready !== NO_REVISION && ready.id === postId && ready.locale === locale ? ready : null;
   return (
     <DialogShell title="Xem trước (riêng tư)" onClose={onClose} busy={false} testId="post-preview-dialog" wide>
       {preview.state.status === "loading" && <LoadingPanel what="bản xem trước" />}
       {preview.state.status === "error" && <ErrorPanel message={preview.state.message} onRetry={() => void preview.reload()} />}
+      {ready === NO_REVISION && (
+        <Banner tone="info" testId="preview-no-revision">
+          <p className="font-medium">Bản dịch chưa có nội dung để xem trước.</p>
+          <p className="mt-1">Bản dịch này không có bản nháp lẫn bản đã xuất bản. Hãy đóng hộp thoại để quay lại trang bài; không có gì được lưu hay khôi phục.</p>
+        </Banner>
+      )}
       {data && (
         <article className="flex flex-col gap-4">
           <Banner tone="info" testId="preview-source">

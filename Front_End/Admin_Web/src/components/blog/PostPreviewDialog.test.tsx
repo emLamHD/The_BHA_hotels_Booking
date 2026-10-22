@@ -40,6 +40,59 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
+const noRevisionField = { kind: "refused", status: 404, code: "blog.not-found", field: "revision", detail: "The translation has no revision to preview." } as const;
+
+describe("C2 O2 — the 404 of a translation that has no revision says so", () => {
+  it("shows 'the translation has no content to preview', with Close and without Retry or the 'deleted' wording", async () => {
+    preview.mockResolvedValue(noRevisionField as never);
+    renderInBlogGate(<PostPreviewDialog postId={POST_ID} locale="vi" onClose={() => {}} />);
+    const note = await screen.findByTestId("preview-no-revision");
+    expect(note).toHaveTextContent("Bản dịch chưa có nội dung để xem trước.");
+    expect(document.body.textContent).not.toMatch(/không còn tồn tại|đã bị xoá/);
+    expect(screen.queryByRole("button", { name: "Thử lại" })).toBeNull();
+    expect(screen.queryByTestId("website-load-error")).toBeNull();
+    expect(screen.queryByTestId("preview-title")).toBeNull();
+    expect(screen.getByTestId("preview-close")).toBeInTheDocument();
+  });
+
+  it("closing it calls onClose and nothing else (no save, no restore)", async () => {
+    preview.mockResolvedValue(noRevisionField as never);
+    const onClose = vi.fn();
+    renderInBlogGate(<PostPreviewDialog postId={POST_ID} locale="vi" onClose={onClose} />);
+    await screen.findByTestId("preview-no-revision");
+    screen.getByTestId("preview-close").querySelector("button")!.click();
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(preview).toHaveBeenCalledTimes(1);
+  });
+
+  it("a 404 without that field (a missing post or translation) keeps the generic message and Retry", async () => {
+    preview.mockResolvedValue({ kind: "refused", status: 404, code: null, field: null, detail: "The article has no such translation." } as never);
+    renderInBlogGate(<PostPreviewDialog postId={POST_ID} locale="vi" onClose={() => {}} />);
+    expect(await screen.findByTestId("website-load-error")).toHaveTextContent("Mục này không còn tồn tại trên máy chủ.");
+    expect(screen.getByRole("button", { name: "Thử lại" })).toBeInTheDocument();
+    expect(screen.queryByTestId("preview-no-revision")).toBeNull();
+  });
+
+  it("a transient read error keeps Retry, and Retry reads again", async () => {
+    preview.mockResolvedValueOnce({ kind: "network", message: "Không kết nối được tới máy chủ Admin." } as never);
+    renderInBlogGate(<PostPreviewDialog postId={POST_ID} locale="vi" onClose={() => {}} />);
+    expect(await screen.findByTestId("website-load-error")).toHaveTextContent("Không kết nối được");
+    preview.mockResolvedValueOnce(ok(sample({ status: "Draft" })) as never);
+    screen.getByRole("button", { name: "Thử lại" }).click();
+    expect(await screen.findByTestId("preview-title")).toBeInTheDocument();
+  });
+
+  it("an earlier preview does not stay on screen when the next read is this 404", async () => {
+    preview.mockResolvedValueOnce(ok(sample()) as never);
+    const view = renderInBlogGate(<PostPreviewDialog postId={POST_ID} locale="vi" onClose={() => {}} />);
+    expect(await screen.findByTestId("preview-title")).toBeInTheDocument();
+    preview.mockResolvedValue(noRevisionField as never);
+    view.rerender(<BlogAccessGate returnTo="/website/blog/posts"><PostPreviewDialog postId={POST_ID} locale="en" onClose={() => {}} /></BlogAccessGate>);
+    await screen.findByTestId("preview-no-revision");
+    expect(screen.queryByTestId("preview-title")).toBeNull();
+  });
+});
+
 describe("the preview dialog", () => {
   it("shows the shared not-found message (Vietnamese) and no article when there is no revision to preview (404); the dialog stays closable", async () => {
     preview.mockResolvedValue(noRevision as never);
