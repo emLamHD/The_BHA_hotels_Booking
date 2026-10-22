@@ -245,3 +245,108 @@ describe("a save of the pin list: lost answers and stale versions", () => {
     expect(pinned()).toHaveLength(1);
   });
 });
+
+describe("C5 F1 — an arrangement made while the read-back of a lost save is pending", () => {
+  async function loseThenHoldTheRead(...clicks: string[]) {
+    mount();
+    await screen.findByText("+ Bài số 1");
+    for (const c of clicks) await userEvent.click(screen.getByRole("button", { name: c }));
+    save.mockResolvedValueOnce(unverified as never);
+    await userEvent.click(saveButton());
+    await screen.findByTestId("write-unverified");
+    const gate = deferred<ReturnType<typeof ok>>();
+    pins.mockReturnValueOnce(gate.promise as never); // the read-back of the check: held
+    await userEvent.click(screen.getByTestId("check-server"));
+    return gate;
+  }
+  const ids = () => pinned().map((t) => Number(t!.match(/Bài số (\d+)/)?.[1]));
+  const release = async (gate: ReturnType<typeof deferred<ReturnType<typeof ok>>>, version: number, order: number[]) => {
+    pins.mockResolvedValue(ok(pinsAt(version, order)) as never); // what a re-read of the list shows from now on
+    await act(async () => { gate.resolve(ok(pinsAt(version, order))); });
+  };
+
+  it("an added pin survives: the confirmed version becomes the base, the new arrangement stays unsaved and is written on it", async () => {
+    const gate = await loseThenHoldTheRead("+ Bài số 1", "+ Bài số 2");
+    await userEvent.click(screen.getByRole("button", { name: "+ Bài số 3" }));
+    await release(gate, 5, [1, 2]); // the server holds exactly what was sent
+    await screen.findByTestId("pins-note");
+    expect(ids()).toEqual([1, 2, 3]);
+    expect(saveButton()).not.toBeDisabled(); // still unsaved
+    save.mockResolvedValueOnce(ok(pinsAt(6, [1, 2, 3])) as never);
+    await userEvent.click(saveButton());
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    expect(save.mock.calls[1]).toEqual([category.id, 5, [id(1), id(2), id(3)]]);
+  });
+
+  it("a reordering survives", async () => {
+    const gate = await loseThenHoldTheRead("+ Bài số 1", "+ Bài số 2");
+    await userEvent.click(screen.getByRole("button", { name: /Đưa .Bài số 1. xuống/ }));
+    await release(gate, 5, [1, 2]);
+    await screen.findByTestId("pins-note");
+    expect(ids()).toEqual([2, 1]);
+    expect(saveButton()).not.toBeDisabled();
+  });
+
+  it("a removal survives", async () => {
+    const gate = await loseThenHoldTheRead("+ Bài số 1", "+ Bài số 2");
+    await userEvent.click(screen.getByRole("button", { name: /Bỏ ghim .Bài số 2./ }));
+    await release(gate, 5, [1, 2]);
+    await screen.findByTestId("pins-note");
+    expect(ids()).toEqual([1]);
+    expect(saveButton()).not.toBeDisabled();
+  });
+
+  it("removing the last pin (an EMPTY arrangement) survives as an unsaved change and is written as empty", async () => {
+    const gate = await loseThenHoldTheRead("+ Bài số 1");
+    await userEvent.click(screen.getByRole("button", { name: /Bỏ ghim .Bài số 1./ }));
+    await release(gate, 5, [1]);
+    await screen.findByTestId("pins-note");
+    expect(ids()).toEqual([]);
+    expect(saveButton()).not.toBeDisabled();
+    save.mockResolvedValueOnce(ok(pinsAt(6, [])) as never);
+    await userEvent.click(saveButton());
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    expect(save.mock.calls[1]).toEqual([category.id, 5, []]);
+  });
+
+  it("with nothing changed meanwhile the confirmed save leaves nothing unsaved, as before", async () => {
+    const gate = await loseThenHoldTheRead("+ Bài số 1", "+ Bài số 2");
+    await release(gate, 5, [1, 2]);
+    await screen.findByTestId("pins-note");
+    expect(saveButton()).toBeDisabled();
+  });
+
+  it("a different list on the server is a comparison, and the arrangement made meanwhile is the local side", async () => {
+    const gate = await loseThenHoldTheRead("+ Bài số 1");
+    await userEvent.click(screen.getByRole("button", { name: "+ Bài số 3" }));
+    await release(gate, 5, [7, 1]);
+    expect(await screen.findByTestId("pins-conflict")).toHaveTextContent(/phiên bản 5/);
+    expect(ids()).toEqual([1, 3]);
+    expect(saveButton()).toBeDisabled();
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
+  it("a read that fails keeps the arrangement made meanwhile and the unconfirmed state", async () => {
+    const gate = await loseThenHoldTheRead("+ Bài số 1");
+    await userEvent.click(screen.getByRole("button", { name: "+ Bài số 3" }));
+    await act(async () => { gate.resolve({ kind: "network", message: "Không đọc được." } as never); });
+    expect(await screen.findByTestId("pins-note")).toHaveTextContent(/Chưa kiểm tra được/);
+    expect(ids()).toEqual([1, 3]);
+    expect(screen.getByTestId("write-unverified")).toBeInTheDocument();
+  });
+
+  it("an answer that arrives after the dialog is gone changes nothing and sends nothing", async () => {
+    mount();
+    await screen.findByText("+ Bài số 1");
+    await userEvent.click(screen.getByRole("button", { name: "+ Bài số 1" }));
+    save.mockResolvedValueOnce(unverified as never);
+    await userEvent.click(saveButton());
+    await screen.findByTestId("write-unverified");
+    const gate = deferred<ReturnType<typeof ok>>();
+    pins.mockReturnValueOnce(gate.promise as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    cleanup();
+    await act(async () => { gate.resolve(ok(pinsAt(5, [1]))); });
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+});

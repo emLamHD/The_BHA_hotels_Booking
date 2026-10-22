@@ -15,7 +15,7 @@
  * version moves only when the person chooses "keep mine" or confirms "use the server's order".
  */
 
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { getPins, listPosts, savePins, type BlogCategory, type BlogPins, type BlogPostRow } from "@/lib/api/blog";
 import { useWebsiteList, useWriteAction } from "@/components/website/useWebsiteData";
 import { ActionButton, Banner, DialogActions, DialogShell, ErrorPanel, LoadingPanel } from "@/components/website/WebsiteUi";
@@ -46,6 +46,11 @@ export default function PinsDialog({ category, canEdit, languages, onClose }: { 
   // The list on screen is what the person arranged, or — until they touch it — the server's.
   const serverOrder = server ? server.pins.map((p) => p.postId) : null;
   const order = edited ?? serverOrder;
+  // The arrangement on screen right now, for answers that arrive later: a callback's own `order` is the one it was made with.
+  const orderRef = useRef<string[] | null>(null);
+  useEffect(() => {
+    orderRef.current = order;
+  });
 
   const titles = useMemo(() => {
     const map = new Map<string, string>();
@@ -109,12 +114,14 @@ export default function PinsDialog({ category, canEdit, languages, onClose }: { 
     const moved = fresh.version > snap.expectedVersion;
     write.reset();
     if (sameOrder && moved) {
-      // Verified: the server holds exactly the order that was sent, at a version that moved on.
-      if (JSON.stringify(order) === JSON.stringify(snap.postIds)) setOrder(null);
+      // Verified: the server holds exactly the order that was sent, at a version that moved on. What is on screen NOW decides whether anything is left to
+      // save: an arrangement made while the server was being read is newer than the request, so it stays (unsaved) on top of the confirmed version.
+      const newer = JSON.stringify(orderRef.current) !== JSON.stringify(snap.postIds);
+      if (!newer) setOrder(null);
       setBase(fresh.version);
       titlesOf(fresh);
       void pins.reload();
-      setNote(`Đã xác nhận trên máy chủ: danh sách ghim có đúng thứ tự đã gửi (phiên bản ${fresh.version}). Đây là kết quả đọc lại, không phải gửi lại.`);
+      setNote(`Đã xác nhận trên máy chủ: danh sách ghim có đúng thứ tự đã gửi (phiên bản ${fresh.version}). Đây là kết quả đọc lại, không phải gửi lại.${newer ? " Thứ tự bạn sắp xếp thêm sau đó vẫn còn và chưa được lưu." : ""}`);
     } else if (sameOrder) {
       setNote(`Máy chủ đang có đúng thứ tự này nhưng phiên bản chưa đổi (${fresh.version}), nên chưa đủ bằng chứng rằng lần lưu này đã chạy; hệ thống không khẳng định gì thêm. Danh sách của bạn vẫn còn.`);
     } else if (!moved) {
