@@ -17,7 +17,7 @@ import Link from "@tiptap/extension-link";
 import Heading from "@tiptap/extension-heading";
 import Blockquote from "@tiptap/extension-blockquote";
 import { BulletList, OrderedList, ListItem } from "@tiptap/extension-list";
-import { isSafeHref } from "./bodyModel";
+import { galleryItemsFromText, isSafeHref } from "./bodyModel";
 
 /** The source line under a quote (`cite`): plain text, no marks. */
 export const QuoteCite = Node.create({
@@ -42,7 +42,19 @@ const atom = (name: string, attrs: Record<string, unknown>) =>
   });
 
 export const ImageBlock = atom("image", { mediaId: "", alt: "", caption: "" });
-export const GalleryBlock = atom("gallery", { items: [] });
+/**
+ * The gallery's items are a list of objects: the default attribute rendering would write `[object Object],[object Object]` into the copied HTML and read
+ * a string back. They travel as JSON in one attribute (set through the DOM, so the browser escapes it) and are validated when read.
+ */
+export const GalleryBlock = atom("gallery", { items: [] }).extend({
+  addAttributes: () => ({
+    items: {
+      default: [],
+      parseHTML: (element: HTMLElement) => galleryItemsFromText(element.getAttribute("data-items")),
+      renderHTML: (attributes: Record<string, unknown>) => ({ "data-items": JSON.stringify(attributes.items ?? []) }),
+    },
+  }),
+});
 export const TocBlock = atom("toc", {});
 export const PropertyIntroBlock = atom("propertyIntro", { propertyId: "" });
 /** Anything the editor does not understand: the raw JSON of the block, held as it came and sent back unchanged. */

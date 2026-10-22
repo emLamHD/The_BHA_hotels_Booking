@@ -51,7 +51,7 @@ function ImageView({ node, updateAttributes, selected }: NodeViewProps) {
 
 function GalleryView({ node, updateAttributes, selected }: NodeViewProps) {
   const { editable, pickMedia } = useBodyEditorServices();
-  const items = (node.attrs.items as GalleryItem[]) ?? [];
+  const items = Array.isArray(node.attrs.items) ? (node.attrs.items as GalleryItem[]) : [];
   const set = (next: GalleryItem[]) => updateAttributes({ items: next });
   const add = async () => {
     const room = BODY_LIMITS.galleryMax - items.length;

@@ -134,6 +134,29 @@ function inlineNodes(inlines: Inline[]): PmNode[] {
 
 const paragraphOf = (inlines: Inline[]): PmNode => (inlines.length ? { type: "paragraph", content: inlineNodes(inlines) } : { type: "paragraph" });
 
+/** One gallery item as the body format has it (`mediaId`, `alt`, optional `caption`, nothing else), with the caption made explicit; `null` for anything else. */
+export function galleryItemOf(item: unknown): GalleryItem | null {
+  if (!isRec(item) || typeof item.mediaId !== "string" || Object.keys(item).some((key) => !["mediaId", "alt", "caption"].includes(key))) return null;
+  if ((item.alt !== undefined && typeof item.alt !== "string") || (item.caption !== undefined && typeof item.caption !== "string")) return null;
+  return { mediaId: item.mediaId, alt: (item.alt as string | undefined) ?? "", caption: (item.caption as string | undefined) ?? "" };
+}
+
+/**
+ * The items of a gallery read from the text of a clipboard attribute (HTML from outside, or from an older copy). Anything that is not a list of valid items
+ * is an EMPTY gallery - which the editor then reports as having too few pictures - rather than a list with some items quietly dropped or one that throws.
+ */
+export function galleryItemsFromText(text: string | null): GalleryItem[] {
+  if (!text) return [];
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (!Array.isArray(parsed)) return [];
+    const items = parsed.map(galleryItemOf);
+    return items.every((item) => item !== null) ? (items as GalleryItem[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 const unknownBlock = (block: unknown): PmNode => ({ type: "unknownBlock", attrs: { raw: JSON.stringify(block) } });
 
 function blockNode(block: unknown): PmNode {
@@ -179,12 +202,8 @@ function blockNode(block: unknown): PmNode {
       break;
     case "gallery":
       if (only("items") && Array.isArray(block.items)) {
-        const items: GalleryItem[] = [];
-        for (const item of block.items) {
-          if (!isRec(item) || typeof item.mediaId !== "string" || Object.keys(item).some((key) => !["mediaId", "alt", "caption"].includes(key))) return unknownBlock(block);
-          if ((item.alt !== undefined && typeof item.alt !== "string") || (item.caption !== undefined && typeof item.caption !== "string")) return unknownBlock(block);
-          items.push({ mediaId: item.mediaId, alt: (item.alt as string | undefined) ?? "", caption: (item.caption as string | undefined) ?? "" });
-        }
+        const items = block.items.map(galleryItemOf);
+        if (items.some((item) => item === null)) return unknownBlock(block);
         return { type: "gallery", attrs: { items } };
       }
       break;
@@ -324,8 +343,10 @@ export function docToBody(doc: PmNode): SerializedBody {
         break;
       }
       case "gallery": {
-        const raw = Array.isArray(node.attrs?.items) ? (node.attrs!.items as GalleryItem[]) : [];
-        const items = raw.map((item): GalleryItem => (serverTrim(item.caption ?? "") ? { mediaId: item.mediaId, alt: item.alt ?? "", caption: item.caption } : { mediaId: item.mediaId, alt: item.alt ?? "" }));
+        // A document built some other way than through the editor's schema may carry anything here: only valid items count.
+        const raw = Array.isArray(node.attrs?.items) ? (node.attrs!.items as unknown[]).map(galleryItemOf) : [];
+        const items = raw.filter((item): item is GalleryItem => item !== null).map((item): GalleryItem => (serverTrim(item.caption ?? "") ? { mediaId: item.mediaId, alt: item.alt, caption: item.caption } : { mediaId: item.mediaId, alt: item.alt }));
+        if (items.length !== raw.length) problems.push({ where, message: "Thư viện ảnh có mục không hợp lệ." });
         if (items.length < BODY_LIMITS.galleryMin || items.length > BODY_LIMITS.galleryMax) {
           problems.push({ where, message: `Thư viện ảnh cần từ ${BODY_LIMITS.galleryMin} đến ${BODY_LIMITS.galleryMax} ảnh.` });
         }
