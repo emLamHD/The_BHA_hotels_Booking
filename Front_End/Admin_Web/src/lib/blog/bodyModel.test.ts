@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { getSchema } from "@tiptap/core";
 import { DOMParser as PmDOMParser, Node as PmModelNode } from "@tiptap/pm/model";
-import { BODY_LIMITS, bodyToDoc, canonicalBody, docToBody, isPlain, isSafeHref, mediaIdsOf, type PmNode } from "./bodyModel";
+import { BODY_LIMITS, bodyToDoc, canonicalBody, comparableBody, docToBody, isPlain, isSafeHref, mediaIdsOf, type PmNode } from "./bodyModel";
 import { schemaExtensions } from "./editorSchema";
 
 const schema = getSchema(schemaExtensions());
@@ -263,5 +263,25 @@ describe("pasted HTML goes through the schema", () => {
       if (block.type === "list") block.items.forEach((item) => expect(item.every((run) => typeof run.text === "string")).toBe(true));
     }
     expect(() => PmModelNode.fromJSON(schema, PmDOMParser.fromSchema(schema).parse((() => { const d = document.createElement("div"); d.innerHTML = "<ul><li><p>one</p><p>two</p></li></ul>"; return d; })()).toJSON()).check()).not.toThrow();
+  });
+});
+
+describe("the form bodies are compared in", () => {
+  it("ignores the spaces the server trims (heading, cite, alt, caption) and keeps the spaces of a run", () => {
+    const typed = { schemaVersion: 1 as const, blocks: [
+      { type: "heading" as const, level: 2 as const, text: "  Mục  " },
+      { type: "quote" as const, inlines: [{ text: "a " }, { text: "b", bold: true as const }], cite: " Ai đó " },
+      { type: "image" as const, mediaId: M1, alt: " Biển ", caption: "  " },
+      { type: "gallery" as const, items: [{ mediaId: M1, alt: "x ", caption: " c " }, { mediaId: M2, alt: "y" }] },
+    ] };
+    const kept = { schemaVersion: 1 as const, blocks: [
+      { type: "heading" as const, level: 2 as const, text: "Mục" },
+      { type: "quote" as const, inlines: [{ text: "a " }, { text: "b", bold: true as const }], cite: "Ai đó" },
+      { type: "image" as const, mediaId: M1, alt: "Biển" },
+      { type: "gallery" as const, items: [{ mediaId: M1, alt: "x", caption: "c" }, { mediaId: M2, alt: "y" }] },
+    ] };
+    expect(comparableBody(typed)).toBe(comparableBody(kept));
+    // …but a space inside a run is text and does count
+    expect(comparableBody({ schemaVersion: 1, blocks: [{ type: "paragraph", inlines: [{ text: "a " }] }] })).not.toBe(comparableBody({ schemaVersion: 1, blocks: [{ type: "paragraph", inlines: [{ text: "a" }] }] }));
   });
 });

@@ -23,7 +23,7 @@ import { useWebsiteHost } from "@/components/website/WebsiteAccessGate";
 import { useWebsiteList, useWriteAction } from "@/components/website/useWebsiteData";
 import { useLeaveGuard } from "@/components/website/useLeaveGuard";
 import { ActionButton, Banner, formatWhen } from "@/components/website/WebsiteUi";
-import { canonicalBody } from "@/lib/blog/bodyModel";
+import { canonicalBody, comparableBody } from "@/lib/blog/bodyModel";
 import { STATUS_LABEL, describeBlogFailure, draftOf, formFieldOf, formFromRevision, snapshotOf, snapshotOfRevision, translationOf, workingRevision, type PostForm } from "@/lib/blog/blogModel";
 import RichBodyEditor, { type BodyState } from "./RichBodyEditor";
 import PostFormFields, { type FieldErrors } from "./PostFormFields";
@@ -98,7 +98,7 @@ export default function TranslationForm({
   const version = tr?.version ?? 0;
 
   const editable = rights.edit && tr?.status !== "Archived";
-  const bodyCanon = bodyState?.body ? JSON.stringify(bodyState.body) : canonicalBody(bodyInit);
+  const bodyCanon = bodyState?.body ? comparableBody(bodyState.body) : canonicalBody(bodyInit);
   const snapshot = snapshotOf(form, bodyCanon);
   const dirty = snapshot !== baseline;
   const problems = useMemo(() => bodyState?.problems ?? [], [bodyState]);
@@ -153,19 +153,20 @@ export default function TranslationForm({
   // ---------------------------------------------------------------- sending
 
   const send = useCallback(
-    async (kind: Kind, fn: () => Promise<WebsiteResult<BlogPost>>): Promise<BlogPost | null> => {
-      pending.current = { kind, expectedVersion: version, snapshot };
+    async (kind: Kind, expectedVersion: number, fn: () => Promise<WebsiteResult<BlogPost>>): Promise<BlogPost | null> => {
+      // The version is the one this very request carries — not the one of the render that built the callback (a publish after a save carries the save's).
+      pending.current = { kind, expectedVersion, snapshot };
       setNote(null);
       const result = await write.run(fn);
       return result?.kind === "ok" ? result.data : null;
     },
-    [version, snapshot, write]
+    [snapshot, write]
   );
 
   const doSave = useCallback(async (): Promise<BlogTranslation | null> => {
     if (!editable || problems.length > 0) return null;
     const draft = draftOf(form, sendBody);
-    const next = await send(postId === null ? "create" : "save", () => (postId === null ? createPost(clientId, locale, draft) : saveDraft(postId, locale, version, draft)));
+    const next = await send(postId === null ? "create" : "save", version, () => (postId === null ? createPost(clientId, locale, draft) : saveDraft(postId, locale, version, draft)));
     if (!next) return null;
     const saved = translationOf(next, locale);
     // The server trims and normalises; its answer is the copy. If that differs from what was typed, show the server's copy rather than a phantom "unsaved".
@@ -181,7 +182,7 @@ export default function TranslationForm({
   const doTransition = useCallback(
     async (action: BlogTransition, expected: number) => {
       if (postId === null) return false;
-      const next = await send(action, () => transitionPost(postId, locale, action, expected));
+      const next = await send(action, expected, () => transitionPost(postId, locale, action, expected));
       if (!next) return false;
       adopt(next, { replaceForm: false });
       onPost(next);
@@ -233,7 +234,7 @@ export default function TranslationForm({
     }
     const matches =
       op.kind === "save" || op.kind === "create" ? copy === op.snapshot
-      : op.kind === "publish" ? latest.status === "Published"
+      : op.kind === "publish" ? latest.status === "Published" && !latest.hasDraft && snapshotOfRevision(latest.published) === op.snapshot
       : op.kind === "unpublish" ? latest.status === "Unpublished"
       : op.kind === "archive" ? latest.status === "Archived"
       : op.kind === "unarchive" ? latest.status !== "Archived"
@@ -270,7 +271,7 @@ export default function TranslationForm({
   const restore = useCallback(
     async (revision: BlogRevisionSummary) => {
       if (postId === null) return;
-      const next = await send("restore", () => restoreRevision(postId, locale, revision.id, version));
+      const next = await send("restore", version, () => restoreRevision(postId, locale, revision.id, version));
       if (!next) return;
       adopt(next, { replaceForm: true });
       onPost(next);

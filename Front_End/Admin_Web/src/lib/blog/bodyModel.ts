@@ -355,10 +355,37 @@ export function docToBody(doc: PmNode): SerializedBody {
   return { body, problems };
 }
 
-/** The body the editor would send for a stored one: what two bodies are compared by to tell whether anything was edited. */
+/**
+ * The body in the form two bodies are COMPARED in: what the server would keep. It trims heading text, cite, alt and caption (and drops an empty caption /
+ * cite), exactly as the server does; a run of an inline list keeps its spaces. It is only for comparing (dirty, "did the server get mine?") — what is
+ * sent is the body as typed.
+ */
+export function comparableBody(body: BodyV1): string {
+  const trimmed = body.blocks.map((block): Block => {
+    switch (block.type) {
+      case "heading":
+        return { ...block, text: block.text.trim() };
+      case "quote": {
+        const { cite, ...rest } = block;
+        return cite !== undefined && cite.trim() !== "" ? { ...rest, cite: cite.trim() } : rest;
+      }
+      case "image": {
+        const { caption, ...rest } = block;
+        return caption !== undefined && caption.trim() !== "" ? { ...rest, alt: rest.alt.trim(), caption: caption.trim() } : { ...rest, alt: rest.alt.trim() };
+      }
+      case "gallery":
+        return { type: "gallery", items: block.items.map(({ caption, ...item }) => (caption !== undefined && caption.trim() !== "" ? { ...item, alt: item.alt.trim(), caption: caption.trim() } : { ...item, alt: item.alt.trim() })) };
+      default:
+        return block;
+    }
+  });
+  return JSON.stringify({ schemaVersion: body.schemaVersion, blocks: trimmed });
+}
+
+/** The comparable form of a stored body (a locked body is compared as it is). */
 export function canonicalBody(raw: unknown): string {
   const opened = bodyToDoc(raw);
-  return opened.kind === "locked" ? JSON.stringify(raw) : JSON.stringify(docToBody(opened.doc).body);
+  return opened.kind === "locked" ? JSON.stringify(raw) : comparableBody(docToBody(opened.doc).body);
 }
 
 /** Every media id a body names (for the picker and the thumbnails). */

@@ -215,6 +215,52 @@ describe("publishing", () => {
     await waitFor(() => expect(screen.getByTestId("post-status")).toHaveTextContent("Đã xuất bản"));
   });
 
+  describe("a publish whose answer is lost after 'save and publish'", () => {
+    const published = (title: string) => revision({ title, state: "Frozen", publishedAtUtc: "2026-10-21T09:00:00Z" });
+    const live = translation({ status: "Published", version: 7, hasDraft: true, draft: revision({ title: "Bản nháp cũ" }), published: published("Đang đăng") });
+
+    async function loseThePublish() {
+      mount(BOTH, { initial: live });
+      save.mockResolvedValueOnce(ok(post(translation({ status: "Published", version: 8, hasDraft: true, draft: revision({ title: "Bản mới" }), published: published("Đang đăng") }))) as never);
+      transition.mockResolvedValueOnce({ kind: "unverified", message: "Mất kết nối." } as never);
+      const input = await title();
+      await userEvent.clear(input);
+      await userEvent.type(input, "Bản mới");
+      await userEvent.click(button("post-publish"));
+      await screen.findByTestId("write-unverified");
+      expect(save).toHaveBeenCalledTimes(1);
+      expect(transition).toHaveBeenCalledTimes(1);
+      expect(transition.mock.calls[0]).toEqual([POST_ID, "vi", "publish", 8]); // the version the save returned
+    }
+
+    it("is NOT reported as done when the server shows the save but not the publish", async () => {
+      await loseThePublish();
+      read.mockResolvedValue(ok(post(translation({ status: "Published", version: 8, hasDraft: true, draft: revision({ title: "Bản mới" }), published: published("Đang đăng") }))) as never);
+      await userEvent.click(screen.getByTestId("check-server"));
+      expect(await screen.findByTestId("post-note")).toHaveTextContent(/chưa ghi nhận/);
+      expect(screen.queryByText(/đã ghi nhận thao tác/)).toBeNull();
+      expect(transition).toHaveBeenCalledTimes(1);
+    });
+
+    it("is a conflict, not a success, when someone else moved the post on", async () => {
+      await loseThePublish();
+      read.mockResolvedValue(ok(post(translation({ status: "Published", version: 10, hasDraft: false, draft: null, published: published("Người khác đã đăng") }))) as never);
+      await userEvent.click(screen.getByTestId("check-server"));
+      expect(await screen.findByTestId("conflict-panel")).toHaveTextContent("Người khác đã đăng");
+      expect(screen.queryByText(/đã ghi nhận thao tác/)).toBeNull();
+      expect(transition).toHaveBeenCalledTimes(1);
+    });
+
+    it("is recognised as done only when the published copy is the one that was sent", async () => {
+      await loseThePublish();
+      read.mockResolvedValue(ok(post(translation({ status: "Published", version: 9, hasDraft: false, draft: null, published: published("Bản mới") }))) as never);
+      await userEvent.click(screen.getByTestId("check-server"));
+      expect(await screen.findByTestId("post-note")).toHaveTextContent(/đã ghi nhận thao tác \(phiên bản 9\)/);
+      expect(screen.queryByTestId("post-has-unpublished")).toBeNull();
+      expect(transition).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("does not publish when the save was refused, and keeps what was typed", async () => {
     mount(BOTH);
     save.mockResolvedValueOnce(stale as never);
