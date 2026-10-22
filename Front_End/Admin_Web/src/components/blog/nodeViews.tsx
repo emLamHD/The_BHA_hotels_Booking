@@ -38,8 +38,8 @@ function ImageView({ node, updateAttributes, selected }: NodeViewProps) {
       <div className="flex flex-col gap-3 sm:flex-row">
         <StaffImage path={mediaId ? mediaPreviewPath(mediaId, "card") : null} alt={alt || "Ảnh trong bài"} className="h-28 w-40 shrink-0 rounded-lg object-cover" testId="image-block-thumb" />
         <div className="flex min-w-0 flex-1 flex-col gap-2">
-          <input aria-label="Văn bản thay thế (alt) của ảnh" placeholder="Văn bản thay thế (alt) — bắt buộc khi xuất bản" value={alt} maxLength={BODY_LIMITS.alt} disabled={!editable} className={INPUT} onChange={(e) => updateAttributes({ alt: e.target.value })} />
-          <input aria-label="Chú thích ảnh" placeholder="Chú thích (tuỳ chọn)" value={caption} maxLength={BODY_LIMITS.caption} disabled={!editable} className={INPUT} onChange={(e) => updateAttributes({ caption: e.target.value })} />
+          <input aria-label="Văn bản thay thế (alt) của ảnh" placeholder="Văn bản thay thế (alt) — bắt buộc khi xuất bản" value={alt} disabled={!editable} className={INPUT} onChange={(e) => updateAttributes({ alt: e.target.value })} />
+          <input aria-label="Chú thích ảnh" placeholder="Chú thích (tuỳ chọn)" value={caption} disabled={!editable} className={INPUT} onChange={(e) => updateAttributes({ caption: e.target.value })} />
           <div>
             <button type="button" className={SMALL_BUTTON} disabled={!editable} onClick={change}>Đổi ảnh</button>
           </div>
@@ -75,8 +75,8 @@ function GalleryView({ node, updateAttributes, selected }: NodeViewProps) {
           <li key={`${item.mediaId}-${index}`} className="flex flex-col gap-2 rounded-lg border border-gray-200 p-2 sm:flex-row dark:border-gray-700" data-testid="gallery-item">
             <StaffImage path={mediaPreviewPath(item.mediaId, "thumb")} alt={item.alt || `Ảnh ${index + 1}`} className="h-16 w-24 shrink-0 rounded-md object-cover" />
             <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-              <input aria-label={`Alt của ảnh ${index + 1}`} placeholder="Văn bản thay thế (alt)" value={item.alt} maxLength={BODY_LIMITS.alt} disabled={!editable} className={INPUT} onChange={(e) => set(items.map((x, i) => (i === index ? { ...x, alt: e.target.value } : x)))} />
-              <input aria-label={`Chú thích của ảnh ${index + 1}`} placeholder="Chú thích (tuỳ chọn)" value={item.caption ?? ""} maxLength={BODY_LIMITS.caption} disabled={!editable} className={INPUT} onChange={(e) => set(items.map((x, i) => (i === index ? { ...x, caption: e.target.value } : x)))} />
+              <input aria-label={`Alt của ảnh ${index + 1}`} placeholder="Văn bản thay thế (alt)" value={item.alt} disabled={!editable} className={INPUT} onChange={(e) => set(items.map((x, i) => (i === index ? { ...x, alt: e.target.value } : x)))} />
+              <input aria-label={`Chú thích của ảnh ${index + 1}`} placeholder="Chú thích (tuỳ chọn)" value={item.caption ?? ""} disabled={!editable} className={INPUT} onChange={(e) => set(items.map((x, i) => (i === index ? { ...x, caption: e.target.value } : x)))} />
             </div>
             <div className="flex shrink-0 gap-1 sm:flex-col">
               <button type="button" className={SMALL_BUTTON} disabled={!editable || index === 0} aria-label={`Đưa ảnh ${index + 1} lên`} onClick={() => move(index, index - 1)}>↑</button>

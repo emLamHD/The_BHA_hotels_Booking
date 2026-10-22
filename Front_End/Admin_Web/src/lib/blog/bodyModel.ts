@@ -74,6 +74,14 @@ const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
 
 export const isPlain = (value: string): boolean => !CONTROL.test(value) && !/[<>]/.test(value);
 
+/**
+ * `string.Trim()` of the server (.NET 8: `char.IsWhiteSpace`), which `BlogText.Check` applies to a heading's text, a quote's cite, an image's alt and caption (and
+ * a gallery item's) BEFORE it counts and checks them. Not `String.prototype.trim`: that one also removes U+FEFF and keeps U+0085. The set below was read from
+ * the runtime (every char U+0000..U+FFFF with `char.IsWhiteSpace`). An inline run of a paragraph, list or quote is the other case: the server keeps its spaces.
+ */
+const NET_TRIM = /^[\t-\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+|[\t-\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+$/g;
+export const serverTrim = (value: string): string => value.replace(NET_TRIM, "");
+
 /** The server's `BlogLink.IsSafe`: an internal path (not `//`) or an `https://` address, nothing else. */
 export function isSafeHref(href: unknown): href is string {
   if (typeof href !== "string" || href.length === 0 || href.length > BODY_LIMITS.href || href !== href.trim()) return false;
@@ -233,6 +241,9 @@ function checkText(value: string, max: number, where: string, what: string, prob
   if (!isPlain(value)) problems.push({ where, message: `${what} chỉ là văn bản thuần: không có < >, tab hay xuống dòng.` });
 }
 
+/** A text the server trims first: the limit and the plain-text rule apply to what is left. The raw text is still what is sent (the server trims it itself). */
+const checkTrimmed = (value: string, max: number, where: string, what: string, problems: BodyProblem[]) => checkText(serverTrim(value), max, where, what, problems);
+
 function checkInlines(inlines: Inline[], where: string, problems: BodyProblem[]) {
   if (inlines.length > BODY_LIMITS.inlines) problems.push({ where, message: `Một đoạn có tối đa ${BODY_LIMITS.inlines} phần định dạng khác nhau.` });
   for (const inline of inlines) {
@@ -267,8 +278,8 @@ export function docToBody(doc: PmNode): SerializedBody {
       case "heading": {
         const text = textOf(node.content);
         const level = node.attrs?.level;
-        if (text.trim() === "") break;
-        checkText(text, BODY_LIMITS.heading, where, "Tiêu đề mục", problems);
+        if (serverTrim(text) === "") break;
+        checkTrimmed(text, BODY_LIMITS.heading, where, "Tiêu đề mục", problems);
         blocks.push({ type: "heading", level: level === 3 || level === 4 ? level : 2, text });
         break;
       }
@@ -290,13 +301,13 @@ export function docToBody(doc: PmNode): SerializedBody {
         const inlines = inlinesOf(node.content?.[0]?.content);
         const cite = textOf(node.content?.find((child) => child.type === "quoteCite")?.content);
         if (blank(inlines)) {
-          if (cite.trim() !== "") problems.push({ where, message: "Trích dẫn có nguồn nhưng chưa có nội dung." });
+          if (serverTrim(cite) !== "") problems.push({ where, message: "Trích dẫn có nguồn nhưng chưa có nội dung." });
           break;
         }
         checkInlines(inlines, where, problems);
         const block: Block = { type: "quote", inlines };
-        if (cite.trim() !== "") {
-          checkText(cite, BODY_LIMITS.cite, where, "Nguồn trích dẫn", problems);
+        if (serverTrim(cite) !== "") {
+          checkTrimmed(cite, BODY_LIMITS.cite, where, "Nguồn trích dẫn", problems);
           block.cite = cite;
         }
         blocks.push(block);
@@ -307,20 +318,20 @@ export function docToBody(doc: PmNode): SerializedBody {
         const alt = String(node.attrs?.alt ?? "");
         const caption = String(node.attrs?.caption ?? "");
         if (!isGuid(mediaId)) problems.push({ where, message: "Ảnh chưa được chọn." });
-        checkText(alt, BODY_LIMITS.alt, where, "Văn bản thay thế (alt)", problems);
-        checkText(caption, BODY_LIMITS.caption, where, "Chú thích", problems);
-        blocks.push(caption.trim() ? { type: "image", mediaId, alt, caption } : { type: "image", mediaId, alt });
+        checkTrimmed(alt, BODY_LIMITS.alt, where, "Văn bản thay thế (alt)", problems);
+        checkTrimmed(caption, BODY_LIMITS.caption, where, "Chú thích", problems);
+        blocks.push(serverTrim(caption) ? { type: "image", mediaId, alt, caption } : { type: "image", mediaId, alt });
         break;
       }
       case "gallery": {
         const raw = Array.isArray(node.attrs?.items) ? (node.attrs!.items as GalleryItem[]) : [];
-        const items = raw.map((item): GalleryItem => (item.caption?.trim() ? { mediaId: item.mediaId, alt: item.alt ?? "", caption: item.caption } : { mediaId: item.mediaId, alt: item.alt ?? "" }));
+        const items = raw.map((item): GalleryItem => (serverTrim(item.caption ?? "") ? { mediaId: item.mediaId, alt: item.alt ?? "", caption: item.caption } : { mediaId: item.mediaId, alt: item.alt ?? "" }));
         if (items.length < BODY_LIMITS.galleryMin || items.length > BODY_LIMITS.galleryMax) {
           problems.push({ where, message: `Thư viện ảnh cần từ ${BODY_LIMITS.galleryMin} đến ${BODY_LIMITS.galleryMax} ảnh.` });
         }
         items.forEach((item, i) => {
-          checkText(item.alt, BODY_LIMITS.alt, `${where}, ảnh ${i + 1}`, "Văn bản thay thế (alt)", problems);
-          checkText(item.caption ?? "", BODY_LIMITS.caption, `${where}, ảnh ${i + 1}`, "Chú thích", problems);
+          checkTrimmed(item.alt, BODY_LIMITS.alt, `${where}, ảnh ${i + 1}`, "Văn bản thay thế (alt)", problems);
+          checkTrimmed(item.caption ?? "", BODY_LIMITS.caption, `${where}, ảnh ${i + 1}`, "Chú thích", problems);
         });
         blocks.push({ type: "gallery", items });
         break;

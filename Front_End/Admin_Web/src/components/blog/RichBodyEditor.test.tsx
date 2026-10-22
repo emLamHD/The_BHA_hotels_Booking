@@ -96,6 +96,18 @@ describe("the real editor", () => {
     expect(screen.getByLabelText("Cơ sở lưu trú")).toBeDisabled();
   });
 
+  it("lets a picture's alt and caption reach the server's limit PLUS a space (the server measures the trimmed text) and reports no problem (C5 F4)", async () => {
+    const states = await open({ schemaVersion: 1, blocks: [{ type: "image", mediaId: M1, alt: "a".repeat(200), caption: "c".repeat(300) }] });
+    const alt = (await screen.findByLabelText("Văn bản thay thế (alt) của ảnh")) as HTMLInputElement;
+    const caption = screen.getByLabelText("Chú thích ảnh") as HTMLInputElement;
+    await userEvent.type(alt, " ");
+    await userEvent.type(caption, " ");
+    expect(alt.value).toHaveLength(201); // the input does not stop a space after the 200th character
+    expect(caption.value).toHaveLength(301);
+    await waitFor(() => expect(states[states.length - 1].body?.blocks[0]).toMatchObject({ alt: "a".repeat(200) + " ", caption: "c".repeat(300) + " " }));
+    expect(states[states.length - 1].problems).toEqual([]);
+  });
+
   it("adds a contents block from the toolbar and reports it", async () => {
     const states = await open({ schemaVersion: 1, blocks: [{ type: "paragraph", inlines: [{ text: "Một đoạn" }] }] });
     await screen.findByTestId("body-toolbar");

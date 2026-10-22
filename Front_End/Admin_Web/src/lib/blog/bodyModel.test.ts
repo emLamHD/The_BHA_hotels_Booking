@@ -285,3 +285,85 @@ describe("the form bodies are compared in", () => {
     expect(comparableBody({ schemaVersion: 1, blocks: [{ type: "paragraph", inlines: [{ text: "a " }] }] })).not.toBe(comparableBody({ schemaVersion: 1, blocks: [{ type: "paragraph", inlines: [{ text: "a" }] }] }));
   });
 });
+
+// ---------------------------------------------------------------- C5 F4: the server trims these texts BEFORE it counts and checks them
+
+describe("C5 F4 — heading, cite, alt and caption are measured as the server measures them (trimmed)", () => {
+  // `string.Trim()` on .NET 8 removes exactly these (read from the runtime: every char for which `char.IsWhiteSpace` is true, U+0000..U+FFFF).
+  const NET_WHITESPACE = [0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x20, 0x85, 0xa0, 0x1680, 0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006, 0x2007, 0x2008, 0x2009, 0x200a, 0x2028, 0x2029, 0x202f, 0x205f, 0x3000];
+  // Not removed by .NET although `String.prototype.trim` of JavaScript removes U+FEFF; and zero-width characters are not whitespace on either side.
+  const NOT_TRIMMED_BY_NET = [0xfeff, 0x200b, 0x200c, 0x180e, 0x00ad];
+  const doc = (...content: PmNode[]): PmNode => ({ type: "doc", content });
+  const heading = (text: string): PmNode => ({ type: "heading", attrs: { level: 2 }, content: [{ type: "text", text }] });
+  const quote = (cite: string): PmNode => ({ type: "blockquote", content: [{ type: "paragraph", content: [{ type: "text", text: "Lời" }] }, { type: "quoteCite", content: [{ type: "text", text: cite }] }] });
+  const image = (alt: string, caption: string): PmNode => ({ type: "image", attrs: { mediaId: M1, alt, caption } });
+  const gallery = (alt: string, caption: string): PmNode => ({ type: "gallery", attrs: { items: [{ mediaId: M1, alt, caption }, { mediaId: M2, alt: "b" }] } });
+  const x = (n: number) => "x".repeat(n);
+
+  it("a heading of exactly 300 characters with spaces around it passes, and is submitted as typed", () => {
+    for (const padded of [x(300) + " ", " " + x(300), "  " + x(300) + "   "]) {
+      const out = docToBody(doc(heading(padded)));
+      expect(out.problems).toEqual([]);
+      expect(out.body.blocks[0]).toMatchObject({ type: "heading", text: padded }); // the raw text goes to the server, which trims it
+    }
+  });
+
+  it("a heading whose TRIMMED text is over 300 is still refused", () => {
+    expect(docToBody(doc(heading(x(301)))).problems).toHaveLength(1);
+    expect(docToBody(doc(heading(" " + x(301) + " "))).problems).toHaveLength(1);
+  });
+
+  it("each trimmed field passes at its limit with whitespace around it and fails one over: cite 200, alt 200, caption 300, in an image and in a gallery", () => {
+    const at = (fn: (s: string) => PmNode, limit: number) => {
+      expect(docToBody(doc(fn(" " + x(limit) + " "))).problems).toEqual([]);
+      expect(docToBody(doc(fn(" " + x(limit + 1) + " "))).problems).toHaveLength(1);
+    };
+    at(quote, BODY_LIMITS.cite);
+    at((s) => image(s, ""), BODY_LIMITS.alt);
+    at((s) => image("a", s), BODY_LIMITS.caption);
+    at((s) => gallery(s, ""), BODY_LIMITS.alt);
+    at((s) => gallery("a", s), BODY_LIMITS.caption);
+  });
+
+  it("the characters .NET trims are trimmed, one by one, as the runtime says (not the JavaScript set)", () => {
+    for (const code of NET_WHITESPACE) {
+      const c = String.fromCharCode(code);
+      expect(docToBody(doc(heading(x(300) + c))).problems, `U+${code.toString(16)} after 300 characters`).toEqual([]);
+      expect(docToBody(doc(heading(c + x(300)))).problems, `U+${code.toString(16)} before 300 characters`).toEqual([]);
+    }
+  });
+
+  it("the characters .NET does NOT trim count: U+FEFF (JavaScript would trim it), zero-width and soft hyphen make 301", () => {
+    for (const code of NOT_TRIMMED_BY_NET) {
+      const out = docToBody(doc(heading(x(300) + String.fromCharCode(code))));
+      expect(out.problems.length, `U+${code.toString(16)}`).toBeGreaterThan(0);
+    }
+  });
+
+  it("a control character that is whitespace at the ends is trimmed (the server accepts it); one inside the text is not", () => {
+    expect(docToBody(doc(heading("Tiêu đề\t"))).problems).toEqual([]);
+    expect(docToBody(doc(heading("\u0085Tiêu đề"))).problems).toEqual([]);
+    expect(docToBody(doc(heading("Tiêu\tđề"))).problems).toHaveLength(1);
+    expect(docToBody(doc(heading("Tiêu\u0001 đề"))).problems).toHaveLength(1);
+    expect(docToBody(doc(heading("\u0001Tiêu đề"))).problems).toHaveLength(1); // not whitespace: not trimmed
+  });
+
+  it("'<' and '>' in the trimmed text are still refused", () => {
+    expect(docToBody(doc(heading(" a<b "))).problems).toHaveLength(1);
+  });
+
+  it("a heading with only whitespace (also NEL / ideographic space) is an empty block: left out, no problem", () => {
+    for (const blank of ["   ", "\u0085", "\u3000\u00a0"]) {
+      const out = docToBody(doc(heading(blank), { type: "paragraph", content: [{ type: "text", text: "ok" }] }));
+      expect(out.problems).toEqual([]);
+      expect(out.body.blocks.map((b) => b.type)).toEqual(["paragraph"]);
+    }
+  });
+
+  it("an inline run is NOT trimmed (the server keeps the spaces between runs): 5000 + a space is over the limit, and the text is not rewritten", () => {
+    const paragraph = (text: string): PmNode => ({ type: "paragraph", content: [{ type: "text", text }] });
+    expect(docToBody(doc(paragraph(x(5000)))).problems).toEqual([]);
+    expect(docToBody(doc(paragraph(x(5000) + " "))).problems).toHaveLength(1);
+    expect(docToBody(doc(paragraph("Đây là "))).body.blocks[0]).toMatchObject({ inlines: [{ text: "Đây là " }] });
+  });
+});
