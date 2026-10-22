@@ -1,6 +1,6 @@
 # BHA-BLOG-001 — Blog / Cẩm nang: content publishing foundation (CP01)
 
-- Status: CP01 implemented and merged (PR #126; migration 18 `AddBlogFoundation`, ADR 0010). **CP02 (picture library and pipeline) implemented on `feature/bha-blog-001-cp02-media-library-pipeline`** (Draft PR into `develop`; migration 19 `AddBlogMediaLibrary`); its contract as built is **§9**, and §1–§8 below keep the CP01 text with the CP02 changes marked. CP03–CP05 are not started. Section 5 and 6 list the routes exactly as implemented.
+- Status: CP01 implemented and merged (PR #126; migration 18 `AddBlogFoundation`, ADR 0010). CP02 (picture library and pipeline) merged (PR #127; migration 19 `AddBlogMediaLibrary`); its contract as built is **§9**. **CP03 (Admin Blog screens, editor, private preview) implemented on `feature/bha-blog-001-cp03-admin-blog`** (Draft PR into `develop`; no migration); its contract as built is **§10**. §1–§8 keep the CP01 text with the CP02 changes marked. CP04–CP05 are not started. Sections 5 and 6 list the routes exactly as implemented.
 - Base: `origin/develop` @ `c7d5597` (contains PR #125, booking promotions — verified by content: `Promotion`, `PromotionManage`, `/offers`).
 - Reading guide: **[Owner]** = decided by the Owner in the Master Execution Prompt; **[Tech]** = a technical choice made here (reasoned, reversible before CP02).
 
@@ -100,7 +100,7 @@ Edit does not imply publish **[Owner]**. Routes use `StaffWebsitePermissionAttri
 
 **Publish validation** (first failure, `400` + `code`/`field`; the cover and cover-alt requirements are a **[Tech]** choice because the home cards are picture cards — relaxable in one place): title, valid slug, summary, a body with text, every body picture has alt text, ≥ 1 category (a main one when several), every category has a text **in this locale**, a cover picture and its alt. Media and Property references are checked at save time too, so a dangling id never gets stored. Draft saving validates only what could be unsafe or malformed (shapes, URLs, ids, lengths).
 
-**Preview (contract for CP03, nothing built)**: a Staff-only `GET …/translations/{locale}/preview` returning the draft in the *public detail shape*, `no-store`, never reachable without a session.
+**Preview (built in CP03, see §10.3)**: `GET …/posts/{id}/translations/{locale}/preview`, `BlogAccess`, `no-store`: the saved draft in the public detail shape, with picture addresses on the Staff preview routes.
 
 ## 6. Public API (`api/v1/website/blog`) — read only, no auth, no Staff ids, no drafts/revisions/audit
 
@@ -123,7 +123,7 @@ List item: `id, slug, title, summary, cover{url,alt,width,height}, author, first
 |---|---|---|
 | **CP01** (this) | this document, schema + migration + seed, domain rules, body validator, Admin + public API, permissions/CLI, audit, tests on real PostgreSQL | see the completion report |
 | CP02 (**implemented**, §9) | media library & pipeline: multi-upload with per-file errors, search/re-pick, variants + WebP (AVIF not available), focal point, caption/credit/licence, usage view, durable storage check | uploads survive restart/deploy per environment config; referenced assets undeletable |
-| CP03 | Admin Blog screens (posts, categories, library, settings), editor for §3, translations, preview, conflict UI, workflow | browser acceptance with the real API |
+| CP03 (**implemented**, §10) | Admin Blog screens (posts, categories, library, settings), editor for §3, translations, preview, conflict UI, workflow | browser acceptance with the real API |
 | CP04 | Customer `/blog`, category, article, home section from the category, CTA to the real Property, cache | HTML contains content + metadata; unpublish disappears within the verified window |
 | CP05 | canonical, hreflang, Open Graph, `BlogPosting`/breadcrumb JSON-LD, sitemap + lastmod, redirects, robots, end-to-end acceptance | crawl of the real HTML |
 
@@ -259,3 +259,55 @@ The database (`BlogMedia`, `BlogMediaVariants`) and the media directory are one 
 ### 9.13 What CP03 and CP04 take from here, and what is left open
 
 CP03: the routes of §9.4 (library grid on `preview/thumb`, picker, upload with per-file progress through `media/{id}/detail` and the client `id`, usage panel before delete, focal-point editor writing `focalX/focalY`), the descriptive fields, and `description` as the default caption. CP04: `variants[]` for `<picture>` / `srcset` (WebP first, fallback second), `width`/`height` for layout, the 300 s picture cache. **Open for OC/Owner:** (1) how the focal point and the credit reach the public page without breaking edit ≠ publish (§9.1); (2) whether to extend the production runtime shape with a media mount (§9.12); (3) whether per-locale alt/caption suggestions are wanted.
+
+## 10. CP03 — Admin Blog (as built)
+
+Source of truth for behaviour is the code and its tests (`Front_End/Admin_Web/src/components/blog`, `src/lib/blog`, `src/lib/api/blog.ts`, `BlogPreviewApiTests`); this section is the contract CP04 (Customer) and CP05 (SEO) can rely on. No schema change, no migration, no new permission.
+
+### 10.1 Screens and permissions (display only — the server decides on every request)
+
+| Route | Screen | Needs |
+|---|---|---|
+| `/website/blog/posts` | list: search, status / language / category filters, server pages, cover thumbnail, per-language status, "unpublished changes" | `BlogAccess` (edit or publish) |
+| `/website/blog/posts/new` · `/posts/{id}` | editor, one tab per website language, history, preview | open: `BlogAccess`; write: `BlogEdit`; publish/unpublish/archive: `BlogPublish` |
+| `/website/blog/categories` | per-language categories, delete with the reasons it is refused, pins | read: `BlogAccess`; write: `BlogPublish` |
+| `/website/blog/media` | picture library: upload, search, details, focal point, usage, delete | read/upload: `BlogAccess`; metadata/focal: `BlogEdit`; delete: `BlogPublish` |
+| `/website/blog/settings` | the home-section category | read: `BlogAccess`; write: `BlogPublish` |
+
+The pages reuse `WebsiteAccessGate` (same Staff session, 401/403/sign-out handling) with a Blog rule instead of `WebsiteSettingsManage`: a Blog-only account gets the Blog and nothing else of the Website group, and a Blog permission never opens `/website/hero`, `/languages`… (browser-tested). The menu has flat "Blog: …" entries under Website (the menu has one level). Sign-in return paths are an exact allowlist; a post's own page returns to the list.
+
+Data the screens need from outside the Blog, with no new endpoint: active languages from the public `GET /api/v1/website/config` (uncredentialed — the settings route that lists languages needs `WebsiteSettingsManage`), active Properties from `GET /api/v1/properties` (the Calendar's read).
+
+### 10.2 The editor and the body
+
+TipTap 3.32.0 (MIT; explicit extension packages, **not** `StarterKit`) on a schema that holds exactly §3: a heading is plain text (H2–H4), a list item is one run of inlines, a quote is one run plus an optional cite line, the only marks are bold, italic and a link that passes the server's rule; no hard break, code or nested list. Atoms (picture, gallery 2–12, contents, property intro) are edited in place; a toolbar adds, moves and removes whole blocks. The body model (`bodyModel.ts`) converts JSON ↔ document, mirrors every server limit and the plain-text / link rules **before sending**, and **never rewrites** a text to hide a problem. Pasting goes through the schema (no HTML, no script, no unsafe URL). An unknown block is kept as an opaque block and sent back unchanged; a body of another `schemaVersion` is shown, locked, and sent back unchanged. Empty blocks (no data) are left out of the saved body.
+
+**Server change made for this (unit + HTTP tests):** the body validator used to trim every inline run, so "Đây là **đậm** chữ" (three runs) was stored as "Đây là" + "đậm" + "chữ" and read back as "Đây làđậmchữ". A run of an inline list is now only required to be non-empty plain text and keeps the spaces at its ends; every other text (heading, cite, alt, caption, titles…) is still trimmed, and the text count still ignores spaces.
+
+### 10.3 Private preview
+
+`GET /api/admin/v1/website/blog/posts/{postId}/translations/{locale}/preview` — `BlogAccess` (so edit-only and publish-only both may), HTTPS + Staff session + permission like every Blog route, `Cache-Control: no-store`, closed (404) in LocalGate. It returns `BlogPreviewDto`: the **saved draft if the translation has one, else its published revision**, with `source` (`draft`/`published`), `revisionNumber`, `status`, `version`, and then the field names of the public detail (`title`, `slug`, `summary`, `body`, `cover`, `author`, `categories`, `media`, `properties`, `seo`, `alternates`…), except that `cover` may be `null` (a draft needs none yet). Picture addresses are the Staff routes (`…/media/{id}/preview/{thumb|card|article}`); nothing public is created, no signed link, no path or key. Category names, the body and its Property lookup are built by the same code the public read uses (`BlogPublicShape`), so the preview shows what the reader would get (an inactive Property's block is left out). Unknown language → 400; no translation in that language → 404 (nothing of another language leaks in). The Admin draws it with React elements only (no `dangerouslySetInnerHTML`), links are shown but do not navigate, and a dirty form offers "save and preview" to an editor and says "this is the saved version" to anyone else.
+
+The post list row now carries `coverMediaId` (the cover of the revision it shows) for the thumbnail.
+
+### 10.4 Writes, conflicts and lost answers (what the screens promise)
+
+- Every write carries the version it was made from. **409** keeps what was typed, offers the server's copy beside it, and sends nothing: "keep my changes on top of the new version" only moves the version; the person presses Save again.
+- One write at a time (the host's single slot): a double click sends once; Sign out and the language tabs wait for a write in flight; a revoked permission (403) re-reads `/me` and closes the forms.
+- A write whose answer is lost is **unconfirmed** — never "saved", never "failed", never resent by itself. "Check server" reads the post (by the **client id** for a new post, which is kept through every re-send), compares the saved copy with what was sent, and says what it found.
+- Publishing publishes the saved draft: with unsaved edits an editor saves first, then publishes the version that save returned. A publisher-only account cannot edit, so it publishes the saved draft or not at all.
+- After a save the server's re-serialized copy is the new baseline; a difference from what was typed is shown, not hidden.
+- Restore is confirmed and only creates a draft; unpublish and archive are confirmed; nothing is deleted.
+
+### 10.5 Pictures
+
+Library grid and the one picker (cover, OG image, body picture, gallery) share the same list, search, pages and upload panel. Uploads go **one at a time** through `POST media` with a client id per file and `XMLHttpRequest` (the only API with upload progress): states waiting / sending / processing / done / failed / unconfirmed / cancelled; "all bytes sent" is *processing*, not *done*. A lost answer, a 5xx, a timeout or a cancel is `unconfirmed`; the server is asked by id (`GET media/{id}/detail`): found with the SHA-256 of this file → done; found with another hash → failed; not found → "send again with the same id" is offered. `409 duplicate-id` is believed only after the same comparison. A failed file never stops its siblings. Pictures are read with the Staff cookie into Blobs (object URLs revoked on change/unmount); nothing is stored in browser storage. Details: name, description (offered as the caption when the picture is inserted — never written over alt/caption), credit, source, licence, focal point (click/drag/arrow keys/number fields, crop illustrations), usage with `total`/`truncated`, delete (publish; refused for a used picture, disabled in the UI). The focal point and credit remain **Admin-only data**: whether and how the public page uses them is still open (§9.1).
+
+### 10.6 Known limits (CP03)
+
+- The Customer site does not read the Blog yet (CP04); the preview is the only place a draft is seen. SEO rendering, sitemap, hreflang and structured data are CP05.
+- Single-file upload queue, not `media/bulk` (ten files per lot, 50 MB per lot, in order); a lot is not atomic and the cancel of the file on the wire proves nothing about whether the server kept it.
+- The menu has one level, so the Blog entries are flat; the session provider is mounted per page, so the menu cannot hide entries by permission.
+- No autosave; history is the server's revisions (restore creates a draft). Pins are reordered with drag and drop or buttons; no cross-category or site-wide featured list.
+- AVIF is not produced (§9.10); production has no media mount (§9.12).
+
