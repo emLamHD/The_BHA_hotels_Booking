@@ -9,7 +9,10 @@ export const DEFAULT_RETURN_TO = "/calendar";
 
 export const WEBSITE_PAGES = ["/website/languages", "/website/translations", "/website/currencies", "/website/menus", "/website/hero", "/website/social-media"] as const;
 
-const ALLOWED: ReadonlySet<string> = new Set<string>([DEFAULT_RETURN_TO, "/products", "/promotions", ...WEBSITE_PAGES]);
+/** BHA-BLOG-001-CP03: the Blog pages. A post's own page (`/website/blog/posts/<id>`) is not here: signing in from it comes back to the list. */
+export const BLOG_PAGES = ["/website/blog/posts", "/website/blog/posts/new", "/website/blog/categories", "/website/blog/media", "/website/blog/settings"] as const;
+
+const ALLOWED: ReadonlySet<string> = new Set<string>([DEFAULT_RETURN_TO, "/products", "/promotions", ...WEBSITE_PAGES, ...BLOG_PAGES]);
 
 /** The sign-in destination: the value itself when it is exactly one allowed path, else `/calendar`. */
 export function resolveReturnTo(value: string | string[] | null | undefined): string {

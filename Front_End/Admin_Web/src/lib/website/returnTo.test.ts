@@ -47,3 +47,18 @@ describe("signInUrlFor", () => {
     expect(signInUrlFor("/website/languages?x=1")).toBe("/signin");
   });
 });
+
+describe("the Blog pages (BHA-BLOG-001-CP03)", () => {
+  it("allows the fixed Blog pages and nothing under them", async () => {
+    const { BLOG_PAGES } = await import("./returnTo");
+    for (const page of BLOG_PAGES) {
+      expect(resolveReturnTo(page)).toBe(page);
+      expect(signInUrlFor(page)).toBe(`/signin?returnTo=${encodeURIComponent(page)}`);
+    }
+    // A post's own page is dynamic: signing in from it goes back to the list, never to an id the allowlist does not know.
+    expect(resolveReturnTo("/website/blog/posts/11111111-1111-4111-8111-111111111111")).toBe(DEFAULT_RETURN_TO);
+    expect(resolveReturnTo("/website/blog/posts/../../calendar")).toBe(DEFAULT_RETURN_TO);
+    expect(resolveReturnTo("/website/blog/posts?x=1")).toBe(DEFAULT_RETURN_TO);
+    expect(signInUrlFor("/website/blog/posts/abc")).toBe("/signin");
+  });
+});
