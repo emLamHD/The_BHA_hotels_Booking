@@ -13,6 +13,10 @@
  * - `409 duplicate-id` is not success: the existing picture is read back and compared by SHA-256 before it is believed to be this file.
  * - A failure of one picture leaves the others alone. Cancel stops what is waiting and aborts the one on the wire (which proves nothing about it).
  * - Every send holds the host's single write slot, so sign-out and a revoked permission cannot race it.
+ * - The queue belongs to the component that made it. When that goes away (the person leaves the page) nothing waiting is sent any more and the one on the
+ *   wire is aborted - which, again, proves nothing about the server: the picture may be stored. Its client id and the question "is it there?" die with
+ *   the page (they are not kept anywhere), so a picture that was in flight shows up in the library later, or not at all. The host's write slot is still
+ *   given back when that request ends, and nothing it answers is announced to a page that is gone.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -65,11 +69,17 @@ export function useUploadQueue({ onUploaded, hash = sha256Hex }: { onUploaded?: 
   const running = useRef(false);
   /** A resend or an add that came while a drain was still unwinding: that drain looks again before it ends, so the request is never lost. */
   const kicked = useRef(false);
+  /** False from the moment the owning component is torn down. Set again on setup, so React's setup-cleanup-setup check (which happens before anything is queued) leaves this queue live. */
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
+    const owned = handles.current;
     return () => {
+      // First: nothing below may schedule or send once this is false. Then stop what waits (no state update - the component is gone) and ask the wire to stop.
       mounted.current = false;
+      kicked.current = false;
+      itemsRef.current = itemsRef.current.map((item) => (item.status === "waiting" ? { ...item, status: "cancelled", message: "Đã huỷ trước khi gửi." } : item));
+      owned.forEach((handle) => handle.abort());
     };
   }, []);
 
@@ -85,8 +95,10 @@ export function useUploadQueue({ onUploaded, hash = sha256Hex }: { onUploaded?: 
       if (!item) return;
       patch(key, { message: "Đang hỏi máy chủ xem ảnh đã có chưa…" });
       const result = await getMedia(item.id);
+      if (!mounted.current) return;
       if (result.kind === "ok") {
         const local = await hashRef.current(item.file);
+        if (!mounted.current) return;
         if (result.data.originalSha256 === local) {
           patch(key, { status: "done", media: result.data, absentOnServer: false, message: "Ảnh đã có trên máy chủ (đối chiếu SHA-256 khớp)." });
           onUploadedRef.current?.(result.data);
@@ -104,7 +116,10 @@ export function useUploadQueue({ onUploaded, hash = sha256Hex }: { onUploaded?: 
 
   const sendOne = useCallback(
     async (item: UploadItem) => {
-      if (!hostRef.current.beginWrite()) {
+      if (!mounted.current) return;
+      // The same host takes the slot and gives it back, whatever the context holds by then.
+      const host = hostRef.current;
+      if (!host.beginWrite()) {
         patch(item.key, { status: "cancelled", message: "Đang có thao tác khác hoặc đang đăng xuất; chưa gửi gì." });
         return;
       }
@@ -120,7 +135,7 @@ export function useUploadQueue({ onUploaded, hash = sha256Hex }: { onUploaded?: 
         switch (outcome.kind) {
           case "ok":
             patch(item.key, { status: "done", media: outcome.media, message: null });
-            onUploadedRef.current?.(outcome.media);
+            if (mounted.current) onUploadedRef.current?.(outcome.media);
             break;
           case "refused":
             patch(item.key, { status: "failed", message: outcome.detail });
@@ -130,11 +145,11 @@ export function useUploadQueue({ onUploaded, hash = sha256Hex }: { onUploaded?: 
             break;
           case "unauthenticated":
             patch(item.key, { status: "failed", message: "Phiên đăng nhập đã kết thúc; ảnh chưa được lưu." });
-            hostRef.current.onUnauthenticated();
+            host.onUnauthenticated();
             break;
           case "denied":
             patch(item.key, { status: "failed", message: "Máy chủ từ chối: tài khoản có thể không còn quyền; ảnh chưa được lưu." });
-            void hostRef.current.onDenied();
+            void host.onDenied();
             break;
           case "aborted":
             patch(item.key, { status: "unconfirmed", message: "Đã huỷ ở trình duyệt, nhưng máy chủ có thể vẫn đã nhận ảnh. Hãy kiểm tra máy chủ trước khi gửi lại." });
@@ -145,15 +160,16 @@ export function useUploadQueue({ onUploaded, hash = sha256Hex }: { onUploaded?: 
         }
         needsReconcile = outcome.kind === "duplicate";
       } finally {
-        hostRef.current.endWrite();
+        host.endWrite();
       }
-      // A read, after the write slot is given back: it is not a write.
-      if (needsReconcile) await reconcile(item.key);
+      // A read, after the write slot is given back: it is not a write. Not for a page that is gone.
+      if (needsReconcile && mounted.current) await reconcile(item.key);
     },
     [patch, reconcile]
   );
 
   const drain = useCallback(async () => {
+    if (!mounted.current) return;
     if (running.current) {
       kicked.current = true;
       return;
@@ -165,12 +181,12 @@ export function useUploadQueue({ onUploaded, hash = sha256Hex }: { onUploaded?: 
         for (;;) {
           // One picture at a time. Only a picture that is `waiting` is sent: `cancel` turned every waiting one into `cancelled`, so what is left to send is
           // exactly what was added or explicitly resent since.
-          const next = itemsRef.current.find((item) => item.status === "waiting");
+          const next = mounted.current ? itemsRef.current.find((item) => item.status === "waiting") : undefined;
           if (!next) break;
           await sendOne(next);
         }
         // Checked in the same step that gives the drain up: a resend cannot slip between "found nothing" and "not running".
-      } while (kicked.current);
+      } while (kicked.current && mounted.current);
     } finally {
       running.current = false;
     }

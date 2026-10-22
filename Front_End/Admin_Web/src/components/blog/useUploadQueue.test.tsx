@@ -12,6 +12,7 @@ vi.mock("@/lib/api/staff", async (importOriginal) => ({ ...(await importOriginal
 vi.mock("@/lib/api/blog", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/api/blog")>()), uploadMedia: vi.fn(), getMedia: vi.fn() }));
 
 import { useUploadQueue, type UploadItem } from "./useUploadQueue";
+import { useWebsiteHost, type WebsiteHost } from "@/components/website/WebsiteAccessGate";
 import { EDITOR, deferred, ok, renderInBlogGate } from "./blogTestUtils";
 import { getMedia, uploadMedia } from "@/lib/api/blog";
 import { fetchStaffSession } from "@/lib/api/staff";
@@ -301,5 +302,140 @@ describe("C2 F3 — cancel, resend and the drain that is still unwinding", () =>
     act(() => queue!.resend(queue!.items[0].key)); // A is done: nothing to send
     await flush();
     expect(upload).toHaveBeenCalledTimes(2);
+  });
+});
+
+
+// ---------------------------------------------------------------------------------------------------------------------------------------------
+// BHA-BLOG-001-CP03-C6 (F2): the queue belongs to the component that made it. When that component goes away - the person leaves the page - nothing
+// that is waiting is sent any more and the one on the wire is aborted; what the aborted one meant to the server is still unknown (`unconfirmed`).
+// The write slot belongs to the host, which stays: it is given back when the request ends, whenever that is.
+
+let host: WebsiteHost | null = null;
+function HostProbe() {
+  const h = useWebsiteHost();
+  React.useEffect(() => { host = h; });
+  return null;
+}
+/** The page that owns the queue can be removed on its own, like a navigation inside the Admin app: the gate (the host) stays. */
+function Shell({ strict = false }: { strict?: boolean }) {
+  const [on, setOn] = React.useState(true);
+  const page = on ? <Probe /> : null;
+  return <><button type="button" data-testid="leave" onClick={() => setOn(false)} />{strict ? <React.StrictMode>{page}</React.StrictMode> : page}<HostProbe /></>;
+}
+async function startShell(strict = false) {
+  host = null;
+  renderInBlogGate(<Shell strict={strict} />);
+  await waitFor(() => expect(queue).not.toBeNull());
+  await waitFor(() => expect(host).not.toBeNull());
+}
+const leave = async () => { await act(async () => { screen.getByTestId("leave").click(); }); };
+/** True when the host's single write slot is free (and takes it, so the caller gives it back). */
+const slotIsFree = () => { const free = host!.beginWrite(); if (free) host!.endWrite(); return free; };
+
+describe("C6 F2 — leaving the page stops the queue", () => {
+  it("the picture on the wire is aborted, the ones waiting are never sent, and the write slot stays held until the request has ended", async () => {
+    holdAbort = true; // the abort is asked for, but the request has not ended yet
+    await startShell();
+    add(png("a.png"), png("b.png"), png("c.png"));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    await leave();
+    expect(calls[0].abort).toHaveBeenCalledTimes(1);
+    expect(slotIsFree()).toBe(false); // the request is still unwinding: the slot is still its own
+    await settle(0, { kind: "aborted" });
+    await flush();
+    expect(upload).toHaveBeenCalledTimes(1); // b and c were never sent
+    expect(slotIsFree()).toBe(true);
+    expect(uploaded).not.toHaveBeenCalled();
+    expect(lookup).not.toHaveBeenCalled();
+  });
+
+  it.each<[string, UploadOutcome]>([
+    ["is aborted", { kind: "aborted" }],
+    ["ends with the picture stored (the answer came before the abort took hold)", { kind: "ok", media: media("x", "h") }],
+    ["is refused", { kind: "refused", status: 400, code: null, detail: "no" }],
+    ["is not confirmed", { kind: "unconfirmed", message: "lost" }],
+    ["finds the id already there", { kind: "duplicate" }],
+  ])("when the picture on the wire %s after the page is gone, the next one is still not sent and nothing is read or announced", async (_name, outcome) => {
+    holdAbort = true;
+    await startShell();
+    add(png("a.png"), png("b.png"));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    await leave();
+    await settle(0, outcome);
+    await flush();
+    expect(upload).toHaveBeenCalledTimes(1);
+    expect(lookup).not.toHaveBeenCalled(); // not even for a duplicate id: the page that would show the result is gone
+    expect(uploaded).not.toHaveBeenCalled();
+    expect(slotIsFree()).toBe(true);
+  });
+
+  it("does not delete or retry anything: the aborted picture is just left as the server has it", async () => {
+    await startShell();
+    add(png("a.png"));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    await leave();
+    await flush();
+    expect(calls[0].abort).toHaveBeenCalledTimes(1);
+    expect(upload).toHaveBeenCalledTimes(1);
+    expect(lookup).not.toHaveBeenCalled();
+  });
+
+  it("a handle that was taken from the old queue cannot start work after the page is gone", async () => {
+    await startShell();
+    const old = queue!;
+    await leave();
+    act(() => { old.add([png("late.png")]); });
+    await flush();
+    expect(upload).not.toHaveBeenCalled();
+    act(() => old.resend("nothing"));
+    await flush();
+    expect(upload).not.toHaveBeenCalled();
+  });
+
+  it("a page opened afterwards starts empty and works; the old queue's late answer does not touch it", async () => {
+    holdAbort = true;
+    await startShell();
+    add(png("a.png"), png("b.png"));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    await leave();
+    cleanup();
+    queue = null;
+    uploaded.mockReset();
+    await startShell(); // a new page, new queue
+    expect(statuses()).toEqual([]);
+    add(png("n.png"));
+    await waitFor(() => expect(calls).toHaveLength(2));
+    expect(calls[1].file.name).toBe("n.png");
+    await settle(0, { kind: "ok", media: media(calls[0].id, "h") }); // the old page's picture answers late
+    await flush();
+    expect(uploaded).not.toHaveBeenCalled();
+    expect(statuses()).toEqual(["n.png=sending"]);
+    expect(upload).toHaveBeenCalledTimes(2); // b was never sent
+  });
+
+  it("React's setup-cleanup-setup check (StrictMode) leaves the live queue working: pictures are sent one after another", async () => {
+    await startShell(true);
+    add(png("a.png"), png("b.png"));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    await settle(0, { kind: "ok", media: media(calls[0].id, "sha-of-a.png") });
+    await waitFor(() => expect(calls).toHaveLength(2));
+    expect(calls[1].file.name).toBe("b.png");
+    expect(uploaded).toHaveBeenCalledTimes(1);
+    await leave();
+    await settle(1, { kind: "ok", media: media(calls[1].id, "sha-of-b.png") });
+    await flush();
+    expect(uploaded).toHaveBeenCalledTimes(1); // after leaving, nothing more is announced
+  });
+
+  it("C2 regression: cancel then resend on a page that is still there is unchanged", async () => {
+    await startShell();
+    add(png("a.png"), png("b.png"));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    act(() => queue!.cancel());
+    await waitFor(() => expect(statuses()).toEqual(["a.png=unconfirmed", "b.png=cancelled"]));
+    act(() => queue!.resend(queue!.items[1].key));
+    await waitFor(() => expect(calls).toHaveLength(2));
+    expect(calls[1].file.name).toBe("b.png");
   });
 });
