@@ -310,4 +310,3 @@ Library grid and the one picker (cover, OG image, body picture, gallery) share t
 - The menu has one level, so the Blog entries are flat; the session provider is mounted per page, so the menu cannot hide entries by permission.
 - No autosave; history is the server's revisions (restore creates a draft). Pins are reordered with drag and drop or buttons; no cross-category or site-wide featured list.
 - AVIF is not produced (§9.10); production has no media mount (§9.12).
-
