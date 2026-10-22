@@ -10,7 +10,7 @@
 
 ## Governance notes
 
-- Nothing merged, marked Ready, deployed, rebased or force-pushed; no worktree added; no Codex command run; PR #127 untouched. The one amended commit is the unpushed C2 commit, reworded (same tree) before anything was built on it.
+- Nothing merged, marked Ready, deployed, rebased or force-pushed; no branch deleted; no worktree added; no Codex command run; PR #127 untouched. The one amended commit is the unpushed C2 commit, reworded (same tree) before anything was built on it.
 - Out-of-scope files touched, with the reason: `AppSidebar.tsx` and `returnTo.ts(.test)` (navigation and sign-in allowlist — in scope: "navigation/gate Blog"); the Blog authorization matrix test gained the preview route.
 - Not touched: Customer_Web, registry, homepage, SEO, schema/migrations, auth/Identity/grants, storage/codec/presets (beyond C2), CI/CD, Docker, governance, Booking/Calendar.
 
@@ -37,10 +37,10 @@ Source-of-truth contract: `docs/design/BHA-BLOG-001-blog-content-publishing.md` 
 | Backend Release build | 0 errors |
 | Backend full suite (`dotnet test Back_End/TheBha.Booking.sln -c Release`, real PostgreSQL 17.10 on port 54329) | **676 unit + 1292 integration, 0 failed** (integration 8 m 41 s), run on the final backend code (`8091ce8` and nothing in `Back_End/` after it) |
 | Backend, earlier on the preview commit | 673 unit + 1291 integration, 0 failed |
-| Admin `npm run lint` / `npm test` / `npm run build` (typecheck included) | lint exit 0; vitest **72 files / 2093 tests, 0 failed** (baseline before my edits: 66 / 2022); build exit 0 (7 Blog routes listed) |
+| Admin `npm run lint` / `npm test` / `npm run build` (typecheck included) | exactly as CI runs them (`.github/workflows/ci.yml`, Admin job), on `85bfa75`: `npm ci` exit 0; `npm run lint` exit 0; `npm test` **72 files / 2097 tests, 0 failed** (baseline before my edits: 66 / 2022); `npm run build` exit 0 (7 Blog routes listed); tree clean afterwards. Backend CI uses PostgreSQL 18.3; the suite here ran on 17.10 (the version `AGENTS.md` names) — a difference to watch in CI |
 | `git diff --check origin/develop...HEAD` | clean (run after the last commit of the code; one trailing blank line in the design document was found by it and fixed) |
 
-New tests: `BlogPreviewApiTests` (8, HTTP + PostgreSQL), 3 body-validator unit tests; Admin: body model + schema + paste safety (27), gate by role (8), form writes (14), upload queue (10), the real editor in jsdom (7), posts list (4), `returnTo` (+1).
+New tests: `BlogPreviewApiTests` (8, HTTP + PostgreSQL), 3 body-validator unit tests; Admin: body model + schema + paste safety + comparison (28), gate by role (8), form writes (17), upload queue (10), the real editor in jsdom (7), posts list (4), `returnTo` (+1). Mutation checks: the two negative lost-publish tests fail on the old reconciliation logic and pass on the fix.
 
 ## Acceptance → evidence (browser, real stack)
 
@@ -51,12 +51,12 @@ Environment: API `dotnet TheBha.Api.dll` (Development, HTTPS :7145, mkcert leaf,
 | 1 | Anonymous: direct route → `/signin?returnTo=…`, API 401. No-Blog and Property-Manager accounts: no-permission panel, no list, API 403. Edit-only: list opens, "new post" offered, server refuses create-category / publish / settings (403). Publish-only: list opens, no "new post", `/posts/new` explains it, server refuses create / save draft / media metadata (403). Both: all. A Blog permission does **not** open `/website/hero` or `/languages`. |
 | 2 | Category with vi + en texts; new post: slug suggested from the title, cover uploaded in the picker and chosen, alt, category, body with heading, bold / italic / link, list, quote + cite, picture with alt and caption, 2-picture gallery, contents, property intro → Save → server body has every block in order with runs and spaces intact → reload: fields, formats and every block back, form not dirty. |
 | 3 | Private preview of the draft: cover, all body pictures (naturalWidth > 0, through the Staff session), link, contents, property; anonymous: public article 404, public list empty, public cover address 404, Staff picture address 401. |
-| 4 | Publish → public API serves the snapshot; editing the draft and its categories leaves it unchanged (badge "unpublished changes" shown); publish again updates it. |
+| 4 | Publish → public API serves the snapshot; editing the draft **and which categories it is in** leaves it unchanged (badge "unpublished changes" shown); publish again updates it. Note for OC: category *membership* is snapshotted in the revision, but category *names* are read live (design §2, §6), so renaming a category shows publicly at once — that is how CP01 was built and CP03 did not change it. |
 | 5 | EN tab starts empty (nothing copied); a category with a vi text only gives a hint, and the publish refusal appears beside the categories with the input kept; Cuisine → en published; en and vi lists show only their own titles; switching language with unsaved edits asks, "stay" keeps the edit. |
 | 6 | Two tabs on one version: tab B gets 409, keeps its input, the server keeps A's save; the conflict panel compares both; "use server's copy" replaces only on request; nothing is sent automatically. |
 | 7 | Restore → draft (public unchanged); unpublish → public 404; archive; unarchive → "unpublished"; history grew; pictures still preview. |
 | 8 | 4 files (2 valid, 1 cut, 1 fake) with the upload throttled: intermediate progress values 12…86 % were observed before "processing" and "done"; 2 stored, 2 failed with the server's reasons, siblings unaffected; an existing picture is chosen again without a re-upload. |
-| 9 | Lost answers (server commits, browser never hears): **save** and **publish** (Playwright forwards the request, then fails it): "unconfirmed", exactly one request, the server really committed, "Check server" reconciles, no second request. **Upload** and **create** (a small TLS fault proxy forwards, waits for the API's answer, then truncates and resets the connection — Playwright cannot forward a file body): one picture / one post exists, nothing offered to resend, the SHA-256 or the client id confirms it. |
+| 9 | Lost answers (the server commits, the browser never hears), four kinds. **Save** and **publish**: Playwright forwards the request to the API, then fails it — "unconfirmed", exactly one request, the server really committed, "Check server" reconciles, no second request. **Upload**: a small TLS fault proxy (Admin pointed at it on :7146 for that run) forwards, waits for the API's answer, then truncates and resets the connection (Playwright's `route.fetch` cannot forward an XHR file body — it sent 308 bytes and the API answered 400) — one picture exists, "send again" was not offered before asking, the SHA-256 check confirmed it. **Create** (new post): Playwright forward-then-fail — one post exists, "Check server" found it by its own id and opened it. On the **final head** (`4eb1f3f`+): "Lưu và xuất bản" whose publish **never reached** the server (save committed, version +1, nothing published) → "Check server" says it was *not* recorded; "Lưu và xuất bản" whose publish **was committed** but whose answer was lost → recognised from the published copy; one publish request in both. |
 | 10 | Credit + focal point (arrow keys) saved against the picture's version = 2, post versions unchanged; usage panel lists 5 uses (cover; draft, live, history); delete of a used picture is disabled and the server answers 409 `blog.media-in-use`; an unused picture is deleted after confirmation (detail 404). |
 | 11 | Two posts pinned and reordered by the buttons, saved with the category version, both effective; the home-section category is saved against the settings version; renaming that category keeps `HomeSectionCategoryId` (same id, same settings version) and the settings screen shows the new name; delete of that category is disabled and refused (409 `category-in-use`). |
 | 12 | 5 pages × light/dark × desktop (1280) / mobile (390): no horizontal overflow, no broken picture, dark background applied; screenshots taken; **0 console errors** unfiltered on every Blog page; a publish refusal moves keyboard focus to the field and shows the reason; Tab order, visible focus, Enter opens the picker, Escape closes it; the focal slider works with arrows. |
@@ -68,12 +68,40 @@ Environment: API `dotnet TheBha.Api.dll` (Development, HTTPS :7145, mkcert leaf,
 2. The hidden editor of a **locked** body reported an empty body; saving would have replaced the real body with nothing. Found by the jsdom editor test; fixed (not reported when locked).
 3. The pins dialog took the category title from the first translation (English) instead of the website's language order. Found in the browser; fixed.
 4. The upload queue released the write slot twice on a duplicate id (could free another writer's slot). Found in review of my own code; fixed before commit.
+5. **A lost publish after "save and publish" could be reported as recorded.** `checkServer` judged the publish with the version of the render that built the callback (the pre-save one) and with "status is Published" alone, which is also true of a published post that merely has a saved draft; the read after a save showed version +1 and the screen said the publish had been recorded. Found by the final advisor review of the code (my browser run of 9b used two separate clicks and missed it); fixed in `4eb1f3f` (the request records the version it carries; a publish counts only when the translation is Published with no draft and its published copy is the one sent; otherwise a conflict is shown), with tests that fail on the old logic and a browser re-run of both variants.
+6. The preview dialog shared a `data-testid` with the "preview" button (test hygiene); renamed in `85bfa75`.
+
+## Run history of the browser evidence (so nothing is read as cleaner than it was)
+
+The scenarios were scripts run one after another; several had to be fixed or split while running, and the database was rebuilt from nothing between some of them:
+
+- **Harness faults, all in my scripts, none in the product:** typing before hydration (sign-in button still disabled), the Linux word-select shortcut (`Ctrl+Shift+←`), keystrokes sent before the editor had taken focus back, an alt label that matched the cover alt too, public-API checks run from an `about:blank` page (CORS), a missing English body in the translation scenario, Playwright forwarding of file bodies (above), a header bug in my fault proxy. One test line recorded a **FAIL** (item 11: the settings were read before the save had landed); it was re-checked by `s4c` reading the API until the value arrived, and the evidence file still contains the failing line.
+- **Server misconfiguration of my own, fixed:** the first API start used the repository root as content root, so `appsettings*.json` (and therefore CORS) was not loaded; the API is now started from its build folder (noted in the runbook).
+- **Which code each item ran on.** Items 1, 8, 10, 11, 12 (five pages × light/dark × desktop/mobile) and 13 ran on `fa8acdc`/`00e65ff`. After the later fixes (`4eb1f3f` lost-publish reconciliation and the shared comparison form; `85bfa75` test id) the following were **re-run on `85bfa75`/`4eb1f3f` with a freshly rebuilt database**: 2, 3 (preview), 4, 5, 6, 7, both variants of 9 (publish), and the preview dialog at 390 px (item 12). Items 1, 8, 10, 11, 13 and the five-page responsive sweep were **not** re-run after those two commits, which do not touch the gate, uploads, picture details, pins, settings or the session handling; say so if the reviewer wants them repeated.
+- The browser ran on `next dev` (HTTPS), not on the production build; `npm run build` was run separately.
+
+## PR size
+
+63 files, **+6422 / −56** by `git diff --numstat origin/develop...HEAD` (the GitHub numbers are in the hand-off message), above the 100–400 target, as the prompt allows for this scope:
+
+| Group | Files | + / − | Why it cannot be smaller |
+|---|---|---|---|
+| lockfile + `package.json` | 2 | +478 / −4 | the editor dependency (TipTap 3.32.0 and its extension packages), generated by `npm install --save-exact` |
+| Admin source (screens, editor, client, routes) | 36 | +4173 / −2 | the feature itself: 7 routes, editor + node views, post/translation form, media library, picker, upload queue, focal point, categories, pins, settings, preview, client |
+| Admin tests | 8 | +1137 | headless schema/model tests, gate by role, form writes and lost-answer cases, upload queue, the real editor, list races |
+| Backend source | 9 | +198 / −46 | preview endpoint and DTO, shared public-shape helper (moved out of the public service), cover on list rows, validator fix, C2 |
+| Backend tests | 3 | +236 | preview HTTP tests, validator unit tests, the permission matrix |
+| Docs | 5 | +200 / −4 | design §10, runbook, SNAPSHOT, worklog, this report |
+
+## Left on the machine (outside the repository; none of it is committed)
+
+The throwaway PostgreSQL cluster (`pgdata`, port 54329) was **stopped**; its databases `thebha_cp03_accept` and `thebha_test` were **dropped**; the Staff password file was shredded; the scratch media folder and data-protection keys were removed; the API, Admin dev server and fault proxy were stopped (no listener on 3001 / 7145 / 7146 / 54329). Still present in the session scratch folder: the cluster's data files, logs, the Playwright scripts and fault proxy (`pw/`), generated test pictures, screenshots and `evidence.jsonl`. `~/pgsql17`, `~/.local/share/mkcert` and `Front_End/Admin_Web/node_modules` (reinstalled by `npm ci`) are the pre-existing tools. The project's own `the-bha-postgres-1` container and `thebha_dev` were never touched.
 
 ## Not done / limits / risks
 
 - Customer_Web is not connected (CP04); SEO, sitemap, hreflang, structured data (CP05). Focal point and credit are not in the public JSON (design §9.1 stays open). Production has no media mount (design §9.12). AVIF is not produced.
 - Uploads use the single-file route one at a time, not `media/bulk`; a cancel proves nothing about the server (the picture is then looked up by its id).
-- The acceptance scripts and the fault proxy are not in the repository (they live in the session scratch folder with the throwaway database); the report states how each loss was simulated. Two kinds of simulation were used because Playwright cannot forward a file body.
+- The acceptance scripts and the fault proxy are not in the repository (they live in the session scratch folder); the report states how each loss was simulated. Two kinds of simulation were used because Playwright cannot forward a file body.
 - `window.confirm` is still used by the shared leave guard and the sign-out confirmation (existing code); the Blog's own confirmations are in-page.
 - The Admin dev server was used for the browser run, the production build was checked separately (`npm run build`).
 - Review is the Owner's step. No blocker.
