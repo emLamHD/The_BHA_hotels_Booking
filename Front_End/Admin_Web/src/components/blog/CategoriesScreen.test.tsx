@@ -396,3 +396,144 @@ describe("C4 F2 — a save that succeeds acknowledges only what was SENT", () =>
     await waitFor(() => expect(screen.queryByTestId("category-dialog")).toBeNull());
   });
 });
+
+
+// ---------------------------------------------------------------- C8 F2: the comparison is built from the LIVE draft
+
+describe("C8 F2 — the comparison represents what is on screen now", () => {
+  const nameEn = () => screen.getByTestId("category-name-en") as HTMLInputElement;
+  const slugVi = () => screen.getByTestId("category-slug-vi") as HTMLInputElement;
+  const replace = async (input: HTMLInputElement, value: string) => { await userEvent.clear(input); if (value) await userEvent.type(input, value); };
+  const SERVER_NEWER = () => cat(A, { version: 6, sortOrder: 40, translations: { vi: text("Của server", "am-thuc-server", "Mô tả server"), en: text("Server EN", "server-en") } });
+
+  async function openStale() {
+    save.mockResolvedValueOnce(stale as never);
+    renderInBlogGate(<CategoriesScreen />);
+    await editRow(0);
+    await typeName("Bản đã gửi");
+    await userEvent.click(btn("category-save"));
+    await screen.findByTestId("write-refused");
+  }
+  /** "Tải bản mới nhất" with the read HELD: returns the gate that answers it. */
+  async function holdLoadLatest() {
+    const gate = deferred<ReturnType<typeof ok<BlogCategory[]>>>();
+    list.mockImplementationOnce((() => gate.promise) as never);
+    await userEvent.click(screen.getByTestId("reload-latest"));
+    return gate;
+  }
+  const release = async (gate: { resolve: (v: never) => void }, data: BlogCategory[] = [SERVER_NEWER()]) => { await act(async () => { gate.resolve(ok(data) as never); await Promise.resolve(); }); };
+
+  it("edits typed in several languages while 'load latest' is pending are in the comparison, and 'keep mine' writes exactly them", async () => {
+    await openStale();
+    const gate = await holdLoadLatest();
+    await typeName("Tên gõ sau khi bấm tải");
+    await replace(slugVi(), "slug-go-sau");
+    await replace(nameEn(), "English typed meanwhile");
+    await release(gate);
+    const panel = await screen.findByTestId("category-conflict");
+    for (const t of ["Tên gõ sau khi bấm tải", "slug-go-sau", "English typed meanwhile", "Của server", "Server EN"]) expect(panel).toHaveTextContent(t);
+    expect(panel).not.toHaveTextContent("Bản đã gửi"); // the older text is not what the person sees or writes
+    expect(btn("category-save")).toBeDisabled();
+    expect(save).toHaveBeenCalledTimes(1); // nothing was sent by comparing
+    await userEvent.click(btn("category-conflict-keep"));
+    save.mockResolvedValueOnce(ok(cat(A, { version: 7 })) as never);
+    await userEvent.click(btn("category-save"));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    expect(save.mock.calls[1][1]).toBe(6);
+    expect(save.mock.calls[1][3].vi).toMatchObject({ name: "Tên gõ sau khi bấm tải", slug: "slug-go-sau" });
+    expect(save.mock.calls[1][3].en.name).toBe("English typed meanwhile");
+  });
+
+  it("editing while the comparison is OPEN keeps the displayed local side and what 'keep mine' writes the same", async () => {
+    await openStale();
+    server = [SERVER_NEWER()];
+    await userEvent.click(screen.getByTestId("reload-latest"));
+    const panel = await screen.findByTestId("category-conflict");
+    expect(panel).toHaveTextContent("Bản đã gửi");
+    await typeName("Sửa khi so sánh đang mở");
+    await replace(nameEn(), "EN while open");
+    expect(screen.getByTestId("category-conflict")).toHaveTextContent("Sửa khi so sánh đang mở");
+    expect(screen.getByTestId("category-conflict")).toHaveTextContent("EN while open");
+    expect(screen.getByTestId("category-conflict")).not.toHaveTextContent("Bản đã gửi");
+    expect(btn("category-save")).toBeDisabled(); // still not before a choice
+    await userEvent.click(btn("category-conflict-keep"));
+    save.mockResolvedValueOnce(ok(cat(A, { version: 7 })) as never);
+    await userEvent.click(btn("category-save"));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    expect(save.mock.calls[1][3].vi.name).toBe("Sửa khi so sánh đang mở");
+    expect(save.mock.calls[1][3].en.name).toBe("EN while open");
+  });
+
+  it("a language emptied meanwhile shows as empty on the local side and is not sent", async () => {
+    await openStale();
+    const gate = await holdLoadLatest();
+    await replace(nameEn(), "");
+    await replace(screen.getByTestId("category-slug-en") as HTMLInputElement, "");
+    await release(gate);
+    const panel = await screen.findByTestId("category-conflict");
+    expect(panel).toHaveTextContent("Server EN");
+    expect(within(panel).getByText("[en] Tên").closest("tr")!.textContent).toBe("[en] Tên—Server EN"); // the local side is empty ("—"), not the text from before
+    await userEvent.click(btn("category-conflict-keep"));
+    save.mockResolvedValueOnce(ok(cat(A, { version: 7 })) as never);
+    await userEvent.click(btn("category-save"));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    expect(Object.keys(save.mock.calls[1][3])).toEqual(["vi"]); // a blank language is not sent, so the server's is not removed
+  });
+
+  it("'use the server's copy' still asks first and then replaces everything typed, including what was typed during the read", async () => {
+    await openStale();
+    const gate = await holdLoadLatest();
+    await typeName("Gõ trong lúc chờ");
+    await release(gate);
+    await screen.findByTestId("category-conflict");
+    await userEvent.click(btn("category-conflict-use-server"));
+    expect(name()).toHaveValue("Gõ trong lúc chờ"); // asked, not done
+    await userEvent.click(btn("category-conflict-confirm"));
+    await waitFor(() => expect(name()).toHaveValue("Của server"));
+    expect(nameEn()).toHaveValue("Server EN");
+  });
+
+  it("a failed read keeps every input, opens no comparison and sends nothing", async () => {
+    await openStale();
+    const gate = await holdLoadLatest();
+    await typeName("Còn nguyên");
+    await act(async () => { gate.resolve({ kind: "network", message: "Mất kết nối." } as never); await Promise.resolve(); });
+    expect(await screen.findByTestId("categories-note")).toHaveTextContent(/Chưa tải được/);
+    expect(screen.queryByTestId("category-conflict")).toBeNull();
+    expect(name()).toHaveValue("Còn nguyên");
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
+  it("another writer racing the next Save: the second stale answer opens a FRESH comparison of the latest input and the latest server copy", async () => {
+    await openStale();
+    server = [SERVER_NEWER()];
+    await userEvent.click(screen.getByTestId("reload-latest"));
+    await screen.findByTestId("category-conflict");
+    await userEvent.click(btn("category-conflict-keep"));
+    await typeName("Lần hai của tôi");
+    save.mockResolvedValueOnce(stale as never);
+    await userEvent.click(btn("category-save"));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    await screen.findByTestId("write-refused");
+    server = [cat(A, { version: 9, translations: { vi: text("Người thứ ba", "am-thuc"), en: text("Third EN", "third") } })];
+    const gate = await holdLoadLatest();
+    await typeName("Sau khi bấm tải lần hai");
+    await release(gate, server);
+    const panel = await screen.findByTestId("category-conflict");
+    expect(panel).toHaveTextContent("Sau khi bấm tải lần hai");
+    expect(panel).toHaveTextContent("Người thứ ba");
+    expect(panel).toHaveTextContent(/phiên bản 9/);
+  });
+
+  it("an answer for a dialog that was closed, or for another category, or an older 'load latest', is dropped", async () => {
+    server = [cat(A), cat(B, { translations: { vi: text("Đồ uống", "do-uong") } })];
+    await openStale();
+    const gate = await holdLoadLatest();
+    await userEvent.click(btn("category-cancel")); // closed
+    await release(gate, [SERVER_NEWER(), cat(B)]);
+    expect(screen.queryByTestId("category-conflict")).toBeNull();
+    await editRow(1); // another category now
+    expect(screen.queryByTestId("category-conflict")).toBeNull();
+    expect(name()).toHaveValue("Đồ uống");
+  });
+});

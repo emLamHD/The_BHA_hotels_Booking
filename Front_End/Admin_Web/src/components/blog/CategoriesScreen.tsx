@@ -38,11 +38,13 @@ interface Snapshot {
   texts: CategoryTexts;
 }
 
-/** The server's copy beside the local one, kept apart from the form until the person chooses. */
+/**
+ * The server's copy beside the local one, kept apart from the form until the person chooses. The local side is NOT stored here: it is the form as it is on screen
+ * now (the comparison is rendered from the live draft), so what is compared, what is shown and what "keep mine" writes cannot differ.
+ */
 interface Conflict {
   kind: "update" | "create";
   fresh: BlogCategory;
-  local: Draft;
   askUseServer: boolean;
 }
 
@@ -68,6 +70,8 @@ export default function CategoriesScreen() {
   const [conflict, setConflict] = useState<Conflict | null>(null);
   const snapshotRef = useRef<Snapshot | null>(null);
   const seqRef = useRef(0);
+  /** Bumped by every operation that makes an older "load latest" answer stale (a newer one, a Save, opening or closing a dialog). */
+  const opRef = useRef(0);
   const draftRef = useRef<Draft | null>(null);
   useEffect(() => {
     draftRef.current = draft;
@@ -82,6 +86,7 @@ export default function CategoriesScreen() {
   const nameIn = (c: BlogCategory, code: string) => c.translations[code]?.name;
 
   const open = (category?: BlogCategory) => {
+    opRef.current++;
     save.reset();
     setNote(null);
     setConflict(null);
@@ -119,6 +124,7 @@ export default function CategoriesScreen() {
   const current = (snap: Snapshot) => draftRef.current?.id === snap.id && snapshotRef.current?.seq === snap.seq;
 
   const closeDialog = () => {
+    opRef.current++;
     setDraft(null);
     setConflict(null);
     snapshotRef.current = null;
@@ -126,6 +132,7 @@ export default function CategoriesScreen() {
 
   const doSave = async () => {
     if (!draft || conflict || problems(draft).length) return;
+    opRef.current++;
     const snap: Snapshot = { seq: ++seqRef.current, id: draft.id!, isNew: draft.isNew, expectedVersion: draft.version, sortOrder: Number(draft.sortOrder), texts: JSON.parse(JSON.stringify(textsToSend(draft))) };
     snapshotRef.current = snap;
     setNote(null);
@@ -198,22 +205,24 @@ export default function CategoriesScreen() {
 
     // The server holds something else (another editor, or a different category under this id): show both, decide nothing.
     save.reset();
-    setConflict({ kind: snap.isNew ? "create" : "update", fresh, local: JSON.parse(JSON.stringify(here)), askUseServer: false });
+    setConflict({ kind: snap.isNew ? "create" : "update", fresh, askUseServer: false });
     setNote(snap.isNew ? "Mã này đã có một chuyên mục với giá trị khác. Dữ liệu của bạn được giữ; xem so sánh bên dưới." : `Chuyên mục đã đổi trên máy chủ (phiên bản ${fresh.version}). Dữ liệu của bạn được giữ; xem so sánh bên dưới.`);
   };
 
   /** After a stale version (409): read the server's copy and show it BESIDE the local one. The local version is not touched. */
   const reloadLatest = async () => {
-    const here = draftRef.current;
-    if (!here || !here.id) return;
+    const start = draftRef.current;
+    if (!start || !start.id) return;
+    const token = ++opRef.current;
     const result = await listCategories();
-    if (draftRef.current?.id !== here.id) return;
+    // Dropped when the dialog was closed or is another category now, or when a newer operation (another "load latest", a Save, a reopen) took over.
+    if (draftRef.current?.id !== start.id || opRef.current !== token) return;
     if (result.kind !== "ok") {
       setNote("Chưa tải được bản mới nhất từ máy chủ. Dữ liệu của bạn vẫn còn; hãy thử lại.");
       return;
     }
 
-    const fresh = result.data.find((c) => c.id === here.id);
+    const fresh = result.data.find((c) => c.id === start.id);
     if (!fresh) {
       setNote("Chuyên mục này không còn trên máy chủ.");
       return;
@@ -221,7 +230,7 @@ export default function CategoriesScreen() {
 
     void list.reload();
     save.reset();
-    setConflict({ kind: "update", fresh, local: JSON.parse(JSON.stringify(here)), askUseServer: false });
+    setConflict({ kind: "update", fresh, askUseServer: false });
     setNote(`Chuyên mục đã được thay đổi trên máy chủ (phiên bản ${fresh.version}). Xem so sánh bên dưới rồi chọn; chưa có gì được gửi.`);
   };
 
@@ -302,7 +311,7 @@ export default function CategoriesScreen() {
             <p className="text-xs text-gray-500 dark:text-gray-400">Một ngôn ngữ để trống hoàn toàn thì không được gửi; ngôn ngữ đã có bản dịch không bị xoá khi sửa.</p>
             {problems(draft).length > 0 && <ul className="list-disc pl-5 text-xs text-error-500" role="alert">{problems(draft).map((p) => <li key={p}>{p}</li>)}</ul>}
             {note && <Banner tone="info" testId="categories-note" onDismiss={() => setNote(null)}>{note}</Banner>}
-            {conflict && <ConflictPanel conflict={conflict} codes={codes} onKeep={keepMine} onAskUseServer={() => setConflict({ ...conflict, askUseServer: true })} onUseServer={useServerCopy} onCancelUseServer={() => setConflict({ ...conflict, askUseServer: false })} onClose={() => setConflict(null)} />}
+            {conflict && <ConflictPanel conflict={conflict} local={draft} codes={codes} onKeep={keepMine} onAskUseServer={() => setConflict({ ...conflict, askUseServer: true })} onUseServer={useServerCopy} onCancelUseServer={() => setConflict({ ...conflict, askUseServer: false })} onClose={() => setConflict(null)} />}
             <BlogWriteFeedback status={save.status} working={working} onReloadLatest={() => void reloadLatest()} onCheckServer={() => void checkSave()} />
             <DialogActions>
               <ActionButton variant="outline" onClick={closeDialog} disabled={working} testId="category-cancel">Đóng</ActionButton>
@@ -330,8 +339,8 @@ export default function CategoriesScreen() {
 }
 
 /** The local form and the server's copy side by side. Nothing here sends anything. */
-function ConflictPanel({ conflict, codes, onKeep, onAskUseServer, onUseServer, onCancelUseServer, onClose }: { conflict: Conflict; codes: string[]; onKeep: () => void; onAskUseServer: () => void; onUseServer: () => void; onCancelUseServer: () => void; onClose: () => void }) {
-  const { fresh, local } = conflict;
+function ConflictPanel({ conflict, local, codes, onKeep, onAskUseServer, onUseServer, onCancelUseServer, onClose }: { conflict: Conflict; local: Draft; codes: string[]; onKeep: () => void; onAskUseServer: () => void; onUseServer: () => void; onCancelUseServer: () => void; onClose: () => void }) {
+  const { fresh } = conflict;
   const locales = [...new Set([...codes, ...Object.keys(local.texts), ...Object.keys(fresh.translations)])].filter((code) => local.texts[code] && (local.texts[code].name || local.texts[code].slug || local.texts[code].description) || fresh.translations[code]);
   const cell = (value: string | null | undefined) => (value ? value : "—");
   const rows: [string, string, string][] = [["Thứ tự", local.sortOrder, String(fresh.sortOrder)]];
