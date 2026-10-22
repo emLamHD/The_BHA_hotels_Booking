@@ -13,6 +13,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 import { NodeSelection } from "@tiptap/pm/state";
+import { GapCursor } from "@tiptap/pm/gapcursor";
 import { Dropcursor, Gapcursor, UndoRedo } from "@tiptap/extensions";
 import { bodyToDoc, docToBody, isSafeHref, type BodyProblem, type BodyV1 } from "@/lib/blog/bodyModel";
 import { schemaExtensions } from "@/lib/blog/editorSchema";
@@ -31,17 +32,26 @@ function extensions() {
   return [...schemaExtensions().filter((extension) => !ATOMS.has(extension.name)), ...viewedBlocks, UndoRedo, Gapcursor, Dropcursor];
 }
 
-/** The top-level block the selection is in: its index, its position and its node. */
+/**
+ * The top-level block the selection is in: its index, its position and its node - or `null` when there is none. A gap cursor (the caret the Gapcursor
+ * extension allows before, between and after the atom blocks, at the end of the document included) sits BETWEEN blocks: no block is selected, and
+ * `$from.index(0)` names the one after the gap, or is past the last one. Moving or deleting "the block at the gap" would be moving or deleting a block the
+ * person did not select.
+ */
 function currentBlock(editor: Editor) {
   const { doc, selection } = editor.state;
-  const index = selection.$from.depth === 0 && selection instanceof NodeSelection ? selection.$from.index(0) : selection.$from.index(0);
+  if (selection instanceof GapCursor) return null;
+  const index = selection.$from.index(0);
+  if (index >= doc.childCount) return null;
   let pos = 0;
   for (let i = 0; i < index; i++) pos += doc.child(i).nodeSize;
   return { index, pos, node: doc.child(index), count: doc.childCount };
 }
 
 function moveBlock(editor: Editor, direction: -1 | 1) {
-  const { index, pos, node, count } = currentBlock(editor);
+  const block = currentBlock(editor);
+  if (!block) return;
+  const { index, pos, node, count } = block;
   const target = index + direction;
   if (target < 0 || target >= count) return;
   const neighbour = editor.state.doc.child(target);
@@ -54,7 +64,9 @@ function moveBlock(editor: Editor, direction: -1 | 1) {
 }
 
 function deleteBlock(editor: Editor) {
-  const { pos, node, count } = currentBlock(editor);
+  const block = currentBlock(editor);
+  if (!block) return;
+  const { pos, node, count } = block;
   const { tr } = editor.state;
   tr.delete(pos, pos + node.nodeSize);
   if (count === 1) tr.insert(0, editor.state.schema.nodes.paragraph.create());
@@ -62,9 +74,14 @@ function deleteBlock(editor: Editor) {
   editor.commands.focus();
 }
 
-/** Inserts a block after the one the cursor is in; an empty paragraph the cursor is in is replaced instead of left behind. */
+/** Inserts a block after the one the cursor is in, or AT a gap cursor; an empty paragraph the cursor is in is replaced instead of left behind. */
 function insertBlock(editor: Editor, content: Record<string, unknown>) {
-  const { pos, node } = currentBlock(editor);
+  const block = currentBlock(editor);
+  if (!block) {
+    editor.chain().focus().insertContentAt(editor.state.selection.from, content).run();
+    return;
+  }
+  const { pos, node } = block;
   const empty = node.type.name === "paragraph" && node.content.size === 0;
   editor.chain().focus().insertContentAt(empty ? { from: pos, to: pos + node.nodeSize } : pos + node.nodeSize, content).run();
 }
@@ -85,6 +102,7 @@ function Toolbar({ editor, services }: { editor: Editor; services: BodyEditorSer
   }, [editor]);
 
   const can = services.editable;
+  const atGap = editor.state.selection instanceof GapCursor; // between blocks: nothing is selected to move or remove
   const inText = !(editor.state.selection instanceof NodeSelection) && !editor.isActive("heading");
   const button = (label: string, run: () => void, options: { active?: boolean; disabled?: boolean; title?: string } = {}) => (
     <button type="button" className={BUTTON} aria-pressed={options.active} disabled={!can || options.disabled} title={options.title ?? label} onMouseDown={(e) => e.preventDefault()} onClick={run}>
@@ -129,9 +147,9 @@ function Toolbar({ editor, services }: { editor: Editor; services: BodyEditorSer
       {button("Mục lục", () => insertBlock(editor, { type: "toc" }))}
       {button("Cơ sở lưu trú", () => insertBlock(editor, { type: "propertyIntro", attrs: { propertyId: "" } }))}
       <span className="mx-1 h-5 w-px bg-gray-300 dark:bg-gray-700" aria-hidden />
-      {button("↑ Khối", () => moveBlock(editor, -1), { title: "Đưa khối lên" })}
-      {button("↓ Khối", () => moveBlock(editor, 1), { title: "Đưa khối xuống" })}
-      {button("Xoá khối", () => deleteBlock(editor))}
+      {button("↑ Khối", () => moveBlock(editor, -1), { disabled: atGap, title: "Đưa khối lên" })}
+      {button("↓ Khối", () => moveBlock(editor, 1), { disabled: atGap, title: "Đưa khối xuống" })}
+      {button("Xoá khối", () => deleteBlock(editor), { disabled: atGap })}
       {button("Hoàn tác", () => editor.chain().focus().undo().run(), { disabled: !editor.can().undo() })}
       {button("Làm lại", () => editor.chain().focus().redo().run(), { disabled: !editor.can().redo() })}
       {linkOpen && (

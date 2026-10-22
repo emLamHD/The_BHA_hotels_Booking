@@ -3,8 +3,11 @@
  * schema version is shown and not edited, and a toolbar command changes the body the screen is told about.
  */
 import React from "react";
-import { cleanup, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { GapCursor } from "@tiptap/pm/gapcursor";
+import { NodeSelection, TextSelection } from "@tiptap/pm/state";
+import type { Editor } from "@tiptap/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), push: vi.fn() }) }));
@@ -121,5 +124,98 @@ describe("the real editor", () => {
     const last = states[states.length - 1];
     expect(last.problems).toHaveLength(1);
     expect(last.body?.blocks[0]).toEqual({ type: "paragraph", inlines: [{ text: "a < b" }] });
+  });
+});
+
+
+// ---------------------------------------------------------------- C7 F3: the gap cursor
+
+describe("C7 F3 — the toolbar with a real GapCursor selection", () => {
+  const PROPERTY = "44444444-4444-4444-8444-444444444444";
+  const editorOf = () => (screen.getByTestId("body-editor") as HTMLElement & { editor: Editor }).editor;
+  /** A real gap cursor (ProseMirror's own class and its own validity check), placed through a transaction. */
+  const gapAt = (pos: number) => act(() => {
+    const editor = editorOf();
+    const $pos = editor.state.doc.resolve(pos);
+    expect((GapCursor as unknown as { valid(at: typeof $pos): boolean }).valid($pos), `a gap cursor is allowed at ${pos}`).toBe(true);
+    editor.view.dispatch(editor.state.tr.setSelection(new GapCursor($pos)));
+    expect(editor.state.selection).toBeInstanceOf(GapCursor);
+  });
+  const types = (states: BodyState[]) => states[states.length - 1].body?.blocks.map((b) => b.type);
+  const button = (name: string) => screen.getByRole("button", { name });
+  const ATOMS = { schemaVersion: 1, blocks: [{ type: "image", mediaId: M1, alt: "a" }, { type: "toc" }] }; // doc positions: 0 | image | 1 | toc | 2
+
+  it.each([
+    ["before the first block", 0, ["propertyIntro", "image", "toc"]],
+    ["between two atoms", 1, ["image", "propertyIntro", "toc"]],
+    ["after the trailing atom", 2, ["image", "toc", "propertyIntro"]],
+  ])("inserting a block %s puts it AT the gap (no exception)", async (_name, pos, expected) => {
+    const states = await open(ATOMS);
+    await screen.findByTestId("body-toolbar");
+    gapAt(pos);
+    await userEvent.click(button("Cơ sở lưu trú"));
+    await waitFor(() => expect(types(states)).toEqual(expected));
+    void PROPERTY;
+  });
+
+  it.each([[0], [1], [2]])("move up, move down and delete are unavailable at a gap (position %i): there is no selected block, so none is moved or removed", async (pos) => {
+    const states = await open(ATOMS);
+    await screen.findByTestId("body-toolbar");
+    await waitFor(() => expect(states.length).toBeGreaterThan(0));
+    const before = JSON.stringify(editorOf().getJSON());
+    gapAt(pos);
+    for (const name of ["↑ Khối", "↓ Khối", "Xoá khối"]) expect(button(name)).toBeDisabled();
+    expect(JSON.stringify(editorOf().getJSON())).toBe(before);
+  });
+
+  it.each([[0], [1], [2]])("every other enabled toolbar button can be pressed at a gap (position %i) without an exception, and the document stays a valid one", async (pos) => {
+    const states = await open(ATOMS);
+    await screen.findByTestId("body-toolbar");
+    await waitFor(() => expect(states.length).toBeGreaterThan(0));
+    const toolbar = screen.getByTestId("body-toolbar");
+    const names = Array.from(toolbar.querySelectorAll("button")).map((b) => b.textContent ?? "");
+    const errors: unknown[] = [];
+    const record = (event: ErrorEvent) => { errors.push(event.error); event.preventDefault(); };
+    window.addEventListener("error", record);
+    for (const name of names) {
+      gapAt(pos);
+      const target = Array.from(toolbar.querySelectorAll("button")).find((b) => b.textContent === name)!;
+      if ((target as HTMLButtonElement).disabled) continue;
+      await userEvent.click(target);
+      editorOf().state.doc.check(); // still a document the schema accepts
+    }
+    window.removeEventListener("error", record);
+    expect(errors).toEqual([]);
+  });
+
+  it("a trailing gallery: the gap after it takes an inserted block, and the preceding gallery is untouched", async () => {
+    const states = await open({ schemaVersion: 1, blocks: [{ type: "paragraph", inlines: [{ text: "Mở đầu" }] }, { type: "gallery", items: [{ mediaId: M1, alt: "a" }, { mediaId: M2, alt: "b" }] }] });
+    await screen.findByTestId("body-toolbar");
+    const end = editorOf().state.doc.content.size;
+    gapAt(end);
+    await userEvent.click(button("Mục lục"));
+    await waitFor(() => expect(types(states)).toEqual(["paragraph", "gallery", "toc"]));
+    expect(states[states.length - 1].body?.blocks[1]).toEqual({ type: "gallery", items: [{ mediaId: M1, alt: "a" }, { mediaId: M2, alt: "b" }] });
+  });
+
+  it("after the insert the document saves as the intended body, with no problem other than the property still to be chosen", async () => {
+    const states = await open(ATOMS);
+    await screen.findByTestId("body-toolbar");
+    gapAt(2);
+    await userEvent.click(button("Mục lục"));
+    await waitFor(() => expect(types(states)).toEqual(["image", "toc", "toc"]));
+    expect(states[states.length - 1].problems).toEqual([]);
+  });
+
+  it("ordinary selections are unchanged: a text selection moves its block, a node selection is deleted", async () => {
+    const states = await open({ schemaVersion: 1, blocks: [{ type: "paragraph", inlines: [{ text: "Một" }] }, { type: "paragraph", inlines: [{ text: "Hai" }] }, { type: "toc" }] });
+    await screen.findByTestId("body-toolbar");
+    act(() => { const editor = editorOf(); editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, 2))); }); // inside "Một"
+    for (const name of ["↑ Khối", "↓ Khối", "Xoá khối"]) expect(button(name)).toBeEnabled();
+    await userEvent.click(button("↓ Khối"));
+    await waitFor(() => expect(states[states.length - 1].body?.blocks[0]).toEqual({ type: "paragraph", inlines: [{ text: "Hai" }] }));
+    act(() => { const editor = editorOf(); const tocPos = editor.state.doc.content.size - 1; editor.view.dispatch(editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, tocPos))); });
+    await userEvent.click(button("Xoá khối"));
+    await waitFor(() => expect(types(states)).toEqual(["paragraph", "paragraph"]));
   });
 });
