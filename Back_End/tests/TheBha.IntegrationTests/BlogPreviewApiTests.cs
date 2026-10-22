@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using System.Net;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -189,5 +190,107 @@ public sealed class BlogPreviewApiTests(PostgreSqlWebApplicationFactory factory)
 
         await TransitionAsync(host, id, "vi", "publish", Version(created, "vi"));
         Assert.Equal("Đây là đậm chữ", Joined((await PublicOkAsync(host, "/posts/khoang-trang?locale=vi")).GetProperty("body")));
+    }
+
+    // ---- CP03-C1: what is previewed when the translation is archived, or has nothing to show ----
+
+    private async Task<string> PointersAsync(Guid postId) =>
+        await ScalarAsync<string>($"""
+            SELECT concat("Version", '|', "UpdatedAtUtc", '|', coalesce("DraftRevisionId"::text, '-'), '|', coalesce("PublishedRevisionId"::text, '-'), '|', "Status", '|', "FirstPublishedAtUtc")
+            FROM "BlogPostTranslations" WHERE "PostId" = '{postId}' AND "Locale" = 'vi'
+            """);
+
+    [Fact]
+    public async Task An_archived_translation_is_still_previewed_from_the_revision_it_has()
+    {
+        using var host = await StartBlogAsync();
+        var media = await UploadAsync(host, host.Cookie(Editor));
+
+        // Archived while it only has its first draft (Archive() changes the status and nothing else).
+        var draftOnly = await CreatePostAsync(host, Draft(media, "luu-tru-chi-co-nhap", "Chỉ có bản nháp"));
+        var draftId = PostId(draftOnly);
+        await TransitionAsync(host, draftId, "vi", "archive", Version(draftOnly, "vi"));
+        var viaDraft = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, SendAsync(host, AdminGet(Url(draftId, "vi"), host.Cookie(Editor)))));
+        Assert.Equal("draft", viaDraft.GetProperty("source").GetString());
+        Assert.Equal("Archived", viaDraft.GetProperty("status").GetString());
+        Assert.Equal("Chỉ có bản nháp", viaDraft.GetProperty("title").GetString());
+
+        // Published, then archived: no draft, the published revision is what there is to show.
+        var (publishedId, version) = await PublishedAsync(host, media, "luu-tru-da-xuat-ban", "Đã xuất bản rồi lưu trữ");
+        await TransitionAsync(host, publishedId, "vi", "archive", version);
+        var viaPublished = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, SendAsync(host, AdminGet(Url(publishedId, "vi"), host.Cookie(Publisher)))));
+        Assert.Equal("published", viaPublished.GetProperty("source").GetString());
+        Assert.Equal("Archived", viaPublished.GetProperty("status").GetString());
+        Assert.Equal("Đã xuất bản rồi lưu trữ", viaPublished.GetProperty("title").GetString());
+        await AssertStatusAsync(HttpStatusCode.NotFound, PublicAsync(host, "/posts/luu-tru-da-xuat-ban?locale=vi"));
+    }
+
+    /// <summary>
+    /// PERSISTENCE FIXTURE, not a lifecycle: the schema allows an Archived translation whose two revision pointers are both null (the only constraints
+    /// require a published pointer for Published / Unpublished), but every write that moves the pointers runs in one transaction and none of the current
+    /// API routes commits that state. It is built the way <c>ClearDraft()</c> would leave it - the draft revision frozen and no longer pointed at -
+    /// through the real API up to the archive and one SQL change after it.
+    /// </summary>
+    [Fact]
+    public async Task A_translation_with_no_revision_to_show_is_a_controlled_404_and_nothing_changes()
+    {
+        using var host = await StartBlogAsync();
+        var media = await UploadAsync(host, host.Cookie(Editor));
+        var created = await CreatePostAsync(host, Draft(media, "khong-co-revision", "Không còn bản nào để xem"));
+        var id = PostId(created);
+        await TransitionAsync(host, id, "vi", "archive", Version(created, "vi"));
+        await ExecuteAsync($"""
+            UPDATE "BlogPostRevisions" SET "State" = 'Frozen' WHERE "TranslationId" IN (SELECT "Id" FROM "BlogPostTranslations" WHERE "PostId" = '{id}');
+            UPDATE "BlogPostTranslations" SET "DraftRevisionId" = NULL WHERE "PostId" = '{id}';
+            """);
+
+        var before = await PointersAsync(id);
+        var audits = await ScalarAsync<long>("""SELECT count(*) FROM "BlogAudits" """);
+        Assert.Contains("|-|-|Archived|", before); // both pointers null, still archived, never published
+
+        foreach (var account in new[] { Editor, Publisher, Both })
+        {
+            var response = await AssertStatusAsync(HttpStatusCode.NotFound, SendAsync(host, AdminGet(Url(id, "vi"), host.Cookie(account))));
+            Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+            Assert.Contains("no-store", response.Headers.CacheControl?.ToString());
+            var problem = await JsonAsync(response);
+            Assert.Equal(404, problem.GetProperty("status").GetInt32());
+            Assert.Contains("no revision", problem.GetProperty("detail").GetString());
+        }
+
+        // The service itself answers with a controlled result rather than throwing.
+        using (var scope = host.Host.Services.CreateScope())
+        {
+            var result = await scope.ServiceProvider.GetRequiredService<TheBha.Application.Blog.IAdminBlog>().GetPreviewAsync(id, "vi", CancellationToken.None);
+            Assert.Equal(TheBha.Application.Website.WebsiteMutationStatus.NotFound, result.Status);
+            Assert.Null(result.Value);
+        }
+
+        // Reading, and failing to read, writes nothing: version, dates, pointers, status and the audit trail are as they were.
+        Assert.Equal(before, await PointersAsync(id));
+        Assert.Equal(audits, await ScalarAsync<long>("""SELECT count(*) FROM "BlogAudits" """));
+
+        // The rest of the contract is as before: no permission, no preview; an unknown post or language answers as it did.
+        Assert.Equal(HttpStatusCode.Unauthorized, (await SendAsync(host, AdminGet(Url(id, "vi"), null))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await SendAsync(host, AdminGet(Url(id, "vi"), host.Cookie(Desk)))).StatusCode);
+        await AssertStatusAsync(HttpStatusCode.NotFound, SendAsync(host, AdminGet(Url(Guid.NewGuid(), "vi"), host.Cookie(Editor))));
+        await AssertStatusAsync(HttpStatusCode.BadRequest, SendAsync(host, AdminGet(Url(id, "xx"), host.Cookie(Editor))));
+    }
+
+    [Fact]
+    public async Task A_successful_preview_writes_nothing()
+    {
+        using var host = await StartBlogAsync();
+        var media = await UploadAsync(host, host.Cookie(Editor));
+        var (id, version) = await PublishedAsync(host, media, "xem-khong-ghi", "Xem không ghi");
+        await SaveDraftAsync(host, id, "vi", version, Draft(media, "xem-khong-ghi", "Xem không ghi (nháp mới)"));
+        var before = await PointersAsync(id);
+        var audits = await ScalarAsync<long>("""SELECT count(*) FROM "BlogAudits" """);
+        var preview = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, SendAsync(host, AdminGet(Url(id, "vi"), host.Cookie(Editor)))));
+        Assert.Equal("draft", preview.GetProperty("source").GetString());
+        Assert.Equal(before, await PointersAsync(id));
+        Assert.Equal(audits, await ScalarAsync<long>("""SELECT count(*) FROM "BlogAudits" """));
+        // The draft is preferred, and the public still shows the published one.
+        Assert.Equal("Xem không ghi", (await PublicOkAsync(host, "/posts/xem-khong-ghi?locale=vi")).GetProperty("title").GetString());
     }
 }

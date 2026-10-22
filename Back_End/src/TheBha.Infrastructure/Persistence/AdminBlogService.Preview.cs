@@ -27,8 +27,15 @@ internal sealed partial class AdminBlogService
             return Fail<BlogPreviewDto>(new BlogProblem(BlogErrorCodes.NotFound, "id", "The article has no such translation."));
         }
 
+        // The saved draft if there is one, else the revision that was published. A translation with neither (no route of the API leaves one so, but the
+        // schema allows it) has nothing to show: a controlled "not found", never another revision picked on the editor's behalf.
         var isDraft = translation.DraftRevisionId is not null;
-        var revisionId = translation.DraftRevisionId ?? translation.PublishedRevisionId!.Value;
+        var chosen = translation.DraftRevisionId ?? translation.PublishedRevisionId;
+        if (chosen is not { } revisionId)
+        {
+            return Fail<BlogPreviewDto>(new BlogProblem(BlogErrorCodes.NotFound, "revision", "The translation has no revision to preview."));
+        }
+
         var revision = await db.BlogPostRevisions.AsNoTracking().Include(r => r.Categories).SingleAsync(r => r.Id == revisionId, cancellationToken);
         var media = await (from rm in db.BlogRevisionMedia.AsNoTracking()
                            where rm.RevisionId == revision.Id
