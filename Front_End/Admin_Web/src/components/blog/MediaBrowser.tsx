@@ -40,6 +40,11 @@ export default function MediaBrowser({
   React.useEffect(() => onBusyChange?.(queue.busy), [queue.busy, onBusyChange]);
 
   const pages = state.status === "ready" ? Math.max(1, Math.ceil(state.data.total / PAGE_SIZE)) : 1;
+  // The total can shrink under the person (a deletion, another person): the server then answers the page they are on - past the last one - with no items and the
+  // real total. That page is not "an empty library": the last page that exists is read instead. Only an answer FOR the page that is shown is obeyed (while a new
+  // page loads, the previous answer is still in `state`), and the corrected page is within range, so this cannot repeat.
+  const outOfRange = state.status === "ready" && state.data.page > pages;
+  if (state.status === "ready" && state.data.page === page && page > pages) setPage(pages); // adjusted while rendering (React's pattern for state derived from a response)
 
   return (
     <div className="flex flex-col gap-4">
@@ -58,9 +63,9 @@ export default function MediaBrowser({
         <button type="submit" className={BTN}>Tìm</button>
       </form>
 
-      {state.status === "loading" && <LoadingPanel what="thư viện ảnh" />}
+      {(state.status === "loading" || outOfRange) && <LoadingPanel what="thư viện ảnh" />}
       {state.status === "error" && <ErrorPanel message={state.message} onRetry={() => void reload()} />}
-      {state.status === "ready" && (
+      {state.status === "ready" && !outOfRange && (
         <>
           <p className="text-sm text-gray-500 dark:text-gray-400" data-testid="media-total">{state.data.total} ảnh{q ? ` khớp “${q}”` : ""}.</p>
           {state.data.items.length === 0 ? (
