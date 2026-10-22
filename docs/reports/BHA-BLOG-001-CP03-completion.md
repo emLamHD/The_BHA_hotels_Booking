@@ -144,4 +144,3 @@ The implementer did not touch the finding before the OC correction prompt `BHA-B
 READY_FOR_CODEX_REVIEW
 Owner must now invoke:
 /codex:review --base origin/develop
-
