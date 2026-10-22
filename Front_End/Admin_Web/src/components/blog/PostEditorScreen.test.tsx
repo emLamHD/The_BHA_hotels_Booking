@@ -355,9 +355,9 @@ describe("C6 F4 — after a create the screen opens the translation that was jus
     expect(router.replace).toHaveBeenCalledWith(`/website/blog/posts/${createdId}?locale=ja`);
   });
 
-  it("a locale code that needs escaping in a URL is escaped", async () => {
-    const { createdId } = await createAndLeave("", [lang("vi", false), lang("zh-Hant", true)]);
-    expect(router.replace).toHaveBeenCalledWith(`/website/blog/posts/${createdId}?locale=zh-Hant`);
+  it("a script-language key is routed as it is (the screen is handed the Blog's key, `zh-hant`; the boundary that makes it is tested in blogLanguages.test.ts)", async () => {
+    const { createdId } = await createAndLeave("", [lang("vi", false), lang("zh-hant", true)]);
+    expect(router.replace).toHaveBeenCalledWith(`/website/blog/posts/${createdId}?locale=zh-hant`);
   });
 
   it("a language tab chosen by the person before the create is the one created and opened", async () => {
@@ -410,5 +410,82 @@ describe("C6 F4 — after a create the screen opens the translation that was jus
     expect(save.mock.calls[0].slice(0, 3)).toEqual([createdId, "en", 1]);
     expect(router.replace).toHaveBeenCalledWith(`/website/blog/posts/${createdId}?locale=en`);
     expect(create).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+// ---------------------------------------------------------------- C7 F2: the languages are the Blog's keys all the way through
+
+describe("C7 F2 — a regional language configured as en-US is `en-us` to the Blog", () => {
+  // The REAL boundary (`fetchActiveLanguages` reading the public configuration), not a mock of it: the configuration says `en-US`, the Blog answers `en-us`.
+  const configOf = (locales: ReturnType<typeof lang>[]) => ({ defaultLocale: "vi", locales: locales.map((l) => ({ ...l, formatLocale: l.code, direction: "ltr", defaultCurrency: "VND" })), baseCurrency: "VND", defaultCurrency: "VND", currencies: [], revision: "x" });
+  const CONFIG_EN_US_DEFAULT = [lang("vi", false), lang("en-US", true)];
+  const CONFIG_VI_DEFAULT = [lang("vi", true), lang("en-US", false)];
+  const draft = (locale: string, title: string, version = 1) => translation({ locale, version, draft: revision({ title, slug: "bai-moi", summary: "" }) });
+  const withTranslations = (translations: ReturnType<typeof translation>[], id: string) => ({ ...post(translations[0], id), translations });
+  const titleBox = () => screen.findByTestId("post-title") as Promise<HTMLInputElement>;
+  const tabs = () => screen.getAllByRole("tab").map((tab) => tab.getAttribute("data-testid"));
+
+  beforeEach(async () => {
+    vi.stubEnv("NEXT_PUBLIC_API_BASE_URL", "https://localhost:7145");
+    const actual = await vi.importActual<typeof import("@/lib/api/blog")>("@/lib/api/blog");
+    languages.mockImplementation(actual.fetchActiveLanguages as never);
+  });
+  afterEach(() => vi.unstubAllGlobals());
+  const serve = (locales: ReturnType<typeof lang>[]) => vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(configOf(locales)), { status: 200 })));
+
+  it("create: the request names `en-us`, the answer under `en-us` is found, the typed content stays, there is one tab per language, and the screen leaves for ?locale=en-us", async () => {
+    serve(CONFIG_EN_US_DEFAULT);
+    create.mockImplementation((async (id: string, locale: string) => ok(post(draft(locale, "Bài mới"), id))) as never);
+    // the router keeps the screen where it is, so what the screen shows after the create can be read
+    renderInBlogGate(<PostEditorScreen postId={null} />);
+    expect(await screen.findByTestId("locale-tab-en-us")).toHaveAttribute("aria-selected", "true");
+    await userEvent.type(await titleBox(), "Bài mới");
+    await userEvent.click(within(screen.getByTestId("post-save")).getByRole("button"));
+    await waitFor(() => expect(router.replace).toHaveBeenCalledTimes(1));
+    const createdId = create.mock.calls[0][0];
+    expect(create.mock.calls[0][1]).toBe("en-us");
+    expect(router.replace).toHaveBeenCalledWith(`/website/blog/posts/${createdId}?locale=en-us`);
+    expect((await titleBox()).value).toBe("Bài mới"); // not replaced by an empty form
+    expect(screen.getByTestId("translation-form")).toHaveAttribute("data-locale", "en-us");
+    expect(tabs()).toEqual(["locale-tab-vi", "locale-tab-en-us"]);
+  });
+
+  it("save of an existing post: the answer is matched, the form keeps the saved content and no second tab appears", async () => {
+    serve(CONFIG_VI_DEFAULT);
+    const id = "99999999-9999-4999-8999-999999999999";
+    readPost.mockResolvedValue(ok(withTranslations([translation({ locale: "vi", draft: revision({ title: "Tiếng Việt", slug: "viet" }) }), translation({ locale: "en-us", draft: revision({ title: "English", slug: "english", summary: "" }) })], id)) as never);
+    save.mockImplementation((async (postId: string, locale: string, version: number) => ok(withTranslations([translation({ locale: "vi", draft: revision({ title: "Tiếng Việt", slug: "viet" }) }), translation({ locale, version: version + 1, draft: revision({ title: "English 2", slug: "english", summary: "" }) })], postId))) as never);
+    url.query = "locale=en-US"; // mixed case in the address
+    renderInBlogGate(<PostEditorScreen postId={id} />);
+    expect(((await titleBox()).value)).toBe("English"); // the query found the translation
+    expect(screen.getByTestId("locale-tab-en-us")).toHaveAttribute("aria-selected", "true");
+    await userEvent.clear(await titleBox());
+    await userEvent.type(await titleBox(), "English 2");
+    await userEvent.click(within(screen.getByTestId("post-save")).getByRole("button"));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0][1]).toBe("en-us");
+    await waitFor(() => expect(screen.queryByTestId("write-pending")).toBeNull());
+    expect((await titleBox()).value).toBe("English 2");
+    expect(tabs()).toEqual(["locale-tab-vi", "locale-tab-en-us"]);
+  });
+
+  it("the default language is matched by its key: en-US as the default with no query opens the en-us tab, vi default opens vi", async () => {
+    serve(CONFIG_EN_US_DEFAULT);
+    renderInBlogGate(<PostEditorScreen postId={null} />);
+    expect(await screen.findByTestId("locale-tab-en-us")).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("translation-form")).toHaveAttribute("data-locale", "en-us");
+    cleanup();
+    serve(CONFIG_VI_DEFAULT);
+    renderInBlogGate(<PostEditorScreen postId={null} />);
+    expect(await screen.findByTestId("locale-tab-vi")).toHaveAttribute("aria-selected", "true");
+  });
+
+  it.each(["en-US", "EN-US", "en-us", "En-uS"])("a ?locale=%s on /posts/new opens the en-us tab", async (query) => {
+    serve(CONFIG_VI_DEFAULT);
+    url.query = `locale=${query}`;
+    renderInBlogGate(<PostEditorScreen postId={null} />);
+    expect(await screen.findByTestId("locale-tab-en-us")).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("translation-form")).toHaveAttribute("data-locale", "en-us");
   });
 });

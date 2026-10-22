@@ -8,7 +8,7 @@
 
 import React, { useCallback, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { getPost, listCategories, type BlogPost } from "@/lib/api/blog";
+import { getPost, listCategories, normalizeLanguageCode, type BlogPost } from "@/lib/api/blog";
 import type { WebsiteResult } from "@/lib/api/website";
 import { useWebsiteList } from "@/components/website/useWebsiteData";
 import { ActionButton, Banner, ErrorPanel, LoadingPanel, PageHeader } from "@/components/website/WebsiteUi";
@@ -39,7 +39,8 @@ export default function PostEditorScreen({ postId }: { postId: string | null }) 
   );
   const [clientId] = useState(() => crypto.randomUUID());
   const [post, setPost] = useState<BlogPost | null>(null);
-  const [locale, setLocale] = useState<string | null>(search.get("locale"));
+  // The address may spell the language as it likes (`?locale=EN-US`); the Blog's key for it is the one every comparison below uses.
+  const [locale, setLocale] = useState<string | null>(() => { const raw = search.get("locale"); return raw === null ? null : normalizeLanguageCode(raw); });
   const [report, setReport] = useState<TranslationStatusReport>({ dirty: false, busy: false });
   const [switchTo, setSwitchTo] = useState<string | null>(null);
   const [picker, setPicker] = useState<PickerRequest | null>(null);

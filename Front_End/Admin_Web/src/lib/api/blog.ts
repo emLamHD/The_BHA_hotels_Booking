@@ -726,9 +726,21 @@ export interface ActiveLanguage {
   isDefault: boolean;
 }
 
+/** The shape the backend accepts for a language (`LanguageTag.Shape`): language, optional 4-letter script, optional 2-letter or 3-digit region. */
+const LANGUAGE_TAG = /^[A-Za-z]{2,3}(?:-[A-Za-z]{4})?(?:-(?:[A-Za-z]{2}|[0-9]{3}))?$/;
+
+/**
+ * The key the Blog stores and returns a language under: the backend's `LanguageTag.TryNormalize` (trim, check the shape, case-fold). The public configuration
+ * spells the same language in its canonical casing (`en-US`), which is not that key. Text that is not such a tag is left as it is - no alias is invented.
+ */
+export function normalizeLanguageCode(code: string): string {
+  const trimmed = code.trim();
+  return LANGUAGE_TAG.test(trimmed) ? trimmed.toLowerCase() : code;
+}
+
 /**
  * The website's active languages, from the public configuration — the settings route that lists them needs a permission a Blog-only account does
- * not have. The policy is uncredentialed, so the cookie is not sent.
+ * not have. The policy is uncredentialed, so the cookie is not sent. The codes leave here as the Blog's own keys (`normalizeLanguageCode`).
  */
 export async function fetchActiveLanguages(signal?: AbortSignal): Promise<WebsiteResult<ActiveLanguage[]>> {
   const base = getApiBaseUrl();
@@ -738,7 +750,7 @@ export async function fetchActiveLanguages(signal?: AbortSignal): Promise<Websit
     if (!response.ok) return { kind: "error", status: response.status, message: `Không đọc được danh sách ngôn ngữ (HTTP ${response.status}).` };
     const body: unknown = await response.json();
     const languages = isRec(body)
-      ? asList(body.locales, (l) => (isRec(l) && isStr(l.code) && isStr(l.displayName) && isStr(l.nativeName) && typeof l.isDefault === "boolean" ? { code: l.code, displayName: l.displayName, nativeName: l.nativeName, isDefault: l.isDefault } : null))
+      ? asList(body.locales, (l) => (isRec(l) && isStr(l.code) && isStr(l.displayName) && isStr(l.nativeName) && typeof l.isDefault === "boolean" ? { code: normalizeLanguageCode(l.code), displayName: l.displayName, nativeName: l.nativeName, isDefault: l.isDefault } : null))
       : null;
     return languages ? { kind: "ok", data: languages } : { kind: "invalid-response", message: "Không đọc được danh sách ngôn ngữ." };
   } catch (error) {
