@@ -93,6 +93,48 @@ public sealed class BlogDomainTests
     }
 
     [Fact]
+    public void The_spaces_around_a_formatted_run_are_part_of_the_text_and_are_kept()
+    {
+        // "Đây là <b>đậm</b> chữ" is three runs; trimming each one would store "Đây là" + "đậm" + "chữ" and show "Đây làđậmchữ".
+        var (info, problem) = BlogBody.Validate(Doc(
+            "{\"type\":\"paragraph\",\"inlines\":[{\"text\":\"Đây là \"},{\"text\":\"đậm\",\"bold\":true},{\"text\":\" chữ\"}]}",
+            "{\"type\":\"list\",\"ordered\":false,\"items\":[[{\"text\":\"một \"},{\"text\":\"hai\",\"italic\":true}]]}",
+            "{\"type\":\"quote\",\"inlines\":[{\"text\":\"a\",\"bold\":true},{\"text\":\" \"},{\"text\":\"b\",\"bold\":true}]}"));
+
+        Assert.Null(problem);
+        using var canonical = System.Text.Json.JsonDocument.Parse(info!.CanonicalJson);
+        var blocks = canonical.RootElement.GetProperty("blocks");
+        string Text(int block, int run) => blocks[block].GetProperty("inlines")[run].GetProperty("text").GetString()!;
+        Assert.Equal("Đây là ", Text(0, 0));
+        Assert.Equal(" chữ", Text(0, 2));
+        Assert.Equal("một ", blocks[1].GetProperty("items")[0][0].GetProperty("text").GetString());
+        // A run of nothing but a space, between two formatted runs, is the space between two words.
+        Assert.Equal(" ", Text(2, 1));
+        Assert.Equal(info.CanonicalJson, BlogBody.Validate(info.CanonicalJson).Info!.CanonicalJson);
+    }
+
+    [Fact]
+    public void An_empty_run_is_still_refused_and_a_body_of_only_spaces_has_no_text()
+    {
+        Assert.NotNull(BlogBody.Validate(Doc("{\"type\":\"paragraph\",\"inlines\":[{\"text\":\"\"}]}")).Problem);
+        Assert.NotNull(BlogBody.Validate(Doc("{\"type\":\"paragraph\",\"inlines\":[]}")).Problem);
+        var (info, problem) = BlogBody.Validate(Doc("{\"type\":\"paragraph\",\"inlines\":[{\"text\":\"   \"}]}"));
+        Assert.Null(problem);
+        Assert.Equal(0, info!.TextLength);
+    }
+
+    [Fact]
+    public void A_heading_text_and_a_cite_are_still_trimmed_and_plain_text_is_still_required_in_a_run()
+    {
+        var (info, problem) = BlogBody.Validate(Doc("{\"type\":\"heading\",\"level\":2,\"text\":\"  Mục  \"}"));
+        Assert.Null(problem);
+        using var canonical = System.Text.Json.JsonDocument.Parse(info!.CanonicalJson);
+        Assert.Equal("Mục", canonical.RootElement.GetProperty("blocks")[0].GetProperty("text").GetString());
+        Assert.NotNull(BlogBody.Validate(Doc("{\"type\":\"paragraph\",\"inlines\":[{\"text\":\"a <b>\"}]}")).Problem);
+        Assert.NotNull(BlogBody.Validate(Doc("{\"type\":\"paragraph\",\"inlines\":[{\"text\":\"a\\tb\"}]}")).Problem);
+    }
+
+    [Fact]
     public void An_empty_or_missing_body_is_the_empty_document()
     {
         foreach (var json in new string?[] { null, "", "  ", BlogBody.Empty })

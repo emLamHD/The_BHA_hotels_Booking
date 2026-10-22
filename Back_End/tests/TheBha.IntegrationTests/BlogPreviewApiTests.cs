@@ -166,4 +166,28 @@ public sealed class BlogPreviewApiTests(PostgreSqlWebApplicationFactory factory)
         var drafted = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, SendAsync(host, AdminGet("/posts", host.Cookie(Editor)))));
         Assert.Equal(second.ToString(), CoverOf(drafted, id));
     }
+
+    [Fact]
+    public async Task The_spaces_between_formatted_runs_survive_a_save_the_preview_and_publication()
+    {
+        using var host = await StartBlogAsync();
+        var media = await UploadAsync(host, host.Cookie(Editor));
+        var runs = new JsonArray(
+            new JsonObject { ["text"] = "Đây là " },
+            new JsonObject { ["text"] = "đậm", ["bold"] = true },
+            new JsonObject { ["text"] = " chữ" });
+        var body = BodyOf(new JsonObject { ["type"] = "paragraph", ["inlines"] = runs });
+        var created = await CreatePostAsync(host, Draft(media, "khoang-trang", change: draft => draft["body"] = body));
+        var id = PostId(created);
+
+        static string Joined(JsonElement bodyElement) =>
+            string.Concat(bodyElement.GetProperty("blocks")[0].GetProperty("inlines").EnumerateArray().Select(run => run.GetProperty("text").GetString()));
+
+        Assert.Equal("Đây là đậm chữ", Joined(Translation(created, "vi").GetProperty("draft").GetProperty("body")));
+        var preview = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, SendAsync(host, AdminGet(Url(id, "vi"), host.Cookie(Editor)))));
+        Assert.Equal("Đây là đậm chữ", Joined(preview.GetProperty("body")));
+
+        await TransitionAsync(host, id, "vi", "publish", Version(created, "vi"));
+        Assert.Equal("Đây là đậm chữ", Joined((await PublicOkAsync(host, "/posts/khoang-trang?locale=vi")).GetProperty("body")));
+    }
 }
