@@ -28,7 +28,7 @@ vi.mock("./RichBodyEditor", () => ({
 }));
 
 import PostEditorScreen from "./PostEditorScreen";
-import { BOTH, ok, post, renderInBlogGate, revision, translation } from "./blogTestUtils";
+import { BOTH, deferred, ok, post, renderInBlogGate, revision, translation } from "./blogTestUtils";
 import { createPost, saveDraft, transitionPost } from "@/lib/api/blog";
 import { fetchStaffSession } from "@/lib/api/staff";
 
@@ -81,7 +81,7 @@ describe("C3 F1 — /posts/new, 'Lưu và xuất bản', through the screen", ()
     expect(screen.getByTestId("post-status")).toHaveTextContent("Bản nháp");
 
     const createdId = create.mock.calls[0][0];
-    transition.mockImplementationOnce((async (id: string) => ok(post(translation({ version: 2, status: "Published", hasDraft: false, draft: null, published: revision({ state: "Frozen" }) }), id))) as never);
+    transition.mockImplementationOnce((async (id: string) => ok(post(translation({ version: 2, status: "Published", hasDraft: false, draft: null, published: revision({ title: "Bài mới", slug: "bai-moi", summary: "", state: "Frozen" }) }), id))) as never);
     await userEvent.click(within(screen.getByTestId("post-publish")).getByRole("button"));
     await waitFor(() => expect(router.replace).toHaveBeenCalledTimes(1));
     expect(transition.mock.calls[1]).toEqual([createdId, "vi", "publish", 1]);
@@ -121,7 +121,7 @@ describe("C3 F1 — /posts/new, 'Lưu và xuất bản', through the screen", ()
     await screen.findByTestId("post-new-translation");
     await userEvent.click(screen.getByTestId("locale-tab-vi"));
     await userEvent.type(await screen.findByTestId("post-summary"), "Đã có tóm tắt");
-    transition.mockImplementationOnce((async (id: string) => ok(post(translation({ version: 3, status: "Published", hasDraft: false, draft: null, published: revision({ state: "Frozen" }) }), id))) as never);
+    transition.mockImplementationOnce((async (id: string) => ok(post(translation({ version: 3, status: "Published", hasDraft: false, draft: null, published: revision({ title: "Bài mới", slug: "bai-moi", summary: "Đã có tóm tắt", state: "Frozen" }) }), id))) as never);
     save.mockImplementation((async (id: string) => ok(post(translation({ version: 2, draft: revision({ title: "Bài mới", slug: "bai-moi", summary: "Đã có tóm tắt" }) }), id))) as never);
     await userEvent.click(within(screen.getByTestId("post-publish")).getByRole("button"));
     await waitFor(() => expect(router.replace).toHaveBeenCalledTimes(1));
@@ -143,5 +143,87 @@ describe("C3 F1 — /posts/new, 'Lưu và xuất bản', through the screen", ()
     await userEvent.click(within(screen.getByTestId("post-save")).getByRole("button"));
     await waitFor(() => expect(router.replace).toHaveBeenCalledTimes(1));
     expect(router.replace).toHaveBeenCalledWith(`/website/blog/posts/${createdId}?locale=en`);
+  });
+});
+
+// ---------------------------------------------------------------- C4 F1: edits typed while the first create is on its way
+
+describe("C4 F1 — edits made while a new post is being created are never navigated away from", () => {
+  const draftOf = (title: string, version = 1, extra: Partial<ReturnType<typeof revision>> = {}) => translation({ version, draft: revision({ title, slug: "bai-moi", summary: "", ...extra }) });
+  const input = () => screen.findByTestId("post-title") as Promise<HTMLInputElement>;
+  const action = (id: string) => within(screen.getByTestId(id)).getByRole("button");
+
+  async function startCreate(testId: "post-save" | "post-publish") {
+    const gate = deferred<ReturnType<typeof ok>>();
+    create.mockReturnValueOnce(gate.promise as never);
+    renderInBlogGate(<PostEditorScreen postId={null} />);
+    await userEvent.type(await input(), "Bài mới");
+    await userEvent.click(action(testId));
+    await screen.findByTestId("write-pending");
+    return gate;
+  }
+
+  it("save only: the answer confirms the post but does not leave; the newer text is still there, unsaved, and the next Save writes it to the created post and then leaves", async () => {
+    const gate = await startCreate("post-save");
+    const createdId = create.mock.calls[0][0];
+    expect(screen.getByTestId("locale-tab-en")).toBeDisabled(); // another language cannot be opened mid-write
+
+    await userEvent.type(await input(), " thêm");
+    await userEvent.type(screen.getByTestId("post-summary").querySelector("textarea") ?? (screen.getByTestId("post-summary") as HTMLElement), "Tóm tắt mới");
+    gate.resolve(ok(post(draftOf("Bài mới"), createdId)) as never);
+    await waitFor(() => expect(screen.queryByTestId("write-pending")).toBeNull());
+
+    expect(router.replace).not.toHaveBeenCalled();
+    expect((await input()).value).toBe("Bài mới thêm");
+    expect(screen.getByTestId("post-dirty")).toBeInTheDocument(); // not represented as saved
+    expect(screen.getByTestId("post-status")).toHaveTextContent("Bản nháp"); // but the post is confirmed
+
+    save.mockImplementation((async (id: string) => ok(post(draftOf("Bài mới thêm", 2, { summary: "Tóm tắt mới" }), id))) as never);
+    await userEvent.click(action("post-save"));
+    await waitFor(() => expect(router.replace).toHaveBeenCalledTimes(1));
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(save.mock.calls[0].slice(0, 3)).toEqual([createdId, "vi", 1]);
+    expect(save.mock.calls[0][3]).toMatchObject({ title: "Bài mới thêm", summary: "Tóm tắt mới" });
+    expect(router.replace).toHaveBeenCalledWith(`/website/blog/posts/${createdId}?locale=vi`);
+  });
+
+  it("the server's re-written copy does not replace the newer text either", async () => {
+    const gate = await startCreate("post-save");
+    const createdId = create.mock.calls[0][0];
+    await userEvent.type(await input(), " thêm");
+    gate.resolve(ok(post(draftOf("Bài mới (chuẩn hoá)"), createdId)) as never); // the server wrote something other than what was typed
+    await waitFor(() => expect(screen.queryByTestId("write-pending")).toBeNull());
+    expect((await input()).value).toBe("Bài mới thêm");
+    expect(router.replace).not.toHaveBeenCalled();
+  });
+
+  it("save and publish: the publish carries the SENT values to the created post; the newer text stays unsaved and unpublished and the screen does not leave", async () => {
+    const gate = await startCreate("post-publish");
+    const createdId = create.mock.calls[0][0];
+    await userEvent.type(await input(), " thêm");
+    transition.mockImplementation((async (id: string) => ok(post(translation({ version: 2, status: "Published", hasDraft: false, draft: null, published: revision({ title: "Bài mới", slug: "bai-moi", state: "Frozen" }) }), id))) as never);
+    gate.resolve(ok(post(draftOf("Bài mới"), createdId)) as never);
+    await waitFor(() => expect(transition).toHaveBeenCalledTimes(1));
+    expect(transition.mock.calls[0]).toEqual([createdId, "vi", "publish", 1]);
+    await waitFor(() => expect(screen.getByTestId("post-status")).toHaveTextContent("Đã xuất bản"));
+    expect((await input()).value).toBe("Bài mới thêm");
+    expect(screen.getByTestId("post-dirty")).toBeInTheDocument();
+    expect(router.replace).not.toHaveBeenCalled();
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it("an edit that goes back to what was sent is not newer: the screen leaves as usual", async () => {
+    const gate = await startCreate("post-save");
+    const createdId = create.mock.calls[0][0];
+    await userEvent.type(await input(), "!");
+    await userEvent.type(await input(), "{Backspace}");
+    gate.resolve(ok(post(draftOf("Bài mới"), createdId)) as never);
+    await waitFor(() => expect(router.replace).toHaveBeenCalledTimes(1));
+  });
+
+  it("with nothing typed the screen leaves as before", async () => {
+    const gate = await startCreate("post-save");
+    gate.resolve(ok(post(draftOf("Bài mới"), create.mock.calls[0][0])) as never);
+    await waitFor(() => expect(router.replace).toHaveBeenCalledTimes(1));
   });
 });

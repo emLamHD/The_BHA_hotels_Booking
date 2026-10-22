@@ -324,7 +324,9 @@ describe("C3 F1 — save and publish on a new post", () => {
   // The component is rendered with postId === null and it STAYS null (nothing re-renders it with the new id), like the first render of /posts/new:
   // the id the publish goes to must come from what the create returned, not from the prop.
   const created = (version = 1) => ok(post(translation({ version, draft: revision({ title: "Bài mới", slug: "bai-moi" }) }), CLIENT_ID));
-  const live = ok(post(translation({ version: 2, status: "Published", hasDraft: false, draft: null, published: revision({ title: "Bài mới", slug: "bai-moi", state: "Frozen" }) }), CLIENT_ID));
+  // a publish returns the saved draft, frozen: its title / slug / summary are what was saved (`summary` is what the refused-publish test types)
+  const published = (summary: string) => ok(post(translation({ version: 2, status: "Published", hasDraft: false, draft: null, published: revision({ title: "Bài mới", slug: "bai-moi", summary, state: "Frozen" }) }), CLIENT_ID));
+  const live = published("Một bãi biển dài.");
   const fresh = () => mount(BOTH, { postId: null, initial: undefined });
   const typeNew = async () => {
     const input = await title();
@@ -392,7 +394,7 @@ describe("C3 F1 — save and publish on a new post", () => {
     expect(create).toHaveBeenCalledTimes(1);
 
     // The person fixes it and publishes again: it goes to the post that was created (no second create), and only then is the page left.
-    transition.mockResolvedValueOnce(live as never);
+    transition.mockResolvedValueOnce(published("Tóm tắt") as never);
     await userEvent.type(screen.getByTestId("post-summary").querySelector("textarea") ?? (screen.getByTestId("post-summary") as HTMLElement), "Tóm tắt");
     save.mockResolvedValueOnce(ok(post(translation({ version: 2, draft: revision({ title: "Bài mới", slug: "bai-moi", summary: "Tóm tắt" }) }), CLIENT_ID)) as never);
     await userEvent.click(button("post-publish"));

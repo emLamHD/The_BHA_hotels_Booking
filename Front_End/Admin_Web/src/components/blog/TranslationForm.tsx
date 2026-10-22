@@ -14,6 +14,9 @@
  * - Publishing publishes the saved draft: with unsaved edits it saves first (BlogEdit) and publishes what was saved. On a post that does not exist yet that
  *   is a create and then a publish of the post just created: the id and version come from the create's answer (the `postId` prop is still `null` for the whole
  *   chain), and the screen moves to the post's own page only when the chain is over — leaving in the middle would lose a refusal or an unverified answer.
+ * - Edits typed while a write is on its way are never lost (C4). What a write acknowledges is only what it SENT: the copy the server answers with becomes
+ *   the baseline, the form keeps whatever is newer than the request (it stays "unsaved"), and the screen does not move to the post's page while anything
+ *   is unsaved - leaving would unmount the form and discard it. Editing stays open during a write (the language tabs are locked by the screen).
  * - A restore is only recognised after a lost answer when the server shows THAT revision restored, exactly one version on (`checkServer`).
  */
 
@@ -105,6 +108,9 @@ export default function TranslationForm({
   const createdRef = useRef<BlogPost | null>(null);
   const onNewRoute = useRef(newRoute ?? postId === null);
   const leftRef = useRef(false);
+  // What the form shows right now (for answers that arrive later: a callback's own `snapshot` is the one it was made with) and what the server holds.
+  const liveRef = useRef(baseline);
+  const confirmedRef = useRef(baseline);
   const chainRef = useRef(false);
   const exists = postId !== null || tr !== undefined;
   const id = postId ?? clientId;
@@ -114,6 +120,9 @@ export default function TranslationForm({
   const bodyCanon = bodyState?.body ? comparableBody(bodyState.body) : canonicalBody(bodyInit);
   const snapshot = snapshotOf(form, bodyCanon);
   const dirty = snapshot !== baseline;
+  useEffect(() => {
+    liveRef.current = snapshot;
+  });
   const problems = useMemo(() => bodyState?.problems ?? [], [bodyState]);
   const sendBody = bodyState?.body ?? bodyInit;
 
@@ -135,7 +144,9 @@ export default function TranslationForm({
       setTr(next);
       const revision = workingRevision(next);
       setBaseline(snapshotOfRevision(revision));
+      confirmedRef.current = snapshotOfRevision(revision);
       if (options.replaceForm) {
+        liveRef.current = confirmedRef.current;
         setForm(formFromRevision(revision));
         setBodyInit(revision?.body ?? null);
         setBodyState(null);
@@ -179,10 +190,14 @@ export default function TranslationForm({
     [snapshot, write]
   );
 
-  /** Moves the screen to the post's own page, once, after a create and only when nothing is left to show here. */
+  /**
+   * Moves the screen to the post's own page, once, after a create and only when nothing is left to show here - and nothing is UNSAVED: the page change
+   * unmounts this form, so edits typed after the request was sent would be thrown away. They stay, and the next save / publish that settles tries again.
+   */
   const leave = useCallback(() => {
     const made = createdRef.current;
     if (!made || leftRef.current) return;
+    if (liveRef.current !== confirmedRef.current) return;
     leftRef.current = true;
     onCreated(made);
   }, [onCreated]);
@@ -198,8 +213,11 @@ export default function TranslationForm({
     // The server trims and normalises; its answer is the copy. If that differs from what was typed, show the server's copy rather than a phantom "unsaved".
     const typed = snapshot;
     const copy = snapshotOfRevision(workingRevision(saved));
-    adopt(next, { replaceForm: copy !== typed });
-    if (copy !== typed) setNote("Đã lưu. Máy chủ chuẩn hoá lại một số chữ (ví dụ cắt khoảng trắng đầu/cuối); biểu mẫu đang hiện đúng bản đã lưu.");
+    // Something typed after the click is newer than this request: it is neither replaced by the server's copy nor called saved.
+    const newer = liveRef.current !== typed;
+    adopt(next, { replaceForm: copy !== typed && !newer });
+    if (newer) setNote("Đã lưu bản đã gửi. Những chỉnh sửa bạn nhập sau khi bấm Lưu chưa được lưu.");
+    else if (copy !== typed) setNote("Đã lưu. Máy chủ chuẩn hoá lại một số chữ (ví dụ cắt khoảng trắng đầu/cuối); biểu mẫu đang hiện đúng bản đã lưu.");
     // From here on the form writes to this post, whatever the prop says; the screen moves to its page when the person's action is over (`leave`).
     if (existing === null) createdRef.current = next;
     onPost(next);
@@ -364,7 +382,7 @@ export default function TranslationForm({
       </section>
 
       {conflict && <ConflictPanel local={{ form, body: bodyCanon }} latest={conflict.latest} onUseServer={() => { adopt(conflict.post, { replaceForm: true }); setConflict(null); write.reset(); setNote("Đã thay bằng bản trên máy chủ; thay đổi chưa lưu của bạn đã bị bỏ."); }}
-        onKeepMine={() => { setTr(conflict.latest); setBaseline(snapshotOfRevision(workingRevision(conflict.latest))); setConflict(null); write.reset(); setNote(`Giữ thay đổi của bạn trên nền phiên bản ${conflict.latest.version}. Chưa có gì được gửi — bấm Lưu để ghi.`); onPost(conflict.post); }} onClose={() => setConflict(null)} />}
+        onKeepMine={() => { setTr(conflict.latest); setBaseline(snapshotOfRevision(workingRevision(conflict.latest))); confirmedRef.current = snapshotOfRevision(workingRevision(conflict.latest)); setConflict(null); write.reset(); setNote(`Giữ thay đổi của bạn trên nền phiên bản ${conflict.latest.version}. Chưa có gì được gửi — bấm Lưu để ghi.`); onPost(conflict.post); }} onClose={() => setConflict(null)} />}
 
       <BlogWriteFeedback status={write.status} working={working} onReloadLatest={() => void loadLatest()} onCheckServer={() => void checkServer()}
         fieldShown={(field, code) => code !== "blog.stale-version" && formFieldOf(field) !== null} />
