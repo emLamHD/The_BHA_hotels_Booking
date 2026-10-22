@@ -4,7 +4,7 @@
  * input, locks Save, and moves the version only when the person says "keep mine".
  */
 import React from "react";
-import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -16,7 +16,7 @@ vi.mock("@/lib/api/blog", async (importOriginal) => ({
   fetchStaffImage: vi.fn(() => Promise.resolve({ kind: "config", message: "no image in tests" })),
 }));
 
-import MediaDetailDialog from "./MediaDetailDialog";
+import MediaDetailDialog, { canonicalMediaFields } from "./MediaDetailDialog";
 import { BOTH, EDITOR, deferred, ok, renderInBlogGate } from "./blogTestUtils";
 import { getMedia, getMediaUsage, saveMedia, type BlogMedia } from "@/lib/api/blog";
 import { fetchStaffSession } from "@/lib/api/staff";
@@ -307,3 +307,154 @@ describe("permissions", () => {
 function session(permission: string) {
   return { ...BOTH, permissions: [permission] };
 }
+
+
+// ---------------------------------------------------------------- C8 F3: a lost save is judged against what the SERVER would have stored
+
+describe("C8 F3 — the read-back is compared with the server-normalised snapshot", () => {
+  // `UpdateMediaAsync`: displayName, description, credit, sourceUrl and licence are each `BlogText.Normalize` = .NET `string.Trim()` ("" when empty); the focal point
+  // is rounded to 4 decimals (`RoundFocal`). Nothing else is rewritten. The server's answers below are written out by hand, not computed by the code under test.
+  const FIELDS: [string, () => HTMLInputElement | HTMLTextAreaElement, keyof ReturnType<typeof media>, string][] = [
+    ["displayName", () => name(), "displayName", "Tên mới"],
+    ["description", () => screen.getByLabelText(/^Mô tả/) as HTMLTextAreaElement, "description", "Mô tả mới"],
+    ["credit", () => credit(), "credit", "Nhiếp ảnh gia"],
+    ["sourceUrl", () => screen.getByLabelText(/^Nguồn/) as HTMLInputElement, "sourceUrl", "https://example.com/anh"],
+    ["licence", () => screen.getByLabelText("Giấy phép") as HTMLInputElement, "licence", "CC BY 4.0"],
+  ];
+  const put = (input: HTMLInputElement | HTMLTextAreaElement, value: string) => fireEvent.change(input, { target: { value } });
+  /** Sends `raw` in the first field and loses the answer. */
+  async function lose(field: () => HTMLInputElement | HTMLTextAreaElement, raw: string, extra?: () => void) {
+    await open();
+    write.mockResolvedValueOnce(unverified as never);
+    put(field(), raw);
+    extra?.();
+    await userEvent.click(saveButton());
+    await screen.findByTestId("write-unverified");
+  }
+
+  it.each(FIELDS)("%s: surrounding whitespace that the server trims is not a conflict - confirmed once, nothing resent", async (_key, field, key, value) => {
+    await lose(field, `  \t${value} \u00a0\u3000`);
+    read.mockResolvedValueOnce(ok(media({ [key]: value, version: 4 })) as never); // the server committed the TRIMMED text
+    await userEvent.click(screen.getByTestId("check-server"));
+    expect(await screen.findByTestId("media-note")).toHaveTextContent(/đã có đúng các giá trị đã gửi/);
+    expect(screen.queryByTestId("media-conflict")).toBeNull();
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(read).toHaveBeenCalledTimes(2); // the dialog's own read + the one check
+    expect(screen.queryByTestId("write-unverified")).toBeNull();
+  });
+
+  it("all five text fields at once, each with its own whitespace", async () => {
+    await lose(() => name(), "  A ", () => {
+      put(screen.getByLabelText(/^Mô tả/) as HTMLTextAreaElement, "\tB\t");
+      put(credit(), "\u00a0C\u00a0");
+      put(screen.getByLabelText(/^Nguồn/) as HTMLInputElement, " https://example.com/d ");
+      put(screen.getByLabelText("Giấy phép") as HTMLInputElement, "\u3000E\u3000");
+    });
+    read.mockResolvedValueOnce(ok(media({ displayName: "A", description: "B", credit: "C", sourceUrl: "https://example.com/d", licence: "E", version: 4 })) as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    expect(await screen.findByTestId("media-note")).toHaveTextContent(/đã có đúng các giá trị đã gửi/);
+    expect(screen.queryByTestId("media-conflict")).toBeNull();
+  });
+
+  it("a field emptied to whitespace is the server's empty string (not null, not a mismatch)", async () => {
+    await lose(() => credit(), "   ");
+    read.mockResolvedValueOnce(ok(media({ credit: "", version: 4 })) as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    expect(await screen.findByTestId("media-note")).toHaveTextContent(/đã có đúng các giá trị đã gửi/);
+    expect(screen.queryByTestId("media-conflict")).toBeNull();
+  });
+
+  it.each([
+    ["U+0085 (NEL) is trimmed by .NET", "\u0085x\u0085", "x", true],
+    ["U+00A0, U+2003 and U+3000 are trimmed", "\u00a0\u2003x\u3000", "x", true],
+    ["U+FEFF is NOT trimmed by .NET (JavaScript would)", "\ufeffx\ufeff", "\ufeffx\ufeff", true],
+    ["U+200B is NOT trimmed", "\u200bx", "\u200bx", true],
+    ["a server that trimmed U+FEFF is a different value", "\ufeffx", "x", false],
+    ["a server that did not trim U+0085 is a different value", "\u0085x", "\u0085x", false],
+  ])("%s", async (_name, sent, serverHas, expectMatch) => {
+    await lose(() => credit(), sent);
+    read.mockResolvedValueOnce(ok(media({ credit: serverHas, version: 4 })) as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    if (expectMatch) {
+      expect(await screen.findByTestId("media-note")).toHaveTextContent(/đã có đúng các giá trị đã gửi/);
+      expect(screen.queryByTestId("media-conflict")).toBeNull();
+    } else {
+      expect(await screen.findByTestId("media-conflict")).toBeInTheDocument();
+    }
+    expect(write).toHaveBeenCalledTimes(1);
+  });
+
+  it("a changed focal point travels with the text: both must match", async () => {
+    await lose(() => credit(), " Ghi công ", () => {
+      fireEvent.change(screen.getByLabelText("Điểm lấy nét ngang"), { target: { value: "0.8" } });
+    });
+    read.mockResolvedValueOnce(ok(media({ credit: "Ghi công", focalX: 0.8, version: 4 })) as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    expect(await screen.findByTestId("media-note")).toHaveTextContent(/đã có đúng các giá trị đã gửi/);
+  });
+
+  it("a real mismatch is still a conflict: the focal point is not what was sent", async () => {
+    await lose(() => credit(), " Ghi công ", () => {
+      fireEvent.change(screen.getByLabelText("Điểm lấy nét ngang"), { target: { value: "0.8" } });
+    });
+    read.mockResolvedValueOnce(ok(media({ credit: "Ghi công", focalX: 0.5, version: 4 })) as never); // someone else's version with the text only
+    await userEvent.click(screen.getByTestId("check-server"));
+    expect(await screen.findByTestId("media-conflict")).toBeInTheDocument();
+  });
+
+  it("a real mismatch is still a conflict: another text at another version", async () => {
+    await lose(() => name(), " Của tôi ");
+    read.mockResolvedValueOnce(ok(media({ displayName: "Của người khác", version: 5 })) as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    expect(await screen.findByTestId("media-conflict")).toBeInTheDocument();
+    expect(write).toHaveBeenCalledTimes(1);
+  });
+
+  it("the version still has to move: the trimmed values at the SAME version are not evidence", async () => {
+    await lose(() => name(), "Đã gửi ");
+    read.mockResolvedValueOnce(ok(media({ displayName: "Đã gửi", version: 3 })) as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    expect(await screen.findByTestId("media-note")).toHaveTextContent(/chưa đủ bằng chứng/);
+  });
+
+  it("input typed during the read-back stays unsaved, on the confirmed (server-normalised) base and version", async () => {
+    await lose(() => credit(), " Beach ");
+    const gate = deferred<ReturnType<typeof ok>>();
+    read.mockReturnValueOnce(gate.promise as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    await userEvent.type(credit(), "+ thêm"); // typed after the snapshot, while the server is being asked
+    await act(async () => { gate.resolve(ok(media({ credit: "Beach", version: 4 }))); await Promise.resolve(); });
+    expect(await screen.findByTestId("media-note")).toHaveTextContent(/Những chỉnh sửa mới hơn của bạn vẫn còn và chưa được lưu/);
+    expect(credit().value).toBe(" Beach + thêm");
+    expect(saveButton()).not.toBeDisabled(); // unsaved
+    write.mockResolvedValueOnce(ok(media({ credit: "Beach + thêm", version: 5 })) as never);
+    await userEvent.click(saveButton());
+    await waitFor(() => expect(write).toHaveBeenCalledTimes(2));
+    expect(write.mock.calls[1][1]).toBe(4); // on the version the read-back confirmed
+    expect(write.mock.calls[1][2]).toMatchObject({ credit: " Beach + thêm" });
+  });
+
+  it("a SUCCESSFUL save with whitespace still clears nothing newer (the C4 behaviour, with trimmed answers)", async () => {
+    await open();
+    const gate = deferred<ReturnType<typeof ok>>();
+    write.mockReturnValueOnce(gate.promise as never);
+    put(credit(), " Beach ");
+    await userEvent.click(saveButton());
+    await userEvent.type(credit(), "x");
+    gate.resolve(ok(media({ credit: "Beach", version: 4 })));
+    await waitFor(() => expect(screen.getByTestId("media-note")).toHaveTextContent(/vẫn còn và chưa được lưu/));
+    expect(credit().value).toBe(" Beach x");
+  });
+});
+
+describe("C8 F3 — canonicalMediaFields (the client's copy of what UpdateMediaAsync stores)", () => {
+  const base = { displayName: "a", description: "b", credit: "c", sourceUrl: "d", licence: "e", focalX: 0.5, focalY: 0.5 };
+  it("trims the five text fields with .NET's set and rounds the focal point to 4 decimals, away from zero", () => {
+    expect(canonicalMediaFields({ ...base, displayName: "\u0085a\ufeff ", description: " \t", credit: "\u2003c\u2003", sourceUrl: " d ", licence: "\u3000", focalX: 0.12345, focalY: 0.99995 })).toEqual({
+      displayName: "a\ufeff", description: "", credit: "c", sourceUrl: "d", licence: "", focalX: 0.1235, focalY: 1,
+    });
+  });
+  it("leaves already canonical values alone", () => {
+    expect(canonicalMediaFields(base)).toEqual(base);
+  });
+});

@@ -16,6 +16,7 @@ import { deleteMedia, getMedia, getMediaUsage, mediaPreviewPath, saveMedia, type
 import { useWebsiteList, useWriteAction } from "@/components/website/useWebsiteData";
 import { ActionButton, Banner, DialogActions, DialogShell, ErrorPanel, LoadingPanel, TextAreaField, TextField } from "@/components/website/WebsiteUi";
 import { describeBlogFailure } from "@/lib/blog/blogModel";
+import { serverTrim } from "@/lib/blog/bodyModel";
 import { StaffImage } from "./useStaffImage";
 import FocalPicker from "./FocalPicker";
 import BlogWriteFeedback from "./BlogWriteFeedback";
@@ -45,6 +46,19 @@ interface Conflict {
 }
 
 const same = (a: Fields, b: Fields) => JSON.stringify(a) === JSON.stringify(b);
+
+/**
+ * What `UpdateMediaAsync` stores for `fields`: the five text fields are each `BlogText.Normalize` (.NET `string.Trim()`, "" for none - `serverTrim`, not
+ * JavaScript's `trim`: U+FEFF is kept, U+0085 is removed) and the focal point is `RoundFocal` (4 decimals, away from zero). Nothing else is rewritten. A lost save is
+ * judged by comparing the server's copy with THIS form of what was sent; the raw form input is never changed to make a comparison match.
+ */
+export function canonicalMediaFields(f: Fields): Fields {
+  const round = (n: number) => Math.round(n * 10000) / 10000;
+  return {
+    displayName: serverTrim(f.displayName), description: serverTrim(f.description), credit: serverTrim(f.credit), sourceUrl: serverTrim(f.sourceUrl), licence: serverTrim(f.licence),
+    focalX: round(f.focalX), focalY: round(f.focalY),
+  };
+}
 
 const fieldsOf = (m: BlogMedia): Fields => ({ displayName: m.displayName, description: m.description, credit: m.credit, sourceUrl: m.sourceUrl, licence: m.licence, focalX: m.focalX, focalY: m.focalY });
 
@@ -123,7 +137,8 @@ export default function MediaDetailDialog({ mediaId, onClose, onChanged }: { med
     }
 
     const fresh = result.data;
-    const matches = same(fieldsOf(fresh), snap.fields);
+    // The server stores the canonical form of what was sent; the raw snapshot stays what "newer input" is judged against.
+    const matches = same(fieldsOf(fresh), canonicalMediaFields(snap.fields));
     snapshotRef.current = null;
     save.reset();
     if (matches && fresh.version > snap.expectedVersion) {
