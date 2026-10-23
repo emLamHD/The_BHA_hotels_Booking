@@ -26,9 +26,8 @@ describe("middleware on the Blog", () => {
   it("sends an old slug to the permanent-redirect route with the CURRENT Customer address (a rewrite: the reader's own scheme and host are never involved)", async () => {
     fetchMock.mockImplementation(() => answer(301, { slug: "bai-moi", locale: "vi" }));
     const response = await middleware(request("/blog/bai-cu?locale=vi", { host: "internal-host:3000" }));
-    const target = new URL(response.headers.get("x-middleware-rewrite")!);
-    expect(target.pathname).toBe("/blog-moved");
-    expect(target.searchParams.get("to")).toBe("/blog/bai-moi?locale=vi");
+    expect(new URL(response.headers.get("x-middleware-rewrite")!).pathname).toBe("/blog-moved");
+    expect(forwarded(response)["x-bha-moved-to"]).toBe("/blog/bai-moi?locale=vi");
     expect(response.headers.get("location")).toBeNull();
   });
 

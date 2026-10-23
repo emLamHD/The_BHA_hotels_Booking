@@ -22,7 +22,9 @@ async function blogPass(request: NextRequest): Promise<NextResponse> {
     }
     if (target) {
       // The permanent redirect itself is made by a route handler (see app/blog-moved/route.ts): this only hands it the current Customer address.
-      return NextResponse.rewrite(new URL(`/blog-moved?to=${encodeURIComponent(target)}`, request.url));
+      const moved = new Headers(request.headers);
+      moved.set("x-bha-moved-to", target);
+      return NextResponse.rewrite(new URL("/blog-moved", request.url), { request: { headers: moved } });
     }
   }
   const headers = new Headers(request.headers);
