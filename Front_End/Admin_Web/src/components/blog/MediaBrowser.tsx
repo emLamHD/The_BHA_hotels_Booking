@@ -22,13 +22,15 @@ export default function MediaBrowser({
   canUpload,
   reloadToken,
   onBusyChange,
+  blockActivationWhileBusy = false,
 }: {
   selectedIds?: ReadonlySet<string>;
   onActivate: (media: BlogMedia) => void;
   canUpload: boolean;
   /** Changes when something outside (a deleted picture, an edit) means the list should be read again. */
   reloadToken?: number;
-  onBusyChange?: (busy: boolean) => void;
+  onBusyChange?: (busy: boolean, isBusy: () => boolean) => void;
+  blockActivationWhileBusy?: boolean;
 }) {
   const [q, setQ] = useState("");
   const [typed, setTyped] = useState("");
@@ -37,7 +39,7 @@ export default function MediaBrowser({
 
   const { state, reload } = useWebsiteList((signal) => listMedia({ q: q || undefined, usage: usage || undefined, page, pageSize: PAGE_SIZE }, signal), [q, usage, page, reloadToken]);
   const queue = useUploadQueue({ onUploaded: useCallback(() => void reload(), [reload]) });
-  React.useEffect(() => onBusyChange?.(queue.busy), [queue.busy, onBusyChange]);
+  React.useEffect(() => onBusyChange?.(queue.busy, queue.isBusy), [queue.busy, queue.isBusy, onBusyChange]);
 
   const pages = state.status === "ready" ? Math.max(1, Math.ceil(state.data.total / PAGE_SIZE)) : 1;
   // The total can shrink under the person (a deletion, another person): the server then answers the page they are on - past the last one - with no items and the
@@ -76,8 +78,8 @@ export default function MediaBrowser({
                 const selected = selectedIds?.has(media.id) ?? false;
                 return (
                   <li key={media.id}>
-                    <button type="button" onClick={() => onActivate(media)} aria-pressed={selectedIds ? selected : undefined} data-testid="media-card" data-media-id={media.id}
-                      className={`group flex w-full flex-col overflow-hidden rounded-xl border text-left ${selected ? "border-brand-500 ring-2 ring-brand-300" : "border-gray-200 hover:border-gray-300 dark:border-gray-700"}`}>
+                    <button type="button" disabled={blockActivationWhileBusy && queue.busy} onClick={() => { if (!blockActivationWhileBusy || !queue.isBusy()) onActivate(media); }} aria-pressed={selectedIds ? selected : undefined} data-testid="media-card" data-media-id={media.id}
+                      className={`group disabled:cursor-wait disabled:opacity-50 flex w-full flex-col overflow-hidden rounded-xl border text-left ${selected ? "border-brand-500 ring-2 ring-brand-300" : "border-gray-200 hover:border-gray-300 dark:border-gray-700"}`}>
                       <StaffImage path={mediaPreviewPath(media.id, "thumb")} alt={media.displayName} className="aspect-[4/3] w-full object-cover" />
                       <span className="flex flex-col gap-0.5 p-2">
                         <span className="truncate text-sm font-medium text-gray-800 dark:text-white/90" title={media.displayName}>{media.displayName}</span>

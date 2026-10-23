@@ -48,11 +48,13 @@ const settle = async (index: number, outcome: UploadOutcome) => { await act(asyn
 beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE", "Staff");
   vi.mocked(fetchStaffSession).mockResolvedValue({ kind: "authenticated", session: EDITOR });
+  vi.mocked(fetchStaffSession).mockClear();
   calls.length = 0;
   holdAbort = false;
   queue = null;
   uploaded.mockReset();
   lookup.mockReset();
+  lookup.mockResolvedValue({ kind: "error", status: 503, message: "offline" });
   upload.mockReset();
   upload.mockImplementation(((file: File, id: string, progress: Call["progress"]) => {
     const gate = deferred<UploadOutcome>();
@@ -331,7 +333,7 @@ async function startShell(strict = false) {
 }
 const leave = async () => { await act(async () => { screen.getByTestId("leave").click(); }); };
 /** True when the host's single write slot is free (and takes it, so the caller gives it back). */
-const slotIsFree = () => { const free = host!.beginWrite(); if (free) host!.endWrite(); return free; };
+const slotIsFree = () => { let free = false; act(() => { free = host!.beginWrite(); if (free) host!.endWrite(); }); return free; };
 
 describe("C6 F2 — leaving the page stops the queue", () => {
   it("the picture on the wire is aborted, the ones waiting are never sent, and the write slot stays held until the request has ended", async () => {
@@ -437,5 +439,194 @@ describe("C6 F2 — leaving the page stops the queue", () => {
     act(() => queue!.resend(queue!.items[1].key));
     await waitFor(() => expect(calls).toHaveLength(2));
     expect(calls[1].file.name).toBe("b.png");
+  });
+});
+
+// C11 F2: deferred read replies control the real hook's operation ordering, without timers.
+const notFound = { kind: "refused" as const, status: 404, code: "blog.not-found", field: "id", detail: "absent" };
+type ReadResult = Awaited<ReturnType<typeof getMedia>>;
+async function uncertain() {
+  await startShell();
+  add(png("a.png"));
+  await settle(0, { kind: "unconfirmed", message: "lost" });
+  lookup.mockResolvedValueOnce(notFound);
+  await act(async () => queue!.reconcile(queue!.items[0].key));
+  expect(queue!.items[0]).toMatchObject({ status: "unconfirmed", absentOnServer: true });
+  return queue!.items[0].key;
+}
+function checkLater(key: string) {
+  const reply = deferred<ReadResult>();
+  lookup.mockReturnValueOnce(reply.promise);
+  act(() => { void queue!.reconcile(key); });
+  return reply;
+}
+const oldReplies: [string, () => ReadResult][] = [
+  ["404", () => notFound],
+  ["found matching", () => ok(media(calls[0].id, "sha-of-a.png"))],
+  ["found different", () => ok(media(calls[0].id, "different"))],
+  ["error", () => ({ kind: "error", status: 503, message: "offline" })],
+  ["401", () => ({ kind: "unauthenticated" })],
+  ["403", () => ({ kind: "denied" })],
+];
+
+describe("C11 F2 — older reconciliation never overwrites newer work", () => {
+  it.each(oldReplies)("late %s during resend cannot change state, busy, callbacks or slot ownership", async (_name, reply) => {
+    const key = await uncertain();
+    const old = checkLater(key);
+    act(() => queue!.resend(key));
+    expect(calls).toHaveLength(2);
+    act(() => calls[1].progress(300, 1000));
+    await act(async () => old.resolve(reply()));
+    expect(queue!.items[0]).toMatchObject({ id: calls[0].id, status: "sending", sent: 300, absentOnServer: false, message: null });
+    expect(queue!.busy).toBe(true);
+    expect(slotIsFree()).toBe(false);
+    expect(uploaded).not.toHaveBeenCalled();
+    expect(calls[1].abort).not.toHaveBeenCalled();
+    expect(lookup).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(fetchStaffSession)).toHaveBeenCalledTimes(1);
+    await settle(1, { kind: "ok", media: media(calls[1].id, "sha-of-a.png") });
+    expect(queue!.busy).toBe(false);
+    expect(slotIsFree()).toBe(true);
+    expect(uploaded).toHaveBeenCalledTimes(1);
+    expect(calls.map((call) => call.id)).toEqual([calls[0].id, calls[0].id]);
+  });
+
+  it.each(["success", "error"])("send %s stays authoritative when the old 404 arrives after it", async (outcome) => {
+    const key = await uncertain();
+    const old = checkLater(key);
+    act(() => queue!.resend(key));
+    await settle(1, outcome === "success" ? { kind: "ok", media: media(calls[1].id, "sha-of-a.png") } : { kind: "unconfirmed", message: "new send lost" });
+    const before = queue!.items[0];
+    await act(async () => old.resolve(notFound));
+    expect(queue!.items[0]).toEqual(before);
+    expect(queue!.items[0].absentOnServer).toBe(false);
+    expect(queue!.busy).toBe(false);
+    expect(slotIsFree()).toBe(true);
+    expect(upload).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["found", "error"])("two checks resolve in reverse: newer %s wins over old 404", async (answer) => {
+    const key = await uncertain();
+    const old = checkLater(key);
+    const newer = checkLater(key);
+    await act(async () => newer.resolve(answer === "found" ? ok(media(calls[0].id, "sha-of-a.png")) : { kind: "error", status: 503, message: "offline" }));
+    const before = queue!.items[0];
+    await act(async () => old.resolve(notFound));
+    expect(queue!.items[0]).toEqual(before);
+    expect(uploaded).toHaveBeenCalledTimes(answer === "found" ? 1 : 0);
+    expect(upload).toHaveBeenCalledTimes(1);
+    expect(lookup).toHaveBeenCalledTimes(3);
+  });
+
+  it("a matching hash finishing after resend cannot announce success", async () => {
+    const key = await uncertain();
+    const hashing = deferred<string>();
+    hash.mockReturnValueOnce(hashing.promise);
+    lookup.mockResolvedValueOnce(ok(media(calls[0].id, "sha-of-a.png")));
+    act(() => { void queue!.reconcile(key); });
+    await act(async () => { await Promise.resolve(); });
+    act(() => queue!.resend(key));
+    await act(async () => hashing.resolve("sha-of-a.png"));
+    expect(queue!.items[0].status).toBe("sending");
+    expect(queue!.busy).toBe(true);
+    expect(uploaded).not.toHaveBeenCalled();
+    expect(slotIsFree()).toBe(false);
+  });
+
+  it("cancel leaves an unrelated check alive; dismiss and unmount invalidate their own checks", async () => {
+    const key = await uncertain();
+    const old = checkLater(key);
+    add(png("b.png"));
+    act(() => queue!.cancel());
+    await settle(1, { kind: "aborted" });
+    await act(async () => old.resolve(notFound));
+    expect(queue!.items[0]).toMatchObject({ status: "unconfirmed", absentOnServer: true });
+    expect(queue!.items[1].status).toBe("unconfirmed");
+    expect(uploaded).not.toHaveBeenCalled();
+    const hidden = checkLater(key);
+    act(() => queue!.dismiss(key));
+    await act(async () => hidden.resolve(ok(media(calls[0].id, "sha-of-a.png"))));
+    expect(queue!.items).toHaveLength(1);
+    expect(uploaded).not.toHaveBeenCalled();
+    const oldQueue = queue!;
+    const gone = checkLater(queue!.items[0].key);
+    await leave();
+    act(() => { void oldQueue.reconcile(oldQueue.items[0].key); });
+    expect(lookup).toHaveBeenCalledTimes(4); // no request after unmount
+    cleanup(); queue = null;
+    await startShell();
+    add(png("new.png"));
+    await act(async () => gone.resolve(notFound));
+    expect(statuses()).toEqual(["new.png=sending"]);
+    expect(queue!.busy).toBe(true);
+    expect(slotIsFree()).toBe(false);
+    expect(uploaded).not.toHaveBeenCalled();
+    expect(calls[2].abort).not.toHaveBeenCalled();
+  });
+
+  it("a send does not invalidate another item's check, and following items still drain", async () => {
+    const key = await uncertain();
+    const old = checkLater(key);
+    add(png("b.png"), png("c.png"));
+    await act(async () => old.resolve(ok(media(calls[0].id, "sha-of-a.png"))));
+    expect(statuses()).toEqual(["a.png=done", "b.png=sending", "c.png=waiting"]);
+    expect(queue!.busy).toBe(true);
+    expect(slotIsFree()).toBe(false);
+    await settle(1, { kind: "refused", status: 400, code: null, detail: "bad b" });
+    expect(calls).toHaveLength(3);
+    await settle(2, { kind: "ok", media: media(calls[2].id, "sha-of-c.png") });
+    expect(statuses()).toEqual(["a.png=done", "b.png=failed", "c.png=done"]);
+    expect(queue!.busy).toBe(false);
+    expect(slotIsFree()).toBe(true);
+    expect(uploaded).toHaveBeenCalledTimes(2);
+    expect(calls.every((call) => call.abort.mock.calls.length === 0)).toBe(true);
+  });
+});
+
+
+describe("C11 operation boundary guards", () => {
+  it("an old 404 before a failed resend cannot permit another retry; following items still drain", async () => {
+    const key = await uncertain();
+    const old = checkLater(key);
+    act(() => queue!.resend(key));
+    add(png("next.png"));
+    await act(async () => old.resolve(notFound));
+    act(() => { void queue!.reconcile(key); queue!.resend(key); queue!.dismiss(key); });
+    expect(lookup).toHaveBeenCalledTimes(2);
+    expect(queue!.items[0].status).toBe("sending");
+    expect(queue!.busy).toBe(true);
+    await settle(1, { kind: "unconfirmed", message: "resend lost" });
+    expect(calls).toHaveLength(3);
+    expect(queue!.items[0]).toMatchObject({ status: "unconfirmed", absentOnServer: false, message: "resend lost" });
+    act(() => queue!.resend(key));
+    await settle(2, { kind: "ok", media: media(calls[2].id, "sha-of-next.png") });
+    expect(calls).toHaveLength(3);
+    expect(queue!.busy).toBe(false);
+    expect(slotIsFree()).toBe(true);
+  });
+
+  it.each([false, true])("a hash error is handled only for its current operation (superseded=%s)", async (superseded) => {
+    const key = await uncertain();
+    let reject!: (error: Error) => void;
+    const failedHash = new Promise<string>((_resolve, fail) => { reject = fail; });
+    hash.mockReturnValueOnce(failedHash);
+    lookup.mockResolvedValueOnce(ok(media(calls[0].id, "sha-of-a.png")));
+    let checking!: Promise<void>;
+    let rejected: unknown;
+    act(() => { checking = queue!.reconcile(key).catch((error) => { rejected = error; }); });
+    await act(async () => { await Promise.resolve(); });
+    if (superseded) act(() => queue!.resend(key));
+    const before = queue!.items[0];
+    await act(async () => { reject(new Error("cannot hash")); await checking; });
+    expect(rejected).toBeUndefined();
+    if (superseded) {
+      expect(queue!.items[0]).toEqual(before);
+      expect(queue!.busy).toBe(true);
+      expect(slotIsFree()).toBe(false);
+    } else {
+      expect(queue!.items[0].status).toBe("unconfirmed");
+      expect(queue!.items[0].message).toContain("Chưa kiểm tra được");
+    }
+    expect(uploaded).not.toHaveBeenCalled();
   });
 });

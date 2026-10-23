@@ -66,6 +66,8 @@ export function useUploadQueue({ onUploaded, hash = sha256Hex }: { onUploaded?: 
   const [items, setItems] = useState<UploadItem[]>([]);
   const itemsRef = useRef<UploadItem[]>([]);
   const handles = useRef(new Map<string, UploadHandle>());
+  // A token belongs to one operation on one item, never to a different queue instance.
+  const operations = useRef(new Map<string, symbol>());
   const running = useRef(false);
   /** A resend or an add that came while a drain was still unwinding: that drain looks again before it ends, so the request is never lost. */
   const kicked = useRef(false);
@@ -74,10 +76,12 @@ export function useUploadQueue({ onUploaded, hash = sha256Hex }: { onUploaded?: 
   useEffect(() => {
     mounted.current = true;
     const owned = handles.current;
+    const ownedOperations = operations.current;
     return () => {
       // First: nothing below may schedule or send once this is false. Then stop what waits (no state update - the component is gone) and ask the wire to stop.
       mounted.current = false;
       kicked.current = false;
+      ownedOperations.clear();
       itemsRef.current = itemsRef.current.map((item) => (item.status === "waiting" ? { ...item, status: "cancelled", message: "Đã huỷ trước khi gửi." } : item));
       owned.forEach((handle) => handle.abort());
     };
@@ -88,38 +92,54 @@ export function useUploadQueue({ onUploaded, hash = sha256Hex }: { onUploaded?: 
     if (mounted.current) setItems(itemsRef.current);
   }, []);
 
-  /** Reads the server for this picture's id and decides what it means. Never writes. */
+  const beginOperation = useCallback((key: string) => {
+    const token = Symbol();
+    operations.current.set(key, token);
+    return () => mounted.current && operations.current.get(key) === token;
+  }, []);
+
+  /** Reads the server for this picture's id. A newer check or explicit resend supersedes every part of this answer. */
   const reconcile = useCallback(
     async (key: string) => {
       const item = itemsRef.current.find((x) => x.key === key);
-      if (!item) return;
+      // A stale UI action must not supersede a live send (or a send waiting for the slot).
+      if (!mounted.current || !item || item.status !== "unconfirmed") return;
+      const current = beginOperation(key);
       patch(key, { message: "Đang hỏi máy chủ xem ảnh đã có chưa…" });
-      const result = await getMedia(item.id);
-      if (!mounted.current) return;
-      if (result.kind === "ok") {
-        const local = await hashRef.current(item.file);
-        if (!mounted.current) return;
-        if (result.data.originalSha256 === local) {
-          patch(key, { status: "done", media: result.data, absentOnServer: false, message: "Ảnh đã có trên máy chủ (đối chiếu SHA-256 khớp)." });
-          onUploadedRef.current?.(result.data);
-        } else {
-          patch(key, { status: "failed", message: "Mã ảnh này đang được dùng bởi một ảnh khác trên máy chủ, không phải tệp này. Hãy chọn lại tệp." });
-        }
-      } else if (result.kind === "refused" && result.status === 404) {
-        patch(key, { status: "unconfirmed", absentOnServer: true, message: "Máy chủ chưa có ảnh này. Có thể yêu cầu cũ vẫn đang được xử lý; chờ một lúc rồi kiểm tra lại, hoặc gửi lại cùng mã." });
-      } else if (result.kind === "unauthenticated") hostRef.current.onUnauthenticated();
-      else if (result.kind === "denied") void hostRef.current.onDenied();
-      else patch(key, { status: "unconfirmed", message: "Chưa kiểm tra được máy chủ. Hãy thử kiểm tra lại." });
+      try {
+        const result = await getMedia(item.id);
+        if (!current()) return;
+        if (result.kind === "ok") {
+          const local = await hashRef.current(item.file);
+          if (!current()) return;
+          if (result.data.originalSha256 === local) {
+            patch(key, { status: "done", media: result.data, absentOnServer: false, message: "Ảnh đã có trên máy chủ (đối chiếu SHA-256 khớp)." });
+            onUploadedRef.current?.(result.data);
+          } else {
+            patch(key, { status: "failed", message: "Mã ảnh này đang được dùng bởi một ảnh khác trên máy chủ, không phải tệp này. Hãy chọn lại tệp." });
+          }
+        } else if (result.kind === "refused" && result.status === 404) {
+          patch(key, { status: "unconfirmed", absentOnServer: true, message: "Máy chủ chưa có ảnh này. Có thể yêu cầu cũ vẫn đang được xử lý; chờ một lúc rồi kiểm tra lại, hoặc gửi lại cùng mã." });
+        } else if (result.kind === "unauthenticated") hostRef.current.onUnauthenticated();
+        else if (result.kind === "denied") void hostRef.current.onDenied();
+        else patch(key, { status: "unconfirmed", message: "Chưa kiểm tra được máy chủ. Hãy thử kiểm tra lại." });
+      } catch {
+        if (current()) patch(key, { status: "unconfirmed", message: "Chưa kiểm tra được máy chủ. Hãy thử kiểm tra lại." });
+      } finally {
+        if (current()) operations.current.delete(key);
+      }
     },
-    [patch]
+    [beginOperation, patch]
   );
 
   const sendOne = useCallback(
     async (item: UploadItem) => {
       if (!mounted.current) return;
+      const current = beginOperation(item.key);
       // The same host takes the slot and gives it back, whatever the context holds by then.
       const host = hostRef.current;
       if (!host.beginWrite()) {
+        operations.current.delete(item.key);
         patch(item.key, { status: "cancelled", message: "Đang có thao tác khác hoặc đang đăng xuất; chưa gửi gì." });
         return;
       }
@@ -127,11 +147,11 @@ export function useUploadQueue({ onUploaded, hash = sha256Hex }: { onUploaded?: 
       try {
         patch(item.key, { status: "sending", sent: 0, message: null, absentOnServer: false });
         const handle = uploadMedia(item.file, item.id, (sent, total) => {
-          patch(item.key, { sent, total, status: sent >= total ? "processing" : "sending" });
+          if (current()) patch(item.key, { sent, total, status: sent >= total ? "processing" : "sending" });
         });
         handles.current.set(item.key, handle);
         const outcome = await handle.done;
-        handles.current.delete(item.key);
+        if (!current()) return;
         switch (outcome.kind) {
           case "ok":
             patch(item.key, { status: "done", media: outcome.media, message: null });
@@ -160,12 +180,14 @@ export function useUploadQueue({ onUploaded, hash = sha256Hex }: { onUploaded?: 
         }
         needsReconcile = outcome.kind === "duplicate";
       } finally {
+        if (current()) operations.current.delete(item.key);
+        handles.current.delete(item.key);
         host.endWrite();
       }
       // A read, after the write slot is given back: it is not a write. Not for a page that is gone.
       if (needsReconcile && mounted.current) await reconcile(item.key);
     },
-    [patch, reconcile]
+    [beginOperation, patch, reconcile]
   );
 
   const drain = useCallback(async () => {
@@ -218,6 +240,10 @@ export function useUploadQueue({ onUploaded, hash = sha256Hex }: { onUploaded?: 
 
   /** Stops what has not been sent and aborts the one on the wire. The latter becomes `unconfirmed`, not failed: the server may already have it. */
   const cancel = useCallback(() => {
+    // Cancel only invalidates items it actually stops. An unrelated read-back may finish.
+    for (const item of itemsRef.current) {
+      if (item.status === "waiting") operations.current.delete(item.key);
+    }
     itemsRef.current = itemsRef.current.map((item) => (item.status === "waiting" ? { ...item, status: "cancelled", message: "Đã huỷ trước khi gửi." } : item));
     setItems(itemsRef.current);
     handles.current.forEach((handle) => handle.abort());
@@ -228,6 +254,7 @@ export function useUploadQueue({ onUploaded, hash = sha256Hex }: { onUploaded?: 
     (key: string) => {
       const item = itemsRef.current.find((x) => x.key === key);
       if (!item || !(item.status === "cancelled" || (item.status === "unconfirmed" && item.absentOnServer))) return;
+      operations.current.delete(key); // invalidate a pending read before this resend even waits for another item
       patch(key, { status: "waiting", message: null });
       void drain();
     },
@@ -235,10 +262,15 @@ export function useUploadQueue({ onUploaded, hash = sha256Hex }: { onUploaded?: 
   );
 
   const dismiss = useCallback((key: string) => {
+    const item = itemsRef.current.find((item) => item.key === key);
+    if (item?.status === "sending" || item?.status === "processing") return;
+    operations.current.delete(key);
     itemsRef.current = itemsRef.current.filter((item) => item.key !== key || item.status === "sending" || item.status === "processing");
     setItems(itemsRef.current);
   }, []);
 
-  const busy = items.some((item) => item.status === "waiting" || item.status === "sending" || item.status === "processing");
-  return { items, busy, add, cancel, reconcile, resend, dismiss };
+  // Event handlers may run before React renders the state update from add/resend/progress.
+  const isBusy = useCallback(() => handles.current.size > 0 || itemsRef.current.some((item) => item.status === "waiting" || item.status === "sending" || item.status === "processing"), []);
+  const busy = isBusy();
+  return { items, busy, isBusy, add, cancel, reconcile, resend, dismiss };
 }
