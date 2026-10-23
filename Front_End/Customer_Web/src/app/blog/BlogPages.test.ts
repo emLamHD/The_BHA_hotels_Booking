@@ -5,6 +5,7 @@ vi.mock("@/lib/blog/server", () => ({ getBlogPosts: vi.fn(), getBlogPost: vi.fn(
 vi.mock("next/navigation", () => ({
   notFound: () => { throw new Error("NEXT_NOT_FOUND"); },
   redirect: (url: string) => { throw new Error(`NEXT_REDIRECT:${url}`); },
+  useRouter: () => ({ refresh: () => undefined, push: () => undefined }),
 }));
 import { renderPage } from "@/lib/i18n/testkit";
 import BlogPage, { generateMetadata as indexMetadata } from "./page";

@@ -5,6 +5,7 @@ vi.mock("@/lib/blog/server", () => ({ getBlogPost: vi.fn() }));
 vi.mock("next/navigation", () => ({
   notFound: () => { throw new Error("NEXT_NOT_FOUND"); },
   redirect: (url: string) => { throw new Error(`NEXT_REDIRECT:${url}`); },
+  useRouter: () => ({ refresh: () => undefined, push: () => undefined }),
 }));
 import { renderPage } from "@/lib/i18n/testkit";
 import BlogPostPage, { generateMetadata as postMetadata } from "./[slug]/page";
@@ -70,5 +71,25 @@ describe("/blog/{slug}", () => {
       languages: { en: "https://www.thebha.test/blog/hello?locale=en", vi: "https://www.thebha.test/blog/bai-viet-1?locale=vi" },
     });
     expect(String(meta.title)).toContain("Hello");
+  });
+});
+
+describe("a post shown again from the client router cache", () => {
+  it("refreshes its route when it mounts long after the document loaded, and not on the document's own first load", async () => {
+    const refresh = vi.fn();
+    vi.resetModules();
+    vi.doMock("react", async (importOriginal) => ({ ...(await importOriginal<typeof import("react")>()), useEffect: (fn: () => void) => fn() }));
+    vi.doMock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
+    const { default: BlogFreshness } = await import("@/components/blog/BlogFreshness");
+    const now = vi.spyOn(performance, "now");
+    now.mockReturnValue(900);                       // hydrating the document's own response
+    BlogFreshness();
+    expect(refresh).not.toHaveBeenCalled();
+    now.mockReturnValue(60_000);                    // shown by a soft navigation a minute later (the router cache may hold an older answer)
+    BlogFreshness();
+    expect(refresh).toHaveBeenCalledTimes(1);
+    now.mockRestore();
+    vi.doUnmock("react");
+    vi.doUnmock("next/navigation");
   });
 });

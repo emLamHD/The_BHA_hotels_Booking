@@ -4,6 +4,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import BgGlassmorphism from "@/components/BgGlassmorphism";
 import BlogCategoryNav from "@/components/blog/BlogCategoryNav";
+import BlogFreshness from "@/components/blog/BlogFreshness";
 import BlogLocaleTargets from "@/components/blog/BlogLocaleTargets";
 import BlogPagination from "@/components/blog/BlogPagination";
 import BlogPostCard from "@/components/blog/BlogPostCard";
@@ -55,6 +56,7 @@ export default async function BlogCategoryPage({ params, searchParams }: Props) 
     <div className="nc-BlogCategoryPage relative overflow-hidden">
       <BgGlassmorphism />
       <BlogLocaleTargets targets={indexTargets(snapshot.config.locales)} />
+      <BlogFreshness />
       <div className="container relative pb-20 pt-10 lg:pb-28 lg:pt-14">
         <nav aria-label={t("customer.common.breadcrumb")} className="text-sm text-neutral-500 dark:text-neutral-400">
           <ol className="flex flex-wrap items-center gap-2">

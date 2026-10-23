@@ -4,6 +4,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import BgGlassmorphism from "@/components/BgGlassmorphism";
 import BlogBody from "@/components/blog/BlogBody";
+import BlogFreshness from "@/components/blog/BlogFreshness";
 import BlogLocaleTargets from "@/components/blog/BlogLocaleTargets";
 import BlogPicture from "@/components/blog/BlogPicture";
 import JsonLd from "@/components/JsonLd";
@@ -49,6 +50,7 @@ export default async function BlogPostPage({ params, searchParams }: Props) {
     return (
       <div className="nc-PostPage relative overflow-hidden">
         <BgGlassmorphism />
+        <BlogFreshness />
         <div className="container relative pb-20 pt-10 lg:pb-28 lg:pt-14">
           <p className="mb-6"><Link href={blogIndexHref(locale) as Route} prefetch={false} className="text-sm font-medium text-primary-700 underline underline-offset-2 dark:text-primary-300">{t("customer.blog.slug.page.backToTheBlog")}</Link></p>
           <p role="alert" data-testid="blog-unavailable" className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-600 dark:bg-neutral-800 dark:text-amber-200">{t("customer.blog.unavailable")}</p>
@@ -68,6 +70,7 @@ export default async function BlogPostPage({ params, searchParams }: Props) {
     <div className="nc-PostPage relative overflow-hidden">
       <BgGlassmorphism />
       <BlogLocaleTargets targets={postTargets(snapshot.config.locales, post)} />
+      <BlogFreshness />
       {ld && <JsonLd data={ld} testId="blog-jsonld" />}
       <div className="container relative pb-20 pt-10 lg:pb-28 lg:pt-14">
         <article className="mx-auto max-w-3xl">
