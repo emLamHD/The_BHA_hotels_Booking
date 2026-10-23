@@ -25,6 +25,7 @@ public sealed class BlogAuthorizationApiTests(PostgreSqlWebApplicationFactory fa
         yield return ("post", HttpMethod.Get, $"/posts/{Any}", null, Need.Read);
         yield return ("revisions", HttpMethod.Get, $"/posts/{Any}/translations/vi/revisions", null, Need.Read);
         yield return ("revision", HttpMethod.Get, $"/posts/{Any}/translations/vi/revisions/{Any}", null, Need.Read);
+        yield return ("preview", HttpMethod.Get, $"/posts/{Any}/translations/vi/preview", null, Need.Read);
         yield return ("admin media", HttpMethod.Get, $"/media/{Any}", null, Need.Read);
         yield return ("create post", HttpMethod.Post, "/posts", new { id = Any, locale = "vi", draft = new { title = "x" } }, Need.Edit);
         yield return ("save draft", HttpMethod.Post, $"/posts/{Any}/translations/vi/draft", new { expectedVersion = 1, draft = new { title = "x" } }, Need.Edit);

@@ -319,7 +319,7 @@ public static class BlogBody
                 }
 
                 _writer.WriteStartObject();
-                var problem = PlainField(f, "text", MaxText, inlinePath, required: true, write: true, body: true);
+                var problem = PlainField(f, "text", MaxText, inlinePath, required: true, write: true, body: true, keepSpaces: true);
                 if (problem is not null)
                 {
                     return problem;
@@ -360,7 +360,12 @@ public static class BlogBody
         }
 
         /// <summary>Reads <paramref name="name"/> from <paramref name="f"/> as plain text, counts it and (optionally) writes it.</summary>
-        private string? PlainField(Dictionary<string, JsonElement> f, string name, int max, string path, bool required, bool write, bool forceWrite = false, bool body = false)
+        /// <param name="keepSpaces">
+        /// A run of an inline list: the spaces at its ends belong to the text, because they are the spaces between the words of the neighbouring runs
+        /// ("Đây là <b>đậm</b> chữ" is three runs). Such a run only has to be non-empty; every other text is trimmed.
+        /// </param>
+        private string? PlainField(
+            Dictionary<string, JsonElement> f, string name, int max, string path, bool required, bool write, bool forceWrite = false, bool body = false, bool keepSpaces = false)
         {
             if (!f.TryGetValue(name, out var element))
             {
@@ -377,8 +382,8 @@ public static class BlogBody
                 return $"{path}: {name} must be a text.";
             }
 
-            var text = element.GetString()!.Trim();
-            var problem = BlogText.Check(text, max, name, required);
+            var text = keepSpaces ? element.GetString()! : element.GetString()!.Trim();
+            var problem = BlogText.Check(text, max, name, required, keepSpaces);
             if (problem is not null)
             {
                 return $"{path}: {problem.Message}";
@@ -386,7 +391,7 @@ public static class BlogBody
 
             if (body)
             {
-                _text += text.Length;
+                _text += text.Trim().Length;
             }
 
             if (write && (text.Length > 0 || forceWrite))

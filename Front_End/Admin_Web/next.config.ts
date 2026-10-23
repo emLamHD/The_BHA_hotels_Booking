@@ -30,14 +30,19 @@ const nextConfig: NextConfig = {
       return [];
     }
     // A rewrite, never a redirect: the browser keeps talking to the Admin origin, so the Staff cookie
-    // (SameSite=Strict, Path=/api/admin) stays first-party. Only the Staff namespace is forwarded — not
-    // the Customer /api/v1, health or any other path — and the prefix, suffix and query are kept.
+    // (SameSite=Strict, Path=/api/admin) stays first-party. The Staff namespace is forwarded with its prefix,
+    // suffix and query, and so are the two public reference reads the Admin makes (BHA-BLOG-001-CP03-C7):
+    // the website's active languages and the active Properties. They are exact paths, uncredentialed, and
+    // the Staff cookie's Path never reaches them; the rest of the Customer /api/v1, health and every other
+    // path is still not forwarded.
     return {
       beforeFiles: [
         {
           source: "/api/admin/v1/:path*",
           destination: `${apiProxyOrigin}/api/admin/v1/:path*`,
         },
+        { source: "/api/v1/website/config", destination: `${apiProxyOrigin}/api/v1/website/config` },
+        { source: "/api/v1/properties", destination: `${apiProxyOrigin}/api/v1/properties` },
       ],
     };
   },

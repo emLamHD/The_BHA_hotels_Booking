@@ -87,8 +87,9 @@ public sealed record BlogTranslationAdminDto(
 
 public sealed record BlogPostAdminDto(Guid Id, DateTimeOffset CreatedAtUtc, IReadOnlyList<BlogTranslationAdminDto> Translations);
 
+/// <summary><c>CoverMediaId</c> is the cover of the revision the row shows (the draft if there is one, else the published one), for the list thumbnail.</summary>
 public sealed record BlogTranslationRowDto(
-    string Locale, string Status, int Version, string Title, string Slug, bool HasDraft, DateTimeOffset UpdatedAtUtc, BlogStaffDto? UpdatedBy);
+    string Locale, string Status, int Version, string Title, string Slug, bool HasDraft, DateTimeOffset UpdatedAtUtc, BlogStaffDto? UpdatedBy, Guid? CoverMediaId);
 
 public sealed record BlogPostRowDto(Guid Id, DateTimeOffset UpdatedAtUtc, IReadOnlyList<BlogTranslationRowDto> Translations);
 
@@ -115,6 +116,33 @@ public sealed record BlogPinsDto(Guid CategoryId, int Version, IReadOnlyList<Blo
 public sealed record BlogSettingsDto(Guid? HomeSectionCategoryId, int Version, DateTimeOffset UpdatedAtUtc);
 
 public sealed record BlogMediaFile(Stream Content, string ContentType);
+
+/// <summary>
+/// BHA-BLOG-001-CP03: what the Staff-only preview shows — the translation's draft if it has one, else its published revision — in the shape of the public
+/// article detail (same field names), with picture addresses that point at the Staff preview routes instead of the public ones. <c>Cover</c> may be
+/// <c>null</c> because a draft does not need one yet. <c>Version</c> is the translation's version when it was read.
+/// </summary>
+public sealed record BlogPreviewDto(
+    string Source,
+    int RevisionNumber,
+    string Status,
+    int Version,
+    Guid Id,
+    string Locale,
+    string Slug,
+    string Title,
+    string Summary,
+    JsonElement Body,
+    PublicBlogCoverDto? Cover,
+    string Author,
+    DateTimeOffset FirstPublishedAt,
+    DateTimeOffset ModifiedAt,
+    PublicBlogCategoryRefDto? PrimaryCategory,
+    IReadOnlyList<PublicBlogCategoryRefDto> Categories,
+    IReadOnlyDictionary<Guid, PublicBlogMediaRefDto> Media,
+    IReadOnlyDictionary<Guid, PublicBlogPropertyRefDto> Properties,
+    PublicBlogSeoDto Seo,
+    IReadOnlyList<PublicBlogAlternateDto> Alternates);
 
 // ---- Public DTOs: published content only; no Staff id, no revision, no audit, no draft ----
 
@@ -216,6 +244,9 @@ public interface IAdminBlog
     Task<WebsiteMutationResult<IReadOnlyList<BlogRevisionSummaryDto>>> ListRevisionsAsync(Guid postId, string locale, CancellationToken cancellationToken);
 
     Task<WebsiteMutationResult<BlogRevisionDto>> GetRevisionAsync(Guid postId, string locale, Guid revisionId, CancellationToken cancellationToken);
+
+    /// <summary>The saved draft (or, with none, the published revision) of one translation as the public article would look, with Staff-only picture addresses.</summary>
+    Task<WebsiteMutationResult<BlogPreviewDto>> GetPreviewAsync(Guid postId, string locale, CancellationToken cancellationToken);
 
     Task<WebsiteMutationResult<BlogPostAdminDto>> RestoreAsync(RestoreBlogRevisionCommand command, CancellationToken cancellationToken);
 

@@ -55,6 +55,12 @@ afterEach(() => {
 
 const authenticated = (session = ALLOWED): StaffSessionResult => ({ kind: "authenticated", session });
 
+/** The page is in the DOM AND the probe has stored the host: the probe does that in an effect, which the DOM alone does not prove has run. */
+async function pageReady() {
+  await screen.findByTestId("page");
+  await waitFor(() => expect(host).not.toBeNull());
+}
+
 describe("configuration", () => {
   it.each([
     ["an invalid mode", "Staf", /must be exactly Staff or LocalGate/, "website-config-error"],
@@ -135,7 +141,7 @@ describe("Sign out and writes exclude each other", () => {
   it("a write on the wire holds Sign out, and one write at a time", async () => {
     mockedMe.mockResolvedValue(authenticated());
     render(<WebsiteAccessGate returnTo="/website/languages"><Probe /></WebsiteAccessGate>);
-    await screen.findByTestId("page");
+    await pageReady();
     const signOut = screen.getByRole("button", { name: "Đăng xuất" });
     expect(signOut).toBeEnabled();
 
@@ -159,7 +165,7 @@ describe("Sign out and writes exclude each other", () => {
     const logout = deferred<{ kind: "unconfirmed"; message: string }>();
     mockedLogout.mockReturnValue(logout.promise);
     render(<WebsiteAccessGate returnTo="/website/languages"><Probe /></WebsiteAccessGate>);
-    await screen.findByTestId("page");
+    await pageReady();
     await userEvent.click(screen.getByRole("button", { name: "Đăng xuất" }));
     expect(screen.getByRole("button", { name: "Đang đăng xuất…" })).toBeDisabled();
     expect(host!.signingOut).toBe(true);
@@ -192,7 +198,7 @@ describe("a 403 or a 401 on a page that is open", () => {
   it("403: me is read again; if the permission is gone the page closes instead of continuing on the old permission", async () => {
     mockedMe.mockResolvedValueOnce(authenticated());
     render(<WebsiteAccessGate returnTo="/website/languages"><Probe /></WebsiteAccessGate>);
-    await screen.findByTestId("page");
+    await pageReady();
     mockedMe.mockResolvedValueOnce(authenticated(WITHOUT_PERMISSION));
     await act(async () => {
       await host!.onDenied();
@@ -205,7 +211,7 @@ describe("a 403 or a 401 on a page that is open", () => {
   it("403 while the permission is still there: nothing continues silently — a notice says the request was refused", async () => {
     mockedMe.mockResolvedValue(authenticated());
     render(<WebsiteAccessGate returnTo="/website/languages"><Probe /></WebsiteAccessGate>);
-    await screen.findByTestId("page");
+    await pageReady();
     await act(async () => {
       await host!.onDenied();
     });
@@ -216,7 +222,7 @@ describe("a 403 or a 401 on a page that is open", () => {
   it("403 when the session itself has ended: back to the sign-in page", async () => {
     mockedMe.mockResolvedValueOnce(authenticated());
     render(<WebsiteAccessGate returnTo="/website/languages"><Probe /></WebsiteAccessGate>);
-    await screen.findByTestId("page");
+    await pageReady();
     mockedMe.mockResolvedValueOnce({ kind: "unauthenticated" });
     await act(async () => {
       await host!.onDenied();
@@ -228,7 +234,7 @@ describe("a 403 or a 401 on a page that is open", () => {
   it("403 when me cannot be read: access closes as an error with Retry, never left open", async () => {
     mockedMe.mockResolvedValueOnce(authenticated());
     render(<WebsiteAccessGate returnTo="/website/languages"><Probe /></WebsiteAccessGate>);
-    await screen.findByTestId("page");
+    await pageReady();
     mockedMe.mockResolvedValueOnce({ kind: "error", message: "The Admin API did not answer." });
     await act(async () => {
       await host!.onDenied();
@@ -240,7 +246,7 @@ describe("a 403 or a 401 on a page that is open", () => {
   it("401: the session ended, the page closes and the person is sent to sign in", async () => {
     mockedMe.mockResolvedValue(authenticated());
     render(<WebsiteAccessGate returnTo="/website/translations"><Probe /></WebsiteAccessGate>);
-    await screen.findByTestId("page");
+    await pageReady();
     act(() => host!.onUnauthenticated());
     await waitFor(() => expect(replace).toHaveBeenCalledWith("/signin?returnTo=%2Fwebsite%2Ftranslations"));
     expect(screen.queryByTestId("page")).toBeNull();

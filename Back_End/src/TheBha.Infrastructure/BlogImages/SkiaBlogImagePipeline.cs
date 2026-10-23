@@ -65,7 +65,7 @@ internal sealed class SkiaBlogImagePipeline : IBlogImagePipeline
             return (null, Problem(HeroErrorCodes.ImageDimensions, "The picture is larger than the accepted size."));
         }
 
-        var srgb = SKColorSpace.CreateSrgb();
+        using var srgb = SKColorSpace.CreateSrgb();
         var decodeInfo = new SKImageInfo(info.Width, info.Height, SKColorType.Rgba8888, info.AlphaType == SKAlphaType.Opaque ? SKAlphaType.Opaque : SKAlphaType.Premul, srgb);
         using var source = new SKBitmap(decodeInfo);
         if (codec.GetPixels(decodeInfo, source.GetPixels()) != SKCodecResult.Success)

@@ -750,3 +750,78 @@ span.flatpickr-weekday,
   opacity: 0.8;
   cursor: grabbing; /* Changes the cursor to indicate dragging */
 }
+
+/*
+  BHA-BLOG-001-CP03-C9: the rich editor of the Blog body (`RichBodyEditor`, class `prose-editor`).
+  Tailwind's preflight removes heading size and weight, list markers, quote styling and link styling from every element, so inside the editor a heading looked
+  like a paragraph and the two list kinds looked the same. These rules give back what the body format has - h2-h4, paragraph, bullet/ordered list (one
+  paragraph per item: the format has no nested lists), quote with its cite, link - and nothing else. They are scoped to the editor's own top-level blocks (`>`), so
+  the widgets inside the picture/gallery blocks keep their own utilities, and nothing outside `.prose-editor` changes (Customer Web has its own renderer).
+*/
+/* A long unbroken word (a pasted address) must wrap: TipTap's own `word-wrap: break-word` does not lower the minimum width the editor asks of its flex parent, `anywhere` does
+   (the second class outranks TipTap's `.ProseMirror` rule, which is injected after this file). */
+.prose-editor.ProseMirror {
+  overflow-wrap: anywhere;
+}
+.prose-editor > h2,
+.prose-editor > h3,
+.prose-editor > h4 {
+  @apply font-bold leading-snug text-gray-900 dark:text-white;
+  margin: 1.5rem 0 0.5rem;
+}
+.prose-editor > h2 {
+  font-size: 1.5rem;
+}
+.prose-editor > h3 {
+  font-size: 1.25rem;
+}
+.prose-editor > h4 {
+  font-size: 1.125rem;
+}
+.prose-editor > p {
+  margin: 0 0 1rem;
+}
+.prose-editor > ul,
+.prose-editor > ol {
+  margin: 0 0 1rem;
+  padding-left: 1.75rem;
+}
+.prose-editor > ul {
+  list-style: disc;
+}
+.prose-editor > ol {
+  list-style: decimal;
+}
+.prose-editor > ul > li + li,
+.prose-editor > ol > li + li {
+  margin-top: 0.25rem;
+}
+.prose-editor > ul > li > p,
+.prose-editor > ol > li > p {
+  margin: 0;
+}
+.prose-editor > ul > li::marker,
+.prose-editor > ol > li::marker {
+  @apply text-gray-500 dark:text-gray-400;
+}
+.prose-editor > blockquote {
+  @apply border-l-4 border-brand-500 text-gray-700 italic dark:text-gray-300;
+  margin: 1rem 0;
+  padding-left: 1rem;
+}
+.prose-editor > blockquote > p {
+  margin: 0;
+}
+.prose-editor > blockquote > cite {
+  @apply text-gray-500 not-italic dark:text-gray-400;
+  display: block;
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+}
+.prose-editor > blockquote > cite::before {
+  content: "— ";
+}
+.prose-editor a {
+  @apply text-brand-600 underline dark:text-brand-400;
+  text-underline-offset: 2px;
+}

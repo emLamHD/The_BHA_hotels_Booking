@@ -16,7 +16,7 @@ Files are `<RootPath>/hero/<32 hex>.<jpg|png|webp>`; the database holds only the
 
 ## Admin proxy deployments
 
-A deployed Admin proxies only `/api/admin/v1/*` to the API (`API_PROXY_ORIGIN`, `BHA-ADMIN-PROXY-001`). The editor's thumbnails and preview therefore load from the Staff route `/api/admin/v1/website/hero/media/<id>` (Staff session, same-origin cookie), so no extra rewrite is needed. The Customer reads the public route `/api/v1/website/hero/media/<id>` on the API base it already uses (direct, or through its own `/api/*` proxy).
+A deployed Admin proxies `/api/admin/v1/*` to the API (`API_PROXY_ORIGIN`, `BHA-ADMIN-PROXY-001`), plus the two public reads `/api/v1/website/config` and `/api/v1/properties` (`BHA-BLOG-001-CP03-C7`). The editor's thumbnails and preview therefore load from the Staff route `/api/admin/v1/website/hero/media/<id>` (Staff session, same-origin cookie), so no extra rewrite is needed. The Customer reads the public route `/api/v1/website/hero/media/<id>` on the API base it already uses (direct, or through its own `/api/*` proxy).
 
 ## What the application never does
 

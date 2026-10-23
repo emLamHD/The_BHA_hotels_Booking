@@ -1,0 +1,571 @@
+"use client";
+
+/**
+ * BHA-BLOG-001-CP03: the editor of ONE translation of a post (one language). It is keyed by post and language by its parent, so nothing of another post or
+ * language can reach it, and an answer that arrives after the person moved on lands in a component that is gone.
+ *
+ * What it promises:
+ * - Every write carries the version it was made from. A 409 keeps what was typed and offers the server's copy to compare; the version only moves on when
+ *   the person says "keep my changes on top of the new version", and nothing is sent until they press Save again.
+ * - One write at a time (the host's single slot, taken synchronously) — a double click cannot send twice, and Sign out waits for it.
+ * - An unanswered write is never repeated by itself. The server is read; only what it shows decides what happened (`checkServer`).
+ * - "Dirty" means different from the server's copy (fields trimmed as the server trims, body in its canonical form) — also after a save, whose answer
+ *   becomes the new copy.
+ * - Publishing publishes the saved draft: with unsaved edits it saves first (BlogEdit) and publishes what was saved. On a post that does not exist yet that
+ *   is a create and then a publish of the post just created: the id and version come from the create's answer (the `postId` prop is still `null` for the whole
+ *   chain), and the screen moves to the post's own page only when the chain is over — leaving in the middle would lose a refusal or an unverified answer.
+ * - Edits typed while a write is on its way are never lost (C4). What a write acknowledges is only what it SENT: the copy the server answers with becomes
+ *   the baseline, the form keeps whatever is newer than the request (it stays "unsaved"), and the screen does not move to the post's page while anything
+ *   is unsaved - leaving would unmount the form and discard it. Editing stays open during a write (the language tabs are locked by the screen).
+ * - A restore is only recognised after a lost answer when the server shows THAT revision restored, exactly one version on (`checkServer`).
+ */
+
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  getPost, mediaPreviewPath, restoreRevision, createPost, saveDraft, transitionPost, listRevisions,
+  type BlogCategory, type BlogPost, type BlogRevisionSummary, type BlogStatus, type BlogTransition, type BlogTranslation, type WebsiteResult,
+} from "@/lib/api/blog";
+import { useWebsiteHost } from "@/components/website/WebsiteAccessGate";
+import { useWebsiteList, useWriteAction } from "@/components/website/useWebsiteData";
+import { useLeaveGuard } from "@/components/website/useLeaveGuard";
+import { ActionButton, Banner, formatWhen } from "@/components/website/WebsiteUi";
+import { canonicalBody, comparableBody } from "@/lib/blog/bodyModel";
+import { STATUS_LABEL, describeBlogFailure, draftOf, formFieldOf, formFromRevision, snapshotOf, snapshotOfRevision, translationOf, workingRevision, type PostForm } from "@/lib/blog/blogModel";
+import RichBodyEditor, { type BodyState } from "./RichBodyEditor";
+import { StaffImage } from "./useStaffImage";
+import PostFormFields, { type FieldErrors } from "./PostFormFields";
+import PostPreviewDialog from "./PostPreviewDialog";
+import BlogWriteFeedback from "./BlogWriteFeedback";
+import type { BodyEditorServices, PickedMedia, PropertyOption } from "./BodyEditorContext";
+import { useBlogRights } from "./BlogAccessGate";
+
+type Kind = "create" | "save" | "restore" | BlogTransition;
+interface Pending {
+  kind: Kind;
+  expectedVersion: number;
+  snapshot: string;
+  /** A restore: the revision that was asked for, fixed when it was sent (the history list or the form may have moved on since). */
+  revisionId?: string;
+  /** The form as it was when this was sent: input that differs from it when the answer arrives was typed after, and is never replaced by that answer. */
+  live: string;
+  /**
+   * A transition (unpublish / archive / unarchive): what the SERVER held when it was sent, apart from the form and from what is typed. A transition changes the status and
+   * moves the version by one and nothing else, so a read-back is "ours" only when it shows exactly that - the same content, the version one on, the status it gives.
+   */
+  base?: { content: string; statusAfter: BlogStatus };
+}
+
+const FIELD_FOCUS: Record<string, string> = { title: "post-title", slug: "post-slug", summary: "post-summary", authorName: "post-author", coverAlt: "post-cover-alt", cover: "post-cover-pick", og: "post-og-pick", metaTitle: "post-meta-title", metaDescription: "post-meta-description", body: "body-editor" };
+
+/** The status a transition gives (`Unarchive` returns to Unpublished when a published copy exists, else to Draft - the server's rule). */
+const STATUS_AFTER = (action: BlogTransition, hadPublished: boolean): BlogStatus =>
+  action === "unpublish" ? "Unpublished" : action === "archive" ? "Archived" : action === "unarchive" ? (hadPublished ? "Unpublished" : "Draft") : "Published";
+
+export interface PickMedia {
+  (options: { multiple: boolean; min?: number; max?: number; title: string }): Promise<PickedMedia[] | null>;
+}
+
+export interface TranslationStatusReport {
+  dirty: boolean;
+  busy: boolean;
+}
+
+export default function TranslationForm({
+  postId,
+  clientId,
+  locale,
+  initial,
+  categories,
+  properties,
+  pickMedia,
+  onPost,
+  onCreated,
+  onStatus,
+  newRoute,
+}: {
+  /** `null` while the post is being created (the first save). */
+  postId: string | null;
+  /** The id the new post is created under: chosen once by the screen and kept through every re-send. */
+  clientId: string;
+  locale: string;
+  initial: BlogTranslation | undefined;
+  categories: BlogCategory[];
+  properties: PropertyOption[];
+  pickMedia: PickMedia;
+  onPost: (post: BlogPost) => void;
+  /** The post this form created and the language it created it in: where the screen goes next is decided by those two, not by what the page's URL said. */
+  onCreated: (post: BlogPost, locale: string) => void;
+  onStatus: (report: TranslationStatusReport) => void;
+  /** The screen is still on `/posts/new` (the post may already exist, created by this form or by another language's form); defaults to `postId === null`. */
+  newRoute?: boolean;
+}) {
+  const rights = useBlogRights();
+  const host = useWebsiteHost();
+  const write = useWriteAction();
+  const working = write.status.phase === "pending";
+
+  const [tr, setTr] = useState<BlogTranslation | undefined>(initial);
+  const [form, setForm] = useState<PostForm>(() => formFromRevision(workingRevision(initial)));
+  const [bodyInit, setBodyInit] = useState<unknown>(() => workingRevision(initial)?.body ?? null);
+  const [editorKey, setEditorKey] = useState(0);
+  const [bodyState, setBodyState] = useState<BodyState | null>(null);
+  const [baseline, setBaseline] = useState(() => snapshotOfRevision(workingRevision(initial)));
+  const [slugTouched, setSlugTouched] = useState(() => !!workingRevision(initial)?.slug);
+  const [note, setNote] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<{ message: string; yes: () => void } | null>(null);
+  const [preview, setPreview] = useState<{ note: string | null } | null>(null);
+  const [conflict, setConflict] = useState<{ latest: BlogTranslation; post: BlogPost; askUseServer?: boolean } | null>(null);
+  const [historyToken, setHistoryToken] = useState(0);
+  const pending = useRef<Pending | null>(null);
+  /** The post this form created (the first save), as last known. The `postId` prop does not change until the screen has moved to the post's page. */
+  const createdRef = useRef<BlogPost | null>(null);
+  /**
+   * What each create sent under `clientId` whose answer never came (a lost answer may still have committed, and a read-back that says "not there" is not proof it
+   * will not). A read-back that shows one of them is the create's result. A create the server refused is NOT in here: it was not applied.
+   */
+  const lostCreates = useRef<string[]>([]);
+  /** The server answered a create of this id with 409 duplicate-id: the id exists, so "not found" can only mean "not readable yet", not "go and create it". */
+  const duplicateRef = useRef(false);
+  const onNewRoute = useRef(newRoute ?? postId === null);
+  const leftRef = useRef(false);
+  // What the form shows right now (for answers that arrive later: a callback's own `snapshot` is the one it was made with) and what the server holds.
+  const liveRef = useRef(baseline);
+  const confirmedRef = useRef(baseline);
+  const chainRef = useRef(false);
+  const exists = postId !== null || tr !== undefined;
+  const id = postId ?? clientId;
+  const version = tr?.version ?? 0;
+
+  const editable = rights.edit && tr?.status !== "Archived";
+  const bodyCanon = bodyState?.body ? comparableBody(bodyState.body) : canonicalBody(bodyInit);
+  const snapshot = snapshotOf(form, bodyCanon);
+  const dirty = snapshot !== baseline;
+  useEffect(() => {
+    liveRef.current = snapshot;
+  });
+  const problems = useMemo(() => bodyState?.problems ?? [], [bodyState]);
+  const sendBody = bodyState?.body ?? bodyInit;
+
+  useEffect(() => {
+    host.setUnsaved(dirty);
+    return () => host.setUnsaved(false);
+  }, [dirty, host]);
+  useEffect(() => onStatus({ dirty, busy: working }), [dirty, working, onStatus]);
+  useLeaveGuard(dirty, "Bạn có thay đổi chưa lưu trong bài này. Rời đi sẽ bỏ chúng. Vẫn rời đi?");
+
+  const set = useCallback((patch: Partial<PostForm>) => setForm((current) => ({ ...current, ...patch })), []);
+
+  /** The server's copy of this translation becomes what "unchanged" means, and (when told to) what the form shows. */
+  const adopt = useCallback(
+    (post: BlogPost, options: { replaceForm: boolean }) => {
+      // On /posts/new every answer of a form is about the post the screen has still to move to, even when another form (language) made it.
+      if (createdRef.current || onNewRoute.current) createdRef.current = post;
+      const next = translationOf(post, locale);
+      setTr(next);
+      const revision = workingRevision(next);
+      setBaseline(snapshotOfRevision(revision));
+      confirmedRef.current = snapshotOfRevision(revision);
+      if (options.replaceForm) {
+        liveRef.current = confirmedRef.current;
+        setForm(formFromRevision(revision));
+        setBodyInit(revision?.body ?? null);
+        setBodyState(null);
+        setEditorKey((k) => k + 1);
+        setSlugTouched(!!revision?.slug);
+      }
+      setHistoryToken((n) => n + 1);
+      return next;
+    },
+    [locale]
+  );
+
+  const errors = useMemo<FieldErrors>(() => {
+    const out: FieldErrors = {};
+    if (write.status.phase === "refused" && write.status.failure.code !== "blog.stale-version") {
+      const key = formFieldOf(write.status.failure.field);
+      if (key) out[key === "og" ? "og" : key] = describeBlogFailure(write.status.failure);
+    }
+    if (problems.length) out.body = problems.map((p) => `${p.where}: ${p.message}`).join(" ");
+    return out;
+  }, [write.status, problems]);
+
+  useEffect(() => {
+    if (write.status.phase !== "refused") return;
+    const key = formFieldOf(write.status.failure.field);
+    const target = key ? FIELD_FOCUS[key] : null;
+    if (target) document.querySelector<HTMLElement>(`[data-testid="${target}"]`)?.focus();
+  }, [write.status]);
+
+  // ---------------------------------------------------------------- sending
+
+  const send = useCallback(
+    async (kind: Kind, expectedVersion: number, fn: () => Promise<WebsiteResult<BlogPost>>, extra: { basis?: string; revisionId?: string; base?: Pending["base"] } = {}): Promise<BlogPost | null> => {
+      // The version is the one this very request carries — not the one of the render that built the callback (a publish after a save carries the save's).
+      // `basis` is what the request is judged against after a lost answer: for a publish after a save, the copy the save returned.
+      pending.current = { kind, expectedVersion, snapshot: extra.basis ?? snapshot, revisionId: extra.revisionId, live: liveRef.current, base: extra.base };
+      setNote(null);
+      const result = await write.run(fn);
+      if (kind === "create" && result?.kind === "unverified") lostCreates.current.push(pending.current!.snapshot);
+      // 409 duplicate-id on a create: the id exists. That is not "refused, try again" (it would be refused for ever); the server is read, and what it shows decides.
+      if (kind === "create" && result?.kind === "refused" && result.code === "blog.duplicate-id") {
+        duplicateRef.current = true;
+        write.setStatus({ phase: "unverified", message: "Mã bài này đã có trên máy chủ: lần tạo trước có thể đã được ghi nhận. Chưa có gì được gửi thêm." });
+      }
+      return result?.kind === "ok" ? result.data : null;
+    },
+    [snapshot, write]
+  );
+
+  /**
+   * Moves the screen to the post's own page, once, after a create and only when nothing is left to show here - and nothing is UNSAVED: the page change
+   * unmounts this form, so edits typed after the request was sent would be thrown away. They stay, and the next save / publish that settles tries again.
+   */
+  const leave = useCallback(() => {
+    const made = createdRef.current;
+    if (!made || leftRef.current) return;
+    if (liveRef.current !== confirmedRef.current) return;
+    leftRef.current = true;
+    onCreated(made, locale);
+  }, [onCreated, locale]);
+
+  const doSave = useCallback(async (): Promise<BlogTranslation | null> => {
+    if (!editable || problems.length > 0) return null;
+    const draft = draftOf(form, sendBody);
+    // The post this form writes to: the prop, or — on /posts/new, after the create — the post the create made.
+    const existing = postId ?? createdRef.current?.id ?? null;
+    const next = await send(existing === null ? "create" : "save", version, () => (existing === null ? createPost(clientId, locale, draft) : saveDraft(existing, locale, version, draft)));
+    if (!next) return null;
+    const saved = translationOf(next, locale);
+    // The server trims and normalises; its answer is the copy. If that differs from what was typed, show the server's copy rather than a phantom "unsaved".
+    const typed = snapshot;
+    const copy = snapshotOfRevision(workingRevision(saved));
+    // Something typed after the click is newer than this request: it is neither replaced by the server's copy nor called saved.
+    const newer = liveRef.current !== typed;
+    adopt(next, { replaceForm: copy !== typed && !newer });
+    if (newer) setNote("Đã lưu bản đã gửi. Những chỉnh sửa bạn nhập sau khi bấm Lưu chưa được lưu.");
+    else if (copy !== typed) setNote("Đã lưu. Máy chủ chuẩn hoá lại một số chữ (ví dụ cắt khoảng trắng đầu/cuối); biểu mẫu đang hiện đúng bản đã lưu.");
+    // From here on the form writes to this post, whatever the prop says; the screen moves to its page when the person's action is over (`leave`).
+    if (existing === null) createdRef.current = next;
+    onPost(next);
+    return saved ?? null;
+  }, [editable, problems.length, form, sendBody, send, postId, clientId, locale, version, snapshot, adopt, onPost]);
+
+  const doTransition = useCallback(
+    async (action: BlogTransition, expected: number, basis?: string) => {
+      const target = postId ?? createdRef.current?.id ?? null;
+      if (target === null) return false;
+      // What the server holds now (`tr`, not the form): a lost answer is judged against it. Publishing is judged by the published copy it sends (`basis`) instead.
+      const base = action === "publish" || !tr ? undefined : { content: snapshotOfRevision(workingRevision(tr)), statusAfter: STATUS_AFTER(action, !!tr.published) };
+      const next = await send(action, expected, () => transitionPost(target, locale, action, expected), { basis, base });
+      if (!next) return false;
+      adopt(next, { replaceForm: false });
+      onPost(next);
+      leave();
+      return true;
+    },
+    [postId, locale, tr, send, adopt, onPost, leave]
+  );
+
+  /** "Save" on its own: after the first save of a new post the screen moves to the post's page. */
+  const saveOnly = useCallback(async () => {
+    if (await doSave()) leave();
+  }, [doSave, leave]);
+
+  const publish = useCallback(async () => {
+    // One chain at a time: between the save's answer and the publish's send the write slot is free for a moment, and a second click must not start another.
+    if (chainRef.current) return;
+    chainRef.current = true;
+    try {
+      let expected = version;
+      let basis: string | undefined;
+      if (dirty) {
+        if (!rights.edit) return;
+        const saved = await doSave();
+        if (!saved) return;
+        expected = saved.version;
+        basis = snapshotOfRevision(workingRevision(saved));
+      }
+      await doTransition("publish", expected, basis);
+    } finally {
+      chainRef.current = false;
+    }
+  }, [dirty, rights.edit, version, doSave, doTransition]);
+
+  const saveAndPreview = useCallback(async () => {
+    if (dirty && rights.edit) {
+      const saved = await doSave();
+      if (!saved) return;
+      setPreview({ note: null });
+    } else setPreview({ note: dirty ? "Bạn có chỉnh sửa chưa lưu; bản xem trước chỉ cho thấy bản đã lưu." : null });
+  }, [dirty, rights.edit, doSave]);
+
+  // ---------------------------------------------------------------- after a lost answer / a 409: read, never resend
+
+  const checkServer = useCallback(async () => {
+    const op = pending.current;
+    const result = await getPost(id);
+    if (pending.current !== op) return; // another operation took over while the server was being read: this answer is not about it
+    if (result.kind === "refused" && result.status === 404) {
+      if (op?.kind === "create" && duplicateRef.current) {
+        // The id was reported as taken, yet it cannot be read: keep the operation open instead of offering another create.
+        setNote("Máy chủ báo mã này đã có nhưng chưa đọc được bài. Hãy kiểm tra lại sau; chưa có gì được gửi thêm.");
+        return;
+      }
+      setNote(op?.kind === "create" ? "Máy chủ chưa có bài này (chưa chắc là sẽ không có: lần tạo trước vẫn có thể được ghi). Bấm Lưu để gửi lại với cùng mã — sẽ không tạo trùng; nếu máy chủ báo trùng mã, hãy kiểm tra máy chủ." : "Máy chủ báo bài không tồn tại.");
+      write.reset();
+      return;
+    }
+    if (result.kind !== "ok") {
+      setNote(describeBlogFailure(result));
+      return;
+    }
+    const latest = translationOf(result.data, locale);
+    const copy = snapshotOfRevision(workingRevision(latest));
+    if (op?.kind === "create" && !latest) {
+      // The post exists but has no translation in this language. A create writes the post and its translation in one transaction, so what this form sent did NOT
+      // make it - it is not called a success. The post is the one this id names (another language's form of this screen made it): from here Save adds this language to
+      // it (an update, `expectedVersion` 0), and nothing is sent until the person presses it.
+      // The screen is not told (`onPost`): with this post in hand it would pick the post's first language as the one to show, and replace this form - and what was typed - with it.
+      write.reset();
+      createdRef.current = result.data;
+      setNote(`Bài này đã có trên máy chủ (mã đã được dùng ở ngôn ngữ khác) nhưng chưa có bản dịch ${locale}; lần tạo vừa rồi không ghi gì. Dữ liệu của bạn được giữ; bấm Lưu để thêm bản dịch ${locale} vào bài đó.`);
+      return;
+    }
+    const applied = !!op && !!latest && (op.kind === "create" ? latest.version >= 1 : latest.version > op.expectedVersion);
+    if (!applied || !latest) {
+      write.reset();
+      setNote("Máy chủ chưa ghi nhận thao tác vừa rồi. Dữ liệu của bạn vẫn còn; có thể thử lại.");
+      return;
+    }
+    const matches =
+      op.kind === "create" ? lostCreates.current.includes(copy)
+      : op.kind === "save" ? copy === op.snapshot
+      : op.kind === "publish" ? latest.status === "Published" && !latest.hasDraft && snapshotOfRevision(latest.published) === op.snapshot
+      // A transition changes the status and the version (by one) and nothing else. The status alone does not say that nobody wrote in between: another editor's draft save
+      // after a lost unpublish leaves the status as it was given. Adopting that version would let the next Save overwrite what was never compared.
+      : op.base ? latest.status === op.base.statusAfter && latest.version === op.expectedVersion + 1 && snapshotOfRevision(workingRevision(latest)) === op.base.content
+      // A restore is the requested revision restored and nothing written since: the draft is a Restore of THAT revision and the version is exactly one on (a
+      // restore bumps it once). Any other version, or another revision, or an edit made after it, is someone else's write — shown, never taken for ours.
+      : op.kind === "restore" ? latest.draft?.origin === "Restore" && latest.draft.restoredFromRevisionId === op.revisionId && latest.version === op.expectedVersion + 1 && liveRef.current === op.live
+      : true;
+    if (matches) {
+      write.reset();
+      if (op.kind === "create") createdRef.current = result.data;
+      adopt(result.data, { replaceForm: op.kind === "restore" });
+      onPost(result.data);
+      setNote(`Máy chủ đã ghi nhận thao tác (phiên bản ${latest.version}); đây là kết quả đọc lại, không phải gửi lại.`);
+      leave();
+    } else {
+      setConflict({ latest, post: result.data });
+      write.reset();
+      const recorded = !!op.base && latest.status === op.base.statusAfter;
+      const typedSince = op.kind === "restore" && latest.draft?.origin === "Restore" && latest.draft.restoredFromRevisionId === op.revisionId && latest.version === op.expectedVersion + 1;
+      setNote(typedSince
+        ? "Máy chủ đã khôi phục đúng bản được yêu cầu, nhưng bạn đã nhập thêm sau khi xác nhận nên biểu mẫu chưa bị thay. Xem so sánh bên dưới rồi chọn."
+        : recorded
+          ? "Máy chủ có vẻ đã chuyển trạng thái như bạn yêu cầu, nhưng bài đã bị thay đổi thêm (có thể do người khác) nên chưa nhận phiên bản mới. Dữ liệu của bạn được giữ; hãy so sánh bên dưới."
+          : "Máy chủ đã thay đổi sau thao tác của bạn (có thể do người khác). Dữ liệu của bạn được giữ; hãy so sánh bên dưới.");
+    }
+  }, [id, locale, write, adopt, onPost, leave]);
+
+  const loadLatest = useCallback(async () => {
+    const target = postId ?? createdRef.current?.id ?? null;
+    if (target === null) return;
+    const result = await getPost(target);
+    if (result.kind !== "ok") {
+      setNote(describeBlogFailure(result));
+      return;
+    }
+    const latest = translationOf(result.data, locale);
+    if (latest) {
+      write.reset();
+      setConflict({ latest, post: result.data });
+    }
+  }, [postId, locale, write]);
+
+  // ---------------------------------------------------------------- history
+
+  const restore = useCallback(
+    async (revision: BlogRevisionSummary) => {
+      const target = postId ?? createdRef.current?.id ?? null;
+      if (target === null) return;
+      const atSend = liveRef.current;
+      const next = await send("restore", version, () => restoreRevision(target, locale, revision.id, version), { revisionId: revision.id });
+      if (!next) return;
+      const restored = translationOf(next, locale);
+      if (restored && liveRef.current !== atSend) {
+        // Typed after the person confirmed: the restored draft does not replace it. Both are shown; nothing is adopted or sent until they choose.
+        onPost(next);
+        setHistoryToken((n) => n + 1);
+        setConflict({ latest: restored, post: next });
+        setNote(`Đã khôi phục bản ${revision.number} thành bản nháp trên máy chủ, nhưng bạn đã nhập thêm sau khi xác nhận nên biểu mẫu chưa bị thay. Xem so sánh bên dưới rồi chọn.`);
+        return;
+      }
+
+      adopt(next, { replaceForm: true });
+      onPost(next);
+      setNote(`Đã khôi phục bản ${revision.number} thành bản nháp. Chưa xuất bản.`);
+    },
+    [postId, locale, send, version, adopt, onPost]
+  );
+
+  const services = useMemo<BodyEditorServices>(() => ({ editable, properties, pickMedia }), [editable, properties, pickMedia]);
+  const pickInto = async (target: "coverMediaId" | "ogImageMediaId") => {
+    const picked = await pickMedia({ multiple: false, title: target === "coverMediaId" ? "Chọn ảnh bìa" : "Chọn ảnh chia sẻ (OG)" });
+    if (picked?.[0]) set({ [target]: picked[0].id });
+  };
+
+  const status = tr?.status;
+  const unverified = write.status.phase === "unverified";
+  const blocked = working || unverified;
+
+  return (
+    <div className="flex flex-col gap-5" data-testid="translation-form" data-locale={locale}>
+      <div className="flex flex-wrap items-center gap-3 text-sm">
+        {status ? <span className="rounded-full bg-gray-100 px-3 py-1 font-medium text-gray-700 dark:bg-white/10 dark:text-gray-200" data-testid="post-status">{STATUS_LABEL[status]}</span> : <span className="rounded-full bg-gray-100 px-3 py-1 font-medium text-gray-700 dark:bg-white/10 dark:text-gray-200" data-testid="post-status">Chưa lưu bản dịch này</span>}
+        {tr?.hasDraft && status === "Published" && <span className="rounded-full bg-warning-50 px-3 py-1 text-warning-700 dark:bg-warning-500/15 dark:text-warning-300" data-testid="post-has-unpublished">Có thay đổi chưa xuất bản</span>}
+        {dirty && <span className="rounded-full bg-brand-50 px-3 py-1 text-brand-700 dark:bg-brand-500/15 dark:text-brand-300" data-testid="post-dirty">Có thay đổi chưa lưu</span>}
+        {tr && <span className="text-xs text-gray-500">Phiên bản {tr.version} · cập nhật {formatWhen(tr.updatedAtUtc)}{tr.updatedBy?.email ? ` bởi ${tr.updatedBy.email}` : ""}{tr.firstPublishedAtUtc ? ` · đăng lần đầu ${formatWhen(tr.firstPublishedAtUtc)}` : ""}</span>}
+      </div>
+
+      {!exists || !tr ? <Banner tone="info" testId="post-new-translation">{postId === null ? "Bài mới: nhập nội dung rồi Lưu để tạo bài." : `Bài này chưa có bản dịch ${locale}. Nhập nội dung rồi Lưu để tạo bản dịch; hệ thống không tự dịch hay sao chép từ ngôn ngữ khác.`}</Banner> : null}
+      {!rights.edit && <Banner tone="info" testId="post-readonly">Tài khoản này có thể xem, xem trước và xuất bản bản nháp đã lưu nhưng không sửa được nội dung (cần quyền chỉnh sửa Blog).</Banner>}
+      {status === "Archived" && <Banner tone="warning">Bản dịch này đã lưu trữ. Bỏ lưu trữ để sửa tiếp.</Banner>}
+      {note && <Banner tone="info" testId="post-note" onDismiss={() => setNote(null)}>{note}</Banner>}
+
+      <PostFormFields form={form} set={set} errors={errors} disabled={!editable} categories={categories} locale={locale} slugTouched={slugTouched} onSlugTouched={() => setSlugTouched(true)}
+        onPickCover={() => void pickInto("coverMediaId")} onPickOg={() => void pickInto("ogImageMediaId")} />
+
+      <section aria-label="Nội dung bài viết">
+        <h2 className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-400">Nội dung</h2>
+        <RichBodyEditor key={`${id}:${locale}:${editorKey}`} initialBody={bodyInit} services={services} onChange={setBodyState} />
+        {errors.body && <p className="mt-1.5 text-xs text-error-500" role="alert" data-testid="body-error">{errors.body}</p>}
+      </section>
+
+      {conflict && <ConflictPanel local={{ form, body: bodyCanon }} latest={conflict.latest} categories={categories} locale={locale} askUseServer={!!conflict.askUseServer}
+        onUseServer={() => { adopt(conflict.post, { replaceForm: true }); setConflict(null); write.reset(); setNote("Đã thay bằng bản trên máy chủ; thay đổi chưa lưu của bạn đã bị bỏ."); }}
+        onAskUseServer={() => { if (dirty) setConflict({ ...conflict, askUseServer: true }); else { adopt(conflict.post, { replaceForm: true }); setConflict(null); write.reset(); setNote("Đã thay bằng bản trên máy chủ."); } }}
+        onCancelUseServer={() => setConflict({ ...conflict, askUseServer: false })}
+        onKeepMine={() => { if (postId === null && !createdRef.current) createdRef.current = conflict.post; /* the person chose to write on top of the post under this id: from here Save updates it */ setTr(conflict.latest); setBaseline(snapshotOfRevision(workingRevision(conflict.latest))); confirmedRef.current = snapshotOfRevision(workingRevision(conflict.latest)); setConflict(null); write.reset(); setNote(`Giữ thay đổi của bạn trên nền phiên bản ${conflict.latest.version}. Chưa có gì được gửi — bấm Lưu để ghi.`); onPost(conflict.post); }} onClose={() => setConflict(null)} />}
+
+      <BlogWriteFeedback status={write.status} working={working} onReloadLatest={() => void loadLatest()} onCheckServer={() => void checkServer()}
+        fieldShown={(field, code) => code !== "blog.stale-version" && formFieldOf(field) !== null} />
+
+      {confirm && (
+        <Banner tone="warning" testId="post-confirm">
+          <p>{confirm.message}</p>
+          <div className="mt-2 flex gap-2"><ActionButton onClick={() => { const yes = confirm.yes; setConfirm(null); yes(); }} testId="post-confirm-yes">Đồng ý</ActionButton><ActionButton variant="outline" onClick={() => setConfirm(null)} testId="post-confirm-no">Không</ActionButton></div>
+        </Banner>
+      )}
+
+      <div className="flex flex-wrap items-center gap-3 border-t border-gray-200 pt-4 dark:border-gray-800" data-testid="post-actions">
+        {rights.edit && <ActionButton onClick={() => void saveOnly()} disabled={blocked || !editable || !dirty || problems.length > 0} testId="post-save">Lưu bản nháp</ActionButton>}
+        <ActionButton variant="outline" onClick={() => void saveAndPreview()} disabled={blocked || (!exists && !rights.edit) || (!tr && !rights.edit) || (dirty && rights.edit && problems.length > 0)} testId="post-preview">{dirty && rights.edit ? "Lưu và xem trước" : "Xem trước"}</ActionButton>
+        {rights.publish && status !== "Archived" && (
+          <ActionButton onClick={() => void publish()} disabled={blocked || (!tr && !(rights.edit && dirty)) || (dirty && !rights.edit) || (dirty && problems.length > 0)} testId="post-publish">{dirty && rights.edit ? "Lưu và xuất bản" : status === "Unpublished" && !tr?.hasDraft ? "Xuất bản lại" : "Xuất bản"}</ActionButton>
+        )}
+        {rights.publish && status === "Published" && <ActionButton variant="outline" onClick={() => setConfirm({ message: "Gỡ bài khỏi website? Bài vẫn được giữ cùng lịch sử và có thể xuất bản lại.", yes: () => void doTransition("unpublish", version) })} disabled={blocked} testId="post-unpublish">Gỡ xuất bản</ActionButton>}
+        {rights.publish && tr && status !== "Archived" && <ActionButton variant="outline" onClick={() => setConfirm({ message: "Lưu trữ bản dịch này? Nó biến mất khỏi website; ảnh và lịch sử vẫn được giữ.", yes: () => void doTransition("archive", version) })} disabled={blocked} testId="post-archive">Lưu trữ</ActionButton>}
+        {rights.publish && status === "Archived" && <ActionButton variant="outline" onClick={() => void doTransition("unarchive", version)} disabled={blocked} testId="post-unarchive">Bỏ lưu trữ</ActionButton>}
+      </div>
+
+      {tr && <History postId={id} locale={locale} token={historyToken} canRestore={rights.edit && status !== "Archived"} blocked={blocked} onRestore={(rev) => setConfirm({ message: `Khôi phục bản ${rev.number} thành bản nháp? Bản nháp hiện tại${dirty ? " và các thay đổi chưa lưu" : ""} sẽ được thay (bản nháp cũ vẫn nằm trong lịch sử). Bản đang đăng không đổi.`, yes: () => void restore(rev) })} />}
+
+      {preview && <PostPreviewDialog postId={id} locale={locale} dirtyNote={preview.note} onClose={() => { setPreview(null); leave(); }} />}
+    </div>
+  );
+}
+
+function History({ postId, locale, token, canRestore, blocked, onRestore }: { postId: string; locale: string; token: number; canRestore: boolean; blocked: boolean; onRestore: (revision: BlogRevisionSummary) => void }) {
+  const list = useWebsiteList((signal) => listRevisions(postId, locale, signal), [postId, locale, token]);
+  if (list.state.status !== "ready") return list.state.status === "error" ? <p className="text-sm text-error-500" role="alert">{list.state.message}</p> : null;
+  return (
+    <section aria-label="Lịch sử bản" data-testid="post-history">
+      <h2 className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-400">Lịch sử</h2>
+      <ul className="divide-y divide-gray-100 rounded-xl border border-gray-200 text-sm dark:divide-gray-800 dark:border-gray-700">
+        {list.state.data.map((rev) => (
+          <li key={rev.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2" data-testid="history-item">
+            <span className="font-medium">Bản {rev.number}</span>
+            {rev.isDraft && <span className="rounded bg-brand-50 px-1.5 text-xs text-brand-700 dark:bg-brand-500/15">nháp</span>}
+            {rev.isPublished && <span className="rounded bg-success-50 px-1.5 text-xs text-success-700 dark:bg-success-500/15">đang đăng</span>}
+            {!rev.isDraft && !rev.isPublished && <span className="rounded bg-gray-100 px-1.5 text-xs dark:bg-white/10">{rev.state === "Frozen" ? "đã đóng băng" : rev.state}</span>}
+            <span className="min-w-0 flex-1 truncate text-gray-600 dark:text-gray-300" title={rev.title}>{rev.title}</span>
+            <span className="text-xs text-gray-500">{rev.publishedAtUtc ? `đăng ${formatWhen(rev.publishedAtUtc)}` : `tạo ${formatWhen(rev.createdAtUtc)}`}{rev.createdBy?.email ? ` · ${rev.createdBy.email}` : ""}</span>
+            {canRestore && !rev.isDraft && <ActionButton variant="outline" onClick={() => onRestore(rev)} disabled={blocked} testId="history-restore">Khôi phục thành nháp</ActionButton>}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/**
+ * The comparison of a post that changed under the person. It lists EVERY field a Save sends (`draftOf`): the text fields, the pictures, the category selection with the primary
+ * category, and the body. A reference is shown by what it is called and by its id - names repeat, and a picture has none - so two different selections of the same size are not
+ * mistaken for each other. The left side is the form as it is now (it follows what is typed while this is open). Nothing here sends anything.
+ */
+function ConflictPanel({ local, latest, categories, locale, askUseServer, onUseServer, onAskUseServer, onCancelUseServer, onKeepMine, onClose }: {
+  local: { form: PostForm; body: string };
+  latest: BlogTranslation;
+  categories: BlogCategory[];
+  locale: string;
+  askUseServer: boolean;
+  onUseServer: () => void;
+  onAskUseServer: () => void;
+  onCancelUseServer: () => void;
+  onKeepMine: () => void;
+  onClose: () => void;
+}) {
+  const server = workingRevision(latest);
+  const serverForm = formFromRevision(server);
+  const categoryLine = (id: string) => {
+    const known = categories.find((c) => c.id === id);
+    return `${known ? known.translations[locale]?.name ?? `(chưa có tên ${locale})` : "(không có trong danh sách)"} · ${id}`;
+  };
+  const mediaLines = (id: string | null) => (id ? [id] : ["Chưa chọn"]);
+  const categoryLines = (ids: string[]) => (ids.length ? [...ids].sort().map(categoryLine) : ["Không chọn chuyên mục nào"]);
+  const text = (value: string) => [value || "—"];
+  const rows: { key: string; name: string; mine: string[]; theirs: string[]; compare?: boolean; media?: [string | null, string | null] }[] = [
+    { key: "title", name: "Tiêu đề", mine: text(local.form.title), theirs: text(serverForm.title) },
+    { key: "slug", name: "Slug", mine: text(local.form.slug), theirs: text(serverForm.slug) },
+    { key: "summary", name: "Tóm tắt", mine: text(local.form.summary), theirs: text(serverForm.summary) },
+    { key: "author", name: "Tác giả", mine: text(local.form.authorName), theirs: text(serverForm.authorName) },
+    { key: "cover", name: "Ảnh bìa", mine: mediaLines(local.form.coverMediaId), theirs: mediaLines(serverForm.coverMediaId), media: [local.form.coverMediaId, serverForm.coverMediaId] },
+    { key: "coverAlt", name: "Alt ảnh bìa", mine: text(local.form.coverAlt), theirs: text(serverForm.coverAlt) },
+    { key: "og", name: "Ảnh khi chia sẻ (OG)", mine: mediaLines(local.form.ogImageMediaId), theirs: mediaLines(serverForm.ogImageMediaId), media: [local.form.ogImageMediaId, serverForm.ogImageMediaId] },
+    { key: "metaTitle", name: "SEO: tiêu đề", mine: text(local.form.metaTitle), theirs: text(serverForm.metaTitle) },
+    { key: "metaDescription", name: "SEO: mô tả", mine: text(local.form.metaDescription), theirs: text(serverForm.metaDescription) },
+    { key: "categories", name: "Chuyên mục", mine: categoryLines(local.form.categoryIds), theirs: categoryLines(serverForm.categoryIds) },
+    { key: "primary", name: "Chuyên mục chính", mine: local.form.primaryCategoryId ? [categoryLine(local.form.primaryCategoryId)] : ["Chưa chọn"], theirs: serverForm.primaryCategoryId ? [categoryLine(serverForm.primaryCategoryId)] : ["Chưa chọn"] },
+    { key: "body", name: "Nội dung", mine: [local.body === canonicalBody(server?.body ?? null) ? "giống nhau" : "khác nhau"], theirs: ["—"], compare: false },
+  ];
+  // A picture has no name: its thumbnail (as the form shows it) and its id say which one it is.
+  const cell = (lines: string[], mediaId?: string | null, side?: string) => (
+    <>
+      {mediaId ? <StaffImage path={mediaPreviewPath(mediaId, "thumb")} alt={`${side}: ảnh ${mediaId}`} className="mb-1 h-12 w-16 rounded-md object-cover" testId="conflict-thumb" /> : null}
+      {lines.map((line, i) => <div key={i}>{line}</div>)}
+    </>
+  );
+  return (
+    <Banner tone="warning" testId="conflict-panel">
+      <p className="font-medium">Bản trên máy chủ (phiên bản {latest.version}, {STATUS_LABEL[latest.status]}, sửa {formatWhen(latest.updatedAtUtc)}{latest.updatedBy?.email ? ` bởi ${latest.updatedBy.email}` : ""}) khác bản bạn đang sửa.</p>
+      <table className="mt-2 w-full text-left text-xs">
+        <thead><tr><th className="pr-3">Trường</th><th className="pr-3">Của bạn</th><th>Trên máy chủ</th></tr></thead>
+        <tbody>{rows.map((row) => <tr key={row.key} data-testid={`conflict-row-${row.key}`} className={row.compare !== false && row.mine.join("\n") !== row.theirs.join("\n") ? "font-semibold" : ""}><td className="pr-3 align-top">{row.name}</td><td className="pr-3 align-top break-words">{cell(row.mine, row.media?.[0], "Của bạn")}</td><td className="align-top break-words">{cell(row.theirs, row.media?.[1], "Trên máy chủ")}</td></tr>)}</tbody>
+      </table>
+      {askUseServer ? (
+        <div className="mt-3" data-testid="conflict-confirm">
+          <p className="text-xs">Bỏ các thay đổi chưa lưu của bạn và dùng bản trên máy chủ? Những gì bạn đã nhập sẽ bị bỏ.</p>
+          <div className="mt-2 flex gap-2"><ActionButton onClick={onUseServer} testId="conflict-confirm-yes">Đồng ý, dùng bản máy chủ</ActionButton><ActionButton variant="outline" onClick={onCancelUseServer} testId="conflict-confirm-no">Không</ActionButton></div>
+        </div>
+      ) : (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <ActionButton variant="outline" onClick={onKeepMine} testId="conflict-keep">Giữ thay đổi của tôi trên bản mới</ActionButton>
+          <ActionButton variant="outline" onClick={onAskUseServer} testId="conflict-use-server">Bỏ thay đổi của tôi, dùng bản máy chủ…</ActionButton>
+          <ActionButton variant="outline" onClick={onClose}>Đóng</ActionButton>
+        </div>
+      )}
+      <p className="mt-2 text-xs">Không có lựa chọn nào tự gửi gì lên máy chủ.</p>
+    </Banner>
+  );
+}

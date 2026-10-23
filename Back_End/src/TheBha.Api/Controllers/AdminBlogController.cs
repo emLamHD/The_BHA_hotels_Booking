@@ -121,6 +121,11 @@ public sealed class AdminBlogController(IAdminBlog blog) : AdminWebsiteControlle
     public async Task<ActionResult> Revision(Guid postId, string locale, Guid revisionId, CancellationToken cancellationToken) =>
         Respond(await blog.GetRevisionAsync(postId, locale, revisionId, cancellationToken), revision => Ok(revision));
 
+    [HttpGet("posts/{postId:guid}/translations/{locale}/preview")]
+    [StaffWebsitePermission(StaffGlobalPermission.BlogAccess)]
+    public async Task<ActionResult> Preview(Guid postId, string locale, CancellationToken cancellationToken) =>
+        Respond(await blog.GetPreviewAsync(postId, locale, cancellationToken), preview => Ok(preview));
+
     [HttpPost("posts/{postId:guid}/translations/{locale}/revisions/{revisionId:guid}/restore")]
     [StaffWebsitePermission(StaffGlobalPermission.BlogEdit)]
     public async Task<ActionResult> Restore(Guid postId, string locale, Guid revisionId, [FromBody] VersionRequest request, CancellationToken cancellationToken) =>

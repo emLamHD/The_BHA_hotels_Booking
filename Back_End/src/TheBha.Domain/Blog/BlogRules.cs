@@ -143,9 +143,10 @@ public static class BlogText
     /// <summary>Trims; <c>null</c> for blank. Throws nothing: use <see cref="Check"/> first.</summary>
     public static string Normalize(string? value) => value?.Trim() ?? string.Empty;
 
-    public static BlogProblem? Check(string? value, int max, string field, bool required = false)
+    /// <param name="keepSpaces">The text is checked as given (not trimmed first) and is empty only when it has no character at all: a run of spaces is a text.</param>
+    public static BlogProblem? Check(string? value, int max, string field, bool required = false, bool keepSpaces = false)
     {
-        var text = Normalize(value);
+        var text = keepSpaces ? value ?? string.Empty : Normalize(value);
         if (text.Length == 0)
         {
             return required ? new BlogProblem(BlogErrorCodes.Validation, field, "Enter a text.") : null;

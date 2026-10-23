@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using TheBha.Application.Blog;
 using TheBha.Application.Website;
@@ -100,16 +99,8 @@ internal sealed class WebsiteBlogService(TheBhaDbContext db, IHeroMediaStorage s
         return page.Select(p => ToItem(p, media, categories.GetValueOrDefault(p.Revision.Id) ?? [])).ToList();
     }
 
-    private async Task<Dictionary<Guid, List<PublicBlogCategoryRefDto>>> CategoryRefsAsync(string locale, List<Guid> revisionIds, CancellationToken cancellationToken)
-    {
-        var rows = await (from rc in db.BlogRevisionCategories.AsNoTracking()
-                          where revisionIds.Contains(rc.RevisionId)
-                          join ct in db.BlogCategoryTranslations.AsNoTracking() on new { rc.CategoryId, Locale = locale } equals new { ct.CategoryId, ct.Locale }
-                          join c in db.BlogCategories.AsNoTracking() on rc.CategoryId equals c.Id
-                          orderby c.SortOrder, c.Id
-                          select new { rc.RevisionId, ct.Slug, ct.Name, rc.IsPrimary }).ToListAsync(cancellationToken);
-        return rows.GroupBy(r => r.RevisionId).ToDictionary(g => g.Key, g => g.Select(r => new PublicBlogCategoryRefDto(r.Slug, r.Name, r.IsPrimary)).ToList());
-    }
+    private Task<Dictionary<Guid, List<PublicBlogCategoryRefDto>>> CategoryRefsAsync(string locale, List<Guid> revisionIds, CancellationToken cancellationToken) =>
+        BlogPublicShape.CategoryRefsAsync(db, locale, revisionIds, cancellationToken);
 
     private static PublicBlogPostItemDto ToItem(Pub p, Dictionary<Guid, BlogMedia> media, List<PublicBlogCategoryRefDto> categories) =>
         new(
@@ -189,30 +180,8 @@ internal sealed class WebsiteBlogService(TheBhaDbContext db, IHeroMediaStorage s
         return new PublicBlogPostLookup(dto with { ContentHash = Revision(dto with { ContentHash = string.Empty }) }, null);
     }
 
-    /// <summary>The stored body as a JSON value, minus any <c>propertyIntro</c> whose Property is not active now, plus the Properties it still names.</summary>
-    private async Task<(JsonElement Body, IReadOnlyDictionary<Guid, PublicBlogPropertyRefDto> Properties)> PublicBodyAsync(string bodyJson, CancellationToken cancellationToken)
-    {
-        var ids = BlogBody.Validate(bodyJson).Info?.PropertyIds.ToList() ?? [];
-        var active = ids.Count == 0
-            ? []
-            : await db.Properties.AsNoTracking().Where(p => ids.Contains(p.Id) && p.IsActive).ToDictionaryAsync(p => p.Id, p => new PublicBlogPropertyRefDto(p.Slug, p.Name), cancellationToken);
-        if (ids.Count == active.Count)
-        {
-            return (JsonDocument.Parse(bodyJson).RootElement.Clone(), active);
-        }
-
-        var root = JsonNode.Parse(bodyJson)!.AsObject();
-        var blocks = root["blocks"]!.AsArray();
-        foreach (var block in blocks.ToList())
-        {
-            if (block!["type"]!.GetValue<string>() == "propertyIntro" && !active.ContainsKey(block["propertyId"]!.GetValue<Guid>()))
-            {
-                blocks.Remove(block);
-            }
-        }
-
-        return (JsonDocument.Parse(root.ToJsonString()).RootElement.Clone(), active);
-    }
+    private Task<(JsonElement Body, IReadOnlyDictionary<Guid, PublicBlogPropertyRefDto> Properties)> PublicBodyAsync(string bodyJson, CancellationToken cancellationToken) =>
+        BlogPublicShape.BodyAsync(db, bodyJson, cancellationToken);
 
     // ---- categories ----
 

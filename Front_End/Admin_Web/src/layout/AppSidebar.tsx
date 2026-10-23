@@ -57,6 +57,11 @@ const navItems: NavItem[] = [
       { name: "Menu", path: "/website/menus", pro: false },
       { name: "Banner trang chủ", path: "/website/hero", pro: false },
       { name: "Social media", path: "/website/social-media", pro: false },
+      // BHA-BLOG-001-CP03: the Blog. Flat entries (the menu has one level); each page asks the server for BlogEdit or BlogPublish.
+      { name: "Blog: Bài viết", path: "/website/blog/posts", pro: false },
+      { name: "Blog: Chuyên mục", path: "/website/blog/categories", pro: false },
+      { name: "Blog: Thư viện ảnh", path: "/website/blog/media", pro: false },
+      { name: "Blog: Cấu hình", path: "/website/blog/settings", pro: false },
     ],
   },
 
@@ -251,7 +256,8 @@ const AppSidebar: React.FC = () => {
   const subMenuRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   // const isActive = (path: string) => path === pathname;
-   const isActive = useCallback((path: string) => path === pathname, [pathname]);
+   // A post's own page (/website/blog/posts/<id>, /new) belongs to the "Blog: Bài viết" entry.
+   const isActive = useCallback((path: string) => path === pathname || (path === "/website/blog/posts" && !!pathname?.startsWith("/website/blog/posts/")), [pathname]);
 
   useEffect(() => {
     // Check if the current path matches any submenu item
