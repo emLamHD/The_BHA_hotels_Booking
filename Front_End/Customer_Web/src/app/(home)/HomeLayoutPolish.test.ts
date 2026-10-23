@@ -7,12 +7,13 @@ import HomeNewsletter from "./HomeNewsletter";
 import HomeNewsSection from "./HomeNewsSection";
 import HomeRiversideTeaser from "./HomeRiversideTeaser";
 import { CARDS } from "@/lib/promotions/promotionTestkit";
+import { items as blogItems } from "@/lib/blog/blogTestkit";
 import { BENEFITS, SPACE_GALLERY } from "@/lib/riversideHomeContent";
 
 /** CUST-WEB-001-CP08a-C2 polish: taller hero, offer cards whose price and button line up, a newsletter that matches the page. */
 const offers = renderWithI18n(React.createElement(HomeOfferSection, { items: CARDS }));
 const newsletter = renderWithI18n(React.createElement(HomeNewsletter));
-const news = renderWithI18n(React.createElement(HomeNewsSection));
+const news = renderWithI18n(React.createElement(HomeNewsSection, { locale: "vi", items: blogItems(5) }));
 const teaser = renderWithI18n(React.createElement(HomeRiversideTeaser));
 const hero = readFileSync(new URL("./HomeHeroCarousel.tsx", import.meta.url), "utf8");
 
@@ -53,11 +54,16 @@ describe("newsletter", () => {
 });
 
 describe("news block: one large card and four small ones", () => {
-  it("renders 1 large and 4 small cards, the two samples last and labelled as samples", () => {
+  it("renders 1 large and 4 small cards of the published posts, each leading to its own article in the page's language, with no sample", () => {
     expect(count(news, "nc-NewsCardLarge")).toBe(1);
     expect(count(news, "nc-NewsCardSmall")).toBe(4);
-    expect(count(news, "Bài mẫu minh hoạ")).toBe(2);
-    expect(news.indexOf("Bài mẫu: Những việc")).toBeGreaterThan(news.indexOf("Tin ngày 05/10/2026"));
+    expect(count(news, "Bài mẫu")).toBe(0);
+    for (let n = 1; n <= 5; n += 1) expect(news).toContain(`href="/blog/bai-viet-${n}?locale=vi"`);
+    expect(news).toContain('href="/blog?locale=vi"');                           // "see more" keeps the language
+  });
+
+  it("is absent when there is nothing published", () => {
+    expect(renderWithI18n(React.createElement(HomeNewsSection, { locale: "vi", items: [] }))).not.toContain("home-news");
   });
 });
 

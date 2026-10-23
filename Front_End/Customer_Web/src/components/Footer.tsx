@@ -8,7 +8,6 @@ import ShowcaseNavLink from "@/components/ShowcaseNavLink";
 import { useCustomerSession } from "@/app/CustomerSessionProvider";
 import { describeAuthEntry } from "@/lib/customerAuthUi";
 import { MEDIA_CREDITS_PATH } from "@/data/heroSlides";
-import { blogCategoryPath } from "@/lib/homepageContent";
 import {
   BLOG_PATH,
   HOME_PATH,
@@ -67,9 +66,6 @@ const Footer: React.FC = () => {
             </li>
             <li>
               <Link href={BLOG_PATH as Route} className={LINK_CLASS}>{t("customer.common.blog")}</Link>
-            </li>
-            <li>
-              <Link href={blogCategoryPath("diem-den-noi-bat") as Route} className={LINK_CLASS}>{t("customer.footer.featuredDestinations")}</Link>
             </li>
           </ul>
         </nav>

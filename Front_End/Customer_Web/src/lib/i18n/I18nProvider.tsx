@@ -3,6 +3,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatMessage, type MessageParams } from "./format";
+import { localeTargetFor } from "./localeTargets";
 import {
   CURRENCY_COOKIE,
   LOCALE_COOKIE,
@@ -96,9 +97,12 @@ export function I18nProvider({ snapshot, children }: { snapshot: I18nSnapshot; c
       writePreference(LOCALE_COOKIE, target.code);
       // The language's own default currency comes with it (a mapping the Admin keeps, not a rule in code).
       if (target.defaultCurrency) writePreference(CURRENCY_COOKIE, target.defaultCurrency);
-      finish();
+      // On a Blog page the language's own URL (the translation, or that language's index); elsewhere only a refresh with the new cookies.
+      const destination = localeTargetFor(code);
+      if (destination && router) router.push(destination as never);
+      else finish();
     },
-    [config.locales, locale, finish]
+    [config.locales, locale, finish, router]
   );
 
   const setCurrency = useCallback(

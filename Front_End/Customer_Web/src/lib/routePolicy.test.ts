@@ -4,11 +4,11 @@ import { middleware, config } from "@/middleware";
 import { decideRoute } from "./routePolicy";
 
 const ORIGIN = "https://localhost:3000";
-const run = (path: string) => middleware(new NextRequest(new URL(path, ORIGIN)));
-const runWithHost = (path: string, origin: string, host: string) =>
+const run = async (path: string) => middleware(new NextRequest(new URL(path, ORIGIN)));
+const runWithHost = async (path: string, origin: string, host: string) =>
   middleware(new NextRequest(new URL(path, origin), { headers: { host } }));
-const rewrittenTo = (path: string) => {
-  const target = run(path).headers.get("x-middleware-rewrite");
+const rewrittenTo = async (path: string) => {
+  const target = (await run(path)).headers.get("x-middleware-rewrite");
   return target ? new URL(target).pathname + new URL(target).search : null;
 };
 
@@ -66,8 +66,8 @@ describe("decideRoute", () => {
 });
 
 describe("middleware", () => {
-  it.each(["/", "/?ref=demo", "/?_rsc=abc"])("serves %s directly without rewriting or redirecting", (path) => {
-    const response = run(path);
+  it.each(["/", "/?ref=demo", "/?_rsc=abc"])("serves %s directly without rewriting or redirecting", async (path) => {
+    const response = await run(path);
     expect(response.status).toBe(200);
     expect(response.headers.get("x-middleware-next")).toBe("1");
     expect(response.headers.get("x-middleware-rewrite")).toBeNull();
@@ -83,8 +83,8 @@ describe("middleware", () => {
     "/home-2",
     "/home-3",
     "/checkout?step=2",
-  ])("serves the page %s untouched, query kept", (path) => {
-    const response = run(path);
+  ])("serves the page %s untouched, query kept", async (path) => {
+    const response = await run(path);
     expect(response.status).toBe(200);
     expect(response.headers.get("x-middleware-next")).toBe("1");
     expect(response.headers.get("x-middleware-rewrite")).toBeNull();
@@ -96,8 +96,8 @@ describe("middleware", () => {
     ["/showcase/?ref=x", "/?ref=x"],
     ["/pay-done", "/paydone"],
     ["/pay-done?x=1", "/paydone?x=1"],
-  ])("redirects %s to %s with 307", (path, expected) => {
-    const response = run(path);
+  ])("redirects %s to %s with 307", async (path, expected) => {
+    const response = await run(path);
     expect(response.status).toBe(307);
     const location = new URL(response.headers.get("location")!, ORIGIN);
     expect(location.origin).toBe(ORIGIN);
@@ -109,22 +109,22 @@ describe("middleware", () => {
   it.each([
     ["http://127.0.0.1:3000", "127.0.0.1:3000"],
     ["http://localhost:3000", "localhost:3000"],
-  ])("keeps the %s authority on both redirects", (origin, host) => {
+  ])("keeps the %s authority on both redirects", async (origin, host) => {
     for (const [path, expected] of [["/showcase?ref=x", "/?ref=x"], ["/pay-done?ref=x", "/paydone?ref=x"]]) {
-      const response = runWithHost(path, origin, host);
+      const response = await runWithHost(path, origin, host);
       const resolved = new URL(response.headers.get("location")!, origin);
       expect(resolved.origin).toBe(origin);
       expect(resolved.href).toBe(new URL(expected, origin).href);
     }
   });
 
-  it("does not trust an arbitrary Host value for the redirect target", () => {
-    const untrusted = runWithHost("/showcase", ORIGIN, "attacker.example");
+  it("does not trust an arbitrary Host value for the redirect target", async () => {
+    const untrusted = await runWithHost("/showcase", ORIGIN, "attacker.example");
     expect(new URL(untrusted.headers.get("location")!, ORIGIN).origin).toBe(ORIGIN);
   });
 
-  it.each(["/api/hello", "/api/hello/auth/x", "/API/x"])("rewrites %s to the unavailable page, without its query", (path) => {
-    expect(rewrittenTo(`${path}?a=1`)).toBe("/showcase-unavailable");
+  it.each(["/api/hello", "/api/hello/auth/x", "/API/x"])("rewrites %s to the unavailable page, without its query", async (path) => {
+    expect(await rewrittenTo(`${path}?a=1`)).toBe("/showcase-unavailable");
   });
 
   describe("with the API proxy enabled (BHA-WEB-PROXY-001)", () => {
@@ -152,13 +152,13 @@ describe("middleware", () => {
       }
     });
 
-    it("middleware passes /api/v1/* untouched, query kept, only when the flag is baked", () => {
-      expect(rewrittenTo("/api/v1/auth/csrf?x=1")).toBe("/showcase-unavailable");
+    it("middleware passes /api/v1/* untouched, query kept, only when the flag is baked", async () => {
+      expect(await rewrittenTo("/api/v1/auth/csrf?x=1")).toBe("/showcase-unavailable");
       vi.stubEnv("BHA_API_PROXY_ENABLED", "true");
-      const response = run("/api/v1/auth/csrf?x=1");
+      const response = await run("/api/v1/auth/csrf?x=1");
       expect(response.headers.get("x-middleware-next")).toBe("1");
       expect(response.headers.get("x-middleware-rewrite")).toBeNull();
-      expect(rewrittenTo("/API/v1/auth/csrf")).toBe("/showcase-unavailable");
+      expect(await rewrittenTo("/API/v1/auth/csrf")).toBe("/showcase-unavailable");
     });
   });
 

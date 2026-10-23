@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/i18n/server", async () => (await import("@/lib/i18n/testkit")).serverModuleMock());
 vi.mock("@/lib/hero/server", () => ({ getHeroSnapshot: vi.fn() }));
 vi.mock("@/lib/promotions/server", () => ({ getPromotions: vi.fn(), getPromotion: vi.fn() }));
+vi.mock("@/lib/blog/server", () => ({ getBlogHomeSection: vi.fn(), getBlogPosts: vi.fn() }));
 import React from "react";
 import { renderPage, renderWithI18n } from "@/lib/i18n/testkit";
 import PageHome from "@/app/page";
@@ -13,7 +14,8 @@ import { getPromotions, type PromotionsResult } from "@/lib/promotions/server";
 import { CARDS } from "@/lib/promotions/promotionTestkit";
 import { getHeroSnapshot } from "@/lib/hero/server";
 import type { HeroSnapshot } from "@/lib/hero/hero";
-import { TRAVEL_POSTS } from "@/data/travelPosts";
+import { getBlogHomeSection, getBlogPosts } from "@/lib/blog/server";
+import { category as blogCategory, items as blogItems } from "@/lib/blog/blogTestkit";
 import { BookingHoldProvider } from "@/app/BookingHoldProvider";
 
 /**
@@ -39,6 +41,8 @@ let credits = "";
 beforeAll(async () => {
   vi.mocked(getHeroSnapshot).mockResolvedValue(HERO);
   vi.mocked(getPromotions).mockResolvedValue({ status: "ok", items: CARDS });
+  vi.mocked(getBlogHomeSection).mockResolvedValue({ status: "ok", value: { locale: "vi", category: blogCategory("diem-den-noi-bat", "Điểm đến nổi bật"), items: blogItems(6) } });
+  vi.mocked(getBlogPosts).mockResolvedValue({ status: "ok", value: { locale: "vi", items: blogItems(5), page: 1, pageSize: 5, total: 9 } });
   home = await renderPage(PageHome);
   riverside = renderWithI18n(React.createElement(BookingHoldProvider, null, (await PageRiverside()) as React.ReactElement));
   offers = await renderPage(OffersPage, { searchParams: {} });
@@ -80,8 +84,8 @@ describe("the home page is the booking portal", () => {
 
   it("leads to the pages the Owner named, with real URLs", () => {
     expect(home).toContain('href="/offers"');
-    expect(home).toContain('href="/blog?category=diem-den-noi-bat"');
-    expect(home).toContain('href="/blog"');
+    expect(home).toContain('href="/blog/category/diem-den-noi-bat?locale=vi"');       // the home section's real category
+    expect(home).toContain('href="/blog?locale=vi"');
     expect(home).toContain('href="/riverside"');
     expect(home).toContain("Xem thêm ưu đãi");
     expect(home).toContain("Xem thêm điểm đến");
@@ -120,8 +124,22 @@ describe("the home page is the booking portal", () => {
     }
   });
 
-  it("links every destination and news card to its own article", () => {
-    for (const post of TRAVEL_POSTS) expect(home).toContain(`href="/blog/${post.slug}"`);
+  it("links every destination and news card to its own published article, in the page's language", () => {
+    for (let n = 1; n <= 6; n += 1) expect(home).toContain(`href="/blog/bai-viet-${n}?locale=vi"`);
+  });
+
+  it("hides the Blog sections when nothing is published or the read fails — it never stands a sample in", async () => {
+    for (const answer of [
+      { status: "ok" as const, value: { locale: "vi", category: null, items: [] } },
+      { status: "error" as const },
+    ]) {
+      vi.mocked(getBlogHomeSection).mockResolvedValueOnce(answer);
+      vi.mocked(getBlogPosts).mockResolvedValueOnce(answer.status === "ok" ? { status: "ok", value: { locale: "vi", items: [], page: 1, pageSize: 5, total: 0 } } : { status: "error" });
+      const markup = await renderPage(PageHome);
+      expect(markup).not.toContain("home-destinations");
+      expect(markup).not.toContain("home-news");
+      expect(markup).toContain("<h1");
+    }
   });
 
   it("is not the Riverside landing page", () => {
