@@ -310,8 +310,13 @@ export default function TranslationForm({
     const latest = translationOf(result.data, locale);
     const copy = snapshotOfRevision(workingRevision(latest));
     if (op?.kind === "create" && !latest) {
-      // The id belongs to a post that has no translation in this language, so what this form sent did not make it: nothing is adopted, and the operation stays open.
-      setNote(`Mã bài này đã được một bài khác dùng và bài đó không có bản dịch ${locale}. Dữ liệu của bạn được giữ; chưa có gì được ghi.`);
+      // The post exists but has no translation in this language. A create writes the post and its translation in one transaction, so what this form sent did NOT
+      // make it - it is not called a success. The post is the one this id names (another language's form of this screen made it): from here Save adds this language to
+      // it (an update, `expectedVersion` 0), and nothing is sent until the person presses it.
+      write.reset();
+      createdRef.current = result.data;
+      onPost(result.data);
+      setNote(`Bài này đã có trên máy chủ (mã đã được dùng ở ngôn ngữ khác) nhưng chưa có bản dịch ${locale}; lần tạo vừa rồi không ghi gì. Dữ liệu của bạn được giữ; bấm Lưu để thêm bản dịch ${locale} vào bài đó.`);
       return;
     }
     const applied = !!op && !!latest && (op.kind === "create" ? latest.version >= 1 : latest.version > op.expectedVersion);

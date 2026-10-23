@@ -6,7 +6,7 @@ import React from "react";
 import { act, cleanup, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { GapCursor } from "@tiptap/pm/gapcursor";
-import { NodeSelection, TextSelection } from "@tiptap/pm/state";
+import { AllSelection, NodeSelection, TextSelection } from "@tiptap/pm/state";
 import type { Editor } from "@tiptap/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -451,6 +451,19 @@ describe("C9 F2 — 'Trích dẫn' removes quote formatting from the restricted 
     expect(blocksOf(states)).toEqual([P("Trước"), { type: "quote", inlines: [{ text: "Thường" }] }, P("Sau")]);
     await userEvent.click(button("Trích dẫn"));
     expect(blocksOf(states)).toEqual([P("Trước"), P("Thường"), P("Sau")]);
+  });
+
+  it("with everything selected (Select all, an atom at the end): the quotes are unwrapped, the selection stays 'all', and ProseMirror has nothing to warn about", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const states = await open(body(P("Trước"), { type: "quote", inlines: [{ text: "Một" }], cite: "Nguồn 1" }, { type: "toc" }));
+    act(() => { editorOf().commands.selectAll(); });
+    expect(editorOf().state.selection).toBeInstanceOf(AllSelection);
+    await userEvent.click(button("Trích dẫn"));
+    expect(blocksOf(states)).toEqual([P("Trước"), P("Một"), P("Nguồn 1"), { type: "toc" }]);
+    expect(editorOf().state.selection).toBeInstanceOf(AllSelection);
+    expect(() => editorOf().state.doc.check()).not.toThrow();
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 
   it("does nothing off a quote (a heading, a gap cursor) and does not throw", async () => {

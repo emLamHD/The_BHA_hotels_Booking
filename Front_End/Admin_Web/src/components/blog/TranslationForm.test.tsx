@@ -786,14 +786,38 @@ describe("C9 F1 — a create whose read-back said 'not there yet' and whose same
     expect(create).toHaveBeenCalledTimes(2);
   });
 
-  it("a post under that id that has no translation in this language is not called ours: the input stays, nothing is adopted, the action stays", async () => {
-    const { onCreated } = await reachDuplicate();
+  it("a post under that id that has no translation in this language is NOT called created by this form: it is adopted as the post, and Save adds the language to it (expectedVersion 0)", async () => {
+    const { onCreated, onPost } = await reachDuplicate();
     read.mockResolvedValueOnce(ok(post(translation({ locale: "en", version: 2 }), CLIENT_ID)) as never);
     await userEvent.click(screen.getByTestId("check-server"));
-    expect(await screen.findByTestId("post-note")).toHaveTextContent(/đã được dùng|không có bản dịch/);
-    expect(screen.getByTestId("check-server")).toBeInTheDocument();
+    expect(await screen.findByTestId("post-note")).toHaveTextContent(/chưa có bản dịch vi.*lần tạo vừa rồi không ghi gì/);
+    expect(screen.queryByTestId("conflict-panel")).toBeNull();
+    expect(screen.queryByTestId("write-unverified")).toBeNull(); // not stuck in a read-back loop
+    expect(onPost).toHaveBeenCalledWith(expect.objectContaining({ id: CLIENT_ID }));
     expect(onCreated).not.toHaveBeenCalled();
     expect(create).toHaveBeenCalledTimes(2);
+    expect(save).not.toHaveBeenCalled(); // nothing is sent until the person presses Save
+    save.mockResolvedValueOnce(ok(post(translation({ locale: "vi", version: 1 }), CLIENT_ID)) as never);
+    await userEvent.click(button("post-save"));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0].slice(0, 3)).toEqual([CLIENT_ID, "vi", 0]);
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ["unauthenticated", { kind: "unauthenticated" }, /Phiên đăng nhập Staff/],
+    ["denied (403)", { kind: "denied" }, /từ chối/],
+  ])("a read-back answered '%s' keeps the operation open and the input: nothing is adopted, resent or called saved", async (_name, answer, text) => {
+    const { onCreated, input } = await reachDuplicate();
+    read.mockResolvedValueOnce(answer as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    expect(await screen.findByTestId("post-note")).toHaveTextContent(text);
+    expect(screen.getByTestId("check-server")).toBeInTheDocument();
+    expect(within(screen.getByTestId("post-save")).getByRole("button")).toBeDisabled();
+    expect(input).toHaveValue("Bài mới");
+    expect(onCreated).not.toHaveBeenCalled();
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(save).not.toHaveBeenCalled();
   });
 
   it("'save and publish' that ends in a duplicate publishes nothing", async () => {

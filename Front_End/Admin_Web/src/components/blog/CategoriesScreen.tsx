@@ -231,8 +231,11 @@ export default function CategoriesScreen() {
 
     // The server holds something else (another editor, or a different category under this id): show both, decide nothing.
     save.reset();
-    setConflict({ kind: snap.isNew ? "create" : "update", fresh, askUseServer: false });
-    setNote(snap.isNew ? "Mã này đã có một chuyên mục với giá trị khác. Dữ liệu của bạn được giữ; xem so sánh bên dưới." : `Chuyên mục đã đổi trên máy chủ (phiên bản ${fresh.version}). Dữ liệu của bạn được giữ; xem so sánh bên dưới.`);
+    // After a duplicate-id the id is known to exist and is this dialog's own (a random id the dialog made), so the copy that differs is most likely this create
+    // followed by someone else's edit: it is compared like any other update. Without that evidence (a lost answer, no duplicate) it may be another category.
+    const asCreate = snap.isNew && !duplicateRef.current;
+    setConflict({ kind: asCreate ? "create" : "update", fresh, askUseServer: false });
+    setNote(asCreate ? "Mã này đã có một chuyên mục với giá trị khác. Dữ liệu của bạn được giữ; xem so sánh bên dưới." : `Chuyên mục đã đổi trên máy chủ (phiên bản ${fresh.version}). Dữ liệu của bạn được giữ; xem so sánh bên dưới.`);
   };
 
   /** After a stale version (409): read the server's copy and show it BESIDE the local one. The local version is not touched. */
@@ -263,7 +266,8 @@ export default function CategoriesScreen() {
   const keepMine = () => {
     if (!conflict || !draftRef.current) return;
     // The ONLY place the version moves: the person has seen both copies and chose to write theirs on top of the server's version.
-    setDraft({ ...draftRef.current, version: conflict.fresh.version });
+    // The category exists (that is what the conflict is about): from here Save updates it, never creates it again.
+    setDraft({ ...draftRef.current, version: conflict.fresh.version, isNew: false });
     setConflict(null);
     setNote(`Giữ thay đổi của bạn trên phiên bản ${conflict.fresh.version}. Chưa có gì được gửi — bấm Lưu để ghi.`);
   };

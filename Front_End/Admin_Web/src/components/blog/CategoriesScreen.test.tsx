@@ -649,17 +649,38 @@ describe("C9 F1 — a create whose read-back said 'not there yet' and whose same
     expect(create).toHaveBeenCalledTimes(2);
   });
 
-  it("a category under that id with other values is a comparison, never a success: the input stays, Save is not offered, and the way out is the existing 'close and create again'", async () => {
+  it("a category under that id with other values is a comparison, never a success; 'keep mine' then UPDATES it on the server's version instead of creating a second row", async () => {
     const id = await reachDuplicate();
     server = [cat(id, { version: 3, translations: { vi: text("Khác hẳn", "khac-han") } })];
     await userEvent.click(screen.getByTestId("check-server"));
     const panel = await screen.findByTestId("category-conflict");
     expect(panel).toHaveTextContent("Khác hẳn");
-    expect(panel).toHaveTextContent(/đóng và tạo lại/);
+    expect(panel).not.toHaveTextContent(/đóng và tạo lại/); // closing and creating again would be a second row
     expect(screen.getByTestId("categories-note")).not.toHaveTextContent(/đã xác nhận/i);
     expect(screen.getByTestId("category-dialog")).toBeInTheDocument();
     expect(name()).toHaveValue("Mới");
+    expect(save).not.toHaveBeenCalled();
+    await userEvent.click(btn("category-conflict-keep"));
+    expect(save).not.toHaveBeenCalled(); // choosing sends nothing
+    save.mockResolvedValueOnce(ok(cat(id, { version: 4 })) as never);
+    await userEvent.click(btn("category-save"));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0].slice(0, 2)).toEqual([id, 3]);
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ["unauthenticated", { kind: "unauthenticated" }],
+    ["denied (403)", { kind: "denied" }],
+  ])("a read-back answered '%s' keeps the operation open and the input: nothing is adopted, resent or called saved", async (_name, answer) => {
+    await reachDuplicate();
+    list.mockResolvedValueOnce(answer as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    expect(await screen.findByTestId("categories-note")).toHaveTextContent(/Chưa kiểm tra được/);
+    expect(screen.getByTestId("check-server")).toBeInTheDocument();
     expect(btn("category-save")).toBeDisabled();
+    expect(name()).toHaveValue("Mới");
+    expect(screen.getByTestId("category-dialog")).toBeInTheDocument();
     expect(create).toHaveBeenCalledTimes(2);
     expect(save).not.toHaveBeenCalled();
   });

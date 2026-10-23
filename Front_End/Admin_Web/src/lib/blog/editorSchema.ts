@@ -8,7 +8,7 @@
  */
 
 import { Node, type Extensions } from "@tiptap/core";
-import { NodeSelection, Selection, TextSelection, type EditorState, type Transaction } from "@tiptap/pm/state";
+import { AllSelection, NodeSelection, Selection, TextSelection, type EditorState, type Transaction } from "@tiptap/pm/state";
 import Document from "@tiptap/extension-document";
 import Paragraph from "@tiptap/extension-paragraph";
 import Text from "@tiptap/extension-text";
@@ -136,7 +136,9 @@ export function unwrapQuotes(state: EditorState): Transaction | null {
     tr.replaceWith(pos, pos + node.nodeSize, kept);
   }
 
-  if (selection instanceof NodeSelection) tr.setSelection(Selection.near(tr.doc.resolve(mapPos(selection.from)), 1));
-  else tr.setSelection(TextSelection.create(tr.doc, mapPos(selection.anchor), mapPos(selection.head)));
+  if (selection instanceof AllSelection) tr.setSelection(new AllSelection(tr.doc));
+  else if (selection instanceof NodeSelection) tr.setSelection(Selection.near(tr.doc.resolve(mapPos(selection.from)), 1));
+  // `between`, not `create`: an end of the selection that is not a text position (next to an atom block) moves to the nearest one instead of being refused.
+  else tr.setSelection(TextSelection.between(tr.doc.resolve(mapPos(selection.anchor)), tr.doc.resolve(mapPos(selection.head))));
   return tr;
 }
