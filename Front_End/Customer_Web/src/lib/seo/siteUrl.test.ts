@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { absoluteUrl, getSiteOrigin } from "./siteUrl";
 
 describe("the public origin of the site", () => {
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
 
   it("is a bare https origin (a trailing slash is fine), or a loopback http one for development", () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);

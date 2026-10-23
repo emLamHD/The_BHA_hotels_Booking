@@ -39,3 +39,18 @@ export function sitemapEntries(origin: string, localeCodes: string[], blog: Blog
   }
   return Array.from(seen.values());
 }
+
+const xml = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+
+/** The sitemap protocol's `urlset` (one `<url>` per entry), every value escaped. Nothing here knows how many entries there are: a caller with more than 50,000 must split it. */
+export function sitemapXml(entries: SitemapEntry[]): string {
+  const rows = entries.map((e) => `<url><loc>${xml(e.url)}</loc>${e.lastModified ? `<lastmod>${xml(e.lastModified)}</lastmod>` : ""}</url>`);
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${rows.join("\n")}\n</urlset>\n`;
+}
+
+/** Everything public may be crawled; only what is not a page for the public is kept out. The sitemap is named from the configured origin, and not at all when there is none. */
+export function robotsTxt(origin: string | null): string {
+  const lines = ["User-Agent: *", "Allow: /", ...["/api/", "/account", "/checkout", "/paydone", "/pay-done"].map((p) => `Disallow: ${p}`)];
+  if (origin) lines.push("", `Sitemap: ${origin}/sitemap.xml`);
+  return `${lines.join("\n")}\n`;
+}

@@ -13,7 +13,9 @@ import { detail } from "@/lib/blog/blogTestkit";
 
 const count = (markup: string, needle: string) => markup.split(needle).length - 1;
 
-beforeEach(() => vi.stubEnv("SITE_URL", "https://www.thebha.test"));
+beforeEach(() => {
+  vi.stubEnv("SITE_URL", "https://www.thebha.test");
+});
 afterEach(() => {
   vi.mocked(getBlogPost).mockReset();
   vi.unstubAllEnvs();
