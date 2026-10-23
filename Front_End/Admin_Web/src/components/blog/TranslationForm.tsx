@@ -109,6 +109,13 @@ export default function TranslationForm({
   const pending = useRef<Pending | null>(null);
   /** The post this form created (the first save), as last known. The `postId` prop does not change until the screen has moved to the post's page. */
   const createdRef = useRef<BlogPost | null>(null);
+  /**
+   * What each create sent under `clientId` whose answer never came (a lost answer may still have committed, and a read-back that says "not there" is not proof it
+   * will not). A read-back that shows one of them is the create's result. A create the server refused is NOT in here: it was not applied.
+   */
+  const lostCreates = useRef<string[]>([]);
+  /** The server answered a create of this id with 409 duplicate-id: the id exists, so "not found" can only mean "not readable yet", not "go and create it". */
+  const duplicateRef = useRef(false);
   const onNewRoute = useRef(newRoute ?? postId === null);
   const leftRef = useRef(false);
   // What the form shows right now (for answers that arrive later: a callback's own `snapshot` is the one it was made with) and what the server holds.
@@ -188,6 +195,12 @@ export default function TranslationForm({
       pending.current = { kind, expectedVersion, snapshot: extra.basis ?? snapshot, revisionId: extra.revisionId, live: liveRef.current };
       setNote(null);
       const result = await write.run(fn);
+      if (kind === "create" && result?.kind === "unverified") lostCreates.current.push(pending.current!.snapshot);
+      // 409 duplicate-id on a create: the id exists. That is not "refused, try again" (it would be refused for ever); the server is read, and what it shows decides.
+      if (kind === "create" && result?.kind === "refused" && result.code === "blog.duplicate-id") {
+        duplicateRef.current = true;
+        write.setStatus({ phase: "unverified", message: "Mã bài này đã có trên máy chủ: lần tạo trước có thể đã được ghi nhận. Chưa có gì được gửi thêm." });
+      }
       return result?.kind === "ok" ? result.data : null;
     },
     [snapshot, write]
@@ -281,7 +294,12 @@ export default function TranslationForm({
     const result = await getPost(id);
     if (pending.current !== op) return; // another operation took over while the server was being read: this answer is not about it
     if (result.kind === "refused" && result.status === 404) {
-      setNote(op?.kind === "create" ? "Máy chủ chưa có bài này. Bấm Lưu để gửi lại với cùng mã — sẽ không tạo trùng." : "Máy chủ báo bài không tồn tại.");
+      if (op?.kind === "create" && duplicateRef.current) {
+        // The id was reported as taken, yet it cannot be read: keep the operation open instead of offering another create.
+        setNote("Máy chủ báo mã này đã có nhưng chưa đọc được bài. Hãy kiểm tra lại sau; chưa có gì được gửi thêm.");
+        return;
+      }
+      setNote(op?.kind === "create" ? "Máy chủ chưa có bài này (chưa chắc là sẽ không có: lần tạo trước vẫn có thể được ghi). Bấm Lưu để gửi lại với cùng mã — sẽ không tạo trùng; nếu máy chủ báo trùng mã, hãy kiểm tra máy chủ." : "Máy chủ báo bài không tồn tại.");
       write.reset();
       return;
     }
@@ -291,6 +309,11 @@ export default function TranslationForm({
     }
     const latest = translationOf(result.data, locale);
     const copy = snapshotOfRevision(workingRevision(latest));
+    if (op?.kind === "create" && !latest) {
+      // The id belongs to a post that has no translation in this language, so what this form sent did not make it: nothing is adopted, and the operation stays open.
+      setNote(`Mã bài này đã được một bài khác dùng và bài đó không có bản dịch ${locale}. Dữ liệu của bạn được giữ; chưa có gì được ghi.`);
+      return;
+    }
     const applied = !!op && !!latest && (op.kind === "create" ? latest.version >= 1 : latest.version > op.expectedVersion);
     if (!applied || !latest) {
       write.reset();
@@ -298,7 +321,8 @@ export default function TranslationForm({
       return;
     }
     const matches =
-      op.kind === "save" || op.kind === "create" ? copy === op.snapshot
+      op.kind === "create" ? lostCreates.current.includes(copy)
+      : op.kind === "save" ? copy === op.snapshot
       : op.kind === "publish" ? latest.status === "Published" && !latest.hasDraft && snapshotOfRevision(latest.published) === op.snapshot
       : op.kind === "unpublish" ? latest.status === "Unpublished"
       : op.kind === "archive" ? latest.status === "Archived"
@@ -399,7 +423,7 @@ export default function TranslationForm({
       </section>
 
       {conflict && <ConflictPanel local={{ form, body: bodyCanon }} latest={conflict.latest} onUseServer={() => { adopt(conflict.post, { replaceForm: true }); setConflict(null); write.reset(); setNote("Đã thay bằng bản trên máy chủ; thay đổi chưa lưu của bạn đã bị bỏ."); }}
-        onKeepMine={() => { setTr(conflict.latest); setBaseline(snapshotOfRevision(workingRevision(conflict.latest))); confirmedRef.current = snapshotOfRevision(workingRevision(conflict.latest)); setConflict(null); write.reset(); setNote(`Giữ thay đổi của bạn trên nền phiên bản ${conflict.latest.version}. Chưa có gì được gửi — bấm Lưu để ghi.`); onPost(conflict.post); }} onClose={() => setConflict(null)} />}
+        onKeepMine={() => { if (postId === null && !createdRef.current) createdRef.current = conflict.post; /* the person chose to write on top of the post under this id: from here Save updates it */ setTr(conflict.latest); setBaseline(snapshotOfRevision(workingRevision(conflict.latest))); confirmedRef.current = snapshotOfRevision(workingRevision(conflict.latest)); setConflict(null); write.reset(); setNote(`Giữ thay đổi của bạn trên nền phiên bản ${conflict.latest.version}. Chưa có gì được gửi — bấm Lưu để ghi.`); onPost(conflict.post); }} onClose={() => setConflict(null)} />}
 
       <BlogWriteFeedback status={write.status} working={working} onReloadLatest={() => void loadLatest()} onCheckServer={() => void checkServer()}
         fieldShown={(field, code) => code !== "blog.stale-version" && formFieldOf(field) !== null} />

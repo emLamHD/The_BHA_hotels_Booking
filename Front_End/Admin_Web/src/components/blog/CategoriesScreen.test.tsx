@@ -573,3 +573,116 @@ describe("C8 F2 — the comparison represents what is on screen now", () => {
     expect(name()).toHaveValue("Đồ uống");
   });
 });
+
+describe("C9 F1 — a create whose read-back said 'not there yet' and whose same-id retry is answered 409 blog.duplicate-id", () => {
+  const duplicate = { kind: "refused", status: 409, code: "blog.duplicate-id", field: "id", detail: "A category with this id already exists." } as const;
+
+  /** Create lost → read-back finds nothing → Save again → 409 duplicate-id. Resolves with the id the create was sent under. */
+  async function reachDuplicate(retryName?: string) {
+    server = [];
+    renderInBlogGate(<CategoriesScreen />);
+    await screen.findByTestId("category-new");
+    await userEvent.click(btn("category-new"));
+    await screen.findByTestId("category-dialog");
+    await userEvent.type(name(), "Mới");
+    await userEvent.type(screen.getByTestId("category-slug-vi"), "moi");
+    create.mockResolvedValueOnce(unverified as never);
+    await userEvent.click(btn("category-save"));
+    await screen.findByTestId("write-unverified");
+    const id = create.mock.calls[0][0];
+    await userEvent.click(screen.getByTestId("check-server"));
+    expect(await screen.findByTestId("categories-note")).toHaveTextContent(/cùng mã/);
+    if (retryName) await typeName(retryName);
+    create.mockResolvedValueOnce(duplicate as never);
+    await userEvent.click(btn("category-save"));
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
+    expect(create.mock.calls[1][0]).toBe(id); // the same id, never a replacement
+    return id;
+  }
+
+  it("keeps the read-back action: the duplicate is not an ordinary refusal and Save does not offer another create", async () => {
+    await reachDuplicate();
+    expect(await screen.findByTestId("check-server")).toBeInTheDocument();
+    expect(btn("category-save")).toBeDisabled();
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  it("a read-back that shows the category created from what was sent confirms it and closes: one create row, no third send", async () => {
+    const id = await reachDuplicate();
+    server = [cat(id, { version: 1, sortOrder: 10, translations: { vi: text("Mới", "moi") } })];
+    await userEvent.click(screen.getByTestId("check-server"));
+    await waitFor(() => expect(screen.queryByTestId("category-dialog")).toBeNull());
+    expect(screen.getByTestId("categories-note")).toHaveTextContent(/đọc lại, không phải gửi lại/);
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("judges the read-back against what the lost create SENT, not the refused retry: the retry's newer text stays unsaved and Save then UPDATES the confirmed version", async () => {
+    const id = await reachDuplicate("Mới, sửa lại");
+    server = [cat(id, { version: 1, sortOrder: 10, translations: { vi: text("Mới", "moi") } })];
+    await userEvent.click(screen.getByTestId("check-server"));
+    expect(await screen.findByTestId("categories-note")).toHaveTextContent(/Những chỉnh sửa mới hơn.*chưa được lưu/);
+    expect(screen.queryByTestId("category-conflict")).toBeNull();
+    expect(screen.getByTestId("category-dialog")).toBeInTheDocument();
+    expect(name()).toHaveValue("Mới, sửa lại");
+    save.mockResolvedValueOnce(ok(cat(id, { version: 2 })) as never);
+    await userEvent.click(btn("category-save"));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0][0]).toBe(id);
+    expect(save.mock.calls[0][1]).toBe(1); // the confirmed version
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  it("text typed while the read-back is on its way stays unsaved and is written on the confirmed version", async () => {
+    const id = await reachDuplicate();
+    const gate = deferred<ReturnType<typeof ok>>();
+    list.mockReturnValueOnce(gate.promise as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    await userEvent.type(name(), " thêm");
+    gate.resolve(ok([cat(id, { version: 1, sortOrder: 10, translations: { vi: text("Mới", "moi") } })]));
+    expect(await screen.findByTestId("categories-note")).toHaveTextContent(/Những chỉnh sửa mới hơn.*chưa được lưu/);
+    expect(name()).toHaveValue("Mới thêm");
+    save.mockResolvedValueOnce(ok(cat(id, { version: 2 })) as never);
+    await userEvent.click(btn("category-save"));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0].slice(0, 2)).toEqual([id, 1]);
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  it("a category under that id with other values is a comparison, never a success: the input stays, Save is not offered, and the way out is the existing 'close and create again'", async () => {
+    const id = await reachDuplicate();
+    server = [cat(id, { version: 3, translations: { vi: text("Khác hẳn", "khac-han") } })];
+    await userEvent.click(screen.getByTestId("check-server"));
+    const panel = await screen.findByTestId("category-conflict");
+    expect(panel).toHaveTextContent("Khác hẳn");
+    expect(panel).toHaveTextContent(/đóng và tạo lại/);
+    expect(screen.getByTestId("categories-note")).not.toHaveTextContent(/đã xác nhận/i);
+    expect(screen.getByTestId("category-dialog")).toBeInTheDocument();
+    expect(name()).toHaveValue("Mới");
+    expect(btn("category-save")).toBeDisabled();
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("a read-back that fails leaves the operation unconfirmed and the action in place; a later read that works completes it", async () => {
+    const id = await reachDuplicate();
+    list.mockResolvedValueOnce({ kind: "network", message: "Không đọc được." } as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    expect(await screen.findByTestId("categories-note")).toHaveTextContent(/Chưa kiểm tra được/);
+    expect(screen.getByTestId("check-server")).toBeInTheDocument();
+    expect(btn("category-save")).toBeDisabled();
+    server = [cat(id, { version: 1, sortOrder: 10, translations: { vi: text("Mới", "moi") } })];
+    await userEvent.click(screen.getByTestId("check-server"));
+    await waitFor(() => expect(screen.queryByTestId("category-dialog")).toBeNull());
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  it("an id that is still not visible keeps the action instead of offering yet another create", async () => {
+    await reachDuplicate();
+    await userEvent.click(screen.getByTestId("check-server"));
+    expect(await screen.findByTestId("categories-note")).toBeInTheDocument();
+    expect(screen.getByTestId("check-server")).toBeInTheDocument();
+    expect(btn("category-save")).toBeDisabled();
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+});

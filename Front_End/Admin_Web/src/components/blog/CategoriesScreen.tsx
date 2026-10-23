@@ -72,6 +72,13 @@ export default function CategoriesScreen() {
   const seqRef = useRef(0);
   /** Bumped by every operation that makes an older "load latest" answer stale (a newer one, a Save, opening or closing a dialog). */
   const opRef = useRef(0);
+  /**
+   * What each create of the open dialog sent whose answer never came (a lost answer may still have committed, and a read-back that finds nothing is not proof it
+   * will not). A read-back that shows one of them is the create's result; a create the server refused is not in here. Emptied with the dialog.
+   */
+  const lostCreates = useRef<Snapshot[]>([]);
+  /** The server answered a create of this dialog's id with 409 duplicate-id: the id exists, so "not found" can only mean "not readable yet". */
+  const duplicateRef = useRef(false);
   const draftRef = useRef<Draft | null>(null);
   useEffect(() => {
     draftRef.current = draft;
@@ -91,6 +98,8 @@ export default function CategoriesScreen() {
     setNote(null);
     setConflict(null);
     snapshotRef.current = null;
+    lostCreates.current = [];
+    duplicateRef.current = false;
     setDraft(category
       ? { id: category.id, isNew: false, version: category.version, sortOrder: String(category.sortOrder), texts: blankTexts([...new Set([...codes, ...Object.keys(category.translations)])], category) }
       : { id: crypto.randomUUID(), isNew: true, version: 0, sortOrder: String((categories.reduce((max, c) => Math.max(max, c.sortOrder), 0)) + 10), texts: blankTexts(codes) });
@@ -128,6 +137,8 @@ export default function CategoriesScreen() {
     setDraft(null);
     setConflict(null);
     snapshotRef.current = null;
+    lostCreates.current = [];
+    duplicateRef.current = false;
   };
 
   const doSave = async () => {
@@ -137,6 +148,14 @@ export default function CategoriesScreen() {
     snapshotRef.current = snap;
     setNote(null);
     const result = await save.run(() => (snap.isNew ? createCategory(snap.id, snap.sortOrder, snap.texts) : saveCategory(snap.id, snap.expectedVersion, snap.sortOrder, snap.texts)));
+    if (snap.isNew && current(snap)) {
+      if (result?.kind === "unverified") lostCreates.current.push(snap);
+      // 409 duplicate-id on a create: the id exists. That is not "refused, try again" (it would be refused for ever); the server is read, and what it shows decides.
+      if (result?.kind === "refused" && result.code === "blog.duplicate-id") {
+        duplicateRef.current = true;
+        save.setStatus({ phase: "unverified", message: "Mã chuyên mục này đã có trên máy chủ: lần tạo trước có thể đã được ghi nhận. Chưa có gì được gửi thêm." });
+      }
+    }
     if (result?.kind === "ok") {
       void list.reload();
       if (!current(snap)) return;
@@ -168,18 +187,25 @@ export default function CategoriesScreen() {
 
     void list.reload();
     const fresh = result.data.find((c) => c.id === snap.id);
-    const matches = !!fresh && sentValuesMatch(snap, fresh);
+    // An update is judged against what it sent. A create against what ANY of its unanswered sends carried (not a refused retry's, which was not applied).
+    const confirmed = !fresh ? undefined : snap.isNew ? lostCreates.current.find((sent) => sentValuesMatch(sent, fresh)) : sentValuesMatch(snap, fresh) ? snap : undefined;
+    const matches = !!confirmed;
     const here = draftRef.current!;
     if (!fresh) {
+      if (snap.isNew && duplicateRef.current) {
+        // The id was reported as taken, yet it is not in the list: keep the operation open instead of offering another create.
+        setNote("Máy chủ báo mã này đã có nhưng chưa đọc thấy chuyên mục. Hãy kiểm tra lại sau; chưa có gì được gửi thêm.");
+        return;
+      }
       save.reset();
-      setNote(snap.isNew ? "Máy chủ chưa có chuyên mục này. Bấm Lưu để gửi lại với cùng mã — sẽ không tạo trùng." : "Chuyên mục này không còn trên máy chủ. Dữ liệu của bạn vẫn còn trong biểu mẫu.");
+      setNote(snap.isNew ? "Máy chủ chưa có chuyên mục này (chưa chắc là sẽ không có: lần tạo trước vẫn có thể được ghi). Bấm Lưu để gửi lại với cùng mã — sẽ không tạo trùng; nếu máy chủ báo trùng mã, hãy kiểm tra máy chủ." : "Chuyên mục này không còn trên máy chủ. Dữ liệu của bạn vẫn còn trong biểu mẫu.");
       return;
     }
 
-    if (matches && (snap.isNew || fresh.version > snap.expectedVersion)) {
+    if (confirmed && (snap.isNew || fresh.version > snap.expectedVersion)) {
       // Verified: the server holds exactly what was sent, at a version that moved on (a create has none to move from).
       save.reset();
-      if (textsKey(here) === JSON.stringify([snap.sortOrder, snap.texts])) {
+      if (textsKey(here) === JSON.stringify([confirmed.sortOrder, confirmed.texts])) {
         closeDialog();
         setNote(`Đã xác nhận trên máy chủ: chuyên mục có đúng các giá trị đã gửi (phiên bản ${fresh.version}). Đây là kết quả đọc lại, không phải gửi lại.`);
       } else {

@@ -657,3 +657,158 @@ describe("C4 F1 (related) — a restore whose answer arrives after the person ty
     expect(screen.queryByTestId("conflict-panel")).toBeNull();
   });
 });
+
+describe("C9 F1 — a create whose read-back said 'not there yet' and whose same-id retry is answered 409 blog.duplicate-id", () => {
+  const duplicate = { kind: "refused", status: 409, code: "blog.duplicate-id", field: "id", detail: "An article with this id already exists." } as const;
+  const notFound = { kind: "refused", status: 404, code: "blog.not-found", field: "id", detail: "" } as const;
+  const created = (titleText: string, version = 1) => ok(post(translation({ version, draft: revision({ title: titleText, slug: "bai-moi", summary: "", authorName: "" }) }), CLIENT_ID)) as never;
+
+  /** Create lost → read-back 404 → Save again → 409 duplicate-id: the state every test starts from. Resolves with the form's callbacks. */
+  async function reachDuplicate(retryTitle?: string) {
+    const view = mount(EDITOR, { postId: null, initial: undefined });
+    create.mockResolvedValueOnce({ kind: "unverified", message: "Mất kết nối." } as never);
+    const input = await title();
+    await userEvent.type(input, "Bài mới");
+    await userEvent.click(button("post-save"));
+    await screen.findByTestId("write-unverified");
+    read.mockResolvedValueOnce(notFound as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    expect(await screen.findByTestId("post-note")).toHaveTextContent(/cùng mã/);
+    if (retryTitle) {
+      await userEvent.clear(input);
+      await userEvent.type(input, retryTitle);
+    }
+    create.mockResolvedValueOnce(duplicate as never);
+    await userEvent.click(button("post-save"));
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
+    expect(create.mock.calls[1][0]).toBe(CLIENT_ID); // the same id, never a replacement
+    return { ...view, input };
+  }
+
+  it("keeps the read-back action: the duplicate is not an ordinary refusal, Save does not offer another create, and nothing is resent", async () => {
+    await reachDuplicate();
+    expect(await screen.findByTestId("check-server")).toBeInTheDocument();
+    expect(within(screen.getByTestId("post-save")).getByRole("button")).toBeDisabled();
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  it("a read-back that shows the post as created from what was sent adopts its id and version, and the screen goes on to the post's page; one create row, no third send", async () => {
+    const { onCreated, onPost } = await reachDuplicate();
+    read.mockResolvedValueOnce(created("Bài mới") as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1));
+    expect(onCreated.mock.calls[0][0]).toMatchObject({ id: CLIENT_ID });
+    expect(onPost).toHaveBeenCalled();
+    expect(screen.queryByTestId("write-unverified")).toBeNull();
+    expect(screen.queryByTestId("conflict-panel")).toBeNull();
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("judges the read-back against what the lost create SENT, not against what the refused retry carried: the retry's newer text stays unsaved and is saved as an update", async () => {
+    const { onCreated, input } = await reachDuplicate("Bài mới, sửa lại");
+    read.mockResolvedValueOnce(created("Bài mới") as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    expect(await screen.findByTestId("post-note")).toHaveTextContent(/đã ghi nhận/);
+    expect(screen.queryByTestId("conflict-panel")).toBeNull();
+    expect(input).toHaveValue("Bài mới, sửa lại");
+    expect(await screen.findByTestId("post-dirty")).toBeInTheDocument();
+    expect(onCreated).not.toHaveBeenCalled(); // unsaved input is never thrown away by leaving
+
+    save.mockResolvedValueOnce(ok(post(translation({ version: 2, draft: revision({ title: "Bài mới, sửa lại", slug: "bai-moi", summary: "", authorName: "" }) }), CLIENT_ID)) as never);
+    await userEvent.click(button("post-save"));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0].slice(0, 3)).toEqual([CLIENT_ID, "vi", 1]); // the confirmed id and version
+    expect(create).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1));
+  });
+
+  it("text typed while the read-back is on its way stays unsaved and is saved on the confirmed version", async () => {
+    const { onCreated, input } = await reachDuplicate();
+    const gate = deferred<ReturnType<typeof ok>>();
+    read.mockReturnValueOnce(gate.promise as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    await userEvent.type(input, " thêm");
+    gate.resolve(created("Bài mới") as never);
+    expect(await screen.findByTestId("post-note")).toHaveTextContent(/đã ghi nhận/);
+    expect(input).toHaveValue("Bài mới thêm");
+    expect(screen.getByTestId("post-dirty")).toBeInTheDocument();
+    expect(onCreated).not.toHaveBeenCalled();
+    save.mockResolvedValueOnce(created("Bài mới thêm", 2));
+    await userEvent.click(button("post-save"));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0].slice(0, 3)).toEqual([CLIENT_ID, "vi", 1]);
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  it("a post under that id with different content is a comparison, never a success; 'keep mine' then writes an UPDATE on the server's version, not a third create", async () => {
+    const { onCreated, input } = await reachDuplicate();
+    read.mockResolvedValueOnce(created("Của người khác", 3) as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    const panel = await screen.findByTestId("conflict-panel");
+    expect(panel).toHaveTextContent("Của người khác");
+    expect(panel).toHaveTextContent("Bài mới");
+    expect(screen.getByTestId("post-note")).not.toHaveTextContent(/đã ghi nhận/);
+    expect(input).toHaveValue("Bài mới");
+    expect(onCreated).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+
+    await userEvent.click(within(screen.getByTestId("conflict-keep")).getByRole("button"));
+    expect(save).not.toHaveBeenCalled(); // choosing sends nothing
+    save.mockResolvedValueOnce(created("Bài mới", 4));
+    await userEvent.click(button("post-save"));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0].slice(0, 3)).toEqual([CLIENT_ID, "vi", 3]);
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  it("a read-back that fails leaves the operation unconfirmed and the action in place; a later read that works completes it", async () => {
+    const { onCreated } = await reachDuplicate();
+    read.mockResolvedValueOnce({ kind: "network", message: "Không đọc được." } as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    expect(await screen.findByTestId("post-note")).toHaveTextContent(/Không đọc được/);
+    expect(screen.getByTestId("check-server")).toBeInTheDocument();
+    expect(within(screen.getByTestId("post-save")).getByRole("button")).toBeDisabled();
+    expect(onCreated).not.toHaveBeenCalled();
+    read.mockResolvedValueOnce(created("Bài mới") as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1));
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  it("an id that is still not visible keeps the action (and says so) instead of offering yet another create", async () => {
+    await reachDuplicate();
+    read.mockResolvedValueOnce(notFound as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    expect(await screen.findByTestId("post-note")).toBeInTheDocument();
+    expect(screen.getByTestId("check-server")).toBeInTheDocument();
+    expect(within(screen.getByTestId("post-save")).getByRole("button")).toBeDisabled();
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  it("a post under that id that has no translation in this language is not called ours: the input stays, nothing is adopted, the action stays", async () => {
+    const { onCreated } = await reachDuplicate();
+    read.mockResolvedValueOnce(ok(post(translation({ locale: "en", version: 2 }), CLIENT_ID)) as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    expect(await screen.findByTestId("post-note")).toHaveTextContent(/đã được dùng|không có bản dịch/);
+    expect(screen.getByTestId("check-server")).toBeInTheDocument();
+    expect(onCreated).not.toHaveBeenCalled();
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  it("'save and publish' that ends in a duplicate publishes nothing", async () => {
+    mount(BOTH, { postId: null, initial: undefined });
+    create.mockResolvedValueOnce({ kind: "unverified", message: "Mất kết nối." } as never);
+    await userEvent.type(await title(), "Bài mới");
+    await userEvent.click(button("post-publish"));
+    await screen.findByTestId("write-unverified");
+    read.mockResolvedValueOnce(notFound as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    await screen.findByTestId("post-note");
+    create.mockResolvedValueOnce(duplicate as never);
+    await userEvent.click(button("post-publish"));
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
+    expect(await screen.findByTestId("check-server")).toBeInTheDocument();
+    expect(transition).not.toHaveBeenCalled();
+  });
+});
