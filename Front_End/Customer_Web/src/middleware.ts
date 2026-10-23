@@ -3,20 +3,13 @@ import { decideRoute, UNAVAILABLE_PAGE } from "@/lib/routePolicy";
 import { getApiBaseUrl } from "@/lib/api/env";
 import { normalizeLocale } from "@/lib/blog/blog";
 import { resolveBlogRedirect } from "@/lib/blog/redirects";
-import { getSiteOrigin } from "@/lib/seo/siteUrl";
 import { LOCALE_COOKIE, LOCALE_OVERRIDE_HEADER } from "@/lib/i18n/types";
 
 /**
- * BHA-BLOG-001-CP04: on `/blog` paths (a) an old slug or the old `?category=` address answers a permanent redirect to the current Customer URL, and (b) the
+ * BHA-BLOG-001-CP04: on `/blog` paths (a) an old slug or the old `?category=` address is handed to the permanent-redirect route, and (b) the
  * URL's explicit `?locale=` is handed to the server render as a request header. The header is dropped everywhere else, so no other page can be given a
  * language by a header a client invented.
  */
-function requestOrigin(request: NextRequest): string {
-  const host = request.headers.get("host") ?? "";
-  const protocol = request.headers.get("x-forwarded-proto") === "https" ? "https:" : request.nextUrl.protocol;
-  return /^(?:localhost|127\.0\.0\.1)(?::\d+)?$/i.test(host) ? `${protocol}//${host}` : request.nextUrl.origin.replace(/^https?:/, protocol);
-}
-
 async function blogPass(request: NextRequest): Promise<NextResponse> {
   const { pathname, searchParams } = request.nextUrl;
   const isBlog = pathname === "/blog" || pathname.startsWith("/blog/");
@@ -28,9 +21,8 @@ async function blogPass(request: NextRequest): Promise<NextResponse> {
       target = null; // a misconfigured API base is the page's error to show, not a reason to break the request here
     }
     if (target) {
-      // Next's middleware adapter needs an ABSOLUTE Location, so its origin matters: the configured public origin (SITE_URL) when there is one — the address the
-      // site means to be found at — else the request's own, where a TLS terminator in front (which makes Next see `http:`) is honoured by its `x-forwarded-proto: https`.
-      return NextResponse.redirect(new URL(target, getSiteOrigin() ?? requestOrigin(request)), 301);
+      // The permanent redirect itself is made by a route handler (see app/blog-moved/route.ts): this only hands it the current Customer address.
+      return NextResponse.rewrite(new URL(`/blog-moved?to=${encodeURIComponent(target)}`, request.url));
     }
   }
   const headers = new Headers(request.headers);
