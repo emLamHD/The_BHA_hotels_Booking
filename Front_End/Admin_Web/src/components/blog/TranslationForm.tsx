@@ -22,7 +22,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  getPost, restoreRevision, createPost, saveDraft, transitionPost, listRevisions,
+  getPost, mediaPreviewPath, restoreRevision, createPost, saveDraft, transitionPost, listRevisions,
   type BlogCategory, type BlogPost, type BlogRevisionSummary, type BlogStatus, type BlogTransition, type BlogTranslation, type WebsiteResult,
 } from "@/lib/api/blog";
 import { useWebsiteHost } from "@/components/website/WebsiteAccessGate";
@@ -32,6 +32,7 @@ import { ActionButton, Banner, formatWhen } from "@/components/website/WebsiteUi
 import { canonicalBody, comparableBody } from "@/lib/blog/bodyModel";
 import { STATUS_LABEL, describeBlogFailure, draftOf, formFieldOf, formFromRevision, snapshotOf, snapshotOfRevision, translationOf, workingRevision, type PostForm } from "@/lib/blog/blogModel";
 import RichBodyEditor, { type BodyState } from "./RichBodyEditor";
+import { StaffImage } from "./useStaffImage";
 import PostFormFields, { type FieldErrors } from "./PostFormFields";
 import PostPreviewDialog from "./PostPreviewDialog";
 import BlogWriteFeedback from "./BlogWriteFeedback";
@@ -524,27 +525,33 @@ function ConflictPanel({ local, latest, categories, locale, askUseServer, onUseS
   const mediaLines = (id: string | null) => (id ? [id] : ["Chưa chọn"]);
   const categoryLines = (ids: string[]) => (ids.length ? [...ids].sort().map(categoryLine) : ["Không chọn chuyên mục nào"]);
   const text = (value: string) => [value || "—"];
-  const rows: { key: string; name: string; mine: string[]; theirs: string[]; compare?: boolean }[] = [
+  const rows: { key: string; name: string; mine: string[]; theirs: string[]; compare?: boolean; media?: [string | null, string | null] }[] = [
     { key: "title", name: "Tiêu đề", mine: text(local.form.title), theirs: text(serverForm.title) },
     { key: "slug", name: "Slug", mine: text(local.form.slug), theirs: text(serverForm.slug) },
     { key: "summary", name: "Tóm tắt", mine: text(local.form.summary), theirs: text(serverForm.summary) },
     { key: "author", name: "Tác giả", mine: text(local.form.authorName), theirs: text(serverForm.authorName) },
-    { key: "cover", name: "Ảnh bìa", mine: mediaLines(local.form.coverMediaId), theirs: mediaLines(serverForm.coverMediaId) },
+    { key: "cover", name: "Ảnh bìa", mine: mediaLines(local.form.coverMediaId), theirs: mediaLines(serverForm.coverMediaId), media: [local.form.coverMediaId, serverForm.coverMediaId] },
     { key: "coverAlt", name: "Alt ảnh bìa", mine: text(local.form.coverAlt), theirs: text(serverForm.coverAlt) },
-    { key: "og", name: "Ảnh khi chia sẻ (OG)", mine: mediaLines(local.form.ogImageMediaId), theirs: mediaLines(serverForm.ogImageMediaId) },
+    { key: "og", name: "Ảnh khi chia sẻ (OG)", mine: mediaLines(local.form.ogImageMediaId), theirs: mediaLines(serverForm.ogImageMediaId), media: [local.form.ogImageMediaId, serverForm.ogImageMediaId] },
     { key: "metaTitle", name: "SEO: tiêu đề", mine: text(local.form.metaTitle), theirs: text(serverForm.metaTitle) },
     { key: "metaDescription", name: "SEO: mô tả", mine: text(local.form.metaDescription), theirs: text(serverForm.metaDescription) },
     { key: "categories", name: "Chuyên mục", mine: categoryLines(local.form.categoryIds), theirs: categoryLines(serverForm.categoryIds) },
     { key: "primary", name: "Chuyên mục chính", mine: local.form.primaryCategoryId ? [categoryLine(local.form.primaryCategoryId)] : ["Chưa chọn"], theirs: serverForm.primaryCategoryId ? [categoryLine(serverForm.primaryCategoryId)] : ["Chưa chọn"] },
     { key: "body", name: "Nội dung", mine: [local.body === canonicalBody(server?.body ?? null) ? "giống nhau" : "khác nhau"], theirs: ["—"], compare: false },
   ];
-  const cell = (lines: string[]) => lines.map((line, i) => <div key={i}>{line}</div>);
+  // A picture has no name: its thumbnail (as the form shows it) and its id say which one it is.
+  const cell = (lines: string[], mediaId?: string | null, side?: string) => (
+    <>
+      {mediaId ? <StaffImage path={mediaPreviewPath(mediaId, "thumb")} alt={`${side}: ảnh ${mediaId}`} className="mb-1 h-12 w-16 rounded-md object-cover" testId="conflict-thumb" /> : null}
+      {lines.map((line, i) => <div key={i}>{line}</div>)}
+    </>
+  );
   return (
     <Banner tone="warning" testId="conflict-panel">
       <p className="font-medium">Bản trên máy chủ (phiên bản {latest.version}, {STATUS_LABEL[latest.status]}, sửa {formatWhen(latest.updatedAtUtc)}{latest.updatedBy?.email ? ` bởi ${latest.updatedBy.email}` : ""}) khác bản bạn đang sửa.</p>
       <table className="mt-2 w-full text-left text-xs">
         <thead><tr><th className="pr-3">Trường</th><th className="pr-3">Của bạn</th><th>Trên máy chủ</th></tr></thead>
-        <tbody>{rows.map((row) => <tr key={row.key} data-testid={`conflict-row-${row.key}`} className={row.compare !== false && row.mine.join("\n") !== row.theirs.join("\n") ? "font-semibold" : ""}><td className="pr-3 align-top">{row.name}</td><td className="pr-3 align-top break-words">{cell(row.mine)}</td><td className="align-top break-words">{cell(row.theirs)}</td></tr>)}</tbody>
+        <tbody>{rows.map((row) => <tr key={row.key} data-testid={`conflict-row-${row.key}`} className={row.compare !== false && row.mine.join("\n") !== row.theirs.join("\n") ? "font-semibold" : ""}><td className="pr-3 align-top">{row.name}</td><td className="pr-3 align-top break-words">{cell(row.mine, row.media?.[0], "Của bạn")}</td><td className="align-top break-words">{cell(row.theirs, row.media?.[1], "Trên máy chủ")}</td></tr>)}</tbody>
       </table>
       {askUseServer ? (
         <div className="mt-3" data-testid="conflict-confirm">

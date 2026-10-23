@@ -1011,6 +1011,8 @@ describe("C10 F3 — the comparison shows the category selection, the primary ca
     expect(og.mine).toContain(O1);
     expect(og.theirs).toContain(O2);
     for (const key of ["categories", "primary", "og"]) expect(screen.getByTestId(`conflict-row-${key}`)).toHaveClass("font-semibold"); // marked as different
+    expect(within(screen.getByTestId("conflict-row-og")).getAllByRole("img")).toHaveLength(2); // a thumbnail on each side (the test's image fetch fails: the placeholder carries the alt)
+    expect(within(screen.getByTestId("conflict-row-og")).getAllByRole("img")[1]).toHaveAccessibleName(new RegExp(O2));
     expect(screen.getByTestId("conflict-row-title")).toBeInTheDocument();
     expect(save).toHaveBeenCalledTimes(1); // looking is not writing
   });
