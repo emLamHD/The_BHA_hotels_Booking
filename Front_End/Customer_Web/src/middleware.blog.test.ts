@@ -23,11 +23,21 @@ describe("middleware on the Blog", () => {
     vi.unstubAllEnvs();
   });
 
-  it("answers an old slug with HTTP 301 and a RELATIVE Location (the reader keeps the scheme and host they typed)", async () => {
-    fetchMock.mockReturnValue(answer(301, { slug: "bai-moi", locale: "vi" }));
-    const response = await middleware(request("/blog/bai-cu?locale=vi"));
+  it("answers an old slug with HTTP 301 to the current URL on the configured public origin", async () => {
+    vi.stubEnv("SITE_URL", "https://www.thebha.test");
+    fetchMock.mockImplementation(() => answer(301, { slug: "bai-moi", locale: "vi" }));
+    const response = await middleware(request("/blog/bai-cu?locale=vi", { host: "internal-host:3000" }));
     expect(response.status).toBe(301);
-    expect(response.headers.get("location")).toBe("/blog/bai-moi?locale=vi");
+    expect(response.headers.get("location")).toBe("https://www.thebha.test/blog/bai-moi?locale=vi");
+  });
+
+  it("without SITE_URL it uses the request's own origin, and honours a TLS terminator's x-forwarded-proto: https", async () => {
+    vi.stubEnv("SITE_URL", "");
+    fetchMock.mockImplementation(() => answer(301, { slug: "bai-moi", locale: "vi" }));
+    const plain = await middleware(request("/blog/bai-cu?locale=vi", { host: "localhost:3000" }));
+    expect(plain.headers.get("location")).toBe("https://localhost:3000/blog/bai-moi?locale=vi");           // the test request itself is https
+    const behindTls = new NextRequest(new URL("http://localhost:3000/blog/bai-cu?locale=vi"), { headers: { host: "localhost:3000", "x-forwarded-proto": "https" } });
+    expect((await middleware(behindTls)).headers.get("location")).toBe("https://localhost:3000/blog/bai-moi?locale=vi");
   });
 
   it("hands the URL's explicit language (normalized) to the page as a request header, and leaves the cookie alone", async () => {

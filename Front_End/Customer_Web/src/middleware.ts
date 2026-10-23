@@ -3,6 +3,7 @@ import { decideRoute, UNAVAILABLE_PAGE } from "@/lib/routePolicy";
 import { getApiBaseUrl } from "@/lib/api/env";
 import { normalizeLocale } from "@/lib/blog/blog";
 import { resolveBlogRedirect } from "@/lib/blog/redirects";
+import { getSiteOrigin } from "@/lib/seo/siteUrl";
 import { LOCALE_COOKIE, LOCALE_OVERRIDE_HEADER } from "@/lib/i18n/types";
 
 /**
@@ -10,6 +11,12 @@ import { LOCALE_COOKIE, LOCALE_OVERRIDE_HEADER } from "@/lib/i18n/types";
  * URL's explicit `?locale=` is handed to the server render as a request header. The header is dropped everywhere else, so no other page can be given a
  * language by a header a client invented.
  */
+function requestOrigin(request: NextRequest): string {
+  const host = request.headers.get("host") ?? "";
+  const protocol = request.headers.get("x-forwarded-proto") === "https" ? "https:" : request.nextUrl.protocol;
+  return /^(?:localhost|127\.0\.0\.1)(?::\d+)?$/i.test(host) ? `${protocol}//${host}` : request.nextUrl.origin.replace(/^https?:/, protocol);
+}
+
 async function blogPass(request: NextRequest): Promise<NextResponse> {
   const { pathname, searchParams } = request.nextUrl;
   const isBlog = pathname === "/blog" || pathname.startsWith("/blog/");
@@ -21,9 +28,9 @@ async function blogPass(request: NextRequest): Promise<NextResponse> {
       target = null; // a misconfigured API base is the page's error to show, not a reason to break the request here
     }
     if (target) {
-      // A RELATIVE Location (valid in a 301): the browser resolves it against the address it actually used, so the scheme and host it typed are kept whatever sits
-      // in front of Next (a TLS terminator makes Next see `http:`, and an absolute URL built here would then send the reader to http).
-      return new NextResponse(null, { status: 301, headers: { Location: target } });
+      // Next's middleware adapter needs an ABSOLUTE Location, so its origin matters: the configured public origin (SITE_URL) when there is one — the address the
+      // site means to be found at — else the request's own, where a TLS terminator in front (which makes Next see `http:`) is honoured by its `x-forwarded-proto: https`.
+      return NextResponse.redirect(new URL(target, getSiteOrigin() ?? requestOrigin(request)), 301);
     }
   }
   const headers = new Headers(request.headers);
