@@ -42,7 +42,14 @@ export default function PinsDialog({ category, canEdit, languages, onClose }: { 
   const [dragging, setDragging] = useState<number | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
-  const server = pins.state.status === "ready" ? pins.state.data : null;
+  /**
+   * The list the server last ANSWERED to a write of ours (the save's own answer, or a read-back that proved it). It is the confirmed base from that moment: `useWebsiteList`
+   * keeps showing the list from before the save while the refresh that follows loads, and unlocking the editor on that list would write the next save over what was just
+   * saved. A read of an older version never moves the base backward; an equal or newer one replaces it.
+   */
+  const [confirmed, setConfirmed] = useState<BlogPins | null>(null);
+  const read = pins.state.status === "ready" ? pins.state.data : null;
+  const server = confirmed && (!read || read.version < confirmed.version) ? confirmed : read;
   // The list on screen is what the person arranged, or — until they touch it — the server's.
   const serverOrder = server ? server.pins.map((p) => p.postId) : null;
   const order = edited ?? serverOrder;
@@ -67,17 +74,23 @@ export default function PinsDialog({ category, canEdit, languages, onClose }: { 
   const total = posts.state.status === "ready" ? posts.state.data.total : 0;
   const pages = Math.max(1, Math.ceil(total / CANDIDATE_PAGE));
 
+  /** An arrangement is made ON the version on screen when it starts: a refresh that lands later with another version does not move what it is written on (a stale write is then a 409, not an overwrite). */
+  const arrange = (next: string[]) => {
+    if (edited === null && base === null && server) setBase(server.version);
+    setOrder(next);
+  };
+
   const add = (row: BlogPostRow) => {
     if (!order || order.includes(row.id) || order.length >= MAX_PINS) return;
     setPicked((current) => new Map(current).set(row.id, languages.map((l) => row.translations.find((t) => t.locale === l)?.title).find(Boolean) ?? row.translations[0]?.title ?? row.id));
-    setOrder([...order, row.id]);
+    arrange([...order, row.id]);
   };
 
   const move = (from: number, to: number) => {
     if (!order || to < 0 || to >= order.length || from === to) return;
     const next = [...order];
     next.splice(to, 0, next.splice(from, 1)[0]);
-    setOrder(next);
+    arrange(next);
   };
 
   const version = base ?? server?.version ?? 0;
@@ -90,6 +103,9 @@ export default function PinsDialog({ category, canEdit, languages, onClose }: { 
     setNote(null);
     const result = await write.run(() => savePins(category.id, snap.expectedVersion, snap.postIds));
     if (result?.kind === "ok") {
+      // The answer is the saved list and version: adopted before anything is editable again, not left for the refresh below to bring.
+      titlesOf(result.data);
+      setConfirmed(result.data);
       setOrder(null);
       setBase(null);
       snapRef.current = null;
@@ -118,7 +134,8 @@ export default function PinsDialog({ category, canEdit, languages, onClose }: { 
       // save: an arrangement made while the server was being read is newer than the request, so it stays (unsaved) on top of the confirmed version.
       const newer = JSON.stringify(orderRef.current) !== JSON.stringify(snap.postIds);
       if (!newer) setOrder(null);
-      setBase(fresh.version);
+      setBase(newer ? fresh.version : null);
+      setConfirmed(fresh);
       titlesOf(fresh);
       void pins.reload();
       setNote(`Đã xác nhận trên máy chủ: danh sách ghim có đúng thứ tự đã gửi (phiên bản ${fresh.version}). Đây là kết quả đọc lại, không phải gửi lại.${newer ? " Thứ tự bạn sắp xếp thêm sau đó vẫn còn và chưa được lưu." : ""}`);
@@ -158,6 +175,7 @@ export default function PinsDialog({ category, canEdit, languages, onClose }: { 
   const useServerOrder = () => {
     if (!conflict) return;
     const version = conflict.fresh.version;
+    setConfirmed(conflict.fresh);
     setOrder(null);
     setBase(null);
     setConflict(null);
@@ -191,7 +209,7 @@ export default function PinsDialog({ category, canEdit, languages, onClose }: { 
                     <span className="flex gap-1">
                       <button type="button" aria-label={`Đưa “${titles.get(postId)}” lên`} disabled={working || index === 0} onClick={() => move(index, index - 1)} className="rounded border border-gray-300 px-2 py-0.5 text-xs disabled:opacity-40 dark:border-gray-700">↑</button>
                       <button type="button" aria-label={`Đưa “${titles.get(postId)}” xuống`} disabled={working || index === order.length - 1} onClick={() => move(index, index + 1)} className="rounded border border-gray-300 px-2 py-0.5 text-xs disabled:opacity-40 dark:border-gray-700">↓</button>
-                      <button type="button" aria-label={`Bỏ ghim “${titles.get(postId)}”`} disabled={working} onClick={() => setOrder(order.filter((id) => id !== postId))} className="rounded border border-gray-300 px-2 py-0.5 text-xs disabled:opacity-40 dark:border-gray-700">Bỏ ghim</button>
+                      <button type="button" aria-label={`Bỏ ghim “${titles.get(postId)}”`} disabled={working} onClick={() => arrange(order.filter((id) => id !== postId))} className="rounded border border-gray-300 px-2 py-0.5 text-xs disabled:opacity-40 dark:border-gray-700">Bỏ ghim</button>
                     </span>
                   )}
                 </li>

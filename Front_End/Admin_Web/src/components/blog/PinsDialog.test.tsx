@@ -350,3 +350,148 @@ describe("C5 F1 — an arrangement made while the read-back of a lost save is pe
     expect(save).toHaveBeenCalledTimes(1);
   });
 });
+
+// ---------------------------------------------------------------- C10 F2: the answer to a successful save is the confirmed list, adopted before edits unlock
+
+describe("C10 F2 — the saved list is the confirmed base while the refresh that follows is still on its way", () => {
+  const ids = () => pinned().map((t) => Number(t!.match(/Bài số (\d+)/)?.[1]));
+  type Gate = ReturnType<typeof deferred<ReturnType<typeof ok>>>;
+
+  /** Opens with `start` pinned, arranges with `clicks`, and saves - the refresh (second read) that follows the save is held on `gate`. */
+  async function saveThenHoldTheRefresh(start: number[], clicks: string[], saved: number[]) {
+    mount(start);
+    await screen.findByRole("button", { name: "+ Bài số 5" });
+    for (const c of clicks) await userEvent.click(screen.getByRole("button", { name: c }));
+    const gate = deferred<ReturnType<typeof ok>>();
+    pins.mockReturnValueOnce(gate.promise as never);
+    save.mockResolvedValueOnce(ok(pinsAt(5, saved)) as never);
+    await userEvent.click(saveButton());
+    await screen.findByTestId("pins-note");
+    return gate;
+  }
+  const release = async (gate: Gate, version: number, order: number[]) => {
+    pins.mockResolvedValue(ok(pinsAt(version, order)) as never);
+    await act(async () => { gate.resolve(ok(pinsAt(version, order))); });
+  };
+
+  it("the review's sequence: saved [1,2], an added pin while the refresh is held, then the refresh, then Save - the list written is [1,2,3] at the confirmed version, not [1,3]", async () => {
+    const gate = await saveThenHoldTheRefresh([1], ["+ Bài số 2"], [1, 2]);
+    expect(ids()).toEqual([1, 2]); // what the server answered, not the list from before the save
+    expect(saveButton()).toBeDisabled(); // nothing unsaved
+    await userEvent.click(screen.getByRole("button", { name: "+ Bài số 3" }));
+    expect(ids()).toEqual([1, 2, 3]);
+    await release(gate, 5, [1, 2]);
+    expect(ids()).toEqual([1, 2, 3]); // the refresh does not take the arrangement away
+    save.mockResolvedValueOnce(ok(pinsAt(6, [1, 2, 3])) as never);
+    await userEvent.click(saveButton());
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    expect(save.mock.calls[1]).toEqual([category.id, 5, [id(1), id(2), id(3)]]);
+    expect(save.mock.calls[0]).toEqual([category.id, 4, [id(1), id(2)]]);
+  });
+
+  it("a removal made while the refresh is held is written on the saved list", async () => {
+    const gate = await saveThenHoldTheRefresh([1], ["+ Bài số 2", "+ Bài số 3"], [1, 2, 3]);
+    expect(ids()).toEqual([1, 2, 3]);
+    await userEvent.click(screen.getByRole("button", { name: /^Bỏ ghim “Bài số 2”/ }));
+    await release(gate, 5, [1, 2, 3]);
+    expect(ids()).toEqual([1, 3]);
+    save.mockResolvedValueOnce(ok(pinsAt(6, [1, 3])) as never);
+    await userEvent.click(saveButton());
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    expect(save.mock.calls[1]).toEqual([category.id, 5, [id(1), id(3)]]);
+  });
+
+  it("a reordering made while the refresh is held is written on the saved order", async () => {
+    const gate = await saveThenHoldTheRefresh([1, 2], ["+ Bài số 3"], [1, 2, 3]);
+    await userEvent.click(screen.getByRole("button", { name: /^Đưa “Bài số 3” lên/ }));
+    await release(gate, 5, [1, 2, 3]);
+    expect(ids()).toEqual([1, 3, 2]);
+    save.mockResolvedValueOnce(ok(pinsAt(6, [1, 3, 2])) as never);
+    await userEvent.click(saveButton());
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    expect(save.mock.calls[1]).toEqual([category.id, 5, [id(1), id(3), id(2)]]);
+  });
+
+  it("with nothing changed after the save the refresh leaves nothing unsaved and sends nothing", async () => {
+    const gate = await saveThenHoldTheRefresh([1], ["+ Bài số 2"], [1, 2]);
+    await release(gate, 5, [1, 2]);
+    expect(ids()).toEqual([1, 2]);
+    expect(saveButton()).toBeDisabled();
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
+  it("a refresh that answers with an OLDER version does not move the confirmed list backward", async () => {
+    const gate = await saveThenHoldTheRefresh([1], ["+ Bài số 2"], [1, 2]);
+    await release(gate, 4, [1]); // a late, stale answer
+    expect(ids()).toEqual([1, 2]);
+    await userEvent.click(screen.getByRole("button", { name: "+ Bài số 3" }));
+    save.mockResolvedValueOnce(ok(pinsAt(6, [1, 2, 3])) as never);
+    await userEvent.click(saveButton());
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    expect(save.mock.calls[1]).toEqual([category.id, 5, [id(1), id(2), id(3)]]);
+  });
+
+  it("a refresh that shows another staff member's NEWER list while an arrangement is open does not move the version that arrangement was made on: the next Save is a stale write, not a silent overwrite", async () => {
+    const gate = await saveThenHoldTheRefresh([1], ["+ Bài số 2"], [1, 2]);
+    await userEvent.click(screen.getByRole("button", { name: "+ Bài số 3" }));
+    await release(gate, 6, [1, 2, 9]);
+    expect(ids()).toEqual([1, 2, 3]);
+    save.mockResolvedValueOnce(stale as never);
+    await userEvent.click(saveButton());
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    expect(save.mock.calls[1]).toEqual([category.id, 5, [id(1), id(2), id(3)]]);
+  });
+
+  it("a refresh that shows a newer list when nothing is arranged is simply shown, and the next arrangement is written on it", async () => {
+    const gate = await saveThenHoldTheRefresh([1], ["+ Bài số 2"], [1, 2]);
+    await release(gate, 6, [1, 2, 9]);
+    await waitFor(() => expect(ids()).toEqual([1, 2, 9]));
+    await userEvent.click(screen.getByRole("button", { name: "+ Bài số 3" }));
+    save.mockResolvedValueOnce(ok(pinsAt(7, [1, 2, 9, 3])) as never);
+    await userEvent.click(saveButton());
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    expect(save.mock.calls[1]).toEqual([category.id, 6, [id(1), id(2), id(9), id(3)]]);
+  });
+
+  it("a lost answer confirmed by the read-back: the list that was sent is shown at once, while the refresh is held", async () => {
+    mount([1]);
+    await screen.findByRole("button", { name: "+ Bài số 5" });
+    await userEvent.click(screen.getByRole("button", { name: "+ Bài số 2" }));
+    save.mockResolvedValueOnce(unverified as never);
+    await userEvent.click(saveButton());
+    await screen.findByTestId("write-unverified");
+    pins.mockResolvedValueOnce(ok(pinsAt(5, [1, 2])) as never); // the read-back of the check
+    const gate = deferred<ReturnType<typeof ok>>();
+    pins.mockReturnValueOnce(gate.promise as never); // the refresh after it: held
+    await userEvent.click(screen.getByTestId("check-server"));
+    await screen.findByTestId("pins-note");
+    expect(ids()).toEqual([1, 2]);
+    await userEvent.click(screen.getByRole("button", { name: "+ Bài số 3" }));
+    await release(gate, 5, [1, 2]);
+    save.mockResolvedValueOnce(ok(pinsAt(6, [1, 2, 3])) as never);
+    await userEvent.click(saveButton());
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    expect(save.mock.calls[1]).toEqual([category.id, 5, [id(1), id(2), id(3)]]);
+  });
+
+  it("'use the server's order' shows that order at once, while the refresh is held, and the next write is made on its version", async () => {
+    mount([1]);
+    await screen.findByRole("button", { name: "+ Bài số 5" });
+    await userEvent.click(screen.getByRole("button", { name: "+ Bài số 2" }));
+    save.mockResolvedValueOnce(stale as never);
+    await userEvent.click(saveButton());
+    pins.mockResolvedValueOnce(ok(pinsAt(6, [9, 8])) as never);
+    await userEvent.click(await screen.findByTestId("reload-latest"));
+    await userEvent.click(within(await screen.findByTestId("pins-conflict-use-server")).getByRole("button"));
+    const gate = deferred<ReturnType<typeof ok>>();
+    pins.mockReturnValueOnce(gate.promise as never);
+    await userEvent.click(within(screen.getByTestId("pins-conflict-confirm")).getByRole("button"));
+    expect(ids()).toEqual([9, 8]);
+    await userEvent.click(screen.getByRole("button", { name: "+ Bài số 3" }));
+    await release(gate, 6, [9, 8]);
+    save.mockResolvedValueOnce(ok(pinsAt(7, [9, 8, 3])) as never);
+    await userEvent.click(saveButton());
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    expect(save.mock.calls[1]).toEqual([category.id, 6, [id(9), id(8), id(3)]]);
+  });
+});
