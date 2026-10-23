@@ -39,6 +39,18 @@ async function movedTo(response: Response): Promise<{ slug: string; locale: stri
   return { slug: body.slug, locale: typeof body.locale === "string" ? normalizeLocale(body.locale) : null };
 }
 
+/** The site's default language, normalized like the backend keys it, from the same website settings the pages resolve their language from; `null` when they cannot be read. */
+async function defaultLocale(input: RedirectInput): Promise<string | null> {
+  try {
+    const response = await (input.fetcher ?? fetch)(`${input.apiBase}/api/v1/website/config`, { cache: "no-store", headers: { Accept: "application/json" } });
+    if (!response.ok) return null;
+    const config = (await response.json()) as { defaultLocale?: unknown };
+    return typeof config.defaultLocale === "string" ? normalizeLocale(config.defaultLocale) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** The Customer path (with its query) to answer with a `301`, or `null` for "no redirect". */
 export async function resolveBlogRedirect(input: RedirectInput): Promise<string | null> {
   const found = classify(input.pathname, input.searchParams);
@@ -47,7 +59,9 @@ export async function resolveBlogRedirect(input: RedirectInput): Promise<string 
   const explicit = input.searchParams.get("locale");
   if (explicit !== null && normalizeLocale(explicit) === null) return null;
   const locale = explicit !== null ? normalizeLocale(explicit) : normalizeLocale(input.cookieLocale);
-  const page = parsePage(input.searchParams.get("page") ?? undefined) ?? 1;
+  // An absent page is page 1; a page that is no page (`abc`, `0`, `1.5`, empty, too long) is NOT turned into one: no redirect, so the Blog page's own validation answers its 404.
+  const page = parsePage(input.searchParams.get("page") ?? undefined);
+  if (page === null) return null;
 
   const route = found.kind === "post" ? "posts" : "categories";
   const query = locale ? `?locale=${encodeURIComponent(locale)}` : "";
@@ -64,8 +78,10 @@ export async function resolveBlogRedirect(input: RedirectInput): Promise<string 
       return found.kind === "post" ? blogPostHref(resolved, moved.slug) : blogCategoryHref(resolved, moved.slug, page);
     }
     if (found.kind === "legacy-category" && (response.ok || response.status === 404)) {
-      // The old filter address: the category's own page (a slug that is nobody's gets that page's 404).
-      return locale ? blogCategoryHref(locale, found.slug, page) : `${BLOG_ROOT}/category/${found.slug}${page > 1 ? `?page=${page}` : ""}`;
+      // The old filter address: the category's own page (a slug that is nobody's gets that page's 404), in the language the page itself would resolve for this visitor:
+      // the explicit one, the cookie's, else the site's DEFAULT as the API reports it — read, never assumed. If it cannot be read, no redirect (the page answers).
+      const resolved = locale ?? (await defaultLocale(input));
+      return resolved ? blogCategoryHref(resolved, found.slug, page) : null;
     }
     return null;
   } catch {

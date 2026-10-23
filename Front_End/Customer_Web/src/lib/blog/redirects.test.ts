@@ -3,7 +3,7 @@ import { resolveBlogRedirect } from "./redirects";
 
 const answer = (status: number, body: unknown = {}) => Promise.resolve(new Response(JSON.stringify(body), { status }));
 
-async function resolve(url: string, fetcher: ReturnType<typeof vi.fn>, cookieLocale?: string) {
+async function resolve(url: string, fetcher: ReturnType<typeof vi.fn<any[], any>>, cookieLocale?: string) {
   const u = new URL(url, "https://site.test");
   return { target: await resolveBlogRedirect({ pathname: u.pathname, searchParams: u.searchParams, cookieLocale, apiBase: "https://api.test", fetcher: fetcher as unknown as typeof fetch }), fetcher };
 }
@@ -51,9 +51,19 @@ describe("the old /blog?category= address", () => {
     expect((await resolve("/blog?category=cu&locale=vi&page=2", vi.fn().mockReturnValue(answer(301, { slug: "moi", locale: "vi" })))).target).toBe("/blog/category/moi?locale=vi&page=2");
   });
 
-  it("sends an unknown category to that category's page too, which answers 404; without a language it leaves the choice to the page", async () => {
+  it("sends an unknown category to that category's page too, which answers its own 404", async () => {
     expect((await resolve("/blog?category=khong-co&locale=vi", vi.fn().mockReturnValue(answer(404)))).target).toBe("/blog/category/khong-co?locale=vi");
-    expect((await resolve("/blog?category=diem-den", vi.fn().mockReturnValue(answer(200, {})))).target).toBe("/blog/category/diem-den");
+  });
+
+  // The first version emitted a LOCALE-FREE target here, which the /blog-moved handler refuses (HTTP 404 instead of the 301): the target now always carries a language,
+  // the site's default read from the website settings when the URL and the cookie name none. The whole chain is in redirectChain.test.ts.
+  it("with no language in the URL or the cookie, reads the site's default language and puts it in the target; if it cannot be read, no redirect", async () => {
+    const api = (config: () => Promise<Response>) => vi.fn((url: string): Promise<Response> => (String(url).endsWith("/website/config") ? config() : answer(200, {})));
+    const ok = await resolve("/blog?category=diem-den", api(() => answer(200, { defaultLocale: "en-US" })));
+    expect(ok.target).toBe("/blog/category/diem-den?locale=en-us");
+    expect((await resolve("/blog?category=diem-den", api(() => answer(500)))).target).toBeNull();
+    expect((await resolve("/blog?category=diem-den", api(() => answer(200, { defaultLocale: "not a tag" })))).target).toBeNull();
+    expect((await resolve("/blog?category=diem-den", api(() => Promise.reject(new Error("down"))))).target).toBeNull();
   });
 
   it("is not a redirect for a plain /blog, nor for a value that is not a slug", async () => {
