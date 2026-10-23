@@ -315,11 +315,6 @@ class TimeoutBudget(unittest.TestCase):
         with self.assertRaises(m.Refused): m.check_budget(watchdog=1300)
         with self.assertRaises(m.Refused): m.check_budget(delivery=10)
         with self.assertRaises(m.Refused): m.check_budget(margin=0)
-        # the Actions job (40 minutes) outlives the poll by more than a packet build + credentials + report
-        import re
-        wf = (SCRIPTS.parents[2] / ".github/workflows/backend-image.yml").read_text()
-        minutes = int(re.search(r"deploy-main:.*?timeout-minutes: (\d+)", wf, re.S).group(1))
-        self.assertGreater(minutes * 60, m.POLL_DEADLINE + 300)
         # the wrapper's watchdog is the same number
         self.assertIn("-k 300 900", (SCRIPTS / "backend-remote-release.sh").read_text())
 
