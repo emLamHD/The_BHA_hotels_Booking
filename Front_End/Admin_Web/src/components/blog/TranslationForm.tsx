@@ -23,7 +23,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   getPost, restoreRevision, createPost, saveDraft, transitionPost, listRevisions,
-  type BlogCategory, type BlogPost, type BlogRevisionSummary, type BlogTransition, type BlogTranslation, type WebsiteResult,
+  type BlogCategory, type BlogPost, type BlogRevisionSummary, type BlogStatus, type BlogTransition, type BlogTranslation, type WebsiteResult,
 } from "@/lib/api/blog";
 import { useWebsiteHost } from "@/components/website/WebsiteAccessGate";
 import { useWebsiteList, useWriteAction } from "@/components/website/useWebsiteData";
@@ -47,9 +47,18 @@ interface Pending {
   revisionId?: string;
   /** The form as it was when this was sent: input that differs from it when the answer arrives was typed after, and is never replaced by that answer. */
   live: string;
+  /**
+   * A transition (unpublish / archive / unarchive): what the SERVER held when it was sent, apart from the form and from what is typed. A transition changes the status and
+   * moves the version by one and nothing else, so a read-back is "ours" only when it shows exactly that - the same content, the version one on, the status it gives.
+   */
+  base?: { content: string; statusAfter: BlogStatus };
 }
 
 const FIELD_FOCUS: Record<string, string> = { title: "post-title", slug: "post-slug", summary: "post-summary", authorName: "post-author", coverAlt: "post-cover-alt", cover: "post-cover-pick", og: "post-og-pick", metaTitle: "post-meta-title", metaDescription: "post-meta-description", body: "body-editor" };
+
+/** The status a transition gives (`Unarchive` returns to Unpublished when a published copy exists, else to Draft - the server's rule). */
+const STATUS_AFTER = (action: BlogTransition, hadPublished: boolean): BlogStatus =>
+  action === "unpublish" ? "Unpublished" : action === "archive" ? "Archived" : action === "unarchive" ? (hadPublished ? "Unpublished" : "Draft") : "Published";
 
 export interface PickMedia {
   (options: { multiple: boolean; min?: number; max?: number; title: string }): Promise<PickedMedia[] | null>;
@@ -189,10 +198,10 @@ export default function TranslationForm({
   // ---------------------------------------------------------------- sending
 
   const send = useCallback(
-    async (kind: Kind, expectedVersion: number, fn: () => Promise<WebsiteResult<BlogPost>>, extra: { basis?: string; revisionId?: string } = {}): Promise<BlogPost | null> => {
+    async (kind: Kind, expectedVersion: number, fn: () => Promise<WebsiteResult<BlogPost>>, extra: { basis?: string; revisionId?: string; base?: Pending["base"] } = {}): Promise<BlogPost | null> => {
       // The version is the one this very request carries — not the one of the render that built the callback (a publish after a save carries the save's).
       // `basis` is what the request is judged against after a lost answer: for a publish after a save, the copy the save returned.
-      pending.current = { kind, expectedVersion, snapshot: extra.basis ?? snapshot, revisionId: extra.revisionId, live: liveRef.current };
+      pending.current = { kind, expectedVersion, snapshot: extra.basis ?? snapshot, revisionId: extra.revisionId, live: liveRef.current, base: extra.base };
       setNote(null);
       const result = await write.run(fn);
       if (kind === "create" && result?.kind === "unverified") lostCreates.current.push(pending.current!.snapshot);
@@ -244,14 +253,16 @@ export default function TranslationForm({
     async (action: BlogTransition, expected: number, basis?: string) => {
       const target = postId ?? createdRef.current?.id ?? null;
       if (target === null) return false;
-      const next = await send(action, expected, () => transitionPost(target, locale, action, expected), { basis });
+      // What the server holds now (`tr`, not the form): a lost answer is judged against it. Publishing is judged by the published copy it sends (`basis`) instead.
+      const base = action === "publish" || !tr ? undefined : { content: snapshotOfRevision(workingRevision(tr)), statusAfter: STATUS_AFTER(action, !!tr.published) };
+      const next = await send(action, expected, () => transitionPost(target, locale, action, expected), { basis, base });
       if (!next) return false;
       adopt(next, { replaceForm: false });
       onPost(next);
       leave();
       return true;
     },
-    [postId, locale, send, adopt, onPost, leave]
+    [postId, locale, tr, send, adopt, onPost, leave]
   );
 
   /** "Save" on its own: after the first save of a new post the screen moves to the post's page. */
@@ -329,9 +340,9 @@ export default function TranslationForm({
       op.kind === "create" ? lostCreates.current.includes(copy)
       : op.kind === "save" ? copy === op.snapshot
       : op.kind === "publish" ? latest.status === "Published" && !latest.hasDraft && snapshotOfRevision(latest.published) === op.snapshot
-      : op.kind === "unpublish" ? latest.status === "Unpublished"
-      : op.kind === "archive" ? latest.status === "Archived"
-      : op.kind === "unarchive" ? latest.status !== "Archived"
+      // A transition changes the status and the version (by one) and nothing else. The status alone does not say that nobody wrote in between: another editor's draft save
+      // after a lost unpublish leaves the status as it was given. Adopting that version would let the next Save overwrite what was never compared.
+      : op.base ? latest.status === op.base.statusAfter && latest.version === op.expectedVersion + 1 && snapshotOfRevision(workingRevision(latest)) === op.base.content
       // A restore is the requested revision restored and nothing written since: the draft is a Restore of THAT revision and the version is exactly one on (a
       // restore bumps it once). Any other version, or another revision, or an edit made after it, is someone else's write — shown, never taken for ours.
       : op.kind === "restore" ? latest.draft?.origin === "Restore" && latest.draft.restoredFromRevisionId === op.revisionId && latest.version === op.expectedVersion + 1 && liveRef.current === op.live
@@ -346,10 +357,13 @@ export default function TranslationForm({
     } else {
       setConflict({ latest, post: result.data });
       write.reset();
+      const recorded = !!op.base && latest.status === op.base.statusAfter;
       const typedSince = op.kind === "restore" && latest.draft?.origin === "Restore" && latest.draft.restoredFromRevisionId === op.revisionId && latest.version === op.expectedVersion + 1;
       setNote(typedSince
         ? "Máy chủ đã khôi phục đúng bản được yêu cầu, nhưng bạn đã nhập thêm sau khi xác nhận nên biểu mẫu chưa bị thay. Xem so sánh bên dưới rồi chọn."
-        : "Máy chủ đã thay đổi sau thao tác của bạn (có thể do người khác). Dữ liệu của bạn được giữ; hãy so sánh bên dưới.");
+        : recorded
+          ? "Máy chủ có vẻ đã chuyển trạng thái như bạn yêu cầu, nhưng bài đã bị thay đổi thêm (có thể do người khác) nên chưa nhận phiên bản mới. Dữ liệu của bạn được giữ; hãy so sánh bên dưới."
+          : "Máy chủ đã thay đổi sau thao tác của bạn (có thể do người khác). Dữ liệu của bạn được giữ; hãy so sánh bên dưới.");
     }
   }, [id, locale, write, adopt, onPost, leave]);
 

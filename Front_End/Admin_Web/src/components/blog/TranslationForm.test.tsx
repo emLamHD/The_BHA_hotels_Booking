@@ -836,3 +836,126 @@ describe("C9 F1 — a create whose read-back said 'not there yet' and whose same
     expect(transition).not.toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------- C10 F1: a transition read back after a lost answer is adopted only when nothing else changed
+
+describe("C10 F1 — a transition whose answer was lost: the read-back is adopted only when the content is still what the form was based on", () => {
+  const SHOWN = "Đang đăng";
+  const frozen = (t: string) => revision({ title: t, state: "Frozen", publishedAtUtc: "2026-10-21T09:00:00Z" });
+  const OTHER = "Người khác đã sửa tiêu đề";
+  // `same`: exactly what the transition itself changes (status, one version on). `changed`: the status the transition gives, but another writer saved on top afterwards.
+  const CASES = [
+    {
+      kind: "unpublish",
+      initial: translation({ status: "Published", version: 7, hasDraft: false, draft: null, published: frozen(SHOWN) }),
+      begin: async () => { await userEvent.click(button("post-unpublish")); await userEvent.click(button("post-confirm-yes")); },
+      same: translation({ status: "Unpublished", version: 8, hasDraft: false, draft: null, published: frozen(SHOWN) }),
+      changed: translation({ status: "Unpublished", version: 9, hasDraft: true, draft: revision({ title: OTHER }), published: frozen(SHOWN) }),
+    },
+    {
+      kind: "archive",
+      initial: translation({ status: "Draft", version: 4, hasDraft: true, draft: revision({ title: SHOWN }) }),
+      begin: async () => { await userEvent.click(button("post-archive")); await userEvent.click(button("post-confirm-yes")); },
+      same: translation({ status: "Archived", version: 5, hasDraft: true, draft: revision({ title: SHOWN }) }),
+      changed: translation({ status: "Archived", version: 7, hasDraft: true, draft: revision({ title: OTHER }) }),
+    },
+    {
+      kind: "unarchive",
+      initial: translation({ status: "Archived", version: 4, hasDraft: true, draft: revision({ title: SHOWN }) }),
+      begin: async () => { await userEvent.click(button("post-unarchive")); },
+      same: translation({ status: "Draft", version: 5, hasDraft: true, draft: revision({ title: SHOWN }) }),
+      changed: translation({ status: "Draft", version: 6, hasDraft: true, draft: revision({ title: OTHER }) }),
+    },
+  ] as const;
+
+  async function lose(c: (typeof CASES)[number]) {
+    const view = mount(BOTH, { initial: c.initial });
+    await title();
+    transition.mockResolvedValueOnce({ kind: "unverified", message: "Mất kết nối." } as never);
+    await c.begin();
+    await screen.findByTestId("write-unverified");
+    expect(transition).toHaveBeenCalledTimes(1);
+    expect(transition.mock.calls[0]).toEqual([POST_ID, "vi", c.kind, c.initial.version]);
+    return view;
+  }
+
+  describe.each(CASES)("$kind", (c) => {
+    it("with another writer's content on the server it is a comparison: the version is not adopted, the note does not say 'recorded', nothing is sent", async () => {
+      await lose(c);
+      read.mockResolvedValue(ok(post(c.changed)) as never);
+      await userEvent.click(screen.getByTestId("check-server"));
+      expect(await screen.findByTestId("conflict-panel")).toHaveTextContent(OTHER);
+      expect(screen.queryByText(/đã ghi nhận thao tác/)).toBeNull();
+      expect(screen.getByText(new RegExp(`Phiên bản ${c.initial.version} `))).toBeInTheDocument(); // still the version the form was based on
+      expect(transition).toHaveBeenCalledTimes(1);
+      expect(save).not.toHaveBeenCalled();
+    });
+
+    it("with the content unchanged it is recognised once: the version moves to the one the transition made, nothing was resent", async () => {
+      await lose(c);
+      read.mockResolvedValue(ok(post(c.same)) as never);
+      await userEvent.click(screen.getByTestId("check-server"));
+      expect(await screen.findByTestId("post-note")).toHaveTextContent(new RegExp(`đã ghi nhận thao tác \\(phiên bản ${c.same.version}\\)`));
+      expect(screen.queryByTestId("conflict-panel")).toBeNull();
+      expect(screen.getByText(new RegExp(`Phiên bản ${c.same.version} `))).toBeInTheDocument();
+      expect(transition).toHaveBeenCalledTimes(1);
+    });
+
+    it("what was typed while the server was being read stays, unsaved, on the adopted version", async () => {
+      if (c.kind === "unarchive") return; // an archived translation is not editable: there is nothing to type
+      await lose(c);
+      const gate = deferred<ReturnType<typeof ok>>();
+      read.mockReturnValue(gate.promise as never);
+      await userEvent.click(screen.getByTestId("check-server"));
+      const input = await title();
+      await userEvent.type(input, " gõ thêm");
+      gate.resolve(ok(post(c.same)));
+      expect(await screen.findByTestId("post-note")).toHaveTextContent(/đã ghi nhận thao tác/);
+      expect(input).toHaveValue(`${SHOWN} gõ thêm`);
+      expect(screen.getByTestId("post-dirty")).toBeInTheDocument();
+    });
+
+    it("a read that fails adopts nothing and keeps the operation unconfirmed", async () => {
+      await lose(c);
+      read.mockResolvedValue({ kind: "network", message: "Không đọc được." } as never);
+      await userEvent.click(screen.getByTestId("check-server"));
+      expect(await screen.findByTestId("post-note")).toHaveTextContent(/Không đọc được/);
+      expect(screen.getByTestId("write-unverified")).toBeInTheDocument();
+      expect(screen.getByText(new RegExp(`Phiên bản ${c.initial.version} `))).toBeInTheDocument();
+    });
+  });
+
+  it("the review's sequence: after a lost unpublish and another editor's draft save, the next Save carries the OLD version, never the other writer's, and 'keep mine' is the only way to move it", async () => {
+    const c = CASES[0];
+    await lose(c);
+    read.mockResolvedValue(ok(post(c.changed)) as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    await screen.findByTestId("conflict-panel");
+    const input = await title();
+    await userEvent.clear(input);
+    await userEvent.type(input, "Của tôi");
+    save.mockResolvedValueOnce(stale as never);
+    await userEvent.click(button("post-save"));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0][2]).toBe(7); // not 9: the version of a copy nobody compared
+    expect(await screen.findByTestId("write-refused")).toBeInTheDocument();
+    await userEvent.click(within(screen.getByTestId("conflict-keep")).getByRole("button")); // the person has seen the other writer's title and chooses
+    save.mockResolvedValueOnce(ok(post(translation({ status: "Unpublished", version: 10, draft: revision({ title: "Của tôi" }) }))) as never);
+    await userEvent.click(button("post-save"));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    expect(save.mock.calls[1][2]).toBe(9);
+  });
+
+  it("an unarchive is recognised only as the status it gives: with a published copy that is 'unpublished', and a post someone published meanwhile is a comparison", async () => {
+    const initial = translation({ status: "Archived", version: 4, hasDraft: false, draft: null, published: frozen(SHOWN) });
+    mount(BOTH, { initial });
+    await title();
+    transition.mockResolvedValueOnce({ kind: "unverified", message: "Mất kết nối." } as never);
+    await userEvent.click(button("post-unarchive"));
+    await screen.findByTestId("write-unverified");
+    read.mockResolvedValue(ok(post(translation({ status: "Published", version: 5, hasDraft: false, draft: null, published: frozen(SHOWN) }))) as never);
+    await userEvent.click(screen.getByTestId("check-server"));
+    expect(await screen.findByTestId("conflict-panel")).toBeInTheDocument();
+    expect(screen.queryByText(/đã ghi nhận thao tác/)).toBeNull();
+  });
+});
