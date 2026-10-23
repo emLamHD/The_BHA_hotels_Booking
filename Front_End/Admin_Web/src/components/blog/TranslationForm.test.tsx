@@ -25,8 +25,9 @@ vi.mock("./RichBodyEditor", () => ({
 }));
 
 import TranslationForm from "./TranslationForm";
+import { EMPTY_FORM, draftOf } from "@/lib/blog/blogModel";
 import { BOTH, EDITOR, POST_ID, PUBLISHER, deferred, ok, post, renderInBlogGate, revision, translation } from "./blogTestUtils";
-import { createPost, getPost, listRevisions, restoreRevision, saveDraft, transitionPost, type BlogRevisionSummary } from "@/lib/api/blog";
+import { createPost, getPost, listRevisions, restoreRevision, saveDraft, transitionPost, type BlogCategory, type BlogRevisionSummary } from "@/lib/api/blog";
 import { fetchStaffSession } from "@/lib/api/staff";
 import type { StaffSession } from "@/lib/api/staff";
 
@@ -130,6 +131,8 @@ describe("a stale version (409)", () => {
     read.mockResolvedValue(ok(post(translation({ version: 3, draft: revision({ title: "Máy chủ" }) }))) as never);
     await userEvent.click(await screen.findByTestId("reload-latest"));
     await userEvent.click(within(await screen.findByTestId("conflict-use-server")).getByRole("button"));
+    expect((screen.getByTestId("post-title") as HTMLInputElement).value).toBe("Bãi biển Mỹ Khê!"); // C10 F3: dropping what was typed is asked first
+    await userEvent.click(within(screen.getByTestId("conflict-confirm-yes")).getByRole("button"));
     await waitFor(() => expect((screen.getByTestId("post-title") as HTMLInputElement).value).toBe("Máy chủ"));
     expect(save).toHaveBeenCalledTimes(1);
   });
@@ -957,5 +960,141 @@ describe("C10 F1 — a transition whose answer was lost: the read-back is adopte
     await userEvent.click(screen.getByTestId("check-server"));
     expect(await screen.findByTestId("conflict-panel")).toBeInTheDocument();
     expect(screen.queryByText(/đã ghi nhận thao tác/)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------- C10 F3: the comparison shows every reference the next Save overwrites
+
+describe("C10 F3 — the comparison shows the category selection, the primary category and the OG image on both sides", () => {
+  const A = "a0000000-0000-4000-8000-00000000000a";
+  const B = "b0000000-0000-4000-8000-00000000000b";
+  const C = "c0000000-0000-4000-8000-00000000000c";
+  const D = "d0000000-0000-4000-8000-00000000000d";
+  const O1 = "01010101-0101-4101-8101-010101010101";
+  const O2 = "02020202-0202-4202-8202-020202020202";
+  const cat = (id: string, name: string | null): BlogCategory => ({ id, systemKey: null, sortOrder: 1, version: 1, translations: name ? { vi: { name, slug: id, description: null } } : {}, revisionCount: 0, pinCount: 0, isHomeSection: false });
+  const CATEGORIES = [cat(A, "Du lịch"), cat(B, "Ẩm thực"), cat(C, "Văn hoá"), cat(D, "Du lịch")]; // D has the same name as A: a name alone does not tell them apart
+  const local = revision({ categoryIds: [A, B], primaryCategoryId: A, ogImageMediaId: O1, coverMediaId: null });
+  const initial = translation({ version: 3, draft: local });
+
+  /** Types one edit, loses the race (409) and opens the comparison against `server`. */
+  async function compareWith(server: Parameters<typeof revision>[0], props: Partial<React.ComponentProps<typeof TranslationForm>> = {}) {
+    mount(BOTH, { initial, categories: CATEGORIES, ...props });
+    const input = await title();
+    await userEvent.type(input, " (sửa)");
+    save.mockResolvedValueOnce(stale as never);
+    await userEvent.click(button("post-save"));
+    await screen.findByTestId("write-refused");
+    read.mockResolvedValue(ok(post(translation({ version: 6, draft: revision({ ...server }) }))) as never);
+    await userEvent.click(screen.getByTestId("reload-latest"));
+    return screen.findByTestId("conflict-panel");
+  }
+  const cells = (key: string) => {
+    const row = screen.getByTestId(`conflict-row-${key}`);
+    const [, mine, theirs] = within(row).getAllByRole("cell");
+    return { row, mine: mine.textContent ?? "", theirs: theirs.textContent ?? "" };
+  };
+
+  it("a server that changed the selection (same count), the primary category and the OG image - with the text untouched - is told apart from the local side before anyone resolves", async () => {
+    const panel = await compareWith({ categoryIds: [A, C], primaryCategoryId: C, ogImageMediaId: O2 });
+    expect(panel).toHaveTextContent("Văn hoá"); // the server's category: START showed "2 chọn" on both sides
+    const categories = cells("categories");
+    expect(categories.mine).toContain("Ẩm thực");
+    expect(categories.theirs).toContain("Văn hoá");
+    expect(categories.mine).not.toBe(categories.theirs);
+    expect(categories.mine).toContain(B);
+    expect(categories.theirs).toContain(C);
+    const primary = cells("primary");
+    expect(primary.mine).toContain("Du lịch");
+    expect(primary.theirs).toContain("Văn hoá");
+    const og = cells("og");
+    expect(og.mine).toContain(O1);
+    expect(og.theirs).toContain(O2);
+    for (const key of ["categories", "primary", "og"]) expect(screen.getByTestId(`conflict-row-${key}`)).toHaveClass("font-semibold"); // marked as different
+    expect(screen.getByTestId("conflict-row-title")).toBeInTheDocument();
+    expect(save).toHaveBeenCalledTimes(1); // looking is not writing
+  });
+
+  it("every field a Save sends (draftOf) has a row in the comparison, so nothing it overwrites is unseen", async () => {
+    await compareWith({ categoryIds: [A, C] });
+    const rowOf: Record<string, string> = { title: "title", slug: "slug", summary: "summary", body: "body", coverMediaId: "cover", coverAlt: "coverAlt", authorName: "author", metaTitle: "metaTitle", metaDescription: "metaDescription", ogImageMediaId: "og", categoryIds: "categories", primaryCategoryId: "primary" };
+    for (const field of Object.keys(draftOf(EMPTY_FORM, null))) {
+      expect(rowOf[field], `draftOf sends "${field}" but the comparison has no row mapped for it`).toBeDefined();
+      expect(screen.getByTestId(`conflict-row-${rowOf[field]}`)).toBeInTheDocument();
+    }
+  });
+
+  it("categories with the same name are told apart by their ids, and one without a name in this language or not in the list still shows its id", async () => {
+    await compareWith({ categoryIds: [D, "e0000000-0000-4000-8000-00000000000e"], primaryCategoryId: D, ogImageMediaId: O1 });
+    const categories = cells("categories");
+    expect(categories.mine).toContain(A);
+    expect(categories.theirs).toContain(D);
+    expect(categories.theirs).toContain("e0000000-0000-4000-8000-00000000000e");
+    expect(categories.theirs).toMatch(/không có trong danh sách/);
+    expect(cells("primary").theirs).toContain(D);
+    expect(cells("primary").mine).toContain(A);
+  });
+
+  it("an empty OG image, no primary category and no categories are said so (not left blank) and are not confused with a chosen one", async () => {
+    await compareWith({ categoryIds: [], primaryCategoryId: null, ogImageMediaId: null });
+    expect(cells("og").theirs).toMatch(/Chưa chọn/);
+    expect(cells("og").mine).toContain(O1);
+    expect(cells("primary").theirs).toMatch(/Chưa chọn/);
+    expect(cells("categories").theirs).toMatch(/Không chọn chuyên mục nào/);
+    expect(cells("categories").mine).toContain("Du lịch");
+  });
+
+  it("the local side follows what is typed or ticked while the comparison is open", async () => {
+    await compareWith({ categoryIds: [A, C], primaryCategoryId: C, ogImageMediaId: O2 });
+    expect(cells("categories").mine).toContain("Ẩm thực");
+    await userEvent.click(screen.getByTestId(`category-check-${B}`)); // untick B
+    await waitFor(() => expect(cells("categories").mine).not.toContain("Ẩm thực"));
+    await userEvent.click(screen.getByTestId(`category-check-${C}`)); // tick C
+    await waitFor(() => expect(cells("categories").mine).toContain("Văn hoá"));
+    expect(cells("categories").mine).toBe(cells("categories").theirs); // now the same selection: no longer marked
+    expect(screen.getByTestId("conflict-row-categories")).not.toHaveClass("font-semibold");
+  });
+
+  it("'keep mine' sends nothing and a Save then writes exactly the categories, primary category and OG image that were shown on the left, on the server's version", async () => {
+    await compareWith({ categoryIds: [A, C], primaryCategoryId: C, ogImageMediaId: O2 });
+    const shown = { categories: cells("categories").mine, primary: cells("primary").mine, og: cells("og").mine };
+    await userEvent.click(within(screen.getByTestId("conflict-keep")).getByRole("button"));
+    expect(save).toHaveBeenCalledTimes(1);
+    save.mockResolvedValueOnce(ok(post(translation({ version: 7, draft: revision({ categoryIds: [A, B], primaryCategoryId: A, ogImageMediaId: O1 }) }))) as never);
+    await userEvent.click(button("post-save"));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    expect(save.mock.calls[1][2]).toBe(6);
+    expect(save.mock.calls[1][3]).toMatchObject({ categoryIds: [A, B], primaryCategoryId: A, ogImageMediaId: O1 });
+    for (const [id, text] of [[A, shown.categories], [B, shown.categories], [A, shown.primary], [O1, shown.og]]) expect(text).toContain(id);
+  });
+
+  it("'use the server's copy' asks first (the person's unsaved changes are lost), does nothing when answered 'no', and shows the server's copy when confirmed", async () => {
+    await compareWith({ categoryIds: [A, C], primaryCategoryId: C, ogImageMediaId: O2 });
+    await userEvent.click(within(screen.getByTestId("conflict-use-server")).getByRole("button"));
+    expect(screen.getByTestId("conflict-confirm")).toHaveTextContent(/thay đổi chưa lưu.*mất|bị bỏ/);
+    expect((screen.getByTestId(`category-check-${B}`) as HTMLInputElement).checked).toBe(true); // asked, not done
+    await userEvent.click(within(screen.getByTestId("conflict-confirm-no")).getByRole("button"));
+    expect(screen.queryByTestId("conflict-confirm")).toBeNull();
+    expect(screen.getByTestId("conflict-panel")).toBeInTheDocument();
+    await userEvent.click(within(screen.getByTestId("conflict-use-server")).getByRole("button"));
+    await userEvent.click(within(screen.getByTestId("conflict-confirm-yes")).getByRole("button"));
+    await waitFor(() => expect((screen.getByTestId(`category-check-${C}`) as HTMLInputElement).checked).toBe(true));
+    expect((screen.getByTestId(`category-check-${B}`) as HTMLInputElement).checked).toBe(false);
+    expect(screen.queryByTestId("conflict-panel")).toBeNull();
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
+  it("a second race after 'keep mine' reopens the comparison against the newest copy, and the version only moves when chosen again", async () => {
+    await compareWith({ categoryIds: [A, C], primaryCategoryId: C, ogImageMediaId: O2 });
+    await userEvent.click(within(screen.getByTestId("conflict-keep")).getByRole("button"));
+    save.mockResolvedValueOnce(stale as never);
+    await userEvent.click(button("post-save"));
+    await screen.findByTestId("write-refused");
+    read.mockResolvedValue(ok(post(translation({ version: 9, draft: revision({ categoryIds: [B, C], primaryCategoryId: B, ogImageMediaId: null }) }))) as never);
+    await userEvent.click(screen.getByTestId("reload-latest"));
+    await screen.findByTestId("conflict-panel");
+    expect(screen.getByTestId("conflict-panel")).toHaveTextContent(/phiên bản 9/);
+    expect(cells("og").theirs).toMatch(/Chưa chọn/);
+    expect(save).toHaveBeenCalledTimes(2);
   });
 });

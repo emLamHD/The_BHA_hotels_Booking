@@ -113,7 +113,7 @@ export default function TranslationForm({
   const [note, setNote] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<{ message: string; yes: () => void } | null>(null);
   const [preview, setPreview] = useState<{ note: string | null } | null>(null);
-  const [conflict, setConflict] = useState<{ latest: BlogTranslation; post: BlogPost } | null>(null);
+  const [conflict, setConflict] = useState<{ latest: BlogTranslation; post: BlogPost; askUseServer?: boolean } | null>(null);
   const [historyToken, setHistoryToken] = useState(0);
   const pending = useRef<Pending | null>(null);
   /** The post this form created (the first save), as last known. The `postId` prop does not change until the screen has moved to the post's page. */
@@ -441,7 +441,10 @@ export default function TranslationForm({
         {errors.body && <p className="mt-1.5 text-xs text-error-500" role="alert" data-testid="body-error">{errors.body}</p>}
       </section>
 
-      {conflict && <ConflictPanel local={{ form, body: bodyCanon }} latest={conflict.latest} onUseServer={() => { adopt(conflict.post, { replaceForm: true }); setConflict(null); write.reset(); setNote("Đã thay bằng bản trên máy chủ; thay đổi chưa lưu của bạn đã bị bỏ."); }}
+      {conflict && <ConflictPanel local={{ form, body: bodyCanon }} latest={conflict.latest} categories={categories} locale={locale} askUseServer={!!conflict.askUseServer}
+        onUseServer={() => { adopt(conflict.post, { replaceForm: true }); setConflict(null); write.reset(); setNote("Đã thay bằng bản trên máy chủ; thay đổi chưa lưu của bạn đã bị bỏ."); }}
+        onAskUseServer={() => { if (dirty) setConflict({ ...conflict, askUseServer: true }); else { adopt(conflict.post, { replaceForm: true }); setConflict(null); write.reset(); setNote("Đã thay bằng bản trên máy chủ."); } }}
+        onCancelUseServer={() => setConflict({ ...conflict, askUseServer: false })}
         onKeepMine={() => { if (postId === null && !createdRef.current) createdRef.current = conflict.post; /* the person chose to write on top of the post under this id: from here Save updates it */ setTr(conflict.latest); setBaseline(snapshotOfRevision(workingRevision(conflict.latest))); confirmedRef.current = snapshotOfRevision(workingRevision(conflict.latest)); setConflict(null); write.reset(); setNote(`Giữ thay đổi của bạn trên nền phiên bản ${conflict.latest.version}. Chưa có gì được gửi — bấm Lưu để ghi.`); onPost(conflict.post); }} onClose={() => setConflict(null)} />}
 
       <BlogWriteFeedback status={write.status} working={working} onReloadLatest={() => void loadLatest()} onCheckServer={() => void checkServer()}
@@ -495,27 +498,66 @@ function History({ postId, locale, token, canRestore, blocked, onRestore }: { po
   );
 }
 
-function ConflictPanel({ local, latest, onUseServer, onKeepMine, onClose }: { local: { form: PostForm; body: string }; latest: BlogTranslation; onUseServer: () => void; onKeepMine: () => void; onClose: () => void }) {
+/**
+ * The comparison of a post that changed under the person. It lists EVERY field a Save sends (`draftOf`): the text fields, the pictures, the category selection with the primary
+ * category, and the body. A reference is shown by what it is called and by its id - names repeat, and a picture has none - so two different selections of the same size are not
+ * mistaken for each other. The left side is the form as it is now (it follows what is typed while this is open). Nothing here sends anything.
+ */
+function ConflictPanel({ local, latest, categories, locale, askUseServer, onUseServer, onAskUseServer, onCancelUseServer, onKeepMine, onClose }: {
+  local: { form: PostForm; body: string };
+  latest: BlogTranslation;
+  categories: BlogCategory[];
+  locale: string;
+  askUseServer: boolean;
+  onUseServer: () => void;
+  onAskUseServer: () => void;
+  onCancelUseServer: () => void;
+  onKeepMine: () => void;
+  onClose: () => void;
+}) {
   const server = workingRevision(latest);
   const serverForm = formFromRevision(server);
-  const rows: [string, string, string][] = [
-    ["Tiêu đề", local.form.title, serverForm.title], ["Slug", local.form.slug, serverForm.slug], ["Tóm tắt", local.form.summary, serverForm.summary], ["Tác giả", local.form.authorName, serverForm.authorName],
-    ["Alt ảnh bìa", local.form.coverAlt, serverForm.coverAlt], ["SEO: tiêu đề", local.form.metaTitle, serverForm.metaTitle], ["SEO: mô tả", local.form.metaDescription, serverForm.metaDescription],
-    ["Ảnh bìa", local.form.coverMediaId ?? "—", serverForm.coverMediaId ?? "—"], ["Chuyên mục", local.form.categoryIds.length + " chọn", serverForm.categoryIds.length + " chọn"],
-    ["Nội dung", local.body === canonicalBody(server?.body ?? null) ? "giống nhau" : "khác nhau", ""],
+  const categoryLine = (id: string) => {
+    const known = categories.find((c) => c.id === id);
+    return `${known ? known.translations[locale]?.name ?? `(chưa có tên ${locale})` : "(không có trong danh sách)"} · ${id}`;
+  };
+  const mediaLines = (id: string | null) => (id ? [id] : ["Chưa chọn"]);
+  const categoryLines = (ids: string[]) => (ids.length ? [...ids].sort().map(categoryLine) : ["Không chọn chuyên mục nào"]);
+  const text = (value: string) => [value || "—"];
+  const rows: { key: string; name: string; mine: string[]; theirs: string[]; compare?: boolean }[] = [
+    { key: "title", name: "Tiêu đề", mine: text(local.form.title), theirs: text(serverForm.title) },
+    { key: "slug", name: "Slug", mine: text(local.form.slug), theirs: text(serverForm.slug) },
+    { key: "summary", name: "Tóm tắt", mine: text(local.form.summary), theirs: text(serverForm.summary) },
+    { key: "author", name: "Tác giả", mine: text(local.form.authorName), theirs: text(serverForm.authorName) },
+    { key: "cover", name: "Ảnh bìa", mine: mediaLines(local.form.coverMediaId), theirs: mediaLines(serverForm.coverMediaId) },
+    { key: "coverAlt", name: "Alt ảnh bìa", mine: text(local.form.coverAlt), theirs: text(serverForm.coverAlt) },
+    { key: "og", name: "Ảnh khi chia sẻ (OG)", mine: mediaLines(local.form.ogImageMediaId), theirs: mediaLines(serverForm.ogImageMediaId) },
+    { key: "metaTitle", name: "SEO: tiêu đề", mine: text(local.form.metaTitle), theirs: text(serverForm.metaTitle) },
+    { key: "metaDescription", name: "SEO: mô tả", mine: text(local.form.metaDescription), theirs: text(serverForm.metaDescription) },
+    { key: "categories", name: "Chuyên mục", mine: categoryLines(local.form.categoryIds), theirs: categoryLines(serverForm.categoryIds) },
+    { key: "primary", name: "Chuyên mục chính", mine: local.form.primaryCategoryId ? [categoryLine(local.form.primaryCategoryId)] : ["Chưa chọn"], theirs: serverForm.primaryCategoryId ? [categoryLine(serverForm.primaryCategoryId)] : ["Chưa chọn"] },
+    { key: "body", name: "Nội dung", mine: [local.body === canonicalBody(server?.body ?? null) ? "giống nhau" : "khác nhau"], theirs: ["—"], compare: false },
   ];
+  const cell = (lines: string[]) => lines.map((line, i) => <div key={i}>{line}</div>);
   return (
     <Banner tone="warning" testId="conflict-panel">
       <p className="font-medium">Bản trên máy chủ (phiên bản {latest.version}, {STATUS_LABEL[latest.status]}, sửa {formatWhen(latest.updatedAtUtc)}{latest.updatedBy?.email ? ` bởi ${latest.updatedBy.email}` : ""}) khác bản bạn đang sửa.</p>
       <table className="mt-2 w-full text-left text-xs">
         <thead><tr><th className="pr-3">Trường</th><th className="pr-3">Của bạn</th><th>Trên máy chủ</th></tr></thead>
-        <tbody>{rows.map(([name, mine, theirs]) => <tr key={name} className={mine !== theirs && theirs !== "" ? "font-semibold" : ""}><td className="pr-3 align-top">{name}</td><td className="pr-3 align-top break-words">{mine || "—"}</td><td className="align-top break-words">{theirs || "—"}</td></tr>)}</tbody>
+        <tbody>{rows.map((row) => <tr key={row.key} data-testid={`conflict-row-${row.key}`} className={row.compare !== false && row.mine.join("\n") !== row.theirs.join("\n") ? "font-semibold" : ""}><td className="pr-3 align-top">{row.name}</td><td className="pr-3 align-top break-words">{cell(row.mine)}</td><td className="align-top break-words">{cell(row.theirs)}</td></tr>)}</tbody>
       </table>
-      <div className="mt-3 flex flex-wrap gap-2">
-        <ActionButton variant="outline" onClick={onKeepMine} testId="conflict-keep">Giữ thay đổi của tôi trên bản mới</ActionButton>
-        <ActionButton variant="outline" onClick={onUseServer} testId="conflict-use-server">Bỏ thay đổi của tôi, dùng bản máy chủ</ActionButton>
-        <ActionButton variant="outline" onClick={onClose}>Đóng</ActionButton>
-      </div>
+      {askUseServer ? (
+        <div className="mt-3" data-testid="conflict-confirm">
+          <p className="text-xs">Bỏ các thay đổi chưa lưu của bạn và dùng bản trên máy chủ? Những gì bạn đã nhập sẽ bị bỏ.</p>
+          <div className="mt-2 flex gap-2"><ActionButton onClick={onUseServer} testId="conflict-confirm-yes">Đồng ý, dùng bản máy chủ</ActionButton><ActionButton variant="outline" onClick={onCancelUseServer} testId="conflict-confirm-no">Không</ActionButton></div>
+        </div>
+      ) : (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <ActionButton variant="outline" onClick={onKeepMine} testId="conflict-keep">Giữ thay đổi của tôi trên bản mới</ActionButton>
+          <ActionButton variant="outline" onClick={onAskUseServer} testId="conflict-use-server">Bỏ thay đổi của tôi, dùng bản máy chủ…</ActionButton>
+          <ActionButton variant="outline" onClick={onClose}>Đóng</ActionButton>
+        </div>
+      )}
       <p className="mt-2 text-xs">Không có lựa chọn nào tự gửi gì lên máy chủ.</p>
     </Banner>
   );
