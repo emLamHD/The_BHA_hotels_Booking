@@ -313,9 +313,9 @@ export default function TranslationForm({
       // The post exists but has no translation in this language. A create writes the post and its translation in one transaction, so what this form sent did NOT
       // make it - it is not called a success. The post is the one this id names (another language's form of this screen made it): from here Save adds this language to
       // it (an update, `expectedVersion` 0), and nothing is sent until the person presses it.
+      // The screen is not told (`onPost`): with this post in hand it would pick the post's first language as the one to show, and replace this form - and what was typed - with it.
       write.reset();
       createdRef.current = result.data;
-      onPost(result.data);
       setNote(`Bài này đã có trên máy chủ (mã đã được dùng ở ngôn ngữ khác) nhưng chưa có bản dịch ${locale}; lần tạo vừa rồi không ghi gì. Dữ liệu của bạn được giữ; bấm Lưu để thêm bản dịch ${locale} vào bài đó.`);
       return;
     }

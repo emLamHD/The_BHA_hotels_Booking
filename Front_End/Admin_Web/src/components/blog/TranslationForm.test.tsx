@@ -793,7 +793,7 @@ describe("C9 F1 — a create whose read-back said 'not there yet' and whose same
     expect(await screen.findByTestId("post-note")).toHaveTextContent(/chưa có bản dịch vi.*lần tạo vừa rồi không ghi gì/);
     expect(screen.queryByTestId("conflict-panel")).toBeNull();
     expect(screen.queryByTestId("write-unverified")).toBeNull(); // not stuck in a read-back loop
-    expect(onPost).toHaveBeenCalledWith(expect.objectContaining({ id: CLIENT_ID }));
+    expect(onPost).not.toHaveBeenCalled(); // the screen would switch to the post's first language and drop this form
     expect(onCreated).not.toHaveBeenCalled();
     expect(create).toHaveBeenCalledTimes(2);
     expect(save).not.toHaveBeenCalled(); // nothing is sent until the person presses Save
