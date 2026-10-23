@@ -16,7 +16,7 @@ import { NodeSelection, Selection, TextSelection } from "@tiptap/pm/state";
 import { GapCursor } from "@tiptap/pm/gapcursor";
 import { Dropcursor, Gapcursor, UndoRedo } from "@tiptap/extensions";
 import { bodyToDoc, docToBody, isSafeHref, type BodyProblem, type BodyV1 } from "@/lib/blog/bodyModel";
-import { schemaExtensions } from "@/lib/blog/editorSchema";
+import { schemaExtensions, unwrapQuotes } from "@/lib/blog/editorSchema";
 import { BodyEditorServicesContext, type BodyEditorServices } from "./BodyEditorContext";
 import { viewedBlocks } from "./nodeViews";
 
@@ -67,6 +67,16 @@ function moveBlock(editor: Editor, direction: -1 | 1) {
   else tr.setSelection(Selection.near(tr.doc.resolve(insertAt + 1), 1));
   editor.view.dispatch(tr.scrollIntoView());
   editor.commands.focus();
+}
+
+/** Wraps the block in a quote, or takes the quote off (`unwrapQuotes`: the inherited toggle cannot lift a quote that has a cite). */
+function toggleQuote(editor: Editor) {
+  // Not `isActive("blockquote")`: that is only true when quotes cover the WHOLE selection, and a selection over a quote and its neighbours is still a quote to take off.
+  const unwrapped = unwrapQuotes(editor.state);
+  if (unwrapped) {
+    editor.view.dispatch(unwrapped.scrollIntoView());
+    editor.commands.focus();
+  } else editor.chain().focus().toggleBlockquote().run();
 }
 
 function deleteBlock(editor: Editor) {
@@ -145,7 +155,7 @@ function Toolbar({ editor, services }: { editor: Editor; services: BodyEditorSer
       {button("Gỡ liên kết", () => editor.chain().focus().extendMarkRange("link").unsetLink().run(), { disabled: !editor.isActive("link") })}
       {button("• Danh sách", () => editor.chain().focus().toggleBulletList().run(), { active: editor.isActive("bulletList") })}
       {button("1. Danh sách", () => editor.chain().focus().toggleOrderedList().run(), { active: editor.isActive("orderedList") })}
-      {button("Trích dẫn", () => editor.chain().focus().toggleBlockquote().run(), { active: editor.isActive("blockquote") })}
+      {button("Trích dẫn", () => toggleQuote(editor), { active: editor.isActive("blockquote") })}
       {button("Nguồn trích dẫn", () => editor.chain().focus().insertContentAt(editor.state.selection.$from.after(1) - 1, { type: "quoteCite" }).run(), { disabled: !editor.isActive("blockquote"), title: "Thêm dòng nguồn dưới trích dẫn" })}
       <span className="mx-1 h-5 w-px bg-gray-300 dark:bg-gray-700" aria-hidden />
       {button("Ảnh", () => void pick(false), { title: "Chèn một ảnh" })}

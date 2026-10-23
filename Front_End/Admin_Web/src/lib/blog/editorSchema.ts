@@ -8,6 +8,7 @@
  */
 
 import { Node, type Extensions } from "@tiptap/core";
+import { NodeSelection, Selection, TextSelection, type EditorState, type Transaction } from "@tiptap/pm/state";
 import Document from "@tiptap/extension-document";
 import Paragraph from "@tiptap/extension-paragraph";
 import Text from "@tiptap/extension-text";
@@ -90,4 +91,52 @@ export function schemaExtensions(): Extensions {
     PropertyIntroBlock,
     UnknownBlock,
   ];
+}
+
+/**
+ * Takes the quote formatting off every quote the selection touches, in ONE transaction (one undo step) - or `null` when it touches none.
+ *
+ * The inherited `toggleBlockquote()` cannot do this: it lifts the quote's paragraph out, which would leave a `quoteCite` alone at document level (a cite is only
+ * valid inside a quote), so it refuses as soon as a quote has a cite, even an empty one. A quote here is one paragraph and an optional cite; unwrapping it keeps
+ * the paragraph node as it is (marks and links included) and turns a cite with text into an ordinary paragraph after it, in the same place. An empty cite has
+ * nothing to keep and is dropped. Quotes are only ever top-level blocks (their content is a paragraph and a cite), so the selection's top-level range is enough.
+ */
+export function unwrapQuotes(state: EditorState): Transaction | null {
+  const { doc, selection, schema } = state;
+  const quotes: { pos: number; node: typeof doc }[] = [];
+  doc.forEach((node, pos) => {
+    if (node.type.name === "blockquote" && pos < selection.to && pos + node.nodeSize > selection.from) quotes.push({ pos, node });
+  });
+  if (quotes.length === 0) return null;
+
+  const tr = state.tr;
+  const paragraph = schema.nodes.paragraph;
+  // Where a position of the old document ends up: each unwrapped quote loses its two boundary tokens, and an empty cite loses its own (it was the only content removed).
+  const emptyCite = (node: typeof doc) => (node.lastChild?.type.name === "quoteCite" && node.lastChild.content.size === 0 ? node.lastChild : null);
+  const mapPos = (position: number) => {
+    let mapped = position;
+    for (const { pos, node } of quotes) {
+      const end = pos + node.nodeSize;
+      if (position > pos) mapped -= 1;
+      if (position >= end) mapped -= 1;
+      const cite = emptyCite(node);
+      if (cite) {
+        const citeStart = end - 1 - cite.nodeSize;
+        if (position >= end) mapped -= cite.nodeSize;
+        else if (position >= citeStart) mapped -= position - citeStart + 1; // in the empty cite: the end of the paragraph before it
+      }
+    }
+    return mapped;
+  };
+
+  for (const { pos, node } of [...quotes].reverse()) {
+    const kept = [node.firstChild!];
+    const cite = node.child(node.childCount - 1);
+    if (cite.type.name === "quoteCite" && cite.content.size > 0) kept.push(paragraph.create(null, cite.content));
+    tr.replaceWith(pos, pos + node.nodeSize, kept);
+  }
+
+  if (selection instanceof NodeSelection) tr.setSelection(Selection.near(tr.doc.resolve(mapPos(selection.from)), 1));
+  else tr.setSelection(TextSelection.create(tr.doc, mapPos(selection.anchor), mapPos(selection.head)));
+  return tr;
 }

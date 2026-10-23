@@ -331,3 +331,138 @@ describe("C8 F1 — repeated moves act on the same block", () => {
     expect(states[states.length - 1].problems).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------- C9 F2: the quote button unwraps a quote that has a citation
+
+describe("C9 F2 — 'Trích dẫn' removes quote formatting from the restricted quote schema", () => {
+  const editorOf = () => (screen.getByTestId("body-editor") as HTMLElement & { editor: Editor }).editor;
+  const button = (name: string) => screen.getByRole("button", { name });
+  const P = (text: string) => ({ type: "paragraph", inlines: [{ text }] });
+  const QUOTE_INLINES = [{ text: "Câu " }, { text: "đậm", bold: true }, { text: " và " }, { text: "liên kết", href: "/blog" }];
+  const body = (...blocks: unknown[]) => ({ schemaVersion: 1, blocks });
+  const blocksOf = (states: BodyState[]) => states[states.length - 1].body?.blocks;
+  const caretIn = (text: string, offset = 0) => act(() => {
+    const editor = editorOf();
+    let start = -1;
+    editor.state.doc.descendants((node, pos) => { if (start < 0 && node.isTextblock && node.textContent === text) start = pos; });
+    expect(start, `a block "${text}"`).toBeGreaterThanOrEqual(0);
+    editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, start + 1 + offset)));
+  });
+  const rangeOver = (firstText: string, lastText: string) => act(() => {
+    const editor = editorOf();
+    let from = -1;
+    let to = -1;
+    editor.state.doc.descendants((node, pos) => {
+      if (node.isTextblock && node.textContent === firstText && from < 0) from = pos + 1;
+      if (node.isTextblock && node.textContent === lastText) to = pos + 1 + node.content.size;
+    });
+    expect(from).toBeGreaterThanOrEqual(0);
+    expect(to).toBeGreaterThan(from);
+    editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, from, to)));
+  });
+  const where = () => { const { selection } = editorOf().state; return { parent: selection.$from.parent.textContent, type: selection.$from.parent.type.name, offset: selection.$from.parentOffset }; };
+  const shapeOf = () => { const types: string[] = []; editorOf().state.doc.forEach((child) => types.push(child.type.name)); return types; };
+
+  const WITH_CITE = body(P("Trước"), { type: "quote", inlines: QUOTE_INLINES, cite: "Nguồn A" }, P("Sau"));
+
+  it("from the quote's paragraph, with a citation: both stay as ordinary paragraphs, in order, with their marks and the link; the document is valid", async () => {
+    const states = await open(WITH_CITE);
+    caretIn("Câu đậm và liên kết", 3);
+    await userEvent.click(button("Trích dẫn"));
+    expect(blocksOf(states)).toEqual([P("Trước"), { type: "paragraph", inlines: QUOTE_INLINES }, P("Nguồn A"), P("Sau")]);
+    expect(shapeOf()).toEqual(["paragraph", "paragraph", "paragraph", "paragraph"]);
+    expect(() => editorOf().state.doc.check()).not.toThrow();
+    expect(editorOf().isActive("blockquote")).toBe(false);
+    expect(where()).toEqual({ parent: "Câu đậm và liên kết", type: "paragraph", offset: 3 }); // the caret stays where it was in the text
+  });
+
+  it("from the citation: the same result, and the caret stays in the citation's text", async () => {
+    const states = await open(WITH_CITE);
+    caretIn("Nguồn A", 4);
+    await userEvent.click(button("Trích dẫn"));
+    expect(blocksOf(states)).toEqual([P("Trước"), { type: "paragraph", inlines: QUOTE_INLINES }, P("Nguồn A"), P("Sau")]);
+    expect(where()).toEqual({ parent: "Nguồn A", type: "paragraph", offset: 4 });
+  });
+
+  it("with an EMPTY citation (added with 'Nguồn trích dẫn', not filled): it unwraps, and no empty paragraph or duplicate is left", async () => {
+    const states = await open(body(P("Trước"), { type: "quote", inlines: [{ text: "Chỉ trích" }] }, P("Sau")));
+    caretIn("Chỉ trích", 2);
+    await userEvent.click(button("Nguồn trích dẫn"));
+    expect(shapeOf()).toEqual(["paragraph", "blockquote", "paragraph"]);
+    expect(editorOf().state.doc.child(1).childCount).toBe(2); // a paragraph and an empty cite
+    caretIn("Chỉ trích", 2);
+    await userEvent.click(button("Trích dẫn"));
+    expect(shapeOf()).toEqual(["paragraph", "paragraph", "paragraph"]);
+    expect(blocksOf(states)).toEqual([P("Trước"), P("Chỉ trích"), P("Sau")]);
+    expect(where()).toEqual({ parent: "Chỉ trích", type: "paragraph", offset: 2 });
+  });
+
+  it("from the empty citation itself: the caret lands at the end of the quote's paragraph", async () => {
+    await open(body({ type: "quote", inlines: [{ text: "Chỉ trích" }] }));
+    caretIn("Chỉ trích", 2);
+    await userEvent.click(button("Nguồn trích dẫn"));
+    act(() => {
+      const editor = editorOf();
+      editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, editor.state.doc.child(0).child(0).nodeSize + 2)));
+    });
+    expect(where().type).toBe("quoteCite");
+    await userEvent.click(button("Trích dẫn"));
+    expect(shapeOf()).toEqual(["paragraph"]);
+    expect(where()).toEqual({ parent: "Chỉ trích", type: "paragraph", offset: "Chỉ trích".length });
+  });
+
+  it("a quote without a citation unwraps as before", async () => {
+    const states = await open(body(P("Trước"), { type: "quote", inlines: [{ text: "Chỉ trích" }] }, P("Sau")));
+    caretIn("Chỉ trích", 1);
+    await userEvent.click(button("Trích dẫn"));
+    expect(blocksOf(states)).toEqual([P("Trước"), P("Chỉ trích"), P("Sau")]);
+  });
+
+  it("a selection over two quotes and the paragraph between them unwraps both quotes (citations kept) and leaves every other block as it was", async () => {
+    const states = await open(body(
+      P("Đầu"),
+      { type: "quote", inlines: [{ text: "Một" }], cite: "Nguồn 1" },
+      P("Giữa"),
+      { type: "quote", inlines: [{ text: "Hai" }], cite: "Nguồn 2" },
+      { type: "heading", level: 2, text: "Cuối" },
+    ));
+    rangeOver("Một", "Nguồn 2");
+    await userEvent.click(button("Trích dẫn"));
+    expect(blocksOf(states)).toEqual([P("Đầu"), P("Một"), P("Nguồn 1"), P("Giữa"), P("Hai"), P("Nguồn 2"), { type: "heading", level: 2, text: "Cuối" }]);
+    expect(() => editorOf().state.doc.check()).not.toThrow();
+    expect(editorOf().isActive("blockquote")).toBe(false);
+  });
+
+  it("is ONE undoable action: undo restores the quote with its citation, redo unwraps again", async () => {
+    const states = await open(WITH_CITE);
+    caretIn("Câu đậm và liên kết", 3);
+    await userEvent.click(button("Trích dẫn"));
+    await userEvent.click(button("Hoàn tác"));
+    expect(blocksOf(states)).toEqual(WITH_CITE.blocks);
+    expect(shapeOf()).toEqual(["paragraph", "blockquote", "paragraph"]);
+    await userEvent.click(button("Làm lại"));
+    expect(blocksOf(states)).toEqual([P("Trước"), { type: "paragraph", inlines: QUOTE_INLINES }, P("Nguồn A"), P("Sau")]);
+  });
+
+  it("ordinary wrapping still works: a paragraph becomes a quote, and the button takes it back", async () => {
+    const states = await open(body(P("Trước"), P("Thường"), P("Sau")));
+    caretIn("Thường", 2);
+    await userEvent.click(button("Trích dẫn"));
+    expect(blocksOf(states)).toEqual([P("Trước"), { type: "quote", inlines: [{ text: "Thường" }] }, P("Sau")]);
+    await userEvent.click(button("Trích dẫn"));
+    expect(blocksOf(states)).toEqual([P("Trước"), P("Thường"), P("Sau")]);
+  });
+
+  it("does nothing off a quote (a heading, a gap cursor) and does not throw", async () => {
+    const states = await open(body({ type: "heading", level: 2, text: "Tiêu đề" }, { type: "image", mediaId: M1, alt: "a", caption: "" }));
+    caretIn("Tiêu đề", 1);
+    const before = JSON.stringify(blocksOf(states));
+    expect(editorOf().isActive("blockquote")).toBe(false);
+    act(() => {
+      const editor = editorOf();
+      editor.view.dispatch(editor.state.tr.setSelection(new GapCursor(editor.state.doc.resolve(editor.state.doc.content.size))));
+    });
+    expect(() => editorOf().chain().focus().run()).not.toThrow();
+    expect(JSON.stringify(blocksOf(states))).toBe(before);
+  });
+});
