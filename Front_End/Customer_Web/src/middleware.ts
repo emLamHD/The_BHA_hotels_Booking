@@ -21,9 +21,9 @@ async function blogPass(request: NextRequest): Promise<NextResponse> {
       target = null; // a misconfigured API base is the page's error to show, not a reason to break the request here
     }
     if (target) {
-      const host = request.headers.get("host") ?? "";
-      const origin = /^(?:localhost|127\.0\.0\.1)(?::\d+)?$/i.test(host) ? `${request.nextUrl.protocol}//${host}` : request.nextUrl.origin;
-      return NextResponse.redirect(new URL(target, origin), 301);
+      // A RELATIVE Location (valid in a 301): the browser resolves it against the address it actually used, so the scheme and host it typed are kept whatever sits
+      // in front of Next (a TLS terminator makes Next see `http:`, and an absolute URL built here would then send the reader to http).
+      return new NextResponse(null, { status: 301, headers: { Location: target } });
     }
   }
   const headers = new Headers(request.headers);
