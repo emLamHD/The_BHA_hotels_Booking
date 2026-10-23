@@ -96,3 +96,109 @@ describe("the posts list", () => {
     expect(screen.getByTestId("posts-total")).toHaveTextContent("2 bài");
   });
 });
+
+// ---------------------------------------------------------------- C10 F4: a page past the end after the total shrank
+
+describe("C10 F4 — the page the person is on no longer exists because the total shrank", () => {
+  const PAGE = 20;
+  /** A server whose number of matching posts can change between requests; it answers the page asked for, as the real one does (past the end: no items, the real total). */
+  let matching = 0;
+  const serve = (query: { page: number }) => {
+    const first = (query.page - 1) * PAGE;
+    const count = Math.max(0, Math.min(PAGE, matching - first));
+    const titles = Array.from({ length: count }, (_, i) => `Bài ${first + i + 1}`);
+    return { ...page(titles, matching), page: query.page };
+  };
+  const rows = () => screen.queryAllByTestId("post-row").length;
+
+  beforeEach(() => {
+    matching = 0;
+    list.mockImplementation(((query: { page: number }) => Promise.resolve(ok(serve(query)))) as never);
+  });
+
+  it("the review's case: 21 published posts, page 2 is asked for, another editor unpublishes one first - page 1 is read again and shows the 20, the filter and the search are kept, and 'no matching posts' is never shown", async () => {
+    matching = 21;
+    renderInBlogGate(<PostsScreen />);
+    await screen.findByText(/Trang 1 \/ 2/);
+    await userEvent.selectOptions(screen.getByTestId("posts-status"), "Published");
+    await userEvent.type(screen.getByTestId("posts-search"), "bài{enter}");
+    await screen.findByText(/Trang 1 \/ 2/);
+    const before = list.mock.calls.length;
+
+    const slow = deferred<ReturnType<typeof ok>>();
+    list.mockReturnValueOnce(slow.promise as never);
+    await userEvent.click(screen.getByText("Trang sau"));
+    matching = 20; // the other editor's unpublish lands before page 2 is answered
+    const recovery = deferred<ReturnType<typeof ok>>();
+    list.mockReturnValueOnce(recovery.promise as never);
+    await act(async () => { slow.resolve(ok({ ...serve({ page: 2 }), page: 2 })); await Promise.resolve(); });
+
+    await waitFor(() => expect(list.mock.calls.length).toBe(before + 2));
+    expect(list.mock.calls.at(-1)![0]).toMatchObject({ status: "Published", q: "bài", page: 1 });
+    expect(screen.queryByTestId("posts-empty")).toBeNull(); // not "nothing matches" while the page that exists is being read
+    await act(async () => { recovery.resolve(ok(serve({ page: 1 }))); await Promise.resolve(); });
+    await waitFor(() => expect(rows()).toBe(20));
+    expect(screen.getByTestId("posts-total")).toHaveTextContent("20 bài");
+    expect(screen.getByTestId("posts-status")).toHaveValue("Published");
+    expect(screen.getByTestId("posts-search")).toHaveValue("bài");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(list.mock.calls.length).toBe(before + 2); // two requests for the one shrink: no loop
+  });
+
+  it("a multi-page shrink goes to the last page that exists; a second shrink before that answer goes on to the next one down", async () => {
+    matching = 100;
+    renderInBlogGate(<PostsScreen />);
+    await screen.findByText(/Trang 1 \/ 5/);
+    for (let i = 0; i < 4; i++) await userEvent.click(screen.getByText("Trang sau"));
+    await screen.findByText(/Trang 5 \/ 5/);
+
+    const asked4 = deferred<ReturnType<typeof ok>>();
+    list.mockReturnValueOnce(asked4.promise as never);
+    await userEvent.click(screen.getByText("Trang trước")); // page 4 is asked for ...
+    matching = 45; // ... and the total shrinks to 3 pages before it is answered
+    const asked3 = deferred<ReturnType<typeof ok>>();
+    list.mockReturnValueOnce(asked3.promise as never);
+    await act(async () => { asked4.resolve(ok(serve({ page: 4 }))); await Promise.resolve(); });
+    await waitFor(() => expect(list.mock.calls.at(-1)![0]).toMatchObject({ page: 3 })); // the last page of 45 posts, not page 1
+    expect(screen.queryByTestId("posts-empty")).toBeNull();
+
+    matching = 25; // shrinks again before page 3 is answered
+    await act(async () => { asked3.resolve(ok(serve({ page: 3 }))); await Promise.resolve(); });
+    await screen.findByText(/Trang 2 \/ 2/);
+    expect(rows()).toBe(5);
+    expect(list.mock.calls.slice(-3).map((c) => c[0].page)).toEqual([4, 3, 2]);
+    expect(screen.queryByTestId("posts-empty")).toBeNull();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(list.mock.calls.slice(-1)[0][0].page).toBe(2); // settled
+  });
+
+  it("when the total drops to zero the person lands on page 1, where 'no matching posts' is true - after exactly one more request, not a loop", async () => {
+    matching = 45;
+    renderInBlogGate(<PostsScreen />);
+    await screen.findByText(/Trang 1 \/ 3/);
+    const before = list.mock.calls.length;
+    matching = 0;
+    await userEvent.click(screen.getByText("Trang sau"));
+    expect(await screen.findByTestId("posts-empty")).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(list.mock.calls.length).toBe(before + 2);
+    expect(list.mock.calls.at(-1)![0]).toMatchObject({ page: 1 });
+  });
+
+  it("an answer for the page that was asked before the person changed the filter never moves the page of the new filter", async () => {
+    matching = 21;
+    renderInBlogGate(<PostsScreen />);
+    await screen.findByText(/Trang 1 \/ 2/);
+    const slow = deferred<ReturnType<typeof ok>>();
+    list.mockReturnValueOnce(slow.promise as never);
+    await userEvent.click(screen.getByText("Trang sau")); // page 2, held
+    await userEvent.selectOptions(screen.getByTestId("posts-status"), "Draft"); // page 1 of another filter: served by the default fake
+    await waitFor(() => expect(list.mock.calls.at(-1)![0]).toMatchObject({ status: "Draft", page: 1 }));
+    const calls = list.mock.calls.length;
+    matching = 20;
+    await act(async () => { slow.resolve(ok({ ...serve({ page: 2 }), page: 2 })); await Promise.resolve(); }); // the old, now empty and out-of-range answer arrives late
+    await new Promise((r) => setTimeout(r, 50));
+    expect(list.mock.calls.length).toBe(calls); // dropped: no recovery request for a page nobody is on
+    expect(screen.getByTestId("posts-status")).toHaveValue("Draft");
+  });
+});

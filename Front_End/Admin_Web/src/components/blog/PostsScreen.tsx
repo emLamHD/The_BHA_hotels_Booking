@@ -2,7 +2,9 @@
 
 /**
  * BHA-BLOG-001-CP03: the list of posts — search, filter by category / status / language, server pages, a thumbnail, and the state of each language. A change of
- * filter goes back to page 1; an answer for an older filter or page is dropped (`useWebsiteList` generation).
+ * filter goes back to page 1; an answer for an older filter or page is dropped (`useWebsiteList` generation). The total can shrink under the person (another editor
+ * unpublishes, archives): the server then answers the page they are on - past the last one - with no items and the real total. That is not "no matching posts": the last
+ * page that exists is read instead (the same recovery as `MediaBrowser`), with the filter, the search and the language kept.
  */
 
 import React, { useState } from "react";
@@ -36,6 +38,10 @@ export default function PostsScreen() {
 
   const filter = (change: () => void) => { change(); setPage(1); };
   const pages = list.state.status === "ready" ? Math.max(1, Math.ceil(list.state.data.total / PAGE_SIZE)) : 1;
+  // Only an answer FOR the page that is shown is obeyed (while another page loads, the previous answer is still in `state`), and the corrected page is within range, so
+  // this cannot repeat; a second shrink answers the corrected page the same way and goes one step further down.
+  const outOfRange = list.state.status === "ready" && list.state.data.page > pages;
+  if (list.state.status === "ready" && list.state.data.page === page && page > pages) setPage(pages); // adjusted while rendering (React's pattern for state derived from a response)
   const codes = languages.status === "ready" ? languages.data.map((l) => l.code) : [];
 
   const shownTranslation = (row: BlogPostRow) => row.translations.find((t) => t.locale === (locale || codes[0])) ?? row.translations[0];
@@ -69,9 +75,9 @@ export default function PostsScreen() {
         {rights.edit && <Link href="/website/blog/posts/new" className="inline-flex h-10 items-center rounded-lg bg-brand-500 px-4 text-sm font-medium text-white hover:bg-brand-600" data-testid="post-new">Viết bài mới</Link>}
       </div>
 
-      {list.state.status === "loading" && <LoadingPanel what="bài viết" />}
+      {(list.state.status === "loading" || outOfRange) && <LoadingPanel what="bài viết" />}
       {list.state.status === "error" && <ErrorPanel message={list.state.message} onRetry={() => void list.reload()} />}
-      {list.state.status === "ready" && (
+      {list.state.status === "ready" && !outOfRange && (
         <>
           <p className="text-sm text-gray-500 dark:text-gray-400" data-testid="posts-total">{list.state.data.total} bài.</p>
           {list.state.data.items.length === 0 ? <p className="rounded-xl border border-gray-200 p-8 text-center text-sm text-gray-500 dark:border-gray-800" data-testid="posts-empty">Chưa có bài nào khớp.</p> : (
