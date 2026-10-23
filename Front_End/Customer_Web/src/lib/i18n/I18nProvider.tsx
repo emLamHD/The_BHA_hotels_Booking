@@ -97,10 +97,14 @@ export function I18nProvider({ snapshot, children }: { snapshot: I18nSnapshot; c
       writePreference(LOCALE_COOKIE, target.code);
       // The language's own default currency comes with it (a mapping the Admin keeps, not a rule in code).
       if (target.defaultCurrency) writePreference(CURRENCY_COOKIE, target.defaultCurrency);
-      // On a Blog page the language's own URL (the translation, or that language's index); elsewhere only a refresh with the new cookies.
+      // On a Blog page the language's own URL (the translation, or that language's index); elsewhere only a refresh with the new cookies. A client navigation
+      // keeps the layout (header, <html lang>, dictionary) as it was, so after it the whole route is refreshed — the layout then reads the new URL's language —
+      // while the providers above stay mounted (a booking hold, a draft in a form).
       const destination = localeTargetFor(code);
-      if (destination && router) router.push(destination as never);
-      else finish();
+      if (destination && router) {
+        router.push(destination as never);
+        router.refresh();
+      } else finish();
     },
     [config.locales, locale, finish, router]
   );
