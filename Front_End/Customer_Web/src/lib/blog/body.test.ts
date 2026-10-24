@@ -32,6 +32,39 @@ describe("only an internal path or an https address is a link", () => {
   });
 });
 
+// A real backslash (code 92) after the slash: browsers read `/\\host` as `//host`, so it must not be an internal link. The test origin is never visited.
+const BACKSLASH = String.fromCharCode(92);
+const SLASH_BACKSLASH_HOST = `/${BACKSLASH}evil.example`;
+
+describe("a backslash never makes an internal link", () => {
+  it("is a real backslash, and a browser's URL parser leaves the site with it", () => {
+    expect(SLASH_BACKSLASH_HOST.charCodeAt(1)).toBe(92);
+    expect(new URL(SLASH_BACKSLASH_HOST, "https://site.test").origin).toBe("https://evil.example");
+    expect(new URL("/offers?a=1#b", "https://site.test").origin).toBe("https://site.test");
+  });
+
+  it("refuses it at the start, inside the path and in an https address, and keeps the allowed forms", () => {
+    for (const bad of [SLASH_BACKSLASH_HOST, `/offers${BACKSLASH}evil.example`, `/a/${BACKSLASH}/b`, `https://site.test${BACKSLASH}@evil.example/`]) expect(safeHref(bad)).toBeNull();
+    for (const ok of ["/offers", "/offers?a=1#b", "/", "https://example.com/a?b=1#c"]) expect(safeHref(ok)).toBe(ok);
+    for (const bad of ["//evil.test", "http://example.com", "javascript:alert(1)", "/a\tb"]) expect(safeHref(bad)).toBeNull();
+  });
+
+  it("through parseBody and the renderer: no link, the text and the rest of the post stay", () => {
+    const html = render([
+      { type: "paragraph", inlines: [{ text: "đậm", bold: true, href: SLASH_BACKSLASH_HOST }, { text: "nghiêng", italic: true, href: `/offers${BACKSLASH}x` }, { text: "ưu đãi", href: "/offers" }, { text: "nguồn", href: "https://example.com/x" }] },
+      { type: "paragraph", inlines: [{ text: "phần còn lại" }] },
+    ]);
+    expect(html).not.toContain("evil.example");
+    expect(html).not.toContain("%5C");
+    expect(html).toContain("<strong>đậm</strong>");
+    expect(html).toContain("<em>nghiêng</em>");
+    expect(html).toContain("phần còn lại");
+    expect(html.match(/<a /g)).toHaveLength(2);
+    expect(html).toContain('href="/offers"');
+    expect(html).toContain('href="https://example.com/x"');
+  });
+});
+
 describe("the body is React, never HTML", () => {
   it("shows markup and script text as text, and a javascript: link as plain text", () => {
     const html = render([

@@ -27,7 +27,8 @@ const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CONTROL = /[\u0000-\u001f\u007f]/;
 
 export function safeHref(value: unknown): string | null {
-  if (typeof value !== "string" || value === "" || CONTROL.test(value)) return null;
+  // A backslash is read by a browser as a slash (`/\evil.example` is `//evil.example`), so no link may have one; the API refuses it too (BlogLink.IsSafe).
+  if (typeof value !== "string" || value === "" || CONTROL.test(value) || value.includes("\\")) return null;
   if (value.startsWith("/")) return value.startsWith("//") ? null : value;
   return value.startsWith("https://") && value.length > "https://".length ? value : null;
 }
