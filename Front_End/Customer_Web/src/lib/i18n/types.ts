@@ -57,6 +57,11 @@ export interface I18nSnapshot {
 }
 
 export const LOCALE_COOKIE = "bha_locale";
+/**
+ * BHA-BLOG-001-CP04: a Blog URL's explicit `?locale=` reaches the server render as this request header, set by the middleware on `/blog` paths only (and
+ * removed everywhere else), so the layout, the dictionary and the page all resolve the SAME language whatever the visitor's cookie says.
+ */
+export const LOCALE_OVERRIDE_HEADER = "x-bha-locale";
 export const CURRENCY_COOKIE = "bha_currency";
 export const PREFERENCE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
 

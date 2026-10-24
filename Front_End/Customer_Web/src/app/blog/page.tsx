@@ -1,106 +1,105 @@
 import React from "react";
-import type { Metadata } from "next";
+import type { Metadata, Route } from "next";
 import Link from "next/link";
-import type { Route } from "next";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import BgGlassmorphism from "@/components/BgGlassmorphism";
-import { POST_CATEGORIES } from "@/data/travelPosts";
-import { localizeCategory } from "@/lib/i18n/staticContent";
-import { blogCategoryPath, postsForFilter, resolveBlogFilter } from "@/lib/homepageContent";
-import { BLOG_PATH } from "@/lib/riversideHomeContent";
-import PostCard from "./PostCard";
+import BlogFreshness from "@/components/blog/BlogFreshness";
+import BlogLocaleTargets from "@/components/blog/BlogLocaleTargets";
+import BlogPagination from "@/components/blog/BlogPagination";
+import BlogPostCard from "@/components/blog/BlogPostCard";
+import BlogCategoryNav from "@/components/blog/BlogCategoryNav";
+import { blogCategoryHref, blogIndexHref, formatPostDate, lastPageOf } from "@/lib/blog/blog";
+import { blogRequest, indexTargets, type BlogSearchParams } from "@/lib/blog/context";
+import { listMetadata } from "@/lib/blog/seo";
+import { getBlogCategories, getBlogPosts } from "@/lib/blog/server";
+import { getT } from "@/lib/i18n/server";
+import { getSiteOrigin } from "@/lib/seo/siteUrl";
 
-import { getContent, getT } from "@/lib/i18n/server";
-interface BlogPageProps {
-  searchParams?: { category?: string | string[] };
+// A published post must appear (and an unpublished one disappear) on the next request: nothing here is built ahead of time.
+export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
+
+const PAGE_SIZE = 12;
+
+export async function generateMetadata({ searchParams }: { searchParams?: BlogSearchParams }): Promise<Metadata> {
+  const { locale, page } = await blogRequest(searchParams);
+  const t = await getT();
+  if (!locale || !page) return {};
+  // The page's own read (one per request): a list that could not be read must not be indexed as the "could not load" page, nor one the API says is not there.
+  const posts = await getBlogPosts(locale, { page, pageSize: PAGE_SIZE });
+  if (posts.status !== "ok") return { robots: { index: false } };
+  return listMetadata(getSiteOrigin(), locale, t("customer.blog.metaTitleIndex"), t("customer.blog.index.description"), blogIndexHref(locale, page));
 }
-
-export async function generateMetadata({ searchParams }: BlogPageProps): Promise<Metadata> {
-  const [t, { c }] = await Promise.all([getT(), getContent()]);
-  const filter = resolveBlogFilter(searchParams?.category);
-  if (filter.kind === "category") {
-    const category = localizeCategory(filter.category, c);
-    return { title: t("customer.blog.metaTitle", { name: category.name }), description: category.description };
-  }
-  return { title: t("customer.blog.metaTitleIndex"), description: t("customer.blog.index.description") };
-}
-
-const CHIP_CLASS =
-  "inline-flex items-center rounded-full border px-4 py-2 text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500";
 
 /**
- * CUST-WEB-001-CP08a-C2: the travel blog. `?category=` is read by `resolveBlogFilter`: none shows everything,
- * one registered category shows its posts, anything else (unknown, repeated, another letter case) is a 404
- * rather than a guess. The posts are guides and summaries of public reports with their sources, not news of
- * The BHA; there is no author, comment or counter.
+ * BHA-BLOG-001-CP04: the Blog index — the posts the Admin has published, in the language of its URL, newest first, a page at a time (the API paginates). A read
+ * that fails says so; it is never an empty list, a 404 or a sample. A page beyond the last one goes to the last page (temporary: the data moved, the URL did not).
  */
-export default async function BlogPage({ searchParams }: BlogPageProps) {
-  const [t, { c }] = await Promise.all([getT(), getContent()]);
-  const filter = resolveBlogFilter(searchParams?.category);
-  if (filter.kind === "invalid") notFound();
-  const posts = postsForFilter(filter);
-  const activeSlug = filter.kind === "category" ? filter.category.slug : null;
-  const activeCategory = filter.kind === "category" ? localizeCategory(filter.category, c) : null;
-  const heading = activeCategory ? activeCategory.name : t("customer.blog.index.title");
-  const description = activeCategory ? activeCategory.description : t("customer.blog.index.description");
+export default async function BlogPage({ searchParams }: { searchParams?: BlogSearchParams }) {
+  const { snapshot, locale, page } = await blogRequest(searchParams);
+  if (!locale || !page) notFound();
+  const t = await getT();
+  const [posts, categories] = await Promise.all([getBlogPosts(locale, { page, pageSize: PAGE_SIZE }), getBlogCategories(locale)]);
+  if (posts.status === "missing") notFound();
+  if (posts.status === "ok") {
+    const last = lastPageOf(posts.value.total, PAGE_SIZE);
+    if (page > last) redirect(blogIndexHref(locale, last));
+  }
 
   return (
     <div className="nc-BlogPage relative overflow-hidden">
       <BgGlassmorphism />
+      <BlogLocaleTargets targets={indexTargets(snapshot.config.locales)} />
+      <BlogFreshness />
       <div className="container relative pb-20 pt-10 lg:pb-28 lg:pt-14">
         <nav aria-label={t("customer.common.breadcrumb")} className="text-sm text-neutral-500 dark:text-neutral-400">
           <ol className="flex flex-wrap items-center gap-2">
-            <li>
-              <Link href={"/" as Route} className="hover:underline">{t("customer.common.home")}</Link>
-            </li>
+            <li><Link href={"/" as Route} className="hover:underline">{t("customer.common.home")}</Link></li>
             <li aria-hidden="true">/</li>
-            <li>
-              {activeSlug ? (
-                <Link href={BLOG_PATH as Route} className="hover:underline">{t("customer.common.blog2")}</Link>
-              ) : (
-                <span aria-current="page">{t("customer.common.blog2")}</span>
-              )}
-            </li>
-            {activeSlug && (
-              <>
-                <li aria-hidden="true">/</li>
-                <li aria-current="page">{heading}</li>
-              </>
-            )}
+            <li aria-current="page">{t("customer.common.blog2")}</li>
           </ol>
         </nav>
 
         <header className="mt-6 max-w-3xl space-y-3">
-          <h1 className="text-3xl font-semibold text-neutral-900 dark:text-neutral-50 md:text-4xl">{heading}</h1>
-          <p className="text-neutral-600 dark:text-neutral-300">{description}</p>
-          <p className="text-sm text-neutral-500 dark:text-neutral-400">{t("customer.blog.page.eachArticleListsItsSources")}</p>
+          <h1 className="text-3xl font-semibold text-neutral-900 dark:text-neutral-50 md:text-4xl">{t("customer.blog.index.title")}</h1>
+          <p className="text-neutral-600 dark:text-neutral-300">{t("customer.blog.index.description")}</p>
         </header>
 
-        <nav aria-label={t("customer.blog.page.categories")} className="mt-8 flex flex-wrap gap-3">
-          <Link
-            href={BLOG_PATH as Route}
-            aria-current={activeSlug === null ? "page" : undefined}
-            className={`${CHIP_CLASS} ${activeSlug === null ? "border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-neutral-900" : "border-neutral-300 text-neutral-700 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-200 dark:hover:bg-neutral-800"}`}
-          >{t("customer.blog.page.all")}</Link>
-          {POST_CATEGORIES.map((category) => (
-            <Link
-              key={category.slug}
-              href={blogCategoryPath(category.slug) as Route}
-              aria-current={activeSlug === category.slug ? "page" : undefined}
-              className={`${CHIP_CLASS} ${activeSlug === category.slug ? "border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-neutral-900" : "border-neutral-300 text-neutral-700 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-200 dark:hover:bg-neutral-800"}`}
-            >
-              {localizeCategory(category, c).name}
-            </Link>
-          ))}
-        </nav>
+        {categories.status === "ok" && categories.value.length > 0 && (
+          <BlogCategoryNav
+            label={t("customer.blog.page.categories")}
+            allLabel={t("customer.blog.page.all")}
+            allHref={blogIndexHref(locale)}
+            active={null}
+            items={categories.value.map((c) => ({ slug: c.slug, name: c.name, href: blogCategoryHref(locale, c.slug) }))}
+          />
+        )}
 
-        <ul className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3 lg:gap-8">
-          {posts.map((post) => (
-            <li key={post.id}>
-              <PostCard post={post} />
-            </li>
-          ))}
-        </ul>
+        {posts.status === "error" && (
+          <p role="alert" data-testid="blog-unavailable" className="mt-10 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-600 dark:bg-neutral-800 dark:text-amber-200">
+            {t("customer.blog.unavailable")}
+          </p>
+        )}
+        {posts.status === "ok" && posts.value.items.length === 0 && (
+          <p role="status" data-testid="blog-empty" className="mt-10 text-neutral-600 dark:text-neutral-300">{t("customer.blog.empty")}</p>
+        )}
+        {posts.status === "ok" && posts.value.items.length > 0 && (
+          <>
+            <ul className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3 lg:gap-8">
+              {posts.value.items.map((post) => (
+                <li key={post.id}>
+                  <BlogPostCard post={post} locale={locale} dateLabel={t("customer.blog.post.published", { date: formatPostDate(post.firstPublishedAt, snapshot.formatLocale) })} />
+                </li>
+              ))}
+            </ul>
+            <BlogPagination
+              current={page}
+              last={lastPageOf(posts.value.total, PAGE_SIZE)}
+              hrefFor={(p) => blogIndexHref(locale, p)}
+              labels={{ navigation: t("customer.blog.pagination.label"), previous: t("customer.blog.pagination.previous"), next: t("customer.blog.pagination.next"), goTo: (p) => t("customer.blog.pagination.goTo", { page: p }) }}
+            />
+          </>
+        )}
       </div>
     </div>
   );
