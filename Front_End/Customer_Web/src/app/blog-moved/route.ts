@@ -12,5 +12,6 @@ const MOVED_TO_HEADER = "x-bha-moved-to";
 export function GET(request: Request): Response {
   const to = request.headers.get(MOVED_TO_HEADER);
   if (to === null || !BLOG_TARGET.test(to)) return new Response("Not found", { status: 404, headers: { "Cache-Control": "no-store" } });
-  return new Response(null, { status: 301, headers: { Location: to } });
+  // Never reused from a cache: the target changes with the next rename and, for an address without ?locale, with the reader's language cookie. (A copy a browser already holds is not reached by this.)
+  return new Response(null, { status: 301, headers: { Location: to, "Cache-Control": "no-store" } });
 }

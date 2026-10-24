@@ -12,11 +12,19 @@ describe("the permanent redirect for an old Blog address", () => {
     }
   });
 
+  it("is never reused from a cache: the target can change with the next rename and, for an address without ?locale, depends on the visitor's language cookie", () => {
+    const response = call("/blog/bai-moi?locale=vi");
+    expect(response.status).toBe(301);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("location")).toBe("/blog/bai-moi?locale=vi");   // still a relative Location, still a permanent redirect
+  });
+
   it("is never an open redirect: only the exact shape of a Blog address of this site is accepted", () => {
     for (const to of [undefined, "", "https://evil.test/blog/a?locale=vi", "//evil.test", "/\\evil.test", "/offers", "/blog/../account?locale=vi", "/blog/a/b?locale=vi", "/blog/a", "/blog/a?locale=vi&x=1", "/blog/a?locale=vi#h", "/blog/A?locale=vi", "javascript:alert(1)"]) {
       const response = call(to);
       expect(response.status, String(to)).toBe(404);
       expect(response.headers.get("location")).toBeNull();
+      expect(response.headers.get("cache-control")).toBe("no-store");
     }
   });
 });

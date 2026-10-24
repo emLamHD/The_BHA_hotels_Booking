@@ -15,7 +15,7 @@ interface Api {
   defaultLocale?: string;
   /** slug → what `categories/{slug}` answers: "current", or the current slug it moved to, or "unknown". */
   categories?: Record<string, "current" | "unknown" | { movedTo: string }>;
-  posts?: Record<string, { movedTo: string } | "current">;
+  posts?: Record<string, { movedTo: string; byLocale?: Record<string, string> } | "current">;
   configFails?: boolean;
 }
 
@@ -32,7 +32,8 @@ function fakeApi(api: Api) {
     const entry = table?.[match[2]] ?? "unknown";
     if (entry === "unknown") return json(404);
     if (entry === "current") return json(200, { slug: match[2] });
-    return json(301, { slug: entry.movedTo, locale });
+    const moved = entry as { movedTo: string; byLocale?: Record<string, string> };
+    return json(301, { slug: moved.byLocale?.[locale] ?? moved.movedTo, locale });
   };
   return { handler, calls };
 }
@@ -44,11 +45,11 @@ async function through(path: string, api: Api, cookie?: string) {
   const request = new NextRequest(new URL(path, ORIGIN), { headers: cookie ? { cookie } : {} });
   const answer = await middleware(request);
   const rewrite = answer.headers.get("x-middleware-rewrite");
-  if (!rewrite) return { status: 200 as number, location: null as string | null, redirected: false, calls: fake.calls };
+  if (!rewrite) return { status: 200 as number, location: null as string | null, cacheControl: null as string | null, redirected: false, calls: fake.calls };
   expect(new URL(rewrite).pathname).toBe("/blog-moved");
   const to = answer.headers.get("x-middleware-request-x-bha-moved-to");
   const final = blogMoved(new Request(`${ORIGIN}/blog-moved`, { headers: to ? { "x-bha-moved-to": to } : {} }));
-  return { status: final.status, location: final.headers.get("location"), redirected: true, calls: fake.calls };
+  return { status: final.status, location: final.headers.get("location"), cacheControl: final.headers.get("cache-control"), redirected: true, calls: fake.calls };
 }
 
 describe("a legacy /blog?category= address, from request to HTTP answer", () => {
@@ -125,5 +126,39 @@ describe("a page that is not a page is never turned into page 1", () => {
     expect((await through("/blog/category/cu?locale=vi&page=1", api)).location).toBe("/blog/category/moi?locale=vi");
     expect((await through("/blog/category/cu?locale=vi&page=2", api)).location).toBe("/blog/category/moi?locale=vi&page=2");
     expect((await through("/blog/category/cu?locale=vi&page=999999", api)).location).toBe("/blog/category/moi?locale=vi&page=999999");
+  });
+});
+
+describe("a permanent Blog redirect is never reused from a cache (BHA-BLOG-001-CP04-CP05-C6)", () => {
+  beforeEach(() => {
+    vi.stubEnv("NEXT_PUBLIC_API_BASE_URL", "https://api.test");
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it("sends Cache-Control: no-store with the 301 of an old post slug, an old category slug and the legacy ?category= address", async () => {
+    for (const path of ["/blog/bai-cu?locale=vi", "/blog/category/cu?locale=vi", "/blog?category=cu&locale=vi"]) {
+      const r = await through(path, { posts: { "bai-cu": { movedTo: "bai-moi" } }, categories: { cu: { movedTo: "moi" } } });
+      expect(r, path).toMatchObject({ status: 301, cacheControl: "no-store" });
+    }
+  });
+
+  it("answers the SAME old address (no ?locale) with the target of each visitor's own language, so a copy kept for one cookie would be wrong for the other", async () => {
+    const api: Api = { posts: { hello: { movedTo: "hello-vi", byLocale: { vi: "xin-chao-2", en: "hello-welcome" } } } };
+    const vi = await through("/blog/hello", api, "bha_locale=vi");
+    const en = await through("/blog/hello", api, "bha_locale=en");
+    expect(vi).toMatchObject({ status: 301, location: "/blog/xin-chao-2?locale=vi", cacheControl: "no-store" });
+    expect(en).toMatchObject({ status: 301, location: "/blog/hello-welcome?locale=en", cacheControl: "no-store" });
+  });
+
+  it("follows the next rename: the same old address goes to the newest slug in one hop, and is again no-store", async () => {
+    const api: Api = { posts: { hello: { movedTo: "hello-2" } } };
+    expect(await through("/blog/hello", api, "bha_locale=vi")).toMatchObject({ location: "/blog/hello-2?locale=vi", cacheControl: "no-store" });
+    api.posts = { hello: { movedTo: "hello-3" }, "hello-2": { movedTo: "hello-3" } };
+    const next = await through("/blog/hello", api, "bha_locale=vi");
+    expect(next).toMatchObject({ status: 301, location: "/blog/hello-3?locale=vi", cacheControl: "no-store" });
+    expect(next.location).not.toContain("hello-2");
   });
 });

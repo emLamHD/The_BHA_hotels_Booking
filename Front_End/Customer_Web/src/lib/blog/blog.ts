@@ -176,6 +176,9 @@ export function parsePostDetail(json: unknown, apiBase: string): BlogPostDetail 
 
 // ---- locale ------------------------------------------------------------------------------------------------------------------------------
 
+/** Whether a URL path is a page of the Blog (`/blog`, `/blog/...`); `/blog-moved` and `/blogging` are not. */
+export const isBlogPath = (pathname: string): boolean => pathname === "/blog" || pathname.startsWith("/blog/");
+
 const LOCALE_SHAPE = /^([A-Za-z]{2,3})(?:-([A-Za-z]{4}))?(?:-([A-Za-z]{2}|[0-9]{3}))?$/;
 
 /** The key the backend uses (`en-US` → `en-us`, `zh-Hant` → `zh-hant`): the same grammar, case-folded. `null` for a text that is not a language tag. */

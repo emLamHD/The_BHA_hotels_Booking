@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { decideRoute, UNAVAILABLE_PAGE } from "@/lib/routePolicy";
 import { getApiBaseUrl } from "@/lib/api/env";
-import { normalizeLocale } from "@/lib/blog/blog";
+import { isBlogPath, normalizeLocale } from "@/lib/blog/blog";
 import { resolveBlogRedirect } from "@/lib/blog/redirects";
 import { LOCALE_COOKIE, LOCALE_OVERRIDE_HEADER } from "@/lib/i18n/types";
 
@@ -12,7 +12,7 @@ import { LOCALE_COOKIE, LOCALE_OVERRIDE_HEADER } from "@/lib/i18n/types";
  */
 async function blogPass(request: NextRequest): Promise<NextResponse> {
   const { pathname, searchParams } = request.nextUrl;
-  const isBlog = pathname === "/blog" || pathname.startsWith("/blog/");
+  const isBlog = isBlogPath(pathname);
   if (isBlog) {
     let target: string | null = null;
     try {
