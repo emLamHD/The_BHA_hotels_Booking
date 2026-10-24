@@ -108,10 +108,10 @@ describe("the language switch on a post that cannot be read", () => {
   });
 
   /** The provider the layout mounts, with the header's `setLocale` taken from the real context. */
-  function mountedSwitch(): I18nContextValue {
+  function mountedSwitch(currency?: string): I18nContextValue {
     let context: I18nContextValue | null = null;
     const Probe = () => { context = useI18n(); return null; };
-    renderToStaticMarkup(React.createElement(I18nProvider, { snapshot: testSnapshot("vi") }, React.createElement(Probe)));
+    renderToStaticMarkup(React.createElement(I18nProvider, { snapshot: testSnapshot("vi", currency) }, React.createElement(Probe)));
     return context!;
   }
 
@@ -132,6 +132,15 @@ describe("the language switch on a post that cannot be read", () => {
     expect(router.push).toHaveBeenCalledWith("/blog?locale=en");
     expect(router.refresh).toHaveBeenCalledTimes(1);
     expect(cookies.some((c) => c.startsWith("bha_locale=en;"))).toBe(true);
+  });
+
+  it("goes to the index even when the language's default currency is the one already chosen (nothing else in the snapshot changes)", async () => {
+    vi.mocked(getBlogPost).mockResolvedValue({ status: "error" });
+    setLocaleTargets(targetsOf(await BlogPostPage({ params: { slug: "bai-viet-1" }, searchParams: { locale: "vi" } })));
+
+    mountedSwitch("USD").setLocale("en");                                // English's own default currency is USD: the currency stays USD
+    expect(router.push).toHaveBeenCalledWith("/blog?locale=en");
+    expect(cookies.some((c) => c.startsWith("bha_currency=USD;"))).toBe(true);
   });
 
   it("without targets the header only writes the cookie and refreshes the same URL — which is why the branch must register them", () => {
