@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { category, item } from "@/lib/blog/blogTestkit";
-import { robotsTxt, sitemapEntries, sitemapXml, STATIC_PUBLIC_PATHS } from "./sitemap";
+import { robotsTxt, sitemapEntries, sitemapXml, SITEMAP_MAX_BYTES, SITEMAP_MAX_URLS, STATIC_PUBLIC_PATHS } from "./sitemap";
 
 const ORIGIN = "https://www.thebha.test";
 const many = (prefix: string, count: number) => Array.from({ length: count }, (_, i) => item(1, { id: `${prefix}-${i}`, slug: `${prefix}-${i}`, modifiedAt: `2026-10-${String(10 + (i % 15)).padStart(2, "0")}T03:00:00+00:00` }));
@@ -55,5 +55,64 @@ describe("the sitemap document and robots.txt", () => {
     expect(withOrigin).not.toMatch(/^Disallow: \/$/m);
     for (const path of ["/api/", "/account", "/checkout", "/paydone"]) expect(withOrigin).toContain(`Disallow: ${path}`);
     expect(robotsTxt(null)).not.toContain("Sitemap:");
+  });
+});
+
+describe("the sitemap's two protocol limits (one file: 50,000 URLs, 52,428,800 bytes uncompressed)", () => {
+  const post = (slug: string) => ({ id: slug, slug, modifiedAt: "2026-10-10T03:00:00+00:00" }) as unknown as ReturnType<typeof item>;
+  const posts = (count: number) => Array.from({ length: count }, (_, i) => post(`p${i}`));
+  const STATIC_AND_INDEX = STATIC_PUBLIC_PATHS.length + 1;        // the pages every run has, and the language's Blog index
+  const bytes = (xml: string) => Buffer.byteLength(xml, "utf8");
+  const entry = (url: string) => ({ url });
+  /** One entry whose `url` is `filler` after a fixed prefix; the whole file is that entry alone. */
+  const single = (filler: string) => sitemapXml([entry(`${ORIGIN}/${filler}`)]);
+
+  it("takes exactly 50,000 URL entries and refuses 50,001, counting the static pages, the Blog index and the categories, after de-duplication", () => {
+    const at = sitemapEntries(ORIGIN, ["vi"], { posts: { vi: posts(SITEMAP_MAX_URLS - STATIC_AND_INDEX) }, categories: { vi: [] } });
+    expect(at).toHaveLength(SITEMAP_MAX_URLS);
+    expect(() => sitemapXml(at)).not.toThrow();
+
+    expect(() => sitemapEntries(ORIGIN, ["vi"], { posts: { vi: posts(SITEMAP_MAX_URLS - STATIC_AND_INDEX + 1) }, categories: { vi: [] } })).toThrow(/50000 URLs/);
+    // a category is an entry too
+    expect(() => sitemapEntries(ORIGIN, ["vi"], { posts: { vi: posts(SITEMAP_MAX_URLS - STATIC_AND_INDEX) }, categories: { vi: [category("diem-den")] } })).toThrow(/50000 URLs/);
+    // two languages: every locale counts
+    expect(() => sitemapEntries(ORIGIN, ["vi", "en"], { posts: { vi: posts(30_000), en: posts(30_000) }, categories: {} })).toThrow(/50000 URLs/);
+    // the same URL listed twice is one entry: 60,000 posts that are 30,000 distinct slugs fit
+    expect(sitemapEntries(ORIGIN, ["vi"], { posts: { vi: [...posts(30_000), ...posts(30_000)] }, categories: {} })).toHaveLength(30_000 + STATIC_AND_INDEX);
+    // the XML builder refuses a list that is too long on its own, too
+    expect(() => sitemapXml(Array.from({ length: SITEMAP_MAX_URLS + 1 }, (_, i) => entry(`${ORIGIN}/${i}`)))).toThrow(/50000 URLs/);
+  });
+
+  it("measures the file in UTF-8 bytes — header, markup and escaping included — and accepts exactly 52,428,800 of them", () => {
+    const base = bytes(single(""));
+    const atLimit = single("a".repeat(SITEMAP_MAX_BYTES - base));
+    expect(bytes(atLimit)).toBe(SITEMAP_MAX_BYTES);
+    expect(() => single("a".repeat(SITEMAP_MAX_BYTES - base + 1))).toThrow(/52428800 bytes/);
+  });
+
+  it("counts a multi-byte character by its bytes, not as one string character", () => {
+    const base = bytes(single(""));
+    const fits = Math.floor((SITEMAP_MAX_BYTES - base) / 3);              // "€" is 3 bytes
+    expect(bytes(single("€".repeat(fits)))).toBeLessThanOrEqual(SITEMAP_MAX_BYTES);
+    const tooBig = single.bind(null, "€".repeat(fits + 1));
+    expect("€".repeat(fits + 1).length).toBeLessThan(SITEMAP_MAX_BYTES);  // a string.length check would let it through
+    expect(tooBig).toThrow(/52428800 bytes/);
+  });
+
+  it("counts escaped text as the escaped bytes (& is 5 bytes as &amp;)", () => {
+    const base = bytes(single(""));
+    const fits = Math.floor((SITEMAP_MAX_BYTES - base) / 5);
+    expect(bytes(single("&".repeat(fits)))).toBeLessThanOrEqual(SITEMAP_MAX_BYTES);
+    expect("&".repeat(fits + 1).length).toBeLessThan(SITEMAP_MAX_BYTES / 4);
+    expect(() => single("&".repeat(fits + 1))).toThrow(/52428800 bytes/);
+  });
+
+  it("leaves a sitemap inside both limits exactly as it was (same URLs, lastmod and markup)", () => {
+    const entries = sitemapEntries(ORIGIN, ["vi"], { posts: { vi: [item(1, { id: "a", slug: "bai-a", modifiedAt: "2026-10-10T03:00:00+00:00" })] }, categories: { vi: [category("diem-den")] } });
+    const out = sitemapXml(entries);
+    expect(out.startsWith('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n<url><loc>')).toBe(true);
+    expect(out.endsWith("</url>\n</urlset>\n")).toBe(true);
+    expect(out).toContain(`<url><loc>${ORIGIN}/blog/bai-a?locale=vi</loc><lastmod>2026-10-10T03:00:00+00:00</lastmod></url>`);
+    expect(out.match(/<url>/g)).toHaveLength(entries.length);
   });
 });
