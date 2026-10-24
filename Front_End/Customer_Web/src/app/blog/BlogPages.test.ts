@@ -92,6 +92,9 @@ describe("/blog", () => {
     expect(await renderPage(BlogPage, { searchParams })).toContain("blog-unavailable");
     expect(vi.mocked(getBlogPosts).mock.calls.map((c) => JSON.stringify(c))).toEqual(Array(2).fill('["en",{"page":2,"pageSize":12}]'));
 
+    vi.mocked(getBlogPosts).mockResolvedValue({ status: "missing" });   // the page answers 404 for it: no canonical for a URL that is not there
+    expect(await indexMetadata({ searchParams: { locale: "zz" } })).toEqual({ robots: { index: false } });
+
     vi.mocked(getBlogPosts).mockResolvedValue(list(3, 30, 2));
     expect(await indexMetadata({ searchParams })).toMatchObject({ alternates: { canonical: "https://www.thebha.test/blog?locale=en&page=2" } });
     expect((await indexMetadata({ searchParams })).robots).toBeUndefined();

@@ -25,9 +25,9 @@ export async function generateMetadata({ searchParams }: { searchParams?: BlogSe
   const { locale, page } = await blogRequest(searchParams);
   const t = await getT();
   if (!locale || !page) return {};
-  // The page's own read (one per request): a list that could not be read must not be indexed as the "could not load" page.
+  // The page's own read (one per request): a list that could not be read must not be indexed as the "could not load" page, nor one the API says is not there.
   const posts = await getBlogPosts(locale, { page, pageSize: PAGE_SIZE });
-  if (posts.status === "error") return { robots: { index: false } };
+  if (posts.status !== "ok") return { robots: { index: false } };
   return listMetadata(getSiteOrigin(), locale, t("customer.blog.metaTitleIndex"), t("customer.blog.index.description"), blogIndexHref(locale, page));
 }
 
