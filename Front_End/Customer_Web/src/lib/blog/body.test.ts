@@ -32,7 +32,7 @@ describe("only an internal path or an https address is a link", () => {
   });
 });
 
-// A real backslash (code 92) after the slash: browsers read `/\\host` as `//host`, so it must not be an internal link. The test origin is never visited.
+// A real backslash (code 92) after the slash: browsers read `/\host` as `//host`, so it must not be an internal link. The test origin is never visited.
 const BACKSLASH = String.fromCharCode(92);
 const SLASH_BACKSLASH_HOST = `/${BACKSLASH}evil.example`;
 
