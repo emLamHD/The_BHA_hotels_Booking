@@ -6,6 +6,8 @@ vi.mock("next/navigation", () => ({
   notFound: () => { throw new Error("NEXT_NOT_FOUND"); },
   redirect: (url: string) => { throw new Error(`NEXT_REDIRECT:${url}`); },
   useRouter: () => ({ refresh: () => undefined, push: () => undefined }),
+  usePathname: () => "/blog",
+  useSearchParams: () => new URLSearchParams(),
 }));
 import { renderPage } from "@/lib/i18n/testkit";
 import BlogPage, { generateMetadata as indexMetadata } from "./page";
@@ -77,9 +79,27 @@ describe("/blog", () => {
   });
 
   it("has a canonical that names the language and the page, on the configured origin", async () => {
+    vi.mocked(getBlogPosts).mockResolvedValue(list(3));
     expect(await indexMetadata({ searchParams: { locale: "en", page: "2" } })).toMatchObject({ alternates: { canonical: "https://www.thebha.test/blog?locale=en&page=2" } });
     vi.stubEnv("SITE_URL", "");
     expect((await indexMetadata({ searchParams: {} })).alternates).toBeUndefined();
+  });
+
+  it("is noindex when the posts cannot be read, from the very read the page makes; a working list and an empty one are indexed normally", async () => {
+    vi.mocked(getBlogPosts).mockResolvedValue({ status: "error" });
+    const searchParams = { locale: "en", page: "2" };
+    expect(await indexMetadata({ searchParams })).toEqual({ robots: { index: false } });
+    expect(await renderPage(BlogPage, { searchParams })).toContain("blog-unavailable");
+    expect(vi.mocked(getBlogPosts).mock.calls.map((c) => JSON.stringify(c))).toEqual(Array(2).fill('["en",{"page":2,"pageSize":12}]'));
+
+    vi.mocked(getBlogPosts).mockResolvedValue(list(3, 30, 2));
+    expect(await indexMetadata({ searchParams })).toMatchObject({ alternates: { canonical: "https://www.thebha.test/blog?locale=en&page=2" } });
+    expect((await indexMetadata({ searchParams })).robots).toBeUndefined();
+
+    vi.mocked(getBlogPosts).mockResolvedValue(list(0));
+    const empty = await indexMetadata({ searchParams: {} });
+    expect(empty.robots).toBeUndefined();
+    expect(empty.alternates).toBeDefined();
   });
 });
 

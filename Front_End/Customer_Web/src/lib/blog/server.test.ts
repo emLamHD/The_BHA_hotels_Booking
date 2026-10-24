@@ -100,4 +100,43 @@ describe("every post of a language, for the sitemap", () => {
     fetchMock.mockReturnValueOnce(json(list([], 120, 2)));
     await expect(getAllBlogPosts("vi")).rejects.toThrow(/ended early/);
   });
+
+  const pageOf = (n: number, count: number, total: number, patch: Record<string, unknown> = {}) =>
+    json({ ...list(Array.from({ length: count }, (_, i) => apiItem(1, { id: `${n}-${i}`, slug: `p${n}-${i}` })), total, n), ...patch });
+  const serve = (...answers: Promise<Response>[]) => answers.forEach((a) => fetchMock.mockReturnValueOnce(a));
+
+  it("throws when a post is unpublished between the pages: page 1 said 51, page 2 says 50 and is empty (the list would hold a removed post and miss one)", async () => {
+    serve(pageOf(1, 50, 51), json(list([], 50, 2)));
+    await expect(getAllBlogPosts("vi")).rejects.toThrow(/changed while it was read/);
+  });
+
+  it("throws when the total grows between the pages, so the list is not the one the first page counted", async () => {
+    serve(pageOf(1, 50, 120), pageOf(2, 50, 121), pageOf(3, 20, 121));
+    await expect(getAllBlogPosts("vi")).rejects.toThrow(/changed while it was read/);
+  });
+
+  it("throws when a post is on two pages, when the posts found are not the total, and when a page is not the one asked for", async () => {
+    serve(pageOf(1, 50, 60), json(list([...Array.from({ length: 9 }, (_, i) => apiItem(1, { id: `2-${i}`, slug: `p2-${i}` })), apiItem(1, { id: "1-0", slug: "p1-0" })], 60, 2)));
+    await expect(getAllBlogPosts("vi")).rejects.toThrow(/twice/);
+
+    serve(pageOf(1, 50, 60), pageOf(2, 9, 60));
+    await expect(getAllBlogPosts("vi")).rejects.toThrow(/changed while it was read/);
+
+    serve(pageOf(1, 50, 60), pageOf(1, 10, 60));
+    await expect(getAllBlogPosts("vi")).rejects.toThrow(/changed while it was read/);
+
+    serve(pageOf(1, 50, 60, { pageSize: 25 }));
+    await expect(getAllBlogPosts("vi")).rejects.toThrow(/changed while it was read/);
+  });
+
+  it("does not return a partial list when a middle page fails, and succeeds on a stable list of several pages and on no posts at all", async () => {
+    serve(pageOf(1, 50, 120), json({}, 500));
+    await expect(getAllBlogPosts("vi")).rejects.toThrow(/could not be read/);
+
+    serve(pageOf(1, 50, 120), pageOf(2, 50, 120), pageOf(3, 20, 120));
+    expect(await getAllBlogPosts("vi")).toHaveLength(120);
+
+    serve(json(list([], 0)));
+    expect(await getAllBlogPosts("vi")).toEqual([]);
+  });
 });

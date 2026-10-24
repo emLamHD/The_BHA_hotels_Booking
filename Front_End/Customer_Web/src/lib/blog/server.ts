@@ -82,17 +82,35 @@ export const getBlogCategory = (locale: string, slug: string) =>
 export const getBlogHomeSection = (locale: string, limit = 6) =>
   read<BlogHomeSection>("home", `/home-section${q(locale, { limit })}`);
 
-/** Every published post of a language, all pages (a sitemap is not the first page of the API). Throws when any page cannot be read: a partial list is never returned as complete. */
+/**
+ * Every published post of a language, all pages (a sitemap is not the first page of the API). Throws when any page cannot be read, or when the pages do not agree
+ * with each other (a total that moves, a page that is not the one asked for, a post twice, a count that is not the total): a partial or mixed list is never returned
+ * as complete. This catches a list that changed in a way the pages show; it is not a snapshot — a change that keeps the total and the counts is not detected.
+ */
 export async function getAllBlogPosts(locale: string): Promise<BlogPostItem[]> {
   const pageSize = 50;
   const all: BlogPostItem[] = [];
+  const ids = new Set<string>();
+  let total = -1;
+  const moved = (page: number, why: string) => new Error(`the Blog posts of ${locale} changed while it was read (page ${page}: ${why})`);
   for (let page = 1; ; page += 1) {
     const result = await getBlogPosts(locale, { page, pageSize });
     if (result.status !== "ok") throw new Error(`the Blog posts of ${locale} (page ${page}) could not be read`);
-    all.push(...result.value.items);
-    if (page * pageSize >= result.value.total) return all;
+    const list = result.value;
+    if (list.page !== page || list.pageSize !== pageSize) throw moved(page, `the API sent page ${list.page} of ${list.pageSize}`);
+    if (page === 1) total = list.total;
+    else if (list.total !== total) throw moved(page, `the total went from ${total} to ${list.total}`);
+    for (const post of list.items) {
+      if (ids.has(post.id)) throw new Error(`the Blog posts of ${locale} list a post twice (page ${page})`);
+      ids.add(post.id);
+      all.push(post);
+    }
+    if (page * pageSize >= total) {
+      if (all.length !== total) throw moved(page, `${all.length} posts found for a total of ${total}`);
+      return all;
+    }
     // The API says there is more but sent nothing: the list moved under us, so it is not complete.
-    if (result.value.items.length === 0) throw new Error(`the Blog posts of ${locale} ended early at page ${page}`);
+    if (list.items.length === 0) throw new Error(`the Blog posts of ${locale} ended early at page ${page}`);
   }
 }
 
