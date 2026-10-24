@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { API, apiCover, apiDetail, apiItem } from "./blogTestkit";
 import {
-  blogCategoryHref, blogIndexHref, blogLocaleOf, blogPostHref, languageTag, lastPageOf, normalizeLocale, parseCategoryList, parseHomeSection, parsePage, parsePostDetail, parsePostItem, parsePostList,
+  BLOG_RECOVER_PATH, blogCategoryHref, blogIndexHref, blogRecoverHref, recoverSamePath, blogLocaleOf, blogPostHref, languageTag, lastPageOf, normalizeLocale, parseCategoryList, parseHomeSection, parsePage, parsePostDetail, parsePostItem, parsePostList,
 } from "./blog";
 
 const MEDIA = "/api/v1/website/blog/media/aaaaaaaa-0000-0000-0000-000000000001";
@@ -81,5 +81,24 @@ describe("pages", () => {
     expect([parsePage(undefined), parsePage("1"), parsePage("12")]).toEqual([1, 1, 12]);
     for (const bad of ["0", "-1", "1.5", "abc", "01", "", "1e3", ["1", "2"]]) expect(parsePage(bad as string)).toBeNull();
     expect([lastPageOf(0, 12), lastPageOf(12, 12), lastPageOf(13, 12), lastPageOf(25, 12)]).toEqual([1, 1, 2, 3]);
+  });
+});
+
+describe("the Blog 404 recovery step (C7)", () => {
+  const indexes = { vi: "/blog?locale=vi", en: "/blog?locale=en", "en-US": "/blog?locale=en-us" };
+  it("is a path of its own that names a language and nothing else", () => {
+    expect(BLOG_RECOVER_PATH).toBe("/blog-recover");
+    expect(blogRecoverHref("en")).toBe("/blog-recover?locale=en");
+    expect(blogRecoverHref("zh-hant")).toBe("/blog-recover?locale=zh-hant");
+  });
+
+  it("replaces the Blog index targets only for a reader who is on the index's own pathname", () => {
+    expect(recoverSamePath(indexes, "/blog")).toEqual({ vi: "/blog-recover?locale=vi", en: "/blog-recover?locale=en", "en-US": "/blog-recover?locale=en-us" });
+    for (const pathname of ["/blog/khong-co", "/blog/category/khong-co", "/", "/faq"]) expect(recoverSamePath(indexes, pathname), pathname).toEqual(indexes);
+  });
+
+  it("leaves a target that is not the Blog index, or names no language, as it is", () => {
+    const targets = { vi: "/blog/bai-mot?locale=vi", en: "/blog", fr: "/blog/category/diem-den?locale=fr" };
+    expect(recoverSamePath(targets, "/blog")).toEqual(targets);
   });
 });

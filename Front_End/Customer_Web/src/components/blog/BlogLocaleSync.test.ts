@@ -121,3 +121,15 @@ describe("everything else is left alone", () => {
     expect(writes).toEqual([]);
   });
 });
+
+describe("the Blog 404 recovery step (C7)", () => {
+  it("is passed through without a refresh, and the next Blog page still counts as one that names its language", async () => {
+    const { refresh, go } = await mount("/blog", "locale=vi&page=abc");   // a 404 of the index, language named in the URL
+    go("/blog-recover", "locale=en");                                       // the transit step
+    expect(refresh).not.toHaveBeenCalled();
+    go("/blog", "locale=en");                                               // the chosen index (BlogFreshness refreshes it)
+    expect(refresh).not.toHaveBeenCalled();
+    go("/faq");                                                             // leaving it afterwards is still the C6 case
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+});

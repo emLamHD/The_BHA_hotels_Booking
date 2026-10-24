@@ -4,6 +4,8 @@ vi.mock("@/lib/i18n/server", async () => (await import("@/lib/i18n/testkit")).se
 vi.mock("@/lib/hero/server", () => ({ getHeroSnapshot: vi.fn() }));
 vi.mock("@/lib/promotions/server", () => ({ getPromotions: vi.fn(), getPromotion: vi.fn() }));
 vi.mock("@/lib/blog/server", () => ({ getBlogHomeSection: vi.fn(), getBlogPosts: vi.fn() }));
+// BlogFreshness (mounted by the home page) reads the App Router, which a static render does not have.
+vi.mock("next/navigation", async (importOriginal) => ({ ...(await importOriginal<typeof import("next/navigation")>()), useRouter: () => ({ refresh: () => undefined }), usePathname: () => "/", useSearchParams: () => new URLSearchParams() }));
 import React from "react";
 import { renderPage, renderWithI18n } from "@/lib/i18n/testkit";
 import PageHome from "@/app/page";
@@ -17,6 +19,7 @@ import type { HeroSnapshot } from "@/lib/hero/hero";
 import { getBlogHomeSection, getBlogPosts } from "@/lib/blog/server";
 import { category as blogCategory, items as blogItems } from "@/lib/blog/blogTestkit";
 import { BookingHoldProvider } from "@/app/BookingHoldProvider";
+import BlogFreshness from "@/components/blog/BlogFreshness";
 
 /**
  * CUST-WEB-001-CP08a-C2: what the server renders for the booking-portal home page and its sibling pages. The
@@ -213,5 +216,29 @@ describe("/media-credits", () => {
     expect(credits).toContain("https://commons.wikimedia.org/wiki/File:");
     expect(credits).toContain('rel="noopener noreferrer"');
     expect(count(credits, "<h1")).toBe(1);
+  });
+});
+
+/** Every element of `type` in the tree a page returns (its children are props, not yet rendered). */
+function find(node: unknown, type: unknown, found: React.ReactElement[] = []): React.ReactElement[] {
+  if (Array.isArray(node)) node.forEach((n) => find(n, type, found));
+  else if (React.isValidElement(node)) {
+    if (node.type === type) found.push(node);
+    find((node.props as { children?: unknown }).children, type, found);
+  }
+  return found;
+}
+
+describe("the home page and the client router cache (BHA-BLOG-001-CP04-CP05-C7)", () => {
+  it("mounts the Blog freshness refresh, once, because it reads two Blog projections on the server", async () => {
+    expect(find(await PageHome(), BlogFreshness)).toHaveLength(1);
+  });
+
+  it("keeps hiding a Blog block whose read failed — no sample and no last good copy stands in", async () => {
+    vi.mocked(getBlogHomeSection).mockResolvedValueOnce({ status: "error" });
+    vi.mocked(getBlogPosts).mockResolvedValueOnce({ status: "error" });
+    const html = await renderPage(PageHome);
+    expect(html).not.toContain('href="/blog/bai-viet-1?locale=vi"');
+    expect(html).not.toContain('href="/blog/category/diem-den-noi-bat?locale=vi"');
   });
 });

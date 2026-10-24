@@ -71,6 +71,12 @@ describe("the Blog 404 and the language switch", () => {
     expect(JSON.stringify(targetsOf(tree))).not.toMatch(/khong-co|bai-viet/);
   });
 
+  it("asks for the recovery step: a target on the pathname the reader is on goes through /blog-recover (Next 13.4.3 clears a 404 only when the pathname changes)", async () => {
+    const find = (node: unknown): React.ReactElement<{ recover?: boolean }> | null =>
+      Array.isArray(node) ? node.map(find).find((e) => e !== null) ?? null : React.isValidElement(node) ? (node.type === BlogLocaleTargets ? (node as React.ReactElement<{ recover?: boolean }>) : find((node.props as { children?: unknown }).children)) : null;
+    expect(find(await boundary())?.props.recover).toBe(true);
+  });
+
   it("is the Blog's alone: the root 404 page registers no language targets, so a 404 elsewhere switches by cookie + refresh as before", () => {
     expect(readFileSync(join(APP, "not-found.tsx"), "utf8")).not.toMatch(/BlogLocaleTargets|localeTargets|blogIndexHref|indexTargets/);
   });

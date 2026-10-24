@@ -176,6 +176,24 @@ export function parsePostDetail(json: unknown, apiBase: string): BlogPostDetail 
 
 // ---- locale ------------------------------------------------------------------------------------------------------------------------------
 
+/** BHA-BLOG-001-CP04-CP05-C7: the one internal step that lets the language switch leave a Blog 404 for a Blog index of the SAME pathname (see `app/blog-recover`). */
+export const BLOG_RECOVER_PATH = "/blog-recover";
+export const blogRecoverHref = (locale: string) => `${BLOG_RECOVER_PATH}?locale=${encodeURIComponent(locale)}`;
+
+/**
+ * Next 13.4.3's not-found boundary clears only when the pathname changes, so a switch from a Blog index 404 (`/blog?page=abc`, `/blog?locale=zz`) to `/blog?locale=en`
+ * leaves the 404 body on a valid page. When the reader is on the Blog index's own pathname, each target that is the Blog index goes through the recovery step instead;
+ * every other target (and every other pathname) is unchanged.
+ */
+export function recoverSamePath(targets: Record<string, string>, pathname: string): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(targets).map(([code, href]) => {
+      const locale = new URLSearchParams(href.split("?")[1] ?? "").get("locale");
+      return [code, pathname === BLOG_ROOT && href.split("?")[0] === BLOG_ROOT && locale !== null ? blogRecoverHref(locale) : href];
+    })
+  );
+}
+
 /** Whether a URL path is a page of the Blog (`/blog`, `/blog/...`); `/blog-moved` and `/blogging` are not. */
 export const isBlogPath = (pathname: string): boolean => pathname === "/blog" || pathname.startsWith("/blog/");
 

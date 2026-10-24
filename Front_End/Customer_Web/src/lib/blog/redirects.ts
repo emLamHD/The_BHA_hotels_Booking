@@ -56,6 +56,9 @@ export async function resolveBlogRedirect(input: RedirectInput): Promise<string 
   const found = classify(input.pathname, input.searchParams);
   if (!found) return null;
 
+  // A parameter given twice is not one the Blog page accepts (its parsers reject an array), so it is never resolved to its first or last value — not even when both are the same.
+  if (input.searchParams.getAll("locale").length > 1 || input.searchParams.getAll("page").length > 1) return null;
+
   const explicit = input.searchParams.get("locale");
   if (explicit !== null && normalizeLocale(explicit) === null) return null;
   const locale = explicit !== null ? normalizeLocale(explicit) : normalizeLocale(input.cookieLocale);

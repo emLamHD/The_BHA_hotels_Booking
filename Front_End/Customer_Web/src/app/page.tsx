@@ -6,6 +6,7 @@ import { getPromotions } from "@/lib/promotions/server";
 import { getBlogHomeSection, getBlogPosts } from "@/lib/blog/server";
 import { normalizeLocale } from "@/lib/blog/blog";
 import BgGlassmorphism from "@/components/BgGlassmorphism";
+import BlogFreshness from "@/components/blog/BlogFreshness";
 import HomeHeroCarousel from "./(home)/HomeHeroCarousel";
 import HomeOfferSection from "./(home)/HomeOfferSection";
 import HomeDestinationSection from "./(home)/HomeDestinationSection";
@@ -38,6 +39,8 @@ async function PageHome() {
     <main className="nc-PageHome relative overflow-hidden">
       {/* GLASSMOPHIN */}
       <BgGlassmorphism />
+      {/* The two Blog projections below are read on the server: coming back to Home from the client router cache must ask again (see BlogFreshness). */}
+      <BlogFreshness />
 
       <HomeHeroCarousel initial={hero} />
 

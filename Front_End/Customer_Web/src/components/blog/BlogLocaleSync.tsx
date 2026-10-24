@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { isBlogPath, normalizeLocale } from "@/lib/blog/blog";
+import { BLOG_RECOVER_PATH, isBlogPath, normalizeLocale } from "@/lib/blog/blog";
 
 /**
  * BHA-BLOG-001-CP04-CP05-C6: on a Blog URL an explicit `?locale=` decides the page's language and the layout's (header, menu, `<html lang>`, dictionary) for that
@@ -17,6 +17,7 @@ export default function BlogLocaleSync() {
   const language = normalizeLocale(useSearchParams().get("locale"));
   const named = useRef(false);
   useEffect(() => {
+    if (pathname === BLOG_RECOVER_PATH) return;     // the transit step of the Blog 404 recovery: it ends in a Blog page, which refreshes itself
     const blog = isBlogPath(pathname);
     if (named.current && !blog) router.refresh();
     named.current = blog && language !== null;

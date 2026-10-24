@@ -162,3 +162,44 @@ describe("a permanent Blog redirect is never reused from a cache (BHA-BLOG-001-C
     expect(next.location).not.toContain("hello-2");
   });
 });
+
+describe("a parameter given twice is never resolved into a redirect (BHA-BLOG-001-CP04-CP05-C7)", () => {
+  beforeEach(() => {
+    vi.stubEnv("NEXT_PUBLIC_API_BASE_URL", "https://api.test");
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+  const api: Api = { posts: { cu: { movedTo: "moi" } }, categories: { cu: { movedTo: "moi" }, hien: "current" } };
+
+  it.each([
+    "/blog/category/cu?locale=vi&page=2&page=abc",     // the reviewer's category case: the first page is valid, the second is not
+    "/blog/cu?locale=vi&locale=en",                   // the reviewer's post case
+    "/blog/category/cu?locale=vi&page=abc&page=2",    // reversed
+    "/blog/cu?locale=en&locale=vi",
+    "/blog/category/cu?locale=vi&page=2&page=2",      // the same value twice is still a repeated parameter
+    "/blog/cu?locale=vi&locale=vi",
+    "/blog/category/cu?locale=vi&locale=vi&page=2",
+    "/blog/category/cu?locale=vi&page=1&page=2&page=3",
+    "/blog?category=cu&locale=vi&page=2&page=3",      // the legacy address
+    "/blog?category=hien&locale=vi&locale=en",
+    "/blog/cu?locale=&locale=vi",                     // an empty first value
+  ])("%s -> no redirect (the Blog page answers its own 404), and the API is not even asked", async (path) => {
+    const r = await through(path, api, "bha_locale=vi");
+    expect(r, path).toMatchObject({ redirected: false, status: 200, location: null });
+    expect(r.calls, path).toEqual([]);
+  });
+
+  it("still redirects the same addresses with each parameter given once, in one hop and no-store (guards)", async () => {
+    expect(await through("/blog/category/cu?locale=vi&page=2", api, "bha_locale=vi")).toMatchObject({ status: 301, location: "/blog/category/moi?locale=vi&page=2", cacheControl: "no-store" });
+    expect(await through("/blog/cu?locale=vi", api)).toMatchObject({ status: 301, location: "/blog/moi?locale=vi", cacheControl: "no-store" });
+    expect(await through("/blog/cu", api, "bha_locale=vi")).toMatchObject({ status: 301, location: "/blog/moi?locale=vi" });          // the cookie decides when the URL names no language
+    expect(await through("/blog/cu?locale=en", api, "bha_locale=vi")).toMatchObject({ status: 301, location: "/blog/moi?locale=en" }); // the URL wins over the cookie
+    expect(await through("/blog?category=hien&locale=vi", api)).toMatchObject({ status: 301, location: "/blog/category/hien?locale=vi" });
+  });
+
+  it("does not touch parameters it does not read: a repeated unrelated one changes nothing", async () => {
+    expect(await through("/blog/category/cu?locale=vi&page=2&utm=a&utm=b", api)).toMatchObject({ status: 301, location: "/blog/category/moi?locale=vi&page=2" });
+  });
+});
