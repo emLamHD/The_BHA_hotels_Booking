@@ -1,11 +1,14 @@
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const router = vi.hoisted(() => ({ refresh: vi.fn(), push: vi.fn() }));
 vi.mock("@/lib/i18n/server", async () => (await import("@/lib/i18n/testkit")).serverModuleMock());
 vi.mock("@/lib/blog/server", () => ({ getBlogPost: vi.fn() }));
 vi.mock("next/navigation", () => ({
   notFound: () => { throw new Error("NEXT_NOT_FOUND"); },
   redirect: (url: string) => { throw new Error(`NEXT_REDIRECT:${url}`); },
-  useRouter: () => ({ refresh: () => undefined, push: () => undefined }),
+  useRouter: () => router,
   usePathname: () => "/blog",
   useSearchParams: () => new URLSearchParams(),
 }));
@@ -13,6 +16,18 @@ import { renderPage } from "@/lib/i18n/testkit";
 import BlogPostPage, { generateMetadata as postMetadata } from "./[slug]/page";
 import { getBlogPost } from "@/lib/blog/server";
 import { detail } from "@/lib/blog/blogTestkit";
+import BlogLocaleTargets from "@/components/blog/BlogLocaleTargets";
+import { I18nProvider, useI18n, type I18nContextValue } from "@/lib/i18n/I18nProvider";
+import { setLocaleTargets } from "@/lib/i18n/localeTargets";
+import { testSnapshot } from "@/lib/i18n/testkit";
+
+/** The `targets` the page hands to the real `BlogLocaleTargets` (a client component: its effect does not run in a static render, so the element's props are read). */
+function targetsOf(node: unknown): Record<string, string> | null {
+  if (!React.isValidElement(node)) return Array.isArray(node) ? node.map(targetsOf).find((t) => t !== null) ?? null : null;
+  const element = node as React.ReactElement<{ targets?: Record<string, string>; children?: unknown }>;
+  if (element.type === BlogLocaleTargets) return element.props.targets ?? null;
+  return targetsOf(element.props.children);
+}
 
 const count = (markup: string, needle: string) => markup.split(needle).length - 1;
 
@@ -73,5 +88,61 @@ describe("/blog/{slug}", () => {
       languages: { en: "https://www.thebha.test/blog/hello?locale=en", vi: "https://www.thebha.test/blog/bai-viet-1?locale=vi" },
     });
     expect(String(meta.title)).toContain("Hello");
+  });
+});
+
+describe("the language switch on a post that cannot be read", () => {
+  const INDEXES = { vi: "/blog?locale=vi", en: "/blog?locale=en", fr: "/blog?locale=fr" };
+  const cookies: string[] = [];
+
+  beforeEach(() => {
+    router.push.mockReset();
+    router.refresh.mockReset();
+    cookies.length = 0;
+    vi.stubGlobal("window", { location: { protocol: "https:" } });
+    vi.stubGlobal("document", { set cookie(value: string) { cookies.push(value); } });
+  });
+  afterEach(() => {
+    setLocaleTargets(null);
+    vi.unstubAllGlobals();
+  });
+
+  /** The provider the layout mounts, with the header's `setLocale` taken from the real context. */
+  function mountedSwitch(): I18nContextValue {
+    let context: I18nContextValue | null = null;
+    const Probe = () => { context = useI18n(); return null; };
+    renderToStaticMarkup(React.createElement(I18nProvider, { snapshot: testSnapshot("vi") }, React.createElement(Probe)));
+    return context!;
+  }
+
+  it("registers every active language's own Blog index, from the site config, and no post slug", async () => {
+    vi.mocked(getBlogPost).mockResolvedValue({ status: "error" });
+    const tree = await BlogPostPage({ params: { slug: "bai-viet-1" }, searchParams: { locale: "vi" } });
+    expect(targetsOf(tree)).toEqual(INDEXES);
+    expect(JSON.stringify(targetsOf(tree))).not.toContain("bai-viet-1");
+  });
+
+  it("switches from a URL that names its language: the header goes to the new language's index and refreshes, so the URL stops overriding the cookie", async () => {
+    vi.mocked(getBlogPost).mockResolvedValue({ status: "error" });
+    const tree = await BlogPostPage({ params: { slug: "bai-viet-1" }, searchParams: { locale: "vi" } });
+    setLocaleTargets(targetsOf(tree));                                   // what BlogLocaleTargets's effect does on the page
+
+    mountedSwitch().setLocale("en");
+    expect(router.push).toHaveBeenCalledTimes(1);
+    expect(router.push).toHaveBeenCalledWith("/blog?locale=en");
+    expect(router.refresh).toHaveBeenCalledTimes(1);
+    expect(cookies.some((c) => c.startsWith("bha_locale=en;"))).toBe(true);
+  });
+
+  it("without targets the header only writes the cookie and refreshes the same URL — which is why the branch must register them", () => {
+    mountedSwitch().setLocale("en");
+    expect(router.push).not.toHaveBeenCalled();
+    expect(router.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the happy path: the published translation when there is one, else that language's index", async () => {
+    vi.mocked(getBlogPost).mockResolvedValue({ status: "ok", value: detail({ alternates: [{ locale: "en", slug: "hello" }] }) });
+    const tree = await BlogPostPage({ params: { slug: "bai-viet-1" }, searchParams: { locale: "vi" } });
+    expect(targetsOf(tree)).toEqual({ vi: "/blog/bai-viet-1?locale=vi", en: "/blog/hello?locale=en", fr: "/blog?locale=fr" });
   });
 });

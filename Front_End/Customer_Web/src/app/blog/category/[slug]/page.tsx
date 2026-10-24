@@ -30,6 +30,9 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
   if (!locale || !page || !BLOG_SLUG.test(params.slug)) return {};
   const category = await getBlogCategory(locale, params.slug);
   if (category.status !== "ok") return { robots: { index: false } };
+  // The page's own posts read (same arguments, so one request per render): a list that could not be read is the "could not load" page, which is not indexed.
+  const posts = await getBlogPosts(locale, { category: params.slug, page, pageSize: PAGE_SIZE });
+  if (posts.status !== "ok") return { robots: { index: false } };
   const t = await getT();
   return listMetadata(getSiteOrigin(), locale, t("customer.blog.metaTitle", { name: category.value.name }), category.value.description ?? t("customer.blog.index.description"), blogCategoryHref(locale, params.slug, page));
 }

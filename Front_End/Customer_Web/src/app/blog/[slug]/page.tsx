@@ -10,7 +10,7 @@ import BlogPicture from "@/components/blog/BlogPicture";
 import JsonLd from "@/components/JsonLd";
 import { BLOG_SLUG, blogCategoryHref, blogIndexHref, blogPostHref, formatPostDate } from "@/lib/blog/blog";
 import { parseBody } from "@/lib/blog/body";
-import { blogRequest, postTargets, type BlogSearchParams } from "@/lib/blog/context";
+import { blogRequest, indexTargets, postTargets, type BlogSearchParams } from "@/lib/blog/context";
 import { postJsonLd, postMetadata } from "@/lib/blog/seo";
 import { getBlogPost } from "@/lib/blog/server";
 import { getT } from "@/lib/i18n/server";
@@ -50,6 +50,8 @@ export default async function BlogPostPage({ params, searchParams }: Props) {
     return (
       <div className="nc-PostPage relative overflow-hidden">
         <BgGlassmorphism />
+        {/* The post is unknown here, so no translation is guessed: each language goes to its own index (and the URL's `locale` stops overriding the choice). */}
+        <BlogLocaleTargets targets={indexTargets(snapshot.config.locales)} />
         <BlogFreshness />
         <div className="container relative pb-20 pt-10 lg:pb-28 lg:pt-14">
           <p className="mb-6"><Link href={blogIndexHref(locale) as Route} prefetch={false} className="text-sm font-medium text-primary-700 underline underline-offset-2 dark:text-primary-300">{t("customer.blog.slug.page.backToTheBlog")}</Link></p>
