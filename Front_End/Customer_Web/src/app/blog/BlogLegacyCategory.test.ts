@@ -34,12 +34,16 @@ function targetsOf(node: unknown): Record<string, string> | null {
 const ORIGIN = "https://localhost:3000";
 const json = (status: number, body: unknown = {}) => new Response(JSON.stringify(body), { status });
 
+/** The languages the fake site serves (`/website/config` lists the active ones); the API answers any other language 400 `blog.locale-unsupported`, as the real one does. */
+const ACTIVE = ["vi", "en", "fr"];            // the same three as the test site configuration (`testConfig`)
+
 function fakeApi(lookup: "ok" | "fails") {
   const calls: string[] = [];
   const handler = async (input: RequestInfo | URL) => {
     const url = new URL(String(input));
     calls.push(url.pathname + url.search);
     if (url.pathname === "/api/v1/website/config") return json(200, { defaultLocale: "vi", locales: [] });
+    if (url.pathname.startsWith("/api/v1/website/blog/") && url.searchParams.has("locale") && !ACTIVE.includes(url.searchParams.get("locale")!)) return json(400, { code: "blog.locale-unsupported" });
     const one = /^\/api\/v1\/website\/blog\/categories\/([^/]+)$/.exec(url.pathname);
     if (one) return lookup === "fails" ? json(500) : json(200, { slug: one[1] });
     if (url.pathname === "/api/v1/website/blog/categories") return json(200, { items: [{ slug: "diem-den", name: "Điểm đến", description: null, postCount: 3 }] });
@@ -103,6 +107,28 @@ describe("a legacy category the middleware could not resolve", () => {
     const r = await serve("/blog?category=travel&locale=vi", "fails");
     expect(r.kind === "page" && r.html).toContain("blog-unavailable");
     expect(targetsOf(await BlogPage({ searchParams: { category: "travel", locale: "vi" } }))).toEqual({ vi: "/blog?locale=vi", en: "/blog?locale=en", fr: "/blog?locale=fr" });
+  });
+
+  it("treats a language the site does not serve as a 404 (the API's 400 for it), not as 'could not load' — healthy API or not", async () => {
+    for (const lookup of ["fails", "ok"] as const) {
+      for (const path of ["/blog?category=travel&locale=zz", "/blog?category=travel&locale=zh-hant", "/blog?category=travel&locale=de"]) {
+        const r = await serve(path, lookup);
+        expect(r.kind, `${path} ${lookup}`).toBe("not-found");
+        expect(r.metadata, `${path} ${lookup}`).toEqual({});
+        expect(postsReads(r.calls), `${path} ${lookup}`).toEqual([]);
+      }
+    }
+    // the same language without a category is the index's own 404 (the posts read says "no such language"), unchanged
+    expect((await serve("/blog?locale=zz", "ok")).kind).toBe("not-found");
+  });
+
+  it("keeps 'could not load' for a language the site serves, the explicit one or the cookie's (guards)", async () => {
+    for (const [path, cookie] of [["/blog?category=travel&locale=en", "bha_locale=vi"], ["/blog?category=travel&locale=EN", "bha_locale=vi"], ["/blog?category=travel", "bha_locale=vi"]] as const) {
+      const r = await serve(path, "fails", cookie);
+      expect(r.kind, path).toBe("page");
+      expect(r.kind === "page" && r.html, path).toContain("blog-unavailable");
+      expect(r.metadata, path).toEqual({ robots: { index: false } });
+    }
   });
 
   it("is rejected for a bad language or page before the unavailable branch (404, nothing read)", async () => {
