@@ -1880,6 +1880,69 @@
    ]
   },
   {
+   "key": "customer.blog.empty",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.unavailable",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.pagination.label",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.pagination.previous",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.pagination.next",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.pagination.goTo",
+   "scope": "customer",
+   "placeholders": [
+    "page"
+   ]
+  },
+  {
+   "key": "customer.blog.toc.title",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.blog.post.published",
+   "scope": "customer",
+   "placeholders": [
+    "date"
+   ]
+  },
+  {
+   "key": "customer.blog.post.by",
+   "scope": "customer",
+   "placeholders": [
+    "author"
+   ]
+  },
+  {
+   "key": "customer.blog.property.cta",
+   "scope": "customer",
+   "placeholders": [
+    "name"
+   ]
+  },
+  {
+   "key": "customer.blog.gallery.label",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.blog.widgetCategories.trendingTopic",
    "scope": "customer",
    "placeholders": []

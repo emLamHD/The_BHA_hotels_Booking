@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const jar = new Map<string, string>();
-vi.mock("next/headers", () => ({ cookies: () => ({ get: (name: string) => (jar.has(name) ? { value: jar.get(name) } : undefined) }) }));
+const requestHeaders = new Map<string, string>();
+vi.mock("next/headers", () => ({
+  cookies: () => ({ get: (name: string) => (jar.has(name) ? { value: jar.get(name) } : undefined) }),
+  headers: () => ({ get: (name: string) => requestHeaders.get(name) ?? null }),
+}));
 // React's request cache only exists inside the server runtime; a test calls the function each time.
 vi.mock("react", async (importOriginal) => ({ ...(await importOriginal<typeof import("react")>()), cache: <T,>(fn: T) => fn }));
 
@@ -28,6 +32,7 @@ describe("server i18n snapshot", () => {
   const fetchMock = vi.fn();
   beforeEach(() => {
     jar.clear();
+    requestHeaders.clear();
     fetchMock.mockReset();
     vi.stubGlobal("fetch", fetchMock);
     vi.stubEnv("NEXT_PUBLIC_API_BASE_URL", "https://api.test");
@@ -77,6 +82,19 @@ describe("server i18n snapshot", () => {
     const snapshot = await getI18n();
     expect(snapshot.locale).toBe("vi");
     expect(snapshot.currency).toBe("VND");
+  });
+
+  it("lets a Blog URL's explicit language (the middleware's header) win over the visitor's cookie, without touching the cookie", async () => {
+    route({ resolvedLocale: "en", revision: "d1", entries: {} });
+    jar.set("bha_locale", "vi");
+    requestHeaders.set("x-bha-locale", "en");
+    const { getI18n } = await import("./server");
+    const snapshot = await getI18n();
+    const dictionaryUrl = String(fetchMock.mock.calls.find(([url]) => String(url).includes("/dictionary"))?.[0]);
+    expect(dictionaryUrl).toContain("locale=en");
+    expect(dictionaryUrl).not.toContain("locale=vi");
+    expect(snapshot.locale).toBe("en");
+    expect(jar.get("bha_locale")).toBe("vi");
   });
 
   it("marks the answer degraded, instead of throwing, when the API is down", async () => {

@@ -1,12 +1,45 @@
 import { NextRequest, NextResponse } from "next/server";
 import { decideRoute, UNAVAILABLE_PAGE } from "@/lib/routePolicy";
+import { getApiBaseUrl } from "@/lib/api/env";
+import { isBlogPath, normalizeLocale } from "@/lib/blog/blog";
+import { resolveBlogRedirect } from "@/lib/blog/redirects";
+import { LOCALE_COOKIE, LOCALE_OVERRIDE_HEADER } from "@/lib/i18n/types";
+
+/**
+ * BHA-BLOG-001-CP04: on `/blog` paths (a) an old slug or the old `?category=` address is handed to the permanent-redirect route, and (b) the
+ * URL's explicit `?locale=` is handed to the server render as a request header. The header is dropped everywhere else, so no other page can be given a
+ * language by a header a client invented.
+ */
+async function blogPass(request: NextRequest): Promise<NextResponse> {
+  const { pathname, searchParams } = request.nextUrl;
+  const isBlog = isBlogPath(pathname);
+  if (isBlog) {
+    let target: string | null = null;
+    try {
+      target = await resolveBlogRedirect({ pathname, searchParams, cookieLocale: request.cookies.get(LOCALE_COOKIE)?.value, apiBase: getApiBaseUrl() });
+    } catch {
+      target = null; // a misconfigured API base is the page's error to show, not a reason to break the request here
+    }
+    if (target) {
+      // The permanent redirect itself is made by a route handler (see app/blog-moved/route.ts): this only hands it the current Customer address.
+      const moved = new Headers(request.headers);
+      moved.set("x-bha-moved-to", target);
+      return NextResponse.rewrite(new URL("/blog-moved", request.url), { request: { headers: moved } });
+    }
+  }
+  const headers = new Headers(request.headers);
+  const explicit = isBlog ? normalizeLocale(searchParams.get("locale")) : null;
+  if (explicit) headers.set(LOCALE_OVERRIDE_HEADER, explicit);
+  else headers.delete(LOCALE_OVERRIDE_HEADER);
+  return NextResponse.next({ request: { headers } });
+}
 
 /**
  * CUST-WEB-SHOWCASE-001-CP01-C2 / CP02-C3: `/` is rendered by app/page.tsx directly. The template's
  * pages are served; `/showcase` redirects to `/`, `/pay-done` to `/paydone`, and `/api/*` is
  * rewritten to the unavailable page (HTTP 404). See lib/routePolicy.ts.
  */
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
   // BHA-WEB-PROXY-001: inlined by next.config.js `env` at build time, only when the API proxy rewrite
   // was configured. Written as a literal `process.env.X` so Next can replace it in the edge bundle.
@@ -45,7 +78,7 @@ export function middleware(request: NextRequest) {
       return NextResponse.redirect(new URL(to + search, origin), 307);
     }
     case "pass":
-      return NextResponse.next();
+      return blogPass(request);
     default:
       return NextResponse.rewrite(new URL(UNAVAILABLE_PAGE, request.url));
   }

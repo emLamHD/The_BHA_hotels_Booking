@@ -1,11 +1,12 @@
 import { contentFrom, type ContentFn } from "./staticContent";
 import { cache } from "react";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { getApiBaseUrl } from "@/lib/api/env";
 import { formatMessage, type MessageParams } from "./format";
 import {
   CURRENCY_COOKIE,
   LOCALE_COOKIE,
+  LOCALE_OVERRIDE_HEADER,
   PROVIDER_CONTENT_PREFIXES,
   PROVIDER_SCOPES,
   type I18nSnapshot,
@@ -55,7 +56,8 @@ const EMPTY_CONFIG: WebsiteConfig = {
 /** The visitor's settings for this request. Cached for the request, so the layout and every server component share one read. */
 export const getI18n = cache(async (): Promise<I18nSnapshot> => {
   const jar = cookies();
-  const wantedLocale = jar.get(LOCALE_COOKIE)?.value;
+  // A Blog URL's explicit `?locale=` (set by the middleware, only on /blog) wins over the visitor's cookie; the cookie is untouched.
+  const wantedLocale = headers().get(LOCALE_OVERRIDE_HEADER) || jar.get(LOCALE_COOKIE)?.value;
   const wantedCurrency = jar.get(CURRENCY_COOKIE)?.value;
 
   const configResult = await getJson<WebsiteConfig>("/api/v1/website/config", "config");

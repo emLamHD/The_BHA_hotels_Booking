@@ -9,6 +9,7 @@ import Footer from "@/components/Footer";
 import FooterNav from "@/components/FooterNav";
 import { BookingHoldProvider } from "./BookingHoldProvider";
 import { CustomerSessionProvider } from "./CustomerSessionProvider";
+import React, { Suspense } from "react";
 import HoldReceiptRedirector from "@/components/HoldReceiptRedirector";
 import { StaySearchProvider } from "@/components/StaySearchProvider";
 import { I18nProvider } from "@/lib/i18n/I18nProvider";
@@ -16,6 +17,7 @@ import { getI18n, getT } from "@/lib/i18n/server";
 import { MenuProvider } from "@/lib/menus/MenuProvider";
 import { getMenuSnapshot } from "@/lib/menus/server";
 import FloatingContactActions from "@/components/FloatingContactActions";
+import BlogLocaleSync from "@/components/blog/BlogLocaleSync";
 
 const poppins = Poppins({
   subsets: ["latin"],
@@ -63,6 +65,7 @@ export default async function RootLayout({
               <BookingHoldProvider>
                 <StaySearchProvider>
                   <ClientCommons />
+                  <Suspense fallback={null}><BlogLocaleSync /></Suspense>
                   <SiteHeader />
                   <HoldReceiptRedirector />
                   <FloatingContactActions />

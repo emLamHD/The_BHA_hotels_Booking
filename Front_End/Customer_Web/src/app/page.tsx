@@ -3,7 +3,10 @@ import type { Metadata } from "next";
 import { getI18n, getT } from "@/lib/i18n/server";
 import { getHeroSnapshot } from "@/lib/hero/server";
 import { getPromotions } from "@/lib/promotions/server";
+import { getBlogHomeSection, getBlogPosts } from "@/lib/blog/server";
+import { normalizeLocale } from "@/lib/blog/blog";
 import BgGlassmorphism from "@/components/BgGlassmorphism";
+import BlogFreshness from "@/components/blog/BlogFreshness";
 import HomeHeroCarousel from "./(home)/HomeHeroCarousel";
 import HomeOfferSection from "./(home)/HomeOfferSection";
 import HomeDestinationSection from "./(home)/HomeDestinationSection";
@@ -29,21 +32,26 @@ async function PageHome() {
   const hero = await getHeroSnapshot(locale);
   // BHA-BOOKING-PROMOTIONS-001: the promotions that are public today, read per request; none (or a failed read) hides the whole block.
   const promotions = await getPromotions(locale);
+  // BHA-BLOG-001-CP04: the Blog's home section (its category and up to 6 posts) and the latest posts, in the visitor's language, per request. Nothing, or a failed read, hides the block: no sample post stands in.
+  const blogLocale = normalizeLocale(locale) ?? locale;
+  const [destinations, latest] = await Promise.all([getBlogHomeSection(blogLocale, 6), getBlogPosts(blogLocale, { page: 1, pageSize: 5 })]);
   return (
     <main className="nc-PageHome relative overflow-hidden">
       {/* GLASSMOPHIN */}
       <BgGlassmorphism />
+      {/* The two Blog projections below are read on the server: coming back to Home from the client router cache must ask again (see BlogFreshness). */}
+      <BlogFreshness />
 
       <HomeHeroCarousel initial={hero} />
 
       <div className="container relative mb-24 mt-16 space-y-20 lg:mb-28 lg:mt-12 lg:space-y-28">
         <HomeOfferSection items={promotions.status === "ok" ? promotions.items : []} />
 
-        <HomeDestinationSection />
+        <HomeDestinationSection locale={blogLocale} section={destinations.status === "ok" ? destinations.value : null} />
 
         <HomeRiversideTeaser />
 
-        <HomeNewsSection />
+        <HomeNewsSection locale={blogLocale} items={latest.status === "ok" ? latest.value.items : []} />
 
         <HomeNewsletter />
 
