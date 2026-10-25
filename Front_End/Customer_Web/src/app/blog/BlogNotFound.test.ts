@@ -37,6 +37,24 @@ describe("which not-found page a Blog 404 renders", () => {
   });
 });
 
+describe("the Blog 404 can be a stale copy (BHA-BLOG-001-CP04-CP05-C9)", () => {
+  // By name, so this file still loads where the component does not exist.
+  const contains = (node: unknown, name: string): boolean => {
+    if (Array.isArray(node)) return node.some((child) => contains(child, name));
+    if (!React.isValidElement(node)) return false;
+    const element = node as React.ReactElement<{ children?: unknown }>;
+    return (typeof element.type === "function" && element.type.name === name) || contains(element.props.children, name);
+  };
+
+  it("the Blog 404 mounts the revalidation (found in the tree the boundary returns), next to the language targets and the site's 404", async () => {
+    const { default: BlogNotFound } = await import("./not-found");
+    const tree = await BlogNotFound();
+    expect(contains(tree, "BlogNotFoundRevalidate")).toBe(true);
+    expect(contains(tree, "BlogLocaleTargets")).toBe(true);
+    expect(renderToStaticMarkup(tree as React.ReactElement)).toContain('id="site-404"');
+  });
+});
+
 describe("the Blog 404 and the language switch", () => {
   const INDEXES = { vi: "/blog?locale=vi", en: "/blog?locale=en", fr: "/blog?locale=fr" };
   const cookies: string[] = [];

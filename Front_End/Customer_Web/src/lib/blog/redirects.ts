@@ -8,7 +8,7 @@ import { BLOG_ROOT, BLOG_SLUG, blogCategoryHref, blogPostHref, normalizeLocale, 
  *
  * Three cases: `/blog/<old-slug>`, `/blog/category/<old-slug>`, and the old compatibility address `/blog?category=<slug>` (→ `/blog/category/<current-slug>`).
  * Anything this cannot decide — an API error, an unknown locale, a path that is not one of these — is `null`: the request goes on to the page, which says
- * what it can. The language is the URL's explicit `?locale=`, else the visitor's language cookie; the target always carries the language it was resolved in.
+ * what it can. The language is the URL's explicit `?locale=`, else the visitor's language cookie resolved against the site's active languages (C9); the target always carries the language it was resolved in.
  */
 export interface RedirectInput {
   pathname: string;
@@ -40,16 +40,32 @@ async function movedTo(response: Response): Promise<{ slug: string; locale: stri
   return { slug: body.slug, locale: typeof body.locale === "string" ? normalizeLocale(body.locale) : null };
 }
 
-/** The site's default language, normalized like the backend keys it, from the same website settings the pages resolve their language from; `null` when they cannot be read. */
-async function defaultLocale(input: RedirectInput): Promise<string | null> {
+/** The languages the site serves, normalized like the backend keys them, and its default — one read of `/website/config` per resolve; `null` when it cannot be read (or says nothing usable). */
+async function siteLanguages(input: RedirectInput): Promise<{ active: string[]; fallback: string } | null> {
   try {
     const response = await (input.fetcher ?? fetch)(`${input.apiBase}/api/v1/website/config`, { cache: "no-store", headers: { Accept: "application/json" } });
     if (!response.ok) return null;
-    const config = (await response.json()) as { defaultLocale?: unknown };
-    return typeof config.defaultLocale === "string" ? normalizeLocale(config.defaultLocale) : null;
+    const config = (await response.json()) as { defaultLocale?: unknown; locales?: unknown };
+    const fallback = typeof config.defaultLocale === "string" ? normalizeLocale(config.defaultLocale) : null;
+    const active = (Array.isArray(config.locales) ? config.locales : []).map((l) => normalizeLocale(typeof l?.code === "string" ? l.code : null)).filter((l): l is string => l !== null);
+    return fallback && active.length > 0 ? { active, fallback } : null;
   } catch {
     return null;
   }
+}
+
+/**
+ * The language a request WITHOUT `?locale=` means, by the rule the API's dictionary resolver (and so the page) already applies: the cookie's tag if the site serves it,
+ * else the tag with its script/region dropped (`en-us` → `en`), else the site's default. A stale cookie (a language since deactivated) is therefore the default, never a
+ * language the Blog API refuses; the cookie itself is not touched.
+ */
+function implicitLocale(cookie: string | undefined, site: { active: string[]; fallback: string }): string {
+  const parts = (normalizeLocale(cookie) ?? "").split("-").filter(Boolean);
+  for (let length = parts.length; length >= 1; length -= 1) {
+    const candidate = parts.slice(0, length).join("-");
+    if (site.active.includes(candidate)) return candidate;
+  }
+  return site.fallback;
 }
 
 /** The Customer path (with its query) to answer with a `301`, or `null` for "no redirect". */
@@ -60,12 +76,16 @@ export async function resolveBlogRedirect(input: RedirectInput): Promise<string 
   // A parameter given twice is not one the Blog page accepts (its parsers reject an array), so it is never resolved to its first or last value — not even when both are the same.
   if (input.searchParams.getAll("locale").length > 1 || input.searchParams.getAll("page").length > 1) return null;
 
-  const explicit = input.searchParams.get("locale");
-  if (explicit !== null && normalizeLocale(explicit) === null) return null;
-  const locale = explicit !== null ? normalizeLocale(explicit) : normalizeLocale(input.cookieLocale);
   // An absent page is page 1; a page that is no page (`abc`, `0`, `1.5`, empty, too long) is NOT turned into one: no redirect, so the Blog page's own validation answers its 404.
   const page = parsePage(input.searchParams.get("page") ?? undefined);
   if (page === null) return null;
+  // An explicit `?locale=` is used as written (strict: an unknown or inactive one is not turned into the default — the Blog answers its own 404). Without one the language
+  // is resolved against the site's active languages first, so the lookup is never made in a language the site no longer serves; if the site cannot be read, nothing is guessed.
+  const explicit = input.searchParams.get("locale");
+  if (explicit !== null && normalizeLocale(explicit) === null) return null;
+  const site = explicit === null ? await siteLanguages(input) : null;
+  if (explicit === null && !site) return null;
+  const locale = explicit !== null ? normalizeLocale(explicit) : implicitLocale(input.cookieLocale, site!);
 
   const route = found.kind === "post" ? "posts" : "categories";
   const query = locale ? `?locale=${encodeURIComponent(locale)}` : "";
@@ -82,10 +102,8 @@ export async function resolveBlogRedirect(input: RedirectInput): Promise<string 
       return found.kind === "post" ? blogPostHref(resolved, moved.slug) : blogCategoryHref(resolved, moved.slug, page);
     }
     if (found.kind === "legacy-category" && (response.ok || response.status === 404)) {
-      // The old filter address: the category's own page (a slug that is nobody's gets that page's 404), in the language the page itself would resolve for this visitor:
-      // the explicit one, the cookie's, else the site's DEFAULT as the API reports it — read, never assumed. If it cannot be read, no redirect (the page answers).
-      const resolved = locale ?? (await defaultLocale(input));
-      return resolved ? blogCategoryHref(resolved, found.slug, page) : null;
+      // The old filter address: the category's own page (a slug that is nobody's gets that page's 404), in the language the page itself resolves for this visitor.
+      return locale ? blogCategoryHref(locale, found.slug, page) : null;
     }
     return null;
   } catch {

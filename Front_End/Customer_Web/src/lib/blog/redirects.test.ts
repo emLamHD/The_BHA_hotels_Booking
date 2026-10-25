@@ -2,6 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import { resolveBlogRedirect } from "./redirects";
 
 const answer = (status: number, body: unknown = {}) => Promise.resolve(new Response(JSON.stringify(body), { status }));
+/** The site's settings as `/website/config` reports them: the active languages (the first is the default). */
+const siteConfig = (...codes: string[]) => ({ defaultLocale: codes[0], locales: codes.map((code, i) => ({ code, isDefault: i === 0 })) });
+/** A fetcher that answers `/website/config` with the given settings and everything else with `blog`. */
+const withSite = (config: unknown, blog: () => Promise<Response>) => vi.fn((url: string): Promise<Response> => (String(url).endsWith("/website/config") ? answer(200, config) : blog()));
 
 async function resolve(url: string, fetcher: ReturnType<typeof vi.fn<any[], any>>, cookieLocale?: string) {
   const u = new URL(url, "https://site.test");
@@ -22,11 +26,16 @@ describe("an old slug is answered with a permanent redirect to the current Custo
     expect(target).toBe("/blog/category/moi?locale=vi&page=2");
   });
 
-  it("uses the visitor's language cookie when the URL has none, and the language of the API's answer when there is neither", async () => {
-    expect((await resolve("/blog/bai-cu", vi.fn().mockReturnValue(answer(301, { slug: "moi", locale: "fr" })), "fr")).target).toBe("/blog/moi?locale=fr");
-    const none = await resolve("/blog/bai-cu", vi.fn().mockReturnValue(answer(301, { slug: "moi", locale: "vi" })));
+  it("uses the visitor's language cookie when the URL has none and the site serves it, else the site's default — never a language the site no longer serves (C9)", async () => {
+    const moved = (locale: string) => answer(301, { slug: "moi", locale });
+    const site = siteConfig("vi", "en", "fr");
+    expect((await resolve("/blog/bai-cu", withSite(site, () => moved("fr")), "fr")).target).toBe("/blog/moi?locale=fr");
+    const none = await resolve("/blog/bai-cu", withSite(site, () => moved("vi")));
     expect(none.target).toBe("/blog/moi?locale=vi");
-    expect(String(none.fetcher.mock.calls[0][0])).not.toContain("locale=");                  // the API's default language decides
+    expect(String(none.fetcher.mock.calls[1][0])).toContain("/posts/bai-cu?locale=vi");     // the site's default decides, asked for by name
+    const stale = await resolve("/blog/bai-cu", withSite(siteConfig("vi", "en"), () => moved("vi")), "fr");
+    expect(String(stale.fetcher.mock.calls[1][0])).toContain("locale=vi");                    // fr was deactivated: the lookup is in the default, not in fr
+    expect(stale.target).toBe("/blog/moi?locale=vi");
   });
 
   it("is one hop: a current slug (the API answers 200) and an unknown one (404) are not redirected, so there is no loop", async () => {
@@ -59,10 +68,11 @@ describe("the old /blog?category= address", () => {
   // the site's default read from the website settings when the URL and the cookie name none. The whole chain is in redirectChain.test.ts.
   it("with no language in the URL or the cookie, reads the site's default language and puts it in the target; if it cannot be read, no redirect", async () => {
     const api = (config: () => Promise<Response>) => vi.fn((url: string): Promise<Response> => (String(url).endsWith("/website/config") ? config() : answer(200, {})));
-    const ok = await resolve("/blog?category=diem-den", api(() => answer(200, { defaultLocale: "en-US" })));
+    const ok = await resolve("/blog?category=diem-den", api(() => answer(200, siteConfig("en-US", "vi"))));
     expect(ok.target).toBe("/blog/category/diem-den?locale=en-us");
     expect((await resolve("/blog?category=diem-den", api(() => answer(500)))).target).toBeNull();
-    expect((await resolve("/blog?category=diem-den", api(() => answer(200, { defaultLocale: "not a tag" })))).target).toBeNull();
+    expect((await resolve("/blog?category=diem-den", api(() => answer(200, { defaultLocale: "not a tag", locales: [{ code: "vi" }] })))).target).toBeNull();
+    expect((await resolve("/blog?category=diem-den", api(() => answer(200, { defaultLocale: "vi" })))).target).toBeNull();           // no language list: nothing to resolve against
     expect((await resolve("/blog?category=diem-den", api(() => Promise.reject(new Error("down"))))).target).toBeNull();
   });
 

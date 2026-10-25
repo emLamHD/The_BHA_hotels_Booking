@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { API, apiCover, apiDetail, apiItem } from "./blogTestkit";
 import {
+  blogTargetOf,
+  blogRecoverToHref,
   BLOG_RECOVER_PATH, blogCategoryHref, blogIndexHref, blogRecoverHref, recoverSamePath, blogLocaleOf, blogPostHref, languageTag, lastPageOf, normalizeLocale, parseCategoryList, parseHomeSection, parsePage, parsePostDetail, parsePostItem, parsePostList,
 } from "./blog";
 
@@ -100,5 +102,52 @@ describe("the Blog 404 recovery step (C7)", () => {
   it("leaves a target that is not the Blog index, or names no language, as it is", () => {
     const targets = { vi: "/blog/bai-mot?locale=vi", en: "/blog", fr: "/blog/category/diem-den?locale=fr" };
     expect(recoverSamePath(targets, "/blog")).toEqual(targets);
+  });
+});
+
+describe("the Blog address the recovery step may return to (C9)", () => {
+  it.each([
+    ["/blog", "/blog"],
+    ["/blog?locale=vi", "/blog?locale=vi"],
+    ["/blog?locale=EN-us&page=2", "/blog?locale=en-us&page=2"],
+    ["/blog?page=3&locale=vi", "/blog?locale=vi&page=3"],
+    ["/blog/bai-viet", "/blog/bai-viet"],
+    ["/blog/bai-viet?locale=vi", "/blog/bai-viet?locale=vi"],
+    ["/blog/category/diem-den?locale=vi&page=2", "/blog/category/diem-den?locale=vi&page=2"],
+  ])("%s is accepted and rebuilt as %s", (raw, rebuilt) => {
+    expect(blogTargetOf(raw)).toBe(rebuilt);
+  });
+
+  it.each([
+    ["an absolute URL", "https://evil.test/blog/x"],
+    ["a protocol-relative one", "//evil.test/blog/x"],
+    ["another site's path", "/offers"],
+    ["a Blog look-alike", "/blogger/x"],
+    ["the move route", "/blog-moved"],
+    ["the recovery step itself", "/blog-recover?locale=en"],
+    ["a backslash", "/blog/\\evil.test"],
+    ["a fragment", "/blog/x#y"],
+    ["a space or control character", "/blog/x y"],
+    ["a deeper path", "/blog/a/b"],
+    ["the category word as a post", "/blog/category"],
+    ["a bad slug", "/blog/Bad_Slug"],
+    ["an encoded dot segment", "/blog/%2e%2e"],
+    ["an extra parameter", "/blog/x?locale=vi&next=https://evil.test"],
+    ["a legacy category filter", "/blog?category=travel"],
+    ["a repeated locale", "/blog/x?locale=vi&locale=en"],
+    ["a repeated page", "/blog?page=2&page=2"],
+    ["a malformed locale", "/blog/x?locale=zz!"],
+    ["an empty locale", "/blog/x?locale="],
+    ["a page that is no page", "/blog?page=abc"],
+    ["page 0", "/blog?page=0"],
+    ["an empty value", ""],
+    ["a non-string", 42],
+    ["something very long", `/blog/${"a".repeat(400)}`],
+  ])("%s is refused", (_name, raw) => {
+    expect(blogTargetOf(raw)).toBeNull();
+  });
+
+  it("builds the step's address with the target encoded, so it is one parameter", () => {
+    expect(blogRecoverToHref("/blog/x?locale=vi&page=2")).toBe("/blog-recover?to=%2Fblog%2Fx%3Flocale%3Dvi%26page%3D2");
   });
 });

@@ -17,6 +17,8 @@ interface Api {
   categories?: Record<string, "current" | "unknown" | { movedTo: string }>;
   posts?: Record<string, { movedTo: string; byLocale?: Record<string, string> } | "current">;
   configFails?: boolean;
+  /** The active languages `/website/config` lists and the Blog API serves (the default is always among them); default: vi, en, fr, en-us. */
+  active?: string[];
 }
 
 function fakeApi(api: Api) {
@@ -25,7 +27,10 @@ function fakeApi(api: Api) {
     const url = new URL(String(input));
     calls.push(url.pathname + url.search);
     const locale = url.searchParams.get("locale") ?? api.defaultLocale ?? "vi";
-    if (url.pathname === "/api/v1/website/config") return api.configFails ? json(500) : json(200, { defaultLocale: api.defaultLocale ?? "vi", locales: [] });
+    const active = Array.from(new Set([api.defaultLocale ?? "vi", ...(api.active ?? ["vi", "en", "fr", "en-us"])].map((c) => c.toLowerCase())));
+    if (url.pathname === "/api/v1/website/config") return api.configFails ? json(500) : json(200, { defaultLocale: api.defaultLocale ?? "vi", locales: active.map((code) => ({ code, isDefault: code === (api.defaultLocale ?? "vi").toLowerCase() })) });
+    // As the real Blog API: a language the site does not serve is 400 blog.locale-unsupported.
+    if (url.pathname.startsWith("/api/v1/website/blog/") && !active.includes(locale.toLowerCase())) return json(400, { code: "blog.locale-unsupported" });
     const match = /^\/api\/v1\/website\/blog\/(categories|posts)\/([^/]+)$/.exec(url.pathname);
     if (!match) return json(404);
     const table = match[1] === "categories" ? api.categories : api.posts;
@@ -78,7 +83,9 @@ describe("a legacy /blog?category= address, from request to HTTP answer", () => 
     expect((await through("/blog?category=diem&locale=fr", api, "bha_locale=vi")).location).toBe("/blog/category/diem?locale=fr");
     const withCookie = await through("/blog?category=diem", api, "bha_locale=vi");
     expect(withCookie.location).toBe("/blog/category/diem?locale=vi");
-    expect(withCookie.calls.some((c) => c.startsWith("/api/v1/website/config"))).toBe(false);          // a known language needs no config read
+    expect(withCookie.calls.filter((c) => c.startsWith("/api/v1/website/config"))).toHaveLength(1);    // one read of the active languages (C9), reused for the cookie and the default
+    const explicit = await through("/blog?category=diem&locale=fr", api, "bha_locale=vi");
+    expect(explicit.calls.some((c) => c.startsWith("/api/v1/website/config"))).toBe(false);            // an explicit language is used as written: no config read
   });
 
   it("goes to the CURRENT category slug when it was renamed, with the language the API resolved and a valid page kept", async () => {
@@ -235,5 +242,81 @@ describe("the legacy /blog?category= address when its value is not exactly one s
     expect(await through("/blog?category=a&locale=vi&utm=1&utm=2", api)).toMatchObject({ status: 301, location: "/blog/category/a?locale=vi" });
     expect(await through("/blog?category=cu&locale=vi", { categories: { cu: { movedTo: "moi" } } })).toMatchObject({ status: 301, location: "/blog/category/moi?locale=vi" });
     expect(await through("/blog?category=gone&locale=vi", api)).toMatchObject({ status: 301, location: "/blog/category/gone?locale=vi" });   // a slug nobody has gets that page's 404
+  });
+});
+
+describe("a request with no ?locale resolves its language against the active languages (BHA-BLOG-001-CP04-CP05-C9 F2)", () => {
+  beforeEach(() => {
+    vi.stubEnv("NEXT_PUBLIC_API_BASE_URL", "https://api.test");
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+  // Active: vi (default), en. `fr` was deactivated: the Blog API answers it 400, the page resolves the cookie to the default.
+  const base: Api = { active: ["vi", "en"], categories: { travel: "current", cu: { movedTo: "moi" } }, posts: { cu: { movedTo: "moi" } } };
+  const lookups = (r: { calls: string[] }) => r.calls.filter((c) => c.startsWith("/api/v1/website/blog/"));
+
+  it.each([
+    ["/blog?category=travel", "/blog/category/travel?locale=vi", "legacy category"],
+    ["/blog/category/cu", "/blog/category/moi?locale=vi", "old category"],
+    ["/blog/cu", "/blog/moi?locale=vi", "old post"],
+  ])("%s with a deactivated cookie language (fr) -> 301 to the default (%s), the lookup made in vi (%s)", async (path, location) => {
+    const r = await through(path, base, "bha_locale=fr");
+    expect(r, path).toMatchObject({ status: 301, location, cacheControl: "no-store" });
+    expect(lookups(r).every((c) => c.includes("locale=vi")), path).toBe(true);
+    expect(lookups(r).some((c) => c.includes("locale=fr")), path).toBe(false);
+    expect(r.calls.filter((c) => c.startsWith("/api/v1/website/config")), path).toHaveLength(1);
+  });
+
+  it("an active cookie language wins over the default, an absent, malformed or empty cookie is the default, and the cookie is read as a tag (case, region)", async () => {
+    const en = { ...base, defaultLocale: "vi" };
+    expect((await through("/blog?category=travel", en, "bha_locale=en")).location).toBe("/blog/category/travel?locale=en");
+    expect((await through("/blog?category=travel", en, "bha_locale=EN")).location).toBe("/blog/category/travel?locale=en");
+    expect((await through("/blog?category=travel", en)).location).toBe("/blog/category/travel?locale=vi");
+    expect((await through("/blog?category=travel", en, "bha_locale=not a tag!")).location).toBe("/blog/category/travel?locale=vi");
+    expect((await through("/blog?category=travel", en, "bha_locale=")).location).toBe("/blog/category/travel?locale=vi");
+  });
+
+  it("works for a default that is not vi: an inactive or missing cookie goes to it, an active cookie still wins", async () => {
+    const api: Api = { defaultLocale: "en", active: ["en", "vi"], categories: { travel: "current" } };
+    expect((await through("/blog?category=travel", api, "bha_locale=fr")).location).toBe("/blog/category/travel?locale=en");
+    expect((await through("/blog?category=travel", api)).location).toBe("/blog/category/travel?locale=en");
+    expect((await through("/blog?category=travel", api, "bha_locale=vi")).location).toBe("/blog/category/travel?locale=vi");
+  });
+
+  it("keeps regional and script keys normalized, and follows the API resolver (exact tag, then the tag without script/region, else the default) — no other fallback", async () => {
+    const api: Api = { defaultLocale: "vi", active: ["vi", "en-us", "en", "zh-hant", "pt"], categories: { travel: "current" } };
+    expect((await through("/blog?category=travel", api, "bha_locale=en-US")).location).toBe("/blog/category/travel?locale=en-us");   // exact
+    expect((await through("/blog?category=travel", api, "bha_locale=zh-Hant-TW")).location).toBe("/blog/category/travel?locale=zh-hant"); // script kept, region dropped
+    expect((await through("/blog?category=travel", { ...api, active: ["vi", "en"] }, "bha_locale=en-GB")).location).toBe("/blog/category/travel?locale=en"); // region dropped
+    expect((await through("/blog?category=travel", api, "bha_locale=pt-BR")).location).toBe("/blog/category/travel?locale=pt");
+    expect((await through("/blog?category=travel", api, "bha_locale=zh-Hans")).location).toBe("/blog/category/travel?locale=vi");    // zh is not active: no sibling guess
+  });
+
+  it("keeps an explicit ?locale strict: an inactive, unknown, malformed or repeated one is not turned into the default (no redirect, nothing asked of the API)", async () => {
+    for (const path of ["/blog?category=travel&locale=fr", "/blog/category/cu?locale=fr", "/blog/cu?locale=fr", "/blog?category=travel&locale=zz!", "/blog?category=travel&locale=vi&locale=vi", "/blog?category=travel&locale="]) {
+      const r = await through(path, base, "bha_locale=vi");
+      // `locale=fr` is a well-formed tag: the Blog API answers it 400, so there is no redirect either way; the page then answers its own 404 (C8)
+      expect(r, path).toMatchObject({ redirected: false, status: 200, location: null });
+    }
+    expect((await through("/blog/category/cu?locale=vi", base, "bha_locale=fr")).location).toBe("/blog/category/moi?locale=vi");   // a valid explicit one still wins over the cookie
+  });
+
+  it("does not guess when the languages cannot be read: no redirect for an implicit language, an explicit one still redirects", async () => {
+    const down: Api = { ...base, configFails: true };
+    for (const cookie of ["bha_locale=fr", "bha_locale=vi", ""]) {
+      const r = await through("/blog?category=travel", down, cookie);
+      expect(r, cookie).toMatchObject({ redirected: false, status: 200, location: null });
+      expect(lookups(r), cookie).toEqual([]);
+    }
+    expect((await through("/blog?category=travel&locale=vi", down, "bha_locale=fr")).location).toBe("/blog/category/travel?locale=vi");
+  });
+
+  it("validates multiplicity, page and category before it reads anything", async () => {
+    for (const path of ["/blog?category=travel&page=abc", "/blog?category=travel&page=2&page=2", "/blog?category=travel&category=travel", "/blog?category="]) {
+      const r = await through(path, base, "bha_locale=fr");
+      expect(r.calls, path).toEqual([]);
+    }
   });
 });

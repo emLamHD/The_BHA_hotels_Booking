@@ -38,6 +38,34 @@ describe("/blog-recover: only a language, and always that language's Blog index"
   });
 });
 
+describe("/blog-recover?to= : a stale Blog 404 returns to its own address (C9)", () => {
+  it.each([
+    ["/blog/bai-viet", "/blog/bai-viet"],
+    ["/blog/bai-viet?locale=EN", "/blog/bai-viet?locale=en"],
+    ["/blog/category/diem-den?page=2&locale=vi", "/blog/category/diem-den?locale=vi&page=2"],
+    ["/blog?locale=vi", "/blog?locale=vi"],
+  ])("?to=%s -> %s, rebuilt from its parts", (to, expected) => {
+    const element = BlogRecoverPage({ searchParams: { to } }) as React.ReactElement<{ to: string }>;
+    expect(element.type).toBe(BlogRecover);
+    expect(element.props.to).toBe(expected);
+  });
+
+  it.each([
+    ["an absolute URL", { to: "https://evil.test/blog/x" }],
+    ["a protocol-relative one", { to: "//evil.test" }],
+    ["another site path", { to: "/offers" }],
+    ["a backslash", { to: "/blog/\\evil.test" }],
+    ["an extra parameter", { to: "/blog/x?next=/offers" }],
+    ["a repeated to", { to: ["/blog/x", "/blog/y"] }],
+    ["both to and locale", { to: "/blog/x", locale: "en" }],
+    ["to with a language-only value", { to: "en" }],
+    ["an empty to", { to: "" }],
+    ["neither", {}],
+  ])("%s is a 404 — only a validated Blog address of this site is ever returned to", (_name, searchParams) => {
+    expect(() => BlogRecoverPage({ searchParams: searchParams as never })).toThrow("NEXT_NOT_FOUND");
+  });
+});
+
 describe("BlogRecover", () => {
   afterEach(() => {
     vi.doUnmock("react");

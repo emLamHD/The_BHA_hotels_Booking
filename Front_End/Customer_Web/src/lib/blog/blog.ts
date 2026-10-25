@@ -194,6 +194,39 @@ export function recoverSamePath(targets: Record<string, string>, pathname: strin
   );
 }
 
+/** C9: the recovery step also takes a Blog address to go back to (`/blog-recover?to=<address>`), after `blogTargetOf` has checked it. */
+export const blogRecoverToHref = (target: string) => `${BLOG_RECOVER_PATH}?to=${encodeURIComponent(target)}`;
+
+/**
+ * C9: the only addresses the recovery step goes to besides a language's index: a Customer Blog page of THIS site — `/blog`, `/blog/<slug>` or `/blog/category/<slug>` —
+ * with at most one `locale` (a language tag) and one `page` (a page number), nothing else. The result is BUILT from the parsed parts, never the input echoed back, so
+ * an absolute URL, `//host`, a backslash, a fragment, an extra parameter, a path outside the Blog or an encoded trick is `null`.
+ */
+export function blogTargetOf(raw: unknown): string | null {
+  if (typeof raw !== "string" || raw.length === 0 || raw.length > 300 || /[\\\u0000-\u0020\u007f#]/.test(raw)) return null;
+  const q = raw.indexOf("?");
+  const path = q < 0 ? raw : raw.slice(0, q);
+  const match = /^\/blog(?:\/category\/([^/]+)|\/([^/]+))?$/.exec(path);
+  if (!match) return null;
+  const slug = match[1] ?? match[2];
+  if (slug !== undefined && (!BLOG_SLUG.test(slug) || match[2] === "category")) return null;
+  const params = new URLSearchParams(q < 0 ? "" : raw.slice(q + 1));
+  const keys = Array.from(params.keys());
+  if (keys.some((key) => key !== "locale" && key !== "page") || new Set(keys).size !== keys.length) return null;
+  const query: string[] = [];
+  if (params.has("locale")) {
+    const locale = normalizeLocale(params.get("locale"));
+    if (locale === null) return null;
+    query.push(`locale=${encodeURIComponent(locale)}`);
+  }
+  if (params.has("page")) {
+    const page = parsePage(params.get("page") ?? undefined);
+    if (page === null) return null;
+    query.push(`page=${page}`);
+  }
+  return `${path}${query.length > 0 ? `?${query.join("&")}` : ""}`;
+}
+
 /** Whether a URL path is a page of the Blog (`/blog`, `/blog/...`); `/blog-moved` and `/blogging` are not. */
 export const isBlogPath = (pathname: string): boolean => pathname === "/blog" || pathname.startsWith("/blog/");
 
