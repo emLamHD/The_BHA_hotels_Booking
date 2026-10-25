@@ -24,8 +24,9 @@ type Kind = { kind: "post" | "category"; slug: string } | { kind: "legacy-catego
 function classify(pathname: string, searchParams: URLSearchParams): Kind | null {
   const path = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
   if (path === BLOG_ROOT) {
-    const slug = searchParams.get("category");
-    return slug !== null && BLOG_SLUG.test(slug) ? { kind: "legacy-category", slug } : null;
+    // Exactly one value: a repeated `category` (even twice the same) is not resolved to its first or last — the index page answers its 404.
+    const values = searchParams.getAll("category");
+    return values.length === 1 && BLOG_SLUG.test(values[0]) ? { kind: "legacy-category", slug: values[0] } : null;
   }
   const category = /^\/blog\/category\/([^/]+)$/.exec(path);
   if (category) return BLOG_SLUG.test(category[1]) ? { kind: "category", slug: category[1] } : null;

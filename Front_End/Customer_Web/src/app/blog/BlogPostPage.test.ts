@@ -91,6 +91,31 @@ describe("/blog/{slug}", () => {
   });
 });
 
+describe("/blog/{slug} with a page that is no page (BHA-BLOG-001-CP04-CP05-C8 F2)", () => {
+  // The parsed page is the request's: a malformed one is a 404 before the post is read, for a current slug and for an old one, and an old slug is never redirected.
+  const BAD_PAGES: Array<string | string[]> = [["2", "abc"], ["abc", "2"], ["2", "2"], ["1", "2", "3"], "", "abc", "0", "-1", "1.5", "01", "1000000"];
+
+  it.each(BAD_PAGES.map((page) => [page]))("page=%j: metadata is empty and the render is a 404, with the post never read (current and old slug alike)", async (page) => {
+    for (const read of [{ status: "ok" as const, value: detail() }, { status: "moved" as const, slug: "bai-moi" }]) {
+      vi.mocked(getBlogPost).mockResolvedValue(read);
+      const searchParams = { locale: "vi", page };
+      expect(await postMetadata({ params: { slug: "bai-viet-1" }, searchParams })).toEqual({});
+      await expect(renderPage(BlogPostPage, { params: { slug: "bai-viet-1" }, searchParams })).rejects.toThrow("NEXT_NOT_FOUND");
+    }
+    expect(vi.mocked(getBlogPost)).not.toHaveBeenCalled();
+  });
+
+  it("keeps an absent page and a single valid page as they were: the post renders, an old slug redirects (guards)", async () => {
+    for (const searchParams of [{ locale: "vi" }, { locale: "vi", page: "1" }, { locale: "vi", page: "2" }]) {
+      vi.mocked(getBlogPost).mockResolvedValue({ status: "ok", value: detail() });
+      expect(await renderPage(BlogPostPage, { params: { slug: "bai-viet-1" }, searchParams })).toContain("<h1");
+      expect(await postMetadata({ params: { slug: "bai-viet-1" }, searchParams })).toMatchObject({ alternates: { canonical: "https://www.thebha.test/blog/bai-viet-1?locale=vi" } });
+      vi.mocked(getBlogPost).mockResolvedValue({ status: "moved", slug: "bai-moi" });
+      await expect(renderPage(BlogPostPage, { params: { slug: "bai-cu" }, searchParams })).rejects.toThrow("NEXT_REDIRECT:/blog/bai-moi?locale=vi");
+    }
+  });
+});
+
 describe("the language switch on a post that cannot be read", () => {
   const INDEXES = { vi: "/blog?locale=vi", en: "/blog?locale=en", fr: "/blog?locale=fr" };
   const cookies: string[] = [];

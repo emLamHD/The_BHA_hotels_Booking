@@ -8,10 +8,10 @@ import BlogLocaleTargets from "@/components/blog/BlogLocaleTargets";
 import BlogPagination from "@/components/blog/BlogPagination";
 import BlogPostCard from "@/components/blog/BlogPostCard";
 import BlogCategoryNav from "@/components/blog/BlogCategoryNav";
-import { blogCategoryHref, blogIndexHref, formatPostDate, lastPageOf } from "@/lib/blog/blog";
+import { blogCategoryHref, blogIndexHref, formatPostDate, lastPageOf, legacyCategoryOf } from "@/lib/blog/blog";
 import { blogRequest, indexTargets, type BlogSearchParams } from "@/lib/blog/context";
 import { listMetadata } from "@/lib/blog/seo";
-import { getBlogCategories, getBlogPosts } from "@/lib/blog/server";
+import { getBlogCategories, getBlogPosts, type BlogRead } from "@/lib/blog/server";
 import { getT } from "@/lib/i18n/server";
 import { getSiteOrigin } from "@/lib/seo/siteUrl";
 
@@ -24,7 +24,10 @@ const PAGE_SIZE = 12;
 export async function generateMetadata({ searchParams }: { searchParams?: BlogSearchParams }): Promise<Metadata> {
   const { locale, page } = await blogRequest(searchParams);
   const t = await getT();
-  if (!locale || !page) return {};
+  const legacy = legacyCategoryOf(searchParams?.category);
+  if (!locale || !page || legacy === "invalid") return {};
+  // A legacy filter the middleware could not resolve: the page does not read or show the unfiltered list, so it has nothing to index or point a canonical at.
+  if (legacy === "slug") return { robots: { index: false } };
   // The page's own read (one per request): a list that could not be read must not be indexed as the "could not load" page, nor one the API says is not there.
   const posts = await getBlogPosts(locale, { page, pageSize: PAGE_SIZE });
   if (posts.status !== "ok") return { robots: { index: false } };
@@ -37,9 +40,13 @@ export async function generateMetadata({ searchParams }: { searchParams?: BlogSe
  */
 export default async function BlogPage({ searchParams }: { searchParams?: BlogSearchParams }) {
   const { snapshot, locale, page } = await blogRequest(searchParams);
-  if (!locale || !page) notFound();
+  const legacy = legacyCategoryOf(searchParams?.category);
+  if (!locale || !page || legacy === "invalid") notFound();
   const t = await getT();
-  const [posts, categories] = await Promise.all([getBlogPosts(locale, { page, pageSize: PAGE_SIZE }), getBlogCategories(locale)]);
+  // `?category=<slug>` that still reaches this page is a legacy filter the middleware could not resolve (its category lookup failed): say so, as a read that failed —
+  // never the unfiltered list. The old URL stays; once the lookup works again a new request is redirected to the category page.
+  const unresolved: BlogRead<never> = { status: "error" };
+  const [posts, categories] = legacy === "slug" ? [unresolved, unresolved] : await Promise.all([getBlogPosts(locale, { page, pageSize: PAGE_SIZE }), getBlogCategories(locale)]);
   if (posts.status === "missing") notFound();
   if (posts.status === "ok") {
     const last = lastPageOf(posts.value.total, PAGE_SIZE);

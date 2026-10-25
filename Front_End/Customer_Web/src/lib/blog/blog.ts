@@ -241,6 +241,15 @@ export function parsePage(value: string | string[] | undefined): number | null {
   return Number(value);
 }
 
+/**
+ * The old `/blog?category=` filter on the index, as the page sees it: `"none"` (not given), `"slug"` (exactly one valid slug — a legacy filter the middleware could not
+ * resolve, so the page must not answer as the unfiltered index) or `"invalid"` (empty, not a slug, or repeated — never read as its first or last value: a 404).
+ */
+export function legacyCategoryOf(value: string | string[] | undefined): "none" | "slug" | "invalid" {
+  if (value === undefined) return "none";
+  return typeof value === "string" && BLOG_SLUG.test(value) ? "slug" : "invalid";
+}
+
 export const lastPageOf = (total: number, pageSize: number) => Math.max(1, Math.ceil(total / pageSize));
 
 /** A post date as the reader's calendar day in Viet Nam (the site's time zone), in the visitor's format locale. */

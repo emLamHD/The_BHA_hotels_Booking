@@ -25,8 +25,8 @@ interface Props {
 }
 
 export async function generateMetadata({ params, searchParams }: Props): Promise<Metadata> {
-  const { locale } = await blogRequest(searchParams);
-  if (!locale || !BLOG_SLUG.test(params.slug)) return {};
+  const { locale, page } = await blogRequest(searchParams);
+  if (!locale || !page || !BLOG_SLUG.test(params.slug)) return {};
   const result = await getBlogPost(locale, params.slug);
   // A post that cannot be read must not be indexed as the "could not load" page, and nothing is invented for one that is not there.
   return result.status === "ok" ? postMetadata(getSiteOrigin(), result.value) : { robots: { index: false } };
@@ -39,8 +39,9 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
  * rendered as React text — never as HTML.
  */
 export default async function BlogPostPage({ params, searchParams }: Props) {
-  const { snapshot, locale } = await blogRequest(searchParams);
-  if (!locale || !BLOG_SLUG.test(params.slug)) notFound();
+  const { snapshot, locale, page } = await blogRequest(searchParams);
+  // A post has no pages, but a `?page=` that is no page (repeated, empty, `abc`, `0`) is still a malformed request: a 404 before the post is read or an old slug redirected.
+  if (!locale || !page || !BLOG_SLUG.test(params.slug)) notFound();
   const t = await getT();
   const result = await getBlogPost(locale, params.slug);
   if (result.status === "missing") notFound();

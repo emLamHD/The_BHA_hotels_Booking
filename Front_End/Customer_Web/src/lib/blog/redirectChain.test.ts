@@ -203,3 +203,37 @@ describe("a parameter given twice is never resolved into a redirect (BHA-BLOG-00
     expect(await through("/blog/category/cu?locale=vi&page=2&utm=a&utm=b", api)).toMatchObject({ status: 301, location: "/blog/category/moi?locale=vi&page=2" });
   });
 });
+
+describe("the legacy /blog?category= address when its value is not exactly one slug (BHA-BLOG-001-CP04-CP05-C8 F1)", () => {
+  beforeEach(() => {
+    vi.stubEnv("NEXT_PUBLIC_API_BASE_URL", "https://api.test");
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+  const api: Api = { categories: { a: "current", b: "current" } };
+
+  it.each([
+    "/blog?category=a&category=a&locale=vi",          // the same value twice is still a repeated parameter
+    "/blog?category=a&category=b&locale=vi",
+    "/blog?category=b&category=a&locale=vi",          // neither the first nor the last is taken
+    "/blog?category=a&category=&locale=vi",
+    "/blog?category=&category=a&locale=vi",
+    "/blog?category=a&category=a&category=a",
+    "/blog?category=&locale=vi",                      // present but empty
+    "/blog?category=Bad_Slug&locale=vi",
+    "/blog?category=a%20b&locale=vi",
+  ])("%s -> no redirect (the Blog index answers its own 404), and the API is not even asked", async (path) => {
+    const r = await through(path, api, "bha_locale=vi");
+    expect(r, path).toMatchObject({ redirected: false, status: 200, location: null });
+    expect(r.calls, path).toEqual([]);
+  });
+
+  it("still redirects one valid slug in one hop and no-store, and a repeated unrelated parameter changes nothing (guards)", async () => {
+    expect(await through("/blog?category=a&locale=vi", api)).toMatchObject({ status: 301, location: "/blog/category/a?locale=vi", cacheControl: "no-store" });
+    expect(await through("/blog?category=a&locale=vi&utm=1&utm=2", api)).toMatchObject({ status: 301, location: "/blog/category/a?locale=vi" });
+    expect(await through("/blog?category=cu&locale=vi", { categories: { cu: { movedTo: "moi" } } })).toMatchObject({ status: 301, location: "/blog/category/moi?locale=vi" });
+    expect(await through("/blog?category=gone&locale=vi", api)).toMatchObject({ status: 301, location: "/blog/category/gone?locale=vi" });   // a slug nobody has gets that page's 404
+  });
+});
