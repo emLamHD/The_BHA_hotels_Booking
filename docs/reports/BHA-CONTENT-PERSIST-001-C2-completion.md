@@ -1,6 +1,6 @@
 # BHA-CONTENT-PERSIST-001-C2 — the five findings of the second Codex review (completion report)
 
-- **WORK_ITEM** `BHA-CONTENT-PERSIST-001-C2` · branch `feature/bha-content-persist-001` · Draft PR https://github.com/emLamHD/The_BHA_hotels_Booking/pull/131 (into `develop`, unchanged) · base `origin/develop` `9e792ba` · **START_HEAD** `8a5583f` (verified before editing: working tree clean, PR open and draft, head equal to the remote's) · code head, FINAL_HEAD and CI: see the end of this file / the PR.
+- **WORK_ITEM** `BHA-CONTENT-PERSIST-001-C2` · branch `feature/bha-content-persist-001` · Draft PR https://github.com/emLamHD/The_BHA_hotels_Booking/pull/131 (into `develop`, unchanged) · base `origin/develop` `9e792ba` · **START_HEAD** `8a5583f` (verified before editing: working tree clean, PR open and draft, head equal to the remote's) · **CODE_HEAD** `3e7ad99` (the commit that adds this paragraph follows it and changes only this file; the PR head is the `FINAL_HEAD`). **CI on `3e7ad99`:** Backend pass (unit 676, integration 1322 on PostgreSQL, 23 m 1 s — all 25 content-pack tests ran there), Admin pass, Frontend pass, Vercel previews pass. **PR size from GitHub:** +8234 -16 in 113 files (C1 head: +7,753 / −16 in 111 files); the C2 growth is the 6 new tests, the report and the local code changes.
 - Implementer Claude, reviewer Codex (invoked by Owner), merge Owner.
 - **IMPLEMENTATION: PASS · DEPLOYMENT_SIMULATION: PASS · REVIEW: NOT_RUN · PRODUCTION_VERIFICATION: NOT_RUN.**
 - **Schema:** none. No migration added (the ledger of C1 is unchanged). **Inventory:** unchanged — the pack is the same 804 rows / 36 tables / 43 files. No frontend, API or Admin change. The importer was **not rewritten**: the changes are local (one reorder, three guards, one filter, one check, one nullable).
@@ -32,7 +32,7 @@ All five were reproduced on `8a5583f` with regression tests (`ContentPackC2Tests
 
 ## 3. Checks
 
-`dotnet build Back_End/TheBha.Booking.sln -c Release` (0 errors) · content-pack tests **25/25** (`ContentPackTests` 8, `ContentPackCorrectionTests` 6, `ContentPackScopeTests` 5, `ContentPackC2Tests` 6) · the full backend suite and CI: see the end of this file. Frontend untouched.
+`dotnet build Back_End/TheBha.Booking.sln -c Release` (0 errors) · content-pack tests **25/25** (`ContentPackTests` 8, `ContentPackCorrectionTests` 6, `ContentPackScopeTests` 5, `ContentPackC2Tests` 6) · **unit 676/676, integration 1322/1322** (20 m 13 s locally) and CI as above. Frontend untouched.
 
 **NOT_RUN:** production (no hosting in the repository; values to fill in: runbook §2); a managed PostgreSQL other than the local 17; a second browser engine; the Chrome-extension path (the project's Playwright-on-Chrome recipe was used in C1; C2 needed no browser: it changed no page). The catalog, offers and Blog writers have their own locks and are **not** under the website lock (stated in the runbook): a staff change to them during an import is handled by the transaction and the unique keys, not by that lock.
 
