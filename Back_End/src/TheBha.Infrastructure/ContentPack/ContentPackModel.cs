@@ -28,9 +28,10 @@ public sealed record ContentPackExportOptions(string Out, string ExpectedDatabas
 public enum ContentPackMode { DryRun, Apply, Verify }
 
 /// <summary><c>Groups</c> (default all of website, catalog, promotions, blog) limits what is written (references to what is outside the groups are still resolved, never written);
+/// <c>AfterLocksAcquired</c> is a test seam called once the importer holds its locks and before it reads any configuration state (never set by the command);
 /// <c>RestoreDeleted</c> puts back rows an earlier import placed and the staff deleted since (the ledger says which); a fresh database imports catalog and promotions first, creates its Staff, then imports the rest.
 /// <c>ActorEmail</c> names an existing Staff account on the target; it becomes the author of every imported row that the schema requires an actor for (not needed to verify).</summary>
-public sealed record ContentPackImportOptions(string Pack, string ExpectedDatabase, string? MediaRoot, string MediaBaseUrl, string? ActorEmail, ContentPackMode Mode, bool AllowLocalMediaOrigin, IReadOnlyList<string>? Groups = null, bool RestoreDeleted = false);
+public sealed record ContentPackImportOptions(string Pack, string ExpectedDatabase, string? MediaRoot, string MediaBaseUrl, string? ActorEmail, ContentPackMode Mode, bool AllowLocalMediaOrigin, IReadOnlyList<string>? Groups = null, bool RestoreDeleted = false, Func<CancellationToken, Task>? AfterLocksAcquired = null);
 
 /// <summary>What one run found. Nothing is "ok" unless <see cref="Problems"/> and <see cref="Conflicts"/> are empty.</summary>
 public sealed class ContentPackReport

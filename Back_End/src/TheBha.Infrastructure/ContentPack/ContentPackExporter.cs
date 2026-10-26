@@ -71,6 +71,8 @@ public static class ContentPackExporter
         var external = new SortedSet<string>(StringComparer.Ordinal);
         // What the snapshot says each picture file is: (key, kind, size, sha256 or null).
         var recorded = new List<(string Key, string Kind, long Bytes, string? Sha)>();
+        // Blog revisions (every revision, not only the published ones) whose "propertyIntro" blocks name a property this export does not carry: property → revision ids.
+        var outside = new Dictionary<Guid, List<string>>();
 
         foreach (var (table, where) in ContentPackSpec.Included)
         {
@@ -91,7 +93,8 @@ public static class ContentPackExporter
                         case "BlogMedia":
                             // The importer gives the picture its variants through the pipeline (generation 0 = "needs them").
                             row["Generation"] = 0;
-                            recorded.Add((row["StorageKey"]!.GetValue<string>(), "blog-original", row["ByteSize"]!.GetValue<long>(), row["OriginalSha256"]!.GetValue<string>()));
+                            // A picture from before the image pipeline has no recorded hash (the column is null); the size is still checked, and the pack carries the file's own sha256.
+                            recorded.Add((row["StorageKey"]!.GetValue<string>(), "blog-original", row["ByteSize"]!.GetValue<long>(), row["OriginalSha256"]?.GetValue<string>()));
                             break;
                         case "PromotionMedia":
                             recorded.Add((row["StorageKey"]!.GetValue<string>(), "promo-cover", row["ByteSize"]!.GetValue<long>(), null));
@@ -108,6 +111,9 @@ public static class ContentPackExporter
                                 report.Problems.Add($"Media {row["Id"]}: the address '{url}' is served by the API from catalog storage; the pack does not carry those files.");
                             break;
                     }
+                    if (table == "BlogPostRevisions")
+                        foreach (var id in ContentPackCatalog.PropertyIntroIds(row.ToJsonString(ContentPackSpec.Json)).Where(id => !pids.Contains(id)))
+                            if (!outside.TryAdd(id, [row["Id"]!.GetValue<string>()])) outside[id].Add(row["Id"]!.GetValue<string>());
                     foreach (var text in ContentPackCatalog.Strings(row))
                         if (text.Contains("localhost", StringComparison.OrdinalIgnoreCase) || text.Contains("127.0.0.1", StringComparison.Ordinal))
                             report.Problems.Add($"{table} {ContentPackCatalog.KeyText(row, key)}: contains a local address ('{(text.Length > 80 ? text[..80] : text)}'); pass --source-media-origin or fix the content.");
@@ -119,6 +125,13 @@ public static class ContentPackExporter
             tables.Add(new ContentPackTable(table, rows.Count, ContentPackCatalog.Sha256(bytes)));
             report.Lines.Add($"export: {table,-26} {rows.Count,5} rows");
             if (options.AfterTableRead is { } hook) await hook(table, ct);
+        }
+
+        foreach (var (property, revisions) in outside)
+        {
+            var name = all.FirstOrDefault(p => p.Id == property)?.Slug ?? property.ToString();
+            report.Problems.Add($"the Blog needs the property '{name}' ({property}), which this export does not carry: {revisions.Count} revisions have a propertyIntro block for it ({string.Join(", ", revisions.Take(5))}{(revisions.Count > 5 ? ", …" : string.Empty)}). " +
+                (all.Any(p => p.Id == property) ? "Export every property (leave --property-slug out), or name it too." : "The property does not exist in the source; fix those revisions first."));
         }
 
         var excluded = new List<ContentPackNote>();

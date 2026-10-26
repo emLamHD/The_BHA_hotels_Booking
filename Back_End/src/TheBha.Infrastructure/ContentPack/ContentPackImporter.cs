@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Npgsql;
 using NpgsqlTypes;
+using TheBha.Infrastructure.Persistence;
 
 namespace TheBha.Infrastructure.ContentPack;
 
@@ -113,6 +114,35 @@ public static partial class ContentPackImporter
                 _actor = reader.GetGuid(0);
             }
 
+            // The transaction and its locks come before any read that decides what to write. The importer's own lock first (nobody else takes it), then the
+            // website-settings lock every Admin website writer takes (WebsiteTransaction.InLockAsync) when the website group is written: it is held until commit or
+            // rollback, so a Staff save either finished before the importer reads the configuration or waits until the importer is done. One order everywhere: no deadlock.
+            await using var tx = _tx = await connection.BeginTransactionAsync(Mode == ContentPackMode.Verify ? IsolationLevel.RepeatableRead : IsolationLevel.ReadCommitted, ct);
+            if (Mode == ContentPackMode.Verify) { await using var ro = new NpgsqlCommand("SET TRANSACTION READ ONLY", connection, tx); await ro.ExecuteNonQueryAsync(ct); }
+            else
+            {
+                await using (var lockCommand = new NpgsqlCommand("SELECT pg_try_advisory_xact_lock(@k)", connection, tx))
+                {
+                    lockCommand.Parameters.AddWithValue("k", ContentPackSpec.AdvisoryLockKey);
+                    if (!(bool)(await lockCommand.ExecuteScalarAsync(ct))!) return Fail("another content-pack import is running on this database; try again when it has finished.");
+                }
+                if (_groups.Contains("website"))
+                {
+                    try
+                    {
+                        await using (var timeout = new NpgsqlCommand("SET LOCAL lock_timeout = '60s'", connection, tx)) await timeout.ExecuteNonQueryAsync(ct);
+                        await using (var website = new NpgsqlCommand("SELECT pg_advisory_xact_lock(@k)", connection, tx))
+                        {
+                            website.Parameters.AddWithValue("k", BookingAdvisoryLockKeys.ForWebsiteSettings());
+                            await website.ExecuteNonQueryAsync(ct);
+                        }
+                        await using (var reset = new NpgsqlCommand("SET LOCAL lock_timeout = 0", connection, tx)) await reset.ExecuteNonQueryAsync(ct);
+                    }
+                    catch (PostgresException ex) when (ex.SqlState == "55P03") { return Fail("the website-settings lock was not free within 60 seconds (a Staff save is taking too long); nothing was written, run again."); }
+                }
+            }
+            if (options.AfterLocksAcquired is { } hook) await hook(ct);
+
             // References are resolved for every group (what the pack's rows should point at in THIS database); only the selected groups are written.
             await ResolveReferencesAsync(ct);
             if (_report.Problems.Count > 0) return _report;
@@ -121,7 +151,10 @@ public static partial class ContentPackImporter
 
             // Files first as a plan (reads only): present and identical, missing, or a different file under the same name.
             var skippedCovers = (_pack.Rows.GetValueOrDefault("PromotionMedia") ?? []).Where(r => _skipPromoMedia.Contains(r["Id"]!.GetValue<string>())).Select(r => r["StorageKey"]!.GetValue<string>()).ToHashSet(StringComparer.Ordinal);
-            var files = _pack.Manifest.Files.Where(f => _groups.Contains(GroupOfKind(f.Kind)) && !skippedCovers.Contains(f.Key)).ToList();
+            var deletedKeys = await DeletedPictureKeysAsync(ct);
+            foreach (var key in deletedKeys.Order(StringComparer.Ordinal)) _report.Lines.Add($"  picture kept deleted (an earlier import placed it and the staff deleted it; its file is not copied back): {key}");
+            // When the target's hero is a collection the staff edited, the pack's uploaded hero pictures have no slide to serve and are not brought in.
+            var files = _pack.Manifest.Files.Where(f => _groups.Contains(GroupOfKind(f.Kind)) && !skippedCovers.Contains(f.Key) && !deletedKeys.Contains(f.Key) && !(f.Kind == "hero-upload" && !_heroPristine)).ToList();
             if (files.Count > 0 && options.MediaRoot is null) return Fail("WebsiteMedia:RootPath is not set: the pack's picture files have nowhere to go.");
             var toCopy = new List<ContentPackFile>();
             foreach (var file in files)
@@ -132,15 +165,6 @@ public static partial class ContentPackImporter
                 else _report.Conflicts.Add($"file {file.Key}: a different file is already there; it is never overwritten.");
             }
             if (Mode == ContentPackMode.Verify) foreach (var file in toCopy) _report.Problems.Add($"file {file.Key}: missing from the media directory.");
-
-            await using var tx = _tx = await connection.BeginTransactionAsync(Mode == ContentPackMode.Verify ? IsolationLevel.RepeatableRead : IsolationLevel.ReadCommitted, ct);
-            if (Mode == ContentPackMode.Verify) { await using var ro = new NpgsqlCommand("SET TRANSACTION READ ONLY", connection, tx); await ro.ExecuteNonQueryAsync(ct); }
-            else
-            {
-                await using var lockCommand = new NpgsqlCommand("SELECT pg_try_advisory_xact_lock(@k)", connection, tx);
-                lockCommand.Parameters.AddWithValue("k", ContentPackSpec.AdvisoryLockKey);
-                if (!(bool)(await lockCommand.ExecuteScalarAsync(ct))!) return Fail("another content-pack import is running on this database; try again when it has finished.");
-            }
 
             var pending = new List<(Guid Id, JsonNode? Status, JsonNode? Draft, JsonNode? Published)>();
             foreach (var table in selected)
@@ -329,6 +353,26 @@ public static partial class ContentPackImporter
             while (await reader.ReadAsync(ct)) _ledger.Add(reader.GetString(0));
         }
 
+        /// <summary>The storage keys of pack pictures whose row an import placed and that are absent now (the staff deleted them, and the service deletes the files with the row).</summary>
+        private async Task<HashSet<string>> DeletedPictureKeysAsync(CancellationToken ct)
+        {
+            var keys = new HashSet<string>(StringComparer.Ordinal);
+            if (options.RestoreDeleted) return keys;
+            foreach (var table in new[] { "BlogMedia", "PromotionMedia", "WebsiteHeroMedia" })
+            {
+                if (!_groups.Contains(ContentPackSpec.GroupOf(table)) || !_pack.Rows.TryGetValue(table, out var rows)) continue;
+                var candidates = rows.Where(r => _ledger.Contains($"{table}|{r["Id"]!.GetValue<string>()}") && r["StorageKey"] is not null && (table != "WebsiteHeroMedia" || r["Kind"]?.GetValue<string>() == "upload")).ToList();
+                if (candidates.Count == 0) continue;
+                var present = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                await using var command = new NpgsqlCommand($"SELECT \"Id\"::text FROM {ContentPackSpec.Quote(table)} WHERE \"Id\" = ANY(@ids)", _connection, _tx);
+                command.Parameters.AddWithValue("ids", candidates.Select(r => Guid.Parse(r["Id"]!.GetValue<string>())).ToArray());
+                await using var reader = await command.ExecuteReaderAsync(ct);
+                while (await reader.ReadAsync(ct)) present.Add(reader.GetString(0));
+                foreach (var row in candidates.Where(r => !present.Contains(r["Id"]!.GetValue<string>()))) keys.Add(row["StorageKey"]!.GetValue<string>());
+            }
+            return keys;
+        }
+
         // ---- one table ----
 
         private static string GroupOfKind(string kind) => kind switch { "blog-original" => "blog", "promo-cover" => "promotions", _ => "website" };
@@ -379,6 +423,9 @@ public static partial class ContentPackImporter
             var unknown = rows.SelectMany(r => r.Select(p => p.Key)).Distinct().Where(c => !columns.Contains(c)).ToList();
             if (unknown.Count > 0) { _report.Problems.Add($"{table}: the pack has columns this database does not: {string.Join(", ", unknown)} (export again from the same version)."); return; }
 
+            // A hero or menu the staff saved (its row has version > 1 or an author: every Admin save sets both) is theirs: a child it does not have is one they removed or
+            // replaced, whether or not an import ever ran, so none is added to it. Only a collection still at the migration's state receives the pack's.
+            var collectionEdited = table switch { "WebsiteHeroSlides" or "WebsiteHeroMedia" => !_heroPristine, "WebsiteMenuItems" => !_menuPristine, _ => false };
             if (Mode != ContentPackMode.Verify) await PrepareConfigTableAsync(table, key, rows, ct);
             if (table == "BlogMedia") _report.BlogMediaIds.AddRange(rows.Select(r => Guid.Parse(r["Id"]!.GetValue<string>())));
 
@@ -434,10 +481,16 @@ public static partial class ContentPackImporter
                     continue;
                 }
 
+                if (collectionEdited)
+                {
+                    outcome.KeptDifferent++;
+                    Cap(table, $"  kept (the target's collection was edited): {table} {keyText} is not added");
+                    continue;
+                }
                 if (!options.RestoreDeleted && _ledger.Contains($"{table}|{packKey}"))
                 {
                     outcome.DeletedSinceImport++;
-                    Cap(table, $"  deleted since the import (not put back): {table} {packKey}");
+                    Cap(table, $"  deleted since the import (not put back): {table} {packKey}{(packRow["StorageKey"] is { } storage ? $" ({storage.GetValue<string>()})" : string.Empty)}");
                     continue;
                 }
                 if (Mode == ContentPackMode.Verify)
@@ -477,7 +530,7 @@ public static partial class ContentPackImporter
                     if (outcome.Missing <= ListCap) _report.Problems.Add($"{table} {keyText}: the target still has the default; the pack carries the source's configured value ({string.Join(", ", different)}).");
                     return;
                 }
-                if (await TryUpdateAsync(table, key, row, keyText, ct)) { outcome.Updated++; Cap(table, $"  took the pack's value (the target's row was still the migration default): {table} {keyText} — {string.Join(", ", different)}"); }
+                if (await TryUpdateAsync(table, key, row, keyText, existing, ct)) { outcome.Updated++; Cap(table, $"  took the pack's value (the target's row was still the migration default): {table} {keyText} — {string.Join(", ", different)}"); }
                 return;
             }
             outcome.KeptDifferent++;
@@ -627,16 +680,24 @@ public static partial class ContentPackImporter
             }
         }
 
-        private async Task<bool> TryUpdateAsync(string table, IReadOnlyList<string> key, JsonObject row, string keyText, CancellationToken ct)
+        private async Task<bool> TryUpdateAsync(string table, IReadOnlyList<string> key, JsonObject row, string keyText, JsonObject existing, CancellationToken ct)
         {
+            // The row was read under the website-settings lock; the version it had is checked again by the statement, so nothing committed since can be overwritten.
+            var versioned = existing["Version"] is { } version && row.ContainsKey("Version");
             var set = string.Join(", ", row.Select(p => p.Key).Where(c => !key.Contains(c) && !c.StartsWith("Created", StringComparison.Ordinal)).Select(c => $"{ContentPackSpec.Quote(c)} = r.{ContentPackSpec.Quote(c)}"));
             var join = string.Join(" AND ", key.Select(c => $"t.{ContentPackSpec.Quote(c)} = r.{ContentPackSpec.Quote(c)}"));
             _tx!.Save("row");
             try
             {
-                await using var command = new NpgsqlCommand($"UPDATE {ContentPackSpec.Quote(table)} t SET {set} FROM jsonb_populate_record(NULL::{ContentPackSpec.Quote(table)}, @j) r WHERE {join}", _connection, _tx);
+                await using var command = new NpgsqlCommand($"UPDATE {ContentPackSpec.Quote(table)} t SET {set} FROM jsonb_populate_record(NULL::{ContentPackSpec.Quote(table)}, @j) r WHERE {join}{(versioned ? " AND t.\"Version\" = @expectedVersion" : string.Empty)}", _connection, _tx);
                 command.Parameters.Add(Json(row));
-                await command.ExecuteNonQueryAsync(ct);
+                if (versioned) command.Parameters.AddWithValue("expectedVersion", existing["Version"]!.GetValue<int>());
+                if (await command.ExecuteNonQueryAsync(ct) == 0)
+                {
+                    _tx.Rollback("row");
+                    _report.Conflicts.Add($"{table} {keyText}: changed by someone else while the import ran; nothing was written, run again.");
+                    return false;
+                }
                 _tx.Release("row");
                 return true;
             }

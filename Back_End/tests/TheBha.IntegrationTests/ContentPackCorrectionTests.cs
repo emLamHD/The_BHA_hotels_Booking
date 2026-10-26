@@ -160,7 +160,7 @@ public sealed class ContentPackCorrectionTests(PostgreSqlWebApplicationFactory f
         var output = Path.Combine(Path.GetTempPath(), "bha-export-" + Guid.NewGuid().ToString("N"));
         try
         {
-            var export = await target.RunAsync(ContentPackCommand.Export, "--expected-database", target.Database, "--out", output, "--property-slug", "the-bha-riverside", "--source-media-origin", BaseUrl);
+            var export = await target.RunAsync(ContentPackCommand.Export, "--expected-database", target.Database, "--out", output, "--source-media-origin", BaseUrl);
             Assert.True(export.Exit == 0, export.Output);
             Assert.Equal(43, Directory.EnumerateFiles(Path.Combine(output, "files"), "*", SearchOption.AllDirectories).Count());
         }

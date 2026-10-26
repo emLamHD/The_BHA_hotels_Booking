@@ -12,6 +12,12 @@ public static partial class ContentPackCatalog
     [GeneratedRegex("^(blog|promo|hero)/[0-9a-f]{32}\\.(jpg|png|webp)$")]
     public static partial Regex FileKey();
 
+    [GeneratedRegex("\"propertyId\"\\s*:\\s*\"([0-9a-fA-F-]{36})\"")]
+    private static partial Regex PropertyIntroId();
+
+    /// <summary>The property ids named by the "propertyIntro" blocks of a Blog revision's JSON.</summary>
+    public static IEnumerable<Guid> PropertyIntroIds(string revisionJson) => PropertyIntroId().Matches(revisionJson).Select(m => Guid.Parse(m.Groups[1].Value)).Distinct();
+
     public static string Sha256(ReadOnlySpan<byte> bytes) => Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
 
     /// <summary>The picture's path under <paramref name="root"/>; null when the key is not one of the two shapes or would leave the root.</summary>
