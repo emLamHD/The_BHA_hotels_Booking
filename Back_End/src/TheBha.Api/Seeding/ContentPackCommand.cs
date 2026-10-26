@@ -81,7 +81,10 @@ public static class ContentPackCommand
                     report.Lines.AddRange(check.Lines.Where(l => l.Contains(" rows match the pack ") || l.Contains("picture variant files checked")).Select(l => l.Replace("content-pack: ", "content-pack: now ")));
                     report.Problems.AddRange(check.Problems.Except(report.Problems));
                     report.Notes.AddRange(check.Notes.Except(report.Notes));
-                    report.Lines.Add(check.Ok ? "content-pack: VERIFIED — every row of the pack is on the target (matching it, or keeping the target's own version, listed above), and every picture file and variant is present and intact." : "content-pack: VERIFICATION FAILED");
+                    var matches = check.Tables.Values.Sum(o => o.Matches); var kept = check.Tables.Values.Sum(o => o.KeptDifferent); var deleted = check.Tables.Values.Sum(o => o.DeletedSinceImport);
+                    report.Lines.Add(check.Ok
+                        ? $"content-pack: VERIFIED — nothing the pack carries is missing: {matches} rows match it, {kept} keep the target's own version, {deleted} were deleted since an import (not put back); every picture file and variant of the pack is present and intact."
+                        : "content-pack: VERIFICATION FAILED");
                 }
             }
         }

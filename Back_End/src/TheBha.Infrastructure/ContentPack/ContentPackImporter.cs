@@ -181,7 +181,7 @@ public static partial class ContentPackImporter
 
             foreach (var (name, o) in _report.Tables)
                 _report.Lines.Add($"content-pack: {name,-24} inserted {o.Inserted,4}  matches {o.Matches,4}  kept-target {o.KeptDifferent,3}  mapped {o.Mapped,2}  updated {o.Updated,2}  deleted-since {o.DeletedSinceImport,2}" + (Mode == ContentPackMode.Verify ? $"  missing {o.Missing,3}" : string.Empty));
-            _report.Lines.Add($"content-pack: {_report.Tables.Values.Sum(o => o.Matches)} rows match the pack · {_report.Tables.Values.Sum(o => o.KeptDifferent)} keep the target's own version · {_report.Tables.Values.Sum(o => o.Updated)} took the pack's value over a default · {_report.Tables.Values.Sum(o => o.DeletedSinceImport)} deleted since the import (not put back) · {_report.Tables.Values.Sum(o => o.Missing)} missing");
+            _report.Lines.Add($"content-pack: {_report.Tables.Values.Sum(o => o.Inserted)} inserted · {_report.Tables.Values.Sum(o => o.Matches)} rows match the pack · {_report.Tables.Values.Sum(o => o.KeptDifferent)} keep the target's own version · {_report.Tables.Values.Sum(o => o.Updated)} took the pack's value over a default · {_report.Tables.Values.Sum(o => o.DeletedSinceImport)} deleted since the import (not put back) · {_report.Tables.Values.Sum(o => o.Missing)} missing");
 
             if (!_report.Ok || Mode != ContentPackMode.Apply)
             {
@@ -461,8 +461,12 @@ public static partial class ContentPackImporter
         {
             var packProjection = Project(row, table);
             var targetProjection = Project(existing, table, row);
-            if (JsonNode.DeepEquals(packProjection, targetProjection)) { outcome.Matches++; return; }
-            var different = Differing(packProjection, targetProjection);
+            var same = JsonNode.DeepEquals(packProjection, targetProjection);
+            // A configuration row whose content is the same but whose version says the source's staff saved it (a menu has nothing else) carries that version over a default.
+            var versionOnly = same && table.StartsWith("Website", StringComparison.Ordinal) && row["Version"] is { } packVersion && existing["Version"] is { } targetVersion
+                && packVersion.GetValue<int>() != targetVersion.GetValue<int>() && IsEdited(table, packRow) && IsPristine(table, existing);
+            if (same && !versionOnly) { outcome.Matches++; return; }
+            var different = versionOnly ? ["Version"] : Differing(packProjection, targetProjection);
 
             // Website configuration: the target's value stands unless it is still the migration's default and the pack's row was edited in the source.
             if (table.StartsWith("Website", StringComparison.Ordinal) && IsEdited(table, packRow) && IsPristine(table, existing))
