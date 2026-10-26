@@ -6,10 +6,10 @@ using Npgsql;
 namespace TheBha.Infrastructure.ContentPack;
 
 /// <summary>Database and file helpers shared by the exporter and the importer.</summary>
-internal static partial class ContentPackCatalog
+public static partial class ContentPackCatalog
 {
-    /// <summary>The only two shapes of picture key a pack carries (the same shapes the application itself generates).</summary>
-    [GeneratedRegex("^(blog|promo)/[0-9a-f]{32}\\.(jpg|png|webp)$")]
+    /// <summary>The shapes of picture key a pack carries (the same shapes the application itself generates).</summary>
+    [GeneratedRegex("^(blog|promo|hero)/[0-9a-f]{32}\\.(jpg|png|webp)$")]
     public static partial Regex FileKey();
 
     public static string Sha256(ReadOnlySpan<byte> bytes) => Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
@@ -18,8 +18,10 @@ internal static partial class ContentPackCatalog
     public static string? ResolveKey(string root, string key)
     {
         if (!FileKey().IsMatch(key)) return null;
-        var full = Path.GetFullPath(Path.Combine(root, key));
-        return full.StartsWith(Path.GetFullPath(root) + Path.DirectorySeparatorChar, StringComparison.Ordinal) ? full : null;
+        // The root may or may not end with a separator; the containment test must not care, and "/var/media2" is not inside "/var/media".
+        var rootFull = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var full = Path.GetFullPath(Path.Combine(rootFull, key));
+        return full.StartsWith(rootFull + Path.DirectorySeparatorChar, StringComparison.Ordinal) ? full : null;
     }
 
     public static async Task<string> CurrentDatabaseAsync(NpgsqlConnection connection, CancellationToken ct)
@@ -37,8 +39,14 @@ internal static partial class ContentPackCatalog
         return result;
     }
 
+    /// <summary>The rows of a table; 0 for a table this database does not have (a source that predates the import ledger, say).</summary>
     public static async Task<int> CountAsync(NpgsqlConnection connection, string table, CancellationToken ct)
     {
+        await using (var exists = new NpgsqlCommand("SELECT to_regclass(@t) IS NOT NULL", connection))
+        {
+            exists.Parameters.AddWithValue("t", "public." + ContentPackSpec.Quote(table));
+            if (!(bool)(await exists.ExecuteScalarAsync(ct))!) return 0;
+        }
         await using var command = new NpgsqlCommand($"SELECT count(*) FROM {ContentPackSpec.Quote(table)}", connection);
         return (int)(long)(await command.ExecuteScalarAsync(ct))!;
     }
@@ -67,26 +75,6 @@ internal static partial class ContentPackCatalog
             columns[reader.GetString(1)] = reader.GetBoolean(2);
         }
         return result;
-    }
-
-    /// <summary>How many rows of a migration-seeded website table the staff changed (a version above 1, an author, a manual translation, an uploaded hero picture).</summary>
-    public static async Task<int> EditedConfigurationAsync(NpgsqlConnection connection, string table, CancellationToken ct)
-    {
-        var columns = new HashSet<string>(StringComparer.Ordinal);
-        await using (var command = new NpgsqlCommand("SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = @t", connection))
-        {
-            command.Parameters.AddWithValue("t", table);
-            await using var reader = await command.ExecuteReaderAsync(ct);
-            while (await reader.ReadAsync(ct)) columns.Add(reader.GetString(0));
-        }
-        var tests = new List<string>();
-        if (columns.Contains("Version")) tests.Add("\"Version\" > 1");
-        if (columns.Contains("UpdatedByStaffId")) tests.Add("\"UpdatedByStaffId\" IS NOT NULL");
-        if (columns.Contains("IsManual")) tests.Add("\"IsManual\"");
-        if (table == "WebsiteHeroMedia") tests.Add("\"StorageKey\" NOT LIKE 'seed/%'");
-        if (tests.Count == 0) return 0;
-        await using var count = new NpgsqlCommand($"SELECT count(*) FROM {ContentPackSpec.Quote(table)} WHERE {string.Join(" OR ", tests)}", connection);
-        return (int)(long)(await count.ExecuteScalarAsync(ct))!;
     }
 
     public static string KeyText(JsonObject row, IReadOnlyList<string> key) => string.Join("/", key.Select(column => row[column]?.ToString() ?? "null"));

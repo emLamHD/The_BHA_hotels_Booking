@@ -47,7 +47,7 @@ public sealed class BlogMediaMigrationTests : IAsyncLifetime
         await using var context = CreateContext();
         await context.Database.MigrateAsync();
 
-        Assert.Equal(19, (await context.Database.GetAppliedMigrationsAsync()).Count());
+        Assert.Equal(20, (await context.Database.GetAppliedMigrationsAsync()).Count());
         Assert.False(context.Database.HasPendingModelChanges()); // the migration and the model agree
         Assert.Equal(0L, await CountAsync("BlogMediaVariants"));
         await SeedStaffAsync();
@@ -112,7 +112,7 @@ public sealed class BlogMediaMigrationTests : IAsyncLifetime
 
         await migrator.MigrateAsync();
 
-        Assert.Equal(19, (await context.Database.GetAppliedMigrationsAsync()).Count());
+        Assert.Equal(20, (await context.Database.GetAppliedMigrationsAsync()).Count());
         Assert.Empty(await context.Database.GetPendingMigrationsAsync());
         Assert.Equal(2L, await CountAsync("BlogMedia"));
         Assert.Equal(0L, await CountAsync("BlogMediaVariants")); // nothing is processed behind the operator's back
@@ -154,7 +154,7 @@ public sealed class BlogMediaMigrationTests : IAsyncLifetime
         {
             await ExecuteAsync(change);
             Assert.Equal("P0001", (await Assert.ThrowsAsync<PostgresException>(() => migrator.MigrateAsync(V18))).SqlState);
-            Assert.Equal(19, (await context.Database.GetAppliedMigrationsAsync()).Count());
+            Assert.Equal(20, (await context.Database.GetAppliedMigrationsAsync()).Count());
             await ExecuteAsync("""UPDATE "BlogMedia" SET "Generation" = 0, "Version" = 1""");
         }
 
@@ -167,7 +167,7 @@ public sealed class BlogMediaMigrationTests : IAsyncLifetime
         Assert.Equal(18, (await context.Database.GetAppliedMigrationsAsync()).Count());
         Assert.Equal(1L, await CountAsync("BlogMedia"));
         await migrator.MigrateAsync();
-        Assert.Equal(19, (await context.Database.GetAppliedMigrationsAsync()).Count());
+        Assert.Equal(20, (await context.Database.GetAppliedMigrationsAsync()).Count());
         Assert.Equal($"Picture {media.ToString()[..8]}", await TextAsync($"""SELECT "DisplayName" FROM "BlogMedia" WHERE "Id" = '{media}' """));
     }
 

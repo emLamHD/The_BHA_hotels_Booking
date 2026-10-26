@@ -1,2 +1,6 @@
+{"Id":"20000000-0000-0000-0000-000000000001","Code":"WIFI","Name":"Complimentary Wi-Fi","Category":"Connectivity","IsActive":true}
+{"Id":"20000000-0000-0000-0000-000000000002","Code":"POOL","Name":"Swimming Pool","Category":"Wellness","IsActive":true}
+{"Id":"20000000-0000-0000-0000-000000000003","Code":"BREAKFAST","Name":"Breakfast","Category":"Dining","IsActive":true}
+{"Id":"20000000-0000-0000-0000-000000000004","Code":"AIRCON","Name":"Air Conditioning","Category":"Room","IsActive":true}
 {"Id":"a2000000-0000-0000-0000-000000000001","Code":"RIV-POOL","Name":"Hồ bơi trên sân thượng","Category":"Wellness","IsActive":true}
 {"Id":"a2000000-0000-0000-0000-000000000002","Code":"RIV-ROOFTOP","Name":"Sân thượng","Category":"Outdoor","IsActive":true}

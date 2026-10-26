@@ -1,3 +1,7 @@
+{"Id":"50000000-0000-0000-0000-000000000001","Url":"https://images.example.com/the-bha/property-cover.jpg","AltText":"The BHA Hotel exterior","CreatedAt":"2026-10-26T06:32:29.427584+00:00","MediaType":"Image"}
+{"Id":"50000000-0000-0000-0000-000000000002","Url":"https://images.example.com/the-bha/lobby.jpg","AltText":"The BHA Hotel lobby","CreatedAt":"2026-10-26T06:32:29.447337+00:00","MediaType":"Image"}
+{"Id":"50000000-0000-0000-0000-000000000003","Url":"https://images.example.com/the-bha/deluxe-king.jpg","AltText":"Deluxe King room","CreatedAt":"2026-10-26T06:32:29.448955+00:00","MediaType":"Image"}
+{"Id":"50000000-0000-0000-0000-000000000004","Url":"https://images.example.com/the-bha/family-suite.jpg","AltText":"Family Suite","CreatedAt":"2026-10-26T06:32:29.450699+00:00","MediaType":"Image"}
 {"Id":"a5000000-0000-0000-0000-000000000001","Url":"{{MEDIA_ORIGIN}}/media/the-bha-riverside/entrance-logo.webp","AltText":"Cửa kính lối vào có biển hiệu The BHA Riverside và hai ghế thư giãn","CreatedAt":"2026-10-26T06:37:41.074759+00:00","MediaType":"Image"}
 {"Id":"a5000000-0000-0000-0000-000000000002","Url":"{{MEDIA_ORIGIN}}/media/the-bha-riverside/rooftop-pool-day.webp","AltText":"Hồ bơi trên sân thượng vào ban ngày","CreatedAt":"2026-10-26T06:37:41.074759+00:00","MediaType":"Image"}
 {"Id":"a5000000-0000-0000-0000-000000000003","Url":"{{MEDIA_ORIGIN}}/media/the-bha-riverside/rooftop-pool-night.webp","AltText":"Hồ bơi trên sân thượng về đêm","CreatedAt":"2026-10-26T06:37:41.074759+00:00","MediaType":"Image"}

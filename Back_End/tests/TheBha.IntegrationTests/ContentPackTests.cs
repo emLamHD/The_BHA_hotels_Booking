@@ -17,115 +17,15 @@ namespace TheBha.IntegrationTests;
 [Collection(PostgreSqlCollection.Name)]
 public sealed partial class ContentPackTests(PostgreSqlWebApplicationFactory factory)
 {
-    private const string BaseUrl = "https://bha.example.org";
-    private const string Actor = "actor@bha.test";
-    private const string RiversideId = "a1000000-0000-0000-0000-000000000001";
-
+    private const string BaseUrl = ContentPackTestSupport.BaseUrl;
+    private const string RiversideId = ContentPackTestSupport.RiversideId;
+    private const string Actor = ContentPackTestSupport.Actor;
     [GeneratedRegex(@"inserted\s+[1-9]")]
     private static partial Regex AnyInsert();
 
-    private static string PackDir()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !Directory.Exists(Path.Combine(directory.FullName, "deploy", "content", "bha-site-content"))) directory = directory.Parent;
-        return Path.Combine(directory!.FullName, "deploy", "content", "bha-site-content");
-    }
-
-    private static string CopyPack()
-    {
-        var target = Path.Combine(Path.GetTempPath(), "bha-pack-" + Guid.NewGuid().ToString("N"));
-        foreach (var file in Directory.EnumerateFiles(PackDir(), "*", SearchOption.AllDirectories))
-        {
-            var destination = Path.Combine(target, Path.GetRelativePath(PackDir(), file));
-            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-            File.Copy(file, destination);
-        }
-        return target;
-    }
-
-    private sealed class Target : IAsyncDisposable
-    {
-        public required string Database { get; init; }
-        public required string ConnectionString { get; init; }
-        public required string Media { get; init; }
-        public required WebApplicationFactory<Program> Host { get; init; }
-        public required string AdminConnection { get; init; }
-
-        public string[] Import(string pack, params string[] more) =>
-            [ContentPackCommand.Import, "--expected-database", Database, "--pack", pack, "--media-base-url", BaseUrl, "--actor-email", Actor, .. more];
-
-        public async Task<(int Exit, string Output)> RunAsync(params string[] args)
-        {
-            var writer = new StringWriter();
-            var exit = await ContentPackCommand.RunAsync(args, Host.Services, "Development", writer, CancellationToken.None);
-            return (exit, writer.ToString());
-        }
-
-        public async Task<long> CountAsync(string sql)
-        {
-            await using var connection = new NpgsqlConnection(ConnectionString);
-            await connection.OpenAsync();
-            await using var command = new NpgsqlCommand(sql, connection);
-            return Convert.ToInt64(await command.ExecuteScalarAsync());
-        }
-
-        public async Task<string?> TextAsync(string sql)
-        {
-            await using var connection = new NpgsqlConnection(ConnectionString);
-            await connection.OpenAsync();
-            await using var command = new NpgsqlCommand(sql, connection);
-            return (await command.ExecuteScalarAsync())?.ToString();
-        }
-
-        public async Task ExecuteAsync(string sql)
-        {
-            await using var connection = new NpgsqlConnection(ConnectionString);
-            await connection.OpenAsync();
-            await using var command = new NpgsqlCommand(sql, connection);
-            await command.ExecuteNonQueryAsync();
-        }
-
-        public int MediaFiles() => Directory.Exists(Media) ? Directory.EnumerateFiles(Media, "*", SearchOption.AllDirectories).Count() : 0;
-
-        public async ValueTask DisposeAsync()
-        {
-            Host.Dispose();
-            NpgsqlConnection.ClearAllPools();
-            await using var connection = new NpgsqlConnection(AdminConnection);
-            await connection.OpenAsync();
-            await using var command = new NpgsqlCommand($"DROP DATABASE IF EXISTS \"{Database}\" WITH (FORCE)", connection);
-            await command.ExecuteNonQueryAsync();
-            if (Directory.Exists(Media)) Directory.Delete(Media, recursive: true);
-        }
-    }
-
-    private async Task<Target> NewTargetAsync(bool withActor = true)
-    {
-        var database = $"thebha_cp_{Guid.NewGuid():N}"[..40];
-        var admin = new NpgsqlConnectionStringBuilder(factory.ConnectionString) { Database = "postgres", Pooling = false }.ConnectionString;
-        await using (var connection = new NpgsqlConnection(admin))
-        {
-            await connection.OpenAsync();
-            await using var command = new NpgsqlCommand($"CREATE DATABASE \"{database}\"", connection);
-            await command.ExecuteNonQueryAsync();
-        }
-        var connectionString = new NpgsqlConnectionStringBuilder(factory.ConnectionString) { Database = database, Pooling = false }.ConnectionString;
-        var media = Path.Combine(Path.GetTempPath(), "bha-cp-media-" + Guid.NewGuid().ToString("N"));
-        var host = factory.WithWebHostBuilder(builder =>
-        {
-            builder.UseSetting("ConnectionStrings:TheBhaDatabase", connectionString);
-            builder.UseSetting("WebsiteMedia:RootPath", media);
-        });
-        await using (var scope = host.Services.CreateAsyncScope())
-            await scope.ServiceProvider.GetRequiredService<TheBhaDbContext>().Database.MigrateAsync();
-        var target = new Target { Database = database, ConnectionString = connectionString, Media = media, Host = host, AdminConnection = admin };
-        if (withActor)
-            await target.ExecuteAsync($"""
-                INSERT INTO "StaffAccounts" ("Id","IsActive","CreatedAtUtc","UserName","NormalizedUserName","Email","NormalizedEmail","EmailConfirmed","PhoneNumberConfirmed","TwoFactorEnabled","LockoutEnabled","AccessFailedCount","CanManageWebsite","CanEditBlog","CanPublishBlog")
-                VALUES ('{Guid.NewGuid()}', true, now(), '{Actor}', upper('{Actor}'), '{Actor}', upper('{Actor}'), true, false, false, false, 0, false, true, true)
-                """);
-        return target;
-    }
+    private static string PackDir() => ContentPackTestSupport.PackDir();
+    private static string CopyPack() => ContentPackTestSupport.CopyPack();
+    private Task<ContentPackTestSupport.Target> NewTargetAsync(bool withActor = true) => ContentPackTestSupport.NewTargetAsync(factory, withActor);
 
     [Fact]
     public async Task A_fresh_database_gets_the_whole_pack_a_dry_run_writes_nothing_and_a_rerun_adds_nothing()
@@ -143,11 +43,12 @@ public sealed partial class ContentPackTests(PostgreSqlWebApplicationFactory fac
         var applied = await target.RunAsync(target.Import(pack, "--apply"));
         Assert.True(applied.Exit == 0, applied.Output);
         Assert.Contains("VERIFIED", applied.Output);
+        Assert.Equal(2, await target.CountAsync("""SELECT count(*) FROM "Properties" """));
         Assert.Equal(1, await target.CountAsync($"""SELECT count(*) FROM "Properties" WHERE "Id" = '{RiversideId}' """));
-        Assert.Equal(3, await target.CountAsync("""SELECT count(*) FROM "RoomTypes" """));
-        Assert.Equal(11, await target.CountAsync("""SELECT count(*) FROM "PhysicalRooms" """));
-        Assert.Equal(180, await target.CountAsync("""SELECT count(*) FROM "DailyRoomRates" """));
-        Assert.Equal(31, await target.CountAsync("""SELECT count(*) FROM "Media" """));
+        Assert.Equal(5, await target.CountAsync("""SELECT count(*) FROM "RoomTypes" """));
+        Assert.Equal(14, await target.CountAsync("""SELECT count(*) FROM "PhysicalRooms" """));
+        Assert.Equal(208, await target.CountAsync("""SELECT count(*) FROM "DailyRoomRates" """));
+        Assert.Equal(35, await target.CountAsync("""SELECT count(*) FROM "Media" """));
         Assert.Equal(4, await target.CountAsync("""SELECT count(*) FROM "Promotions" """));
         Assert.Equal(3, await target.CountAsync("""SELECT count(*) FROM "PromotionMedia" """));
         Assert.Equal(23, await target.CountAsync("""SELECT count(*) FROM "BlogPosts" """));
@@ -190,11 +91,11 @@ public sealed partial class ContentPackTests(PostgreSqlWebApplicationFactory fac
         Assert.True(rerun.Exit == 0, rerun.Output);
         Assert.Equal("Edited by staff", await target.TextAsync("""SELECT "Title" FROM "Promotions" WHERE "Slug" = 'dat-som-giam-15' """));
         Assert.Equal("Staff renamed", await target.TextAsync("""SELECT "Name" FROM "RoomTypes" WHERE "Code" = 'RIV-2BR' """));
-        Assert.Contains("kept (target differs from the pack): Promotions", rerun.Output);
-        Assert.Contains("kept (target differs from the pack): RoomTypes", rerun.Output);
+        Assert.Contains("kept (the target differs from the pack): Promotions", rerun.Output);
+        Assert.Contains("kept (the target differs from the pack): RoomTypes", rerun.Output);
         // A language a staff member switched off stays off, and the output says so.
         Assert.Equal("False", await target.TextAsync("""SELECT "IsActive" FROM "WebsiteLanguages" WHERE "NormalizedCode" = 'en' """));
-        Assert.Contains("left inactive", rerun.Output);
+        Assert.Contains("kept (the target differs from the pack): WebsiteLanguages", rerun.Output);
         Assert.Equal(23, await target.CountAsync("""SELECT count(*) FROM "BlogPosts" """));
     }
 
@@ -230,11 +131,13 @@ public sealed partial class ContentPackTests(PostgreSqlWebApplicationFactory fac
         var pack = PackDir();
         Assert.Equal(0, (await target.RunAsync(target.Import(pack, "--apply", "--groups", "catalog,promotions"))).Exit);
 
+        // This database was loaded by the earlier route, not by this command: it has no ledger of what was imported.
+        await target.ExecuteAsync("""DELETE FROM "ContentPackLedger" """);
         // The earlier route (a dump of a demo database) gave the same property, room types and photographs the same ids, but its rates and offers
         // other ids, another window (it ends on 2026-12-20, ours on 2026-12-25) and prices the staff may have changed.
         await target.ExecuteAsync("""UPDATE "DailyRoomRates" SET "Id" = gen_random_uuid() """);
         await target.ExecuteAsync("""UPDATE "DailyRoomRates" SET "Amount" = "Amount" + 1000 WHERE "StayDate" < '2026-11-10' """);
-        await target.ExecuteAsync("""DELETE FROM "DailyRoomRates" WHERE "StayDate" > '2026-12-20' """);
+        await target.ExecuteAsync($"""DELETE FROM "DailyRoomRates" WHERE "StayDate" > '2026-12-20' AND "PropertyId" = '{RiversideId}' """);
         await target.ExecuteAsync("""DELETE FROM "PromotionRoomTypes" """);
         await target.ExecuteAsync("""DELETE FROM "Promotions" """);
         await target.ExecuteAsync("""DELETE FROM "PromotionMedia" """);
@@ -250,7 +153,7 @@ public sealed partial class ContentPackTests(PostgreSqlWebApplicationFactory fac
         }
         var rates = await target.CountAsync("""SELECT count(*) FROM "DailyRoomRates" """);
         var sum = decimal.Parse(await target.TextAsync("""SELECT coalesce(sum("Amount"), 0) FROM "DailyRoomRates" """) ?? "0", System.Globalization.CultureInfo.InvariantCulture);
-        var later = File.ReadLines(Path.Combine(pack, "rows", "DailyRoomRates.jsonl")).Select(l => JsonNode.Parse(l)!.AsObject()).Where(r => string.CompareOrdinal(r["StayDate"]!.GetValue<string>(), "2026-12-20") > 0).ToList();
+        var later = File.ReadLines(Path.Combine(pack, "rows", "DailyRoomRates.jsonl")).Select(l => JsonNode.Parse(l)!.AsObject()).Where(r => r["PropertyId"]!.GetValue<string>() == RiversideId && string.CompareOrdinal(r["StayDate"]!.GetValue<string>(), "2026-12-20") > 0).ToList();
 
         var result = await target.RunAsync(target.Import(pack, "--apply"));
         Assert.True(result.Exit == 0, result.Output);
@@ -336,7 +239,7 @@ public sealed partial class ContentPackTests(PostgreSqlWebApplicationFactory fac
         await using var target = await NewTargetAsync();
         var pack = PackDir();
         // The target already has "the-bha-riverside" under another id (its staff made it by hand).
-        var line = File.ReadLines(Path.Combine(pack, "rows", "Properties.jsonl")).First();
+        var line = File.ReadLines(Path.Combine(pack, "rows", "Properties.jsonl")).First(l => l.Contains(RiversideId));
         var own = Guid.NewGuid().ToString();
         var row = JsonNode.Parse(line)!.AsObject();
         row["Id"] = own;
@@ -351,7 +254,7 @@ public sealed partial class ContentPackTests(PostgreSqlWebApplicationFactory fac
         var result = await target.RunAsync(target.Import(pack, "--apply"));
         Assert.True(result.Exit == 0, result.Output);
         Assert.Contains("mapped to the target's own row: Properties", result.Output);
-        Assert.Equal(1, await target.CountAsync("""SELECT count(*) FROM "Properties" """));
+        Assert.Equal(2, await target.CountAsync("""SELECT count(*) FROM "Properties" """));
         Assert.Equal(3, await target.CountAsync($"""SELECT count(*) FROM "RoomTypes" WHERE "PropertyId" = '{own}' """));
         Assert.Equal(180, await target.CountAsync($"""SELECT count(*) FROM "DailyRoomRates" WHERE "PropertyId" = '{own}' """));
         Assert.Equal(4, await target.CountAsync($"""SELECT count(*) FROM "Promotions" WHERE "PropertyId" = '{own}' """));
@@ -370,7 +273,7 @@ public sealed partial class ContentPackTests(PostgreSqlWebApplicationFactory fac
         var output = Path.Combine(Path.GetTempPath(), "bha-export-" + Guid.NewGuid().ToString("N"));
         try
         {
-            var export = await target.RunAsync(ContentPackCommand.Export, "--expected-database", target.Database, "--out", output, "--property-slug", "the-bha-riverside", "--source-media-origin", BaseUrl);
+            var export = await target.RunAsync(ContentPackCommand.Export, "--expected-database", target.Database, "--out", output, "--source-media-origin", BaseUrl);
             Assert.True(export.Exit == 0, export.Output);
             foreach (var table in new[] { "Properties", "RoomTypes", "PhysicalRooms", "DailyRoomRates", "Promotions", "PromotionRoomTypes", "BlogPosts", "BlogPostRevisions", "BlogRevisionCategories", "BlogRevisionMedia", "BlogPostSlugs" })
                 Assert.Equal(await File.ReadAllTextAsync(Path.Combine(pack, "rows", table + ".jsonl")), await File.ReadAllTextAsync(Path.Combine(output, "rows", table + ".jsonl")));
@@ -378,19 +281,8 @@ public sealed partial class ContentPackTests(PostgreSqlWebApplicationFactory fac
         }
         finally { if (Directory.Exists(output)) Directory.Delete(output, recursive: true); }
 
-        // Website configuration is not part of a pack: an edit of it in the source is reported, not dropped silently.
-        await target.ExecuteAsync("""UPDATE "WebsiteHero" SET "Version" = 2 """);
-        var warned = await target.RunAsync(ContentPackCommand.Export, "--expected-database", target.Database, "--out", output + "-3", "--property-slug", "the-bha-riverside", "--source-media-origin", BaseUrl);
-        try
-        {
-            Assert.Equal(0, warned.Exit);
-            Assert.Contains("WARNING WebsiteHero: 1 row(s) differ from the migration defaults", warned.Output);
-            Assert.Contains("NOT carried", await File.ReadAllTextAsync(Path.Combine(output + "-3", "manifest.json")));
-        }
-        finally { if (Directory.Exists(output + "-3")) Directory.Delete(output + "-3", recursive: true); }
-
         await target.ExecuteAsync("""CREATE TABLE "ZzNobodyClassifiedThis" ("Id" int PRIMARY KEY)""");
-        var refused = await target.RunAsync(ContentPackCommand.Export, "--expected-database", target.Database, "--out", output + "-2", "--property-slug", "the-bha-riverside");
+        var refused = await target.RunAsync(ContentPackCommand.Export, "--expected-database", target.Database, "--out", output + "-2");
         Assert.Equal(1, refused.Exit);
         Assert.Contains("unclassified tables", refused.Output);
         Assert.Contains("ZzNobodyClassifiedThis", refused.Output);

@@ -30,6 +30,17 @@ public static class ContentPackSpec
     /// <summary>Included tables in dependency order (a table follows everything it refers to). <c>Where</c> is a predicate on alias <c>t</c>.</summary>
     public static readonly IReadOnlyList<(string Table, string Where)> Included =
     [
+        // The website's configuration. Every migrated database already has a default of each; the pack carries what the source holds now, and the importer
+        // applies it only over a row that is still the migration's default (see ContentPackImporter).
+        ("WebsiteCurrencies", "true"),
+        ("WebsiteLanguages", "true"),
+        ("WebsiteTranslations", "true"),
+        ("WebsiteHero", "true"),
+        ("WebsiteHeroMedia", "true"),
+        ("WebsiteHeroSlides", "true"),
+        ("WebsiteMenu", "true"),
+        ("WebsiteMenuItems", "true"),
+        ("WebsiteSocialSettings", "true"),
         ("Properties", "t.\"Id\" = ANY(@pids)"),
         ("Amenities", "t.\"Id\" IN (SELECT \"AmenityId\" FROM \"PropertyAmenities\" WHERE \"PropertyId\" = ANY(@pids) UNION SELECT \"AmenityId\" FROM \"RoomTypeAmenities\" WHERE \"RoomTypeId\" IN " + Roomtypes + ")"),
         ("RatePlans", "t.\"PropertyId\" = ANY(@pids)"),
@@ -69,6 +80,7 @@ public static class ContentPackSpec
         ["BlogMediaVariants"] = "derived from the originals; the picture pipeline rebuilds them at import (--blog-media-maintain's backfill)",
         ["AspNetUserClaims"] = "identity data", ["AspNetUserLogins"] = "identity data", ["AspNetUserTokens"] = "identity data", ["AspNetUsers"] = "identity data",
         ["__EFMigrationsHistory"] = "schema history",
+        ["ContentPackLedger"] = "the content-pack importer's own bookkeeping of what it has placed in that database",
     };
 
     /// <summary>Booking and test-transaction tables: never exported; the exporter reports their row counts so an empty source is a statement, not a guess.</summary>
@@ -78,16 +90,10 @@ public static class ContentPackSpec
         "RoomOccupancySegments", "RoomOccupancySegmentAudits", "BookingPromotionApplications", "AdminCatalogCreateOperations", "CatalogContentAudits", "CatalogUploads",
     ];
 
-    /// <summary>Website configuration every migrated database already has (migration seeds); the pack does not copy it. Only the active-language choice travels.</summary>
-    public static readonly IReadOnlyList<string> MigrationSeeded =
-    [
-        "WebsiteCurrencies", "WebsiteHero", "WebsiteHeroMedia", "WebsiteHeroSlides", "WebsiteMenu", "WebsiteMenuItems", "WebsiteSocialSettings", "WebsiteTranslations", "WebsiteLanguages",
-    ];
+    public static readonly IReadOnlyList<string> Groups = ["website", "catalog", "promotions", "blog"];
 
-    public static readonly IReadOnlyList<string> Groups = ["catalog", "promotions", "blog"];
-
-    /// <summary>catalog = the properties and everything a guest books; promotions = the offers; blog = categories, posts and pictures.</summary>
-    public static string GroupOf(string table) => table.StartsWith("Blog", StringComparison.Ordinal) ? "blog" : table.StartsWith("Promotion", StringComparison.Ordinal) || table == "Promotions" ? "promotions" : "catalog";
+    /// <summary>website = languages, texts, hero, menus, social, currencies; catalog = the properties and everything a guest books; promotions = the offers; blog = categories, posts and pictures.</summary>
+    public static string GroupOf(string table) => table.StartsWith("Website", StringComparison.Ordinal) ? "website" : table.StartsWith("Blog", StringComparison.Ordinal) ? "blog" : table.StartsWith("Promotion", StringComparison.Ordinal) || table == "Promotions" ? "promotions" : "catalog";
 
     public static string Quote(string identifier) => "\"" + identifier.Replace("\"", "\"\"") + "\"";
 }

@@ -26,9 +26,16 @@ internal sealed class BlogMediaMaintenanceService(
         return new BlogMediaMaintenanceReport(legacy, processed, orphans, removed, stale, problems);
     }
 
-    private async Task<(int Legacy, int Processed)> BackfillAsync(bool apply, List<string> problems, CancellationToken cancellationToken)
+    public async Task<BlogMediaMaintenanceReport> BackfillAsync(IReadOnlyCollection<Guid> mediaIds, CancellationToken cancellationToken)
     {
-        var ids = await db.BlogMedia.AsNoTracking().Where(row => row.Generation == 0)
+        var problems = new List<string>();
+        var (legacy, processed) = await BackfillAsync(true, problems, cancellationToken, mediaIds);
+        return new BlogMediaMaintenanceReport(legacy, processed, 0, 0, 0, problems);
+    }
+
+    private async Task<(int Legacy, int Processed)> BackfillAsync(bool apply, List<string> problems, CancellationToken cancellationToken, IReadOnlyCollection<Guid>? only = null)
+    {
+        var ids = await db.BlogMedia.AsNoTracking().Where(row => row.Generation == 0 && (only == null || only.Contains(row.Id)))
             .OrderBy(row => row.CreatedAtUtc).ThenBy(row => row.Id).Select(row => row.Id).ToListAsync(cancellationToken);
         var processed = 0;
         foreach (var id in ids)

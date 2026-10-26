@@ -53,7 +53,7 @@ public sealed class StaffIdentityMigrationTests : IAsyncLifetime
         await using var context = CreateContext();
         await context.Database.MigrateAsync();
 
-        Assert.Equal(19, (await context.Database.GetAppliedMigrationsAsync()).Count());
+        Assert.Equal(20, (await context.Database.GetAppliedMigrationsAsync()).Count());
         Assert.Empty(await context.Database.GetPendingMigrationsAsync());
         Assert.Equal(0, await CountAsync("StaffAccounts"));
         Assert.Equal(0, await CountAsync("StaffPropertyMemberships"));

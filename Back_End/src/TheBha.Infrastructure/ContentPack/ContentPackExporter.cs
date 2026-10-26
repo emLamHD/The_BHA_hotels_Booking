@@ -1,3 +1,4 @@
+using System.Data;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -7,7 +8,11 @@ namespace TheBha.Infrastructure.ContentPack;
 
 /// <summary>
 /// BHA-CONTENT-PERSIST-001: writes a content pack from the database the website is served from. It only reads: the source is never
-/// changed. The pack is deterministic (rows sorted by key, keys in jsonb order), so exporting an unchanged source twice gives identical files.
+/// changed. Every query runs in one read-only REPEATABLE READ transaction, so the rows of a pack are one snapshot of the database whatever
+/// the staff do while it runs (a post created halfway can not leave a translation without its post). The picture files are read after the
+/// snapshot and must match what the snapshot recorded (size and, where the database keeps one, sha256); a file that changed meanwhile fails
+/// the export instead of producing a pack that looks valid and can not be imported. The pack is deterministic (rows sorted by key, keys in
+/// jsonb order), so exporting an unchanged source twice gives identical files.
 /// </summary>
 public static class ContentPackExporter
 {
@@ -16,6 +21,9 @@ public static class ContentPackExporter
         var report = new ContentPackReport();
         await using var connection = new NpgsqlConnection(connectionString);
         await connection.OpenAsync(ct);
+        await using var snapshot = await connection.BeginTransactionAsync(IsolationLevel.RepeatableRead, ct);
+        await using (var readOnly = new NpgsqlCommand("SET TRANSACTION READ ONLY", connection, snapshot)) await readOnly.ExecuteNonQueryAsync(ct);
+
         var actual = await ContentPackCatalog.CurrentDatabaseAsync(connection, ct);
         report.Lines.Add($"export: source database {actual}");
         if (!string.Equals(actual, options.ExpectedDatabase, StringComparison.Ordinal))
@@ -26,28 +34,27 @@ public static class ContentPackExporter
         }
 
         // Every table is either in the pack or has a stated reason not to be: a table nobody classified fails the export.
-        var known = ContentPackSpec.Included.Select(t => t.Table).Concat(ContentPackSpec.Excluded.Keys).Concat(ContentPackSpec.Transactional).Concat(ContentPackSpec.MigrationSeeded).ToHashSet(StringComparer.Ordinal);
+        var known = ContentPackSpec.Included.Select(t => t.Table).Concat(ContentPackSpec.Excluded.Keys).Concat(ContentPackSpec.Transactional).ToHashSet(StringComparer.Ordinal);
         var unclassified = (await ContentPackCatalog.PublicTablesAsync(connection, ct)).Where(t => !known.Contains(t)).ToList();
         if (unclassified.Count > 0)
         {
-            report.Problems.Add("unclassified tables (add each to ContentPackSpec as included, excluded with a reason, transactional or migration-seeded): " + string.Join(", ", unclassified));
+            report.Problems.Add("unclassified tables (add each to ContentPackSpec as included, excluded with a reason or transactional): " + string.Join(", ", unclassified));
             return report;
         }
 
-        var properties = new List<ContentPackProperty>();
-        await using (var command = new NpgsqlCommand("SELECT \"Id\", \"Slug\" FROM \"Properties\" WHERE \"Slug\" = ANY(@s) ORDER BY \"Slug\"", connection))
-        {
-            command.Parameters.AddWithValue("s", options.PropertySlugs.ToArray());
-            await using var reader = await command.ExecuteReaderAsync(ct);
-            while (await reader.ReadAsync(ct)) properties.Add(new ContentPackProperty(reader.GetString(1), reader.GetGuid(0)));
-        }
-        var missing = options.PropertySlugs.Except(properties.Select(p => p.Slug), StringComparer.Ordinal).ToList();
+        var all = new List<ContentPackProperty>();
+        await using (var command = new NpgsqlCommand("SELECT \"Id\", \"Slug\" FROM \"Properties\" ORDER BY \"Slug\"", connection, snapshot))
+        await using (var reader = await command.ExecuteReaderAsync(ct))
+            while (await reader.ReadAsync(ct)) all.Add(new ContentPackProperty(reader.GetString(1), reader.GetGuid(0)));
+        var missing = options.PropertySlugs.Except(all.Select(p => p.Slug), StringComparer.Ordinal).ToList();
         if (missing.Count > 0)
         {
             report.Problems.Add("no such property slug in the source: " + string.Join(", ", missing));
             return report;
         }
 
+        // No slug named = every property of the source.
+        var properties = options.PropertySlugs.Count == 0 ? all : all.Where(p => options.PropertySlugs.Contains(p.Slug, StringComparer.Ordinal)).ToList();
         var pids = properties.Select(p => p.Id).ToArray();
         var staff = await ContentPackCatalog.StaffColumnsAsync(connection, ct);
         var rowsDir = Path.Combine(options.Out, "rows");
@@ -62,15 +69,15 @@ public static class ContentPackExporter
         var tables = new List<ContentPackTable>();
         var files = new List<ContentPackFile>();
         var external = new SortedSet<string>(StringComparer.Ordinal);
-        var blogMedia = new List<(string Key, string Sha)>();
-        var promoKeys = new List<string>();
+        // What the snapshot says each picture file is: (key, kind, size, sha256 or null).
+        var recorded = new List<(string Key, string Kind, long Bytes, string? Sha)>();
 
         foreach (var (table, where) in ContentPackSpec.Included)
         {
             var key = await ContentPackCatalog.PrimaryKeyAsync(connection, table, ct);
             var order = string.Join(", ", key.Select(c => "t." + ContentPackSpec.Quote(c)));
             var rows = new List<string>();
-            await using (var command = new NpgsqlCommand($"SELECT to_jsonb(t)::text FROM {ContentPackSpec.Quote(table)} t WHERE {where} ORDER BY {order}", connection))
+            await using (var command = new NpgsqlCommand($"SELECT to_jsonb(t)::text FROM {ContentPackSpec.Quote(table)} t WHERE {where} ORDER BY {order}", connection, snapshot))
             {
                 command.Parameters.AddWithValue("pids", pids);
                 await using var reader = await command.ExecuteReaderAsync(ct);
@@ -79,18 +86,27 @@ public static class ContentPackExporter
                     var row = JsonNode.Parse(reader.GetString(0))!.AsObject();
                     if (staff.TryGetValue(table, out var actors))
                         foreach (var column in actors.Keys) row[column] = row[column] is null ? null : ContentPackSpec.ActorToken;
-                    if (table == "BlogMedia")
+                    switch (table)
                     {
-                        // The importer gives the picture its variants through the pipeline (generation 0 = "needs them").
-                        row["Generation"] = 0;
-                        blogMedia.Add((row["StorageKey"]!.GetValue<string>(), row["OriginalSha256"]!.GetValue<string>()));
-                    }
-                    if (table == "PromotionMedia") promoKeys.Add(row["StorageKey"]!.GetValue<string>());
-                    if (table == "Media" && row["Url"]?.GetValue<string>() is { } url)
-                    {
-                        if (options.SourceMediaOrigin is { Length: > 0 } origin && url.StartsWith(origin + "/", StringComparison.Ordinal)) url = ContentPackSpec.OriginToken + url[origin.Length..];
-                        row["Url"] = url;
-                        if (url.StartsWith(ContentPackSpec.OriginToken, StringComparison.Ordinal)) external.Add(url[ContentPackSpec.OriginToken.Length..]);
+                        case "BlogMedia":
+                            // The importer gives the picture its variants through the pipeline (generation 0 = "needs them").
+                            row["Generation"] = 0;
+                            recorded.Add((row["StorageKey"]!.GetValue<string>(), "blog-original", row["ByteSize"]!.GetValue<long>(), row["OriginalSha256"]!.GetValue<string>()));
+                            break;
+                        case "PromotionMedia":
+                            recorded.Add((row["StorageKey"]!.GetValue<string>(), "promo-cover", row["ByteSize"]!.GetValue<long>(), null));
+                            break;
+                        case "WebsiteHeroMedia" when row["Kind"]?.GetValue<string>() == "upload":
+                            recorded.Add((row["StorageKey"]!.GetValue<string>(), "hero-upload", row["ByteSize"]!.GetValue<long>(), null));
+                            break;
+                        case "Media" when row["Url"]?.GetValue<string>() is { } url:
+                            if (options.SourceMediaOrigin is { Length: > 0 } origin && url.StartsWith(origin + "/", StringComparison.Ordinal)) url = ContentPackSpec.OriginToken + url[origin.Length..];
+                            row["Url"] = url;
+                            if (url.StartsWith(ContentPackSpec.OriginToken, StringComparison.Ordinal)) external.Add(url[ContentPackSpec.OriginToken.Length..]);
+                            // A picture the staff uploaded to a catalog gallery is served by this API from its own storage: the pack carries no such file.
+                            if (url.Contains("/api/", StringComparison.Ordinal))
+                                report.Problems.Add($"Media {row["Id"]}: the address '{url}' is served by the API from catalog storage; the pack does not carry those files.");
+                            break;
                     }
                     foreach (var text in ContentPackCatalog.Strings(row))
                         if (text.Contains("localhost", StringComparison.OrdinalIgnoreCase) || text.Contains("127.0.0.1", StringComparison.Ordinal))
@@ -102,22 +118,28 @@ public static class ContentPackExporter
             await File.WriteAllBytesAsync(Path.Combine(rowsDir, table + ".jsonl"), bytes, ct);
             tables.Add(new ContentPackTable(table, rows.Count, ContentPackCatalog.Sha256(bytes)));
             report.Lines.Add($"export: {table,-26} {rows.Count,5} rows");
+            if (options.AfterTableRead is { } hook) await hook(table, ct);
         }
 
-        // Picture files: Blog originals (their variants are not shipped) and promotion covers.
-        foreach (var (key, sha) in blogMedia.OrderBy(m => m.Key, StringComparer.Ordinal))
-            await AddFileAsync(key, "blog-original", sha);
-        foreach (var key in promoKeys.OrderBy(k => k, StringComparer.Ordinal))
-            await AddFileAsync(key, "promo-cover", null);
+        var excluded = new List<ContentPackNote>();
+        foreach (var (name, reason) in ContentPackSpec.Excluded.OrderBy(e => e.Key, StringComparer.Ordinal)) excluded.Add(new ContentPackNote(name, await ContentPackCatalog.CountAsync(connection, name, ct), reason));
+        var notExported = new List<ContentPackNote>();
+        foreach (var name in ContentPackSpec.Transactional.Order(StringComparer.Ordinal)) notExported.Add(new ContentPackNote(name, await ContentPackCatalog.CountAsync(connection, name, ct), "booking or operation data, never content"));
+        foreach (var other in all.Where(p => !pids.Contains(p.Id))) excluded.Add(new ContentPackNote("property:" + other.Slug, 1, "not named with --property-slug (an Owner decision: its catalog rows are not in the pack)"));
 
-        async Task AddFileAsync(string key, string kind, string? expectedSha)
+        // The snapshot is complete; the picture files are read now and must be what it recorded.
+        foreach (var (key, kind, bytesRecorded, shaRecorded) in recorded.OrderBy(r => r.Key, StringComparer.Ordinal))
         {
-            if (options.MediaRoot is null) { report.Problems.Add("WebsiteMedia:RootPath is not set: the picture files cannot be read."); return; }
+            if (options.MediaRoot is null) { report.Problems.Add("WebsiteMedia:RootPath is not set: the picture files cannot be read."); break; }
             var path = ContentPackCatalog.ResolveKey(options.MediaRoot, key);
-            if (path is null || !File.Exists(path)) { report.Problems.Add($"{key}: the picture file is missing from {options.MediaRoot}."); return; }
+            if (path is null || !File.Exists(path)) { report.Problems.Add($"{key}: the picture file is missing from {options.MediaRoot}."); continue; }
             var bytes = await File.ReadAllBytesAsync(path, ct);
             var sha = ContentPackCatalog.Sha256(bytes);
-            if (expectedSha is not null && !string.Equals(sha, expectedSha, StringComparison.OrdinalIgnoreCase)) { report.Problems.Add($"{key}: the file does not match the database's recorded sha256."); return; }
+            if (bytes.LongLength != bytesRecorded || (shaRecorded is not null && !string.Equals(sha, shaRecorded, StringComparison.OrdinalIgnoreCase)))
+            {
+                report.Problems.Add($"{key}: the file does not match what the database recorded for it (size {bytes.LongLength} against {bytesRecorded}{(shaRecorded is null ? string.Empty : ", sha256")}); it changed or is damaged, so no valid pack can be made from this snapshot.");
+                continue;
+            }
             var target = Path.Combine(filesDir, key);
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
             await File.WriteAllBytesAsync(target, bytes, ct);
@@ -128,35 +150,17 @@ public static class ContentPackExporter
             foreach (var path in external)
                 if (!File.Exists(Path.Combine(options.PublicDir, path.TrimStart('/')))) report.Problems.Add($"{path}: the static picture the catalog points at is not in --public-dir.");
 
-        var active = new List<string>();
-        await using (var command = new NpgsqlCommand("SELECT \"NormalizedCode\" FROM \"WebsiteLanguages\" WHERE \"IsActive\" ORDER BY \"SortOrder\", \"NormalizedCode\"", connection))
-        await using (var reader = await command.ExecuteReaderAsync(ct))
-            while (await reader.ReadAsync(ct)) active.Add(reader.GetString(0));
-
-        var excluded = new List<ContentPackNote>();
-        foreach (var (name, reason) in ContentPackSpec.Excluded.OrderBy(e => e.Key, StringComparer.Ordinal)) excluded.Add(new ContentPackNote(name, await ContentPackCatalog.CountAsync(connection, name, ct), reason));
-        var notExported = new List<ContentPackNote>();
-        foreach (var name in ContentPackSpec.Transactional.Order(StringComparer.Ordinal)) notExported.Add(new ContentPackNote(name, await ContentPackCatalog.CountAsync(connection, name, ct), "booking or operation data, never content"));
-        foreach (var name in ContentPackSpec.MigrationSeeded.Order(StringComparer.Ordinal))
+        if (report.Problems.Count > 0)
         {
-            // Website configuration is not carried (every migrated database has it); say so when the source has edits a pack would not bring.
-            var edited = await ContentPackCatalog.EditedConfigurationAsync(connection, name, ct);
-            var reason = "seeded by migrations on every database; only the active languages travel" + (edited > 0 ? $"; {edited} row(s) were edited in the source and are NOT carried" : string.Empty);
-            if (edited > 0) report.Lines.Add($"export: WARNING {name}: {edited} row(s) differ from the migration defaults and are not part of the pack");
-            notExported.Add(new ContentPackNote(name, await ContentPackCatalog.CountAsync(connection, name, ct), reason));
+            // Nothing is left behind that could be mistaken for a valid pack.
+            Directory.Delete(options.Out, recursive: true);
+            report.Lines.Add("export: FAILED — no pack was written.");
+            return report;
         }
-        var others = new List<string>();
-        await using (var command = new NpgsqlCommand("SELECT \"Slug\" FROM \"Properties\" WHERE NOT (\"Id\" = ANY(@pids)) ORDER BY 1", connection))
-        {
-            command.Parameters.AddWithValue("pids", pids);
-            await using var reader = await command.ExecuteReaderAsync(ct);
-            while (await reader.ReadAsync(ct)) others.Add(reader.GetString(0));
-        }
-        foreach (var slug in others) excluded.Add(new ContentPackNote("property:" + slug, 1, "not named with --property-slug (an Owner decision: its catalog rows are not in the pack)"));
 
-        var manifest = new ContentPackManifest(ContentPackSpec.FormatVersion, properties, tables, files.OrderBy(f => f.Key, StringComparer.Ordinal).ToList(), external.ToList(), active, excluded, notExported);
+        var manifest = new ContentPackManifest(ContentPackSpec.FormatVersion, properties, tables, files.OrderBy(f => f.Key, StringComparer.Ordinal).ToList(), external.ToList(), excluded, notExported);
         await File.WriteAllTextAsync(Path.Combine(options.Out, "manifest.json"), JsonSerializer.Serialize(manifest, new JsonSerializerOptions(ContentPackSpec.Json) { WriteIndented = true }) + "\n", ct);
-        report.Lines.Add($"export: {tables.Sum(t => t.Rows)} rows in {tables.Count} tables, {files.Count} picture files ({files.Sum(f => f.Bytes):N0} bytes), {external.Count} static pictures, active languages: {string.Join(",", active)}");
+        report.Lines.Add($"export: {tables.Sum(t => t.Rows)} rows in {tables.Count} tables, {files.Count} picture files ({files.Sum(f => f.Bytes):N0} bytes), {external.Count} static pictures");
         return report;
     }
 }

@@ -2,70 +2,119 @@
   "Format": 1,
   "Properties": [
     {
+      "Slug": "the-bha-hotel",
+      "Id": "10000000-0000-0000-0000-000000000001"
+    },
+    {
       "Slug": "the-bha-riverside",
       "Id": "a1000000-0000-0000-0000-000000000001"
     }
   ],
   "Tables": [
     {
-      "Name": "Properties",
+      "Name": "WebsiteCurrencies",
+      "Rows": 3,
+      "Sha256": "8d1c97c4440f23a8a922c4e0668b15e7a4f7a40fe49698b28b1fe2ee1ce940d3"
+    },
+    {
+      "Name": "WebsiteLanguages",
+      "Rows": 2,
+      "Sha256": "3df76d4831ec6d5ddede959125168889af19d3ca537921ab307a585ad0efd64e"
+    },
+    {
+      "Name": "WebsiteTranslations",
+      "Rows": 114,
+      "Sha256": "c4bc203c2792897308157eafdb199602b27a160e562d82c0bfa1cf8d4f5736ec"
+    },
+    {
+      "Name": "WebsiteHero",
       "Rows": 1,
-      "Sha256": "d26dd4e2e481bcdc71edc10ffde6c2bff258cc7908536d8000910c198749d23c"
+      "Sha256": "ff2f2d11d0787bf859daaec3f0c994ed0d34f725817b243ec0f88efbefa98eaa"
+    },
+    {
+      "Name": "WebsiteHeroMedia",
+      "Rows": 4,
+      "Sha256": "0a37e6ced6da63e69601155845c2396d544f5167f2380218e2ff552fe349af1b"
+    },
+    {
+      "Name": "WebsiteHeroSlides",
+      "Rows": 4,
+      "Sha256": "54f7a78e7d4f4f02730cb8c456598fc574bb6bef2980d933d9b7241f75680815"
+    },
+    {
+      "Name": "WebsiteMenu",
+      "Rows": 1,
+      "Sha256": "be70406633ee74e6c7bf772ff64ac15e77d198f9e8e60db41d356dfdcd4047e0"
+    },
+    {
+      "Name": "WebsiteMenuItems",
+      "Rows": 54,
+      "Sha256": "4c0420cc0bf71ec7bfc48937897ee27785e48fe0d465c037f62161c8a3c7ebb1"
+    },
+    {
+      "Name": "WebsiteSocialSettings",
+      "Rows": 1,
+      "Sha256": "beb0289145c126ac55509f4bf27912941202423e0ce87096c7e9ef2cf7f1f786"
+    },
+    {
+      "Name": "Properties",
+      "Rows": 2,
+      "Sha256": "1e0aa7ae0bcb2e32873034ea01766c1143c72dd38ddf1a1b7f565b4f2641f3d4"
     },
     {
       "Name": "Amenities",
-      "Rows": 2,
-      "Sha256": "b5eb1778c25df605957b93a158e7bdb8080fe6e3419ae0c09ff206b351740266"
+      "Rows": 6,
+      "Sha256": "107f8c5f66b86277ca5a29aa2c90fbd4b56a34acbe8c043d3ad9df91afbe10bf"
     },
     {
       "Name": "RatePlans",
-      "Rows": 1,
-      "Sha256": "909b9013fd17761629a2255bff121a5e978186fffce7f61acec3ac14944d56be"
+      "Rows": 2,
+      "Sha256": "d21f4009bef85f0fb995462645a324581e30393adc9cf2d694ea339782937e2a"
     },
     {
       "Name": "RoomTypes",
-      "Rows": 3,
-      "Sha256": "1deb88ce59f532fae816c86698a434e2eeae7e32e2948dbddc0ce53c10a47aa1"
+      "Rows": 5,
+      "Sha256": "8f1ca50df1190c7043b24cc1f0b4c9d34fa64dfc0a542335caac5ca7875655af"
     },
     {
       "Name": "PropertyAmenities",
-      "Rows": 2,
-      "Sha256": "7b428af83412f2d53a7542e621e393e03f53e42b673d9d1c5f1fb972d7ab5fe7"
+      "Rows": 5,
+      "Sha256": "a8c8dbbd7ba69b9c2ea3c1ce732d7b5f55b53bb63080275a683d28b73f1b9feb"
     },
     {
       "Name": "RoomTypeAmenities",
-      "Rows": 0,
-      "Sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      "Rows": 5,
+      "Sha256": "4be0d75c14088e9c524d4d848e31639123d7a0e0dbdab7bab9cd81c6cb45441a"
     },
     {
       "Name": "PhysicalRooms",
-      "Rows": 11,
-      "Sha256": "1a881a841006f30388a42aec5997b947c904ec081b48b37f715553e5ef8c0bbe"
+      "Rows": 14,
+      "Sha256": "be695fb6bfb854d4227214e5e57dfe99b3a9aaeee96d9f6e2ef8fb989595ee91"
     },
     {
       "Name": "Media",
-      "Rows": 31,
-      "Sha256": "316ee0290e8bda681f200e9f4e76fa5d4c9b06191f6abb012ee915a666fa8fc9"
+      "Rows": 35,
+      "Sha256": "366de4c773faf0f27232671621650f6c9c054bbdfb19d76cb3f8921e77420fe9"
     },
     {
       "Name": "PropertyMedia",
-      "Rows": 10,
-      "Sha256": "14c5535afeb5a11ca1db7054725ef60618dfbcd7e114f68d60ada59e4ea660e2"
+      "Rows": 12,
+      "Sha256": "e92290b4283dfdbbbc64016ca884a3d546aa7b5a83c605a538deae28c17d4733"
     },
     {
       "Name": "RoomTypeMedia",
-      "Rows": 21,
-      "Sha256": "c363d9de84eb452bdc03f84813951823145cadb9faa01a1fcbb02894beac4082"
+      "Rows": 23,
+      "Sha256": "fb789c16a7540b46844080d38e45347dfcd4a009f9e04eb54bd486d363ea3cb0"
     },
     {
       "Name": "DailyRoomRates",
-      "Rows": 180,
-      "Sha256": "14aeaee1efde6426eb9ca533f2d8baeb196e6c82f4788de4ca809f4c87649604"
+      "Rows": 208,
+      "Sha256": "8e4d2c3e4b2a68d8202edb4b47ad970670544a326200fd0e2280027c65c6312d"
     },
     {
       "Name": "DailyInventoryControls",
-      "Rows": 0,
-      "Sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      "Rows": 2,
+      "Sha256": "1113190576fbd6d3700eff93e5420d31687e49d8999de8b315dacb05fabac2c6"
     },
     {
       "Name": "PromotionMedia",
@@ -436,10 +485,6 @@
     "/media/the-bha-riverside/two-bedroom-skyline-1.webp",
     "/media/the-bha-riverside/two-bedroom-skyline-2.webp"
   ],
-  "ActiveLanguages": [
-    "vi",
-    "en"
-  ],
   "Excluded": [
     {
       "Name": "AspNetUserClaims",
@@ -472,6 +517,11 @@
       "Reason": "derived from the originals; the picture pipeline rebuilds them at import (--blog-media-maintain's backfill)"
     },
     {
+      "Name": "ContentPackLedger",
+      "Rows": 0,
+      "Reason": "the content-pack importer's own bookkeeping of what it has placed in that database"
+    },
+    {
       "Name": "PromotionAudits",
       "Rows": 4,
       "Reason": "history of the source's Staff actions"
@@ -490,11 +540,6 @@
       "Name": "__EFMigrationsHistory",
       "Rows": 19,
       "Reason": "schema history"
-    },
-    {
-      "Name": "property:the-bha-hotel",
-      "Rows": 1,
-      "Reason": "not named with --property-slug (an Owner decision: its catalog rows are not in the pack)"
     }
   ],
   "NotExported": [
@@ -562,51 +607,6 @@
       "Name": "RoomOccupancySegments",
       "Rows": 0,
       "Reason": "booking or operation data, never content"
-    },
-    {
-      "Name": "WebsiteCurrencies",
-      "Rows": 3,
-      "Reason": "seeded by migrations on every database; only the active languages travel"
-    },
-    {
-      "Name": "WebsiteHero",
-      "Rows": 1,
-      "Reason": "seeded by migrations on every database; only the active languages travel"
-    },
-    {
-      "Name": "WebsiteHeroMedia",
-      "Rows": 4,
-      "Reason": "seeded by migrations on every database; only the active languages travel"
-    },
-    {
-      "Name": "WebsiteHeroSlides",
-      "Rows": 4,
-      "Reason": "seeded by migrations on every database; only the active languages travel"
-    },
-    {
-      "Name": "WebsiteLanguages",
-      "Rows": 2,
-      "Reason": "seeded by migrations on every database; only the active languages travel"
-    },
-    {
-      "Name": "WebsiteMenu",
-      "Rows": 1,
-      "Reason": "seeded by migrations on every database; only the active languages travel"
-    },
-    {
-      "Name": "WebsiteMenuItems",
-      "Rows": 54,
-      "Reason": "seeded by migrations on every database; only the active languages travel"
-    },
-    {
-      "Name": "WebsiteSocialSettings",
-      "Rows": 1,
-      "Reason": "seeded by migrations on every database; only the active languages travel"
-    },
-    {
-      "Name": "WebsiteTranslations",
-      "Rows": 114,
-      "Reason": "seeded by migrations on every database; only the active languages travel"
     }
   ]
 }

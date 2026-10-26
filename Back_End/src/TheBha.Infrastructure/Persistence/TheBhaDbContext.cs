@@ -66,6 +66,9 @@ public sealed class TheBhaDbContext(DbContextOptions<TheBhaDbContext> options)
     public DbSet<BlogMedia> BlogMedia => Set<BlogMedia>();
     public DbSet<BlogMediaVariant> BlogMediaVariants => Set<BlogMediaVariant>();
     public DbSet<BlogSettings> BlogSettings => Set<BlogSettings>();
+
+    /// <summary>BHA-CONTENT-PERSIST-001-C1: which content-pack rows an import has placed; see <see cref="ContentPack.ContentPackLedgerEntry"/>.</summary>
+    public DbSet<ContentPack.ContentPackLedgerEntry> ContentPackLedger => Set<ContentPack.ContentPackLedgerEntry>();
     public DbSet<BlogAudit> BlogAudits => Set<BlogAudit>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
