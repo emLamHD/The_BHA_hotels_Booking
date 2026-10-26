@@ -72,9 +72,29 @@ public static class ContentPackImporter
             actor = reader.GetGuid(0);
         }
 
+        // An offer the target already has under the same slug (another id: offers get random ids) is the target's own, with its own cover and room types:
+        // the pack's copy of it, of its room-type links and of its cover is left out.
+        var promoMap = new Dictionary<Guid, Guid>();
+        var skipPromoMedia = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (groups.Contains("promotions") && pack.Rows.GetValueOrDefault("Promotions") is { Count: > 0 } packPromotions)
+        {
+            await using var find = new NpgsqlCommand("SELECT \"Slug\", \"Id\" FROM \"Promotions\" WHERE \"Slug\" = ANY(@s)", connection);
+            find.Parameters.AddWithValue("s", packPromotions.Select(r => r["Slug"]!.GetValue<string>()).ToArray());
+            await using var reader = await find.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                var packRow = packPromotions.First(r => r["Slug"]!.GetValue<string>() == reader.GetString(0));
+                var packId = Guid.Parse(packRow["Id"]!.GetValue<string>());
+                if (packId == reader.GetGuid(1)) continue;
+                promoMap[packId] = reader.GetGuid(1);
+                if (packRow["CoverMediaId"] is { } cover) skipPromoMedia.Add(cover.GetValue<string>());
+            }
+        }
+
         // Files first as a plan (reads only): present and identical, missing, or a different file under the same name.
         var toCopy = new List<ContentPackFile>();
-        var files = pack.Manifest.Files.Where(f => groups.Contains(f.Kind == "blog-original" ? "blog" : "promotions")).ToList();
+        var skippedCovers = (pack.Rows.GetValueOrDefault("PromotionMedia") ?? []).Where(r => skipPromoMedia.Contains(r["Id"]!.GetValue<string>())).Select(r => r["StorageKey"]!.GetValue<string>()).ToHashSet(StringComparer.Ordinal);
+        var files = pack.Manifest.Files.Where(f => groups.Contains(f.Kind == "blog-original" ? "blog" : "promotions") && !skippedCovers.Contains(f.Key)).ToList();
         if (files.Count > 0 && options.MediaRoot is null) { report.Problems.Add("WebsiteMedia:RootPath is not set: the pack's picture files have nowhere to go."); return report; }
         foreach (var file in files)
         {
@@ -103,6 +123,14 @@ public static class ContentPackImporter
             var outcome = report.Tables[table.Name] = new TableOutcome();
             foreach (var packRow in pack.Rows[table.Name])
             {
+                if (table.Name == "PromotionMedia" && skipPromoMedia.Contains(packRow["Id"]!.GetValue<string>())) { outcome.Mapped++; continue; }
+                if (table.Name == "PromotionRoomTypes" && Guid.TryParse(packRow["PromotionId"]!.GetValue<string>(), out var packPromotion) && promoMap.ContainsKey(packPromotion)) { outcome.Mapped++; continue; }
+                if (table.Name == "Promotions" && Guid.TryParse(packRow["Id"]!.GetValue<string>(), out var promotionId) && promoMap.TryGetValue(promotionId, out var ownPromotion))
+                {
+                    outcome.Mapped++;
+                    report.Lines.Add($"  mapped to the target's own row: Promotions {packRow["Slug"]} -> {ownPromotion}");
+                    continue;
+                }
                 var text = packRow.ToJsonString(ContentPackSpec.Json);
                 if (table.Name == "BlogPostRevisions") foreach (var (from, to) in maps["PropertyId"]) text = text.Replace(from.ToString(), to.ToString(), StringComparison.Ordinal);
                 var row = JsonNode.Parse(text)!.AsObject();
@@ -130,10 +158,18 @@ public static class ContentPackImporter
                     continue;
                 }
 
+                // A night's rate is its (property, room type, rate plan, date): the target's own rate for that night is kept, whatever id it has.
+                if (table.Name == "DailyRoomRates" && await ReadRowAsync(connection, tx, table.Name, ["PropertyId", "RoomTypeId", "RatePlanId", "StayDate"], row, ct) is { } ownRate)
+                {
+                    var comparable = (JsonObject)row.DeepClone(); comparable["Id"] = ownRate["Id"]?.DeepClone();
+                    if (JsonNode.DeepEquals(Project(comparable, staff, table.Name), Project(ownRate, staff, table.Name, comparable))) outcome.Identical++; else { outcome.KeptDifferent++; report.Lines.Add($"  kept (target differs from the pack): DailyRoomRates {row["StayDate"]} room type {row["RoomTypeId"]}"); }
+                    continue;
+                }
+
                 // The same thing under another id is the target's own: use it, and point everything of the pack at it.
                 if (await NaturalMatchAsync(connection, tx, table.Name, row, ct) is { } found)
                 {
-                    maps[table.Name switch { "Properties" => "PropertyId", "RoomTypes" => "RoomTypeId", _ => "AmenityId" }][Guid.Parse(row["Id"]!.GetValue<string>())] = found;
+                    maps[table.Name switch { "Properties" => "PropertyId", "RoomTypes" => "RoomTypeId", "RatePlans" => "RatePlanId", _ => "AmenityId" }][Guid.Parse(row["Id"]!.GetValue<string>())] = found;
                     outcome.Mapped++;
                     report.Lines.Add($"  mapped to the target's own row: {table.Name} {keyText} -> {found}");
                     continue;
@@ -283,20 +319,21 @@ public static class ContentPackImporter
         return await command.ExecuteScalarAsync(ct) is string text ? JsonNode.Parse(text)!.AsObject() : null;
     }
 
-    /// <summary>The id of the target's own Property (by slug), RoomType (by property and code) or Amenity (by code) that this row duplicates, if any.</summary>
+    /// <summary>The id of the target's own Property (by slug), RoomType or RatePlan (by property and code) or Amenity (by code) that this row duplicates, if any.</summary>
     private static async Task<Guid?> NaturalMatchAsync(NpgsqlConnection connection, NpgsqlTransaction tx, string table, JsonObject row, CancellationToken ct)
     {
         string? sql = table switch
         {
             "Properties" => "SELECT \"Id\" FROM \"Properties\" WHERE \"Slug\" = @a",
             "RoomTypes" => "SELECT \"Id\" FROM \"RoomTypes\" WHERE \"PropertyId\" = @b::uuid AND \"Code\" = @a",
+            "RatePlans" => "SELECT \"Id\" FROM \"RatePlans\" WHERE \"PropertyId\" = @b::uuid AND \"Code\" = @a",
             "Amenities" => "SELECT \"Id\" FROM \"Amenities\" WHERE \"Code\" = @a",
             _ => null,
         };
         if (sql is null) return null;
         await using var command = new NpgsqlCommand(sql, connection, tx);
         command.Parameters.AddWithValue("a", row[table == "Properties" ? "Slug" : "Code"]!.GetValue<string>());
-        command.Parameters.AddWithValue("b", table == "RoomTypes" ? row["PropertyId"]!.GetValue<string>() : string.Empty);
+        command.Parameters.AddWithValue("b", table is "RoomTypes" or "RatePlans" ? row["PropertyId"]!.GetValue<string>() : string.Empty);
         return await command.ExecuteScalarAsync(ct) is Guid id ? id : null;
     }
 

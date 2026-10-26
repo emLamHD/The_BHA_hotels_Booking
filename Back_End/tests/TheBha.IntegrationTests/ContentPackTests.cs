@@ -224,6 +224,50 @@ public sealed partial class ContentPackTests(PostgreSqlWebApplicationFactory fac
     }
 
     [Fact]
+    public async Task B_a_database_loaded_by_the_earlier_route_keeps_its_own_rates_and_offers_and_receives_the_rest()
+    {
+        await using var target = await NewTargetAsync();
+        var pack = PackDir();
+        Assert.Equal(0, (await target.RunAsync(target.Import(pack, "--apply", "--groups", "catalog,promotions"))).Exit);
+
+        // The earlier route (a dump of a demo database) gave the same property, room types and photographs the same ids, but its rates and offers
+        // other ids, another window (it ends on 2026-12-20, ours on 2026-12-25) and prices the staff may have changed.
+        await target.ExecuteAsync("""UPDATE "DailyRoomRates" SET "Id" = gen_random_uuid() """);
+        await target.ExecuteAsync("""UPDATE "DailyRoomRates" SET "Amount" = "Amount" + 1000 WHERE "StayDate" < '2026-11-10' """);
+        await target.ExecuteAsync("""DELETE FROM "DailyRoomRates" WHERE "StayDate" > '2026-12-20' """);
+        await target.ExecuteAsync("""DELETE FROM "PromotionRoomTypes" """);
+        await target.ExecuteAsync("""DELETE FROM "Promotions" """);
+        await target.ExecuteAsync("""DELETE FROM "PromotionMedia" """);
+        var own = JsonNode.Parse(File.ReadLines(Path.Combine(pack, "rows", "Promotions.jsonl")).First(l => l.Contains("\"dat-som-giam-15\"")))!.AsObject();
+        var ownId = Guid.NewGuid().ToString();
+        own["Id"] = ownId; own["CoverMediaId"] = null; own["ShowOnHomepage"] = false; own["CreateOperationId"] = Guid.NewGuid().ToString();
+        await using (var connection = new NpgsqlConnection(target.ConnectionString))
+        {
+            await connection.OpenAsync();
+            await using var insert = new NpgsqlCommand("""INSERT INTO "Promotions" SELECT * FROM jsonb_populate_record(NULL::"Promotions", @j)""", connection);
+            insert.Parameters.Add(new NpgsqlParameter("j", NpgsqlTypes.NpgsqlDbType.Jsonb) { Value = own.ToJsonString() });
+            await insert.ExecuteNonQueryAsync();
+        }
+        var rates = await target.CountAsync("""SELECT count(*) FROM "DailyRoomRates" """);
+        var sum = decimal.Parse(await target.TextAsync("""SELECT coalesce(sum("Amount"), 0) FROM "DailyRoomRates" """) ?? "0", System.Globalization.CultureInfo.InvariantCulture);
+        var later = File.ReadLines(Path.Combine(pack, "rows", "DailyRoomRates.jsonl")).Select(l => JsonNode.Parse(l)!.AsObject()).Where(r => string.CompareOrdinal(r["StayDate"]!.GetValue<string>(), "2026-12-20") > 0).ToList();
+
+        var result = await target.RunAsync(target.Import(pack, "--apply"));
+        Assert.True(result.Exit == 0, result.Output);
+        Assert.DoesNotContain("CONFLICT", result.Output);
+        Assert.Contains("mapped to the target's own row: Promotions dat-som-giam-15", result.Output);
+        // Its own rates (and their ids and prices) stay; only the nights it did not have are added.
+        Assert.Equal(rates + later.Count, await target.CountAsync("""SELECT count(*) FROM "DailyRoomRates" """));
+        Assert.Equal(sum + later.Sum(r => r["Amount"]!.GetValue<decimal>()), decimal.Parse((await target.TextAsync("""SELECT sum("Amount") FROM "DailyRoomRates" """))!, System.Globalization.CultureInfo.InvariantCulture));
+        // Its own offer stays as it is (no room-type links, no cover of the pack); the other three arrive with theirs.
+        Assert.Equal(4, await target.CountAsync("""SELECT count(*) FROM "Promotions" """));
+        Assert.Equal(1, await target.CountAsync($"""SELECT count(*) FROM "Promotions" WHERE "Slug" = 'dat-som-giam-15' AND "Id" = '{ownId}' """));
+        Assert.Equal(0, await target.CountAsync($"""SELECT count(*) FROM "PromotionRoomTypes" WHERE "PromotionId" = '{ownId}' """));
+        Assert.Equal(2, await target.CountAsync("""SELECT count(*) FROM "PromotionMedia" """));
+        Assert.Equal(23, await target.CountAsync("""SELECT count(*) FROM "BlogPosts" """));
+    }
+
+    [Fact]
     public async Task D_a_damaged_pack_is_refused_before_the_database_is_touched_and_a_failed_copy_leaves_the_database_as_it_was()
     {
         await using var target = await NewTargetAsync();
@@ -333,6 +377,17 @@ public sealed partial class ContentPackTests(PostgreSqlWebApplicationFactory fac
             Assert.Equal(Directory.EnumerateFiles(Path.Combine(pack, "files"), "*", SearchOption.AllDirectories).Count(), Directory.EnumerateFiles(Path.Combine(output, "files"), "*", SearchOption.AllDirectories).Count());
         }
         finally { if (Directory.Exists(output)) Directory.Delete(output, recursive: true); }
+
+        // Website configuration is not part of a pack: an edit of it in the source is reported, not dropped silently.
+        await target.ExecuteAsync("""UPDATE "WebsiteHero" SET "Version" = 2 """);
+        var warned = await target.RunAsync(ContentPackCommand.Export, "--expected-database", target.Database, "--out", output + "-3", "--property-slug", "the-bha-riverside", "--source-media-origin", BaseUrl);
+        try
+        {
+            Assert.Equal(0, warned.Exit);
+            Assert.Contains("WARNING WebsiteHero: 1 row(s) differ from the migration defaults", warned.Output);
+            Assert.Contains("NOT carried", await File.ReadAllTextAsync(Path.Combine(output + "-3", "manifest.json")));
+        }
+        finally { if (Directory.Exists(output + "-3")) Directory.Delete(output + "-3", recursive: true); }
 
         await target.ExecuteAsync("""CREATE TABLE "ZzNobodyClassifiedThis" ("Id" int PRIMARY KEY)""");
         var refused = await target.RunAsync(ContentPackCommand.Export, "--expected-database", target.Database, "--out", output + "-2", "--property-slug", "the-bha-riverside");

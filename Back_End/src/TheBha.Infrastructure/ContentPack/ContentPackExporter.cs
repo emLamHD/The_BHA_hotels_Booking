@@ -137,7 +137,14 @@ public static class ContentPackExporter
         foreach (var (name, reason) in ContentPackSpec.Excluded.OrderBy(e => e.Key, StringComparer.Ordinal)) excluded.Add(new ContentPackNote(name, await ContentPackCatalog.CountAsync(connection, name, ct), reason));
         var notExported = new List<ContentPackNote>();
         foreach (var name in ContentPackSpec.Transactional.Order(StringComparer.Ordinal)) notExported.Add(new ContentPackNote(name, await ContentPackCatalog.CountAsync(connection, name, ct), "booking or operation data, never content"));
-        foreach (var name in ContentPackSpec.MigrationSeeded.Order(StringComparer.Ordinal)) notExported.Add(new ContentPackNote(name, await ContentPackCatalog.CountAsync(connection, name, ct), "seeded by migrations on every database; only the active languages travel"));
+        foreach (var name in ContentPackSpec.MigrationSeeded.Order(StringComparer.Ordinal))
+        {
+            // Website configuration is not carried (every migrated database has it); say so when the source has edits a pack would not bring.
+            var edited = await ContentPackCatalog.EditedConfigurationAsync(connection, name, ct);
+            var reason = "seeded by migrations on every database; only the active languages travel" + (edited > 0 ? $"; {edited} row(s) were edited in the source and are NOT carried" : string.Empty);
+            if (edited > 0) report.Lines.Add($"export: WARNING {name}: {edited} row(s) differ from the migration defaults and are not part of the pack");
+            notExported.Add(new ContentPackNote(name, await ContentPackCatalog.CountAsync(connection, name, ct), reason));
+        }
         var others = new List<string>();
         await using (var command = new NpgsqlCommand("SELECT \"Slug\" FROM \"Properties\" WHERE NOT (\"Id\" = ANY(@pids)) ORDER BY 1", connection))
         {

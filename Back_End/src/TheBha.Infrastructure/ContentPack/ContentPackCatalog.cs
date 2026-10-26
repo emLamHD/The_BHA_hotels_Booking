@@ -69,6 +69,26 @@ internal static partial class ContentPackCatalog
         return result;
     }
 
+    /// <summary>How many rows of a migration-seeded website table the staff changed (a version above 1, an author, a manual translation, an uploaded hero picture).</summary>
+    public static async Task<int> EditedConfigurationAsync(NpgsqlConnection connection, string table, CancellationToken ct)
+    {
+        var columns = new HashSet<string>(StringComparer.Ordinal);
+        await using (var command = new NpgsqlCommand("SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = @t", connection))
+        {
+            command.Parameters.AddWithValue("t", table);
+            await using var reader = await command.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct)) columns.Add(reader.GetString(0));
+        }
+        var tests = new List<string>();
+        if (columns.Contains("Version")) tests.Add("\"Version\" > 1");
+        if (columns.Contains("UpdatedByStaffId")) tests.Add("\"UpdatedByStaffId\" IS NOT NULL");
+        if (columns.Contains("IsManual")) tests.Add("\"IsManual\"");
+        if (table == "WebsiteHeroMedia") tests.Add("\"StorageKey\" NOT LIKE 'seed/%'");
+        if (tests.Count == 0) return 0;
+        await using var count = new NpgsqlCommand($"SELECT count(*) FROM {ContentPackSpec.Quote(table)} WHERE {string.Join(" OR ", tests)}", connection);
+        return (int)(long)(await count.ExecuteScalarAsync(ct))!;
+    }
+
     public static string KeyText(JsonObject row, IReadOnlyList<string> key) => string.Join("/", key.Select(column => row[column]?.ToString() ?? "null"));
 
     /// <summary>Every string in the row, nested ones included.</summary>
