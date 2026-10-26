@@ -60,7 +60,9 @@ Exit codes: `0` ok; `1` failure or a problem (damaged pack, missing file, missin
 | the row does not exist | inserted |
 | the same key exists | **kept as it is**, reported `identical`, or `kept (target differs from the pack)` when the staff changed it — the staff's version always wins |
 | the Property, a RoomType (by property + code) or an Amenity (by code) exists under **another id** | the target's own row is used; every row of the pack that referred to the pack's id (and the `propertyIntro` blocks of the Blog bodies) is re-pointed (`mapped`) |
-| anything else collides (a promotion or post slug, a category slug that belongs to another category, a room number…) | **CONFLICT**: all conflicts are listed, the transaction is rolled back, no picture is copied, exit 4. Resolve it in the database or in Admin and run again |
+| the target has a night's rate (property, room type, rate plan, date) under **another id** | the target's own rate is kept, price included; only the nights it does not have are added (a database loaded by an earlier route ends with the union of both windows) |
+| the target has an offer with the same **slug** under another id (offers get random ids) | the target's own offer is kept with its own cover and room types; the pack's copy, its room-type links and its cover are left out and the cover file is not copied (`mapped`) |
+| anything else collides (a post slug, a category slug that belongs to another category, a room number…) | **CONFLICT**: all conflicts are listed, the transaction is rolled back, no picture is copied, exit 4. Resolve it in the database or in Admin and run again |
 | a picture file exists with other bytes | CONFLICT (never overwritten) |
 | the language `en` is still the migration default (inactive, version 1, never edited) | activated, because the pack's English posts need it; a language a staff member changed is left alone and the output says so |
 
@@ -84,7 +86,7 @@ All rows go in one transaction under an advisory lock of their own (`pg_try_advi
 ## 6. Things to know before relying on it
 
 * **Run `apply` once per database (and again only to fill what is missing).** A row the staff deleted on purpose (a promotion, a pin) is *absent*, so a later `apply` puts it back. After the first import use `verify` and `dry-run` (a non-zero `inserted` in a dry run means "the pack has rows the database does not").
-* **Rates end on 2026-12-25** (the pack's `DailyRoomRates` cover 60 nights from 2026-10-27). After that date the availability search returns no rooms, whatever the import does. Admin has no rate management; extending the window is an Owner decision and a separate piece of work. The offers carry no validity dates, so they do not expire.
+* **Rates end on 2026-12-25** (the pack's `DailyRoomRates` cover 60 nights from 2026-10-27; a database that already has rates keeps its own and gains the nights it lacks). After that date the availability search returns no rooms, whatever the import does. Admin has no rate management; extending the window is an Owner decision and a separate piece of work. The offers carry no validity dates, so they do not expire.
 * **Placeholders travel as they are:** the Riverside address is "Địa chỉ đang được cập nhật", the city "Đang cập nhật", the rate plan and room numbers are the seeder's. Edit them in Admin after the import; later imports keep the edit.
 * **Pictures are illustrations from Wikimedia Commons** (CC BY, CC BY-SA, CC0 or public domain). Each post ends with its "Nguồn ảnh" line (a licence condition) and the library records author, source page and licence; keep both when replacing pictures.
 * The Blog's author texts ("Ban biên tập The BHA") and the facts in the posts were written as samples; review them before relying on them as published content.
@@ -99,5 +101,7 @@ The pack is generated from a database that holds the reference content; it is co
 dotnet TheBha.Api.dll --content-pack-export --expected-database <source db> --out <new empty dir> \
   --property-slug the-bha-riverside --source-media-origin <origin in that db's Media.Url> --public-dir Front_End/Customer_Web/public
 ```
+
+**Limit — website configuration is not exported.** Hero, hero uploads, menus, social settings, currencies, translations and languages are seeded by the migrations and are not rows of the pack (only the *active languages* travel). The exporter counts the rows of those tables that differ from the migration defaults (a version above 1, an author, a manual translation, a hero picture that is not a `seed/` one), prints a `WARNING` and writes the count into `manifest.json` (`NotExported`). A pack exported from a database whose staff edited that configuration therefore does **not** carry those edits; carrying them is separate work. (An edit made by SQL that leaves the version at 1 cannot be seen.)
 
 The export only reads. It is deterministic (an unchanged source gives byte-identical files). It refuses a local address in any text, a picture file that does not match its recorded sha256, a missing static photograph, and any unclassified table.
