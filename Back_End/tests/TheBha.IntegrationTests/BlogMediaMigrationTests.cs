@@ -154,7 +154,8 @@ public sealed class BlogMediaMigrationTests : IAsyncLifetime
         {
             await ExecuteAsync(change);
             Assert.Equal("P0001", (await Assert.ThrowsAsync<PostgresException>(() => migrator.MigrateAsync(V18))).SqlState);
-            Assert.Equal(20, (await context.Database.GetAppliedMigrationsAsync()).Count());
+            // Going back from the latest migration first undoes the ledger table (20), then is refused at AddBlogMediaLibrary (19): nothing of the Blog is rolled back half-way.
+            Assert.Equal(19, (await context.Database.GetAppliedMigrationsAsync()).Count());
             await ExecuteAsync("""UPDATE "BlogMedia" SET "Generation" = 0, "Version" = 1""");
         }
 
