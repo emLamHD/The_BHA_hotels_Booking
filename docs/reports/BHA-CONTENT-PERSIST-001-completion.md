@@ -1,7 +1,7 @@
 # BHA-CONTENT-PERSIST-001 — website content survives a deploy (completion report)
 
 - **WORK_ITEM** `BHA-CONTENT-PERSIST-001` · branch `feature/bha-content-persist-001` · base `origin/develop` = `START_HEAD` `9e792ba3a7ab` (PR #130 merged; no open PR, no other writer) · implementer Claude, reviewer Codex (read-only, invoked by Owner), merge Owner.
-- **FINAL_HEAD / Draft PR / CI:** see the PR (this file is committed before them).
+- **Draft PR:** https://github.com/emLamHD/The_BHA_hotels_Booking/pull/131 (into `develop`). **Code head** `dacf290`; the commit that adds this paragraph follows it and changes only this file (the PR head is `FINAL_HEAD`). **CI on `dacf290`:** Backend pass (unit 676, integration 1305 on PostgreSQL, 16 m 32 s — the 8 `ContentPackTests` ran there, on the committed pack), Admin pass, Frontend pass, Vercel previews pass.
 - **IMPLEMENTATION: PASS · DEPLOYMENT_SIMULATION: PASS · PRODUCTION_VERIFICATION: NOT_RUN · REVIEW: NOT_RUN** (Claude does not invoke Codex).
 - No migration, no change to any public or Admin API, no frontend change. New: an operator command in the API image, a content pack, tests, a runbook.
 
@@ -47,7 +47,7 @@ Also checked: every picture row has its file with the recorded sha256 (40/40 ori
 
 ## 4. Checks run
 
-`dotnet build Back_End/TheBha.Booking.sln -c Release` (0 errors); **unit 676/676**; **integration 1304/1304** on PostgreSQL 17 (15 min; includes the 7 new `ContentPackTests`: fresh database + dry run + rerun, staff edits, conflict, damaged pack + failed copy, wrong database / missing actor / local origin / group order, remap, export round trip + unclassified table); `git diff --check` clean; `bash -n` and a live run of the entrypoint against the Production image (dry-run, verify, apply, three usage errors). Frontend untouched, so no frontend suite; CI on the PR: see the PR.
+`dotnet build Back_End/TheBha.Booking.sln -c Release` (0 errors); **unit 676/676**; **integration 1304/1304** on PostgreSQL 17 (15 min; includes the 7 new `ContentPackTests`: fresh database + dry run + rerun, staff edits, conflict, damaged pack + failed copy, wrong database / missing actor / local origin / group order, remap, export round trip + unclassified table); `git diff --check` clean; `bash -n` and a live run of the entrypoint against the Production image (dry-run, verify, apply, three usage errors). Frontend untouched, so no frontend suite locally; CI on the PR is above.
 
 ## 5. Commands that produced the evidence (secrets omitted)
 
@@ -73,7 +73,7 @@ dotnet test Back_End/TheBha.Booking.sln -c Release --no-build
 8. **Tests were written after the code** (no red run recorded); the conflict, rollback and staff-edit tests assert counts in the database, not messages only.
 9. **Tooling and clean-up:** the Chrome extension disconnected mid-session; the browser evidence is Playwright on system Chrome (the project's usual recipe). At the end the temporary processes (ports 7245, 3200, 3300, 3201), the API container and its two volumes, the scratch databases (`thebha_import_a/b/c`, `thebha_rehearsal`, `thebha_baseline_tmp`), the copies of the Customer/Admin trees (they held the developer's `.env.local`) and the temporary certificate/env files were removed; the source database, the source stack (ports 3000, 3001, 3100, 7145) and the backup directory were left as they were.
 10. **Website configuration is not part of a pack** (hero, menus, social, currencies, translations; only the active languages travel). It equals the migration defaults in this source, so this pack is complete; an export from a database whose staff edited it prints a warning and says so in the manifest, but does not carry the edits (runbook §7).
-11. **PR size** is outside the 100–400 line target (`docs/governance/WORKFLOW.md` §6): ≈ 1,200 lines of code and tests, ≈ 1,175 lines of data (563 JSONL rows + the manifest) and 43 binary picture files (25 MB). The data and the pictures are the point of the work item (the rows can not be split from the files they refer to); the reviewable code is `ContentPack*` (≈ 850 lines) and `ContentPackTests` (343).
+11. **PR size** from GitHub: +2,717 / −1 in 84 files, outside the 100–400 line target (`docs/governance/WORKFLOW.md` §6): ≈ 1,200 lines of code and tests, ≈ 1,175 lines of data (563 JSONL rows + the manifest) and 43 binary picture files (25 MB). The data and the pictures are the point of the work item (the rows can not be split from the files they refer to); the reviewable code is `ContentPack*` (≈ 850 lines) and `ContentPackTests` (343).
 
 ## 7. Handoff
 
