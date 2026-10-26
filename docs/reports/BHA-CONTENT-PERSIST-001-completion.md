@@ -1,5 +1,7 @@
 # BHA-CONTENT-PERSIST-001 — website content survives a deploy (completion report)
 
+> **Superseded in part by `BHA-CONTENT-PERSIST-001-C1-completion.md`** (Codex review of `6305a0e`). Statements below that no longer hold: the pack carries every property and the website configuration (804 rows, 36 tables); `apply` no longer re-adds rows deleted after an import; verify no longer says "identical" for reused rows and checks variant files; one migration (`AddContentPackLedger`) was added; the rate and offer natural-key rules, the snapshot export and the scoped-group rules are as described there.
+
 - **WORK_ITEM** `BHA-CONTENT-PERSIST-001` · branch `feature/bha-content-persist-001` · base `origin/develop` = `START_HEAD` `9e792ba3a7ab` (PR #130 merged; no open PR, no other writer) · implementer Claude, reviewer Codex (read-only, invoked by Owner), merge Owner.
 - **Draft PR:** https://github.com/emLamHD/The_BHA_hotels_Booking/pull/131 (into `develop`). **Code head** `dacf290`; the commit that adds this paragraph follows it and changes only this file (the PR head is `FINAL_HEAD`). **CI on `dacf290`:** Backend pass (unit 676, integration 1305 on PostgreSQL, 16 m 32 s — the 8 `ContentPackTests` ran there, on the committed pack), Admin pass, Frontend pass, Vercel previews pass.
 - **IMPLEMENTATION: PASS · DEPLOYMENT_SIMULATION: PASS · PRODUCTION_VERIFICATION: NOT_RUN · REVIEW: NOT_RUN** (Claude does not invoke Codex).
