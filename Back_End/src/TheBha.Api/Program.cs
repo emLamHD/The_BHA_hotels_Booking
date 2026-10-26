@@ -509,6 +509,14 @@ if (PromotionDemoSeedCommand.IsCommand(args))
     return;
 }
 
+// BHA-CONTENT-PERSIST-001: the operator's content pack (export from one database, import into another). Any environment; the operator names the database.
+if (ContentPackCommand.IsCommand(args))
+{
+    Environment.ExitCode = await ContentPackCommand.RunAsync(
+        args, app.Services, app.Environment.EnvironmentName, Console.Out, app.Lifetime.ApplicationStopping);
+    return;
+}
+
 // BHA-BLOG-001-CP02: the operator's picture maintenance (backfill of pictures from before the pipeline, files nothing refers to). Any environment; the operator names the database.
 if (BlogMediaMaintenanceCommand.IsCommand(args))
 {
