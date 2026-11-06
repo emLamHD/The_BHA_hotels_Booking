@@ -8,7 +8,7 @@
 #   BHA_ACTOR_EMAIL      an existing Staff account with Blog edit + publish (author of the imported posts); not needed with BHA_GROUPS=catalog,promotions
 #   BHA_MEDIA_MOUNT      where the API's WebsiteMedia:RootPath lives: a docker volume name or an absolute host directory (the same one the API container uses)
 #   BHA_KEYS_MOUNT       the Data Protection key ring volume/directory (Production refuses to start without one)
-# Optional: BHA_GROUPS (website,catalog,promotions,blog), BHA_RESTORE_DELETED=1 (put back rows an earlier import placed and the staff deleted), BHA_DOCKER_ARGS (e.g. "--network host"), BHA_PACK_DIR (default: this pack).
+# Optional: BHA_GROUPS (website,catalog,promotions,blog), BHA_RESTORE_DELETED=1 (put back rows an earlier import placed and the staff deleted; unset, empty or 0 = off, anything else is refused), BHA_DOCKER_ARGS (e.g. "--network host"), BHA_PACK_DIR (default: this pack).
 # Never prints the connection string. Run "dry-run" first; "apply" is repeatable, never replaces a row that exists and does not put back what the staff deleted.
 set -euo pipefail
 mode="${1:-}"; case "$mode" in dry-run|apply|verify) ;; *) echo "usage: $0 dry-run|apply|verify" >&2; exit 2;; esac
@@ -19,7 +19,7 @@ envargs=(); if [ -n "${BHA_ENV_FILE:-}" ]; then [ -f "$BHA_ENV_FILE" ] || { echo
 common=(--expected-database "$BHA_DB_NAME" --pack /pack --media-base-url "$BHA_MEDIA_BASE_URL")
 [ -z "${BHA_ACTOR_EMAIL:-}" ] || common+=(--actor-email "$BHA_ACTOR_EMAIL")
 [ -z "${BHA_GROUPS:-}" ] || common+=(--groups "$BHA_GROUPS")
-[ -z "${BHA_RESTORE_DELETED:-}" ] || common+=(--restore-deleted)
+case "${BHA_RESTORE_DELETED:-}" in 1) common+=(--restore-deleted);; ""|0) ;; *) echo "BHA_RESTORE_DELETED must be 1 (put back what the staff deleted) or unset/0 (do not); got an unsupported value" >&2; exit 2;; esac
 case "$mode" in dry-run) verb=(--content-pack-import "${common[@]}" --dry-run);; apply) verb=(--content-pack-import "${common[@]}" --apply);; verify) verb=(--content-pack-verify "${common[@]}");; esac
 # shellcheck disable=SC2086
 exec docker run --rm ${BHA_DOCKER_ARGS:-} "${envargs[@]}" -e DataProtection__KeysPath=/var/keys -e WebsiteMedia__RootPath=/var/media \

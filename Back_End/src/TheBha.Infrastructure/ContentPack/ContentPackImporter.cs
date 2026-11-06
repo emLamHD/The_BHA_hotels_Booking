@@ -70,6 +70,8 @@ public static partial class ContentPackImporter
         private bool _ledgerExists;
         private bool _heroPristine = true, _menuPristine = true, _heroEdited, _menuEdited;
         private readonly List<(string Table, string Key)> _placed = [];
+        /// <summary>Languages / currencies whose default stays the target's own (decided once per table by <see cref="DecideDefaultAsync"/>).</summary>
+        private readonly HashSet<string> _keepsTargetDefault = [];
         private ContentPackMode Mode => options.Mode;
 
         private ContentPackReport Fail(string problem) { _report.Problems.Add(problem); return _report; }
@@ -206,6 +208,13 @@ public static partial class ContentPackImporter
             foreach (var (name, o) in _report.Tables)
                 _report.Lines.Add($"content-pack: {name,-24} inserted {o.Inserted,4}  matches {o.Matches,4}  kept-target {o.KeptDifferent,3}  mapped {o.Mapped,2}  updated {o.Updated,2}  deleted-since {o.DeletedSinceImport,2}" + (Mode == ContentPackMode.Verify ? $"  missing {o.Missing,3}" : string.Empty));
             _report.Lines.Add($"content-pack: {_report.Tables.Values.Sum(o => o.Inserted)} inserted · {_report.Tables.Values.Sum(o => o.Matches)} rows match the pack · {_report.Tables.Values.Sum(o => o.KeptDifferent)} keep the target's own version · {_report.Tables.Values.Sum(o => o.Updated)} took the pack's value over a default · {_report.Tables.Values.Sum(o => o.DeletedSinceImport)} deleted since the import (not put back) · {_report.Tables.Values.Sum(o => o.Missing)} missing");
+
+            // Deferred constraints (exactly one default language / currency) are checked at commit, which a dry-run never reaches: check them now so the dry-run answers what the apply would meet.
+            if (_report.Ok && Mode != ContentPackMode.Verify)
+            {
+                try { await using var check = new NpgsqlCommand("SET CONSTRAINTS ALL IMMEDIATE", connection, tx); await check.ExecuteNonQueryAsync(ct); }
+                catch (PostgresException ex) { _report.Problems.Add($"the database would refuse the commit ({ex.SqlState} {ex.ConstraintName ?? ex.MessageText}); nothing was written."); }
+            }
 
             if (!_report.Ok || Mode != ContentPackMode.Apply)
             {
@@ -426,6 +435,7 @@ public static partial class ContentPackImporter
             // A hero or menu the staff saved (its row has version > 1 or an author: every Admin save sets both) is theirs: a child it does not have is one they removed or
             // replaced, whether or not an import ever ran, so none is added to it. Only a collection still at the migration's state receives the pack's.
             var collectionEdited = table switch { "WebsiteHeroSlides" or "WebsiteHeroMedia" => !_heroPristine, "WebsiteMenuItems" => !_menuPristine, _ => false };
+            if (table is "WebsiteLanguages" or "WebsiteCurrencies") await DecideDefaultAsync(table, key, rows, ct);
             if (Mode != ContentPackMode.Verify) await PrepareConfigTableAsync(table, key, rows, ct);
             if (table == "BlogMedia") _report.BlogMediaIds.AddRange(rows.Select(r => Guid.Parse(r["Id"]!.GetValue<string>())));
 
@@ -481,6 +491,7 @@ public static partial class ContentPackImporter
                     continue;
                 }
 
+                if (_keepsTargetDefault.Contains(table) && row["IsDefault"]?.GetValue<bool>() == true) row["IsDefault"] = false;
                 if (collectionEdited)
                 {
                     outcome.KeptDifferent++;
@@ -512,14 +523,19 @@ public static partial class ContentPackImporter
 
         private async Task ExistingRowAsync(string table, IReadOnlyList<string> key, JsonObject packRow, JsonObject row, JsonObject existing, string keyText, TableOutcome outcome, bool mappedSelf, CancellationToken ct)
         {
+            // The group's default was decided once (DecideDefaultAsync): when the target's stands, no row of the group is written with another one.
+            var keptDefault = _keepsTargetDefault.Contains(table) && row["IsDefault"] is { } packDefault && !JsonNode.DeepEquals(packDefault, existing["IsDefault"]);
+            if (keptDefault) row["IsDefault"] = existing["IsDefault"]?.DeepClone();
             var packProjection = Project(row, table);
             var targetProjection = Project(existing, table, row);
             var same = JsonNode.DeepEquals(packProjection, targetProjection);
             // A configuration row whose content is the same but whose version says the source's staff saved it (a menu has nothing else) carries that version over a default.
             var versionOnly = same && table.StartsWith("Website", StringComparison.Ordinal) && row["Version"] is { } packVersion && existing["Version"] is { } targetVersion
                 && packVersion.GetValue<int>() != targetVersion.GetValue<int>() && IsEdited(table, packRow) && IsPristine(table, existing);
-            if (same && !versionOnly) { outcome.Matches++; return; }
+            if (same && !versionOnly && !keptDefault) { outcome.Matches++; return; }
             var different = versionOnly ? ["Version"] : Differing(packProjection, targetProjection);
+            if (keptDefault) different.Insert(0, "IsDefault");
+            if (same && !versionOnly) { outcome.KeptDifferent++; Cap(table, $"  kept (the target's default stands): {table} {keyText} — {string.Join(", ", different)}"); return; }
 
             // Website configuration: the target's value stands unless it is still the migration's default and the pack's row was edited in the source.
             if (table.StartsWith("Website", StringComparison.Ordinal) && IsEdited(table, packRow) && IsPristine(table, existing))
@@ -551,22 +567,43 @@ public static partial class ContentPackImporter
                 var removed = await delete.ExecuteNonQueryAsync(ct);
                 if (removed > 0) _report.Lines.Add($"  {table}: {removed} default row(s) replaced by the source's configured ones");
             }
-            if (table is "WebsiteLanguages" or "WebsiteCurrencies")
+        }
+
+        /// <summary>
+        /// One decision per language / currency table, the same in dry-run, apply and verify: the pack's default becomes the target's only when the source's staff chose it and nothing the target's staff
+        /// made stands in the way (the target's current default and the pack's default row are both still the migration's, and no earlier import's row was deleted since). Otherwise the target keeps its own
+        /// valid default and every row of the table is written with it, so the table always ends with exactly one default. Taking it frees the old default's flag before any row is written.
+        /// </summary>
+        private async Task DecideDefaultAsync(string table, IReadOnlyList<string> key, List<JsonObject> rows, CancellationToken ct)
+        {
+            var natural = table == "WebsiteLanguages" ? "NormalizedCode" : "Code";
+            if (rows.FirstOrDefault(r => r["IsDefault"]?.GetValue<bool>() == true) is not { } packDefault) return;
+            var packCode = packDefault[natural]!.GetValue<string>();
+            var current = await ReadWhereAsync(table, "t.\"IsDefault\"", null, ct);
+            if (current is null || current[natural]!.GetValue<string>() == packCode) return;
+            var own = await ReadWhereAsync(table, $"t.{ContentPackSpec.Quote(natural)} = @c", packCode, ct);
+
+            var reasons = new List<string>();
+            if (!IsEdited(table, packDefault)) reasons.Add($"the source's staff did not choose {packCode}");
+            if (!IsPristine(table, current)) reasons.Add($"the target's default {current[natural]} was set by its staff");
+            if (own is not null && !IsPristine(table, own)) reasons.Add($"the target's {packCode} was edited by its staff");
+            if (own is null && !options.RestoreDeleted && _ledger.Contains($"{table}|{ContentPackCatalog.KeyText(packDefault, key)}")) reasons.Add($"{packCode} was deleted on the target since an import");
+            if (reasons.Count > 0)
             {
-                foreach (var packRow in rows.Where(r => r["IsDefault"]?.GetValue<bool>() == false && IsEdited(table, r)))
-                {
-                    var row = (JsonObject)packRow.DeepClone();
-                    if (_staff.TryGetValue(table, out var authors)) foreach (var author in authors.Keys) row.Remove(author);
-                    if (table == "WebsiteLanguages" && Guid.TryParse(row["Id"]!.GetValue<string>(), out var id)) row["Id"] = Map("LanguageId", id).ToString();
-                    if (await ReadRowAsync(table, key, row, ct) is { } target && target["IsDefault"]?.GetValue<bool>() == true && IsPristine(table, target))
-                    {
-                        var set = key.Count == 1 && key[0] == "Id" ? "\"Id\" = @k" : "\"Code\" = @k";
-                        await using var clear = new NpgsqlCommand($"UPDATE {ContentPackSpec.Quote(table)} SET \"IsDefault\" = false WHERE {set}", _connection, _tx);
-                        clear.Parameters.AddWithValue("k", key[0] == "Id" ? Guid.Parse(target["Id"]!.GetValue<string>()) : target["Code"]!.GetValue<string>());
-                        await clear.ExecuteNonQueryAsync(ct);
-                    }
-                }
+                _keepsTargetDefault.Add(table);
+                _report.Notes.Add($"{table}: the pack's default is {packCode}; the target keeps {current[natural]} as its default ({string.Join("; ", reasons)}).");
+                return;
             }
+            if (Mode == ContentPackMode.Verify) return;
+            await using var clear = new NpgsqlCommand($"UPDATE {ContentPackSpec.Quote(table)} SET \"IsDefault\" = false WHERE \"IsDefault\"", _connection, _tx);
+            await clear.ExecuteNonQueryAsync(ct);
+        }
+
+        private async Task<JsonObject?> ReadWhereAsync(string table, string where, string? code, CancellationToken ct)
+        {
+            await using var command = new NpgsqlCommand($"SELECT to_jsonb(t)::text FROM {ContentPackSpec.Quote(table)} t WHERE {where}", _connection, _tx);
+            if (code is not null) command.Parameters.AddWithValue("c", code);
+            return await command.ExecuteScalarAsync(ct) is string text ? JsonNode.Parse(text)!.AsObject() : null;
         }
 
         // ---- checks that need the whole picture ----

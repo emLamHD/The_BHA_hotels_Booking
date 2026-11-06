@@ -54,6 +54,7 @@ public static class ContentPackCommand
         if (string.IsNullOrWhiteSpace(mediaRoot)) mediaRoot = null;
 
         ContentPackReport report;
+        var committed = false;
         try
         {
             if (verb == Export)
@@ -67,6 +68,7 @@ public static class ContentPackCommand
                 report = await ContentPackImporter.ImportAsync(connectionString, options, environmentName, cancellationToken);
                 if (mode == ContentPackMode.Apply && report.Applied)
                 {
+                    committed = true;
                     // The rows and the picture files are committed. The pictures of the pack came in without variants (generation 0); the picture pipeline gives them theirs —
                     // theirs only, never any other picture of the database — and only when the Blog was imported. A failure here leaves everything above in place: the same
                     // command, run again, finds the rows present and repeats only this step.
@@ -78,19 +80,15 @@ public static class ContentPackCommand
                         foreach (var problem in backfill.Problems) report.Problems.Add($"{problem} The rows and files of this import are committed; run the same command again to finish the variants.");
                     }
                     var check = await ContentPackImporter.ImportAsync(connectionString, options with { Mode = ContentPackMode.Verify }, environmentName, cancellationToken);
-                    report.Lines.AddRange(check.Lines.Where(l => l.Contains(" rows match the pack ") || l.Contains("picture variant files checked")).Select(l => l.Replace("content-pack: ", "content-pack: now ")));
-                    report.Problems.AddRange(check.Problems.Except(report.Problems));
-                    report.Notes.AddRange(check.Notes.Except(report.Notes));
-                    var matches = check.Tables.Values.Sum(o => o.Matches); var kept = check.Tables.Values.Sum(o => o.KeptDifferent); var deleted = check.Tables.Values.Sum(o => o.DeletedSinceImport);
-                    report.Lines.Add(check.Ok
-                        ? $"content-pack: VERIFIED — nothing the pack carries is missing: {matches} rows match it, {kept} keep the target's own version, {deleted} were deleted since an import (not put back); every picture file and variant of the pack is present and intact."
-                        : "content-pack: VERIFICATION FAILED");
+                    MergeVerification(report, check);
                 }
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            output.WriteLine($"content-pack: FAILED — {ex.GetType().Name}: {ex.Message}. The database was not changed by this step; fix the cause and run again.");
+            output.WriteLine($"content-pack: FAILED — {ex.GetType().Name}: {ex.Message}. " + (committed
+                ? "The rows and files of this import ARE committed; only the steps after it (picture variants, the final check) did not finish. Run the same command again, then verify."
+                : "The database was not changed by this step; fix the cause and run again."));
             return RiversideDemoSeedCommand.Failure;
         }
 
@@ -98,6 +96,24 @@ public static class ContentPackCommand
         foreach (var note in report.Notes) output.WriteLine($"content-pack: NOTE: {note}");
         foreach (var conflict in report.Conflicts) output.WriteLine($"content-pack: CONFLICT: {conflict}");
         foreach (var problem in report.Problems) output.WriteLine($"content-pack: PROBLEM: {problem}");
-        return report.TargetRefused ? RiversideDemoSeedCommand.TargetRefused : report.Conflicts.Count > 0 ? RiversideDemoSeedCommand.Conflict : report.Problems.Count > 0 ? RiversideDemoSeedCommand.Failure : 0;
+        return ExitCode(report);
     }
+
+    /// <summary>
+    /// Folds the check that follows an apply into the apply's own report. Everything the check found counts (conflicts as well as problems), so a failed check can never leave the exit code at 0.
+    /// </summary>
+    public static void MergeVerification(ContentPackReport report, ContentPackReport check)
+    {
+        report.Lines.AddRange(check.Lines.Where(l => l.Contains(" rows match the pack ") || l.Contains("picture variant files checked")).Select(l => l.Replace("content-pack: ", "content-pack: now ")));
+        report.Problems.AddRange(check.Problems.Except(report.Problems));
+        report.Conflicts.AddRange(check.Conflicts.Except(report.Conflicts));
+        report.Notes.AddRange(check.Notes.Except(report.Notes));
+        var matches = check.Tables.Values.Sum(o => o.Matches); var kept = check.Tables.Values.Sum(o => o.KeptDifferent); var deleted = check.Tables.Values.Sum(o => o.DeletedSinceImport);
+        report.Lines.Add(check.Ok
+            ? $"content-pack: VERIFIED — nothing the pack carries is missing: {matches} rows match it, {kept} keep the target's own version, {deleted} were deleted since an import (not put back); every picture file and variant of the pack is present and intact."
+            : "content-pack: VERIFICATION FAILED — the rows and files of this import ARE committed (see APPLIED above); only the check after it found the conflicts/problems below. Fix them and run verify.");
+    }
+
+    public static int ExitCode(ContentPackReport report) =>
+        report.TargetRefused ? RiversideDemoSeedCommand.TargetRefused : report.Conflicts.Count > 0 ? RiversideDemoSeedCommand.Conflict : report.Problems.Count > 0 ? RiversideDemoSeedCommand.Failure : 0;
 }
