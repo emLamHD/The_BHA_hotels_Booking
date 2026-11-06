@@ -82,6 +82,8 @@ public static partial class ContentPackImporter
         private readonly List<(string Table, string Key)> _placed = [];
         /// <summary>Languages / currencies whose default stays the target's own (decided once per table by <see cref="DecideDefaultAsync"/>).</summary>
         private readonly HashSet<string> _keepsTargetDefault = [];
+        /// <summary>Collections (hero slides, menu items) this run replaced as a whole: their rows are written afresh, so the ledger's "deleted since" never applies to them.</summary>
+        private readonly HashSet<string> _replacedTables = new(StringComparer.Ordinal);
         /// <summary>Categories of the target nobody has edited since the migration seeded them (version 1, no author), and categories the source's staff edited — read before any write.</summary>
         private readonly HashSet<Guid> _seedCategoryPristine = [], _packCategoryEdited = [];
         private ContentPackMode Mode => options.Mode;
@@ -160,6 +162,7 @@ public static partial class ContentPackImporter
             // References are resolved for every group (what the pack's rows should point at in THIS database); only the selected groups are written.
             await ResolveReferencesAsync(ct);
             if (_report.Problems.Count > 0) return _report;
+            if (options.Checkpoint is { } checkpoint) await checkpoint("references-resolved", ct);
             await LoadLedgerAsync(ct);
             if (Mode == ContentPackMode.Apply && !_ledgerExists) return Fail("the database has no ContentPackLedger table: apply the migrations (dotnet ef database update) of this version first.");
 
@@ -168,7 +171,10 @@ public static partial class ContentPackImporter
             var deletedKeys = await DeletedPictureKeysAsync(ct);
             foreach (var key in deletedKeys.Order(StringComparer.Ordinal)) _report.Lines.Add($"  picture kept deleted (an earlier import placed it and the staff deleted it; its file is not copied back): {key}");
             // When the target's hero is a collection the staff edited, the pack's uploaded hero pictures have no slide to serve and are not brought in.
-            var files = _pack.Manifest.Files.Where(f => _groups.Contains(GroupOfKind(f.Kind)) && !skippedCovers.Contains(f.Key) && !deletedKeys.Contains(f.Key) && !(f.Kind == "hero-upload" && !_heroPristine)).ToList();
+            // A hero upload's file follows its media row: with a pristine hero the pack's rows come in; with a hero the staff saved only the rows the target already has stay (and are checked
+            // from run to run, whoever saved the hero), and the pack's other pictures are not brought in.
+            var retainedHeroFiles = await RetainedHeroUploadKeysAsync(ct);
+            var files = _pack.Manifest.Files.Where(f => _groups.Contains(GroupOfKind(f.Kind)) && !skippedCovers.Contains(f.Key) && !deletedKeys.Contains(f.Key) && !(f.Kind == "hero-upload" && !_heroPristine && !retainedHeroFiles.Contains(f.Key))).ToList();
             if (files.Count > 0 && options.MediaRoot is null) return Fail("WebsiteMedia:RootPath is not set: the pack's picture files have nowhere to go.");
             var toCopy = new List<ContentPackFile>();
             foreach (var file in files)
@@ -458,6 +464,7 @@ public static partial class ContentPackImporter
             // A hero or menu the staff saved (its row has version > 1 or an author: every Admin save sets both) is theirs: a child it does not have is one they removed or
             // replaced, whether or not an import ever ran, so none is added to it. Only a collection still at the migration's state receives the pack's.
             var collectionEdited = table switch { "WebsiteHeroSlides" or "WebsiteHeroMedia" => !_heroPristine, "WebsiteMenuItems" => !_menuPristine, _ => false };
+            if (table == "BlogCategories" && Mode != ContentPackMode.Verify) await LockSeedCategoriesAsync(ct);
             if (table is "WebsiteLanguages" or "WebsiteCurrencies") await DecideDefaultAsync(table, key, rows, ct);
             if (Mode != ContentPackMode.Verify) await PrepareConfigTableAsync(table, key, rows, ct);
             if (table == "BlogMedia") _report.BlogMediaIds.AddRange(rows.Select(r => Guid.Parse(r["Id"]!.GetValue<string>())));
@@ -531,7 +538,7 @@ public static partial class ContentPackImporter
                     Cap(table, $"  kept (the target's category has its own current slug): {table} {keyText} is not added");
                     continue;
                 }
-                if (!options.RestoreDeleted && _ledger.Contains($"{table}|{packKey}"))
+                if (!options.RestoreDeleted && !_replacedTables.Contains(table) && _ledger.Contains($"{table}|{packKey}"))
                 {
                     outcome.DeletedSinceImport++;
                     Cap(table, $"  deleted since the import (not put back): {table} {packKey}{(packRow["StorageKey"] is { } storage ? $" ({storage.GetValue<string>()})" : string.Empty)}");
@@ -594,12 +601,46 @@ public static partial class ContentPackImporter
                 var pristine = table == "WebsiteHeroSlides" ? _heroPristine : _menuPristine;
                 var edited = table == "WebsiteHeroSlides" ? _heroEdited : _menuEdited;
                 if (!pristine || !edited) return;
-                // The target's default slides (items) that the source's staff replaced go; nothing else is ever deleted (no picture row is).
-                await using var delete = new NpgsqlCommand($"DELETE FROM {ContentPackSpec.Quote(table)} WHERE \"Id\" <> ALL(@ids)", _connection, _tx);
-                delete.Parameters.AddWithValue("ids", rows.Select(r => Guid.Parse(r["Id"]!.GetValue<string>())).ToArray());
+                // The target's default slides (items) are replaced as a whole by the source's, as the Admin save does: one DELETE statement (the menu's self-referencing key and the slides' unique
+                // order are checked at its end), then the pack's rows are inserted. Rewriting kept rows one by one would collide with the order or the parent of a row not yet moved. Nothing
+                // else is deleted (no picture row is).
+                await using var delete = new NpgsqlCommand($"DELETE FROM {ContentPackSpec.Quote(table)}", _connection, _tx);
                 var removed = await delete.ExecuteNonQueryAsync(ct);
+                _replacedTables.Add(table);
                 if (removed > 0) _report.Lines.Add($"  {table}: {removed} default row(s) replaced by the source's configured ones");
             }
+        }
+
+        /// <summary>The storage keys of the pack's hero uploads whose media row the target already has.</summary>
+        private async Task<HashSet<string>> RetainedHeroUploadKeysAsync(CancellationToken ct)
+        {
+            var keys = new HashSet<string>(StringComparer.Ordinal);
+            var packKeys = _pack.Manifest.Files.Where(f => f.Kind == "hero-upload").Select(f => f.Key).ToArray();
+            if (packKeys.Length == 0 || _heroPristine) return keys;
+            await using var command = new NpgsqlCommand("SELECT \"StorageKey\" FROM \"WebsiteHeroMedia\" WHERE \"StorageKey\" = ANY(@k)", _connection, _tx);
+            command.Parameters.AddWithValue("k", packKeys);
+            await using var reader = await command.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct)) keys.Add(reader.GetString(0));
+            return keys;
+        }
+
+        /// <summary>
+        /// The category-level decision for a seeded category's texts and slugs, taken under a row lock held to commit: the early read of ResolveReferencesAsync is only a candidate list. A Staff save
+        /// that landed since is seen here and its category stays the target's; one that starts now waits for the commit and then finds the version changed (a stale save), so nothing the
+        /// importer writes to the children can overwrite a text saved after the decision. Categories are locked in id order.
+        /// </summary>
+        private async Task LockSeedCategoriesAsync(CancellationToken ct)
+        {
+            var candidates = _packCategoryEdited.Order().ToArray();
+            if (candidates.Length == 0) return;
+            await using (var command = new NpgsqlCommand("SELECT \"Id\", \"Version\" = 1 AND \"UpdatedByStaffId\" IS NULL AND \"CreatedByStaffId\" IS NULL FROM \"BlogCategories\" WHERE \"Id\" = ANY(@ids) ORDER BY \"Id\" FOR UPDATE", _connection, _tx))
+            {
+                command.Parameters.AddWithValue("ids", candidates);
+                await using var reader = await command.ExecuteReaderAsync(ct);
+                while (await reader.ReadAsync(ct))
+                    if (reader.GetBoolean(1)) _seedCategoryPristine.Add(reader.GetGuid(0)); else _seedCategoryPristine.Remove(reader.GetGuid(0));
+            }
+            if (options.Checkpoint is { } checkpoint) await checkpoint("categories-locked", ct);
         }
 
         private string RemapContentKey(string key)
