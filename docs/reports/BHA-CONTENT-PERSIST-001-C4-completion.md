@@ -1,6 +1,6 @@
 # BHA-CONTENT-PERSIST-001-C4 — the three findings of the fourth Codex review (completion report)
 
-- **WORK_ITEM** `BHA-CONTENT-PERSIST-001-C4` · branch `feature/bha-content-persist-001` · Draft PR #131 (into `develop`, unchanged) · **START_HEAD** `337bb68` (verified before editing: tree clean, PR open and draft, head equal to the remote's) · **CODE_HEAD** and the CI link: see §4 (filled in by the last commit, which changes only this file; the PR head is the `FINAL_HEAD`).
+- **WORK_ITEM** `BHA-CONTENT-PERSIST-001-C4` · branch `feature/bha-content-persist-001` · Draft PR #131 (into `develop`, unchanged) · **START_HEAD** `337bb68` (verified before editing: tree clean, PR open and draft, head equal to the remote's) · **CODE_HEAD** `d29dca3` (the commit that adds §4 follows it and changes only this file; the PR head is the `FINAL_HEAD`). CI: §4.
 - Implementer Claude, reviewer Codex (invoked by Owner), merge Owner.
 - **C4 tests: PASS (local) · REVIEW: NOT_RUN · PRODUCTION_VERIFICATION: NOT_RUN.** The C2 deployment simulation is not repeated and is not evidence for C4.
 - **Schema / inventory / frontend / API contract:** none. The importer was not rewritten: one predicate, one key rewrite, one generalisation of the existing "edited source over a pristine seed" rule.
@@ -28,3 +28,8 @@
 - Where the target's staff renamed the category, the pack's slug history for it is only added when it does not make a second current slug; the old slugs of the pack are carried as history.
 - `promotion` keys (`content.promotion.<id>.*`) are not re-pointed: the finding names four entities, and a pack offer mapped to the target's own offer is deliberately left out (C1), so its texts must not be written onto it. OC to decide if offers' texts need the same treatment.
 - Production was not touched: `PRODUCTION_VERIFICATION = NOT_RUN`.
+
+## 4. CI and PR size
+
+- **CI on `d29dca3`:** https://github.com/emLamHD/The_BHA_hotels_Booking/actions/runs/42190544286 — Backend pass (unit 676, integration 1343 on PostgreSQL 18.3, 20 m 37 s; all 46 content-pack tests ran there), Admin pass, Frontend pass. CI's PostgreSQL is the `postgres:18.3` service container (UTC by default); the local run used PostgreSQL 17.10 with `timezone = UTC`. The runs on `e39557e` were superseded by the correction and are not cited.
+- **PR size from GitHub:** +9009 −16 in 117 files (C3 head: +8,616 / −16 in 115 files); the C4 growth is the 6 tests, the report, and ~60 lines of importer.
