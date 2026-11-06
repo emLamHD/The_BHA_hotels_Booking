@@ -1,6 +1,6 @@
 # BHA-CONTENT-PERSIST-001-C3 — the three findings of the third Codex review (completion report)
 
-- **WORK_ITEM** `BHA-CONTENT-PERSIST-001-C3` · branch `feature/bha-content-persist-001` · Draft PR #131 (into `develop`, unchanged) · **START_HEAD** `d97715b` (verified before editing: tree clean, PR open and draft, head equal to the remote's) · the `FINAL_HEAD` and CI link are the PR head after the last commit (see the PR).
+- **WORK_ITEM** `BHA-CONTENT-PERSIST-001-C3` · branch `feature/bha-content-persist-001` · Draft PR #131 (into `develop`, unchanged) · **START_HEAD** `d97715b` (verified before editing: tree clean, PR open and draft, head equal to the remote's) · **CODE_HEAD** `5d8b864` (the commit that adds this paragraph follows it and changes only this file; the PR head is the `FINAL_HEAD`). **CI on `5d8b864`:** https://github.com/emLamHD/The_BHA_hotels_Booking/actions/runs/42181806283 — Backend pass (unit 676, integration 1337 on PostgreSQL, 22 m 28 s; all 40 content-pack tests ran there), Admin pass, Frontend pass, Vercel pass. **PR size from GitHub:** +8616 −16 in 115 files (C2 head: +8,234 / −16 in 113 files); the C3 growth is the 15 tests, the report and the local code changes.
 - Implementer Claude, reviewer Codex (invoked by Owner), merge Owner.
 - **C3 tests: PASS (local) · REVIEW: NOT_RUN · PRODUCTION_VERIFICATION: NOT_RUN.** The C2 deployment simulation (Production image) is **not** repeated and is not evidence for C3.
 - **Schema:** none. **Inventory / frontend / API contract:** unchanged. The importer was not rewritten: one decision function, one guard, one check.
@@ -18,7 +18,7 @@
 - `dotnet build Back_End/TheBha.Booking.sln -c Release`: 0 errors. `bash -n deploy/content/import-content-pack.sh`: ok.
 - Unit 676/676. Content-pack integration tests on a private PostgreSQL 17.10 (port 54329, `timezone=UTC`): **40/40** — 25 existing + 15 new in `ContentPackC3Tests`.
 - Red runs: on the old script, F2's four refusals and `0` failed; on the old importer (`d97715b`), the three F1 tests that keep or check a default failed (currency `XBHA4`, language `XBHA3`, the dry-run check) and the two take-the-default tests passed by design; F3 failed with the `Conflicts` line removed.
-- The full integration suite was not run locally; CI on the PR head runs it.
+- The full integration suite was not run locally; CI on `5d8b864` ran it (1337/1337).
 - `ContentPackTests.Export_of_an_imported_database…` compares a `timestamptz` as text and fails on a server whose time zone is not UTC (+07:00 here): environmental, unrelated to C3, green with `timezone=UTC` and in CI.
 
 ## 3. Limits that remain
