@@ -637,8 +637,10 @@ public static partial class ContentPackImporter
             {
                 command.Parameters.AddWithValue("ids", candidates);
                 await using var reader = await command.ExecuteReaderAsync(ct);
+                // From here the set says exactly what the locked rows say (a candidate that is gone is no longer untouched).
+                _seedCategoryPristine.ExceptWith(candidates);
                 while (await reader.ReadAsync(ct))
-                    if (reader.GetBoolean(1)) _seedCategoryPristine.Add(reader.GetGuid(0)); else _seedCategoryPristine.Remove(reader.GetGuid(0));
+                    if (reader.GetBoolean(1)) _seedCategoryPristine.Add(reader.GetGuid(0));
             }
             if (options.Checkpoint is { } checkpoint) await checkpoint("categories-locked", ct);
         }

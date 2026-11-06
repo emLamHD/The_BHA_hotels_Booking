@@ -209,6 +209,21 @@ public sealed class ContentPackC5Tests(PostgreSqlWebApplicationFactory factory)
 
     private static string Shape(IReadOnlyList<PublicMenuItemDto> items) => string.Join(",", items.Select(i => $"{i.Id}({Shape(i.Children)})"));
 
+    /// <summary>The staff delete one leaf menu item (the <paramref name="skip"/>th leaf) through the real service; returns its id.</summary>
+    private static async Task<Guid> StaffDeleteLeafAsync(Target t, int skip)
+    {
+        var actor = await ContentPackC3Tests.ActorAsync(t);
+        return await WithAsync<Guid, IWebsiteMenus>(t, async menus =>
+        {
+            var admin = await menus.GetAdminAsync(CancellationToken.None);
+            var leaf = admin.Items.Where(i => !admin.Items.Any(c => c.ParentId == i.Id)).ElementAt(skip);
+            var items = admin.Items.Where(i => i.Id != leaf.Id).Select(i => new MenuItemInput(i.Id, i.ParentId, i.Placement, i.IsEnabled, i.Href, i.OpenInNewTab, i.Labels)).ToList();
+            var saved = await menus.SaveAsync(new SaveMenuCommand(admin.Revision, items, actor), CancellationToken.None);
+            Assert.True(saved.Status == WebsiteMutationStatus.Succeeded, saved.Message);
+            return leaf.Id;
+        });
+    }
+
     [Fact]
     public async Task F2_a_target_the_staff_saved_keeps_its_own_hero_and_menu()
     {
@@ -216,13 +231,21 @@ public sealed class ContentPackC5Tests(PostgreSqlWebApplicationFactory factory)
         await using var target = await NewTargetAsync();
         await StaffSaveHeroAsync(source, slides => { var l = slides.Select(AsInput).ToList(); (l[0], l[1]) = (l[1], l[0]); return l; });
         await StaffSaveHeroAsync(target, slides => slides.Select(AsInput).Reverse(), interval: 8);
+        // The source's staff changed the menu too (a leaf removed); the target's staff removed another one.
+        var removedAtSource = await StaffDeleteLeafAsync(source, 0);
+        var removedAtTarget = await StaffDeleteLeafAsync(target, 1);
         var own = await PublicSlidesAsync(target);
+        var ownTree = Tree(await WithAsync<MenuAdminDto, IWebsiteMenus>(target, m => m.GetAdminAsync(CancellationToken.None))).OrderBy(t => t.Id).ToList();
+        Assert.DoesNotContain(ownTree, t => t.Id == removedAtTarget);
+        Assert.Contains(ownTree, t => t.Id == removedAtSource);
         var pack = await ContentPackC3Tests.ExportAsync(source);
         try
         {
             await AssertCleanAsync(target, pack, "website");
             Assert.Equal(own, await PublicSlidesAsync(target));
             Assert.Equal(8, (await HeroAdminAsync(target)).IntervalSeconds);
+            // The target's menu is its own: neither the item its staff removed came back nor the one the source removed went.
+            Assert.Equal(ownTree, Tree(await WithAsync<MenuAdminDto, IWebsiteMenus>(target, m => m.GetAdminAsync(CancellationToken.None))).OrderBy(t => t.Id).ToList());
         }
         finally { Directory.Delete(pack, recursive: true); }
     }
@@ -258,7 +281,13 @@ public sealed class ContentPackC5Tests(PostgreSqlWebApplicationFactory factory)
             Assert.Equal(0, (await target.RunAsync(target.Verify(pack, "--groups", "website"))).Exit);
 
             // 2. The file the slide uses goes missing: verify fails, apply puts it back from the pack, the picture is served again.
+            var imageUrl = (await WithAsync<PublicHeroDto, IWebsiteHero>(target, h => h.GetPublicAsync("vi", CancellationToken.None))).Slides.Single(s => s.ImageUrl.Contains(media.ToString(), StringComparison.OrdinalIgnoreCase)).ImageUrl;
+            using var client = target.Host.CreateClient(new() { AllowAutoRedirect = false });
+            var working = await client.GetAsync(imageUrl);
+            Assert.Equal(System.Net.HttpStatusCode.OK, working.StatusCode);
+            Assert.Equal(bytes, await working.Content.ReadAsByteArrayAsync());
             File.Delete(path);
+            Assert.NotEqual(System.Net.HttpStatusCode.OK, (await client.GetAsync(imageUrl)).StatusCode);
             var missing = await target.RunAsync(target.Verify(pack, "--groups", "website"));
             Assert.NotEqual(0, missing.Exit);
             Assert.Contains(key, missing.Output);
@@ -268,6 +297,9 @@ public sealed class ContentPackC5Tests(PostgreSqlWebApplicationFactory factory)
             Assert.Equal(bytes, await File.ReadAllBytesAsync(path));
             var served = await WithAsync<byte[], IWebsiteHero>(target, async h => { await using var file = (await h.OpenMediaAsync(media, CancellationToken.None))!.Content; using var memory = new MemoryStream(); await file.CopyToAsync(memory); return memory.ToArray(); });
             Assert.Equal(bytes, served);
+            var again = await client.GetAsync(imageUrl);
+            Assert.Equal(System.Net.HttpStatusCode.OK, again.StatusCode);
+            Assert.Equal(bytes, await again.Content.ReadAsByteArrayAsync());
             Assert.Equal(0, (await target.RunAsync(target.Verify(pack, "--groups", "website"))).Exit);
 
             // 3. Another file under the same key: the existing policy (a conflict, never overwritten), in verify and in apply.
