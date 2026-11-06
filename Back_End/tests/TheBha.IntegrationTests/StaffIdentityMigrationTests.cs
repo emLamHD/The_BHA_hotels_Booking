@@ -27,6 +27,7 @@ public sealed class StaffIdentityMigrationTests : IAsyncLifetime
     private const string V17Migration = "20261021083007_AddBookingPromotions";
     private const string V18Migration = "20261021120804_AddBlogFoundation";
     private const string V19Migration = "20261021153708_AddBlogMediaLibrary";
+    private const string V20Migration = "20261026093905_AddContentPackLedger";
     private static readonly Guid PropertyId = Guid.Parse("90000000-0000-0000-0000-000000000011");
     private static readonly Guid CustomerId = Guid.Parse("90000000-0000-0000-0000-000000000012");
 
@@ -53,7 +54,7 @@ public sealed class StaffIdentityMigrationTests : IAsyncLifetime
         await using var context = CreateContext();
         await context.Database.MigrateAsync();
 
-        Assert.Equal(19, (await context.Database.GetAppliedMigrationsAsync()).Count());
+        Assert.Equal(20, (await context.Database.GetAppliedMigrationsAsync()).Count());
         Assert.Empty(await context.Database.GetPendingMigrationsAsync());
         Assert.Equal(0, await CountAsync("StaffAccounts"));
         Assert.Equal(0, await CountAsync("StaffPropertyMemberships"));
@@ -78,7 +79,7 @@ public sealed class StaffIdentityMigrationTests : IAsyncLifetime
         Assert.Equal(1, await CountAsync("Properties"));
         Assert.Equal(1, await CountAsync("AspNetUsers"));
         // Migration 10 (website settings) is the only one left beyond this test's V9 target.
-        Assert.Equal([V10Migration, V11Migration, V12Migration, V13Migration, V14Migration, V15Migration, V16Migration, V17Migration, V18Migration, V19Migration], await context.Database.GetPendingMigrationsAsync());
+        Assert.Equal([V10Migration, V11Migration, V12Migration, V13Migration, V14Migration, V15Migration, V16Migration, V17Migration, V18Migration, V19Migration, V20Migration], await context.Database.GetPendingMigrationsAsync());
 
         await ExecuteAsync(
             $"""
@@ -91,7 +92,7 @@ public sealed class StaffIdentityMigrationTests : IAsyncLifetime
 
         await ExecuteAsync("DELETE FROM \"StaffAccounts\"");
         await migrator.MigrateAsync(V8Migration);
-        Assert.Equal([V9Migration, V10Migration, V11Migration, V12Migration, V13Migration, V14Migration, V15Migration, V16Migration, V17Migration, V18Migration, V19Migration], await context.Database.GetPendingMigrationsAsync());
+        Assert.Equal([V9Migration, V10Migration, V11Migration, V12Migration, V13Migration, V14Migration, V15Migration, V16Migration, V17Migration, V18Migration, V19Migration, V20Migration], await context.Database.GetPendingMigrationsAsync());
         Assert.Equal(1, await CountAsync("AspNetUsers"));
     }
 
