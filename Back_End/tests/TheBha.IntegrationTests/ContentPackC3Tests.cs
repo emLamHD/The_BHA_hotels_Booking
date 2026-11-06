@@ -1,4 +1,7 @@
 using System.Diagnostics;
+using System.Text.RegularExpressions;
+using Microsoft.Extensions.DependencyInjection;
+using TheBha.Application.Website;
 using TheBha.Api.Seeding;
 using TheBha.Infrastructure.ContentPack;
 using static TheBha.IntegrationTests.ContentPackTestSupport;
@@ -29,20 +32,38 @@ public sealed class ContentPackC3Tests(PostgreSqlWebApplicationFactory factory)
 
     // ---- F1: the default currency / language is one decision, the same in dry-run, apply and verify ----
 
-    private static string EditedCurrency(Guid actor, int rate, bool isDefault) =>
-        $"""UPDATE "WebsiteCurrencies" SET "IsActive" = true, "IsDefault" = {isDefault}, "VndPerUnit" = {rate}, "RateUpdatedAtUtc" = now(), "RateUpdatedByStaffId" = '{actor}', "Version" = 2, "UpdatedByStaffId" = '{actor}' WHERE "Code" = 'USD';""";
-
-    /// <summary>The source's staff made USD the default (VND is let go of in the same transaction, as Admin does).</summary>
-    private static async Task MakeUsdDefaultAsync(Target source) =>
-        await source.ExecuteAsync($"""UPDATE "WebsiteCurrencies" SET "IsDefault" = false, "Version" = 2, "UpdatedByStaffId" = '{await ActorAsync(source)}' WHERE "Code" = 'VND'; """ + EditedCurrency(await ActorAsync(source), 25500, true));
-
-    private static async Task MakeEnglishDefaultAsync(Target source)
+    /// <summary>What Admin does when the staff set USD's rate, switch it on and (optionally) make it the default: the real settings store, so the versions and authors are the real ones.</summary>
+    private static async Task StaffSetUsdAsync(Target t, string rate, bool makeDefault)
     {
-        var actor = await ActorAsync(source);
-        await source.ExecuteAsync($"""
-            UPDATE "WebsiteLanguages" SET "IsDefault" = false, "Version" = 2, "UpdatedByStaffId" = '{actor}' WHERE "NormalizedCode" = 'vi';
-            UPDATE "WebsiteLanguages" SET "IsActive" = true, "IsDefault" = true, "Version" = 2, "UpdatedByStaffId" = '{actor}' WHERE "NormalizedCode" = 'en';
-            """);
+        var actor = await ActorAsync(t);
+        await using var scope = t.Host.Services.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<IWebsiteSettingsStore>();
+        var usd = (await store.ListCurrenciesAsync(CancellationToken.None)).Single(c => c.Code == "USD");
+        var rated = await store.SetCurrencyRateAsync(new SetCurrencyRateCommand("USD", usd.Version, rate, actor), CancellationToken.None);
+        Assert.True(rated.Status == WebsiteMutationStatus.Succeeded, rated.Message);
+        var active = await store.SetCurrencyActiveAsync(new SetCurrencyActiveCommand("USD", rated.Value!.Version, true, actor), CancellationToken.None);
+        Assert.True(active.Status == WebsiteMutationStatus.Succeeded, active.Message);
+        if (!makeDefault) return;
+        var chosen = await store.SetDefaultCurrencyAsync(new CurrencyVersionCommand("USD", active.Value!.Version, actor), CancellationToken.None);
+        Assert.True(chosen.Status == WebsiteMutationStatus.Succeeded, chosen.Message);
+    }
+
+    /// <summary>The staff install the built-in English pack (it needs USD on, with a rate) and switch it on; optionally they make it the default. All through the real services.</summary>
+    private static async Task StaffActivateEnglishAsync(Target t, bool makeDefault)
+    {
+        await StaffSetUsdAsync(t, "25500", makeDefault: false);
+        var actor = await ActorAsync(t);
+        await using var scope = t.Host.Services.CreateAsyncScope();
+        var packs = scope.ServiceProvider.GetRequiredService<IWebsiteLanguagePacks>();
+        var source = new PackSource((await packs.ListLibraryAsync(CancellationToken.None)).Single(p => p.Locale == "en").Id, null);
+        var preview = await packs.PreviewAsync(source, PackModes.KeepManual, CancellationToken.None);
+        Assert.True(preview.Status == WebsiteMutationStatus.Succeeded, preview.Message);
+        var applied = await packs.ApplyAsync(new ApplyPackCommand(source, PackModes.KeepManual, preview.Value!.PreviewToken, true, actor), CancellationToken.None);
+        Assert.True(applied.Status == WebsiteMutationStatus.Succeeded, applied.Message);
+        if (!makeDefault) return;
+        var store = scope.ServiceProvider.GetRequiredService<IWebsiteSettingsStore>();
+        var chosen = await store.SetDefaultLanguageAsync(new LanguageVersionCommand("en", applied.Value!.Language.Version, actor), CancellationToken.None);
+        Assert.True(chosen.Status == WebsiteMutationStatus.Succeeded, chosen.Message);
     }
 
     private static Task<string?> DefaultAsync(Target t, string table, string column) => t.TextAsync($"""SELECT string_agg("{column}", ',') FROM "{table}" WHERE "IsDefault" """);
@@ -52,28 +73,30 @@ public sealed class ContentPackC3Tests(PostgreSqlWebApplicationFactory factory)
     {
         await using var source = await NewTargetAsync();
         await using var target = await NewTargetAsync();
-        await MakeUsdDefaultAsync(source);
+        await StaffSetUsdAsync(source, "25500", makeDefault: true);
         // The target's staff changed USD's rate and kept it switched on, not default; VND is still the migration's default.
-        await target.ExecuteAsync(EditedCurrency(await ActorAsync(target), 26000, false));
+        await StaffSetUsdAsync(target, "26000", makeDefault: false);
         var pack = await ExportAsync(source);
         try
         {
             var dry = await target.RunAsync(target.Import(pack, "--groups", "website", "--dry-run"));
             Assert.True(dry.Exit == 0, dry.Output);
-            Assert.Contains("WebsiteCurrencies: the pack's default is USD; the target keeps VND as its default", dry.Output);
             Assert.Equal("VND", await DefaultAsync(target, "WebsiteCurrencies", "Code"));
 
             var apply = await target.RunAsync(target.Import(pack, "--groups", "website", "--apply"));
             Assert.True(apply.Exit == 0, apply.Output);
             Assert.Equal("VND", await DefaultAsync(target, "WebsiteCurrencies", "Code"));
             Assert.Equal("26000", await target.TextAsync("""SELECT "VndPerUnit"::int FROM "WebsiteCurrencies" WHERE "Code" = 'USD' """));
-            // The pack's own version of VND (no longer the default) was not written over the target's default either.
+            // The pack's own version of VND (no longer the default there) was not written over the target's default, and the target's untouched VND row was not stamped as a staff edit.
             Assert.Equal("true", await target.TextAsync("""SELECT "IsDefault"::text FROM "WebsiteCurrencies" WHERE "Code" = 'VND' """));
+            Assert.Equal("1", await target.TextAsync("""SELECT "Version" FROM "WebsiteCurrencies" WHERE "Code" = 'VND' """));
+            Assert.Contains("WebsiteCurrencies: the pack's default is USD; the target keeps VND as its default", dry.Output);
 
             var verify = await target.RunAsync(target.Verify(pack, "--groups", "website"));
             Assert.True(verify.Exit == 0, verify.Output);
-            Assert.Contains("the target keeps VND as its default", verify.Output);
-            Assert.Contains(" keep the target's own version", verify.Output);
+            Assert.Contains("the target keeps VND as its default (the target's USD was edited by its staff)", verify.Output);
+            // Kept rows are counted apart from rows that match: the currencies show kept-target, not only matches.
+            Assert.Matches(new Regex(@"WebsiteCurrencies\s+inserted\s+0\s+matches\s+\d+\s+kept-target\s+[1-9]"), verify.Output);
         }
         finally { Directory.Delete(pack, recursive: true); }
     }
@@ -83,7 +106,7 @@ public sealed class ContentPackC3Tests(PostgreSqlWebApplicationFactory factory)
     {
         await using var source = await NewTargetAsync();
         await using var target = await NewTargetAsync();
-        await MakeUsdDefaultAsync(source);
+        await StaffSetUsdAsync(source, "25500", makeDefault: true);
         var pack = await ExportAsync(source);
         try
         {
@@ -112,22 +135,23 @@ public sealed class ContentPackC3Tests(PostgreSqlWebApplicationFactory factory)
     {
         await using var source = await NewTargetAsync();
         await using var target = await NewTargetAsync();
-        await MakeEnglishDefaultAsync(source);
-        await target.ExecuteAsync($"""UPDATE "WebsiteLanguages" SET "IsActive" = true, "Version" = 2, "UpdatedByStaffId" = '{await ActorAsync(target)}' WHERE "NormalizedCode" = 'en' """);
+        await StaffActivateEnglishAsync(source, makeDefault: true);
+        await StaffActivateEnglishAsync(target, makeDefault: false);
         var pack = await ExportAsync(source);
         try
         {
             var dry = await target.RunAsync(target.Import(pack, "--groups", "website", "--dry-run"));
             Assert.True(dry.Exit == 0, dry.Output);
-            Assert.Contains("WebsiteLanguages: the pack's default is en; the target keeps vi as its default", dry.Output);
 
             var apply = await target.RunAsync(target.Import(pack, "--groups", "website", "--apply"));
             Assert.True(apply.Exit == 0, apply.Output);
             Assert.Equal("vi", await DefaultAsync(target, "WebsiteLanguages", "NormalizedCode"));
+            Assert.Contains("WebsiteLanguages: the pack's default is en; the target keeps vi as its default", dry.Output);
 
             var verify = await target.RunAsync(target.Verify(pack, "--groups", "website"));
             Assert.True(verify.Exit == 0, verify.Output);
             Assert.Contains("the target keeps vi as its default", verify.Output);
+            Assert.Matches(new Regex(@"WebsiteLanguages\s+inserted\s+0\s+matches\s+\d+\s+kept-target\s+[1-9]"), verify.Output);
         }
         finally { Directory.Delete(pack, recursive: true); }
     }
@@ -137,7 +161,7 @@ public sealed class ContentPackC3Tests(PostgreSqlWebApplicationFactory factory)
     {
         await using var source = await NewTargetAsync();
         await using var target = await NewTargetAsync();
-        await MakeEnglishDefaultAsync(source);
+        await StaffActivateEnglishAsync(source, makeDefault: true);
         var pack = await ExportAsync(source);
         try
         {

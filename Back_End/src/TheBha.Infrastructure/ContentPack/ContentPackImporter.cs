@@ -530,7 +530,7 @@ public static partial class ContentPackImporter
             var targetProjection = Project(existing, table, row);
             var same = JsonNode.DeepEquals(packProjection, targetProjection);
             // A configuration row whose content is the same but whose version says the source's staff saved it (a menu has nothing else) carries that version over a default.
-            var versionOnly = same && table.StartsWith("Website", StringComparison.Ordinal) && row["Version"] is { } packVersion && existing["Version"] is { } targetVersion
+            var versionOnly = !keptDefault && same && table.StartsWith("Website", StringComparison.Ordinal) && row["Version"] is { } packVersion && existing["Version"] is { } targetVersion
                 && packVersion.GetValue<int>() != targetVersion.GetValue<int>() && IsEdited(table, packRow) && IsPristine(table, existing);
             if (same && !versionOnly && !keptDefault) { outcome.Matches++; return; }
             var different = versionOnly ? ["Version"] : Differing(packProjection, targetProjection);
