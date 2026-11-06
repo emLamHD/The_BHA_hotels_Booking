@@ -1,6 +1,6 @@
 # BHA-CONTENT-PERSIST-001-C5 — the three findings of the fifth Codex review (completion report)
 
-- **WORK_ITEM** `BHA-CONTENT-PERSIST-001-C5` · branch `feature/bha-content-persist-001` · Draft PR #131 (into `develop`, unchanged) · **START_HEAD** `36da7fe` (verified before editing: tree clean, PR open and draft, head equal to the remote's) · **CODE_HEAD** and CI: §4.
+- **WORK_ITEM** `BHA-CONTENT-PERSIST-001-C5` · branch `feature/bha-content-persist-001` · Draft PR #131 (into `develop`, unchanged) · **START_HEAD** `36da7fe` (verified before editing: tree clean, PR open and draft, head equal to the remote's) · **CODE_HEAD** `10294b7` (the commit that adds §4 follows it and changes only this file; the PR head is the `FINAL_HEAD`). CI: §4.
 - Implementer Claude, reviewer Codex (invoked by Owner), merge Owner.
 - **C5 tests: PASS (local) · REVIEW: NOT_RUN · PRODUCTION_VERIFICATION: NOT_RUN.** The C2 deployment simulation is not repeated and is not evidence for C5.
 - **Schema / inventory / frontend / API contract:** none. Local importer changes only (one row lock, one `DELETE`, one file predicate) and one test seam (`Checkpoint`, never set by the command).
@@ -27,3 +27,9 @@
 - The lock is taken only for the pack's edited categories that exist on the target; a target category the staff created or edited is never taken over, so it needs none.
 - Replacing a pristine menu does not remove the English/French label texts of the items it removes (as before); they are unused rows.
 - Production was not touched: `PRODUCTION_VERIFICATION = NOT_RUN`.
+
+## 4. CI and PR size
+
+- **CI on `10294b7`:** https://github.com/emLamHD/The_BHA_hotels_Booking/actions/runs/42208956823 — Backend pass (unit 676, integration 1350 on PostgreSQL 18.3, 20 m 37 s; all 53 content-pack tests ran there), Admin pass, Frontend pass. CI's PostgreSQL is the `postgres:18.3` service container (UTC by default); the local run used PostgreSQL 17.10 with `timezone = UTC` (53/53 content-pack, 676/676 unit). The run on `3521d0f` was superseded by the correction and is not cited.
+- **PR size from GitHub:** +9423 −16 in 119 files (C4 head: +9,014 / −16 in 117 files); the C5 growth is the 7 tests, the report and ~50 lines of importer.
+- **The report-only commit after CI:** its diff is only `docs/reports/BHA-CONTENT-PERSIST-001-C5-completion.md` (this §4). Its own CI status is stated in the completion message to Owner (the workflow is triggered by the push); the code it describes is `10294b7`.
