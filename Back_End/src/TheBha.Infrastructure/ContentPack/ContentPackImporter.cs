@@ -44,7 +44,7 @@ public static partial class ContentPackImporter
     /// <summary>The stored-content translation keys (<c>content.&lt;entity&gt;.&lt;id&gt;.&lt;field&gt;</c>, see <c>ContentCatalog</c>) that carry an id the importer re-points: entity → the reference column.</summary>
     private static readonly Dictionary<string, string> ContentKeyEntities = new(StringComparer.Ordinal)
     {
-        ["property"] = "PropertyId", ["roomType"] = "RoomTypeId", ["ratePlan"] = "RatePlanId", ["amenity"] = "AmenityId", ["promotion"] = "PromotionId",
+        ["property"] = "PropertyId", ["roomType"] = "RoomTypeId", ["ratePlan"] = "RatePlanId", ["amenity"] = "AmenityId",
     };
 
     /// <summary>Blog rows the migration seeds (the Featured destinations category with its texts and slugs, and the settings): the source's edit of them travels over an untouched seed, like website configuration.</summary>
@@ -563,7 +563,7 @@ public static partial class ContentPackImporter
             var targetProjection = Project(existing, table, row);
             var same = JsonNode.DeepEquals(packProjection, targetProjection);
             // A configuration row whose content is the same but whose version says the source's staff saved it (a menu has nothing else) carries that version over a default.
-            var versionOnly = !keptDefault && same && table.StartsWith("Website", StringComparison.Ordinal) && row["Version"] is { } packVersion && existing["Version"] is { } targetVersion
+            var versionOnly = !keptDefault && same && (table.StartsWith("Website", StringComparison.Ordinal) || BlogSeedTables.Contains(table)) && row["Version"] is { } packVersion && existing["Version"] is { } targetVersion
                 && packVersion.GetValue<int>() != targetVersion.GetValue<int>() && IsEdited(table, packRow) && IsPristine(table, existing);
             if (same && !versionOnly && !keptDefault) { outcome.Matches++; return; }
             var different = versionOnly ? ["Version"] : Differing(packProjection, targetProjection);
@@ -611,9 +611,8 @@ public static partial class ContentPackImporter
         /// <summary>A hero or menu text the pack carries (<paramref name="row"/> has its language already re-pointed) for a language the target already has, when the target's staff saved that collection: a text they cleared on purpose is not put back (nor is one of a child they replaced).</summary>
         private bool IsProtectedCollectionText(JsonObject row)
         {
-            var key = row["Key"]?.GetValue<string>() ?? string.Empty;
-            var edited = key.StartsWith("content.menuItem.", StringComparison.Ordinal) ? !_menuPristine
-                : key.StartsWith("content.heroSlideshow.", StringComparison.Ordinal) || key.StartsWith("content.heroSlide.", StringComparison.Ordinal) ? !_heroPristine : false;
+            var edited = ContentKey.TryParse(row["Key"]?.GetValue<string>() ?? string.Empty, out var entity, out _, out _)
+                && (entity == "menuItem" ? !_menuPristine : entity is "heroSlideshow" or "heroSlide" ? !_heroPristine : false);
             return edited && row["LanguageId"]?.GetValue<string>() is { } language && Guid.TryParse(language, out var languageId) && !_absent["WebsiteLanguages"].Contains(languageId);
         }
 

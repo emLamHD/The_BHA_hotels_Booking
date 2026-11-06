@@ -192,7 +192,6 @@ public sealed class ContentPackC4Tests(PostgreSqlWebApplicationFactory factory)
         var (tp, tr, tl, ta) = await OwnCatalogAsync(target);
         foreach (var (entity, id, field, value) in new[] { ("property", sp, "name", "C4 property"), ("roomType", sr, "name", "C4 room type"), ("ratePlan", sl, "name", "C4 rate plan"), ("amenity", sa, "name", "C4 amenity") })
             await source.ExecuteAsync(Text(source, $"content.{entity}.{id}.{field}", value));
-        await ContentPackC3Tests.StaffActivateEnglishAsync(target, makeDefault: false);
         Assert.Equal("true", await target.TextAsync("""SELECT "IsActive"::text FROM "WebsiteLanguages" WHERE "NormalizedCode" = 'en' """));
         // A Staff text on the target already sits under the target's own key: it is kept, not replaced by the pack's.
         var actor = await ContentPackC3Tests.ActorAsync(target);
@@ -211,7 +210,6 @@ public sealed class ContentPackC4Tests(PostgreSqlWebApplicationFactory factory)
             Assert.Equal(1, await target.CountAsync("""SELECT count(*) FROM "Properties" WHERE "Slug" = 'the-bha-riverside' """));
 
             var dictionary = await WithAsync<PublicDictionaryDto, IWebsitePublicReader>(target, r => r.GetDictionaryAsync(new PublicDictionaryQuery("en", [], ["content."]), CancellationToken.None));
-            Assert.Equal("true", await target.TextAsync("""SELECT "IsActive"::text FROM "WebsiteLanguages" WHERE "NormalizedCode" = 'en' """));
             Assert.Equal("en", dictionary.ResolvedLocale);
             Assert.Equal("C4 property", dictionary.Entries[$"content.property.{tp}.name"]);
             Assert.Equal("C4 rate plan", dictionary.Entries[$"content.ratePlan.{tl}.name"]);
@@ -264,6 +262,9 @@ public sealed class ContentPackC4Tests(PostgreSqlWebApplicationFactory factory)
             await AssertCleanAsync(target, pack, "blog");
 
             Assert.Equal(featuredSlug, await CurrentSlugAsync(target, Featured));
+            // The take went through the version-checked UPDATE of the category and settings rows: they carry the source's version and the actor, so the target no longer looks untouched.
+            Assert.Equal(1, await target.CountAsync($"""SELECT count(*) FROM "BlogCategories" WHERE "Id" = '{Featured}' AND "Version" > 1 AND "UpdatedByStaffId" IS NOT NULL"""));
+            Assert.Equal(1, await target.CountAsync("""SELECT count(*) FROM "BlogSettings" WHERE "Version" > 1 AND "UpdatedByStaffId" IS NOT NULL"""));
             Assert.Equal("Featured places", await target.TextAsync($"""SELECT "Name" FROM "BlogCategoryTranslations" WHERE "CategoryId" = '{Featured}' AND "Locale" = 'en' """));
             Assert.Equal("false", await target.TextAsync($"""SELECT "IsCurrent"::text FROM "BlogCategorySlugs" WHERE "CategoryId" = '{Featured}' AND "Locale" = 'en' AND "Slug" = 'featured-destinations' """));
             Assert.Equal(other.ToString(), await target.TextAsync("""SELECT "HomeSectionCategoryId"::text FROM "BlogSettings" """));
