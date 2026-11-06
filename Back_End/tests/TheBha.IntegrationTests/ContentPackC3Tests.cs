@@ -18,11 +18,11 @@ public sealed class ContentPackC3Tests(PostgreSqlWebApplicationFactory factory)
 {
     private Task<Target> NewTargetAsync() => ContentPackTestSupport.NewTargetAsync(factory);
 
-    private static async Task<Guid> ActorAsync(Target t) => Guid.Parse((await t.TextAsync($"""SELECT "Id" FROM "StaffAccounts" WHERE "NormalizedEmail" = upper('{Actor}')"""))!);
+    internal static async Task<Guid> ActorAsync(Target t) => Guid.Parse((await t.TextAsync($"""SELECT "Id" FROM "StaffAccounts" WHERE "NormalizedEmail" = upper('{Actor}')"""))!);
 
-    private static string NewDirectory(string prefix) => Path.Combine(Path.GetTempPath(), prefix + Guid.NewGuid().ToString("N"));
+    internal static string NewDirectory(string prefix) => Path.Combine(Path.GetTempPath(), prefix + Guid.NewGuid().ToString("N"));
 
-    private static async Task<string> ExportAsync(Target source)
+    internal static async Task<string> ExportAsync(Target source)
     {
         var output = NewDirectory("bha-c3-");
         var export = await source.RunAsync(ContentPackCommand.Export, "--expected-database", source.Database, "--out", output, "--source-media-origin", BaseUrl);
@@ -33,7 +33,7 @@ public sealed class ContentPackC3Tests(PostgreSqlWebApplicationFactory factory)
     // ---- F1: the default currency / language is one decision, the same in dry-run, apply and verify ----
 
     /// <summary>What Admin does when the staff set USD's rate, switch it on and (optionally) make it the default: the real settings store, so the versions and authors are the real ones.</summary>
-    private static async Task StaffSetUsdAsync(Target t, string rate, bool makeDefault)
+    internal static async Task StaffSetUsdAsync(Target t, string rate, bool makeDefault)
     {
         var actor = await ActorAsync(t);
         await using var scope = t.Host.Services.CreateAsyncScope();
@@ -49,7 +49,7 @@ public sealed class ContentPackC3Tests(PostgreSqlWebApplicationFactory factory)
     }
 
     /// <summary>The staff install the built-in English pack (it needs USD on, with a rate) and switch it on; optionally they make it the default. All through the real services.</summary>
-    private static async Task StaffActivateEnglishAsync(Target t, bool makeDefault)
+    internal static async Task StaffActivateEnglishAsync(Target t, bool makeDefault)
     {
         await StaffSetUsdAsync(t, "25500", makeDefault: false);
         var actor = await ActorAsync(t);

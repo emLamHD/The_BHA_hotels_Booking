@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Npgsql;
+using TheBha.Application.Website;
 using NpgsqlTypes;
 using TheBha.Infrastructure.Persistence;
 
@@ -40,6 +41,15 @@ public static partial class ContentPackImporter
         ["Properties"] = "PropertyId", ["RoomTypes"] = "RoomTypeId", ["RatePlans"] = "RatePlanId", ["Amenities"] = "AmenityId", ["WebsiteLanguages"] = "LanguageId",
     };
 
+    /// <summary>The stored-content translation keys (<c>content.&lt;entity&gt;.&lt;id&gt;.&lt;field&gt;</c>, see <c>ContentCatalog</c>) that carry an id the importer re-points: entity → the reference column.</summary>
+    private static readonly Dictionary<string, string> ContentKeyEntities = new(StringComparer.Ordinal)
+    {
+        ["property"] = "PropertyId", ["roomType"] = "RoomTypeId", ["ratePlan"] = "RatePlanId", ["amenity"] = "AmenityId", ["promotion"] = "PromotionId",
+    };
+
+    /// <summary>Blog rows the migration seeds (the Featured destinations category with its texts and slugs, and the settings): the source's edit of them travels over an untouched seed, like website configuration.</summary>
+    private static readonly HashSet<string> BlogSeedTables = new(StringComparer.Ordinal) { "BlogCategories", "BlogCategoryTranslations", "BlogCategorySlugs", "BlogSettings" };
+
     private const int ListCap = 25;
 
     [GeneratedRegex("\"propertyId\"\\s*:\\s*\"([0-9a-fA-F-]{36})\"")]
@@ -72,6 +82,8 @@ public static partial class ContentPackImporter
         private readonly List<(string Table, string Key)> _placed = [];
         /// <summary>Languages / currencies whose default stays the target's own (decided once per table by <see cref="DecideDefaultAsync"/>).</summary>
         private readonly HashSet<string> _keepsTargetDefault = [];
+        /// <summary>Categories of the target nobody has edited since the migration seeded them (version 1, no author), and categories the source's staff edited — read before any write.</summary>
+        private readonly HashSet<Guid> _seedCategoryPristine = [], _packCategoryEdited = [];
         private ContentPackMode Mode => options.Mode;
 
         private ContentPackReport Fail(string problem) { _report.Problems.Add(problem); return _report; }
@@ -343,6 +355,13 @@ public static partial class ContentPackImporter
             _menuPristine = await PristineParentAsync("WebsiteMenu", ct);
             _heroEdited = IsEdited("WebsiteHero", (_pack.Rows.GetValueOrDefault("WebsiteHero") ?? []).FirstOrDefault());
             _menuEdited = IsEdited("WebsiteMenu", (_pack.Rows.GetValueOrDefault("WebsiteMenu") ?? []).FirstOrDefault());
+            // A category's texts and slugs follow the category: every Admin save of one raises its version and records its author (UpdateCategoryAsync), so a category still at
+            // version 1 with no author has the migration's texts and slugs.
+            await using (var seed = new NpgsqlCommand("SELECT \"Id\" FROM \"BlogCategories\" WHERE \"Version\" = 1 AND \"UpdatedByStaffId\" IS NULL AND \"CreatedByStaffId\" IS NULL", _connection, _tx))
+            await using (var reader = await seed.ExecuteReaderAsync(ct))
+                while (await reader.ReadAsync(ct)) _seedCategoryPristine.Add(reader.GetGuid(0));
+            foreach (var category in _pack.Rows.GetValueOrDefault("BlogCategories") ?? [])
+                if (IsEdited("BlogCategories", category)) _packCategoryEdited.Add(Guid.Parse(category["Id"]!.GetValue<string>()));
         }
 
         private async Task<bool> PristineParentAsync(string table, CancellationToken ct)
@@ -392,6 +411,7 @@ public static partial class ContentPackImporter
             if (row is null) return false;
             if (table is "WebsiteHeroMedia" or "WebsiteHeroSlides") return _heroEdited;
             if (table == "WebsiteMenuItems") return _menuEdited;
+            if (table is "BlogCategoryTranslations" or "BlogCategorySlugs") return _packCategoryEdited.Contains(Guid.Parse(row["CategoryId"]!.GetValue<string>()));
             if (row["Version"] is { } version && version.GetValue<int>() > 1) return true;
             if (row["IsManual"]?.GetValue<bool>() == true) return true;
             return _staff.TryGetValue(table, out var actors) && actors.Keys.Any(c => row[c] is not null);
@@ -402,6 +422,7 @@ public static partial class ContentPackImporter
         {
             if (table is "WebsiteHeroMedia" or "WebsiteHeroSlides") return _heroPristine;
             if (table == "WebsiteMenuItems") return _menuPristine;
+            if (table is "BlogCategoryTranslations" or "BlogCategorySlugs") return _seedCategoryPristine.Contains(Guid.Parse(target["CategoryId"]!.GetValue<string>()));
             if (target["Version"]?.GetValue<int>() > 1) return false;
             if (target["IsManual"]?.GetValue<bool>() == true) return false;
             return !_staff.TryGetValue(table, out var actors) || actors.Keys.All(c => target[c] is null);
@@ -410,6 +431,8 @@ public static partial class ContentPackImporter
         private IEnumerable<JsonObject> OrderedRows(string table)
         {
             var rows = _pack.Rows[table];
+            // A slug that stops being current goes in before the one that becomes current (one current slug per category and language).
+            if (table == "BlogCategorySlugs") return rows.OrderBy(r => r["IsCurrent"]?.GetValue<bool>() == true ? 1 : 0);
             if (table != "WebsiteMenuItems") return rows;
             // A menu item's parent goes in before it.
             var byId = rows.ToDictionary(r => r["Id"]!.GetValue<string>(), StringComparer.Ordinal);
@@ -456,6 +479,8 @@ public static partial class ContentPackImporter
                 var row = JsonNode.Parse(text)!.AsObject();
                 foreach (var (column, map) in _maps)
                     if (row.ContainsKey(column) && row[column] is { } id && Guid.TryParse(id.GetValue<string>(), out var old) && map.TryGetValue(old, out var mapped)) row[column] = mapped.ToString();
+                // A stored-content text is keyed by the id of the thing it translates: where the target has that thing under another id, the key follows.
+                if (table == "WebsiteTranslations" && row["Key"]?.GetValue<string>() is { } contentKey) row["Key"] = RemapContentKey(contentKey);
                 var mappedSelf = false;
                 if (Referenced.TryGetValue(table, out var selfColumn) && Guid.TryParse(row["Id"]!.GetValue<string>(), out var selfId) && _maps[selfColumn].TryGetValue(selfId, out var ownId))
                 {
@@ -492,10 +517,18 @@ public static partial class ContentPackImporter
                 }
 
                 if (_keepsTargetDefault.Contains(table) && row["IsDefault"]?.GetValue<bool>() == true) row["IsDefault"] = false;
-                if (collectionEdited)
+                if (collectionEdited || (table == "WebsiteTranslations" && IsProtectedCollectionText(row)))
                 {
                     outcome.KeptDifferent++;
                     Cap(table, $"  kept (the target's collection was edited): {table} {keyText} is not added");
+                    continue;
+                }
+                // A category the target's staff edited keeps its own current slug; the pack's current slug for it would be a second one.
+                if (table == "BlogCategorySlugs" && row["IsCurrent"]?.GetValue<bool>() == true && Guid.Parse(row["CategoryId"]!.GetValue<string>()) is var slugCategory
+                    && !(_seedCategoryPristine.Contains(slugCategory) && _packCategoryEdited.Contains(slugCategory)) && await HasOtherCurrentSlugAsync(row, ct))
+                {
+                    outcome.KeptDifferent++;
+                    Cap(table, $"  kept (the target's category has its own current slug): {table} {keyText} is not added");
                     continue;
                 }
                 if (!options.RestoreDeleted && _ledger.Contains($"{table}|{packKey}"))
@@ -537,8 +570,8 @@ public static partial class ContentPackImporter
             if (keptDefault) different.Insert(0, "IsDefault");
             if (same && !versionOnly) { outcome.KeptDifferent++; Cap(table, $"  kept (the target's default stands): {table} {keyText} — {string.Join(", ", different)}"); return; }
 
-            // Website configuration: the target's value stands unless it is still the migration's default and the pack's row was edited in the source.
-            if (table.StartsWith("Website", StringComparison.Ordinal) && IsEdited(table, packRow) && IsPristine(table, existing))
+            // Website configuration and the Blog's seed rows: the target's value stands unless it is still the migration's default and the pack's row was edited in the source.
+            if ((table.StartsWith("Website", StringComparison.Ordinal) || BlogSeedTables.Contains(table)) && IsEdited(table, packRow) && IsPristine(table, existing))
             {
                 if (Mode == ContentPackMode.Verify)
                 {
@@ -567,6 +600,30 @@ public static partial class ContentPackImporter
                 var removed = await delete.ExecuteNonQueryAsync(ct);
                 if (removed > 0) _report.Lines.Add($"  {table}: {removed} default row(s) replaced by the source's configured ones");
             }
+        }
+
+        private string RemapContentKey(string key)
+        {
+            if (!ContentKey.TryParse(key, out var entity, out var id, out var field)) return key;
+            return ContentKeyEntities.TryGetValue(entity, out var column) && Guid.TryParse(id, out var guid) && _maps[column].TryGetValue(guid, out var own) ? ContentKey.For(entity, own.ToString(), field) : key;
+        }
+
+        /// <summary>A hero or menu text the pack carries (<paramref name="row"/> has its language already re-pointed) for a language the target already has, when the target's staff saved that collection: a text they cleared on purpose is not put back (nor is one of a child they replaced).</summary>
+        private bool IsProtectedCollectionText(JsonObject row)
+        {
+            var key = row["Key"]?.GetValue<string>() ?? string.Empty;
+            var edited = key.StartsWith("content.menuItem.", StringComparison.Ordinal) ? !_menuPristine
+                : key.StartsWith("content.heroSlideshow.", StringComparison.Ordinal) || key.StartsWith("content.heroSlide.", StringComparison.Ordinal) ? !_heroPristine : false;
+            return edited && row["LanguageId"]?.GetValue<string>() is { } language && Guid.TryParse(language, out var languageId) && !_absent["WebsiteLanguages"].Contains(languageId);
+        }
+
+        private async Task<bool> HasOtherCurrentSlugAsync(JsonObject row, CancellationToken ct)
+        {
+            await using var command = new NpgsqlCommand("SELECT EXISTS (SELECT 1 FROM \"BlogCategorySlugs\" WHERE \"CategoryId\" = @c AND \"Locale\" = @l AND \"IsCurrent\" AND \"Slug\" <> @s)", _connection, _tx);
+            command.Parameters.AddWithValue("c", Guid.Parse(row["CategoryId"]!.GetValue<string>()));
+            command.Parameters.AddWithValue("l", row["Locale"]!.GetValue<string>());
+            command.Parameters.AddWithValue("s", row["Slug"]!.GetValue<string>());
+            return (bool)(await command.ExecuteScalarAsync(ct))!;
         }
 
         /// <summary>
