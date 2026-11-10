@@ -426,6 +426,34 @@ public sealed class ContentPackC6Tests(PostgreSqlWebApplicationFactory factory)
     }
 
     [Fact]
+    public async Task A_label_the_targets_staff_cleared_in_the_translator_after_an_import_is_not_put_back_by_the_next_one()
+    {
+        await using var source = await NewTargetAsync();
+        await using var target = await NewTargetAsync();
+        var pack = await ContentPackC3Tests.ExportAsync(source);
+        try
+        {
+            var first = await target.RunAsync(target.Import(pack, "--groups", "website", "--apply"));
+            Assert.True(first.Exit == 0, first.Output);
+            var menuKey = MenuKey(Guid.Parse((await target.TextAsync("""SELECT substring(t."Key" from 'content\.menuItem\.(.*)\.label') FROM "WebsiteTranslations" t JOIN "WebsiteLanguages" l ON l."Id" = t."LanguageId" WHERE l."NormalizedCode" = 'en' AND t."Key" LIKE 'content.menuItem.%' ORDER BY t."Key" LIMIT 1"""))!));
+            await StaffClearInTranslatorAsync(target, SecondaryKey);
+            await StaffClearInTranslatorAsync(target, menuKey);
+            await AssertParentsUntouchedAsync(target);
+            var dry = await target.RunAsync(target.Import(pack, "--groups", "website", "--dry-run"));
+            Assert.True(dry.Exit == 0, dry.Output);
+            Assert.Equal(0, await target.CountAsync(En(SecondaryKey)));
+            var again = await target.RunAsync(target.Import(pack, "--groups", "website", "--apply"));
+            Assert.True(again.Exit == 0, again.Output);
+            Assert.Equal(0, await target.CountAsync(En(SecondaryKey)));
+            Assert.Equal(0, await target.CountAsync(En(menuKey)));
+            Assert.Matches(@"WebsiteTranslations\s.*deleted-since\s+[1-9]", again.Output);
+            var verify = await target.RunAsync(target.Verify(pack, "--groups", "website"));
+            Assert.True(verify.Exit == 0, verify.Output);
+        }
+        finally { Directory.Delete(pack, recursive: true); }
+    }
+
+    [Fact]
     public async Task A_pack_without_the_text_scope_or_without_the_language_is_never_read_as_a_request_to_delete()
     {
         await using var source = await NewTargetAsync();
