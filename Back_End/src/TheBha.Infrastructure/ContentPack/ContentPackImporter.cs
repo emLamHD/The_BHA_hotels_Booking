@@ -337,8 +337,12 @@ public static partial class ContentPackImporter
                     var packId = Guid.Parse(packRow["Id"]!.GetValue<string>());
                     if (packId == reader.GetGuid(1)) continue;
                     _maps["PromotionId"][packId] = reader.GetGuid(1);
-                    if (packRow["CoverMediaId"] is { } cover) _skipPromoMedia.Add(cover.GetValue<string>());
                 }
+                // The pack's pictures of the mapped offers are left out, but only those no offer still to be imported refers to: a cover two offers share stays when one of them is new here.
+                // This is the one decision the media rows, the file plan and the dependency check below all follow (decided once every offer is known to be mapped or not).
+                var needed = packPromotions.Where(r => !_maps["PromotionId"].ContainsKey(Guid.Parse(r["Id"]!.GetValue<string>()))).Select(r => r["CoverMediaId"]?.GetValue<string>()).OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
+                foreach (var packRow in packPromotions)
+                    if (_maps["PromotionId"].ContainsKey(Guid.Parse(packRow["Id"]!.GetValue<string>())) && packRow["CoverMediaId"]?.GetValue<string>() is { } cover && !needed.Contains(cover)) _skipPromoMedia.Add(cover);
             }
 
             // Where the selected groups point at something the target does not have and this run will not write, stop before anything is written.
@@ -349,7 +353,7 @@ public static partial class ContentPackImporter
                 if (_groups.Contains("promotions"))
                 {
                     foreach (var id in (_pack.Rows.GetValueOrDefault("Promotions") ?? []).Concat(_pack.Rows.GetValueOrDefault("PromotionMedia") ?? []).Select(r => Guid.Parse(r["PropertyId"]!.GetValue<string>())).Distinct()) NeedsProperty("the promotions group", id);
-                    foreach (var id in (_pack.Rows.GetValueOrDefault("PromotionRoomTypes") ?? []).Select(r => Guid.Parse(r["RoomTypeId"]!.GetValue<string>())).Distinct())
+                    foreach (var id in (_pack.Rows.GetValueOrDefault("PromotionRoomTypes") ?? []).Where(r => !(Guid.TryParse(r["PromotionId"]!.GetValue<string>(), out var promotion) && _maps["PromotionId"].ContainsKey(promotion))).Select(r => Guid.Parse(r["RoomTypeId"]!.GetValue<string>())).Distinct())
                         if (_absent["RoomTypes"].Contains(id)) _report.Problems.Add($"the promotions group needs the room type {id}, which the target does not have; import the catalog group first (or together).");
                 }
                 if (_groups.Contains("blog"))
