@@ -185,6 +185,15 @@ public sealed class ContentPackC8Tests(PostgreSqlWebApplicationFactory factory)
         await using var target = await NewTargetAsync();
         var property = await OwnPropertyAsync(target);
         foreach (var slug in AllOffers) await OwnOfferAsync(target, property, slug);
+        // One own offer also has a real room-type link (a room type of the target's own property, one the pack does not have).
+        var room = PackRow("RoomTypes", l => l.Contains("RIV-2BR"));
+        var roomId = Guid.NewGuid();
+        room["Id"] = roomId.ToString(); room["PropertyId"] = property.ToString(); room["Code"] = "C8-OWN"; room["Slug"] = "c8-own-room";
+        await target.InsertRowAsync("RoomTypes", room);
+        await target.ExecuteAsync($"""INSERT INTO "PromotionRoomTypes" ("PromotionId","RoomTypeId","PropertyId") SELECT "Id", '{roomId}', '{property}' FROM "Promotions" WHERE "Slug" = 'gia-dinh-giam-10'""");
+        const string Snapshot = """SELECT string_agg(concat_ws('|', p."Slug", p."Id", p."CoverMediaId", p."PropertyId", (SELECT string_agg(l."RoomTypeId"::text, ',' ORDER BY l."RoomTypeId") FROM "PromotionRoomTypes" l WHERE l."PromotionId" = p."Id")), ';' ORDER BY p."Slug") FROM "Promotions" p""";
+        var before = await target.TextAsync(Snapshot);
+        Assert.Contains(roomId.ToString(), before);
         var (offers, media, links, properties, rooms, files) = (await target.CountAsync(Count("Promotions")), await target.CountAsync(Count("PromotionMedia")), await target.CountAsync(Count("PromotionRoomTypes")),
             await target.CountAsync(Count("Properties")), await target.CountAsync(Count("RoomTypes")), target.MediaFiles());
         Assert.Equal(0, await target.CountAsync("""SELECT count(*) FROM "Properties" WHERE "Slug" = 'the-bha-riverside'"""));
@@ -196,6 +205,8 @@ public sealed class ContentPackC8Tests(PostgreSqlWebApplicationFactory factory)
             Assert.Equal((offers, media, links, properties, rooms, files), (await target.CountAsync(Count("Promotions")), await target.CountAsync(Count("PromotionMedia")), await target.CountAsync(Count("PromotionRoomTypes")),
                 await target.CountAsync(Count("Properties")), await target.CountAsync(Count("RoomTypes")), target.MediaFiles()));
         }
+        // The target's offers (ids, covers, properties) and links are exactly as they were.
+        Assert.Equal(before, await target.TextAsync(Snapshot));
         var verify = await target.RunAsync(target.Verify(PackDir(), "--groups", "promotions"));
         Assert.True(verify.Exit == 0, verify.Output);
         Assert.Equal(AllOffers.Length, await target.CountAsync($"""SELECT count(*) FROM "Promotions" WHERE "PropertyId" = '{property}'"""));
