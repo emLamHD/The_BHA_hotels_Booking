@@ -613,43 +613,57 @@ public static partial class ContentPackImporter
         }
 
         /// <summary>
-        /// A text the target still has as the migration seeded it, that belongs to the hero or the menu, in a language the pack carries, and that the pack does not have, was removed by the
-        /// source's staff (or belonged to a slide / item they removed): the pack carries every text of every language it carries, so its absence is the source's state. It goes only when this
-        /// run takes the source's collection (the target's is still the migration's and the source's was saved); a text the target's staff saved, a text of another collection or of a language
-        /// the pack does not carry is never touched, and where the target's collection is its own the seed is kept (and counted as such). Verify reports the ones an apply would remove.
+        /// The hero's and the menu's seeded texts the source no longer has. This is its own decision, not part of replacing slides and items: the Admin translation editor deletes a text row without
+        /// raising the hero's or the menu's version, so a hero still at version 1 can already lack a seeded text. A target text is removed only when ALL hold:
+        /// (1) its key is one of the migrations' seeded hero/menu keys (<see cref="ContentPackSpec.SeedTextKeys"/>) — a text the staff created is never in that set;
+        /// (2) the pack states it carries every text of that language (<c>CompleteTextLanguages</c>, written by the exporter from its snapshot) and has no row for (language, key): the source lacks it. A pack
+        ///     without that statement, or without that language, proves nothing and removes nothing (the run says so);
+        /// (3) the target's row is still the seed (version 1, not manual, no author) and the target's collection (hero / menu) is still the migration's — a collection the target's staff saved is theirs,
+        ///     its seeded texts stay (counted as kept). The <c>DELETE</c> repeats the seed check, so a text saved since is never removed.
+        /// Dry-run runs the same transaction and rolls back; verify reports each such text. A text the source removed before this decision existed is handled the same: only the pack's rows are read.
         /// </summary>
         private async Task ReconcileCollectionTextsAsync(TableOutcome outcome, CancellationToken ct)
         {
             if (!_pack.Rows.TryGetValue("WebsiteLanguages", out var packLanguages)) return;
-            var carried = packLanguages.Select(r => Guid.Parse(r["Id"]!.GetValue<string>())).Where(id => !_absent["WebsiteLanguages"].Contains(id)).Select(id => Map("LanguageId", id)).ToArray();
+            var signal = _pack.Manifest.CompleteTextLanguages;
+            var codes = signal is null ? [] : signal.ToHashSet(StringComparer.Ordinal);
+            var present = packLanguages.Where(r => !_absent["WebsiteLanguages"].Contains(Guid.Parse(r["Id"]!.GetValue<string>()))).ToList();
+            var proven = present.Where(r => codes.Contains(r["NormalizedCode"]!.GetValue<string>())).Select(r => Map("LanguageId", Guid.Parse(r["Id"]!.GetValue<string>()))).ToHashSet();
+            // Without the statement the same candidates are only counted, to tell the operator what was not reconciled.
+            var carried = (signal is null ? present.Select(r => Map("LanguageId", Guid.Parse(r["Id"]!.GetValue<string>()))) : proven).ToArray();
             if (carried.Length == 0) return;
             var inPack = new HashSet<(Guid Language, string Key)>();
             foreach (var row in _pack.Rows.GetValueOrDefault("WebsiteTranslations") ?? [])
                 if (Guid.TryParse(row["LanguageId"]?.GetValue<string>(), out var language) && row["Key"]?.GetValue<string>() is { } packKey)
                     inPack.Add((Map("LanguageId", language), RemapContentKey(packKey)));
 
-            // Hero and menu: (entities of the key, is the target's collection the migration's, was the source's saved).
-            var collections = new (string[] Entities, bool Pristine, bool Edited)[] { (["heroSlideshow", "heroSlide"], _heroPristine, _heroEdited), (["menuItem"], _menuPristine, _menuEdited) };
+            var collections = new (string[] Entities, bool Pristine)[] { (["heroSlideshow", "heroSlide"], _heroPristine), (["menuItem"], _menuPristine) };
             var gone = new List<(Guid Language, string Key)>();
-            await using (var command = new NpgsqlCommand("SELECT to_jsonb(t)::text FROM \"WebsiteTranslations\" t WHERE t.\"LanguageId\" = ANY(@l) AND (t.\"Key\" LIKE 'content.hero%' OR t.\"Key\" LIKE 'content.menuItem.%') ORDER BY t.\"Key\", t.\"LanguageId\"", _connection, _tx))
+            var unproven = 0;
+            await using (var command = new NpgsqlCommand("SELECT to_jsonb(t)::text FROM \"WebsiteTranslations\" t WHERE t.\"LanguageId\" = ANY(@l) AND t.\"Key\" = ANY(@k) ORDER BY t.\"Key\", t.\"LanguageId\"", _connection, _tx))
             {
                 command.Parameters.AddWithValue("l", carried);
+                command.Parameters.AddWithValue("k", ContentPackSpec.SeedTextKeys.ToArray());
                 await using var reader = await command.ExecuteReaderAsync(ct);
                 while (await reader.ReadAsync(ct))
                 {
                     var target = JsonNode.Parse(reader.GetString(0))!.AsObject();
                     var language = Guid.Parse(target["LanguageId"]!.GetValue<string>());
                     var textKey = target["Key"]!.GetValue<string>();
-                    if (!ContentKey.TryParse(textKey, out var entity, out _, out _) || inPack.Contains((language, textKey))) continue;
-                    if (collections.SingleOrDefault(c => c.Entities.Contains(entity)) is not { Entities: not null } collection) continue;
-                    if (collection.Pristine && collection.Edited && IsPristine("WebsiteTranslations", target)) gone.Add((language, textKey));
-                    else
+                    if (inPack.Contains((language, textKey)) || !ContentKey.TryParse(textKey, out var entity, out _, out _)) continue;
+                    var pristineCollection = collections.Single(c => c.Entities.Contains(entity)).Pristine;
+                    if (!IsPristine("WebsiteTranslations", target)) continue; // a text the staff saved is theirs and was never a candidate
+                    if (!pristineCollection)
                     {
                         outcome.KeptDifferent++;
-                        Cap("WebsiteTranslations", $"  kept (the target's text or collection was saved by its staff; the pack no longer has it): WebsiteTranslations {language}/{textKey} is not removed");
+                        Cap("WebsiteTranslations", $"  kept (the target's collection was saved by its staff; the pack no longer has it): WebsiteTranslations {language}/{textKey} is not removed");
                     }
+                    else if (signal is null) unproven++;
+                    else gone.Add((language, textKey));
                 }
             }
+            if (unproven > 0)
+                _report.Notes.Add($"WebsiteTranslations: the pack does not say which languages' texts it carries in full (an older export), so {unproven} seeded hero/menu text(s) it does not have were NOT removed from the target; export again with this version to carry the source's removals.");
             if (gone.Count == 0) return;
             if (Mode == ContentPackMode.Verify)
             {

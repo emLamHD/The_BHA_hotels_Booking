@@ -10,8 +10,11 @@ public sealed record ContentPackManifest(
     IReadOnlyList<ContentPackFile> Files,
     IReadOnlyList<string> ExternalMedia,
     IReadOnlyList<ContentPackNote> Excluded,
-    IReadOnlyList<ContentPackNote> NotExported);
+    IReadOnlyList<ContentPackNote> NotExported,
+    IReadOnlyList<string>? CompleteTextLanguages = null);
 
+// CompleteTextLanguages: the languages (normalised codes) whose every WebsiteTranslations row the pack carries, written by the exporter from the same snapshot. A pack without it
+// (an older export) says nothing about which texts the source lacks, so the importer never reads the absence of a text in it as the source's removal of that text.
 public sealed record ContentPackProperty(string Slug, Guid Id);
 
 public sealed record ContentPackTable(string Name, int Rows, string Sha256);

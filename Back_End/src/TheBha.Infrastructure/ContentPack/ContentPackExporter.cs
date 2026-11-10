@@ -67,6 +67,8 @@ public static class ContentPackExporter
         Directory.CreateDirectory(rowsDir);
 
         var tables = new List<ContentPackTable>();
+        // The exported WebsiteTranslations ("true": every row) hold every text of every language the pack lists.
+        var textLanguages = new SortedSet<string>(StringComparer.Ordinal);
         var files = new List<ContentPackFile>();
         var external = new SortedSet<string>(StringComparer.Ordinal);
         // What the snapshot says each picture file is: (key, kind, size, sha256 or null).
@@ -90,6 +92,9 @@ public static class ContentPackExporter
                         foreach (var column in actors.Keys) row[column] = row[column] is null ? null : ContentPackSpec.ActorToken;
                     switch (table)
                     {
+                        case "WebsiteLanguages":
+                            textLanguages.Add(row["NormalizedCode"]!.GetValue<string>());
+                            break;
                         case "BlogMedia":
                             // The importer gives the picture its variants through the pipeline (generation 0 = "needs them").
                             row["Generation"] = 0;
@@ -171,7 +176,7 @@ public static class ContentPackExporter
             return report;
         }
 
-        var manifest = new ContentPackManifest(ContentPackSpec.FormatVersion, properties, tables, files.OrderBy(f => f.Key, StringComparer.Ordinal).ToList(), external.ToList(), excluded, notExported);
+        var manifest = new ContentPackManifest(ContentPackSpec.FormatVersion, properties, tables, files.OrderBy(f => f.Key, StringComparer.Ordinal).ToList(), external.ToList(), excluded, notExported, textLanguages.ToList());
         await File.WriteAllTextAsync(Path.Combine(options.Out, "manifest.json"), JsonSerializer.Serialize(manifest, new JsonSerializerOptions(ContentPackSpec.Json) { WriteIndented = true }) + "\n", ct);
         report.Lines.Add($"export: {tables.Sum(t => t.Rows)} rows in {tables.Count} tables, {files.Count} picture files ({files.Sum(f => f.Bytes):N0} bytes), {external.Count} static pictures");
         return report;

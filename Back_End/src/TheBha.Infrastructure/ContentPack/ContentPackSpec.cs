@@ -90,6 +90,14 @@ public static class ContentPackSpec
         "RoomOccupancySegments", "RoomOccupancySegmentAudits", "BookingPromotionApplications", "AdminCatalogCreateOperations", "CatalogContentAudits", "CatalogUploads",
     ];
 
+    /// <summary>
+    /// The text keys the migrations seed for the hero and the menu (read from the frozen seed scripts, so a key the staff created later is never in it): the only texts the importer may remove
+    /// from a target on the strength of the pack's silence. The key's entity (<c>heroSlideshow</c>, <c>heroSlide</c>, <c>menuItem</c>) says which collection it belongs to.
+    /// </summary>
+    public static readonly IReadOnlySet<string> SeedTextKeys = System.Text.RegularExpressions.Regex
+        .Matches(Persistence.WebsiteHeroSeed.Sql + Persistence.WebsiteMenuSeed.Sql, "'(content\\.(?:heroSlideshow|heroSlide|menuItem)\\.[^']+)'")
+        .Select(m => m.Groups[1].Value).ToHashSet(StringComparer.Ordinal);
+
     public static readonly IReadOnlyList<string> Groups = ["website", "catalog", "promotions", "blog"];
 
     /// <summary>website = languages, texts, hero, menus, social, currencies; catalog = the properties and everything a guest books; promotions = the offers; blog = categories, posts and pictures.</summary>
