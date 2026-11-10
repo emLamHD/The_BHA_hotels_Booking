@@ -158,6 +158,9 @@ internal sealed partial class AdminBlogService
         }
 
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        // The category row first, then its slugs and texts: the content-pack importer takes them in the same order, so a rename and an import wait for each other instead of deadlocking,
+        // and the version below is read under the lock (a save that lost the race is stale, not half-applied).
+        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"BlogCategories\" WHERE \"Id\" = {command.CategoryId} FOR UPDATE", cancellationToken);
         var category = await db.BlogCategories.Include(c => c.Translations).SingleOrDefaultAsync(c => c.Id == command.CategoryId, cancellationToken);
         if (category is null)
         {

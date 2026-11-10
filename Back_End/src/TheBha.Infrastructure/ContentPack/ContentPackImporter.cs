@@ -352,7 +352,9 @@ public static partial class ContentPackImporter
                 void NeedsProperty(string who, Guid id) { if (_absent["Properties"].Contains(id)) _report.Problems.Add($"{who} needs the property '{Slug(id)}' ({id}), which the target does not have; import the catalog group first (or together)."); }
                 if (_groups.Contains("promotions"))
                 {
-                    foreach (var id in (_pack.Rows.GetValueOrDefault("Promotions") ?? []).Concat(_pack.Rows.GetValueOrDefault("PromotionMedia") ?? []).Select(r => Guid.Parse(r["PropertyId"]!.GetValue<string>())).Distinct()) NeedsProperty("the promotions group", id);
+                    // Only what this run writes needs its property: the offers still to be imported and the pictures no mapped offer replaces (the predicates of the write step in ProcessTableAsync).
+                    foreach (var id in (_pack.Rows.GetValueOrDefault("Promotions") ?? []).Where(r => !_maps["PromotionId"].ContainsKey(Guid.Parse(r["Id"]!.GetValue<string>())))
+                        .Concat((_pack.Rows.GetValueOrDefault("PromotionMedia") ?? []).Where(r => !_skipPromoMedia.Contains(r["Id"]!.GetValue<string>()))).Select(r => Guid.Parse(r["PropertyId"]!.GetValue<string>())).Distinct()) NeedsProperty("the promotions group", id);
                     foreach (var id in (_pack.Rows.GetValueOrDefault("PromotionRoomTypes") ?? []).Where(r => !(Guid.TryParse(r["PromotionId"]!.GetValue<string>(), out var promotion) && _maps["PromotionId"].ContainsKey(promotion))).Select(r => Guid.Parse(r["RoomTypeId"]!.GetValue<string>())).Distinct())
                         if (_absent["RoomTypes"].Contains(id)) _report.Problems.Add($"the promotions group needs the room type {id}, which the target does not have; import the catalog group first (or together).");
                 }

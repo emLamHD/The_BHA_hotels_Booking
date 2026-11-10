@@ -109,7 +109,7 @@ public sealed class ContentPackC5Tests(PostgreSqlWebApplicationFactory factory)
             // The importer has decided (the category is untouched) and holds it. A save of the category now has to wait for the commit.
             var staff = Task.Run(() => StaffSaveFeaturedAsync(target, 1, 11, []));
             var deadline = DateTime.UtcNow.AddSeconds(30);
-            while (await target.CountAsync("""SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE 'UPDATE "BlogCategories"%'""") == 0)
+            while (await target.CountAsync("""SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%"BlogCategories"%'""") == 0)
             {
                 Assert.True(DateTime.UtcNow < deadline, "the staff save was not held by the importer's decision");
                 await Task.Delay(20);
