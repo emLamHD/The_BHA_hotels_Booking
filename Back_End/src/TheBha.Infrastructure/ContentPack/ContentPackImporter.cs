@@ -467,6 +467,7 @@ public static partial class ContentPackImporter
             if (table == "BlogCategories" && Mode != ContentPackMode.Verify) await LockSeedCategoriesAsync(ct);
             if (table is "WebsiteLanguages" or "WebsiteCurrencies") await DecideDefaultAsync(table, key, rows, ct);
             if (Mode != ContentPackMode.Verify) await PrepareConfigTableAsync(table, key, rows, ct);
+            if (table == "WebsiteTranslations") await ReconcileCollectionTextsAsync(outcome, ct);
             if (table == "BlogMedia") _report.BlogMediaIds.AddRange(rows.Select(r => Guid.Parse(r["Id"]!.GetValue<string>())));
 
             foreach (var packRow in OrderedRows(table))
@@ -609,6 +610,63 @@ public static partial class ContentPackImporter
                 _replacedTables.Add(table);
                 if (removed > 0) _report.Lines.Add($"  {table}: {removed} default row(s) replaced by the source's configured ones");
             }
+        }
+
+        /// <summary>
+        /// A text the target still has as the migration seeded it, that belongs to the hero or the menu, in a language the pack carries, and that the pack does not have, was removed by the
+        /// source's staff (or belonged to a slide / item they removed): the pack carries every text of every language it carries, so its absence is the source's state. It goes only when this
+        /// run takes the source's collection (the target's is still the migration's and the source's was saved); a text the target's staff saved, a text of another collection or of a language
+        /// the pack does not carry is never touched, and where the target's collection is its own the seed is kept (and counted as such). Verify reports the ones an apply would remove.
+        /// </summary>
+        private async Task ReconcileCollectionTextsAsync(TableOutcome outcome, CancellationToken ct)
+        {
+            if (!_pack.Rows.TryGetValue("WebsiteLanguages", out var packLanguages)) return;
+            var carried = packLanguages.Select(r => Guid.Parse(r["Id"]!.GetValue<string>())).Where(id => !_absent["WebsiteLanguages"].Contains(id)).Select(id => Map("LanguageId", id)).ToArray();
+            if (carried.Length == 0) return;
+            var inPack = new HashSet<(Guid Language, string Key)>();
+            foreach (var row in _pack.Rows.GetValueOrDefault("WebsiteTranslations") ?? [])
+                if (Guid.TryParse(row["LanguageId"]?.GetValue<string>(), out var language) && row["Key"]?.GetValue<string>() is { } packKey)
+                    inPack.Add((Map("LanguageId", language), RemapContentKey(packKey)));
+
+            // Hero and menu: (entities of the key, is the target's collection the migration's, was the source's saved).
+            var collections = new (string[] Entities, bool Pristine, bool Edited)[] { (["heroSlideshow", "heroSlide"], _heroPristine, _heroEdited), (["menuItem"], _menuPristine, _menuEdited) };
+            var gone = new List<(Guid Language, string Key)>();
+            await using (var command = new NpgsqlCommand("SELECT to_jsonb(t)::text FROM \"WebsiteTranslations\" t WHERE t.\"LanguageId\" = ANY(@l) AND (t.\"Key\" LIKE 'content.hero%' OR t.\"Key\" LIKE 'content.menuItem.%') ORDER BY t.\"Key\", t.\"LanguageId\"", _connection, _tx))
+            {
+                command.Parameters.AddWithValue("l", carried);
+                await using var reader = await command.ExecuteReaderAsync(ct);
+                while (await reader.ReadAsync(ct))
+                {
+                    var target = JsonNode.Parse(reader.GetString(0))!.AsObject();
+                    var language = Guid.Parse(target["LanguageId"]!.GetValue<string>());
+                    var textKey = target["Key"]!.GetValue<string>();
+                    if (!ContentKey.TryParse(textKey, out var entity, out _, out _) || inPack.Contains((language, textKey))) continue;
+                    if (collections.SingleOrDefault(c => c.Entities.Contains(entity)) is not { Entities: not null } collection) continue;
+                    if (collection.Pristine && collection.Edited && IsPristine("WebsiteTranslations", target)) gone.Add((language, textKey));
+                    else
+                    {
+                        outcome.KeptDifferent++;
+                        Cap("WebsiteTranslations", $"  kept (the target's text or collection was saved by its staff; the pack no longer has it): WebsiteTranslations {language}/{textKey} is not removed");
+                    }
+                }
+            }
+            if (gone.Count == 0) return;
+            if (Mode == ContentPackMode.Verify)
+            {
+                foreach (var (language, textKey) in gone.Take(ListCap)) _report.Problems.Add($"WebsiteTranslations {language}/{textKey}: the source no longer has this text; the target still has the migration's.");
+                outcome.Missing += gone.Count;
+                if (gone.Count > ListCap) _report.Problems.Add($"WebsiteTranslations: {gone.Count - ListCap} more seeded texts are no longer in the source.");
+                return;
+            }
+            // Read under the website-settings lock; the statement checks the seed state again, so a text saved since is never removed.
+            await using var delete = new NpgsqlCommand("DELETE FROM \"WebsiteTranslations\" t USING unnest(@l, @k) AS x(l, k) WHERE t.\"LanguageId\" = x.l AND t.\"Key\" = x.k AND t.\"Version\" = 1 AND NOT t.\"IsManual\" AND t.\"UpdatedByStaffId\" IS NULL", _connection, _tx);
+            delete.Parameters.AddWithValue("l", gone.Select(g => g.Language).ToArray());
+            delete.Parameters.AddWithValue("k", gone.Select(g => g.Key).ToArray());
+            var removed = await delete.ExecuteNonQueryAsync(ct);
+            if (removed != gone.Count) { _report.Conflicts.Add($"WebsiteTranslations: {gone.Count - removed} text(s) changed by someone else while the import ran; nothing was written, run again."); return; }
+            outcome.Updated += removed;
+            foreach (var (language, textKey) in gone.Take(ListCap)) _report.Lines.Add($"  removed (the source no longer has it; the target's was still the migration's): WebsiteTranslations {language}/{textKey}");
+            if (gone.Count > ListCap) _report.Lines.Add($"  ... and {gone.Count - ListCap} more seeded texts the source no longer has");
         }
 
         /// <summary>The storage keys of the pack's hero uploads whose media row the target already has.</summary>
