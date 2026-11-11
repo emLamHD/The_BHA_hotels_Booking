@@ -116,4 +116,10 @@ public interface IBlogMediaMaintenance
     /// is written or deleted. A file younger than <paramref name="grace"/> is never an orphan: an upload in progress has its files before its row.
     /// </summary>
     Task<BlogMediaMaintenanceReport> RunAsync(bool apply, TimeSpan grace, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The backfill of <see cref="RunAsync"/> for the listed pictures only (those of them still at generation 0); no other picture row or file is read, changed or deleted,
+    /// and no file is swept. Used by the content-pack import, which must not touch pictures that are not its own.
+    /// </summary>
+    Task<BlogMediaMaintenanceReport> BackfillAsync(IReadOnlyCollection<Guid> mediaIds, CancellationToken cancellationToken);
 }

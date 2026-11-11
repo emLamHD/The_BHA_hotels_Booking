@@ -1,0 +1,612 @@
+{
+  "Format": 1,
+  "Properties": [
+    {
+      "Slug": "the-bha-hotel",
+      "Id": "10000000-0000-0000-0000-000000000001"
+    },
+    {
+      "Slug": "the-bha-riverside",
+      "Id": "a1000000-0000-0000-0000-000000000001"
+    }
+  ],
+  "Tables": [
+    {
+      "Name": "WebsiteCurrencies",
+      "Rows": 3,
+      "Sha256": "8d1c97c4440f23a8a922c4e0668b15e7a4f7a40fe49698b28b1fe2ee1ce940d3"
+    },
+    {
+      "Name": "WebsiteLanguages",
+      "Rows": 2,
+      "Sha256": "3df76d4831ec6d5ddede959125168889af19d3ca537921ab307a585ad0efd64e"
+    },
+    {
+      "Name": "WebsiteTranslations",
+      "Rows": 114,
+      "Sha256": "c4bc203c2792897308157eafdb199602b27a160e562d82c0bfa1cf8d4f5736ec"
+    },
+    {
+      "Name": "WebsiteHero",
+      "Rows": 1,
+      "Sha256": "ff2f2d11d0787bf859daaec3f0c994ed0d34f725817b243ec0f88efbefa98eaa"
+    },
+    {
+      "Name": "WebsiteHeroMedia",
+      "Rows": 4,
+      "Sha256": "0a37e6ced6da63e69601155845c2396d544f5167f2380218e2ff552fe349af1b"
+    },
+    {
+      "Name": "WebsiteHeroSlides",
+      "Rows": 4,
+      "Sha256": "54f7a78e7d4f4f02730cb8c456598fc574bb6bef2980d933d9b7241f75680815"
+    },
+    {
+      "Name": "WebsiteMenu",
+      "Rows": 1,
+      "Sha256": "be70406633ee74e6c7bf772ff64ac15e77d198f9e8e60db41d356dfdcd4047e0"
+    },
+    {
+      "Name": "WebsiteMenuItems",
+      "Rows": 54,
+      "Sha256": "4c0420cc0bf71ec7bfc48937897ee27785e48fe0d465c037f62161c8a3c7ebb1"
+    },
+    {
+      "Name": "WebsiteSocialSettings",
+      "Rows": 1,
+      "Sha256": "beb0289145c126ac55509f4bf27912941202423e0ce87096c7e9ef2cf7f1f786"
+    },
+    {
+      "Name": "Properties",
+      "Rows": 2,
+      "Sha256": "1e0aa7ae0bcb2e32873034ea01766c1143c72dd38ddf1a1b7f565b4f2641f3d4"
+    },
+    {
+      "Name": "Amenities",
+      "Rows": 6,
+      "Sha256": "107f8c5f66b86277ca5a29aa2c90fbd4b56a34acbe8c043d3ad9df91afbe10bf"
+    },
+    {
+      "Name": "RatePlans",
+      "Rows": 2,
+      "Sha256": "d21f4009bef85f0fb995462645a324581e30393adc9cf2d694ea339782937e2a"
+    },
+    {
+      "Name": "RoomTypes",
+      "Rows": 5,
+      "Sha256": "8f1ca50df1190c7043b24cc1f0b4c9d34fa64dfc0a542335caac5ca7875655af"
+    },
+    {
+      "Name": "PropertyAmenities",
+      "Rows": 5,
+      "Sha256": "a8c8dbbd7ba69b9c2ea3c1ce732d7b5f55b53bb63080275a683d28b73f1b9feb"
+    },
+    {
+      "Name": "RoomTypeAmenities",
+      "Rows": 5,
+      "Sha256": "4be0d75c14088e9c524d4d848e31639123d7a0e0dbdab7bab9cd81c6cb45441a"
+    },
+    {
+      "Name": "PhysicalRooms",
+      "Rows": 14,
+      "Sha256": "be695fb6bfb854d4227214e5e57dfe99b3a9aaeee96d9f6e2ef8fb989595ee91"
+    },
+    {
+      "Name": "Media",
+      "Rows": 35,
+      "Sha256": "366de4c773faf0f27232671621650f6c9c054bbdfb19d76cb3f8921e77420fe9"
+    },
+    {
+      "Name": "PropertyMedia",
+      "Rows": 12,
+      "Sha256": "e92290b4283dfdbbbc64016ca884a3d546aa7b5a83c605a538deae28c17d4733"
+    },
+    {
+      "Name": "RoomTypeMedia",
+      "Rows": 23,
+      "Sha256": "fb789c16a7540b46844080d38e45347dfcd4a009f9e04eb54bd486d363ea3cb0"
+    },
+    {
+      "Name": "DailyRoomRates",
+      "Rows": 208,
+      "Sha256": "8e4d2c3e4b2a68d8202edb4b47ad970670544a326200fd0e2280027c65c6312d"
+    },
+    {
+      "Name": "DailyInventoryControls",
+      "Rows": 2,
+      "Sha256": "1113190576fbd6d3700eff93e5420d31687e49d8999de8b315dacb05fabac2c6"
+    },
+    {
+      "Name": "PromotionMedia",
+      "Rows": 3,
+      "Sha256": "abac3f60229818fa3824d9c60b5c7678aa10a3e8231461bf77ce3c51a04b64f6"
+    },
+    {
+      "Name": "Promotions",
+      "Rows": 4,
+      "Sha256": "a8180176f750f14bdf6463d6a4b5f067d1b481eec006107e6a677f3980d29dc8"
+    },
+    {
+      "Name": "PromotionRoomTypes",
+      "Rows": 3,
+      "Sha256": "66979928dda881e3381ecc94463871b63ade7861383e35cc624b1cd3980cc1b2"
+    },
+    {
+      "Name": "BlogCategories",
+      "Rows": 5,
+      "Sha256": "882e703082a0d0e5a9a093ea1c12f05eaa6b95df185f31225e578324613ffc76"
+    },
+    {
+      "Name": "BlogCategoryTranslations",
+      "Rows": 10,
+      "Sha256": "a81a49fb042f3ec6c9e79906b09a61cc6631e168c1006513e63177747ae17d13"
+    },
+    {
+      "Name": "BlogCategorySlugs",
+      "Rows": 10,
+      "Sha256": "67246918dba5c8835610c3dd8e3aa68c5713d5980a493b3fadda9c7bc098ebc5"
+    },
+    {
+      "Name": "BlogMedia",
+      "Rows": 40,
+      "Sha256": "ba590affa4bca38b61e572b82509eb4f92c980ae2debb0e6585c66e6af308dc0"
+    },
+    {
+      "Name": "BlogPosts",
+      "Rows": 23,
+      "Sha256": "ce993cd5631b916e85c73dd302ae1b6ef05a8ad730c0ab2df2c99a7167418dde"
+    },
+    {
+      "Name": "BlogPostTranslations",
+      "Rows": 30,
+      "Sha256": "f1d8a71d6598c210007cac1da6b43f707e0a25c2f13cec900fa5f41fc8ab6a53"
+    },
+    {
+      "Name": "BlogPostSlugs",
+      "Rows": 30,
+      "Sha256": "27a452b7475fb6a7a6284ae3260eb4d61481631a449f476e54e82ce721674233"
+    },
+    {
+      "Name": "BlogPostRevisions",
+      "Rows": 35,
+      "Sha256": "e1e98be2fb1469a4b89837adf61609885063288235df8813884e993a8adf85b6"
+    },
+    {
+      "Name": "BlogRevisionCategories",
+      "Rows": 35,
+      "Sha256": "26e2956b464c41194d6447beba148d54350106f5f44c60ce715f1e0ac20b1ce8"
+    },
+    {
+      "Name": "BlogRevisionMedia",
+      "Rows": 66,
+      "Sha256": "859684ed49fd3bf4b766ecfc3d58fc29c535a1ef05e5b1b3be3dc08ae9e1428e"
+    },
+    {
+      "Name": "BlogCategoryPins",
+      "Rows": 6,
+      "Sha256": "cdac15769a730c6835a4b153cd558ca68faf88fd399266db012a4518368ed9c7"
+    },
+    {
+      "Name": "BlogSettings",
+      "Rows": 1,
+      "Sha256": "fed64dc3a98242ea90c6393bf015755ce71458193a6ad4e153b97d7eb8ee45b2"
+    }
+  ],
+  "Files": [
+    {
+      "Key": "blog/079bb3478192409787c7ba9f4e620907.jpg",
+      "Kind": "blog-original",
+      "Bytes": 652294,
+      "Sha256": "d06391e42ccdf2609e2b618c999ccfc779b5e60015c37e07558c9ae372393e7c"
+    },
+    {
+      "Key": "blog/0879bd234b7d49009e5b6f78377297ce.jpg",
+      "Kind": "blog-original",
+      "Bytes": 792718,
+      "Sha256": "3ce550b4c29343955e64791e64b2db3952c6f8f4bdf12e182fecae292337d4ce"
+    },
+    {
+      "Key": "blog/0ff5b50f002d40bd97c289f1185c69db.jpg",
+      "Kind": "blog-original",
+      "Bytes": 1138481,
+      "Sha256": "e15bbd148ce3004e6de3b113601c9cf8185577849ae5efc8c655ea2b13ea40b9"
+    },
+    {
+      "Key": "blog/109d833fcba143968e84e1c0db8ba6ce.jpg",
+      "Kind": "blog-original",
+      "Bytes": 478064,
+      "Sha256": "bd6d549eb16df31e3e9128f9caa5a0a0535583f05bfa1b8f077a5bbd90357002"
+    },
+    {
+      "Key": "blog/155dd176d12b44ffaeb3108890319870.jpg",
+      "Kind": "blog-original",
+      "Bytes": 457684,
+      "Sha256": "8aca2edfd14c4ff1f8138ebada8922079508f24dfe01576072717e48a359a5f6"
+    },
+    {
+      "Key": "blog/2269803d05054c0db5a4ac06299cd469.jpg",
+      "Kind": "blog-original",
+      "Bytes": 1034514,
+      "Sha256": "a95c4e7df2eaa4a57e965df5ef783b1b5b72c094838fd6ac5499700de9f03546"
+    },
+    {
+      "Key": "blog/2354807b45204a078a8a4a1a1b7f04e7.jpg",
+      "Kind": "blog-original",
+      "Bytes": 339388,
+      "Sha256": "095e7ee8e6574d58c475025e1af2205775bf65561a5f80367a13eca867b84fcb"
+    },
+    {
+      "Key": "blog/2a5e47bd329040d89745fc338943271e.jpg",
+      "Kind": "blog-original",
+      "Bytes": 857939,
+      "Sha256": "ef8d92320fbc1179a2858537b74b507c7c5bb58ac233f6262446468881d9e284"
+    },
+    {
+      "Key": "blog/2af13ed3b3b646899cf88df37a8fe419.jpg",
+      "Kind": "blog-original",
+      "Bytes": 560816,
+      "Sha256": "6133fb6088642ead9107e76fdc848a901ae48b512fcac40925c1ec3b1be1b577"
+    },
+    {
+      "Key": "blog/40c1d0f80af541e2b8ce91d21af852f2.jpg",
+      "Kind": "blog-original",
+      "Bytes": 485289,
+      "Sha256": "e585e19d6756191e31aa2fd5f542e5015a46ec8070043fc03fd5f981d35663d7"
+    },
+    {
+      "Key": "blog/440ea893cf364bab93421fa1f487fda6.jpg",
+      "Kind": "blog-original",
+      "Bytes": 308878,
+      "Sha256": "291925766a46f4b081e6056b5ef86f7d34901b001035508e5475ea3635fc0253"
+    },
+    {
+      "Key": "blog/47632bf353a24a7492db50fbb8baffb4.jpg",
+      "Kind": "blog-original",
+      "Bytes": 589446,
+      "Sha256": "7c04727269c68bb2e369338bb9d8f7288b7a8ddf9637bbf3a5d4786a598bb2af"
+    },
+    {
+      "Key": "blog/49dece7d390f45088badc60b850280a8.jpg",
+      "Kind": "blog-original",
+      "Bytes": 597305,
+      "Sha256": "0ffe4431349a2a5d87ad25c7ae1374f61a6a4f6ed924b11663038ff0cdfda053"
+    },
+    {
+      "Key": "blog/4f88ed03691148d795d3730967af6973.jpg",
+      "Kind": "blog-original",
+      "Bytes": 552266,
+      "Sha256": "08f469f1731be6c829fa2febf379fea8fa467e8a9b459070dfa8e3c6b49109b3"
+    },
+    {
+      "Key": "blog/6287a24c85b14bbcb4c2168357eb347a.jpg",
+      "Kind": "blog-original",
+      "Bytes": 533929,
+      "Sha256": "01ec1cee69244db4b6d24064101d2070bbd3089ae025626d0e815ac42892cb20"
+    },
+    {
+      "Key": "blog/7266dee11c394e46b93813f8fdab3403.jpg",
+      "Kind": "blog-original",
+      "Bytes": 872493,
+      "Sha256": "9d36aea2db865df74216853875a0f945c57775e8ff8df9e9b50fe1a198b5f4d2"
+    },
+    {
+      "Key": "blog/844129e5a805479e8f88e24789beddcd.jpg",
+      "Kind": "blog-original",
+      "Bytes": 602537,
+      "Sha256": "d08b13a6ac5bff0f80323bec52a4897232d7a4f401c0132a1f8c6320f5f055cf"
+    },
+    {
+      "Key": "blog/869c848d34094eac827b646cd20b5709.jpg",
+      "Kind": "blog-original",
+      "Bytes": 635552,
+      "Sha256": "9d1ed21fd11d62fb0bcc653f7e359bb3494692ab50e88db1fa110cacabb819cd"
+    },
+    {
+      "Key": "blog/8aae31bd86d2444d97c9e19a68e2ecd3.jpg",
+      "Kind": "blog-original",
+      "Bytes": 498421,
+      "Sha256": "ebc1c2107c02c7c9006bf5a5b952cff5377ef622b83625aff3ebbfb6bb22b91f"
+    },
+    {
+      "Key": "blog/8d730b0ffb98482289b735830b50de1f.jpg",
+      "Kind": "blog-original",
+      "Bytes": 527270,
+      "Sha256": "73387b0d41ca1c847da22d3460dd6712bcd1221fb3c790d3b08fa747ccbe3826"
+    },
+    {
+      "Key": "blog/94a959818e974fe9844c74d900c31832.jpg",
+      "Kind": "blog-original",
+      "Bytes": 957912,
+      "Sha256": "5f174075b0f2d8c872ebfe61e39a29b46077a7d6b3033a50a51c36aac52fd3d0"
+    },
+    {
+      "Key": "blog/94d636e53a7a4043a99cdec22635c371.jpg",
+      "Kind": "blog-original",
+      "Bytes": 480765,
+      "Sha256": "b56138ba5b0f2ffe4c84e93bc4016522d1f79e54451e8f26e722c95a00ea54c5"
+    },
+    {
+      "Key": "blog/98e207ee2d1841688de1616de5e7ef4c.jpg",
+      "Kind": "blog-original",
+      "Bytes": 496554,
+      "Sha256": "96ec3ee549f97fa6e9554b5e7763951693461316825919cdbcb578530b036de0"
+    },
+    {
+      "Key": "blog/9c2bfecb74a946a7803ae8355e465a9d.jpg",
+      "Kind": "blog-original",
+      "Bytes": 608247,
+      "Sha256": "69bd3e42fb39b9f64a4fe999cca88e4d2e3000807ca9c597dd39ae4873311fc7"
+    },
+    {
+      "Key": "blog/9f24ef22b2744b728d040d608d1fdfbe.jpg",
+      "Kind": "blog-original",
+      "Bytes": 325144,
+      "Sha256": "7834ec2e04d88d8e2ad157732f570d79353dc2d1b89c906915c0f6eb2cb4bb90"
+    },
+    {
+      "Key": "blog/a090daad964d4e84af4fcf954d9c23d5.jpg",
+      "Kind": "blog-original",
+      "Bytes": 631744,
+      "Sha256": "32ce59246cc82eceb8324c102cbe260ad61d77761a592605d770c5e1ea5402b2"
+    },
+    {
+      "Key": "blog/a384574333564985853e2314e54d6e7b.jpg",
+      "Kind": "blog-original",
+      "Bytes": 786497,
+      "Sha256": "cec1cdfa776d2c14533375309fed7ef7a904aef1cce3a657e0e7c57c7fb8ee02"
+    },
+    {
+      "Key": "blog/a66caf9a5b8140c297a14c590f327889.jpg",
+      "Kind": "blog-original",
+      "Bytes": 227929,
+      "Sha256": "5dbed708aaac73ee680f02e553f0ea54bb881937da2216435065233337109a94"
+    },
+    {
+      "Key": "blog/aa9c2daf39bc40678a3ff7ef5a5a2ed3.jpg",
+      "Kind": "blog-original",
+      "Bytes": 601405,
+      "Sha256": "15fbcfd2141b6a889788501c6d3d773ae84bc41961e4458f75e6321542305c1b"
+    },
+    {
+      "Key": "blog/b84cf30564c14c369fa90d88aaf0b8fc.jpg",
+      "Kind": "blog-original",
+      "Bytes": 698242,
+      "Sha256": "084b9dc9a621d41cdfac7e30674f96ec214846d509511ef675bf6a4f52693ce6"
+    },
+    {
+      "Key": "blog/c0a9f9ee7f8945da8a7298532f1d817a.jpg",
+      "Kind": "blog-original",
+      "Bytes": 607007,
+      "Sha256": "67aaa5aa0e848009478f8d25b4f5a722c42355e2baaa6d01ba5ddd0bf1045f50"
+    },
+    {
+      "Key": "blog/cc680d18ae1449a0afb50a34ca30b7f6.jpg",
+      "Kind": "blog-original",
+      "Bytes": 385908,
+      "Sha256": "744a01e23a3099383b786f19109b4258d9135a94f129fb4ad8cf3ecf2844d89a"
+    },
+    {
+      "Key": "blog/df879bcd29544c539cce7c114c074d41.jpg",
+      "Kind": "blog-original",
+      "Bytes": 404209,
+      "Sha256": "623c5a62874af0d81f9334cb51208724ba34c2a3ab9064abeb478dce2d67b9be"
+    },
+    {
+      "Key": "blog/e68d8518ceb34c0e8a623258e0272dbf.jpg",
+      "Kind": "blog-original",
+      "Bytes": 1185076,
+      "Sha256": "b2f2851bc391335b1eb59af46994ce58407bae59311c17294d3d346d1be8cc3c"
+    },
+    {
+      "Key": "blog/e896759beb1f4180ad5d55e3c6b04408.jpg",
+      "Kind": "blog-original",
+      "Bytes": 686278,
+      "Sha256": "13503663bb7981a59550164637938285d6c39b793cbf85cf6275b279c001f759"
+    },
+    {
+      "Key": "blog/ec453515e02445539e2a854a89378d22.jpg",
+      "Kind": "blog-original",
+      "Bytes": 929131,
+      "Sha256": "bd6ea28b2c1c1c6b7128d8f6ecd2f1ed3760e3c54d254afe37e208c0989c1135"
+    },
+    {
+      "Key": "blog/ecdc10d8fca446d7ad13c9a5ed991ec4.jpg",
+      "Kind": "blog-original",
+      "Bytes": 292294,
+      "Sha256": "d55501d4b0a350d8ea35b1b8f2159b96b9d05879da84efa93ed7e0e10de12f1a"
+    },
+    {
+      "Key": "blog/f62aab29f20f4a9bb92a2db524c52528.jpg",
+      "Kind": "blog-original",
+      "Bytes": 577223,
+      "Sha256": "b0cf1cf945aeb8c4da2e3710bcdf8b9345d34d863bee7ce03efbe1344bfaf5ac"
+    },
+    {
+      "Key": "blog/fcf0568ee18648d28f8c7c1f46ffc11b.jpg",
+      "Kind": "blog-original",
+      "Bytes": 389511,
+      "Sha256": "6a8b46a52b3d5af66d80d0d4f88d10127a809e5aceedbcc952e69815da950f56"
+    },
+    {
+      "Key": "blog/ff95d2c6bba64fa0a356fd456c305003.jpg",
+      "Kind": "blog-original",
+      "Bytes": 1048068,
+      "Sha256": "6d568ae16053cf9751d9fb2d6f55ec7f54d84dae70067c12799e549fa83dc7be"
+    },
+    {
+      "Key": "promo/a51de3578dbe4b7c963c09154f1fcd64.webp",
+      "Kind": "promo-cover",
+      "Bytes": 108666,
+      "Sha256": "46c91036b7ccca9a6007404facd2c528e9883d91d371365bf17e1935327592c6"
+    },
+    {
+      "Key": "promo/af098c7c9fac43c3b6358019aba75386.webp",
+      "Kind": "promo-cover",
+      "Bytes": 99096,
+      "Sha256": "6cbdc224c0f2a5026170d99e3fa84606a3b64cbea8ff88ddf9614587833cc6c0"
+    },
+    {
+      "Key": "promo/f10159b0f8714c6c8954ffa9ff07bc04.webp",
+      "Kind": "promo-cover",
+      "Bytes": 50970,
+      "Sha256": "0f8b54cf24a3612a4e13ad95bc82261c9c88f0689350c050fd468a9eed530ce6"
+    }
+  ],
+  "ExternalMedia": [
+    "/media/the-bha-riverside/entrance-chairs.webp",
+    "/media/the-bha-riverside/entrance-logo.webp",
+    "/media/the-bha-riverside/lobby-logo-clocks.webp",
+    "/media/the-bha-riverside/lobby-shelves.webp",
+    "/media/the-bha-riverside/lobby-sofa.webp",
+    "/media/the-bha-riverside/one-bedroom-balcony.webp",
+    "/media/the-bha-riverside/one-bedroom-bathroom.webp",
+    "/media/the-bha-riverside/one-bedroom-bedroom-1.webp",
+    "/media/the-bha-riverside/one-bedroom-bedroom-2.webp",
+    "/media/the-bha-riverside/one-bedroom-kitchen.webp",
+    "/media/the-bha-riverside/one-bedroom-living.webp",
+    "/media/the-bha-riverside/open-view-balcony.webp",
+    "/media/the-bha-riverside/open-view-bathroom.webp",
+    "/media/the-bha-riverside/open-view-bedroom-balcony.webp",
+    "/media/the-bha-riverside/open-view-bedroom.webp",
+    "/media/the-bha-riverside/open-view-living-dining.webp",
+    "/media/the-bha-riverside/open-view-living.webp",
+    "/media/the-bha-riverside/rooftop-pool-city-view.webp",
+    "/media/the-bha-riverside/rooftop-pool-day.webp",
+    "/media/the-bha-riverside/rooftop-pool-mural.webp",
+    "/media/the-bha-riverside/rooftop-pool-night.webp",
+    "/media/the-bha-riverside/rooftop-pool-seating.webp",
+    "/media/the-bha-riverside/two-bedroom-balcony-view.webp",
+    "/media/the-bha-riverside/two-bedroom-bathroom.webp",
+    "/media/the-bha-riverside/two-bedroom-bedroom-1.webp",
+    "/media/the-bha-riverside/two-bedroom-bedroom-2.webp",
+    "/media/the-bha-riverside/two-bedroom-bedroom-night.webp",
+    "/media/the-bha-riverside/two-bedroom-bedroom-tv.webp",
+    "/media/the-bha-riverside/two-bedroom-living.webp",
+    "/media/the-bha-riverside/two-bedroom-skyline-1.webp",
+    "/media/the-bha-riverside/two-bedroom-skyline-2.webp"
+  ],
+  "Excluded": [
+    {
+      "Name": "AspNetUserClaims",
+      "Rows": 0,
+      "Reason": "identity data"
+    },
+    {
+      "Name": "AspNetUserLogins",
+      "Rows": 0,
+      "Reason": "identity data"
+    },
+    {
+      "Name": "AspNetUserTokens",
+      "Rows": 0,
+      "Reason": "identity data"
+    },
+    {
+      "Name": "AspNetUsers",
+      "Rows": 0,
+      "Reason": "identity data"
+    },
+    {
+      "Name": "BlogAudits",
+      "Rows": 159,
+      "Reason": "history of the source's Staff actions"
+    },
+    {
+      "Name": "BlogMediaVariants",
+      "Rows": 240,
+      "Reason": "derived from the originals; the picture pipeline rebuilds them at import (--blog-media-maintain's backfill)"
+    },
+    {
+      "Name": "ContentPackLedger",
+      "Rows": 0,
+      "Reason": "the content-pack importer's own bookkeeping of what it has placed in that database"
+    },
+    {
+      "Name": "PromotionAudits",
+      "Rows": 4,
+      "Reason": "history of the source's Staff actions"
+    },
+    {
+      "Name": "StaffAccounts",
+      "Rows": 1,
+      "Reason": "people and credentials; the operator names an existing Staff at import"
+    },
+    {
+      "Name": "StaffPropertyMemberships",
+      "Rows": 2,
+      "Reason": "people; created with the Staff CLI"
+    },
+    {
+      "Name": "__EFMigrationsHistory",
+      "Rows": 19,
+      "Reason": "schema history"
+    }
+  ],
+  "NotExported": [
+    {
+      "Name": "AdminCatalogCreateOperations",
+      "Rows": 0,
+      "Reason": "booking or operation data, never content"
+    },
+    {
+      "Name": "BookingPromotionApplications",
+      "Rows": 0,
+      "Reason": "booking or operation data, never content"
+    },
+    {
+      "Name": "CatalogContentAudits",
+      "Rows": 0,
+      "Reason": "booking or operation data, never content"
+    },
+    {
+      "Name": "CatalogUploads",
+      "Rows": 0,
+      "Reason": "booking or operation data, never content"
+    },
+    {
+      "Name": "InventoryHoldItemNights",
+      "Rows": 0,
+      "Reason": "booking or operation data, never content"
+    },
+    {
+      "Name": "InventoryHoldItems",
+      "Rows": 0,
+      "Reason": "booking or operation data, never content"
+    },
+    {
+      "Name": "InventoryHolds",
+      "Rows": 0,
+      "Reason": "booking or operation data, never content"
+    },
+    {
+      "Name": "ReservationUnitNights",
+      "Rows": 0,
+      "Reason": "booking or operation data, never content"
+    },
+    {
+      "Name": "ReservationUnits",
+      "Rows": 0,
+      "Reason": "booking or operation data, never content"
+    },
+    {
+      "Name": "Reservations",
+      "Rows": 0,
+      "Reason": "booking or operation data, never content"
+    },
+    {
+      "Name": "RoomBlocks",
+      "Rows": 0,
+      "Reason": "booking or operation data, never content"
+    },
+    {
+      "Name": "RoomOccupancySegmentAudits",
+      "Rows": 0,
+      "Reason": "booking or operation data, never content"
+    },
+    {
+      "Name": "RoomOccupancySegments",
+      "Rows": 0,
+      "Reason": "booking or operation data, never content"
+    }
+  ]
+}
