@@ -571,8 +571,11 @@ public static partial class ContentPackImporter
         private async Task ExistingRowAsync(string table, IReadOnlyList<string> key, JsonObject packRow, JsonObject row, JsonObject existing, string keyText, TableOutcome outcome, bool mappedSelf, CancellationToken ct)
         {
             // The group's default was decided once (DecideDefaultAsync): when the target's stands, no row of the group is written with another one.
+            var packRowActive = row["IsActive"]?.DeepClone();
             var keptDefault = _keepsTargetDefault.Contains(table) && row["IsDefault"] is { } packDefault && !JsonNode.DeepEquals(packDefault, existing["IsDefault"]);
             if (keptDefault) row["IsDefault"] = existing["IsDefault"]?.DeepClone();
+            // The row that stays the default keeps its "active" flag too: the pack may carry it switched off (the source made another one the default), and default => active is a database rule.
+            if (keptDefault && existing["IsDefault"]?.GetValue<bool>() == true && row["IsActive"] is not null) row["IsActive"] = existing["IsActive"]?.DeepClone();
             var packProjection = Project(row, table);
             var targetProjection = Project(existing, table, row);
             var same = JsonNode.DeepEquals(packProjection, targetProjection);
@@ -582,6 +585,7 @@ public static partial class ContentPackImporter
             if (same && !versionOnly && !keptDefault) { outcome.Matches++; return; }
             var different = versionOnly ? ["Version"] : Differing(packProjection, targetProjection);
             if (keptDefault) different.Insert(0, "IsDefault");
+            if (keptDefault && !JsonNode.DeepEquals(packRowActive, existing["IsActive"])) different.Add("IsActive");
             if (same && !versionOnly) { outcome.KeptDifferent++; Cap(table, $"  kept (the target's default stands): {table} {keyText} — {string.Join(", ", different)}"); return; }
 
             // Website configuration and the Blog's seed rows: the target's value stands unless it is still the migration's default and the pack's row was edited in the source.
