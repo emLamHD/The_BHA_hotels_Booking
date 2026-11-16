@@ -2205,6 +2205,50 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("TheBha.Domain.Website.NewsletterSubscription", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasMaxLength(254)
+                        .HasColumnType("character varying(254)");
+
+                    b.Property<DateTimeOffset>("ReceivedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Email")
+                        .IsUnique()
+                        .HasDatabaseName("UX_NewsletterSubscriptions_Email");
+
+                    b.HasIndex("ReceivedAtUtc", "Id")
+                        .IsDescending()
+                        .HasDatabaseName("IX_NewsletterSubscriptions_ReceivedAtUtc_Id");
+
+                    b.ToTable("NewsletterSubscriptions", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_NewsletterSubscriptions_Email", "\"Email\" = lower(btrim(\"Email\")) AND char_length(\"Email\") BETWEEN 3 AND 254 AND \"Email\" LIKE '_%@_%'");
+
+                            t.HasCheckConstraint("CK_NewsletterSubscriptions_Source", "\"Source\" IN ('homepage')");
+
+                            t.HasCheckConstraint("CK_NewsletterSubscriptions_Status", "\"Status\" IN ('PendingVerification')");
+                        });
+                });
+
             modelBuilder.Entity("TheBha.Domain.Website.WebsiteCurrency", b =>
                 {
                     b.Property<string>("Code")

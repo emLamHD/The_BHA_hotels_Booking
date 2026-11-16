@@ -81,6 +81,7 @@ public static class ContentPackSpec
         ["AspNetUserClaims"] = "identity data", ["AspNetUserLogins"] = "identity data", ["AspNetUserTokens"] = "identity data", ["AspNetUsers"] = "identity data",
         ["__EFMigrationsHistory"] = "schema history",
         ["ContentPackLedger"] = "the content-pack importer's own bookkeeping of what it has placed in that database",
+        ["NewsletterSubscriptions"] = "visitors' e-mail addresses (personal data), not site content: a pack never carries them",
     };
 
     /// <summary>Booking and test-transaction tables: never exported; the exporter reports their row counts so an empty source is a statement, not a guess.</summary>

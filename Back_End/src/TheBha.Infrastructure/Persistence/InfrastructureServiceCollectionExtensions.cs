@@ -82,6 +82,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddSingleton<IHeroMediaStorage>(new TheBha.Infrastructure.HeroMedia.LocalHeroMediaStorage(configuration["WebsiteMedia:RootPath"]));
         services.AddScoped<IWebsiteHero, WebsiteHeroService>();
         services.AddScoped<IWebsiteSocialSettings, WebsiteSocialSettingsService>();
+        services.AddScoped<INewsletterSubscriptions, NewsletterSubscriptionService>();
         services.AddScoped<DevelopmentDataSeeder>();
         services.AddScoped<TheBha.Infrastructure.Persistence.Demo.RiversideDemoSeeder>();
         services.AddScoped<TheBha.Infrastructure.Persistence.Demo.PromotionDemoSeeder>();

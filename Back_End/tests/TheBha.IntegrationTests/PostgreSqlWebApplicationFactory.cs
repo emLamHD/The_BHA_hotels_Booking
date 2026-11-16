@@ -241,6 +241,7 @@ public sealed class PostgreSqlWebApplicationFactory : WebApplicationFactory<Prog
                 "WebsiteHeroMedia",
                 "WebsiteHero",
                 "WebsiteSocialSettings",
+                "NewsletterSubscriptions",
                 "BlogAudits",
                 "BlogCategoryPins",
                 "BlogRevisionMedia",

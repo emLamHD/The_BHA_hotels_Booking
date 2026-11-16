@@ -4878,7 +4878,22 @@
    "placeholders": []
   },
   {
-   "key": "customer.newsletter.notStored",
+   "key": "customer.newsletter.received",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.sending",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.failed",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.tooMany",
    "scope": "customer",
    "placeholders": []
   },

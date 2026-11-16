@@ -49,6 +49,7 @@ public sealed class TheBhaDbContext(DbContextOptions<TheBhaDbContext> options)
     public DbSet<WebsiteHeroSlide> WebsiteHeroSlides => Set<WebsiteHeroSlide>();
     public DbSet<WebsiteHeroSettings> WebsiteHero => Set<WebsiteHeroSettings>();
     public DbSet<WebsiteSocialSettings> WebsiteSocialSettings => Set<WebsiteSocialSettings>();
+    public DbSet<NewsletterSubscription> NewsletterSubscriptions => Set<NewsletterSubscription>();
     public DbSet<Promotion> Promotions => Set<Promotion>();
     public DbSet<PromotionMedia> PromotionMedia => Set<PromotionMedia>();
     public DbSet<PromotionAudit> PromotionAudits => Set<PromotionAudit>();
