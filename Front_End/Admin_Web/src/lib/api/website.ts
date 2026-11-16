@@ -532,6 +532,41 @@ const parseLanguages = (data: unknown) => parseList(data, parseLanguage);
 const parseCurrencies = (data: unknown) => parseList(data, parseCurrency);
 const parseLibrary = (data: unknown) => parseList(data, parseLibraryPack);
 
+// ---------------------------------------------------------------- newsletter subscriptions (BHA-NEWSLETTER-001)
+
+export interface NewsletterSubscription {
+  id: string;
+  email: string;
+  receivedAtUtc: string;
+  source: string;
+  status: string;
+}
+
+export interface NewsletterSubscriptionPage {
+  items: NewsletterSubscription[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+const parseNewsletterSubscription = (data: unknown): NewsletterSubscription | null =>
+  isRec(data) && isStr(data.id) && isStr(data.email) && isStr(data.receivedAtUtc) && isStr(data.source) && isStr(data.status)
+    ? { id: data.id, email: data.email, receivedAtUtc: data.receivedAtUtc, source: data.source, status: data.status }
+    : null;
+
+export function parseNewsletterSubscriptionPage(data: unknown): NewsletterSubscriptionPage | null {
+  if (!isRec(data) || !isNum(data.page) || !isNum(data.pageSize) || !isNum(data.total)) return null;
+  const items = parseList(data.items, parseNewsletterSubscription);
+  return items ? { items, page: data.page, pageSize: data.pageSize, total: data.total } : null;
+}
+
+export const listNewsletterSubscriptions = (query: { search: string; page: number; pageSize: number }, signal?: AbortSignal) => {
+  const params = new URLSearchParams({ page: String(query.page), pageSize: String(query.pageSize) });
+  if (query.search.trim()) params.set("search", query.search.trim());
+  return call<NewsletterSubscriptionPage>("GET", `${SETTINGS}/newsletter-subscriptions?${params.toString()}`, undefined,
+    { write: false, parse: parseNewsletterSubscriptionPage, signal });
+};
+
 // ---------------------------------------------------------------- one request
 
 interface CallOptions<T> {
