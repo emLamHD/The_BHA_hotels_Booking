@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   NEWSLETTER_DISCLOSURE,
   NEWSLETTER_INVALID_MESSAGE,
-  NEWSLETTER_NOT_STORED_MESSAGE,
+  NEWSLETTER_FAILED_MESSAGE,
+  NEWSLETTER_RECEIVED_MESSAGE,
+  NEWSLETTER_TOO_MANY_MESSAGE,
   NEWSLETTER_REQUIRED_MESSAGE,
   validateNewsletterEmail,
 } from "./newsletterUi";
@@ -36,10 +38,19 @@ describe("newsletter e-mail check", () => {
     expect(JSON.stringify(validateNewsletterEmail("private person"))).not.toContain("private");
   });
 
-  it("the messages never say it worked or promise a message", () => {
-    for (const text of [NEWSLETTER_NOT_STORED_MESSAGE, NEWSLETTER_DISCLOSURE].map((key) => testT("vi")(key))) {
-      expect(text).not.toMatch(/thành công|cảm ơn|sẽ gửi|đã đăng ký/i);
+  it("says the request was recorded, not that anything was sent or verified", () => {
+    expect(testT("vi")(NEWSLETTER_RECEIVED_MESSAGE)).toBe("Đã ghi nhận yêu cầu đăng ký.");
+    for (const text of [NEWSLETTER_RECEIVED_MESSAGE, NEWSLETTER_DISCLOSURE].map((key) => testT("vi")(key))) {
+      expect(text).not.toMatch(/thành công|cảm ơn|sẽ gửi|đã xác minh/i);
     }
-    expect(testT("vi")(NEWSLETTER_NOT_STORED_MESSAGE)).toBe("Bản demo chưa tiếp nhận đăng ký. Email chưa được lưu.");
+  });
+
+  it("states the purpose next to the button in every language and keeps the retry messages", () => {
+    for (const locale of ["vi", "en", "fr"] as const) {
+      const t = testT(locale);
+      expect(t(NEWSLETTER_DISCLOSURE)).not.toBe(NEWSLETTER_DISCLOSURE);
+      expect(t(NEWSLETTER_FAILED_MESSAGE)).not.toBe(NEWSLETTER_FAILED_MESSAGE);
+      expect(t(NEWSLETTER_TOO_MANY_MESSAGE)).not.toBe(NEWSLETTER_TOO_MANY_MESSAGE);
+    }
   });
 });

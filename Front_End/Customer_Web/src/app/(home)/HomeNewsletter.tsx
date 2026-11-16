@@ -6,42 +6,64 @@ import {
   NEWSLETTER_BENEFIT,
   NEWSLETTER_DISCLOSURE,
   NEWSLETTER_HEADING,
-  NEWSLETTER_NOT_STORED_MESSAGE,
+  NEWSLETTER_RECEIVED_MESSAGE,
+  NEWSLETTER_SENDING_MESSAGE,
   validateNewsletterEmail,
 } from "@/lib/newsletterUi";
+import { submitNewsletterEmail } from "@/lib/newsletterApi";
 
 import { useT } from "@/lib/i18n/I18nProvider";
 type Feedback = { kind: "error" | "notice"; message: string; id: number } | null;
 
 /**
- * CUST-WEB-001-CP08a-C2: the newsletter box as a UI preview (`NEWSLETTER: UI_PREVIEW_VALIDATED_NOT_PERSISTED`).
- * The address is checked by `validateNewsletterEmail` and nothing else happens: no request, no storage, no
- * mailto, no tracking, no query string, no reload, and the field is emptied once the check passes so the
- * address is not kept anywhere. The input has no `name` and the form no action, so even a submit before the
- * page is interactive carries no address. The disclosure is visible before the visitor submits.
+ * BHA-NEWSLETTER-001: the newsletter box. The address is checked here (`validateNewsletterEmail`), then sent once to
+ * `POST /api/v1/website/newsletter-subscriptions`; only the API's 202 empties the field and says the request was
+ * recorded. A refusal or a failure keeps the address so the visitor can fix or send it again. While a request is on its way the
+ * button is disabled, so a double click sends once. The input has no `name` and the form no action, so a submit before
+ * the page is interactive carries no address in a URL. The purpose of the e-mail is visible next to the button.
  */
 const HomeNewsletter: FC = () => {
   const t = useT();
   const inputRef = useRef<HTMLInputElement>(null);
   const [feedback, setFeedback] = useState<Feedback>(null);
+  const [sending, setSending] = useState(false);
   const attempts = useRef(0);
+  const inFlight = useRef(false);
+  const controller = useRef<AbortController | null>(null);
 
   // An invalid address returns focus to the field, so the error is read where the fix is made.
   useEffect(() => {
     if (feedback?.kind === "error") inputRef.current?.focus();
   }, [feedback]);
 
-  const onSubmit = (event: FormEvent<HTMLFormElement>) => {
+  useEffect(() => () => controller.current?.abort(), []);
+
+  const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (inFlight.current) return;
     const field = inputRef.current;
-    const result = validateNewsletterEmail(field?.value ?? "");
+    const value = field?.value ?? "";
+    const result = validateNewsletterEmail(value);
     attempts.current += 1;
+    const id = attempts.current;
     if (!result.ok) {
-      setFeedback({ kind: "error", message: result.message, id: attempts.current });
+      setFeedback({ kind: "error", message: result.message, id });
       return;
     }
-    if (field) field.value = "";
-    setFeedback({ kind: "notice", message: NEWSLETTER_NOT_STORED_MESSAGE, id: attempts.current });
+    inFlight.current = true;
+    setSending(true);
+    setFeedback({ kind: "notice", message: NEWSLETTER_SENDING_MESSAGE, id });
+    controller.current = new AbortController();
+    const outcome = await submitNewsletterEmail(value.trim(), controller.current.signal);
+    inFlight.current = false;
+    if (controller.current.signal.aborted) return;
+    setSending(false);
+    if (outcome.kind === "received") {
+      if (field) field.value = "";
+      setFeedback({ kind: "notice", message: NEWSLETTER_RECEIVED_MESSAGE, id });
+    } else {
+      setFeedback({ kind: "error", message: outcome.message, id });
+    }
   };
 
   return (
@@ -62,7 +84,7 @@ const HomeNewsletter: FC = () => {
           <p className="max-w-md text-neutral-600 dark:text-neutral-300">{t(NEWSLETTER_BENEFIT)}</p>
         </div>
         <div className="rounded-2xl bg-white p-5 shadow-lg shadow-primary-900/5 dark:bg-neutral-900 sm:p-6">
-          <form noValidate onSubmit={onSubmit} aria-describedby="newsletter-disclosure" className="space-y-3">
+          <form noValidate onSubmit={(event) => void onSubmit(event)} aria-describedby="newsletter-disclosure" className="space-y-3">
             <label htmlFor="newsletter-email" className="block text-sm font-medium text-neutral-800 dark:text-neutral-200">{t("customer.home.homeNewsletter.yourEmail")}</label>
             <div className="flex flex-col gap-3 sm:flex-row">
               <input
@@ -80,8 +102,10 @@ const HomeNewsletter: FC = () => {
               />
               <button
                 type="submit"
+                disabled={sending}
+                aria-busy={sending || undefined}
                 aria-label={t("customer.home.homeNewsletter.subscribeDemoYourEmailIs")}
-                className="inline-flex h-12 flex-shrink-0 items-center justify-center gap-2 rounded-full bg-primary-6000 px-6 text-sm font-semibold text-white transition-colors hover:bg-primary-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2"
+                className="inline-flex h-12 flex-shrink-0 items-center justify-center gap-2 rounded-full bg-primary-6000 px-6 text-sm font-semibold text-white transition-colors hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2"
               >{t("customer.home.homeNewsletter.subscribe")}<ArrowRightIcon className="h-4 w-4" aria-hidden="true" />
               </button>
             </div>

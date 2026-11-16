@@ -44,10 +44,11 @@ describe("newsletter", () => {
     expect(newsletter).toContain('id="newsletter-heading"');
     expect(newsletter).toContain('for="newsletter-email"');
     expect(newsletter).toContain('id="newsletter-disclosure"');
-    expect(newsletter).toMatch(/<button type="submit" aria-label="Đăng ký \(bản demo[^"]*"[^>]*>Đăng ký</);
+    expect(newsletter).toMatch(/<button type="submit" aria-label="Đăng ký nhận ưu đãi từ The BHA"[^>]*>Đăng ký</);
+    expect(newsletter).toMatch(/id="newsletter-disclosure"[^>]*>Chúng tôi dùng email của bạn để gửi ưu đãi/);
   });
 
-  it("stays a UI preview: no form action, no field name", () => {
+  it("sends nothing before the page is interactive: no form action, no field name", () => {
     expect(newsletter).not.toMatch(/<form[^>]*action=/);
     expect(newsletter).not.toMatch(/<input[^>]*name=/);
   });
