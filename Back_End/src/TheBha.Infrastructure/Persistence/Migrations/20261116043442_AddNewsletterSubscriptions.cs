@@ -45,6 +45,11 @@ namespace TheBha.Infrastructure.Persistence.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            // Refuses while a request exists, so a rollback cannot drop visitors' addresses silently.
+            migrationBuilder.Sql(
+                "DO $$ BEGIN IF EXISTS (SELECT 1 FROM \"NewsletterSubscriptions\") " +
+                "THEN RAISE EXCEPTION 'Down refused: newsletter subscriptions exist.'; END IF; END $$;");
+
             migrationBuilder.DropTable(
                 name: "NewsletterSubscriptions");
         }

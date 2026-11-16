@@ -28,6 +28,12 @@ internal sealed class NewsletterSubscriptionService(TheBhaDbContext database, Ti
         }
 
         var total = await query.CountAsync(cancellationToken);
+        // The offset is 64-bit: page 2147483647 of 100 would overflow an int and become a negative OFFSET. Past the end is an empty page.
+        if ((long)(page - 1) * pageSize >= total)
+        {
+            return new NewsletterSubscriptionPageDto([], page, pageSize, total);
+        }
+
         var rows = await query.OrderByDescending(row => row.ReceivedAtUtc).ThenByDescending(row => row.Id)
             .Skip((page - 1) * pageSize).Take(pageSize)
             .Select(row => new NewsletterSubscriptionDto(row.Id, row.Email, row.ReceivedAtUtc, row.Source, row.Status))

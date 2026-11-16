@@ -213,6 +213,11 @@ public sealed class WebsiteNewsletterApiTests(PostgreSqlWebApplicationFactory fa
         Assert.Empty(beyond.GetProperty("items").EnumerateArray());
         Assert.Equal(5, beyond.GetProperty("total").GetInt32());
 
+        // A page number whose offset does not fit an int is an empty page, not a 500.
+        var huge = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, session.GetAsync(Admin + $"?pageSize=100&page={int.MaxValue}")));
+        Assert.Empty(huge.GetProperty("items").EnumerateArray());
+        Assert.Equal(5, huge.GetProperty("total").GetInt32());
+
         var upper = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, session.GetAsync(Admin + "?search=MID%40EXAMPLE")));
         Assert.Equal(["mid@example.com"], upper.GetProperty("items").EnumerateArray().Select(item => item.GetProperty("email").GetString()).ToArray());
 
