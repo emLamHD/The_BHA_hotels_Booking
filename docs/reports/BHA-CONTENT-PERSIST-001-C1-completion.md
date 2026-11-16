@@ -1,0 +1,75 @@
+# BHA-CONTENT-PERSIST-001-C1 — correction of the Codex review and the scope the first delivery left out (completion report)
+
+- **WORK_ITEM** `BHA-CONTENT-PERSIST-001-C1` · branch `feature/bha-content-persist-001` · Draft PR https://github.com/emLamHD/The_BHA_hotels_Booking/pull/131 (into `develop`, unchanged) · base `origin/develop` `9e792ba` · **START_HEAD** `6305a0e` (verified before editing: working tree clean, PR open and draft, no other writer) · **CODE_HEAD** `096aae1` (the commit that adds this paragraph follows it and changes only this file; the PR head is the `FINAL_HEAD`). **CI on `096aae1`:** Backend pass (unit 676, integration 1316 on PostgreSQL, 22 m 38 s — all 19 content-pack tests ran there on the committed pack), Admin pass, Frontend pass, Vercel previews pass. **PR size from GitHub:** +7,753 / −16 in 111 files (the first delivery: +2,717 / −1 in 84), outside the 100–400 line target: see the PR description for what the growth is (pack rows 804 instead of 563, the importer rewritten, 19 tests, one migration with its generated Designer, reports); not split because the rows, the importer and its tests only make sense together.
+- Implementer Claude, reviewer Codex (invoked by Owner), merge Owner.
+- **IMPLEMENTATION: PASS · DEPLOYMENT_SIMULATION: PASS · REVIEW: NOT_RUN · PRODUCTION_VERIFICATION: NOT_RUN.**
+- **One schema addition**, forced by S3 and disclosed here and in the PR: migration 20 `AddContentPackLedger` (one table, `ContentPackLedger`). No change to any public or Admin API, no frontend change.
+
+## 1. Findings and scope, one by one
+
+Every item was reproduced on `6305a0e` with a regression test **before** it was fixed (red logs kept in `~/bha-content-backup-20261026/c1-red-*.log`), then run green.
+
+| # | Change | Red on `6305a0e` | Green evidence |
+|---|---|---|---|
+| **F1** RatePlanId map | the maps are built for every referenced table (Property, RoomType, **RatePlan**, Amenity, Language, offers) before any write; rows and the nightly rates follow the target's own rate plan | `KeyNotFoundException: 'RatePlanId'` in dry-run, apply and verify | `F1_…`: target with a rate plan of the same code under another id: dry-run, apply, verify exit 0, no duplicate plan, the 180 rates on the target's plan, none on the pack's id |
+| **F2** verify variants | verify opens every `BlogMediaVariants` file: existence, size, sha256 against the row; a wrong file is named, exit 1 | variant file deleted → `verify` exit **0** | `F2_…`: file deleted → exit 1, public URL 404; file changed → exit 1 ("does not match"), **public URL still 200** (the site does not hash) — so only verify can tell |
+| **F3** references vs write scope | resolution is independent of `--groups`; a group writes only its tables; a dependency the target can not satisfy (and the run will not write) stops the run before any write, naming the property | `--groups promotions` after a mapped catalog: 23503 conflicts on every offer row | `F3_…`: catalog mapped to the target's own ids, then promotions alone (FK right, 0 extra catalog rows), then blog alone (`propertyIntro` = target's id, none of the pack's); on an empty target promotions and blog refuse with exit 1, 0 rows, 0 files |
+| **F4** backfill scope | `IBlogMediaMaintenance.BackfillAsync(ids)`; the command runs it only when `blog` is selected and only for the pack's pictures; a failure leaves the committed import and says "run the same command again" | an unrelated generation-0 picture with no original made `--groups catalog,promotions` fail | `F4_…`: that picture stays generation 0 with no variants through catalog/promotions and through the Blog import; 40 pack pictures processed |
+| **F5** media root | the root is trimmed of separators before the containment test (`/var/media/` = `/var/media`; `/var/media2` is still outside) | root with `/`: `could not be copied (ArgumentNullException)` | `F5_…` theory (`""`, `"/"`): import, verify, export identical (283 files, 43 exported) |
+| **F6** export snapshot | all export queries in one `READ ONLY REPEATABLE READ` transaction; files read after it must match the snapshot's recorded size/sha256, else the export fails and **no pack is left** | with `READ COMMITTED` (flipped locally): 31 translations in the pack for 23 posts (a translation without its post) | `F6_…` test seam (`AfterTableRead`): a second connection commits a post + translation between reading `BlogPosts` and `BlogPostTranslations` → pack has 23/30 rows, imports cleanly; a picture appended to while the export runs → export fails, no directory |
+| **S1** website configuration | `website` group: Currencies, Languages (switched-off ones too), Translations, Hero, HeroMedia, HeroSlides, Menu, MenuItems, SocialSettings and the hero uploads (`hero/` files); applied over a row that is still the migration default (version 1, no author, not manual) **and** whose pack row was edited in the source; a hero/menu the target never edited gets the source's slides/items; no picture row is deleted; a built-in text is never overwritten by an older one; the staff's version stays | the first delivery listed them as "not carried" | `S1_…`: a source with hero (v3), menu (+1 item), social phone, USD active with a rate, French switched off with 5 texts, a manual text, an uploaded hero picture + slide → export → new database: the 9 tables' fingerprints equal, the file arrives, verify 0; a target whose hero was already edited keeps its own. **Browser** (below) |
+| **S2** other seeded data | the exporter takes every property when no slug is named; manifest `excluded` lists what is not carried and why | `the-bha-hotel` left out | pack: 2 properties, 5 room types, 14 rooms, 208 rates, 35 media. **Consequence, stated:** see §4 |
+| **S3** re-run policy | ledger table written in the rows' transaction; a row it lists and the target lacks is "deleted since the import" and **not** put back; `--restore-deleted` is the only way back; a failed run writes nothing (ledger included) | `apply` put deleted rows back | `S3_…`: failed copy → ledger 0 rows → rerun does everything; variants of one picture lost → rerun repeats only that; staff delete an offer + links, all pins, rates → `apply` leaves them (output says so), `verify` exit 0, `--restore-deleted` restores. Same on the Production image (23 deleted rows reported, none restored; 23 restored with the flag; the staff's room-type rename kept both times) |
+| **S4** verify meaning | per table and in a closing line: rows that **match**, that **keep the target's version** (with the columns), **deleted since the import**, **missing** (exit 1, named); `VERIFIED` no longer claims "identical" or "every row is on the target" | "identical" for any reused row | `S4_…`: a rename is listed as `kept … — Name` and not overwritten; a deleted offer is listed as deleted-since (exit 0); with its ledger entry removed it becomes `missing from the target` (exit 1) |
+
+## 2. Final inventory (the pack, from `thebha_blog_demo`)
+
+| Group | Rows (tables) | Files |
+|---|---|---|
+| website | 184 — Currencies 3, Languages 2, Translations 114, Hero 1, HeroMedia 4 (`seed/`), HeroSlides 4, Menu 1, MenuItems 54, SocialSettings 1 | 0 hero uploads in this source (the mechanism is tested) |
+| catalog | 319 — Properties 2, Amenities 6, RatePlans 2, RoomTypes 5, PropertyAmenities 5, RoomTypeAmenities 5, PhysicalRooms 14, Media 35, PropertyMedia 12, RoomTypeMedia 23, DailyRoomRates 208, DailyInventoryControls 2 | 31 static Riverside photographs (in the repository; their addresses travel) |
+| promotions | 10 — PromotionMedia 3, Promotions 4, PromotionRoomTypes 3 | 3 covers (`promo/`) |
+| blog | 291 — Categories 5 (+10 translations, 10 slugs), Media 40, Posts 23, PostTranslations 30, PostSlugs 30, Revisions 35, RevisionCategories 35, RevisionMedia 66, Pins 6, Settings 1 | 40 originals (24.8 MB); the 240 variants are rebuilt |
+| **total** | **804 rows in 36 tables** | **43 files, 25,093,160 bytes** |
+
+Not carried, with the reason in `manifest.json`: StaffAccounts 1 and StaffPropertyMemberships 2 (people), BlogAudits 159 and PromotionAudits 4 (history of the source's Staff), BlogMediaVariants 240 (derived), identity tables 0, the schema history, `ContentPackLedger`. Booking and test-transaction tables (13): **all 0 rows**, so there is nothing to convert. The source's website configuration equals the migration defaults except that `en` is active (given the version an Admin save records); the **non-default** values were tested on a source with edits (below), not by changing the committed pack.
+
+## 3. Verification
+
+| Scenario | Evidence |
+|---|---|
+| **1. New database, all inventory** | `ContentPackTests.A_…`: 2 properties, 5 room types, 14 rooms, 208 rates, 35 media, 4 offers + 3 covers, 23 posts, 40 pictures with 240 variants, `en` active, no `localhost` in any address; the rerun adds nothing. Source with edited configuration (hero v3, menu +1 item, phone, USD active with a rate, French off with texts, an uploaded hero picture + slide) → export → fresh database → **the 9 website tables and Properties, RoomTypes, DailyRoomRates, Promotions, BlogPosts, BlogPostRevisions, BlogMedia equal by normalized fingerprint** (`Media` differs only by the rewritten origin); the Customer on it (production build, Chrome): hero title/description, the new menu item, 5 slides (the upload loads), USD in the currency list, `fr` absent (inactive), phone number from the API; **22 Customer pages equal to the source except exactly the edited values** (hero text on `/`, the menu item in the header) |
+| **2. Existing data with other ids** | `B_a_database_loaded_by_the_earlier_route…` (other rate ids/window, an offer with the same slug), `The_targets_own_property…` (property, then `propertyIntro` ids), F1, F3: own rows used, no duplicates, staff edits kept; a restored copy of `thebha_promo_demo` was rehearsed in the first delivery (no conflict) |
+| **3. Scoped imports** | F3, F4, S1: only the selected group writes; references resolved without writing; missing dependency stops before writing |
+| **4. Re-run after success / failure / deletion** | S3, S4 tests and the Production-image run: re-run 0 inserts; staff edit kept; deleted rows not restored; `--restore-deleted` restores; a failed run is finished by the next |
+| **5. Production image, durable storage** | `Back_End/Dockerfile` image (`ASPNETCORE_ENVIRONMENT=Production`), named volumes for media and keys, `deploy/content/import-content-pack.sh dry-run/apply/verify` as one-off containers, then the API container, then `docker rm -f` and a new container on the same volumes: 62 API projections identical to the source except the staff's kept rename (the test deliberately made it) and one migration timestamp; 313/313 API-served pictures answer 200 and none differs from the source by sha256 (the one URL the container's snapshot has extra comes from the Customer page of the other database); identical before and after the recreate |
+| **6. Customer / Admin, no manual re-entry, no rebuild** | Customer production build against the imported database (22 pages above); a Customer built while the database was full and then pointed at an emptied-and-reimported database showed the content again with no rebuild (first delivery, route table all `λ`); Admin (Chrome, signed in as Staff): Blog posts (23), categories, picture library, Promotions (4 with covers), Hero (title/description), Menus (new item), Languages (French listed), Currencies (USD 25500), Social (phone), catalog (3 room types) |
+
+## 4. Differences kept on purpose, and consequences to decide
+
+1. **The development property `the-bha-hotel` is in the pack** (S2). Its Customer page does not exist, but: the **public API lists it** (`/api/v1/properties`, its two room types, availability); and the Admin catalog screen **labels it "The BHA Riverside"** (a mapping in `CatalogWorkspace.tsx`, `propertyName`), so "Cơ sở & loại phòng" shows two entries with that name — the dev one first and selected by default ("0 loại phòng", "Dữ liệu mẫu cũ (2)") and the real one with 3 room types. Seen in Chrome. *(Superseded by C2: a scoped export is refused while any Blog revision names the left-out property — five revisions name this one — so it can not be left out with a flag.)*
+2. **Rates end on 2026-12-25** (the Riverside's 60 nights from 2026-10-27; the dev property's 28 nights end earlier). Not extended and not invented; a search after the last night with a price may return no rooms. Written in the runbook §7. No Admin rate management was added.
+3. Rows the staff delete after an import stay deleted; the ledger is what remembers. Dropping the ledger makes the next `apply` treat missing rows as never imported.
+4. A configuration row edited by SQL without raising its version is not recognised as edited and is not carried over a default (Admin edits always raise it); a pristine default of a newer migration is never replaced by an older pack value for built-in texts.
+5. Authors: every Blog row (and any website row the source's staff edited) is recorded as the Staff named by `--actor-email`; the source's audit history is not carried.
+6. A hero the target never edited that takes the source's slides leaves the default slides' per-language texts as unused translations (harmless).
+
+## 5. Checks run
+
+`dotnet build Back_End/TheBha.Booking.sln -c Release` (0 errors) · **unit 676/676** · **integration 1316/1316** on PostgreSQL 17 (18 m 48 s; includes the 19 content-pack tests — `ContentPackTests` 8, `ContentPackCorrectionTests` 6 (F5 is a two-case theory), `ContentPackScopeTests` 5 — and the migration registries moved by migration 20) · `bash -n` and a live run of the entrypoint on the Production image (dry-run, apply, verify, apply with `BHA_RESTORE_DELETED`) · Chrome (Playwright on system Chrome, the project's usual recipe; the Chrome extension was not available) · CI on the PR: see the PR. Frontend untouched. `deploy/showcase/migrations/idempotent.sql` was regenerated once to check it and **restored**: it belongs to the retired AWS flow and was already 10+ migrations behind (regenerating it would add 2,109 unrelated lines).
+
+**NOT_RUN:** production (no hosting in the repository; values to fill in are the runbook's §2); a managed PostgreSQL other than the local 17; a second browser engine; the Customer built *before* a Staff-edited configuration import was not repeated for the configuration values (the Customer is rendered per request).
+
+## 6. Clean-up
+
+Temporary processes (7245, 3200, 3300, 3201, container, volumes, image), the scratch databases (`thebha_c1_src/tgt/c`, the baseline), copies of the Customer/Admin trees (they held the developer's `.env.local`), env/certificate files were removed. The source database, the source stack (3000, 3001, 3100, 7145) and the backup directory `~/bha-content-backup-20261026/` (dump, media, tools, the "before" projection, the red logs) were left as they were.
+
+## 7. Handoff
+
+`ACTIVE_EXECUTOR` has stopped writing. Owner invokes the review (Claude does not):
+
+```
+READY_FOR_CODEX_REVIEW
+Owner must now invoke:
+codex review --base origin/develop
+```

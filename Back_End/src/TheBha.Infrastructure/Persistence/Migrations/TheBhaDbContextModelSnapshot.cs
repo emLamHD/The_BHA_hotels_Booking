@@ -2768,6 +2768,30 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("TheBha.Infrastructure.ContentPack.ContentPackLedgerEntry", b =>
+                {
+                    b.Property<string>("TableName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("RowKey")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<DateTimeOffset>("ImportedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PackSha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .IsFixedLength();
+
+                    b.HasKey("TableName", "RowKey");
+
+                    b.ToTable("ContentPackLedger", (string)null);
+                });
+
             modelBuilder.Entity("TheBha.Infrastructure.Identity.CustomerAccount", b =>
                 {
                     b.Property<Guid>("Id")

@@ -308,6 +308,8 @@ row; no post, picture or figure. `Down()` refuses while Blog content, a picture,
 permission exists. Design: `docs/design/BHA-BLOG-001-blog-content-publishing.md`.
 
 Migration 19 (`AddBlogMediaLibrary`, `BHA-BLOG-001-CP02`) turns `BlogMedia` into a library and adds `BlogMediaVariants`. New `BlogMedia`
+
+Migration 20 (`AddContentPackLedger`, `BHA-CONTENT-PERSIST-001-C1`) adds one table, `ContentPackLedger` (`TableName`, `RowKey`, `PackSha256`, `ImportedAtUtc`; primary key `TableName` + `RowKey`): the content-pack importer's record of the rows it placed in this database, which is how a later import tells a row it never placed from one it placed and the staff deleted. Written only by `--content-pack-import --apply`, in the transaction of the rows; nothing else reads it. See `docs/runbooks/BHA-CONTENT-PERSIST-001.md`.
 columns: `DisplayName`, `OriginalFileName`, `Description`, `Credit`, `SourceUrl`, `Licence` (plain text; `SourceUrl` is an https
 address), `FocalX`/`FocalY` (double, 0..1, default 0.5, check constraint), `Version` (concurrency token of those descriptive fields,
 default 1), `Generation` (0 = uploaded before CP02, original only; 1 = the current pipeline; part of every public variant address),

@@ -1,0 +1,35 @@
+# BHA-CONTENT-PERSIST-001-C4 — the three findings of the fourth Codex review (completion report)
+
+- **WORK_ITEM** `BHA-CONTENT-PERSIST-001-C4` · branch `feature/bha-content-persist-001` · Draft PR #131 (into `develop`, unchanged) · **START_HEAD** `337bb68` (verified before editing: tree clean, PR open and draft, head equal to the remote's) · **CODE_HEAD** `d29dca3` (the commit that adds §4 follows it and changes only this file; the PR head is the `FINAL_HEAD`). CI: §4.
+- Implementer Claude, reviewer Codex (invoked by Owner), merge Owner.
+- **C4 tests: PASS (local) · REVIEW: NOT_RUN · PRODUCTION_VERIFICATION: NOT_RUN.** The C2 deployment simulation is not repeated and is not evidence for C4.
+- **Schema / inventory / frontend / API contract:** none. The importer was not rewritten: one predicate, one key rewrite, one generalisation of the existing "edited source over a pristine seed" rule.
+
+## 1. Findings
+
+| # | Cause | Change | Before → after |
+|---|---|---|---|
+| **F1** hero/menu texts | the edited-collection protection (C2) skipped the collection's own rows but not its `WebsiteTranslations` | a pack text whose key is a menu item (`content.menuItem.*`) or a hero one (`content.heroSlideshow.*`, `content.heroSlide.*`) is not added when the target's menu / hero was saved by staff and the target has the language (`IsProtectedCollectionText`; the parent state is the one read under the website lock). A language the run adds is not affected; the other collection is not affected. Same code path in dry-run, apply and verify | **Before** (`337bb68`): the English label / hero action cleared through `IWebsiteMenus.SaveAsync` / `IWebsiteHero.SaveAsync` is back after the import (`Expected 0, Actual 1`). **After:** dry-run, apply, verify and a second apply exit 0, the row stays absent, the public menu / hero in `en` show the fallback, not the pack's text; with the menu protected a deleted text of the untouched hero is still restored; on a database the staff have not touched the pack's texts come in and show |
+| **F2** ids in translation keys | foreign-key columns were re-pointed, `WebsiteTranslations.Key` was not | `RemapContentKey` rewrites the id of `content.<property\|roomType\|ratePlan\|amenity>.<id>.<field>` through the existing maps, before the row is looked up, inserted or verified (uses `ContentKey.TryParse/For`, the convention `ContentCatalog` generates) | **Before:** the text of a property the target holds under another id is not under the target's key (`Expected "C4 property", Actual null`) and the public dictionary does not show it, while verify passes. **After**, with target rows of the same slug/code under other ids for the property, a room type, a rate plan and an amenity: website group only, all four texts sit under the target's keys, `GetDictionaryAsync("en")` returns them, no row under a source id, the catalog is not written; a staff text already under the target's key is kept (public reader shows it) |
+| **F3** Blog seed | the "source edit over an untouched default" rule was website-only | it now covers `BlogCategories`, `BlogCategoryTranslations`, `BlogCategorySlugs` and `BlogSettings`. **Signal:** a category is untouched when `Version = 1` and neither `CreatedByStaffId` nor `UpdatedByStaffId` is set (every `UpdateCategoryAsync` raises the version and records the author), read before any write; its texts and slugs follow it. Settings: the same signal on their own row. The take always runs the version-checked `UPDATE` of the category / settings row (the row is stamped with the source's version and the actor, so a Staff save that lands during the import becomes a CONFLICT and a rollback instead of being overwritten, and the target no longer looks untouched). Slugs go in "stops being current" first, so one current slug per language. A target whose staff edited the category keeps its texts and slug, and the pack's current slug for it is not added as a second one | **Before:** on a freshly migrated database the import of a pack with the renamed category fails: `CONFLICT: BlogCategorySlugs en/featured-places: 23505 UX_BlogCategorySlugs_Current`, nothing written, exit 4; with a target that renamed it too, the same. **After**, the source edited through `IAdminBlog` (rename the slug, add a category, make it the homepage's): dry-run, apply, verify and a second apply exit 0; the new slug is current and the old one history, `GetCategoryAsync` answers the new one and redirects the old (`RedirectSlug`), `HomeSectionAsync` returns the new homepage category; a target that renamed the slug and chose its own homepage category keeps both |
+
+## 2. Checks (this phase, local)
+
+- Build 0 errors; unit 676/676.
+- Content-pack integration tests on a private PostgreSQL 17.10 (port 54329, **`timezone = UTC`**, so the export test that compares a `timestamptz` as text passes): **46/46** — the 40 of C1–C3 and 6 new in `ContentPackC4Tests`.
+- The F3 version guard (category and settings rows stamped on a take) fails its assertion (`Expected 1, Actual 0`) when the extension of `versionOnly` to the Blog seed tables is removed. The grep of the sources for other creators of an author-less `BlogCategories` row finds only `BlogSeed` (`INSERT INTO "BlogCategories"` with `CreatedByStaffId` NULL) and the `AddBlogFoundation` migration that runs it.
+- Red run on `337bb68`'s importer (log `~/bha-content-backup-20261026/c4-red-run-on-337bb68.log`): 5 of the 6 failed (F1 menu, F1 hero, F2, both F3); the one that passed is the control "database the staff have not touched" (by design).
+- The full integration suite ran in CI only (§4).
+
+## 3. Limits that remain
+
+- F1 protects a collection's texts for languages the target already has; a language the import adds receives the pack's texts even if the target's hero was saved.
+- A category's texts and slugs are judged by the category's version; a category the staff created and never edited has an author and is therefore never treated as a seed.
+- Where the target's staff renamed the category, the pack's slug history for it is only added when it does not make a second current slug; the old slugs of the pack are carried as history.
+- `promotion` keys (`content.promotion.<id>.*`) are not re-pointed: the finding names four entities, and a pack offer mapped to the target's own offer is deliberately left out (C1), so its texts must not be written onto it. OC to decide if offers' texts need the same treatment.
+- Production was not touched: `PRODUCTION_VERIFICATION = NOT_RUN`.
+
+## 4. CI and PR size
+
+- **CI on `d29dca3`:** https://github.com/emLamHD/The_BHA_hotels_Booking/actions/runs/42190544286 — Backend pass (unit 676, integration 1343 on PostgreSQL 18.3, 20 m 37 s; all 46 content-pack tests ran there), Admin pass, Frontend pass. CI's PostgreSQL is the `postgres:18.3` service container (UTC by default); the local run used PostgreSQL 17.10 with `timezone = UTC`. The runs on `e39557e` were superseded by the correction and are not cited.
+- **PR size from GitHub:** +9009 −16 in 117 files (C3 head: +8,616 / −16 in 115 files); the C4 growth is the 6 tests, the report, and ~60 lines of importer.
