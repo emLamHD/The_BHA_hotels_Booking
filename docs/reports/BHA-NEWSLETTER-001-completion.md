@@ -58,3 +58,12 @@ An earlier acceptance run was 22/23: the one miss was my script expecting a fixe
 ## PR size
 
 See the PR: it is far above the 100–400-line target because it carries one new migration with its `Designer.cs` and the model-snapshot change, the three-language texts, a backend integration suite (27 cases) and two UI test files; the hand-written product code is a small fraction of it.
+
+## Correction BHA-NEWSLETTER-001-C1 — Codex P2 (field edited while a request is pending)
+
+- **Finding:** `HomeNewsletter.tsx` — the button was disabled while sending but the field stayed editable, so the `202` for the address that was sent emptied a newer value and showed "recorded" for an address never sent.
+- **Fix:** `readOnly={sending}` on the input (the existing `sending` state; no new state). `202` reopens the field, empties it and shows the received notice; a failure or refusal reopens it with the address kept. Only `HomeNewsletter.tsx` and a new test changed; no API, schema or dependency change.
+- **Test:** `Front_End/Customer_Web/src/app/(home)/HomeNewsletter.test.ts` (2 cases). Customer_Web has no DOM library, so the component function is driven with a minimal `useState`/`useRef` stand-in and a deferred `submitNewsletterEmail`. It reads the field's `readOnly` and the button's `disabled` while pending, then after a `202` and after a failure (and a retry).
+- **Before the fix** (new test on the unfixed component, `CORRECTION_START_HEAD` `3c17b52`): 2 failed — `readOnly` was `undefined` while pending. **After:** 2 passed.
+- **Full Customer_Web run after the fix:** `vitest` 1633 passed (1631 + 2), `tsc --noEmit` exit 0, `next lint` no warnings. `next build` was not re-run for this correction.
+- **Browser (Chrome, `next dev`, stub API over HTTPS with a 4 s answer, leaf signed by the local CA):** while pending, real typing into the field left the value unchanged, `readOnly` true, button disabled; after the `202` the field was empty and editable again and typing worked. For a stub `500`, the address was kept, the field reopened and focused, the alert shown, and an edit was accepted. The stub received exactly the two submitted addresses. Not the real API/PostgreSQL stack — the send/answer logic is unchanged from the earlier 24/24 run.
