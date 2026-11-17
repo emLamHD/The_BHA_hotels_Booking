@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import React, { FC, useEffect, useRef, useState } from "react";
 import { confirmNewsletter, type NewsletterConfirmResult } from "@/lib/newsletterApi";
 import { confirmUrlWithoutFragment, NEWSLETTER_CONFIRM, parseConfirmFragment } from "@/lib/newsletterUi";
@@ -23,17 +24,23 @@ const RESULT_MESSAGE: Record<NewsletterConfirmResult["kind"], string> = {
  */
 const ConfirmNewsletter: FC = () => {
   const t = useT();
+  const router = useRouter();
   const [phase, setPhase] = useState<Phase>("ready");
   const token = useRef<string | null>(null);
   const inFlight = useRef(false);
+  const started = useRef(false);
 
   useEffect(() => {
+    // Once: the fragment is gone after the first run, so a second run (the router changing identity) must not read "no token" over the real one.
+    if (started.current) return;
+    started.current = true;
     token.current = parseConfirmFragment(window.location.hash);
     if (token.current === null) setPhase("missing");
-    // Keep the secret out of the address bar, history and any later copy of the URL. The entry keeps its current state (the App Router's own
-    // routing data), so Back from the next page still restores this one; the query, if any, stays.
-    window.history.replaceState(window.history.state, "", confirmUrlWithoutFragment(window.location.pathname, window.location.search));
-  }, []);
+    // Keep the secret out of the address bar, history and any later copy of the URL. The replacement goes THROUGH the App Router: it holds its own
+    // copy of the address (fragment included) and writes it back on every refresh (a language or currency switch), so changing only the
+    // browser's entry would bring the token back. The query, if any, stays; the entry keeps the router's state, so Back still restores the page.
+    router.replace(confirmUrlWithoutFragment(window.location.pathname, window.location.search) as never);
+  }, [router]);
 
   const confirm = async () => {
     if (inFlight.current || token.current === null) return;

@@ -72,8 +72,8 @@ export function parseConfirmFragment(hash: string): string | null {
 
 /**
  * The address of the confirmation page without its fragment: same path, same query (if any). The page removes the token with
- * `history.replaceState(history.state, "", this)`: the CURRENT history state is kept, because the App Router stores its routing data
- * there and ignores a Back to an entry without it (the address would change and the page would not).
+ * `router.replace(this)` of the App Router, not a bare `history.replaceState`: the router keeps its own copy of the address (fragment
+ * included) and writes it back on every `router.refresh()`, and it ignores a Back to a history entry without its routing state.
  */
 export function confirmUrlWithoutFragment(pathname: string, search: string): string {
   return pathname + search;
