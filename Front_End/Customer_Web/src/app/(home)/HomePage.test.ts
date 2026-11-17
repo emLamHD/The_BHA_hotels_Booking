@@ -152,7 +152,7 @@ describe("the home page is the booking portal", () => {
   });
 
   it("does not claim the pictures show the rooms, and carries the newsletter form with the purpose of the e-mail next to the button", () => {
-    expect(home).toContain("Chúng tôi dùng email của bạn để gửi ưu đãi và tin mới từ The BHA.");
+    expect(home).toContain("Khi bạn gửi biểu mẫu này, The BHA lưu email của bạn để ghi nhận yêu cầu nhận tin và ưu đãi.");
     expect(home).not.toContain("Bản demo");
     expect(home).not.toContain("thành công");
     expect(home).not.toMatch(/name="newsletter/);

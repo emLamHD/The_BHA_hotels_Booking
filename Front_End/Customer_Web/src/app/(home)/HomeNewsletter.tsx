@@ -4,7 +4,8 @@ import React, { FC, FormEvent, useEffect, useRef, useState } from "react";
 import { ArrowRightIcon, EnvelopeIcon } from "@heroicons/react/24/solid";
 import {
   NEWSLETTER_BENEFIT,
-  NEWSLETTER_DISCLOSURE,
+  NEWSLETTER_STORAGE_NOTICE,
+  NEWSLETTER_SUBSCRIBE_LABEL,
   NEWSLETTER_HEADING,
   NEWSLETTER_RECEIVED_MESSAGE,
   NEWSLETTER_SENDING_MESSAGE,
@@ -22,6 +23,7 @@ type Feedback = { kind: "error" | "notice"; message: string; id: number } | null
  * button is disabled, so a double click sends once, and the input is read-only, so the answer to the address that was sent can
  * never clear a newer one typed meanwhile. The input has no `name` and the form no action, so a submit before
  * the page is interactive carries no address in a URL. The purpose of the e-mail is visible next to the button.
+ * Its two non-obvious texts have their own keys (see `newsletterUi.ts`), so they read correctly on a site that installed an older pack.
  */
 const HomeNewsletter: FC = () => {
   const t = useT();
@@ -106,13 +108,13 @@ const HomeNewsletter: FC = () => {
                 type="submit"
                 disabled={sending}
                 aria-busy={sending || undefined}
-                aria-label={t("customer.home.homeNewsletter.subscribeDemoYourEmailIs")}
+                aria-label={t(NEWSLETTER_SUBSCRIBE_LABEL)}
                 className="inline-flex h-12 flex-shrink-0 items-center justify-center gap-2 rounded-full bg-primary-6000 px-6 text-sm font-semibold text-white transition-colors hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2"
               >{t("customer.home.homeNewsletter.subscribe")}<ArrowRightIcon className="h-4 w-4" aria-hidden="true" />
               </button>
             </div>
             <p id="newsletter-disclosure" className="text-xs text-neutral-700 dark:text-neutral-300">
-              {t(NEWSLETTER_DISCLOSURE)}
+              {t(NEWSLETTER_STORAGE_NOTICE)}
             </p>
           </form>
           <div aria-live="polite" className="min-h-[1.5rem]">

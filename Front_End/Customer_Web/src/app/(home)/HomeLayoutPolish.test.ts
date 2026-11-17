@@ -45,7 +45,7 @@ describe("newsletter", () => {
     expect(newsletter).toContain('for="newsletter-email"');
     expect(newsletter).toContain('id="newsletter-disclosure"');
     expect(newsletter).toMatch(/<button type="submit" aria-label="Đăng ký nhận ưu đãi từ The BHA"[^>]*>Đăng ký</);
-    expect(newsletter).toMatch(/id="newsletter-disclosure"[^>]*>Chúng tôi dùng email của bạn để gửi ưu đãi/);
+    expect(newsletter).toMatch(/id="newsletter-disclosure"[^>]*>Khi bạn gửi biểu mẫu này, The BHA lưu email của bạn/);
   });
 
   it("sends nothing before the page is interactive: no form action, no field name", () => {

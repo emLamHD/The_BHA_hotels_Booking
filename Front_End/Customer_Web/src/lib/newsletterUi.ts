@@ -7,7 +7,14 @@
 /** Pack message KEYS: the form translates them when it renders. */
 export const NEWSLETTER_HEADING = "customer.newsletter.heading";
 export const NEWSLETTER_BENEFIT = "customer.newsletter.benefit";
-export const NEWSLETTER_DISCLOSURE = "customer.newsletter.disclosure";
+/**
+ * C3: new keys, not the preview's `customer.newsletter.disclosure` / `customer.home.homeNewsletter.subscribeDemoYourEmailIs`.
+ * A site whose built-in pack was installed before this form stored anything holds the old demo texts in `WebsiteTranslations`
+ * (not manual) and the public dictionary prefers stored rows over the embedded pack, so reusing the old keys would keep saying
+ * "not stored". The old keys stay in the packs for a preview front end served by the same API.
+ */
+export const NEWSLETTER_STORAGE_NOTICE = "customer.newsletter.storageNotice";
+export const NEWSLETTER_SUBSCRIBE_LABEL = "customer.newsletter.subscribeLabel";
 export const NEWSLETTER_RECEIVED_MESSAGE = "customer.newsletter.received";
 export const NEWSLETTER_SENDING_MESSAGE = "customer.newsletter.sending";
 export const NEWSLETTER_FAILED_MESSAGE = "customer.newsletter.failed";

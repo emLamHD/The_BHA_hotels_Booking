@@ -4878,6 +4878,11 @@
    "placeholders": []
   },
   {
+   "key": "customer.newsletter.notStored",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.newsletter.received",
    "scope": "customer",
    "placeholders": []
@@ -4899,6 +4904,16 @@
   },
   {
    "key": "customer.newsletter.required",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.storageNotice",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.subscribeLabel",
    "scope": "customer",
    "placeholders": []
   },

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import React, { isValidElement, type ReactElement } from "react";
 import HomeNewsletter from "./HomeNewsletter";
 import { submitNewsletterEmail, type NewsletterSubmitResult } from "@/lib/newsletterApi";
-import { NEWSLETTER_FAILED_MESSAGE, NEWSLETTER_RECEIVED_MESSAGE } from "@/lib/newsletterUi";
+import { NEWSLETTER_FAILED_MESSAGE, NEWSLETTER_RECEIVED_MESSAGE, NEWSLETTER_STORAGE_NOTICE, NEWSLETTER_SUBSCRIBE_LABEL } from "@/lib/newsletterUi";
 
 /**
  * BHA-NEWSLETTER-001-C1: while a request is on its way the e-mail field cannot be edited, so the answer to the
@@ -105,5 +105,17 @@ describe("HomeNewsletter while a request is pending", () => {
     view = render();
     expect(field.value).toBe("");
     expect(view.input.readOnly).toBe(false);
+  });
+});
+
+describe("HomeNewsletter texts (BHA-NEWSLETTER-001-C3)", () => {
+  it("reads the storage notice and the button's accessible name from their own keys, never from the preview's keys", () => {
+    // `useT` is the identity here, so what the form renders is the key it asked for.
+    const view = render();
+    expect(view.button["aria-label"]).toBe(NEWSLETTER_SUBSCRIBE_LABEL);
+    expect(find(tree, (props) => props.id === "newsletter-disclosure")?.props).toMatchObject({ children: NEWSLETTER_STORAGE_NOTICE });
+    const asked = JSON.stringify([view.button["aria-label"], (find(tree, (props) => props.id === "newsletter-disclosure")?.props as Props).children]);
+    expect(asked).not.toContain("customer.newsletter.disclosure");
+    expect(asked).not.toContain("subscribeDemoYourEmailIs");
   });
 });
