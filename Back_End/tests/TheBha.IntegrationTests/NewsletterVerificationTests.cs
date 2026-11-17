@@ -1359,6 +1359,40 @@ public sealed class NewsletterVerificationTests(PostgreSqlWebApplicationFactory 
         await AssertReplacementKeepsItsCooldownAsync(e, replacementAt, replacementSent ? "Sent" : "Pending");
     }
 
+    /// <summary>
+    /// The case that must still release: A owns the cooldown and nothing replaced it. NOT a reproduction (old code passes it): a guard that the
+    /// conditional release still fires. The default test clock is NOT rounded to whole seconds, so it also shows that the stamp and the request's
+    /// creation time stay equal with sub-microsecond ticks through PostgreSQL.
+    /// </summary>
+    [Theory]
+    [InlineData("token-unavailable")]
+    [InlineData("sender-changed")]
+    public async Task A_worker_cancelling_a_request_nothing_replaced_frees_its_cooldown_at_once(string cause)
+    {
+        using var e = await BeginAsync();
+        await ConnectAsync(e);
+        await SubscribeOkAsync(e);
+        if (cause == "token-unavailable")
+        {
+            await ScalarAsync<int>("""UPDATE "NewsletterVerificationRequests" SET "Status" = 'Sending', "LeaseUntilUtc" = now() - interval '1 hour', "Attempts" = 1, "ProtectedToken" = 'not-a-protected-payload' RETURNING 1""");
+        }
+        else
+        {
+            e.Google.SendThrows = true;
+            await DispatchAsync(e.Host);
+            e.Google.SendThrows = false;
+            await ScalarAsync<int>("""UPDATE "NewsletterSenderSettings" SET "SenderGeneration" = 1 RETURNING 1""");
+            Factory.Clock.UtcNow += TimeSpan.FromSeconds(120);
+        }
+
+        await DispatchAsync(e.Host);                                                             // nothing parked: A is cancelled and its cooldown freed
+
+        Assert.Equal("Cancelled", await RequestStatusAsync());
+        Assert.Equal(0, await CooldownsHeldAsync());
+        await SubscribeOkAsync(e);                                                               // the same address asks again at once
+        Assert.Equal(2, await RequestsAsync());
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -1373,7 +1407,9 @@ public sealed class NewsletterVerificationTests(PostgreSqlWebApplicationFactory 
         e.Google.SendThrows = false;
         await ScalarAsync<int>("""UPDATE "NewsletterVerificationRequests" SET "Status" = 'Sending', "LeaseUntilUtc" = now() + interval '1 hour' RETURNING 1""");   // a worker holds A right now
 
-        // The new account's connection is parked before it has locked anything; B is queued and committed first.
+        // The new account's connection is parked at its write of the sender row, BEFORE it looks up and locks the affected subscriptions (those two are
+        // raw commands the gate cannot see). B is queued and committed first; B has no pinned generation, so it is never withdrawn, and the release
+        // keys only on the requests that were: the outcome is the same as with B arriving between the lookup and the lock.
         e.Google.Email = "new@gmail.test";
         var (_, state) = await BeginConnectAsync(e, switchAccount: true);
         var writing = _gate.Arm(sql => sql.StartsWith("UPDATE \"NewsletterSenderSettings\"", StringComparison.Ordinal));
