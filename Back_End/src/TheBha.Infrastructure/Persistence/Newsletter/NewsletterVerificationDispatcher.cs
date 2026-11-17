@@ -203,11 +203,19 @@ internal sealed class NewsletterVerificationDispatcher(
         var finished = await Owned(held)
             .ExecuteUpdateAsync(set => set.SetProperty(r => r.Status, status).SetProperty(r => r.LastOutcome, outcome).SetProperty(r => r.SentAtUtc, sentAt)
                 .SetProperty(r => r.LeaseUntilUtc, (DateTimeOffset?)null).SetProperty(r => r.ClaimId, (Guid?)null).SetProperty(r => r.ProtectedToken, (string?)null), cancellationToken);
-        // The two statements are separate on purpose: no lock is held across them, so this path cannot take part in a lock cycle.
+        // The cooldown is freed only if THIS request still owns it: SubscribeAsync stamps the cooldown with the creation time of the request it queues,
+        // so the stamp equals this request's CreatedAtUtc exactly while it is the newest one. A replacement queued meanwhile has stamped its own time
+        // and keeps it. One statement decides and writes (no lock is held between this and the cancellation above, so it cannot join a lock cycle).
         if (finished == 1 && releaseCooldown)
         {
-            await database.NewsletterSubscriptions.Where(s => s.Id == held.SubscriptionId && s.Status == NewsletterSubscription.StatusPendingVerification)
-                .ExecuteUpdateAsync(set => set.SetProperty(s => s.LastVerificationRequestedAtUtc, (DateTimeOffset?)null), cancellationToken);
+            await database.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                UPDATE "NewsletterSubscriptions" AS s SET "LastVerificationRequestedAtUtc" = NULL
+                FROM "NewsletterVerificationRequests" AS r
+                WHERE r."Id" = {held.Id} AND s."Id" = r."SubscriptionId" AND s."Status" = 'PendingVerification'
+                  AND s."LastVerificationRequestedAtUtc" = r."CreatedAtUtc"
+                """,
+                cancellationToken);
         }
     }
 

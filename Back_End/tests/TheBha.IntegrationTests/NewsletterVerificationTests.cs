@@ -1297,6 +1297,100 @@ public sealed class NewsletterVerificationTests(PostgreSqlWebApplicationFactory 
             Assert.Equal("Profile Name", await ScalarAsync<string>("""SELECT "SenderName" FROM "NewsletterSenderSettings" """));   // a profile that won is kept by the connection
     }
 
+    // ---------------------------------------------------------------------------------------------------------------- C3
+
+    // ---- C3: cancelling an old request frees the cooldown only if THAT request still owns it (the stamp equals its own creation time)
+
+    private async Task<int> CooldownsHeldAsync() =>
+        await ScalarAsync<int>("""SELECT count(*) FROM "NewsletterSubscriptions" WHERE "LastVerificationRequestedAtUtc" IS NOT NULL """);
+
+    /// <summary>The cooldown must still be the replacement's: untouched, an immediate resend queues nothing, and after the cooldown a resend works.</summary>
+    private async Task AssertReplacementKeepsItsCooldownAsync(Env e, DateTimeOffset replacementAt, string replacementStatus)
+    {
+        Assert.Equal(1, await CooldownsHeldAsync());
+        Assert.Equal(replacementAt.UtcDateTime, await ScalarAsync<DateTime>("""SELECT "LastVerificationRequestedAtUtc" FROM "NewsletterSubscriptions" """));
+        Assert.Equal(2, await RequestsAsync());                                                  // the cancelled one and its replacement
+        Assert.Equal(replacementStatus, await RequestStatusAsync());
+        await SubscribeOkAsync(e);                                                               // asked again at once: the cooldown still holds
+        Assert.Equal(2, await RequestsAsync());
+        Factory.Clock.UtcNow += TimeSpan.FromSeconds(301);
+        await SubscribeOkAsync(e);                                                               // and when it has run out, a resend works as usual
+        Assert.Equal(3, await RequestsAsync());
+    }
+
+    [Theory]
+    [InlineData("token-unavailable", false)]
+    [InlineData("token-unavailable", true)]
+    [InlineData("sender-changed", false)]
+    [InlineData("sender-changed", true)]
+    public async Task A_worker_cancelling_an_old_request_leaves_the_cooldown_of_its_replacement(string cause, bool replacementSent)
+    {
+        using var e = await BeginAsync();
+        Factory.Clock.UtcNow = DateTimeOffset.FromUnixTimeSeconds(Factory.Clock.UtcNow.ToUnixTimeSeconds());   // whole seconds: PostgreSQL keeps microseconds
+        await ConnectAsync(e);
+        await SubscribeOkAsync(e);                                                               // request A, which owns the cooldown
+        if (cause == "token-unavailable")
+        {
+            await ScalarAsync<int>("""UPDATE "NewsletterVerificationRequests" SET "Status" = 'Sending', "LeaseUntilUtc" = now() - interval '1 hour', "Attempts" = 1, "ProtectedToken" = 'not-a-protected-payload' RETURNING 1""");
+        }
+        else
+        {
+            e.Google.SendThrows = true;
+            await DispatchAsync(e.Host);                                                         // A was tried under generation 0 and waits
+            e.Google.SendThrows = false;
+            await ScalarAsync<int>("""UPDATE "NewsletterSenderSettings" SET "SenderGeneration" = 1 RETURNING 1""");
+            Factory.Clock.UtcNow += TimeSpan.FromSeconds(120);                                   // A is due again
+        }
+
+        // The worker has cancelled A and is parked just before it frees the cooldown.
+        var releasing = _gate.Arm(sql => sql.StartsWith("UPDATE \"NewsletterSubscriptions\"", StringComparison.Ordinal) && sql.Contains("\"LastVerificationRequestedAtUtc\" = NULL", StringComparison.Ordinal));
+        var worker = DispatchAsync(e.Host);
+        await releasing.Arrived.WaitAsync(Patience);
+        Assert.Equal("Cancelled", await RequestStatusAsync());
+
+        // A's cooldown has run out; the address asks again and request B is queued and committed.
+        Factory.Clock.UtcNow += TimeSpan.FromSeconds(400);
+        var replacementAt = Factory.Clock.UtcNow;
+        await SubscribeOkAsync(e);
+        if (!replacementSent) await ScalarAsync<int>("""UPDATE "NewsletterVerificationRequests" SET "NextAttemptAtUtc" = now() + interval '1 day' WHERE "Status" = 'Pending' RETURNING 1""");
+        releasing.Release();
+        await worker.WaitAsync(Patience);
+
+        await AssertReplacementKeepsItsCooldownAsync(e, replacementAt, replacementSent ? "Sent" : "Pending");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_change_of_sender_that_withdraws_an_old_request_leaves_the_cooldown_of_its_replacement(bool replacementSent)
+    {
+        using var e = await BeginAsync();
+        Factory.Clock.UtcNow = DateTimeOffset.FromUnixTimeSeconds(Factory.Clock.UtcNow.ToUnixTimeSeconds());
+        await ConnectAsync(e, "old@gmail.test");
+        e.Google.SendThrows = true;
+        await SubscribeOkAsync(e);
+        await DispatchAsync(e.Host);                                                             // request A: tried under the old account
+        e.Google.SendThrows = false;
+        await ScalarAsync<int>("""UPDATE "NewsletterVerificationRequests" SET "Status" = 'Sending', "LeaseUntilUtc" = now() + interval '1 hour' RETURNING 1""");   // a worker holds A right now
+
+        // The new account's connection is parked before it has locked anything; B is queued and committed first.
+        e.Google.Email = "new@gmail.test";
+        var (_, state) = await BeginConnectAsync(e, switchAccount: true);
+        var writing = _gate.Arm(sql => sql.StartsWith("UPDATE \"NewsletterSenderSettings\"", StringComparison.Ordinal));
+        var connect = CompleteAsync(e, state: state);
+        await writing.Arrived.WaitAsync(Patience);
+        Factory.Clock.UtcNow += TimeSpan.FromSeconds(400);
+        var replacementAt = Factory.Clock.UtcNow;
+        await SubscribeOkAsync(e);
+        if (!replacementSent) await ScalarAsync<int>("""UPDATE "NewsletterVerificationRequests" SET "NextAttemptAtUtc" = now() + interval '1 day' WHERE "Status" = 'Pending' RETURNING 1""");
+        writing.Release();
+        Assert.Equal(HttpStatusCode.OK, (await connect.WaitAsync(Patience)).StatusCode);
+        if (replacementSent) Assert.Equal(1, await DispatchAsync(e.Host));
+
+        Assert.Equal(1, await ScalarAsync<int>("""SELECT count(*) FROM "NewsletterVerificationRequests" WHERE "Status" = 'Cancelled' AND "LastOutcome" = 'sender-changed' """));
+        await AssertReplacementKeepsItsCooldownAsync(e, replacementAt, replacementSent ? "Sent" : "Pending");
+    }
+
     // ---------------------------------------------------------------------------------------------------------------- who may do what
 
     [Fact]

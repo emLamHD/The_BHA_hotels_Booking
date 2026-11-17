@@ -170,15 +170,27 @@ internal sealed class NewsletterSenderService(
                 await NewsletterSql.ReturningIdsAsync(database,
                     """SELECT "Id" FROM "NewsletterSubscriptions" WHERE "Id" = ANY(@ids) ORDER BY "Id" FOR UPDATE""",
                     [("ids", ids)], cancellationToken);
-                await NewsletterSql.ReturningIdsAsync(database,
+                var withdrawn = await NewsletterSql.ReturningIdsAsync(database,
                     """
                     UPDATE "NewsletterVerificationRequests" SET "Status" = 'Cancelled', "LastOutcome" = 'sender-changed', "ProtectedToken" = NULL, "LeaseUntilUtc" = NULL, "ClaimId" = NULL
                     WHERE "Status" IN ('Pending', 'Sending') AND "SenderGeneration" IS NOT NULL AND "SenderGeneration" < @generation AND "SubscriptionId" = ANY(@ids)
                     RETURNING "Id"
                     """,
                     [("generation", row.SenderGeneration), ("ids", ids)], cancellationToken);
-                await database.NewsletterSubscriptions.Where(s => ids.Contains(s.Id) && s.Status == NewsletterSubscription.StatusPendingVerification)
-                    .ExecuteUpdateAsync(set => set.SetProperty(s => s.LastVerificationRequestedAtUtc, (DateTimeOffset?)null), cancellationToken);
+                // The address may ask again at once, but only where a WITHDRAWN request still owns the cooldown (the stamp is its own creation time). A request
+                // queued after the affected addresses were looked up carries its own stamp, and is not a withdrawn one: its cooldown stays. The subscriptions
+                // are locked by this transaction, so the check and the write are one step.
+                if (withdrawn.Count > 0)
+                {
+                    await database.Database.ExecuteSqlInterpolatedAsync(
+                        $"""
+                        UPDATE "NewsletterSubscriptions" AS s SET "LastVerificationRequestedAtUtc" = NULL
+                        FROM "NewsletterVerificationRequests" AS r
+                        WHERE r."Id" = ANY({withdrawn.ToArray()}) AND s."Id" = r."SubscriptionId" AND s."Status" = 'PendingVerification'
+                          AND s."LastVerificationRequestedAtUtc" = r."CreatedAtUtc"
+                        """,
+                        cancellationToken);
+                }
             }
         }
 

@@ -91,3 +91,24 @@ Không đổi schema: tái sử dụng `ClaimId` và `ConnectionEpoch` của mig
 **Ghi chú môi trường khi nghiệm thu Chrome:** server dev hiện chữ thô `customer.newsletter.confirm.*` (và cả `customer.home.*`) vì DB demo chạy lúc đó chưa có bản dịch website nạp vào; đó là môi trường nghiệm thu (DB demo chưa nạp bản dịch), chưa tìm nguyên nhân chính xác vì không liên quan đến sửa đổi này; hành vi Back/POST không phụ thuộc vào chữ hiển thị. Điều hướng đổi mỗi fragment trong cùng một tài liệu (đã mở sẵn trang xác nhận rồi dán link mới) không mount lại component nên fragment vẫn còn trên thanh địa chỉ; không thuộc finding, hành vi này có từ trước, link mở từ email luôn là lần tải mới.
 
 **Hai điểm còn mở từ C1 vẫn giữ nguyên, chưa sửa, để Owner quyết định phát hành:** (1) `WebsiteSettingsManage` dùng chung cho danh sách subscriber và cấu hình sender; (2) log `next dev` ghi `code`/`state` của callback OAuth (chưa kiểm production Admin). Chi tiết ở mục C1. OAuth/Gmail thật vẫn cần Owner nghiệm thu sau khi cấu hình Google Cloud.
+
+## C3 — hủy request cũ chỉ được nhả cooldown của chính nó (`BHA-NEWSLETTER-002-C3`, Codex review đợt 3)
+
+**Cách xác định request sở hữu cooldown:** `SubscribeAsync` đặt `LastVerificationRequestedAtUtc` bằng đúng biến `now` mà nó gán cho `CreatedAtUtc` của request nó xếp hàng, trong cùng một transaction. Vì vậy một request **sở hữu** cooldown của subscription khi và chỉ khi `subscription.LastVerificationRequestedAtUtc = request.CreatedAtUtc`. Một request thay thế (B) luôn mang mốc thời gian của riêng nó, nên không bao giờ trùng mốc của request cũ (A). Không cần cột mới, không có migration: dữ liệu đã có đủ. Trên DB demo (đã áp migration 23, tạo bằng mã trước C3) request duy nhất thỏa quy tắc (`CreatedAtUtc = LastVerificationRequestedAtUtc`, 1/1).
+
+| Đường | Lỗi | Sửa |
+|---|---|---|
+| `FinishAsync` (worker hủy A vì token không đọc được hoặc sender đã đổi) | Hai câu ghi riêng: hủy A, rồi `UPDATE … SET cooldown = NULL WHERE subscription` vô điều kiện ⇒ nếu B được tạo giữa hai câu (cooldown của A đã hết), cooldown mới của B bị xóa | Câu nhả là một `UPDATE … FROM "NewsletterVerificationRequests" r WHERE r."Id" = <A> AND s."LastVerificationRequestedAtUtc" = r."CreatedAtUtc"`: kiểm và ghi nguyên tử tại DB. Vẫn chỉ chạy khi câu hủy có `ClaimId` khớp trả về đúng 1 dòng (worker mất claim không nhả gì) |
+| `CompleteConnectAsync` (đổi Gmail thu hồi request) | Câu nhả áp cho **mọi subscription** bị ảnh hưởng, kể cả khi request B xuất hiện sau bước tìm subscription (B không phải request bị thu hồi nhưng cooldown của nó vẫn bị xóa) | Câu thu hồi trả về id các request **thực sự** bị thu hồi; câu nhả chỉ áp cho chúng và chỉ khi mốc cooldown = `CreatedAtUtc` của chính chúng. Các subscription đã bị khóa (subscription trước, request sau như C1/C2) nên kiểm và ghi là một bước |
+
+**Bằng chứng (PostgreSQL thật, hai phiên riêng, đồng hồ điều khiển được, cổng chặn SQL). Trước khi sửa: 6/6 ca fail cùng một chỗ — số cooldown còn giữ là 0, mong 1 (cooldown của B bị xóa).** Sau khi sửa, cả 6 ca pass và cùng cho các số liệu sau trong DB:
+- 1 subscription giữ cooldown, đúng bằng thời điểm tạo B (không đổi);
+- 2 request: A `Cancelled` (`token-unavailable` hoặc `sender-changed`) và B (`Pending`, hoặc `Sent`);
+- đăng ký lại ngay lập tức: **vẫn 2 request** (không có request C);
+- sau 301 giây: gửi lại hoạt động bình thường, **3 request**.
+
+Ca được kiểm: dispatcher hủy A vì `token-unavailable` và vì `sender-changed` (B tạo và commit giữa hai bước, sau khi cooldown A đã hết) × B đang chờ / B đã gửi xong (4 ca); đường đổi Gmail (B tạo và commit trước khi cleanup lấy khóa subscription, A đang do worker giữ) × B đang chờ / B đã gửi xong (2 ca). Trường hợp hợp lệ vẫn nhả: test sẵn có `A_request_whose_own_token_is_spent_or_unreadable_…` (token không đọc được: cooldown được nhả) và `A_mail_already_tried_is_not_silently_sent_from_a_new_account_and_its_address_may_ask_again_at_once` (đổi Gmail khi chưa có request thay thế: đăng ký lại ngay) vẫn pass.
+
+**Kiểm chứng C3:** toàn bộ test Newsletter 95/95 (89 + 6 ca C3); 27 test đồng thời C1 + C2 + C3 chạy lặp 3 lần đều 27/27; backend unit 676/676. Không đổi schema nên không có kiểm tra nâng cấp DB; DB demo vẫn ở migration 23.
+
+**Giới hạn và điểm còn mở không đổi:** quyền `WebsiteSettingsManage` dùng chung cho danh sách subscriber và cấu hình sender; log `next dev` ghi `code`/`state` của callback OAuth (chưa kiểm production Admin); Google/Gmail thật chưa được dùng, cần Owner nghiệm thu sau khi cấu hình Google Cloud. Chi tiết ở mục C1.
