@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import React, { isValidElement, type ReactElement } from "react";
 import HomeNewsletter from "./HomeNewsletter";
 import { submitNewsletterEmail, type NewsletterSubmitResult } from "@/lib/newsletterApi";
-import { NEWSLETTER_FAILED_MESSAGE, NEWSLETTER_RECEIVED_MESSAGE, NEWSLETTER_STORAGE_NOTICE, NEWSLETTER_SUBSCRIBE_LABEL } from "@/lib/newsletterUi";
+import { NEWSLETTER_FAILED_MESSAGE, NEWSLETTER_RECEIVED_CONFIRM_MESSAGE, NEWSLETTER_RECEIVED_MESSAGE, NEWSLETTER_STORAGE_NOTICE, NEWSLETTER_SUBSCRIBE_LABEL } from "@/lib/newsletterUi";
 
 /**
  * BHA-NEWSLETTER-001-C1: while a request is on its way the e-mail field cannot be edited, so the answer to the
@@ -26,7 +26,7 @@ vi.mock("react", async (importOriginal) => {
   const useEffect = () => undefined;
   return { ...actual, default: { ...actual, useState, useRef, useEffect }, useState, useRef, useEffect };
 });
-vi.mock("@/lib/i18n/I18nProvider", () => ({ useT: () => (key: string) => key }));
+vi.mock("@/lib/i18n/I18nProvider", () => ({ useT: () => (key: string) => key, useI18n: () => ({ locale: "vi" }) }));
 vi.mock("@/lib/newsletterApi", () => ({ submitNewsletterEmail: vi.fn() }));
 
 type Props = Record<string, unknown>;
@@ -76,7 +76,7 @@ describe("HomeNewsletter while a request is pending", () => {
     expect(view.input.readOnly).toBe(true);
     expect(view.button.disabled).toBe(true);
 
-    answer({ kind: "received" });
+    answer({ kind: "received", confirmation: "none" });
     await settle();
     view = render();
     expect(field.value).toBe("");
@@ -100,11 +100,22 @@ describe("HomeNewsletter while a request is pending", () => {
     const retry = await submitPending();
     expect(submitNewsletterEmail).toHaveBeenCalledTimes(2);
     expect(render().input.readOnly).toBe(true);
-    retry({ kind: "received" });
+    retry({ kind: "received", confirmation: "none" });
     await settle();
     view = render();
     expect(field.value).toBe("");
     expect(view.input.readOnly).toBe(false);
+  });
+});
+
+describe("HomeNewsletter confirmation mail (BHA-NEWSLETTER-002)", () => {
+  it("sends the visitor's language and says to check the mailbox only when the site sends a confirmation mail", async () => {
+    const answer = await submitPending();
+    expect(vi.mocked(submitNewsletterEmail).mock.calls[0][2]).toBe("vi");
+    answer({ kind: "received", confirmation: "email" });
+    await settle();
+    expect(render().feedback).toMatchObject({ role: "status", children: NEWSLETTER_RECEIVED_CONFIRM_MESSAGE });
+    expect(NEWSLETTER_RECEIVED_CONFIRM_MESSAGE).not.toBe(NEWSLETTER_RECEIVED_MESSAGE);   // a new key: an old install cannot override it
   });
 });
 

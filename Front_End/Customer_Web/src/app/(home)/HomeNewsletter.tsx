@@ -7,13 +7,14 @@ import {
   NEWSLETTER_STORAGE_NOTICE,
   NEWSLETTER_SUBSCRIBE_LABEL,
   NEWSLETTER_HEADING,
+  NEWSLETTER_RECEIVED_CONFIRM_MESSAGE,
   NEWSLETTER_RECEIVED_MESSAGE,
   NEWSLETTER_SENDING_MESSAGE,
   validateNewsletterEmail,
 } from "@/lib/newsletterUi";
 import { submitNewsletterEmail } from "@/lib/newsletterApi";
 
-import { useT } from "@/lib/i18n/I18nProvider";
+import { useI18n, useT } from "@/lib/i18n/I18nProvider";
 type Feedback = { kind: "error" | "notice"; message: string; id: number } | null;
 
 /**
@@ -27,6 +28,7 @@ type Feedback = { kind: "error" | "notice"; message: string; id: number } | null
  */
 const HomeNewsletter: FC = () => {
   const t = useT();
+  const { locale } = useI18n();
   const inputRef = useRef<HTMLInputElement>(null);
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [sending, setSending] = useState(false);
@@ -57,13 +59,13 @@ const HomeNewsletter: FC = () => {
     setSending(true);
     setFeedback({ kind: "notice", message: NEWSLETTER_SENDING_MESSAGE, id });
     controller.current = new AbortController();
-    const outcome = await submitNewsletterEmail(value.trim(), controller.current.signal);
+    const outcome = await submitNewsletterEmail(value.trim(), controller.current.signal, locale);
     inFlight.current = false;
     if (controller.current.signal.aborted) return;
     setSending(false);
     if (outcome.kind === "received") {
       if (field) field.value = "";
-      setFeedback({ kind: "notice", message: NEWSLETTER_RECEIVED_MESSAGE, id });
+      setFeedback({ kind: "notice", message: outcome.confirmation === "email" ? NEWSLETTER_RECEIVED_CONFIRM_MESSAGE : NEWSLETTER_RECEIVED_MESSAGE, id });
     } else {
       setFeedback({ kind: "error", message: outcome.message, id });
     }
