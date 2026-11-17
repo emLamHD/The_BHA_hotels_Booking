@@ -42,6 +42,20 @@ internal sealed class NewsletterVerificationDispatcher(
                 continue;
             }
 
+            // A request whose link was already used (the visitor confirmed while it was held by a worker that died) or whose token can
+            // no longer be read is finished HERE. It is never a sender problem: it must not flip the whole site to "connect again".
+            if (request.UsedAtUtc is not null)
+            {
+                await FinishAsync(request, NewsletterVerificationRequest.StatusCancelled, "verified", null, releaseCooldown: false, cancellationToken);
+                continue;
+            }
+
+            if (!protector.TryUnprotect(request.ProtectedToken, out var token))
+            {
+                await FinishAsync(request, NewsletterVerificationRequest.StatusCancelled, "token-unavailable", null, releaseCooldown: true, cancellationToken);
+                continue;
+            }
+
             if (request.SenderGeneration is null)
             {
                 request.SenderGeneration = settings.SenderGeneration;
@@ -52,8 +66,7 @@ internal sealed class NewsletterVerificationDispatcher(
             }
 
             if (!protector.TryUnprotect(settings.ProtectedRefreshToken, out var refreshToken) ||
-                !protector.TryUnprotect(settings.ProtectedClientSecret, out var clientSecret) ||
-                !protector.TryUnprotect(request.ProtectedToken, out var token))
+                !protector.TryUnprotect(settings.ProtectedClientSecret, out var clientSecret))
             {
                 // A secret that cannot be read (a lost key ring) is the connection's problem: reconnect, and this request waits.
                 await NeedsReconnectAsync(request, cancellationToken);

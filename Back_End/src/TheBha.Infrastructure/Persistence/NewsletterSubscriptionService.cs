@@ -95,11 +95,11 @@ internal sealed class NewsletterSubscriptionService(
                 WHERE "Id" = {subscriptionId} AND "Status" = 'PendingVerification'
                 """,
                 cancellationToken);
-            // Nothing left to ask this address: a mail that has not gone out yet is withdrawn.
+            // Nothing left to ask this address: a mail that has not gone out yet (or is held by a worker right now) is withdrawn.
             await database.Database.ExecuteSqlInterpolatedAsync(
                 $"""
-                UPDATE "NewsletterVerificationRequests" SET "Status" = 'Cancelled', "LastOutcome" = 'verified', "ProtectedToken" = NULL
-                WHERE "SubscriptionId" = {subscriptionId} AND "Status" = 'Pending'
+                UPDATE "NewsletterVerificationRequests" SET "Status" = 'Cancelled', "LastOutcome" = 'verified', "ProtectedToken" = NULL, "LeaseUntilUtc" = NULL
+                WHERE "SubscriptionId" = {subscriptionId} AND "Status" IN ('Pending', 'Sending')
                 """,
                 cancellationToken);
             outcome = NewsletterConfirmOutcome.Verified;

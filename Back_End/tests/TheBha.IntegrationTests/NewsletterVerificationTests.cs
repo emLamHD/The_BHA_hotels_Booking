@@ -717,6 +717,49 @@ public sealed class NewsletterVerificationTests(PostgreSqlWebApplicationFactory 
         Assert.Equal("Pending", await RequestStatusAsync());
     }
 
+    [Theory]
+    [InlineData("used")]
+    [InlineData("unreadable")]
+    public async Task A_request_whose_own_token_is_spent_or_unreadable_is_finished_and_never_disables_the_sender(string state)
+    {
+        using var e = await BeginAsync();
+        await ConnectAsync(e);
+        await SubscribeOkAsync(e);
+        // A worker took the request and died; the visitor confirmed meanwhile (token spent and cleared) — or the token cannot be read.
+        await ScalarAsync<int>(state == "used"
+            ? """UPDATE "NewsletterVerificationRequests" SET "Status" = 'Sending', "LeaseUntilUtc" = now() - interval '1 hour', "Attempts" = 1, "UsedAtUtc" = now(), "ProtectedToken" = NULL RETURNING 1"""
+            : """UPDATE "NewsletterVerificationRequests" SET "Status" = 'Sending', "LeaseUntilUtc" = now() - interval '1 hour', "Attempts" = 1, "ProtectedToken" = 'not-a-protected-payload' RETURNING 1""");
+
+        await DispatchAsync(e.Host);
+
+        Assert.Equal("Connected", (await SenderAsync(e)).GetProperty("status").GetString());
+        Assert.Empty(e.Google.Sends);
+        Assert.Equal("Cancelled", await RequestStatusAsync());
+        Assert.Equal(state == "used" ? "verified" : "token-unavailable", await ScalarAsync<string>("""SELECT "LastOutcome" FROM "NewsletterVerificationRequests" """));
+        // A mail for an address nobody confirmed can be asked for again at once; the other mails of the site still go out.
+        Assert.Equal(state == "used" ? 1 : 0, await ScalarAsync<int>($"""SELECT count(*) FROM "NewsletterSubscriptions" WHERE "Email" = '{Guest}' AND "LastVerificationRequestedAtUtc" IS NOT NULL """));
+        await SubscribeOkAsync(e, "next@example.com");
+        Assert.Equal(1, await DispatchAsync(e.Host));
+        Assert.Single(e.Google.Sends);
+    }
+
+    [Fact]
+    public async Task Confirming_withdraws_a_request_a_worker_is_holding()
+    {
+        using var e = await BeginAsync();
+        await ConnectAsync(e);
+        var token = await QueueAndSendAsync(e);
+        // The same address asked again and a worker holds the new request right now; the first link is confirmed.
+        Factory.Clock.UtcNow += TimeSpan.FromSeconds(400);
+        await SubscribeOkAsync(e);
+        await ScalarAsync<int>("""UPDATE "NewsletterVerificationRequests" SET "Status" = 'Sending', "LeaseUntilUtc" = now() + interval '1 hour', "Attempts" = 1 WHERE "Status" = 'Pending' RETURNING 1""");
+
+        await AssertStatusAsync(HttpStatusCode.OK, e.Client.SendAsync(Post(Confirmations, new { token }, origins: [CustomerOrigin])));
+
+        Assert.Equal(0, await ScalarAsync<int>("""SELECT count(*) FROM "NewsletterVerificationRequests" WHERE "Status" = 'Sending' """));
+        Assert.Equal(1, await ScalarAsync<int>("""SELECT count(*) FROM "NewsletterVerificationRequests" WHERE "Status" = 'Cancelled' AND "LastOutcome" = 'verified' """));
+    }
+
     [Fact]
     public async Task What_one_host_protected_a_restarted_host_can_use_with_the_same_key_ring()
     {
