@@ -40,7 +40,7 @@ public sealed class WebsiteNewsletterApiTests(PostgreSqlWebApplicationFactory fa
 
         var response = await AssertStatusAsync(HttpStatusCode.Accepted, client.SendAsync(Subscribe(new { email = "  Ten.Nguoi+BHA@Example.COM  " })));
 
-        Assert.Equal("{\"status\":\"received\"}", await response.Content.ReadAsStringAsync());
+        Assert.Equal("{\"status\":\"received\",\"confirmation\":\"none\"}", await response.Content.ReadAsStringAsync());
         Assert.Contains("no-store", response.Headers.CacheControl?.ToString());
         Assert.Equal(1, await RowsAsync());
         Assert.Equal("ten.nguoi+bha@example.com", await ScalarAsync<string>("""SELECT "Email" FROM "NewsletterSubscriptions" """));
@@ -84,7 +84,7 @@ public sealed class WebsiteNewsletterApiTests(PostgreSqlWebApplicationFactory fa
         var responses = await Task.WhenAll(spellings.Select(email => client.SendAsync(Subscribe(new { email }))));
 
         Assert.All(responses, response => Assert.Equal(HttpStatusCode.Accepted, response.StatusCode));
-        Assert.All(await Task.WhenAll(responses.Select(response => response.Content.ReadAsStringAsync())), body => Assert.Equal("{\"status\":\"received\"}", body));
+        Assert.All(await Task.WhenAll(responses.Select(response => response.Content.ReadAsStringAsync())), body => Assert.Equal("{\"status\":\"received\",\"confirmation\":\"none\"}", body));
         Assert.Equal(1, await RowsAsync());
     }
 
