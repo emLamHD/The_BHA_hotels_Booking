@@ -4883,7 +4883,37 @@
    "placeholders": []
   },
   {
+   "key": "customer.newsletter.received",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.sending",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.failed",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.tooMany",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.newsletter.required",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.storageNotice",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.subscribeLabel",
    "scope": "customer",
    "placeholders": []
   },

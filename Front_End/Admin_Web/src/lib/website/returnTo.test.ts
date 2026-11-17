@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_RETURN_TO, WEBSITE_PAGES, resolveReturnTo, signInUrlFor } from "./returnTo";
 
 describe("resolveReturnTo", () => {
-  it.each(["/calendar", "/website/languages", "/website/translations", "/website/currencies", "/website/menus", "/website/hero", "/website/social-media"])("accepts the allowed page %s", (page) => {
+  it.each(["/calendar", "/website/languages", "/website/translations", "/website/currencies", "/website/menus", "/website/hero", "/website/social-media", "/website/newsletter"])("accepts the allowed page %s", (page) => {
     expect(resolveReturnTo(page)).toBe(page);
   });
 
@@ -35,13 +35,14 @@ describe("resolveReturnTo", () => {
   });
 
   it("lists exactly the website settings pages", () => {
-    expect([...WEBSITE_PAGES]).toEqual(["/website/languages", "/website/translations", "/website/currencies", "/website/menus", "/website/hero", "/website/social-media"]);
+    expect([...WEBSITE_PAGES]).toEqual(["/website/languages", "/website/translations", "/website/currencies", "/website/menus", "/website/hero", "/website/social-media", "/website/newsletter"]);
   });
 });
 
 describe("signInUrlFor", () => {
   it("carries a website page and nothing else", () => {
     expect(signInUrlFor("/website/currencies")).toBe("/signin?returnTo=%2Fwebsite%2Fcurrencies");
+    expect(signInUrlFor("/website/newsletter")).toBe("/signin?returnTo=%2Fwebsite%2Fnewsletter");
     expect(signInUrlFor("/calendar")).toBe("/signin");
     expect(signInUrlFor("https://evil.example")).toBe("/signin");
     expect(signInUrlFor("/website/languages?x=1")).toBe("/signin");
@@ -60,5 +61,15 @@ describe("the Blog pages (BHA-BLOG-001-CP03)", () => {
     expect(resolveReturnTo("/website/blog/posts/../../calendar")).toBe(DEFAULT_RETURN_TO);
     expect(resolveReturnTo("/website/blog/posts?x=1")).toBe(DEFAULT_RETURN_TO);
     expect(signInUrlFor("/website/blog/posts/abc")).toBe("/signin");
+  });
+});
+
+describe("the Newsletter page (BHA-NEWSLETTER-001-C2)", () => {
+  it("is a sign-in destination, matched exactly", () => {
+    expect(resolveReturnTo("/website/newsletter")).toBe("/website/newsletter");
+    for (const other of ["/website/newsletter/", "/website/newsletter?x=1", "/website/newsletter#top", "/Website/Newsletter", "/website/newsletter/export", "/website/news"]) {
+      expect(resolveReturnTo(other)).toBe(DEFAULT_RETURN_TO);
+      expect(signInUrlFor(other)).toBe("/signin");
+    }
   });
 });

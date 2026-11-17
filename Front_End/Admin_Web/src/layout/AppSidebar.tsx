@@ -57,6 +57,8 @@ const navItems: NavItem[] = [
       { name: "Menu", path: "/website/menus", pro: false },
       { name: "Banner trang chủ", path: "/website/hero", pro: false },
       { name: "Social media", path: "/website/social-media", pro: false },
+      // BHA-NEWSLETTER-001: the newsletter requests. The page asks the server for WebsiteSettingsManage.
+      { name: "Đăng ký nhận tin", path: "/website/newsletter", pro: false },
       // BHA-BLOG-001-CP03: the Blog. Flat entries (the menu has one level); each page asks the server for BlogEdit or BlogPublish.
       { name: "Blog: Bài viết", path: "/website/blog/posts", pro: false },
       { name: "Blog: Chuyên mục", path: "/website/blog/categories", pro: false },

@@ -38,6 +38,14 @@ if (staffLoginRateLimit.PermitLimit <= 0 || staffLoginRateLimit.WindowSeconds <=
     throw new InvalidOperationException("Staff login rate-limit values must be positive.");
 }
 
+var newsletterRateLimit = builder.Configuration
+    .GetSection(NewsletterRateLimitOptions.SectionName)
+    .Get<NewsletterRateLimitOptions>() ?? new NewsletterRateLimitOptions();
+if (newsletterRateLimit.PermitLimit <= 0 || newsletterRateLimit.WindowSeconds <= 0)
+{
+    throw new InvalidOperationException("Newsletter rate-limit values must be positive.");
+}
+
 var cookieSession = builder.Configuration
     .GetSection(CookieSessionOptions.SectionName)
     .Get<CookieSessionOptions>() ?? new CookieSessionOptions();
@@ -458,10 +466,13 @@ builder.Services.AddRateLimiter(options =>
             context.HttpContext.Response.Headers.CacheControl = "no-store";
         }
 
+        var newsletter = context.HttpContext.Request.Path.StartsWithSegments(NewsletterRateLimit.PathPrefix, StringComparison.OrdinalIgnoreCase);
         await Results.Problem(
                 statusCode: StatusCodes.Status429TooManyRequests,
                 title: "Too many requests",
-                detail: "Please wait before attempting this authentication operation again.")
+                detail: newsletter
+                    ? "Please wait a moment before sending this again."
+                    : "Please wait before attempting this authentication operation again.")
             .ExecuteAsync(context.HttpContext);
     };
     options.AddPolicy("auth-register", context =>
@@ -474,6 +485,11 @@ builder.Services.AddRateLimiter(options =>
             context,
             rateLimits.LoginPermitLimit,
             rateLimits.WindowSeconds));
+    options.AddPolicy(NewsletterRateLimit.PolicyName, context =>
+        CreateAuthenticationLimiter(
+            context,
+            newsletterRateLimit.PermitLimit,
+            newsletterRateLimit.WindowSeconds));
     options.AddPolicy(StaffAuthentication.LoginRateLimitPolicy, context =>
         CreateAuthenticationLimiter(
             context,

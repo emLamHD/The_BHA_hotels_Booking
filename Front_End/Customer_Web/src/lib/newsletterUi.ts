@@ -1,15 +1,24 @@
 /**
- * CUST-WEB-001-CP08a-C2: the home page's newsletter form is a UI preview. It checks that what was typed looks
- * like an e-mail address and says, truthfully, that nothing is subscribed: the address is not sent, stored,
- * put in a URL, logged or kept anywhere (handoff status: UI_PREVIEW_VALIDATED_NOT_PERSISTED). The result of
- * `validateNewsletterEmail` therefore never contains the address.
+ * CUST-WEB-001-CP08a-C2 / BHA-NEWSLETTER-001: the home page's newsletter form. `validateNewsletterEmail` checks that what
+ * was typed looks like an e-mail address before anything is sent (the API checks it again: the browser is not a
+ * boundary). Its result never contains the address, so a message built from it cannot echo it.
  */
 
 /** Pack message KEYS: the form translates them when it renders. */
 export const NEWSLETTER_HEADING = "customer.newsletter.heading";
 export const NEWSLETTER_BENEFIT = "customer.newsletter.benefit";
-export const NEWSLETTER_DISCLOSURE = "customer.newsletter.disclosure";
-export const NEWSLETTER_NOT_STORED_MESSAGE = "customer.newsletter.notStored";
+/**
+ * C3: new keys, not the preview's `customer.newsletter.disclosure` / `customer.home.homeNewsletter.subscribeDemoYourEmailIs`.
+ * A site whose built-in pack was installed before this form stored anything holds the old demo texts in `WebsiteTranslations`
+ * (not manual) and the public dictionary prefers stored rows over the embedded pack, so reusing the old keys would keep saying
+ * "not stored". The old keys stay in the packs for a preview front end served by the same API.
+ */
+export const NEWSLETTER_STORAGE_NOTICE = "customer.newsletter.storageNotice";
+export const NEWSLETTER_SUBSCRIBE_LABEL = "customer.newsletter.subscribeLabel";
+export const NEWSLETTER_RECEIVED_MESSAGE = "customer.newsletter.received";
+export const NEWSLETTER_SENDING_MESSAGE = "customer.newsletter.sending";
+export const NEWSLETTER_FAILED_MESSAGE = "customer.newsletter.failed";
+export const NEWSLETTER_TOO_MANY_MESSAGE = "customer.newsletter.tooMany";
 export const NEWSLETTER_REQUIRED_MESSAGE = "customer.newsletter.required";
 export const NEWSLETTER_INVALID_MESSAGE = "customer.newsletter.invalid";
 

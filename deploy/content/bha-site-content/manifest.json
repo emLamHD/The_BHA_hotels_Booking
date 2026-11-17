@@ -522,6 +522,11 @@
       "Reason": "the content-pack importer's own bookkeeping of what it has placed in that database"
     },
     {
+      "Name": "NewsletterSubscriptions",
+      "Rows": 0,
+      "Reason": "visitors' e-mail addresses (personal data), not site content: a pack never carries them"
+    },
+    {
       "Name": "PromotionAudits",
       "Rows": 4,
       "Reason": "history of the source's Staff actions"
