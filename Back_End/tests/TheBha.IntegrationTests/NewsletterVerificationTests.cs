@@ -999,6 +999,7 @@ public sealed class NewsletterVerificationTests(PostgreSqlWebApplicationFactory 
         var workerB = DispatchAsync(e.Host);
         await arrived[1].Task.WaitAsync(Patience);
         var leaseOfB = await ScalarAsync<DateTime>("""SELECT "LeaseUntilUtc" FROM "NewsletterVerificationRequests" """);
+        var claimOfB = await ScalarAsync<Guid>("""SELECT "ClaimId" FROM "NewsletterVerificationRequests" """);
 
         answers[0].SetResult(lateAnswer);                                    // A finally hears back
         await workerA.WaitAsync(Patience);
@@ -1006,6 +1007,7 @@ public sealed class NewsletterVerificationTests(PostgreSqlWebApplicationFactory 
         // B still holds the request, with everything it had.
         Assert.Equal("Sending", await RequestStatusAsync());
         Assert.Equal(leaseOfB, await ScalarAsync<DateTime>("""SELECT "LeaseUntilUtc" FROM "NewsletterVerificationRequests" """));
+        Assert.Equal(claimOfB, await ScalarAsync<Guid>("""SELECT "ClaimId" FROM "NewsletterVerificationRequests" """));
         Assert.Equal(1, await ScalarAsync<int>("""SELECT count(*) FROM "NewsletterVerificationRequests" WHERE "ProtectedToken" IS NOT NULL AND "Attempts" = 2 AND "SentAtUtc" IS NULL """));
         Assert.Equal("Connected", (await SenderAsync(e)).GetProperty("status").GetString());
 
@@ -1054,6 +1056,32 @@ public sealed class NewsletterVerificationTests(PostgreSqlWebApplicationFactory 
         await workerB.WaitAsync(Patience);
         Assert.Equal("Sent", await RequestStatusAsync());
         Assert.StartsWith("\"Name Two\"", NewsletterGoogleStub.Decode(e.Google.Sends.Single()).Headers["From"]);
+    }
+
+    // ---- the connection epoch must be unique (P2 #1 relies on it)
+
+    [Fact]
+    public async Task Two_connections_that_overlap_each_advance_the_epoch_and_the_version()
+    {
+        using var e = await BeginAsync();
+        await ConnectAsync(e, "same@gmail.test");
+        var epoch = await ScalarAsync<int>("""SELECT "ConnectionEpoch" FROM "NewsletterSenderSettings" """);
+        var version = await ScalarAsync<int>("""SELECT "Version" FROM "NewsletterSenderSettings" """);
+        var (_, first) = await BeginConnectAsync(e, switchAccount: true);
+        var (_, second) = await BeginConnectAsync(e, switchAccount: true);
+
+        // The first completion is parked just before it writes the sender; the second completes meanwhile (or waits for the first).
+        var writing = _gate.Arm(sql => sql.StartsWith("UPDATE \"NewsletterSenderSettings\"", StringComparison.Ordinal));
+        var a = CompleteAsync(e, state: first);
+        await writing.Arrived.WaitAsync(Patience);
+        var b = CompleteAsync(e, state: second);
+        await Task.WhenAny(b, WaitForLockWaitAsync()).WaitAsync(Patience);
+        writing.Release();
+        var responses = await Task.WhenAll(a, b);
+
+        Assert.All(responses, r => Assert.Equal(HttpStatusCode.OK, r.StatusCode));
+        Assert.Equal(epoch + 2, await ScalarAsync<int>("""SELECT "ConnectionEpoch" FROM "NewsletterSenderSettings" """));
+        Assert.Equal(version + 2, await ScalarAsync<int>("""SELECT "Version" FROM "NewsletterSenderSettings" """));
     }
 
     // ---- P2 #4: one lock order

@@ -139,7 +139,10 @@ internal sealed class NewsletterSenderService(
             return new NewsletterConnectResult(false, "newsletter-connect-email-unverified", null);
 
         await using var transaction = await database.Database.BeginTransactionAsync(cancellationToken);
-        var row = await database.NewsletterSenderSettings.SingleOrDefaultAsync(cancellationToken);
+        // The sender row is locked BEFORE it is read: two connections that overlap are applied one after the other, each on the other's result,
+        // so the epoch, the version and the generation each advance once per connection. (Lock order: settings, then subscriptions, then requests.)
+        var row = (await database.NewsletterSenderSettings.FromSqlInterpolated($"SELECT * FROM \"NewsletterSenderSettings\" WHERE \"Id\" = {NewsletterSenderSettings.SingletonId} FOR UPDATE")
+            .ToListAsync(cancellationToken)).SingleOrDefault();
         var isNew = row is null;
         row ??= new NewsletterSenderSettings();
         var changedAccount = row.ConnectedEmail is not null && !string.Equals(row.ConnectedEmail, email, StringComparison.Ordinal);
@@ -193,22 +196,22 @@ internal sealed class NewsletterSenderService(
 
     public async Task<NewsletterSenderDto> DisconnectAsync(CancellationToken cancellationToken)
     {
-        var row = await database.NewsletterSenderSettings.SingleOrDefaultAsync(cancellationToken);
+        var row = await database.NewsletterSenderSettings.AsNoTracking().SingleOrDefaultAsync(cancellationToken);
         if (row is { ProtectedRefreshToken: not null })
         {
             // Revoke at Google when we can; our copy goes either way. ConnectedEmail stays, so connecting the same account again is not a new identity.
+            // No row lock is held across the call to Google: the write below is one statement, applied only to the connection that was read.
             if (protector.TryUnprotect(row.ProtectedRefreshToken, out var refreshToken))
             {
                 try { await google.RevokeAsync(refreshToken, cancellationToken); }
                 catch (Exception exception) when (exception is not OperationCanceledException) { /* best effort */ }
             }
 
-            row.ProtectedRefreshToken = null;
-            row.Status = NewsletterSenderSettings.StatusNotConnected;
-            row.UpdatedAtUtc = timeProvider.GetUtcNow();
-            row.Version++;
-            row.ConnectionEpoch++;
-            await database.SaveChangesAsync(cancellationToken);
+            var epoch = row.ConnectionEpoch;
+            var now = timeProvider.GetUtcNow();
+            await database.NewsletterSenderSettings.Where(s => s.ConnectionEpoch == epoch)
+                .ExecuteUpdateAsync(set => set.SetProperty(s => s.ProtectedRefreshToken, (string?)null).SetProperty(s => s.Status, NewsletterSenderSettings.StatusNotConnected)
+                    .SetProperty(s => s.UpdatedAtUtc, now).SetProperty(s => s.Version, s => s.Version + 1).SetProperty(s => s.ConnectionEpoch, s => s.ConnectionEpoch + 1), cancellationToken);
         }
 
         return await GetAsync(cancellationToken);
