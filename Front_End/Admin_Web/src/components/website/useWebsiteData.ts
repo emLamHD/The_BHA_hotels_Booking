@@ -4,7 +4,10 @@
  * CUST-WEB-HEADER-001-CP02: the two small hooks every website screen shares.
  *
  * `useWebsiteList` loads one resource from the server, once per call of `reload`, and drops an answer that belongs
- * to an older load. `useWriteAction` is one write: it claims the host's single write slot synchronously (a double
+ * to an older load. While a load is on its way it keeps the previous data (so a screen does not flash empty) and says
+ * `pending`: true from the very render in which `deps` changed (not from the effect that starts the load, which runs
+ * later) until the answer to that load has arrived, so a screen can tell the data it holds from the data of the query it
+ * now shows. `useWriteAction` is one write: it claims the host's single write slot synchronously (a double
  * click cannot send twice), sends exactly once, never retries, and sorts the answer — a refusal (400/404/409) keeps
  * the form and says why, a lost answer is `unverified` and blocks sending again until the server has been read.
  */
@@ -39,6 +42,10 @@ export function describeFailure(failure: WebsiteFailure): string {
 export function useWebsiteList<T>(load: (signal: AbortSignal) => Promise<WebsiteResult<T>>, deps: ReadonlyArray<unknown>) {
   const host = useWebsiteHost();
   const [state, setState] = useState<ListState<T>>({ status: "loading" });
+  const [loading, setLoading] = useState(true);
+  const [settledDeps, setSettledDeps] = useState<ReadonlyArray<unknown> | null>(null);
+  const depsRef = useRef(deps);
+  depsRef.current = deps;
   const generation = useRef(0);
   const controller = useRef<AbortController | null>(null);
   const loadRef = useRef(load);
@@ -53,9 +60,13 @@ export function useWebsiteList<T>(load: (signal: AbortSignal) => Promise<Website
     const mine = ++generation.current;
     const next = new AbortController();
     controller.current = next;
+    const mineDeps = depsRef.current;
+    setLoading(true);
     setState((previous) => (previous.status === "ready" ? previous : { status: "loading" }));
     const result = await loadRef.current(next.signal);
     if (generation.current !== mine) return null;
+    setLoading(false);
+    setSettledDeps(mineDeps);
     if (result.kind === "ok") {
       setState({ status: "ready", data: result.data });
       return result.data;
@@ -76,7 +87,8 @@ export function useWebsiteList<T>(load: (signal: AbortSignal) => Promise<Website
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reload, ...deps]);
 
-  return { state, reload };
+  const pending = loading || settledDeps === null || settledDeps.length !== deps.length || settledDeps.some((value, i) => !Object.is(value, deps[i]));
+  return { state, pending, reload };
 }
 
 export type WriteStatus =

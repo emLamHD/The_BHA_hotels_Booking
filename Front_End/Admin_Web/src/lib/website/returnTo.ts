@@ -7,7 +7,7 @@
 
 export const DEFAULT_RETURN_TO = "/calendar";
 
-export const WEBSITE_PAGES = ["/website/languages", "/website/translations", "/website/currencies", "/website/menus", "/website/hero", "/website/social-media"] as const;
+export const WEBSITE_PAGES = ["/website/languages", "/website/translations", "/website/currencies", "/website/menus", "/website/hero", "/website/social-media", "/website/newsletter"] as const;
 
 /** BHA-BLOG-001-CP03: the Blog pages. A post's own page (`/website/blog/posts/<id>`) is not here: signing in from it comes back to the list. */
 export const BLOG_PAGES = ["/website/blog/posts", "/website/blog/posts/new", "/website/blog/categories", "/website/blog/media", "/website/blog/settings"] as const;

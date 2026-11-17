@@ -89,6 +89,78 @@ describe("NewsletterSubscriptionsPanel", () => {
   });
 });
 
+describe("NewsletterSubscriptionsPanel — a new query while the old answer is still on screen (BHA-NEWSLETTER-001-C2)", () => {
+  const search = async (text: string) => {
+    const field = screen.getByTestId("newsletter-search") as HTMLInputElement;
+    await userEvent.clear(field);
+    await userEvent.type(field, text);
+    await userEvent.click(within(screen.getByTestId("newsletter-search-submit")).getByRole("button"));
+  };
+  const nextButton = () => screen.getByRole("button", { name: "Trang sau" }) as HTMLButtonElement;
+  const previousButton = () => screen.getByRole("button", { name: "Trang trước" }) as HTMLButtonElement;
+
+  it("locks the paging until the new search has answered, so the old page count cannot request page 2 of the new search", async () => {
+    list.mockResolvedValueOnce(ok(page([item("p1@example.com")], { total: 41 })));
+    renderInGate(<NewsletterSubscriptionsPanel />, "/website/newsletter");
+    await screen.findByTestId("newsletter-row-p1@example.com");
+    expect(nextButton().disabled).toBe(false);
+
+    const narrowed = deferred<ReturnType<typeof ok>>();
+    list.mockReturnValueOnce(narrowed.promise as never);
+    await search("one");
+    await waitFor(() => expect(list).toHaveBeenLastCalledWith({ search: "one", page: 1, pageSize: 20 }, expect.anything()));
+    expect(nextButton().disabled).toBe(true);
+    expect(previousButton().disabled).toBe(true);
+    await userEvent.click(nextButton());
+    expect(list).toHaveBeenCalledTimes(2);
+
+    narrowed.resolve(ok(page([item("one@example.com")], { total: 1 })));
+    await screen.findByTestId("newsletter-row-one@example.com");
+    expect(screen.queryByTestId("newsletter-row-p1@example.com")).toBeNull();
+    expect(screen.getByTestId("newsletter-count").textContent).toContain("trang 1/1");
+    expect(nextButton().disabled).toBe(true);
+    expect(screen.queryByTestId("newsletter-empty")).toBeNull();
+  });
+
+  it("does not say \"no match\" for a query that has not answered, and does not let an older answer settle a newer query", async () => {
+    list.mockResolvedValueOnce(ok(page([item("p1@example.com")], { total: 41 })));
+    renderInGate(<NewsletterSubscriptionsPanel />, "/website/newsletter");
+    await screen.findByTestId("newsletter-row-p1@example.com");
+
+    const first = deferred<ReturnType<typeof ok>>();
+    const second = deferred<ReturnType<typeof ok>>();
+    list.mockReturnValueOnce(first.promise as never).mockReturnValueOnce(second.promise as never);
+    await search("first");
+    await search("second");
+    await waitFor(() => expect(list).toHaveBeenLastCalledWith({ search: "second", page: 1, pageSize: 20 }, expect.anything()));
+
+    first.resolve(ok(page([item("first@example.com")], { total: 1 })));
+    await Promise.resolve();
+    expect(screen.queryByTestId("newsletter-row-first@example.com")).toBeNull();
+    expect(nextButton().disabled).toBe(true);
+
+    second.resolve(ok(page([], { total: 0 })));
+    expect((await screen.findByTestId("newsletter-empty")).textContent).toContain("Không có đăng ký nào khớp");
+  });
+
+  it("offers the way back to page 1 for a page past the end of a list that has entries, and says \"no match\" only when the total is 0", async () => {
+    list.mockResolvedValueOnce(ok(page([item("p1@example.com")], { total: 41 })));
+    list.mockResolvedValueOnce(ok(page([], { total: 1, page: 2 })));
+    list.mockResolvedValueOnce(ok(page([item("p1@example.com")], { total: 1 })));
+    renderInGate(<NewsletterSubscriptionsPanel />, "/website/newsletter");
+    await screen.findByTestId("newsletter-row-p1@example.com");
+    await userEvent.click(nextButton());
+
+    const recovery = await screen.findByTestId("newsletter-out-of-range");
+    expect(recovery.textContent).toContain("1");
+    expect(screen.queryByTestId("newsletter-empty")).toBeNull();
+    await userEvent.click(within(screen.getByTestId("newsletter-back-to-first")).getByRole("button"));
+    await screen.findByTestId("newsletter-row-p1@example.com");
+    expect(list).toHaveBeenLastCalledWith({ search: "", page: 1, pageSize: 20 }, expect.anything());
+    expect(screen.queryByTestId("newsletter-out-of-range")).toBeNull();
+  });
+});
+
 describe("parseNewsletterSubscriptionPage", () => {
   it("accepts the API's shape and rejects anything else", () => {
     expect(parseNewsletterSubscriptionPage({ items: [item("a@example.com")], page: 1, pageSize: 20, total: 1 })?.items[0].email).toBe("a@example.com");

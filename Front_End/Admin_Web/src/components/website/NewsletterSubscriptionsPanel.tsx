@@ -34,6 +34,9 @@ export default function NewsletterSubscriptionsPanel() {
 
   const data = list.state.status === "ready" ? list.state.data : null;
   const pages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
+  // While a query is on its way the hook still holds the previous answer: it stays on screen, but it says nothing about
+  // the current query, so the paging is locked and no "no match" is claimed until the answer to this query has arrived.
+  const settled = data !== null && !list.pending;
 
   return (
     <div className="flex flex-col gap-4">
@@ -49,7 +52,13 @@ export default function NewsletterSubscriptionsPanel() {
       </form>
       {list.state.status === "loading" && <LoadingPanel what="danh sách đăng ký nhận tin" />}
       {list.state.status === "error" && <ErrorPanel message={list.state.message} onRetry={() => void list.reload()} />}
-      {data && data.items.length === 0 && (
+      {settled && data.items.length === 0 && data.total > 0 && (
+        <div data-testid="newsletter-out-of-range" className="flex flex-wrap items-center gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-6 text-sm text-gray-600 dark:border-gray-800 dark:bg-white/[0.03] dark:text-gray-300">
+          <span>Trang này không còn đăng ký nào, trong khi danh sách có {data.total} đăng ký.</span>
+          <ActionButton variant="outline" testId="newsletter-back-to-first" onClick={() => setPage(1)}>Về trang 1</ActionButton>
+        </div>
+      )}
+      {settled && data.items.length === 0 && data.total === 0 && (
         <div data-testid="newsletter-empty" className="rounded-2xl border border-gray-200 bg-white px-4 py-6 text-sm text-gray-600 dark:border-gray-800 dark:bg-white/[0.03] dark:text-gray-300">
           {applied ? "Không có đăng ký nào khớp với email đã tìm." : "Chưa có ai đăng ký nhận tin."}
         </div>
@@ -83,8 +92,8 @@ export default function NewsletterSubscriptionsPanel() {
               {data.total} đăng ký · trang {data.page}/{pages}
             </span>
             <span className="flex gap-2">
-              <ActionButton variant="outline" onClick={() => setPage(page - 1)} disabled={page <= 1}>Trang trước</ActionButton>
-              <ActionButton variant="outline" onClick={() => setPage(page + 1)} disabled={page >= pages}>Trang sau</ActionButton>
+              <ActionButton variant="outline" onClick={() => setPage(page - 1)} disabled={list.pending || page <= 1}>Trang trước</ActionButton>
+              <ActionButton variant="outline" onClick={() => setPage(page + 1)} disabled={list.pending || page >= pages}>Trang sau</ActionButton>
             </span>
           </nav>
         </>
