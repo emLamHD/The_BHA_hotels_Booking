@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { listNewsletterSubscriptions } from "@/lib/api/website";
 import { useWebsiteList } from "./useWebsiteData";
@@ -7,8 +8,8 @@ import { ActionButton, ErrorPanel, LoadingPanel, PageHeader, TABLE_CLASSES, Text
 
 const PAGE_SIZE = 20;
 
-/** BHA-NEWSLETTER-001: what the API stores is `PendingVerification`; V1 has no e-mail provider, so nothing else exists yet. */
-const STATUS_LABEL: Record<string, string> = { PendingVerification: "Chưa xác minh email" };
+/** BHA-NEWSLETTER-001/002: `PendingVerification` until the visitor confirms the address from the e-mail, then `Verified`. */
+const STATUS_LABEL: Record<string, string> = { PendingVerification: "Chưa xác minh email", Verified: "Đã xác minh" };
 const SOURCE_LABEL: Record<string, string> = { homepage: "Trang chủ" };
 
 /**
@@ -41,7 +42,8 @@ export default function NewsletterSubscriptionsPanel() {
   return (
     <div className="flex flex-col gap-4">
       <PageHeader title="Đăng ký nhận tin">
-        Email khách để lại ở khung &ldquo;Nhận ưu đãi từ The BHA&rdquo; trên trang chủ, mới nhất trước. Phiên bản này chỉ ghi nhận yêu cầu: chưa gửi email xác minh nên mọi dòng đều &ldquo;Chưa xác minh email&rdquo;.
+        Email khách để lại ở khung &ldquo;Nhận ưu đãi từ The BHA&rdquo; trên trang chủ, mới nhất trước. Khi Gmail đã kết nối, khách nhận email xác nhận và dòng chuyển sang &ldquo;Đã xác minh&rdquo; sau khi họ bấm xác nhận; chưa kết nối thì chỉ ghi nhận và giữ &ldquo;Chưa xác minh email&rdquo;.{" "}
+        <Link href="/website/newsletter/sender" className="text-brand-600 underline dark:text-brand-400">Cấu hình email gửi</Link>
       </PageHeader>
       <form onSubmit={submit} role="search" className="flex flex-wrap items-end gap-2">
         <div className="w-full max-w-sm">
@@ -73,6 +75,7 @@ export default function NewsletterSubscriptionsPanel() {
                   <th className={TABLE_CLASSES.headCell}>Thời điểm tiếp nhận</th>
                   <th className={TABLE_CLASSES.headCell}>Nguồn</th>
                   <th className={TABLE_CLASSES.headCell}>Trạng thái</th>
+                  <th className={TABLE_CLASSES.headCell}>Xác minh lúc</th>
                 </tr>
               </thead>
               <tbody>
@@ -82,6 +85,7 @@ export default function NewsletterSubscriptionsPanel() {
                     <td className={TABLE_CLASSES.cell}>{formatWhen(item.receivedAtUtc)}</td>
                     <td className={TABLE_CLASSES.cell}>{SOURCE_LABEL[item.source] ?? item.source}</td>
                     <td className={TABLE_CLASSES.cell}>{STATUS_LABEL[item.status] ?? item.status}</td>
+                    <td className={TABLE_CLASSES.cell}>{item.verifiedAtUtc ? formatWhen(item.verifiedAtUtc) : "—"}</td>
                   </tr>
                 ))}
               </tbody>
