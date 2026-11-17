@@ -23,6 +23,11 @@ public sealed class NewsletterSenderSettings
     public string? ReplyTo { get; set; }
     public string Status { get; set; } = StatusNotConnected;
     public int SenderGeneration { get; set; }
+    /// <summary>
+    /// Goes up with EVERY connect and disconnect, the same Gmail address included. A worker notes it when it reads the credentials and can
+    /// mark the sender "connect again" only while it is unchanged: a late failure of an old connection says nothing about the new one.
+    /// </summary>
+    public int ConnectionEpoch { get; set; }
     public DateTimeOffset? ConnectedAtUtc { get; set; }
     public Guid? ConnectedByStaffId { get; set; }
     public int Version { get; set; } = 1;
@@ -71,6 +76,8 @@ public sealed class NewsletterVerificationRequest
     public DateTimeOffset ExpiresAtUtc { get; set; }
     public DateTimeOffset NextAttemptAtUtc { get; set; }
     public DateTimeOffset? LeaseUntilUtc { get; set; }
+    /// <summary>Who holds the lease: set by the one statement that takes the request, required by every later write of that worker, so a worker whose lease ran out cannot touch what the next one holds.</summary>
+    public Guid? ClaimId { get; set; }
     public DateTimeOffset? UsedAtUtc { get; set; }
     public DateTimeOffset? SentAtUtc { get; set; }
     /// <summary>A short machine code of the last failure or of the cancellation reason; never provider text.</summary>

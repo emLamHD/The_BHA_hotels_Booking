@@ -2274,6 +2274,9 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         .HasMaxLength(254)
                         .HasColumnType("character varying(254)");
 
+                    b.Property<int>("ConnectionEpoch")
+                        .HasColumnType("integer");
+
                     b.Property<string>("ProtectedClientSecret")
                         .HasMaxLength(2048)
                         .HasColumnType("character varying(2048)");
@@ -2376,6 +2379,9 @@ namespace TheBha.Infrastructure.Persistence.Migrations
 
                     b.Property<int>("Attempts")
                         .HasColumnType("integer");
+
+                    b.Property<Guid?>("ClaimId")
+                        .HasColumnType("uuid");
 
                     b.Property<DateTimeOffset>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");

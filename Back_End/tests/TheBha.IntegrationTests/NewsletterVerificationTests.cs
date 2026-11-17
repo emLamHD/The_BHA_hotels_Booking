@@ -3,10 +3,13 @@ using System.Text.Json;
 using System.Web;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using TheBha.Api;
 using TheBha.Application.Website;
+using TheBha.Infrastructure.Persistence;
 using TheBha.Infrastructure.Persistence.Newsletter;
 
 namespace TheBha.IntegrationTests;
@@ -40,6 +43,9 @@ public sealed class NewsletterVerificationTests(PostgreSqlWebApplicationFactory 
         public void Dispose() => Staff.Dispose();
     }
 
+    /// <summary>BHA-NEWSLETTER-002-C1: parks chosen statements of the real application (nothing unless a test arms a rule).</summary>
+    private readonly NewsletterSqlGate _gate = new();
+
     private WebApplicationFactory<Program> BuildHost(NewsletterGoogleStub google, CapturingLoggerProvider logs, Action<IWebHostBuilder>? configure) =>
         Factory.WithWebHostBuilder(builder =>
         {
@@ -51,7 +57,15 @@ public sealed class NewsletterVerificationTests(PostgreSqlWebApplicationFactory 
             builder.UseSetting("Website:Newsletter:RateLimiting:PermitLimit", "10000");
             configure?.Invoke(builder);
             builder.ConfigureLogging(logging => { logging.SetMinimumLevel(LogLevel.Trace); logging.AddProvider(logs); });
-            builder.ConfigureServices(services => services.AddHttpClient(GoogleMailGateway.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => google));
+            builder.ConfigureServices(services =>
+            {
+                services.AddHttpClient(GoogleMailGateway.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => google);
+                // The application's own DbContext registration, plus the gate (EF only takes interceptors from the options it is built with).
+                services.RemoveAll<DbContextOptions<TheBhaDbContext>>();
+                services.AddDbContext<TheBhaDbContext>(options => options
+                    .UseNpgsql(Factory.ConnectionString, npgsql => npgsql.MigrationsAssembly("TheBha.Infrastructure"))
+                    .AddInterceptors(_gate));
+            });
         });
 
     private async Task<Env> BeginAsync(Action<IWebHostBuilder>? configure = null)
@@ -846,6 +860,267 @@ public sealed class NewsletterVerificationTests(PostgreSqlWebApplicationFactory 
         Assert.NotNull(plainRefused);
         Assert.Contains("must be absolute https URLs", plainRefused.ToString());
     }
+
+    // ---------------------------------------------------------------------------------------------------------------- C1: concurrency
+    // BHA-NEWSLETTER-002-C1. Each test puts two real requests in one known order (a parked Google answer, a parked SQL statement) and
+    // checks the end state; none of them depends on timing.
+
+    private static readonly TimeSpan Patience = TimeSpan.FromSeconds(30);
+
+    private static bool IsSend(NewsletterGoogleStub.Call call) => call.Path.EndsWith("/messages/send", StringComparison.Ordinal);
+
+    private static bool IsRefresh(NewsletterGoogleStub.Call call) =>
+        call.Path.EndsWith("/token", StringComparison.Ordinal) && !call.Body.Contains("authorization_code", StringComparison.Ordinal);
+
+    /// <summary>Waits until some session of this database is blocked on a lock: the signal that the second request has reached the first one.</summary>
+    private async Task WaitForLockWaitAsync()
+    {
+        var until = DateTime.UtcNow + Patience;
+        while (DateTime.UtcNow < until)
+        {
+            if (await ScalarAsync<int>("""SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' """) > 0) return;
+            await Task.Delay(25);
+        }
+
+        throw new TimeoutException("No session ever waited on a lock.");
+    }
+
+    // ---- P2 #1: an answer of the OLD connection that arrives after the Admin connected again
+
+    [Theory]
+    [InlineData("send-401", false)]
+    [InlineData("send-401", true)]
+    [InlineData("refresh-invalid-grant", false)]
+    [InlineData("refresh-invalid-grant", true)]
+    public async Task A_late_failure_of_the_old_connection_never_breaks_the_new_one(string cause, bool otherAccount)
+    {
+        using var e = await BeginAsync();
+        await ConnectAsync(e, "old@gmail.test");
+        await SubscribeOkAsync(e);
+
+        var parked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var answer = new TaskCompletionSource<int?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var first = 0;
+        e.Google.Hold = call =>
+        {
+            if (!(cause == "send-401" ? IsSend(call) : IsRefresh(call)) || Interlocked.Increment(ref first) != 1) return Task.FromResult<int?>(null);
+            parked.TrySetResult();
+            return answer.Task;
+        };
+        var worker = DispatchAsync(e.Host);
+        await parked.Task.WaitAsync(Patience);
+
+        // Google is still thinking. Meanwhile the Admin connects again (the same Gmail address, or another one).
+        await ConnectAsync(e, otherAccount ? "new@gmail.test" : "old@gmail.test", switchAccount: true);
+        answer.SetResult(cause == "send-401" ? 401 : 400);
+        await worker.WaitAsync(Patience);
+
+        // The old answer says nothing about the new connection.
+        Assert.Equal("Connected", (await SenderAsync(e)).GetProperty("status").GetString());
+        await SubscribeAfterCooldownAsync(e, "next@example.com");
+        Factory.Clock.UtcNow += TimeSpan.FromMinutes(5);
+        await DispatchAsync(e.Host);
+        Assert.Equal("Sent", await RequestStatusAsync("next@example.com"));
+        Assert.Equal("Connected", (await SenderAsync(e)).GetProperty("status").GetString());
+        if (!otherAccount) Assert.Equal("Sent", await RequestStatusAsync());      // the mail the old worker gave back goes out too
+    }
+
+    // ---- P2 #2: two saves of one version
+
+    [Fact]
+    public async Task Two_profile_saves_of_one_version_cannot_both_win()
+    {
+        using var e = await BeginAsync();
+        await AssertStatusAsync(HttpStatusCode.OK, PutAsync(e, Sender + "/profile", new { expectedVersion = 0, senderName = "Seed" }));
+        var version = (await SenderAsync(e)).GetProperty("version").GetInt32();
+
+        // Both saves are parked just before they write, so both have seen the same version when either writes.
+        var both = _gate.Arm(sql => sql.StartsWith("UPDATE \"NewsletterSenderSettings\"", StringComparison.Ordinal), parties: 2);
+        var a = PutAsync(e, Sender + "/profile", new { expectedVersion = version, senderName = "From A", replyTo = "a@example.com" });
+        var b = PutAsync(e, Sender + "/profile", new { expectedVersion = version, senderName = "From B", replyTo = "b@example.com" });
+        await both.Arrived.WaitAsync(Patience);
+        both.Release();
+        var responses = await Task.WhenAll(a, b);
+
+        Assert.Equal([HttpStatusCode.OK, HttpStatusCode.Conflict], responses.Select(r => r.StatusCode).Order().ToArray());
+        var winner = responses.Single(r => r.StatusCode == HttpStatusCode.OK);
+        var loser = responses.Single(r => r.StatusCode == HttpStatusCode.Conflict);
+        Assert.Equal("newsletter-sender-version-conflict", (await ProblemAsync(loser)).Code);
+        var won = (await JsonAsync(winner)).GetProperty("senderName").GetString();
+        Assert.Contains(won, new[] { "From A", "From B" });
+        Assert.Equal(won, await ScalarAsync<string>("""SELECT "SenderName" FROM "NewsletterSenderSettings" """));
+        Assert.Equal(won == "From A" ? "a@example.com" : "b@example.com", await ScalarAsync<string>("""SELECT "ReplyTo" FROM "NewsletterSenderSettings" """));
+        Assert.Equal(version + 1, await ScalarAsync<int>("""SELECT "Version" FROM "NewsletterSenderSettings" """));
+    }
+
+    [Fact]
+    public async Task Two_first_profile_saves_leave_one_row_and_one_conflict()
+    {
+        using var e = await BeginAsync();
+        var both = _gate.Arm(sql => sql.StartsWith("INSERT INTO \"NewsletterSenderSettings\"", StringComparison.Ordinal), parties: 2);
+        var a = PutAsync(e, Sender + "/profile", new { expectedVersion = 0, senderName = "First A" });
+        var b = PutAsync(e, Sender + "/profile", new { expectedVersion = 0, senderName = "First B" });
+        await both.Arrived.WaitAsync(Patience);
+        both.Release();
+        var responses = await Task.WhenAll(a, b);
+
+        Assert.Equal([HttpStatusCode.OK, HttpStatusCode.Conflict], responses.Select(r => r.StatusCode).Order().ToArray());
+        Assert.Equal(1, await ScalarAsync<int>("""SELECT count(*) FROM "NewsletterSenderSettings" """));
+        Assert.Equal(1, await ScalarAsync<int>("""SELECT "Version" FROM "NewsletterSenderSettings" """));
+    }
+
+    // ---- P2 #3: a worker whose lease ran out
+
+    [Theory]
+    [InlineData(200)]   // its late mail was accepted
+    [InlineData(500)]   // its late answer is "unknown"
+    [InlineData(400)]   // its late answer is a refusal
+    [InlineData(401)]   // its late answer says the permission is gone
+    public async Task A_worker_whose_lease_ran_out_cannot_touch_what_the_next_worker_holds(int lateAnswer)
+    {
+        using var e = await BeginAsync();
+        await ConnectAsync(e);
+        await SubscribeOkAsync(e);
+
+        var arrived = new[] { new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously), new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously) };
+        var answers = new[] { new TaskCompletionSource<int?>(TaskCreationOptions.RunContinuationsAsynchronously), new TaskCompletionSource<int?>(TaskCreationOptions.RunContinuationsAsynchronously) };
+        var sends = -1;
+        e.Google.Hold = call =>
+        {
+            if (!IsSend(call)) return Task.FromResult<int?>(null);
+            var n = Interlocked.Increment(ref sends);
+            arrived[n].TrySetResult();
+            return answers[n].Task;
+        };
+
+        var workerA = DispatchAsync(e.Host);
+        await arrived[0].Task.WaitAsync(Patience);
+        Factory.Clock.UtcNow += TimeSpan.FromSeconds(200);                   // A's lease (120 s) is over
+        var workerB = DispatchAsync(e.Host);
+        await arrived[1].Task.WaitAsync(Patience);
+        var leaseOfB = await ScalarAsync<DateTime>("""SELECT "LeaseUntilUtc" FROM "NewsletterVerificationRequests" """);
+
+        answers[0].SetResult(lateAnswer);                                    // A finally hears back
+        await workerA.WaitAsync(Patience);
+
+        // B still holds the request, with everything it had.
+        Assert.Equal("Sending", await RequestStatusAsync());
+        Assert.Equal(leaseOfB, await ScalarAsync<DateTime>("""SELECT "LeaseUntilUtc" FROM "NewsletterVerificationRequests" """));
+        Assert.Equal(1, await ScalarAsync<int>("""SELECT count(*) FROM "NewsletterVerificationRequests" WHERE "ProtectedToken" IS NOT NULL AND "Attempts" = 2 AND "SentAtUtc" IS NULL """));
+        Assert.Equal("Connected", (await SenderAsync(e)).GetProperty("status").GetString());
+
+        answers[1].SetResult(200);                                           // B finishes by itself
+        await workerB.WaitAsync(Patience);
+        Assert.Equal("Sent", await RequestStatusAsync());
+        Assert.Equal("Connected", (await SenderAsync(e)).GetProperty("status").GetString());
+    }
+
+    [Fact]
+    public async Task A_worker_that_lost_its_claim_before_pinning_the_identity_neither_pins_nor_sends()
+    {
+        using var e = await BeginAsync();
+        await ConnectAsync(e);
+        await AssertStatusAsync(HttpStatusCode.OK, PutAsync(e, Sender + "/profile", new { expectedVersion = (await SenderAsync(e)).GetProperty("version").GetInt32(), senderName = "Name One" }));
+        await SubscribeOkAsync(e);
+
+        // A has taken the request and read "Name One"; it is parked just before it pins that identity.
+        var pin = _gate.Arm(sql => sql.StartsWith("UPDATE \"NewsletterVerificationRequests\"", StringComparison.Ordinal) && sql.Contains("\"FromEmail\"", StringComparison.Ordinal));
+        var workerA = DispatchAsync(e.Host);
+        await pin.Arrived.WaitAsync(Patience);
+        Factory.Clock.UtcNow += TimeSpan.FromSeconds(200);
+        await AssertStatusAsync(HttpStatusCode.OK, PutAsync(e, Sender + "/profile", new { expectedVersion = (await SenderAsync(e)).GetProperty("version").GetInt32(), senderName = "Name Two" }));
+
+        // B takes the request over, pins "Name Two" and is parked inside its Gmail call.
+        var parked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var answer = new TaskCompletionSource<int?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var sends = 0;
+        e.Google.Hold = call =>
+        {
+            if (!IsSend(call) || Interlocked.Increment(ref sends) != 1) return Task.FromResult<int?>(null);
+            parked.TrySetResult();
+            return answer.Task;
+        };
+        var workerB = DispatchAsync(e.Host);
+        await parked.Task.WaitAsync(Patience);
+
+        pin.Release();                                                       // A now tries to pin "Name One" over B's
+        await workerA.WaitAsync(Patience);
+
+        Assert.Equal("Name Two", await ScalarAsync<string>("""SELECT "FromName" FROM "NewsletterVerificationRequests" """));
+        Assert.Equal("Sending", await RequestStatusAsync());
+        Assert.Single(e.Google.Sends);                                       // A sent nothing
+
+        answer.SetResult(200);
+        await workerB.WaitAsync(Patience);
+        Assert.Equal("Sent", await RequestStatusAsync());
+        Assert.StartsWith("\"Name Two\"", NewsletterGoogleStub.Decode(e.Google.Sends.Single()).Headers["From"]);
+    }
+
+    // ---- P2 #4: one lock order
+
+    private async Task<string> MailDeliveredButUnansweredAsync(Env e)
+    {
+        // Gmail took the mail but the answer was lost: the request stays Pending, and the visitor holds a working link.
+        e.Google.SendThrows = true;
+        await SubscribeOkAsync(e);
+        await DispatchAsync(e.Host);
+        e.Google.SendThrows = false;
+        Assert.Equal("Pending", await RequestStatusAsync());
+        Factory.Clock.UtcNow += TimeSpan.FromSeconds(400);                   // past the resend cooldown (300 s)
+        return NewsletterGoogleStub.Decode(e.Google.Sends.Last()).Token;
+    }
+
+    [Fact]
+    public async Task A_confirmation_and_a_resend_after_the_cooldown_never_deadlock_and_leave_no_mail_for_the_verified_address()
+    {
+        using var e = await BeginAsync();
+        await ConnectAsync(e);
+        var token = await MailDeliveredButUnansweredAsync(e);
+
+        // The confirmation has taken what it needs and is parked just before it marks the address verified.
+        var verifying = _gate.Arm(sql => sql.StartsWith("UPDATE \"NewsletterSubscriptions\"", StringComparison.Ordinal) && sql.Contains("'Verified'", StringComparison.Ordinal));
+        var confirm = e.Client.SendAsync(Post(Confirmations, new { token }, origins: [CustomerOrigin]));
+        await verifying.Arrived.WaitAsync(Patience);
+        var resend = e.Client.SendAsync(Subscribe(Guest));
+        await WaitForLockWaitAsync();                                        // the resend has run into the confirmation
+        verifying.Release();
+        var responses = await Task.WhenAll(confirm, resend);
+
+        Assert.DoesNotContain(e.Logs.Lines, line => line.Contains("deadlock detected", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(HttpStatusCode.OK, responses[0].StatusCode);
+        Assert.Equal("{\"status\":\"verified\"}", await responses[0].Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.Accepted, responses[1].StatusCode);
+        Assert.Equal(1, await ScalarAsync<int>("""SELECT count(*) FROM "NewsletterSubscriptions" WHERE "Status" = 'Verified' AND "VerifiedAtUtc" IS NOT NULL """));
+        Assert.Equal(0, await ScalarAsync<int>("""SELECT count(*) FROM "NewsletterVerificationRequests" WHERE "Status" IN ('Pending', 'Sending') """));
+        Assert.Equal(0, await DispatchAsync(e.Host));
+    }
+
+    [Fact]
+    public async Task A_change_of_sender_and_a_resend_after_the_cooldown_never_deadlock()
+    {
+        using var e = await BeginAsync();
+        await ConnectAsync(e, "old@gmail.test");
+        await MailDeliveredButUnansweredAsync(e);
+
+        // The new account's connection has withdrawn the old mail and is parked just before it frees the address's cooldown.
+        e.Google.Email = "new@gmail.test";
+        await BeginConnectAsync(e, switchAccount: true);
+        var releasing = _gate.Arm(sql => sql.StartsWith("UPDATE \"NewsletterSubscriptions\"", StringComparison.Ordinal) && sql.Contains("\"LastVerificationRequestedAtUtc\" = NULL", StringComparison.Ordinal));
+        var connect = CompleteAsync(e);
+        await releasing.Arrived.WaitAsync(Patience);
+        var resend = e.Client.SendAsync(Subscribe(Guest));
+        await WaitForLockWaitAsync();
+        releasing.Release();
+        var responses = await Task.WhenAll(connect, resend);
+
+        Assert.DoesNotContain(e.Logs.Lines, line => line.Contains("deadlock detected", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(HttpStatusCode.OK, responses[0].StatusCode);
+        Assert.Equal(HttpStatusCode.Accepted, responses[1].StatusCode);
+        Assert.Equal("new@gmail.test", (await SenderAsync(e)).GetProperty("connectedEmail").GetString());
+        Assert.Equal(1, await ScalarAsync<int>("""SELECT count(*) FROM "NewsletterVerificationRequests" WHERE "Status" = 'Cancelled' AND "LastOutcome" = 'sender-changed' """));
+        Assert.Equal(1, await ScalarAsync<int>("""SELECT count(*) FROM "NewsletterVerificationRequests" WHERE "Status" = 'Pending' """));   // the resend is not lost
+    }
+
 
     // ---------------------------------------------------------------------------------------------------------------- who may do what
 

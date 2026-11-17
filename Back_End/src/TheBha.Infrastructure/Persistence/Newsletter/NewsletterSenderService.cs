@@ -36,30 +36,25 @@ internal sealed class NewsletterSenderService(
         }
 
         var now = timeProvider.GetUtcNow();
-        var row = await database.NewsletterSenderSettings.SingleOrDefaultAsync(cancellationToken);
-        if (row is null)
+        // The version is checked INSIDE the write: of two saves that read the same version one UPDATE matches, the other finds it moved.
+        var saved = await database.NewsletterSenderSettings.Where(row => row.Version == expectedVersion)
+            .ExecuteUpdateAsync(set => set.SetProperty(row => row.SenderName, name).SetProperty(row => row.ReplyTo, reply)
+                .SetProperty(row => row.Version, row => row.Version + 1).SetProperty(row => row.UpdatedAtUtc, now), cancellationToken);
+        if (saved == 0)
         {
-            if (expectedVersion != 0) return new NewsletterSenderProfileResult(false, "newsletter-sender-version-conflict", null);
-            row = new NewsletterSenderSettings { SenderName = name, ReplyTo = reply, UpdatedAtUtc = now };
-            database.NewsletterSenderSettings.Add(row);
-        }
-        else
-        {
-            if (row.Version != expectedVersion) return new NewsletterSenderProfileResult(false, "newsletter-sender-version-conflict", null);
-            row.SenderName = name;
-            row.ReplyTo = reply;
-            row.Version++;
-            row.UpdatedAtUtc = now;
-        }
-
-        try
-        {
-            await database.SaveChangesAsync(cancellationToken);
-        }
-        catch (DbUpdateException)
-        {
-            // Two first saves raced for the single row: the loser is told to read again.
-            return new NewsletterSenderProfileResult(false, "newsletter-sender-version-conflict", null);
+            // No row at that version: only the very first save (version 0, no row yet) goes on, and it creates the row.
+            if (expectedVersion != 0 || await database.NewsletterSenderSettings.AnyAsync(cancellationToken))
+                return new NewsletterSenderProfileResult(false, "newsletter-sender-version-conflict", null);
+            database.NewsletterSenderSettings.Add(new NewsletterSenderSettings { SenderName = name, ReplyTo = reply, UpdatedAtUtc = now });
+            try
+            {
+                await database.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateException)
+            {
+                // Two first saves raced for the single row: the loser is told to read again.
+                return new NewsletterSenderProfileResult(false, "newsletter-sender-version-conflict", null);
+            }
         }
 
         return new NewsletterSenderProfileResult(true, null, await GetAsync(cancellationToken));
@@ -157,6 +152,7 @@ internal sealed class NewsletterSenderService(
         row.ConnectedByStaffId = staffId;
         row.UpdatedAtUtc = now;
         row.Version++;
+        row.ConnectionEpoch++;
         if (changedAccount) row.SenderGeneration++;
         if (isNew) database.NewsletterSenderSettings.Add(row);
         await database.SaveChangesAsync(cancellationToken);
@@ -165,16 +161,28 @@ internal sealed class NewsletterSenderService(
         {
             // A mail that was already tried under the old identity is not silently sent under the new one: it is withdrawn, and its
             // address may ask again at once (the cooldown is released). A mail never tried simply goes out from the new account.
-            var withdrawn = await NewsletterSql.ReturningIdsAsync(database,
+            // Lock order: the SUBSCRIPTIONS first, then their requests (as in a resend and a confirmation), never the other way round.
+            var affected = await NewsletterSql.ReturningIdsAsync(database,
                 """
-                UPDATE "NewsletterVerificationRequests" SET "Status" = 'Cancelled', "LastOutcome" = 'sender-changed', "ProtectedToken" = NULL, "LeaseUntilUtc" = NULL
+                SELECT DISTINCT "SubscriptionId" FROM "NewsletterVerificationRequests"
                 WHERE "Status" IN ('Pending', 'Sending') AND "SenderGeneration" IS NOT NULL AND "SenderGeneration" < @generation
-                RETURNING "SubscriptionId"
+                ORDER BY "SubscriptionId"
                 """,
                 [("generation", row.SenderGeneration)], cancellationToken);
-            if (withdrawn.Count > 0)
+            if (affected.Count > 0)
             {
-                await database.NewsletterSubscriptions.Where(s => withdrawn.Contains(s.Id) && s.Status == NewsletterSubscription.StatusPendingVerification)
+                var ids = affected.ToArray();
+                await NewsletterSql.ReturningIdsAsync(database,
+                    """SELECT "Id" FROM "NewsletterSubscriptions" WHERE "Id" = ANY(@ids) ORDER BY "Id" FOR UPDATE""",
+                    [("ids", ids)], cancellationToken);
+                await NewsletterSql.ReturningIdsAsync(database,
+                    """
+                    UPDATE "NewsletterVerificationRequests" SET "Status" = 'Cancelled', "LastOutcome" = 'sender-changed', "ProtectedToken" = NULL, "LeaseUntilUtc" = NULL, "ClaimId" = NULL
+                    WHERE "Status" IN ('Pending', 'Sending') AND "SenderGeneration" IS NOT NULL AND "SenderGeneration" < @generation AND "SubscriptionId" = ANY(@ids)
+                    RETURNING "Id"
+                    """,
+                    [("generation", row.SenderGeneration), ("ids", ids)], cancellationToken);
+                await database.NewsletterSubscriptions.Where(s => ids.Contains(s.Id) && s.Status == NewsletterSubscription.StatusPendingVerification)
                     .ExecuteUpdateAsync(set => set.SetProperty(s => s.LastVerificationRequestedAtUtc, (DateTimeOffset?)null), cancellationToken);
             }
         }
@@ -199,6 +207,7 @@ internal sealed class NewsletterSenderService(
             row.Status = NewsletterSenderSettings.StatusNotConnected;
             row.UpdatedAtUtc = timeProvider.GetUtcNow();
             row.Version++;
+            row.ConnectionEpoch++;
             await database.SaveChangesAsync(cancellationToken);
         }
 

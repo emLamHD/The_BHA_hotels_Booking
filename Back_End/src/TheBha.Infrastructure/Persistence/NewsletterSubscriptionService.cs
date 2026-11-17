@@ -43,7 +43,7 @@ internal sealed class NewsletterSubscriptionService(
                 // Only the newest mail matters: an older one that has not gone out yet is withdrawn (its link, if it was sent, still works).
                 await database.Database.ExecuteSqlInterpolatedAsync(
                     $"""
-                    UPDATE "NewsletterVerificationRequests" SET "Status" = 'Cancelled', "LastOutcome" = 'superseded', "ProtectedToken" = NULL
+                    UPDATE "NewsletterVerificationRequests" SET "Status" = 'Cancelled', "LastOutcome" = 'superseded', "ProtectedToken" = NULL, "ClaimId" = NULL
                     WHERE "SubscriptionId" = {subscriptionId} AND "Status" = 'Pending'
                     """,
                     cancellationToken);
@@ -74,7 +74,14 @@ internal sealed class NewsletterSubscriptionService(
         if (!NewsletterTokens.LooksLikeToken(token)) return NewsletterConfirmOutcome.Invalid;
         var hash = NewsletterTokens.Hash(token);
         var now = timeProvider.GetUtcNow();
+
+        // Lock order is the SUBSCRIPTION first, then its requests (as in a resend and a change of sender): the address is found by the token's
+        // hash, its row is locked, and only then is the token spent. Taken the other way round, a confirmation and a resend deadlock.
+        var subscriptionId = await database.NewsletterVerificationRequests.AsNoTracking().Where(request => request.TokenHash == hash)
+            .Select(request => (Guid?)request.SubscriptionId).SingleOrDefaultAsync(cancellationToken);
+        if (subscriptionId is null) return NewsletterConfirmOutcome.Invalid;
         await using var transaction = await database.Database.BeginTransactionAsync(cancellationToken);
+        await NewsletterSql.ReturningIdsAsync(database, """SELECT "Id" FROM "NewsletterSubscriptions" WHERE "Id" = @id FOR UPDATE""", [("id", subscriptionId.Value)], cancellationToken);
 
         // The token is spent by one conditional UPDATE: of two concurrent confirmations one gets the row, the other nothing.
         var spent = await NewsletterSql.ReturningIdsAsync(database,
@@ -88,18 +95,17 @@ internal sealed class NewsletterSubscriptionService(
         NewsletterConfirmOutcome outcome;
         if (spent.Count == 1)
         {
-            var subscriptionId = spent[0];
             await database.Database.ExecuteSqlInterpolatedAsync(
                 $"""
                 UPDATE "NewsletterSubscriptions" SET "Status" = 'Verified', "VerifiedAtUtc" = {now}
-                WHERE "Id" = {subscriptionId} AND "Status" = 'PendingVerification'
+                WHERE "Id" = {subscriptionId.Value} AND "Status" = 'PendingVerification'
                 """,
                 cancellationToken);
             // Nothing left to ask this address: a mail that has not gone out yet (or is held by a worker right now) is withdrawn.
             await database.Database.ExecuteSqlInterpolatedAsync(
                 $"""
-                UPDATE "NewsletterVerificationRequests" SET "Status" = 'Cancelled', "LastOutcome" = 'verified', "ProtectedToken" = NULL, "LeaseUntilUtc" = NULL
-                WHERE "SubscriptionId" = {subscriptionId} AND "Status" IN ('Pending', 'Sending')
+                UPDATE "NewsletterVerificationRequests" SET "Status" = 'Cancelled', "LastOutcome" = 'verified', "ProtectedToken" = NULL, "LeaseUntilUtc" = NULL, "ClaimId" = NULL
+                WHERE "SubscriptionId" = {subscriptionId.Value} AND "Status" IN ('Pending', 'Sending')
                 """,
                 cancellationToken);
             outcome = NewsletterConfirmOutcome.Verified;

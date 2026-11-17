@@ -31,6 +31,12 @@ public sealed class NewsletterGoogleStub : HttpMessageHandler
     public bool SendThrows;
     public TimeSpan SendDelay = TimeSpan.Zero;
 
+    /// <summary>
+    /// Awaited after a call is recorded and before Google "answers": a test parks a request here (a slow Google) and later releases it with
+    /// the status the late answer should carry. A non-null result replaces <see cref="SendStatus"/> (send) or <see cref="RefreshStatus"/> (refresh).
+    /// </summary>
+    public Func<Call, Task<int?>>? Hold;
+
     public IReadOnlyList<Call> Sends => Calls.Where(call => call.Path.EndsWith("/messages/send", StringComparison.Ordinal)).ToList();
     public IReadOnlyList<Call> Of(string suffix) => Calls.Where(call => call.Path.EndsWith(suffix, StringComparison.Ordinal)).ToList();
 
@@ -38,7 +44,9 @@ public sealed class NewsletterGoogleStub : HttpMessageHandler
     {
         var body = request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken);
         var path = request.RequestUri!.AbsolutePath;
-        Calls.Enqueue(new Call(request.Method.Method, path, body, request.Headers.Authorization?.ToString()));
+        var call = new Call(request.Method.Method, path, body, request.Headers.Authorization?.ToString());
+        Calls.Enqueue(call);
+        var forced = Hold is null ? null : await Hold(call);
         if (path.EndsWith("/token", StringComparison.Ordinal))
         {
             var form = System.Web.HttpUtility.ParseQueryString(body);
@@ -50,7 +58,7 @@ public sealed class NewsletterGoogleStub : HttpMessageHandler
                         ["refresh_token"] = IssueRefreshToken ? RefreshToken : null
                     })
                     : Json(ExchangeStatus, new { error = ExchangeError })
-                : RefreshStatus == 200 ? Json(200, new { access_token = "access-token-2", expires_in = 3599, token_type = "Bearer" }) : Json(RefreshStatus, new { error = RefreshError });
+                : (forced ?? RefreshStatus) == 200 ? Json(200, new { access_token = "access-token-2", expires_in = 3599, token_type = "Bearer" }) : Json(forced ?? RefreshStatus, new { error = RefreshError });
         }
 
         if (path.EndsWith("/userinfo", StringComparison.Ordinal)) return Json(200, new { email = Email, email_verified = EmailVerified });
@@ -59,9 +67,10 @@ public sealed class NewsletterGoogleStub : HttpMessageHandler
         {
             if (SendDelay > TimeSpan.Zero) await Task.Delay(SendDelay, cancellationToken);
             if (SendThrows) throw new HttpRequestException("network down");
-            return SendStatus == 200
+            var status = forced ?? SendStatus;
+            return status == 200
                 ? Json(200, new { id = "gmail-id", threadId = "t" })
-                : Json(SendStatus, new { error = new { code = SendStatus, errors = new[] { new { reason = SendReason } } } });
+                : Json(status, new { error = new { code = status, errors = new[] { new { reason = SendReason } } } });
         }
 
         return Json(404, new { });

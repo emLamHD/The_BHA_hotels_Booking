@@ -639,8 +639,9 @@ public sealed class BookingPersistenceTests(PostgreSqlWebApplicationFactory fact
         // the /api/v1/ prefix filter is what keeps this test about booking.
         var reservationRelatedPaths = paths.EnumerateObject()
             .Where(path => path.Name.StartsWith("/api/v1/", StringComparison.Ordinal))
-            // BHA-NEWSLETTER-002: the public website routes (the newsletter's e-mail confirmation) are not booking routes either.
-            .Where(path => !path.Name.StartsWith("/api/v1/website/", StringComparison.Ordinal))
+            // BHA-NEWSLETTER-002-C1: only the newsletter's e-mail confirmation route is left out (its path says "confirmations" but it is not a booking
+            // confirmation); every other /api/v1/website/ route stays covered by this booking allowlist.
+            .Where(path => !string.Equals(path.Name, "/api/v1/website/newsletter-subscriptions/confirmations", StringComparison.Ordinal))
             .Where(path => path.Name.Contains("reservation", StringComparison.OrdinalIgnoreCase) ||
                 path.Name.Contains("confirm", StringComparison.OrdinalIgnoreCase) ||
                 (path.Name.StartsWith("/api/v1/booking-holds/", StringComparison.Ordinal) &&
