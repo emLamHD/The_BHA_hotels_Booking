@@ -2205,6 +2205,117 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("TheBha.Domain.Website.NewsletterOAuthState", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ClientId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<DateTimeOffset?>("ConsumedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("ExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ProtectedClientSecret")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<string>("ProtectedCodeVerifier")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<Guid>("StaffId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("StateHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExpiresAtUtc")
+                        .HasDatabaseName("IX_NewsletterOAuthStates_ExpiresAtUtc");
+
+                    b.HasIndex("StateHash")
+                        .IsUnique()
+                        .HasDatabaseName("UX_NewsletterOAuthStates_StateHash");
+
+                    b.ToTable("NewsletterOAuthStates", (string)null);
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Website.NewsletterSenderSettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ClientId")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<DateTimeOffset?>("ConnectedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ConnectedByStaffId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ConnectedEmail")
+                        .HasMaxLength(254)
+                        .HasColumnType("character varying(254)");
+
+                    b.Property<string>("ProtectedClientSecret")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<string>("ProtectedRefreshToken")
+                        .HasMaxLength(4096)
+                        .HasColumnType("character varying(4096)");
+
+                    b.Property<string>("ReplyTo")
+                        .HasMaxLength(254)
+                        .HasColumnType("character varying(254)");
+
+                    b.Property<int>("SenderGeneration")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SenderName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("NewsletterSenderSettings", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_NewsletterSenderSettings_Connected", "\"Status\" = 'NotConnected' AND \"ProtectedRefreshToken\" IS NULL OR \"Status\" <> 'NotConnected' AND \"ProtectedRefreshToken\" IS NOT NULL AND \"ConnectedEmail\" IS NOT NULL AND \"ClientId\" IS NOT NULL AND \"ProtectedClientSecret\" IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_NewsletterSenderSettings_Singleton", "\"Id\" = 1");
+
+                            t.HasCheckConstraint("CK_NewsletterSenderSettings_Status", "\"Status\" IN ('NotConnected', 'Connected', 'NeedsReconnect')");
+                        });
+                });
+
             modelBuilder.Entity("TheBha.Domain.Website.NewsletterSubscription", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2215,6 +2326,9 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(254)
                         .HasColumnType("character varying(254)");
+
+                    b.Property<DateTimeOffset?>("LastVerificationRequestedAtUtc")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTimeOffset>("ReceivedAtUtc")
                         .HasColumnType("timestamp with time zone");
@@ -2228,6 +2342,9 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(30)
                         .HasColumnType("character varying(30)");
+
+                    b.Property<DateTimeOffset?>("VerifiedAtUtc")
+                        .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
 
@@ -2245,7 +2362,99 @@ namespace TheBha.Infrastructure.Persistence.Migrations
 
                             t.HasCheckConstraint("CK_NewsletterSubscriptions_Source", "\"Source\" IN ('homepage')");
 
-                            t.HasCheckConstraint("CK_NewsletterSubscriptions_Status", "\"Status\" IN ('PendingVerification')");
+                            t.HasCheckConstraint("CK_NewsletterSubscriptions_Status", "\"Status\" IN ('PendingVerification', 'Verified')");
+
+                            t.HasCheckConstraint("CK_NewsletterSubscriptions_VerifiedAt", "(\"Status\" = 'Verified') = (\"VerifiedAtUtc\" IS NOT NULL)");
+                        });
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Website.NewsletterVerificationRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("ExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FromEmail")
+                        .HasMaxLength(254)
+                        .HasColumnType("character varying(254)");
+
+                    b.Property<string>("FromName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Language")
+                        .IsRequired()
+                        .HasMaxLength(2)
+                        .HasColumnType("character varying(2)");
+
+                    b.Property<string>("LastOutcome")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<DateTimeOffset?>("LeaseUntilUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("NextAttemptAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ProtectedToken")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<string>("ReplyTo")
+                        .HasMaxLength(254)
+                        .HasColumnType("character varying(254)");
+
+                    b.Property<int?>("SenderGeneration")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("SentAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("SubscriptionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset?>("UsedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SubscriptionId")
+                        .HasDatabaseName("IX_NewsletterVerificationRequests_SubscriptionId");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique()
+                        .HasDatabaseName("UX_NewsletterVerificationRequests_TokenHash");
+
+                    b.HasIndex("Status", "NextAttemptAtUtc")
+                        .HasDatabaseName("IX_NewsletterVerificationRequests_Status_NextAttemptAtUtc");
+
+                    b.ToTable("NewsletterVerificationRequests", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_NewsletterVerificationRequests_Attempts", "\"Attempts\" >= 0");
+
+                            t.HasCheckConstraint("CK_NewsletterVerificationRequests_Language", "\"Language\" IN ('vi', 'en', 'fr')");
+
+                            t.HasCheckConstraint("CK_NewsletterVerificationRequests_Status", "\"Status\" IN ('Pending', 'Sending', 'Sent', 'Failed', 'Cancelled')");
                         });
                 });
 
@@ -3672,6 +3881,15 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("PropertyId", "SegmentId")
                         .HasPrincipalKey("PropertyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Website.NewsletterVerificationRequest", b =>
+                {
+                    b.HasOne("TheBha.Domain.Website.NewsletterSubscription", null)
+                        .WithMany()
+                        .HasForeignKey("SubscriptionId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
