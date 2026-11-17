@@ -3,7 +3,7 @@
  * previous data while loading (every screen relies on that), so `pending` is the only way for a screen to tell the two apart.
  */
 import React from "react";
-import { act, cleanup, screen } from "@testing-library/react";
+import { act, cleanup, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), push: vi.fn() }) }));
@@ -38,7 +38,8 @@ function Probe({ dep }: { dep: number }) {
 }
 const gated = (dep: number) => <WebsiteAccessGate returnTo="/website/languages"><Probe dep={dep} /></WebsiteAccessGate>;
 const probe = () => screen.getByTestId("probe").textContent;
-const settle = () => act(async () => { await Promise.resolve(); });
+/** The load starts in an effect, after the probe is in the DOM: wait for the n-th call before answering it. */
+const started = (n: number) => waitFor(() => expect(load).toHaveBeenCalledTimes(n));
 
 beforeEach(() => {
   vi.mocked(fetchStaffSession).mockResolvedValue({ kind: "authenticated", session: ALLOWED });
@@ -52,13 +53,13 @@ describe("useWebsiteList.pending", () => {
   it("is true until the load in flight has answered, and keeps the previous data meanwhile", async () => {
     const view = renderInGate(<Probe dep={1} />);
     await screen.findByTestId("probe");
+    await started(1);
     expect(probe()).toBe("loading||true");
     await act(async () => loads[0].resolve(ok("one")));
     expect(probe()).toBe("ready|one|false");
 
     view.rerender(gated(2));
-    await settle();
-    expect(load).toHaveBeenCalledTimes(2);
+    await started(2);
     expect(probe()).toBe("ready|one|true");
     await act(async () => loads[1].resolve(ok("two")));
     expect(probe()).toBe("ready|two|false");
@@ -67,6 +68,7 @@ describe("useWebsiteList.pending", () => {
   it("is already true in the first render with new deps, before the effect that starts the load has run", async () => {
     const view = renderInGate(<Probe dep={1} />);
     await screen.findByTestId("probe");
+    await started(1);
     await act(async () => loads[0].resolve(ok("one")));
     renders.length = 0;
     view.rerender(gated(2));
@@ -76,12 +78,12 @@ describe("useWebsiteList.pending", () => {
   it("is not settled by an answer that belongs to an older load", async () => {
     const view = renderInGate(<Probe dep={1} />);
     await screen.findByTestId("probe");
+    await started(1);
     await act(async () => loads[0].resolve(ok("one")));
     view.rerender(gated(2));
-    await settle();
+    await started(2);
     view.rerender(gated(3));
-    await settle();
-    expect(load).toHaveBeenCalledTimes(3);
+    await started(3);
 
     await act(async () => loads[1].resolve(ok("stale")));
     expect(probe()).toBe("ready|one|true");
@@ -92,6 +94,7 @@ describe("useWebsiteList.pending", () => {
   it("is false after a failure", async () => {
     renderInGate(<Probe dep={1} />);
     await screen.findByTestId("probe");
+    await started(1);
     await act(async () => loads[0].resolve({ kind: "error", message: "boom" } as never));
     expect(probe()).toBe("error||false");
   });
