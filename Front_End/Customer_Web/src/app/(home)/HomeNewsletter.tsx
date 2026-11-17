@@ -19,7 +19,8 @@ type Feedback = { kind: "error" | "notice"; message: string; id: number } | null
  * BHA-NEWSLETTER-001: the newsletter box. The address is checked here (`validateNewsletterEmail`), then sent once to
  * `POST /api/v1/website/newsletter-subscriptions`; only the API's 202 empties the field and says the request was
  * recorded. A refusal or a failure keeps the address so the visitor can fix or send it again. While a request is on its way the
- * button is disabled, so a double click sends once. The input has no `name` and the form no action, so a submit before
+ * button is disabled, so a double click sends once, and the input is read-only, so the answer to the address that was sent can
+ * never clear a newer one typed meanwhile. The input has no `name` and the form no action, so a submit before
  * the page is interactive carries no address in a URL. The purpose of the e-mail is visible next to the button.
  */
 const HomeNewsletter: FC = () => {
@@ -95,6 +96,7 @@ const HomeNewsletter: FC = () => {
                 autoComplete="email"
                 autoCapitalize="none"
                 spellCheck={false}
+                readOnly={sending}
                 placeholder={t("customer.home.homeNewsletter.tenExampleCom")}
                 aria-invalid={feedback?.kind === "error" ? true : undefined}
                 aria-describedby={feedback ? "newsletter-feedback" : undefined}
