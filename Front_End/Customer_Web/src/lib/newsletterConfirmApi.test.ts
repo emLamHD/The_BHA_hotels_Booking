@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { confirmNewsletter, submitNewsletterEmail } from "./newsletterApi";
-import { parseConfirmFragment } from "./newsletterUi";
+import { confirmUrlWithoutFragment, parseConfirmFragment } from "./newsletterUi";
 
 const originalFetch = globalThis.fetch;
 const reply = (status: number, body: unknown) => vi.fn(async () => new Response(JSON.stringify(body), { status }));
@@ -78,4 +78,11 @@ describe("parseConfirmFragment", () => {
     "refuses %j",
     (hash) => expect(parseConfirmFragment(hash)).toBeNull(),
   );
+});
+
+describe("confirmUrlWithoutFragment", () => {
+  it("keeps the path and the query and drops nothing but the fragment (which is never passed in)", () => {
+    expect(confirmUrlWithoutFragment("/newsletter/confirm", "")).toBe("/newsletter/confirm");
+    expect(confirmUrlWithoutFragment("/newsletter/confirm", "?utm_source=mail")).toBe("/newsletter/confirm?utm_source=mail");
+  });
 });

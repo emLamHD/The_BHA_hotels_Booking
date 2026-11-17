@@ -10,7 +10,7 @@ namespace TheBha.IntegrationTests;
 /// </summary>
 public sealed class NewsletterSqlGate : DbCommandInterceptor
 {
-    public sealed class Rule(Func<string, bool> match, int parties)
+    public sealed class Rule(Func<string, bool> match, int parties, int skip)
     {
         private int _arrivals;
         private readonly TaskCompletionSource _arrived = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -25,18 +25,18 @@ public sealed class NewsletterSqlGate : DbCommandInterceptor
         internal Task ParkAsync()
         {
             var arrival = Interlocked.Increment(ref _arrivals);
-            if (arrival > parties) return Task.CompletedTask;          // only the first <parties> statements are parked
-            if (arrival == parties) _arrived.TrySetResult();
+            if (arrival <= skip || arrival > skip + parties) return Task.CompletedTask;   // only <parties> statements, after the first <skip>, are parked
+            if (arrival == skip + parties) _arrived.TrySetResult();
             return _release.Task;
         }
     }
 
     private readonly List<Rule> _rules = [];
 
-    /// <summary>The first <paramref name="parties"/> statements that match wait until <see cref="Rule.Release"/>; later ones pass.</summary>
-    public Rule Arm(Func<string, bool> match, int parties = 1)
+    /// <summary>Of the statements that match, the first <paramref name="skip"/> pass and the next <paramref name="parties"/> wait until <see cref="Rule.Release"/>; later ones pass.</summary>
+    public Rule Arm(Func<string, bool> match, int parties = 1, int skip = 0)
     {
-        var rule = new Rule(match, parties);
+        var rule = new Rule(match, parties, skip);
         lock (_rules) _rules.Add(rule);
         return rule;
     }

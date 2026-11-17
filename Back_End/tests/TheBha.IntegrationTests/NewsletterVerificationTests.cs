@@ -1150,6 +1150,153 @@ public sealed class NewsletterVerificationTests(PostgreSqlWebApplicationFactory 
     }
 
 
+    // ---------------------------------------------------------------------------------------------------------------- C2
+
+    // ---- C2 #1: nothing is sent with a claim or a connection that is no longer current. These tests count the calls Google received.
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_worker_that_waited_for_its_token_sends_nothing_after_the_connection_changed(bool otherAccount)
+    {
+        using var e = await BeginAsync();
+        await ConnectAsync(e, "old@gmail.test");
+        await SubscribeOkAsync(e);
+
+        var parked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var answer = new TaskCompletionSource<int?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var first = 0;
+        e.Google.Hold = call =>
+        {
+            if (!IsRefresh(call) || Interlocked.Increment(ref first) != 1) return Task.FromResult<int?>(null);
+            parked.TrySetResult();
+            return answer.Task;
+        };
+        var worker = DispatchAsync(e.Host);
+        await parked.Task.WaitAsync(Patience);
+
+        // The worker is waiting for Google's token. The Admin connects again (another Gmail address, or the same one with a new grant).
+        e.Google.RefreshToken = "refresh-token-NEW";
+        await ConnectAsync(e, otherAccount ? "new@gmail.test" : "old@gmail.test", switchAccount: true);
+        answer.SetResult(200);                                               // the OLD token now arrives
+        await worker.WaitAsync(Patience);
+
+        if (otherAccount)
+        {
+            Assert.Empty(e.Google.Sends);                                    // nothing left from the old account, and the mail is not sent from the new one either
+            Assert.Equal("Cancelled", await RequestStatusAsync());
+            Assert.Equal("sender-changed", await ScalarAsync<string>("""SELECT "LastOutcome" FROM "NewsletterVerificationRequests" """));
+        }
+        else
+        {
+            // The mail goes out once, and only after a token was made from the NEW grant.
+            var calls = e.Google.Calls.ToList();
+            var sendAt = calls.FindIndex(IsSend);
+            Assert.Single(e.Google.Sends);
+            Assert.True(calls.Take(sendAt).Any(c => IsRefresh(c) && c.Body.Contains("refresh-token-NEW", StringComparison.Ordinal)), "the send used a token of the old connection");
+            Assert.Equal("Sent", await RequestStatusAsync());
+            Assert.Equal(1, await ScalarAsync<int>("""SELECT "Attempts" FROM "NewsletterVerificationRequests" """));   // the attempt of the abandoned try was given back
+        }
+    }
+
+    [Fact]
+    public async Task A_worker_with_a_token_already_in_hand_sends_nothing_after_the_connection_changed()
+    {
+        using var e = await BeginAsync();
+        await ConnectAsync(e, "old@gmail.test");
+        await SubscribeOkAsync(e);
+        await SubscribeAfterCooldownAsync(e, "second@example.com");
+
+        // The first mail goes out and leaves the worker with an access token. The worker is parked just before it pins the SECOND request.
+        var pin = _gate.Arm(sql => sql.StartsWith("UPDATE \"NewsletterVerificationRequests\"", StringComparison.Ordinal) && sql.Contains("\"FromEmail\"", StringComparison.Ordinal), parties: 1, skip: 1);
+        var worker = DispatchAsync(e.Host);
+        await pin.Arrived.WaitAsync(Patience);
+        Assert.Single(e.Google.Sends);
+        await ConnectAsync(e, "new@gmail.test", switchAccount: true);
+        pin.Release();
+        await worker.WaitAsync(Patience);
+
+        Assert.Single(e.Google.Sends);                                       // only the mail that left before the switch
+        Assert.Equal(1, await ScalarAsync<int>("""SELECT count(*) FROM "NewsletterVerificationRequests" WHERE "Status" = 'Sent' """));
+        Assert.Equal(1, await ScalarAsync<int>("""SELECT count(*) FROM "NewsletterVerificationRequests" WHERE "Status" = 'Cancelled' AND "LastOutcome" = 'sender-changed' """));
+    }
+
+    [Fact]
+    public async Task A_worker_that_waited_for_its_token_while_another_took_the_lease_over_sends_nothing()
+    {
+        using var e = await BeginAsync();
+        await ConnectAsync(e);
+        await SubscribeOkAsync(e);
+
+        var parked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var answer = new TaskCompletionSource<int?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var first = 0;
+        e.Google.Hold = call =>
+        {
+            if (!IsRefresh(call) || Interlocked.Increment(ref first) != 1) return Task.FromResult<int?>(null);
+            parked.TrySetResult();
+            return answer.Task;
+        };
+        var workerA = DispatchAsync(e.Host);
+        await parked.Task.WaitAsync(Patience);
+        Factory.Clock.UtcNow += TimeSpan.FromSeconds(200);                   // A's lease is over; B takes the request and sends it
+        Assert.Equal(1, await DispatchAsync(e.Host));
+        Assert.Equal("Sent", await RequestStatusAsync());
+
+        answer.SetResult(200);                                               // A's token arrives late
+        await workerA.WaitAsync(Patience);
+
+        Assert.Single(e.Google.Sends);                                       // B's mail only: the address got one mail, not two
+        Assert.Equal("Sent", await RequestStatusAsync());
+    }
+
+    // ---- C2 #2: the very first connection(s), when the sender table is empty
+
+    [Fact]
+    public async Task Two_first_connections_on_an_empty_table_leave_one_row_and_each_advances_the_epoch()
+    {
+        using var e = await BeginAsync();
+        Assert.Equal(0, await ScalarAsync<int>("""SELECT count(*) FROM "NewsletterSenderSettings" """));
+        var (_, first) = await BeginConnectAsync(e);
+        var (_, second) = await BeginConnectAsync(e);
+
+        // Both completions are parked just before they create the row: both have found the table empty.
+        var creating = _gate.Arm(sql => sql.StartsWith("INSERT INTO \"NewsletterSenderSettings\"", StringComparison.Ordinal), parties: 2);
+        var a = CompleteAsync(e, state: first);
+        var b = CompleteAsync(e, state: second);
+        await creating.Arrived.WaitAsync(Patience);
+        creating.Release();
+        var responses = await Task.WhenAll(a, b);
+
+        Assert.DoesNotContain(e.Logs.Lines, line => line.Contains("duplicate key", StringComparison.OrdinalIgnoreCase));
+        Assert.All(responses, r => Assert.Equal(HttpStatusCode.OK, r.StatusCode));
+        Assert.Equal(1, await ScalarAsync<int>("""SELECT count(*) FROM "NewsletterSenderSettings" """));
+        Assert.Equal(2, await ScalarAsync<int>("""SELECT "ConnectionEpoch" FROM "NewsletterSenderSettings" """));
+        Assert.Equal("Connected", (await SenderAsync(e)).GetProperty("status").GetString());
+    }
+
+    [Fact]
+    public async Task A_first_connection_and_a_first_profile_save_share_one_row_and_one_rule()
+    {
+        using var e = await BeginAsync();
+        var (_, state) = await BeginConnectAsync(e);
+
+        var creating = _gate.Arm(sql => sql.StartsWith("INSERT INTO \"NewsletterSenderSettings\"", StringComparison.Ordinal), parties: 2);
+        var connect = CompleteAsync(e, state: state);
+        var profile = PutAsync(e, Sender + "/profile", new { expectedVersion = 0, senderName = "Profile Name" });
+        await creating.Arrived.WaitAsync(Patience);
+        creating.Release();
+        var responses = await Task.WhenAll(connect, profile);
+
+        Assert.Equal(HttpStatusCode.OK, responses[0].StatusCode);            // the connection always lands
+        Assert.Contains(responses[1].StatusCode, new[] { HttpStatusCode.OK, HttpStatusCode.Conflict });
+        Assert.Equal(1, await ScalarAsync<int>("""SELECT count(*) FROM "NewsletterSenderSettings" """));
+        Assert.Equal(1, await ScalarAsync<int>("""SELECT "ConnectionEpoch" FROM "NewsletterSenderSettings" """));
+        Assert.Equal("Connected", await ScalarAsync<string>("""SELECT "Status" FROM "NewsletterSenderSettings" """));
+        if (responses[1].StatusCode == HttpStatusCode.OK)
+            Assert.Equal("Profile Name", await ScalarAsync<string>("""SELECT "SenderName" FROM "NewsletterSenderSettings" """));   // a profile that won is kept by the connection
+    }
+
     // ---------------------------------------------------------------------------------------------------------------- who may do what
 
     [Fact]

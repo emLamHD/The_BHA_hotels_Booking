@@ -3,7 +3,7 @@
 import Link from "next/link";
 import React, { FC, useEffect, useRef, useState } from "react";
 import { confirmNewsletter, type NewsletterConfirmResult } from "@/lib/newsletterApi";
-import { NEWSLETTER_CONFIRM, parseConfirmFragment } from "@/lib/newsletterUi";
+import { confirmUrlWithoutFragment, NEWSLETTER_CONFIRM, parseConfirmFragment } from "@/lib/newsletterUi";
 import { useT } from "@/lib/i18n/I18nProvider";
 
 type Phase = "ready" | "working" | NewsletterConfirmResult["kind"] | "missing";
@@ -30,8 +30,9 @@ const ConfirmNewsletter: FC = () => {
   useEffect(() => {
     token.current = parseConfirmFragment(window.location.hash);
     if (token.current === null) setPhase("missing");
-    // Keep the secret out of the address bar, history and any later copy of the URL.
-    window.history.replaceState(null, "", window.location.pathname);
+    // Keep the secret out of the address bar, history and any later copy of the URL. The entry keeps its current state (the App Router's own
+    // routing data), so Back from the next page still restores this one; the query, if any, stays.
+    window.history.replaceState(window.history.state, "", confirmUrlWithoutFragment(window.location.pathname, window.location.search));
   }, []);
 
   const confirm = async () => {

@@ -45,16 +45,8 @@ internal sealed class NewsletterSenderService(
             // No row at that version: only the very first save (version 0, no row yet) goes on, and it creates the row.
             if (expectedVersion != 0 || await database.NewsletterSenderSettings.AnyAsync(cancellationToken))
                 return new NewsletterSenderProfileResult(false, "newsletter-sender-version-conflict", null);
-            database.NewsletterSenderSettings.Add(new NewsletterSenderSettings { SenderName = name, ReplyTo = reply, UpdatedAtUtc = now });
-            try
-            {
-                await database.SaveChangesAsync(cancellationToken);
-            }
-            catch (DbUpdateException)
-            {
-                // Two first saves raced for the single row: the loser is told to read again.
-                return new NewsletterSenderProfileResult(false, "newsletter-sender-version-conflict", null);
-            }
+            var created = await CreateSingletonAsync(name, reply, now, cancellationToken);
+            if (!created) return new NewsletterSenderProfileResult(false, "newsletter-sender-version-conflict", null);   // another first save won the row
         }
 
         return new NewsletterSenderProfileResult(true, null, await GetAsync(cancellationToken));
@@ -141,10 +133,11 @@ internal sealed class NewsletterSenderService(
         await using var transaction = await database.Database.BeginTransactionAsync(cancellationToken);
         // The sender row is locked BEFORE it is read: two connections that overlap are applied one after the other, each on the other's result,
         // so the epoch, the version and the generation each advance once per connection. (Lock order: settings, then subscriptions, then requests.)
+        // The row exists before it is locked: a row that does not exist cannot be locked, so two first connections would both find nothing and
+        // both insert. The creation is one INSERT … ON CONFLICT DO NOTHING (inside this transaction: it stays only with a connection that lands).
+        await CreateSingletonAsync(null, null, now, cancellationToken);
         var row = (await database.NewsletterSenderSettings.FromSqlInterpolated($"SELECT * FROM \"NewsletterSenderSettings\" WHERE \"Id\" = {NewsletterSenderSettings.SingletonId} FOR UPDATE")
-            .ToListAsync(cancellationToken)).SingleOrDefault();
-        var isNew = row is null;
-        row ??= new NewsletterSenderSettings();
+            .ToListAsync(cancellationToken)).Single();
         var changedAccount = row.ConnectedEmail is not null && !string.Equals(row.ConnectedEmail, email, StringComparison.Ordinal);
         row.ClientId = pendingState.ClientId;
         row.ProtectedClientSecret = protector.Protect(secret);
@@ -157,7 +150,6 @@ internal sealed class NewsletterSenderService(
         row.Version++;
         row.ConnectionEpoch++;
         if (changedAccount) row.SenderGeneration++;
-        if (isNew) database.NewsletterSenderSettings.Add(row);
         await database.SaveChangesAsync(cancellationToken);
 
         if (changedAccount)
@@ -216,6 +208,16 @@ internal sealed class NewsletterSenderService(
 
         return await GetAsync(cancellationToken);
     }
+
+    /// <summary>Creates the single sender row if it does not exist yet; false when it already did (the one rule for every path that can make it).</summary>
+    private async Task<bool> CreateSingletonAsync(string? senderName, string? replyTo, DateTimeOffset now, CancellationToken cancellationToken) =>
+        await database.Database.ExecuteSqlInterpolatedAsync(
+            $"""
+            INSERT INTO "NewsletterSenderSettings" ("Id", "SenderName", "ReplyTo", "Status", "SenderGeneration", "ConnectionEpoch", "Version", "UpdatedAtUtc")
+            VALUES ({NewsletterSenderSettings.SingletonId}, {senderName}, {replyTo}, {NewsletterSenderSettings.StatusNotConnected}, 0, 0, 1, {now})
+            ON CONFLICT ("Id") DO NOTHING
+            """,
+            cancellationToken) == 1;
 
     private NewsletterSenderDto ToDto(NewsletterSenderSettings? row, int pending) => new(
         row?.Status ?? NewsletterSenderSettings.StatusNotConnected,

@@ -98,6 +98,14 @@ internal sealed class NewsletterVerificationDispatcher(
                 tokenEpoch = settings.ConnectionEpoch;
             }
 
+            // The last look before the mail leaves: after every await above (Google's token answer included) the request must still be this
+            // worker's and the connection still the one whose credentials were used. Otherwise nothing is sent; the request is given back.
+            if (!await StillCurrentAsync(claim, settings.ConnectionEpoch, cancellationToken))
+            {
+                await GiveBackAsync(claim, "connection-changed", cancellationToken);
+                continue;
+            }
+
             var link = options.CustomerOrigin!.TrimEnd('/') + "/newsletter/confirm#t=" + token;
             var host = new Uri(options.CustomerOrigin!).Host;
             var raw = NewsletterMailMessage.Build(request.FromEmail!, request.FromName ?? "The BHA", request.ReplyTo, subscriptionEmail, request.Language, link, options.TokenLifetimeHours, host);
@@ -125,6 +133,26 @@ internal sealed class NewsletterVerificationDispatcher(
     /// <summary>The request as THIS worker holds it: still Sending, and under this worker's claim. Every write of the worker is restricted to it.</summary>
     private IQueryable<NewsletterVerificationRequest> Owned(Held held) =>
         database.NewsletterVerificationRequests.Where(r => r.Id == held.Id && r.Status == NewsletterVerificationRequest.StatusSending && r.ClaimId == held.ClaimId);
+
+    /// <summary>
+    /// Read from the database NOW (never from what the worker read earlier): the request is still Sending under this worker's claim with a lease
+    /// that has not run out, the sender is Connected, and its <see cref="NewsletterSenderSettings.ConnectionEpoch"/> is the one the credentials came from.
+    /// </summary>
+    private async Task<bool> StillCurrentAsync(Held held, int connectionEpoch, CancellationToken cancellationToken)
+    {
+        var now = timeProvider.GetUtcNow();
+        return await Owned(held).Where(r => r.LeaseUntilUtc > now)
+            .AnyAsync(r => database.NewsletterSenderSettings.Any(s => s.Status == NewsletterSenderSettings.StatusConnected && s.ConnectionEpoch == connectionEpoch), cancellationToken);
+    }
+
+    /// <summary>Nothing was sent: the request goes back to waiting with its attempt returned (a no-op when the claim is no longer ours).</summary>
+    private async Task GiveBackAsync(Held held, string outcome, CancellationToken cancellationToken)
+    {
+        database.ChangeTracker.Clear();
+        await Owned(held)
+            .ExecuteUpdateAsync(set => set.SetProperty(r => r.Status, NewsletterVerificationRequest.StatusPending).SetProperty(r => r.Attempts, r => r.Attempts - 1)
+                .SetProperty(r => r.LastOutcome, outcome).SetProperty(r => r.LeaseUntilUtc, (DateTimeOffset?)null).SetProperty(r => r.ClaimId, (Guid?)null), cancellationToken);
+    }
 
     /// <summary>Takes one due request (pending, or a lease that ran out) under a lease and a new claim, and counts the attempt. Null when nothing is due.</summary>
     private async Task<Held?> ClaimAsync(CancellationToken cancellationToken)
