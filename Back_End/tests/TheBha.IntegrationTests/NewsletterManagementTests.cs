@@ -198,18 +198,18 @@ public sealed class NewsletterManagementTests(PostgreSqlWebApplicationFactory fa
         var row = await AddAsync(e);
 
         // No sender: nothing is queued and no cooldown is written, so connecting Gmail later does not make this address wait.
-        var none = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, PostRowAsync(e, row, "verification-invitations", new { })));
+        var none = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, PostRowAsync(e, row, "verification-invitations")));
         Assert.Equal("not-connected", none.GetProperty("status").GetString());
         Assert.Equal(0, await Count("NewsletterVerificationRequests"));
         Assert.Equal(JsonValueKind.Null, (await ReadAsync(e)).GetProperty("verificationMail").ValueKind);
 
         await ConnectAsync(e);
-        var queued = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, PostRowAsync(e, row, "verification-invitations", new { })));
+        var queued = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, PostRowAsync(e, row, "verification-invitations")));
         Assert.Equal("queued", queued.GetProperty("status").GetString());
         Assert.Equal("Pending", queued.GetProperty("subscription").GetProperty("verificationMail").GetString());
         Assert.Equal(1, await Count("NewsletterVerificationRequests", "\"Purpose\" = 'Verification'"));
 
-        var cooling = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, PostRowAsync(e, row, "verification-invitations", new { })));
+        var cooling = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, PostRowAsync(e, row, "verification-invitations")));
         Assert.Equal("cooldown", cooling.GetProperty("status").GetString());
         Assert.InRange(cooling.GetProperty("retryAfterSeconds").GetInt32(), 1, 300);
         Assert.Equal(1, await Count("NewsletterVerificationRequests"));
@@ -217,7 +217,7 @@ public sealed class NewsletterManagementTests(PostgreSqlWebApplicationFactory fa
         Assert.Equal(1, await DispatchAsync(e.Host));
         Assert.Equal("Sent", (await ReadAsync(e)).GetProperty("verificationMail").GetString());
         Factory.Clock.UtcNow += TimeSpan.FromMinutes(6);
-        var again = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, PostRowAsync(e, row, "verification-invitations", new { })));
+        var again = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, PostRowAsync(e, row, "verification-invitations")));
         Assert.Equal("queued", again.GetProperty("status").GetString());
     }
 
@@ -227,17 +227,17 @@ public sealed class NewsletterManagementTests(PostgreSqlWebApplicationFactory fa
         using var e = await BeginAsync();
         await VerifyAsync(e);
         var verified = await ReadAsync(e);
-        var refused = await JsonAsync(await AssertStatusAsync(HttpStatusCode.Conflict, PostRowAsync(e, verified, "verification-invitations", new { })));
+        var refused = await JsonAsync(await AssertStatusAsync(HttpStatusCode.Conflict, PostRowAsync(e, verified, "verification-invitations")));
         Assert.Equal("newsletter-invite-not-pending", refused.GetProperty("code").GetString());
 
         var hidden = await AddAsync(e, "hidden@example.com");
         var archived = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, PostRowAsync(e, hidden, "archive")));
-        Assert.Equal("newsletter-subscription-archived", (await JsonAsync(await AssertStatusAsync(HttpStatusCode.Conflict, PostRowAsync(e, archived, "verification-invitations", new { })))).GetProperty("code").GetString());
+        Assert.Equal("newsletter-subscription-archived", (await JsonAsync(await AssertStatusAsync(HttpStatusCode.Conflict, PostRowAsync(e, archived, "verification-invitations")))).GetProperty("code").GetString());
 
         var stopped = await AddAsync(e, "stopped@example.com");
         var unsub = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, PostRowAsync(e, stopped, "unsubscribe")));
-        Assert.Equal("newsletter-invite-not-pending", (await JsonAsync(await AssertStatusAsync(HttpStatusCode.Conflict, PostRowAsync(e, unsub, "verification-invitations", new { })))).GetProperty("code").GetString());
-        await AssertStatusAsync(HttpStatusCode.NotFound, e.Staff.PostAsync($"{Admin}/{Guid.NewGuid()}/verification-invitations", new { }));
+        Assert.Equal("newsletter-invite-not-pending", (await JsonAsync(await AssertStatusAsync(HttpStatusCode.Conflict, PostRowAsync(e, unsub, "verification-invitations")))).GetProperty("code").GetString());
+        await AssertStatusAsync(HttpStatusCode.NotFound, e.Staff.PostAsync($"{Admin}/{Guid.NewGuid()}/verification-invitations", new { expectedVersion = 1 }));
     }
 
     // ------------------------------------------------------------------------------------------------------------ edit
@@ -292,7 +292,7 @@ public sealed class NewsletterManagementTests(PostgreSqlWebApplicationFactory fa
         Assert.Equal("PendingVerification", await ScalarAsync<string>("""SELECT "Status" FROM "NewsletterSubscriptions" """));
 
         // The new address is invited like any other.
-        var invite = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, PostRowAsync(e, edited, "verification-invitations", new { })));
+        var invite = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, PostRowAsync(e, edited, "verification-invitations")));
         Assert.Equal("queued", invite.GetProperty("status").GetString());
     }
 
@@ -450,7 +450,7 @@ public sealed class NewsletterManagementTests(PostgreSqlWebApplicationFactory fa
         using var e = await BeginAsync();
         var row = await AddAsync(e);
         var edited = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, e.Staff.PostAsync($"{Admin}/{IdOf(row)}/update", new { expectedVersion = VersionOf(row), email = "second@example.com", language = "en" })));
-        await AssertStatusAsync(HttpStatusCode.OK, PostRowAsync(e, edited, "verification-invitations", new { }));
+        await AssertStatusAsync(HttpStatusCode.OK, PostRowAsync(e, edited, "verification-invitations"));
         var current = await ReadAsync(e, "second@example.com");
         var stopped = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, PostRowAsync(e, current, "unsubscribe")));
         var archived = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, PostRowAsync(e, stopped, "archive")));
@@ -498,7 +498,7 @@ public sealed class NewsletterManagementTests(PostgreSqlWebApplicationFactory fa
         {
             (Admin, new { email = "x@example.com" }),
             ($"{Admin}/{IdOf(row)}/update", new { expectedVersion = 1, language = "en" }),
-            ($"{Admin}/{IdOf(row)}/verification-invitations", new { }),
+            ($"{Admin}/{IdOf(row)}/verification-invitations", new { expectedVersion = 1 }),
             ($"{Admin}/{IdOf(row)}/unsubscribe", new { expectedVersion = 1 }),
             ($"{Admin}/{IdOf(row)}/archive", new { expectedVersion = 1 }),
             ($"{Admin}/{IdOf(row)}/restore", new { expectedVersion = 1 }),
@@ -732,7 +732,7 @@ public sealed class NewsletterManagementTests(PostgreSqlWebApplicationFactory fa
         var press = UnsubscribeLinkAsync(e, token);
         await parked.Arrived.WaitAsync(Patience);                         // the link is known to be A's; nothing is locked or written yet
         var edited = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, e.Staff.PostAsync($"{Admin}/{IdOf(row)}/update", new { expectedVersion = VersionOf(row), email = "b@example.com" })));
-        await AssertStatusAsync(HttpStatusCode.OK, PostRowAsync(e, edited, "verification-invitations", new { }));   // B's confirmation is waiting in the outbox
+        await AssertStatusAsync(HttpStatusCode.OK, PostRowAsync(e, edited, "verification-invitations"));   // B's confirmation is waiting in the outbox
         var before = await ReadAsync(e, "b@example.com");
         parked.Release();
 
@@ -1070,6 +1070,199 @@ public sealed class NewsletterManagementTests(PostgreSqlWebApplicationFactory fa
         {
             Assert.Equal(0, await Count("NewsletterVerificationRequests", $"\"Purpose\" = '{purpose}' AND \"Status\" IN ('Pending', 'Sending') AND \"CreatedAtUtc\" >= now() - interval '1 day'"));
         }
+    }
+
+    // ------------------------------------------------------------------------------------------------------------ BHA-NEWSLETTER-003-C5
+
+    /// <summary>Round one of an address: two confirmation links go out (a resend after the cooldown), the first is pressed and the Welcome is queued. Returns the link left unused.</summary>
+    private async Task<string> TwoLinksOneConfirmedAsync(Env e)
+    {
+        await AssertStatusAsync(HttpStatusCode.Accepted, e.Client.SendAsync(Subscribe(Guest)));
+        var confirmed = await SentWelcomeTokenAsync(e);
+        Factory.Clock.UtcNow += TimeSpan.FromMinutes(6);
+        await AssertStatusAsync(HttpStatusCode.Accepted, e.Client.SendAsync(Subscribe(Guest)));
+        var unused = await SentWelcomeTokenAsync(e);
+        Assert.NotEqual(confirmed, unused);
+        await AssertStatusAsync(HttpStatusCode.OK, ConfirmAsync(e, confirmed));
+        Assert.Equal(1, await Welcomes());
+        return unused;
+    }
+
+    private Task<string> SubscriptionStatusAsync() => ScalarAsync<string>("""SELECT "Status" FROM "NewsletterSubscriptions" """);
+
+    /// <summary>The visitor leaves through the Welcome's link, or Staff stop the address.</summary>
+    private async Task LeaveAsync(Env e, string how)
+    {
+        if (how == "visitor") await AssertStatusAsync(HttpStatusCode.OK, UnsubscribeLinkAsync(e, await SentWelcomeTokenAsync(e)));
+        else await AssertStatusAsync(HttpStatusCode.OK, PostRowAsync(e, await ReadAsync(e), "unsubscribe"));
+        Assert.Equal("Unsubscribed", await SubscriptionStatusAsync());
+    }
+
+    [Theory]
+    [InlineData("visitor", true)]
+    [InlineData("visitor", false)]
+    [InlineData("staff", true)]
+    [InlineData("staff", false)]
+    public async Task A_confirmation_link_of_an_earlier_opt_in_round_confirms_nothing_once_the_visitor_has_come_back(string how, bool senderConnected)
+    {
+        using var e = await BeginAsync();
+        var unused = await TwoLinksOneConfirmedAsync(e);                   // two links in one round, one pressed: the other is still unused and unexpired
+        await LeaveAsync(e, how);
+        Factory.Clock.UtcNow += TimeSpan.FromMinutes(10);
+        if (!senderConnected) await AssertStatusAsync(HttpStatusCode.OK, e.Staff.PostAsync(Sender + "/disconnect", new { }));
+
+        await AssertStatusAsync(HttpStatusCode.Accepted, e.Client.SendAsync(Subscribe(Guest)));   // a new opt-in round starts
+        Assert.Equal("PendingVerification", await SubscriptionStatusAsync());
+        // Every confirmation link of the earlier round is void, with or without a sender (then the new round has no mail yet); a Welcome link is not touched.
+        Assert.Equal(senderConnected ? 1 : 0, await Count("NewsletterVerificationRequests", "\"Purpose\" = 'Verification' AND \"RevokedAtUtc\" IS NULL"));
+        Assert.Equal(1, await Count("NewsletterVerificationRequests", "\"Purpose\" = 'Welcome' AND \"RevokedAtUtc\" IS NULL"));
+
+        var old = await JsonAsync(await AssertStatusAsync(HttpStatusCode.BadRequest, ConfirmAsync(e, unused)));
+        Assert.Equal("newsletter-confirmation-invalid", old.GetProperty("code").GetString());
+        Assert.Equal("PendingVerification", await SubscriptionStatusAsync());
+        Assert.Equal(1, await Welcomes());
+
+        if (!senderConnected)
+        {
+            await ConnectAsync(e);
+            await AssertStatusAsync(HttpStatusCode.Accepted, e.Client.SendAsync(Subscribe(Guest)));   // nothing waited for the cooldown while no mail could go out
+        }
+
+        var fresh = await SentWelcomeTokenAsync(e);                         // the link of THIS round
+        var done = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, ConfirmAsync(e, fresh)));
+        Assert.Equal("verified", done.GetProperty("status").GetString());
+        Assert.Equal(2, await Welcomes());                                  // exactly one Welcome for the new verification
+    }
+
+    [Fact]
+    public async Task The_Welcome_link_stays_the_visitors_way_out_after_a_new_opt_in_round_started()
+    {
+        using var e = await BeginAsync();
+        await VerifyAsync(e);
+        var welcome = await SentWelcomeTokenAsync(e);
+        await AssertStatusAsync(HttpStatusCode.OK, UnsubscribeLinkAsync(e, welcome));
+        var replay = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, UnsubscribeLinkAsync(e, welcome)));
+        Assert.Equal("already-unsubscribed", replay.GetProperty("status").GetString());
+
+        Factory.Clock.UtcNow += TimeSpan.FromMinutes(10);
+        await AssertStatusAsync(HttpStatusCode.Accepted, e.Client.SendAsync(Subscribe(Guest)));
+        Assert.Equal("PendingVerification", await SubscriptionStatusAsync());
+        Assert.Equal(0, await Count("NewsletterVerificationRequests", "\"Purpose\" = 'Welcome' AND \"RevokedAtUtc\" IS NOT NULL"));   // not revoked by the new round
+        var left = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, UnsubscribeLinkAsync(e, welcome)));   // the business rule is unchanged: the link still unsubscribes
+        Assert.Equal("unsubscribed", left.GetProperty("status").GetString());
+        Assert.Equal("Unsubscribed", await SubscriptionStatusAsync());
+    }
+
+    [Fact]
+    public async Task A_confirmation_link_read_before_the_visitor_came_back_is_void_when_it_gets_the_lock()
+    {
+        using var e = await BeginAsync();
+        var unused = await TwoLinksOneConfirmedAsync(e);
+        await LeaveAsync(e, "staff");
+        Factory.Clock.UtcNow += TimeSpan.FromMinutes(10);
+        // The press has READ its link (valid, unrevoked) and is parked before it asks for the subscription's lock.
+        var parked = _gate.Arm(sql => sql.StartsWith("SELECT", StringComparison.Ordinal) && sql.Contains("\"TokenHash\"", StringComparison.Ordinal) && sql.Contains("'Verification'", StringComparison.Ordinal), afterRead: true);
+
+        var press = ConfirmAsync(e, unused);
+        await parked.Arrived.WaitAsync(Patience);
+        await AssertStatusAsync(HttpStatusCode.Accepted, e.Client.SendAsync(Subscribe(Guest)));    // the visitor comes back meanwhile: a new round
+        parked.Release();
+
+        var answer = await JsonAsync(await AssertStatusAsync(HttpStatusCode.BadRequest, press.WaitAsync(Patience)));
+        Assert.Equal("newsletter-confirmation-invalid", answer.GetProperty("code").GetString());
+        Assert.Equal("PendingVerification", await SubscriptionStatusAsync());
+        Assert.Equal(1, await Welcomes());                                                         // the stale link made no Welcome
+    }
+
+    [Fact]
+    public async Task An_invitation_made_from_a_row_that_has_since_changed_is_a_409_and_queues_nothing_for_the_address_that_replaced_it()
+    {
+        using var e = await BeginAsync();
+        var row = await AddAsync(e, "a@example.com");
+        var edited = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, e.Staff.PostAsync($"{Admin}/{IdOf(row)}/update", new { expectedVersion = VersionOf(row), email = "b@example.com" })));
+
+        // Staff A still sees "a@example.com" at the old version.
+        var refused = await JsonAsync(await AssertStatusAsync(HttpStatusCode.Conflict, PostRowAsync(e, row, "verification-invitations")));
+        Assert.Equal("newsletter-version-conflict", refused.GetProperty("code").GetString());
+        Assert.Equal(0, await Count("NewsletterVerificationRequests"));
+        Assert.Equal(0, await Count("NewsletterSubscriptionAudits", "\"Action\" = 'invited'"));
+        Assert.Equal(0, await Count("NewsletterSubscriptions", "\"LastVerificationRequestedAtUtc\" IS NOT NULL"));
+        Assert.Equal(0, await DispatchAsync(e.Host));
+        Assert.Empty(e.Google.Sends);
+
+        // A screen that read the list again invites the address it now shows.
+        var queued = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, PostRowAsync(e, edited, "verification-invitations")));
+        Assert.Equal("queued", queued.GetProperty("status").GetString());
+        Assert.Equal(1, await DispatchAsync(e.Host));
+        Assert.Equal("b@example.com", Mail(e.Google.Sends.Single()).Headers["To"]);
+    }
+
+    [Fact]
+    public async Task An_invitation_that_waited_for_the_rows_lock_checks_the_version_it_finds_after_waiting()
+    {
+        using var e = await BeginAsync();
+        var row = await AddAsync(e, "a@example.com");
+        // Staff rename the row; the change has run and holds the row's lock but is not committed.
+        var parked = _gate.Arm(sql => sql.StartsWith("UPDATE \"NewsletterSubscriptions\" SET \"Email\"", StringComparison.Ordinal), afterRead: true);
+        var rename = e.Staff.PostAsync($"{Admin}/{IdOf(row)}/update", new { expectedVersion = VersionOf(row), email = "b@example.com" });
+        await parked.Arrived.WaitAsync(Patience);
+
+        var invite = PostRowAsync(e, row, "verification-invitations");                              // made from the row as it was
+        await WaitForLockWaitAsync();
+        Assert.False(invite.IsCompleted);
+        parked.Release();
+
+        Assert.True((await rename.WaitAsync(Patience)).IsSuccessStatusCode);
+        var refused = await JsonAsync(await AssertStatusAsync(HttpStatusCode.Conflict, invite.WaitAsync(Patience)));
+        Assert.Equal("newsletter-version-conflict", refused.GetProperty("code").GetString());
+        Assert.Equal(0, await Count("NewsletterVerificationRequests"));
+        Assert.Equal(0, await Count("NewsletterSubscriptionAudits", "\"Action\" = 'invited'"));
+        Assert.Equal(0, await Count("NewsletterSubscriptions", "\"LastVerificationRequestedAtUtc\" IS NOT NULL"));
+    }
+
+    [Fact]
+    public async Task An_invitation_needs_the_version_of_its_row_and_a_body_without_one_changes_nothing()
+    {
+        using var e = await BeginAsync();
+        var row = await AddAsync(e);
+        var path = $"{Admin}/{IdOf(row)}/verification-invitations";
+        foreach (var body in new object[] { new { }, new { expectedVersion = "one" }, new { expectedVersion = (int?)null }, new { expectedVersion = 1.5 }, new { expectedVersion = new[] { 1 } } })
+        {
+            await AssertStatusAsync(HttpStatusCode.BadRequest, e.Staff.PostAsync(path, body));
+        }
+
+        var stale = await JsonAsync(await AssertStatusAsync(HttpStatusCode.Conflict, e.Staff.PostAsync(path, new { expectedVersion = VersionOf(row) + 5 })));
+        Assert.Equal("newsletter-version-conflict", stale.GetProperty("code").GetString());
+        await AssertStatusAsync(HttpStatusCode.NotFound, e.Staff.PostAsync($"{Admin}/{Guid.NewGuid()}/verification-invitations", new { expectedVersion = 1 }));
+        Assert.Equal(0, await Count("NewsletterVerificationRequests"));
+        Assert.Equal(0, await Count("NewsletterSubscriptionAudits", "\"Action\" <> 'created'"));
+        Assert.Equal(0, await Count("NewsletterSubscriptions", "\"LastVerificationRequestedAtUtc\" IS NOT NULL"));
+        Assert.Equal("queued", (await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, PostRowAsync(e, row, "verification-invitations")))).GetProperty("status").GetString());   // the current version does
+    }
+
+    [Fact]
+    public async Task A_request_deleted_right_after_the_claim_is_skipped_and_the_next_mail_goes_out_in_the_same_batch()
+    {
+        using var e = await BeginAsync();
+        var a = await AddAsync(e, "a@example.com");
+        await AssertStatusAsync(HttpStatusCode.OK, PostRowAsync(e, a, "verification-invitations"));
+        Factory.Clock.UtcNow += TimeSpan.FromSeconds(1);                    // b@ is due after a@: a@ is claimed first
+        var b = await AddAsync(e, "b@example.com");
+        await AssertStatusAsync(HttpStatusCode.OK, PostRowAsync(e, b, "verification-invitations"));
+        var sendsBefore = e.Google.Sends.Count;
+
+        // The first read of the outbox after the claim has committed its lease is the one INSIDE ClaimAsync: the worker is parked right before it.
+        var parked = _gate.Arm(sql => sql.StartsWith("SELECT", StringComparison.Ordinal) && sql.Contains("FROM \"NewsletterVerificationRequests\"", StringComparison.Ordinal));
+        var running = DispatchAsync(e.Host);
+        await parked.Arrived.WaitAsync(Patience);
+        Assert.Equal("Sending", await ScalarAsync<string>("""SELECT r."Status" FROM "NewsletterVerificationRequests" r JOIN "NewsletterSubscriptions" s ON s."Id" = r."SubscriptionId" WHERE s."Email" = 'a@example.com' """));
+        await AssertStatusAsync(HttpStatusCode.NoContent, PostRowAsync(e, a, "delete"));            // Staff delete a@ and its request after the lease was committed
+        parked.Release();
+
+        Assert.Equal(1, await running.WaitAsync(Patience));                 // no error, and b@ is handled in this very batch
+        Assert.Equal("b@example.com", Mail(Assert.Single(e.Google.Sends.Skip(sendsBefore))).Headers["To"]);
+        Assert.Equal(0, await MailsFor("a@example.com"));
+        Assert.Equal("Sent", await StatusOf("Verification", "b@example.com"));
     }
 
     private static string Raw(NewsletterGoogleStub.Call send)

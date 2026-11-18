@@ -202,7 +202,10 @@ internal sealed class NewsletterVerificationDispatcher(
         if (ids.Count == 0) return null;
 
         // An expired link is not worth a mail; and a request out of attempts is a failure that says it was uncertain.
-        var request = await database.NewsletterVerificationRequests.AsNoTracking().SingleAsync(r => r.Id == ids[0], cancellationToken);
+        // Read NOW: Staff may have deleted the address (and with it this request) after the lease was committed. That is nothing to send, not an error, and it must not end
+        // the batch: the next due request is taken instead.
+        var request = await database.NewsletterVerificationRequests.AsNoTracking().SingleOrDefaultAsync(r => r.Id == ids[0], cancellationToken);
+        if (request is null) return await ClaimAsync(cancellationToken);
         var held = new Held(request.Id, claimId, request.SubscriptionId);
         if (request.ExpiresAtUtc <= now)
         {

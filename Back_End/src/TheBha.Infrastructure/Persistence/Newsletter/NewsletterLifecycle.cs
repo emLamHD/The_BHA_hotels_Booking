@@ -35,6 +35,15 @@ internal static class NewsletterLifecycle
     }
 
     /// <summary>
+    /// Voids every confirmation link of the subscription (a Welcome's link, which only unsubscribes, is left alone). Called, under the subscription's lock, when a new
+    /// opt-in round starts: a link of the earlier round must not verify the new request. A confirmation presses the link through one conditional UPDATE that requires
+    /// <c>RevokedAtUtc IS NULL</c>, so a press that looked the link up before this ran finds it void once it has the lock.
+    /// </summary>
+    public static Task<int> RevokeConfirmationLinksAsync(TheBhaDbContext database, Guid subscriptionId, DateTimeOffset now, CancellationToken ct) =>
+        database.Database.ExecuteSqlInterpolatedAsync(
+            $"""UPDATE "NewsletterVerificationRequests" SET "RevokedAtUtc" = {now} WHERE "SubscriptionId" = {subscriptionId} AND "Purpose" = 'Verification' AND "RevokedAtUtc" IS NULL""", ct);
+
+    /// <summary>
     /// Queues ONE confirmation mail for a pending, not archived address if the resend cooldown allows. The cooldown is claimed by one conditional UPDATE: two concurrent
     /// requests both see the old stamp, the row lock lets one through, the other finds the new stamp and queues nothing. Returns whether this call queued the mail.
     /// </summary>

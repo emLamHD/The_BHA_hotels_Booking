@@ -118,15 +118,14 @@ internal sealed class NewsletterSubscriptionAdminService(
         return NewsletterAdminResult<NewsletterSubscriptionDto>.Ok((await NewsletterLifecycle.ReadAsync(database, id, cancellationToken))!);
     }
 
-    public async Task<NewsletterAdminResult<NewsletterInviteResult>> InviteAsync(Guid actorStaffId, Guid id, CancellationToken cancellationToken)
+    public async Task<NewsletterAdminResult<NewsletterInviteResult>> InviteAsync(Guid actorStaffId, Guid id, int expectedVersion, CancellationToken cancellationToken)
     {
         var now = timeProvider.GetUtcNow();
         await using var transaction = await database.Database.BeginTransactionAsync(cancellationToken);
-        if (!await NewsletterLifecycle.LockAsync(database, id, cancellationToken))
-        {
-            await transaction.RollbackAsync(cancellationToken);
-            return Refuse<NewsletterInviteResult>(NewsletterAdminStatus.NotFound, "newsletter-subscription-not-found");
-        }
+        // The invitation goes to the address the Staff member SAW: the row is locked first, and the version their screen holds is compared with the one stored after any
+        // wait for the lock, before anything is decided about readiness, the cooldown or the outbox. A row changed since (its address included) is a 409, not a mail.
+        var (_, refusal) = await LockAndCheckAsync(id, expectedVersion, transaction, cancellationToken);
+        if (refusal is not null) return Refuse<NewsletterInviteResult>(refusal.Status, refusal.Code!, refusal.Field);
 
         var row = await database.NewsletterSubscriptions.AsNoTracking().SingleAsync(s => s.Id == id, cancellationToken);
         // Only the owner of the mailbox can verify it: nothing is invited that is already verified, was unsubscribed (the visitor must ask again) or is hidden.

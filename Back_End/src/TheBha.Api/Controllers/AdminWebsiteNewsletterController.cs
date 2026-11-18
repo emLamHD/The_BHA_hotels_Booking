@@ -58,13 +58,17 @@ public sealed class AdminWebsiteNewsletterController(INewsletterSubscriptions su
         return result.Status == NewsletterAdminStatus.Succeeded ? Ok(result.Value) : Refuse(result);
     }
 
-    /// <summary>Always 200 when the request was understood: <c>queued</c>, <c>cooldown</c> (with the seconds to wait) or <c>not-connected</c> (no sender; nothing queued).</summary>
+    /// <summary>
+    /// The body carries <c>expectedVersion</c>, the version of the row the Staff member is looking at (required: a body without it is a 400, and nothing fills it in). 200 when the
+    /// request was understood: <c>queued</c>, <c>cooldown</c> (with the seconds to wait) or <c>not-connected</c> (no sender; nothing queued). 409 <c>newsletter-version-conflict</c>
+    /// when the row has changed since (its address included): nothing is queued, no cooldown is written and no "invited" audit row is made. 409 for a row that is not pending or is hidden.
+    /// </summary>
     [HttpPost("{id:guid}/verification-invitations")]
     [StaffWebsitePermission(StaffGlobalPermission.WebsiteSettingsManage)]
-    public async Task<ActionResult> Invite(Guid id, CancellationToken cancellationToken)
+    public async Task<ActionResult> Invite(Guid id, [FromBody] NewsletterVersionRequest request, CancellationToken cancellationToken)
     {
         Response.Headers.CacheControl = "no-store";
-        var result = await admin.InviteAsync(ActorStaffId, id, cancellationToken);
+        var result = await admin.InviteAsync(ActorStaffId, id, request.ExpectedVersion, cancellationToken);
         if (result.Status != NewsletterAdminStatus.Succeeded) return Refuse(result);
         var invite = result.Value!;
         var label = invite.Outcome switch

@@ -45,13 +45,16 @@ internal sealed class NewsletterSubscriptionService(
 
         // The visitor's own request is what brings an unsubscribed address back, and only to "pending": the mailbox must confirm again (double opt-in).
         // It also un-hides an archived row. Both run on the locked row.
-        await database.Database.ExecuteSqlInterpolatedAsync(
+        var restarted = await database.Database.ExecuteSqlInterpolatedAsync(
             $"""
             UPDATE "NewsletterSubscriptions" SET "Status" = 'PendingVerification', "VerifiedAtUtc" = NULL, "UnsubscribedAtUtc" = NULL, "ArchivedAtUtc" = NULL,
                 "LastVerificationRequestedAtUtc" = NULL, "Language" = {lang}, "Version" = "Version" + 1
             WHERE "Id" = {subscriptionId.Value} AND "Status" = 'Unsubscribed'
             """,
             cancellationToken);
+        // A new opt-in round: the confirmation links of the earlier one (still unexpired, sent or not, used or not) must not confirm THIS request. Revoked here, on the locked
+        // row, in this transaction, before the new mail is queued and whether or not a sender is connected. The Welcome's link is not touched (it is the way out).
+        if (restarted == 1) await NewsletterLifecycle.RevokeConfirmationLinksAsync(database, subscriptionId.Value, now, cancellationToken);
         await database.Database.ExecuteSqlInterpolatedAsync(
             $"""UPDATE "NewsletterSubscriptions" SET "ArchivedAtUtc" = NULL, "Version" = "Version" + 1 WHERE "Id" = {subscriptionId.Value} AND "ArchivedAtUtc" IS NOT NULL""",
             cancellationToken);

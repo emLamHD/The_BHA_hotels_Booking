@@ -86,7 +86,7 @@ public interface INewsletterSubscriptionAdmin
     Task<NewsletterAdminResult<NewsletterSubscriptionDto>> UpdateAsync(Guid actorStaffId, Guid id, int expectedVersion, string? email, string? language, CancellationToken cancellationToken);
 
     /// <summary>Queues one verification mail for a pending address, through the same cooldown as the public form. A verified, unsubscribed or archived address is a conflict.</summary>
-    Task<NewsletterAdminResult<NewsletterInviteResult>> InviteAsync(Guid actorStaffId, Guid id, CancellationToken cancellationToken);
+    Task<NewsletterAdminResult<NewsletterInviteResult>> InviteAsync(Guid actorStaffId, Guid id, int expectedVersion, CancellationToken cancellationToken);
 
     /// <summary>Stops the mail for the address and withdraws the mails still waiting. The address starts again only by the visitor's own request and confirmation.</summary>
     Task<NewsletterAdminResult<NewsletterSubscriptionDto>> UnsubscribeAsync(Guid actorStaffId, Guid id, int expectedVersion, CancellationToken cancellationToken);
