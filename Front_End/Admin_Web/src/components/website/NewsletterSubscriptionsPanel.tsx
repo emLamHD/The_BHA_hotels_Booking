@@ -48,6 +48,8 @@ export default function NewsletterSubscriptionsPanel() {
   const write = useWriteAction({ holdWhenUnverified: true });
   const [reading, setReading] = useState(false);
   const [readFailed, setReadFailed] = useState(false);
+  // The row a version conflict said is stale: its dialog (or, once that is closed, its buttons) stay locked until the list has been read again successfully.
+  const [staleRowId, setStaleRowId] = useState<string | null>(null);
   const readingRef = useRef(false);
   const list = useWebsiteList((signal) => listNewsletterSubscriptions({ search: applied, status, scope, page, pageSize: PAGE_SIZE }, signal), [applied, status, scope, page]);
 
@@ -62,7 +64,7 @@ export default function NewsletterSubscriptionsPanel() {
     setApplied("");
   };
   const openDialog = (next: Dialog) => {
-    if (write.held) return;
+    if (write.held || (next.kind !== "add" && next.row.id === staleRowId)) return;
     write.reset();
     setNotice(null);
     setDialog(next);
@@ -77,11 +79,11 @@ export default function NewsletterSubscriptionsPanel() {
     void list.reload();
   };
   /**
-   * The only way out of the hold: read the screen's own query again. A read that fails, or that a newer read replaced, leaves the hold. A success closes the dialog (it
-   * holds the row as it was when it opened: it is opened again from the fresh list) and says what Staff should check, without concluding anything about a row that is
-   * no longer in this filter.
+   * The only way out of a hold (a write whose outcome is unknown) and of a stale row (a version conflict): read the screen's own query again. A read that fails, or that a
+   * newer read replaced, changes nothing. A success closes the dialog (it holds the row as it was when it opened: it is opened again from the fresh list, so it carries the
+   * version the server has) and says what Staff should do, without concluding anything about a row that is no longer in this filter. Nothing is sent again by itself.
    */
-  const reconcile = async () => {
+  const readAgain = async (reason: "unknown" | "conflict") => {
     if (readingRef.current) return;
     readingRef.current = true;
     setReading(true);
@@ -94,10 +96,16 @@ export default function NewsletterSubscriptionsPanel() {
       return;
     }
     write.release();
+    setStaleRowId(null);
     setDialog(null);
-    setNotice("Đã đọc lại danh sách từ máy chủ với bộ lọc hiện tại và mở lại các thao tác ghi. Thao tác trước đó chưa rõ kết quả: hãy kiểm tra dòng liên quan. Nếu dòng không còn hiện ở bộ lọc này, nó có thể đã đổi trạng thái hoặc bị xóa; chọn “Tất cả” ở bộ lọc Hiển thị để chắc chắn.");
+    setNotice(
+      reason === "conflict"
+        ? "Đã đọc lại danh sách từ máy chủ: bản ghi vừa được người khác hoặc chính khách thay đổi. Hãy mở lại bản ghi từ danh sách vừa cập nhật rồi thao tác tiếp; chưa có gì được gửi lại. Nếu dòng không còn hiện ở bộ lọc này, nó có thể đã đổi trạng thái hoặc bị xóa; chọn “Tất cả” ở bộ lọc Hiển thị để chắc chắn."
+        : "Đã đọc lại danh sách từ máy chủ với bộ lọc hiện tại và mở lại các thao tác ghi. Thao tác trước đó chưa rõ kết quả: hãy kiểm tra dòng liên quan. Nếu dòng không còn hiện ở bộ lọc này, nó có thể đã đổi trạng thái hoặc bị xóa; chọn “Tất cả” ở bộ lọc Hiển thị để chắc chắn.",
+    );
   };
-  const reconcileProps = { run: () => void reconcile(), reading, failed: readFailed };
+  const reconcileProps = { run: () => void readAgain("unknown"), reading, failed: readFailed };
+  const reloadProps = { run: () => void readAgain("conflict"), reading, failed: readFailed };
   const openExisting = (email: string, archived: boolean) => {
     closeDialog();
     setNotice(null);
@@ -139,6 +147,17 @@ export default function NewsletterSubscriptionsPanel() {
       </PageHeader>
       {notice && <Banner tone="success" testId="newsletter-notice" onDismiss={() => setNotice(null)}>{notice}</Banner>}
       {dialog === null && <WriteOutcome status={write.status} reconcile={reconcileProps} />}
+      {dialog === null && staleRowId !== null && (
+        <Banner tone="warning" testId="newsletter-stale">
+          <p>Một bản ghi đã thay đổi trên máy chủ nên bản đang hiển thị không còn dùng để thao tác được: các nút của dòng đó bị khóa và chưa có gì được gửi.</p>
+          <p className="mt-2">
+            <button type="button" onClick={reloadProps.run} disabled={reading} className="font-medium underline disabled:opacity-50" data-testid="newsletter-stale-reload">
+              {reading ? "Đang đọc lại…" : "Tải lại danh sách"}
+            </button>
+          </p>
+          {readFailed && !reading && <p className="mt-1 font-medium" data-testid="newsletter-stale-failed">Chưa đọc lại được từ máy chủ: hãy thử lại.</p>}
+        </Banner>
+      )}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <form onSubmit={submit} role="search" className="flex flex-wrap items-end gap-2">
           <div className="w-full max-w-sm">
@@ -205,17 +224,17 @@ export default function NewsletterSubscriptionsPanel() {
                     <td className={TABLE_CLASSES.cell}>{item.verifiedAtUtc ? formatWhen(item.verifiedAtUtc) : "—"}</td>
                     <td className={TABLE_CLASSES.cell}>
                       <div className="flex flex-wrap gap-1.5">
-                        <ActionButton variant="outline" testId={`newsletter-edit-${item.email}`} disabled={locked} onClick={() => openDialog({ kind: "edit", row: item })}>Sửa</ActionButton>
+                        <ActionButton variant="outline" testId={`newsletter-edit-${item.email}`} disabled={locked || item.id === staleRowId} onClick={() => openDialog({ kind: "edit", row: item })}>Sửa</ActionButton>
                         {canInvite(item) && (
-                          <ActionButton variant="outline" testId={`newsletter-invite-${item.email}`} disabled={locked} onClick={() => void sendInvite(item)}>Gửi lời mời xác minh</ActionButton>
+                          <ActionButton variant="outline" testId={`newsletter-invite-${item.email}`} disabled={locked || item.id === staleRowId} onClick={() => void sendInvite(item)}>Gửi lời mời xác minh</ActionButton>
                         )}
                         {item.status !== "Unsubscribed" && (
-                          <ActionButton variant="outline" testId={`newsletter-unsubscribe-${item.email}`} disabled={locked} onClick={() => openDialog({ kind: "confirm", action: "unsubscribe", row: item })}>Ngừng nhận</ActionButton>
+                          <ActionButton variant="outline" testId={`newsletter-unsubscribe-${item.email}`} disabled={locked || item.id === staleRowId} onClick={() => openDialog({ kind: "confirm", action: "unsubscribe", row: item })}>Ngừng nhận</ActionButton>
                         )}
-                        <ActionButton variant="outline" testId={`newsletter-${item.archivedAtUtc ? "restore" : "archive"}-${item.email}`} disabled={locked} onClick={() => openDialog({ kind: "confirm", action: item.archivedAtUtc ? "restore" : "archive", row: item })}>
+                        <ActionButton variant="outline" testId={`newsletter-${item.archivedAtUtc ? "restore" : "archive"}-${item.email}`} disabled={locked || item.id === staleRowId} onClick={() => openDialog({ kind: "confirm", action: item.archivedAtUtc ? "restore" : "archive", row: item })}>
                           {item.archivedAtUtc ? "Khôi phục" : "Lưu trữ"}
                         </ActionButton>
-                        <ActionButton variant="outline" testId={`newsletter-delete-${item.email}`} disabled={locked} onClick={() => openDialog({ kind: "confirm", action: "delete", row: item })}>Xóa</ActionButton>
+                        <ActionButton variant="outline" testId={`newsletter-delete-${item.email}`} disabled={locked || item.id === staleRowId} onClick={() => openDialog({ kind: "confirm", action: "delete", row: item })}>Xóa</ActionButton>
                       </div>
                     </td>
                   </tr>
@@ -238,7 +257,7 @@ export default function NewsletterSubscriptionsPanel() {
         <AddSubscriptionDialog write={write} reconcile={reconcileProps} onClose={closeDialog} onOpenExisting={openExisting} onDone={(row) => done(`Đã thêm ${row.email} ở trạng thái “Chờ xác minh”. Chưa có thư nào được gửi: dùng “Gửi lời mời xác minh” để mời họ xác nhận.`)} />
       )}
       {dialog?.kind === "edit" && (
-        <EditSubscriptionDialog key={dialog.row.id} row={dialog.row} write={write} reconcile={reconcileProps} onClose={closeDialog} onReload={() => void list.reload()} onDone={(row) => done(`Đã lưu thay đổi cho ${row.email}.`)} />
+        <EditSubscriptionDialog key={dialog.row.id} row={dialog.row} write={write} reconcile={reconcileProps} reload={reloadProps} stale={dialog.row.id === staleRowId} onStale={() => setStaleRowId(dialog.row.id)} onClose={closeDialog} onDone={(row) => done(`Đã lưu thay đổi cho ${row.email}.`)} />
       )}
       {dialog?.kind === "confirm" && (
         <ConfirmSubscriptionDialog
@@ -247,8 +266,10 @@ export default function NewsletterSubscriptionsPanel() {
           row={dialog.row}
           write={write}
           reconcile={reconcileProps}
+          reload={reloadProps}
+          stale={dialog.row.id === staleRowId}
+          onStale={() => setStaleRowId(dialog.row.id)}
           onClose={closeDialog}
-          onReload={() => void list.reload()}
           onDone={() => done(CONFIRM_DONE[dialog.action](dialog.row.email))}
         />
       )}

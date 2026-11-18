@@ -37,18 +37,32 @@ export function LanguageSelect({ value, onChange, disabled }: { value: Newslette
 export type WriteHandle = ReturnType<typeof useWriteAction>;
 export type Reconcile = { run: () => void; reading: boolean; failed: boolean };
 
-/** What a refused or lost write says inside a dialog. A stale version keeps the dialog open; the list is read again behind it by the caller. */
-export function WriteOutcome({ status, onReload, reconcile }: { status: WriteHandle["status"]; onReload?: () => void; reconcile?: Reconcile }) {
+export const VERSION_CONFLICT = "newsletter-version-conflict";
+
+/**
+ * What a refused or lost write says inside a dialog. A version conflict is a CERTAIN refusal (nothing was applied) that leaves the dialog holding a row it now knows is
+ * stale: `reload` is the way on (the screen reads the list again and, once that succeeds, closes the dialog so the row is opened again from fresh data).
+ */
+export function WriteOutcome({ status, reload, reconcile }: { status: WriteHandle["status"]; reload?: Reconcile; reconcile?: Reconcile }) {
   if (status.phase === "pending") return <Banner tone="info" testId="newsletter-write-pending">Đang gửi yêu cầu… chờ máy chủ trả lời.</Banner>;
   if (status.phase === "refused") {
-    const stale = status.failure.code === "newsletter-version-conflict";
+    const stale = status.failure.code === VERSION_CONFLICT;
     return (
       <Banner tone="error" testId="newsletter-write-refused">
         <p className="font-medium">{refusalText(status.failure)}</p>
-        {stale && onReload && (
-          <p className="mt-1">
-            <button type="button" onClick={onReload} className="font-medium underline" data-testid="newsletter-reload-latest">Tải lại danh sách</button> để lấy giá trị mới nhất.
-          </p>
+        {stale && reload && (
+          <>
+            <p className="mt-1">
+              Chưa có gì được thay đổi, và bản đang xem không còn dùng để thao tác được nên sẽ không được gửi lại.{" "}
+              <button type="button" onClick={reload.run} disabled={reload.reading} className="font-medium underline disabled:opacity-50" data-testid="newsletter-reload-latest">
+                {reload.reading ? "Đang đọc lại…" : "Tải lại danh sách"}
+              </button>{" "}
+              rồi mở lại bản ghi từ danh sách để thao tác tiếp.
+            </p>
+            {reload.failed && !reload.reading && (
+              <p className="mt-1 font-medium" data-testid="newsletter-reload-failed">Chưa đọc lại được từ máy chủ nên chưa thể thao tác tiếp trên bản ghi này: hãy thử đọc lại.</p>
+            )}
+          </>
         )}
       </Banner>
     );
@@ -120,27 +134,32 @@ export function AddSubscriptionDialog({ write, reconcile, onClose, onDone, onOpe
   );
 }
 
-export function EditSubscriptionDialog({ row, write, reconcile, onClose, onDone, onReload }: {
+export function EditSubscriptionDialog({ row, write, reconcile, reload, stale, onStale, onClose, onDone }: {
   row: NewsletterSubscription;
   write: WriteHandle;
   reconcile: Reconcile;
+  reload: Reconcile;
+  /** The server said this row's version moved: nothing more is sent with it. */
+  stale: boolean;
+  onStale: () => void;
   onClose: () => void;
   onDone: (row: NewsletterSubscription) => void;
-  onReload: () => void;
 }) {
   const [email, setEmail] = useState(row.email);
   const [language, setLanguage] = useState<NewsletterLanguage>(row.language);
   const busy = write.status.phase === "pending";
-  const locked = busy || write.held;
+  const locked = busy || write.held || stale;
   const emailChanged = email.trim().toLowerCase() !== row.email;
   const languageChanged = language !== row.language;
   const needsReset = emailChanged && row.status !== "PendingVerification";
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
+    if (stale) return;                                                              // the disabled button is not the guard: Enter or a direct submit gets here too
     const input = { expectedVersion: row.version, ...(emailChanged ? { email: email.trim() } : {}), ...(languageChanged ? { language } : {}) };
     const result = await write.run(() => updateNewsletterSubscription(row.id, input));
     if (result?.kind === "ok") onDone(result.data);
+    else if (result?.kind === "refused" && result.code === VERSION_CONFLICT) onStale();
   };
 
   return (
@@ -154,7 +173,7 @@ export function EditSubscriptionDialog({ row, write, reconcile, onClose, onDone,
           </Banner>
         )}
         {!emailChanged && languageChanged && <Banner tone="info">Đổi ngôn ngữ giữ nguyên trạng thái xác minh. Thư đang chờ sẽ viết bằng ngôn ngữ mới.</Banner>}
-        <WriteOutcome status={write.status} onReload={onReload} reconcile={reconcile} />
+        <WriteOutcome status={write.status} reload={reload} reconcile={reconcile} />
         <DialogActions>
           <ActionButton variant="outline" onClick={onClose} disabled={busy} testId="newsletter-edit-cancel">Hủy</ActionButton>
           <ActionButton type="submit" disabled={locked || email.trim() === "" || (!emailChanged && !languageChanged)} testId="newsletter-edit-submit">Lưu thay đổi</ActionButton>
@@ -192,28 +211,32 @@ const SEND: Record<ConfirmAction, (row: NewsletterSubscription) => Promise<Websi
   delete: (row) => deleteNewsletterSubscription(row.id, row.version),
 };
 
-export function ConfirmSubscriptionDialog({ action, row, write, reconcile, onClose, onDone, onReload }: {
+export function ConfirmSubscriptionDialog({ action, row, write, reconcile, reload, stale, onStale, onClose, onDone }: {
   action: ConfirmAction;
   row: NewsletterSubscription;
   write: WriteHandle;
   reconcile: Reconcile;
+  reload: Reconcile;
+  stale: boolean;
+  onStale: () => void;
   onClose: () => void;
   onDone: () => void;
-  onReload: () => void;
 }) {
   const busy = write.status.phase === "pending";
-  const locked = busy || write.held;
+  const locked = busy || write.held || stale;
   const text = CONFIRM_TEXT[action];
 
   const submit = async () => {
+    if (stale) return;
     const result = await write.run(() => SEND[action](row));
     if (result?.kind === "ok") onDone();
+    else if (result?.kind === "refused" && result.code === VERSION_CONFLICT) onStale();
   };
 
   return (
     <DialogShell title={text.title} onClose={onClose} busy={busy} testId={`newsletter-${action}-dialog`}>
       <Banner tone={text.tone}>{text.body(row.email)}</Banner>
-      <WriteOutcome status={write.status} onReload={onReload} reconcile={reconcile} />
+      <WriteOutcome status={write.status} reload={reload} reconcile={reconcile} />
       <DialogActions>
         <ActionButton variant="outline" onClick={onClose} disabled={busy} testId={`newsletter-${action}-cancel`}>Hủy</ActionButton>
         <ActionButton onClick={() => void submit()} disabled={locked} testId={`newsletter-${action}-confirm`}>{text.button}</ActionButton>

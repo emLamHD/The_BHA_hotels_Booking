@@ -253,18 +253,24 @@ describe("a refusal that is certain does not lock", () => {
     expect(screen.queryByTestId("newsletter-write-unverified")).toBeNull();
   });
 
-  it("a stale version offers the latest list and a new send afterwards", async () => {
+  it("a version conflict is certain, not unknown: no hold on the screen, and the way on is to read the list again (C3)", async () => {
     await open();
     update.mockResolvedValueOnce(refused("newsletter-version-conflict"));
     await click("newsletter-edit-a@example.com");
     await userEvent.selectOptions(await screen.findByTestId("newsletter-language"), "en");
     await click("newsletter-edit-submit");
     await screen.findByTestId("newsletter-reload-latest");
-    expect(isDisabled("newsletter-edit-submit")).toBe(false);
     expect(screen.queryByTestId("newsletter-write-unverified")).toBeNull();
-    update.mockResolvedValueOnce(ok(row("a@example.com", { language: "en", version: 5 })) as never);
+    expect(isDisabled("newsletter-add")).toBe(false);                               // nothing else is held; only the stale row is
+    list.mockResolvedValueOnce(ok(page([row("a@example.com", { language: "en", version: 5 })])) as never);
+    await userEvent.click(screen.getByTestId("newsletter-reload-latest"));
+    await waitFor(() => expect(screen.queryByTestId("newsletter-edit-dialog")).toBeNull());
+    update.mockResolvedValueOnce(ok(row("a@example.com", { language: "fr", version: 6 })) as never);
+    await click("newsletter-edit-a@example.com");
+    await userEvent.selectOptions(await screen.findByTestId("newsletter-language"), "fr");
     await click("newsletter-edit-submit");
     await waitFor(() => expect(update).toHaveBeenCalledTimes(2));
+    expect(update).toHaveBeenLastCalledWith("id-a@example.com", { expectedVersion: 5, language: "fr" });
   });
 
   it("a write that answered with an error, not an unknown, does not lock either", async () => {
