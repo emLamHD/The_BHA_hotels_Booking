@@ -83,9 +83,13 @@ export default function NewsletterSubscriptionsPanel() {
    * The only way out of a hold (a write whose outcome is unknown) and of a stale row (a version conflict): read the screen's own query again. A read that fails, or that a
    * newer read replaced, changes nothing. A success closes the dialog (it holds the row as it was when it opened: it is opened again from the fresh list, so it carries the
    * version the server has) and says what Staff should do, without concluding anything about a row that is no longer in this filter. Nothing is sent again by itself.
+   * What the notice says follows the state the read clears, not the button pressed; and only the rows that were stale when the read started are freed (one that went stale
+   * while it was in flight may have been served before that change).
    */
-  const readAgain = async (reason: "unknown" | "conflict") => {
+  const readAgain = async () => {
     if (readingRef.current) return;
+    const wasHeld = write.held;
+    const cleared = new Set(staleRowIds);
     readingRef.current = true;
     setReading(true);
     setReadFailed(false);
@@ -97,16 +101,14 @@ export default function NewsletterSubscriptionsPanel() {
       return;
     }
     write.release();
-    setStaleRowIds(new Set());
+    setStaleRowIds((ids) => new Set([...ids].filter((id) => !cleared.has(id))));
     setDialog(null);
-    setNotice(
-      reason === "conflict"
-        ? "Đã đọc lại danh sách từ máy chủ: bản ghi vừa được người khác hoặc chính khách thay đổi. Hãy mở lại bản ghi từ danh sách vừa cập nhật rồi thao tác tiếp; chưa có gì được gửi lại. Nếu dòng không còn hiện ở bộ lọc này, nó có thể đã đổi trạng thái hoặc bị xóa; chọn “Tất cả” ở bộ lọc Hiển thị để chắc chắn."
-        : "Đã đọc lại danh sách từ máy chủ với bộ lọc hiện tại và mở lại các thao tác ghi. Thao tác trước đó chưa rõ kết quả: hãy kiểm tra dòng liên quan. Nếu dòng không còn hiện ở bộ lọc này, nó có thể đã đổi trạng thái hoặc bị xóa; chọn “Tất cả” ở bộ lọc Hiển thị để chắc chắn.",
-    );
+    const where = "Nếu dòng không còn hiện ở bộ lọc này, nó có thể đã đổi trạng thái hoặc bị xóa; chọn “Tất cả” ở bộ lọc Hiển thị để chắc chắn.";
+    const unknown = "Thao tác trước đó chưa rõ kết quả: hãy kiểm tra dòng liên quan.";
+    const conflict = "Có bản ghi vừa được người khác hoặc chính khách thay đổi: hãy mở lại bản ghi từ danh sách vừa cập nhật rồi thao tác tiếp; chưa có gì được gửi lại.";
+    setNotice(`Đã đọc lại danh sách từ máy chủ với bộ lọc hiện tại. ${[wasHeld || cleared.size === 0 ? unknown : "", cleared.size > 0 ? conflict : ""].filter(Boolean).join(" ")} ${where}`);
   };
-  const reconcileProps = { run: () => void readAgain("unknown"), reading, failed: readFailed };
-  const reloadProps = { run: () => void readAgain("conflict"), reading, failed: readFailed };
+  const reconcileProps = { run: () => void readAgain(), reading, failed: readFailed };
   const openExisting = (email: string, archived: boolean) => {
     closeDialog();
     setNotice(null);
@@ -152,7 +154,7 @@ export default function NewsletterSubscriptionsPanel() {
         <Banner tone="warning" testId="newsletter-stale">
           <p>Có bản ghi đã thay đổi trên máy chủ nên bản đang hiển thị không còn dùng để thao tác được: các nút của dòng đó bị khóa và chưa có gì được gửi.</p>
           <p className="mt-2">
-            <button type="button" onClick={reloadProps.run} disabled={reading} className="font-medium underline disabled:opacity-50" data-testid="newsletter-stale-reload">
+            <button type="button" onClick={reconcileProps.run} disabled={reading} className="font-medium underline disabled:opacity-50" data-testid="newsletter-stale-reload">
               {reading ? "Đang đọc lại…" : "Tải lại danh sách"}
             </button>
           </p>
@@ -258,7 +260,7 @@ export default function NewsletterSubscriptionsPanel() {
         <AddSubscriptionDialog write={write} reconcile={reconcileProps} onClose={closeDialog} onOpenExisting={openExisting} onDone={(row) => done(`Đã thêm ${row.email} ở trạng thái “Chờ xác minh”. Chưa có thư nào được gửi: dùng “Gửi lời mời xác minh” để mời họ xác nhận.`)} />
       )}
       {dialog?.kind === "edit" && (
-        <EditSubscriptionDialog key={dialog.row.id} row={dialog.row} write={write} reconcile={reconcileProps} reload={reloadProps} stale={staleRowIds.has(dialog.row.id)} onStale={() => markStale(dialog.row.id)} onClose={closeDialog} onDone={(row) => done(`Đã lưu thay đổi cho ${row.email}.`)} />
+        <EditSubscriptionDialog key={dialog.row.id} row={dialog.row} write={write} reconcile={reconcileProps} reload={reconcileProps} stale={staleRowIds.has(dialog.row.id)} onStale={() => markStale(dialog.row.id)} onClose={closeDialog} onDone={(row) => done(`Đã lưu thay đổi cho ${row.email}.`)} />
       )}
       {dialog?.kind === "confirm" && (
         <ConfirmSubscriptionDialog
@@ -267,7 +269,7 @@ export default function NewsletterSubscriptionsPanel() {
           row={dialog.row}
           write={write}
           reconcile={reconcileProps}
-          reload={reloadProps}
+          reload={reconcileProps}
           stale={staleRowIds.has(dialog.row.id)}
           onStale={() => markStale(dialog.row.id)}
           onClose={closeDialog}

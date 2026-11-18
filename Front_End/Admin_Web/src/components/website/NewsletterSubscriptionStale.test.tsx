@@ -285,6 +285,54 @@ describe("after the read", () => {
     expect(isDisabled("newsletter-edit-b@example.com")).toBe(false);
   });
 
+  it("a read pressed from the stale banner while a lost answer is still unknown keeps the unknown-outcome warning", async () => {
+    await open([row("a@example.com"), row("b@example.com")]);
+    update.mockResolvedValueOnce(conflict()).mockResolvedValueOnce({ kind: "unverified", message: "Máy chủ Admin không trả lời." } as never);
+    await click("newsletter-edit-a@example.com");                                             // a@ conflicts, its dialog is closed unread
+    await userEvent.selectOptions(await screen.findByTestId("newsletter-language"), "en");
+    await click("newsletter-edit-submit");
+    await screen.findByTestId("newsletter-reload-latest");
+    await click("newsletter-edit-cancel");
+    await click("newsletter-edit-b@example.com");                                             // b@ then ends with an unknown outcome: the C2 hold
+    await userEvent.selectOptions(await screen.findByTestId("newsletter-language"), "en");
+    await click("newsletter-edit-submit");
+    await screen.findByTestId("newsletter-write-unverified");
+    await click("newsletter-edit-cancel");
+    expect(mutations()).toBe(2);
+
+    list.mockResolvedValueOnce(ok(page([row("a@example.com", { version: 5 }), row("b@example.com", { version: 5 })])) as never);
+    await userEvent.click(screen.getByTestId("newsletter-stale-reload"));
+    await waitFor(() => expect(screen.getByTestId("newsletter-notice")).toBeTruthy());
+    const notice = screen.getByTestId("newsletter-notice").textContent ?? "";
+    expect(notice).toContain("chưa rõ kết quả");                                              // what the hold said is not lost to the conflict wording
+    expect(notice).toContain("mở lại bản ghi");
+    expect(mutations()).toBe(2);
+    expect(isDisabled("newsletter-edit-a@example.com")).toBe(false);
+  });
+
+  it("a row that goes stale while a read is in flight is not freed by that read", async () => {
+    await open([row("a@example.com"), row("b@example.com")]);
+    update.mockResolvedValue(conflict());
+    await click("newsletter-edit-a@example.com");
+    await userEvent.selectOptions(await screen.findByTestId("newsletter-language"), "en");
+    await click("newsletter-edit-submit");
+    await screen.findByTestId("newsletter-reload-latest");
+    const slow = deferred<WebsiteResult<NewsletterSubscriptionPage>>();
+    list.mockReturnValueOnce(slow.promise as never);
+    await userEvent.click(screen.getByTestId("newsletter-reload-latest"));                    // the read of a@ is in flight
+    await click("newsletter-edit-cancel");
+    await click("newsletter-edit-b@example.com");
+    await userEvent.selectOptions(await screen.findByTestId("newsletter-language"), "en");
+    await click("newsletter-edit-submit");                                                    // b@ conflicts before that read answers
+    await screen.findByTestId("newsletter-reload-latest");
+
+    slow.resolve(ok(page([row("a@example.com", { version: 5 }), row("b@example.com", { version: 4 })])) as never);   // served before the other Staff's change to b@
+    await screen.findByTestId("newsletter-notice");
+    expect(isDisabled("newsletter-edit-a@example.com")).toBe(false);
+    expect(isDisabled("newsletter-edit-b@example.com")).toBe(true);                           // still the old copy of b@: it needs its own read
+    expect(mutations()).toBe(2);
+  });
+
   it("the C2 hold after a lost answer still works beside it", async () => {
     await open([row("a@example.com")]);
     update.mockResolvedValueOnce({ kind: "unverified", message: "Máy chủ Admin không trả lời." } as never);
