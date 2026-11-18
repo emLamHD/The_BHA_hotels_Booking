@@ -8,7 +8,7 @@ using TheBha.Domain.Website;
 namespace TheBha.Infrastructure.Persistence.Newsletter;
 
 /// <summary>
-/// Sends the confirmation mails that are due. At-least-once by design: a mail whose outcome is unknown (no answer from Google, a crash
+/// Sends the mails that are due: the confirmations and, since BHA-NEWSLETTER-003, the Welcome that follows a verification. At-least-once by design: a mail whose outcome is unknown (no answer from Google, a crash
 /// after the call) is tried again with the SAME link, so a second copy is harmless (confirming twice is one change). A request is held by
 /// a lease taken with <c>FOR UPDATE SKIP LOCKED</c>, so two workers never send one request at the same time.
 /// </summary>
@@ -35,9 +35,26 @@ internal sealed class NewsletterVerificationDispatcher(
             processed++;
             database.ChangeTracker.Clear();
 
-            var request = await database.NewsletterVerificationRequests.AsNoTracking().SingleAsync(r => r.Id == claim.Id, cancellationToken);
-            var (settings, subscriptionEmail) = (await database.NewsletterSenderSettings.AsNoTracking().SingleAsync(cancellationToken),
-                await database.NewsletterSubscriptions.AsNoTracking().Where(s => s.Id == request.SubscriptionId).Select(s => s.Email).SingleAsync(cancellationToken));
+            // Read NOW, from the database: a Staff member may have deleted the address (and with it this request) since the claim, so a missing row is "nothing to send", not an error.
+            var request = await database.NewsletterVerificationRequests.AsNoTracking().SingleOrDefaultAsync(r => r.Id == claim.Id, cancellationToken);
+            if (request is null) continue;
+            var settings = await database.NewsletterSenderSettings.AsNoTracking().SingleAsync(cancellationToken);
+            var subscription = await database.NewsletterSubscriptions.AsNoTracking().Where(s => s.Id == request.SubscriptionId)
+                .Select(s => new { s.Email, s.Status, s.ArchivedAtUtc }).SingleOrDefaultAsync(cancellationToken);
+            if (subscription is null)
+            {
+                await FinishAsync(claim, NewsletterVerificationRequest.StatusCancelled, "subscription-gone", null, releaseCooldown: false, cancellationToken);
+                continue;
+            }
+
+            // The mail must still make sense for the address as it is now: a confirmation only for a pending one, a Welcome only for a verified one, neither for a hidden one.
+            if (!IsEligible(request.Purpose, subscription.Status, subscription.ArchivedAtUtc))
+            {
+                await FinishAsync(claim, NewsletterVerificationRequest.StatusCancelled, "not-eligible", null, releaseCooldown: false, cancellationToken);
+                continue;
+            }
+
+            var subscriptionEmail = subscription.Email;
 
             // The identity is pinned at the first attempt. A request already tried under another generation is not sent under this one.
             if (request.SenderGeneration is { } pinned && pinned != settings.SenderGeneration)
@@ -106,9 +123,12 @@ internal sealed class NewsletterVerificationDispatcher(
                 continue;
             }
 
-            var link = options.CustomerOrigin!.TrimEnd('/') + "/newsletter/confirm#t=" + token;
+            var origin = options.CustomerOrigin!.TrimEnd('/');
             var host = new Uri(options.CustomerOrigin!).Host;
-            var raw = NewsletterMailMessage.Build(request.FromEmail!, request.FromName ?? "The BHA", request.ReplyTo, subscriptionEmail, request.Language, link, options.TokenLifetimeHours, host);
+            // The token of a confirmation confirms; the token of a Welcome only unsubscribes. Each goes into the one link that uses it.
+            var raw = request.Purpose == NewsletterVerificationRequest.PurposeWelcome
+                ? NewsletterMailMessage.BuildWelcome(request.FromEmail!, request.FromName ?? "The BHA", request.ReplyTo, subscriptionEmail, request.Language, origin, origin + "/newsletter/unsubscribe#t=" + token, host)
+                : NewsletterMailMessage.Build(request.FromEmail!, request.FromName ?? "The BHA", request.ReplyTo, subscriptionEmail, request.Language, origin + "/newsletter/confirm#t=" + token, options.TokenLifetimeHours, host);
             var outcome = await google.SendAsync(accessToken, raw, cancellationToken);
             switch (outcome)
             {
@@ -136,14 +156,22 @@ internal sealed class NewsletterVerificationDispatcher(
 
     /// <summary>
     /// Read from the database NOW (never from what the worker read earlier): the request is still Sending under this worker's claim with a lease
-    /// that has not run out, the sender is Connected, and its <see cref="NewsletterSenderSettings.ConnectionEpoch"/> is the one the credentials came from.
+    /// that has not run out, the address still exists in a state the mail makes sense for (not hidden, not unsubscribed, pending for a confirmation, verified for a
+    /// Welcome), the sender is Connected, and its <see cref="NewsletterSenderSettings.ConnectionEpoch"/> is the one the credentials came from.
     /// </summary>
     private async Task<bool> StillCurrentAsync(Held held, int connectionEpoch, CancellationToken cancellationToken)
     {
         var now = timeProvider.GetUtcNow();
         return await Owned(held).Where(r => r.LeaseUntilUtc > now)
+            .Where(r => database.NewsletterSubscriptions.Any(s => s.Id == r.SubscriptionId && s.ArchivedAtUtc == null &&
+                ((r.Purpose == NewsletterVerificationRequest.PurposeWelcome && s.Status == NewsletterSubscription.StatusVerified) ||
+                 (r.Purpose == NewsletterVerificationRequest.PurposeVerification && s.Status == NewsletterSubscription.StatusPendingVerification))))
             .AnyAsync(r => database.NewsletterSenderSettings.Any(s => s.Status == NewsletterSenderSettings.StatusConnected && s.ConnectionEpoch == connectionEpoch), cancellationToken);
     }
+
+    /// <summary>The same rule as the last look in <see cref="StillCurrentAsync"/>, for the state read after the claim.</summary>
+    private static bool IsEligible(string purpose, string status, DateTimeOffset? archivedAtUtc) =>
+        archivedAtUtc is null && (purpose == NewsletterVerificationRequest.PurposeWelcome ? status == NewsletterSubscription.StatusVerified : status == NewsletterSubscription.StatusPendingVerification);
 
     /// <summary>Nothing was sent: the request goes back to waiting with its attempt returned (a no-op when the claim is no longer ours).</summary>
     private async Task GiveBackAsync(Held held, string outcome, CancellationToken cancellationToken)

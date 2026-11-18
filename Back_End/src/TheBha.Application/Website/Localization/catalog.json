@@ -4978,6 +4978,56 @@
    "placeholders": []
   },
   {
+   "key": "customer.newsletter.unsubscribe.already",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.unsubscribe.button",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.unsubscribe.done",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.unsubscribe.failed",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.unsubscribe.heading",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.unsubscribe.home",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.unsubscribe.intro",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.unsubscribe.invalid",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.unsubscribe.meta",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.unsubscribe.working",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.notFound.returnHomePage",
    "scope": "customer",
    "placeholders": []

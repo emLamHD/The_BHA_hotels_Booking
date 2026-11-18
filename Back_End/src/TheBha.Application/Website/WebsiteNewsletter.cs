@@ -2,7 +2,13 @@ using System.Globalization;
 
 namespace TheBha.Application.Website;
 
-public sealed record NewsletterSubscriptionDto(Guid Id, string Email, DateTimeOffset ReceivedAtUtc, string Source, string Status, DateTimeOffset? VerifiedAtUtc);
+/// <summary>
+/// One subscription as Staff see it. <see cref="Version"/> is what an edit, an unsubscribe, an archive or a delete must present; <see cref="VerificationMail"/> is the
+/// state of the newest confirmation mail (<c>Pending</c>, <c>Sending</c>, <c>Sent</c>, <c>Failed</c>, <c>Cancelled</c>), null when none was ever queued.
+/// </summary>
+public sealed record NewsletterSubscriptionDto(
+    Guid Id, string Email, DateTimeOffset ReceivedAtUtc, string Source, string Status, DateTimeOffset? VerifiedAtUtc,
+    string Language, int Version, DateTimeOffset? UnsubscribedAtUtc, DateTimeOffset? ArchivedAtUtc, string? VerificationMail);
 
 public sealed record NewsletterSubscriptionPageDto(IReadOnlyList<NewsletterSubscriptionDto> Items, int Page, int PageSize, int Total);
 
@@ -10,6 +16,35 @@ public sealed record NewsletterSubscriptionPageDto(IReadOnlyList<NewsletterSubsc
 public sealed record NewsletterSubscribeResult(bool EmailConfirmation);
 
 public enum NewsletterConfirmOutcome { Verified, AlreadyVerified, Expired, Invalid }
+
+/// <summary>What pressing the unsubscribe link did. A link that is not (or no longer) valid, including one of a deleted address, is <c>Invalid</c>.</summary>
+public enum NewsletterUnsubscribeOutcome { Unsubscribed, AlreadyUnsubscribed, Invalid }
+
+public enum NewsletterAdminStatus { Succeeded, Invalid, NotFound, Conflict }
+
+/// <summary>
+/// The answer of a Staff operation. <see cref="Code"/> names the refusal; for a duplicate address <see cref="ExistingId"/> is the row that already holds it
+/// (and <see cref="ExistingArchived"/> says whether it is hidden), so the screen can take the Staff member to it.
+/// </summary>
+public sealed record NewsletterAdminResult<T>(NewsletterAdminStatus Status, string? Code, string? Field, T? Value, Guid? ExistingId = null, bool ExistingArchived = false)
+{
+    public static NewsletterAdminResult<T> Ok(T value) => new(NewsletterAdminStatus.Succeeded, null, null, value);
+    public static NewsletterAdminResult<T> Refused(NewsletterAdminStatus status, string code, string? field = null) => new(status, code, field, default);
+}
+
+public enum NewsletterInviteOutcome { Queued, Cooldown, NotConnected }
+
+/// <summary>The answer of "send a verification invitation". <see cref="RetryAfterSeconds"/> is set for <c>Cooldown</c>; the subscription is the row after the operation.</summary>
+public sealed record NewsletterInviteResult(NewsletterInviteOutcome Outcome, int? RetryAfterSeconds, NewsletterSubscriptionDto Subscription);
+
+/// <summary>The Staff view of the list. <c>Active</c> hides archived rows (the default), <c>Archived</c> shows only them, <c>All</c> both.</summary>
+public static class NewsletterListScope
+{
+    public const string Active = "active";
+    public const string Archived = "archived";
+    public const string All = "all";
+    public static bool IsKnown(string? value) => value is Active or Archived or All;
+}
 
 public interface INewsletterSubscriptions
 {
@@ -22,8 +57,45 @@ public interface INewsletterSubscriptions
     /// <summary>Marks the address verified for a valid, unused, unexpired token. A used token answers <c>AlreadyVerified</c> and changes nothing.</summary>
     Task<NewsletterConfirmOutcome> ConfirmAsync(string token, CancellationToken cancellationToken);
 
-    /// <summary>Newest first (ties by id). <paramref name="search"/> is a case-insensitive part of the address, taken literally.</summary>
-    Task<NewsletterSubscriptionPageDto> ListAsync(string? search, int page, int pageSize, CancellationToken cancellationToken);
+    /// <summary>
+    /// Newest first (ties by id). <paramref name="search"/> is a case-insensitive part of the address, taken literally. <paramref name="status"/> (null = any) and
+    /// <paramref name="scope"/> (<see cref="NewsletterListScope"/>) narrow the rows; both are decided by the server.
+    /// </summary>
+    Task<NewsletterSubscriptionPageDto> ListAsync(string? search, string? status, string scope, int page, int pageSize, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The visitor pressed "unsubscribe" in a Welcome mail. Only a Welcome's token works (never a confirmation's), it needs no unexpired deadline, and a token
+    /// whose address was changed or deleted is <c>Invalid</c>. Repeating it changes nothing.
+    /// </summary>
+    Task<NewsletterUnsubscribeOutcome> UnsubscribeAsync(string token, CancellationToken cancellationToken);
+}
+
+/// <summary>
+/// BHA-NEWSLETTER-003: what Staff can do to a subscription. Every operation that changes a row takes the version the screen holds and checks it in the same
+/// statement that writes, locks the subscription before its mails, withdraws the mails that no longer apply, and records who did it (never the address).
+/// </summary>
+public interface INewsletterSubscriptionAdmin
+{
+    /// <summary>Adds an address as <c>Pending</c> from <c>admin</c>. A known address (archived or not) is a conflict that names the existing row. Nothing is sent.</summary>
+    Task<NewsletterAdminResult<NewsletterSubscriptionDto>> CreateAsync(Guid actorStaffId, string? email, string? language, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Changes the address and/or the language. A new language keeps the status. A new address returns to <c>Pending</c>, voids every link and withdraws every
+    /// mail of the old address; the unique address is enforced by the database and answered as a conflict.
+    /// </summary>
+    Task<NewsletterAdminResult<NewsletterSubscriptionDto>> UpdateAsync(Guid actorStaffId, Guid id, int expectedVersion, string? email, string? language, CancellationToken cancellationToken);
+
+    /// <summary>Queues one verification mail for a pending address, through the same cooldown as the public form. A verified, unsubscribed or archived address is a conflict.</summary>
+    Task<NewsletterAdminResult<NewsletterInviteResult>> InviteAsync(Guid actorStaffId, Guid id, CancellationToken cancellationToken);
+
+    /// <summary>Stops the mail for the address and withdraws the mails still waiting. The address starts again only by the visitor's own request and confirmation.</summary>
+    Task<NewsletterAdminResult<NewsletterSubscriptionDto>> UnsubscribeAsync(Guid actorStaffId, Guid id, int expectedVersion, CancellationToken cancellationToken);
+
+    /// <summary>Hides the row from the default list (and withdraws its waiting mails), or brings it back. It changes no consent.</summary>
+    Task<NewsletterAdminResult<NewsletterSubscriptionDto>> SetArchivedAsync(Guid actorStaffId, Guid id, int expectedVersion, bool archived, CancellationToken cancellationToken);
+
+    /// <summary>Removes the row, its tokens and its waiting mails for good. The audit row stays, without the address.</summary>
+    Task<NewsletterAdminResult<bool>> DeleteAsync(Guid actorStaffId, Guid id, int expectedVersion, CancellationToken cancellationToken);
 }
 
 public static class NewsletterRules

@@ -532,6 +532,11 @@
       "Reason": "the Gmail connection (OAuth client, protected secret and refresh token): a credential of one environment, never content"
     },
     {
+      "Name": "NewsletterSubscriptionAudits",
+      "Rows": 0,
+      "Reason": "history of what Staff did to visitors' subscriptions (who and when, never an address): operational history of one environment, never content"
+    },
+    {
       "Name": "NewsletterSubscriptions",
       "Rows": 0,
       "Reason": "visitors' e-mail addresses (personal data), not site content: a pack never carries them"

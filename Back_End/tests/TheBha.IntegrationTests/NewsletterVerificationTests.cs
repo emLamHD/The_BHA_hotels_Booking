@@ -442,7 +442,9 @@ public sealed class NewsletterVerificationTests(PostgreSqlWebApplicationFactory 
         // A verified address is never asked again, and the Admin list shows who and when.
         Factory.Clock.UtcNow = at.AddDays(1);
         await SubscribeOkAsync(e);
-        Assert.Equal(1, await RequestsAsync());
+        // One confirmation was asked; the verification itself queued the Welcome (BHA-NEWSLETTER-003), and nothing else.
+        Assert.Equal(1, await ScalarAsync<int>("""SELECT count(*) FROM "NewsletterVerificationRequests" WHERE "Purpose" = 'Verification' """));
+        Assert.Equal(1, await ScalarAsync<int>("""SELECT count(*) FROM "NewsletterVerificationRequests" WHERE "Purpose" = 'Welcome' """));
         // A day later the first Staff session may have expired: a fresh sign-in reads the list.
         using var later = new Session(e.Host, e.Client, await LoginAsync(e.Client, Site));
         var list = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, later.GetAsync("/api/admin/v1/website/newsletter-subscriptions")));
@@ -1127,7 +1129,12 @@ public sealed class NewsletterVerificationTests(PostgreSqlWebApplicationFactory 
         Assert.Equal("{\"status\":\"verified\"}", await responses[0].Content.ReadAsStringAsync());
         Assert.Equal(HttpStatusCode.Accepted, responses[1].StatusCode);
         Assert.Equal(1, await ScalarAsync<int>("""SELECT count(*) FROM "NewsletterSubscriptions" WHERE "Status" = 'Verified' AND "VerifiedAtUtc" IS NOT NULL """));
-        Assert.Equal(0, await ScalarAsync<int>("""SELECT count(*) FROM "NewsletterVerificationRequests" WHERE "Status" IN ('Pending', 'Sending') """));
+        // No confirmation is left for the verified address. The one waiting mail is the Welcome that the verification itself queued (BHA-NEWSLETTER-003).
+        Assert.Equal(0, await ScalarAsync<int>("""SELECT count(*) FROM "NewsletterVerificationRequests" WHERE "Purpose" = 'Verification' AND "Status" IN ('Pending', 'Sending') """));
+        Assert.Equal(1, await ScalarAsync<int>("""SELECT count(*) FROM "NewsletterVerificationRequests" WHERE "Purpose" = 'Welcome' AND "Status" = 'Pending' """));
+        var sends = e.Google.Sends.Count;
+        Assert.Equal(1, await DispatchAsync(e.Host));
+        Assert.Equal("Welcome to the BHA", NewsletterGoogleStub.Decode(e.Google.Sends[sends]).Headers["Subject"]);
         Assert.Equal(0, await DispatchAsync(e.Host));
     }
 

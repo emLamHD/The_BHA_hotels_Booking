@@ -42,6 +42,8 @@ public sealed class NewsletterOptions
     public const string SectionName = "Website:Newsletter";
     public int ResendCooldownSeconds { get; set; } = 300;
     public int TokenLifetimeHours { get; set; } = 48;
+    /// <summary>A Welcome that has not gone out this long after the verification is dropped: a stale greeting is worse than none.</summary>
+    public int WelcomeLifetimeHours { get; set; } = 168;
     public int MaxAttempts { get; set; } = 6;
     public int LeaseSeconds { get; set; } = 120;
     public int WorkerPollSeconds { get; set; } = 5;

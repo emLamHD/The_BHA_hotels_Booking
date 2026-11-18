@@ -53,12 +53,16 @@ internal sealed class NewsletterVerificationRequestConfiguration : IEntityTypeCo
             table.HasCheckConstraint("CK_NewsletterVerificationRequests_Status", "\"Status\" IN ('Pending', 'Sending', 'Sent', 'Failed', 'Cancelled')");
             table.HasCheckConstraint("CK_NewsletterVerificationRequests_Language", "\"Language\" IN ('vi', 'en', 'fr')");
             table.HasCheckConstraint("CK_NewsletterVerificationRequests_Attempts", "\"Attempts\" >= 0");
+            table.HasCheckConstraint("CK_NewsletterVerificationRequests_Purpose", "\"Purpose\" IN ('Verification', 'Welcome')");
+            // A Welcome says which verification it answers; a confirmation request never does.
+            table.HasCheckConstraint("CK_NewsletterVerificationRequests_ForVerifiedAt", "(\"Purpose\" = 'Welcome') = (\"ForVerifiedAtUtc\" IS NOT NULL)");
         });
         builder.HasKey(row => row.Id);
         builder.Property(row => row.TokenHash).HasMaxLength(64).IsRequired();
         builder.Property(row => row.ProtectedToken).HasMaxLength(2048);
         builder.Property(row => row.Language).HasMaxLength(2).IsRequired();
         builder.Property(row => row.Status).HasMaxLength(20).IsRequired();
+        builder.Property(row => row.Purpose).HasMaxLength(20).IsRequired().HasDefaultValue("Verification");
         builder.Property(row => row.LastOutcome).HasMaxLength(60);
         builder.Property(row => row.FromEmail).HasMaxLength(254);
         builder.Property(row => row.FromName).HasMaxLength(100);
@@ -66,6 +70,8 @@ internal sealed class NewsletterVerificationRequestConfiguration : IEntityTypeCo
         builder.HasIndex(row => row.TokenHash).IsUnique().HasDatabaseName("UX_NewsletterVerificationRequests_TokenHash");
         builder.HasIndex(row => new { row.Status, row.NextAttemptAtUtc }).HasDatabaseName("IX_NewsletterVerificationRequests_Status_NextAttemptAtUtc");
         builder.HasIndex(row => row.SubscriptionId).HasDatabaseName("IX_NewsletterVerificationRequests_SubscriptionId");
+        // One verification, one Welcome: the database refuses a second one for the same instant, whatever the code does.
+        builder.HasIndex(row => new { row.SubscriptionId, row.ForVerifiedAtUtc }).IsUnique().HasFilter("\"Purpose\" = 'Welcome'").HasDatabaseName("UX_NewsletterVerificationRequests_WelcomePerVerification");
         // Restrict: a subscription is never deleted; if one ever is, its mail history must be dealt with on purpose.
         builder.HasOne<NewsletterSubscription>().WithMany().HasForeignKey(row => row.SubscriptionId).OnDelete(DeleteBehavior.Restrict);
     }
