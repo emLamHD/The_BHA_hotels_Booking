@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { inviteNewsletterSubscription, listNewsletterSubscriptions, type NewsletterListScope, type NewsletterSubscription } from "@/lib/api/website";
 import { useWebsiteList, useWriteAction } from "./useWebsiteData";
 import { ActionButton, Banner, ErrorPanel, LoadingPanel, PageHeader, TABLE_CLASSES, TextField, formatWhen } from "./WebsiteUi";
@@ -43,7 +43,12 @@ export default function NewsletterSubscriptionsPanel() {
   const [page, setPage] = useState(1);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const invite = useWriteAction();
+  // ONE write slot for the whole screen (every dialog and the invitation), with the hold: after a write whose outcome is unknown nothing more is sent until the list
+  // has been read again successfully. It lives here, not in a dialog, so closing and reopening a dialog cannot lift it.
+  const write = useWriteAction({ holdWhenUnverified: true });
+  const [reading, setReading] = useState(false);
+  const [readFailed, setReadFailed] = useState(false);
+  const readingRef = useRef(false);
   const list = useWebsiteList((signal) => listNewsletterSubscriptions({ search: applied, status, scope, page, pageSize: PAGE_SIZE }, signal), [applied, status, scope, page]);
 
   const submit = (event: FormEvent) => {
@@ -56,13 +61,45 @@ export default function NewsletterSubscriptionsPanel() {
     setPage(1);
     setApplied("");
   };
+  const openDialog = (next: Dialog) => {
+    if (write.held) return;
+    write.reset();
+    setNotice(null);
+    setDialog(next);
+  };
+  const closeDialog = () => {
+    write.reset();
+    setDialog(null);
+  };
   const done = (message: string) => {
     setDialog(null);
     setNotice(message);
     void list.reload();
   };
-  const openExisting = (email: string, archived: boolean) => {
+  /**
+   * The only way out of the hold: read the screen's own query again. A read that fails, or that a newer read replaced, leaves the hold. A success closes the dialog (it
+   * holds the row as it was when it opened: it is opened again from the fresh list) and says what Staff should check, without concluding anything about a row that is
+   * no longer in this filter.
+   */
+  const reconcile = async () => {
+    if (readingRef.current) return;
+    readingRef.current = true;
+    setReading(true);
+    setReadFailed(false);
+    const data = await list.reload();
+    readingRef.current = false;
+    setReading(false);
+    if (data === null) {
+      setReadFailed(true);
+      return;
+    }
+    write.release();
     setDialog(null);
+    setNotice("Đã đọc lại danh sách từ máy chủ với bộ lọc hiện tại và mở lại các thao tác ghi. Thao tác trước đó chưa rõ kết quả: hãy kiểm tra dòng liên quan. Nếu dòng không còn hiện ở bộ lọc này, nó có thể đã đổi trạng thái hoặc bị xóa; chọn “Tất cả” ở bộ lọc Hiển thị để chắc chắn.");
+  };
+  const reconcileProps = { run: () => void reconcile(), reading, failed: readFailed };
+  const openExisting = (email: string, archived: boolean) => {
+    closeDialog();
     setNotice(null);
     setSearch(email);
     setApplied(email);
@@ -73,7 +110,7 @@ export default function NewsletterSubscriptionsPanel() {
 
   const sendInvite = async (row: NewsletterSubscription) => {
     setNotice(null);
-    const result = await invite.run(() => inviteNewsletterSubscription(row.id));
+    const result = await write.run(() => inviteNewsletterSubscription(row.id));
     if (result?.kind !== "ok") return;
     const { status: outcome, retryAfterSeconds } = result.data;
     setNotice(
@@ -91,6 +128,7 @@ export default function NewsletterSubscriptionsPanel() {
   // While a query is on its way the hook still holds the previous answer: it stays on screen, but it says nothing about
   // the current query, so the paging is locked and no "no match" is claimed until the answer to this query has arrived.
   const settled = data !== null && !list.pending;
+  const locked = write.held || write.status.phase === "pending";
   const filtered = applied !== "" || status !== "" || scope !== "active";
 
   return (
@@ -100,7 +138,7 @@ export default function NewsletterSubscriptionsPanel() {
         <Link href="/website/newsletter/sender" className="text-brand-600 underline dark:text-brand-400">Cấu hình email gửi</Link>
       </PageHeader>
       {notice && <Banner tone="success" testId="newsletter-notice" onDismiss={() => setNotice(null)}>{notice}</Banner>}
-      <WriteOutcome status={invite.status} />
+      {dialog === null && <WriteOutcome status={write.status} reconcile={reconcileProps} />}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <form onSubmit={submit} role="search" className="flex flex-wrap items-end gap-2">
           <div className="w-full max-w-sm">
@@ -121,7 +159,7 @@ export default function NewsletterSubscriptionsPanel() {
             </select>
           </label>
         </form>
-        <ActionButton size="md" onClick={() => { setNotice(null); setDialog({ kind: "add" }); }} testId="newsletter-add">Thêm đăng ký</ActionButton>
+        <ActionButton size="md" disabled={locked} onClick={() => openDialog({ kind: "add" })} testId="newsletter-add">Thêm đăng ký</ActionButton>
       </div>
       {list.state.status === "loading" && <LoadingPanel what="danh sách đăng ký nhận tin" />}
       {list.state.status === "error" && <ErrorPanel message={list.state.message} onRetry={() => void list.reload()} />}
@@ -167,17 +205,17 @@ export default function NewsletterSubscriptionsPanel() {
                     <td className={TABLE_CLASSES.cell}>{item.verifiedAtUtc ? formatWhen(item.verifiedAtUtc) : "—"}</td>
                     <td className={TABLE_CLASSES.cell}>
                       <div className="flex flex-wrap gap-1.5">
-                        <ActionButton variant="outline" testId={`newsletter-edit-${item.email}`} onClick={() => { setNotice(null); setDialog({ kind: "edit", row: item }); }}>Sửa</ActionButton>
+                        <ActionButton variant="outline" testId={`newsletter-edit-${item.email}`} disabled={locked} onClick={() => openDialog({ kind: "edit", row: item })}>Sửa</ActionButton>
                         {canInvite(item) && (
-                          <ActionButton variant="outline" testId={`newsletter-invite-${item.email}`} disabled={invite.status.phase === "pending"} onClick={() => void sendInvite(item)}>Gửi lời mời xác minh</ActionButton>
+                          <ActionButton variant="outline" testId={`newsletter-invite-${item.email}`} disabled={locked} onClick={() => void sendInvite(item)}>Gửi lời mời xác minh</ActionButton>
                         )}
                         {item.status !== "Unsubscribed" && (
-                          <ActionButton variant="outline" testId={`newsletter-unsubscribe-${item.email}`} onClick={() => { setNotice(null); setDialog({ kind: "confirm", action: "unsubscribe", row: item }); }}>Ngừng nhận</ActionButton>
+                          <ActionButton variant="outline" testId={`newsletter-unsubscribe-${item.email}`} disabled={locked} onClick={() => openDialog({ kind: "confirm", action: "unsubscribe", row: item })}>Ngừng nhận</ActionButton>
                         )}
-                        <ActionButton variant="outline" testId={`newsletter-${item.archivedAtUtc ? "restore" : "archive"}-${item.email}`} onClick={() => { setNotice(null); setDialog({ kind: "confirm", action: item.archivedAtUtc ? "restore" : "archive", row: item }); }}>
+                        <ActionButton variant="outline" testId={`newsletter-${item.archivedAtUtc ? "restore" : "archive"}-${item.email}`} disabled={locked} onClick={() => openDialog({ kind: "confirm", action: item.archivedAtUtc ? "restore" : "archive", row: item })}>
                           {item.archivedAtUtc ? "Khôi phục" : "Lưu trữ"}
                         </ActionButton>
-                        <ActionButton variant="outline" testId={`newsletter-delete-${item.email}`} onClick={() => { setNotice(null); setDialog({ kind: "confirm", action: "delete", row: item }); }}>Xóa</ActionButton>
+                        <ActionButton variant="outline" testId={`newsletter-delete-${item.email}`} disabled={locked} onClick={() => openDialog({ kind: "confirm", action: "delete", row: item })}>Xóa</ActionButton>
                       </div>
                     </td>
                   </tr>
@@ -197,17 +235,19 @@ export default function NewsletterSubscriptionsPanel() {
         </>
       )}
       {dialog?.kind === "add" && (
-        <AddSubscriptionDialog onClose={() => setDialog(null)} onOpenExisting={openExisting} onDone={(row) => done(`Đã thêm ${row.email} ở trạng thái “Chờ xác minh”. Chưa có thư nào được gửi: dùng “Gửi lời mời xác minh” để mời họ xác nhận.`)} />
+        <AddSubscriptionDialog write={write} reconcile={reconcileProps} onClose={closeDialog} onOpenExisting={openExisting} onDone={(row) => done(`Đã thêm ${row.email} ở trạng thái “Chờ xác minh”. Chưa có thư nào được gửi: dùng “Gửi lời mời xác minh” để mời họ xác nhận.`)} />
       )}
       {dialog?.kind === "edit" && (
-        <EditSubscriptionDialog key={dialog.row.id} row={dialog.row} onClose={() => setDialog(null)} onReload={() => void list.reload()} onDone={(row) => done(`Đã lưu thay đổi cho ${row.email}.`)} />
+        <EditSubscriptionDialog key={dialog.row.id} row={dialog.row} write={write} reconcile={reconcileProps} onClose={closeDialog} onReload={() => void list.reload()} onDone={(row) => done(`Đã lưu thay đổi cho ${row.email}.`)} />
       )}
       {dialog?.kind === "confirm" && (
         <ConfirmSubscriptionDialog
           key={`${dialog.action}-${dialog.row.id}`}
           action={dialog.action}
           row={dialog.row}
-          onClose={() => setDialog(null)}
+          write={write}
+          reconcile={reconcileProps}
+          onClose={closeDialog}
           onReload={() => void list.reload()}
           onDone={() => done(CONFIRM_DONE[dialog.action](dialog.row.email))}
         />

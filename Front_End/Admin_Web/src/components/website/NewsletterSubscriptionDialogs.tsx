@@ -33,8 +33,12 @@ export function LanguageSelect({ value, onChange, disabled }: { value: Newslette
   );
 }
 
+/** The screen's one write slot (shared by every dialog and the invitation, so a hold survives a dialog being closed) and the way back from an unknown outcome. */
+export type WriteHandle = ReturnType<typeof useWriteAction>;
+export type Reconcile = { run: () => void; reading: boolean; failed: boolean };
+
 /** What a refused or lost write says inside a dialog. A stale version keeps the dialog open; the list is read again behind it by the caller. */
-export function WriteOutcome({ status, onReload }: { status: ReturnType<typeof useWriteAction>["status"]; onReload?: () => void }) {
+export function WriteOutcome({ status, onReload, reconcile }: { status: WriteHandle["status"]; onReload?: () => void; reconcile?: Reconcile }) {
   if (status.phase === "pending") return <Banner tone="info" testId="newsletter-write-pending">Đang gửi yêu cầu… chờ máy chủ trả lời.</Banner>;
   if (status.phase === "refused") {
     const stale = status.failure.code === "newsletter-version-conflict";
@@ -51,20 +55,37 @@ export function WriteOutcome({ status, onReload }: { status: ReturnType<typeof u
   }
   if (status.phase === "failed") return <Banner tone="error" testId="newsletter-write-failed">{status.message} Chưa có gì được thay đổi.</Banner>;
   if (status.phase === "unverified") {
-    return <Banner tone="warning" testId="newsletter-write-unverified">{status.message} Hệ thống không tự gửi lại: hãy đóng hộp thoại và đọc lại danh sách trước khi thử lần nữa.</Banner>;
+    return (
+      <Banner tone="warning" testId="newsletter-write-unverified">
+        <p>{status.message} Kết quả thao tác trước chưa rõ: máy chủ có thể đã ghi nhận hoặc chưa.</p>
+        <p className="mt-1">Hệ thống không tự gửi lại, và mọi thao tác ghi bị khóa cho tới khi đọc lại được trạng thái từ máy chủ.</p>
+        {reconcile && (
+          <p className="mt-2">
+            <button type="button" onClick={reconcile.run} disabled={reconcile.reading} className="font-medium underline disabled:opacity-50" data-testid="newsletter-reconcile">
+              {reconcile.reading ? "Đang đọc lại…" : "Đọc lại trạng thái"}
+            </button>
+          </p>
+        )}
+        {reconcile?.failed && !reconcile.reading && (
+          <p className="mt-1 font-medium" data-testid="newsletter-reconcile-failed">Chưa đọc lại được từ máy chủ. Các thao tác ghi vẫn bị khóa: hãy thử đọc lại.</p>
+        )}
+      </Banner>
+    );
   }
   return null;
 }
 
-export function AddSubscriptionDialog({ onClose, onDone, onOpenExisting }: {
+export function AddSubscriptionDialog({ write, reconcile, onClose, onDone, onOpenExisting }: {
+  write: WriteHandle;
+  reconcile: Reconcile;
   onClose: () => void;
   onDone: (row: NewsletterSubscription) => void;
   onOpenExisting: (email: string, archived: boolean) => void;
 }) {
   const [email, setEmail] = useState("");
   const [language, setLanguage] = useState<NewsletterLanguage>("vi");
-  const write = useWriteAction();
   const busy = write.status.phase === "pending";
+  const locked = busy || write.held;
   const duplicate = write.status.phase === "refused" && write.status.failure.code === "newsletter-subscription-duplicate" ? write.status.failure : null;
 
   const submit = async (event: FormEvent) => {
@@ -79,9 +100,9 @@ export function AddSubscriptionDialog({ onClose, onDone, onOpenExisting }: {
         <Banner tone="info">
           Địa chỉ được ghi nhận từ <strong>Admin</strong> ở trạng thái <strong>Chờ xác minh</strong> và chưa có thư nào được gửi. Chỉ chủ hộp thư mới xác minh được: dùng <em>Gửi lời mời xác minh</em> ở dòng đó.
         </Banner>
-        <TextField label="Email" value={email} onChange={setEmail} maxLength={254} placeholder="ten@example.com" disabled={busy} autoFocus testId="newsletter-add-email" />
-        <LanguageSelect value={language} onChange={setLanguage} disabled={busy} />
-        <WriteOutcome status={write.status} />
+        <TextField label="Email" value={email} onChange={setEmail} maxLength={254} placeholder="ten@example.com" disabled={locked} autoFocus testId="newsletter-add-email" />
+        <LanguageSelect value={language} onChange={setLanguage} disabled={locked} />
+        <WriteOutcome status={write.status} reconcile={reconcile} />
         {duplicate?.existingId && (
           <p className="text-sm text-gray-700 dark:text-gray-200">
             <button type="button" className="font-medium text-brand-600 underline dark:text-brand-400" data-testid="newsletter-open-existing" onClick={() => onOpenExisting(email.trim().toLowerCase(), duplicate.existingArchived === true)}>
@@ -92,23 +113,25 @@ export function AddSubscriptionDialog({ onClose, onDone, onOpenExisting }: {
         )}
         <DialogActions>
           <ActionButton variant="outline" onClick={onClose} disabled={busy} testId="newsletter-add-cancel">Hủy</ActionButton>
-          <ActionButton type="submit" disabled={busy || email.trim() === ""} testId="newsletter-add-submit">Thêm đăng ký</ActionButton>
+          <ActionButton type="submit" disabled={locked || email.trim() === ""} testId="newsletter-add-submit">Thêm đăng ký</ActionButton>
         </DialogActions>
       </form>
     </DialogShell>
   );
 }
 
-export function EditSubscriptionDialog({ row, onClose, onDone, onReload }: {
+export function EditSubscriptionDialog({ row, write, reconcile, onClose, onDone, onReload }: {
   row: NewsletterSubscription;
+  write: WriteHandle;
+  reconcile: Reconcile;
   onClose: () => void;
   onDone: (row: NewsletterSubscription) => void;
   onReload: () => void;
 }) {
   const [email, setEmail] = useState(row.email);
   const [language, setLanguage] = useState<NewsletterLanguage>(row.language);
-  const write = useWriteAction();
   const busy = write.status.phase === "pending";
+  const locked = busy || write.held;
   const emailChanged = email.trim().toLowerCase() !== row.email;
   const languageChanged = language !== row.language;
   const needsReset = emailChanged && row.status !== "PendingVerification";
@@ -123,18 +146,18 @@ export function EditSubscriptionDialog({ row, onClose, onDone, onReload }: {
   return (
     <DialogShell title="Sửa đăng ký" onClose={onClose} busy={busy} testId="newsletter-edit-dialog">
       <form onSubmit={submit} className="flex flex-col gap-4">
-        <TextField label="Email" value={email} onChange={setEmail} maxLength={254} disabled={busy} autoFocus testId="newsletter-edit-email" />
-        <LanguageSelect value={language} onChange={setLanguage} disabled={busy} />
+        <TextField label="Email" value={email} onChange={setEmail} maxLength={254} disabled={locked} autoFocus testId="newsletter-edit-email" />
+        <LanguageSelect value={language} onChange={setLanguage} disabled={locked} />
         {emailChanged && (
           <Banner tone="warning" testId="newsletter-edit-email-warning">
             Đổi địa chỉ đưa đăng ký về <strong>Chờ xác minh</strong>{needsReset ? ` (hiện là ${row.status === "Verified" ? "Đã xác minh" : "Đã ngừng nhận"})` : ""}, vô hiệu mọi liên kết đã gửi tới địa chỉ cũ và hủy các thư đang chờ gửi cho nó. Chủ hộp thư mới phải tự xác minh.
           </Banner>
         )}
         {!emailChanged && languageChanged && <Banner tone="info">Đổi ngôn ngữ giữ nguyên trạng thái xác minh. Thư đang chờ sẽ viết bằng ngôn ngữ mới.</Banner>}
-        <WriteOutcome status={write.status} onReload={onReload} />
+        <WriteOutcome status={write.status} onReload={onReload} reconcile={reconcile} />
         <DialogActions>
           <ActionButton variant="outline" onClick={onClose} disabled={busy} testId="newsletter-edit-cancel">Hủy</ActionButton>
-          <ActionButton type="submit" disabled={busy || email.trim() === "" || (!emailChanged && !languageChanged)} testId="newsletter-edit-submit">Lưu thay đổi</ActionButton>
+          <ActionButton type="submit" disabled={locked || email.trim() === "" || (!emailChanged && !languageChanged)} testId="newsletter-edit-submit">Lưu thay đổi</ActionButton>
         </DialogActions>
       </form>
     </DialogShell>
@@ -169,15 +192,17 @@ const SEND: Record<ConfirmAction, (row: NewsletterSubscription) => Promise<Websi
   delete: (row) => deleteNewsletterSubscription(row.id, row.version),
 };
 
-export function ConfirmSubscriptionDialog({ action, row, onClose, onDone, onReload }: {
+export function ConfirmSubscriptionDialog({ action, row, write, reconcile, onClose, onDone, onReload }: {
   action: ConfirmAction;
   row: NewsletterSubscription;
+  write: WriteHandle;
+  reconcile: Reconcile;
   onClose: () => void;
   onDone: () => void;
   onReload: () => void;
 }) {
-  const write = useWriteAction();
   const busy = write.status.phase === "pending";
+  const locked = busy || write.held;
   const text = CONFIRM_TEXT[action];
 
   const submit = async () => {
@@ -188,10 +213,10 @@ export function ConfirmSubscriptionDialog({ action, row, onClose, onDone, onRelo
   return (
     <DialogShell title={text.title} onClose={onClose} busy={busy} testId={`newsletter-${action}-dialog`}>
       <Banner tone={text.tone}>{text.body(row.email)}</Banner>
-      <WriteOutcome status={write.status} onReload={onReload} />
+      <WriteOutcome status={write.status} onReload={onReload} reconcile={reconcile} />
       <DialogActions>
         <ActionButton variant="outline" onClick={onClose} disabled={busy} testId={`newsletter-${action}-cancel`}>Hủy</ActionButton>
-        <ActionButton onClick={() => void submit()} disabled={busy} testId={`newsletter-${action}-confirm`}>{text.button}</ActionButton>
+        <ActionButton onClick={() => void submit()} disabled={locked} testId={`newsletter-${action}-confirm`}>{text.button}</ActionButton>
       </DialogActions>
     </DialogShell>
   );
