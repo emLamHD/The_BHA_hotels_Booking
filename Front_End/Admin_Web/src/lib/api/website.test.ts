@@ -422,11 +422,28 @@ describe("floating contact settings", () => {
  * write: no answer at all, a 5xx (the unhandled-exception 500 carries a problem body and is still unknown: the API may have committed before it failed reading the row
  * back) and a 2xx whose body cannot be read are `unverified`; an answer that says "not applied" is not.
  */
+describe("newsletter invitation (C5): it carries the version of the row that was shown", () => {
+  it("posts expectedVersion in the body to the row's own route, and sends nothing else", async () => {
+    const spy = respond(200, { status: "queued", retryAfterSeconds: null, subscription: { id: "id/1", email: "a@example.com", receivedAtUtc: "2026-11-16T04:00:00+00:00", source: "homepage", status: "PendingVerification", verifiedAtUtc: null, language: "vi", version: 4, unsubscribedAtUtc: null, archivedAtUtc: null, verificationMail: "Pending" } });
+    vi.stubGlobal("fetch", spy);
+    expect((await inviteNewsletterSubscription("id/1", 4)).kind).toBe("ok");
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0][0]).toBe(`${BASE}/api/admin/v1/website/newsletter-subscriptions/id%2F1/verification-invitations`);
+    expect(spy.mock.calls[0][1].method).toBe("POST");
+    expect(JSON.parse(spy.mock.calls[0][1].body)).toEqual({ expectedVersion: 4 });
+  });
+
+  it("a version conflict is a refusal with its code, not an unknown outcome", async () => {
+    vi.stubGlobal("fetch", respond(409, { code: "newsletter-version-conflict", detail: "stale" }));
+    expect(await inviteNewsletterSubscription("id-1", 3)).toMatchObject({ kind: "refused", status: 409, code: "newsletter-version-conflict" });
+  });
+});
+
 describe("newsletter subscription writes: what is an unknown outcome", () => {
   const writes: Array<[string, () => Promise<{ kind: string }>]> = [
     ["create", () => createNewsletterSubscription({ email: "a@example.com", language: "vi" })],
     ["update", () => updateNewsletterSubscription("id-1", { expectedVersion: 1, language: "en" })],
-    ["invite", () => inviteNewsletterSubscription("id-1")],
+    ["invite", () => inviteNewsletterSubscription("id-1", 1)],
     ["unsubscribe", () => unsubscribeNewsletterSubscription("id-1", 1)],
     ["archive", () => archiveNewsletterSubscription("id-1", 1)],
     ["restore", () => restoreNewsletterSubscription("id-1", 1)],

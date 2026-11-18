@@ -9,6 +9,7 @@ import {
   AddSubscriptionDialog,
   ConfirmSubscriptionDialog,
   EditSubscriptionDialog,
+  VERSION_CONFLICT,
   WriteOutcome,
   type ConfirmAction,
 } from "./NewsletterSubscriptionDialogs";
@@ -158,8 +159,16 @@ export default function NewsletterSubscriptionsPanel() {
   };
 
   const sendInvite = async (row: NewsletterSubscription) => {
+    if (staleRef.current.has(row.id)) return;                                              // a callback from before the conflict: this snapshot is known to be stale
     setNotice(null);
-    const result = await write.run(() => inviteNewsletterSubscription(row.id));
+    // The invitation goes to the address THIS row shows: it carries this row's version. A conflict means the row (its address included) changed; nothing is retried and
+    // nothing says Staff invited anyone, the row is stale like any other (read again, then invite from the fresh row).
+    const result = await write.run(() => inviteNewsletterSubscription(row.id, row.version));
+    if (result?.kind === "refused" && result.code === VERSION_CONFLICT) {
+      markStale(row.id);
+      return;
+    }
+
     if (result?.kind !== "ok") return;
     const { status: outcome, retryAfterSeconds } = result.data;
     setNotice(

@@ -64,6 +64,7 @@ const buttonOf = (testId: string) => {
 const click = async (testId: string) => userEvent.click(buttonOf(testId));
 const isDisabled = (testId: string) => buttonOf(testId).disabled;
 const conflict = () => ({ kind: "refused" as const, status: 409, code: "newsletter-version-conflict", field: null, detail: "stale" }) as never;
+const sleepTick = () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
 const mutations = () => [create, update, invite, unsubscribe, archive, restore, remove].reduce((sum, mock) => sum + mock.mock.calls.length, 0);
 
 beforeEach(() => {
@@ -572,5 +573,75 @@ describe("a recovery read and a write do not overlap (C4)", () => {
     await userEvent.click(screen.getByTestId(RELOAD));
     await waitFor(() => expect(screen.queryByTestId("newsletter-stale")).toBeNull());
     expect(isDisabled(INVITE_B)).toBe(false);
+  });
+});
+
+/**
+ * BHA-NEWSLETTER-003-C5: an invitation carries the version of the row the Staff member sees. A version conflict is a certain refusal: no "invited" notice, the row is stale
+ * (locked, read again through the C3 path), nothing is retried and a callback held from before cannot send with the old snapshot; after the read the new invitation carries the new version.
+ */
+describe("an invitation from a row that has changed (C5)", () => {
+  const INVITE_A = "newsletter-invite-a@example.com";
+  const queued = (version: number) => ok({ status: "queued", retryAfterSeconds: null, subscription: row("a@example.com", { version }) }) as never;
+
+  it("sends the version on screen; a conflict is no 'invited' notice, locks the row, and retries nothing", async () => {
+    await open([row("a@example.com"), row("b@example.com")]);                                  // a@ is shown at version 4
+    invite.mockResolvedValueOnce(conflict());
+    await click(INVITE_A);
+    await screen.findByTestId("newsletter-write-refused");
+    expect(invite).toHaveBeenCalledTimes(1);
+    expect(invite).toHaveBeenLastCalledWith("id-a@example.com", 4);
+    expect(screen.queryByTestId("newsletter-notice")).toBeNull();                              // nothing says Staff invited anyone
+    expect(screen.queryByTestId("newsletter-write-unverified")).toBeNull();                    // a certain refusal, not a lost answer
+    expect(screen.getByTestId("newsletter-stale")).toBeTruthy();
+    for (const id of [INVITE_A, "newsletter-edit-a@example.com", "newsletter-delete-a@example.com"]) expect(isDisabled(id), id).toBe(true);
+    expect(isDisabled("newsletter-invite-b@example.com")).toBe(false);                         // other rows are untouched
+    await sleepTick();
+    expect(invite).toHaveBeenCalledTimes(1);
+  });
+
+  it("a callback held from before the conflict cannot send with the stale snapshot", async () => {
+    await open([row("a@example.com")]);
+    const held = (within(screen.getByTestId(INVITE_A)).getByRole("button") as unknown as Record<string, { onClick: () => void }>);
+    const handler = held[Object.keys(held).find((key) => key.startsWith("__reactProps$"))!].onClick;
+    invite.mockResolvedValueOnce(conflict());
+    await click(INVITE_A);
+    await screen.findByTestId("newsletter-stale");
+    await act(async () => { handler(); });
+    expect(invite).toHaveBeenCalledTimes(1);
+  });
+
+  it("after the read the row shows the new address and the new invitation carries the new version", async () => {
+    await open([row("a@example.com")]);
+    invite.mockResolvedValueOnce(conflict());
+    await click(INVITE_A);
+    await screen.findByTestId("newsletter-stale");
+    list.mockResolvedValueOnce(ok(page([row("renamed@example.com", { id: "id-a@example.com", version: 5 })])) as never);   // Staff B renamed it: version 5
+    await userEvent.click(screen.getByTestId("newsletter-stale-reload"));
+    await waitFor(() => expect(screen.queryByTestId("newsletter-stale")).toBeNull());
+    expect(screen.getByTestId("newsletter-notice").textContent).toContain("mở lại");
+    expect(invite).toHaveBeenCalledTimes(1);                                                   // nothing was resent by itself
+    expect(screen.queryByTestId(INVITE_A)).toBeNull();                                         // the address on screen is the new one
+
+    invite.mockResolvedValueOnce(queued(5));
+    await click("newsletter-invite-renamed@example.com");
+    await waitFor(() => expect(invite).toHaveBeenCalledTimes(2));
+    expect(invite).toHaveBeenLastCalledWith("id-a@example.com", 5);
+    expect((await screen.findByTestId("newsletter-notice")).textContent).toContain("renamed@example.com");
+  });
+
+  it("a failed read keeps the row locked and the invitation unsent; the next read frees it", async () => {
+    await open([row("a@example.com")]);
+    invite.mockResolvedValueOnce(conflict());
+    await click(INVITE_A);
+    await screen.findByTestId("newsletter-stale");
+    list.mockResolvedValueOnce({ kind: "network", message: "Không kết nối được máy chủ." } as never);
+    await userEvent.click(screen.getByTestId("newsletter-stale-reload"));
+    await screen.findByTestId("newsletter-stale-failed");
+    expect(invite).toHaveBeenCalledTimes(1);
+    list.mockResolvedValueOnce(ok(page([row("a@example.com", { version: 5 })])) as never);
+    await userEvent.click(screen.getByTestId("newsletter-stale-reload"));
+    await waitFor(() => expect(isDisabled(INVITE_A)).toBe(false));
+    expect(invite).toHaveBeenCalledTimes(1);
   });
 });

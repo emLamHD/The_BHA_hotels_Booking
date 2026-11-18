@@ -623,8 +623,9 @@ export function parseNewsletterInvite(data: unknown): NewsletterInvite | null {
   return subscription ? { status: data.status, retryAfterSeconds: isNum(data.retryAfterSeconds) ? data.retryAfterSeconds : null, subscription } : null;
 }
 
-export const inviteNewsletterSubscription = (id: string) =>
-  call<NewsletterInvite>("POST", `${SUBSCRIPTIONS}/${encodeURIComponent(id)}/verification-invitations`, {}, { write: true, parse: parseNewsletterInvite });
+/** The invitation goes to the address of the row the Staff member SEES: `expectedVersion` is that row's version, and a row that has changed since is a 409 `newsletter-version-conflict`. */
+export const inviteNewsletterSubscription = (id: string, expectedVersion: number) =>
+  call<NewsletterInvite>("POST", `${SUBSCRIPTIONS}/${encodeURIComponent(id)}/verification-invitations`, { expectedVersion }, { write: true, parse: parseNewsletterInvite });
 
 export const unsubscribeNewsletterSubscription = (id: string, expectedVersion: number) => writeRow(`/${encodeURIComponent(id)}/unsubscribe`, { expectedVersion });
 export const archiveNewsletterSubscription = (id: string, expectedVersion: number) => writeRow(`/${encodeURIComponent(id)}/archive`, { expectedVersion });

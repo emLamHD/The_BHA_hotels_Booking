@@ -220,7 +220,7 @@ describe("invite", () => {
     invite.mockResolvedValue(ok({ ...answer, subscription: row("a@example.com") }) as never);
     await click("newsletter-invite-a@example.com");
     expect((await screen.findByTestId("newsletter-notice")).textContent).toContain(text);
-    expect(invite).toHaveBeenCalledWith("id-a@example.com");
+    expect(invite).toHaveBeenCalledWith("id-a@example.com", 4);              // the version of the row on screen
     expect(invite).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
   });
