@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState, type FormEvent } from "react";
-import { inviteNewsletterSubscription, listNewsletterSubscriptions, type NewsletterListScope, type NewsletterSubscription } from "@/lib/api/website";
+import { useCallback, useRef, useState, type FormEvent } from "react";
+import { inviteNewsletterSubscription, listNewsletterSubscriptions, type NewsletterListScope, type NewsletterSubscription, type WebsiteResult } from "@/lib/api/website";
 import { useWebsiteList, useWriteAction } from "./useWebsiteData";
 import { ActionButton, Banner, ErrorPanel, LoadingPanel, PageHeader, TABLE_CLASSES, TextField, formatWhen } from "./WebsiteUi";
 import {
@@ -45,13 +45,35 @@ export default function NewsletterSubscriptionsPanel() {
   const [notice, setNotice] = useState<string | null>(null);
   // ONE write slot for the whole screen (every dialog and the invitation), with the hold: after a write whose outcome is unknown nothing more is sent until the list
   // has been read again successfully. It lives here, not in a dialog, so closing and reopening a dialog cannot lift it.
-  const write = useWriteAction({ holdWhenUnverified: true });
+  const hookWrite = useWriteAction({ holdWhenUnverified: true });
   const [reading, setReading] = useState(false);
   const [readFailed, setReadFailed] = useState(false);
   // The rows a version conflict said are stale: each one's dialog (or, once that is closed, its buttons) stays locked until the list has been read again successfully.
   const [staleRowIds, setStaleRowIds] = useState<ReadonlySet<string>>(new Set());
   const markStale = (id: string) => setStaleRowIds((ids) => new Set(ids).add(id));
+  // A recovery read and a write never overlap. The two refs are the guard (they change synchronously, before any await and before the next render, so a callback taken from
+  // an earlier render, Enter, a direct submit or a second call in the same tick all meet them); the disabled buttons are only the picture of it. Every write of this screen goes
+  // through `write.run` below. Held and stale are read through refs too, for the same reason: a callback from an earlier render must not clear what a later one set.
   const readingRef = useRef(false);
+  const writingRef = useRef(false);
+  const baseRun = hookWrite.run;
+  const run = useCallback(
+    async <T,>(send: () => Promise<WebsiteResult<T>>): Promise<WebsiteResult<T> | null> => {
+      if (readingRef.current || writingRef.current) return null;
+      writingRef.current = true;
+      try {
+        return await baseRun(send);
+      } finally {
+        writingRef.current = false;                                                        // after the hook has taken a hold, never before
+      }
+    },
+    [baseRun],
+  );
+  const write = { ...hookWrite, run };
+  const heldRef = useRef(false);
+  heldRef.current = hookWrite.held;
+  const staleRef = useRef<ReadonlySet<string>>(staleRowIds);
+  staleRef.current = staleRowIds;
   const list = useWebsiteList((signal) => listNewsletterSubscriptions({ search: applied, status, scope, page, pageSize: PAGE_SIZE }, signal), [applied, status, scope, page]);
 
   const submit = (event: FormEvent) => {
@@ -65,7 +87,7 @@ export default function NewsletterSubscriptionsPanel() {
     setApplied("");
   };
   const openDialog = (next: Dialog) => {
-    if (write.held || (next.kind !== "add" && staleRowIds.has(next.row.id))) return;
+    if (readingRef.current || write.held || (next.kind !== "add" && staleRowIds.has(next.row.id))) return;
     write.reset();
     setNotice(null);
     setDialog(next);
@@ -83,19 +105,26 @@ export default function NewsletterSubscriptionsPanel() {
    * The only way out of a hold (a write whose outcome is unknown) and of a stale row (a version conflict): read the screen's own query again. A read that fails, or that a
    * newer read replaced, changes nothing. A success closes the dialog (it holds the row as it was when it opened: it is opened again from the fresh list, so it carries the
    * version the server has) and says what Staff should do, without concluding anything about a row that is no longer in this filter. Nothing is sent again by itself.
-   * What the notice says follows the state the read clears, not the button pressed; and only the rows that were stale when the read started are freed (one that went stale
+   * It does not start while a write is on the wire, and no write starts while it is out (C4): a hold taken by a write that began after the read did could not be told apart
+   * from the one this read is about to clear. What the notice says follows the state the read clears, not the button pressed; and only the rows that were stale when the read started are freed (one that went stale
    * while it was in flight may have been served before that change).
    */
   const readAgain = async () => {
-    if (readingRef.current) return;
-    const wasHeld = write.held;
-    const cleared = new Set(staleRowIds);
+    if (readingRef.current || writingRef.current) return;
+    const wasHeld = heldRef.current;
+    const cleared = new Set(staleRef.current);
     readingRef.current = true;
     setReading(true);
     setReadFailed(false);
-    const data = await list.reload();
-    readingRef.current = false;
-    setReading(false);
+    let data: Awaited<ReturnType<typeof list.reload>> = null;
+    try {
+      data = await list.reload();
+    } catch {
+      data = null;                                                                          // a read that throws is a read that failed
+    } finally {
+      readingRef.current = false;                                                           // never left set: no lock for good
+      setReading(false);
+    }
     if (data === null) {
       setReadFailed(true);
       return;
@@ -139,7 +168,8 @@ export default function NewsletterSubscriptionsPanel() {
   // While a query is on its way the hook still holds the previous answer: it stays on screen, but it says nothing about
   // the current query, so the paging is locked and no "no match" is claimed until the answer to this query has arrived.
   const settled = data !== null && !list.pending;
-  const locked = write.held || write.status.phase === "pending";
+  const writePending = write.status.phase === "pending";
+  const locked = write.held || writePending || reading;
   const filtered = applied !== "" || status !== "" || scope !== "active";
 
   return (
@@ -154,7 +184,7 @@ export default function NewsletterSubscriptionsPanel() {
         <Banner tone="warning" testId="newsletter-stale">
           <p>Có bản ghi đã thay đổi trên máy chủ nên bản đang hiển thị không còn dùng để thao tác được: các nút của dòng đó bị khóa và chưa có gì được gửi.</p>
           <p className="mt-2">
-            <button type="button" onClick={reconcileProps.run} disabled={reading} className="font-medium underline disabled:opacity-50" data-testid="newsletter-stale-reload">
+            <button type="button" onClick={reconcileProps.run} disabled={reading || writePending} className="font-medium underline disabled:opacity-50" data-testid="newsletter-stale-reload">
               {reading ? "Đang đọc lại…" : "Tải lại danh sách"}
             </button>
           </p>

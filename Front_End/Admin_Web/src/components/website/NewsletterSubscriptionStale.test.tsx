@@ -4,7 +4,7 @@
  * replaced, or a dialog closed before the read, changes nothing: the stale row stays locked and nothing is sent with the old version.
  */
 import React from "react";
-import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 
@@ -57,8 +57,12 @@ const row = (email: string, overrides: Partial<NewsletterSubscription> = {}): Ne
   language: "vi", version: 4, unsubscribedAtUtc: null, archivedAtUtc: null, verificationMail: null, ...overrides,
 });
 const page = (items: NewsletterSubscription[]): NewsletterSubscriptionPage => ({ items, page: 1, pageSize: 20, total: items.length });
-const click = async (testId: string) => userEvent.click(within(screen.getByTestId(testId)).getByRole("button"));
-const isDisabled = (testId: string) => (within(screen.getByTestId(testId)).getByRole("button") as HTMLButtonElement).disabled;
+const buttonOf = (testId: string) => {
+  const node = screen.getByTestId(testId);
+  return (node.tagName === "BUTTON" ? node : within(node).getByRole("button")) as HTMLButtonElement;   // ActionButton wraps its button; a banner link carries the id itself
+};
+const click = async (testId: string) => userEvent.click(buttonOf(testId));
+const isDisabled = (testId: string) => buttonOf(testId).disabled;
 const conflict = () => ({ kind: "refused" as const, status: 409, code: "newsletter-version-conflict", field: null, detail: "stale" }) as never;
 const mutations = () => [create, update, invite, unsubscribe, archive, restore, remove].reduce((sum, mock) => sum + mock.mock.calls.length, 0);
 
@@ -310,7 +314,7 @@ describe("after the read", () => {
     expect(isDisabled("newsletter-edit-a@example.com")).toBe(false);
   });
 
-  it("a row that goes stale while a read is in flight is not freed by that read", async () => {
+  it("another row cannot go stale while a read is in flight: it cannot be written then (C4 replaces the C3 case where it could)", async () => {
     await open([row("a@example.com"), row("b@example.com")]);
     update.mockResolvedValue(conflict());
     await click("newsletter-edit-a@example.com");
@@ -321,16 +325,15 @@ describe("after the read", () => {
     list.mockReturnValueOnce(slow.promise as never);
     await userEvent.click(screen.getByTestId("newsletter-reload-latest"));                    // the read of a@ is in flight
     await click("newsletter-edit-cancel");
-    await click("newsletter-edit-b@example.com");
-    await userEvent.selectOptions(await screen.findByTestId("newsletter-language"), "en");
-    await click("newsletter-edit-submit");                                                    // b@ conflicts before that read answers
-    await screen.findByTestId("newsletter-reload-latest");
+    expect(isDisabled("newsletter-edit-b@example.com")).toBe(true);                           // b@ cannot be opened, so it cannot conflict while the read is out
+    await userEvent.click(within(screen.getByTestId("newsletter-row-b@example.com")).getByText("Sửa"));
+    expect(screen.queryByTestId("newsletter-edit-dialog")).toBeNull();
 
-    slow.resolve(ok(page([row("a@example.com", { version: 5 }), row("b@example.com", { version: 4 })])) as never);   // served before the other Staff's change to b@
+    slow.resolve(ok(page([row("a@example.com", { version: 5 }), row("b@example.com", { version: 4 })])) as never);
     await screen.findByTestId("newsletter-notice");
     expect(isDisabled("newsletter-edit-a@example.com")).toBe(false);
-    expect(isDisabled("newsletter-edit-b@example.com")).toBe(true);                           // still the old copy of b@: it needs its own read
-    expect(mutations()).toBe(2);
+    expect(isDisabled("newsletter-edit-b@example.com")).toBe(false);
+    expect(mutations()).toBe(1);
   });
 
   it("the C2 hold after a lost answer still works beside it", async () => {
@@ -346,5 +349,170 @@ describe("after the read", () => {
     list.mockResolvedValueOnce(ok(page([row("a@example.com", { language: "en", version: 5 })])) as never);
     await userEvent.click(screen.getByTestId("newsletter-reconcile"));
     await waitFor(() => expect(screen.queryByTestId("newsletter-edit-dialog")).toBeNull());
+  });
+});
+
+/**
+ * BHA-NEWSLETTER-003-C4: a recovery read and a write never overlap. Once a read has started no write of this screen is sent until it ends; a read does not start while a write is on
+ * the wire. The guard is a synchronous ref in the screen, so a callback taken from an earlier render, Enter, a direct submit or a second call in the same tick cannot get past it.
+ * `propsOf` takes the handler React holds for a button BEFORE the other action starts, then calls it with no re-render in between.
+ */
+describe("a recovery read and a write do not overlap (C4)", () => {
+  type Handlers = { onClick: () => void };
+  const propsOf = (testId: string): Handlers => {
+    const node = buttonOf(testId) as unknown as Record<string, unknown>;
+    return node[Object.keys(node).find((key) => key.startsWith("__reactProps$"))!] as Handlers;
+  };
+  const queued = () => ok({ status: "queued", retryAfterSeconds: null }) as never;
+  const lost = () => ({ kind: "unverified", message: "Máy chủ Admin không trả lời." }) as never;
+  const fresh = () => ok(page([row("a@example.com", { version: 5 }), row("b@example.com", { version: 5 })])) as never;
+  const INVITE_B = "newsletter-invite-b@example.com";
+  const RELOAD = "newsletter-stale-reload";
+
+  /** a@ got a version conflict and its dialog was closed unread: the stale banner is the way to the read. */
+  const staleA = async () => {
+    await open([row("a@example.com"), row("b@example.com")]);
+    update.mockResolvedValueOnce(conflict());
+    await click("newsletter-edit-a@example.com");
+    await userEvent.selectOptions(await screen.findByTestId("newsletter-language"), "en");
+    await click("newsletter-edit-submit");
+    await screen.findByTestId("newsletter-reload-latest");
+    await click("newsletter-edit-cancel");
+    await screen.findByTestId("newsletter-stale");
+  };
+
+  it("while the recovery read is out, another row's write sends nothing, and the buttons say so", async () => {
+    await staleA();
+    const heldCallback = propsOf(INVITE_B);                                                   // taken from the render before the read
+    const slow = deferred<WebsiteResult<NewsletterSubscriptionPage>>();
+    list.mockReturnValueOnce(slow.promise as never);
+    await userEvent.click(screen.getByTestId(RELOAD));
+    expect(isDisabled(INVITE_B)).toBe(true);
+    expect(isDisabled("newsletter-add")).toBe(true);
+    expect(isDisabled("newsletter-edit-b@example.com")).toBe(true);
+
+    invite.mockResolvedValue(lost());                                                          // if it got through, the answer would take the hold away again
+    await act(async () => { heldCallback.onClick(); });
+    expect(invite).not.toHaveBeenCalled();
+    expect(mutations()).toBe(1);
+
+    slow.resolve(fresh());
+    await screen.findByTestId("newsletter-notice");
+    expect(mutations()).toBe(1);                                                              // nothing was resent by itself
+    expect(screen.queryByTestId("newsletter-write-unverified")).toBeNull();
+    invite.mockReset();
+    invite.mockResolvedValueOnce(queued());
+    await click(INVITE_B);                                                                    // writing works again once the read has ended
+    await waitFor(() => expect(invite).toHaveBeenCalledTimes(1));
+  });
+
+  it("a recovery cannot start while a write is on the wire, and can once it has ended", async () => {
+    await staleA();
+    const heldReload = propsOf(RELOAD);
+    const slowInvite = deferred<WebsiteResult<unknown>>();
+    invite.mockReturnValueOnce(slowInvite.promise as never);
+    await click(INVITE_B);
+    const reads = list.mock.calls.length;
+    expect(isDisabled(RELOAD)).toBe(true);
+    await act(async () => { heldReload.onClick(); });
+    expect(list.mock.calls.length).toBe(reads);                                               // no read started
+    expect(screen.queryByText("Đang đọc lại…")).toBeNull();
+
+    slowInvite.resolve(queued());
+    await screen.findByTestId("newsletter-notice");
+    await waitFor(() => expect(isDisabled(RELOAD)).toBe(false));
+    list.mockResolvedValueOnce(fresh());
+    await userEvent.click(screen.getByTestId(RELOAD));
+    await waitFor(() => expect(screen.queryByTestId("newsletter-stale")).toBeNull());
+    expect(isDisabled("newsletter-edit-a@example.com")).toBe(false);
+  });
+
+  it("in one tick, the write first: the read does not start", async () => {
+    await staleA();
+    const send = propsOf(INVITE_B);
+    const read = propsOf(RELOAD);
+    const slowInvite = deferred<WebsiteResult<unknown>>();
+    invite.mockReturnValueOnce(slowInvite.promise as never);
+    const reads = list.mock.calls.length;
+    await act(async () => { send.onClick(); read.onClick(); });
+    expect(invite).toHaveBeenCalledTimes(1);
+    expect(list.mock.calls.length).toBe(reads);
+    slowInvite.resolve(queued());
+    await screen.findByTestId("newsletter-notice");
+  });
+
+  it("in one tick, the read first: the write is not sent", async () => {
+    await staleA();
+    const send = propsOf(INVITE_B);
+    const read = propsOf(RELOAD);
+    const slow = deferred<WebsiteResult<NewsletterSubscriptionPage>>();
+    list.mockReturnValueOnce(slow.promise as never);
+    const reads = list.mock.calls.length;
+    await act(async () => { read.onClick(); send.onClick(); });
+    expect(list.mock.calls.length).toBe(reads + 1);
+    expect(invite).not.toHaveBeenCalled();
+    slow.resolve(fresh());
+    await screen.findByTestId("newsletter-notice");
+    expect(invite).not.toHaveBeenCalled();
+  });
+
+  it("a write that ended unknown keeps its hold through a failed recovery, and the next one restores it with both warnings", async () => {
+    await staleA();
+    invite.mockResolvedValueOnce(lost());
+    await click(INVITE_B);
+    await screen.findByTestId("newsletter-write-unverified");
+    expect(mutations()).toBe(2);
+
+    list.mockResolvedValueOnce({ kind: "network", message: "Không kết nối được máy chủ." } as never);
+    await userEvent.click(screen.getByTestId(RELOAD));
+    await screen.findByTestId("newsletter-stale-failed");
+    expect(screen.getByTestId("newsletter-write-unverified")).toBeTruthy();                   // the hold is still there
+    expect(isDisabled("newsletter-add")).toBe(true);
+    expect(screen.getByTestId("newsletter-stale")).toBeTruthy();                              // the stale row is still locked (no table is shown after a failed read)
+    expect(isDisabled(RELOAD)).toBe(false);                                                   // the way back is not lost
+    expect(mutations()).toBe(2);
+
+    list.mockResolvedValueOnce(fresh());
+    await userEvent.click(screen.getByTestId(RELOAD));
+    await screen.findByTestId("newsletter-notice");
+    const notice = screen.getByTestId("newsletter-notice").textContent ?? "";
+    expect(notice).toContain("chưa rõ kết quả");
+    expect(notice).toContain("mở lại bản ghi");
+    expect(isDisabled("newsletter-add")).toBe(false);
+    expect(isDisabled("newsletter-edit-a@example.com")).toBe(false);
+    expect(mutations()).toBe(2);
+  });
+
+  it("a recovery replaced by a newer read frees neither the hold nor the stale row", async () => {
+    await staleA();
+    invite.mockResolvedValueOnce(lost());
+    await click(INVITE_B);
+    await screen.findByTestId("newsletter-write-unverified");
+
+    const first = deferred<WebsiteResult<NewsletterSubscriptionPage>>();
+    const second = deferred<WebsiteResult<NewsletterSubscriptionPage>>();
+    list.mockReturnValueOnce(first.promise as never).mockReturnValueOnce(second.promise as never);
+    await userEvent.click(screen.getByTestId(RELOAD));
+    await userEvent.selectOptions(screen.getByTestId("newsletter-status-filter"), "Verified");   // a newer read takes over
+    first.resolve(fresh());
+    second.resolve(fresh());
+    await screen.findByTestId("newsletter-stale-failed");
+    expect(screen.getByTestId("newsletter-write-unverified")).toBeTruthy();
+    expect(screen.getByTestId("newsletter-stale")).toBeTruthy();
+    expect(isDisabled("newsletter-add")).toBe(true);
+    expect(isDisabled(RELOAD)).toBe(false);
+    expect(mutations()).toBe(2);
+  });
+
+  it("a read that throws does not leave the screen locked for good", async () => {
+    await staleA();
+    list.mockRejectedValueOnce(new Error("boom"));
+    await userEvent.click(screen.getByTestId(RELOAD));
+    await screen.findByTestId("newsletter-stale-failed");
+    expect(isDisabled(RELOAD)).toBe(false);
+    list.mockResolvedValueOnce(fresh());
+    await userEvent.click(screen.getByTestId(RELOAD));
+    await waitFor(() => expect(screen.queryByTestId("newsletter-stale")).toBeNull());
+    expect(isDisabled(INVITE_B)).toBe(false);
   });
 });
