@@ -157,6 +157,50 @@ public sealed class StaffIdentityMigrationTests : IAsyncLifetime
         Assert.Equal(2, await CountAsync("NewsletterVerificationRequests"));
     }
 
+    [Fact]
+    public async Task V23_subscribers_keep_the_language_of_their_latest_confirmation_mail_and_fall_back_to_Vietnamese()
+    {
+        await using var context = CreateContext();
+        var migrator = context.GetInfrastructure().GetRequiredService<IMigrator>();
+        await migrator.MigrateAsync(V23Migration);
+        string Id(int n) => $"00000000-0000-0000-0000-{n:D12}";
+        string Hash(char c) => new(c, 64);
+        // Subscriptions: 1 en, 2 fr, 3 several languages (the NEWEST is fr), 4 a tie on the instant (the larger request id wins), 5 no mail at all, 6 verified with an en mail.
+        await ExecuteAsync(
+            $"""
+            INSERT INTO "NewsletterSubscriptions" ("Id","Email","Source","Status","ReceivedAtUtc","VerifiedAtUtc") VALUES
+              ('{Id(1)}','en@example.com','homepage','PendingVerification',now() - interval '5 days',NULL),
+              ('{Id(2)}','fr@example.com','homepage','PendingVerification',now() - interval '5 days',NULL),
+              ('{Id(3)}','multi@example.com','homepage','PendingVerification',now() - interval '5 days',NULL),
+              ('{Id(4)}','tie@example.com','homepage','PendingVerification',now() - interval '5 days',NULL),
+              ('{Id(5)}','none@example.com','homepage','PendingVerification',now() - interval '5 days',NULL),
+              ('{Id(6)}','verified-en@example.com','homepage','Verified',now() - interval '5 days',now() - interval '4 days');
+            INSERT INTO "NewsletterVerificationRequests" ("Id","SubscriptionId","TokenHash","Language","Status","Attempts","CreatedAtUtc","ExpiresAtUtc","NextAttemptAtUtc") VALUES
+              (gen_random_uuid(),'{Id(1)}','{Hash('1')}','en','Sent',1,now() - interval '2 days',now() + interval '1 day',now()),
+              (gen_random_uuid(),'{Id(2)}','{Hash('2')}','fr','Sent',1,now() - interval '2 days',now() + interval '1 day',now()),
+              (gen_random_uuid(),'{Id(3)}','{Hash('3')}','vi','Cancelled',1,now() - interval '4 days',now() - interval '2 days',now()),
+              (gen_random_uuid(),'{Id(3)}','{Hash('4')}','en','Cancelled',1,now() - interval '3 days',now() - interval '1 day',now()),
+              (gen_random_uuid(),'{Id(3)}','{Hash('5')}','fr','Sent',1,now() - interval '1 day',now() + interval '1 day',now()),
+              ('{Id(100)}','{Id(4)}','{Hash('6')}','en','Sent',1,'2026-11-01T10:00:00Z','2026-11-30T10:00:00Z',now()),
+              ('{Id(200)}','{Id(4)}','{Hash('7')}','fr','Sent',1,'2026-11-01T10:00:00Z','2026-11-30T10:00:00Z',now()),
+              (gen_random_uuid(),'{Id(6)}','{Hash('8')}','en','Sent',1,now() - interval '4 days',now() - interval '2 days',now());
+            """);
+
+        await migrator.MigrateAsync(V24Migration);
+
+        async Task<string> LanguageOf(int n) => await ScalarTextAsync($"""SELECT "Language" FROM "NewsletterSubscriptions" WHERE "Id" = '{Id(n)}' """);
+        Assert.Equal("en", await LanguageOf(1));
+        Assert.Equal("fr", await LanguageOf(2));
+        Assert.Equal("fr", await LanguageOf(3));
+        Assert.Equal("fr", await LanguageOf(4));          // same CreatedAtUtc: the larger request id (…200, fr) wins, and always the same one
+        Assert.Equal("vi", await LanguageOf(5));
+        Assert.Equal("en", await LanguageOf(6));
+        // Nothing else moved: the requests keep their own language, nobody gets a Welcome, the verified address stays verified.
+        Assert.Equal(8, await CountAsync("NewsletterVerificationRequests"));
+        Assert.Equal(0, await ScalarAsync("""SELECT count(*) FROM "NewsletterVerificationRequests" WHERE "Purpose" = 'Welcome' """));
+        Assert.Equal("Verified", await ScalarTextAsync($"""SELECT "Status" FROM "NewsletterSubscriptions" WHERE "Id" = '{Id(6)}' """));
+    }
+
     private async Task<long> ScalarAsync(string sql)
     {
         await using var connection = new NpgsqlConnection(_builder.ConnectionString);

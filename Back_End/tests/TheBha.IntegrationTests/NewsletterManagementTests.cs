@@ -3,10 +3,13 @@ using System.Text.Json;
 using System.Web;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using TheBha.Api;
 using TheBha.Application.Website;
+using TheBha.Infrastructure.Persistence;
 using TheBha.Infrastructure.Persistence.Newsletter;
 
 namespace TheBha.IntegrationTests;
@@ -27,6 +30,9 @@ public sealed class NewsletterManagementTests(PostgreSqlWebApplicationFactory fa
     private const string CustomerOrigin = "https://localhost:3000";
     private const string Guest = "guest@example.com";
     private static readonly TimeSpan Patience = TimeSpan.FromSeconds(30);
+
+    /// <summary>BHA-NEWSLETTER-003-C1: parks one chosen statement of the real application (nothing unless a test arms a rule).</summary>
+    private readonly NewsletterSqlGate _gate = new();
 
     private sealed class Env(Session staff, NewsletterGoogleStub google, string desk) : IDisposable
     {
@@ -50,7 +56,15 @@ public sealed class NewsletterManagementTests(PostgreSqlWebApplicationFactory fa
             builder.UseSetting("Cors:AdminOrigins:0", AdminOrigin);
             builder.UseSetting("Website:Newsletter:RateLimiting:PermitLimit", "10000");
             builder.ConfigureLogging(logging => logging.SetMinimumLevel(LogLevel.Warning));
-            builder.ConfigureServices(services => services.AddHttpClient(GoogleMailGateway.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => google));
+            builder.ConfigureServices(services =>
+            {
+                services.AddHttpClient(GoogleMailGateway.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => google);
+                // The application's own DbContext registration, plus the gate (EF only takes interceptors from the options it is built with).
+                services.RemoveAll<DbContextOptions<TheBhaDbContext>>();
+                services.AddDbContext<TheBhaDbContext>(options => options
+                    .UseNpgsql(Factory.ConnectionString, npgsql => npgsql.MigrationsAssembly("TheBha.Infrastructure"))
+                    .AddInterceptors(_gate));
+            });
         });
         await SeedStaffAsync(host);
         Factory.Clock.UtcNow = DateTimeOffset.UtcNow;
@@ -687,6 +701,135 @@ public sealed class NewsletterManagementTests(PostgreSqlWebApplicationFactory fa
         // Asking again from the form changes nothing about a verified address: no Welcome, no new confirmation.
         await AssertStatusAsync(HttpStatusCode.Accepted, e.Client.SendAsync(Subscribe("old@example.com")));
         Assert.Equal(0, await Count("NewsletterVerificationRequests"));
+    }
+
+    // ------------------------------------------------------------------------------------------------------------ BHA-NEWSLETTER-003-C1
+
+    /// <summary>The visitor's request has READ the Welcome token (and so knows the address) and is parked; it has not yet asked for the subscription's lock.</summary>
+    private NewsletterSqlGate.Rule ParkUnsubscribeAfterTokenLookup() => _gate.Arm(
+        sql => sql.StartsWith("SELECT", StringComparison.Ordinal) && sql.Contains("\"TokenHash\"", StringComparison.Ordinal) && sql.Contains("'Welcome'", StringComparison.Ordinal), afterRead: true);
+
+    private async Task<string> SentWelcomeTokenAsync(Env e)
+    {
+        var sends = e.Google.Sends.Count;
+        Assert.Equal(1, await DispatchAsync(e.Host));
+        return Mail(e.Google.Sends[sends]).Token;
+    }
+
+    [Fact]
+    public async Task An_unsubscribe_link_read_before_Staff_changed_the_address_is_void_when_it_gets_the_lock()
+    {
+        using var e = await BeginAsync();
+        await VerifyAsync(e);
+        var token = await SentWelcomeTokenAsync(e);                       // the Welcome went to guest@example.com
+        var row = await ReadAsync(e);
+        var parked = ParkUnsubscribeAfterTokenLookup();
+
+        var press = UnsubscribeLinkAsync(e, token);
+        await parked.Arrived.WaitAsync(Patience);                         // the link is known to be A's; nothing is locked or written yet
+        var edited = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, e.Staff.PostAsync($"{Admin}/{IdOf(row)}/update", new { expectedVersion = VersionOf(row), email = "b@example.com" })));
+        await AssertStatusAsync(HttpStatusCode.OK, PostRowAsync(e, edited, "verification-invitations", new { }));   // B's confirmation is waiting in the outbox
+        var before = await ReadAsync(e, "b@example.com");
+        parked.Release();
+
+        var answer = await JsonAsync(await AssertStatusAsync(HttpStatusCode.BadRequest, press.WaitAsync(Patience)));
+        Assert.Equal("newsletter-unsubscribe-invalid", answer.GetProperty("code").GetString());
+        var after = await ReadAsync(e, "b@example.com");
+        Assert.Equal("PendingVerification", after.GetProperty("status").GetString());
+        Assert.Equal(JsonValueKind.Null, after.GetProperty("unsubscribedAtUtc").ValueKind);
+        Assert.Equal(VersionOf(before), VersionOf(after));                // the stale link changed nothing
+        Assert.Equal(1, await Count("NewsletterVerificationRequests", "\"Purpose\" = 'Verification' AND \"Status\" = 'Pending' AND \"RevokedAtUtc\" IS NULL"));   // B's mail is intact
+        Assert.Equal(0, await Count("NewsletterVerificationRequests", "\"LastOutcome\" = 'unsubscribed'"));
+        Assert.Equal(1, await DispatchAsync(e.Host));                    // and it still goes out, to B
+        Assert.Equal("b@example.com", Mail(e.Google.Sends.Last()).Headers["To"]);
+    }
+
+    [Fact]
+    public async Task A_valid_unsubscribe_link_still_works_when_an_unrelated_edit_lands_between_its_lookup_and_its_lock()
+    {
+        using var e = await BeginAsync();
+        await VerifyAsync(e);
+        var token = await SentWelcomeTokenAsync(e);
+        var row = await ReadAsync(e);
+        var parked = ParkUnsubscribeAfterTokenLookup();
+
+        var press = UnsubscribeLinkAsync(e, token);
+        await parked.Arrived.WaitAsync(Patience);
+        await AssertStatusAsync(HttpStatusCode.OK, e.Staff.PostAsync($"{Admin}/{IdOf(row)}/update", new { expectedVersion = VersionOf(row), language = "en" }));   // same address: its links stay valid
+        parked.Release();
+
+        var done = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, press.WaitAsync(Patience)));
+        Assert.Equal("unsubscribed", done.GetProperty("status").GetString());
+        Assert.Equal("Unsubscribed", (await ReadAsync(e)).GetProperty("status").GetString());
+        var again = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, UnsubscribeLinkAsync(e, token)));
+        Assert.Equal("already-unsubscribed", again.GetProperty("status").GetString());
+    }
+
+    [Fact]
+    public async Task A_used_confirmation_link_answers_for_the_state_the_address_is_in_now()
+    {
+        using var e = await BeginAsync();
+        var first = await VerifyAsync(e);
+        Assert.Equal(1, await Welcomes());
+
+        // Still verified: the replay is "already confirmed" and makes no second Welcome.
+        var again = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, ConfirmAsync(e, first)));
+        Assert.Equal("already-verified", again.GetProperty("status").GetString());
+        Assert.Equal(1, await Welcomes());
+
+        // The visitor leaves through the Welcome's link: the old confirmation link must not claim the address is confirmed.
+        var welcome = await SentWelcomeTokenAsync(e);
+        await AssertStatusAsync(HttpStatusCode.OK, UnsubscribeLinkAsync(e, welcome));
+        var gone = await JsonAsync(await AssertStatusAsync(HttpStatusCode.BadRequest, ConfirmAsync(e, first)));
+        Assert.Equal("newsletter-confirmation-invalid", gone.GetProperty("code").GetString());
+        Assert.Equal("Unsubscribed", await ScalarAsync<string>("""SELECT "Status" FROM "NewsletterSubscriptions" """));
+        Assert.Equal(1, await Welcomes());
+
+        // Subscribing again (time has passed: the test clock stands still, and one verification instant is one Welcome) makes it pending, and the old (used) link still confirms nothing.
+        Factory.Clock.UtcNow += TimeSpan.FromMinutes(10);
+        await AssertStatusAsync(HttpStatusCode.Accepted, e.Client.SendAsync(Subscribe(Guest)));
+        var sends = e.Google.Sends.Count;
+        Assert.Equal(1, await DispatchAsync(e.Host));
+        var second = Mail(e.Google.Sends[sends]).Token;
+        Assert.NotEqual(first, second);
+        await AssertStatusAsync(HttpStatusCode.BadRequest, ConfirmAsync(e, first));
+        Assert.Equal("PendingVerification", await ScalarAsync<string>("""SELECT "Status" FROM "NewsletterSubscriptions" """));
+        Assert.Equal(1, await Welcomes());
+
+        // The new link of this round confirms, and makes exactly one more Welcome.
+        var done = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, ConfirmAsync(e, second)));
+        Assert.Equal("verified", done.GetProperty("status").GetString());
+        Assert.Equal(2, await Welcomes());
+        Assert.Equal(1, await Count("NewsletterVerificationRequests", "\"Purpose\" = 'Welcome' AND \"Status\" = 'Pending'"));
+        var replay = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, ConfirmAsync(e, second)));
+        Assert.Equal("already-verified", replay.GetProperty("status").GetString());
+        Assert.Equal(2, await Welcomes());
+    }
+
+    [Theory]
+    [InlineData("en", "Hello,")]
+    [InlineData("fr", "Bonjour,")]
+    public async Task A_confirmation_link_written_before_the_upgrade_makes_its_Welcome_in_the_language_the_upgrade_gave_the_address(string language, string greeting)
+    {
+        using var e = await BeginAsync();
+        // The state the upgrade leaves behind for an address with a pending mail of this language (see the V23 migration test for the upgrade itself).
+        var token = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32)).TrimEnd('=').Replace('+', '-').Replace('/', '_');   // what the application itself issues
+        await ExecuteAsync(
+            $"""
+            INSERT INTO "NewsletterSubscriptions" ("Id","Email","Source","Status","ReceivedAtUtc","Language") VALUES ('{Guid.NewGuid()}','old-{language}@example.com','homepage','PendingVerification',now() - interval '1 day','{language}');
+            INSERT INTO "NewsletterVerificationRequests" ("Id","SubscriptionId","TokenHash","Language","Status","Attempts","CreatedAtUtc","ExpiresAtUtc","NextAttemptAtUtc")
+            SELECT gen_random_uuid(), "Id", '{Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(token))).ToLowerInvariant()}', '{language}', 'Sent', 1, now() - interval '1 hour', now() + interval '47 hours', now() - interval '1 hour' FROM "NewsletterSubscriptions";
+            """);
+        Assert.Equal(language, (await ReadAsync(e, $"old-{language}@example.com")).GetProperty("language").GetString());
+
+        await AssertStatusAsync(HttpStatusCode.OK, ConfirmAsync(e, token));
+        var sends = e.Google.Sends.Count;
+        Assert.Equal(1, await DispatchAsync(e.Host));
+        var mail = Mail(e.Google.Sends[sends]);
+        Assert.Equal("Welcome to the BHA", mail.Headers["Subject"]);
+        Assert.Contains(greeting, mail.Text);
+        Assert.Contains($"lang=\"{language}\"", mail.Html);
+        Assert.Equal(language, await ScalarAsync<string>("""SELECT "Language" FROM "NewsletterVerificationRequests" WHERE "Purpose" = 'Welcome' """));
     }
 
     // ------------------------------------------------------------------------------------------------------------ a Staff action while the worker holds the mail

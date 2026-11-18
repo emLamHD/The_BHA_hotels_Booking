@@ -69,6 +69,17 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                 type: "timestamp with time zone",
                 nullable: true);
 
+            // The language of an address is the language of the LATEST confirmation mail it was sent (newest CreatedAtUtc; the larger request Id when two share the instant),
+            // so an English or French subscriber's Welcome is written in their language. Addresses with no mail keep the column default, Vietnamese.
+            migrationBuilder.Sql(
+                """
+                UPDATE "NewsletterSubscriptions" AS s SET "Language" = r."Language"
+                FROM (SELECT DISTINCT ON ("SubscriptionId") "SubscriptionId", "Language"
+                      FROM "NewsletterVerificationRequests"
+                      ORDER BY "SubscriptionId", "CreatedAtUtc" DESC, "Id" DESC) AS r
+                WHERE r."SubscriptionId" = s."Id";
+                """);
+
             migrationBuilder.AddColumn<int>(
                 name: "Version",
                 table: "NewsletterSubscriptions",
@@ -179,9 +190,9 @@ namespace TheBha.Infrastructure.Persistence.Migrations
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             // Refuses while anything the new columns or tables hold would be lost: an address Staff added, an unsubscribed or archived one, an edited one,
-            // a language other than the default, a Welcome in the queue, or an audit row (the old constraints would reject these rows anyway).
+            // a Welcome in the queue, or an audit row (the old constraints would reject these rows anyway). The language is not checked: Up derived it from the confirmation mails, which keep their own, and every later edit raises Version.
             migrationBuilder.Sql(
-                "DO $$ BEGIN IF EXISTS (SELECT 1 FROM \"NewsletterSubscriptions\" WHERE \"Source\" <> 'homepage' OR \"Status\" = 'Unsubscribed' OR \"ArchivedAtUtc\" IS NOT NULL OR \"Language\" <> 'vi' OR \"Version\" > 1) " +
+                "DO $$ BEGIN IF EXISTS (SELECT 1 FROM \"NewsletterSubscriptions\" WHERE \"Source\" <> 'homepage' OR \"Status\" = 'Unsubscribed' OR \"ArchivedAtUtc\" IS NOT NULL OR \"Version\" > 1) " +
                 "OR EXISTS (SELECT 1 FROM \"NewsletterVerificationRequests\" WHERE \"Purpose\" <> 'Verification' OR \"RevokedAtUtc\" IS NOT NULL) " +
                 "OR EXISTS (SELECT 1 FROM \"NewsletterSubscriptionAudits\") " +
                 "THEN RAISE EXCEPTION 'Down refused: newsletter management data exists.'; END IF; END $$;");

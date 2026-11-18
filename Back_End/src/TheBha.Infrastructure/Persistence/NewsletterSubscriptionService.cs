@@ -113,14 +113,16 @@ internal sealed class NewsletterSubscriptionService(
             var known = await (from request in database.NewsletterVerificationRequests.AsNoTracking()
                                join subscription in database.NewsletterSubscriptions.AsNoTracking() on request.SubscriptionId equals subscription.Id
                                where request.TokenHash == hash && request.Purpose == NewsletterVerificationRequest.PurposeVerification
-                               select new { request.UsedAtUtc, subscription.Status })
+                               select new { request.UsedAtUtc, request.RevokedAtUtc, subscription.Status })
                 .SingleOrDefaultAsync(cancellationToken);
-            // A used token, or an expired one whose address is verified already, has nothing left to do: "already confirmed".
+            // The answer is about the address as it is NOW (read under the lock), never about what the link did once. "Already confirmed" only for a link that still belongs
+            // to the address and an address that is verified: a used link of an earlier round (the visitor left, or came back and has to confirm again) confirms nothing,
+            // and neither does a link whose address was changed meanwhile.
             outcome = known switch
             {
-                null => NewsletterConfirmOutcome.Invalid,
-                { UsedAtUtc: not null } or { Status: NewsletterSubscription.StatusVerified } => NewsletterConfirmOutcome.AlreadyVerified,
-                { Status: NewsletterSubscription.StatusUnsubscribed } => NewsletterConfirmOutcome.Invalid,
+                null or { RevokedAtUtc: not null } => NewsletterConfirmOutcome.Invalid,
+                { Status: NewsletterSubscription.StatusVerified } => NewsletterConfirmOutcome.AlreadyVerified,
+                { Status: NewsletterSubscription.StatusUnsubscribed } or { UsedAtUtc: not null } => NewsletterConfirmOutcome.Invalid,
                 _ => NewsletterConfirmOutcome.Expired
             };
         }
@@ -143,6 +145,18 @@ internal sealed class NewsletterSubscriptionService(
 
         await using var transaction = await database.Database.BeginTransactionAsync(cancellationToken);
         if (!await NewsletterLifecycle.LockAsync(database, subscriptionId.Value, cancellationToken))
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return NewsletterUnsubscribeOutcome.Invalid;
+        }
+
+        // The lookup above ran BEFORE the lock. While this request waited for it, Staff may have changed the address (which voids every link of the old one and returns
+        // the row to pending for the NEW address): the token is looked at again, from what is committed now, and the row is touched only if it still belongs to it.
+        var stillValid = await database.NewsletterVerificationRequests.AsNoTracking().AnyAsync(
+            request => request.TokenHash == hash && request.Purpose == NewsletterVerificationRequest.PurposeWelcome
+                && request.SubscriptionId == subscriptionId.Value && request.RevokedAtUtc == null,
+            cancellationToken);
+        if (!stillValid)
         {
             await transaction.RollbackAsync(cancellationToken);
             return NewsletterUnsubscribeOutcome.Invalid;
