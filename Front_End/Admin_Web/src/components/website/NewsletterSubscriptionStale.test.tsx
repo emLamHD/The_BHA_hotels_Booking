@@ -263,6 +263,28 @@ describe("after the read", () => {
     await waitFor(() => expect(update).toHaveBeenCalledWith("id-a@example.com", { expectedVersion: 5, language: "en" }));
   });
 
+  it("a second stale row does not free the first one: both stay locked until one successful read", async () => {
+    await open([row("a@example.com"), row("b@example.com")]);
+    update.mockResolvedValue(conflict());
+    for (const email of ["a@example.com", "b@example.com"]) {                                 // a@ conflicts and is closed unread; then b@ opens and conflicts too
+      await click(`newsletter-edit-${email}`);
+      await userEvent.selectOptions(await screen.findByTestId("newsletter-language"), "en");
+      await click("newsletter-edit-submit");
+      await screen.findByTestId("newsletter-reload-latest");
+      await click("newsletter-edit-cancel");
+    }
+    expect(update).toHaveBeenCalledTimes(2);
+    for (const email of ["a@example.com", "b@example.com"]) expect(isDisabled(`newsletter-edit-${email}`), email).toBe(true);
+    await userEvent.click(within(screen.getByTestId("newsletter-row-a@example.com")).getByText("Sửa"));
+    expect(screen.queryByTestId("newsletter-edit-dialog")).toBeNull();
+    expect(update).toHaveBeenCalledTimes(2);
+
+    list.mockResolvedValueOnce(ok(page([row("a@example.com", { version: 5 }), row("b@example.com", { version: 7 })])) as never);
+    await userEvent.click(screen.getByTestId("newsletter-stale-reload"));
+    await waitFor(() => expect(isDisabled("newsletter-edit-a@example.com")).toBe(false));
+    expect(isDisabled("newsletter-edit-b@example.com")).toBe(false);
+  });
+
   it("the C2 hold after a lost answer still works beside it", async () => {
     await open([row("a@example.com")]);
     update.mockResolvedValueOnce({ kind: "unverified", message: "Máy chủ Admin không trả lời." } as never);
