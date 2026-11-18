@@ -190,9 +190,11 @@ namespace TheBha.Infrastructure.Persistence.Migrations
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             // Refuses while anything the new columns or tables hold would be lost: an address Staff added, an unsubscribed or archived one, an edited one,
-            // a Welcome in the queue, or an audit row (the old constraints would reject these rows anyway). The language is not checked: Up derived it from the confirmation mails, which keep their own, and every later edit raises Version.
+            // a Welcome in the queue, an audit row (the old constraints would reject these rows anyway), or a language that Up would not derive again: Up gives an
+            // address the language of its latest confirmation mail (or vi without one), so only a different one (a visitor who chose it with no mail sent) is data.
             migrationBuilder.Sql(
-                "DO $$ BEGIN IF EXISTS (SELECT 1 FROM \"NewsletterSubscriptions\" WHERE \"Source\" <> 'homepage' OR \"Status\" = 'Unsubscribed' OR \"ArchivedAtUtc\" IS NOT NULL OR \"Version\" > 1) " +
+                "DO $$ BEGIN IF EXISTS (SELECT 1 FROM \"NewsletterSubscriptions\" s WHERE s.\"Source\" <> 'homepage' OR s.\"Status\" = 'Unsubscribed' OR s.\"ArchivedAtUtc\" IS NOT NULL OR s.\"Version\" > 1 " +
+                "OR s.\"Language\" <> COALESCE((SELECT r.\"Language\" FROM \"NewsletterVerificationRequests\" r WHERE r.\"SubscriptionId\" = s.\"Id\" ORDER BY r.\"CreatedAtUtc\" DESC, r.\"Id\" DESC LIMIT 1), 'vi')) " +
                 "OR EXISTS (SELECT 1 FROM \"NewsletterVerificationRequests\" WHERE \"Purpose\" <> 'Verification' OR \"RevokedAtUtc\" IS NOT NULL) " +
                 "OR EXISTS (SELECT 1 FROM \"NewsletterSubscriptionAudits\") " +
                 "THEN RAISE EXCEPTION 'Down refused: newsletter management data exists.'; END IF; END $$;");

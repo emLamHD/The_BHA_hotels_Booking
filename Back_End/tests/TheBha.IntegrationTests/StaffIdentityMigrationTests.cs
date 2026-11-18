@@ -199,6 +199,17 @@ public sealed class StaffIdentityMigrationTests : IAsyncLifetime
         Assert.Equal(8, await CountAsync("NewsletterVerificationRequests"));
         Assert.Equal(0, await ScalarAsync("""SELECT count(*) FROM "NewsletterVerificationRequests" WHERE "Purpose" = 'Welcome' """));
         Assert.Equal("Verified", await ScalarTextAsync($"""SELECT "Status" FROM "NewsletterSubscriptions" WHERE "Id" = '{Id(6)}' """));
+
+        // Down: what Up derived is not data (the mails keep their language), so the rollback is allowed and the upgrade can be repeated with the same result.
+        await migrator.MigrateAsync(V23Migration);
+        Assert.Equal(6, await CountAsync("NewsletterSubscriptions"));
+        await migrator.MigrateAsync(V24Migration);
+        Assert.Equal("fr", await LanguageOf(3));
+        // A language that Up would not derive IS data: a visitor who chose English when no mail could be sent has an en row and no request at all.
+        await ExecuteAsync("""INSERT INTO "NewsletterSubscriptions" ("Id","Email","Source","Status","ReceivedAtUtc","Language") VALUES (gen_random_uuid(),'chose-en@example.com','homepage','PendingVerification',now(),'en')""");
+        var refused = await Assert.ThrowsAsync<PostgresException>(() => migrator.MigrateAsync(V23Migration));
+        Assert.Contains("Down refused", refused.MessageText);
+        Assert.Equal(7, await CountAsync("NewsletterSubscriptions"));
     }
 
     private async Task<long> ScalarAsync(string sql)
