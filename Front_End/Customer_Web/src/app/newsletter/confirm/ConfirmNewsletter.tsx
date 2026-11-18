@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { CheckIcon, ClockIcon, EnvelopeIcon, ExclamationCircleIcon, ExclamationTriangleIcon } from "@heroicons/react/24/outline";
 import React, { FC, useEffect, useRef, useState } from "react";
 import { confirmNewsletter, type NewsletterConfirmResult } from "@/lib/newsletterApi";
 import { confirmUrlWithoutFragment, NEWSLETTER_CONFIRM, parseConfirmFragment } from "@/lib/newsletterUi";
@@ -55,33 +56,54 @@ const ConfirmNewsletter: FC = () => {
   const retryable = phase === "failed";
   const message = phase === "missing" ? NEWSLETTER_CONFIRM.invalid : phase !== "ready" && phase !== "working" ? RESULT_MESSAGE[phase] : null;
 
+  const good = phase === "verified" || phase === "already";
+  // Presentation only: one badge per state. Decorative, so hidden from assistive technology; the text below carries the meaning.
+  const Icon = good ? CheckIcon : phase === "expired" ? ClockIcon : phase === "invalid" || phase === "missing" ? ExclamationCircleIcon : phase === "failed" ? ExclamationTriangleIcon : EnvelopeIcon;
+  const tone = good
+    ? "bg-green-100 text-green-600 ring-green-50 dark:bg-green-900/40 dark:text-green-400 dark:ring-green-900/20"
+    : finished
+      ? "bg-red-100 text-red-600 ring-red-50 dark:bg-red-900/40 dark:text-red-400 dark:ring-red-900/20"
+      : "bg-primary-100 text-primary-6000 ring-primary-50 dark:bg-primary-900/40 dark:text-primary-300 dark:ring-primary-900/20";
+
   return (
-    <section aria-labelledby="newsletter-confirm-heading" className="mx-auto max-w-xl rounded-3xl border border-neutral-200 bg-white p-8 text-center shadow-sm dark:border-neutral-700 dark:bg-neutral-900 sm:p-10">
-      <h1 id="newsletter-confirm-heading" className="text-2xl font-semibold text-neutral-900 dark:text-neutral-50 sm:text-3xl">{t(NEWSLETTER_CONFIRM.heading)}</h1>
-      {!finished || retryable ? <p className="mt-3 text-neutral-600 dark:text-neutral-300">{t(NEWSLETTER_CONFIRM.intro)}</p> : null}
-      <div aria-live="polite" className="mt-6 min-h-[1.5rem]">
-        {message ? (
-          <p role={phase === "verified" || phase === "already" ? "status" : "alert"} className={`text-sm font-medium ${phase === "verified" || phase === "already" ? "text-neutral-800 dark:text-neutral-100" : "text-red-600 dark:text-red-400"}`}>
-            {t(message)}
-          </p>
-        ) : null}
-      </div>
-      {phase === "ready" || phase === "working" || retryable ? (
-        <button
-          type="button"
-          onClick={() => void confirm()}
-          disabled={phase === "working"}
-          aria-busy={phase === "working" || undefined}
-          className="mt-4 inline-flex h-12 items-center justify-center rounded-full bg-primary-6000 px-8 text-sm font-semibold text-white transition-colors hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2"
-        >
-          {t(phase === "working" ? NEWSLETTER_CONFIRM.working : NEWSLETTER_CONFIRM.button)}
-        </button>
-      ) : (
-        <Link href="/" className="mt-4 inline-flex h-12 items-center justify-center rounded-full border border-neutral-200 px-8 text-sm font-semibold text-neutral-800 hover:bg-neutral-50 dark:border-neutral-600 dark:text-neutral-100 dark:hover:bg-neutral-800">
-          {t(NEWSLETTER_CONFIRM.home)}
-        </Link>
-      )}
-    </section>
+    <div className="relative mx-auto max-w-xl py-10 sm:py-16">
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 -top-6 mx-auto h-64 max-w-md rounded-full bg-primary-200/50 blur-3xl dark:bg-primary-900/30" />
+      <section
+        aria-labelledby="newsletter-confirm-heading"
+        className="relative overflow-hidden rounded-3xl border border-neutral-200 bg-white text-center shadow-xl shadow-primary-900/5 dark:border-neutral-700 dark:bg-neutral-900"
+      >
+        <div aria-hidden className="h-1.5 w-full bg-gradient-to-r from-primary-400 via-primary-6000 to-primary-800" />
+        <div className="px-6 pb-10 pt-10 sm:px-12 sm:pb-12 sm:pt-12">
+          <div className={`mx-auto flex h-20 w-20 items-center justify-center rounded-full ring-8 transition-colors ${tone}`}>
+            <Icon aria-hidden className={`h-9 w-9 ${phase === "working" ? "motion-safe:animate-pulse" : ""}`} strokeWidth={1.75} />
+          </div>
+          <h1 id="newsletter-confirm-heading" className="mt-7 text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-50 sm:text-3xl">{t(NEWSLETTER_CONFIRM.heading)}</h1>
+          {!finished || retryable ? <p className="mx-auto mt-3 max-w-md leading-7 text-neutral-600 dark:text-neutral-300">{t(NEWSLETTER_CONFIRM.intro)}</p> : null}
+          <div aria-live="polite" className="mt-6 min-h-[1.5rem]">
+            {message ? (
+              <p role={good ? "status" : "alert"} className={`mx-auto max-w-md rounded-xl px-4 py-3 text-sm font-medium leading-6 ${good ? "bg-green-50 text-green-800 dark:bg-green-900/20 dark:text-green-200" : "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300"}`}>
+                {t(message)}
+              </p>
+            ) : null}
+          </div>
+          {phase === "ready" || phase === "working" || retryable ? (
+            <button
+              type="button"
+              onClick={() => void confirm()}
+              disabled={phase === "working"}
+              aria-busy={phase === "working" || undefined}
+              className="mt-6 inline-flex h-14 w-full items-center justify-center rounded-full bg-primary-6000 px-10 text-base font-semibold text-white shadow-lg shadow-primary-6000/30 transition motion-safe:hover:-translate-y-0.5 hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 sm:w-auto"
+            >
+              {t(phase === "working" ? NEWSLETTER_CONFIRM.working : NEWSLETTER_CONFIRM.button)}
+            </button>
+          ) : (
+            <Link href="/" className="mt-6 inline-flex h-14 w-full items-center justify-center rounded-full border border-neutral-200 px-10 text-base font-semibold text-neutral-800 transition-colors hover:bg-neutral-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 dark:border-neutral-600 dark:text-neutral-100 dark:hover:bg-neutral-800 sm:w-auto">
+              {t(NEWSLETTER_CONFIRM.home)}
+            </Link>
+          )}
+        </div>
+      </section>
+    </div>
   );
 };
 
