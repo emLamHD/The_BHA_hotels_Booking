@@ -64,6 +64,10 @@ DB `bha_nl3` là bản sao của `thebha_dev` đã migrate bằng code mới; k�
 
 **Ảnh preview hai template** (render từ chính mail worker đã gửi, 375px và 600px): `/home/admin1/bha-previews/newsletter-003/{confirmation,welcome}-{375,600}.png` (+ `*.html` và ảnh nhúng). Không nằm trong repo.
 
+## CI
+
+**Không có run CI trên SHA bàn giao.** `.github/workflows/ci.yml` chỉ chạy cho PR có base `develop`/`main`; PR #134 có base là nhánh của #133 (theo `PR_BASE` của prompt) nên GitHub chỉ chạy các check Vercel. Tôi không sửa workflow (ngoài phạm vi). Bằng chứng thay thế là các lần chạy cục bộ ở trên, cùng lệnh với CI (backend `build`+`test` Release, `npm ci`-tương đương `tsc`/lint/`next build` cho hai frontend). CI thật sẽ chạy khi #133 merge và PR này được chuyển base sang `develop`.
+
 ## Phần chưa kiểm chứng / giới hạn
 
 - **Không gửi thư thật tới hộp thư test:** prompt không nêu hộp thư test và hook riêng tư của phiên chặn việc đưa địa chỉ của Owner vào request. Gửi thật: Owner nhập địa chỉ vào form trang chủ (hoặc Admin → Thêm đăng ký → Gửi lời mời) sau khi áp migration. **Chưa render trên client thư thật** (Gmail web/app, Outlook, Apple Mail): chỉ Chrome headless 375/600 px và giải mã MIME.
