@@ -22,6 +22,7 @@
     <!-- CUST-WEB-HERO-001-CP01: the four photographs the hero started with (credits: Customer_Web media-credits page), served by the API like an upload. -->
     <EmbeddedResource Include="../../../Front_End/Customer_Web/public/media/the-bha-riverside/*.webp" LogicalName="bha-catalog-seed/%(Filename)%(Extension)" />
     <EmbeddedResource Include="HeroMedia\Seed\*.webp" LogicalName="bha-hero-seed/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="Persistence\Newsletter\Assets\*" LogicalName="bha-newsletter-mail/%(Filename)%(Extension)" />
   </ItemGroup>
 
   <PropertyGroup>

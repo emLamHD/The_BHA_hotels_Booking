@@ -6,6 +6,21 @@ namespace TheBha.Infrastructure.Persistence.Newsletter;
 /// <summary>The confirmation mail as an RFC 5322 message (UTF-8, base64 parts), already base64url-encoded for Gmail's <c>raw</c> field.</summary>
 internal static class NewsletterMailMessage
 {
+    private const string LogoCid = "bha-logo";
+    private const string HeroCid = "bha-hero";
+
+    private static readonly Lazy<byte[]> Logo = new(() => Resource("logo.png"));
+    private static readonly Lazy<byte[]> Hero = new(() => Resource("hero.jpg"));
+
+    private static byte[] Resource(string name)
+    {
+        using var stream = typeof(NewsletterMailMessage).Assembly.GetManifestResourceStream("bha-newsletter-mail/" + name)
+                           ?? throw new InvalidOperationException($"The mail asset {name} is not embedded in the assembly.");
+        using var copy = new MemoryStream();
+        stream.CopyTo(copy);
+        return copy.ToArray();
+    }
+
     private sealed record Texts(string Subject, string Heading, string Intro, string Button, string Ignore, string Expires, string Preheader, string Fallback, string Footer);
 
     private static readonly Dictionary<string, Texts> ByLanguage = new()
@@ -37,7 +52,13 @@ internal static class NewsletterMailMessage
         sb.Append("MIME-Version: 1.0\r\n");
         sb.Append("Content-Type: multipart/alternative; boundary=\"").Append(boundary).Append("\"\r\n\r\n");
         Part(sb, boundary, "text/plain", text);
-        Part(sb, boundary, "text/html", html);
+        // The HTML and its inline pictures are one related unit (RFC 2387); the inner boundary keeps the same "bha-" prefix.
+        var related = "bha-" + Guid.NewGuid().ToString("N");
+        sb.Append("--").Append(boundary).Append("\r\nContent-Type: multipart/related; type=\"text/html\"; boundary=\"").Append(related).Append("\"\r\n\r\n");
+        Part(sb, related, "text/html", html);
+        Image(sb, related, "image/png", LogoCid, "logo.png", Logo.Value);
+        Image(sb, related, "image/jpeg", HeroCid, "hero.jpg", Hero.Value);
+        sb.Append("--").Append(related).Append("--\r\n");
         sb.Append("--").Append(boundary).Append("--\r\n");
         return Convert.ToBase64String(Encoding.UTF8.GetBytes(sb.ToString())).TrimEnd('=').Replace('+', '-').Replace('/', '_');
     }
@@ -60,14 +81,13 @@ internal static class NewsletterMailMessage
                "<div style=\"display:none;max-height:0;overflow:hidden;opacity:0;color:#f3f4f8;font-size:1px;line-height:1px;\">" + E(t.Preheader) + "&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;</div>" +
                "<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" bgcolor=\"#f3f4f8\" style=\"background:#f3f4f8;\"><tr><td align=\"center\" style=\"padding:32px 12px;\">" +
                "<table role=\"presentation\" width=\"600\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"width:100%;max-width:600px;\">" +
-               // Brand bar
-               "<tr><td align=\"center\" bgcolor=\"#312e81\" style=\"background:#312e81;border-radius:16px 16px 0 0;padding:28px 24px 26px;\">" +
-               "<div style=\"font-family:Georgia,'Times New Roman',serif;font-size:28px;line-height:32px;letter-spacing:6px;color:#ffffff;font-weight:bold;\">THE BHA</div>" +
-               "<div style=\"margin:12px auto 0;width:48px;height:3px;background:#818cf8;border-radius:2px;font-size:0;line-height:0;\">&nbsp;</div></td></tr>" +
+               // Brand header: the logo on white, a gold rule, then the property photo. Both images travel inside the message (cid:), so they show without a public origin.
+               "<tr><td align=\"center\" bgcolor=\"#ffffff\" style=\"background:#ffffff;border-radius:16px 16px 0 0;border-top:4px solid #c9973f;border-left:1px solid #e5e7eb;border-right:1px solid #e5e7eb;padding:26px 24px 22px;\">" +
+               "<img src=\"cid:" + LogoCid + "\" width=\"200\" alt=\"The BHA Riverside\" style=\"display:block;width:200px;max-width:100%;height:auto;border:0;outline:none;\"></td></tr>" +
+               "<tr><td style=\"font-size:0;line-height:0;\"><img src=\"cid:" + HeroCid + "\" width=\"600\" alt=\"\" style=\"display:block;width:100%;max-width:600px;height:auto;border:0;outline:none;\"></td></tr>" +
                // Card
-               "<tr><td bgcolor=\"#ffffff\" style=\"background:#ffffff;padding:44px 40px 36px;border-left:1px solid #e5e7eb;border-right:1px solid #e5e7eb;\" align=\"center\">" +
-               "<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr><td align=\"center\" width=\"64\" height=\"64\" bgcolor=\"#eef2ff\" style=\"background:#eef2ff;border-radius:32px;font-size:28px;line-height:64px;color:#4f46e5;\">&#9993;</td></tr></table>" +
-               "<h1 style=\"margin:24px 0 12px;font-family:" + font + ";font-size:26px;line-height:34px;color:#111827;font-weight:700;text-align:center;\">" + E(t.Heading) + "</h1>" +
+               "<tr><td bgcolor=\"#ffffff\" style=\"background:#ffffff;padding:36px 40px 36px;border-left:1px solid #e5e7eb;border-right:1px solid #e5e7eb;\" align=\"center\">" +
+               "<h1 style=\"margin:0 0 12px;font-family:" + font + ";font-size:26px;line-height:34px;color:#111827;font-weight:700;text-align:center;\">" + E(t.Heading) + "</h1>" +
                "<p style=\"margin:0 0 28px;font-family:" + font + ";font-size:16px;line-height:26px;color:#4b5563;text-align:center;\">" + E(t.Intro) + "</p>" +
                // Bulletproof button
                "<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr><td align=\"center\" bgcolor=\"#4f46e5\" style=\"background:#4f46e5;border-radius:10px;\">" +
@@ -89,7 +109,19 @@ internal static class NewsletterMailMessage
     private static void Part(StringBuilder sb, string boundary, string type, string body)
     {
         sb.Append("--").Append(boundary).Append("\r\nContent-Type: ").Append(type).Append("; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n");
-        var encoded = Convert.ToBase64String(Encoding.UTF8.GetBytes(body));
+        Wrapped(sb, Encoding.UTF8.GetBytes(body));
+    }
+
+    private static void Image(StringBuilder sb, string boundary, string type, string contentId, string fileName, byte[] bytes)
+    {
+        sb.Append("--").Append(boundary).Append("\r\nContent-Type: ").Append(type).Append("; name=\"").Append(fileName).Append("\"\r\nContent-Transfer-Encoding: base64\r\n")
+          .Append("Content-ID: <").Append(contentId).Append(">\r\nContent-Disposition: inline; filename=\"").Append(fileName).Append("\"\r\n\r\n");
+        Wrapped(sb, bytes);
+    }
+
+    private static void Wrapped(StringBuilder sb, byte[] bytes)
+    {
+        var encoded = Convert.ToBase64String(bytes);
         for (var i = 0; i < encoded.Length; i += 76) sb.Append(encoded, i, Math.Min(76, encoded.Length - i)).Append("\r\n");
     }
 

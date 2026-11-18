@@ -345,6 +345,14 @@ public sealed class NewsletterVerificationTests(PostgreSqlWebApplicationFactory 
         Assert.Contains("Confirmez", message.Text);
         Assert.StartsWith("https://localhost:3000/newsletter/confirm#t=", message.Link);
         Assert.Contains(message.Link, message.Html);
+        // The logo and the property photo travel inside the message (no remote image to block), referenced by the HTML.
+        var raw = System.Text.Json.JsonDocument.Parse(send.Body).RootElement.GetProperty("raw").GetString()!.Replace('-', '+').Replace('_', '/');
+        var mime = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(raw.PadRight(raw.Length + (4 - raw.Length % 4) % 4, '=')));
+        foreach (var cid in new[] { "bha-logo", "bha-hero" })
+        {
+            Assert.Contains("src=\"cid:" + cid + "\"", message.Html);
+            Assert.Contains("Content-ID: <" + cid + ">", mime);
+        }
 
         Assert.Equal("Sent", await RequestStatusAsync());
         // The token is only a hash in the database, and its protected copy is gone once the mail has left.
