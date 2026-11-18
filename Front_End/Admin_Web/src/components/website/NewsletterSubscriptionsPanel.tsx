@@ -50,7 +50,15 @@ export default function NewsletterSubscriptionsPanel() {
   const [readFailed, setReadFailed] = useState(false);
   // The rows a version conflict said are stale: each one's dialog (or, once that is closed, its buttons) stays locked until the list has been read again successfully.
   const [staleRowIds, setStaleRowIds] = useState<ReadonlySet<string>>(new Set());
-  const markStale = (id: string) => setStaleRowIds((ids) => new Set(ids).add(id));
+  // Held and stale are read by recovery through refs, set where the state changes and again at render: a recovery run from an earlier render, or before React has rendered
+  // the change, must still see them (a hold taken by a write that has just ended unknown, a row that has just conflicted).
+  const heldRef = useRef(false);
+  const staleRef = useRef<ReadonlySet<string>>(staleRowIds);
+  const setStale = (next: ReadonlySet<string>) => {
+    staleRef.current = next;
+    setStaleRowIds(next);
+  };
+  const markStale = (id: string) => setStale(new Set(staleRef.current).add(id));
   // A recovery read and a write never overlap. The two refs are the guard (they change synchronously, before any await and before the next render, so a callback taken from
   // an earlier render, Enter, a direct submit or a second call in the same tick all meet them); the disabled buttons are only the picture of it. Every write of this screen goes
   // through `write.run` below. Held and stale are read through refs too, for the same reason: a callback from an earlier render must not clear what a later one set.
@@ -62,7 +70,9 @@ export default function NewsletterSubscriptionsPanel() {
       if (readingRef.current || writingRef.current) return null;
       writingRef.current = true;
       try {
-        return await baseRun(send);
+        const result = await baseRun(send);
+        if (result?.kind === "unverified") heldRef.current = true;                         // the hook took its hold already; this is the mirror, before any render
+        return result;
       } finally {
         writingRef.current = false;                                                        // after the hook has taken a hold, never before
       }
@@ -70,9 +80,7 @@ export default function NewsletterSubscriptionsPanel() {
     [baseRun],
   );
   const write = { ...hookWrite, run };
-  const heldRef = useRef(false);
   heldRef.current = hookWrite.held;
-  const staleRef = useRef<ReadonlySet<string>>(staleRowIds);
   staleRef.current = staleRowIds;
   const list = useWebsiteList((signal) => listNewsletterSubscriptions({ search: applied, status, scope, page, pageSize: PAGE_SIZE }, signal), [applied, status, scope, page]);
 
@@ -130,7 +138,8 @@ export default function NewsletterSubscriptionsPanel() {
       return;
     }
     write.release();
-    setStaleRowIds((ids) => new Set([...ids].filter((id) => !cleared.has(id))));
+    heldRef.current = false;
+    setStale(new Set([...staleRef.current].filter((id) => !cleared.has(id))));
     setDialog(null);
     const where = "Nếu dòng không còn hiện ở bộ lọc này, nó có thể đã đổi trạng thái hoặc bị xóa; chọn “Tất cả” ở bộ lọc Hiển thị để chắc chắn.";
     const unknown = "Thao tác trước đó chưa rõ kết quả: hãy kiểm tra dòng liên quan.";

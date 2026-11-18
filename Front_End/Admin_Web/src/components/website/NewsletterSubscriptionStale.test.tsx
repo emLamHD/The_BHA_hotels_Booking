@@ -370,8 +370,8 @@ describe("a recovery read and a write do not overlap (C4)", () => {
   const RELOAD = "newsletter-stale-reload";
 
   /** a@ got a version conflict and its dialog was closed unread: the stale banner is the way to the read. */
-  const staleA = async () => {
-    await open([row("a@example.com"), row("b@example.com")]);
+  const staleA = async (b: Partial<NewsletterSubscription> = {}) => {
+    await open([row("a@example.com"), row("b@example.com", b)]);
     update.mockResolvedValueOnce(conflict());
     await click("newsletter-edit-a@example.com");
     await userEvent.selectOptions(await screen.findByTestId("newsletter-language"), "en");
@@ -502,6 +502,64 @@ describe("a recovery read and a write do not overlap (C4)", () => {
     expect(isDisabled("newsletter-add")).toBe(true);
     expect(isDisabled(RELOAD)).toBe(false);
     expect(mutations()).toBe(2);
+  });
+
+  it("an unknown outcome is seen by a recovery that runs before React has rendered it", async () => {
+    await staleA();
+    const heldReload = propsOf(RELOAD);                                                       // taken from the render before the write
+    const slowInvite = deferred<WebsiteResult<unknown>>();
+    invite.mockReturnValueOnce(slowInvite.promise as never);
+    await click(INVITE_B);
+    list.mockResolvedValueOnce(fresh());
+    await act(async () => {                                                                   // nothing is rendered until this scope ends
+      slowInvite.resolve(lost());
+      await new Promise((resolve) => setTimeout(resolve, 0));                                 // the write has ended unknown: the hook holds, no render yet
+      heldReload.onClick();
+    });
+    await screen.findByTestId("newsletter-notice");
+    const notice = screen.getByTestId("newsletter-notice").textContent ?? "";
+    expect(notice).toContain("chưa rõ kết quả");                                              // the warning of the hold the read has just lifted
+    expect(notice).toContain("mở lại bản ghi");
+    expect(isDisabled("newsletter-add")).toBe(false);
+    expect(mutations()).toBe(2);
+  });
+
+  describe.each(CONFIRMS)("a held handler of an open %s dialog", (kind, send, overrides) => {
+    it("sends nothing once the recovery read is out", async () => {
+      await staleA(overrides);
+      const heldReload = propsOf(RELOAD);
+      await click(`newsletter-${kind}-b@example.com`);
+      const confirm = propsOf(`newsletter-${kind}-confirm`);
+      const slow = deferred<WebsiteResult<NewsletterSubscriptionPage>>();
+      list.mockReturnValueOnce(slow.promise as never);
+      const before = mutations();
+      await act(async () => { heldReload.onClick(); confirm.onClick(); });
+      expect(send).not.toHaveBeenCalled();
+      expect(mutations()).toBe(before);
+      slow.resolve(fresh());
+      await screen.findByTestId("newsletter-notice");
+      expect(mutations()).toBe(before);
+    });
+  });
+
+  it("a held submit of an open edit dialog sends nothing once the recovery read is out", async () => {
+    await staleA();
+    const heldReload = propsOf(RELOAD);
+    await click("newsletter-edit-b@example.com");
+    await userEvent.selectOptions(await screen.findByTestId("newsletter-language"), "en");
+    const form = screen.getByTestId("newsletter-edit-dialog").querySelector("form")!;
+    const key = Object.keys(form).find((k) => k.startsWith("__reactProps$"))!;
+    const submit = (form as unknown as Record<string, { onSubmit: (event: unknown) => void }>)[key].onSubmit;
+    const slow = deferred<WebsiteResult<NewsletterSubscriptionPage>>();
+    list.mockReturnValueOnce(slow.promise as never);
+    const before = mutations();
+    await act(async () => { heldReload.onClick(); submit({ preventDefault() {} }); });
+    fireEvent.submit(form);                                                                   // and the real Enter path
+    expect(update).toHaveBeenCalledTimes(1);                                                  // only a@'s conflict
+    expect(mutations()).toBe(before);
+    slow.resolve(fresh());
+    await screen.findByTestId("newsletter-notice");
+    expect(mutations()).toBe(before);
   });
 
   it("a read that throws does not leave the screen locked for good", async () => {

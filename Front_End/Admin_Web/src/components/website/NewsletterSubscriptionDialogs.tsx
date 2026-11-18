@@ -99,7 +99,7 @@ export function AddSubscriptionDialog({ write, reconcile, onClose, onDone, onOpe
   const [email, setEmail] = useState("");
   const [language, setLanguage] = useState<NewsletterLanguage>("vi");
   const busy = write.status.phase === "pending";
-  const locked = busy || write.held;
+  const locked = busy || write.held || reconcile.reading;
   const duplicate = write.status.phase === "refused" && write.status.failure.code === "newsletter-subscription-duplicate" ? write.status.failure : null;
 
   const submit = async (event: FormEvent) => {
@@ -148,7 +148,7 @@ export function EditSubscriptionDialog({ row, write, reconcile, reload, stale, o
   const [email, setEmail] = useState(row.email);
   const [language, setLanguage] = useState<NewsletterLanguage>(row.language);
   const busy = write.status.phase === "pending";
-  const locked = busy || write.held || stale;
+  const locked = busy || write.held || stale || reconcile.reading;
   const emailChanged = email.trim().toLowerCase() !== row.email;
   const languageChanged = language !== row.language;
   const needsReset = emailChanged && row.status !== "PendingVerification";
@@ -223,7 +223,7 @@ export function ConfirmSubscriptionDialog({ action, row, write, reconcile, reloa
   onDone: () => void;
 }) {
   const busy = write.status.phase === "pending";
-  const locked = busy || write.held || stale;
+  const locked = busy || write.held || stale || reconcile.reading;
   const text = CONFIRM_TEXT[action];
 
   const submit = async () => {
