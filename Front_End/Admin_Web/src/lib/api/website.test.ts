@@ -4,6 +4,13 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  archiveNewsletterSubscription,
+  createNewsletterSubscription,
+  deleteNewsletterSubscription,
+  inviteNewsletterSubscription,
+  restoreNewsletterSubscription,
+  unsubscribeNewsletterSubscription,
+  updateNewsletterSubscription,
   checkCurrencyCode,
   checkLanguageCode,
   checkRateText,
@@ -407,5 +414,49 @@ describe("floating contact settings", () => {
     vi.stubGlobal("fetch", lost);
     expect((await saveSocialSettings(2, draft)).kind).toBe("unverified");
     expect(lost).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * BHA-NEWSLETTER-003-C2 (F3): the subscriber screen holds every write after an unknown outcome. What the client calls unknown is therefore pinned here for EVERY newsletter
+ * write: no answer at all, a 5xx (the unhandled-exception 500 carries a problem body and is still unknown: the API may have committed before it failed reading the row
+ * back) and a 2xx whose body cannot be read are `unverified`; an answer that says "not applied" is not.
+ */
+describe("newsletter subscription writes: what is an unknown outcome", () => {
+  const writes: Array<[string, () => Promise<{ kind: string }>]> = [
+    ["create", () => createNewsletterSubscription({ email: "a@example.com", language: "vi" })],
+    ["update", () => updateNewsletterSubscription("id-1", { expectedVersion: 1, language: "en" })],
+    ["invite", () => inviteNewsletterSubscription("id-1")],
+    ["unsubscribe", () => unsubscribeNewsletterSubscription("id-1", 1)],
+    ["archive", () => archiveNewsletterSubscription("id-1", 1)],
+    ["restore", () => restoreNewsletterSubscription("id-1", 1)],
+    ["delete", () => deleteNewsletterSubscription("id-1", 1)],
+  ];
+  const problem500 = { type: "https://tools.ietf.org/html/rfc9110#section-15.6.1", title: "An error occurred while processing your request.", status: 500, code: "error.unexpected" };
+
+  it.each(writes)("%s: no answer, a 500 with a problem body and an unreadable 200 are unverified, each sent once", async (_name, send) => {
+    const lost = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
+    vi.stubGlobal("fetch", lost);
+    expect((await send()).kind).toBe("unverified");
+    expect(lost).toHaveBeenCalledTimes(1);
+
+    const boom = respond(500, problem500);
+    vi.stubGlobal("fetch", boom);
+    expect((await send()).kind).toBe("unverified");
+    expect(boom).toHaveBeenCalledTimes(1);
+
+    const unreadable = respond(200, "<html>not json</html>");
+    vi.stubGlobal("fetch", unreadable);
+    expect((await send()).kind).toBe("unverified");
+    expect(unreadable).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(writes)("%s: an answer that says it was not applied is not unverified", async (_name, send) => {
+    vi.stubGlobal("fetch", respond(409, { code: "newsletter-version-conflict", detail: "stale" }));
+    expect((await send()).kind).toBe("refused");
+    vi.stubGlobal("fetch", respond(400, { code: "newsletter-email-invalid", detail: "bad" }));
+    expect((await send()).kind).toBe("refused");
+    vi.stubGlobal("fetch", respond(429, { title: "Too many requests" }));
+    expect((await send()).kind).toBe("error");
   });
 });

@@ -967,7 +967,9 @@ public sealed class NewsletterManagementTests(PostgreSqlWebApplicationFactory fa
         Assert.Equal(language, await ScalarAsync<string>("""SELECT "Language" FROM "NewsletterVerificationRequests" """));
         var sends = e.Google.Sends.Count;
         Assert.Equal(1, await DispatchAsync(e.Host));
-        var token = Mail(e.Google.Sends[sends]).Token;
+        var confirmation = Mail(e.Google.Sends[sends]);
+        Assert.Contains($"lang=\"{language}\"", confirmation.Html);                   // the confirmation mail itself is in the language the subscription now has
+        var token = confirmation.Token;
 
         await AssertStatusAsync(HttpStatusCode.OK, ConfirmAsync(e, token));
         sends = e.Google.Sends.Count;
