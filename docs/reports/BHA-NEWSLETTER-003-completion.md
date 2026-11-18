@@ -79,4 +79,4 @@ Theo bố cục **Medium Daily Digest** đã đọc: header nhận diện, mục
 
 ## PR size
 
-Xem PR #134 trên GitHub (số thực tế ở tin bàn giao). Trên mục tiêu 100–400 dòng vì: một migration có `Designer.cs`/snapshot sinh tự động, ~330 dòng test tích hợp mới + ~340 dòng test UI, bốn ảnh nhúng (nhị phân) và các khoá i18n ba ngôn ngữ; mã sản phẩm viết tay là phần nhỏ hơn.
+PR #134 (GitHub): **+7575 / −203, 49 file** (lúc bàn giao). Rất xa mục tiêu 100–400 dòng vì: `…AddNewsletterManagement.Designer.cs` **4170 dòng sinh tự động** (cộng migration 288 và snapshot); test mới ~1100 dòng (759 tích hợp, 338 UI, 56 API khách) và các test cũ đã cập nhật; bốn–sáu ảnh nhúng (nhị phân); khoá i18n ba ngôn ngữ (~80 dòng); phần mã sản phẩm viết tay (dịch vụ, controller, template, màn hình, trang khách) chỉ khoảng 1500 dòng. Không nén code hay bỏ test để hạ số này.

@@ -27,7 +27,7 @@ import { listNewsletterSubscriptions, parseNewsletterSubscriptionPage, type News
 const list = vi.mocked(listNewsletterSubscriptions);
 const item = (email: string, receivedAtUtc = "2026-11-16T04:00:00+00:00", verifiedAtUtc: string | null = null) => ({
   id: `id-${email}`, email, receivedAtUtc, source: "homepage", status: verifiedAtUtc ? "Verified" : "PendingVerification", verifiedAtUtc,
-  language: "vi" as const, version: 1, unsubscribedAtUtc: null, archivedAtUtc: null, verificationMail: null,
+  language: "vi" as const, version: 1, unsubscribedAtUtc: null, archivedAtUtc: null, verificationMail: null as "Sent" | null,
 });
 const page = (items: ReturnType<typeof item>[], overrides: Partial<NewsletterSubscriptionPage> = {}): NewsletterSubscriptionPage => ({ items, page: 1, pageSize: 20, total: items.length, ...overrides });
 
