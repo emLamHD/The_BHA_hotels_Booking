@@ -68,3 +68,33 @@ export async function confirmNewsletter(token: string, signal?: AbortSignal): Pr
   if (response.status === 400) return { kind: "invalid" };
   return { kind: "failed" };
 }
+
+/**
+ * BHA-NEWSLETTER-003: `POST …/newsletter-subscriptions/unsubscriptions`. Same shape as a confirmation: the token comes from the link's URL FRAGMENT and goes in the
+ * BODY, once, never retried. Repeating it is harmless (`already`); a link that is not (or no longer) valid, an address Staff deleted included, is `invalid`.
+ */
+export type NewsletterUnsubscribeResult = { kind: "unsubscribed" | "already" | "invalid" | "failed" };
+
+export async function unsubscribeNewsletter(token: string, signal?: AbortSignal): Promise<NewsletterUnsubscribeResult> {
+  let response: Response;
+  try {
+    response = await fetch(`${getApiBaseUrl()}/api/v1/website/newsletter-subscriptions/unsubscriptions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      credentials: "omit",
+      cache: "no-store",
+      body: JSON.stringify({ token }),
+      signal,
+    });
+  } catch {
+    return { kind: "failed" };
+  }
+  if (response.status === 200) {
+    const body = (await response.json().catch(() => null)) as { status?: unknown } | null;
+    if (body?.status === "unsubscribed") return { kind: "unsubscribed" };
+    if (body?.status === "already-unsubscribed") return { kind: "already" };
+    return { kind: "failed" };
+  }
+  if (response.status === 400) return { kind: "invalid" };
+  return { kind: "failed" };
+}

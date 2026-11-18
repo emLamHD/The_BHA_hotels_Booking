@@ -263,7 +263,7 @@ export interface WebsiteSocialSettings {
 export type WebsiteFailure =
   | { kind: "unauthenticated" }
   | { kind: "denied" }
-  | { kind: "refused"; status: number; code: string | null; field: string | null; detail: string }
+  | { kind: "refused"; status: number; code: string | null; field: string | null; detail: string; existingId?: string; existingArchived?: boolean }
   | { kind: "unverified"; message: string }
   | { kind: "network"; message: string }
   | { kind: "error"; status: number; message: string }
@@ -534,14 +534,29 @@ const parseLibrary = (data: unknown) => parseList(data, parseLibraryPack);
 
 // ---------------------------------------------------------------- newsletter subscriptions (BHA-NEWSLETTER-001)
 
+export type NewsletterLanguage = "vi" | "en" | "fr";
+export type NewsletterListScope = "active" | "archived" | "all";
+/** The state of the newest confirmation mail of an address; `null` when none was ever queued. */
+export type NewsletterVerificationMail = "Pending" | "Sending" | "Sent" | "Failed" | "Cancelled";
+
 export interface NewsletterSubscription {
   id: string;
   email: string;
   receivedAtUtc: string;
+  /** `homepage` (the public form) or `admin` (added by Staff). */
   source: string;
+  /** `PendingVerification`, `Verified` or `Unsubscribed`. */
   status: string;
   /** When the visitor confirmed the address (BHA-NEWSLETTER-002); `null` while the status is `PendingVerification`. */
   verifiedAtUtc: string | null;
+  /** BHA-NEWSLETTER-003: the language of the mail sent to this address. */
+  language: NewsletterLanguage;
+  /** What an edit, an unsubscribe, an archive or a delete must present; a stale one is refused. */
+  version: number;
+  unsubscribedAtUtc: string | null;
+  /** Set while the row is hidden from the default list. */
+  archivedAtUtc: string | null;
+  verificationMail: NewsletterVerificationMail | null;
 }
 
 export interface NewsletterSubscriptionPage {
@@ -551,10 +566,20 @@ export interface NewsletterSubscriptionPage {
   total: number;
 }
 
-const parseNewsletterSubscription = (data: unknown): NewsletterSubscription | null =>
+const optionalDate = (value: unknown): value is string | null | undefined => value === null || value === undefined || isStr(value);
+const MAIL_STATES: readonly string[] = ["Pending", "Sending", "Sent", "Failed", "Cancelled"];
+
+export const parseNewsletterSubscription = (data: unknown): NewsletterSubscription | null =>
   isRec(data) && isStr(data.id) && isStr(data.email) && isStr(data.receivedAtUtc) && isStr(data.source) && isStr(data.status)
-    && (data.verifiedAtUtc === null || data.verifiedAtUtc === undefined || isStr(data.verifiedAtUtc))
-    ? { id: data.id, email: data.email, receivedAtUtc: data.receivedAtUtc, source: data.source, status: data.status, verifiedAtUtc: isStr(data.verifiedAtUtc) ? data.verifiedAtUtc : null }
+    && optionalDate(data.verifiedAtUtc) && optionalDate(data.unsubscribedAtUtc) && optionalDate(data.archivedAtUtc)
+    && (data.language === "vi" || data.language === "en" || data.language === "fr") && isNum(data.version)
+    && (data.verificationMail === null || data.verificationMail === undefined || (isStr(data.verificationMail) && MAIL_STATES.includes(data.verificationMail)))
+    ? {
+        id: data.id, email: data.email, receivedAtUtc: data.receivedAtUtc, source: data.source, status: data.status,
+        verifiedAtUtc: isStr(data.verifiedAtUtc) ? data.verifiedAtUtc : null, language: data.language, version: data.version,
+        unsubscribedAtUtc: isStr(data.unsubscribedAtUtc) ? data.unsubscribedAtUtc : null, archivedAtUtc: isStr(data.archivedAtUtc) ? data.archivedAtUtc : null,
+        verificationMail: isStr(data.verificationMail) ? (data.verificationMail as NewsletterVerificationMail) : null,
+      }
     : null;
 
 export function parseNewsletterSubscriptionPage(data: unknown): NewsletterSubscriptionPage | null {
@@ -563,12 +588,51 @@ export function parseNewsletterSubscriptionPage(data: unknown): NewsletterSubscr
   return items ? { items, page: data.page, pageSize: data.pageSize, total: data.total } : null;
 }
 
-export const listNewsletterSubscriptions = (query: { search: string; page: number; pageSize: number }, signal?: AbortSignal) => {
+export const listNewsletterSubscriptions = (
+  query: { search: string; page: number; pageSize: number; status?: string; scope?: NewsletterListScope },
+  signal?: AbortSignal,
+) => {
   const params = new URLSearchParams({ page: String(query.page), pageSize: String(query.pageSize) });
   if (query.search.trim()) params.set("search", query.search.trim());
+  if (query.status) params.set("status", query.status);
+  if (query.scope && query.scope !== "active") params.set("scope", query.scope);
   return call<NewsletterSubscriptionPage>("GET", `${SETTINGS}/newsletter-subscriptions?${params.toString()}`, undefined,
     { write: false, parse: parseNewsletterSubscriptionPage, signal });
 };
+
+const SUBSCRIPTIONS = `${SETTINGS}/newsletter-subscriptions`;
+const writeRow = (path: string, body: unknown) => call<NewsletterSubscription>("POST", `${SUBSCRIPTIONS}${path}`, body, { write: true, parse: parseNewsletterSubscription });
+
+/** Adds an address as `PendingVerification` from `admin`; nothing is sent. A known address is a 409 that names the row (`existingId`). */
+export const createNewsletterSubscription = (input: { email: string; language: NewsletterLanguage }) => writeRow("", input);
+
+/** Leave `email` or `language` out to keep it. A new `email` returns the address to pending and voids its old links. */
+export const updateNewsletterSubscription = (id: string, input: { expectedVersion: number; email?: string; language?: NewsletterLanguage }) =>
+  writeRow(`/${encodeURIComponent(id)}/update`, input);
+
+export type NewsletterInviteOutcome = "queued" | "cooldown" | "not-connected";
+export interface NewsletterInvite {
+  status: NewsletterInviteOutcome;
+  retryAfterSeconds: number | null;
+  subscription: NewsletterSubscription;
+}
+
+export function parseNewsletterInvite(data: unknown): NewsletterInvite | null {
+  if (!isRec(data) || !(data.status === "queued" || data.status === "cooldown" || data.status === "not-connected")) return null;
+  const subscription = parseNewsletterSubscription(data.subscription);
+  return subscription ? { status: data.status, retryAfterSeconds: isNum(data.retryAfterSeconds) ? data.retryAfterSeconds : null, subscription } : null;
+}
+
+export const inviteNewsletterSubscription = (id: string) =>
+  call<NewsletterInvite>("POST", `${SUBSCRIPTIONS}/${encodeURIComponent(id)}/verification-invitations`, {}, { write: true, parse: parseNewsletterInvite });
+
+export const unsubscribeNewsletterSubscription = (id: string, expectedVersion: number) => writeRow(`/${encodeURIComponent(id)}/unsubscribe`, { expectedVersion });
+export const archiveNewsletterSubscription = (id: string, expectedVersion: number) => writeRow(`/${encodeURIComponent(id)}/archive`, { expectedVersion });
+export const restoreNewsletterSubscription = (id: string, expectedVersion: number) => writeRow(`/${encodeURIComponent(id)}/restore`, { expectedVersion });
+
+/** Permanent: the row, its links and its waiting mail are removed. */
+export const deleteNewsletterSubscription = (id: string, expectedVersion: number) =>
+  call<undefined>("POST", `${SUBSCRIPTIONS}/${encodeURIComponent(id)}/delete`, { expectedVersion }, { write: true, noContent: true });
 
 // ---------------------------------------------------------------- newsletter sender (BHA-NEWSLETTER-002)
 
@@ -651,7 +715,7 @@ function target(path: string): { ok: true; url: string } | { ok: false; message:
   return { ok: true, url: `${base.baseUrl}${path}` };
 }
 
-async function readProblem(response: Response): Promise<{ code: string | null; field: string | null; detail: string }> {
+async function readProblem(response: Response): Promise<{ code: string | null; field: string | null; detail: string; existingId?: string; existingArchived?: boolean }> {
   try {
     const body: unknown = await response.json();
     if (isRec(body)) {
@@ -659,6 +723,8 @@ async function readProblem(response: Response): Promise<{ code: string | null; f
         code: isStr(body.code) ? body.code : null,
         field: isStr(body.field) ? body.field : null,
         detail: isStr(body.detail) ? body.detail : isStr(body.title) ? body.title : `HTTP ${response.status}`,
+        // BHA-NEWSLETTER-003: a duplicate address says which row already holds it, and whether that row is hidden.
+        ...(isStr(body.existingId) ? { existingId: body.existingId, existingArchived: body.existingArchived === true } : {}),
       };
     }
   } catch {

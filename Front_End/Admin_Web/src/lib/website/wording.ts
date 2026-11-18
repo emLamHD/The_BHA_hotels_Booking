@@ -52,6 +52,13 @@ const REFUSALS: Record<string, string> = {
   "idempotency-key-reused": "Thao tác tạo này đã được dùng cho một nội dung khác. Hãy mở lại màn hình tạo ưu đãi.",
   "promotion-storage-not-configured": "Máy chủ chưa cấu hình nơi lưu ảnh (WebsiteMedia:RootPath) nên chưa tải ảnh bìa lên được.",
   "promotion-image-too-small": "Ảnh bìa cần tối thiểu 600×400 điểm ảnh.",
+  "newsletter-email-invalid": "Địa chỉ email không hợp lệ.",
+  "newsletter-language-invalid": "Ngôn ngữ chỉ có thể là vi, en hoặc fr.",
+  "newsletter-subscription-duplicate": "Email này đã có trong danh sách đăng ký.",
+  "newsletter-subscription-not-found": "Đăng ký này không còn tồn tại.",
+  "newsletter-version-conflict": "Đăng ký đã thay đổi kể từ khi bạn mở danh sách. Chưa có gì được lưu.",
+  "newsletter-invite-not-pending": "Chỉ gửi lời mời cho email đang chờ xác minh (đã xác minh hoặc đã ngừng nhận thì khách phải tự đăng ký lại).",
+  "newsletter-subscription-archived": "Email đang được lưu trữ. Hãy khôi phục trước.",
   "promotion-media-missing": "Ảnh bìa này không còn dùng được cho cơ sở này. Hãy tải ảnh lại.",
 };
 
