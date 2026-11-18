@@ -34,14 +34,18 @@ public sealed class NewsletterManagementTests(PostgreSqlWebApplicationFactory fa
     /// <summary>BHA-NEWSLETTER-003-C1: parks one chosen statement of the real application (nothing unless a test arms a rule).</summary>
     private readonly NewsletterSqlGate _gate = new();
 
-    private sealed class Env(Session staff, NewsletterGoogleStub google, string desk) : IDisposable
+    private sealed class Env(Session staff, NewsletterGoogleStub google, string desk, Action release) : IDisposable
     {
         public Session Staff { get; } = staff;
         public NewsletterGoogleStub Google { get; } = google;
         public string DeskCookie { get; } = desk;
         public HttpClient Client => Staff.Client;
         public WebApplicationFactory<Program> Host => Staff.Host;
-        public void Dispose() => Staff.Dispose();
+        public void Dispose()
+        {
+            release();
+            Staff.Dispose();
+        }
     }
 
     private async Task<Env> BeginAsync(bool connected = true)
@@ -69,7 +73,7 @@ public sealed class NewsletterManagementTests(PostgreSqlWebApplicationFactory fa
         await SeedStaffAsync(host);
         Factory.Clock.UtcNow = DateTimeOffset.UtcNow;
         var client = CreateHttpsClient(host);
-        var e = new Env(new Session(host, client, await LoginAsync(client, Site)), google, await LoginAsync(client, Desk));
+        var e = new Env(new Session(host, client, await LoginAsync(client, Site)), google, await LoginAsync(client, Desk), _gate.ReleaseAll);
         if (connected) await ConnectAsync(e);
         return e;
     }
@@ -830,6 +834,178 @@ public sealed class NewsletterManagementTests(PostgreSqlWebApplicationFactory fa
         Assert.Contains(greeting, mail.Text);
         Assert.Contains($"lang=\"{language}\"", mail.Html);
         Assert.Equal(language, await ScalarAsync<string>("""SELECT "Language" FROM "NewsletterVerificationRequests" WHERE "Purpose" = 'Welcome' """));
+    }
+
+    // ------------------------------------------------------------------------------------------------------------ BHA-NEWSLETTER-003-C2
+
+    private static bool IsInsert(string sql) => sql.StartsWith("INSERT INTO \"NewsletterSubscriptions\"", StringComparison.Ordinal);
+
+    /// <summary>The visitor's request has done everything up to and including "un-hide an archived row" (a statement that matches nothing for a visible row) and is parked.</summary>
+    private static bool IsUnhide(string sql) =>
+        sql.StartsWith("UPDATE \"NewsletterSubscriptions\"", StringComparison.Ordinal) && sql.Contains("\"ArchivedAtUtc\" = NULL", StringComparison.Ordinal) && sql.Contains("\"ArchivedAtUtc\" IS NOT NULL", StringComparison.Ordinal);
+
+    private async Task WaitForLockWaitAsync()
+    {
+        var until = DateTime.UtcNow + Patience;
+        while (DateTime.UtcNow < until)
+        {
+            if (await ScalarAsync<int>("""SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' """) > 0) return;
+            await Task.Delay(25);
+        }
+
+        throw new TimeoutException("No session ever waited on a lock.");
+    }
+
+    private Task<int> MailsFor(string email) => ScalarAsync<int>(
+        $"""SELECT count(*) FROM "NewsletterVerificationRequests" r JOIN "NewsletterSubscriptions" s ON s."Id" = r."SubscriptionId" WHERE s."Email" = '{email}' """);
+
+    [Theory]
+    [InlineData("rename")]
+    [InlineData("delete")]
+    public async Task A_visitor_asking_for_an_address_Staff_just_renamed_or_deleted_gets_a_fresh_row_not_a_500_and_nothing_goes_to_the_replacement(string change)
+    {
+        using var e = await BeginAsync();
+        var row = await AddAsync(e);                                                   // visible, pending, nothing sent
+        var parked = _gate.Arm(IsInsert, afterRead: true);
+
+        var visitor = e.Client.SendAsync(Subscribe(Guest));
+        await parked.Arrived.WaitAsync(Patience);                                      // the visitor's INSERT found the address and did nothing; it holds no lock on the row
+        var staff = change == "rename"
+            ? e.Staff.PostAsync($"{Admin}/{IdOf(row)}/update", new { expectedVersion = VersionOf(row), email = "other@example.com" })
+            : PostRowAsync(e, row, "delete");
+        Assert.True((await staff.WaitAsync(Patience)).IsSuccessStatusCode);
+        parked.Release();
+
+        var answer = await JsonAsync(await AssertStatusAsync(HttpStatusCode.Accepted, visitor.WaitAsync(Patience)));
+        Assert.Equal("email", answer.GetProperty("confirmation").GetString());
+        // The address the visitor typed is a subscription again, with ITS mail; the one it was renamed to has none; nothing is left without a row.
+        Assert.Equal(1, await Count("NewsletterSubscriptions", $"\"Email\" = '{Guest}' AND \"Source\" = 'homepage' AND \"Status\" = 'PendingVerification'"));
+        Assert.Equal(1, await MailsFor(Guest));
+        Assert.Equal(1, await Count("NewsletterVerificationRequests"));
+        if (change == "rename")
+        {
+            Assert.Equal(0, await MailsFor("other@example.com"));
+            Assert.Equal("PendingVerification", (await ReadAsync(e, "other@example.com")).GetProperty("status").GetString());
+        }
+
+        var sends = e.Google.Sends.Count;
+        Assert.Equal(1, await DispatchAsync(e.Host));
+        Assert.Equal(Guest, Mail(e.Google.Sends[sends]).Headers["To"]);
+        Assert.Equal(0, await DispatchAsync(e.Host));
+    }
+
+    [Fact]
+    public async Task Two_visitors_asking_for_one_visible_address_at_once_queue_one_mail_and_keep_the_cooldown()
+    {
+        using var e = await BeginAsync();
+        await AddAsync(e);
+        var both = _gate.Arm(IsInsert, parties: 2, afterRead: true);
+
+        var first = e.Client.SendAsync(Subscribe(Guest));
+        var second = e.Client.SendAsync(Subscribe(Guest));
+        await both.Arrived.WaitAsync(Patience);                                        // both have found the row and neither holds a lock yet
+        both.Release();
+        var answers = await Task.WhenAll(first, second).WaitAsync(Patience);
+
+        Assert.All(answers, r => Assert.Equal(HttpStatusCode.Accepted, r.StatusCode));
+        Assert.Equal(1, await Count("NewsletterSubscriptions"));
+        Assert.Equal(1, await Count("NewsletterVerificationRequests"));
+        Assert.Equal(1, await Count("NewsletterSubscriptions", "\"LastVerificationRequestedAtUtc\" IS NOT NULL"));
+        Assert.Equal(1, await DispatchAsync(e.Host));
+    }
+
+    [Theory]
+    [InlineData("rename")]
+    [InlineData("delete")]
+    public async Task While_the_visitor_holds_the_address_Staff_wait_for_it_and_then_withdraw_what_it_queued(string change)
+    {
+        using var e = await BeginAsync();
+        var row = await AddAsync(e);
+        var parked = _gate.Arm(IsUnhide, afterRead: true);
+
+        var visitor = e.Client.SendAsync(Subscribe(Guest));
+        await parked.Arrived.WaitAsync(Patience);                                      // the visitor has locked the row (and has not queued its mail yet)
+        var staff = change == "rename"
+            ? e.Staff.PostAsync($"{Admin}/{IdOf(row)}/update", new { expectedVersion = VersionOf(row), email = "other@example.com" })
+            : PostRowAsync(e, row, "delete");
+        await WaitForLockWaitAsync();                                                  // Staff are waiting for the visitor's lock
+        Assert.False(staff.IsCompleted);
+        parked.Release();
+
+        await AssertStatusAsync(HttpStatusCode.Accepted, visitor.WaitAsync(Patience));
+        Assert.True((await staff.WaitAsync(Patience)).IsSuccessStatusCode);
+        // The mail the visitor queued for the address is withdrawn by Staff's change, in that order: nothing waits for the replacement or for a row that is gone.
+        Assert.Equal(0, await Count("NewsletterVerificationRequests", "\"Status\" IN ('Pending', 'Sending')"));
+        if (change == "rename")
+        {
+            Assert.Equal(1, await Count("NewsletterVerificationRequests", "\"Status\" = 'Cancelled' AND \"LastOutcome\" = 'email-changed' AND \"RevokedAtUtc\" IS NOT NULL"));
+            Assert.Equal(0, await DispatchAsync(e.Host));
+        }
+        else
+        {
+            Assert.Equal(0, await Count("NewsletterSubscriptions"));
+            Assert.Equal(0, await Count("NewsletterVerificationRequests"));
+        }
+    }
+
+    [Theory]
+    [InlineData("en", "Hello,")]
+    [InlineData("fr", "Bonjour,")]
+    public async Task A_resend_in_another_language_changes_the_subscription_with_the_mail_and_the_Welcome_follows(string language, string greeting)
+    {
+        using var e = await BeginAsync(connected: false);
+        await AssertStatusAsync(HttpStatusCode.Accepted, e.Client.SendAsync(Subscribe(Guest)));          // recorded in Vietnamese while Gmail is disconnected
+        Assert.Equal(0, await Count("NewsletterVerificationRequests"));
+        var before = await ReadAsync(e);
+        Assert.Equal("vi", before.GetProperty("language").GetString());
+        await ConnectAsync(e);
+
+        await AssertStatusAsync(HttpStatusCode.Accepted, e.Client.SendAsync(Subscribe(Guest, language)));
+        var row = await ReadAsync(e);
+        Assert.Equal(language, row.GetProperty("language").GetString());
+        Assert.Equal(VersionOf(before) + 1, VersionOf(row));
+        Assert.Equal(language, await ScalarAsync<string>("""SELECT "Language" FROM "NewsletterVerificationRequests" """));
+        var sends = e.Google.Sends.Count;
+        Assert.Equal(1, await DispatchAsync(e.Host));
+        var token = Mail(e.Google.Sends[sends]).Token;
+
+        await AssertStatusAsync(HttpStatusCode.OK, ConfirmAsync(e, token));
+        sends = e.Google.Sends.Count;
+        Assert.Equal(1, await DispatchAsync(e.Host));
+        var welcome = Mail(e.Google.Sends[sends]);
+        Assert.Equal("Welcome to the BHA", welcome.Headers["Subject"]);
+        Assert.Contains(greeting, welcome.Text);
+        Assert.Equal(language, await ScalarAsync<string>("""SELECT "Language" FROM "NewsletterVerificationRequests" WHERE "Purpose" = 'Welcome' """));
+        // The used link again: still one Welcome.
+        await AssertStatusAsync(HttpStatusCode.OK, ConfirmAsync(e, token));
+        Assert.Equal(1, await Welcomes());
+    }
+
+    [Fact]
+    public async Task A_resend_inside_the_cooldown_changes_neither_the_language_nor_the_mail_and_a_Staff_version_taken_before_a_language_change_conflicts()
+    {
+        using var e = await BeginAsync();
+        await AssertStatusAsync(HttpStatusCode.Accepted, e.Client.SendAsync(Subscribe(Guest, "en")));    // queued: the cooldown is running
+        var settled = await ReadAsync(e);
+        Assert.Equal("en", settled.GetProperty("language").GetString());
+
+        await AssertStatusAsync(HttpStatusCode.Accepted, e.Client.SendAsync(Subscribe(Guest, "fr")));    // blocked by the cooldown
+        var same = await ReadAsync(e);
+        Assert.Equal("en", same.GetProperty("language").GetString());
+        Assert.Equal(VersionOf(settled), VersionOf(same));
+        Assert.Equal(1, await Count("NewsletterVerificationRequests"));
+        Assert.Equal("en", await ScalarAsync<string>("""SELECT "Language" FROM "NewsletterVerificationRequests" """));
+
+        // Staff read the row, then the cooldown ran out and the visitor asked again in French: the mail and the subscription are French, the Staff version is stale.
+        Factory.Clock.UtcNow += TimeSpan.FromSeconds(400);
+        await AssertStatusAsync(HttpStatusCode.Accepted, e.Client.SendAsync(Subscribe(Guest, "fr")));
+        Factory.Clock.UtcNow -= TimeSpan.FromSeconds(400);                                                  // the Staff session is only valid on the real clock
+        var moved = await ReadAsync(e);
+        Assert.Equal("fr", moved.GetProperty("language").GetString());
+        Assert.Equal(VersionOf(same) + 1, VersionOf(moved));
+        Assert.Equal("newsletter-version-conflict", (await JsonAsync(await AssertStatusAsync(HttpStatusCode.Conflict,
+            e.Staff.PostAsync($"{Admin}/{IdOf(same)}/update", new { expectedVersion = VersionOf(same), language = "vi" })))).GetProperty("code").GetString());
+        Assert.Equal("fr", (await ReadAsync(e)).GetProperty("language").GetString());
     }
 
     // ------------------------------------------------------------------------------------------------------------ a Staff action while the worker holds the mail

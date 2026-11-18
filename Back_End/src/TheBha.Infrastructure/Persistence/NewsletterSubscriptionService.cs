@@ -8,39 +8,58 @@ namespace TheBha.Infrastructure.Persistence;
 internal sealed class NewsletterSubscriptionService(
     TheBhaDbContext database, TimeProvider timeProvider, NewsletterOptions options, NewsletterSecretProtector protector) : INewsletterSubscriptions
 {
+    /// <summary>How many times a request looks for the row of its address: each extra round needs Staff to have renamed or deleted that row again in between.</summary>
+    private const int MaxLockAttempts = 5;
+
     public async Task<NewsletterSubscribeResult> SubscribeAsync(string normalizedEmail, string source, string language, CancellationToken cancellationToken)
     {
         var now = timeProvider.GetUtcNow();
         var lang = NewsletterRules.NormalizeLanguage(language);
         await using var transaction = await database.Database.BeginTransactionAsync(cancellationToken);
 
-        // One statement, decided by the unique index: concurrent requests for one address insert once and the others do nothing.
-        await database.Database.ExecuteSqlInterpolatedAsync(
-            $"""
-            INSERT INTO "NewsletterSubscriptions" ("Id", "Email", "Source", "Status", "ReceivedAtUtc", "Language")
-            VALUES ({Guid.NewGuid()}, {normalizedEmail}, {source}, {NewsletterSubscription.StatusPendingVerification}, {now}, {lang})
-            ON CONFLICT ("Email") DO NOTHING
-            """,
-            cancellationToken);
+        // The row of THIS address is found and locked before anything is decided about it. An id read without the lock proves nothing: while this request waits, Staff
+        // may rename the row (it is then another address) or delete it. The lock statement looks at the e-mail again once it has the row (PostgreSQL re-checks the
+        // condition on the committed version), so a row that is no longer this address is not returned; then the address is free again and the request starts over
+        // for it, as if it had arrived after Staff's change. The lock order stays: the subscription first, then its mails.
+        Guid? subscriptionId = null;
+        for (var attempt = 0; attempt < MaxLockAttempts && subscriptionId is null; attempt++)
+        {
+            // One statement, decided by the unique index: concurrent requests for one address insert once and the others do nothing.
+            await database.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                INSERT INTO "NewsletterSubscriptions" ("Id", "Email", "Source", "Status", "ReceivedAtUtc", "Language")
+                VALUES ({Guid.NewGuid()}, {normalizedEmail}, {source}, {NewsletterSubscription.StatusPendingVerification}, {now}, {lang})
+                ON CONFLICT ("Email") DO NOTHING
+                """,
+                cancellationToken);
+            var locked = await NewsletterSql.ReturningIdsAsync(database, """SELECT "Id" FROM "NewsletterSubscriptions" WHERE "Email" = @email FOR UPDATE""", [("email", normalizedEmail)], cancellationToken);
+            if (locked.Count == 1) subscriptionId = locked[0];
+        }
+
+        if (subscriptionId is null)
+        {
+            // Staff kept changing that address under every attempt: nothing was recorded and nothing is queued, and the answer does not claim a mail.
+            await transaction.RollbackAsync(cancellationToken);
+            return new NewsletterSubscribeResult(false);
+        }
 
         // The visitor's own request is what brings an unsubscribed address back, and only to "pending": the mailbox must confirm again (double opt-in).
-        // It also un-hides an archived row. One statement each, so concurrent requests change a row once.
+        // It also un-hides an archived row. Both run on the locked row.
         await database.Database.ExecuteSqlInterpolatedAsync(
             $"""
             UPDATE "NewsletterSubscriptions" SET "Status" = 'PendingVerification', "VerifiedAtUtc" = NULL, "UnsubscribedAtUtc" = NULL, "ArchivedAtUtc" = NULL,
                 "LastVerificationRequestedAtUtc" = NULL, "Language" = {lang}, "Version" = "Version" + 1
-            WHERE "Email" = {normalizedEmail} AND "Status" = 'Unsubscribed'
+            WHERE "Id" = {subscriptionId.Value} AND "Status" = 'Unsubscribed'
             """,
             cancellationToken);
         await database.Database.ExecuteSqlInterpolatedAsync(
-            $"""UPDATE "NewsletterSubscriptions" SET "ArchivedAtUtc" = NULL, "Version" = "Version" + 1 WHERE "Email" = {normalizedEmail} AND "ArchivedAtUtc" IS NOT NULL""",
+            $"""UPDATE "NewsletterSubscriptions" SET "ArchivedAtUtc" = NULL, "Version" = "Version" + 1 WHERE "Id" = {subscriptionId.Value} AND "ArchivedAtUtc" IS NOT NULL""",
             cancellationToken);
 
         var canSend = await NewsletterReadiness.CanSendAsync(database, options, cancellationToken);
         if (canSend)
         {
-            var subscriptionId = await database.NewsletterSubscriptions.AsNoTracking().Where(s => s.Email == normalizedEmail).Select(s => s.Id).SingleAsync(cancellationToken);
-            await NewsletterLifecycle.TryQueueVerificationAsync(database, options, protector, subscriptionId, lang, now, cancellationToken);
+            await NewsletterLifecycle.TryQueueVerificationAsync(database, options, protector, subscriptionId.Value, lang, now, cancellationToken);
         }
 
         await transaction.CommitAsync(cancellationToken);

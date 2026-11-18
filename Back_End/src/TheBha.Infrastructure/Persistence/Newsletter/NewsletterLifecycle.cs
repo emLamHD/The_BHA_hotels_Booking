@@ -42,14 +42,19 @@ internal static class NewsletterLifecycle
         TheBhaDbContext database, NewsletterOptions options, NewsletterSecretProtector protector, Guid subscriptionId, string language, DateTimeOffset now, CancellationToken ct)
     {
         var cutoff = now - TimeSpan.FromSeconds(options.ResendCooldownSeconds);
+        var lang = NewsletterRules.NormalizeLanguage(language);
+        // The same statement that claims the cooldown records the language of the mail about to be queued, so the subscription (and the Welcome that follows its
+        // verification) never disagree with the confirmation it was sent. A request the cooldown turns away matches no row and changes nothing. The version moves only
+        // when the language does, so a Staff screen read before that change cannot overwrite it.
         var claimed = await NewsletterSql.ReturningIdsAsync(database,
             """
-            UPDATE "NewsletterSubscriptions" SET "LastVerificationRequestedAtUtc" = @now
+            UPDATE "NewsletterSubscriptions" SET "LastVerificationRequestedAtUtc" = @now, "Language" = @lang,
+                "Version" = "Version" + CASE WHEN "Language" <> @lang THEN 1 ELSE 0 END
             WHERE "Id" = @id AND "Status" = 'PendingVerification' AND "ArchivedAtUtc" IS NULL
               AND ("LastVerificationRequestedAtUtc" IS NULL OR "LastVerificationRequestedAtUtc" <= @cutoff)
             RETURNING "Id"
             """,
-            [("now", now), ("id", subscriptionId), ("cutoff", cutoff)], ct);
+            [("now", now), ("id", subscriptionId), ("cutoff", cutoff), ("lang", lang)], ct);
         if (claimed.Count != 1) return false;
 
         // Only the newest confirmation mail matters: an older one that has not gone out yet is withdrawn (its link, if it was sent, still works). A Welcome is not touched.
@@ -68,7 +73,7 @@ internal static class NewsletterLifecycle
             Purpose = NewsletterVerificationRequest.PurposeVerification,
             TokenHash = NewsletterTokens.Hash(token),
             ProtectedToken = protector.Protect(token),
-            Language = NewsletterRules.NormalizeLanguage(language),
+            Language = lang,
             Status = NewsletterVerificationRequest.StatusPending,
             CreatedAtUtc = now,
             ExpiresAtUtc = now.AddHours(options.TokenLifetimeHours),

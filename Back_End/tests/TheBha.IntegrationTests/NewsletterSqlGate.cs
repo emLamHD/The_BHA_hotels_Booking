@@ -35,12 +35,20 @@ public sealed class NewsletterSqlGate : DbCommandInterceptor
     private readonly List<Rule> _rules = [];
 
     /// <summary>Of the statements that match, the first <paramref name="skip"/> pass and the next <paramref name="parties"/> wait until <see cref="Rule.Release"/>; later ones pass.</summary>
-    /// <param name="afterRead">Park a SELECT AFTER it has run (the caller holds its answer) instead of before it: the point between a lookup and what follows it.</param>
+    /// <param name="afterRead">Park a statement AFTER it has run (a SELECT's answer or an INSERT/UPDATE's effect is in the caller's hands, any lock it took is held) instead of before it.</param>
     public Rule Arm(Func<string, bool> match, int parties = 1, int skip = 0, bool afterRead = false)
     {
         var rule = new Rule(match, parties, skip, afterRead);
         lock (_rules) _rules.Add(rule);
         return rule;
+    }
+
+    /// <summary>Frees every parked statement: a test that fails must not leave a request holding its transaction (it would block the next test's cleanup).</summary>
+    public void ReleaseAll()
+    {
+        Rule[] armed;
+        lock (_rules) armed = _rules.ToArray();
+        foreach (var rule in armed) rule.Release();
     }
 
     private Task Maybe(DbCommand command, bool afterRead = false)
@@ -62,6 +70,12 @@ public sealed class NewsletterSqlGate : DbCommandInterceptor
     }
 
     public override async ValueTask<DbDataReader> ReaderExecutedAsync(DbCommand command, CommandExecutedEventData eventData, DbDataReader result, CancellationToken cancellationToken = default)
+    {
+        await Maybe(command, afterRead: true);
+        return result;
+    }
+
+    public override async ValueTask<int> NonQueryExecutedAsync(DbCommand command, CommandExecutedEventData eventData, int result, CancellationToken cancellationToken = default)
     {
         await Maybe(command, afterRead: true);
         return result;
