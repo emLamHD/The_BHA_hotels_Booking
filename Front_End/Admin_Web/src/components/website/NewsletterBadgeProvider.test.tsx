@@ -615,6 +615,51 @@ describe("C1 F1: a 403 whose `me` check fails closes access", () => {
   });
 });
 
+describe("C1 F1: a late result of the old identity or of an unmounted tree never reaches what follows", () => {
+  it("another Staff member takes over while the 403's check is still out: that check's late FAILURE closes nothing, the badge is the new member's, ONE connection serves them", async () => {
+    mount(gatedForm());
+    await screen.findByTestId("website-form");
+    await waitFor(() => expect(badge()).toBe("3"));
+    const first = deferred<Awaited<ReturnType<typeof fetchStaffSession>>>();
+    vi.mocked(fetchStaffSession).mockImplementationOnce(() => first.promise);
+    act(() => connection().options.handlers.onDenied());                                       // the old Staff member's 403: its `me` check is out
+    await flush(50);
+    const other = { ...ALLOWED, staffAccountId: "22222222-2222-2222-2222-222222222222", email: "b@example.com" };
+    vi.mocked(fetchStaffSession).mockResolvedValue({ kind: "authenticated", session: other });
+    getCount.mockResolvedValue(answer(entry(7, "0", "7")));
+    await act(async () => { await session!.refresh(); });                                      // a different Staff member (who has the permission) is now the session
+    await waitFor(() => expect(badge()).toBe("7"));
+    await act(async () => { first.resolve({ kind: "error", message: "late failure of the old check" }); });
+    await flush(100);
+    expect(screen.getByTestId("website-form")).toBeTruthy();                                   // nothing closed
+    expect(screen.queryByTestId("staff-session-error")).toBeNull();
+    expect(session!.state.status).toBe("authenticated");
+    expect(badge()).toBe("7");
+    const open = openConnections();
+    expect(open).toHaveLength(1);                                                              // one connection, the new member's
+    expect(live.started.length - open.length).toBe(live.started.length - 1);                   // every earlier one disposed
+  });
+
+  it("the tree is unmounted while the check is out: its late failure changes nothing, and the next mount opens normally", async () => {
+    const view = mount(gatedForm());
+    await screen.findByTestId("website-form");
+    const late = deferred<Awaited<ReturnType<typeof fetchStaffSession>>>();
+    vi.mocked(fetchStaffSession).mockImplementationOnce(() => late.promise);
+    act(() => connection().options.handlers.onDenied());
+    await flush(50);
+    view.unmount();
+    await act(async () => { late.resolve({ kind: "error", message: "late failure after unmount" }); });
+    await flush(100);
+    expect(openConnections()).toHaveLength(0);                                                 // the shell's connection went with it
+    vi.mocked(fetchStaffSession).mockResolvedValue({ kind: "authenticated", session: ALLOWED });
+    mount(gatedForm());
+    await screen.findByTestId("website-form");
+    expect(screen.queryByTestId("staff-session-error")).toBeNull();
+    await waitFor(() => expect(badge()).toBe("3"));
+    expect(openConnections()).toHaveLength(1);
+  });
+});
+
 /** Mounts the real sidebar under the shell with a state the test can change. */
 function SidebarHarness() {
   const [, setTick] = React.useState(0);
