@@ -227,7 +227,7 @@ describe("after a write whose outcome is unknown", () => {
     await userEvent.click(screen.getByTestId("newsletter-reconcile"));
     await waitFor(() => expect(screen.queryByTestId("newsletter-write-unverified")).toBeNull());
     expect(list).toHaveBeenCalledTimes(1);
-    expect(list).toHaveBeenCalledWith({ search: "example", status: "", scope: "active", page: 1, pageSize: 20 }, expect.anything());
+    expect(list).toHaveBeenCalledWith({ search: "example", status: "", scope: "active", page: 1, pageSize: 20, sort: "recent-activity" }, expect.anything());
     expect((screen.getByTestId("newsletter-search") as HTMLInputElement).value).toBe("example");
     const notice = screen.getByTestId("newsletter-notice").textContent ?? "";
     expect(notice).toContain("bộ lọc");

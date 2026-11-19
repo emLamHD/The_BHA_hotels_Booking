@@ -48,7 +48,7 @@ describe("NewsletterSubscriptionsPanel", () => {
     expect(within(row).getByText("Chờ xác minh")).toBeTruthy();
     expect(within(row).getByText("Trang chủ")).toBeTruthy();
     expect(screen.getByTestId("newsletter-count").textContent).toContain("2 đăng ký");
-    expect(list).toHaveBeenCalledWith({ search: "", status: "", scope: "active", page: 1, pageSize: 20 }, expect.anything());
+    expect(list).toHaveBeenCalledWith({ search: "", status: "", scope: "active", page: 1, pageSize: 20, sort: "recent-activity" }, expect.anything());
   });
 
   it("shows who confirmed and when (BHA-NEWSLETTER-002), and a dash for a pending address", async () => {
@@ -78,7 +78,7 @@ describe("NewsletterSubscriptionsPanel", () => {
     await userEvent.type(screen.getByTestId("newsletter-search"), "nobody");
     await userEvent.click(within(screen.getByTestId("newsletter-search-submit")).getByRole("button"));
     await waitFor(() => expect(screen.getByTestId("newsletter-empty").textContent).toContain("Không có đăng ký nào khớp"));
-    expect(list).toHaveBeenLastCalledWith({ search: "nobody", status: "", scope: "active", page: 1, pageSize: 20 }, expect.anything());
+    expect(list).toHaveBeenLastCalledWith({ search: "nobody", status: "", scope: "active", page: 1, pageSize: 20, sort: "recent-activity" }, expect.anything());
   });
 
   it("shows an error with a retry that asks the server again", async () => {
@@ -100,7 +100,7 @@ describe("NewsletterSubscriptionsPanel", () => {
     await userEvent.click(screen.getByRole("button", { name: "Trang sau" }));
     await screen.findByTestId("newsletter-row-p2@example.com");
     expect(screen.queryByTestId("newsletter-row-p1@example.com")).toBeNull();
-    expect(list).toHaveBeenLastCalledWith({ search: "", status: "", scope: "active", page: 2, pageSize: 20 }, expect.anything());
+    expect(list).toHaveBeenLastCalledWith({ search: "", status: "", scope: "active", page: 2, pageSize: 20, sort: "recent-activity" }, expect.anything());
   });
 });
 
@@ -123,7 +123,7 @@ describe("NewsletterSubscriptionsPanel — a new query while the old answer is s
     const narrowed = deferred<ReturnType<typeof ok>>();
     list.mockReturnValueOnce(narrowed.promise as never);
     await search("one");
-    await waitFor(() => expect(list).toHaveBeenLastCalledWith({ search: "one", status: "", scope: "active", page: 1, pageSize: 20 }, expect.anything()));
+    await waitFor(() => expect(list).toHaveBeenLastCalledWith({ search: "one", status: "", scope: "active", page: 1, pageSize: 20, sort: "recent-activity" }, expect.anything()));
     expect(nextButton().disabled).toBe(true);
     expect(previousButton().disabled).toBe(true);
     await userEvent.click(nextButton());
@@ -147,7 +147,7 @@ describe("NewsletterSubscriptionsPanel — a new query while the old answer is s
     list.mockReturnValueOnce(first.promise as never).mockReturnValueOnce(second.promise as never);
     await search("first");
     await search("second");
-    await waitFor(() => expect(list).toHaveBeenLastCalledWith({ search: "second", status: "", scope: "active", page: 1, pageSize: 20 }, expect.anything()));
+    await waitFor(() => expect(list).toHaveBeenLastCalledWith({ search: "second", status: "", scope: "active", page: 1, pageSize: 20, sort: "recent-activity" }, expect.anything()));
 
     first.resolve(ok(page([item("first@example.com")], { total: 1 })));
     await Promise.resolve();
@@ -171,7 +171,7 @@ describe("NewsletterSubscriptionsPanel — a new query while the old answer is s
     expect(screen.queryByTestId("newsletter-empty")).toBeNull();
     await userEvent.click(within(screen.getByTestId("newsletter-back-to-first")).getByRole("button"));
     await screen.findByTestId("newsletter-row-p1@example.com");
-    expect(list).toHaveBeenLastCalledWith({ search: "", status: "", scope: "active", page: 1, pageSize: 20 }, expect.anything());
+    expect(list).toHaveBeenLastCalledWith({ search: "", status: "", scope: "active", page: 1, pageSize: 20, sort: "recent-activity" }, expect.anything());
     expect(screen.queryByTestId("newsletter-out-of-range")).toBeNull();
   });
 });

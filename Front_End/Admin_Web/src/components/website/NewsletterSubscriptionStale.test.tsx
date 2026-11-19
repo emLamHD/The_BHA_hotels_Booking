@@ -213,7 +213,7 @@ describe("while the list is read again", () => {
     await userEvent.click(screen.getByTestId("newsletter-reload-latest"));
     await waitFor(() => expect(screen.queryByTestId("newsletter-edit-dialog")).toBeNull());
     expect(list).toHaveBeenCalledTimes(1);
-    expect(list).toHaveBeenCalledWith({ search: "example", status: "", scope: "all", page: 1, pageSize: 20 }, expect.anything());
+    expect(list).toHaveBeenCalledWith({ search: "example", status: "", scope: "all", page: 1, pageSize: 20, sort: "recent-activity" }, expect.anything());
     expect((screen.getByTestId("newsletter-search") as HTMLInputElement).value).toBe("example");
     expect((screen.getByTestId("newsletter-scope-filter") as HTMLSelectElement).value).toBe("all");
   });

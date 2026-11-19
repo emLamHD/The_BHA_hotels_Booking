@@ -588,17 +588,27 @@ export function parseNewsletterSubscriptionPage(data: unknown): NewsletterSubscr
   return items ? { items, page: data.page, pageSize: data.pageSize, total: data.total } : null;
 }
 
+/** BHA-NEWSLETTER-LIVE-001: `recent-activity` = newest sign-up OR verification first (the server decides); left out, the API keeps its first order, newest request first. */
+export type NewsletterListSort = "recent-activity";
+
 export const listNewsletterSubscriptions = (
-  query: { search: string; page: number; pageSize: number; status?: string; scope?: NewsletterListScope },
+  query: { search: string; page: number; pageSize: number; status?: string; scope?: NewsletterListScope; sort?: NewsletterListSort },
   signal?: AbortSignal,
 ) => {
   const params = new URLSearchParams({ page: String(query.page), pageSize: String(query.pageSize) });
   if (query.search.trim()) params.set("search", query.search.trim());
   if (query.status) params.set("status", query.status);
   if (query.scope && query.scope !== "active") params.set("scope", query.scope);
+  if (query.sort) params.set("sort", query.sort);
   return call<NewsletterSubscriptionPage>("GET", `${SETTINGS}/newsletter-subscriptions?${params.toString()}`, undefined,
     { write: false, parse: parseNewsletterSubscriptionPage, signal });
 };
+
+/**
+ * BHA-NEWSLETTER-LIVE-001: where the Newsletter live Hub is, built like every other Admin API address (Staff mode, HTTPS base URL). Behind the opt-in same-origin proxy
+ * (BHA-ADMIN-PROXY-001) a Next rewrite cannot carry a WebSocket upgrade: the connection then cannot start, the screen says so, and the list keeps working by hand.
+ */
+export const newsletterLiveTarget = () => target(`${SETTINGS}/newsletter-live`);
 
 const SUBSCRIPTIONS = `${SETTINGS}/newsletter-subscriptions`;
 const writeRow = (path: string, body: unknown) => call<NewsletterSubscription>("POST", `${SUBSCRIPTIONS}${path}`, body, { write: true, parse: parseNewsletterSubscription });
