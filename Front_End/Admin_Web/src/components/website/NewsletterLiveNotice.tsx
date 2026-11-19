@@ -45,7 +45,7 @@ export function LiveBanner({ kind, onView, disabled }: { kind: LiveBannerKind; o
     <Banner tone="info" testId="newsletter-live-banner">
       <p data-testid="newsletter-live-banner-text">
         {kind === "deferred"
-          ? "Có dữ liệu đăng ký mới. Danh sách sẽ được cập nhật khi bạn xong thao tác đang làm; chưa có gì của bạn bị thay đổi."
+          ? "Danh sách sẽ được đọc lại khi bạn xong thao tác đang làm (có thể có đăng ký mới); chưa có gì của bạn bị thay đổi."
           : kind === "gap"
             ? "Kết nối trực tiếp vừa được thiết lập lại nên có thể có đăng ký mới. Trang bạn đang xem được giữ nguyên."
             : "Có đăng ký mới. Trang bạn đang xem được giữ nguyên."}
