@@ -56,7 +56,7 @@ const row = (email: string, overrides: Partial<NewsletterSubscription> = {}): Ne
   language: "vi", version: 4, unsubscribedAtUtc: null, archivedAtUtc: null, verificationMail: null, ...overrides,
 });
 const page = (items: NewsletterSubscription[], overrides: Partial<NewsletterSubscriptionPage> = {}): NewsletterSubscriptionPage => ({ items, page: 1, pageSize: 20, total: items.length, ...overrides });
-const query = (overrides: Record<string, unknown> = {}) => ({ search: "", status: "", scope: "active", page: 1, pageSize: 20, ...overrides });
+const query = (overrides: Record<string, unknown> = {}) => ({ search: "", status: "", scope: "active", page: 1, pageSize: 20, sort: "recent-activity", ...overrides });
 const click = async (testId: string) => userEvent.click(within(screen.getByTestId(testId)).getByRole("button"));
 const refused = (code: string, status = 409, extra: Record<string, unknown> = {}) => ({ kind: "refused" as const, status, code, field: null, detail: code, ...extra });
 

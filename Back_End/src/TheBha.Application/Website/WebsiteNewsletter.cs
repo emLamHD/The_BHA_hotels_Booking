@@ -58,10 +58,11 @@ public interface INewsletterSubscriptions
     Task<NewsletterConfirmOutcome> ConfirmAsync(string token, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Newest first (ties by id). <paramref name="search"/> is a case-insensitive part of the address, taken literally. <paramref name="status"/> (null = any) and
+    /// Newest request first (ties by id), or by <paramref name="sort"/> = <see cref="NewsletterListSort.RecentActivity"/> (newest sign-up or verification first; null keeps the
+    /// first order). <paramref name="search"/> is a case-insensitive part of the address, taken literally. <paramref name="status"/> (null = any) and
     /// <paramref name="scope"/> (<see cref="NewsletterListScope"/>) narrow the rows; both are decided by the server.
     /// </summary>
-    Task<NewsletterSubscriptionPageDto> ListAsync(string? search, string? status, string scope, int page, int pageSize, CancellationToken cancellationToken);
+    Task<NewsletterSubscriptionPageDto> ListAsync(string? search, string? status, string scope, int page, int pageSize, CancellationToken cancellationToken, string? sort = null);
 
     /// <summary>
     /// The visitor pressed "unsubscribe" in a Welcome mail. Only a Welcome's token works (never a confirmation's), it needs no unexpired deadline, and a token

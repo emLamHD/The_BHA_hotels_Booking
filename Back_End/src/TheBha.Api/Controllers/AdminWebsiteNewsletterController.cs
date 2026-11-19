@@ -26,18 +26,18 @@ public sealed class AdminWebsiteNewsletterController(INewsletterSubscriptions su
     [StaffWebsitePermission(StaffGlobalPermission.WebsiteSettingsManage)]
     public async Task<ActionResult<NewsletterSubscriptionPageDto>> List(
         [FromQuery] string? search, [FromQuery] string? status = null, [FromQuery] string scope = NewsletterListScope.Active,
-        [FromQuery] int page = 1, [FromQuery] int pageSize = NewsletterRules.DefaultPageSize, CancellationToken cancellationToken = default)
+        [FromQuery] int page = 1, [FromQuery] int pageSize = NewsletterRules.DefaultPageSize, [FromQuery] string? sort = null, CancellationToken cancellationToken = default)
     {
         Response.Headers.CacheControl = "no-store";
         var statusOk = string.IsNullOrEmpty(status) || status is TheBha.Domain.Website.NewsletterSubscription.StatusPendingVerification or TheBha.Domain.Website.NewsletterSubscription.StatusVerified
             or TheBha.Domain.Website.NewsletterSubscription.StatusUnsubscribed;
-        if (page < 1 || pageSize < 1 || pageSize > NewsletterRules.MaxPageSize || (search?.Length ?? 0) > NewsletterRules.MaxSearchLength || !statusOk || !NewsletterListScope.IsKnown(scope))
+        if (page < 1 || pageSize < 1 || pageSize > NewsletterRules.MaxPageSize || (search?.Length ?? 0) > NewsletterRules.MaxSearchLength || !statusOk || !NewsletterListScope.IsKnown(scope) || !NewsletterListSort.IsKnown(sort))
         {
             return Fail(StatusCodes.Status400BadRequest, "Invalid list request", "newsletter-list-invalid", null,
-                $"page must be at least 1, pageSize 1-{NewsletterRules.MaxPageSize}, search at most {NewsletterRules.MaxSearchLength} characters, status a known status and scope active, archived or all.");
+                $"page must be at least 1, pageSize 1-{NewsletterRules.MaxPageSize}, search at most {NewsletterRules.MaxSearchLength} characters, status a known status, scope active, archived or all, and sort left out or {NewsletterListSort.RecentActivity}.");
         }
 
-        return Ok(await subscriptions.ListAsync(search, string.IsNullOrEmpty(status) ? null : status, scope, page, pageSize, cancellationToken));
+        return Ok(await subscriptions.ListAsync(search, string.IsNullOrEmpty(status) ? null : status, scope, page, pageSize, cancellationToken, string.IsNullOrEmpty(sort) ? null : sort));
     }
 
     [HttpPost]

@@ -1,9 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { inviteNewsletterSubscription, listNewsletterSubscriptions, type NewsletterListScope, type NewsletterSubscription, type WebsiteResult } from "@/lib/api/website";
+import { useStaffSession } from "@/components/auth/StaffSession";
 import { useWebsiteList, useWriteAction } from "./useWebsiteData";
+import { useNewsletterLive } from "./useNewsletterLive";
+import { LiveBanner, LiveStatusLine, LiveToast, type LiveBannerKind } from "./NewsletterLiveNotice";
 import { ActionButton, Banner, ErrorPanel, LoadingPanel, PageHeader, TABLE_CLASSES, TextField, formatWhen } from "./WebsiteUi";
 import {
   AddSubscriptionDialog,
@@ -32,17 +35,33 @@ type Dialog =
   | { kind: "confirm"; action: ConfirmAction; row: NewsletterSubscription };
 
 /**
- * BHA-NEWSLETTER-001/003: the Staff list of newsletter subscriptions and what Staff do to them. Newest first; the search, the status and scope filters and the paging are
- * the server's (the page never filters or sorts what it was given). Every change carries the version of the row it was opened on, is sent once, and is followed by a
+ * BHA-NEWSLETTER-001/003: the Staff list of newsletter subscriptions and what Staff do to them. Newest sign-up or verification first (`sort=recent-activity`); the search, the
+ * status and scope filters and the paging are the server's (the page never filters or sorts what it was given). Every change carries the version of the row it was opened on, is sent once, and is followed by a
  * read of the same query (the typed search and the page stay), so a row leaves or changes only because the server says so.
+ *
+ * BHA-NEWSLETTER-LIVE-001: a signal that someone just verified is only a prompt to read again; it never edits the list. It is applied only when the screen is quiet (no dialog,
+ * no write, no recovery read, no hold, no stale row), on page 1, with the typed search and the filters unchanged and the server deciding which rows match. On page 2 or later,
+ * or while something is in progress, nothing under Staff's hands moves: they are told, and the way to the new rows stays on screen. It never releases a hold, clears a stale
+ * row, closes a dialog or sends a change.
  */
 export default function NewsletterSubscriptionsPanel() {
   const [search, setSearch] = useState("");
   const [applied, setApplied] = useState("");
   const [status, setStatus] = useState("");
   const [scope, setScope] = useState<NewsletterListScope>("active");
-  const [page, setPage] = useState(1);
-  const [dialog, setDialog] = useState<Dialog | null>(null);
+  const [page, setPageState] = useState(1);
+  const [dialog, setDialogState] = useState<Dialog | null>(null);
+  // The page and the dialog are also read from outside React (the live connection's callbacks, a timer): the mirrors change in the same breath as the state, before the next render.
+  const pageRef = useRef(1);
+  const dialogRef = useRef<Dialog | null>(null);
+  const goToPage = (next: number) => {
+    pageRef.current = next;
+    setPageState(next);
+  };
+  const showDialog = (next: Dialog | null) => {
+    dialogRef.current = next;
+    setDialogState(next);
+  };
   const [notice, setNotice] = useState<string | null>(null);
   // ONE write slot for the whole screen (every dialog and the invitation), with the hold: after a write whose outcome is unknown nothing more is sent until the list
   // has been read again successfully. It lives here, not in a dialog, so closing and reopening a dialog cannot lift it.
@@ -83,30 +102,32 @@ export default function NewsletterSubscriptionsPanel() {
   const write = { ...hookWrite, run };
   heldRef.current = hookWrite.held;
   staleRef.current = staleRowIds;
-  const list = useWebsiteList((signal) => listNewsletterSubscriptions({ search: applied, status, scope, page, pageSize: PAGE_SIZE }, signal), [applied, status, scope, page]);
+  pageRef.current = page;
+  dialogRef.current = dialog;
+  const list = useWebsiteList((signal) => listNewsletterSubscriptions({ search: applied, status, scope, page, pageSize: PAGE_SIZE, sort: "recent-activity" }, signal), [applied, status, scope, page]);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    setPage(1);
+    goToPage(1);
     setApplied(search.trim());
   };
   const clear = () => {
     setSearch("");
-    setPage(1);
+    goToPage(1);
     setApplied("");
   };
   const openDialog = (next: Dialog) => {
     if (readingRef.current || write.held || (next.kind !== "add" && staleRowIds.has(next.row.id))) return;
     write.reset();
     setNotice(null);
-    setDialog(next);
+    showDialog(next);
   };
   const closeDialog = () => {
     write.reset();
-    setDialog(null);
+    showDialog(null);
   };
   const done = (message: string) => {
-    setDialog(null);
+    showDialog(null);
     setNotice(message);
     void list.reload();
   };
@@ -141,7 +162,7 @@ export default function NewsletterSubscriptionsPanel() {
     write.release();
     heldRef.current = false;
     setStale(new Set([...staleRef.current].filter((id) => !cleared.has(id))));
-    setDialog(null);
+    showDialog(null);
     const where = "Nếu dòng không còn hiện ở bộ lọc này, nó có thể đã đổi trạng thái hoặc bị xóa; chọn “Tất cả” ở bộ lọc Hiển thị để chắc chắn.";
     const unknown = "Thao tác trước đó chưa rõ kết quả: hãy kiểm tra dòng liên quan.";
     const conflict = "Có bản ghi vừa được người khác hoặc chính khách thay đổi: hãy mở lại bản ghi từ danh sách vừa cập nhật rồi thao tác tiếp; chưa có gì được gửi lại.";
@@ -155,7 +176,7 @@ export default function NewsletterSubscriptionsPanel() {
     setApplied(email);
     setStatus("");
     setScope(archived ? "all" : "active");
-    setPage(1);
+    goToPage(1);
   };
 
   const sendInvite = async (row: NewsletterSubscription) => {
@@ -190,12 +211,101 @@ export default function NewsletterSubscriptionsPanel() {
   const locked = write.held || writePending || reading;
   const filtered = applied !== "" || status !== "" || scope !== "active";
 
+  // ---- BHA-NEWSLETTER-LIVE-001
+  // `dirty` is what the server may know and this screen does not: verifications it was told about, and "the connection was (re)established, so something may have been missed".
+  const liveDirtyRef = useRef({ news: 0, sync: false });
+  const liveReadingRef = useRef(false);
+  // One token per setup of this screen (null before the first and after the cleanup). A live read remembers the token it started under; whatever ends under another one belongs to
+  // a life that is over, so it neither drains the queue nor touches the flag of the life that came after it (Strict Mode mounts, cleans up and mounts again on the same instance).
+  const lifeRef = useRef<object | null>(null);
+  useEffect(() => {
+    lifeRef.current = {};
+    return () => {
+      lifeRef.current = null;
+      liveDirtyRef.current = { news: 0, sync: false };                                          // what was waiting dies with the screen
+      liveReadingRef.current = false;
+    };
+  }, []);
+  const [behind, setBehind] = useState<"new" | "gap" | null>(null);
+  const [deferred, setDeferred] = useState(false);
+  const [toast, setToast] = useState<{ count: number; token: number } | null>(null);
+  const dismissToast = useCallback(() => setToast(null), []);
+  // Quiet = nothing under Staff's hands. Read from the refs, never from state, so a callback from an earlier render or a timer sees the truth of this instant.
+  const liveSafe = () => dialogRef.current === null && !writingRef.current && !readingRef.current && !heldRef.current && staleRef.current.size === 0;
+  const applyLive = () => {
+    const life = lifeRef.current;
+    if (life === null) return;                                                                 // the screen is gone: no read, no queue
+    const dirty = liveDirtyRef.current;
+    if (dirty.news === 0 && !dirty.sync) return;
+    if (!liveSafe()) {
+      setDeferred(true);                                                                      // kept: it is applied the moment the screen is quiet again
+      return;
+    }
+    if (pageRef.current !== 1) {
+      // Page 2 or later: the rows being read stay exactly as they are; Staff chooses to look.
+      liveDirtyRef.current = { news: 0, sync: false };
+      setDeferred(false);
+      setBehind((previous) => (dirty.news > 0 ? "new" : (previous ?? "gap")));
+      return;
+    }
+    if (liveReadingRef.current) return;                                                       // one live read at a time; its end applies whatever came meanwhile
+    liveDirtyRef.current = { news: 0, sync: false };
+    setDeferred(false);
+    liveReadingRef.current = true;
+    // The same query as on screen (the hook reads the current search, filters and page). A failed or replaced read changes nothing else here.
+    void list.reload().catch(() => null).finally(() => {
+      if (lifeRef.current !== life) return;                                                    // it ended after the cleanup (or under a later life): nothing of it is ours any more
+      liveReadingRef.current = false;
+      applyLiveRef.current();
+    });
+  };
+  const applyLiveRef = useRef(applyLive);
+  applyLiveRef.current = applyLive;
+  const staffSession = useStaffSession().state;
+  const live = useNewsletterLive(staffSession.status === "authenticated" ? staffSession.session.staffAccountId : "", {
+    onReady: () => {
+      if (lifeRef.current === null) return;
+      liveDirtyRef.current = { ...liveDirtyRef.current, sync: true };
+      applyLiveRef.current();
+    },
+    onNew: (count) => {
+      if (lifeRef.current === null) return;
+      liveDirtyRef.current = { ...liveDirtyRef.current, news: liveDirtyRef.current.news + count };
+      setToast((previous) => ({ count: (previous?.count ?? 0) + count, token: (previous?.token ?? 0) + 1 }));
+      applyLiveRef.current();
+    },
+  });
+  // The moment the screen is quiet again (dialog closed, write ended, recovery done, hold or stale row lifted by Staff), a waiting update is applied.
+  useEffect(() => {
+    applyLiveRef.current();
+  }, [dialog, locked, staleRowIds]);
+  // Staff reaching page 1 by themselves reads it fresh: nothing is behind any more.
+  useEffect(() => {
+    if (page === 1) setBehind(null);
+  }, [page]);
+  // "Xem đăng ký mới" (banner AND toast) moves the page, which aborts and replaces any read that is out: so it answers to the same rule as the live read itself. `viewLocked` is the
+  // picture of it for both buttons; the handler checks the refs itself, first, so a callback of an earlier render, or a click in the same tick as the one that took a slot, is refused
+  // before it touches the page, the banner or a request, and the refused click leaves the sign that there is something new where it was.
+  const listPendingRef = useRef(false);
+  listPendingRef.current = list.pending;
+  const viewLocked = list.pending || dialog !== null || locked || staleRowIds.size > 0;
+  const viewNew = () => {
+    if (!liveSafe() || listPendingRef.current || liveReadingRef.current) return;
+    setBehind(null);
+    if (pageRef.current === 1) void list.reload();
+    else goToPage(1);                                                                          // keeps the search, the status and the scope; only the page changes
+  };
+  const bannerKind: LiveBannerKind | null = behind ?? (deferred ? "deferred" : null);
+
   return (
     <div className="flex flex-col gap-4">
       <PageHeader title="Đăng ký nhận tin">
         Email khách để lại ở khung &ldquo;Nhận ưu đãi từ The BHA&rdquo; trên trang chủ và email Staff thêm tay. Khi Gmail đã kết nối, khách nhận email xác nhận, dòng chuyển sang &ldquo;Đã xác minh&rdquo; sau khi họ bấm xác nhận và họ nhận thêm một email chào mừng có liên kết hủy nhận tin.{" "}
         <Link href="/website/newsletter/sender" className="text-brand-600 underline dark:text-brand-400">Cấu hình email gửi</Link>
       </PageHeader>
+      <LiveStatusLine status={live.status} stoppedFor={live.stoppedFor} onRetry={live.retry} />
+      {bannerKind && <LiveBanner kind={bannerKind} onView={viewNew} disabled={viewLocked} />}
+      {toast && <LiveToast count={toast.count} token={toast.token} onDismiss={dismissToast} onView={behind ? viewNew : null} disabled={viewLocked} />}
       {notice && <Banner tone="success" testId="newsletter-notice" onDismiss={() => setNotice(null)}>{notice}</Banner>}
       {dialog === null && <WriteOutcome status={write.status} reconcile={reconcileProps} />}
       {dialog === null && staleRowIds.size > 0 && (
@@ -218,13 +328,13 @@ export default function NewsletterSubscriptionsPanel() {
           {applied && <ActionButton variant="outline" onClick={clear}>Xoá tìm kiếm</ActionButton>}
           <label className="flex flex-col gap-1 text-sm text-gray-700 dark:text-gray-200">
             Trạng thái
-            <select data-testid="newsletter-status-filter" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }} className={SELECT_CLASSES}>
+            <select data-testid="newsletter-status-filter" value={status} onChange={(event) => { setStatus(event.target.value); goToPage(1); }} className={SELECT_CLASSES}>
               {STATUS_FILTERS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           </label>
           <label className="flex flex-col gap-1 text-sm text-gray-700 dark:text-gray-200">
             Hiển thị
-            <select data-testid="newsletter-scope-filter" value={scope} onChange={(event) => { setScope(event.target.value as NewsletterListScope); setPage(1); }} className={SELECT_CLASSES}>
+            <select data-testid="newsletter-scope-filter" value={scope} onChange={(event) => { setScope(event.target.value as NewsletterListScope); goToPage(1); }} className={SELECT_CLASSES}>
               {SCOPE_FILTERS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           </label>
@@ -236,7 +346,7 @@ export default function NewsletterSubscriptionsPanel() {
       {settled && data.items.length === 0 && data.total > 0 && (
         <div data-testid="newsletter-out-of-range" className="flex flex-wrap items-center gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-6 text-sm text-gray-600 dark:border-gray-800 dark:bg-white/[0.03] dark:text-gray-300">
           <span>Trang này không còn đăng ký nào, trong khi danh sách có {data.total} đăng ký.</span>
-          <ActionButton variant="outline" testId="newsletter-back-to-first" onClick={() => setPage(1)}>Về trang 1</ActionButton>
+          <ActionButton variant="outline" testId="newsletter-back-to-first" onClick={() => goToPage(1)}>Về trang 1</ActionButton>
         </div>
       )}
       {settled && data.items.length === 0 && data.total === 0 && (
@@ -298,8 +408,8 @@ export default function NewsletterSubscriptionsPanel() {
               {data.total} đăng ký · trang {data.page}/{pages}
             </span>
             <span className="flex gap-2">
-              <ActionButton variant="outline" onClick={() => setPage(page - 1)} disabled={list.pending || page <= 1}>Trang trước</ActionButton>
-              <ActionButton variant="outline" onClick={() => setPage(page + 1)} disabled={list.pending || page >= pages}>Trang sau</ActionButton>
+              <ActionButton variant="outline" onClick={() => goToPage(page - 1)} disabled={list.pending || page <= 1}>Trang trước</ActionButton>
+              <ActionButton variant="outline" onClick={() => goToPage(page + 1)} disabled={list.pending || page >= pages}>Trang sau</ActionButton>
             </span>
           </nav>
         </>

@@ -44,6 +44,8 @@ public static class StaffCalendarModeGuard
         // CUST-WEB-HEADER-001-CP02: an action opens only by carrying the website permission attribute, which is
         // itself the filter that enforces it (ADR 0008); never a prefix, a controller or a URL list.
         endpoint?.Metadata.GetMetadata<StaffWebsitePermissionAttribute>() is not null ||
+        // BHA-NEWSLETTER-LIVE-001: the Newsletter Hub opens only with its marker AND the policy that enforces it; never a prefix.
+        StaffNewsletterLiveAccess.IsEnforcedHub(endpoint) ||
         (endpoint?.Metadata.GetMetadata<ControllerActionDescriptor>() is { } action &&
          action.ControllerTypeInfo.AsType() == typeof(StaffAuthController) &&
          SessionActions.Contains(action.ActionName, StringComparer.Ordinal));

@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using TheBha.Application.Website;
 using TheBha.Domain.Website;
 using TheBha.Infrastructure.Persistence.Newsletter;
@@ -6,7 +7,8 @@ using TheBha.Infrastructure.Persistence.Newsletter;
 namespace TheBha.Infrastructure.Persistence;
 
 internal sealed class NewsletterSubscriptionService(
-    TheBhaDbContext database, TimeProvider timeProvider, NewsletterOptions options, NewsletterSecretProtector protector) : INewsletterSubscriptions
+    TheBhaDbContext database, TimeProvider timeProvider, NewsletterOptions options, NewsletterSecretProtector protector,
+    INewsletterLiveSignal live, ILogger<NewsletterSubscriptionService> log) : INewsletterSubscriptions
 {
     /// <summary>How many times a request looks for the row of its address: each extra round needs Staff to have renamed or deleted that row again in between.</summary>
     private const int MaxLockAttempts = 5;
@@ -100,6 +102,7 @@ internal sealed class NewsletterSubscriptionService(
             [("now", now), ("hash", hash)], cancellationToken);
 
         NewsletterConfirmOutcome outcome;
+        var verifiedNow = false;
         if (spent.Count == 1)
         {
             // The Welcome belongs to the ROW that really moves from pending to verified, not to every spent token: a superseded link that was already sent can still be
@@ -122,6 +125,7 @@ internal sealed class NewsletterSubscriptionService(
                 var language = await database.NewsletterSubscriptions.AsNoTracking().Where(s => s.Id == subscriptionId.Value).Select(s => s.Language).SingleAsync(cancellationToken);
                 await NewsletterLifecycle.QueueWelcomeAsync(database, options, protector, subscriptionId.Value, language, now, cancellationToken);
                 outcome = NewsletterConfirmOutcome.Verified;
+                verifiedNow = true;
             }
             else
             {
@@ -150,7 +154,25 @@ internal sealed class NewsletterSubscriptionService(
         }
 
         await transaction.CommitAsync(cancellationToken);
+        // BHA-NEWSLETTER-LIVE-001: only the call whose UPDATE really moved the row, and only once the commit has succeeded (a rollback or a failed commit never gets here).
+        if (verifiedNow) await SignalVerifiedAsync(now);
         return outcome;
+    }
+
+    /// <summary>
+    /// The verification is committed and the Welcome is queued; telling the open Admin screens is a courtesy. Whatever goes wrong here (a connection that vanished, a
+    /// timeout, a bug in the publisher) is logged without any address or token and never changes the answer the visitor gets. Awaited in the request, so nothing outlives the scope.
+    /// </summary>
+    private async Task SignalVerifiedAsync(DateTimeOffset now)
+    {
+        try
+        {
+            await live.PublishVerifiedAsync(new NewsletterVerifiedSignal(Guid.NewGuid(), now), CancellationToken.None);
+        }
+        catch (Exception exception)
+        {
+            log.LogWarning(exception, "Newsletter: a verification is committed but its live signal to the Admin screens could not be sent.");
+        }
     }
 
     public async Task<NewsletterUnsubscribeOutcome> UnsubscribeAsync(string token, CancellationToken cancellationToken)
@@ -200,7 +222,7 @@ internal sealed class NewsletterSubscriptionService(
         return moved.Count == 1 ? NewsletterUnsubscribeOutcome.Unsubscribed : NewsletterUnsubscribeOutcome.AlreadyUnsubscribed;
     }
 
-    public async Task<NewsletterSubscriptionPageDto> ListAsync(string? search, string? status, string scope, int page, int pageSize, CancellationToken cancellationToken)
+    public async Task<NewsletterSubscriptionPageDto> ListAsync(string? search, string? status, string scope, int page, int pageSize, CancellationToken cancellationToken, string? sort = null)
     {
         var query = database.NewsletterSubscriptions.AsNoTracking();
         var term = search?.Trim();
@@ -222,7 +244,11 @@ internal sealed class NewsletterSubscriptionService(
             return new NewsletterSubscriptionPageDto([], page, pageSize, total);
         }
 
-        var rows = await NewsletterLifecycle.Project(query.OrderByDescending(row => row.ReceivedAtUtc).ThenByDescending(row => row.Id).Skip((page - 1) * pageSize).Take(pageSize), database)
+        // The default order is the one every caller has had. "recent-activity" lets an old address that has just been verified lead the list, without touching ReceivedAtUtc.
+        var ordered = sort == NewsletterListSort.RecentActivity
+            ? query.OrderByDescending(row => row.VerifiedAtUtc ?? row.ReceivedAtUtc).ThenByDescending(row => row.Id)
+            : query.OrderByDescending(row => row.ReceivedAtUtc).ThenByDescending(row => row.Id);
+        var rows = await NewsletterLifecycle.Project(ordered.Skip((page - 1) * pageSize).Take(pageSize), database)
             .ToListAsync(cancellationToken);
         return new NewsletterSubscriptionPageDto(rows, page, pageSize, total);
     }

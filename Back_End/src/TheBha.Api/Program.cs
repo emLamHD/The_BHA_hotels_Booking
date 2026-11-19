@@ -1,4 +1,6 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.DataProtection;
@@ -13,6 +15,7 @@ using TheBha.Api;
 using TheBha.Api.Authentication;
 using TheBha.Api.Bookings;
 using TheBha.Api.Controllers;
+using TheBha.Api.Realtime;
 using TheBha.Api.Seeding;
 using TheBha.Application.Customers;
 using TheBha.Application.Website;
@@ -335,7 +338,23 @@ builder.Services
     })
     // PMS-ADMIN-AUTH-001-CP03 (D3): not a default scheme; Staff routes name it explicitly.
     .AddStaffCookie(builder.Environment.IsDevelopment());
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(StaffNewsletterLiveAccess.AddPolicy);
+builder.Services.AddScoped<IAuthorizationHandler, StaffNewsletterLiveHandler>();
+// BHA-NEWSLETTER-LIVE-001: the Newsletter live signal. The publisher is registered in every mode (the verification calls it); only Staff mode maps the Hub that
+// has connections to publish to, so LocalGate has no endpoint and nothing to send. One API instance: connections live in memory, there is no backplane.
+builder.Services.AddSignalR().AddHubOptions<NewsletterLiveHub>(options =>
+{
+    // The Hub has no method a client may call: anything a client sends is refused, and kept tiny.
+    options.MaximumReceiveMessageSize = 1024;
+    options.EnableDetailedErrors = false;
+});
+builder.Services.AddSingleton<NewsletterLiveConnections>();
+builder.Services.AddSingleton<NewsletterLiveBroadcaster>();
+builder.Services.AddSingleton<INewsletterLiveSignal>(services => services.GetRequiredService<NewsletterLiveBroadcaster>());
+if (staffCalendarMode)
+{
+    builder.Services.AddHostedService<NewsletterLiveSweeper>();
+}
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentCustomer, HttpCurrentCustomer>();
 builder.Services.AddAntiforgery(options =>
@@ -491,6 +510,17 @@ builder.Services.AddCors(options =>
             {
                 policy.WithOrigins(cors.AdminOrigins)
                     .WithHeaders("Content-Type")
+                    .WithMethods("POST")
+                    .AllowCredentials();
+            }
+        });
+        // BHA-NEWSLETTER-LIVE-001: the Hub's own policy (negotiate is the only cross-origin call: the WebSocket is not CORS), so no other Admin policy is widened.
+        options.AddPolicy(StaffNewsletterLiveAccess.CorsPolicy, policy =>
+        {
+            if (cors.AdminOrigins.Length > 0)
+            {
+                policy.WithOrigins(cors.AdminOrigins)
+                    .WithHeaders(StaffNewsletterLiveAccess.RequestHeaders)
                     .WithMethods("POST")
                     .AllowCredentials();
             }
@@ -653,6 +683,7 @@ app.Use(async (context, next) =>
 if (staffCalendarMode)
 {
     app.UseStaffCalendarModeGuard();
+    app.UseStaffNewsletterLiveOriginGuard(cors.AdminOrigins);
 }
 
 app.UseHttpsRedirection();
@@ -697,6 +728,20 @@ if (staffCalendarMode)
             endpoint.Metadata.Add(new EnableCorsAttribute(policy));
         }
     });
+}
+if (staffCalendarMode)
+{
+    // BHA-NEWSLETTER-LIVE-001: Staff mode only (LocalGate has no such route). WebSockets only: no long-polling GET/DELETE surface to open or clean up. The policy names the
+    // Staff scheme and re-reads the website permission; the metadata is what lets the mode guard open exactly this endpoint, and the Origin guard keys on it too.
+    app.MapHub<NewsletterLiveHub>(StaffNewsletterLiveAccess.Path, options =>
+        {
+            options.Transports = HttpTransportType.WebSockets;
+            options.ApplicationMaxBufferSize = 1024;
+            options.TransportMaxBufferSize = 4096;
+        })
+        .RequireAuthorization(StaffNewsletterLiveAccess.PolicyName)
+        .RequireCors(StaffNewsletterLiveAccess.CorsPolicy)
+        .WithMetadata(new StaffLiveHubEndpointMetadata());
 }
 app.MapHealthChecks(
     "/health/ready",
