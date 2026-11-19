@@ -268,20 +268,34 @@ public sealed class NewsletterLiveTests(PostgreSqlWebApplicationFactory factory)
         }
     }
 
+    // What was received past the end of the record just returned, per socket: the server may put several records (the handshake answer and the first message) in ONE WebSocket
+    // message, or split one across messages, so records are cut at the 0x1e separator, never at a message boundary (CI showed "{}" + the ready message arriving together).
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<WebSocket, StringBuilder> Unread = new();
+
     /// <summary>One SignalR record (up to the 0x1e separator), or <c>null</c> when the server closed the socket or nothing came in time.</summary>
     private static async Task<string?> ReadAsync(WebSocket socket, TimeSpan within)
     {
         using var timeout = new CancellationTokenSource(within);
-        var text = new StringBuilder();
+        var text = Unread.GetOrCreateValue(socket);
         var buffer = new byte[4096];
         try
         {
             while (true)
             {
+                var end = -1;
+                for (var i = 0; i < text.Length; i++)
+                {
+                    if (text[i] == '\u001e') { end = i; break; }
+                }
+                if (end >= 0)
+                {
+                    var record = text.ToString(0, end);
+                    text.Remove(0, end + 1);
+                    return record;
+                }
                 var received = await socket.ReceiveAsync(buffer, timeout.Token);
                 if (received.MessageType == WebSocketMessageType.Close) return null;
                 text.Append(Encoding.UTF8.GetString(buffer, 0, received.Count));
-                if (received.EndOfMessage && text.Length > 0 && text[^1] == '\u001e') return text.ToString(0, text.Length - 1);
             }
         }
         catch (OperationCanceledException)
@@ -292,6 +306,39 @@ public sealed class NewsletterLiveTests(PostgreSqlWebApplicationFactory factory)
         {
             return null;
         }
+    }
+
+    /// <summary>A socket that delivers the given WebSocket messages one by one, then stays silent: the way the server's records may be packed on the wire.</summary>
+    private sealed class ScriptedSocket(params string[] messages) : WebSocket
+    {
+        private readonly Queue<byte[]> queue = new(messages.Select(Encoding.UTF8.GetBytes));
+        public override WebSocketCloseStatus? CloseStatus => null;
+        public override string? CloseStatusDescription => null;
+        public override WebSocketState State => WebSocketState.Open;
+        public override string? SubProtocol => null;
+        public override void Abort() { }
+        public override Task CloseAsync(WebSocketCloseStatus closeStatus, string? statusDescription, CancellationToken cancellationToken) => Task.CompletedTask;
+        public override Task CloseOutputAsync(WebSocketCloseStatus closeStatus, string? statusDescription, CancellationToken cancellationToken) => Task.CompletedTask;
+        public override void Dispose() { }
+        public override Task SendAsync(ArraySegment<byte> buffer, WebSocketMessageType messageType, bool endOfMessage, CancellationToken cancellationToken) => Task.CompletedTask;
+        public override async Task<WebSocketReceiveResult> ReceiveAsync(ArraySegment<byte> buffer, CancellationToken cancellationToken)
+        {
+            if (queue.Count == 0) await Task.Delay(Timeout.Infinite, cancellationToken);
+            var next = queue.Dequeue();
+            next.CopyTo(buffer.Array!, buffer.Offset);
+            return new WebSocketReceiveResult(next.Length, WebSocketMessageType.Text, true);
+        }
+    }
+
+    [Fact]
+    public async Task Records_are_cut_at_the_separator_whatever_the_message_boundaries()
+    {
+        // CI: the handshake answer and the first server message arrived in ONE message; a record may equally be split over two.
+        var socket = new ScriptedSocket("{}\u001e{\"type\":1,\"target\":\"newsletterLiveReady\"}\u001e", "{\"type\":", "6}\u001e");
+        Assert.Equal("{}", await ReadAsync(socket, Patience));
+        Assert.Equal("{\"type\":1,\"target\":\"newsletterLiveReady\"}", await ReadAsync(socket, Patience));
+        Assert.Equal("{\"type\":6}", await ReadAsync(socket, Patience));
+        Assert.Null(await ReadAsync(socket, TimeSpan.FromMilliseconds(200)));                 // nothing more: silence is silence, not a record
     }
 
     /// <summary>The server closed or aborted the socket: silence alone would not be a revocation.</summary>
