@@ -76,7 +76,7 @@ export default function WebsiteAccessGate({ returnTo, children, rule = WEBSITE_R
     );
   }
   return (
-    <StaffSessionProvider>
+    <StaffSessionProvider reuse>
       <WebsiteBoundary returnTo={returnTo} rule={rule}>{children}</WebsiteBoundary>
     </StaffSessionProvider>
   );

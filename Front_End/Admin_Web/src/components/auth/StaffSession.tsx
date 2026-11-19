@@ -87,7 +87,18 @@ interface MeRead {
   message?: string;
 }
 
-export function StaffSessionProvider({ children }: { children: React.ReactNode }) {
+/**
+ * BHA-NEWSLETTER-BADGE-001: one session for the sidebar and the page. `reuse` (only the website gate passes it) makes this provider step aside when an enclosing one exists, so the
+ * gate, the sidebar's badge and the live connection share ONE `me` check, generation counter and sign-out. Without an enclosing provider, or without `reuse` (the Calendar, Blog,
+ * Promotions and Catalog gates), it is exactly what it was: its own session.
+ */
+export function StaffSessionProvider({ children, reuse = false }: { children: React.ReactNode; reuse?: boolean }) {
+  const enclosing = useContext(StaffSessionContext);
+  if (reuse && enclosing) return <>{children}</>;
+  return <OwnStaffSession>{children}</OwnStaffSession>;
+}
+
+function OwnStaffSession({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<StaffSessionState>({ status: "checking" });
   const generationRef = useRef(0);
   const controllerRef = useRef<AbortController | null>(null);

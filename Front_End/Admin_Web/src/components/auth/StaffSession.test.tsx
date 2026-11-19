@@ -363,3 +363,53 @@ describe("StaffSessionProvider", () => {
     }
   });
 });
+
+describe("BHA-NEWSLETTER-BADGE-001: a provider that asks to reuse an enclosing session", () => {
+  it("steps aside: one `me` check and one state for both readers, and one sign-out", async () => {
+    mockedMe.mockResolvedValue({ kind: "authenticated", session: session("staff-1") });
+    render(
+      <StaffSessionProvider>
+        <Probe />
+        <StaffSessionProvider reuse>
+          <p data-testid="inner-state-holder">
+            <Probe />
+          </p>
+        </StaffSessionProvider>
+      </StaffSessionProvider>
+    );
+    await waitFor(() => expect(screen.getAllByTestId("state").map((node) => node.textContent)).toEqual(["authenticated:staff-1:FrontDesk", "authenticated:staff-1:FrontDesk"]));
+    expect(mockedMe).toHaveBeenCalledTimes(1);
+
+    mockedLogout.mockResolvedValueOnce({ kind: "logged-out" });
+    await act(async () => {
+      await probe.api!.signOut();
+    });
+    expect(screen.getAllByTestId("state").map((node) => node.textContent)).toEqual(["unauthenticated:signed-out", "unauthenticated:signed-out"]);
+    expect(mockedLogout).toHaveBeenCalledTimes(1);
+  });
+
+  it("without `reuse` a nested provider is its own session, exactly as the Calendar, Blog, Promotions and Catalog gates are", async () => {
+    mockedMe.mockResolvedValue({ kind: "authenticated", session: session("staff-1") });
+    render(
+      <StaffSessionProvider>
+        <Probe />
+        <StaffSessionProvider>
+          <Probe />
+        </StaffSessionProvider>
+      </StaffSessionProvider>
+    );
+    await waitFor(() => expect(screen.getAllByTestId("state").map((node) => node.textContent)).toEqual(["authenticated:staff-1:FrontDesk", "authenticated:staff-1:FrontDesk"]));
+    expect(mockedMe).toHaveBeenCalledTimes(2);
+  });
+
+  it("with `reuse` and nothing around it, it is its own session", async () => {
+    mockedMe.mockResolvedValue({ kind: "authenticated", session: session("staff-1") });
+    render(
+      <StaffSessionProvider reuse>
+        <Probe />
+      </StaffSessionProvider>
+    );
+    await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent("authenticated:staff-1"));
+    expect(mockedMe).toHaveBeenCalledTimes(1);
+  });
+});

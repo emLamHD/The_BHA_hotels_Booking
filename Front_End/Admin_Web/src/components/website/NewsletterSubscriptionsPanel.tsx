@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { inviteNewsletterSubscription, listNewsletterSubscriptions, type NewsletterListScope, type NewsletterSubscription, type WebsiteResult } from "@/lib/api/website";
 import { useStaffSession } from "@/components/auth/StaffSession";
 import { useWebsiteList, useWriteAction } from "./useWebsiteData";
-import { useNewsletterLive } from "./useNewsletterLive";
+import { useNewsletterLiveFeed } from "./NewsletterBadgeProvider";
 import { LiveBanner, LiveStatusLine, LiveToast, type LiveBannerKind } from "./NewsletterLiveNotice";
 import { ActionButton, Banner, ErrorPanel, LoadingPanel, PageHeader, TABLE_CLASSES, TextField, formatWhen } from "./WebsiteUi";
 import {
@@ -262,7 +262,8 @@ export default function NewsletterSubscriptionsPanel() {
   const applyLiveRef = useRef(applyLive);
   applyLiveRef.current = applyLive;
   const staffSession = useStaffSession().state;
-  const live = useNewsletterLive(staffSession.status === "authenticated" ? staffSession.session.staffAccountId : "", {
+  const staffId = staffSession.status === "authenticated" ? staffSession.session.staffAccountId : "";
+  const live = useNewsletterLiveFeed(staffId, {
     onReady: () => {
       if (lifeRef.current === null) return;
       liveDirtyRef.current = { ...liveDirtyRef.current, sync: true };
@@ -275,6 +276,14 @@ export default function NewsletterSubscriptionsPanel() {
       applyLiveRef.current();
     },
   });
+  // BHA-NEWSLETTER-BADGE-001: the list answered for the query on screen (`settled`: not the previous query's answer kept while a new one is out, and an aborted, superseded or failed read
+  // never reaches `data`), so THIS answer's watermark says "seen up to here" for this Staff member. The acknowledgement is the shell's (it retries, drops what is older, and never shows
+  // zero before the server says so); it shares nothing with the write slot, the hold, the stale rows, the dialog or the read flags, so a failed one cannot lock the screen.
+  const viewWatermark = settled ? data.viewWatermark : undefined;
+  const { ack } = live;
+  useEffect(() => {
+    if (viewWatermark && staffId) ack(viewWatermark, staffId);
+  }, [data, viewWatermark, staffId, ack]);
   // The moment the screen is quiet again (dialog closed, write ended, recovery done, hold or stale row lifted by Staff), a waiting update is applied.
   useEffect(() => {
     applyLiveRef.current();
