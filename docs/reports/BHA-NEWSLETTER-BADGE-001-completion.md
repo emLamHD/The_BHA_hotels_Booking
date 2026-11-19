@@ -135,7 +135,7 @@ Ngoài mục tiêu 100–400 dòng (xem số liệu GitHub trong báo cáo chat)
 - Graphify: `ALLOWED_IF_RELEVANT`, đồ thị cũ → dùng nguồn + test. Advisor đã được hỏi trước khi chốt kế hoạch.
 - Review: lần 1 do Owner gọi trả hai finding P2, xử lý ở mục Correction C1; lần review sau C1 chờ Owner gọi lại `/codex:review --wait --base origin/develop`.
 
-## Correction C1 (`BHA-NEWSLETTER-BADGE-001-C1`, sau `/codex:review` lần 1; mã `9537f22`)
+## Correction C1 (`BHA-NEWSLETTER-BADGE-001-C1`, sau `/codex:review` lần 1; mã `9537f22`, test bổ sung `a0b4465`)
 
 Hai finding P2 của Codex; chỉ sửa `NewsletterBadgeProvider.tsx`, `AppSidebar.tsx` và test. Không đổi backend, migration, contract, dependency, proxy, StaffSession core, điều kiện `reuse={rule === WEBSITE_RULE}`, và socket **vẫn thuộc layout** (không đổi để chiều nghiệm thu cũ).
 
@@ -146,20 +146,20 @@ Hai finding P2 của Codex; chỉ sửa `NewsletterBadgeProvider.tsx`, `AppSideb
 
 | | Trước (`d71a2a8` + test) | Sau |
 |---|---|---|
-| vitest, 12 ca C1 mới (F1: live/REST/ack 403 + `/me` lỗi → form đóng + Retry → Retry mở lại với một kết nối; unauthenticated; authenticated; mất quyền; superseded; muộn sau đăng xuất; lỗi mạng thuần túy. F2: thu gọn/hover/mobile/0/99+/không ack) | 5 đỏ (3 F1: không có `staff-session-error`; 2 F2: chấm không hiện), 7 ca bảo vệ xanh | 12/12 |
+| vitest, 14 ca C1 mới (F1: live/REST/ack 403 + `/me` lỗi → form đóng + Retry → Retry mở lại với một kết nối; unauthenticated; authenticated; mất quyền; superseded; muộn sau đăng xuất; muộn sau khi đổi Staff; muộn sau khi cây bị unmount; lỗi mạng thuần túy. F2: thu gọn/hover/mobile/0/99+/không ack) | 5 đỏ (3 F1: không có `staff-session-error`; 2 F2: chấm không hiện), các ca bảo vệ còn lại xanh | 14/14 |
 | Trình duyệt F1: chặn `GET menu-unseen` bằng 403 và làm `/me` thất bại | đỏ: trang Website **vẫn mở**, không có lỗi/Retry | trang đóng, lỗi + Thử lại, socket đóng cùng access; Retry → trang trở lại, badge 2, **một** socket |
-| Trình duyệt F2 (desktop thu gọn/hover, mobile 375px, đo trong khung nhìn thực) | (F2 trước sửa được chứng minh bằng vitest; lần chạy trình duyệt trước sửa dừng ở F1) | 15/15 |
+| Trình duyệt F2 (desktop thu gọn/hover, mobile 375px, đo trong khung nhìn thực) | đỏ 2/11: sau khi thu gọn không có chấm nào trên màn hình, và sau khi chuột rời cũng vậy (chạy F2 riêng trên mã chưa sửa; lần chạy toàn bộ trước sửa dừng ở F1) | 15/15 (cùng script, F1 + F2) |
 
 Phần thật/mock của nghiệm thu trình duyệt: Chrome HTTPS, Admin `next dev`, API + PostgreSQL + SignalR **thật**, Google là stub; 403 của request đếm và việc `/me` thất bại được tạo bằng `route` phía trình duyệt. Đường **403 của kết nối live** không tạo được trong trình duyệt (negotiate đã xong); nó chỉ được chứng minh bằng test tích hợp (phiên dùng chung thật + provider thật + gate mặc định + form thật), và dùng chung `authFailure` với đường REST đã nghiệm thu. Ảnh: `…/scratchpad/accept/shots/c1-01-access-closed-retry.png`, `c1-02-after-retry.png`, `c1-03-expanded-website-open.png`, `c1-04-collapsed-dot.png`, `c1-05-hover-expanded.png`, `c1-06-mobile-drawer-closed.png`, `c1-07-mobile-drawer-open.png` (thư mục scratchpad của phiên, có thể bị dọn).
 
 | Kiểm tra (C1, trên `9537f22`) | Kết quả |
 |---|---|
-| Admin vitest (toàn bộ) | 95 file, **2698 passed** (+12) |
-| `tsc --noEmit`, `eslint .`, `next build` | sạch / thành công |
+| Admin vitest (toàn bộ, trên `a0b4465`) | 95 file, **2700 passed** (+14) |
+| `tsc --noEmit`, `eslint .` (trên `a0b4465`), `next build` (trên `9537f22`; commit sau chỉ đổi test) | sạch / thành công |
 | Chrome HTTPS (C1) | 15/15 |
 | Backend, Customer_Web | không chạy lại: không đổi mã ảnh hưởng đến chúng |
 
-Giới hạn giữ nguyên như đã công bố.
+Giới hạn giữ nguyên như đã công bố, **cộng một hệ quả mới của F1**: phiên dùng chung của layout giờ có thể chuyển sang trạng thái `error` từ một đường của badge (403 rồi `/me` lỗi) trên các trang **không có gate quyền website mặc định** (`/profile`, các trang template, Calendar, Catalog, Blog, Promotions). Ở đó không có gì hiện lỗi hay nút Retry: badge và socket của layout tắt cho tới khi Staff mở một trang Website và bấm Thử lại, hoặc tải lại trang. Đó là hành vi đúng (access phải đóng cho đến khi có Retry); không thêm tự thử lại vì như vậy sẽ mở lại access mà không có thao tác Retry của Staff.
 
 ## Quyết định cần Owner/OC
 
