@@ -409,6 +409,20 @@ describe("nothing outlives the identity", () => {
   });
 });
 
+describe("which gates share the shell's session", () => {
+  it("the default website gate shares it (ONE `me`); a gate with its own rule (Blog, Promotions) keeps a session of its own (a second `me`)", async () => {
+    const own = { isAllowed: () => true, noPermission: "no", signInPrompt: "sign in" };
+    mount(<WebsiteAccessGate returnTo="/website/languages"><p data-testid="default-child">default</p></WebsiteAccessGate>);
+    await screen.findByTestId("default-child");
+    expect(vi.mocked(fetchStaffSession)).toHaveBeenCalledTimes(1);
+    cleanup();
+    vi.mocked(fetchStaffSession).mockClear();
+    mount(<WebsiteAccessGate returnTo="/website/blog/posts" rule={own}><p data-testid="own-child">own</p></WebsiteAccessGate>);
+    await screen.findByTestId("own-child");
+    expect(vi.mocked(fetchStaffSession)).toHaveBeenCalledTimes(2);                           // the shell's and the gate's own
+  });
+});
+
 describe("one connection for the sidebar and the screen", () => {
   it("the shell and a mounted screen share ONE connection, also under Strict Mode; the screen never opens its own", async () => {
     mount(gated(<Screen />), true);
