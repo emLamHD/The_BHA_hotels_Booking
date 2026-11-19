@@ -114,6 +114,8 @@ Trước sửa (cùng test/kịch bản chạy trên mã `0d64af6`): vitest 9/12
 | Chrome HTTPS (Admin `next dev`, API + PostgreSQL riêng + SignalR thật; Google là stub): giữ phản hồi recovery bằng route phía trình duyệt, thử cả hai nút; xếp B sau live read A rồi rời màn hình bằng điều hướng client và theo dõi Network | 17/17 |
 | Backend, Customer_Web | không chạy lại: không đổi mã hay hợp đồng ảnh hưởng đến chúng |
 
+**CI đỏ trên `ce6a221` và cách xử lý (ngoài phạm vi liệt kê của C1, Owner cho phép trong chat).** Job Backend đỏ 3/1542 ca `NewsletterLiveTests` (`ConnectAsync`: kỳ vọng khung handshake đúng `"{}"`, nhận `"{}"` + tin `newsletterLiveReady`). Nguyên nhân là race trong **helper test** của CP1: server đôi khi gói nhiều bản ghi SignalR vào một WebSocket message, còn `ReadAsync` trả cả message. Máy cục bộ không gặp (1542/1542), CI chậm hơn nên gặp; mã production không liên quan. Sửa chỉ ở helper test: `ReadAsync` giữ phần chưa đọc theo từng socket và trả đúng một bản ghi cho mỗi dấu `0x1e`. Test mới `Records_are_cut_at_the_separator_whatever_the_message_boundaries` (socket kịch bản gói handshake + tin `ready` vào một message, và một bản ghi chia hai message) đỏ đúng như CI trên `ReadAsync` cũ, xanh sau sửa; cả lớp `NewsletterLiveTests` 15/15 ba lần liên tiếp cục bộ.
+
 Phản hồi “mất” của lời mời trong trình duyệt được tạo bằng `route.fetch()` rồi `route.abort()` (server đã xử lý, câu trả lời bị bỏ): đó là kiểm soát phía trình duyệt, không đổi dữ liệu của Owner. Giới hạn đã công bố giữ nguyên (một instance, proxy cùng-origin chưa kiểm chứng); C1 không mở rộng sang chúng.
 
 ## Quyết định cần Owner/OC
