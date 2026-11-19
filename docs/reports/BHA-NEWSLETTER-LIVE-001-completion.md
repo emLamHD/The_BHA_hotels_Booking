@@ -93,7 +93,28 @@ Ngoài mục tiêu 100–400 dòng. Mã sản xuất backend +355/−10 và Admi
 - `diagnosing-bugs`: `ALLOWED_IF_TRIGGERED`; không kích hoạt riêng. Ba điều đã gặp: handshake hoàn tất trước khi kết nối được đăng ký (test quét định kỳ đỏ trước, xanh sau khi thêm `newsletterLiveReady`); hình dạng lỗi negotiate của thư viện (tìm bằng nghiệm thu trình duyệt, test thêm cùng lúc với sửa); đồng hồ test đóng băng làm hai lần xác minh trùng `VerifiedAtUtc` (là lỗi của test, ràng buộc “một Welcome cho mỗi lần xác minh” hoạt động đúng; test tiến đồng hồ).
 - Graphify: `ALLOWED_IF_RELEVANT`; không dùng, phân tích ảnh hưởng bằng đọc nguồn + test.
 - Advisor đã được hỏi trước khi chốt kế hoạch (nhờ đó có xét lại quyền mỗi lần phát, guard theo marker + policy, WebSockets-only, ranh giới xác nhận handshake/đăng ký).
-- Review: chưa chạy — chờ Owner gọi `/codex:review --wait --base origin/develop`; kết quả sẽ chèn nguyên văn khi Owner chuyển lại.
+- Review: lần 1 do Owner gọi `/codex:review --wait --base origin/develop` trả hai finding P2, xử lý ở mục Correction C1; lần review sau C1 chờ Owner gọi lại cùng lệnh, kết quả sẽ chèn nguyên văn khi Owner chuyển lại.
+
+## Correction C1 (`BHA-NEWSLETTER-LIVE-001-C1`, sau `/codex:review` lần 1; commit mã `a73df26`)
+
+Hai finding P2 của Codex, cả hai ở `NewsletterSubscriptionsPanel.tsx`; chỉ sửa trong màn Newsletter (panel + `NewsletterLiveNotice.tsx` + test). Không đụng backend, hợp đồng, schema, hook dùng chung, dependency hay proxy.
+
+- **F1 — toast điều hướng khi recovery đang chạy.** Nút “Xem đăng ký mới” của toast không có `disabled` và handler `viewNew` không có guard, nên trên trang 2+ bấm toast đổi trang, abort và thay thế lượt đọc recovery (recovery báo lỗi, hold ở lại dù trang 1 tải được). Sửa: banner và toast dùng **một** điều kiện khả dụng (`viewLocked` = list đang đọc, dialog mở, write/recovery/hold, có dòng stale). Handler tự kiểm tra **trước tiên**, từ ref (`liveSafe()` + `listPendingRef` + `liveReadingRef`), trước khi đổi trang, banner hay gửi request; nhờ đó callback giữ từ render cũ hoặc click cùng tick với thao tác vừa chiếm slot ghi đều bị từ chối. Click bị từ chối không xóa dấu hiệu “có đăng ký mới”. Hold phải do recovery thành công gỡ: recovery thất bại giữ hold, hai nút vẫn khóa, nút thử lại còn.
+- **F2 — cập nhật đang chờ chạy sau khi panel unmount.** `finally` của lượt đọc live gọi lại `applyLiveRef.current()`; nếu có tín hiệu xếp hàng nó tạo request sau cleanup của `useWebsiteList`, và 401/403 của request đó đi vào gate cũ. Sửa: token vòng đời theo mỗi lần setup (`lifeRef`: object mới khi setup, `null` khi cleanup). `applyLive`, `onNew`, `onReady` thoát khi token là `null`; lượt đọc live nhớ token lúc bắt đầu và `finally` thoát ngay (không đụng cờ `liveReadingRef`, không drain hàng) nếu token đã khác. Cleanup xóa hàng đợi và cờ đọc. Dùng token (không phải cờ `mounted` boolean) để promise của vòng đời cũ không tác động vòng đời Strict Mode sau đó. Khi panel còn sống, tín hiệu đến lúc đang đọc vẫn được gộp và đọc đúng một lần sau đó (có test).
+
+### Bằng chứng trước/sau
+
+Trước sửa (cùng test/kịch bản chạy trên mã `0d64af6`): vitest 7/10 ca C1 đỏ, 3 ca guard xanh; trình duyệt F1 đỏ (toast bấm được khi đang recovery, bấm là rời trang 2 và mất banner) và F2 đỏ (1 request list mới sau khi panel đã unmount, `GETs after unmount 1`). Sau sửa: vitest 33/33 file `NewsletterSubscriptionLive`, trình duyệt 17/17.
+
+| Kiểm tra (sau sửa, mã `a73df26`) | Kết quả |
+|---|---|
+| Test mới C1 (10 ca: F1 ×4, F2 ×6 gồm abort, 401/403, Strict Mode, callback muộn, hàng đợi khi còn sống) | pass; 7/10 đỏ trên mã cũ |
+| Admin_Web vitest toàn bộ | 91 file, 2628 passed |
+| `tsc --noEmit`, `eslint .`, `next build` | sạch / thành công |
+| Chrome HTTPS (Admin `next dev`, API + PostgreSQL riêng + SignalR thật; Google là stub): giữ phản hồi recovery bằng route phía trình duyệt, thử cả hai nút; xếp B sau live read A rồi rời màn hình bằng điều hướng client và theo dõi Network | 17/17 |
+| Backend, Customer_Web | không chạy lại: không đổi mã hay hợp đồng ảnh hưởng đến chúng |
+
+Phản hồi “mất” của lời mời trong trình duyệt được tạo bằng `route.fetch()` rồi `route.abort()` (server đã xử lý, câu trả lời bị bỏ): đó là kiểm soát phía trình duyệt, không đổi dữ liệu của Owner. Giới hạn đã công bố giữ nguyên (một instance, proxy cùng-origin chưa kiểm chứng); C1 không mở rộng sang chúng.
 
 ## Quyết định cần Owner/OC
 
