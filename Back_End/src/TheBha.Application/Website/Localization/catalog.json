@@ -4863,7 +4863,67 @@
    "placeholders": []
   },
   {
+   "key": "customer.newsletter.confirm.already",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.confirm.button",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.confirm.expired",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.confirm.failed",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.confirm.heading",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.confirm.home",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.confirm.intro",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.confirm.invalid",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.confirm.meta",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.confirm.verified",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.confirm.working",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
    "key": "customer.newsletter.disclosure",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.failed",
    "scope": "customer",
    "placeholders": []
   },
@@ -4888,22 +4948,17 @@
    "placeholders": []
   },
   {
-   "key": "customer.newsletter.sending",
-   "scope": "customer",
-   "placeholders": []
-  },
-  {
-   "key": "customer.newsletter.failed",
-   "scope": "customer",
-   "placeholders": []
-  },
-  {
-   "key": "customer.newsletter.tooMany",
+   "key": "customer.newsletter.receivedConfirm",
    "scope": "customer",
    "placeholders": []
   },
   {
    "key": "customer.newsletter.required",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.sending",
    "scope": "customer",
    "placeholders": []
   },
@@ -4914,6 +4969,11 @@
   },
   {
    "key": "customer.newsletter.subscribeLabel",
+   "scope": "customer",
+   "placeholders": []
+  },
+  {
+   "key": "customer.newsletter.tooMany",
    "scope": "customer",
    "placeholders": []
   },

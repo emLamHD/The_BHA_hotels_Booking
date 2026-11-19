@@ -2,14 +2,25 @@ using System.Globalization;
 
 namespace TheBha.Application.Website;
 
-public sealed record NewsletterSubscriptionDto(Guid Id, string Email, DateTimeOffset ReceivedAtUtc, string Source, string Status);
+public sealed record NewsletterSubscriptionDto(Guid Id, string Email, DateTimeOffset ReceivedAtUtc, string Source, string Status, DateTimeOffset? VerifiedAtUtc);
 
 public sealed record NewsletterSubscriptionPageDto(IReadOnlyList<NewsletterSubscriptionDto> Items, int Page, int PageSize, int Total);
 
+/// <summary>What the public form is told. <see cref="EmailConfirmation"/> is a property of the SITE (is a sender connected), never of the address, so the answer is the same for a new and a known address.</summary>
+public sealed record NewsletterSubscribeResult(bool EmailConfirmation);
+
+public enum NewsletterConfirmOutcome { Verified, AlreadyVerified, Expired, Invalid }
+
 public interface INewsletterSubscriptions
 {
-    /// <summary>Records the request once per address. An address that is already there is left as it is (its first time is kept); the caller cannot tell the two apart.</summary>
-    Task SubscribeAsync(string normalizedEmail, string source, CancellationToken cancellationToken);
+    /// <summary>
+    /// Records the request once per address (the first time is kept) and, when a sender is connected and the resend cooldown allows,
+    /// queues one confirmation e-mail. Gmail not connected = V1 behaviour: the row is recorded and nothing is queued.
+    /// </summary>
+    Task<NewsletterSubscribeResult> SubscribeAsync(string normalizedEmail, string source, string language, CancellationToken cancellationToken);
+
+    /// <summary>Marks the address verified for a valid, unused, unexpired token. A used token answers <c>AlreadyVerified</c> and changes nothing.</summary>
+    Task<NewsletterConfirmOutcome> ConfirmAsync(string token, CancellationToken cancellationToken);
 
     /// <summary>Newest first (ties by id). <paramref name="search"/> is a case-insensitive part of the address, taken literally.</summary>
     Task<NewsletterSubscriptionPageDto> ListAsync(string? search, int page, int pageSize, CancellationToken cancellationToken);
@@ -21,6 +32,13 @@ public static class NewsletterRules
     public const int MaxSearchLength = 254;
     public const int MaxPageSize = 100;
     public const int DefaultPageSize = 20;
+    public const int MaxTokenLength = 64;
+    public static readonly IReadOnlyList<string> Languages = ["vi", "en", "fr"];
+    public const string DefaultLanguage = "vi";
+
+    /// <summary>The language of the confirmation e-mail: one of <see cref="Languages"/>, anything else (or nothing) is the site default.</summary>
+    public static string NormalizeLanguage(string? raw) =>
+        Languages.FirstOrDefault(l => string.Equals(l, raw?.Trim(), StringComparison.OrdinalIgnoreCase)) ?? DefaultLanguage;
 
     /// <summary>
     /// The same shape the Customer form checks (one @, a dot-separated domain of at least two labels, an alphabetic

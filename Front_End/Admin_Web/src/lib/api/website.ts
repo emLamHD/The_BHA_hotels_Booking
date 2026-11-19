@@ -540,6 +540,8 @@ export interface NewsletterSubscription {
   receivedAtUtc: string;
   source: string;
   status: string;
+  /** When the visitor confirmed the address (BHA-NEWSLETTER-002); `null` while the status is `PendingVerification`. */
+  verifiedAtUtc: string | null;
 }
 
 export interface NewsletterSubscriptionPage {
@@ -551,7 +553,8 @@ export interface NewsletterSubscriptionPage {
 
 const parseNewsletterSubscription = (data: unknown): NewsletterSubscription | null =>
   isRec(data) && isStr(data.id) && isStr(data.email) && isStr(data.receivedAtUtc) && isStr(data.source) && isStr(data.status)
-    ? { id: data.id, email: data.email, receivedAtUtc: data.receivedAtUtc, source: data.source, status: data.status }
+    && (data.verifiedAtUtc === null || data.verifiedAtUtc === undefined || isStr(data.verifiedAtUtc))
+    ? { id: data.id, email: data.email, receivedAtUtc: data.receivedAtUtc, source: data.source, status: data.status, verifiedAtUtc: isStr(data.verifiedAtUtc) ? data.verifiedAtUtc : null }
     : null;
 
 export function parseNewsletterSubscriptionPage(data: unknown): NewsletterSubscriptionPage | null {
@@ -566,6 +569,63 @@ export const listNewsletterSubscriptions = (query: { search: string; page: numbe
   return call<NewsletterSubscriptionPage>("GET", `${SETTINGS}/newsletter-subscriptions?${params.toString()}`, undefined,
     { write: false, parse: parseNewsletterSubscriptionPage, signal });
 };
+
+// ---------------------------------------------------------------- newsletter sender (BHA-NEWSLETTER-002)
+
+export type NewsletterSenderStatus = "NotConnected" | "Connected" | "NeedsReconnect";
+
+/** What the API says of the Gmail sender: metadata only. The client secret and the tokens are never returned. */
+export interface NewsletterSender {
+  status: NewsletterSenderStatus;
+  clientId: string | null;
+  hasClientSecret: boolean;
+  connectedEmail: string | null;
+  senderName: string | null;
+  replyTo: string | null;
+  connectedAtUtc: string | null;
+  /** The address to paste into Google Cloud as an Authorized redirect URI; `null` when the Admin origin is not configured. */
+  redirectUri: string | null;
+  scopes: string[];
+  customerOriginReady: boolean;
+  version: number;
+  pendingRequests: number;
+}
+
+const optStr = (value: unknown) => (value === null || value === undefined ? null : isStr(value) ? value : undefined);
+
+export function parseNewsletterSender(data: unknown): NewsletterSender | null {
+  if (!isRec(data) || !isStr(data.status) || !["NotConnected", "Connected", "NeedsReconnect"].includes(data.status)) return null;
+  if (typeof data.hasClientSecret !== "boolean" || typeof data.customerOriginReady !== "boolean" || !isNum(data.version) || !isNum(data.pendingRequests)) return null;
+  if (!Array.isArray(data.scopes) || !data.scopes.every(isStr)) return null;
+  const [clientId, connectedEmail, senderName, replyTo, connectedAtUtc, redirectUri] = [data.clientId, data.connectedEmail, data.senderName, data.replyTo, data.connectedAtUtc, data.redirectUri].map(optStr);
+  if ([clientId, connectedEmail, senderName, replyTo, connectedAtUtc, redirectUri].includes(undefined)) return null;
+  return {
+    status: data.status as NewsletterSenderStatus, clientId: clientId as string | null, hasClientSecret: data.hasClientSecret,
+    connectedEmail: connectedEmail as string | null, senderName: senderName as string | null, replyTo: replyTo as string | null,
+    connectedAtUtc: connectedAtUtc as string | null, redirectUri: redirectUri as string | null, scopes: data.scopes as string[],
+    customerOriginReady: data.customerOriginReady, version: data.version, pendingRequests: data.pendingRequests,
+  };
+}
+
+export const getNewsletterSender = (signal?: AbortSignal) =>
+  call<NewsletterSender>("GET", `${SETTINGS}/newsletter-sender`, undefined, { write: false, parse: parseNewsletterSender, signal });
+
+export const saveNewsletterSenderProfile = (input: { expectedVersion: number; senderName: string | null; replyTo: string | null }) =>
+  call<NewsletterSender>("POST", `${SETTINGS}/newsletter-sender/profile`, input, { write: true, parse: parseNewsletterSender });
+
+/** Starts "Connect Gmail". The secret is write-only: send `null` to keep the stored one (only valid with the same Client ID). */
+export const startNewsletterConnect = (input: { clientId: string; clientSecret: string | null; switchAccount: boolean }) =>
+  call<{ authorizationUrl: string }>("POST", `${SETTINGS}/newsletter-sender/connect`, { clientId: input.clientId, clientSecret: input.clientSecret ?? undefined, switchAccount: input.switchAccount }, {
+    write: true,
+    parse: (data) => (isRec(data) && isStr(data.authorizationUrl) ? { authorizationUrl: data.authorizationUrl } : null),
+  });
+
+/** What the callback page forwards after Google sent the browser back: the code travels in this POST body, never in a query. */
+export const completeNewsletterConnect = (input: { state: string; code: string | null; error: string | null }) =>
+  call<NewsletterSender>("POST", `${SETTINGS}/newsletter-sender/connect/complete`, input, { write: true, parse: parseNewsletterSender });
+
+export const disconnectNewsletterSender = () =>
+  call<NewsletterSender>("POST", `${SETTINGS}/newsletter-sender/disconnect`, {}, { write: true, parse: parseNewsletterSender });
 
 // ---------------------------------------------------------------- one request
 

@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_RETURN_TO, WEBSITE_PAGES, resolveReturnTo, signInUrlFor } from "./returnTo";
 
 describe("resolveReturnTo", () => {
-  it.each(["/calendar", "/website/languages", "/website/translations", "/website/currencies", "/website/menus", "/website/hero", "/website/social-media", "/website/newsletter"])("accepts the allowed page %s", (page) => {
+  it.each(["/calendar", "/website/languages", "/website/translations", "/website/currencies", "/website/menus", "/website/hero", "/website/social-media", "/website/newsletter", "/website/newsletter/sender"])("accepts the allowed page %s", (page) => {
     expect(resolveReturnTo(page)).toBe(page);
   });
 
@@ -34,8 +34,14 @@ describe("resolveReturnTo", () => {
     expect(resolveReturnTo(value as string | string[] | null | undefined)).toBe(DEFAULT_RETURN_TO);
   });
 
+  it("returns to the sender page after a sign-in (BHA-NEWSLETTER-002) but not to its OAuth callback, whose code is single use", () => {
+    expect(resolveReturnTo("/website/newsletter/sender")).toBe("/website/newsletter/sender");
+    expect(resolveReturnTo("/website/newsletter/sender/callback")).toBe(DEFAULT_RETURN_TO);
+    expect(resolveReturnTo("/website/newsletter/sender?code=x")).toBe(DEFAULT_RETURN_TO);
+  });
+
   it("lists exactly the website settings pages", () => {
-    expect([...WEBSITE_PAGES]).toEqual(["/website/languages", "/website/translations", "/website/currencies", "/website/menus", "/website/hero", "/website/social-media", "/website/newsletter"]);
+    expect([...WEBSITE_PAGES]).toEqual(["/website/languages", "/website/translations", "/website/currencies", "/website/menus", "/website/hero", "/website/social-media", "/website/newsletter", "/website/newsletter/sender"]);
   });
 });
 

@@ -25,7 +25,7 @@ import { fetchStaffSession } from "@/lib/api/staff";
 import { listNewsletterSubscriptions, parseNewsletterSubscriptionPage, type NewsletterSubscriptionPage } from "@/lib/api/website";
 
 const list = vi.mocked(listNewsletterSubscriptions);
-const item = (email: string, receivedAtUtc = "2026-11-16T04:00:00+00:00") => ({ id: `id-${email}`, email, receivedAtUtc, source: "homepage", status: "PendingVerification" });
+const item = (email: string, receivedAtUtc = "2026-11-16T04:00:00+00:00", verifiedAtUtc: string | null = null) => ({ id: `id-${email}`, email, receivedAtUtc, source: "homepage", status: verifiedAtUtc ? "Verified" : "PendingVerification", verifiedAtUtc });
 const page = (items: ReturnType<typeof item>[], overrides: Partial<NewsletterSubscriptionPage> = {}): NewsletterSubscriptionPage => ({ items, page: 1, pageSize: 20, total: items.length, ...overrides });
 
 beforeEach(() => {
@@ -46,6 +46,17 @@ describe("NewsletterSubscriptionsPanel", () => {
     expect(within(row).getByText("Trang chủ")).toBeTruthy();
     expect(screen.getByTestId("newsletter-count").textContent).toContain("2 đăng ký");
     expect(list).toHaveBeenCalledWith({ search: "", page: 1, pageSize: 20 }, expect.anything());
+  });
+
+  it("shows who confirmed and when (BHA-NEWSLETTER-002), and a dash for a pending address", async () => {
+    list.mockResolvedValue(ok(page([item("done@example.com", "2026-11-16T04:00:00+00:00", "2026-11-17T08:30:00+00:00"), item("wait@example.com")])));
+    renderInGate(<NewsletterSubscriptionsPanel />, "/website/newsletter");
+    const verified = await screen.findByTestId("newsletter-row-done@example.com");
+    expect(within(verified).getByText("Đã xác minh")).toBeTruthy();
+    expect(within(verified).queryByText("—")).toBeNull();
+    const pending = screen.getByTestId("newsletter-row-wait@example.com");
+    expect(within(pending).getByText("Chưa xác minh email")).toBeTruthy();
+    expect(within(pending).getByText("—")).toBeTruthy();
   });
 
   it("shows the server's order as it is (newest first), without sorting again", async () => {
@@ -167,5 +178,9 @@ describe("parseNewsletterSubscriptionPage", () => {
     expect(parseNewsletterSubscriptionPage({ items: [{ email: "a@example.com" }], page: 1, pageSize: 20, total: 1 })).toBeNull();
     expect(parseNewsletterSubscriptionPage({ items: [], page: "1", pageSize: 20, total: 0 })).toBeNull();
     expect(parseNewsletterSubscriptionPage(null)).toBeNull();
+    // An older API that does not send verifiedAtUtc still reads, as "not verified yet".
+    const old = { id: "x", email: "a@example.com", receivedAtUtc: "t", source: "homepage", status: "PendingVerification" };
+    expect(parseNewsletterSubscriptionPage({ items: [old], page: 1, pageSize: 20, total: 1 })?.items[0].verifiedAtUtc).toBeNull();
+    expect(parseNewsletterSubscriptionPage({ items: [{ ...old, verifiedAtUtc: 5 }], page: 1, pageSize: 20, total: 1 })).toBeNull();
   });
 });

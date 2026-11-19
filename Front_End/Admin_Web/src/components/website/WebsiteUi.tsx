@@ -75,6 +75,7 @@ export function TextField({
   inputMode,
   testId,
   autoFocus,
+  type = "text",
 }: {
   label: string;
   value: string;
@@ -87,6 +88,8 @@ export function TextField({
   inputMode?: "text" | "decimal" | "numeric";
   testId?: string;
   autoFocus?: boolean;
+  /** `password` for a write-only secret: the browser is told not to remember or autofill it. */
+  type?: "text" | "password";
 }) {
   const id = useId();
   const note = `${id}-note`;
@@ -96,7 +99,7 @@ export function TextField({
       <input
         id={id}
         data-testid={testId}
-        type="text"
+        type={type}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         disabled={disabled}
@@ -104,7 +107,7 @@ export function TextField({
         placeholder={placeholder}
         inputMode={inputMode}
         autoFocus={autoFocus}
-        autoComplete="off"
+        autoComplete={type === "password" ? "new-password" : "off"}
         spellCheck={false}
         aria-invalid={error ? true : undefined}
         aria-describedby={error || hint ? note : undefined}

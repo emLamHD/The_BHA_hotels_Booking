@@ -19,7 +19,7 @@ describe("submitNewsletterEmail", () => {
     process.env.NEXT_PUBLIC_API_BASE_URL = "https://api.example.test";
     const fetchMock = answer(202);
     globalThis.fetch = fetchMock as unknown as typeof fetch;
-    await expect(submitNewsletterEmail("ten@example.com")).resolves.toEqual({ kind: "received" });
+    await expect(submitNewsletterEmail("ten@example.com")).resolves.toEqual({ kind: "received", confirmation: "none" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("https://api.example.test/api/v1/website/newsletter-subscriptions");

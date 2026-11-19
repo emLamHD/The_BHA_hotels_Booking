@@ -6,9 +6,14 @@ using TheBha.Domain.Website;
 
 namespace TheBha.Api.Controllers;
 
-public sealed record SubscribeNewsletterRequest(string? Email);
+public sealed record SubscribeNewsletterRequest(string? Email, string? Language);
 
-public sealed record NewsletterReceivedDto(string Status);
+/// <summary><c>Confirmation</c> is <c>email</c> when the site can send a confirmation mail and <c>none</c> when it cannot (Gmail not connected): a fact about the site, the same for every address.</summary>
+public sealed record NewsletterReceivedDto(string Status, string Confirmation);
+
+public sealed record ConfirmNewsletterRequest(string? Token);
+
+public sealed record NewsletterConfirmedDto(string Status);
 
 /// <summary>
 /// BHA-NEWSLETTER-001: the home page's "get offers" form. Anonymous, uncredentialed (the <c>website-public</c> CORS policy),
@@ -40,8 +45,37 @@ public sealed class WebsiteNewsletterController(INewsletterSubscriptions subscri
             return new ObjectResult(problem) { StatusCode = StatusCodes.Status400BadRequest, ContentTypes = { "application/problem+json" } };
         }
 
-        await subscriptions.SubscribeAsync(email, NewsletterSubscription.SourceHomepage, cancellationToken);
-        return Accepted(new NewsletterReceivedDto("received"));
+        var result = await subscriptions.SubscribeAsync(email, NewsletterSubscription.SourceHomepage, NewsletterRules.NormalizeLanguage(request.Language), cancellationToken);
+        return Accepted(new NewsletterReceivedDto("received", result.EmailConfirmation ? "email" : "none"));
+    }
+
+    /// <summary>
+    /// The visitor pressed "confirm" on the Customer page (the link only opens that page; the token is in its URL fragment, so it never
+    /// reaches a server log). The token travels in this body, never in a query.
+    /// </summary>
+    [HttpPost("confirmations")]
+    [ProducesResponseType(typeof(NewsletterConfirmedDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status410Gone)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status429TooManyRequests)]
+    public async Task<ActionResult> Confirm([FromBody] ConfirmNewsletterRequest request, CancellationToken cancellationToken)
+    {
+        Response.Headers.CacheControl = "no-store";
+        var outcome = await subscriptions.ConfirmAsync(request.Token ?? string.Empty, cancellationToken);
+        return outcome switch
+        {
+            NewsletterConfirmOutcome.Verified => Ok(new NewsletterConfirmedDto("verified")),
+            NewsletterConfirmOutcome.AlreadyVerified => Ok(new NewsletterConfirmedDto("already-verified")),
+            NewsletterConfirmOutcome.Expired => Problem(StatusCodes.Status410Gone, "Link expired", "newsletter-confirmation-expired"),
+            _ => Problem(StatusCodes.Status400BadRequest, "Invalid link", "newsletter-confirmation-invalid")
+        };
+    }
+
+    private static ObjectResult Problem(int status, string title, string code)
+    {
+        var problem = new ProblemDetails { Status = status, Title = title };
+        problem.Extensions["code"] = code;
+        return new ObjectResult(problem) { StatusCode = status, ContentTypes = { "application/problem+json" } };
     }
 }
 

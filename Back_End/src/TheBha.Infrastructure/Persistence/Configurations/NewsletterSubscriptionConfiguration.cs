@@ -13,7 +13,9 @@ internal sealed class NewsletterSubscriptionConfiguration : IEntityTypeConfigura
         builder.ToTable("NewsletterSubscriptions", table =>
         {
             table.HasCheckConstraint("CK_NewsletterSubscriptions_Email", "\"Email\" = lower(btrim(\"Email\")) AND char_length(\"Email\") BETWEEN 3 AND 254 AND \"Email\" LIKE '_%@_%'");
-            table.HasCheckConstraint("CK_NewsletterSubscriptions_Status", "\"Status\" IN ('PendingVerification')");
+            table.HasCheckConstraint("CK_NewsletterSubscriptions_Status", "\"Status\" IN ('PendingVerification', 'Verified')");
+            // A verified row says when; a pending one never does (BHA-NEWSLETTER-002).
+            table.HasCheckConstraint("CK_NewsletterSubscriptions_VerifiedAt", "(\"Status\" = 'Verified') = (\"VerifiedAtUtc\" IS NOT NULL)");
             table.HasCheckConstraint("CK_NewsletterSubscriptions_Source", "\"Source\" IN ('homepage')");
         });
         builder.HasKey(subscription => subscription.Id);

@@ -15,6 +15,7 @@ using TheBha.Api.Bookings;
 using TheBha.Api.Controllers;
 using TheBha.Api.Seeding;
 using TheBha.Application.Customers;
+using TheBha.Application.Website;
 using TheBha.Infrastructure.Identity;
 using TheBha.Infrastructure.Persistence;
 
@@ -240,6 +241,46 @@ builder.Services.AddSwaggerGen(options =>
     options.OperationFilter<AdminReservationAssignmentOpenApiOperationFilter>();
     options.OperationFilter<AdminOperationalBlockOpenApiOperationFilter>();
 });
+// BHA-NEWSLETTER-002: the newsletter's settings, with the two origins resolved (explicit value, else the first configured Cors origin).
+// Google's endpoint addresses can be overridden ONLY in Development (a local stub): the client secret and the tokens are posted to them.
+var newsletter = builder.Configuration.GetSection(NewsletterOptions.SectionName).Get<NewsletterOptions>() ?? new NewsletterOptions();
+if (newsletter.ResendCooldownSeconds < 0 || newsletter.TokenLifetimeHours <= 0 || newsletter.MaxAttempts <= 0 ||
+    newsletter.LeaseSeconds <= 0 || newsletter.WorkerPollSeconds <= 0)
+{
+    throw new InvalidOperationException("Website:Newsletter values must be positive (ResendCooldownSeconds may be 0).");
+}
+
+static string? PickOrigin(string? configured, string[] fromCors, string name)
+{
+    var value = string.IsNullOrWhiteSpace(configured) ? fromCors.FirstOrDefault(origin => origin.StartsWith("https://", StringComparison.Ordinal)) : configured.Trim();
+    if (value is not null && !(Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps && uri.AbsolutePath == "/" && string.IsNullOrEmpty(uri.Query)))
+    {
+        throw new InvalidOperationException($"{name} must be an https origin with no path.");
+    }
+
+    return value?.TrimEnd('/');
+}
+
+newsletter.CustomerOrigin = PickOrigin(newsletter.CustomerOrigin, cors.AllowedOrigins, "Website:Newsletter:CustomerOrigin");
+newsletter.AdminOrigin = PickOrigin(newsletter.AdminOrigin, cors.AdminOrigins, "Website:Newsletter:AdminOrigin");
+var googleOverride = builder.Configuration.GetSection($"{NewsletterOptions.SectionName}:Google");
+if (googleOverride.Exists())
+{
+    if (!builder.Environment.IsDevelopment())
+    {
+        throw new InvalidOperationException("Website:Newsletter:Google overrides are allowed only in Development.");
+    }
+
+    foreach (var endpoint in new[] { newsletter.Google.AuthorizationEndpoint, newsletter.Google.TokenEndpoint, newsletter.Google.UserInfoEndpoint, newsletter.Google.SendEndpoint, newsletter.Google.RevokeEndpoint })
+    {
+        if (!(Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps))
+        {
+            throw new InvalidOperationException("Website:Newsletter:Google endpoints must be absolute https URLs.");
+        }
+    }
+}
+
+builder.Services.AddSingleton(newsletter);
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services
     .AddIdentityCore<CustomerAccount>(options =>

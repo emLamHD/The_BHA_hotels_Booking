@@ -496,6 +496,11 @@ public sealed class AdminCalendarAssignmentApiTests(PostgreSqlWebApplicationFact
         "/api/admin/v1/website/hero/media",
         // CUST-WEB-SOCIAL-001-CP01: saving all contact/back-to-top settings in one revisioned transaction.
         "/api/admin/v1/website/social-media/save",
+        // BHA-NEWSLETTER-002: the Gmail sender (profile, start and finish of the OAuth connection, disconnect); asserted in full by NewsletterVerificationTests.
+        "/api/admin/v1/website/newsletter-sender/profile",
+        "/api/admin/v1/website/newsletter-sender/connect",
+        "/api/admin/v1/website/newsletter-sender/connect/complete",
+        "/api/admin/v1/website/newsletter-sender/disconnect",
         // BHA-PRODUCT-ADMIN-001-CP01: owner-scoped content saves, simple amenity creation and staged media upload.
         "/api/admin/v1/catalog/properties/{propertyId}/save",
         "/api/admin/v1/catalog/properties/{propertyId}/room-types/{roomTypeId}/save",

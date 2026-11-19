@@ -16,6 +16,8 @@ export const NEWSLETTER_BENEFIT = "customer.newsletter.benefit";
 export const NEWSLETTER_STORAGE_NOTICE = "customer.newsletter.storageNotice";
 export const NEWSLETTER_SUBSCRIBE_LABEL = "customer.newsletter.subscribeLabel";
 export const NEWSLETTER_RECEIVED_MESSAGE = "customer.newsletter.received";
+/** BHA-NEWSLETTER-002: when the site can send a confirmation mail the form says so, with its own key (the V1 text stays for a site with no sender). */
+export const NEWSLETTER_RECEIVED_CONFIRM_MESSAGE = "customer.newsletter.receivedConfirm";
 export const NEWSLETTER_SENDING_MESSAGE = "customer.newsletter.sending";
 export const NEWSLETTER_FAILED_MESSAGE = "customer.newsletter.failed";
 export const NEWSLETTER_TOO_MANY_MESSAGE = "customer.newsletter.tooMany";
@@ -42,4 +44,37 @@ export function validateNewsletterEmail(raw: string): NewsletterValidation {
   if (labels.length < 2 || !labels.every((label) => DOMAIN_LABEL.test(label))) return invalid;
   if (!/^[A-Za-z]{2,}$/.test(labels[labels.length - 1])) return invalid;
   return { ok: true };
+}
+
+/** BHA-NEWSLETTER-002: the confirmation page (`/newsletter/confirm`). */
+export const NEWSLETTER_CONFIRM = {
+  meta: "customer.newsletter.confirm.meta",
+  heading: "customer.newsletter.confirm.heading",
+  intro: "customer.newsletter.confirm.intro",
+  button: "customer.newsletter.confirm.button",
+  working: "customer.newsletter.confirm.working",
+  verified: "customer.newsletter.confirm.verified",
+  already: "customer.newsletter.confirm.already",
+  expired: "customer.newsletter.confirm.expired",
+  invalid: "customer.newsletter.confirm.invalid",
+  failed: "customer.newsletter.confirm.failed",
+  home: "customer.newsletter.confirm.home",
+} as const;
+
+/**
+ * The token of a confirmation link: `#t=<43 URL-safe characters>`. Anything else (no fragment, another key, a different length, a
+ * character outside the token alphabet) is "no token", so the page says the link is not valid instead of sending a guess.
+ */
+export function parseConfirmFragment(hash: string): string | null {
+  const match = /^#t=([A-Za-z0-9_-]{20,64})$/.exec(hash);
+  return match ? match[1] : null;
+}
+
+/**
+ * The address of the confirmation page without its fragment: same path, same query (if any). The page removes the token with
+ * `router.replace(this)` of the App Router, not a bare `history.replaceState`: the router keeps its own copy of the address (fragment
+ * included) and writes it back on every `router.refresh()`, and it ignores a Back to a history entry without its routing state.
+ */
+export function confirmUrlWithoutFragment(pathname: string, search: string): string {
+  return pathname + search;
 }

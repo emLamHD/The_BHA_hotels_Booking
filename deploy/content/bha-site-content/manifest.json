@@ -522,9 +522,24 @@
       "Reason": "the content-pack importer's own bookkeeping of what it has placed in that database"
     },
     {
+      "Name": "NewsletterOAuthStates",
+      "Rows": 0,
+      "Reason": "single-use OAuth sign-in state of one environment: never content"
+    },
+    {
+      "Name": "NewsletterSenderSettings",
+      "Rows": 0,
+      "Reason": "the Gmail connection (OAuth client, protected secret and refresh token): a credential of one environment, never content"
+    },
+    {
       "Name": "NewsletterSubscriptions",
       "Rows": 0,
       "Reason": "visitors' e-mail addresses (personal data), not site content: a pack never carries them"
+    },
+    {
+      "Name": "NewsletterVerificationRequests",
+      "Rows": 0,
+      "Reason": "confirmation mails queued for visitors' addresses (personal data and link tokens): a pack never carries them"
     },
     {
       "Name": "PromotionAudits",
