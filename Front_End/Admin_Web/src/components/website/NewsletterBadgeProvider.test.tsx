@@ -10,8 +10,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const live = vi.hoisted(() => ({
   started: [] as Array<{ options: import("@/lib/website/newsletterLive").LiveOptions; controller: { retryNow: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn> } }>,
 }));
+/** What the sidebar is told about itself (the real sidebar is rendered in the C1 tests, with this state). */
+const sidebar = vi.hoisted(() => ({ state: { isExpanded: true, isMobileOpen: false, isHovered: false, setIsHovered: () => undefined } }));
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), push: vi.fn() }) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), push: vi.fn() }), usePathname: () => "/" }));
+vi.mock("@/context/SidebarContext", () => ({ useSidebar: () => sidebar.state }));
+vi.mock("@/layout/SidebarWidget", () => ({ default: () => null }));
 vi.mock("@/lib/api/staff", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/staff")>()),
   fetchStaffSession: vi.fn(),
@@ -32,6 +36,7 @@ vi.mock("@/lib/api/website", async (importOriginal) => ({
 
 import { StaffSessionProvider, useStaffSession } from "@/components/auth/StaffSession";
 import WebsiteAccessGate from "./WebsiteAccessGate";
+import AppSidebar from "@/layout/AppSidebar";
 import { ACK_RETRY_MS, BADGE_COALESCE_MS, BADGE_POLL_MS, NewsletterBadgeProvider, useMenuUnseen, useNewsletterLiveFeed, useSharedNewsletterLive } from "./NewsletterBadgeProvider";
 import { ALLOWED, WITHOUT_PERMISSION, deferred } from "./websiteTestUtils";
 import { fetchStaffSession, staffLogout } from "@/lib/api/staff";
@@ -476,5 +481,214 @@ describe("one connection for the sidebar and the screen", () => {
     expect(session!.state.status).toBe("authenticated");
     act(() => connection().options.handlers.onUnauthenticated());
     await waitFor(() => expect(session!.state.status).toBe("unauthenticated"));
+  });
+});
+
+// ================================================================================================ BHA-NEWSLETTER-BADGE-001-C1
+
+const Form = () => (
+  <form data-testid="website-form">
+    <input data-testid="website-input" />
+  </form>
+);
+const gatedForm = () => <WebsiteAccessGate returnTo="/website/languages"><Form /></WebsiteAccessGate>;
+const openConnections = () => live.started.filter((started) => !started.controller.dispose.mock.calls.length);
+const meFails = () => vi.mocked(fetchStaffSession).mockResolvedValueOnce({ kind: "error", message: "Could not reach the Admin API." });
+
+/**
+ * C1 F1: a 403 on ANY path of the shell (the live connection, the count, the acknowledgement) asks the shared session to read `me`, exactly as the website gate does for its own
+ * 403: a read that cannot answer closes access (an error with Retry) and never signs anybody out; a read that finds no session ends it; one that confirms keeps it.
+ * Run through the real shared session, the real default-rule gate and a real form.
+ */
+describe("C1 F1: a 403 whose `me` check fails closes access", () => {
+  const closedWithRetry = async () => {
+    await screen.findByTestId("staff-session-error");
+    expect(screen.queryByTestId("website-form")).toBeNull();
+    expect(screen.queryByTestId("staff-session-required")).toBeNull();                       // not a sign-out
+    return screen.getByRole("button", { name: "Thử lại" });
+  };
+  const retryReopens = async (retryButton: HTMLElement) => {
+    vi.mocked(fetchStaffSession).mockResolvedValue({ kind: "authenticated", session: ALLOWED });
+    fireEvent.click(retryButton);
+    await screen.findByTestId("website-form");
+    await waitFor(() => expect(badge()).toBe("3"));
+    expect(openConnections()).toHaveLength(1);                                                 // the old one is gone, ONE shared connection serves the shell again
+  };
+
+  it("on the live connection: the form closes with Retry, and a Retry that succeeds reopens it", async () => {
+    mount(gatedForm());
+    await screen.findByTestId("website-form");
+    meFails();
+    act(() => connection().options.handlers.onDenied());
+    await retryReopens(await closedWithRetry());
+  });
+
+  it("on the count request (REST 403): the same", async () => {
+    mount(gatedForm());
+    await screen.findByTestId("website-form");
+    meFails();
+    getCount.mockResolvedValue({ kind: "denied" } as never);
+    await ready();
+    await flush();
+    getCount.mockResolvedValue(answer(entry(3, "0", "3")));
+    await retryReopens(await closedWithRetry());
+  });
+
+  it("on the acknowledgement: the same", async () => {
+    mount(gatedForm());
+    await screen.findByTestId("website-form");
+    await waitFor(() => expect(badge()).toBe("3"));
+    meFails();
+    postSeen.mockResolvedValue({ kind: "denied" } as never);
+    await ack("3");
+    await retryReopens(await closedWithRetry());
+  });
+
+  it("`me` finds no session: the session ends (the gate asks to sign in again)", async () => {
+    mount(gatedForm());
+    await screen.findByTestId("website-form");
+    vi.mocked(fetchStaffSession).mockResolvedValueOnce({ kind: "unauthenticated" });
+    act(() => connection().options.handlers.onDenied());
+    await screen.findByTestId("staff-session-required");
+    expect(screen.queryByTestId("website-form")).toBeNull();
+  });
+
+  it("`me` confirms the permission: nothing closes and nobody is signed out", async () => {
+    mount(gatedForm());
+    await screen.findByTestId("website-form");
+    act(() => connection().options.handlers.onDenied());
+    await flush(200);
+    expect(screen.getByTestId("website-form")).toBeTruthy();
+    expect(session!.state.status).toBe("authenticated");
+    expect(screen.queryByTestId("staff-session-error")).toBeNull();
+  });
+
+  it("`me` answers without the permission: the gate closes the form for that reason (no Retry-able error)", async () => {
+    mount(gatedForm());
+    await screen.findByTestId("website-form");
+    vi.mocked(fetchStaffSession).mockResolvedValueOnce({ kind: "authenticated", session: WITHOUT_PERMISSION });
+    act(() => connection().options.handlers.onDenied());
+    await screen.findByTestId("website-no-permission");
+    expect(screen.queryByTestId("website-form")).toBeNull();
+    await waitFor(() => expect(badge()).toBe("0"));
+  });
+
+  it("a `me` read that a newer read replaced (superseded) does not close anything", async () => {
+    mount(gatedForm());
+    await screen.findByTestId("website-form");
+    const first = deferred<Awaited<ReturnType<typeof fetchStaffSession>>>();
+    vi.mocked(fetchStaffSession).mockImplementationOnce(() => first.promise);
+    act(() => connection().options.handlers.onDenied());                                       // the shell's check is out …
+    await flush(50);
+    vi.mocked(fetchStaffSession).mockResolvedValue({ kind: "authenticated", session: ALLOWED });
+    await act(async () => { await session!.refresh(); });                                      // … and a newer read takes over (the first is superseded)
+    await act(async () => { first.resolve({ kind: "error", message: "late failure" }); });
+    await flush(100);
+    expect(screen.getByTestId("website-form")).toBeTruthy();
+    expect(screen.queryByTestId("staff-session-error")).toBeNull();
+  });
+
+  it("a check that finishes after the Staff member signed out does not touch the session that follows", async () => {
+    mount(gatedForm());
+    await screen.findByTestId("website-form");
+    const late = deferred<Awaited<ReturnType<typeof fetchStaffSession>>>();
+    vi.mocked(fetchStaffSession).mockImplementationOnce(() => late.promise);
+    act(() => connection().options.handlers.onDenied());
+    await flush(50);
+    vi.mocked(staffLogout).mockResolvedValue({ kind: "logged-out" });
+    await act(async () => { await session!.signOut(); });
+    await waitFor(() => expect(session!.state.status).toBe("unauthenticated"));
+    await act(async () => { late.resolve({ kind: "error", message: "late failure" }); });
+    await flush(100);
+    expect(session!.state.status).toBe("unauthenticated");                                    // not turned into an access error
+  });
+
+  it("a failing count request that is NOT a 403 (a network failure) closes nothing", async () => {
+    mount(gatedForm());
+    await screen.findByTestId("website-form");
+    await waitFor(() => expect(badge()).toBe("3"));
+    getCount.mockResolvedValue({ kind: "network", message: "offline" } as never);
+    await ready();
+    await flush();
+    expect(screen.getByTestId("website-form")).toBeTruthy();
+    expect(badge()).toBe("3");
+  });
+});
+
+/** Mounts the real sidebar under the shell with a state the test can change. */
+function SidebarHarness() {
+  const [, setTick] = React.useState(0);
+  React.useEffect(() => {
+    sidebarRefresh = () => setTick((tick) => tick + 1);
+  }, []);
+  return <AppSidebar />;
+}
+let sidebarRefresh: () => void = () => undefined;
+const setSidebar = (state: Partial<typeof sidebar.state>) => {
+  sidebar.state = { ...sidebar.state, ...state };
+  act(() => sidebarRefresh());
+};
+const dot = () => screen.queryByTestId("menu-unseen-dot-parent");
+const websiteButton = () => screen.getByText("Website").closest("button")!;
+
+describe("C1 F2: the indicator follows what the sidebar actually shows, and the sidebar never says 'seen'", () => {
+  beforeEach(() => {
+    sidebar.state = { isExpanded: true, isMobileOpen: false, isHovered: false, setIsHovered: () => undefined };
+  });
+
+  it("Website open then the sidebar collapses (no hover): the entry is not drawn, so the parent shows the dot; hovering shows the entry and its number again; nothing is acknowledged", async () => {
+    mount(<SidebarHarness />);
+    await waitFor(() => expect(getCount).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(document.querySelector('[data-testid="menu-unseen-badge-newsletter"]')).not.toBeNull());
+    expect(dot()).not.toBeNull();                                                              // closed: dot on the parent
+    fireEvent.click(websiteButton());                                                          // open
+    expect(dot()).toBeNull();
+    expect(screen.getByTestId("menu-unseen-badge-newsletter").textContent).toBe("3");
+
+    setSidebar({ isExpanded: false });                                                         // collapsed, not hovered; Website is still the open submenu
+    expect(screen.queryByTestId("menu-unseen-badge-newsletter")).toBeNull();                   // the number is not drawn …
+    expect(dot()).not.toBeNull();                                                              // … so the parent must say it
+
+    setSidebar({ isHovered: true });                                                           // the sidebar opens again under the pointer
+    expect(dot()).toBeNull();
+    expect(screen.getByTestId("menu-unseen-badge-newsletter").textContent).toBe("3");
+    setSidebar({ isHovered: false });
+    expect(dot()).not.toBeNull();
+
+    expect(postSeen).not.toHaveBeenCalled();
+    expect(getCount).toHaveBeenCalledTimes(1);
+  });
+
+  it("the mobile drawer: closed → dot; open submenu → number; the drawer itself shut (not shown) with the submenu open → dot", async () => {
+    sidebar.state = { isExpanded: false, isMobileOpen: true, isHovered: false, setIsHovered: () => undefined };
+    mount(<SidebarHarness />);
+    await waitFor(() => expect(dot()).not.toBeNull());
+    fireEvent.click(websiteButton());
+    expect(dot()).toBeNull();
+    expect(screen.getByTestId("menu-unseen-badge-newsletter").textContent).toBe("3");
+    setSidebar({ isMobileOpen: false });                                                       // the drawer is closed again: nothing of the submenu is drawn
+    expect(screen.queryByTestId("menu-unseen-badge-newsletter")).toBeNull();
+    expect(dot()).not.toBeNull();
+    expect(postSeen).not.toHaveBeenCalled();
+  });
+
+  it("at 0 nothing shows in any state, and 99+ keeps the real number in its label", async () => {
+    getCount.mockResolvedValue(answer(entry(0, "5", "5")));
+    mount(<SidebarHarness />);
+    await waitFor(() => expect(getCount).toHaveBeenCalled());
+    await flush(100);
+    for (const state of [{ isExpanded: true }, { isExpanded: false }, { isHovered: true }]) {
+      setSidebar(state);
+      expect(dot()).toBeNull();
+      expect(screen.queryByTestId("menu-unseen-badge-newsletter")).toBeNull();
+    }
+    cleanup();
+    sidebar.state = { isExpanded: true, isMobileOpen: false, isHovered: false, setIsHovered: () => undefined };
+    getCount.mockResolvedValue(answer(entry(150, "0", "150")));
+    mount(<SidebarHarness />);
+    await waitFor(() => expect(document.querySelector('[data-testid="menu-unseen-badge-newsletter"]')).not.toBeNull());
+    const badgeNode = document.querySelector('[data-testid="menu-unseen-badge-newsletter"]')!;
+    expect(badgeNode.textContent).toBe("99+");
+    expect(badgeNode.getAttribute("aria-label")).toBe("150 đăng ký nhận tin mới chưa xem");
   });
 });

@@ -58,7 +58,7 @@ export const useMenuUnseen = (): BadgeValue => useContext(BadgeContext);
 export const useSharedNewsletterLive = (): SharedLive | null => useContext(SharedContext);
 
 export function NewsletterBadgeProvider({ children }: { children: React.ReactNode }) {
-  const { state, refresh, expire } = useStaffSession();
+  const { state, refresh, expire, failAccessCheck } = useStaffSession();
   const identity = state.status === "authenticated" && (state.session.permissions ?? []).includes(WEBSITE_SETTINGS_PERMISSION) ? state.session.staffAccountId : "";
   const identityRef = useRef(identity);
   identityRef.current = identity;
@@ -66,8 +66,8 @@ export function NewsletterBadgeProvider({ children }: { children: React.ReactNod
   const [count, setCount] = useState<number | null>(null);
   const applied = useRef<{ last: bigint; current: bigint } | null>(null);
   const generation = useRef(0);
-  const sessionRef = useRef({ refresh, expire });
-  sessionRef.current = { refresh, expire };
+  const sessionRef = useRef({ refresh, expire, failAccessCheck });
+  sessionRef.current = { refresh, expire, failAccessCheck };
 
   // ---- what the API answered: one place, one rule
   const apply = useCallback((entry: MenuUnseenEntry, gen: number) => {
@@ -86,9 +86,13 @@ export function NewsletterBadgeProvider({ children }: { children: React.ReactNod
       sessionRef.current.expire();
       return;
     }
-    // A 403: the permission may be gone. Ask the session; only an ended session ends it (a network failure never does).
+    // A 403: the permission may be gone. Ask the session, and treat the answer as the website gate does for its own 403 (`WebsiteBoundary.onDenied`): no session → it ends; a read that
+    // could not answer → access closes as an error with Retry (never left open on a permission that could not be checked, and never a sign-out); a confirmed session → it stands (the
+    // screens re-render on whatever `me` says now); a read that a newer one replaced (`superseded`) says nothing. An answer that arrives for an earlier identity or generation is dropped.
     void sessionRef.current.refresh().then((result) => {
-      if (gen === generation.current && result === "unauthenticated") sessionRef.current.expire();
+      if (gen !== generation.current) return;
+      if (result === "unauthenticated") sessionRef.current.expire();
+      else if (result === "error") sessionRef.current.failAccessCheck();
     });
   }, []);
 

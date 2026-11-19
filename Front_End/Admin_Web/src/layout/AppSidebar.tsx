@@ -128,6 +128,8 @@ const AppSidebar: React.FC = () => {
   const pathname = usePathname();
   // BHA-NEWSLETTER-BADGE-001: only the Newsletter has one. 0 (or no provider) shows nothing.
   const unseen = useMenuUnseen();
+  // The submenu is DRAWN only while the sidebar is expanded, hovered or the mobile drawer is open. `openSubmenu` says which one is open, not whether it is on screen.
+  const submenuDrawn = isExpanded || isHovered || isMobileOpen;
   const unseenOf = (key: "newsletter") => unseen[key];
 
   const renderMenuItems = (
@@ -158,8 +160,8 @@ const AppSidebar: React.FC = () => {
                 }`}
               >
                 {nav.icon}
-                {/* A closed submenu (or a collapsed sidebar) still says that something inside it has not been seen. Opening it does not mark anything seen. */}
-                {!(openSubmenu?.type === menuType && openSubmenu?.index === index) &&
+                {/* Unless the open submenu is on screen (and shows the number itself), the parent says that something inside it has not been seen. Opening or collapsing does not mark anything seen. */}
+                {!(submenuDrawn && openSubmenu?.type === menuType && openSubmenu?.index === index) &&
                   nav.subItems.some((subItem) => subItem.badge && unseenOf(subItem.badge) > 0) && (
                     <UnseenDot testId="menu-unseen-dot-parent" label="Có đăng ký nhận tin mới chưa xem" />
                   )}
