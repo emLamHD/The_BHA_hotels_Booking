@@ -52,6 +52,9 @@ class FakeConnection implements LiveConnectionLike {
 
 const hold = (connection: FakeConnection) => new Promise<void>((resolve, reject) => { connection.startResult = { resolve, reject }; });
 const httpError = (statusCode: number) => Object.assign(new Error(`Status code '${statusCode}'`), { statusCode });
+/** What @microsoft/signalr 8 really throws from `start()` when the negotiate call is answered with an HTTP error: no `statusCode`, the status only in the text. */
+const negotiateError = (statusCode: number) =>
+  Object.assign(new Error(`Failed to complete negotiation with the server: Error: ${statusCode === 403 ? "Forbidden" : "Error"}: Status code '${statusCode}'`), { errorType: "FailedToNegotiateWithServerError" });
 const flush = async () => { for (let i = 0; i < 5; i += 1) await Promise.resolve(); };
 
 function setup(starts: Array<(connection: FakeConnection) => Promise<void>> = [() => Promise.resolve()], target: { ok: true; url: string } | { ok: false; message: string } = { ok: true, url: "https://api.test/hub" }) {
@@ -169,6 +172,28 @@ describe("failures", () => {
     expect(forbidden.handlers.onDenied).toHaveBeenCalledTimes(1);
     expect(forbidden.handlers.onUnauthenticated).not.toHaveBeenCalled();
     expect(forbidden.statuses.at(-1)).toEqual(["stopped", "denied"]);
+  });
+
+  it("the library's own negotiate failure (status only in its text) is read the same way: 401 and 403 stop, 500 and a lost network retry", async () => {
+    const unauthorized = setup([() => Promise.reject(negotiateError(401))]);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(unauthorized.handlers.onUnauthenticated).toHaveBeenCalledTimes(1);
+    expect(unauthorized.connections).toHaveLength(1);
+    expect(unauthorized.statuses.at(-1)).toEqual(["stopped", "unauthenticated"]);
+
+    const forbidden = setup([() => Promise.reject(negotiateError(403))]);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(forbidden.handlers.onDenied).toHaveBeenCalledTimes(1);
+    expect(forbidden.connections).toHaveLength(1);
+    expect(forbidden.statuses.at(-1)).toEqual(["stopped", "denied"]);
+
+    for (const failure of [negotiateError(500), new Error("Failed to complete negotiation with the server: TypeError: Failed to fetch")]) {
+      const retried = setup([() => Promise.reject(failure), () => Promise.resolve()]);
+      await vi.advanceTimersByTimeAsync(100);
+      expect(retried.connections).toHaveLength(2);
+      expect(retried.handlers.onUnauthenticated).not.toHaveBeenCalled();
+      expect(retried.handlers.onDenied).not.toHaveBeenCalled();
+    }
   });
 
   it("other HTTP errors (500, 502, 404) only retry", async () => {

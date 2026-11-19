@@ -68,9 +68,16 @@ export async function createHubConnection(url: string): Promise<LiveConnectionLi
 const isSignal = (value: unknown): value is LiveSignal =>
   typeof value === "object" && value !== null && typeof (value as LiveSignal).eventId === "string" && (value as LiveSignal).eventId !== "";
 
+/**
+ * The HTTP status of a failed start. A plain `HttpError` carries it; but the library wraps a failed NEGOTIATE call (the only call whose 401/403 a browser can read, because
+ * the answer carries the CORS headers) in `FailedToNegotiateWithServerError`, which has no `statusCode` and keeps it only in its text, ending in `Status code '403'`.
+ * Found in the browser: reading `statusCode` alone left a revoked permission retrying forever.
+ */
 const statusOf = (error: unknown): number | null => {
   const code = (error as { statusCode?: unknown } | null)?.statusCode;
-  return typeof code === "number" ? code : null;
+  if (typeof code === "number") return code;
+  const match = error instanceof Error ? /Status code '(\d{3})'/.exec(error.message) : null;
+  return match ? Number(match[1]) : null;
 };
 
 export function startNewsletterLive(options: LiveOptions): LiveController {
