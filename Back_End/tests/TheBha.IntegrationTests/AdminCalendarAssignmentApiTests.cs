@@ -509,6 +509,8 @@ public sealed class AdminCalendarAssignmentApiTests(PostgreSqlWebApplicationFact
         "/api/admin/v1/website/newsletter-subscriptions/{id}/archive",
         "/api/admin/v1/website/newsletter-subscriptions/{id}/restore",
         "/api/admin/v1/website/newsletter-subscriptions/{id}/delete",
+        // BHA-NEWSLETTER-BADGE-001: a Staff member says they have seen a menu up to the watermark a list answered with; asserted in full by NewsletterUnseenTests.
+        "/api/admin/v1/website/menu-unseen/{menuKey}/seen",
         // BHA-PRODUCT-ADMIN-001-CP01: owner-scoped content saves, simple amenity creation and staged media upload.
         "/api/admin/v1/catalog/properties/{propertyId}/save",
         "/api/admin/v1/catalog/properties/{propertyId}/room-types/{roomTypeId}/save",

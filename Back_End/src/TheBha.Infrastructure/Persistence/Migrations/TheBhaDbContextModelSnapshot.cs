@@ -2205,6 +2205,30 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("TheBha.Domain.Website.MenuActivityStream", b =>
+                {
+                    b.Property<string>("MenuKey")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<long>("LastSequence")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("MenuKey");
+
+                    b.ToTable("MenuActivityStreams", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_MenuActivityStreams_LastSequence", "\"LastSequence\" >= 0");
+                        });
+
+                    b.HasData(
+                        new
+                        {
+                            MenuKey = "newsletter",
+                            LastSequence = 0L
+                        });
+                });
+
             modelBuilder.Entity("TheBha.Domain.Website.NewsletterOAuthState", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2439,6 +2463,28 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("TheBha.Domain.Website.NewsletterVerificationActivity", b =>
+                {
+                    b.Property<long>("Sequence")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("OccurredAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("SubscriptionId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Sequence");
+
+                    b.HasIndex("SubscriptionId")
+                        .HasDatabaseName("IX_NewsletterVerificationActivities_SubscriptionId");
+
+                    b.ToTable("NewsletterVerificationActivities", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_NewsletterVerificationActivities_Sequence", "\"Sequence\" >= 1");
+                        });
+                });
+
             modelBuilder.Entity("TheBha.Domain.Website.NewsletterVerificationRequest", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2551,6 +2597,31 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                             t.HasCheckConstraint("CK_NewsletterVerificationRequests_Purpose", "\"Purpose\" IN ('Verification', 'Welcome')");
 
                             t.HasCheckConstraint("CK_NewsletterVerificationRequests_Status", "\"Status\" IN ('Pending', 'Sending', 'Sent', 'Failed', 'Cancelled')");
+                        });
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Website.StaffMenuSeen", b =>
+                {
+                    b.Property<Guid>("StaffAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("MenuKey")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<long>("LastSeenSequence")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("StaffAccountId", "MenuKey");
+
+                    b.HasIndex("MenuKey");
+
+                    b.ToTable("StaffMenuSeen", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_StaffMenuSeen_LastSeenSequence", "\"LastSeenSequence\" >= 0");
                         });
                 });
 
@@ -3998,12 +4069,36 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("TheBha.Domain.Website.NewsletterVerificationActivity", b =>
+                {
+                    b.HasOne("TheBha.Domain.Website.NewsletterSubscription", null)
+                        .WithMany()
+                        .HasForeignKey("SubscriptionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("TheBha.Domain.Website.NewsletterVerificationRequest", b =>
                 {
                     b.HasOne("TheBha.Domain.Website.NewsletterSubscription", null)
                         .WithMany()
                         .HasForeignKey("SubscriptionId")
                         .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Website.StaffMenuSeen", b =>
+                {
+                    b.HasOne("TheBha.Domain.Website.MenuActivityStream", null)
+                        .WithMany()
+                        .HasForeignKey("MenuKey")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("TheBha.Infrastructure.Identity.StaffAccount", null)
+                        .WithMany()
+                        .HasForeignKey("StaffAccountId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 

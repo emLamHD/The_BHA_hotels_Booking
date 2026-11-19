@@ -54,6 +54,9 @@ public sealed class TheBhaDbContext(DbContextOptions<TheBhaDbContext> options)
     public DbSet<NewsletterSenderSettings> NewsletterSenderSettings => Set<NewsletterSenderSettings>();
     public DbSet<NewsletterOAuthState> NewsletterOAuthStates => Set<NewsletterOAuthState>();
     public DbSet<NewsletterVerificationRequest> NewsletterVerificationRequests => Set<NewsletterVerificationRequest>();
+    public DbSet<NewsletterVerificationActivity> NewsletterVerificationActivities => Set<NewsletterVerificationActivity>();
+    public DbSet<MenuActivityStream> MenuActivityStreams => Set<MenuActivityStream>();
+    public DbSet<StaffMenuSeen> StaffMenuSeen => Set<StaffMenuSeen>();
     public DbSet<Promotion> Promotions => Set<Promotion>();
     public DbSet<PromotionMedia> PromotionMedia => Set<PromotionMedia>();
     public DbSet<PromotionAudit> PromotionAudits => Set<PromotionAudit>();
