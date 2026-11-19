@@ -95,7 +95,7 @@ Ngoài mục tiêu 100–400 dòng. Mã sản xuất backend +355/−10 và Admi
 - Advisor đã được hỏi trước khi chốt kế hoạch (nhờ đó có xét lại quyền mỗi lần phát, guard theo marker + policy, WebSockets-only, ranh giới xác nhận handshake/đăng ký).
 - Review: lần 1 do Owner gọi `/codex:review --wait --base origin/develop` trả hai finding P2, xử lý ở mục Correction C1; lần review sau C1 chờ Owner gọi lại cùng lệnh, kết quả sẽ chèn nguyên văn khi Owner chuyển lại.
 
-## Correction C1 (`BHA-NEWSLETTER-LIVE-001-C1`, sau `/codex:review` lần 1; commit mã `a73df26`)
+## Correction C1 (`BHA-NEWSLETTER-LIVE-001-C1`, sau `/codex:review` lần 1; mã `a73df26`, test bổ sung `1be296e`)
 
 Hai finding P2 của Codex, cả hai ở `NewsletterSubscriptionsPanel.tsx`; chỉ sửa trong màn Newsletter (panel + `NewsletterLiveNotice.tsx` + test). Không đụng backend, hợp đồng, schema, hook dùng chung, dependency hay proxy.
 
@@ -104,13 +104,13 @@ Hai finding P2 của Codex, cả hai ở `NewsletterSubscriptionsPanel.tsx`; ch�
 
 ### Bằng chứng trước/sau
 
-Trước sửa (cùng test/kịch bản chạy trên mã `0d64af6`): vitest 7/10 ca C1 đỏ, 3 ca guard xanh; trình duyệt F1 đỏ (toast bấm được khi đang recovery, bấm là rời trang 2 và mất banner) và F2 đỏ (1 request list mới sau khi panel đã unmount, `GETs after unmount 1`). Sau sửa: vitest 33/33 file `NewsletterSubscriptionLive`, trình duyệt 17/17.
+Trước sửa (cùng test/kịch bản chạy trên mã `0d64af6`): vitest 9/12 ca C1 đỏ, 3 ca guard xanh; trình duyệt F1 đỏ (toast bấm được khi đang recovery, bấm là rời trang 2 và mất banner) và F2 đỏ (1 request list mới sau khi panel đã unmount, `GETs after unmount 1`). Sau sửa: vitest 35/35 file `NewsletterSubscriptionLive`, trình duyệt 17/17.
 
-| Kiểm tra (sau sửa, mã `a73df26`) | Kết quả |
+| Kiểm tra (sau sửa, trên `1be296e`; mã ứng dụng giống `a73df26`) | Kết quả |
 |---|---|
-| Test mới C1 (10 ca: F1 ×4, F2 ×6 gồm abort, 401/403, Strict Mode, callback muộn, hàng đợi khi còn sống) | pass; 7/10 đỏ trên mã cũ |
-| Admin_Web vitest toàn bộ | 91 file, 2628 passed |
-| `tsc --noEmit`, `eslint .`, `next build` | sạch / thành công |
+| Test mới C1 (12 ca: F1 ×5 gồm handler cũ gọi cùng tick với recovery; F2 ×7 gồm abort, 401/403, Strict Mode, callback muộn, hàng đợi khi còn sống, cleanup→setup cùng instance bằng `Activity` giữ ref) | pass; 9/12 đỏ trên mã cũ |
+| Admin_Web vitest toàn bộ | 91 file, 2630 passed |
+| `tsc --noEmit`, `eslint .` (trên `1be296e`), `next build` (trên mã ứng dụng của `a73df26`; commit sau chỉ đổi test) | sạch / thành công |
 | Chrome HTTPS (Admin `next dev`, API + PostgreSQL riêng + SignalR thật; Google là stub): giữ phản hồi recovery bằng route phía trình duyệt, thử cả hai nút; xếp B sau live read A rồi rời màn hình bằng điều hướng client và theo dõi Network | 17/17 |
 | Backend, Customer_Web | không chạy lại: không đổi mã hay hợp đồng ảnh hưởng đến chúng |
 
