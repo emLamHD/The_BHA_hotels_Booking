@@ -62,7 +62,7 @@ export function LiveBanner({ kind, onView, disabled }: { kind: LiveBannerKind; o
 }
 
 /** A polite status message at the corner: it does not take focus and it is not a dialog. `token` restarts the timer when another signal joins it. */
-export function LiveToast({ count, token, onDismiss, onView }: { count: number; token: number; onDismiss: () => void; onView: (() => void) | null }) {
+export function LiveToast({ count, token, onDismiss, onView, disabled = false }: { count: number; token: number; onDismiss: () => void; onView: (() => void) | null; disabled?: boolean }) {
   useEffect(() => {
     const timer = setTimeout(onDismiss, LIVE_TOAST_MS);
     return () => clearTimeout(timer);
@@ -78,7 +78,7 @@ export function LiveToast({ count, token, onDismiss, onView }: { count: number; 
         <p className="font-medium" data-testid="newsletter-live-toast-text">{count > 1 ? `Có ${count} đăng ký mới` : "Có đăng ký mới"}</p>
         {onView && (
           <p className="mt-1">
-            <button type="button" onClick={onView} data-testid="newsletter-live-toast-view" className="font-medium text-brand-600 underline dark:text-brand-400">
+            <button type="button" onClick={onView} disabled={disabled} data-testid="newsletter-live-toast-view" className="font-medium text-brand-600 underline disabled:opacity-50 dark:text-brand-400">
               Xem đăng ký mới
             </button>
           </p>

@@ -215,6 +215,17 @@ export default function NewsletterSubscriptionsPanel() {
   // `dirty` is what the server may know and this screen does not: verifications it was told about, and "the connection was (re)established, so something may have been missed".
   const liveDirtyRef = useRef({ news: 0, sync: false });
   const liveReadingRef = useRef(false);
+  // One token per setup of this screen (null before the first and after the cleanup). A live read remembers the token it started under; whatever ends under another one belongs to
+  // a life that is over, so it neither drains the queue nor touches the flag of the life that came after it (Strict Mode mounts, cleans up and mounts again on the same instance).
+  const lifeRef = useRef<object | null>(null);
+  useEffect(() => {
+    lifeRef.current = {};
+    return () => {
+      lifeRef.current = null;
+      liveDirtyRef.current = { news: 0, sync: false };                                          // what was waiting dies with the screen
+      liveReadingRef.current = false;
+    };
+  }, []);
   const [behind, setBehind] = useState<"new" | "gap" | null>(null);
   const [deferred, setDeferred] = useState(false);
   const [toast, setToast] = useState<{ count: number; token: number } | null>(null);
@@ -222,6 +233,8 @@ export default function NewsletterSubscriptionsPanel() {
   // Quiet = nothing under Staff's hands. Read from the refs, never from state, so a callback from an earlier render or a timer sees the truth of this instant.
   const liveSafe = () => dialogRef.current === null && !writingRef.current && !readingRef.current && !heldRef.current && staleRef.current.size === 0;
   const applyLive = () => {
+    const life = lifeRef.current;
+    if (life === null) return;                                                                 // the screen is gone: no read, no queue
     const dirty = liveDirtyRef.current;
     if (dirty.news === 0 && !dirty.sync) return;
     if (!liveSafe()) {
@@ -241,6 +254,7 @@ export default function NewsletterSubscriptionsPanel() {
     liveReadingRef.current = true;
     // The same query as on screen (the hook reads the current search, filters and page). A failed or replaced read changes nothing else here.
     void list.reload().catch(() => null).finally(() => {
+      if (lifeRef.current !== life) return;                                                    // it ended after the cleanup (or under a later life): nothing of it is ours any more
       liveReadingRef.current = false;
       applyLiveRef.current();
     });
@@ -250,10 +264,12 @@ export default function NewsletterSubscriptionsPanel() {
   const staffSession = useStaffSession().state;
   const live = useNewsletterLive(staffSession.status === "authenticated" ? staffSession.session.staffAccountId : "", {
     onReady: () => {
+      if (lifeRef.current === null) return;
       liveDirtyRef.current = { ...liveDirtyRef.current, sync: true };
       applyLiveRef.current();
     },
     onNew: (count) => {
+      if (lifeRef.current === null) return;
       liveDirtyRef.current = { ...liveDirtyRef.current, news: liveDirtyRef.current.news + count };
       setToast((previous) => ({ count: (previous?.count ?? 0) + count, token: (previous?.token ?? 0) + 1 }));
       applyLiveRef.current();
@@ -267,7 +283,14 @@ export default function NewsletterSubscriptionsPanel() {
   useEffect(() => {
     if (page === 1) setBehind(null);
   }, [page]);
+  // "Xem đăng ký mới" (banner AND toast) moves the page, which aborts and replaces any read that is out: so it answers to the same rule as the live read itself. `viewLocked` is the
+  // picture of it for both buttons; the handler checks the refs itself, first, so a callback of an earlier render, or a click in the same tick as the one that took a slot, is refused
+  // before it touches the page, the banner or a request, and the refused click leaves the sign that there is something new where it was.
+  const listPendingRef = useRef(false);
+  listPendingRef.current = list.pending;
+  const viewLocked = list.pending || dialog !== null || locked || staleRowIds.size > 0;
   const viewNew = () => {
+    if (!liveSafe() || listPendingRef.current || liveReadingRef.current) return;
     setBehind(null);
     if (pageRef.current === 1) void list.reload();
     else goToPage(1);                                                                          // keeps the search, the status and the scope; only the page changes
@@ -281,8 +304,8 @@ export default function NewsletterSubscriptionsPanel() {
         <Link href="/website/newsletter/sender" className="text-brand-600 underline dark:text-brand-400">Cấu hình email gửi</Link>
       </PageHeader>
       <LiveStatusLine status={live.status} stoppedFor={live.stoppedFor} onRetry={live.retry} />
-      {bannerKind && <LiveBanner kind={bannerKind} onView={viewNew} disabled={list.pending || reading || writePending} />}
-      {toast && <LiveToast count={toast.count} token={toast.token} onDismiss={dismissToast} onView={behind ? viewNew : null} />}
+      {bannerKind && <LiveBanner kind={bannerKind} onView={viewNew} disabled={viewLocked} />}
+      {toast && <LiveToast count={toast.count} token={toast.token} onDismiss={dismissToast} onView={behind ? viewNew : null} disabled={viewLocked} />}
       {notice && <Banner tone="success" testId="newsletter-notice" onDismiss={() => setNotice(null)}>{notice}</Banner>}
       {dialog === null && <WriteOutcome status={write.status} reconcile={reconcileProps} />}
       {dialog === null && staleRowIds.size > 0 && (

@@ -457,6 +457,228 @@ describe("the connection's own lifecycle", () => {
   });
 });
 
+/**
+ * BHA-NEWSLETTER-LIVE-001-C1 (F1): on page 2+ the toast and the banner offer the same way to page 1. It must never move the page while Staff's recovery read is out (the page
+ * change aborts and replaces that read, so the recovery would report a failure and keep the hold although page 1 loaded), nor while a write, a hold, a stale row or a dialog is
+ * in the way. The two buttons answer to ONE rule, and the handler itself checks it (from refs) before it touches the page, the banner or any request.
+ */
+describe("C1 F1: the way to the new rows (toast and banner) while something is in progress", () => {
+  const INVITED = "newsletter-invite-r21@example.com";
+  /** Page 2 (scope "all"), a signal (banner + toast), then an invitation whose answer is lost: the screen is held and the recovery is the only way out. */
+  const heldOnPage2 = async () => {
+    await open();
+    await userEvent.selectOptions(screen.getByTestId("newsletter-scope-filter"), "all");
+    await goToPage2();
+    await signal("e1");
+    await screen.findByTestId("newsletter-live-toast");
+    invite.mockResolvedValueOnce({ kind: "unverified", message: "Máy chủ không trả lời" } as never);
+    await click(INVITED);
+    await screen.findByTestId("newsletter-write-unverified");
+  };
+  const startRecovery = async () => {
+    const recovery = deferred<ReturnType<typeof ok> | { kind: "network"; message: string }>();
+    list.mockImplementationOnce(() => recovery.promise as never);
+    const before = reads();
+    await click("newsletter-reconcile");
+    await waitFor(() => expect(reads()).toBe(before + 1));
+    return { recovery, before: before + 1 };
+  };
+
+  it("while the recovery read is out neither button is available, and neither moves the page nor replaces the read; its success frees the hold and keeps the offer", async () => {
+    await heldOnPage2();
+    const { recovery, before } = await startRecovery();
+    fireEvent.click(screen.getByTestId("newsletter-live-toast-view"));
+    fireEvent.click(screen.getByTestId("newsletter-live-view"));
+    await settle(50);
+    expect(reads()).toBe(before);                                                              // nothing replaced the recovery read
+    expect(rows()[0]).toBe("r21@example.com");                                                 // still page 2
+    expect(screen.getByTestId("newsletter-live-banner")).toBeTruthy();                         // the sign that there is something new stayed
+    expect(buttonOf("newsletter-live-view").disabled).toBe(true);
+    expect(buttonOf("newsletter-live-toast-view").disabled).toBe(true);
+
+    await act(async () => { recovery.resolve(ok(page(server.slice(20, 25), 2, 25))); });
+    await waitFor(() => expect(screen.queryByTestId("newsletter-write-unverified")).toBeNull());
+    expect(screen.queryByTestId("newsletter-reconcile")).toBeNull();                          // the recovery succeeded: no failure, no hold
+    expect(buttonOf("newsletter-add").disabled).toBe(false);
+    expect(reads()).toBe(before);                                                              // and no extra read of page 1 came out of it
+    expect(buttonOf("newsletter-live-view").disabled).toBe(false);
+    expect(buttonOf("newsletter-live-toast-view").disabled).toBe(false);
+
+    await click("newsletter-live-toast-view");                                                 // now it works, with the same filters
+    await screen.findByTestId("newsletter-row-r01@example.com");
+    expect(list).toHaveBeenLastCalledWith({ ...DEFAULT_QUERY, scope: "all" }, expect.anything());
+    expect(invite).toHaveBeenCalledTimes(1);
+  });
+
+  it("a recovery that fails keeps the hold and the retry, and both buttons stay unavailable; the retry then succeeds and frees them", async () => {
+    await heldOnPage2();
+    const first = await startRecovery();
+    await act(async () => { first.recovery.resolve({ kind: "network", message: "Không đọc được" }); });
+    await waitFor(() => expect(buttonOf("newsletter-reconcile")).toBeTruthy());
+    expect(screen.getByTestId("newsletter-write-unverified")).toBeTruthy();                    // the hold stays
+    expect(buttonOf("newsletter-live-view").disabled).toBe(true);
+    expect(buttonOf("newsletter-live-toast-view").disabled).toBe(true);
+    expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ page: 2 }), expect.anything());   // page 1 was never asked for
+
+    const second = await startRecovery();
+    await act(async () => { second.recovery.resolve(ok(page(server.slice(20, 25), 2, 25))); });
+    await waitFor(() => expect(screen.queryByTestId("newsletter-write-unverified")).toBeNull());
+    expect(buttonOf("newsletter-live-toast-view").disabled).toBe(false);
+  });
+
+  it("a callback of an earlier render cannot get round the lock: in the same tick as the click that starts the write, the handler itself refuses (before any re-render)", async () => {
+    await open();
+    await goToPage2();
+    await signal("e1");
+    await screen.findByTestId("newsletter-live-toast");
+    const sent = deferred<{ kind: "ok"; data: { status: string; retryAfterSeconds: number | null } }>();
+    invite.mockImplementationOnce(() => sent.promise as never);
+    const before = reads();
+    act(() => {
+      fireEvent.click(buttonOf(INVITED));                                                      // the write takes its slot synchronously …
+      fireEvent.click(screen.getByTestId("newsletter-live-toast-view"));                       // … and the toast, not yet re-rendered as disabled, is clicked in the same tick
+      fireEvent.click(screen.getByTestId("newsletter-live-view"));
+    });
+    await settle(50);
+    expect(reads()).toBe(before);
+    expect(rows()[0]).toBe("r21@example.com");
+    expect(screen.getByTestId("newsletter-live-banner")).toBeTruthy();
+    await act(async () => { sent.resolve({ kind: "ok", data: { status: "queued", retryAfterSeconds: null } }); });
+    await waitFor(() => expect(buttonOf("newsletter-live-view").disabled).toBe(false));        // the write has ended and so has the lock
+  });
+
+  it("an open dialog and a stale row lock both buttons too, and the offer survives until Staff can use it", async () => {
+    await open();
+    await goToPage2();
+    await signal("e1");
+    await screen.findByTestId("newsletter-live-toast");
+    await click("newsletter-edit-r21@example.com");
+    await screen.findByRole("dialog");
+    expect(buttonOf("newsletter-live-toast-view").disabled).toBe(true);
+    expect(buttonOf("newsletter-live-view").disabled).toBe(true);
+    const before = reads();
+    fireEvent.click(screen.getByTestId("newsletter-live-toast-view"));
+    await settle(50);
+    expect(reads()).toBe(before);
+    expect(screen.getByRole("dialog")).toBeTruthy();                                          // the draft's dialog stayed
+    expect(screen.getByTestId("newsletter-live-banner")).toBeTruthy();
+  });
+});
+
+/**
+ * BHA-NEWSLETTER-LIVE-001-C1 (F2): when the screen goes away, nothing it had waiting may start another request. The gate stays mounted here (only the panel goes), because
+ * that is where a late 401/403 would do harm: a request started after the cleanup answers 401 and signs Staff out, or 403 and makes the gate read `me`.
+ */
+describe("C1 F2: nothing runs after the panel is gone", () => {
+  let hidePanel: (hidden: boolean) => void;
+  function Switchable() {
+    const [hidden, setHidden] = React.useState(false);
+    React.useEffect(() => { hidePanel = setHidden; }, []);
+    return hidden ? <p data-testid="panel-gone">gone</p> : <NewsletterSubscriptionsPanel />;
+  }
+  /** A live read A that is out, and one more signal B queued behind it, then the panel goes away. Returns what is needed to finish A afterwards. */
+  const queuedThenGone = async () => {
+    serve();
+    renderInGate(<Switchable />, "/website/newsletter");
+    await screen.findByTestId("newsletter-row-r01@example.com");
+    const a = deferred<unknown>();
+    list.mockImplementationOnce(() => a.promise as never);
+    await signal("e1");
+    await settle();
+    expect(reads()).toBe(2);                                                                  // A is out
+    await signal("e2");
+    await settle();
+    expect(reads()).toBe(2);                                                                  // B waits behind A
+    act(() => hidePanel(true));
+    expect(screen.getByTestId("panel-gone")).toBeTruthy();
+    return a;
+  };
+  const afterwards = async (answer: { kind: "unauthenticated" } | { kind: "denied" }) => {
+    list.mockReset();
+    list.mockImplementation(async () => answer as never);                                      // any request from now on would sign Staff out / make the gate read `me`
+  };
+
+  it("A ends with an answer: B is not read, and nobody is signed out", async () => {
+    const a = await queuedThenGone();
+    await afterwards({ kind: "unauthenticated" });
+    await act(async () => { a.resolve(ok(page(server.slice(0, 20)))); });
+    await settle();
+    expect(reads()).toBe(0);
+    expect(screen.queryByTestId("staff-session-required")).toBeNull();
+    expect(screen.getByTestId("panel-gone")).toBeTruthy();
+  });
+
+  it("A ends with an error: B is not read (a 403 would have made the gate read `me`)", async () => {
+    const a = await queuedThenGone();
+    const checks = vi.mocked(fetchStaffSession).mock.calls.length;
+    await afterwards({ kind: "denied" });
+    await act(async () => { a.resolve(Promise.reject(new Error("socket closed"))); });
+    await settle();
+    expect(reads()).toBe(0);
+    expect(vi.mocked(fetchStaffSession).mock.calls.length).toBe(checks);
+  });
+
+  it("A ends because the cleanup aborted it: B is not read", async () => {
+    serve();
+    renderInGate(<Switchable />, "/website/newsletter");
+    await screen.findByTestId("newsletter-row-r01@example.com");
+    list.mockImplementationOnce((_query, abort) => new Promise((_resolve, reject) => abort?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")))) as never);
+    await signal("e1");
+    await settle();
+    expect(reads()).toBe(2);
+    await signal("e2");
+    await settle();
+    list.mockClear();
+    list.mockImplementation(async () => ({ kind: "unauthenticated" }) as never);
+    act(() => hidePanel(true));                                                                // the cleanup aborts A; its end must not start B
+    await settle();
+    expect(reads()).toBe(0);
+    expect(screen.queryByTestId("staff-session-required")).toBeNull();
+  });
+
+  it("a signal or `ready` that reaches the old connection's callbacks after the cleanup starts nothing", async () => {
+    serve();
+    renderInGate(<Switchable />, "/website/newsletter");
+    await screen.findByTestId("newsletter-row-r01@example.com");
+    const handlers = connection().options.handlers;
+    act(() => hidePanel(true));
+    list.mockClear();
+    await act(async () => { handlers.onSignal({ eventId: "late", occurredAtUtc: "" }); handlers.onReady(); });
+    await settle();
+    expect(reads()).toBe(0);
+  });
+
+  it("while the panel is alive, a signal that arrives during a live read is still gathered and read once afterwards (the fix does not drop the queue)", async () => {
+    await open();
+    const a = deferred<ReturnType<typeof ok>>();
+    list.mockImplementationOnce(() => a.promise as never);
+    await signal("e1");
+    await settle();
+    await signal("e2");
+    await settle();
+    expect(reads()).toBe(2);
+    await act(async () => { a.resolve(ok(page(server.slice(0, 20)))); });
+    await waitFor(() => expect(reads()).toBe(3));
+    await settle();
+    expect(reads()).toBe(3);                                                                  // B once, not more
+  });
+
+  it("Strict Mode (mount, cleanup, mount) leaves the screen alive: one signal gives exactly one read, one toast", async () => {
+    serve();
+    render(<React.StrictMode><WebsiteAccessGate returnTo="/website/newsletter"><NewsletterSubscriptionsPanel /></WebsiteAccessGate></React.StrictMode>);
+    await screen.findByTestId("newsletter-row-r01@example.com");
+    await settle(50);
+    const before = reads();
+    await signal("e1");
+    await settle();
+    expect(reads()).toBe(before + 1);
+    expect(screen.getAllByTestId("newsletter-live-toast")).toHaveLength(1);
+    await ready();
+    await settle(50);
+    expect(reads()).toBe(before + 2);                                                          // `ready` reads once as well: the screen is not dead after the simulated remount
+  });
+});
+
 describe("the toast", () => {
   it("is a polite status message that takes no focus, can be closed, and goes away by itself", async () => {
     await open();
