@@ -3,7 +3,7 @@
  * behaviour is tested in lib/website/newsletterLive.test.ts), so each test plays the signals itself, against deferred list answers, and asserts what the API was asked and
  * what is on screen: a signal is only a prompt to read the SAME query again, and it must never touch a dialog, a hold, a stale row or a write.
  */
-import React from "react";
+import React, { Activity } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -547,6 +547,36 @@ describe("C1 F1: the way to the new rows (toast and banner) while something is i
     await waitFor(() => expect(buttonOf("newsletter-live-view").disabled).toBe(false));        // the write has ended and so has the lock
   });
 
+  it("a handler captured from an earlier render, called in the same tick as the click that starts the recovery, is refused (before any re-render)", async () => {
+    await open();
+    await userEvent.selectOptions(screen.getByTestId("newsletter-scope-filter"), "all");
+    await goToPage2();
+    await signal("e1");
+    await screen.findByTestId("newsletter-live-toast");
+    // The very function the toast's button had when it was enabled (an older render): React keeps it on the node's props. It is `viewNew`, the one the banner uses too.
+    const node = screen.getByTestId("newsletter-live-toast-view") as unknown as Record<string, { onClick?: () => void }>;
+    const oldView = node[Object.keys(node).find((key) => key.startsWith("__reactProps$"))!].onClick!;
+    expect(typeof oldView).toBe("function");
+    invite.mockResolvedValueOnce({ kind: "unverified", message: "Máy chủ không trả lời" } as never);
+    await click(INVITED);
+    await screen.findByTestId("newsletter-write-unverified");
+    const recovery = deferred<ReturnType<typeof ok>>();
+    list.mockImplementationOnce(() => recovery.promise as never);
+    const before = reads();
+    act(() => {
+      fireEvent.click(buttonOf("newsletter-reconcile"));                                       // the recovery takes its slot synchronously …
+      oldView();                                                                               // … and the old handler runs before React has rendered anything of it
+    });
+    await settle(50);
+    expect(reads()).toBe(before + 1);                                                          // the recovery read only: nothing replaced it
+    expect(rows()[0]).toBe("r21@example.com");
+    expect(screen.getByTestId("newsletter-live-banner")).toBeTruthy();
+    await act(async () => { recovery.resolve(ok(page(server.slice(20, 25), 2, 25))); });
+    await waitFor(() => expect(screen.queryByTestId("newsletter-write-unverified")).toBeNull());
+    expect(screen.queryByTestId("newsletter-reconcile")).toBeNull();                          // it succeeded: no failure, hold lifted
+    expect(reads()).toBe(before + 1);
+  });
+
   it("an open dialog and a stale row lock both buttons too, and the offer survives until Staff can use it", async () => {
     await open();
     await goToPage2();
@@ -661,6 +691,42 @@ describe("C1 F2: nothing runs after the panel is gone", () => {
     await waitFor(() => expect(reads()).toBe(3));
     await settle();
     expect(reads()).toBe(3);                                                                  // B once, not more
+  });
+
+  it("cleanup then setup on the SAME instance (refs kept): an older live read that ends later neither frees the new life's flag nor drains its queue", async () => {
+    let setHidden: (hidden: boolean) => void = () => undefined;
+    function Hideable() {
+      const [hidden, hide] = React.useState(false);
+      React.useEffect(() => { setHidden = hide; }, []);
+      return <Activity mode={hidden ? "hidden" : "visible"}><NewsletterSubscriptionsPanel /></Activity>;
+    }
+    serve();
+    renderInGate(<Hideable />, "/website/newsletter");
+    await screen.findByTestId("newsletter-row-r01@example.com");
+    const a = deferred<ReturnType<typeof ok>>();
+    list.mockImplementationOnce(() => a.promise as never);
+    await signal("e1");
+    await settle();                                                                            // live read A (first life) is out
+    act(() => setHidden(true));                                                                // cleanup: that life is over
+    await act(async () => setHidden(false));                                                   // setup again on the same instance, refs kept
+    await screen.findByTestId("newsletter-row-r01@example.com");
+    await settle(50);
+    const b = deferred<ReturnType<typeof ok>>();
+    list.mockImplementationOnce(() => b.promise as never);
+    const base = reads();
+    await signal("e2");
+    await settle();
+    expect(reads()).toBe(base + 1);                                                            // B starts: A's flag did not leak into the new life
+    await act(async () => { a.resolve(ok(page(server.slice(0, 20)))); });                      // the OLD read ends now
+    await settle(50);
+    expect(reads()).toBe(base + 1);                                                            // it freed nothing of B's and drained nothing
+    await signal("e3");
+    await settle();
+    expect(reads()).toBe(base + 1);                                                            // e3 waits behind B (B's flag is still set)
+    await act(async () => { b.resolve(ok(page(server.slice(0, 20)))); });
+    await waitFor(() => expect(reads()).toBe(base + 2));                                       // and is then read exactly once
+    await settle();
+    expect(reads()).toBe(base + 2);
   });
 
   it("Strict Mode (mount, cleanup, mount) leaves the screen alive: one signal gives exactly one read, one toast", async () => {
