@@ -2325,10 +2325,23 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<DateTimeOffset?>("ArchivedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedByStaffId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Email")
                         .IsRequired()
                         .HasMaxLength(254)
                         .HasColumnType("character varying(254)");
+
+                    b.Property<string>("Language")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(2)
+                        .HasColumnType("character varying(2)")
+                        .HasDefaultValue("vi");
 
                     b.Property<DateTimeOffset?>("LastVerificationRequestedAtUtc")
                         .HasColumnType("timestamp with time zone");
@@ -2346,10 +2359,20 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         .HasMaxLength(30)
                         .HasColumnType("character varying(30)");
 
+                    b.Property<DateTimeOffset?>("UnsubscribedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTimeOffset?>("VerifiedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<int>("Version")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
+
                     b.HasKey("Id");
+
+                    b.HasIndex("CreatedByStaffId");
 
                     b.HasIndex("Email")
                         .IsUnique()
@@ -2361,13 +2384,58 @@ namespace TheBha.Infrastructure.Persistence.Migrations
 
                     b.ToTable("NewsletterSubscriptions", null, t =>
                         {
+                            t.HasCheckConstraint("CK_NewsletterSubscriptions_CreatedBy", "(\"Source\" = 'admin') = (\"CreatedByStaffId\" IS NOT NULL)");
+
                             t.HasCheckConstraint("CK_NewsletterSubscriptions_Email", "\"Email\" = lower(btrim(\"Email\")) AND char_length(\"Email\") BETWEEN 3 AND 254 AND \"Email\" LIKE '_%@_%'");
 
-                            t.HasCheckConstraint("CK_NewsletterSubscriptions_Source", "\"Source\" IN ('homepage')");
+                            t.HasCheckConstraint("CK_NewsletterSubscriptions_Language", "\"Language\" IN ('vi', 'en', 'fr')");
 
-                            t.HasCheckConstraint("CK_NewsletterSubscriptions_Status", "\"Status\" IN ('PendingVerification', 'Verified')");
+                            t.HasCheckConstraint("CK_NewsletterSubscriptions_Source", "\"Source\" IN ('homepage', 'admin')");
 
-                            t.HasCheckConstraint("CK_NewsletterSubscriptions_VerifiedAt", "(\"Status\" = 'Verified') = (\"VerifiedAtUtc\" IS NOT NULL)");
+                            t.HasCheckConstraint("CK_NewsletterSubscriptions_Status", "\"Status\" IN ('PendingVerification', 'Verified', 'Unsubscribed')");
+
+                            t.HasCheckConstraint("CK_NewsletterSubscriptions_UnsubscribedAt", "(\"Status\" = 'Unsubscribed') = (\"UnsubscribedAtUtc\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_NewsletterSubscriptions_VerifiedAt", "(\"Status\" = 'Verified' AND \"VerifiedAtUtc\" IS NOT NULL) OR (\"Status\" = 'PendingVerification' AND \"VerifiedAtUtc\" IS NULL) OR \"Status\" = 'Unsubscribed'");
+
+                            t.HasCheckConstraint("CK_NewsletterSubscriptions_Version", "\"Version\" >= 1");
+                        });
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Website.NewsletterSubscriptionAudit", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("ActorStaffId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Detail")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTimeOffset>("OccurredAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("SubscriptionId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActorStaffId");
+
+                    b.HasIndex("SubscriptionId", "OccurredAtUtc")
+                        .HasDatabaseName("IX_NewsletterSubscriptionAudits_SubscriptionId_OccurredAtUtc");
+
+                    b.ToTable("NewsletterSubscriptionAudits", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_NewsletterSubscriptionAudits_Action", "\"Action\" IN ('created', 'edited', 'invited', 'unsubscribed', 'archived', 'restored', 'deleted')");
                         });
                 });
 
@@ -2387,6 +2455,9 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTimeOffset>("ExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("ForVerifiedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("FromEmail")
@@ -2416,9 +2487,19 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         .HasMaxLength(2048)
                         .HasColumnType("character varying(2048)");
 
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("Verification");
+
                     b.Property<string>("ReplyTo")
                         .HasMaxLength(254)
                         .HasColumnType("character varying(254)");
+
+                    b.Property<DateTimeOffset?>("RevokedAtUtc")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int?>("SenderGeneration")
                         .HasColumnType("integer");
@@ -2454,11 +2535,20 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                     b.HasIndex("Status", "NextAttemptAtUtc")
                         .HasDatabaseName("IX_NewsletterVerificationRequests_Status_NextAttemptAtUtc");
 
+                    b.HasIndex("SubscriptionId", "ForVerifiedAtUtc")
+                        .IsUnique()
+                        .HasDatabaseName("UX_NewsletterVerificationRequests_WelcomePerVerification")
+                        .HasFilter("\"Purpose\" = 'Welcome'");
+
                     b.ToTable("NewsletterVerificationRequests", null, t =>
                         {
                             t.HasCheckConstraint("CK_NewsletterVerificationRequests_Attempts", "\"Attempts\" >= 0");
 
+                            t.HasCheckConstraint("CK_NewsletterVerificationRequests_ForVerifiedAt", "(\"Purpose\" = 'Welcome') = (\"ForVerifiedAtUtc\" IS NOT NULL)");
+
                             t.HasCheckConstraint("CK_NewsletterVerificationRequests_Language", "\"Language\" IN ('vi', 'en', 'fr')");
+
+                            t.HasCheckConstraint("CK_NewsletterVerificationRequests_Purpose", "\"Purpose\" IN ('Verification', 'Welcome')");
 
                             t.HasCheckConstraint("CK_NewsletterVerificationRequests_Status", "\"Status\" IN ('Pending', 'Sending', 'Sent', 'Failed', 'Cancelled')");
                         });
@@ -3887,6 +3977,23 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("PropertyId", "SegmentId")
                         .HasPrincipalKey("PropertyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Website.NewsletterSubscription", b =>
+                {
+                    b.HasOne("TheBha.Infrastructure.Identity.StaffAccount", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByStaffId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Website.NewsletterSubscriptionAudit", b =>
+                {
+                    b.HasOne("TheBha.Infrastructure.Identity.StaffAccount", null)
+                        .WithMany()
+                        .HasForeignKey("ActorStaffId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

@@ -101,13 +101,21 @@ export type WriteStatus =
 /**
  * One write action. `run` returns the result, or `null` when it did not start (another write is on the wire or a
  * sign-out is in progress). A 401/403 is handed to the host; the others are kept as the status for the form.
+ *
+ * `holdWhenUnverified` (opt-in; off for every caller that does not ask) makes "blocks sending again until the server has been read" true in the hook itself:
+ * once a write ends `unverified`, the hold is taken synchronously (a second click, Enter or a direct submit in the same tick finds it), `run` returns `null`,
+ * and `reset` leaves it. Only `release` lifts it, and the caller calls that only after it has read the server successfully.
  */
-export function useWriteAction() {
+export function useWriteAction(options?: { holdWhenUnverified?: boolean }) {
   const host = useWebsiteHost();
   const hostRef = useRef(host);
   hostRef.current = host;
   const [status, setStatus] = useState<WriteStatus>({ phase: "idle" });
   const startedRef = useRef(false);
+  const heldRef = useRef(false);
+  const [held, setHeld] = useState(false);
+  const holdRef = useRef(options?.holdWhenUnverified === true);
+  holdRef.current = options?.holdWhenUnverified === true;
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
@@ -117,11 +125,15 @@ export function useWriteAction() {
   }, []);
 
   const run = useCallback(async <T,>(send: () => Promise<WebsiteResult<T>>): Promise<WebsiteResult<T> | null> => {
-    if (startedRef.current || !hostRef.current.beginWrite()) return null;
+    if (heldRef.current || startedRef.current || !hostRef.current.beginWrite()) return null;
     startedRef.current = true;
     if (mountedRef.current) setStatus({ phase: "pending" });
     try {
       const result = await send();
+      if (result.kind === "unverified" && holdRef.current) {
+        heldRef.current = true;
+        if (mountedRef.current) setHeld(true);
+      }
       if (mountedRef.current) {
         if (result.kind === "ok") setStatus({ phase: "idle" });
         else if (result.kind === "refused") setStatus({ phase: "refused", failure: result });
@@ -138,6 +150,13 @@ export function useWriteAction() {
     }
   }, []);
 
-  const reset = useCallback(() => setStatus({ phase: "idle" }), []);
-  return { status, run, reset, setStatus };
+  const reset = useCallback(() => {
+    if (!heldRef.current) setStatus({ phase: "idle" });
+  }, []);
+  const release = useCallback(() => {
+    heldRef.current = false;
+    setHeld(false);
+    setStatus({ phase: "idle" });
+  }, []);
+  return { status, run, reset, release, held, setStatus };
 }

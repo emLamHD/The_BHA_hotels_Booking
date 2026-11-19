@@ -15,6 +15,10 @@ public sealed record ConfirmNewsletterRequest(string? Token);
 
 public sealed record NewsletterConfirmedDto(string Status);
 
+public sealed record UnsubscribeNewsletterRequest(string? Token);
+
+public sealed record NewsletterUnsubscribedDto(string Status);
+
 /// <summary>
 /// BHA-NEWSLETTER-001: the home page's "get offers" form. Anonymous, uncredentialed (the <c>website-public</c> CORS policy),
 /// rate limited per client address. A valid address is answered with the same <c>202</c> and the same body whether it was
@@ -68,6 +72,27 @@ public sealed class WebsiteNewsletterController(INewsletterSubscriptions subscri
             NewsletterConfirmOutcome.AlreadyVerified => Ok(new NewsletterConfirmedDto("already-verified")),
             NewsletterConfirmOutcome.Expired => Problem(StatusCodes.Status410Gone, "Link expired", "newsletter-confirmation-expired"),
             _ => Problem(StatusCodes.Status400BadRequest, "Invalid link", "newsletter-confirmation-invalid")
+        };
+    }
+
+    /// <summary>
+    /// BHA-NEWSLETTER-003: the visitor pressed "unsubscribe" on the Customer page the Welcome mail links to (the link only opens that page; the token is in its URL
+    /// fragment and travels here in the body, like a confirmation). Anonymous, so it ignores antiforgery on purpose: there is no cookie to borrow, and a forged request can
+    /// only stop mail for the holder of a token nobody else has. Repeating it, or an unknown or void token, never tells whether an address exists.
+    /// </summary>
+    [HttpPost("unsubscriptions")]
+    [ProducesResponseType(typeof(NewsletterUnsubscribedDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status429TooManyRequests)]
+    public async Task<ActionResult> Unsubscribe([FromBody] UnsubscribeNewsletterRequest request, CancellationToken cancellationToken)
+    {
+        Response.Headers.CacheControl = "no-store";
+        var outcome = await subscriptions.UnsubscribeAsync(request.Token ?? string.Empty, cancellationToken);
+        return outcome switch
+        {
+            NewsletterUnsubscribeOutcome.Unsubscribed => Ok(new NewsletterUnsubscribedDto("unsubscribed")),
+            NewsletterUnsubscribeOutcome.AlreadyUnsubscribed => Ok(new NewsletterUnsubscribedDto("already-unsubscribed")),
+            _ => Problem(StatusCodes.Status400BadRequest, "Invalid link", "newsletter-unsubscribe-invalid")
         };
     }
 

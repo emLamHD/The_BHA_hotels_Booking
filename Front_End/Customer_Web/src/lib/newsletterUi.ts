@@ -61,6 +61,20 @@ export const NEWSLETTER_CONFIRM = {
   home: "customer.newsletter.confirm.home",
 } as const;
 
+/** BHA-NEWSLETTER-003: the keys of the page the Welcome's unsubscribe link opens. Its token is in the URL fragment too, so it is read with {@link parseConfirmFragment}. */
+export const NEWSLETTER_UNSUBSCRIBE = {
+  meta: "customer.newsletter.unsubscribe.meta",
+  heading: "customer.newsletter.unsubscribe.heading",
+  intro: "customer.newsletter.unsubscribe.intro",
+  button: "customer.newsletter.unsubscribe.button",
+  working: "customer.newsletter.unsubscribe.working",
+  done: "customer.newsletter.unsubscribe.done",
+  already: "customer.newsletter.unsubscribe.already",
+  invalid: "customer.newsletter.unsubscribe.invalid",
+  failed: "customer.newsletter.unsubscribe.failed",
+  home: "customer.newsletter.unsubscribe.home",
+} as const;
+
 /**
  * The token of a confirmation link: `#t=<43 URL-safe characters>`. Anything else (no fragment, another key, a different length, a
  * character outside the token alphabet) is "no token", so the page says the link is not valid instead of sending a guess.

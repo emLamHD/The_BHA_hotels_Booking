@@ -1,6 +1,6 @@
 /**
  * BHA-NEWSLETTER-001: the Newsletter screen against a mocked Admin API client — loading, empty, error with retry,
- * newest-first rows with the "Chưa xác minh email" status, and that the search and the paging are the server's (the
+ * newest-first rows with the "Chờ xác minh" status, and that the search and the paging are the server's (the
  * screen asks again with the query and never filters what it received).
  */
 import React from "react";
@@ -25,7 +25,10 @@ import { fetchStaffSession } from "@/lib/api/staff";
 import { listNewsletterSubscriptions, parseNewsletterSubscriptionPage, type NewsletterSubscriptionPage } from "@/lib/api/website";
 
 const list = vi.mocked(listNewsletterSubscriptions);
-const item = (email: string, receivedAtUtc = "2026-11-16T04:00:00+00:00", verifiedAtUtc: string | null = null) => ({ id: `id-${email}`, email, receivedAtUtc, source: "homepage", status: verifiedAtUtc ? "Verified" : "PendingVerification", verifiedAtUtc });
+const item = (email: string, receivedAtUtc = "2026-11-16T04:00:00+00:00", verifiedAtUtc: string | null = null) => ({
+  id: `id-${email}`, email, receivedAtUtc, source: "homepage", status: verifiedAtUtc ? "Verified" : "PendingVerification", verifiedAtUtc,
+  language: "vi" as const, version: 1, unsubscribedAtUtc: null, archivedAtUtc: null, verificationMail: null as "Sent" | null,
+});
 const page = (items: ReturnType<typeof item>[], overrides: Partial<NewsletterSubscriptionPage> = {}): NewsletterSubscriptionPage => ({ items, page: 1, pageSize: 20, total: items.length, ...overrides });
 
 beforeEach(() => {
@@ -42,20 +45,21 @@ describe("NewsletterSubscriptionsPanel", () => {
     expect(await screen.findByTestId("website-loading")).toBeTruthy();
     pending.resolve(ok(page([item("a@example.com"), item("b@example.com")])));
     const row = await screen.findByTestId("newsletter-row-a@example.com");
-    expect(within(row).getByText("Chưa xác minh email")).toBeTruthy();
+    expect(within(row).getByText("Chờ xác minh")).toBeTruthy();
     expect(within(row).getByText("Trang chủ")).toBeTruthy();
     expect(screen.getByTestId("newsletter-count").textContent).toContain("2 đăng ký");
-    expect(list).toHaveBeenCalledWith({ search: "", page: 1, pageSize: 20 }, expect.anything());
+    expect(list).toHaveBeenCalledWith({ search: "", status: "", scope: "active", page: 1, pageSize: 20 }, expect.anything());
   });
 
   it("shows who confirmed and when (BHA-NEWSLETTER-002), and a dash for a pending address", async () => {
-    list.mockResolvedValue(ok(page([item("done@example.com", "2026-11-16T04:00:00+00:00", "2026-11-17T08:30:00+00:00"), item("wait@example.com")])));
+    // Both have a confirmation mail on record ("Đã gửi"), so the only dash on a row is the missing verification time.
+    list.mockResolvedValue(ok(page([item("done@example.com", "2026-11-16T04:00:00+00:00", "2026-11-17T08:30:00+00:00"), item("wait@example.com")].map((row) => ({ ...row, verificationMail: "Sent" as const })))));
     renderInGate(<NewsletterSubscriptionsPanel />, "/website/newsletter");
     const verified = await screen.findByTestId("newsletter-row-done@example.com");
     expect(within(verified).getByText("Đã xác minh")).toBeTruthy();
     expect(within(verified).queryByText("—")).toBeNull();
     const pending = screen.getByTestId("newsletter-row-wait@example.com");
-    expect(within(pending).getByText("Chưa xác minh email")).toBeTruthy();
+    expect(within(pending).getByText("Chờ xác minh")).toBeTruthy();
     expect(within(pending).getByText("—")).toBeTruthy();
   });
 
@@ -74,7 +78,7 @@ describe("NewsletterSubscriptionsPanel", () => {
     await userEvent.type(screen.getByTestId("newsletter-search"), "nobody");
     await userEvent.click(within(screen.getByTestId("newsletter-search-submit")).getByRole("button"));
     await waitFor(() => expect(screen.getByTestId("newsletter-empty").textContent).toContain("Không có đăng ký nào khớp"));
-    expect(list).toHaveBeenLastCalledWith({ search: "nobody", page: 1, pageSize: 20 }, expect.anything());
+    expect(list).toHaveBeenLastCalledWith({ search: "nobody", status: "", scope: "active", page: 1, pageSize: 20 }, expect.anything());
   });
 
   it("shows an error with a retry that asks the server again", async () => {
@@ -96,7 +100,7 @@ describe("NewsletterSubscriptionsPanel", () => {
     await userEvent.click(screen.getByRole("button", { name: "Trang sau" }));
     await screen.findByTestId("newsletter-row-p2@example.com");
     expect(screen.queryByTestId("newsletter-row-p1@example.com")).toBeNull();
-    expect(list).toHaveBeenLastCalledWith({ search: "", page: 2, pageSize: 20 }, expect.anything());
+    expect(list).toHaveBeenLastCalledWith({ search: "", status: "", scope: "active", page: 2, pageSize: 20 }, expect.anything());
   });
 });
 
@@ -119,7 +123,7 @@ describe("NewsletterSubscriptionsPanel — a new query while the old answer is s
     const narrowed = deferred<ReturnType<typeof ok>>();
     list.mockReturnValueOnce(narrowed.promise as never);
     await search("one");
-    await waitFor(() => expect(list).toHaveBeenLastCalledWith({ search: "one", page: 1, pageSize: 20 }, expect.anything()));
+    await waitFor(() => expect(list).toHaveBeenLastCalledWith({ search: "one", status: "", scope: "active", page: 1, pageSize: 20 }, expect.anything()));
     expect(nextButton().disabled).toBe(true);
     expect(previousButton().disabled).toBe(true);
     await userEvent.click(nextButton());
@@ -143,7 +147,7 @@ describe("NewsletterSubscriptionsPanel — a new query while the old answer is s
     list.mockReturnValueOnce(first.promise as never).mockReturnValueOnce(second.promise as never);
     await search("first");
     await search("second");
-    await waitFor(() => expect(list).toHaveBeenLastCalledWith({ search: "second", page: 1, pageSize: 20 }, expect.anything()));
+    await waitFor(() => expect(list).toHaveBeenLastCalledWith({ search: "second", status: "", scope: "active", page: 1, pageSize: 20 }, expect.anything()));
 
     first.resolve(ok(page([item("first@example.com")], { total: 1 })));
     await Promise.resolve();
@@ -167,7 +171,7 @@ describe("NewsletterSubscriptionsPanel — a new query while the old answer is s
     expect(screen.queryByTestId("newsletter-empty")).toBeNull();
     await userEvent.click(within(screen.getByTestId("newsletter-back-to-first")).getByRole("button"));
     await screen.findByTestId("newsletter-row-p1@example.com");
-    expect(list).toHaveBeenLastCalledWith({ search: "", page: 1, pageSize: 20 }, expect.anything());
+    expect(list).toHaveBeenLastCalledWith({ search: "", status: "", scope: "active", page: 1, pageSize: 20 }, expect.anything());
     expect(screen.queryByTestId("newsletter-out-of-range")).toBeNull();
   });
 });
@@ -178,9 +182,13 @@ describe("parseNewsletterSubscriptionPage", () => {
     expect(parseNewsletterSubscriptionPage({ items: [{ email: "a@example.com" }], page: 1, pageSize: 20, total: 1 })).toBeNull();
     expect(parseNewsletterSubscriptionPage({ items: [], page: "1", pageSize: 20, total: 0 })).toBeNull();
     expect(parseNewsletterSubscriptionPage(null)).toBeNull();
-    // An older API that does not send verifiedAtUtc still reads, as "not verified yet".
+    // The screen and the API ship together: a row without a version or a language (an API from before BHA-NEWSLETTER-003) is not a row.
     const old = { id: "x", email: "a@example.com", receivedAtUtc: "t", source: "homepage", status: "PendingVerification" };
-    expect(parseNewsletterSubscriptionPage({ items: [old], page: 1, pageSize: 20, total: 1 })?.items[0].verifiedAtUtc).toBeNull();
-    expect(parseNewsletterSubscriptionPage({ items: [{ ...old, verifiedAtUtc: 5 }], page: 1, pageSize: 20, total: 1 })).toBeNull();
+    expect(parseNewsletterSubscriptionPage({ items: [old], page: 1, pageSize: 20, total: 1 })).toBeNull();
+    const current = { ...old, language: "en", version: 3, verifiedAtUtc: null, unsubscribedAtUtc: null, archivedAtUtc: null, verificationMail: "Sent" };
+    expect(parseNewsletterSubscriptionPage({ items: [current], page: 1, pageSize: 20, total: 1 })?.items[0]).toMatchObject({ language: "en", version: 3, verificationMail: "Sent", archivedAtUtc: null });
+    expect(parseNewsletterSubscriptionPage({ items: [{ ...current, verifiedAtUtc: 5 }], page: 1, pageSize: 20, total: 1 })).toBeNull();
+    expect(parseNewsletterSubscriptionPage({ items: [{ ...current, language: "de" }], page: 1, pageSize: 20, total: 1 })).toBeNull();
+    expect(parseNewsletterSubscriptionPage({ items: [{ ...current, verificationMail: "Lost" }], page: 1, pageSize: 20, total: 1 })).toBeNull();
   });
 });

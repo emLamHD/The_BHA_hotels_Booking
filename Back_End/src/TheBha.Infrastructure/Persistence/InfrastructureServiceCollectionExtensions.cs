@@ -83,6 +83,8 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<IWebsiteHero, WebsiteHeroService>();
         services.AddScoped<IWebsiteSocialSettings, WebsiteSocialSettingsService>();
         services.AddScoped<INewsletterSubscriptions, NewsletterSubscriptionService>();
+        // BHA-NEWSLETTER-003: Staff add, edit, invite, unsubscribe, archive and delete.
+        services.AddScoped<INewsletterSubscriptionAdmin, NewsletterSubscriptionAdminService>();
         // BHA-NEWSLETTER-002: Gmail sender, confirmation e-mails (outbox) and the worker that sends them. NewsletterOptions is registered by the host.
         services.AddSingleton<TheBha.Infrastructure.Persistence.Newsletter.NewsletterSecretProtector>();
         services.AddHttpClient<IGoogleMailGateway, TheBha.Infrastructure.Persistence.Newsletter.GoogleMailGateway>(

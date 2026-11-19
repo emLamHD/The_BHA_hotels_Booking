@@ -64,9 +64,18 @@ public sealed class NewsletterVerificationRequest
     public const string StatusSent = "Sent";
     public const string StatusFailed = "Failed";
     public const string StatusCancelled = "Cancelled";
+    /// <summary>The mail that asks the owner of the mailbox to confirm. Its token confirms the address.</summary>
+    public const string PurposeVerification = "Verification";
+    /// <summary>BHA-NEWSLETTER-003: the mail sent once when an address becomes verified. Its token only unsubscribes; it never confirms.</summary>
+    public const string PurposeWelcome = "Welcome";
 
     public Guid Id { get; set; }
     public Guid SubscriptionId { get; set; }
+    public string Purpose { get; set; } = PurposeVerification;
+    /// <summary>For a Welcome: the verification instant it answers. With the subscription it is unique, so one verification can never produce two Welcomes.</summary>
+    public DateTimeOffset? ForVerifiedAtUtc { get; set; }
+    /// <summary>The token no longer works for either route (the address was changed). Set together with the cancellation of the mail.</summary>
+    public DateTimeOffset? RevokedAtUtc { get; set; }
     public string TokenHash { get; set; } = string.Empty;
     public string? ProtectedToken { get; set; }
     public string Language { get; set; } = "vi";

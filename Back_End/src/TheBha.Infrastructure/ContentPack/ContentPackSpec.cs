@@ -83,6 +83,7 @@ public static class ContentPackSpec
         ["ContentPackLedger"] = "the content-pack importer's own bookkeeping of what it has placed in that database",
         ["NewsletterSubscriptions"] = "visitors' e-mail addresses (personal data), not site content: a pack never carries them",
         ["NewsletterSenderSettings"] = "the Gmail connection (OAuth client, protected secret and refresh token): a credential of one environment, never content",
+        ["NewsletterSubscriptionAudits"] = "history of what Staff did to visitors' subscriptions (who and when, never an address): operational history of one environment, never content",
         ["NewsletterOAuthStates"] = "single-use OAuth sign-in state of one environment: never content",
         ["NewsletterVerificationRequests"] = "confirmation mails queued for visitors' addresses (personal data and link tokens): a pack never carries them",
     };

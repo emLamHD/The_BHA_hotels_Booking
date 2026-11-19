@@ -501,6 +501,14 @@ public sealed class AdminCalendarAssignmentApiTests(PostgreSqlWebApplicationFact
         "/api/admin/v1/website/newsletter-sender/connect",
         "/api/admin/v1/website/newsletter-sender/connect/complete",
         "/api/admin/v1/website/newsletter-sender/disconnect",
+        // BHA-NEWSLETTER-003: Staff add (POST on the list), edit, invite, unsubscribe, archive, restore and delete a subscription; asserted in full by NewsletterManagementTests.
+        "/api/admin/v1/website/newsletter-subscriptions",
+        "/api/admin/v1/website/newsletter-subscriptions/{id}/update",
+        "/api/admin/v1/website/newsletter-subscriptions/{id}/verification-invitations",
+        "/api/admin/v1/website/newsletter-subscriptions/{id}/unsubscribe",
+        "/api/admin/v1/website/newsletter-subscriptions/{id}/archive",
+        "/api/admin/v1/website/newsletter-subscriptions/{id}/restore",
+        "/api/admin/v1/website/newsletter-subscriptions/{id}/delete",
         // BHA-PRODUCT-ADMIN-001-CP01: owner-scoped content saves, simple amenity creation and staged media upload.
         "/api/admin/v1/catalog/properties/{propertyId}/save",
         "/api/admin/v1/catalog/properties/{propertyId}/room-types/{roomTypeId}/save",
