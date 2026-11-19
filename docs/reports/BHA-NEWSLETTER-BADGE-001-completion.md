@@ -133,7 +133,33 @@ Ngoài mục tiêu 100–400 dòng (xem số liệu GitHub trong báo cáo chat)
 
 - `diagnosing-bugs`: không kích hoạt riêng. Ba điều đã gặp và cách xử lý: (1) 11 test pin migration đỏ đúng như dự kiến → cập nhật pin có chủ đích; (2) ca ContentPack đỏ “unclassified tables” → phân loại ba bảng mới; (3) hai lỗi harness của tôi (xác nhận mail của Welcome bị chọn nhầm; xóa subscription bị FK request chặn trong test) → sửa test, không sửa mã.
 - Graphify: `ALLOWED_IF_RELEVANT`, đồ thị cũ → dùng nguồn + test. Advisor đã được hỏi trước khi chốt kế hoạch.
-- Review: chưa chạy — chờ Owner gọi `/codex:review --wait --base origin/develop`.
+- Review: lần 1 do Owner gọi trả hai finding P2, xử lý ở mục Correction C1; lần review sau C1 chờ Owner gọi lại `/codex:review --wait --base origin/develop`.
+
+## Correction C1 (`BHA-NEWSLETTER-BADGE-001-C1`, sau `/codex:review` lần 1; mã `9537f22`)
+
+Hai finding P2 của Codex; chỉ sửa `NewsletterBadgeProvider.tsx`, `AppSidebar.tsx` và test. Không đổi backend, migration, contract, dependency, proxy, StaffSession core, điều kiện `reuse={rule === WEBSITE_RULE}`, và socket **vẫn thuộc layout** (không đổi để chiều nghiệm thu cũ).
+
+- **F1 — 403 rồi kiểm tra phiên lỗi phải đóng access.** `authFailure` (một hàm cho cả ba đường: kết nối live, request đếm, ack) chỉ xử lý `refresh() → "unauthenticated"`. Khi `/me` lỗi, `refresh()` trả `"error"` nhưng phiên dùng chung vẫn `authenticated`, nên form Website vẫn chạy trên quyền chưa được kiểm chứng lại (trong khi `WebsiteBoundary.onDenied` trước đây gọi `failAccessCheck()`). Sửa: cùng quy tắc với gate — `unauthenticated` → `expire()`; `error` → `failAccessCheck()` (access đóng thành lỗi có Retry, **không** phải đăng xuất); `authenticated` → giữ (màn hình dựng lại theo `me` vừa đọc; không tự hết phiên); `superseded` → không làm gì. Kết quả đến muộn từ identity/generation cũ bị bỏ (kiểm tra `gen` sau khi `refresh()` trả lời) nên không đóng hay làm hết phiên Staff mới. `failAccessCheck` được đưa vào `sessionRef` để luôn dùng handler hiện hành. Lỗi mạng thuần túy của API đếm (không có 403) giữ nguyên: giữ số cũ, không đóng gì.
+- **F2 — chỉ báo theo phần menu thực sự được vẽ.** Chấm trên mục cha bị ẩn khi `openSubmenu` trỏ tới Website, nhưng khi sidebar thu gọn (không hover) submenu không được vẽ nên cũng không có badge số: không còn dấu hiệu nào. Sửa: `submenuDrawn = isExpanded || isHovered || isMobileOpen`; chấm chỉ ẩn khi submenu mở **và** đang được vẽ. Không reset `openSubmenu`; mở/đóng/hover/thu gọn không gửi ack và không đổi count.
+
+### Bằng chứng trước/sau
+
+| | Trước (`d71a2a8` + test) | Sau |
+|---|---|---|
+| vitest, 12 ca C1 mới (F1: live/REST/ack 403 + `/me` lỗi → form đóng + Retry → Retry mở lại với một kết nối; unauthenticated; authenticated; mất quyền; superseded; muộn sau đăng xuất; lỗi mạng thuần túy. F2: thu gọn/hover/mobile/0/99+/không ack) | 5 đỏ (3 F1: không có `staff-session-error`; 2 F2: chấm không hiện), 7 ca bảo vệ xanh | 12/12 |
+| Trình duyệt F1: chặn `GET menu-unseen` bằng 403 và làm `/me` thất bại | đỏ: trang Website **vẫn mở**, không có lỗi/Retry | trang đóng, lỗi + Thử lại, socket đóng cùng access; Retry → trang trở lại, badge 2, **một** socket |
+| Trình duyệt F2 (desktop thu gọn/hover, mobile 375px, đo trong khung nhìn thực) | (F2 trước sửa được chứng minh bằng vitest; lần chạy trình duyệt trước sửa dừng ở F1) | 15/15 |
+
+Phần thật/mock của nghiệm thu trình duyệt: Chrome HTTPS, Admin `next dev`, API + PostgreSQL + SignalR **thật**, Google là stub; 403 của request đếm và việc `/me` thất bại được tạo bằng `route` phía trình duyệt. Đường **403 của kết nối live** không tạo được trong trình duyệt (negotiate đã xong); nó chỉ được chứng minh bằng test tích hợp (phiên dùng chung thật + provider thật + gate mặc định + form thật), và dùng chung `authFailure` với đường REST đã nghiệm thu. Ảnh: `…/scratchpad/accept/shots/c1-01-access-closed-retry.png`, `c1-02-after-retry.png`, `c1-03-expanded-website-open.png`, `c1-04-collapsed-dot.png`, `c1-05-hover-expanded.png`, `c1-06-mobile-drawer-closed.png`, `c1-07-mobile-drawer-open.png` (thư mục scratchpad của phiên, có thể bị dọn).
+
+| Kiểm tra (C1, trên `9537f22`) | Kết quả |
+|---|---|
+| Admin vitest (toàn bộ) | 95 file, **2698 passed** (+12) |
+| `tsc --noEmit`, `eslint .`, `next build` | sạch / thành công |
+| Chrome HTTPS (C1) | 15/15 |
+| Backend, Customer_Web | không chạy lại: không đổi mã ảnh hưởng đến chúng |
+
+Giới hạn giữ nguyên như đã công bố.
 
 ## Quyết định cần Owner/OC
 
