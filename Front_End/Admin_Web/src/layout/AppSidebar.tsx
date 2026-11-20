@@ -16,12 +16,15 @@ import {
   PieChartIcon,
   PlugInIcon,
   TableIcon,
+  TimeIcon,
   UserCircleIcon,
 } from "../icons/index";
 import SidebarWidget from "./SidebarWidget";
-import { UnseenBadge } from "./UnseenBadge";
-import { useMenuUnseen } from "../components/website/NewsletterBadgeProvider";
+import { UnseenBadge, UnseenBadgeButton } from "./UnseenBadge";
+import { useMenuUnseen, useUnseenScope } from "../components/website/NewsletterBadgeProvider";
+import MenuChangesPopover, { type PopoverTarget } from "../components/activity/MenuChangesPopover";
 import { ADMIN_MENU, type AdminMenuKey } from "../lib/adminMenus";
+import { getAccessMode } from "../lib/api/accessMode";
 
 type NavItem = {
   name: string;
@@ -29,6 +32,8 @@ type NavItem = {
   path?: string;
   /** `menu`: the registry key whose unseen number the entry shows (BHA-ADMIN-BADGE-001-PR04). Template entries have none, so they never carry a badge. */
   menu?: AdminMenuKey;
+  /** BHA-ADMIN-BADGE-001-PR05: an entry that only exists with a Staff sign-in (not in LocalGate). */
+  staffOnly?: boolean;
   subItems?: { name: string; path: string; pro?: boolean; new?: boolean; menu?: AdminMenuKey }[];
 };
 
@@ -45,6 +50,8 @@ const navItems: NavItem[] = [
     subItems: [{ name: "Ecommerce", path: "/", pro: false }],
   },
   { icon: <CalenderIcon />, ...menuEntry("calendar") },
+  // BHA-ADMIN-BADGE-001-PR05: the activity history is for any Staff, with or without a number; the page asks the server for every scope it shows.
+  { icon: <TimeIcon />, name: "Lịch sử hoạt động", path: "/activity", staffOnly: true },
   {
     icon: <UserCircleIcon />,
     name: "User Profile",
@@ -133,6 +140,41 @@ const AppSidebar: React.FC = () => {
   const submenuDrawn = isExpanded || isHovered || isMobileOpen;
   const unseenOf = (key: AdminMenuKey) => unseen[key]?.count ?? 0;
   const badgeLabel = (name: string) => `thay đổi chưa xem ở ${name}`;
+  const staffMode = (() => {
+    const mode = getAccessMode();
+    return mode.ok && mode.mode === "Staff";
+  })();
+
+  // The unseen list (BHA-ADMIN-BADGE-001-PR05). One at a time. It belongs to the identity and the page it was opened on: for another Staff member, or after navigating, it is closed in the same
+  // render (never shown to the wrong person, never left open over a page the Staff member has left).
+  const { identity } = useUnseenScope();
+  const [popover, setPopover] = useState<(PopoverTarget & { triggerId: string; pathname: string }) | null>(null);
+  if (popover && (popover.identity !== identity || popover.pathname !== pathname)) setPopover(null);
+  const openPopoverRef = useRef(popover);
+  useEffect(() => {
+    openPopoverRef.current = popover;
+  });
+  const closePopover = useCallback((returnFocus: boolean) => {
+    const open = openPopoverRef.current;
+    setPopover(null);
+    if (!open || !returnFocus) return;
+    // The trigger may have been redrawn (hover and collapse draw it in another place): find it again by its id.
+    const trigger = open.anchor.isConnected ? open.anchor : document.querySelector<HTMLElement>(`[data-testid="${open.triggerId}"]`);
+    trigger?.focus();
+  }, []);
+  const openPopover = (triggerId: string, menus: readonly AdminMenuKey[], initial: AdminMenuKey) => (anchor: HTMLElement) =>
+    setPopover((current) => (current?.triggerId === triggerId ? null : { menus, initial, anchor, identity, triggerId, pathname }));
+
+  /** A badge is a button that opens the unseen list, except the Calendar's, which stays a plain number until its list exists (PR-12/13). It is placed over its entry, never inside it. */
+  const renderBadge = (triggerId: string, name: string, count: number, where: "inline" | "parent" | "corner", menus: readonly AdminMenuKey[], initial: AdminMenuKey) => {
+    const className = where === "inline" ? "absolute right-3 top-1/2 -translate-y-1/2" : where === "parent" ? "absolute right-10 top-1/2 -translate-y-1/2" : "absolute right-1 top-0 ring-2 ring-white dark:ring-gray-900";
+    const placement = where === "corner" ? "corner" : "inline";
+    return initial === "calendar" ? (
+      <UnseenBadge count={count} testId={triggerId} label={badgeLabel(name)} className={className} placement={placement} />
+    ) : (
+      <UnseenBadgeButton count={count} testId={triggerId} label={badgeLabel(name)} className={className} placement={placement} expanded={popover?.triggerId === triggerId} onOpen={openPopover(triggerId, menus, initial)} />
+    );
+  };
 
   const renderMenuItems = (
     navItems: NavItem[],
@@ -144,9 +186,13 @@ const AppSidebar: React.FC = () => {
         const childrenUnseen = (nav.subItems ?? []).reduce((sum, subItem) => sum + (subItem.menu ? unseenOf(subItem.menu) : 0), 0);
         const parentOpen = openSubmenu?.type === menuType && openSubmenu?.index === index;
         const parentUnseen = parentOpen && submenuDrawn ? 0 : childrenUnseen;
+        const childMenus = (nav.subItems ?? []).flatMap((subItem) => (subItem.menu ? [subItem.menu] : []));
+        const parentInitial = childMenus.find((key) => unseenOf(key) > 0) ?? childMenus[0];
+        if (nav.staffOnly && !staffMode) return null;
         return (
         <li key={nav.name}>
           {nav.subItems ? (
+            <div className="relative">
             <button
               onClick={() => handleSubmenuToggle(index, menuType)}
               className={`menu-item group  ${
@@ -167,16 +213,13 @@ const AppSidebar: React.FC = () => {
                 }`}
               >
                 {nav.icon}
-                {/* Collapsed (no room for the text): the sum sits on the icon. Opening or collapsing never marks anything seen. */}
-                {!submenuDrawn && <UnseenBadge corner count={parentUnseen} testId="menu-unseen-badge-parent" label={badgeLabel(nav.name)} />}
               </span>
               {(isExpanded || isHovered || isMobileOpen) && (
                 <span className={`menu-item-text`}>{nav.name}</span>
               )}
-              {submenuDrawn && <UnseenBadge count={parentUnseen} testId="menu-unseen-badge-parent" label={badgeLabel(nav.name)} />}
               {(isExpanded || isHovered || isMobileOpen) && (
                 <ChevronDownIcon
-                  className={`${parentUnseen > 0 ? "ml-2" : "ml-auto"} w-5 h-5 transition-transform duration-200  ${
+                  className={`ml-auto w-5 h-5 transition-transform duration-200  ${
                     openSubmenu?.type === menuType &&
                     openSubmenu?.index === index
                       ? "rotate-180 text-brand-500"
@@ -185,13 +228,17 @@ const AppSidebar: React.FC = () => {
                 />
               )}
             </button>
+            {/* Beside the toggle, never inside it: the sum, or on the icon when collapsed. Opening the list or toggling the submenu never marks anything seen. */}
+            {parentInitial && renderBadge("menu-unseen-badge-parent", nav.name, parentUnseen, submenuDrawn ? "parent" : "corner", childMenus, parentInitial)}
+            </div>
           ) : (
             nav.path && (
+              <div className="relative">
               <Link
                 href={nav.path}
                 className={`menu-item group ${
                   isActive(nav.path) ? "menu-item-active" : "menu-item-inactive"
-                }`}
+                } ${nav.menu && submenuDrawn && unseenOf(nav.menu) > 0 ? "pr-12" : ""}`}
               >
                 <span
                   className={`relative ${
@@ -201,13 +248,13 @@ const AppSidebar: React.FC = () => {
                   }`}
                 >
                   {nav.icon}
-                  {nav.menu && !submenuDrawn && <UnseenBadge corner count={unseenOf(nav.menu)} testId={`menu-unseen-badge-${nav.menu}`} label={badgeLabel(nav.name)} />}
                 </span>
                 {(isExpanded || isHovered || isMobileOpen) && (
                   <span className={`menu-item-text`}>{nav.name}</span>
                 )}
-                {nav.menu && submenuDrawn && <UnseenBadge count={unseenOf(nav.menu)} testId={`menu-unseen-badge-${nav.menu}`} label={badgeLabel(nav.name)} />}
               </Link>
+              {nav.menu && renderBadge(`menu-unseen-badge-${nav.menu}`, nav.name, unseenOf(nav.menu), submenuDrawn ? "inline" : "corner", [nav.menu], nav.menu)}
+              </div>
             )
           )}
           {nav.subItems && (isExpanded || isHovered || isMobileOpen) && (
@@ -225,18 +272,17 @@ const AppSidebar: React.FC = () => {
             >
               <ul className="mt-2 space-y-1 ml-9">
                 {nav.subItems.map((subItem) => (
-                  <li key={subItem.name}>
+                  <li key={subItem.name} className="relative">
                     <Link
                       href={subItem.path}
                       className={`menu-dropdown-item ${
                         isActive(subItem.path)
                           ? "menu-dropdown-item-active"
                           : "menu-dropdown-item-inactive"
-                      }`}
+                      } ${subItem.menu && unseenOf(subItem.menu) > 0 ? "pr-12" : ""}`}
                     >
                       {subItem.name}
                       <span className="flex items-center gap-1 ml-auto">
-                        {subItem.menu && <UnseenBadge count={unseenOf(subItem.menu)} testId={`menu-unseen-badge-${subItem.menu}`} label={badgeLabel(subItem.name)} />}
                         {subItem.new && (
                           <span
                             className={`ml-auto ${
@@ -261,6 +307,7 @@ const AppSidebar: React.FC = () => {
                         )}
                       </span>
                     </Link>
+                    {subItem.menu && renderBadge(`menu-unseen-badge-${subItem.menu}`, subItem.name, unseenOf(subItem.menu), "inline", childMenus, subItem.menu)}
                   </li>
                 ))}
               </ul>
@@ -426,6 +473,8 @@ const AppSidebar: React.FC = () => {
         </nav>
         {isExpanded || isHovered || isMobileOpen ? <SidebarWidget /> : null}
       </div>
+      {/* A child of the aside in React's tree (drawn on the page body): moving the pointer into it does not count as leaving the sidebar, so a hovered sidebar does not fold under it. */}
+      {popover && <MenuChangesPopover key={popover.triggerId} target={popover} onClose={closePopover} />}
     </aside>
   );
 };
