@@ -8,7 +8,7 @@
  *   `WebsiteSettingsManage` permission. Without a session the page goes to `/signin?returnTo=<this page>` (once);
  *   a failed check is an error with Retry, never a signed-out state; an account without the permission sees why
  *   and nothing else. This is a convenience: every request is authorized on the server again.
- * - It reuses `StaffSessionProvider` exactly as the Calendar gate does (mounted here, not app-wide).
+ * - It reuses `StaffSessionProvider` exactly as the Calendar gate does (mounted here). Under the Admin shell (BHA-NEWSLETTER-BADGE-001) a gate with the DEFAULT rule shares the shell's session; one with a custom rule keeps its own.
  *
  * The host it provides is what keeps the screens honest: a write holds Sign out, a sign-out in progress refuses new
  * writes (both decided on refs at the moment each starts), a 403 re-reads `me` and — if the permission is gone or the
@@ -76,7 +76,9 @@ export default function WebsiteAccessGate({ returnTo, children, rule = WEBSITE_R
     );
   }
   return (
-    <StaffSessionProvider>
+    // BHA-NEWSLETTER-BADGE-001: only a gate that asks for the default website permission shares the Admin shell's session. A gate with its own rule (Blog, Promotions: Property roles, ADR 0009)
+    // keeps a session of its own, exactly as before.
+    <StaffSessionProvider reuse={rule === WEBSITE_RULE}>
       <WebsiteBoundary returnTo={returnTo} rule={rule}>{children}</WebsiteBoundary>
     </StaffSessionProvider>
   );

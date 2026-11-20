@@ -86,6 +86,9 @@ public static class ContentPackSpec
         ["NewsletterSubscriptionAudits"] = "history of what Staff did to visitors' subscriptions (who and when, never an address): operational history of one environment, never content",
         ["NewsletterOAuthStates"] = "single-use OAuth sign-in state of one environment: never content",
         ["NewsletterVerificationRequests"] = "confirmation mails queued for visitors' addresses (personal data and link tokens): a pack never carries them",
+        ["NewsletterVerificationActivities"] = "which verifications happened and when (no address or token), numbered in the commit order of one environment: operational history, never content",
+        ["MenuActivityStreams"] = "the counter that numbers one environment's menu activity: operational state, never content (the migration seeds its row)",
+        ["StaffMenuSeen"] = "how far each Staff member of one environment has seen a menu: per-account operational state, never content",
     };
 
     /// <summary>Booking and test-transaction tables: never exported; the exporter reports their row counts so an empty source is a statement, not a guess.</summary>

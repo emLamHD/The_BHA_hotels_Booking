@@ -10,7 +10,11 @@ public sealed record NewsletterSubscriptionDto(
     Guid Id, string Email, DateTimeOffset ReceivedAtUtc, string Source, string Status, DateTimeOffset? VerifiedAtUtc,
     string Language, int Version, DateTimeOffset? UnsubscribedAtUtc, DateTimeOffset? ArchivedAtUtc, string? VerificationMail);
 
-public sealed record NewsletterSubscriptionPageDto(IReadOnlyList<NewsletterSubscriptionDto> Items, int Page, int PageSize, int Total);
+/// <summary>
+/// <see cref="ViewWatermark"/> (BHA-NEWSLETTER-BADGE-001): the newest verification this page's rows, <see cref="Total"/> and the watermark all agree on (one snapshot). A decimal string;
+/// the client hands it back unchanged to say "I have seen the list up to here" and never builds one.
+/// </summary>
+public sealed record NewsletterSubscriptionPageDto(IReadOnlyList<NewsletterSubscriptionDto> Items, int Page, int PageSize, int Total, string ViewWatermark);
 
 /// <summary>What the public form is told. <see cref="EmailConfirmation"/> is a property of the SITE (is a sender connected), never of the address, so the answer is the same for a new and a known address.</summary>
 public sealed record NewsletterSubscribeResult(bool EmailConfirmation);

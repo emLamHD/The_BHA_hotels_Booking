@@ -564,7 +564,15 @@ export interface NewsletterSubscriptionPage {
   page: number;
   pageSize: number;
   total: number;
+  /**
+   * BHA-NEWSLETTER-BADGE-001: the newest verification this answer's rows and total agree on, as the server wrote it (an opaque decimal string). Handed back unchanged to say "seen up to
+   * here"; never built, rounded or derived from a clock. Absent (an older server) = nothing to acknowledge.
+   */
+  viewWatermark?: string;
 }
+
+/** A watermark as the API writes it: a plain non-negative integer in decimal, no sign, no leading zero. Anything else is not one. */
+export const isWatermark = (value: unknown): value is string => typeof value === "string" && /^(0|[1-9][0-9]*)$/.test(value);
 
 const optionalDate = (value: unknown): value is string | null | undefined => value === null || value === undefined || isStr(value);
 const MAIL_STATES: readonly string[] = ["Pending", "Sending", "Sent", "Failed", "Cancelled"];
@@ -585,8 +593,38 @@ export const parseNewsletterSubscription = (data: unknown): NewsletterSubscripti
 export function parseNewsletterSubscriptionPage(data: unknown): NewsletterSubscriptionPage | null {
   if (!isRec(data) || !isNum(data.page) || !isNum(data.pageSize) || !isNum(data.total)) return null;
   const items = parseList(data.items, parseNewsletterSubscription);
-  return items ? { items, page: data.page, pageSize: data.pageSize, total: data.total } : null;
+  if (!items) return null;
+  return { items, page: data.page, pageSize: data.pageSize, total: data.total, ...(isWatermark(data.viewWatermark) ? { viewWatermark: data.viewWatermark } : {}) };
 }
+
+// ---------------------------------------------------------------- unseen badge (BHA-NEWSLETTER-BADGE-001)
+
+/** What this Staff member has not seen of the Newsletter menu. `count` is verifications after `lastSeenWatermark`; both watermarks are opaque decimal strings, compared as integers. */
+export interface MenuUnseenEntry {
+  count: number;
+  lastSeenWatermark: string;
+  currentWatermark: string;
+}
+
+export function parseMenuUnseen(data: unknown): MenuUnseenEntry | null {
+  if (!isRec(data) || !isRec(data.newsletter)) return null;
+  const entry = data.newsletter;
+  return isNum(entry.count) && Number.isInteger(entry.count) && entry.count >= 0 && isWatermark(entry.lastSeenWatermark) && isWatermark(entry.currentWatermark)
+    ? { count: entry.count, lastSeenWatermark: entry.lastSeenWatermark, currentWatermark: entry.currentWatermark }
+    : null;
+}
+
+const MENU_UNSEEN = `${SETTINGS}/menu-unseen`;
+
+/** Counts only: it never changes what has been seen. */
+export const fetchMenuUnseen = (signal?: AbortSignal) => call<MenuUnseenEntry>("GET", MENU_UNSEEN, undefined, { write: false, parse: parseMenuUnseen, signal });
+
+/**
+ * Says "this Staff member has seen the Newsletter list up to `viewWatermark`" — a watermark a list answered with, passed back unchanged. It is metadata, not a write of the screen's
+ * (`write: false`: no write slot, no hold, and a lost answer is an ordinary network failure): the same call with the same watermark is safe to repeat.
+ */
+export const markNewsletterSeen = (viewWatermark: string, signal?: AbortSignal) =>
+  call<MenuUnseenEntry>("POST", `${MENU_UNSEEN}/newsletter/seen`, { viewWatermark }, { write: false, parse: parseMenuUnseen, signal });
 
 /** BHA-NEWSLETTER-LIVE-001: `recent-activity` = newest sign-up OR verification first (the server decides); left out, the API keeps its first order, newest request first. */
 export type NewsletterListSort = "recent-activity";

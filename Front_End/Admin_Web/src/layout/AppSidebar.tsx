@@ -19,12 +19,15 @@ import {
   UserCircleIcon,
 } from "../icons/index";
 import SidebarWidget from "./SidebarWidget";
+import { UnseenBadge, UnseenDot } from "./UnseenBadge";
+import { useMenuUnseen } from "../components/website/NewsletterBadgeProvider";
 
 type NavItem = {
   name: string;
   icon: React.ReactNode;
   path?: string;
-  subItems?: { name: string; path: string; pro?: boolean; new?: boolean }[];
+  /** `badge`: the unseen counter of that menu (BHA-NEWSLETTER-BADGE-001). */
+  subItems?: { name: string; path: string; pro?: boolean; new?: boolean; badge?: "newsletter" }[];
 };
 
 const navItems: NavItem[] = [
@@ -58,7 +61,7 @@ const navItems: NavItem[] = [
       { name: "Banner trang chủ", path: "/website/hero", pro: false },
       { name: "Social media", path: "/website/social-media", pro: false },
       // BHA-NEWSLETTER-001: the newsletter requests. The page asks the server for WebsiteSettingsManage.
-      { name: "Đăng ký nhận tin", path: "/website/newsletter", pro: false },
+      { name: "Đăng ký nhận tin", path: "/website/newsletter", pro: false, badge: "newsletter" },
       // BHA-NEWSLETTER-002: the Gmail account the confirmation e-mails are sent from.
       { name: "Cấu hình email gửi", path: "/website/newsletter/sender", pro: false },
       // BHA-BLOG-001-CP03: the Blog. Flat entries (the menu has one level); each page asks the server for BlogEdit or BlogPublish.
@@ -123,6 +126,11 @@ const othersItems: NavItem[] = [
 const AppSidebar: React.FC = () => {
   const { isExpanded, isMobileOpen, isHovered, setIsHovered } = useSidebar();
   const pathname = usePathname();
+  // BHA-NEWSLETTER-BADGE-001: only the Newsletter has one. 0 (or no provider) shows nothing.
+  const unseen = useMenuUnseen();
+  // The submenu is DRAWN only while the sidebar is expanded, hovered or the mobile drawer is open. `openSubmenu` says which one is open, not whether it is on screen.
+  const submenuDrawn = isExpanded || isHovered || isMobileOpen;
+  const unseenOf = (key: "newsletter") => unseen[key];
 
   const renderMenuItems = (
     navItems: NavItem[],
@@ -145,13 +153,18 @@ const AppSidebar: React.FC = () => {
               }`}
             >
               <span
-                className={` ${
+                className={`relative ${
                   openSubmenu?.type === menuType && openSubmenu?.index === index
                     ? "menu-item-icon-active"
                     : "menu-item-icon-inactive"
                 }`}
               >
                 {nav.icon}
+                {/* Unless the open submenu is on screen (and shows the number itself), the parent says that something inside it has not been seen. Opening or collapsing does not mark anything seen. */}
+                {!(submenuDrawn && openSubmenu?.type === menuType && openSubmenu?.index === index) &&
+                  nav.subItems.some((subItem) => subItem.badge && unseenOf(subItem.badge) > 0) && (
+                    <UnseenDot testId="menu-unseen-dot-parent" label="Có đăng ký nhận tin mới chưa xem" />
+                  )}
               </span>
               {(isExpanded || isHovered || isMobileOpen) && (
                 <span className={`menu-item-text`}>{nav.name}</span>
@@ -216,6 +229,7 @@ const AppSidebar: React.FC = () => {
                     >
                       {subItem.name}
                       <span className="flex items-center gap-1 ml-auto">
+                        {subItem.badge && <UnseenBadge count={unseenOf(subItem.badge)} testId="menu-unseen-badge-newsletter" label="đăng ký nhận tin mới chưa xem" />}
                         {subItem.new && (
                           <span
                             className={`ml-auto ${

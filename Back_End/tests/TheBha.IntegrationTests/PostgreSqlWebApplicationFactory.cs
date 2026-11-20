@@ -270,6 +270,9 @@ public sealed class PostgreSqlWebApplicationFactory : WebApplicationFactory<Prog
                 "BlogCategories"
             CASCADE;
             """);
+        // BHA-NEWSLETTER-BADGE-001: the truncate emptied the activity (and the cursors) but not the stream's counter row (the migration seeds it and nothing it references was truncated):
+        // a test starts at the stream's beginning.
+        await context.Database.ExecuteSqlRawAsync("""UPDATE "MenuActivityStreams" SET "LastSequence" = 0""");
 
         // The CASCADE above also emptied the website tables (they reference StaffAccounts); every test starts
         // from the migration's seed, rebuilt from the catalog (CUST-WEB-HEADER-001-CP02).

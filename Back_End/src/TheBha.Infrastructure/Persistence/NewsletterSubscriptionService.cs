@@ -124,6 +124,9 @@ internal sealed class NewsletterSubscriptionService(
                     cancellationToken);
                 var language = await database.NewsletterSubscriptions.AsNoTracking().Where(s => s.Id == subscriptionId.Value).Select(s => s.Language).SingleAsync(cancellationToken);
                 await NewsletterLifecycle.QueueWelcomeAsync(database, options, protector, subscriptionId.Value, language, now, cancellationToken);
+                // BHA-NEWSLETTER-BADGE-001: the verification is counted in the SAME transaction (a rollback leaves no trace). It is the last statement before the commit, because it locks the
+                // stream's counter row until then: lock order is subscription → mails → counter, and nothing that reads or acknowledges the stream ever locks a subscription.
+                await NewsletterActivityLog.RecordVerifiedAsync(database, subscriptionId.Value, now, cancellationToken);
                 outcome = NewsletterConfirmOutcome.Verified;
                 verifiedNow = true;
             }
@@ -224,6 +227,11 @@ internal sealed class NewsletterSubscriptionService(
 
     public async Task<NewsletterSubscriptionPageDto> ListAsync(string? search, string? status, string scope, int page, int pageSize, CancellationToken cancellationToken, string? sort = null)
     {
+        // BHA-NEWSLETTER-BADGE-001: the rows, the total and the watermark come from ONE snapshot (REPEATABLE READ fixes it at the first statement, which reads the watermark). Reading the
+        // newest watermark after the rows would call a verification that committed in between "seen"; here every verification up to the watermark is in the rows, and none after it is claimed.
+        await using var snapshot = await database.Database.BeginTransactionAsync(System.Data.IsolationLevel.RepeatableRead, cancellationToken);
+        var watermark = (await database.MenuActivityStreams.AsNoTracking().Where(stream => stream.MenuKey == MenuUnseenKeys.Newsletter).Select(stream => stream.LastSequence)
+            .SingleAsync(cancellationToken)).ToString(System.Globalization.CultureInfo.InvariantCulture);
         var query = database.NewsletterSubscriptions.AsNoTracking();
         var term = search?.Trim();
         if (!string.IsNullOrEmpty(term))
@@ -241,7 +249,7 @@ internal sealed class NewsletterSubscriptionService(
         // The offset is 64-bit: page 2147483647 of 100 would overflow an int and become a negative OFFSET. Past the end is an empty page.
         if ((long)(page - 1) * pageSize >= total)
         {
-            return new NewsletterSubscriptionPageDto([], page, pageSize, total);
+            return new NewsletterSubscriptionPageDto([], page, pageSize, total, watermark);
         }
 
         // The default order is the one every caller has had. "recent-activity" lets an old address that has just been verified lead the list, without touching ReceivedAtUtc.
@@ -250,6 +258,6 @@ internal sealed class NewsletterSubscriptionService(
             : query.OrderByDescending(row => row.ReceivedAtUtc).ThenByDescending(row => row.Id);
         var rows = await NewsletterLifecycle.Project(ordered.Skip((page - 1) * pageSize).Take(pageSize), database)
             .ToListAsync(cancellationToken);
-        return new NewsletterSubscriptionPageDto(rows, page, pageSize, total);
+        return new NewsletterSubscriptionPageDto(rows, page, pageSize, total, watermark);
     }
 }

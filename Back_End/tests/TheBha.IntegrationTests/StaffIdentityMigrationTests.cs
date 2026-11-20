@@ -32,6 +32,7 @@ public sealed class StaffIdentityMigrationTests : IAsyncLifetime
     private const string V22Migration = "20261117103618_AddNewsletterVerification";
     private const string V23Migration = "20261117141958_AddNewsletterClaimFences";
     private const string V24Migration = "20261118050849_AddNewsletterManagement";
+    private const string V25Migration = "20261119162454_AddNewsletterUnseenBadge";
     private static readonly Guid PropertyId = Guid.Parse("90000000-0000-0000-0000-000000000011");
     private static readonly Guid CustomerId = Guid.Parse("90000000-0000-0000-0000-000000000012");
 
@@ -58,7 +59,7 @@ public sealed class StaffIdentityMigrationTests : IAsyncLifetime
         await using var context = CreateContext();
         await context.Database.MigrateAsync();
 
-        Assert.Equal(24, (await context.Database.GetAppliedMigrationsAsync()).Count());
+        Assert.Equal(25, (await context.Database.GetAppliedMigrationsAsync()).Count());
         Assert.Empty(await context.Database.GetPendingMigrationsAsync());
         Assert.Equal(0, await CountAsync("StaffAccounts"));
         Assert.Equal(0, await CountAsync("StaffPropertyMemberships"));
@@ -83,7 +84,7 @@ public sealed class StaffIdentityMigrationTests : IAsyncLifetime
         Assert.Equal(1, await CountAsync("Properties"));
         Assert.Equal(1, await CountAsync("AspNetUsers"));
         // Migration 10 (website settings) is the only one left beyond this test's V9 target.
-        Assert.Equal([V10Migration, V11Migration, V12Migration, V13Migration, V14Migration, V15Migration, V16Migration, V17Migration, V18Migration, V19Migration, V20Migration, V21Migration, V22Migration, V23Migration, V24Migration], await context.Database.GetPendingMigrationsAsync());
+        Assert.Equal([V10Migration, V11Migration, V12Migration, V13Migration, V14Migration, V15Migration, V16Migration, V17Migration, V18Migration, V19Migration, V20Migration, V21Migration, V22Migration, V23Migration, V24Migration, V25Migration], await context.Database.GetPendingMigrationsAsync());
 
         await ExecuteAsync(
             $"""
@@ -96,7 +97,7 @@ public sealed class StaffIdentityMigrationTests : IAsyncLifetime
 
         await ExecuteAsync("DELETE FROM \"StaffAccounts\"");
         await migrator.MigrateAsync(V8Migration);
-        Assert.Equal([V9Migration, V10Migration, V11Migration, V12Migration, V13Migration, V14Migration, V15Migration, V16Migration, V17Migration, V18Migration, V19Migration, V20Migration, V21Migration, V22Migration, V23Migration, V24Migration], await context.Database.GetPendingMigrationsAsync());
+        Assert.Equal([V9Migration, V10Migration, V11Migration, V12Migration, V13Migration, V14Migration, V15Migration, V16Migration, V17Migration, V18Migration, V19Migration, V20Migration, V21Migration, V22Migration, V23Migration, V24Migration, V25Migration], await context.Database.GetPendingMigrationsAsync());
         Assert.Equal(1, await CountAsync("AspNetUsers"));
     }
 
@@ -210,6 +211,72 @@ public sealed class StaffIdentityMigrationTests : IAsyncLifetime
         var refused = await Assert.ThrowsAsync<PostgresException>(() => migrator.MigrateAsync(V23Migration));
         Assert.Contains("Down refused", refused.MessageText);
         Assert.Equal(7, await CountAsync("NewsletterSubscriptions"));
+    }
+
+    [Fact]
+    public async Task V24_database_with_subscribers_and_mail_upgrades_intact_with_an_empty_stream_and_no_retroactive_activity_and_the_rollback_is_guarded()
+    {
+        await using var context = CreateContext();
+        var migrator = context.GetInfrastructure().GetRequiredService<IMigrator>();
+        await migrator.MigrateAsync(V24Migration);
+        var pending = Guid.NewGuid();
+        var verified = Guid.NewGuid();
+        await ExecuteAsync(
+            $"""
+            INSERT INTO "NewsletterSubscriptions" ("Id","Email","Source","Status","ReceivedAtUtc","VerifiedAtUtc")
+            VALUES ('{pending}','pending@example.com','homepage','PendingVerification',now() - interval '2 days',NULL),
+                   ('{verified}','verified@example.com','homepage','Verified',now() - interval '3 days',now() - interval '2 days');
+            INSERT INTO "NewsletterVerificationRequests" ("Id","SubscriptionId","TokenHash","Language","Status","Attempts","CreatedAtUtc","ExpiresAtUtc","NextAttemptAtUtc")
+            VALUES (gen_random_uuid(),'{pending}','{new string('a', 64)}','vi','Pending',0,now() - interval '1 hour',now() + interval '47 hours',now()),
+                   (gen_random_uuid(),'{verified}','{new string('b', 64)}','vi','Sent',1,now() - interval '3 days',now() - interval '1 day',now() - interval '3 days');
+            """);
+        var senderBefore = await ScalarAsync("""SELECT count(*) FROM "NewsletterSenderSettings" """);
+
+        await migrator.MigrateAsync(V25Migration);
+
+        // Everything that was there is there, and nothing was created for it: no Welcome, no activity (no retroactive badge), no cursor; the stream starts at 0.
+        Assert.Equal(2, await CountAsync("NewsletterSubscriptions"));
+        Assert.Equal(2, await CountAsync("NewsletterVerificationRequests"));
+        Assert.Equal(senderBefore, await ScalarAsync("""SELECT count(*) FROM "NewsletterSenderSettings" """));
+        Assert.Equal("Verified", await ScalarTextAsync($"""SELECT "Status" FROM "NewsletterSubscriptions" WHERE "Id" = '{verified}' """));
+        Assert.Equal(0, await ScalarAsync("""SELECT count(*) FROM "NewsletterVerificationRequests" WHERE "Purpose" = 'Welcome' """));
+        Assert.Equal(0, await CountAsync("NewsletterVerificationActivities"));
+        Assert.Equal(0, await CountAsync("StaffMenuSeen"));
+        Assert.Equal(1, await CountAsync("MenuActivityStreams"));
+        Assert.Equal(0, await ScalarAsync("""SELECT "LastSequence" FROM "MenuActivityStreams" WHERE "MenuKey" = 'newsletter' """));
+        // A Staff member with no cursor therefore counts 0 until something is verified (the same statement the API runs).
+        Assert.Equal(0, await ScalarAsync("""SELECT count(*) FROM "NewsletterVerificationActivities" a WHERE a."Sequence" > 0 """));
+
+        // The database enforces the stream's rules: a non-positive number, an activity of an unknown subscription, a cursor of an unknown menu.
+        Assert.Equal("23514", (await Assert.ThrowsAsync<PostgresException>(() => ExecuteAsync(
+            $"""INSERT INTO "NewsletterVerificationActivities" ("Sequence","SubscriptionId","OccurredAtUtc") VALUES (0,'{verified}',now())"""))).SqlState);
+        Assert.Equal("23503", (await Assert.ThrowsAsync<PostgresException>(() => ExecuteAsync(
+            $"""INSERT INTO "NewsletterVerificationActivities" ("Sequence","SubscriptionId","OccurredAtUtc") VALUES (1,'{Guid.NewGuid()}',now())"""))).SqlState);
+
+        // An untouched stream is not data: the rollback is allowed and the upgrade can be repeated.
+        await migrator.MigrateAsync(V24Migration);
+        await migrator.MigrateAsync(V25Migration);
+        Assert.Equal(0, await ScalarAsync("""SELECT "LastSequence" FROM "MenuActivityStreams" WHERE "MenuKey" = 'newsletter' """));
+
+        // A verification that has been counted IS data (a Down would hand every Staff member a different badge): refused, and nothing is dropped.
+        await ExecuteAsync(
+            $"""
+            UPDATE "MenuActivityStreams" SET "LastSequence" = 1 WHERE "MenuKey" = 'newsletter';
+            INSERT INTO "NewsletterVerificationActivities" ("Sequence","SubscriptionId","OccurredAtUtc") VALUES (1,'{verified}',now());
+            """);
+        var refused = await Assert.ThrowsAsync<PostgresException>(() => migrator.MigrateAsync(V24Migration));
+        Assert.Contains("Down refused", refused.MessageText);
+        Assert.Equal(1, await CountAsync("NewsletterVerificationActivities"));
+        Assert.Equal(1, await CountAsync("MenuActivityStreams"));
+
+        // A moved counter alone (an activity deleted with its subscription) is state too; deleting the subscription takes the activity with it (no address is kept anywhere).
+        await ExecuteAsync($"""DELETE FROM "NewsletterVerificationRequests" WHERE "SubscriptionId" = '{verified}'; DELETE FROM "NewsletterSubscriptions" WHERE "Id" = '{verified}' """);   // as the Admin delete does: its mails first
+        Assert.Equal(0, await CountAsync("NewsletterVerificationActivities"));
+        var stillRefused = await Assert.ThrowsAsync<PostgresException>(() => migrator.MigrateAsync(V24Migration));
+        Assert.Contains("Down refused", stillRefused.MessageText);
+        await ExecuteAsync("""UPDATE "MenuActivityStreams" SET "LastSequence" = 0 WHERE "MenuKey" = 'newsletter' """);
+        await migrator.MigrateAsync(V24Migration);
+        Assert.Equal(1, await CountAsync("NewsletterSubscriptions"));
     }
 
     private async Task<long> ScalarAsync(string sql)

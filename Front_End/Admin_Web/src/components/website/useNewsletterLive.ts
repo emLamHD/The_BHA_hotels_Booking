@@ -24,10 +24,16 @@ export interface LiveCallbacks {
   onNew: (count: number) => void;
 }
 
-export function useNewsletterLive(identity: string, callbacks: LiveCallbacks) {
-  const host = useWebsiteHost();
-  const hostRef = useRef(host);
-  hostRef.current = host;
+/** What a 401 and a 403 on the connection do: the website gate's host handlers, or the shared session's (BHA-NEWSLETTER-BADGE-001). */
+export interface LiveAuthHandlers {
+  onUnauthenticated: () => void;
+  onDenied: () => Promise<void> | void;
+}
+
+/** The connection of ONE owner. `enabled: false` keeps it from starting at all (the screen then uses the shared connection). */
+export function useNewsletterLiveConnection(identity: string, callbacks: LiveCallbacks, auth: LiveAuthHandlers, enabled = true) {
+  const hostRef = useRef(auth);
+  hostRef.current = auth;
   const callbacksRef = useRef(callbacks);
   callbacksRef.current = callbacks;
   const [status, setStatus] = useState<LiveStatus>("connecting");
@@ -35,6 +41,7 @@ export function useNewsletterLive(identity: string, callbacks: LiveCallbacks) {
   const controllerRef = useRef<LiveController | null>(null);
 
   useEffect(() => {
+    if (!enabled) return undefined;
     const seen = new Set<string>();
     let gathered = 0;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -81,8 +88,14 @@ export function useNewsletterLive(identity: string, callbacks: LiveCallbacks) {
       controller.dispose();
       if (controllerRef.current === controller) controllerRef.current = null;
     };
-  }, [identity]);
+  }, [identity, enabled]);
 
   const retry = useCallback(() => controllerRef.current?.retryNow(), []);
   return { status, stoppedFor, retry };
+}
+
+/** The screen's own connection (the website gate's handlers). Used when no shared connection exists (the screen rendered on its own); see `NewsletterBadgeProvider`. */
+export function useNewsletterLive(identity: string, callbacks: LiveCallbacks, enabled = true) {
+  const host = useWebsiteHost();
+  return useNewsletterLiveConnection(identity, callbacks, host, enabled);
 }

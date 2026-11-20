@@ -191,4 +191,15 @@ describe("parseNewsletterSubscriptionPage", () => {
     expect(parseNewsletterSubscriptionPage({ items: [{ ...current, language: "de" }], page: 1, pageSize: 20, total: 1 })).toBeNull();
     expect(parseNewsletterSubscriptionPage({ items: [{ ...current, verificationMail: "Lost" }], page: 1, pageSize: 20, total: 1 })).toBeNull();
   });
+  it("BHA-NEWSLETTER-BADGE-001: keeps viewWatermark only when it is a plain decimal string, and never makes one up", () => {
+    const base = { items: [item("a@example.com")], page: 1, pageSize: 20, total: 1 };
+    expect(parseNewsletterSubscriptionPage({ ...base, viewWatermark: "0" })?.viewWatermark).toBe("0");
+    expect(parseNewsletterSubscriptionPage({ ...base, viewWatermark: "9007199254740993" })?.viewWatermark).toBe("9007199254740993");   // beyond a double: kept as the text it is
+    expect(parseNewsletterSubscriptionPage(base)?.viewWatermark).toBeUndefined();
+    for (const bad of [7, "-1", "01", "1.5", " 1", "1e3", "", null, { n: 1 }]) {
+      const parsed = parseNewsletterSubscriptionPage({ ...base, viewWatermark: bad });
+      expect(parsed).not.toBeNull();                                                     // the page itself is still usable
+      expect(parsed?.viewWatermark).toBeUndefined();                                      // but there is nothing to acknowledge
+    }
+  });
 });
