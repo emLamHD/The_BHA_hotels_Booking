@@ -53,7 +53,8 @@ interface Applied {
 }
 
 interface Loaded {
-  key: string;
+  /** The load this belongs to (see `life` below): a state of any other load is never shown. */
+  life: number;
   rows: ActivityItem[];
   next: string | null;
   phase: "ready" | "gone" | "error";
@@ -91,13 +92,18 @@ function ActivityHistory({ start }: { start: { menu?: string; propertyId?: strin
   );
 
   const key = resolved && applied ? JSON.stringify([scope.identity, resolved.menu, resolved.propertyId ?? null, applied, attempt]) : "";
+  // One LIFE per load. Every change of `key` starts a new one, so choosing again what was chosen before (back to a menu just left, a filter typed and cleared) is a NEW load, not the old one:
+  // what an earlier life loaded (rows, cursor, "load more") belongs to that life and is never shown in this one. The change is taken in the very render it happens in.
+  const [track, setTrack] = useState({ key, life: 0 });
+  if (track.key !== key) setTrack({ key, life: track.life + 1 });
+  const life = track.key === key ? track.life : track.life + 1;
   const [state, setState] = useState<Loaded | null>(null);
-  const keyRef = useRef(key);
+  const lifeRef = useRef(life);
   const moreBusy = useRef(false);
   const moreController = useRef<AbortController | null>(null);
   const report = useRef(scope.reportAuth);
   useEffect(() => {
-    keyRef.current = key;
+    lifeRef.current = life;
     report.current = scope.reportAuth;
   });
 
@@ -109,9 +115,9 @@ function ActivityHistory({ start }: { start: { menu?: string; propertyId?: strin
       if (!live) return;
       const first = toView<ActivityPage>(result);
       if (result.kind === "unauthenticated" || result.kind === "denied") report.current(result.kind);
-      if (first.state === "ok") setState({ key, rows: first.data.items, next: first.data.nextCursor, phase: "ready", more: "idle" });
-      else if (first.state === "gone") setState({ key, rows: [], next: null, phase: "gone", more: "idle" });
-      else if (first.state === "error") setState({ key, rows: [], next: null, phase: "error", message: first.message, more: "idle" });
+      if (first.state === "ok") setState({ life, rows: first.data.items, next: first.data.nextCursor, phase: "ready", more: "idle" });
+      else if (first.state === "gone") setState({ life, rows: [], next: null, phase: "gone", more: "idle" });
+      else if (first.state === "error") setState({ life, rows: [], next: null, phase: "error", message: first.message, more: "idle" });
     });
     return () => {
       live = false;
@@ -119,36 +125,36 @@ function ActivityHistory({ start }: { start: { menu?: string; propertyId?: strin
       moreController.current?.abort();
       moreBusy.current = false;
     };
-    // `resolved` and `applied` are derived from what `key` already names.
+    // `resolved` and `applied` are derived from what `key` already names, and `life` changes with it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [life]);
 
-  const view = state && state.key === key ? state : null;
+  const view = state && state.life === life ? state : null;
 
   const loadMore = useCallback(() => {
     if (!resolved || !applied || !view || view.phase !== "ready" || !view.next || moreBusy.current) return;
-    const forKey = key;
+    const forLife = life;
     const cursor = view.next;
     moreBusy.current = true;
     const controller = new AbortController();
     moreController.current = controller;
-    setState((current) => (current && current.key === forKey ? { ...current, more: "loading" } : current));
+    setState((current) => (current && current.life === forLife ? { ...current, more: "loading" } : current));
     void fetchActivity({ menu: resolved.menu, propertyId: resolved.propertyId, ...applied, limit: PAGE_SIZE, cursor }, controller.signal).then((result) => {
-      if (controller.signal.aborted || keyRef.current !== forKey) return;         // another scope, filter or identity owns the screen now
+      if (controller.signal.aborted || lifeRef.current !== forLife) return;       // another load owns the screen now (aborted by us, so also when the transport ignored the signal)
       moreBusy.current = false;
       const next = toView<ActivityPage>(result);
       if (result.kind === "unauthenticated" || result.kind === "denied") report.current(result.kind);
       setState((current) => {
-        if (!current || current.key !== forKey) return current;
+        if (!current || current.life !== forLife) return current;
         if (next.state === "ok") {
           const seen = new Set(current.rows.map((row) => row.sequence));
           return { ...current, rows: [...current.rows, ...next.data.items.filter((row) => !seen.has(row.sequence))], next: next.data.nextCursor, more: "idle" };
         }
-        if (next.state === "gone") return { key: forKey, rows: [], next: null, phase: "gone", more: "idle" };
+        if (next.state === "gone") return { life: forLife, rows: [], next: null, phase: "gone", more: "idle" };
         return { ...current, more: "error", moreMessage: next.state === "error" ? next.message : undefined };
       });
     });
-  }, [resolved, applied, view, key]);
+  }, [resolved, applied, view, life]);
 
   const properties = resolved ? allowedProperties(summary, resolved.menu) : [];
   const nameOf = (id: string) => scope.propertyNames[id] ?? `Cơ sở ${id.slice(0, 8)}`;

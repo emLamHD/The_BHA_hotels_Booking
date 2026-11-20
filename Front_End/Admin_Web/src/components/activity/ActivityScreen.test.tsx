@@ -14,9 +14,10 @@ const ui = vi.hoisted(() => ({
   search: "",
   activity: vi.fn(),
   seen: vi.fn(),
+  replace: vi.fn(),
 }));
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), push: vi.fn() }), useSearchParams: () => new URLSearchParams(ui.search) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: ui.replace, push: vi.fn() }), useSearchParams: () => new URLSearchParams(ui.search) }));
 vi.mock("@/lib/api/staff", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/api/staff")>()), fetchStaffSession: vi.fn(), staffLogout: vi.fn() }));
 vi.mock("@/components/website/NewsletterBadgeProvider", () => ({ useMenuUnseen: () => ui.menus, useUnseenScope: () => ui.scope }));
 vi.mock("@/lib/api/menuUnseen", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/api/menuUnseen")>()), fetchActivity: ui.activity, markNewsletterSeen: ui.seen }));
@@ -50,6 +51,7 @@ beforeEach(() => {
   ui.search = "menu=blog-posts";
   ui.activity.mockReset();
   ui.seen.mockReset();
+  ui.replace.mockReset();
   ui.activity.mockResolvedValue(page([item(3), item(2), item(1)]));
   vi.mocked(fetchStaffSession).mockReset();
   vi.mocked(fetchStaffSession).mockResolvedValue({ kind: "authenticated", session: ALLOWED });
@@ -78,11 +80,22 @@ describe("who can open it", () => {
     expect(queries()[0].propertyId).toBeUndefined();                                                   // a global menu sends no Property
   });
 
-  it("no signed-in Staff member: sign-in is asked for and nothing is requested", async () => {
+  it("no signed-in Staff member: sign-in is asked for, sending the person BACK to /activity afterwards, and nothing is requested", async () => {
     vi.mocked(fetchStaffSession).mockResolvedValue({ kind: "unauthenticated" });
     mount();
     await screen.findByTestId("staff-session-required");
+    await waitFor(() => expect(ui.replace).toHaveBeenCalledWith("/signin?returnTo=%2Factivity"));
+    expect(screen.getByRole("link", { name: /đăng nhập/i }).getAttribute("href")).toBe("/signin?returnTo=%2Factivity");
     expect(ui.activity).not.toHaveBeenCalled();
+  });
+
+  it("a Staff member with only Blog access (or none) is let in: no website-permission gate, and only their own scopes are offered", async () => {
+    vi.mocked(fetchStaffSession).mockResolvedValue({ kind: "authenticated", session: { ...ALLOWED, permissions: ["BlogEdit"] } });
+    ui.menus = { "blog-posts": global(1) };
+    mount();
+    await screen.findByTestId("activity-table");
+    expect(screen.queryByTestId("website-no-permission")).toBeNull();
+    expect(within(screen.getByTestId("activity-menu")).getAllByRole("option").map((option) => option.textContent)).toEqual(["Blog: Bài viết"]);
   });
 
   it("waits for the summary: no request until the shell's first answer, and a Staff member with no menu at all is told so", async () => {
@@ -269,6 +282,103 @@ describe("paging", () => {
     await userEvent.click(screen.getByTestId("activity-more"));
     await waitFor(() => expect(rows()).toEqual(["Mục 5", "Mục 4"]));
     expect(queries().map((query) => query.cursor)).toEqual([undefined, "next-1", "next-1"]);
+  });
+});
+
+describe("coming back to a scope or filter just left", () => {
+  // The mock ignores the AbortSignal on purpose: a late answer must be dropped by the screen itself, not by a well-behaved transport.
+  type Answer = ReturnType<typeof page>;
+  const held = () => {
+    const pending: Array<{ query: ActivityQuery; settle: (value: Answer) => void }> = [];
+    ui.activity.mockImplementation((query: ActivityQuery) => new Promise<Answer>((resolve) => { pending.push({ query, settle: resolve }); }));
+    return pending;
+  };
+
+  it("A has a cursor, B is still loading, back to A while its new first page is out: A's old rows and 'Tải thêm' are gone; once the new A answers, 'Tải thêm' uses ITS cursor and appends to ITS rows; B's late answer changes nothing", async () => {
+    const pending = held();
+    ui.search = "menu=blog-posts";
+    mount();
+    await ready();
+    await vi.waitFor(() => expect(pending).toHaveLength(1));
+    await act(async () => { pending[0].settle(page([item(5, "A cũ 5"), item(4, "A cũ 4")], "A-old-cursor")); });
+    await screen.findByText("A cũ 5");
+    await userEvent.selectOptions(screen.getByTestId("activity-menu"), "newsletter");               // B, unanswered
+    await vi.waitFor(() => expect(pending).toHaveLength(2));
+    await userEvent.selectOptions(screen.getByTestId("activity-menu"), "blog-posts");               // back to A, whose new first page is unanswered
+    await vi.waitFor(() => expect(pending).toHaveLength(3));
+    expect(screen.queryByText("A cũ 5")).toBeNull();                                                  // not the old A's rows …
+    expect(screen.queryByTestId("activity-more")).toBeNull();                                          // … and not its "Tải thêm"
+    expect(screen.queryByTestId("activity-table")).toBeNull();
+    await act(async () => { pending[1].settle(page([item(7, "B muộn")], "B-cursor", "newsletter")); });   // B answers late
+    expect(screen.queryByText("B muộn")).toBeNull();
+    expect(screen.queryByTestId("activity-more")).toBeNull();
+    await act(async () => { pending[2].settle(page([item(9, "A mới 9"), item(8, "A mới 8")], "A-new-cursor")); });
+    await screen.findByText("A mới 9");
+    expect(rows()).toEqual(["A mới 9", "A mới 8"]);
+    await userEvent.click(screen.getByTestId("activity-more"));
+    await vi.waitFor(() => expect(pending).toHaveLength(4));
+    expect(pending[3].query.cursor).toBe("A-new-cursor");                                              // the new cursor, never "A-old-cursor"
+    await act(async () => { pending[3].settle(page([item(7, "A mới 7")], null)); });
+    await waitFor(() => expect(rows()).toEqual(["A mới 9", "A mới 8", "A mới 7"]));
+  });
+
+  it("the same filter chosen again counts as a new load: typing a day and clearing it must not bring back the old rows or cursor while the fresh first page is out", async () => {
+    const pending = held();
+    ui.search = "menu=blog-posts";
+    mount();
+    await ready();
+    await vi.waitFor(() => expect(pending).toHaveLength(1));
+    await act(async () => { pending[0].settle(page([item(5, "A cũ")], "A-old-cursor")); });
+    await screen.findByText("A cũ");
+    await userEvent.type(screen.getByTestId("activity-from"), "2026-11-01");
+    await vi.waitFor(() => expect(pending).toHaveLength(2));
+    await userEvent.clear(screen.getByTestId("activity-from"));                                       // the filters are the same as the first load again
+    await vi.waitFor(() => expect(pending).toHaveLength(3));
+    expect(screen.queryByText("A cũ")).toBeNull();
+    expect(screen.queryByTestId("activity-more")).toBeNull();
+    expect((screen.getByTestId("activity-from") as HTMLInputElement).value).toBe("");                 // what the person typed is theirs: it is not reset with the data
+    await act(async () => { pending[1].settle(page([item(6, "lọc theo ngày, muộn")], "F-cursor")); });
+    expect(screen.queryByText("lọc theo ngày, muộn")).toBeNull();
+    await act(async () => { pending[2].settle(page([item(5, "A mới")], "A-new-cursor")); });
+    await screen.findByText("A mới");
+    await userEvent.click(screen.getByTestId("activity-more"));
+    await vi.waitFor(() => expect(pending).toHaveLength(4));
+    expect(pending[3].query.cursor).toBe("A-new-cursor");
+  });
+
+  it("a 'load more' of an earlier visit to A that answers after the screen has gone to B and back never touches the new A", async () => {
+    const pending = held();
+    ui.search = "menu=blog-posts";
+    mount();
+    await ready();
+    await vi.waitFor(() => expect(pending).toHaveLength(1));
+    await act(async () => { pending[0].settle(page([item(5, "A cũ")], "A-old-cursor")); });
+    await userEvent.click(await screen.findByTestId("activity-more"));
+    await vi.waitFor(() => expect(pending).toHaveLength(2));                                          // the old A's load-more, unanswered
+    await userEvent.selectOptions(screen.getByTestId("activity-menu"), "newsletter");
+    await vi.waitFor(() => expect(pending).toHaveLength(3));
+    await userEvent.selectOptions(screen.getByTestId("activity-menu"), "blog-posts");
+    await vi.waitFor(() => expect(pending).toHaveLength(4));
+    await act(async () => { pending[3].settle(page([item(9, "A mới")], "A-new-cursor")); });
+    await screen.findByText("A mới");
+    await act(async () => { pending[1].settle(page([item(4, "muộn của load-more cũ")], null)); });   // the old A's load-more answers now
+    expect(screen.queryByText("muộn của load-more cũ")).toBeNull();
+    expect(rows()).toEqual(["A mới"]);
+    expect(screen.getByTestId("activity-more")).toBeTruthy();                                         // the new A still has its own cursor
+  });
+
+  it("a retry is a new load too: the error's rows and cursor are never mixed with the retry's", async () => {
+    const pending = held();
+    ui.search = "menu=blog-posts";
+    mount();
+    await ready();
+    await vi.waitFor(() => expect(pending).toHaveLength(1));
+    await act(async () => { pending[0].settle({ kind: "error", status: 500, message: "Máy chủ lỗi" } as never); });
+    await userEvent.click(await screen.findByRole("button", { name: "Thử lại" }));
+    await vi.waitFor(() => expect(pending).toHaveLength(2));
+    expect(screen.queryByTestId("activity-error")).toBeNull();
+    await act(async () => { pending[1].settle(page([item(1, "sau retry")], null)); });
+    await screen.findByText("sau retry");
   });
 });
 
