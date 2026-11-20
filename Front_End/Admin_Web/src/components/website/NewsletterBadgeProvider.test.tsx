@@ -530,9 +530,11 @@ describe("one connection for the sidebar and the screen", () => {
     mount();
     await waitFor(() => expect(badge()).toBe("3"));
     const checks = vi.mocked(fetchStaffSession).mock.calls.length;
+    await waitFor(() => expect(openOf("legacy")).toHaveLength(1));                      // the live connection is registered before it is handed a 401/403
     act(() => connection().options.handlers.onDenied());
     await waitFor(() => expect(vi.mocked(fetchStaffSession).mock.calls.length).toBe(checks + 1));
     expect(session!.state.status).toBe("authenticated");
+    await waitFor(() => expect(openOf("legacy")).toHaveLength(1));                      // the live connection is registered before it is handed a 401/403
     act(() => connection().options.handlers.onUnauthenticated());
     await waitFor(() => expect(session!.state.status).toBe("unauthenticated"));
   });
@@ -575,6 +577,7 @@ describe("C1 F1: a 403 whose `me` check fails closes access", () => {
     mount(gatedForm());
     await screen.findByTestId("website-form");
     meFails();
+    await waitFor(() => expect(openOf("legacy")).toHaveLength(1));                      // the live connection is registered before it is handed a 401/403
     act(() => connection().options.handlers.onDenied());
     await retryReopens(await closedWithRetry());
   });
@@ -604,6 +607,7 @@ describe("C1 F1: a 403 whose `me` check fails closes access", () => {
     mount(gatedForm());
     await screen.findByTestId("website-form");
     vi.mocked(fetchStaffSession).mockResolvedValueOnce({ kind: "unauthenticated" });
+    await waitFor(() => expect(openOf("legacy")).toHaveLength(1));                      // the live connection is registered before it is handed a 401/403
     act(() => connection().options.handlers.onDenied());
     await screen.findByTestId("staff-session-required");
     expect(screen.queryByTestId("website-form")).toBeNull();
@@ -612,6 +616,7 @@ describe("C1 F1: a 403 whose `me` check fails closes access", () => {
   it("`me` confirms the permission: nothing closes and nobody is signed out", async () => {
     mount(gatedForm());
     await screen.findByTestId("website-form");
+    await waitFor(() => expect(openOf("legacy")).toHaveLength(1));                      // the live connection is registered before it is handed a 401/403
     act(() => connection().options.handlers.onDenied());
     await flush(200);
     expect(screen.getByTestId("website-form")).toBeTruthy();
@@ -623,6 +628,7 @@ describe("C1 F1: a 403 whose `me` check fails closes access", () => {
     mount(gatedForm());
     await screen.findByTestId("website-form");
     vi.mocked(fetchStaffSession).mockResolvedValueOnce({ kind: "authenticated", session: WITHOUT_PERMISSION });
+    await waitFor(() => expect(openOf("legacy")).toHaveLength(1));                      // the live connection is registered before it is handed a 401/403
     act(() => connection().options.handlers.onDenied());
     await screen.findByTestId("website-no-permission");
     expect(screen.queryByTestId("website-form")).toBeNull();
@@ -635,6 +641,7 @@ describe("C1 F1: a 403 whose `me` check fails closes access", () => {
     await screen.findByTestId("website-form");
     const first = deferred<Awaited<ReturnType<typeof fetchStaffSession>>>();
     vi.mocked(fetchStaffSession).mockImplementationOnce(() => first.promise);
+    await waitFor(() => expect(openOf("legacy")).toHaveLength(1));                      // the live connection is registered before it is handed a 401/403
     act(() => connection().options.handlers.onDenied());                                       // the shell's check is out …
     await flush(50);
     vi.mocked(fetchStaffSession).mockResolvedValue({ kind: "authenticated", session: ALLOWED });
@@ -650,6 +657,7 @@ describe("C1 F1: a 403 whose `me` check fails closes access", () => {
     await screen.findByTestId("website-form");
     const late = deferred<Awaited<ReturnType<typeof fetchStaffSession>>>();
     vi.mocked(fetchStaffSession).mockImplementationOnce(() => late.promise);
+    await waitFor(() => expect(openOf("legacy")).toHaveLength(1));                      // the live connection is registered before it is handed a 401/403
     act(() => connection().options.handlers.onDenied());
     await flush(50);
     vi.mocked(staffLogout).mockResolvedValue({ kind: "logged-out" });
@@ -679,6 +687,7 @@ describe("C1 F1: a late result of the old identity or of an unmounted tree never
     await waitFor(() => expect(badge()).toBe("3"));
     const first = deferred<Awaited<ReturnType<typeof fetchStaffSession>>>();
     vi.mocked(fetchStaffSession).mockImplementationOnce(() => first.promise);
+    await waitFor(() => expect(openOf("legacy")).toHaveLength(1));                      // the live connection is registered before it is handed a 401/403
     act(() => connection().options.handlers.onDenied());                                       // the old Staff member's 403: its `me` check is out
     await flush(50);
     const other = { ...ALLOWED, staffAccountId: "22222222-2222-2222-2222-222222222222", email: "b@example.com" };
@@ -702,6 +711,7 @@ describe("C1 F1: a late result of the old identity or of an unmounted tree never
     await screen.findByTestId("website-form");
     const late = deferred<Awaited<ReturnType<typeof fetchStaffSession>>>();
     vi.mocked(fetchStaffSession).mockImplementationOnce(() => late.promise);
+    await waitFor(() => expect(openOf("legacy")).toHaveLength(1));                      // the live connection is registered before it is handed a 401/403
     act(() => connection().options.handlers.onDenied());
     await flush(50);
     view.unmount();
@@ -1014,9 +1024,11 @@ describe("PR-4: a hint, a poll and a reconnect only schedule the GET", () => {
     mount();
     await waitFor(() => expect(badge()).toBe("3"));
     const checks = vi.mocked(fetchStaffSession).mock.calls.length;
+    await waitFor(() => expect(openOf("activity")).toHaveLength(1));                      // the live connection is registered before it is handed a 401/403
     act(() => activityHub().options.handlers.onDenied());
     await waitFor(() => expect(vi.mocked(fetchStaffSession).mock.calls.length).toBe(checks + 1));
     expect(session!.state.status).toBe("authenticated");
+    await waitFor(() => expect(openOf("activity")).toHaveLength(1));                      // the live connection is registered before it is handed a 401/403
     act(() => activityHub().options.handlers.onUnauthenticated());
     await waitFor(() => expect(session!.state.status).toBe("unauthenticated"));
   });
@@ -1085,5 +1097,61 @@ describe("C1: a stream of hints never starves the refresh", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(BADGE_COALESCE_MS * 4); });
     expect(getCount).toHaveBeenCalledTimes(2);                                                 // and only one
     expect(badge()).toBe("6");
+  });
+});
+
+// ================================================================================================ BHA-ADMIN-BADGE-001-PR04-C2
+
+describe("C2: a GET covers every refresh asked for before it started", () => {
+  /** GET1 (the mount's) and GET2 are held; the rest answer at once. Returns the way to answer each. */
+  const holdTwo = () => {
+    const first = deferred<ReturnType<typeof answer>>();
+    const second = deferred<ReturnType<typeof answer>>();
+    getCount.mockReset();
+    getCount.mockImplementationOnce(() => first.promise as never);
+    getCount.mockImplementationOnce(() => second.promise as never);
+    getCount.mockResolvedValue(answer(entry(9, "0", "9")));
+    return { first, second };
+  };
+  const hintNow = () => act(async () => { activityHub().options.handlers.onSignal({ eventId: "calendar", occurredAtUtc: "" }); });
+  const advance = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
+  /** hint at 0 ms, its timer ends at 250 (GET1 still out), a second hint at 300, GET1 answers at 400 and GET2 starts at once. */
+  const untilSecondGetRuns = async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const held = holdTwo();
+    mount();
+    await vi.waitFor(() => expect(getCount).toHaveBeenCalledTimes(1));
+    await hintNow();                                                                           // 0 ms
+    await advance(250);                                                                        // the first deadline ends while GET1 is out: it only marks "run again"
+    expect(getCount).toHaveBeenCalledTimes(1);
+    await advance(50);
+    await hintNow();                                                                           // 300 ms: arrives BEFORE GET2 starts
+    await advance(100);
+    await act(async () => { held.first.resolve(answer(entry(3, "0", "3"))); });                // 400 ms
+    await vi.waitFor(() => expect(getCount).toHaveBeenCalledTimes(2));
+    return held;
+  };
+
+  it("the hint that arrived before GET2 started is covered by GET2: after its timer would have ended (550 ms) and after GET2 answers there is no third GET", async () => {
+    const { second } = await untilSecondGetRuns();
+    await advance(200);                                                                        // past 550 ms
+    expect(getCount).toHaveBeenCalledTimes(2);
+    await act(async () => { second.resolve(answer(entry(4, "0", "4"))); });
+    await advance(BADGE_COALESCE_MS * 4);
+    expect(getCount).toHaveBeenCalledTimes(2);
+    expect(badge()).toBe("4");
+  });
+
+  it("a hint that arrives while GET2 runs still earns exactly one more GET, when GET2 ends", async () => {
+    const { second } = await untilSecondGetRuns();
+    await advance(200);
+    await hintNow();                                                                           // after GET2 started
+    await advance(BADGE_COALESCE_MS + 50);
+    expect(getCount).toHaveBeenCalledTimes(2);                                                 // never in parallel
+    await act(async () => { second.resolve(answer(entry(4, "0", "4"))); });
+    await vi.waitFor(() => expect(getCount).toHaveBeenCalledTimes(3));
+    await advance(BADGE_COALESCE_MS * 4);
+    expect(getCount).toHaveBeenCalledTimes(3);
+    expect(badge()).toBe("9");
   });
 });

@@ -174,6 +174,7 @@ export function MenuUnseenProvider({ children }: { children: React.ReactNode }) 
   const fetching = useRef(false);
   const again = useRef(false);
   const controller = useRef<AbortController | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const runRefresh = useCallback(async () => {
     const forIdentity = identityRef.current;
     if (!forIdentity) return;
@@ -182,6 +183,9 @@ export function MenuUnseenProvider({ children }: { children: React.ReactNode }) 
       return;
     }
     fetching.current = true;
+    // This GET covers every refresh asked for before it started, so a deadline still waiting would only fetch the same thing again. Anything asked for after this point is not covered.
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
     const gen = generation.current;
     const mine = new AbortController();
     controller.current = mine;
@@ -199,7 +203,6 @@ export function MenuUnseenProvider({ children }: { children: React.ReactNode }) 
     }
   }, [applySummary, authFailure]);
 
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const requestRefresh = useCallback(() => {
     if (!identityRef.current) return;
     // The first deadline stands: a stream of hints must not keep moving it (that would starve the refresh), and one GET already covers every request made before it starts.
