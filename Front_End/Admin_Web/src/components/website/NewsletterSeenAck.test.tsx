@@ -38,7 +38,7 @@ vi.mock("@/lib/api/menuUnseen", async (importOriginal) => ({
 import NewsletterSubscriptionsPanel from "./NewsletterSubscriptionsPanel";
 import WebsiteAccessGate from "./WebsiteAccessGate";
 import { MenuUnseenProvider, useMenuUnseen } from "./NewsletterBadgeProvider";
-import { StaffSessionProvider } from "@/components/auth/StaffSession";
+import { StaffSessionProvider, useStaffSession } from "@/components/auth/StaffSession";
 import { LIVE_COALESCE_MS } from "./useNewsletterLive";
 import { ALLOWED, deferred, ok } from "./websiteTestUtils";
 import { fetchStaffSession } from "@/lib/api/staff";
@@ -83,6 +83,15 @@ let server: NewsletterSubscription[];
 let watermark: string | undefined;
 const serve = () => list.mockImplementation(async (query) => ok(page(server.slice((query.page - 1) * 20, query.page * 20), query.page, server.length, watermark)) as never);
 
+let staffSession: ReturnType<typeof useStaffSession> | null = null;
+function SessionProbe() {
+  const value = useStaffSession();
+  React.useEffect(() => {
+    staffSession = value;
+  });
+  return null;
+}
+
 function Badge() {
   return <span data-testid="badge">{useMenuUnseen().newsletter?.count ?? 0}</span>;
 }
@@ -91,6 +100,7 @@ const mount = (strict = false) => {
     <StaffSessionProvider>
       <MenuUnseenProvider>
         <Badge />
+        <SessionProbe />
         <WebsiteAccessGate returnTo="/website/newsletter">
           <NewsletterSubscriptionsPanel />
         </WebsiteAccessGate>
@@ -231,6 +241,26 @@ describe("saying 'seen' after the list answered", () => {
     await waitFor(() => expect(invite).toHaveBeenCalledTimes(1));
     await click("newsletter-add");
     expect(await screen.findByTestId("newsletter-add-dialog")).toBeTruthy();
+  });
+});
+
+describe("a Staff identity change while the screen stays mounted", () => {
+  it("never says the previous Staff member's list watermark under the new identity (the screen's effect runs before the shell's)", async () => {
+    // A's acknowledgement is refused, so the shell's known watermark stays below "7": only the identity check can stop the next one.
+    postSeen.mockResolvedValue({ kind: "refused", status: 400, code: "menu-unseen-watermark-invalid", field: "viewWatermark", detail: "x" } as never);
+    await open();
+    await waitFor(() => expect(postSeen).toHaveBeenCalledTimes(1));
+    expect(postSeen.mock.calls[0][0]).toBe("7");
+    const forB = deferred<ReturnType<typeof ok>>();
+    list.mockImplementation(() => forB.promise as never);                                      // B's own list has not answered yet
+    const other = { ...ALLOWED, staffAccountId: "22222222-2222-2222-2222-222222222222", email: "b@example.com" };
+    vi.mocked(fetchStaffSession).mockResolvedValue({ kind: "authenticated", session: other });
+    await act(async () => { await staffSession!.refresh(); });
+    await settle(300);
+    expect(postSeen).toHaveBeenCalledTimes(1);                                                 // nothing was said for B from A's list
+    await act(async () => { forB.resolve(ok(page(server.slice(0, 20), 1, 25, "9"))); });      // B's own list says its own watermark
+    await waitFor(() => expect(postSeen).toHaveBeenCalledTimes(2));
+    expect(postSeen.mock.calls[1][0]).toBe("9");
   });
 });
 
