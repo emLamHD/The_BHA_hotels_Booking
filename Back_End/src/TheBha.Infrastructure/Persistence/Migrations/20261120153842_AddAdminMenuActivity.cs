@@ -194,6 +194,12 @@ namespace TheBha.Infrastructure.Persistence.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            // BHA-ADMIN-BADGE-001-PR02-C1: the guard below only sees committed rows, while the DROP would wait for a recorder transaction that is still open and then delete what it commits. So the
+            // five tables are locked first, in this migration's transaction and held to its end: NOWAIT makes Down fail at once (55P03) while any writer or reader is active, and a Down that gets
+            // the locks reads the final state. The locks are temporary; the legacy Newsletter rows are not touched.
+            migrationBuilder.Sql(
+                "LOCK TABLE \"AdminActivities\", \"StaffMenuPropertySeen\", \"StaffEntitySeen\", \"StaffMenuSeen\", \"MenuActivityStreams\" IN ACCESS EXCLUSIVE MODE NOWAIT;");
+
             // Refuses, before anything is dropped, while the new part holds state that Up would not recreate: an activity row, a cursor in either new table, a StaffMenuSeen cursor of
             // one of the 14 new menus, or a counter of those menus that has moved. The legacy Newsletter rows, counter and cursors belong to migration 25 and are never part of this guard
             // or of this Down. The keys are written out on purpose: a frozen migration must not read application constants.

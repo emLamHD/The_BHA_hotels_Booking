@@ -1,8 +1,11 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
+using TheBha.Application.Activity;
+using TheBha.Domain.Website;
 using TheBha.Infrastructure.Persistence;
 
 namespace TheBha.IntegrationTests;
@@ -26,6 +29,7 @@ public sealed class AdminActivityMigrationTests : IAsyncLifetime
     private static readonly Guid PropertyId = Guid.Parse("90000000-0000-0000-0000-000000000026");
     private static readonly Guid StaffId = Guid.Parse("5a000000-0000-4000-8000-000000000026");
     private static readonly Guid SubscriptionId = Guid.Parse("90000000-0000-0000-0000-000000000027");
+    private static readonly TimeSpan Deadline = TimeSpan.FromSeconds(20);
 
     private readonly NpgsqlConnectionStringBuilder _builder = new(
         Environment.GetEnvironmentVariable("ConnectionStrings__TheBhaDatabase")
@@ -131,6 +135,73 @@ public sealed class AdminActivityMigrationTests : IAsyncLifetime
         await ExecuteAsync(clear);
         await migrator.MigrateAsync(V25Migration);
         Assert.Equal(["newsletter"], await QueryAsync("""SELECT "MenuKey" FROM "MenuActivityStreams" """));
+    }
+
+    // C1: a recorder transaction that has appended an activity and moved a counter but not committed is invisible to a plain read, so a guard that only reads would pass and the DROP would then
+    // wait for that writer and delete what it committed. The real Down, on a second connection, must instead fail at once on the table locks (55P03) while the writer is still open.
+    [Fact]
+    public async Task Down_is_refused_while_a_recorder_transaction_is_uncommitted_and_the_committed_activity_is_kept()
+    {
+        await using var setup = CreateContext();
+        var migrator = setup.GetInfrastructure().GetRequiredService<IMigrator>();
+        await migrator.MigrateAsync(V25Migration);
+        await SeedLegacyNewsletterAsync();
+        await migrator.MigrateAsync(V26Migration);
+
+        await using var writer = CreateContext();
+        await using var downContext = CreateContext();
+        await using var transaction = await writer.Database.BeginTransactionAsync();
+        var recorder = (IAdminActivityRecorder)Activator.CreateInstance(
+            typeof(TheBhaDbContext).Assembly.GetType("TheBha.Infrastructure.Persistence.Activity.AdminActivityRecorder")!, writer, TimeProvider.System)!;
+        await recorder.RecordAsync(new AdminActivityEntry(AdminMenuKeys.BlogPosts, null, AdminActorKind.System, null, AdminActivityActions.Created, "post", "k", "t", 1), default);
+        int writerPid;
+        await using (var command = new NpgsqlCommand("SELECT pg_backend_pid()", (NpgsqlConnection)writer.Database.GetDbConnection(), (NpgsqlTransaction)transaction.GetDbTransaction()))
+            writerPid = (int)(await command.ExecuteScalarAsync())!;
+        Assert.Equal(0, await ScalarAsync<long>("""SELECT count(*) FROM "AdminActivities" """)); // uncommitted: a plain read sees nothing, as the old guard did
+
+        using var watch = new CancellationTokenSource();
+        var down = Task.Run(() => downContext.GetInfrastructure().GetRequiredService<IMigrator>().MigrateAsync(V25Migration));
+        var parkedBehindWriter = WaitUntilBlockedByAsync(writerPid, watch.Token);
+        var first = await Task.WhenAny(down, parkedBehindWriter).WaitAsync(Deadline);
+        watch.Cancel();
+
+        if (first == parkedBehindWriter)
+        {
+            // The pre-fix behaviour: Down passed its read guard and is queued behind the writer. Let the writer finish so the destructive path runs, then report what was lost.
+            await transaction.CommitAsync();
+            await down.WaitAsync(Deadline);
+            Assert.Fail($"Down waited for the open recorder transaction and then ran: AdminActivities exists = {await ScalarAsync<string?>("""SELECT to_regclass('"AdminActivities"')::text""") is not null}.");
+        }
+
+        Assert.Equal(PostgresErrorCodes.LockNotAvailable, (await Assert.ThrowsAsync<PostgresException>(() => down)).SqlState);
+        await transaction.CommitAsync(); // the writer is not harmed by the refused Down
+
+        Assert.Contains(V26Migration, await setup.Database.GetAppliedMigrationsAsync());
+        Assert.Equal(1, await ScalarAsync<long>("""SELECT count(*) FROM "AdminActivities" """));
+        Assert.Equal(1, await ScalarAsync<long>("""SELECT "LastSequence" FROM "MenuActivityStreams" WHERE "MenuKey" = 'blog-posts' """));
+        Assert.Equal(15, await ScalarAsync<long>("""SELECT count(*) FROM "MenuActivityStreams" """));
+        Assert.Equal(3, await ScalarAsync<long>("""SELECT "LastSequence" FROM "MenuActivityStreams" WHERE "MenuKey" = 'newsletter' """));
+
+        // Retried after the commit, the same Down is refused by the data guard.
+        var retried = await Assert.ThrowsAsync<PostgresException>(() => migrator.MigrateAsync(V25Migration));
+        Assert.Contains("Down refused", retried.MessageText);
+        Assert.Contains(V26Migration, await setup.Database.GetAppliedMigrationsAsync());
+        Assert.Equal(1, await ScalarAsync<long>("""SELECT count(*) FROM "AdminActivities" """));
+    }
+
+    private async Task WaitUntilBlockedByAsync(int holder, CancellationToken stop)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stop);
+        timeout.CancelAfter(Deadline);
+        await using var connection = new NpgsqlConnection(_builder.ConnectionString);
+        await connection.OpenAsync(timeout.Token);
+        while (true)
+        {
+            await using var command = new NpgsqlCommand("SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE @holder = ANY(pg_blocking_pids(pid)))", connection);
+            command.Parameters.AddWithValue("holder", holder);
+            if ((bool)(await command.ExecuteScalarAsync(timeout.Token))!) return;
+            await Task.Delay(20, timeout.Token); // a poll with a deadline, not evidence: the evidence is the lock graph above
+        }
     }
 
     private async Task AssertSchemaAsync()
