@@ -2205,6 +2205,93 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("TheBha.Domain.Website.AdminActivity", b =>
+                {
+                    b.Property<string>("MenuKey")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<long>("Sequence")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("ActorKind")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<Guid?>("ActorStaffId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("CorrelationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("EntityKey")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<string>("EntityKind")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("ItemCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
+
+                    b.Property<DateTimeOffset>("OccurredAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("PropertyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("TitleSnapshot")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("MenuKey", "Sequence");
+
+                    b.HasIndex("ActorStaffId");
+
+                    b.HasIndex("Id")
+                        .IsUnique()
+                        .HasDatabaseName("UX_AdminActivities_Id");
+
+                    b.HasIndex("PropertyId");
+
+                    b.HasIndex("MenuKey", "CorrelationId", "Action")
+                        .IsUnique()
+                        .HasDatabaseName("UX_AdminActivities_Correlation")
+                        .HasFilter("\"CorrelationId\" IS NOT NULL");
+
+                    b.HasIndex("MenuKey", "PropertyId", "Sequence")
+                        .HasDatabaseName("IX_AdminActivities_MenuKey_PropertyId_Sequence");
+
+                    b.HasIndex("MenuKey", "EntityKind", "EntityKey", "Sequence")
+                        .HasDatabaseName("IX_AdminActivities_MenuKey_EntityKind_EntityKey_Sequence");
+
+                    b.ToTable("AdminActivities", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_AdminActivities_ActorKind", "\"ActorKind\" IN ('Staff', 'Public', 'System')");
+
+                            t.HasCheckConstraint("CK_AdminActivities_ActorStaff", "(\"ActorKind\" = 'Staff') = (\"ActorStaffId\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_AdminActivities_ItemCount", "\"ItemCount\" >= 1");
+
+                            t.HasCheckConstraint("CK_AdminActivities_Sequence", "\"Sequence\" >= 1");
+                        });
+                });
+
             modelBuilder.Entity("TheBha.Domain.Website.MenuActivityStream", b =>
                 {
                     b.Property<string>("MenuKey")
@@ -2225,6 +2312,76 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         new
                         {
                             MenuKey = "newsletter",
+                            LastSequence = 0L
+                        },
+                        new
+                        {
+                            MenuKey = "blog-posts",
+                            LastSequence = 0L
+                        },
+                        new
+                        {
+                            MenuKey = "blog-categories",
+                            LastSequence = 0L
+                        },
+                        new
+                        {
+                            MenuKey = "blog-media",
+                            LastSequence = 0L
+                        },
+                        new
+                        {
+                            MenuKey = "blog-settings",
+                            LastSequence = 0L
+                        },
+                        new
+                        {
+                            MenuKey = "website-hero",
+                            LastSequence = 0L
+                        },
+                        new
+                        {
+                            MenuKey = "website-menus",
+                            LastSequence = 0L
+                        },
+                        new
+                        {
+                            MenuKey = "website-languages",
+                            LastSequence = 0L
+                        },
+                        new
+                        {
+                            MenuKey = "website-translations",
+                            LastSequence = 0L
+                        },
+                        new
+                        {
+                            MenuKey = "website-currencies",
+                            LastSequence = 0L
+                        },
+                        new
+                        {
+                            MenuKey = "website-social",
+                            LastSequence = 0L
+                        },
+                        new
+                        {
+                            MenuKey = "newsletter-sender",
+                            LastSequence = 0L
+                        },
+                        new
+                        {
+                            MenuKey = "promotions",
+                            LastSequence = 0L
+                        },
+                        new
+                        {
+                            MenuKey = "catalog",
+                            LastSequence = 0L
+                        },
+                        new
+                        {
+                            MenuKey = "calendar",
                             LastSequence = 0L
                         });
                 });
@@ -2597,6 +2754,68 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                             t.HasCheckConstraint("CK_NewsletterVerificationRequests_Purpose", "\"Purpose\" IN ('Verification', 'Welcome')");
 
                             t.HasCheckConstraint("CK_NewsletterVerificationRequests_Status", "\"Status\" IN ('Pending', 'Sending', 'Sent', 'Failed', 'Cancelled')");
+                        });
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Website.StaffEntitySeen", b =>
+                {
+                    b.Property<Guid>("StaffAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("PropertyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("EntityKind")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("EntityKey")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<long>("LastSeenSequence")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("StaffAccountId", "PropertyId", "EntityKind", "EntityKey");
+
+                    b.HasIndex("PropertyId");
+
+                    b.ToTable("StaffEntitySeen", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_StaffEntitySeen_LastSeenSequence", "\"LastSeenSequence\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Website.StaffMenuPropertySeen", b =>
+                {
+                    b.Property<Guid>("StaffAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("MenuKey")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<Guid>("PropertyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("LastSeenSequence")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("StaffAccountId", "MenuKey", "PropertyId");
+
+                    b.HasIndex("MenuKey");
+
+                    b.HasIndex("PropertyId");
+
+                    b.ToTable("StaffMenuPropertySeen", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_StaffMenuPropertySeen_LastSeenSequence", "\"LastSeenSequence\" >= 0");
                         });
                 });
 
@@ -4052,6 +4271,25 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("TheBha.Domain.Website.AdminActivity", b =>
+                {
+                    b.HasOne("TheBha.Infrastructure.Identity.StaffAccount", null)
+                        .WithMany()
+                        .HasForeignKey("ActorStaffId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("TheBha.Domain.Website.MenuActivityStream", null)
+                        .WithMany()
+                        .HasForeignKey("MenuKey")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("TheBha.Domain.Properties.Property", null)
+                        .WithMany()
+                        .HasForeignKey("PropertyId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
             modelBuilder.Entity("TheBha.Domain.Website.NewsletterSubscription", b =>
                 {
                     b.HasOne("TheBha.Infrastructure.Identity.StaffAccount", null)
@@ -4084,6 +4322,42 @@ namespace TheBha.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("SubscriptionId")
                         .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Website.StaffEntitySeen", b =>
+                {
+                    b.HasOne("TheBha.Domain.Properties.Property", null)
+                        .WithMany()
+                        .HasForeignKey("PropertyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("TheBha.Infrastructure.Identity.StaffAccount", null)
+                        .WithMany()
+                        .HasForeignKey("StaffAccountId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("TheBha.Domain.Website.StaffMenuPropertySeen", b =>
+                {
+                    b.HasOne("TheBha.Domain.Website.MenuActivityStream", null)
+                        .WithMany()
+                        .HasForeignKey("MenuKey")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("TheBha.Domain.Properties.Property", null)
+                        .WithMany()
+                        .HasForeignKey("PropertyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("TheBha.Infrastructure.Identity.StaffAccount", null)
+                        .WithMany()
+                        .HasForeignKey("StaffAccountId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 

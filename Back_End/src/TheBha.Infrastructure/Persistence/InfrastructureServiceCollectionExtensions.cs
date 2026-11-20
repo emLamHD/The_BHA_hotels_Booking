@@ -72,6 +72,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<IOperationalBlockMutationStore, OperationalBlockMutationStore>();
         services.AddScoped<IReservationBoardDataSource, ReservationBoardDataLoader>();
         services.AddScoped<IReservationBoardQuery, ReservationBoardQuery>();
+        services.AddScoped<TheBha.Application.Activity.IAdminActivityRecorder, TheBha.Infrastructure.Persistence.Activity.AdminActivityRecorder>();
         services.AddScoped<IWebsiteSettingsStore, WebsiteSettingsStore>();
         services.AddScoped<IWebsitePublicReader, WebsitePublicReader>();
         services.AddScoped<IContentCatalog, ContentCatalog>();
