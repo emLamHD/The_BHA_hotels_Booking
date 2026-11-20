@@ -60,12 +60,20 @@ function useChanges(identity: string, menu: string | undefined, propertyId: stri
 
 const FIELD = "h-9 w-full rounded-lg border border-gray-300 bg-transparent px-2 text-sm text-gray-800 dark:border-gray-700 dark:text-white/90";
 
+const EDGE = 8;
+
+/**
+ * Where the panel goes, and the tallest it may be. Both come from the same limit: the panel prefers 70% of the window; `top` follows the anchor but is moved up as far as that preferred
+ * height needs, and `maxHeight` is whatever is left from `top` to the bottom padding. So the panel never reaches below the viewport, however long the list; what does not fit scrolls inside it
+ * (the last group and the history link stay reachable).
+ */
 function placement(anchor: HTMLElement) {
   const rect = anchor.getBoundingClientRect();
-  const width = Math.min(352, window.innerWidth - 16);
-  const left = Math.max(8, Math.min(rect.right + 8, window.innerWidth - width - 8));
-  const top = Math.max(8, Math.min(rect.top, window.innerHeight - 440));
-  return { left, top, width };
+  const width = Math.min(352, window.innerWidth - 2 * EDGE);
+  const left = Math.max(EDGE, Math.min(rect.right + EDGE, window.innerWidth - width - EDGE));
+  const preferred = Math.min(window.innerHeight * 0.7, window.innerHeight - 2 * EDGE);
+  const top = Math.max(EDGE, Math.min(rect.top, window.innerHeight - EDGE - preferred));
+  return { left, top, width, maxHeight: Math.max(0, window.innerHeight - EDGE - top) };
 }
 
 export default function MenuChangesPopover({ target, onClose }: { target: PopoverTarget; onClose: (returnFocus: boolean) => void }) {
@@ -86,7 +94,7 @@ export default function MenuChangesPopover({ target, onClose }: { target: Popove
     const place = () => {
       if (!target.anchor.isConnected) return;
       const next = placement(target.anchor);
-      setBox((current) => (current.left === next.left && current.top === next.top && current.width === next.width ? current : next));
+      setBox((current) => (current.left === next.left && current.top === next.top && current.width === next.width && current.maxHeight === next.maxHeight ? current : next));
     };
     const follow = () => {
       place();
@@ -150,8 +158,8 @@ export default function MenuChangesPopover({ target, onClose }: { target: Popove
       data-testid="unseen-popover"
       tabIndex={-1}
       onKeyDown={keepFocus}
-      style={{ left: box.left, top: box.top, width: box.width }}
-      className="fixed z-[60] flex max-h-[70vh] flex-col gap-3 overflow-y-auto rounded-2xl border border-gray-200 bg-white p-4 text-sm shadow-theme-lg outline-none dark:border-gray-800 dark:bg-gray-900"
+      style={{ left: box.left, top: box.top, width: box.width, maxHeight: box.maxHeight }}
+      className="fixed z-[60] flex flex-col gap-3 overflow-y-auto rounded-2xl border border-gray-200 bg-white p-4 text-sm shadow-theme-lg outline-none dark:border-gray-800 dark:bg-gray-900"
     >
       {!resolved ? (
         <p role="status" data-testid="unseen-popover-empty" className="text-gray-600 dark:text-gray-400">Không còn mục nào để xem.</p>

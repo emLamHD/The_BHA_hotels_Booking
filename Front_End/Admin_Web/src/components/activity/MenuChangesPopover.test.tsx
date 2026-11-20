@@ -110,6 +110,64 @@ describe("what the list shows", () => {
   });
 });
 
+describe("it stays inside the viewport", () => {
+  const rectAt = (top: number, right = 250) => ({ top, bottom: top + 24, left: right - 24, right, width: 24, height: 24, x: right - 24, y: top, toJSON: () => ({}) }) as DOMRect;
+  const withViewport = (width: number, height: number) => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: height });
+  };
+  const anchorAt = (top: number) => {
+    const anchor = document.createElement("button");
+    anchor.getBoundingClientRect = () => rectAt(top);
+    document.body.appendChild(anchor);                                                                   // a button that is on the page: the panel follows it
+    return anchor;
+  };
+  const box = () => {
+    const style = screen.getByTestId("unseen-popover").style;
+    return { top: parseFloat(style.top), maxHeight: parseFloat(style.maxHeight), left: parseFloat(style.left), width: parseFloat(style.width) };
+  };
+  afterEach(() => withViewport(1024, 768));
+
+  it("an anchor near the bottom of an 800 px viewport with a long list: top and the tallest the panel may be end at the bottom padding at the latest, and the panel scrolls", async () => {
+    withViewport(1440, 800);
+    ui.changes.mockResolvedValue(body("newsletter", Array.from({ length: 50 }, (_, index) => group(`Nhóm ${index}`)), { unseenEvents: 500, hasMore: true }));
+    render(<MenuChangesPopover target={{ ...target(["newsletter"], "newsletter"), anchor: anchorAt(740) }} onClose={vi.fn()} />);
+    await screen.findAllByTestId("unseen-popover-group");
+    const { top, maxHeight } = box();
+    expect(top).toBeGreaterThanOrEqual(8);
+    expect(maxHeight).toBeGreaterThan(0);
+    expect(top + maxHeight).toBeLessThanOrEqual(800 - 8);                                               // however tall the list, the panel ends inside the viewport
+    expect(screen.getByTestId("unseen-popover").className).toContain("overflow-y-auto");               // and what does not fit scrolls (the last group and the history link stay reachable)
+    expect(screen.getByTestId("unseen-popover-history")).toBeTruthy();
+  });
+
+  it("an anchor near the top keeps its place; a short viewport (390 x 360) gives the panel the rest of the screen, never more", async () => {
+    withViewport(1440, 800);
+    ui.changes.mockResolvedValue(body("newsletter", [group("x")]));
+    render(<MenuChangesPopover target={{ ...target(["newsletter"], "newsletter"), anchor: anchorAt(100) }} onClose={vi.fn()} />);
+    await screen.findByTestId("unseen-popover-group");
+    expect(box().top).toBe(100);
+    cleanup();
+    withViewport(390, 360);
+    render(<MenuChangesPopover target={{ ...target(["newsletter"], "newsletter"), anchor: anchorAt(300) }} onClose={vi.fn()} />);
+    await screen.findByTestId("unseen-popover-group");
+    const short = box();
+    expect(short.top).toBeGreaterThanOrEqual(8);
+    expect(short.top + short.maxHeight).toBeLessThanOrEqual(360 - 8);
+    expect(short.left + short.width).toBeLessThanOrEqual(390);
+  });
+
+  it("follows a resize while open: the same limit holds in the new viewport", async () => {
+    withViewport(1440, 800);
+    ui.changes.mockResolvedValue(body("newsletter", [group("x")]));
+    render(<MenuChangesPopover target={{ ...target(["newsletter"], "newsletter"), anchor: anchorAt(700) }} onClose={vi.fn()} />);
+    await screen.findByTestId("unseen-popover-group");
+    withViewport(1440, 500);
+    act(() => { window.dispatchEvent(new Event("resize")); });
+    await waitFor(() => expect(box().top + box().maxHeight).toBeLessThanOrEqual(500 - 8));
+  });
+});
+
 describe("the history link", () => {
   it("closes the list when followed, even if the link keeps the same page (the history page itself)", async () => {
     ui.changes.mockResolvedValue(body("newsletter", [group("x")]));

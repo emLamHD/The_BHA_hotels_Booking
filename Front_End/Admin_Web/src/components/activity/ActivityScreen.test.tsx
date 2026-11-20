@@ -156,7 +156,7 @@ describe("a link to another scope from the history page itself", () => {
 });
 
 describe("filters", () => {
-  const type = async (testId: string, value: string) => { await userEvent.clear(screen.getByTestId(testId)); await userEvent.type(screen.getByTestId(testId), value); };
+  const type = async (testId: string, value: string) => { await userEvent.clear(screen.getByTestId(testId)); if (value !== "") await userEvent.type(screen.getByTestId(testId), value); };
 
   it("a day range becomes instants in Admin time (UTC+7): from is the start of its day, to is the START OF THE DAY AFTER, so the last day is included (from inclusive, to exclusive)", async () => {
     mount();
@@ -174,12 +174,31 @@ describe("filters", () => {
     await type("activity-actor", "11111111-1111-1111-1111-111111111111");
     await waitFor(() => expect(queries().at(-1)?.actorStaffId).toBe("11111111-1111-1111-1111-111111111111"));
     await type("activity-actor", "not-a-guid");
-    expect(screen.getByTestId("activity-filter-problem").textContent).toMatch(/GUID/);
+    expect(screen.getByTestId("activity-actor-problem").textContent).toMatch(/GUID/);
     await type("activity-from", "2026-11-20");
     await type("activity-to", "2026-11-10");
     expect(screen.getAllByTestId("activity-filter-problem").map((node) => node.textContent).join(" ")).toMatch(/trước hoặc bằng/);
     expect(queries().every((query) => query.actorStaffId !== "not-a-guid" && !(query.from && query.to && query.from > query.to))).toBe(true);
 
+  });
+
+  it("the all-zero Staff id is refused at the field (the API refuses it) and never sent; blank means no filter and a real id works as before", async () => {
+    mount();
+    await ready();
+    await screen.findByTestId("activity-table");
+    const sent = ui.activity.mock.calls.length;
+    await type("activity-actor", "  00000000-0000-0000-0000-000000000000  ");
+    const problem = screen.getByTestId("activity-actor-problem");
+    expect(problem.textContent).toMatch(/toàn số 0|rỗng/);
+    expect(screen.getByTestId("activity-actor").getAttribute("aria-invalid")).toBe("true");
+    expect(screen.getByTestId("activity-actor").getAttribute("aria-describedby")).toBe(problem.id);
+    expect(queries().slice(sent).every((query) => query.actorStaffId !== "00000000-0000-0000-0000-000000000000")).toBe(true);
+    await type("activity-actor", "");                                                                  // blank: no filter again
+    await waitFor(() => expect(screen.queryByTestId("activity-actor-problem")).toBeNull());
+    await waitFor(() => expect(queries().at(-1)?.actorStaffId).toBeUndefined());
+    await type("activity-actor", "00000000-0000-0000-0000-000000000001");                              // a real (if odd) id is fine
+    await waitFor(() => expect(queries().at(-1)?.actorStaffId).toBe("00000000-0000-0000-0000-000000000001"));
+    expect(screen.queryByTestId("activity-actor-problem")).toBeNull();
   });
 
   it("nothing in the query is empty: a filter left blank is left out", async () => {
@@ -312,7 +331,7 @@ describe("states and a changing world", () => {
     await screen.findByText("của blog-posts");
   });
 
-  it("401 and 403 go to the shared session; nothing is ever acknowledged", async () => {
+  it("a 401 goes to the shared session and nothing is acknowledged", async () => {
     ui.activity.mockResolvedValueOnce({ kind: "unauthenticated" } as never);
     mount();
     await waitFor(() => expect(ui.scope.reportAuth).toHaveBeenCalledWith("unauthenticated"));

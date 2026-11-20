@@ -22,6 +22,9 @@ import { GONE_MESSAGE, toView } from "./activityRequest";
 
 const PAGE_SIZE = 50;
 
+/** The API refuses the all-zero id as a Staff filter (it is `Guid.Empty`, never an account), so it is refused here before any request. */
+const isEmptyGuid = (value: string) => value.toLowerCase() === "00000000-0000-0000-0000-000000000000";
+
 /** Any signed-in Staff member; the scopes come from the summary, never from a role. */
 const ACTIVITY_RULE: GateRule = {
   isAllowed: () => true,
@@ -75,7 +78,11 @@ function ActivityHistory({ start }: { start: { menu?: string; propertyId?: strin
     from: filters.from !== "" && !isCalendarDay(filters.from) ? "Ngày bắt đầu không hợp lệ." : null,
     to: filters.to !== "" && !isCalendarDay(filters.to) ? "Ngày kết thúc không hợp lệ." : null,
     range: filters.from !== "" && filters.to !== "" && isCalendarDay(filters.from) && isCalendarDay(filters.to) && filters.from > filters.to ? "Ngày bắt đầu phải trước hoặc bằng ngày kết thúc." : null,
-    actor: filters.actor.trim() !== "" && !GUID.test(filters.actor.trim()) ? "Mã Staff phải là một GUID, ví dụ 11111111-1111-1111-1111-111111111111." : null,
+    actor:
+      filters.actor.trim() === "" ? null
+      : !GUID.test(filters.actor.trim()) ? "Mã Staff phải là một GUID, ví dụ 11111111-1111-1111-1111-111111111111."
+      : isEmptyGuid(filters.actor.trim()) ? "Mã Staff không được là GUID rỗng (toàn số 0). Để trống nếu không lọc theo người."
+      : null,
   };
   const invalid = Object.values(problems).some(Boolean);
   const applied = useMemo<Applied | null>(
@@ -180,10 +187,11 @@ function ActivityHistory({ start }: { start: { menu?: string; propertyId?: strin
         </label>
         <label className={LABEL}>
           Mã Staff thực hiện
-          <input data-testid="activity-actor" type="text" inputMode="text" autoComplete="off" spellCheck={false} placeholder="GUID" className={FIELD} value={filters.actor} onChange={(event) => setFilters((current) => ({ ...current, actor: event.target.value }))} />
+          <input data-testid="activity-actor" type="text" inputMode="text" autoComplete="off" spellCheck={false} placeholder="GUID" className={FIELD} value={filters.actor} aria-invalid={problems.actor ? true : undefined} aria-describedby={problems.actor ? "activity-actor-problem" : undefined} onChange={(event) => setFilters((current) => ({ ...current, actor: event.target.value }))} />
+          {problems.actor && <span id="activity-actor-problem" role="alert" data-testid="activity-actor-problem" className="text-xs text-error-600 dark:text-error-400">{problems.actor}</span>}
         </label>
       </form>
-      {Object.values(problems).filter(Boolean).map((message) => (
+      {[problems.from, problems.to, problems.range].filter(Boolean).map((message) => (
         <p key={message} role="alert" data-testid="activity-filter-problem" className="text-sm text-error-600 dark:text-error-400">{message}</p>
       ))}
       <p className="text-xs text-gray-500 dark:text-gray-400">Giờ hiển thị theo múi giờ Việt Nam (UTC+7). Chỉ xem: mở lịch sử không đánh dấu đã xem.</p>
