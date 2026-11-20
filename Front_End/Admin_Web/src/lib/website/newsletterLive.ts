@@ -47,6 +47,8 @@ export interface LiveOptions {
   target: { ok: true; url: string } | { ok: false; message: string };
   handlers: LiveHandlers;
   factory?: (url: string) => Promise<LiveConnectionLike>;
+  /** Other message names for another Hub (the shared activity hint); `isSignal` tells a real message from noise. Left out: the Newsletter Hub's. */
+  events?: { signal: string; ready: string; isSignal?: (value: unknown) => boolean };
   /** Milliseconds before the 1st, 2nd, … attempt after a failure; the last one repeats. */
   backoffMs?: readonly number[];
 }
@@ -83,6 +85,9 @@ const statusOf = (error: unknown): number | null => {
 export function startNewsletterLive(options: LiveOptions): LiveController {
   const { handlers } = options;
   const factory = options.factory ?? createHubConnection;
+  const signalEvent = options.events?.signal ?? LIVE_VERIFIED_EVENT;
+  const readyEvent = options.events?.ready ?? LIVE_READY_EVENT;
+  const accepts = options.events?.isSignal ?? isSignal;
   const backoff = options.backoffMs && options.backoffMs.length > 0 ? options.backoffMs : DEFAULT_BACKOFF_MS;
   let disposed = false;
   let attempting = false;
@@ -142,17 +147,19 @@ export function startNewsletterLive(options: LiveOptions): LiveController {
     }
 
     const onSignal = (...args: unknown[]) => {
-      if (isSignal(args[0])) handlers.onSignal({ eventId: args[0].eventId, occurredAtUtc: String(args[0].occurredAtUtc ?? "") });
+      if (!accepts(args[0])) return;
+      const message = args[0] as Partial<LiveSignal>;
+      handlers.onSignal({ eventId: String(message.eventId ?? ""), occurredAtUtc: String(message.occurredAtUtc ?? "") });
     };
     const onReady = () => handlers.onReady();
     // Handlers first, then the start: nothing the server sends right after the handshake can arrive before something listens.
-    connection.on(LIVE_VERIFIED_EVENT, onSignal);
-    connection.on(LIVE_READY_EVENT, onReady);
+    connection.on(signalEvent, onSignal);
+    connection.on(readyEvent, onReady);
     const mine = {
       connection,
       detach: () => {
-        connection.off(LIVE_VERIFIED_EVENT, onSignal);
-        connection.off(LIVE_READY_EVENT, onReady);
+        connection.off(signalEvent, onSignal);
+        connection.off(readyEvent, onReady);
       },
     };
     current = mine;

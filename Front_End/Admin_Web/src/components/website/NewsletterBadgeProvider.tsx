@@ -1,42 +1,51 @@
 "use client";
 
 /**
- * BHA-NEWSLETTER-BADGE-001: the Newsletter's unseen count for the whole Admin shell, and the ONE live connection that feeds it.
+ * BHA-ADMIN-BADGE-001-PR04 (ADR 0011 §B/§E; began as BHA-NEWSLETTER-BADGE-001): the unseen numbers of every Admin menu for the whole shell, and the live connections that feed them.
+ * (The file keeps its name so the Newsletter screen's hooks below stay beside the history that explains them.)
  *
- * Mounted once, in the Admin layout, inside the shared Staff session. It exists only for a confirmed session that holds the site-wide website permission; for anyone else nothing is
- * requested and nothing is shown.
+ * Mounted once, in `AdminStaffScope`, inside the shared Staff session, for ANY confirmed Staff identity (a Blog-only or Property-only Staff included): which menus and Properties they
+ * may read is decided by the API, which leaves the others out of its answer. In `LocalGate` nothing is mounted: nothing is requested and no socket opens.
  *
- * What the count is: whatever the API says (`GET menu-unseen`). SignalR is only a prompt to ask again (a signal is never counted), so the number is right after a lost socket, an API
- * restart or a missed signal. It is asked for when the session is confirmed, after a signal (gathered), after a reconnect, when the tab comes back to the foreground or gets focus, and
- * every 30 s while the tab is visible; one request is on the wire at a time and a request wanted meanwhile runs once afterwards. A failed request keeps the last number: never
- * zero, never a sign-out (only a 401/403 from the API says that, and goes to the session the way every other 401/403 does).
+ * What a number is: whatever the API says (`GET menu-unseen`). Nothing is counted here: a SignalR hint or a legacy Newsletter signal only schedules that GET. It is asked for when the
+ * session is confirmed, after a hint (gathered), after a reconnect, when the tab returns to the foreground or gets focus, and every 30 s while visible; one GET is on the wire at a
+ * time and one wanted meanwhile runs once afterwards. A failed GET keeps the last valid answer of the same identity (never zero, never a sign-out; only a 401/403 from the API says
+ * that, and goes to the session the way every other one does).
  *
- * "Seen" is said by the Newsletter screen after a list answered successfully, with the watermark THAT answer carried (`ack`). It is never optimistic: the number changes when the server
- * answers. A watermark is only ever passed back unchanged, with the same Staff identity, and a failed call is retried (a few times) with the SAME watermark, never one taken from a
- * later count. Answers are compared as integers (BigInt) and an answer older than what was already applied (either watermark lower) is dropped, so a slow count that started before an
- * acknowledgement can never bring the old number back. Identity change, sign-out and unmount start a new generation: whatever is still on the wire belongs to nobody.
+ * The LATEST valid answer is the list of what this Staff may read now: a menu or Property it leaves out is dropped, and nothing re-adds it. For each menu the entry shown is the
+ * newer one: by watermark (BigInt, per menu and Property; a lower one is older and never brings an old number back), and at equal watermarks by the order the requests were issued
+ * (the Newsletter's legacy cascade delete changes a count without moving a watermark). The state is tagged with the identity it was read for and shown only to that identity, so a new
+ * Staff, a sign-out or an unmount shows nothing of the old one from the very next render; a new generation also drops whatever is still on the wire.
  *
- * The screen takes part in the same connection (`useNewsletterLiveFeed`): it is told of signals and reconnects while it is mounted, nothing is replayed to it, and it never opens one of its own.
+ * Two connections, one GET path: the shared activity Hub (any identity) and the legacy Newsletter Hub (only a Staff who holds the website permission), which the Newsletter screen
+ * shares through `useNewsletterLiveFeed` for its toast, refresh and catch-up (it never opens a third).
+ *
+ * "Seen" is said by the Newsletter screen after a list answered successfully, with the watermark THAT answer carried (`ack`), to `POST menu-unseen/newsletter/seen`. It is never
+ * optimistic: the number changes when the server answers, and a failed call is retried (a few times) with the SAME watermark. The sidebar never says "seen".
  */
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { WEBSITE_SETTINGS_PERMISSION } from "@/lib/api/staff";
-import { fetchMenuUnseen, markNewsletterSeen, type MenuUnseenEntry } from "@/lib/api/website";
-import type { LiveStatus, LiveStopReason } from "@/lib/website/newsletterLive";
+import {
+  MENU_ACTIVITY_EVENT,
+  MENU_ACTIVITY_READY_EVENT,
+  fetchMenuUnseenSummary,
+  isMenuActivityHint,
+  markNewsletterSeen,
+  menuActivityLiveTarget,
+  type MenuUnseenEntry,
+  type MenuUnseenSummary,
+} from "@/lib/api/menuUnseen";
+import { startNewsletterLive, type LiveStatus, type LiveStopReason } from "@/lib/website/newsletterLive";
 import { useStaffSession } from "@/components/auth/StaffSession";
 import { useNewsletterLive, useNewsletterLiveConnection, type LiveCallbacks } from "./useNewsletterLive";
 
-/** How often the count is asked for while the tab is visible, whatever the socket says. */
+/** How often the numbers are asked for while the tab is visible, whatever the sockets say. */
 export const BADGE_POLL_MS = 30_000;
 /** Requests wanted close together are one. */
 export const BADGE_COALESCE_MS = 250;
 /** A failed acknowledgement is tried again after these delays (same watermark, same identity), then left to the next successful list. */
 export const ACK_RETRY_MS: readonly number[] = [1500, 4000];
-
-interface BadgeValue {
-  /** Unseen verifications; 0 while nothing is known. */
-  newsletter: number;
-}
 
 interface SharedLive {
   status: LiveStatus;
@@ -48,37 +57,102 @@ interface SharedLive {
   ack: (watermark: string, identity: string) => void;
 }
 
-const BadgeContext = createContext<BadgeValue>({ newsletter: 0 });
+/** One watermark pair: a global menu has one (`id` ""), a Property-scoped menu one per Property. */
+interface Mark {
+  id: string;
+  last: bigint;
+  current: bigint;
+}
+/** What is known of one menu: the API's entry, its watermarks as integers, and the order its request was issued in. */
+interface Known {
+  entry: MenuUnseenEntry;
+  marks: Mark[];
+  seq: number;
+}
+
+const EMPTY: MenuUnseenSummary = Object.freeze({});
+const MenuContext = createContext<MenuUnseenSummary>(EMPTY);
 const SharedContext = createContext<SharedLive | null>(null);
 
-/** The Newsletter's unseen count for the sidebar. 0 without a provider or without a known count. */
-export const useMenuUnseen = (): BadgeValue => useContext(BadgeContext);
+/** The numbers the API gave for the menus this Staff may read. A menu that is not there is not allowed (or not known yet): show nothing for it. `{}` without a provider (LocalGate). */
+export const useMenuUnseen = (): MenuUnseenSummary => useContext(MenuContext);
 
 /** The Newsletter screen's way into the shared connection and the acknowledgement. `null` when no provider is mounted (the screen then runs by itself). */
 export const useSharedNewsletterLive = (): SharedLive | null => useContext(SharedContext);
 
-export function NewsletterBadgeProvider({ children }: { children: React.ReactNode }) {
+const marksOf = (entry: MenuUnseenEntry): Mark[] =>
+  entry.byProperty
+    ? entry.byProperty.map((property) => ({ id: property.propertyId, last: BigInt(property.lastSeenWatermark), current: BigInt(property.currentWatermark) }))
+    : [{ id: "", last: BigInt(entry.lastSeenWatermark ?? "0"), current: BigInt(entry.currentWatermark ?? "0") }];
+
+/** Older than what is known: a lower watermark (both only grow on the server), or the same watermarks from an earlier request. */
+function isOlder(incoming: Known, before: Known): boolean {
+  let same = true;
+  for (const mark of incoming.marks) {
+    const earlier = before.marks.find((candidate) => candidate.id === mark.id);
+    if (!earlier) continue;
+    if (mark.last < earlier.last || mark.current < earlier.current) return true;
+    if (mark.last > earlier.last || mark.current > earlier.current) same = false;
+  }
+  return same && incoming.seq < before.seq;
+}
+
+function offer(known: Map<string, Known>, key: string, entry: MenuUnseenEntry, seq: number) {
+  const incoming: Known = { entry, marks: marksOf(entry), seq };
+  const before = known.get(key);
+  if (!before || !isOlder(incoming, before)) known.set(key, incoming);
+}
+
+export function MenuUnseenProvider({ children }: { children: React.ReactNode }) {
   const { state, refresh, expire, failAccessCheck } = useStaffSession();
-  const identity = state.status === "authenticated" && (state.session.permissions ?? []).includes(WEBSITE_SETTINGS_PERMISSION) ? state.session.staffAccountId : "";
+  const session = state.status === "authenticated" ? state.session : null;
+  const identity = session?.staffAccountId ?? "";
+  // Only a Staff who holds the website permission has a legacy Newsletter connection (its Hub refuses everyone else).
+  const legacyIdentity = session && (session.permissions ?? []).includes(WEBSITE_SETTINGS_PERMISSION) ? identity : "";
   const identityRef = useRef(identity);
   identityRef.current = identity;
 
-  const [count, setCount] = useState<number | null>(null);
-  const applied = useRef<{ last: bigint; current: bigint } | null>(null);
+  const [snapshot, setSnapshot] = useState<{ identity: string; menus: MenuUnseenSummary } | null>(null);
+  const known = useRef(new Map<string, Known>());
+  /** The menus the latest answer allowed; `null` until the first answer of this life. */
+  const allowed = useRef<Set<string> | null>(null);
+  const issued = useRef(0);
   const generation = useRef(0);
   const sessionRef = useRef({ refresh, expire, failAccessCheck });
   sessionRef.current = { refresh, expire, failAccessCheck };
 
   // ---- what the API answered: one place, one rule
-  const apply = useCallback((entry: MenuUnseenEntry, gen: number) => {
-    if (gen !== generation.current) return;
-    const next = { last: BigInt(entry.lastSeenWatermark), current: BigInt(entry.currentWatermark) };
-    const before = applied.current;
-    // An answer with a lower watermark than one already applied is older than it (both only grow on the server): it must not bring an old number back.
-    if (before && (next.last < before.last || next.current < before.current)) return;
-    applied.current = next;
-    setCount(entry.count);
+  const publish = useCallback((forIdentity: string) => {
+    const menus: Record<string, MenuUnseenEntry> = {};
+    for (const key of allowed.current ?? []) {
+      const entry = known.current.get(key)?.entry;
+      if (entry) menus[key] = entry;
+    }
+    setSnapshot({ identity: forIdentity, menus: menus as MenuUnseenSummary });
   }, []);
+
+  const applySummary = useCallback(
+    (summary: MenuUnseenSummary, seq: number, forIdentity: string, gen: number) => {
+      if (gen !== generation.current || forIdentity !== identityRef.current) return;
+      const keys = new Set(Object.keys(summary));
+      for (const key of [...known.current.keys()]) if (!keys.has(key)) known.current.delete(key);     // no longer allowed: gone, and nothing can bring it back
+      for (const [key, entry] of Object.entries(summary)) if (entry) offer(known.current, key, entry, seq);
+      allowed.current = keys;
+      publish(forIdentity);
+    },
+    [publish],
+  );
+
+  /** An acknowledgement's answer updates the Newsletter's entry, but never puts a menu back that the latest answer left out. Before the first answer it is only remembered (it can be newer than a slow GET). */
+  const applyAck = useCallback(
+    (entry: MenuUnseenEntry, seq: number, forIdentity: string, gen: number) => {
+      if (gen !== generation.current || forIdentity !== identityRef.current) return;
+      if (allowed.current && !allowed.current.has("newsletter")) return;
+      offer(known.current, "newsletter", entry, seq);
+      if (allowed.current) publish(forIdentity);
+    },
+    [publish],
+  );
 
   const authFailure = useCallback((kind: "unauthenticated" | "denied", gen: number) => {
     if (gen !== generation.current) return;
@@ -96,12 +170,13 @@ export function NewsletterBadgeProvider({ children }: { children: React.ReactNod
     });
   }, []);
 
-  // ---- asking for the count
+  // ---- asking for the numbers
   const fetching = useRef(false);
   const again = useRef(false);
   const controller = useRef<AbortController | null>(null);
   const runRefresh = useCallback(async () => {
-    if (!identityRef.current) return;
+    const forIdentity = identityRef.current;
+    if (!forIdentity) return;
     if (fetching.current) {
       again.current = true;
       return;
@@ -110,17 +185,19 @@ export function NewsletterBadgeProvider({ children }: { children: React.ReactNod
     const gen = generation.current;
     const mine = new AbortController();
     controller.current = mine;
-    const result = await fetchMenuUnseen(mine.signal);
+    issued.current += 1;
+    const seq = issued.current;
+    const result = await fetchMenuUnseenSummary(mine.signal);
     if (gen !== generation.current) return;                                        // a later life owns the flags now
     fetching.current = false;
-    if (result.kind === "ok") apply(result.data, gen);
+    if (result.kind === "ok") applySummary(result.data, seq, forIdentity, gen);
     else if (result.kind === "unauthenticated" || result.kind === "denied") authFailure(result.kind, gen);
-    // anything else (network, 5xx, an answer this page cannot read): the last number stays.
+    // anything else (network, 5xx, an answer this page cannot read): the last valid answer stays.
     if (again.current) {
       again.current = false;
       void runRefresh();
     }
-  }, [apply, authFailure]);
+  }, [applySummary, authFailure]);
 
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const requestRefresh = useCallback(() => {
@@ -132,25 +209,32 @@ export function NewsletterBadgeProvider({ children }: { children: React.ReactNod
     }, BADGE_COALESCE_MS);
   }, [runRefresh]);
 
-  // ---- saying "seen"
+  // ---- saying "seen" (the Newsletter's only call site in PR-4)
   const ackInFlight = useRef(false);
   const queued = useRef<bigint | null>(null);
-  const send = useCallback(async (watermark: bigint, gen: number) => {
+  const send = useCallback(async (watermark: bigint, forIdentity: string, gen: number) => {
     ackInFlight.current = true;
     try {
       for (let attempt = 0; ; attempt += 1) {
+        issued.current += 1;
+        const seq = issued.current;
         const result = await markNewsletterSeen(String(watermark));
         if (gen !== generation.current) return;
         if (result.kind === "ok") {
-          apply(result.data, gen);
+          applyAck(result.data, seq, forIdentity, gen);
           return;
         }
         if (result.kind === "unauthenticated" || result.kind === "denied") {
           authFailure(result.kind, gen);
           return;
         }
-        // Refused (a watermark the server does not accept): nothing to retry with. Network or server failure: the same watermark again, a few times.
-        if (result.kind === "refused" || attempt >= ACK_RETRY_MS.length) return;
+        if (result.kind === "refused") {
+          // Nothing different to retry with. A 404 says this Staff member can no longer read the menu: read the numbers again so it leaves the sidebar.
+          if (result.status === 404) requestRefresh();
+          return;
+        }
+        // Network or server failure: the same watermark again, a few times.
+        if (attempt >= ACK_RETRY_MS.length) return;
         await new Promise((resolve) => setTimeout(resolve, ACK_RETRY_MS[attempt]));
         if (gen !== generation.current) return;
       }
@@ -159,22 +243,24 @@ export function NewsletterBadgeProvider({ children }: { children: React.ReactNod
         ackInFlight.current = false;
         const next = queued.current;
         queued.current = null;
-        if (next !== null && (applied.current === null || next > applied.current.last)) void send(next, gen);
+        const last = known.current.get("newsletter")?.marks[0]?.last;
+        if (next !== null && (last === undefined || next > last)) void send(next, forIdentity, gen);
       }
     }
-  }, [apply, authFailure]);
+  }, [applyAck, authFailure, requestRefresh]);
 
   const ack = useCallback(
     (watermark: string, forIdentity: string) => {
       if (!identityRef.current || forIdentity !== identityRef.current) return;     // another (or no) Staff identity: not ours to say
       if (!/^(0|[1-9][0-9]*)$/.test(watermark)) return;
       const value = BigInt(watermark);
-      if (applied.current && value <= applied.current.last) return;                // nothing new to say
+      const last = known.current.get("newsletter")?.marks[0]?.last;
+      if (last !== undefined && value <= last) return;                             // nothing new to say
       if (ackInFlight.current) {
         queued.current = queued.current === null || value > queued.current ? value : queued.current;
         return;
       }
-      void send(value, generation.current);
+      void send(value, forIdentity, generation.current);
     },
     [send],
   );
@@ -184,8 +270,8 @@ export function NewsletterBadgeProvider({ children }: { children: React.ReactNod
     if (!identity) return undefined;
     generation.current += 1;
     const gen = generation.current;
-    applied.current = null;
-    setCount(null);
+    known.current = new Map();
+    allowed.current = null;
     fetching.current = false;
     again.current = false;
     ackInFlight.current = false;
@@ -209,12 +295,30 @@ export function NewsletterBadgeProvider({ children }: { children: React.ReactNod
       timer.current = null;
       controller.current?.abort();
       fetching.current = false;
-      applied.current = null;
-      setCount(null);
+      known.current = new Map();
+      allowed.current = null;
+      setSnapshot(null);
     };
   }, [identity, runRefresh, requestRefresh]);
 
-  // ---- the one live connection
+  // ---- the shared activity Hub: a hint only schedules the GET; its payload is never read for a number
+  useEffect(() => {
+    if (!identity) return undefined;
+    const hub = startNewsletterLive({
+      target: menuActivityLiveTarget(),
+      events: { signal: MENU_ACTIVITY_EVENT, ready: MENU_ACTIVITY_READY_EVENT, isSignal: isMenuActivityHint },
+      handlers: {
+        onReady: requestRefresh,
+        onSignal: requestRefresh,
+        onStatus: () => undefined,
+        onUnauthenticated: () => authFailure("unauthenticated", generation.current),
+        onDenied: () => authFailure("denied", generation.current),
+      },
+    });
+    return () => hub.dispose();
+  }, [identity, requestRefresh, authFailure]);
+
+  // ---- the legacy Newsletter connection, shared with the Newsletter screen (toast, refresh, catch-up); its signals too only schedule the GET
   const listeners = useRef(new Set<LiveCallbacks>());
   const subscribe = useCallback((callbacks: LiveCallbacks) => {
     listeners.current.add(callbacks);
@@ -242,17 +346,18 @@ export function NewsletterBadgeProvider({ children }: { children: React.ReactNod
     }),
     [authFailure],
   );
-  const live = useNewsletterLiveConnection(identity, callbacks, auth, identity !== "");
+  const live = useNewsletterLiveConnection(legacyIdentity, callbacks, auth, legacyIdentity !== "");
 
   const shared = useMemo<SharedLive>(
     () => ({ status: live.status, stoppedFor: live.stoppedFor, retry: live.retry, subscribe, ack }),
     [live.status, live.stoppedFor, live.retry, subscribe, ack],
   );
-  const badge = useMemo<BadgeValue>(() => ({ newsletter: count ?? 0 }), [count]);
+  // Tagged with the identity it was read for: for any other identity (or none) it is empty from this very render, before any effect has run.
+  const menus = snapshot && snapshot.identity === identity ? snapshot.menus : EMPTY;
   return (
-    <BadgeContext.Provider value={badge}>
+    <MenuContext.Provider value={menus}>
       <SharedContext.Provider value={shared}>{children}</SharedContext.Provider>
-    </BadgeContext.Provider>
+    </MenuContext.Provider>
   );
 }
 

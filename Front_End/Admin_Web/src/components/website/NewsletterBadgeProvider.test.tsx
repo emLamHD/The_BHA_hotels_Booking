@@ -1,7 +1,8 @@
 /**
- * BHA-NEWSLETTER-BADGE-001: the shell's unseen count and the one live connection behind it. The API client and the connection are replaced (the connection by a recorder), so each
- * test plays the answers itself, deferred, and asserts what was asked and what is shown: the number is the API's, never counted from signals; "seen" is said with the watermark a
- * list carried, never optimistically; an answer older than one already applied never wins; and a changed Staff identity, a sign-out or an unmount leave nothing alive.
+ * BHA-NEWSLETTER-BADGE-001 / BHA-ADMIN-BADGE-001-PR04: the shell's unseen numbers and the live connections behind them. The API client and the connections are replaced (the connections
+ * by a recorder), so each test plays the answers itself, deferred, and asserts what was asked and what is shown: a number is the API's, never counted from a hint or a signal; "seen"
+ * is said with the watermark a list carried, never optimistically; an answer older than one already applied never wins; a menu or Property the latest answer leaves out is gone; and a
+ * changed Staff identity, a sign-out or an unmount leave nothing alive (and nothing of the old identity on screen, from the very next render).
  */
 import React, { useEffect } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -28,25 +29,28 @@ vi.mock("@/lib/website/newsletterLive", () => ({
     return controller;
   }),
 }));
-vi.mock("@/lib/api/website", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/api/website")>()),
-  fetchMenuUnseen: vi.fn(),
+vi.mock("@/lib/api/menuUnseen", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/api/menuUnseen")>()),
+  fetchMenuUnseenSummary: vi.fn(),
   markNewsletterSeen: vi.fn(),
 }));
 
 import { StaffSessionProvider, useStaffSession } from "@/components/auth/StaffSession";
 import WebsiteAccessGate from "./WebsiteAccessGate";
 import AppSidebar from "@/layout/AppSidebar";
-import { ACK_RETRY_MS, BADGE_COALESCE_MS, BADGE_POLL_MS, NewsletterBadgeProvider, useMenuUnseen, useNewsletterLiveFeed, useSharedNewsletterLive } from "./NewsletterBadgeProvider";
+import { ACK_RETRY_MS, BADGE_COALESCE_MS, BADGE_POLL_MS, MenuUnseenProvider, useMenuUnseen, useNewsletterLiveFeed, useSharedNewsletterLive } from "./NewsletterBadgeProvider";
 import { ALLOWED, WITHOUT_PERMISSION, deferred } from "./websiteTestUtils";
 import { fetchStaffSession, staffLogout } from "@/lib/api/staff";
-import { fetchMenuUnseen, markNewsletterSeen, type MenuUnseenEntry } from "@/lib/api/website";
+import { fetchMenuUnseenSummary, markNewsletterSeen, type MenuUnseenEntry, type MenuUnseenSummary } from "@/lib/api/menuUnseen";
 
-const getCount = vi.mocked(fetchMenuUnseen);
+const getCount = vi.mocked(fetchMenuUnseenSummary);
 const postSeen = vi.mocked(markNewsletterSeen);
 
 const entry = (count: number, last: string, current: string): MenuUnseenEntry => ({ count, lastSeenWatermark: last, currentWatermark: current });
-const answer = (value: MenuUnseenEntry) => ({ kind: "ok", data: value }) as never;
+/** What `GET menu-unseen` answers for a Staff member who may read only the Newsletter (the number under test), or for a whole summary. */
+const answer = (value: MenuUnseenEntry | MenuUnseenSummary) => ({ kind: "ok", data: "count" in value ? { newsletter: value } : value }) as never;
+/** What `POST …/newsletter/seen` answers: the bare entry after the move. */
+const seen = (value: MenuUnseenEntry) => ({ kind: "ok", data: value }) as never;
 
 let shared: ReturnType<typeof useSharedNewsletterLive> = null;
 let session: ReturnType<typeof useStaffSession> | null = null;
@@ -59,7 +63,7 @@ function Probe() {
     shared = sharedValue;
     session = sessionValue;
   });
-  return <span data-testid="badge">{unseen.newsletter}</span>;
+  return <span data-testid="badge">{unseen.newsletter?.count ?? 0}</span>;
 }
 /** The Newsletter screen's side: it only listens, and says "seen". */
 function Screen({ identity = ALLOWED.staffAccountId }: { identity?: string }) {
@@ -73,21 +77,31 @@ const gated = (screenNode: React.ReactNode) => <WebsiteAccessGate returnTo="/web
 const mount = (ui: React.ReactNode = null, strict = false) => {
   const tree = (
     <StaffSessionProvider>
-      <NewsletterBadgeProvider>
+      <MenuUnseenProvider>
         <Probe />
         {ui}
-      </NewsletterBadgeProvider>
+      </MenuUnseenProvider>
     </StaffSessionProvider>
   );
   return render(strict ? <React.StrictMode>{tree}</React.StrictMode> : tree);
 };
 const badge = () => screen.getByTestId("badge").textContent;
 const flush = (ms = BADGE_COALESCE_MS + 100) => act(async () => { await new Promise((resolve) => setTimeout(resolve, ms)); });
+/** The legacy Newsletter connection (no `events`), and the shared activity Hub (it names its own). */
+const openOf = (kind: "legacy" | "activity") =>
+  live.started.filter((started) => !started.controller.dispose.mock.calls.length && (kind === "activity") === (started.options.events !== undefined));
 const connection = () => {
-  const open = live.started.filter((started) => !started.controller.dispose.mock.calls.length);
+  const open = openOf("legacy");
   expect(open.length).toBeGreaterThan(0);
   return open[open.length - 1];
 };
+const activityHub = () => {
+  const open = openOf("activity");
+  expect(open.length).toBeGreaterThan(0);
+  return open[open.length - 1];
+};
+const hint = (payload: unknown = { menuKey: "calendar", propertyId: "prop-a" }) => act(async () => { activityHub().options.handlers.onSignal({ eventId: String((payload as { menuKey?: string }).menuKey ?? ""), occurredAtUtc: "" }); });
+const activityReady = () => act(async () => { activityHub().options.handlers.onReady(); });
 const signal = (id: string) => act(async () => { connection().options.handlers.onSignal({ eventId: id, occurredAtUtc: "2026-11-19T01:00:00+00:00" }); });
 const ready = () => act(async () => { connection().options.handlers.onReady(); });
 const ack = (watermark: string, identity = ALLOWED.staffAccountId) => act(async () => { shared!.ack(watermark, identity); });
@@ -109,23 +123,40 @@ afterEach(() => {
   cleanup();
 });
 
-describe("who gets a badge", () => {
-  it("a confirmed session with the website permission asks the API once and shows ITS number", async () => {
+describe("who gets numbers", () => {
+  it("a confirmed session asks the API once and shows ITS number", async () => {
     mount();
     await waitFor(() => expect(badge()).toBe("3"));
     expect(getCount).toHaveBeenCalledTimes(1);
   });
 
-  it("without the permission nothing is asked, nothing is connected and nothing is shown", async () => {
-    vi.mocked(fetchStaffSession).mockResolvedValue({ kind: "authenticated", session: WITHOUT_PERMISSION });
-    mount();
-    await flush(150);
-    expect(getCount).not.toHaveBeenCalled();
-    expect(live.started).toHaveLength(0);
-    expect(badge()).toBe("0");
+  it("a Staff member without the website permission (Blog only, or Property only) is still served: one GET, the activity Hub, and no legacy Newsletter connection", async () => {
+    for (const permissions of [["BlogEdit"], []]) {
+      cleanup();
+      live.started.length = 0;
+      getCount.mockClear();
+      vi.mocked(fetchStaffSession).mockResolvedValue({ kind: "authenticated", session: { ...WITHOUT_PERMISSION, permissions } });
+      getCount.mockResolvedValue(answer({ "blog-posts": entry(2, "0", "2") }));
+      function Blog() {
+        return <span data-testid="blog">{useMenuUnseen()["blog-posts"]?.count ?? "-"}</span>;
+      }
+      mount(<Blog />);
+      await waitFor(() => expect(screen.getByTestId("blog").textContent).toBe("2"));
+      expect(getCount).toHaveBeenCalledTimes(1);
+      expect(openOf("activity")).toHaveLength(1);
+      expect(openOf("legacy")).toHaveLength(0);
+      expect(badge()).toBe("0");                                                               // no Newsletter number for them
+    }
   });
 
-  it("without a session nothing is asked either", async () => {
+  it("a Staff member with the website permission has both: the activity Hub and the legacy Newsletter connection, one of each, also under Strict Mode and with the screen mounted", async () => {
+    mount(gated(<Screen />), true);
+    await waitFor(() => expect(badge()).toBe("3"));
+    expect(openOf("activity")).toHaveLength(1);
+    expect(openOf("legacy")).toHaveLength(1);
+  });
+
+  it("without a session nothing is asked and nothing is connected", async () => {
     vi.mocked(fetchStaffSession).mockResolvedValue({ kind: "unauthenticated" });
     mount();
     await flush(150);
@@ -133,13 +164,28 @@ describe("who gets a badge", () => {
     expect(live.started).toHaveLength(0);
   });
 
-  it("outside the provider the count is 0 and the screen runs on its own connection", async () => {
+  it("outside the provider (nothing mounted) the numbers are empty and nothing is requested", () => {
     function Alone() {
-      const unseen = useMenuUnseen();
-      return <span data-testid="alone">{unseen.newsletter}</span>;
+      return <span data-testid="alone">{Object.keys(useMenuUnseen()).length}</span>;
     }
     render(<Alone />);
     expect(screen.getByTestId("alone").textContent).toBe("0");
+    expect(getCount).not.toHaveBeenCalled();
+  });
+
+  it("LocalGate: the shell mounts no provider, so no GET, no socket and no number anywhere in the sidebar", async () => {
+    vi.stubEnv("NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE", "LocalGate");
+    try {
+      const { default: AdminStaffScope } = await import("@/layout/AdminStaffScope");
+      render(<AdminStaffScope><AppSidebar /></AdminStaffScope>);
+      await flush(150);
+      expect(getCount).not.toHaveBeenCalled();
+      expect(vi.mocked(fetchStaffSession)).not.toHaveBeenCalled();
+      expect(live.started).toHaveLength(0);
+      expect(document.querySelector('[data-testid^="menu-unseen-badge"]')).toBeNull();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 
@@ -248,7 +294,7 @@ describe("when the count is asked for again", () => {
     getCount.mockImplementationOnce(() => slow.promise as never);                             // started BEFORE the acknowledgement …
     await ready();
     await flush();
-    postSeen.mockResolvedValue(answer(entry(0, "3", "3")));
+    postSeen.mockResolvedValue(seen(entry(0, "3", "3")));
     await ack("3");
     await waitFor(() => expect(badge()).toBe("0"));
     await act(async () => { slow.resolve(answer(entry(3, "0", "3"))); });                     // … and answered after it
@@ -267,14 +313,14 @@ describe("saying 'seen'", () => {
     expect(postSeen).toHaveBeenCalledTimes(1);
     expect(postSeen.mock.calls[0][0]).toBe("3");
     expect(badge()).toBe("3");                                                                 // still 3 while the server has not answered
-    await act(async () => { pending.resolve(answer(entry(0, "3", "3"))); });
+    await act(async () => { pending.resolve(seen(entry(0, "3", "3"))); });
     await waitFor(() => expect(badge()).toBe("0"));
   });
 
   it("an activity that arrived after the list is still counted: the answer says 1 and that is what is shown", async () => {
     mount();
     await waitFor(() => expect(badge()).toBe("3"));
-    postSeen.mockResolvedValue(answer(entry(1, "3", "4")));
+    postSeen.mockResolvedValue(seen(entry(1, "3", "4")));
     await ack("3");
     await waitFor(() => expect(badge()).toBe("1"));
   });
@@ -282,7 +328,7 @@ describe("saying 'seen'", () => {
   it("a watermark that is not newer than what the server already knows is not sent", async () => {
     mount();
     await waitFor(() => expect(badge()).toBe("3"));
-    postSeen.mockResolvedValue(answer(entry(0, "3", "3")));
+    postSeen.mockResolvedValue(seen(entry(0, "3", "3")));
     await ack("3");
     await waitFor(() => expect(badge()).toBe("0"));
     await ack("3");
@@ -309,12 +355,12 @@ describe("saying 'seen'", () => {
     await waitFor(() => expect(badge()).toBe("3"));
     const first = deferred<ReturnType<typeof answer>>();
     postSeen.mockImplementationOnce(() => first.promise as never);
-    postSeen.mockResolvedValue(answer(entry(0, "9", "9")));
+    postSeen.mockResolvedValue(seen(entry(0, "9", "9")));
     await ack("5");
     await ack("9");
     await ack("7");
     expect(postSeen).toHaveBeenCalledTimes(1);
-    await act(async () => { first.resolve(answer(entry(4, "5", "9"))); });
+    await act(async () => { first.resolve(seen(entry(4, "5", "9"))); });
     await waitFor(() => expect(postSeen).toHaveBeenCalledTimes(2));
     expect(postSeen.mock.calls[1][0]).toBe("9");
     await waitFor(() => expect(badge()).toBe("0"));
@@ -336,7 +382,7 @@ describe("saying 'seen'", () => {
     expect(postSeen.mock.calls.map((call) => call[0])).toEqual(["3", "3", "3"]);               // never a newer mark taken from a count
     expect(badge()).toBe("3");
     // The next list that loads says it again, and now it works.
-    postSeen.mockResolvedValue(answer(entry(0, "3", "3")));
+    postSeen.mockResolvedValue(seen(entry(0, "3", "3")));
     await ack("3");
     await vi.waitFor(() => expect(badge()).toBe("0"));
   });
@@ -371,7 +417,7 @@ describe("nothing outlives the identity", () => {
     await act(async () => { await session!.signOut(); });
     await waitFor(() => expect(session!.state.status).toBe("unauthenticated"));
     expect(badge()).toBe("0");
-    await act(async () => { pending.resolve(answer(entry(0, "3", "3"))); });
+    await act(async () => { pending.resolve(seen(entry(0, "3", "3"))); });
     await flush(50);
     expect(badge()).toBe("0");
     expect(postSeen).toHaveBeenCalledTimes(1);
@@ -432,8 +478,8 @@ describe("one connection for the sidebar and the screen", () => {
   it("the shell and a mounted screen share ONE connection, also under Strict Mode; the screen never opens its own", async () => {
     mount(gated(<Screen />), true);
     await waitFor(() => expect(badge()).toBe("3"));
-    const open = live.started.filter((started) => !started.controller.dispose.mock.calls.length);
-    expect(open).toHaveLength(1);
+    expect(openOf("legacy")).toHaveLength(1);
+    expect(openOf("activity")).toHaveLength(1);
   });
 
   it("the screen hears signals and reconnects while it is mounted, and nothing that happened before it is replayed", async () => {
@@ -469,7 +515,8 @@ describe("one connection for the sidebar and the screen", () => {
     await signal("late");
     await flush(300 + BADGE_COALESCE_MS + 100);
     expect(feedCalls).toEqual([]);
-    expect(live.started.filter((started) => !started.controller.dispose.mock.calls.length)).toHaveLength(1);
+    expect(openOf("legacy")).toHaveLength(1);
+    expect(openOf("activity")).toHaveLength(1);
   });
 
   it("a 401 on the connection ends the session through the shell, a 403 asks it to read `me` again", async () => {
@@ -493,6 +540,8 @@ const Form = () => (
 );
 const gatedForm = () => <WebsiteAccessGate returnTo="/website/languages"><Form /></WebsiteAccessGate>;
 const openConnections = () => live.started.filter((started) => !started.controller.dispose.mock.calls.length);
+/** A Staff member with the website permission is served by two connections: the shared activity Hub and the legacy Newsletter one. */
+const BOTH = 2;
 const meFails = () => vi.mocked(fetchStaffSession).mockResolvedValueOnce({ kind: "error", message: "Could not reach the Admin API." });
 
 /**
@@ -512,7 +561,7 @@ describe("C1 F1: a 403 whose `me` check fails closes access", () => {
     fireEvent.click(retryButton);
     await screen.findByTestId("website-form");
     await waitFor(() => expect(badge()).toBe("3"));
-    expect(openConnections()).toHaveLength(1);                                                 // the old one is gone, ONE shared connection serves the shell again
+    expect(openConnections()).toHaveLength(BOTH);                                              // the old ones are gone, ONE of each serves the shell again
   };
 
   it("on the live connection: the form closes with Retry, and a Retry that succeeds reopens it", async () => {
@@ -570,7 +619,8 @@ describe("C1 F1: a 403 whose `me` check fails closes access", () => {
     act(() => connection().options.handlers.onDenied());
     await screen.findByTestId("website-no-permission");
     expect(screen.queryByTestId("website-form")).toBeNull();
-    await waitFor(() => expect(badge()).toBe("0"));
+    await waitFor(() => expect(openOf("legacy")).toHaveLength(0));                              // without the permission the legacy Newsletter connection is gone …
+    expect(openOf("activity")).toHaveLength(1);                                                // … while the shared Hub stays: which menus they may read is the API's answer
   });
 
   it("a `me` read that a newer read replaced (superseded) does not close anything", async () => {
@@ -636,8 +686,8 @@ describe("C1 F1: a late result of the old identity or of an unmounted tree never
     expect(session!.state.status).toBe("authenticated");
     expect(badge()).toBe("7");
     const open = openConnections();
-    expect(open).toHaveLength(1);                                                              // one connection, the new member's
-    expect(live.started.length - open.length).toBe(live.started.length - 1);                   // every earlier one disposed
+    expect(open).toHaveLength(BOTH);                                                           // one of each, the new member's
+    expect(live.started.length - open.length).toBe(live.started.length - BOTH);                // every earlier one disposed
   });
 
   it("the tree is unmounted while the check is out: its late failure changes nothing, and the next mount opens normally", async () => {
@@ -656,7 +706,7 @@ describe("C1 F1: a late result of the old identity or of an unmounted tree never
     await screen.findByTestId("website-form");
     expect(screen.queryByTestId("staff-session-error")).toBeNull();
     await waitFor(() => expect(badge()).toBe("3"));
-    expect(openConnections()).toHaveLength(1);
+    expect(openConnections()).toHaveLength(BOTH);
   });
 });
 
@@ -673,47 +723,47 @@ const setSidebar = (state: Partial<typeof sidebar.state>) => {
   sidebar.state = { ...sidebar.state, ...state };
   act(() => sidebarRefresh());
 };
-const dot = () => screen.queryByTestId("menu-unseen-dot-parent");
+const parentBadge = () => screen.queryByTestId("menu-unseen-badge-parent");
 const websiteButton = () => screen.getByText("Website").closest("button")!;
 
-describe("C1 F2: the indicator follows what the sidebar actually shows, and the sidebar never says 'seen'", () => {
+describe("C1 F2: the parent follows what the sidebar actually shows, and the sidebar never says 'seen'", () => {
   beforeEach(() => {
     sidebar.state = { isExpanded: true, isMobileOpen: false, isHovered: false, setIsHovered: () => undefined };
   });
 
-  it("Website open then the sidebar collapses (no hover): the entry is not drawn, so the parent shows the dot; hovering shows the entry and its number again; nothing is acknowledged", async () => {
+  it("Website open then the sidebar collapses (no hover): the entry is not drawn, so the parent shows the sum; hovering shows the entry and its number again; nothing is acknowledged", async () => {
     mount(<SidebarHarness />);
     await waitFor(() => expect(getCount).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(document.querySelector('[data-testid="menu-unseen-badge-newsletter"]')).not.toBeNull());
-    expect(dot()).not.toBeNull();                                                              // closed: dot on the parent
+    await waitFor(() => expect(parentBadge()).not.toBeNull());
+    expect(parentBadge()!.textContent).toBe("3");                                              // closed: the sum on the parent
     fireEvent.click(websiteButton());                                                          // open
-    expect(dot()).toBeNull();
+    expect(parentBadge()).toBeNull();
     expect(screen.getByTestId("menu-unseen-badge-newsletter").textContent).toBe("3");
 
     setSidebar({ isExpanded: false });                                                         // collapsed, not hovered; Website is still the open submenu
     expect(screen.queryByTestId("menu-unseen-badge-newsletter")).toBeNull();                   // the number is not drawn …
-    expect(dot()).not.toBeNull();                                                              // … so the parent must say it
+    expect(parentBadge()!.textContent).toBe("3");                                              // … so the parent must say it
 
     setSidebar({ isHovered: true });                                                           // the sidebar opens again under the pointer
-    expect(dot()).toBeNull();
+    expect(parentBadge()).toBeNull();
     expect(screen.getByTestId("menu-unseen-badge-newsletter").textContent).toBe("3");
     setSidebar({ isHovered: false });
-    expect(dot()).not.toBeNull();
+    expect(parentBadge()).not.toBeNull();
 
     expect(postSeen).not.toHaveBeenCalled();
     expect(getCount).toHaveBeenCalledTimes(1);
   });
 
-  it("the mobile drawer: closed → dot; open submenu → number; the drawer itself shut (not shown) with the submenu open → dot", async () => {
+  it("the mobile drawer: closed → sum; open submenu → number; the drawer itself shut (not shown) with the submenu open → sum", async () => {
     sidebar.state = { isExpanded: false, isMobileOpen: true, isHovered: false, setIsHovered: () => undefined };
     mount(<SidebarHarness />);
-    await waitFor(() => expect(dot()).not.toBeNull());
+    await waitFor(() => expect(parentBadge()).not.toBeNull());
     fireEvent.click(websiteButton());
-    expect(dot()).toBeNull();
+    expect(parentBadge()).toBeNull();
     expect(screen.getByTestId("menu-unseen-badge-newsletter").textContent).toBe("3");
     setSidebar({ isMobileOpen: false });                                                       // the drawer is closed again: nothing of the submenu is drawn
     expect(screen.queryByTestId("menu-unseen-badge-newsletter")).toBeNull();
-    expect(dot()).not.toBeNull();
+    expect(parentBadge()!.textContent).toBe("3");
     expect(postSeen).not.toHaveBeenCalled();
   });
 
@@ -724,16 +774,267 @@ describe("C1 F2: the indicator follows what the sidebar actually shows, and the 
     await flush(100);
     for (const state of [{ isExpanded: true }, { isExpanded: false }, { isHovered: true }]) {
       setSidebar(state);
-      expect(dot()).toBeNull();
+      expect(parentBadge()).toBeNull();
       expect(screen.queryByTestId("menu-unseen-badge-newsletter")).toBeNull();
     }
     cleanup();
     sidebar.state = { isExpanded: true, isMobileOpen: false, isHovered: false, setIsHovered: () => undefined };
     getCount.mockResolvedValue(answer(entry(150, "0", "150")));
     mount(<SidebarHarness />);
-    await waitFor(() => expect(document.querySelector('[data-testid="menu-unseen-badge-newsletter"]')).not.toBeNull());
-    const badgeNode = document.querySelector('[data-testid="menu-unseen-badge-newsletter"]')!;
-    expect(badgeNode.textContent).toBe("99+");
-    expect(badgeNode.getAttribute("aria-label")).toBe("150 đăng ký nhận tin mới chưa xem");
+    await waitFor(() => expect(parentBadge()).not.toBeNull());
+    expect(parentBadge()!.textContent).toBe("99+");
+    expect(parentBadge()!.getAttribute("aria-label")).toBe("150 thay đổi chưa xem ở Website");
+    fireEvent.click(websiteButton());
+    expect(screen.getByTestId("menu-unseen-badge-newsletter").getAttribute("aria-label")).toBe("150 thay đổi chưa xem ở Đăng ký nhận tin");
+  });
+});
+
+// ================================================================================================ BHA-ADMIN-BADGE-001-PR04
+
+const property = (id: string, count: number, last = "0", current = String(count)) => ({ propertyId: id, count, lastSeenWatermark: last, currentWatermark: current });
+const promotions = (...items: ReturnType<typeof property>[]): MenuUnseenEntry => ({ count: items.reduce((sum, item) => sum + item.count, 0), byProperty: items });
+const OTHER_STAFF = { ...ALLOWED, staffAccountId: "22222222-2222-2222-2222-222222222222", email: "b@example.com" };
+
+/** Every value the sidebar's consumers are rendered with, with the Staff identity the session had in that same render. */
+let renders: Array<{ identity: string; newsletter: number | undefined }> = [];
+function Recorder() {
+  const unseen = useMenuUnseen();
+  const state = useStaffSession().state;
+  renders.push({ identity: state.status === "authenticated" ? state.session.staffAccountId : state.status, newsletter: unseen.newsletter?.count });
+  return null;
+}
+
+describe("PR-4: the latest answer is the list of what this Staff member may read", () => {
+  it("a menu the next answer leaves out disappears, and a Property it leaves out too; `byProperty` is kept and `count` is the API's own total", async () => {
+    function Consumer() {
+      const unseen = useMenuUnseen();
+      return <span data-testid="consumer">{JSON.stringify({ blog: unseen["blog-posts"]?.count ?? null, promos: unseen.promotions?.count ?? null, properties: unseen.promotions?.byProperty?.map((item) => `${item.propertyId}:${item.count}`) ?? null })}</span>;
+    }
+    getCount.mockResolvedValue(answer({ newsletter: entry(3, "0", "3"), "blog-posts": entry(5, "0", "5"), promotions: promotions(property("A", 3), property("B", 4)) }));
+    mount(<Consumer />);
+    await waitFor(() => expect(screen.getByTestId("consumer").textContent).toBe('{"blog":5,"promos":7,"properties":["A:3","B:4"]}'));
+    getCount.mockResolvedValue(answer({ newsletter: entry(3, "0", "3"), promotions: promotions(property("A", 3, "0", "3")) }));
+    await ready();
+    await flush();
+    expect(screen.getByTestId("consumer").textContent).toBe('{"blog":null,"promos":3,"properties":["A:3"]}');
+    expect(badge()).toBe("3");
+  });
+
+  it("an acknowledgement's late answer never puts a menu back that the latest answer left out", async () => {
+    mount();
+    await waitFor(() => expect(badge()).toBe("3"));
+    const pending = deferred<ReturnType<typeof seen>>();
+    postSeen.mockImplementationOnce(() => pending.promise as never);
+    await ack("3");
+    getCount.mockResolvedValue(answer({}));                                                    // the Staff member lost the website permission meanwhile
+    await ready();
+    await flush();
+    await waitFor(() => expect(badge()).toBe("0"));
+    await act(async () => { pending.resolve(seen(entry(0, "3", "3"))); });
+    await flush(50);
+    expect(badge()).toBe("0");
+  });
+
+  it("an answer that comes after an acknowledgement and started before it cannot restore the old count: on first load too, when the list's acknowledgement beats the first slow GET", async () => {
+    const slow = deferred<ReturnType<typeof answer>>();
+    getCount.mockReset();
+    getCount.mockImplementationOnce(() => slow.promise as never);
+    postSeen.mockResolvedValue(seen(entry(0, "5", "5")));
+    mount();
+    await vi.waitFor(() => expect(getCount).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(shared).not.toBeNull());
+    await ack("5");
+    await vi.waitFor(() => expect(postSeen).toHaveBeenCalledTimes(1));
+    await flush(50);
+    await act(async () => { slow.resolve(answer(entry(3, "0", "3"))); });                    // issued before the acknowledgement, answered after it
+    await flush(50);
+    expect(badge()).toBe("0");
+  });
+
+  it("the same watermarks from a request issued BEFORE an acknowledgement do not undo it, but a request issued after it does apply (the Newsletter's cascade delete lowers a count without moving a watermark)", async () => {
+    mount();
+    await waitFor(() => expect(badge()).toBe("3"));
+    const early = deferred<ReturnType<typeof answer>>();
+    getCount.mockReset();
+    getCount.mockImplementationOnce(() => early.promise as never);
+    await ready();
+    await flush();
+    postSeen.mockResolvedValue(seen(entry(2, "3", "3")));
+    await ack("3");
+    await waitFor(() => expect(badge()).toBe("2"));
+    await act(async () => { early.resolve(answer(entry(3, "3", "3"))); });                    // equal watermarks, but issued earlier
+    await flush(50);
+    expect(badge()).toBe("2");
+    getCount.mockResolvedValue(answer(entry(1, "3", "3")));                                    // a subscription deleted: same watermarks, one fewer
+    await ready();
+    await flush();
+    await waitFor(() => expect(badge()).toBe("1"));
+  });
+
+  it("with both watermarks unchanged a newer answer still applies its count (3 → 2)", async () => {
+    mount();
+    await waitFor(() => expect(badge()).toBe("3"));
+    getCount.mockResolvedValue(answer(entry(2, "0", "3")));
+    await ready();
+    await flush();
+    await waitFor(() => expect(badge()).toBe("2"));
+  });
+
+  it("a Property whose watermark went backwards keeps the menu's newer entry whole (never a mix)", async () => {
+    function Promo() {
+      return <span data-testid="promo">{useMenuUnseen().promotions?.count ?? "-"}</span>;
+    }
+    getCount.mockResolvedValue(answer({ promotions: promotions(property("A", 1, "0", "9")) }));
+    mount(<Promo />);
+    await waitFor(() => expect(screen.getByTestId("promo").textContent).toBe("1"));
+    const slow = deferred<ReturnType<typeof answer>>();
+    getCount.mockReset();
+    getCount.mockImplementationOnce(() => slow.promise as never);
+    await ready();
+    await flush();
+    const next = deferred<ReturnType<typeof answer>>();
+    getCount.mockImplementationOnce(() => next.promise as never);
+    await ready();                                                                             // coalesced behind the first: it runs once the first answers
+    await act(async () => { slow.resolve(answer({ promotions: promotions(property("A", 0, "0", "4")) })); });
+    await vi.waitFor(() => expect(getCount).toHaveBeenCalledTimes(2));
+    expect(screen.getByTestId("promo").textContent).toBe("1");                                 // the older answer (current 4 < 9) changed nothing
+    await act(async () => { next.resolve(answer({ promotions: promotions(property("A", 5, "0", "12")) })); });
+    await waitFor(() => expect(screen.getByTestId("promo").textContent).toBe("5"));
+  });
+});
+
+describe("PR-4: the numbers of one Staff member are never shown to another", () => {
+  it("a new identity shows nothing of the old one from its very first render, while its own GET is still out; a sign-out likewise", async () => {
+    renders = [];
+    mount(<Recorder />);
+    await waitFor(() => expect(badge()).toBe("3"));
+    const forB = deferred<ReturnType<typeof answer>>();
+    getCount.mockReset();
+    getCount.mockImplementationOnce(() => forB.promise as never);
+    vi.mocked(fetchStaffSession).mockResolvedValue({ kind: "authenticated", session: OTHER_STAFF });
+    renders.length = 0;
+    await act(async () => { await session!.refresh(); });
+    await waitFor(() => expect(getCount).toHaveBeenCalledTimes(1));
+    expect(renders.some((render) => render.identity === OTHER_STAFF.staffAccountId)).toBe(true);
+    expect(renders.filter((render) => render.identity === OTHER_STAFF.staffAccountId).every((render) => render.newsletter === undefined)).toBe(true);
+    expect(badge()).toBe("0");
+    await act(async () => { forB.resolve(answer(entry(7, "0", "7"))); });
+    await waitFor(() => expect(badge()).toBe("7"));
+
+    vi.mocked(staffLogout).mockResolvedValue({ kind: "logged-out" });
+    renders.length = 0;
+    await act(async () => { await session!.signOut(); });
+    await waitFor(() => expect(session!.state.status).toBe("unauthenticated"));
+    expect(renders.length).toBeGreaterThan(0);
+    expect(renders.every((render) => render.newsletter === undefined)).toBe(true);
+  });
+
+  it("the same Staff member signing in again does not see the snapshot of their earlier session while the first GET is out", async () => {
+    renders = [];
+    mount(<Recorder />);
+    await waitFor(() => expect(badge()).toBe("3"));
+    vi.mocked(staffLogout).mockResolvedValue({ kind: "logged-out" });
+    await act(async () => { await session!.signOut(); });
+    await waitFor(() => expect(session!.state.status).toBe("unauthenticated"));
+    const again = deferred<ReturnType<typeof answer>>();
+    getCount.mockReset();
+    getCount.mockImplementationOnce(() => again.promise as never);
+    renders.length = 0;
+    await act(async () => { session!.retry(); });
+    await waitFor(() => expect(getCount).toHaveBeenCalledTimes(1));
+    expect(renders.every((render) => render.newsletter === undefined)).toBe(true);
+    expect(badge()).toBe("0");
+  });
+});
+
+describe("PR-4: a hint, a poll and a reconnect only schedule the GET", () => {
+  it("a hint carrying a number changes nothing by itself: the badge is the API's answer, read after the hint", async () => {
+    mount();
+    await waitFor(() => expect(badge()).toBe("3"));
+    const answerLater = deferred<ReturnType<typeof answer>>();
+    getCount.mockReset();
+    getCount.mockImplementationOnce(() => answerLater.promise as never);
+    await hint({ menuKey: "newsletter", count: 999, title: "x" });
+    expect(badge()).toBe("3");                                                                 // nothing counted from the payload
+    await vi.waitFor(() => expect(getCount).toHaveBeenCalledTimes(1));
+    expect(badge()).toBe("3");                                                                 // and nothing before the GET answers
+    await act(async () => { answerLater.resolve(answer(entry(4, "0", "4"))); });
+    await waitFor(() => expect(badge()).toBe("4"));
+  });
+
+  it("the activity Hub's reconnect asks again, like the legacy one", async () => {
+    mount();
+    await waitFor(() => expect(badge()).toBe("3"));
+    getCount.mockResolvedValue(answer(entry(6, "0", "6")));
+    await activityReady();
+    await waitFor(() => expect(badge()).toBe("6"));
+  });
+
+  it("a poll, a hint, two reconnects, focus and a visibility change inside one GET never put two on the wire; they cost exactly one more afterwards", async () => {
+    let inFlight = 0;
+    let most = 0;
+    const gates: Array<() => void> = [];
+    getCount.mockReset();
+    getCount.mockImplementation(() => {
+      inFlight += 1;
+      most = Math.max(most, inFlight);
+      return new Promise((resolve) => {
+        gates.push(() => {
+          inFlight -= 1;
+          resolve(answer(entry(3, "0", "3")));
+        });
+      }) as never;
+    });
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    mount();
+    await vi.waitFor(() => expect(getCount).toHaveBeenCalledTimes(1));
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
+    await act(async () => { await vi.advanceTimersByTimeAsync(BADGE_POLL_MS + 20); });         // the poll fires while the first is still out
+    await hint();
+    await activityReady();
+    await ready();
+    act(() => { window.dispatchEvent(new Event("focus")); document.dispatchEvent(new Event("visibilitychange")); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(BADGE_COALESCE_MS + 100); });
+    expect(getCount).toHaveBeenCalledTimes(1);
+    await act(async () => { gates.shift()!(); });
+    await vi.waitFor(() => expect(getCount).toHaveBeenCalledTimes(2));                         // the wanted request ran once, after the first answered
+    await act(async () => { gates.shift()!(); await vi.advanceTimersByTimeAsync(BADGE_COALESCE_MS + 100); });
+    expect(getCount).toHaveBeenCalledTimes(2);
+    expect(most).toBe(1);
+  });
+
+  it("a 401 on the activity Hub ends the session through the shell; a 403 asks it to read `me` again", async () => {
+    mount();
+    await waitFor(() => expect(badge()).toBe("3"));
+    const checks = vi.mocked(fetchStaffSession).mock.calls.length;
+    act(() => activityHub().options.handlers.onDenied());
+    await waitFor(() => expect(vi.mocked(fetchStaffSession).mock.calls.length).toBe(checks + 1));
+    expect(session!.state.status).toBe("authenticated");
+    act(() => activityHub().options.handlers.onUnauthenticated());
+    await waitFor(() => expect(session!.state.status).toBe("unauthenticated"));
+  });
+
+  it("a hint never opens the sidebar's menus to the Staff: a menu the API did not return stays absent", async () => {
+    function Calendar() {
+      return <span data-testid="calendar">{useMenuUnseen().calendar?.count ?? "-"}</span>;
+    }
+    mount(<Calendar />);
+    await waitFor(() => expect(badge()).toBe("3"));
+    await hint({ menuKey: "calendar", propertyId: "prop-a" });
+    await flush();
+    expect(screen.getByTestId("calendar").textContent).toBe("-");
+  });
+});
+
+describe("PR-4: a 404 on the acknowledgement", () => {
+  it("is not retried, and the numbers are read again so the menu can leave the sidebar", async () => {
+    mount();
+    await waitFor(() => expect(badge()).toBe("3"));
+    getCount.mockResolvedValue(answer({}));
+    postSeen.mockResolvedValue({ kind: "refused", status: 404, code: "menu-unseen-unknown-menu", field: null, detail: "x" } as never);
+    await ack("3");
+    await waitFor(() => expect(badge()).toBe("0"));
+    expect(postSeen).toHaveBeenCalledTimes(1);
+    expect(getCount.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 });

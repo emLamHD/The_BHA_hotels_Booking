@@ -105,6 +105,32 @@ describe("starting", () => {
     expect(handlers.onReady).toHaveBeenCalledTimes(1);
   });
 
+  it("another Hub's message names and message check (the shared activity hint): it listens to those only, with no event id needed, and detaches them on dispose", async () => {
+    const connections: FakeConnection[] = [];
+    const handlers = { onReady: vi.fn(), onSignal: vi.fn(), onStatus: vi.fn(), onUnauthenticated: vi.fn(), onDenied: vi.fn() } satisfies LiveHandlers;
+    const controller = startNewsletterLive({
+      target: { ok: true, url: "https://api.test/hub" },
+      handlers,
+      events: { signal: "menuActivity", ready: "menuActivityReady", isSignal: (value) => typeof value === "object" && value !== null && "menuKey" in value },
+      factory: async () => {
+        const connection = new FakeConnection(() => Promise.resolve());
+        connections.push(connection);
+        return connection;
+      },
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(connections[0].calls).toEqual(["on:menuActivity", "on:menuActivityReady", "onclose", "start"]);
+    connections[0].emit(LIVE_VERIFIED_EVENT, { eventId: "e1" });                       // the Newsletter Hub's message is not this Hub's
+    connections[0].emit("menuActivity", { menuKey: "calendar", propertyId: "p-1" });
+    connections[0].emit("menuActivity", "noise");
+    connections[0].emit("menuActivityReady");
+    expect(handlers.onSignal).toHaveBeenCalledTimes(1);
+    expect(handlers.onReady).toHaveBeenCalledTimes(1);
+    controller.dispose();
+    expect(connections[0].calls).toContain("off:menuActivity");
+    expect(connections[0].calls).toContain("off:menuActivityReady");
+  });
+
   it("without an address (not Staff mode, no API URL) it stays stopped and builds nothing", async () => {
     const { factory, statuses, controller } = setup([() => Promise.resolve()], { ok: false, message: "no url" });
     await vi.advanceTimersByTimeAsync(5000);

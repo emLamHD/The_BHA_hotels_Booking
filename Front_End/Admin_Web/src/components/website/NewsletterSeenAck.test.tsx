@@ -28,30 +28,31 @@ vi.mock("@/lib/api/website", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/website")>()),
   listNewsletterSubscriptions: vi.fn(),
   inviteNewsletterSubscription: vi.fn(),
-  fetchMenuUnseen: vi.fn(),
+}));
+vi.mock("@/lib/api/menuUnseen", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/api/menuUnseen")>()),
+  fetchMenuUnseenSummary: vi.fn(),
   markNewsletterSeen: vi.fn(),
 }));
 
 import NewsletterSubscriptionsPanel from "./NewsletterSubscriptionsPanel";
 import WebsiteAccessGate from "./WebsiteAccessGate";
-import { NewsletterBadgeProvider, useMenuUnseen } from "./NewsletterBadgeProvider";
+import { MenuUnseenProvider, useMenuUnseen } from "./NewsletterBadgeProvider";
 import { StaffSessionProvider } from "@/components/auth/StaffSession";
 import { LIVE_COALESCE_MS } from "./useNewsletterLive";
 import { ALLOWED, deferred, ok } from "./websiteTestUtils";
 import { fetchStaffSession } from "@/lib/api/staff";
+import { fetchMenuUnseenSummary, markNewsletterSeen, type MenuUnseenEntry } from "@/lib/api/menuUnseen";
 import {
-  fetchMenuUnseen,
   inviteNewsletterSubscription,
   listNewsletterSubscriptions,
-  markNewsletterSeen,
-  type MenuUnseenEntry,
   type NewsletterSubscription,
   type NewsletterSubscriptionPage,
 } from "@/lib/api/website";
 
 const list = vi.mocked(listNewsletterSubscriptions);
 const invite = vi.mocked(inviteNewsletterSubscription);
-const getCount = vi.mocked(fetchMenuUnseen);
+const getCount = vi.mocked(fetchMenuUnseenSummary);
 const postSeen = vi.mocked(markNewsletterSeen);
 
 const row = (email: string, overrides: Partial<NewsletterSubscription> = {}): NewsletterSubscription => ({
@@ -61,7 +62,9 @@ const row = (email: string, overrides: Partial<NewsletterSubscription> = {}): Ne
 const page = (items: NewsletterSubscription[], number: number, total: number, viewWatermark?: string): NewsletterSubscriptionPage =>
   ({ items, page: number, pageSize: 20, total, ...(viewWatermark === undefined ? {} : { viewWatermark }) });
 const entry = (count: number, last: string, current: string): MenuUnseenEntry => ({ count, lastSeenWatermark: last, currentWatermark: current });
-const answer = (value: MenuUnseenEntry) => ({ kind: "ok", data: value }) as never;
+/** `GET menu-unseen` for a Staff member who may read the Newsletter; `POST …/newsletter/seen` answers the bare entry. */
+const answer = (value: MenuUnseenEntry) => ({ kind: "ok", data: { newsletter: value } }) as never;
+const seen = (value: MenuUnseenEntry) => ({ kind: "ok", data: value }) as never;
 
 const settle = (ms = LIVE_COALESCE_MS + 200) => act(async () => { await new Promise((resolve) => setTimeout(resolve, ms)); });
 const rowsOf = () => screen.queryAllByTestId(/^newsletter-row-/).map((node) => node.getAttribute("data-testid")!.replace("newsletter-row-", ""));
@@ -71,7 +74,9 @@ const buttonOf = (testId: string) => {
 };
 const click = async (testId: string) => userEvent.click(buttonOf(testId));
 const badge = () => screen.getByTestId("badge").textContent;
-const connection = () => live.started.filter((started) => !started.controller.dispose.mock.calls.length).at(-1)!;
+const openOf = (kind: "legacy" | "activity") =>
+  live.started.filter((started) => !started.controller.dispose.mock.calls.length && (kind === "activity") === (started.options.events !== undefined));
+const connection = () => openOf("legacy").at(-1)!;
 const signal = (id: string) => act(async () => { connection().options.handlers.onSignal({ eventId: id, occurredAtUtc: "" }); });
 
 let server: NewsletterSubscription[];
@@ -79,17 +84,17 @@ let watermark: string | undefined;
 const serve = () => list.mockImplementation(async (query) => ok(page(server.slice((query.page - 1) * 20, query.page * 20), query.page, server.length, watermark)) as never);
 
 function Badge() {
-  return <span data-testid="badge">{useMenuUnseen().newsletter}</span>;
+  return <span data-testid="badge">{useMenuUnseen().newsletter?.count ?? 0}</span>;
 }
 const mount = (strict = false) => {
   const tree = (
     <StaffSessionProvider>
-      <NewsletterBadgeProvider>
+      <MenuUnseenProvider>
         <Badge />
         <WebsiteAccessGate returnTo="/website/newsletter">
           <NewsletterSubscriptionsPanel />
         </WebsiteAccessGate>
-      </NewsletterBadgeProvider>
+      </MenuUnseenProvider>
     </StaffSessionProvider>
   );
   return render(strict ? <React.StrictMode>{tree}</React.StrictMode> : tree);
@@ -108,7 +113,7 @@ beforeEach(() => {
   vi.mocked(fetchStaffSession).mockResolvedValue({ kind: "authenticated", session: ALLOWED });
   getCount.mockResolvedValue(answer(entry(3, "0", "10")));
   // The server moves the cursor to what it was given and counts what is after it.
-  postSeen.mockImplementation(async (mark) => answer(entry(3, mark, "10")));
+  postSeen.mockImplementation(async (mark) => seen(entry(3, mark, "10")));
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -234,7 +239,8 @@ describe("one source, one connection", () => {
     serve();
     mount(true);
     await screen.findByTestId("newsletter-row-r01@example.com");
-    expect(live.started.filter((started) => !started.controller.dispose.mock.calls.length)).toHaveLength(1);
+    expect(openOf("legacy")).toHaveLength(1);                                                 // the screen shares the shell's legacy connection, and the activity Hub is the shell's too
+    expect(openOf("activity")).toHaveLength(1);
     await signal("e1");
     await screen.findByTestId("newsletter-live-toast");
     expect(screen.getAllByTestId("newsletter-live-toast")).toHaveLength(1);

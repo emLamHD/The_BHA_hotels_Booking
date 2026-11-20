@@ -597,35 +597,6 @@ export function parseNewsletterSubscriptionPage(data: unknown): NewsletterSubscr
   return { items, page: data.page, pageSize: data.pageSize, total: data.total, ...(isWatermark(data.viewWatermark) ? { viewWatermark: data.viewWatermark } : {}) };
 }
 
-// ---------------------------------------------------------------- unseen badge (BHA-NEWSLETTER-BADGE-001)
-
-/** What this Staff member has not seen of the Newsletter menu. `count` is verifications after `lastSeenWatermark`; both watermarks are opaque decimal strings, compared as integers. */
-export interface MenuUnseenEntry {
-  count: number;
-  lastSeenWatermark: string;
-  currentWatermark: string;
-}
-
-export function parseMenuUnseen(data: unknown): MenuUnseenEntry | null {
-  if (!isRec(data) || !isRec(data.newsletter)) return null;
-  const entry = data.newsletter;
-  return isNum(entry.count) && Number.isInteger(entry.count) && entry.count >= 0 && isWatermark(entry.lastSeenWatermark) && isWatermark(entry.currentWatermark)
-    ? { count: entry.count, lastSeenWatermark: entry.lastSeenWatermark, currentWatermark: entry.currentWatermark }
-    : null;
-}
-
-const MENU_UNSEEN = `${SETTINGS}/menu-unseen`;
-
-/** Counts only: it never changes what has been seen. */
-export const fetchMenuUnseen = (signal?: AbortSignal) => call<MenuUnseenEntry>("GET", MENU_UNSEEN, undefined, { write: false, parse: parseMenuUnseen, signal });
-
-/**
- * Says "this Staff member has seen the Newsletter list up to `viewWatermark`" — a watermark a list answered with, passed back unchanged. It is metadata, not a write of the screen's
- * (`write: false`: no write slot, no hold, and a lost answer is an ordinary network failure): the same call with the same watermark is safe to repeat.
- */
-export const markNewsletterSeen = (viewWatermark: string, signal?: AbortSignal) =>
-  call<MenuUnseenEntry>("POST", `${MENU_UNSEEN}/newsletter/seen`, { viewWatermark }, { write: false, parse: parseMenuUnseen, signal });
-
 /** BHA-NEWSLETTER-LIVE-001: `recent-activity` = newest sign-up OR verification first (the server decides); left out, the API keeps its first order, newest request first. */
 export type NewsletterListSort = "recent-activity";
 
@@ -753,7 +724,7 @@ interface CallOptions<T> {
   headers?: Record<string, string>;
 }
 
-function target(path: string): { ok: true; url: string } | { ok: false; message: string } {
+export function target(path: string): { ok: true; url: string } | { ok: false; message: string } {
   const mode = getAccessMode();
   if (!mode.ok) return { ok: false, message: mode.message };
   if (mode.mode !== "Staff") {

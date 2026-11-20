@@ -19,31 +19,32 @@ import {
   UserCircleIcon,
 } from "../icons/index";
 import SidebarWidget from "./SidebarWidget";
-import { UnseenBadge, UnseenDot } from "./UnseenBadge";
+import { UnseenBadge } from "./UnseenBadge";
 import { useMenuUnseen } from "../components/website/NewsletterBadgeProvider";
+import { ADMIN_MENU, type AdminMenuKey } from "../lib/adminMenus";
 
 type NavItem = {
   name: string;
   icon: React.ReactNode;
   path?: string;
-  /** `badge`: the unseen counter of that menu (BHA-NEWSLETTER-BADGE-001). */
-  subItems?: { name: string; path: string; pro?: boolean; new?: boolean; badge?: "newsletter" }[];
+  /** `menu`: the registry key whose unseen number the entry shows (BHA-ADMIN-BADGE-001-PR04). Template entries have none, so they never carry a badge. */
+  menu?: AdminMenuKey;
+  subItems?: { name: string; path: string; pro?: boolean; new?: boolean; menu?: AdminMenuKey }[];
 };
 
+/** Name, path and badge key of an entry come from the registry, so the sidebar and the provider cannot disagree on what a menu is. */
+const menuEntry = (key: AdminMenuKey) => ({ name: ADMIN_MENU[key].label, path: ADMIN_MENU[key].path, menu: key });
+
 const navItems: NavItem[] = [
-  { icon: <BoxCubeIcon />, name: "Cơ sở & loại phòng", path: "/products" },
+  { icon: <BoxCubeIcon />, ...menuEntry("catalog") },
   // BHA-BOOKING-PROMOTIONS-001: a link is not authorization; the page asks the server (a Manager of the Property).
-  { icon: <DollarLineIcon />, name: "Ưu đãi đặt phòng", path: "/promotions" },
+  { icon: <DollarLineIcon />, ...menuEntry("promotions") },
   {
     icon: <GridIcon />,
     name: "Dashboard",
     subItems: [{ name: "Ecommerce", path: "/", pro: false }],
   },
-  {
-    icon: <CalenderIcon />,
-    name: "Calendar",
-    path: "/calendar",
-  },
+  { icon: <CalenderIcon />, ...menuEntry("calendar") },
   {
     icon: <UserCircleIcon />,
     name: "User Profile",
@@ -54,21 +55,21 @@ const navItems: NavItem[] = [
     icon: <PlugInIcon />,
     name: "Website",
     subItems: [
-      { name: "Ngôn ngữ & bản dịch", path: "/website/languages", pro: false },
-      { name: "Bản dịch", path: "/website/translations", pro: false },
-      { name: "Tiền tệ & tỷ giá", path: "/website/currencies", pro: false },
-      { name: "Menu", path: "/website/menus", pro: false },
-      { name: "Banner trang chủ", path: "/website/hero", pro: false },
-      { name: "Social media", path: "/website/social-media", pro: false },
+      menuEntry("website-languages"),
+      menuEntry("website-translations"),
+      menuEntry("website-currencies"),
+      menuEntry("website-menus"),
+      menuEntry("website-hero"),
+      menuEntry("website-social"),
       // BHA-NEWSLETTER-001: the newsletter requests. The page asks the server for WebsiteSettingsManage.
-      { name: "Đăng ký nhận tin", path: "/website/newsletter", pro: false, badge: "newsletter" },
+      menuEntry("newsletter"),
       // BHA-NEWSLETTER-002: the Gmail account the confirmation e-mails are sent from.
-      { name: "Cấu hình email gửi", path: "/website/newsletter/sender", pro: false },
+      menuEntry("newsletter-sender"),
       // BHA-BLOG-001-CP03: the Blog. Flat entries (the menu has one level); each page asks the server for BlogEdit or BlogPublish.
-      { name: "Blog: Bài viết", path: "/website/blog/posts", pro: false },
-      { name: "Blog: Chuyên mục", path: "/website/blog/categories", pro: false },
-      { name: "Blog: Thư viện ảnh", path: "/website/blog/media", pro: false },
-      { name: "Blog: Cấu hình", path: "/website/blog/settings", pro: false },
+      menuEntry("blog-posts"),
+      menuEntry("blog-categories"),
+      menuEntry("blog-media"),
+      menuEntry("blog-settings"),
     ],
   },
 
@@ -126,18 +127,24 @@ const othersItems: NavItem[] = [
 const AppSidebar: React.FC = () => {
   const { isExpanded, isMobileOpen, isHovered, setIsHovered } = useSidebar();
   const pathname = usePathname();
-  // BHA-NEWSLETTER-BADGE-001: only the Newsletter has one. 0 (or no provider) shows nothing.
+  // BHA-ADMIN-BADGE-001-PR04: a number only for a menu the API returned with a count above 0. No provider (LocalGate), or a menu the Staff may not read, shows nothing.
   const unseen = useMenuUnseen();
   // The submenu is DRAWN only while the sidebar is expanded, hovered or the mobile drawer is open. `openSubmenu` says which one is open, not whether it is on screen.
   const submenuDrawn = isExpanded || isHovered || isMobileOpen;
-  const unseenOf = (key: "newsletter") => unseen[key];
+  const unseenOf = (key: AdminMenuKey) => unseen[key]?.count ?? 0;
+  const badgeLabel = (name: string) => `thay đổi chưa xem ở ${name}`;
 
   const renderMenuItems = (
     navItems: NavItem[],
     menuType: "main" | "others"
   ) => (
     <ul className="flex flex-col gap-4">
-      {navItems.map((nav, index) => (
+      {navItems.map((nav, index) => {
+        // A parent shows the REAL sum of its children's numbers (formatted only after summing). While its open submenu is drawn the children show their own, so the parent stays quiet.
+        const childrenUnseen = (nav.subItems ?? []).reduce((sum, subItem) => sum + (subItem.menu ? unseenOf(subItem.menu) : 0), 0);
+        const parentOpen = openSubmenu?.type === menuType && openSubmenu?.index === index;
+        const parentUnseen = parentOpen && submenuDrawn ? 0 : childrenUnseen;
+        return (
         <li key={nav.name}>
           {nav.subItems ? (
             <button
@@ -160,18 +167,16 @@ const AppSidebar: React.FC = () => {
                 }`}
               >
                 {nav.icon}
-                {/* Unless the open submenu is on screen (and shows the number itself), the parent says that something inside it has not been seen. Opening or collapsing does not mark anything seen. */}
-                {!(submenuDrawn && openSubmenu?.type === menuType && openSubmenu?.index === index) &&
-                  nav.subItems.some((subItem) => subItem.badge && unseenOf(subItem.badge) > 0) && (
-                    <UnseenDot testId="menu-unseen-dot-parent" label="Có đăng ký nhận tin mới chưa xem" />
-                  )}
+                {/* Collapsed (no room for the text): the sum sits on the icon. Opening or collapsing never marks anything seen. */}
+                {!submenuDrawn && <UnseenBadge corner count={parentUnseen} testId="menu-unseen-badge-parent" label={badgeLabel(nav.name)} />}
               </span>
               {(isExpanded || isHovered || isMobileOpen) && (
                 <span className={`menu-item-text`}>{nav.name}</span>
               )}
+              {submenuDrawn && <UnseenBadge count={parentUnseen} testId="menu-unseen-badge-parent" label={badgeLabel(nav.name)} />}
               {(isExpanded || isHovered || isMobileOpen) && (
                 <ChevronDownIcon
-                  className={`ml-auto w-5 h-5 transition-transform duration-200  ${
+                  className={`${parentUnseen > 0 ? "ml-2" : "ml-auto"} w-5 h-5 transition-transform duration-200  ${
                     openSubmenu?.type === menuType &&
                     openSubmenu?.index === index
                       ? "rotate-180 text-brand-500"
@@ -189,17 +194,19 @@ const AppSidebar: React.FC = () => {
                 }`}
               >
                 <span
-                  className={`${
+                  className={`relative ${
                     isActive(nav.path)
                       ? "menu-item-icon-active"
                       : "menu-item-icon-inactive"
                   }`}
                 >
                   {nav.icon}
+                  {nav.menu && !submenuDrawn && <UnseenBadge corner count={unseenOf(nav.menu)} testId={`menu-unseen-badge-${nav.menu}`} label={badgeLabel(nav.name)} />}
                 </span>
                 {(isExpanded || isHovered || isMobileOpen) && (
                   <span className={`menu-item-text`}>{nav.name}</span>
                 )}
+                {nav.menu && submenuDrawn && <UnseenBadge count={unseenOf(nav.menu)} testId={`menu-unseen-badge-${nav.menu}`} label={badgeLabel(nav.name)} />}
               </Link>
             )
           )}
@@ -229,7 +236,7 @@ const AppSidebar: React.FC = () => {
                     >
                       {subItem.name}
                       <span className="flex items-center gap-1 ml-auto">
-                        {subItem.badge && <UnseenBadge count={unseenOf(subItem.badge)} testId="menu-unseen-badge-newsletter" label="đăng ký nhận tin mới chưa xem" />}
+                        {subItem.menu && <UnseenBadge count={unseenOf(subItem.menu)} testId={`menu-unseen-badge-${subItem.menu}`} label={badgeLabel(subItem.name)} />}
                         {subItem.new && (
                           <span
                             className={`ml-auto ${
@@ -260,7 +267,8 @@ const AppSidebar: React.FC = () => {
             </div>
           )}
         </li>
-      ))}
+        );
+      })}
     </ul>
   );
 
