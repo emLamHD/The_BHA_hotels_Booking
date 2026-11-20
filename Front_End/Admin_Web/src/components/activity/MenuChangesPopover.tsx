@@ -214,7 +214,7 @@ export default function MenuChangesPopover({ target, onClose }: { target: Popove
               {view.data.hasMore && <p data-testid="unseen-popover-more" className="text-xs text-gray-600 dark:text-gray-400">Chỉ hiển thị 50 nhóm mới nhất (50+). Xem lịch sử để thấy đầy đủ.</p>}
             </>
           )}
-          <Link data-testid="unseen-popover-history" href={historyHref(resolved.menu, resolved.propertyId)} className="text-brand-500 hover:underline">Xem lịch sử hoạt động</Link>
+          <Link data-testid="unseen-popover-history" href={historyHref(resolved.menu, resolved.propertyId)} onClick={() => onClose(false)} className="text-brand-500 hover:underline">Xem lịch sử hoạt động</Link>
         </>
       )}
     </div>,

@@ -32,9 +32,15 @@ const ACTIVITY_RULE: GateRule = {
 export default function ActivityScreen() {
   return (
     <WebsiteAccessGate returnTo="/activity" rule={ACTIVITY_RULE}>
-      <ActivityHistory />
+      <ActivityRoute />
     </WebsiteAccessGate>
   );
+}
+
+/** A link to another menu or Property can keep this page mounted (same path, new query): the body starts again from the new query, with the filters back to empty. */
+function ActivityRoute() {
+  const params = useSearchParams();
+  return <ActivityHistory key={params.toString()} start={{ menu: params.get("menu") ?? undefined, propertyId: params.get("propertyId") ?? undefined }} />;
 }
 
 interface Applied {
@@ -56,12 +62,11 @@ interface Loaded {
 const FIELD = "h-10 w-full rounded-lg border border-gray-300 bg-transparent px-3 text-sm text-gray-800 dark:border-gray-700 dark:text-white/90";
 const LABEL = "flex flex-col gap-1 text-xs text-gray-600 dark:text-gray-400";
 
-function ActivityHistory() {
+function ActivityHistory({ start }: { start: { menu?: string; propertyId?: string } }) {
   const summary = useMenuUnseen();
   const scope = useUnseenScope();
-  const params = useSearchParams();
   const menus = allowedMenus(summary);
-  const [wanted, setWanted] = useState<{ menu?: string; propertyId?: string }>(() => ({ menu: params.get("menu") ?? undefined, propertyId: params.get("propertyId") ?? undefined }));
+  const [wanted, setWanted] = useState<{ menu?: string; propertyId?: string }>(start);
   const [filters, setFilters] = useState({ from: "", to: "", actor: "" });
   const [attempt, setAttempt] = useState(0);
   const resolved = resolveScope(summary, menus, wanted.menu, wanted.propertyId);

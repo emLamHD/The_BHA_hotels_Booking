@@ -138,6 +138,23 @@ describe("the scopes", () => {
   });
 });
 
+describe("a link to another scope from the history page itself", () => {
+  it("the same path with a new query starts the body again on that menu and Property (filters back to empty), requesting exactly that scope", async () => {
+    ui.search = "menu=blog-posts";
+    const view = mount();
+    await ready();
+    await userEvent.type(screen.getByTestId("activity-from"), "2026-11-01");
+    await waitFor(() => expect(queries().at(-1)?.from).toBeDefined());
+    ui.search = "menu=promotions&propertyId=p-1";
+    view.rerender(<ActivityScreen />);
+    await waitFor(() => expect(queries().at(-1)).toMatchObject({ menu: "promotions", propertyId: "p-1" }));
+    expect((screen.getByTestId("activity-menu") as HTMLSelectElement).value).toBe("promotions");
+    expect((screen.getByTestId("activity-property") as HTMLSelectElement).value).toBe("p-1");
+    expect((screen.getByTestId("activity-from") as HTMLInputElement).value).toBe("");
+    expect(queries().at(-1)?.from).toBeUndefined();
+  });
+});
+
 describe("filters", () => {
   const type = async (testId: string, value: string) => { await userEvent.clear(screen.getByTestId(testId)); await userEvent.type(screen.getByTestId(testId), value); };
 

@@ -110,6 +110,20 @@ describe("what the list shows", () => {
   });
 });
 
+describe("the history link", () => {
+  it("closes the list when followed, even if the link keeps the same page (the history page itself)", async () => {
+    ui.changes.mockResolvedValue(body("newsletter", [group("x")]));
+    const onClose = vi.fn();
+    render(<MenuChangesPopover target={target(["newsletter"], "newsletter")} onClose={onClose} />);
+    await screen.findByTestId("unseen-popover-group");
+    const link = screen.getByTestId("unseen-popover-history");
+    link.addEventListener("click", (event) => event.preventDefault());                                  // no real navigation in jsdom
+    await userEvent.click(link);
+    expect(onClose).toHaveBeenCalledWith(false);
+    expect(ui.seen).not.toHaveBeenCalled();
+  });
+});
+
 describe("states", () => {
   it("loading, then an error with a retry that asks again for the same scope", async () => {
     const first = deferred<ReturnType<typeof body>>();
