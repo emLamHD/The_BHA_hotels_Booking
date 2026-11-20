@@ -4,16 +4,22 @@
  * (formatted after summing), the label keeps the real number, and template entries never carry one.
  */
 import React from "react";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MenuUnseenSummary } from "@/lib/api/menuUnseen";
 
 const EXPANDED = { isExpanded: true, isMobileOpen: false, isHovered: false, setIsHovered: () => undefined };
-const ui = vi.hoisted(() => ({ menus: {} as Record<string, unknown>, pathname: "/", sidebar: {} as Record<string, unknown> }));
+const ui = vi.hoisted(() => ({ menus: {} as Record<string, unknown>, pathname: "/", sidebar: {} as Record<string, unknown>, identity: "staff-a" }));
+const api = vi.hoisted(() => ({ changes: vi.fn(), seen: vi.fn() }));
 
 vi.mock("next/navigation", () => ({ usePathname: () => ui.pathname }));
 vi.mock("@/context/SidebarContext", () => ({ useSidebar: () => ui.sidebar }));
-vi.mock("@/components/website/NewsletterBadgeProvider", () => ({ useMenuUnseen: () => ui.menus }));
+vi.mock("@/components/website/NewsletterBadgeProvider", () => ({
+  useMenuUnseen: () => ui.menus,
+  useUnseenScope: () => ({ identity: ui.identity, ready: true, propertyNames: { "p-0": "Riverside" }, reportAuth: () => undefined }),
+}));
+vi.mock("@/lib/api/menuUnseen", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/api/menuUnseen")>()), fetchMenuChanges: api.changes, markNewsletterSeen: api.seen }));
 vi.mock("./SidebarWidget", () => ({ default: () => null }));
 
 import AppSidebar from "./AppSidebar";
@@ -29,11 +35,16 @@ const renderSidebar = () => render(<AppSidebar />);
 const badge = (key: string) => screen.queryByTestId(`menu-unseen-badge-${key}`);
 const text = (key: string) => badge(key)?.textContent;
 const openWebsite = () => fireEvent.click(screen.getByText("Website").closest("button")!);
+const openWebsite_ifDrawn = () => { const site = screen.queryByText("Website"); if (site) fireEvent.click(site.closest("button")!); };
 
 beforeEach(() => {
   ui.menus = {};
   ui.pathname = "/";
   ui.sidebar = { ...EXPANDED };
+  ui.identity = "staff-a";
+  api.changes.mockReset();
+  api.seen.mockReset();
+  api.changes.mockReturnValue(new Promise(() => undefined));                                    // the popover's own reads are tested in MenuChangesPopover.test
 });
 afterEach(cleanup);
 
@@ -55,13 +66,15 @@ describe("what shows a number", () => {
     expect(badge("promotions")!.getAttribute("aria-label")).toBe("5 thay đổi chưa xem ở Ưu đãi đặt phòng");
   });
 
-  it("top-level entries are links to their paths, with the number inside the link", () => {
+  it("top-level entries are links to their paths; the number is a button BESIDE the link, in the same row, never inside it", () => {
     answer({ catalog: global(2), promotions: perProperty(1), calendar: perProperty(3) });
     renderSidebar();
     for (const [key, name, path] of [["catalog", "Cơ sở & loại phòng", "/products"], ["promotions", "Ưu đãi đặt phòng", "/promotions"], ["calendar", "Calendar", "/calendar"]]) {
       const link = screen.getByText(name).closest("a")!;
       expect(link.getAttribute("href")).toBe(path);
-      expect(within(link).getByTestId(`menu-unseen-badge-${key}`)).toBeTruthy();
+      const badgeNode = within(link.parentElement!).getByTestId(`menu-unseen-badge-${key}`);
+      expect(link.contains(badgeNode)).toBe(false);
+      expect(badgeNode.tagName).toBe(key === "calendar" ? "SPAN" : "BUTTON");                      // the Calendar's number stays a plain image until its list exists
     }
   });
 
@@ -83,11 +96,13 @@ describe("what shows a number", () => {
     openWebsite();
     const entries = ["Ngôn ngữ & bản dịch", "Bản dịch", "Tiền tệ & tỷ giá", "Menu", "Banner trang chủ", "Social media", "Đăng ký nhận tin", "Cấu hình email gửi", "Blog: Bài viết", "Blog: Chuyên mục", "Blog: Thư viện ảnh", "Blog: Cấu hình"];
     const links = within(screen.getByText("Website").closest("li")!).getAllByRole("link");
+    const badgeOf = (link: HTMLElement) => link.closest("li")!.querySelector('[data-testid^="menu-unseen-badge"]');
     expect(links.map((link) => link.getAttribute("href"))).toEqual([
       "/website/languages", "/website/translations", "/website/currencies", "/website/menus", "/website/hero", "/website/social-media", "/website/newsletter",
       "/website/newsletter/sender", "/website/blog/posts", "/website/blog/categories", "/website/blog/media", "/website/blog/settings",
     ]);
-    expect(links.map((link) => link.querySelector('[role="img"]')?.textContent ?? "")).toEqual(["", "", "", "", "1", "", "2", "3", "4", "5", "6", "7"]);
+    expect(links.map((link) => badgeOf(link)?.textContent ?? "")).toEqual(["", "", "", "", "1", "", "2", "3", "4", "5", "6", "7"]);
+    expect(links.every((link) => badgeOf(link) === null || !link.contains(badgeOf(link)))).toBe(true);
     expect(entries).toHaveLength(links.length);
   });
 
@@ -111,7 +126,9 @@ describe("the Website parent", () => {
     const parent = badge("parent")!;
     expect(parent.textContent).toBe("99+");
     expect(parent.getAttribute("aria-label")).toBe("153 thay đổi chưa xem ở Website");
-    expect(screen.getByText("Website").closest("button")!.contains(parent)).toBe(true);
+    const toggle = screen.getByText("Website").closest("button")!;
+    expect(toggle.contains(parent)).toBe(false);                                                       // beside the toggle, never inside the button
+    expect(toggle.parentElement!.contains(parent)).toBe(true);
   });
 
   it("a sum below 100 is shown as it is", () => {
@@ -161,14 +178,14 @@ describe("collapsed, hovered and mobile", () => {
     expect(text("parent")).toBe("3");
     expect(badge("newsletter")).toBeNull();                                                            // the submenu is not drawn while collapsed
     expect(screen.queryByText("Website")).toBeNull();
-    expect(badge("catalog")!.className).toContain("absolute");                                         // pinned to the icon
+    expect(badge("catalog")!.getAttribute("data-placement")).toBe("corner");                           // pinned to the icon
   });
 
   it("hovering a collapsed sidebar draws it like the expanded one: inline numbers, and the parent shows its sum while closed", () => {
     menus();
     ui.sidebar = { ...collapsed, isHovered: true };
     renderSidebar();
-    expect(badge("catalog")!.className).not.toContain("absolute");
+    expect(badge("catalog")!.getAttribute("data-placement")).toBe("inline");
     expect(text("catalog")).toBe("3");
     expect(text("parent")).toBe("3");
     openWebsite();
@@ -190,5 +207,160 @@ describe("collapsed, hovered and mobile", () => {
     renderSidebar();
     expect(text("parent")).toBe("3");
     expect(badge("newsletter")).toBeNull();
+  });
+});
+
+// ================================================================================================ BHA-ADMIN-BADGE-001-PR05: the badge opens the unseen list
+
+const changes = (menu: string, unseenEvents: number, extra: Record<string, unknown> = {}) => ({
+  kind: "ok",
+  data: { menu, propertyId: null, unseenEvents, hasMore: false, lastSeenWatermark: "0", snapshotWatermark: String(unseenEvents), groups: [], ...extra },
+});
+const popover = () => screen.queryByTestId("unseen-popover");
+
+describe("the badge opens the unseen list", () => {
+  beforeEach(() => {
+    api.changes.mockImplementation(async (menu: string) => changes(menu, 3));
+  });
+
+  it("a click opens the list and does not navigate or toggle: the entry's link is untouched, the Website submenu stays closed (its parent number is still the closed-state sum), and nothing is acknowledged", async () => {
+    answer({ catalog: global(2), newsletter: global(4) });
+    renderSidebar();
+    await userEvent.click(screen.getByTestId("menu-unseen-badge-catalog"));
+    expect(popover()).toBeTruthy();
+    expect(screen.getByTestId("menu-unseen-badge-catalog").getAttribute("aria-expanded")).toBe("true");
+    expect(ui.pathname).toBe("/");
+    await userEvent.click(screen.getByTestId("menu-unseen-badge-parent"));                             // the Website parent's number, beside its toggle
+    expect(screen.getByTestId("menu-unseen-badge-parent")).toBeTruthy();                               // the submenu did not open (an open one hides the parent's number)
+    expect(api.seen).not.toHaveBeenCalled();
+  });
+
+  it("no control sits inside a link or inside a button, in any sidebar state", () => {
+    answer({ catalog: global(2), promotions: perProperty(1), calendar: perProperty(3), newsletter: global(4), "blog-posts": global(150) });
+    for (const sidebar of [{ ...EXPANDED }, { ...EXPANDED, isExpanded: false }, { ...EXPANDED, isExpanded: false, isMobileOpen: true }]) {
+      ui.sidebar = sidebar;
+      const view = renderSidebar();
+      openWebsite_ifDrawn();
+      expect(document.querySelectorAll("a button, button button, a [role='button'], button a").length).toBe(0);
+      view.unmount();
+    }
+  });
+
+  it("with the keyboard: Enter on the badge opens it, focus goes into it, Escape closes it and focus is back on the badge", async () => {
+    answer({ catalog: global(2) });
+    renderSidebar();
+    const trigger = screen.getByTestId("menu-unseen-badge-catalog");
+    trigger.focus();
+    await userEvent.keyboard("{Enter}");
+    expect(popover()).toBeTruthy();
+    expect(popover()!.contains(document.activeElement)).toBe(true);
+    await userEvent.keyboard("{Escape}");
+    expect(popover()).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+    await userEvent.keyboard(" ");                                                                      // Space opens it too
+    expect(popover()).toBeTruthy();
+  });
+
+  it("a click outside closes it without taking focus back; clicking the same badge again closes it", async () => {
+    answer({ catalog: global(2) });
+    renderSidebar();
+    await userEvent.click(screen.getByTestId("menu-unseen-badge-catalog"));
+    await userEvent.click(document.body);
+    expect(popover()).toBeNull();
+    await userEvent.click(screen.getByTestId("menu-unseen-badge-catalog"));
+    expect(popover()).toBeTruthy();
+    await userEvent.click(screen.getByTestId("menu-unseen-badge-catalog"));
+    expect(popover()).toBeNull();
+  });
+
+  it("works on a collapsed sidebar (the number on the icon) and in the mobile drawer", async () => {
+    answer({ catalog: global(2) });
+    ui.sidebar = { ...EXPANDED, isExpanded: false };
+    renderSidebar();
+    expect(screen.getByTestId("menu-unseen-badge-catalog").getAttribute("data-placement")).toBe("corner");
+    await userEvent.click(screen.getByTestId("menu-unseen-badge-catalog"));
+    expect(popover()).toBeTruthy();
+    cleanup();
+    ui.sidebar = { ...EXPANDED, isExpanded: false, isMobileOpen: true };
+    renderSidebar();
+    await userEvent.click(screen.getByTestId("menu-unseen-badge-catalog"));
+    expect(popover()).toBeTruthy();
+  });
+
+  it("the Website parent's number opens ONE list for its permitted children and loads only the chosen one (the first with something unseen), never all, never merged", async () => {
+    answer({ "blog-posts": global(0), newsletter: global(4), "website-hero": global(1) });
+    renderSidebar();
+    await userEvent.click(screen.getByTestId("menu-unseen-badge-parent"));
+    await waitFor(() => expect(api.changes).toHaveBeenCalledTimes(1));
+    expect(api.changes.mock.calls[0][0]).toBe("website-hero");                                         // first in the sidebar's order that has a number
+    expect(api.changes.mock.calls[0][1]).toBeUndefined();                                              // a global menu sends no Property
+    const options = within(screen.getByTestId("unseen-popover-menu")).getAllByRole("option").map((option) => option.textContent);
+    expect(options).toEqual(["Banner trang chủ (1)", "Đăng ký nhận tin (4)", "Blog: Bài viết (0)"]);   // only menus the summary allows, with the API's own numbers
+    await userEvent.selectOptions(screen.getByTestId("unseen-popover-menu"), "newsletter");
+    await waitFor(() => expect(api.changes).toHaveBeenCalledTimes(2));
+    expect(api.changes.mock.calls[1][0]).toBe("newsletter");
+  });
+
+  it("a child's own number opens the list on that child; Promotions loads exactly one Property, picked from its byProperty", async () => {
+    answer({ newsletter: global(4), "website-hero": global(1), promotions: perProperty(2, 3) });
+    renderSidebar();
+    await userEvent.click(screen.getByTestId("menu-unseen-badge-promotions"));
+    await waitFor(() => expect(api.changes).toHaveBeenCalledTimes(1));
+    expect(api.changes.mock.calls[0].slice(0, 2)).toEqual(["promotions", "p-0"]);
+    expect(within(screen.getByTestId("unseen-popover-property")).getAllByRole("option").map((option) => option.textContent)).toEqual(["Riverside (2)", "Cơ sở p-1 (3)"]);
+    await userEvent.selectOptions(screen.getByTestId("unseen-popover-property"), "p-1");
+    await waitFor(() => expect(api.changes).toHaveBeenCalledTimes(2));
+    expect(api.changes.mock.calls[1].slice(0, 2)).toEqual(["promotions", "p-1"]);
+    cleanup();
+    api.changes.mockClear();
+    renderSidebar();
+    openWebsite();
+    await userEvent.click(screen.getByTestId("menu-unseen-badge-newsletter"));
+    await waitFor(() => expect(api.changes).toHaveBeenCalledTimes(1));
+    expect(api.changes.mock.calls[0][0]).toBe("newsletter");
+  });
+
+  it("closes in the same render when the Staff identity changes or the page changes, and is never shown to another identity", async () => {
+    answer({ catalog: global(2) });
+    const view = renderSidebar();
+    await userEvent.click(screen.getByTestId("menu-unseen-badge-catalog"));
+    expect(popover()).toBeTruthy();
+    ui.identity = "staff-b";
+    view.rerender(<AppSidebar />);
+    expect(popover()).toBeNull();
+    ui.identity = "staff-a";                                                                            // and A coming back does not bring it back
+    view.rerender(<AppSidebar />);
+    expect(popover()).toBeNull();
+    await userEvent.click(screen.getByTestId("menu-unseen-badge-catalog"));
+    expect(popover()).toBeTruthy();
+    ui.pathname = "/products";
+    view.rerender(<AppSidebar />);
+    expect(popover()).toBeNull();
+  });
+
+  it("the Calendar keeps its plain number: no button, no list", async () => {
+    answer({ calendar: perProperty(3) });
+    renderSidebar();
+    expect(screen.getByTestId("menu-unseen-badge-calendar").tagName).toBe("SPAN");
+    await userEvent.click(screen.getByTestId("menu-unseen-badge-calendar"));
+    expect(popover()).toBeNull();
+    expect(api.changes).not.toHaveBeenCalled();
+  });
+});
+
+describe("the history entrance", () => {
+  it("'Lịch sử hoạt động' is a link to /activity whether or not anything is unseen (count 0, no menu allowed)", () => {
+    renderSidebar();
+    expect(screen.getByText("Lịch sử hoạt động").closest("a")!.getAttribute("href")).toBe("/activity");
+  });
+
+  it("LocalGate has no entrance", () => {
+    vi.stubEnv("NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE", "LocalGate");
+    try {
+      renderSidebar();
+      expect(screen.queryByText("Lịch sử hoạt động")).toBeNull();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

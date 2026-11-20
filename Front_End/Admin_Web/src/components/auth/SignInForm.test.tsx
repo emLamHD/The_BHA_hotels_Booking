@@ -10,6 +10,7 @@ const push = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push, replace: vi.fn() }) }));
 
 import SignInForm from "./SignInForm";
+import { resolveReturnTo } from "@/lib/website/returnTo";
 
 const SESSION = {
   staffAccountId: "11111111-1111-1111-1111-111111111111",
@@ -91,6 +92,33 @@ describe("SignInForm (Staff mode)", () => {
     expect(screen.getByTestId("signin-error")).not.toHaveTextContent("server text");
     expect(passwordInput()).toHaveValue("");
     expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("comes back to /activity after a sign-in the server confirmed (the page's allowlisted returnTo), whatever the Staff member's permissions (a Blog-only account); a returnTo that is not allowed opens the board", async () => {
+    const blogOnly = { ...SESSION, permissions: ["BlogEdit"] };
+    for (const [wanted, landed] of [["/activity", "/activity"], ["/activity?menu=blog-posts", "/calendar"]] as const) {
+      push.mockReset();
+      const user = userEvent.setup();
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(json(200, blogOnly)).mockResolvedValueOnce(json(200, blogOnly)));
+      const view = render(<SignInForm returnTo={resolveReturnTo(wanted)} />);
+      await user.type(emailInput(), "blog@example.com");
+      await user.type(passwordInput(), "secret-password");
+      await user.keyboard("{Enter}");
+      await waitFor(() => expect(push).toHaveBeenCalledWith(landed));
+      expect(push).toHaveBeenCalledTimes(1);
+      view.unmount();
+    }
+  });
+
+  it("goes nowhere when `me` cannot confirm the session, also for /activity", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(json(200, SESSION)).mockResolvedValueOnce(json(401, {})));
+    render(<SignInForm returnTo="/activity" />);
+    await user.type(emailInput(), "desk@example.com");
+    await user.type(passwordInput(), "secret-password");
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2));
     expect(push).not.toHaveBeenCalled();
   });
 

@@ -70,6 +70,24 @@ describe("the Blog pages (BHA-BLOG-001-CP03)", () => {
   });
 });
 
+describe("the activity history (BHA-ADMIN-BADGE-001-PR05-C2)", () => {
+  it("is a sign-in destination, matched exactly, and the sign-in link carries it", () => {
+    expect(resolveReturnTo("/activity")).toBe("/activity");
+    expect(signInUrlFor("/activity")).toBe("/signin?returnTo=%2Factivity");
+  });
+  it("only that exact path: no query, fragment, trailing slash, case, sub-path or encoded variant", () => {
+    for (const other of ["/activity/", "/activity?menu=blog-posts", "/activity?menu=promotions&propertyId=p-1", "/activity#top", "/Activity", "/activity/export", "/activity/../signup", "%2Factivity", "%252Factivity", "/activity\u0000", " /activity", "//activity", "https://evil.example/activity", "/activities"]) {
+      expect(resolveReturnTo(other)).toBe(DEFAULT_RETURN_TO);
+      expect(signInUrlFor(other)).toBe("/signin");
+    }
+    expect(resolveReturnTo(["/activity", "https://evil.example"])).toBe(DEFAULT_RETURN_TO);
+  });
+  it("leaves the pages that were already allowed exactly as they were", () => {
+    for (const page of ["/calendar", "/products", "/promotions", ...WEBSITE_PAGES]) expect(resolveReturnTo(page)).toBe(page);
+    expect(resolveReturnTo("/profile")).toBe(DEFAULT_RETURN_TO);
+  });
+});
+
 describe("the Newsletter page (BHA-NEWSLETTER-001-C2)", () => {
   it("is a sign-in destination, matched exactly", () => {
     expect(resolveReturnTo("/website/newsletter")).toBe("/website/newsletter");

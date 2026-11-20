@@ -4,7 +4,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { isWatermark } from "./website";
-import { fetchMenuUnseenSummary, isMenuActivityHint, markNewsletterSeen, menuActivityLiveTarget, parseMenuUnseenSummary } from "./menuUnseen";
+import { fetchActivity, fetchMenuChanges, fetchMenuUnseenSummary, isMenuActivityHint, markNewsletterSeen, menuActivityLiveTarget, parseActivityPage, parseMenuChanges, parseMenuUnseenSummary } from "./menuUnseen";
 
 describe("isWatermark", () => {
   it("accepts a plain non-negative decimal integer, however large, and nothing else", () => {
@@ -98,5 +98,94 @@ describe("the calls", () => {
 
   it("the activity Hub lives at the shared prefix", () => {
     expect(menuActivityLiveTarget()).toEqual({ ok: true, url: "https://localhost:7145/api/admin/v1/menu-unseen-live" });
+  });
+});
+
+// ================================================================================================ BHA-ADMIN-BADGE-001-PR05
+// The JSON below is the shape AdminMenuUnseenController answers today (camelCase, watermarks and sequences as strings, `nextCursor` always present, null on the last page).
+
+const changesJson = {
+  menu: "blog-posts", propertyId: null, unseenEvents: 137, hasMore: true, lastSeenWatermark: "7", snapshotWatermark: "144",
+  groups: [{ entityKind: "post", entityKey: "0a1b", titleSnapshot: "Bài viết <b>mới</b>", action: "Created", events: 3, itemCount: 1, latestWatermark: "144", occurredAtUtc: "2026-11-20T03:00:00+00:00", actors: [{ kind: "Staff", staffId: "11111111-1111-1111-1111-111111111111" }, { kind: "Public", staffId: null }] }],
+};
+const activityJson = {
+  menu: "promotions", propertyId: "p-1", nextCursor: "eyJtIjoicHJvbW90aW9ucyJ9",
+  items: [{ sequence: "42", occurredAtUtc: "2026-11-20T03:00:00+00:00", actorKind: "Staff", actorStaffId: "11111111-1111-1111-1111-111111111111", action: "Published", entityKind: "promotion", entityKey: "9c", titleSnapshot: "Mùa hè", itemCount: 1 },
+    { sequence: "41", occurredAtUtc: "2026-11-19T03:00:00+00:00", actorKind: "Public", actorStaffId: null, action: "verified", entityKind: "subscription", entityKey: "8d", titleSnapshot: "a subscription", itemCount: 1 }],
+};
+
+describe("parseMenuChanges", () => {
+  it("reads the list as the API writes it, keeping every watermark a string", () => {
+    const parsed = parseMenuChanges(changesJson)!;
+    expect(parsed).toMatchObject({ menu: "blog-posts", propertyId: null, unseenEvents: 137, hasMore: true, lastSeenWatermark: "7", snapshotWatermark: "144" });
+    expect(parsed.groups[0]).toMatchObject({ titleSnapshot: "Bài viết <b>mới</b>", events: 3, latestWatermark: "144", actors: [{ kind: "Staff" }, { kind: "Public", staffId: null }] });
+    expect(parseMenuChanges({ ...changesJson, propertyId: "p-1" })!.propertyId).toBe("p-1");
+  });
+  it("refuses an answer it cannot trust: a JSON number for a watermark, a negative or fractional count, hasMore as text, a broken group", () => {
+    for (const bad of [{ snapshotWatermark: 144 }, { lastSeenWatermark: "07" }, { unseenEvents: -1 }, { unseenEvents: 1.5 }, { hasMore: "true" }, { groups: "x" }, { groups: [{ ...changesJson.groups[0], events: "3" }] }, { groups: [{ ...changesJson.groups[0], latestWatermark: 144 }] }, { groups: [{ ...changesJson.groups[0], actors: [{ staffId: "x" }] }] }]) {
+      expect(parseMenuChanges({ ...changesJson, ...bad })).toBeNull();
+    }
+    expect(parseMenuChanges(null)).toBeNull();
+  });
+});
+
+describe("parseActivityPage", () => {
+  it("reads a page, with the sequence a string and the cursor opaque (and null on the last page)", () => {
+    const parsed = parseActivityPage(activityJson)!;
+    expect(parsed.items.map((item) => item.sequence)).toEqual(["42", "41"]);
+    expect(parsed.items[1]).toMatchObject({ actorKind: "Public", actorStaffId: null, titleSnapshot: "a subscription" });
+    expect(parsed.nextCursor).toBe("eyJtIjoicHJvbW90aW9ucyJ9");
+    expect(parseActivityPage({ ...activityJson, nextCursor: null })!.nextCursor).toBeNull();
+  });
+  it("refuses a numeric sequence, a missing item field or a cursor that is not text", () => {
+    expect(parseActivityPage({ ...activityJson, items: [{ ...activityJson.items[0], sequence: 42 }] })).toBeNull();
+    expect(parseActivityPage({ ...activityJson, items: [{ ...activityJson.items[0], action: undefined }] })).toBeNull();
+    expect(parseActivityPage({ ...activityJson, nextCursor: 7 })).toBeNull();
+    expect(parseActivityPage({ ...activityJson, items: "x" })).toBeNull();
+  });
+});
+
+describe("the list calls", () => {
+  const fetchMock = vi.fn();
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+  beforeEach(() => {
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("NEXT_PUBLIC_API_BASE_URL", "https://localhost:7145");
+    vi.stubEnv("NEXT_PUBLIC_ADMIN_CALENDAR_ACCESS_MODE", "Staff");
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it("changes: a global menu sends no propertyId, a Property-scoped one sends exactly one; always GET, credentialed, uncached, with a signal", async () => {
+    fetchMock.mockResolvedValueOnce(json(changesJson)).mockResolvedValueOnce(json({ ...changesJson, menu: "promotions", propertyId: "p 1/&" }));
+    const controller = new AbortController();
+    expect((await fetchMenuChanges("blog-posts", undefined, controller.signal)).kind).toBe("ok");
+    expect(String(fetchMock.mock.calls[0][0])).toBe("https://localhost:7145/api/admin/v1/menu-unseen/blog-posts/changes");
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: "GET", credentials: "include", cache: "no-store", signal: controller.signal });
+    await fetchMenuChanges("promotions", "p 1/&");
+    expect(String(fetchMock.mock.calls[1][0])).toBe("https://localhost:7145/api/admin/v1/menu-unseen/promotions/changes?propertyId=p%201%2F%26");
+  });
+
+  it("activity: filters and the cursor are encoded, blank ones are left out, and the cursor is sent exactly as received", async () => {
+    fetchMock.mockResolvedValue(json(activityJson));
+    await fetchActivity({ menu: "calendar", propertyId: "p-1", actorStaffId: "", from: "2026-11-15T00:00:00+07:00", to: "2026-11-16T00:00:00+07:00", limit: 50, cursor: "a+b/c==" });
+    const url = new URL(String(fetchMock.mock.calls[0][0]));
+    expect(url.pathname).toBe("/api/admin/v1/activity");
+    expect(Object.fromEntries(url.searchParams)).toEqual({ menu: "calendar", propertyId: "p-1", from: "2026-11-15T00:00:00+07:00", to: "2026-11-16T00:00:00+07:00", limit: "50", cursor: "a+b/c==" });
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: "GET", credentials: "include" });
+    await fetchActivity({ menu: "blog-posts" });
+    expect(String(fetchMock.mock.calls[1][0])).toBe("https://localhost:7145/api/admin/v1/activity?menu=blog-posts");
+  });
+
+  it("a 404 is a refusal that says so (the one answer for unknown, not yours and no membership), 401 and 403 are told apart", async () => {
+    fetchMock.mockResolvedValueOnce(json({ title: "x", code: "menu-unseen-unknown-menu" }, 404));
+    expect(await fetchMenuChanges("catalog")).toMatchObject({ kind: "refused", status: 404 });
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 401 }));
+    expect(await fetchActivity({ menu: "catalog" })).toEqual({ kind: "unauthenticated" });
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 403 }));
+    expect(await fetchActivity({ menu: "catalog" })).toEqual({ kind: "denied" });
   });
 });

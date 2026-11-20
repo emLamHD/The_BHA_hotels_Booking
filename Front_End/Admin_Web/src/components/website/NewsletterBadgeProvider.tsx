@@ -70,12 +70,28 @@ interface Known {
   seq: number;
 }
 
+/**
+ * What the unseen popover and the history screen need besides the numbers (BHA-ADMIN-BADGE-001-PR05): who the numbers belong to, whether the first answer for them has arrived (an empty
+ * answer and "not read yet" both show no menu), the names of the Properties the session lists by id, and the way to report a 401/403 to the shared session.
+ */
+export interface UnseenScope {
+  identity: string;
+  ready: boolean;
+  propertyNames: Readonly<Record<string, string>>;
+  reportAuth: (kind: "unauthenticated" | "denied") => void;
+}
+
 const EMPTY: MenuUnseenSummary = Object.freeze({});
+const NO_SCOPE: UnseenScope = { identity: "", ready: false, propertyNames: Object.freeze({}), reportAuth: () => undefined };
 const MenuContext = createContext<MenuUnseenSummary>(EMPTY);
+const ScopeContext = createContext<UnseenScope>(NO_SCOPE);
 const SharedContext = createContext<SharedLive | null>(null);
 
 /** The numbers the API gave for the menus this Staff may read. A menu that is not there is not allowed (or not known yet): show nothing for it. `{}` without a provider (LocalGate). */
 export const useMenuUnseen = (): MenuUnseenSummary => useContext(MenuContext);
+
+/** Who the numbers are for, and what a list under them needs. Without a provider (LocalGate) there is no identity and nothing is ready. */
+export const useUnseenScope = (): UnseenScope => useContext(ScopeContext);
 
 /** The Newsletter screen's way into the shared connection and the acknowledgement. `null` when no provider is mounted (the screen then runs by itself). */
 export const useSharedNewsletterLive = (): SharedLive | null => useContext(SharedContext);
@@ -359,9 +375,22 @@ export function MenuUnseenProvider({ children }: { children: React.ReactNode }) 
   );
   // Tagged with the identity it was read for: for any other identity (or none) it is empty from this very render, before any effect has run.
   const menus = snapshot && snapshot.identity === identity ? snapshot.menus : EMPTY;
+  const ready = snapshot !== null && snapshot.identity === identity;
+  const memberships = session?.memberships;
+  const scope = useMemo<UnseenScope>(
+    () => ({
+      identity,
+      ready,
+      propertyNames: Object.fromEntries((memberships ?? []).map((membership) => [membership.propertyId, membership.propertyName])),
+      reportAuth: (kind) => authFailure(kind, generation.current),
+    }),
+    [identity, ready, memberships, authFailure],
+  );
   return (
     <MenuContext.Provider value={menus}>
-      <SharedContext.Provider value={shared}>{children}</SharedContext.Provider>
+      <ScopeContext.Provider value={scope}>
+        <SharedContext.Provider value={shared}>{children}</SharedContext.Provider>
+      </ScopeContext.Provider>
     </MenuContext.Provider>
   );
 }
