@@ -89,6 +89,9 @@ public static class ContentPackSpec
         ["NewsletterVerificationActivities"] = "which verifications happened and when (no address or token), numbered in the commit order of one environment: operational history, never content",
         ["MenuActivityStreams"] = "the counter that numbers one environment's menu activity: operational state, never content (the migration seeds its row)",
         ["StaffMenuSeen"] = "how far each Staff member of one environment has seen a menu: per-account operational state, never content",
+        ["AdminActivities"] = "what Staff and visitors did in each Admin menu (safe title snapshots, never a person's data), numbered in the commit order of one environment: operational history, never content",
+        ["StaffMenuPropertySeen"] = "how far each Staff member of one environment has seen a Property-scoped menu: per-account operational state, never content",
+        ["StaffEntitySeen"] = "which Calendar objects each Staff member of one environment has seen: per-account operational state, never content",
     };
 
     /// <summary>Booking and test-transaction tables: never exported; the exporter reports their row counts so an empty source is a statement, not a guess.</summary>

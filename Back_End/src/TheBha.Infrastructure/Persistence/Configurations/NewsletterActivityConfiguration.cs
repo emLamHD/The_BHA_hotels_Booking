@@ -28,7 +28,9 @@ internal sealed class MenuActivityStreamConfiguration : IEntityTypeConfiguration
         builder.Property(row => row.MenuKey).HasMaxLength(40);
         builder.Property(row => row.LastSequence).ValueGeneratedNever();
         // The row the verification locks must exist before the first verification: it is seeded by the migration, not created on demand.
+        // ADR 0011 §A: the same for the 14 menus that gain a stream in migration 26; a key with no counter row is refused by the recorder.
         builder.HasData(new MenuActivityStream { MenuKey = MenuActivityStream.Newsletter, LastSequence = 0 });
+        builder.HasData(AdminMenuKeys.Seeded.Select(key => new MenuActivityStream { MenuKey = key, LastSequence = 0 }));
     }
 }
 
