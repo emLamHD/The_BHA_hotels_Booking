@@ -38,7 +38,7 @@ public sealed class StaffWebsitePermissionAttribute(StaffGlobalPermission permis
 /// request, so a revoke or a disable takes effect on the next request even with a cookie that is still valid.
 /// </summary>
 public sealed class StaffWebsiteAccessFilter(
-    StaffGlobalPermission permission,
+    StaffGlobalPermission? permission,
     IStaffAccessEvaluator evaluator,
     StaffRequestBoundaryFilter boundary) : IAsyncResourceFilter
 {
@@ -61,7 +61,8 @@ public sealed class StaffWebsiteAccessFilter(
             return;
         }
 
-        if (!await evaluator.HasGlobalPermissionAsync(staffId, permission, httpContext.RequestAborted))
+        // No permission = a session-only route (StaffSessionAttribute): the service decides per menu, from the database, on every request.
+        if (permission is { } required && !await evaluator.HasGlobalPermissionAsync(staffId, required, httpContext.RequestAborted))
         {
             context.Result = new ForbidResult(StaffAuthentication.Scheme);
             return;

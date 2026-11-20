@@ -87,6 +87,10 @@ public static class InfrastructureServiceCollectionExtensions
         // BHA-NEWSLETTER-003: Staff add, edit, invite, unsubscribe, archive and delete.
         services.AddScoped<INewsletterSubscriptionAdmin, NewsletterSubscriptionAdminService>();
         services.AddScoped<IMenuUnseen, MenuUnseenService>();
+        // BHA-ADMIN-BADGE-001-PR03: one class reads the shared per-menu unseen state and judges who may read a menu; the host supplies AdminMenuRoles from its permission map.
+        services.AddScoped<TheBha.Infrastructure.Persistence.Activity.AdminMenuUnseenService>();
+        services.AddScoped<TheBha.Application.Activity.IAdminMenuUnseen>(sp => sp.GetRequiredService<TheBha.Infrastructure.Persistence.Activity.AdminMenuUnseenService>());
+        services.AddScoped<TheBha.Application.Activity.IAdminMenuAccess>(sp => sp.GetRequiredService<TheBha.Infrastructure.Persistence.Activity.AdminMenuUnseenService>());
         // BHA-NEWSLETTER-002: Gmail sender, confirmation e-mails (outbox) and the worker that sends them. NewsletterOptions is registered by the host.
         services.AddSingleton<TheBha.Infrastructure.Persistence.Newsletter.NewsletterSecretProtector>();
         services.AddHttpClient<IGoogleMailGateway, TheBha.Infrastructure.Persistence.Newsletter.GoogleMailGateway>(

@@ -17,6 +17,7 @@ using TheBha.Api.Bookings;
 using TheBha.Api.Controllers;
 using TheBha.Api.Realtime;
 using TheBha.Api.Seeding;
+using TheBha.Application.Activity;
 using TheBha.Application.Customers;
 using TheBha.Application.Website;
 using TheBha.Infrastructure.Identity;
@@ -338,8 +339,17 @@ builder.Services
     })
     // PMS-ADMIN-AUTH-001-CP03 (D3): not a default scheme; Staff routes name it explicitly.
     .AddStaffCookie(builder.Environment.IsDevelopment());
-builder.Services.AddAuthorization(StaffNewsletterLiveAccess.AddPolicy);
+builder.Services.AddAuthorization(options =>
+{
+    StaffNewsletterLiveAccess.AddPolicy(options);
+    StaffAdminActivityLiveAccess.AddPolicy(options);
+});
 builder.Services.AddScoped<IAuthorizationHandler, StaffNewsletterLiveHandler>();
+builder.Services.AddScoped<IAuthorizationHandler, StaffAdminActivityLiveHandler>();
+// BHA-ADMIN-BADGE-001-PR03: the roles that hold the two Property permissions the menus need, read from the one role map (never repeated in the data layer).
+builder.Services.AddSingleton(new AdminMenuRoles(
+    [.. new[] { StaffRole.FrontDesk, StaffRole.Manager }.Where(role => StaffPermissions.RoleGrants(role, StaffPermission.PromotionManage))],
+    [.. new[] { StaffRole.FrontDesk, StaffRole.Manager }.Where(role => StaffPermissions.RoleGrants(role, StaffPermission.BoardRead))]));
 // BHA-NEWSLETTER-LIVE-001: the Newsletter live signal. The publisher is registered in every mode (the verification calls it); only Staff mode maps the Hub that
 // has connections to publish to, so LocalGate has no endpoint and nothing to send. One API instance: connections live in memory, there is no backplane.
 builder.Services.AddSignalR().AddHubOptions<NewsletterLiveHub>(options =>
@@ -351,6 +361,15 @@ builder.Services.AddSignalR().AddHubOptions<NewsletterLiveHub>(options =>
 builder.Services.AddSingleton<NewsletterLiveConnections>();
 builder.Services.AddSingleton<NewsletterLiveBroadcaster>();
 builder.Services.AddSingleton<INewsletterLiveSignal>(services => services.GetRequiredService<NewsletterLiveBroadcaster>());
+// BHA-ADMIN-BADGE-001-PR03: the shared activity hint (nothing calls it in production yet). Same limits as the Newsletter Hub: no client method, in-memory connections.
+builder.Services.AddSignalR().AddHubOptions<AdminActivityHub>(options =>
+{
+    options.MaximumReceiveMessageSize = 1024;
+    options.EnableDetailedErrors = false;
+});
+builder.Services.AddSingleton<AdminActivityConnections>();
+builder.Services.AddSingleton<AdminActivityHintBroadcaster>();
+builder.Services.AddScoped<IAdminActivityHint, AdminActivityHint>();
 if (staffCalendarMode)
 {
     builder.Services.AddHostedService<NewsletterLiveSweeper>();
@@ -703,7 +722,8 @@ if (staffCalendarMode)
         // CUST-WEB-HEADER-001-CP02: the website-settings actions ride the same credentialed Staff policies:
         // GET reads and POST mutations (every website mutation is a POST).
         if (!endpoint.Metadata.OfType<StaffCalendarPermissionAttribute>().Any() &&
-            !endpoint.Metadata.OfType<StaffWebsitePermissionAttribute>().Any())
+            !endpoint.Metadata.OfType<StaffWebsitePermissionAttribute>().Any() &&
+            !endpoint.Metadata.OfType<StaffSessionAttribute>().Any())
         {
             return;
         }
@@ -740,6 +760,16 @@ if (staffCalendarMode)
             options.TransportMaxBufferSize = 4096;
         })
         .RequireAuthorization(StaffNewsletterLiveAccess.PolicyName)
+        .RequireCors(StaffNewsletterLiveAccess.CorsPolicy)
+        .WithMetadata(new StaffLiveHubEndpointMetadata());
+    // BHA-ADMIN-BADGE-001-PR03: the shared hint Hub, same limits, marker, Origin guard and negotiate CORS policy as above (no other Admin policy is widened).
+    app.MapHub<AdminActivityHub>(StaffAdminActivityLiveAccess.Path, options =>
+        {
+            options.Transports = HttpTransportType.WebSockets;
+            options.ApplicationMaxBufferSize = 1024;
+            options.TransportMaxBufferSize = 4096;
+        })
+        .RequireAuthorization(StaffAdminActivityLiveAccess.PolicyName)
         .RequireCors(StaffNewsletterLiveAccess.CorsPolicy)
         .WithMetadata(new StaffLiveHubEndpointMetadata());
 }
