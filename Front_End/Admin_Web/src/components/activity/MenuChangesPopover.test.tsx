@@ -216,6 +216,76 @@ describe("states", () => {
   });
 });
 
+describe("coming back to a scope just left (each load has its own life)", () => {
+  // The mock ignores the AbortSignal on purpose: a late answer must be dropped by the popover itself, not by a well-behaved transport.
+  type Answer = ReturnType<typeof body>;
+  const held = () => {
+    const pending: Array<{ menu: string; property: string | undefined; settle: (value: Answer) => void }> = [];
+    ui.changes.mockImplementation((menu: string, property?: string) => new Promise<Answer>((resolve) => { pending.push({ menu, property, settle: resolve }); }));
+    return pending;
+  };
+
+  it.each([
+    ["menu", ["newsletter", "blog-posts"] as const, "unseen-popover-menu", "newsletter", "blog-posts"],
+    ["Property", ["promotions"] as const, "unseen-popover-property", "p-0", "p-1"],
+  ])("A loaded, B chosen and still out, back to A while its new GET is out (%s): loading at once and A's old groups and total are gone; B's late answer (even a 401/403) changes nothing; the new A shows what it answered, even an empty list", async (_kind, menus, selectId, a, b) => {
+    const pending = held();
+    mount(target(menus, menus[0]));
+    await vi.waitFor(() => expect(pending).toHaveLength(1));
+    await act(async () => { pending[0].settle(body(pending[0].menu, [group("A cũ 1"), group("A cũ 2")], { unseenEvents: 137 })); });
+    await screen.findByText("A cũ 1");
+    expect(screen.getByTestId("unseen-popover-total").textContent).toContain("137");
+
+    await userEvent.selectOptions(screen.getByTestId(selectId), b);                                    // B, unanswered
+    await vi.waitFor(() => expect(pending).toHaveLength(2));
+    await userEvent.selectOptions(screen.getByTestId(selectId), a);                                    // back to A, whose NEW GET is unanswered
+    await vi.waitFor(() => expect(pending).toHaveLength(3));
+    expect(screen.getByTestId("unseen-popover-loading")).toBeTruthy();                                  // loading at once …
+    expect(screen.queryByText("A cũ 1")).toBeNull();                                                    // … and nothing of the old A
+    expect(screen.queryByTestId("unseen-popover-total")).toBeNull();
+    expect(screen.queryAllByTestId("unseen-popover-group")).toHaveLength(0);
+
+    await act(async () => { pending[1].settle({ kind: "denied" } as never); });                        // B answers late, with a 403
+    expect(screen.getByTestId("unseen-popover-loading")).toBeTruthy();
+    expect(screen.queryByTestId("unseen-popover-error")).toBeNull();
+    expect(ui.scope.reportAuth).not.toHaveBeenCalled();                                                // a stale answer does not touch the session
+
+    await act(async () => { pending[2].settle(body(pending[2].menu, [], { unseenEvents: 0 })); });
+    expect(await screen.findByTestId("unseen-popover-none")).toBeTruthy();                              // the new A: an empty list, shown as such
+    expect(screen.queryByText("A cũ 1")).toBeNull();
+    expect(ui.seen).not.toHaveBeenCalled();
+  });
+
+  it("a retry is a new load: the error it follows is gone while the retry is out, and the retry's answer is the one shown", async () => {
+    const pending = held();
+    mount(target(["newsletter"], "newsletter"));
+    await vi.waitFor(() => expect(pending).toHaveLength(1));
+    await act(async () => { pending[0].settle({ kind: "network", message: "offline" } as never); });
+    await userEvent.click(await screen.findByRole("button", { name: "Thử lại" }));
+    await vi.waitFor(() => expect(pending).toHaveLength(2));
+    expect(screen.queryByTestId("unseen-popover-error")).toBeNull();
+    expect(screen.getByTestId("unseen-popover-loading")).toBeTruthy();
+    await act(async () => { pending[1].settle(body("newsletter", [group("sau retry")])); });
+    await screen.findByText("sau retry");
+  });
+
+  it("another Staff member is a new load too, even for the same menu: the first member's result is not the second's while its GET is out", async () => {
+    const pending = held();
+    const view = mount(target(["newsletter"], "newsletter"));
+    await vi.waitFor(() => expect(pending).toHaveLength(1));
+    await act(async () => { pending[0].settle(body("newsletter", [group("của A")])); });
+    await screen.findByText("của A");
+    ui.scope.identity = "staff-b";
+    view.rerender(<MenuChangesPopover target={target(["newsletter"], "newsletter", "staff-b")} onClose={vi.fn()} />);
+    await vi.waitFor(() => expect(pending).toHaveLength(2));
+    ui.scope.identity = "staff-a";                                                                      // and back to the first identity's value while the second's GET is out
+    view.rerender(<MenuChangesPopover target={target(["newsletter"], "newsletter", "staff-a")} onClose={vi.fn()} />);
+    await vi.waitFor(() => expect(pending).toHaveLength(3));
+    expect(screen.queryByText("của A")).toBeNull();
+    expect(screen.getByTestId("unseen-popover-loading")).toBeTruthy();
+  });
+});
+
 describe("a different scope, Staff member or permission while a request is out", () => {
   it("picking another menu: the old rows go in that render, the late answer of the first is dropped and its request was aborted", async () => {
     const first = deferred<ReturnType<typeof body>>();

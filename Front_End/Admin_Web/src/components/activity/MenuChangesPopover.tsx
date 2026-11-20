@@ -31,11 +31,18 @@ export interface PopoverTarget {
 
 export const historyHref = (menu: string, propertyId?: string) => `/activity?menu=${encodeURIComponent(menu)}${propertyId ? `&propertyId=${encodeURIComponent(propertyId)}` : ""}`;
 
-/** One read of the unseen list per (identity, menu, Property); the view for any other key is "loading" from the render the key changes in. */
+/**
+ * One read of the unseen list per LOAD. Every change of identity, menu, Property or retry starts a new life, also when it comes back to a value chosen before (A → B → A): what an earlier
+ * life loaded (groups, total, an error) belongs to that life and is never shown in this one, so the view is "loading" from the render the change happens in. A late answer of an earlier life
+ * is dropped before it can show anything or report a 401/403 to the session, whether or not the transport honoured the abort.
+ */
 function useChanges(identity: string, menu: string | undefined, propertyId: string | undefined, reportAuth: (kind: "unauthenticated" | "denied") => void) {
   const [attempt, setAttempt] = useState(0);
   const key = menu ? `${identity}|${menu}|${propertyId ?? ""}|${attempt}` : "";
-  const [done, setDone] = useState<{ key: string; view: View<MenuChanges> } | null>(null);
+  const [track, setTrack] = useState({ key, life: 0 });
+  if (track.key !== key) setTrack({ key, life: track.life + 1 });
+  const life = track.key === key ? track.life : track.life + 1;
+  const [done, setDone] = useState<{ life: number; view: View<MenuChanges> } | null>(null);
   const report = useRef(reportAuth);
   useEffect(() => {
     report.current = reportAuth;
@@ -46,15 +53,15 @@ function useChanges(identity: string, menu: string | undefined, propertyId: stri
     const controller = new AbortController();
     void fetchMenuChanges(menu, propertyId, controller.signal).then((result) => {
       if (!live) return;
-      setDone({ key, view: toView(result) });
+      setDone({ life, view: toView(result) });
       if (result.kind === "unauthenticated" || result.kind === "denied") report.current(result.kind);
     });
     return () => {
       live = false;
       controller.abort();
     };
-  }, [key, menu, propertyId]);
-  const view: View<MenuChanges> = done && done.key === key ? done.view : { state: "loading" };
+  }, [life, menu, propertyId]);
+  const view: View<MenuChanges> = done && done.life === life ? done.view : { state: "loading" };
   return { view, retry: () => setAttempt((count) => count + 1) };
 }
 
