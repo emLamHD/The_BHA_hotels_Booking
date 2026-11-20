@@ -76,9 +76,17 @@ jobs:
       - name: Build
         run: npm run build
 
-  backend:
-    name: Backend
+  # BHA-CI-FAST-001: the integration tests run strictly one after another against one database (PostgreSqlCollection),
+  # about 25 minutes on one runner. They are split by test class over four jobs, each with its own PostgreSQL service
+  # and its own database, so the tests inside a job are unchanged. Back_End/tests/ci/integration-shards.json says which
+  # classes go where; the last shard takes every class that is not named.
+  backend-tests:
+    name: Backend tests (shard ${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     env:
       ConnectionStrings__TheBhaDatabase: Host=localhost;Port=5432;Database=thebha_ci;Username=thebha_ci;Password=ci-only-password
     services:
@@ -117,5 +125,54 @@ jobs:
       - name: Build
         run: dotnet build Back_End/TheBha.Booking.sln --configuration Release --no-restore
 
-      - name: Test
-        run: dotnet test Back_End/TheBha.Booking.sln --configuration Release --no-build
+      # The gate (job "Backend") compares what the shards ran with these unfiltered lists.
+      - name: List the tests of this build
+        run: |
+          mkdir -p test-results
+          dotnet test Back_End/tests/TheBha.IntegrationTests/TheBha.IntegrationTests.csproj --configuration Release --no-build --list-tests > "test-results/list-integration-${{ matrix.shard }}.txt"
+          if [ "${{ matrix.shard }}" = "1" ]; then
+            dotnet test Back_End/tests/TheBha.UnitTests/TheBha.UnitTests.csproj --configuration Release --no-build --list-tests > test-results/list-unit.txt
+          fi
+
+      - name: Unit tests
+        if: matrix.shard == 1
+        run: dotnet test Back_End/tests/TheBha.UnitTests/TheBha.UnitTests.csproj --configuration Release --no-build --logger "trx;LogFileName=unit.trx" --results-directory test-results
+
+      - name: Integration tests (shard ${{ matrix.shard }}/4)
+        run: |
+          filter="$(python3 Back_End/tests/ci/ci_shards.py filter ${{ matrix.shard }})"
+          dotnet test Back_End/tests/TheBha.IntegrationTests/TheBha.IntegrationTests.csproj --configuration Release --no-build --filter "$filter" --logger "trx;LogFileName=integration-${{ matrix.shard }}.trx" --results-directory test-results
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-results-${{ matrix.shard }}
+          path: test-results
+          retention-days: 7
+
+  # The required check is named "Backend". It must run even when a shard fails or is cancelled (a skipped required
+  # check counts as passing on GitHub), and it passes only if every shard succeeded AND every listed test ran once.
+  backend:
+    name: Backend
+    needs: backend-tests
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download test results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: backend-test-results-*
+          path: test-results
+          merge-multiple: true
+
+      - name: Gate logic self-test
+        run: python3 Back_End/tests/ci/ci_shards.py selftest
+
+      - name: Verify every shard passed and every test ran
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: python3 Back_End/tests/ci/ci_shards.py verify --artifacts test-results --shards 4 --needs-json "$NEEDS"

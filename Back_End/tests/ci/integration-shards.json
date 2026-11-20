@@ -1,0 +1,42 @@
+{
+  "about": "BHA-CI-FAST-001. The integration tests run in 4 CI jobs. Shards 1-3 run exactly the classes named here; shard 4 runs every class that is not named, so a new test class is never skipped (it lands in shard 4). Measured on the baseline (b8c73ff, local PostgreSQL 17, all passing): shards 1-3 about 317, 327, 316 s, shard 4 about 296 s. When shard 4 grows past the others, move a class from it into a named list. Only the balance depends on this file, never the coverage: the Backend gate compares what ran with the unfiltered list of tests.",
+  "namespace": "TheBha.IntegrationTests",
+  "shards": [
+    [
+      "AssignmentMutationStoreTests",
+      "BlogAuthorizationApiTests",
+      "BlogPublicReadApiTests",
+      "BlogPublicationApiTests",
+      "ContentPackC5Tests",
+      "ContentPackC6Tests",
+      "ContentPackTests",
+      "StaffCalendarWriteAuthorizationTests",
+      "StaffIdentityMigrationTests"
+    ],
+    [
+      "AdminPromotionsApiTests",
+      "AdminReservationBoardApiTests",
+      "BlogMediaLibraryApiTests",
+      "BlogMediaUsageApiTests",
+      "BlogMigrationTests",
+      "ContentPackC4Tests",
+      "ContentPackCorrectionTests",
+      "NewsletterLiveTests",
+      "NewsletterVerificationTests",
+      "StaffAuthenticationTests",
+      "StaffCalendarAuthorizationTests"
+    ],
+    [
+      "BlogMediaMigrationTests",
+      "BlogPreviewApiTests",
+      "ContentPackC2Tests",
+      "ContentPackC3Tests",
+      "ContentPackC7Tests",
+      "ContentPackScopeTests",
+      "NewsletterManagementTests",
+      "NewsletterUnseenTests",
+      "WebsiteCurrenciesApiTests",
+      "WebsiteSettingsMigrationTests"
+    ]
+  ]
+}
