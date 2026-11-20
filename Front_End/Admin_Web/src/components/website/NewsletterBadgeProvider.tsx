@@ -202,7 +202,8 @@ export function MenuUnseenProvider({ children }: { children: React.ReactNode }) 
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const requestRefresh = useCallback(() => {
     if (!identityRef.current) return;
-    if (timer.current) clearTimeout(timer.current);
+    // The first deadline stands: a stream of hints must not keep moving it (that would starve the refresh), and one GET already covers every request made before it starts.
+    if (timer.current) return;
     timer.current = setTimeout(() => {
       timer.current = null;
       void runRefresh();
@@ -304,6 +305,7 @@ export function MenuUnseenProvider({ children }: { children: React.ReactNode }) 
   // ---- the shared activity Hub: a hint only schedules the GET; its payload is never read for a number
   useEffect(() => {
     if (!identity) return undefined;
+    const gen = generation.current;                                                // this life's: a callback of a connection that outlived it can never act on the next one
     const hub = startNewsletterLive({
       target: menuActivityLiveTarget(),
       events: { signal: MENU_ACTIVITY_EVENT, ready: MENU_ACTIVITY_READY_EVENT, isSignal: isMenuActivityHint },
@@ -311,8 +313,8 @@ export function MenuUnseenProvider({ children }: { children: React.ReactNode }) 
         onReady: requestRefresh,
         onSignal: requestRefresh,
         onStatus: () => undefined,
-        onUnauthenticated: () => authFailure("unauthenticated", generation.current),
-        onDenied: () => authFailure("denied", generation.current),
+        onUnauthenticated: () => authFailure("unauthenticated", gen),
+        onDenied: () => authFailure("denied", gen),
       },
     });
     return () => hub.dispose();

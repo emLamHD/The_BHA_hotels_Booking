@@ -461,8 +461,9 @@ describe("nothing outlives the identity", () => {
 });
 
 describe("which gates share the shell's session", () => {
-  it("the default website gate shares it (ONE `me`); a gate with its own rule (Blog, Promotions) keeps a session of its own (a second `me`)", async () => {
-    const own = { isAllowed: () => true, noPermission: "no", signInPrompt: "sign in" };
+  const own = { isAllowed: () => true, noPermission: "no", signInPrompt: "sign in" };
+
+  it("every gate under the shell shares its session (ONE `me`), whatever its rule: the default website rule and a rule of its own (Blog, Promotions)", async () => {
     mount(<WebsiteAccessGate returnTo="/website/languages"><p data-testid="default-child">default</p></WebsiteAccessGate>);
     await screen.findByTestId("default-child");
     expect(vi.mocked(fetchStaffSession)).toHaveBeenCalledTimes(1);
@@ -470,7 +471,13 @@ describe("which gates share the shell's session", () => {
     vi.mocked(fetchStaffSession).mockClear();
     mount(<WebsiteAccessGate returnTo="/website/blog/posts" rule={own}><p data-testid="own-child">own</p></WebsiteAccessGate>);
     await screen.findByTestId("own-child");
-    expect(vi.mocked(fetchStaffSession)).toHaveBeenCalledTimes(2);                           // the shell's and the gate's own
+    expect(vi.mocked(fetchStaffSession)).toHaveBeenCalledTimes(1);
+  });
+
+  it("a gate rendered on its own (no shell, no enclosing session) still makes its own", async () => {
+    render(<WebsiteAccessGate returnTo="/website/blog/posts" rule={own}><p data-testid="alone-child">alone</p></WebsiteAccessGate>);
+    await screen.findByTestId("alone-child");
+    expect(vi.mocked(fetchStaffSession)).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -1036,5 +1043,47 @@ describe("PR-4: a 404 on the acknowledgement", () => {
     await waitFor(() => expect(badge()).toBe("0"));
     expect(postSeen).toHaveBeenCalledTimes(1);
     expect(getCount.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+// ================================================================================================ BHA-ADMIN-BADGE-001-PR04-C1 (P2)
+
+describe("C1: a stream of hints never starves the refresh", () => {
+  const hintBurst = async (everyMs: number, forMs: number) => {
+    for (let elapsed = 0; elapsed < forMs; elapsed += everyMs) {
+      await act(async () => {
+        activityHub().options.handlers.onSignal({ eventId: "calendar", occurredAtUtc: "" });
+        await vi.advanceTimersByTimeAsync(everyMs);
+      });
+    }
+  };
+
+  it("a hint every 200 ms for 60 s (tab visible) still refreshes: the first deadline is kept, so a GET runs about every window instead of never", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    mount();
+    await vi.waitFor(() => expect(getCount).toHaveBeenCalledTimes(1));
+    await hintBurst(200, 1_000);
+    expect(getCount.mock.calls.length).toBeGreaterThanOrEqual(3);                              // the hints did not keep moving the 250 ms deadline
+    const afterFirstSecond = getCount.mock.calls.length;
+    await hintBurst(200, 59_000);
+    expect(getCount.mock.calls.length).toBeGreaterThan(afterFirstSecond + 50);
+    expect(badge()).toBe("3");
+  });
+
+  it("while one GET is unanswered the hints add none: nothing runs in parallel, and exactly one more runs once it answers", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const first = deferred<ReturnType<typeof answer>>();
+    getCount.mockReset();
+    getCount.mockImplementationOnce(() => first.promise as never);
+    getCount.mockResolvedValue(answer(entry(6, "0", "6")));
+    mount();
+    await vi.waitFor(() => expect(getCount).toHaveBeenCalledTimes(1));
+    await hintBurst(200, 10_000);
+    expect(getCount).toHaveBeenCalledTimes(1);                                                 // still waiting for the first: no second request
+    await act(async () => { first.resolve(answer(entry(3, "0", "3"))); });
+    await vi.waitFor(() => expect(getCount).toHaveBeenCalledTimes(2));                         // one dragged-along refresh
+    await act(async () => { await vi.advanceTimersByTimeAsync(BADGE_COALESCE_MS * 4); });
+    expect(getCount).toHaveBeenCalledTimes(2);                                                 // and only one
+    expect(badge()).toBe("6");
   });
 });
