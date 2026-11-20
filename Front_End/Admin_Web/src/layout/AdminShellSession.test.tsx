@@ -160,4 +160,41 @@ describe.each(GATES)("%s, under the real Admin shell", (_name, gate, signOutLabe
     expect(openOf("legacy")).toHaveLength(1);
     expect(openOf("activity")).toHaveLength(1);
   });
+
+  it("a stray 401 or 403 from the first Staff member's already closed connections (either Hub) neither ends nor re-reads the second one's session", async () => {
+    mount();
+    await waitFor(() => expect(badge()).toBe("5"));
+    const oldOnes = [...live.started];
+    await signOutFromPage();
+    vi.mocked(fetchStaffSession).mockResolvedValue({ kind: "authenticated", session: B });
+    await act(async () => { session!.retry(); });
+    await waitFor(() => expect(badge()).toBe("5"));
+    const checks = vi.mocked(fetchStaffSession).mock.calls.length;
+    expect(oldOnes.every((started) => started.controller.dispose.mock.calls.length > 0)).toBe(true);
+    await act(async () => {
+      for (const started of oldOnes) {
+        started.options.handlers.onUnauthenticated();
+        started.options.handlers.onDenied();
+      }
+    });
+    await flush(100);
+    expect(session!.state.status).toBe("authenticated");
+    expect(vi.mocked(fetchStaffSession).mock.calls.length).toBe(checks);                      // nobody asked `me` again on the old Staff member's behalf
+  });
+
+  it("an acknowledgement still waiting to retry when the page signs out is never sent again", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mount();
+      await vi.waitFor(() => expect(badge()).toBe("5"));
+      postSeen.mockResolvedValue({ kind: "network", message: "offline" } as never);
+      await act(async () => { shared!.ack("5", A.staffAccountId); });
+      await vi.waitFor(() => expect(postSeen).toHaveBeenCalledTimes(1));                     // the first try failed; the retry is waiting
+      await signOutFromPage();
+      await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+      expect(postSeen).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
