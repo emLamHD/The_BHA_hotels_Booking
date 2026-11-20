@@ -40,7 +40,8 @@ export default function CalendarAccessGate() {
   }
   if (mode.mode === "LocalGate") return <ReservationBoard />;
   return (
-    <StaffSessionProvider>
+    // BHA-ADMIN-BADGE-001-PR04-C1: under the Admin shell the board shares its session (a sign-out here ends the shell's too); on its own it makes one.
+    <StaffSessionProvider reuse>
       <StaffCalendar />
     </StaffSessionProvider>
   );
