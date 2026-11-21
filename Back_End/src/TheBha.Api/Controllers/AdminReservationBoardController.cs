@@ -30,7 +30,7 @@ namespace TheBha.Api.Controllers;
 [Route("api/admin/v1/properties/{propertyId:guid}/reservation-board")]
 [EnableCors("admin-calendar")]
 [StaffCalendarPermission(StaffPermission.BoardRead, typeof(AdminReservationBoardReadGateFilter))]
-public sealed class AdminReservationBoardController(IReservationBoardQuery query) : ControllerBase
+public sealed class AdminReservationBoardController(IReservationBoardQuery query, AdminCalendarAccess access) : ControllerBase
 {
     [HttpGet]
     [ProducesResponseType(typeof(ReservationBoardDto), StatusCodes.Status200OK)]
@@ -46,7 +46,9 @@ public sealed class AdminReservationBoardController(IReservationBoardQuery query
     {
         Response.Headers.CacheControl = "no-store";
 
-        var result = await query.GetBoardAsync(propertyId, from, to, cancellationToken);
+        // BHA-ADMIN-BADGE-001-PR12: in Staff mode the board also carries the viewing Staff member's per-object read state (same snapshot); LocalGate has no Staff and adds nothing.
+        var viewer = access.Mode == AdminCalendarAccessMode.Staff ? StaffCalendarWriteContext.For(HttpContext, propertyId)?.StaffId : null;
+        var result = await query.GetBoardAsync(propertyId, from, to, viewer, cancellationToken);
         return result.Status switch
         {
             ReservationBoardStatus.Success => Ok(result.Board),

@@ -12,7 +12,8 @@ public sealed record CreateRoomBlockCommand(
     Guid PropertyId,
     string Reason,
     string ActorReference,
-    IReadOnlyList<BlockSegmentSpec> Segments);
+    IReadOnlyList<BlockSegmentSpec> Segments,
+    Guid? ActorStaffId = null);
 
 /// <summary>
 /// One existing Effective OperationalBlock segment to supersede. Empty
@@ -35,7 +36,8 @@ public sealed record SupersedeBlockSegmentsCommand(
     Guid PropertyId,
     IReadOnlyList<BlockSegmentSupersession> Supersessions,
     string ActorReference,
-    string? Reason);
+    string? Reason,
+    Guid? ActorStaffId = null);
 
 /// <summary>
 /// PMS-CAL-003-CP01: moves exactly one Effective OperationalBlock segment to another
@@ -51,7 +53,8 @@ public sealed record MoveOperationalBlockCommand(
     uint ExpectedVersion,
     Guid DestinationPhysicalRoomId,
     string ActorReference,
-    string? Reason);
+    string? Reason,
+    Guid? ActorStaffId = null);
 
 public sealed record RoomBlockDto(
     Guid Id,

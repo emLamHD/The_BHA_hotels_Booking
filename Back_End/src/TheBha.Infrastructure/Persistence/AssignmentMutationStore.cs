@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using TheBha.Application.Activity;
 using TheBha.Application.Scheduling;
 using TheBha.Domain.Bookings;
 using TheBha.Domain.Common;
@@ -26,10 +27,18 @@ namespace TheBha.Infrastructure.Persistence;
 /// rows and same-RoomType <c>Created</c> rows carry none. <c>ActorReference</c>,
 /// <c>Reason</c> and <c>MutationGroupId</c> are unchanged by this rule.
 /// </para>
+///
+/// <para>
+/// BHA-ADMIN-BADGE-001-PR12 (ADR 0011 §D): when the command carries a verified Staff id, every committed mutation appends ONE <c>calendar</c> event per
+/// ReservationUnit it changed (however many segments), as the last statement before COMMIT, and hints only after it. No Staff id (LocalGate, an internal
+/// caller) records and hints nothing. A refusal, a stale write or a rollback never reaches the recorder.
+/// </para>
 /// </summary>
 internal sealed class AssignmentMutationStore(
     TheBhaDbContext dbContext,
-    TimeProvider timeProvider) : IAssignmentMutationStore
+    TimeProvider timeProvider,
+    IAdminActivityRecorder recorder,
+    IAdminActivityHint hint) : IAssignmentMutationStore
 {
     public async Task<SegmentMutationResult> CreateAsync(
         CreateAssignmentCommand command,
@@ -196,11 +205,24 @@ internal sealed class AssignmentMutationStore(
         var conflict = await RoomOccupancySegmentMutationSupport.TryCommitAsync(async () =>
         {
             await dbContext.SaveChangesAsync(cancellationToken);
+            if (command.ActorStaffId is { } staffId)
+            {
+                await CalendarActivity.RecordStaffAsync(
+                    recorder, command.PropertyId, staffId, "Assigned", CalendarEntityKinds.ReservationUnit, unit.Id,
+                    CalendarActivity.Title(CalendarActivity.Rooms([room.RoomNumber]), command.Destination.StartDate, command.Destination.EndDate),
+                    cancellationToken);
+            }
+
             await transaction.CommitAsync(cancellationToken);
         });
         if (conflict is not null)
         {
             return conflict;
+        }
+
+        if (command.ActorStaffId is not null)
+        {
+            await CalendarActivity.HintAsync(hint, command.PropertyId);
         }
 
         return SegmentMutationResult.Succeeded([RoomOccupancySegmentMutationSupport.ToDto(dbContext, segment)]);
@@ -480,14 +502,45 @@ internal sealed class AssignmentMutationStore(
             return SegmentMutationResult.Invalid(exception.Message);
         }
 
+        // One event per ReservationUnit, never per segment: a split replaces three segments of one object and is one unread object. Titles use room numbers and dates only.
+        var activity = command.ActorStaffId is null
+            ? []
+            : command.Supersessions
+                .GroupBy(supersession => segmentsById[supersession.SegmentId].ReservationUnitId!.Value)
+                .OrderBy(group => group.Key)
+                .Select(group =>
+                {
+                    var action = CalendarActivity.ActionOf(group.Select(item => item.Replacements.Count), "Unassigned", "Moved", "SplitMoved");
+                    var unassigned = action == "Unassigned";
+                    var ranges = unassigned
+                        ? group.Select(item => (Start: segmentsById[item.SegmentId].StartDate, End: segmentsById[item.SegmentId].EndDate)).ToList()
+                        : group.SelectMany(item => item.Replacements).Select(item => (Start: item.StartDate, End: item.EndDate)).ToList();
+                    var label = unassigned
+                        ? CalendarActivity.Unassigned
+                        : CalendarActivity.Rooms(group.SelectMany(item => item.Replacements).Select(item => roomsById[item.PhysicalRoomId].RoomNumber));
+                    return (Unit: group.Key, Action: action, Title: CalendarActivity.Title(label, ranges.Min(range => range.Start), ranges.Max(range => range.End)));
+                })
+                .ToList();
+
         var conflict = await RoomOccupancySegmentMutationSupport.TryCommitAsync(async () =>
         {
             await dbContext.SaveChangesAsync(cancellationToken);
+            foreach (var item in activity)
+            {
+                await CalendarActivity.RecordStaffAsync(
+                    recorder, command.PropertyId, command.ActorStaffId!.Value, item.Action, CalendarEntityKinds.ReservationUnit, item.Unit, item.Title, cancellationToken);
+            }
+
             await transaction.CommitAsync(cancellationToken);
         });
         if (conflict is not null)
         {
             return conflict;
+        }
+
+        if (activity.Count > 0)
+        {
+            await CalendarActivity.HintAsync(hint, command.PropertyId);
         }
 
         return SegmentMutationResult.Succeeded(
@@ -543,7 +596,8 @@ internal sealed class AssignmentMutationStore(
                 ],
                 command.ActorReference,
                 command.AuthorizationEvidence,
-                command.Reason),
+                command.Reason,
+                command.ActorStaffId),
             cancellationToken);
     }
 
