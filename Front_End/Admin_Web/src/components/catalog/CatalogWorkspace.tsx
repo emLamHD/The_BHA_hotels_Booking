@@ -5,7 +5,8 @@ import Image from "next/image";
 import { useStaffSession } from "@/components/auth/StaffSession";
 import { useWebsiteHost } from "@/components/website/WebsiteAccessGate";
 import { useWebsiteList, useWriteAction, describeFailure } from "@/components/website/useWebsiteData";
-import { createAmenity, getCatalog, getCatalogProducts, getCatalogProperties, getPhysicalRooms, createProperty, createRoomType, createPhysicalRoom, saveCatalog, uploadCatalog, catalogImage, bodyOf, removeImage, type CatalogBody, type CatalogEditor, type CatalogProductSummary, type GalleryItem, type CreatePropertyInput, type CreateRoomTypeInput, type CreatePhysicalRoomInput } from "@/lib/api/catalog";
+import { lowestMark, useAckOnRead, useMarkedList, type ReadMark } from "@/components/website/useMarkedList";
+import { createAmenity, getCatalog, getCatalogProducts, getCatalogProperties, readCatalogProducts, readCatalogProperties, getPhysicalRooms, createProperty, createRoomType, createPhysicalRoom, saveCatalog, uploadCatalog, catalogImage, bodyOf, removeImage, type CatalogBody, type CatalogEditor, type CatalogProductSummary, type GalleryItem, type CreatePropertyInput, type CreateRoomTypeInput, type CreatePhysicalRoomInput } from "@/lib/api/catalog";
 
 const box = "w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 disabled:cursor-not-allowed disabled:bg-gray-100 read-only:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:placeholder:text-gray-500 dark:disabled:bg-gray-800 dark:read-only:bg-gray-800";
 // Typed number with 1-20 suggestions (datalist); the native spinner arrows are hidden.
@@ -64,7 +65,17 @@ export default function CatalogWorkspace() {
   const staff = useStaffSession();
   const actorStaffId = staff.state.status === "authenticated" ? staff.state.session.staffAccountId : "";
   const router = useRouter();
-  const props = useWebsiteList(getCatalogProperties, []);
+  // BHA-ADMIN-BADGE-001-PR11: the Catalog's one acknowledgement comes from the LIST VIEW only. A reload that exists to check or refresh after a write is tagged (`verifyReload`) so its answer is
+  // never a mark, and no extra read is made for the mark: the two list reads below are the ones that fill the screen.
+  const [verified] = useState(() => new WeakSet<object>());
+  const verifyNext = useRef({ props: false, products: false });
+  const props = useMarkedList(async signal => {
+    const verify = verifyNext.current.props;
+    verifyNext.current.props = false;
+    const result = await readCatalogProperties(signal);
+    if (result.kind === "ok" && verify) verified.add(result.data);
+    return result;
+  }, [], data => data.viewWatermark, data => !verified.has(data));
   const [owner, setOwner] = useState("");
   const [view, setView] = useState<WorkspaceView>({ kind: "list" });
   const [summaryRefreshing, setSummaryRefreshing] = useState(false);
@@ -100,7 +111,7 @@ export default function CatalogWorkspace() {
       else router.push(target);
     }
   };
-  const propertyData = props.state.status === "ready" ? props.state.data : [];
+  const propertyData = props.state.status === "ready" ? props.state.data.items : [];
   const ownerId = owner || propertyData.find(isRiversideIdentity)?.id || "@unconfigured:the-bha-riverside";
   const selected = propertyData.find(x => x.id === ownerId);
   const currentId = selected ? ownerId : "";
@@ -127,13 +138,23 @@ export default function CatalogWorkspace() {
     } catch { /* An unreadable local recovery record cannot authorize another request. */ }
   }, [actorStaffId]);
   const data = useWebsiteList(signal => isEditor && currentId ? getCatalog(currentId, room || null, signal) : Promise.resolve({ kind: "network", message: "Chọn cơ sở đã có catalog." } as const), [currentId, room, isEditor]);
-  const products = useWebsiteList(async signal => {
+  const products = useMarkedList(async signal => {
+    const verify = verifyNext.current.products;
+    verifyNext.current.products = false;
     if (!currentId) return { kind: "network", message: "Chọn cơ sở đã có catalog." } as const;
-    const result = await getCatalogProducts(currentId, signal);
+    const result = await readCatalogProducts(currentId, signal);
     if (result.kind !== "ok") return result;
-    if (result.data.some(product => product.propertyId !== currentId)) return { kind: "invalid-response", message: "Danh sách trả về sản phẩm không thuộc cơ sở đã chọn. Hãy thử tải lại." } as const;
-    return { ...result, data: { propertyId: currentId, products: result.data } };
-  }, [currentId]);
+    if (result.data.items.some(product => product.propertyId !== currentId)) return { kind: "invalid-response", message: "Danh sách trả về sản phẩm không thuộc cơ sở đã chọn. Hãy thử tải lại." } as const;
+    const answer = { propertyId: currentId, products: result.data.items, ...(result.data.viewWatermark ? { viewWatermark: result.data.viewWatermark } : {}) };
+    if (verify) verified.add(answer);
+    return { ...result, data: answer };
+  }, [], data => data.viewWatermark, data => !verified.has(data) && data.propertyId === currentId, currentId);
+  /** A reload that checks or refreshes after a write: it fills the screen like any other but never says "seen". */
+  const verifyReload = (which: "props" | "products") => { verifyNext.current[which] = true; return (which === "props" ? props : products).reload(); };
+  // "Seen" for the Catalog (one global cursor): only while the LIST view is on screen, for a persisted Property that the properties list contains, once BOTH lists have answered for the current Staff,
+  // the current Property and no write check; the lower of the two watermarks (BigInt). The summary, a hint, the editor, the physical rooms and every write's answer are never a source.
+  const lowest: ReadMark | null = view.kind === "list" && currentId !== "" && props.mark && products.mark && products.mark.scope === currentId ? lowestMark(props.mark, products.mark) : null;
+  useAckOnRead("catalog", lowest ? { watermark: lowest.watermark, by: lowest.by, source: lowest.source } : null);
   const physicalRooms = useWebsiteList(signal => view.kind === "product" && currentId
     ? getPhysicalRooms(currentId, room, signal)
     : Promise.resolve({ kind: "network", message: "Chọn loại phòng để xem danh sách phòng." } as const), [currentId, room, view.kind]);
@@ -178,7 +199,7 @@ export default function CatalogWorkspace() {
     setOwner(target.propertyId); setView(target.view); setSwitchPrompt(null);
     if (returningToSameList) {
       setSummaryRefreshing(true);
-      void products.reload().finally(() => setSummaryRefreshing(false));
+      void verifyReload("products").finally(() => setSummaryRefreshing(false));
     }
   };
   const currentViewKey = `${view.kind}:${view.kind === "product" ? view.roomId : ""}`;
@@ -244,9 +265,9 @@ export default function CatalogWorkspace() {
       if (result?.kind === "ok") {
         removePendingCreate(operationId);
         setCreateDialog(null); setCreateMessage("");
-        if (target.kind === "property") { await props.reload(); switchAfterCreate = result.data.id; }
-        else if (target.kind === "room") { await products.reload(); switchAfterCreate = target.propertyId; }
-        else { await physicalRooms.reload(); await products.reload(); }
+        if (target.kind === "property") { await verifyReload("props"); switchAfterCreate = result.data.id; }
+        else if (target.kind === "room") { await verifyReload("products"); switchAfterCreate = target.propertyId; }
+        else { await physicalRooms.reload(); await verifyReload("products"); }
       } else if (result) {
         const message = result.kind === "refused" ? result.detail : describeFailure(result);
         const currentAttemptWasDefinitelyRefused = result.kind === "refused" || result.kind === "config" || result.kind === "unauthenticated" || result.kind === "denied";
@@ -410,7 +431,7 @@ export default function CatalogWorkspace() {
     return () => { document.removeEventListener("keydown", key); previous?.focus(); };
   }, [createDiscardPrompt]);
   if (props.state.status !== "ready") return <section role={props.state.status === "error" ? "alert" : "status"} className="rounded-2xl border border-gray-200 bg-white p-6 text-sm dark:border-gray-800 dark:bg-white/[0.03]">{props.state.status === "error" ? <>{props.state.message} <button className={btn} onClick={() => void props.reload()}>Thử lại</button></> : "Đang tải danh sách cơ sở…"}</section>;
-  const propertyChoices = props.state.data;
+  const propertyChoices = props.state.data.items;
   const hasRiverside = propertyChoices.some(isRiversideIdentity);
   const productList = products.state.status === "ready" && products.state.data.propertyId === currentId ? products.state.data.products : null;
   const listLoading = summaryRefreshing || products.state.status === "loading" || (products.state.status === "ready" && productList === null);
