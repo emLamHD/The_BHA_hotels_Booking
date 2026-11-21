@@ -108,6 +108,38 @@ public sealed class CalendarActivityApiTests(PostgreSqlWebApplicationFactory fac
             _inner is { } inner ? inner.ReaderExecutedAsync(command, eventData, result, cancellationToken) : ValueTask.FromResult(result);
     }
 
+    /// <summary>
+    /// Pauses the FIRST read that follows the cursor upsert of an entity acknowledgement, after PostgreSQL has executed it (its snapshot is fixed) and before the application has used the result. A
+    /// response built from several reads is torn by a commit made in that gap; one built from one statement is not. Armed by the upsert itself, so seeding and other requests are never paused.
+    /// </summary>
+    private sealed class AfterEntitySeenUpsert : DbCommandInterceptor
+    {
+        private readonly TaskCompletionSource _reached = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _armed, _tripped;
+
+        public Task Reached => _reached.Task;
+        public void Release() => _released.TrySetResult();
+
+        public override ValueTask<int> NonQueryExecutedAsync(System.Data.Common.DbCommand command, CommandExecutedEventData eventData, int result, CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.Contains("INSERT INTO \"StaffEntitySeen\"", StringComparison.Ordinal)) Volatile.Write(ref _armed, 1);
+            return ValueTask.FromResult(result);
+        }
+
+        public override async ValueTask<System.Data.Common.DbDataReader> ReaderExecutedAsync(
+            System.Data.Common.DbCommand command, CommandExecutedEventData eventData, System.Data.Common.DbDataReader result, CancellationToken cancellationToken = default)
+        {
+            if (Volatile.Read(ref _armed) == 1 && Interlocked.Exchange(ref _tripped, 1) == 0)
+            {
+                _reached.TrySetResult();
+                await _released.Task.WaitAsync(cancellationToken);
+            }
+
+            return result;
+        }
+    }
+
     private sealed record Seed(Guid A, Guid B, Guid[] Standard, Guid[] Deluxe, Guid[] Units, Guid RoomB, Guid UnitB, Guid ReservationA, string TokenA);
 
     private sealed class Env(WebApplicationFactory<Program> host, HttpClient client, Seed seed, Dictionary<string, string> cookies, Probe probe) : IDisposable
@@ -672,6 +704,39 @@ public sealed class CalendarActivityApiTests(PostgreSqlWebApplicationFactory fac
         var fresh = StayOf(await BoardAsync(e, Manager, s.A), s.Units[0]);
         Assert.Equal(s.Standard[1], fresh.GetProperty("assignments").EnumerateArray().Single().GetProperty("physicalRoomId").GetGuid());
         Assert.Equal("2", fresh.GetProperty("activity").GetProperty("watermark").GetString());
+    }
+
+    [Fact]
+    public async Task An_acknowledgement_answers_the_object_the_count_and_the_counter_from_one_snapshot_while_another_Staff_member_commits()
+    {
+        var gate = new AfterEntitySeenUpsert();
+        using var e = await BeginAsync(more: services => services.AddScoped(_ => new TheBhaDbContext(
+            new DbContextOptionsBuilder<TheBhaDbContext>().UseNpgsql(Factory.ConnectionString).AddInterceptors(gate).Options)));
+        var s = e.Seed;
+        var unit = s.Units[0];
+        var (segment, version) = await AssignAsync(e, Desk, unit, s.Standard[0]);   // W = 1: the only unread object of Property A for the Manager
+        Assert.Equal(("1", 1), (StayOf(await BoardAsync(e, Manager, s.A), unit).GetProperty("activity").GetProperty("watermark").GetString(), (await BadgeAsync(e, Manager, s.A)).Count));
+
+        // The Manager acknowledges W = 1. The upsert has run and the read of its answer is paused when the Desk commits W2 = 2 for the same object.
+        var ack = EntitySeen(e, Manager, SeenBody(s.A, "reservation-unit", unit, "1"));
+        await gate.Reached.WaitAsync(TimeSpan.FromSeconds(30));
+        await Ok(e, Desk, $"{AssignUrl(s.A)}/{segment}/move", new { expectedVersion = version, physicalRoomId = s.Standard[1], startDate = CheckIn, endDate = CheckOut });
+        Assert.Equal(2, await CounterAsync());
+        gate.Release();
+        var answer = await JsonAsync(await AssertStatusAsync(HttpStatusCode.OK, ack));
+
+        // One snapshot: the object, the Property count and the counter all describe the moment of the read, before W2. A torn answer would say "not unread" with a count of 1 and counter "2".
+        Assert.Equal(("1", false, 0, "1"), (
+            answer.GetProperty("lastSeenWatermark").GetString(), answer.GetProperty("unread").GetBoolean(), answer.GetProperty("count").GetInt32(), answer.GetProperty("currentWatermark").GetString()));
+
+        // After W2 is committed a new read sees the object unread again, and the cursor is still W: the acknowledgement was never moved up to the counter.
+        var cursor = await ScalarAsync<long>($"""SELECT "LastSeenSequence" FROM "StaffEntitySeen" WHERE "EntityKey" = '{unit:D}' """);
+        Assert.Equal(1, cursor);
+        var changes = await ChangesAsync(e, Manager, s.A);
+        var group = GroupOf(changes, unit);
+        Assert.Equal(("2", "1", 1), (group.GetProperty("observedWatermark").GetString(), changes.GetProperty("lastSeenWatermark").GetString(), changes.GetProperty("unseenEvents").GetInt32()));
+        Assert.True(StayOf(await BoardAsync(e, Manager, s.A), unit).GetProperty("activity").GetProperty("unread").GetBoolean());
+        Assert.Equal((1, "2"), await BadgeAsync(e, Manager, s.A));
     }
 
     // ------------------------------------------------------------------------------------------------------ locks and contention

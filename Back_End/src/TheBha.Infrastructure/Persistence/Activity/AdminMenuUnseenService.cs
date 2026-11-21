@@ -304,7 +304,7 @@ internal sealed class AdminMenuUnseenService(TheBhaDbContext database, TimeProvi
 
     // ------------------------------------------------------------------------------------------------------------- acknowledge one Calendar object
 
-    private sealed record EntitySeenRow(long LastSeen, bool Unread);
+    private sealed record EntitySeenRow(long Current, long LastSeen, bool Unread, long Count);
 
     public async Task<AdminMenuResult<CalendarEntitySeen>> MarkEntitySeenAsync(
         Guid staffId, string? propertyId, string? entityKind, string? entityId, string observedWatermark, CancellationToken cancellationToken)
@@ -348,24 +348,32 @@ internal sealed class AdminMenuUnseenService(TheBhaDbContext database, TimeProvi
             return new AdminMenuResult<CalendarEntitySeen>(known ? AdminMenuStatus.InvalidWatermark : AdminMenuStatus.UnknownMenu);
         }
 
-        // The object's cursor after the move and whether a newer event of another person keeps it unread (the same predicate as the badge, the board and the list).
-#pragma warning disable EF1002 // the interpolated part is a constant of CalendarUnreadSql; every value is a parameter
+        // The whole answer from ONE statement, so the object's cursor, whether it is still unread, the Property's unread count and the counter are one snapshot, and the permission that lets the answer
+        // out is read in it too. A commit of another Staff member after the upsert can therefore never pair a stale object state with a newer count. No row = the permission was lost: the same 404.
+#pragma warning disable EF1002 // the interpolated parts are constants of this class and CalendarUnreadSql; every value is a parameter
         var seen = await database.Database.SqlQueryRaw<EntitySeenRow>(
             $"""
-            SELECT COALESCE(e."LastSeenSequence", 0) AS "LastSeen",
-                   EXISTS (SELECT 1 FROM "AdminActivities" a WHERE a."MenuKey" = 'calendar' AND a."PropertyId" = @prop AND a."EntityKind" = @kind AND a."EntityKey" = @key
-                           AND {CalendarUnreadSql.Unread("s.\"CreatedAtUtc\"", "s.\"Id\"")}) AS "Unread"
-            FROM "StaffAccounts" s
-            LEFT JOIN "StaffEntitySeen" e ON e."StaffAccountId" = s."Id" AND e."PropertyId" = @prop AND e."EntityKind" = @kind AND e."EntityKey" = @key
-            WHERE s."Id" = @staff
-            """, Uuid("staff", staffId), Uuid("prop", property), Text("kind", entityKind), Text("key", key)).SingleAsync(cancellationToken);
+            WITH {Scopes}
+            SELECT sc."Current" AS "Current",
+                   COALESCE((SELECT e."LastSeenSequence" FROM "StaffEntitySeen" e
+                             WHERE e."StaffAccountId" = sc."StaffId" AND e."PropertyId" = @prop AND e."EntityKind" = @kind AND e."EntityKey" = @key), 0) AS "LastSeen",
+                   EXISTS (SELECT 1 FROM "AdminActivities" a
+                           {CalendarUnreadSql.JoinSeen("sc.\"StaffId\"")}
+                           WHERE a."MenuKey" = 'calendar' AND a."PropertyId" = @prop AND a."EntityKind" = @kind AND a."EntityKey" = @key
+                             AND {CalendarUnreadSql.Unread("sc.\"CreatedAtUtc\"", "sc.\"StaffId\"")}) AS "Unread",
+                   (SELECT count(*) FROM (
+                       SELECT 1 FROM "AdminActivities" a
+                       {CalendarUnreadSql.JoinSeen("sc.\"StaffId\"")}
+                       WHERE a."MenuKey" = 'calendar' AND a."PropertyId" = @prop AND {CalendarUnreadSql.Unread("sc.\"CreatedAtUtc\"", "sc.\"StaffId\"")}
+                       GROUP BY a."EntityKind", a."EntityKey") q) AS "Count"
+            FROM scopes sc
+            WHERE sc."MenuKey" = 'calendar' AND sc."PropertyId" = @prop
+            """, Access([staffId], Uuid("prop", property), Text("kind", entityKind), Text("key", key))).ToListAsync(cancellationToken);
 #pragma warning restore EF1002
 
-        var summary = await SummaryAsync(staffId, AdminMenuKeys.Calendar, cancellationToken);
-        var entry = summary.Menus.TryGetValue(AdminMenuKeys.Calendar, out var calendar) ? calendar.ByProperty?.FirstOrDefault(item => item.PropertyId == property) : null;
-        return entry is null
+        return seen.Count == 0
             ? new AdminMenuResult<CalendarEntitySeen>(AdminMenuStatus.UnknownMenu)
-            : new AdminMenuResult<CalendarEntitySeen>(AdminMenuStatus.Succeeded, new CalendarEntitySeen(property, entityKind!, key, Watermark(seen.LastSeen), seen.Unread, entry.Count, entry.CurrentWatermark));
+            : new AdminMenuResult<CalendarEntitySeen>(AdminMenuStatus.Succeeded, new CalendarEntitySeen(property, entityKind!, key, Watermark(seen[0].LastSeen), seen[0].Unread, Clamp(seen[0].Count), Watermark(seen[0].Current)));
     }
 
     private static bool IsPlainInteger(string value) => value.Length > 0 && value.All(char.IsAsciiDigit) && (value == "0" || value[0] != '0');
