@@ -89,8 +89,8 @@ public sealed record PromotionMediaFile(Stream Content, string ContentType);
 
 public interface IAdminPromotions
 {
-    /// <summary><c>null</c> when the Property does not exist.</summary>
-    Task<IReadOnlyList<PromotionSummaryDto>?> ListAsync(Guid propertyId, PromotionListQuery query, CancellationToken cancellationToken);
+    /// <summary><c>null</c> when the Property does not exist. The rows and the <c>promotions</c> stream number come from one snapshot (BHA-ADMIN-BADGE-001-PR10).</summary>
+    Task<WatermarkedList<PromotionSummaryDto>?> ListAsync(Guid propertyId, PromotionListQuery query, CancellationToken cancellationToken);
 
     Task<WebsiteMutationResult<PromotionEditorDto>> GetAsync(Guid propertyId, Guid promotionId, CancellationToken cancellationToken);
 

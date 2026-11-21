@@ -10,6 +10,9 @@
  * not a write's answer, an editor's detail, a picker or the activity views, and the watermark is never taken from the summary GET.
  *
  * A missing or malformed watermark (an older backend) is simply no mark: the data renders as before.
+ *
+ * BHA-ADMIN-BADGE-001-PR10: a Property-scoped screen passes its Property as `scope`. It is captured with the identity when the read starts and kept with the answer, it is a dependency (another
+ * Property is another read, superseded by generation, not by an AbortSignal that may be ignored), and a mark exists only while the Property on screen is the one the answer was read for.
  */
 
 import { useEffect, useState } from "react";
@@ -21,6 +24,8 @@ export interface ReadMark {
   watermark: string;
   /** The Staff identity that started the read. */
   by: string;
+  /** The Property the read was made for (a Property-scoped menu only). */
+  scope?: string;
   /** The answer it belongs to: a new answer with the same watermark is still a new chance to say it (an earlier call may have failed). */
   source: object;
 }
@@ -30,31 +35,35 @@ export function useMarkedList<T extends object>(
   deps: ReadonlyArray<unknown>,
   markOf: (data: T) => string | undefined,
   applies: (data: T) => boolean = () => true,
+  scope?: string,
 ) {
   const { identity } = useUnseenScope();
-  const [readers] = useState(() => new WeakMap<object, string>());
+  const [readers] = useState(() => new WeakMap<object, { by: string; scope?: string }>());
   const list = useWebsiteList<T>(async (signal) => {
     const result = await load(signal);
-    if (result.kind === "ok") readers.set(result.data, identity);
+    if (result.kind === "ok") readers.set(result.data, { by: identity, scope });
     return result;
-  }, [identity, ...deps]);
+  }, [identity, scope, ...deps]);
   const data = list.state.status === "ready" ? list.state.data : null;
   const watermark = data ? markOf(data) : undefined;
-  const by = data ? readers.get(data) : undefined;
+  const read = data ? readers.get(data) : undefined;
   const mark: ReadMark | null =
-    data !== null && !list.pending && by !== undefined && by !== "" && by === identity && isWatermark(watermark) && applies(data) ? { watermark, by, source: data } : null;
+    data !== null && !list.pending && read !== undefined && read.by !== "" && read.by === identity && read.scope === scope && isWatermark(watermark) && applies(data)
+      ? { watermark, by: read.by, ...(scope === undefined ? {} : { scope }), source: data }
+      : null;
   return { ...list, mark };
 }
 
-/** Says "seen up to this mark" for a menu, once per answer. Nothing without a mark; nothing without a provider (LocalGate). */
+/** Says "seen up to this mark" for a menu (and, for a Property-scoped one, the Property the mark was read for), once per answer. Nothing without a mark; nothing without a provider (LocalGate). */
 export function useAckOnRead(menu: SeenMenu, mark: ReadMark | null) {
   const seen = useMenuSeen();
   const watermark = mark?.watermark;
   const by = mark?.by;
+  const scope = mark?.scope;
   const source = mark?.source;
   useEffect(() => {
-    if (watermark && by && source) seen(menu, watermark, by);
-  }, [seen, menu, watermark, by, source]);
+    if (watermark && by && source) seen(menu, watermark, by, scope);
+  }, [seen, menu, watermark, by, scope, source]);
 }
 
 /** The lower of two marks of the SAME stream and identity (a screen that shows two reads of one stream is only as seen as the older of them); `null` when they are not comparable. */

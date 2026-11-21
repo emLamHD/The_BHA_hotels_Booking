@@ -15,9 +15,12 @@ import { useStaffSession } from "@/components/auth/StaffSession";
 import { ActionButton, Banner, ErrorPanel, LoadingPanel, PageHeader, TextAreaField, TextField, WriteFeedback, formatWhen } from "@/components/website/WebsiteUi";
 import { useWebsiteHost, type GateRule } from "@/components/website/WebsiteAccessGate";
 import { useWebsiteList, useWriteAction } from "@/components/website/useWebsiteData";
+import { useAckOnRead, useMarkedList } from "@/components/website/useMarkedList";
+import { useMenuUnseen } from "@/components/website/NewsletterBadgeProvider";
+import { unseenText } from "@/layout/UnseenBadge";
 import { useLeaveGuard } from "@/components/website/useLeaveGuard";
 import {
-  createPromotion, getPromotion, getPromotionRoomTypes, listPromotions, promotionCoverSrc, savePromotion, setPromotionStatus, uploadPromotionCover,
+  createPromotion, getPromotion, getPromotionRoomTypes, listPromotions, promotionCoverSrc, readPromotions, savePromotion, setPromotionStatus, uploadPromotionCover,
   type PromotionEditor, type PromotionFilter, type PromotionStatus, type PromotionSummary, type RoomTypeChoice,
 } from "@/lib/api/promotions";
 import {
@@ -97,7 +100,15 @@ function PromotionList({
     const timer = setTimeout(() => setApplied(filter), 300);
     return () => clearTimeout(timer);
   }, [filter]);
-  const list = useWebsiteList((signal) => listPromotions(propertyId, applied, signal), [propertyId, applied.status, applied.q, applied.homepage]);
+  // BHA-ADMIN-BADGE-001-PR10: "seen" is said only for THIS list, once it is on screen (an empty one included), with the watermark of that very answer and the Property it was read for. The editor, the
+  // room types, a write's answer, the popover and the summary never say it; a late answer for another Property, filter or Staff member has no mark.
+  const list = useMarkedList(
+    (signal) => readPromotions(propertyId, applied, signal), [applied.status, applied.q, applied.homepage], (data) => data.viewWatermark, undefined, propertyId,
+  );
+  useAckOnRead("promotions", list.mark);
+  // The Property selector shows the API's own number per Property it lists (never 0 for one it does not, never a number made up here).
+  const unseenByProperty = useMenuUnseen().promotions?.byProperty;
+  const unseenOf = (id: string) => unseenByProperty?.find((property) => property.propertyId === id)?.count ?? 0;
   const filtering = applied.status !== "" || applied.q.trim() !== "" || applied.homepage !== "";
 
   return (
@@ -107,7 +118,7 @@ function PromotionList({
           <label className="flex min-w-[12rem] flex-col gap-1 text-sm font-medium text-gray-700 dark:text-gray-300">
             Cơ sở
             <select aria-label="Cơ sở" data-testid="promotion-property" className={FIELD} value={propertyId} onChange={(e) => onProperty(e.target.value)}>
-              {memberships.map((m) => <option key={m.propertyId} value={m.propertyId}>{m.propertyName}</option>)}
+              {memberships.map((m) => <option key={m.propertyId} value={m.propertyId}>{unseenOf(m.propertyId) > 0 ? `${m.propertyName} (${unseenText(unseenOf(m.propertyId))} chưa xem)` : m.propertyName}</option>)}
             </select>
           </label>
         )}
@@ -135,14 +146,14 @@ function PromotionList({
 
       {list.state.status === "loading" && <LoadingPanel what="ưu đãi" />}
       {list.state.status === "error" && <ErrorPanel message={list.state.message} onRetry={() => void list.reload()} />}
-      {list.state.status === "ready" && list.state.data.length === 0 && (
+      {list.state.status === "ready" && list.state.data.items.length === 0 && (
         <div role="status" data-testid="promotion-empty" className={`${CARD} text-sm text-gray-600 dark:text-gray-300`}>
           {filtering ? "Không có ưu đãi nào khớp bộ lọc." : "Cơ sở này chưa có ưu đãi nào. Bấm “Tạo ưu đãi” để bắt đầu."}
         </div>
       )}
-      {list.state.status === "ready" && list.state.data.length > 0 && (
+      {list.state.status === "ready" && list.state.data.items.length > 0 && (
         <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3" data-testid="promotion-list">
-          {list.state.data.map((p) => <PromotionCard key={p.id} p={p} propertyId={propertyId} onOpen={() => onOpen(p.id)} />)}
+          {list.state.data.items.map((p) => <PromotionCard key={p.id} p={p} propertyId={propertyId} onOpen={() => onOpen(p.id)} />)}
         </ul>
       )}
     </>
