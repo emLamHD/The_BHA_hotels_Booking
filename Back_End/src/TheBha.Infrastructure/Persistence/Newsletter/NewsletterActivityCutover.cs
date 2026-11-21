@@ -23,8 +23,10 @@ internal sealed class NewsletterActivityCutover(TheBhaDbContext database, TimePr
         try
         {
             var milliseconds = (long)Math.Ceiling(lockTimeout.TotalMilliseconds);
-            // SET LOCAL takes no bind parameter: the value is a number this method computed.
+            // SET LOCAL takes no bind parameter: the value is a number this method computed (never text from a caller).
+#pragma warning disable EF1002
             await database.Database.ExecuteSqlRawAsync($"SET LOCAL lock_timeout = {milliseconds.ToString(CultureInfo.InvariantCulture)}", cancellationToken);
+#pragma warning restore EF1002
             await database.Database.ExecuteSqlRawAsync("""LOCK TABLE "NewsletterVerificationActivities" IN SHARE ROW EXCLUSIVE MODE""", cancellationToken);
 
             var now = timeProvider.GetUtcNow();
