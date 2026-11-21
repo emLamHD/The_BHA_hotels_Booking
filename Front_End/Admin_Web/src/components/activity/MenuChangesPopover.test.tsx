@@ -530,4 +530,92 @@ describe("the Calendar's «Đánh dấu đã xem» (PR-13)", () => {
   });
 });
 
+// ---- BHA-ADMIN-BADGE-001-PR13-C1: what a button's state belongs to is ONE view of a scope. Leaving the scope (or closing) ends it; A → B → A is two different views of A.
+describe("the Calendar's button state belongs to one view of one scope (PR-13-C1)", () => {
+  beforeEach(() => {
+    ui.menus = { calendar: perProperty(3, 2) };
+  });
+  /** What the GET of each Property answers right now: the one Removed item b-1 with this observedWatermark (Property B always 4). */
+  let observedA: string;
+  beforeEach(() => {
+    observedA = "8";
+    ui.changes.mockImplementation(async (_menu: string, propertyId: string) => calendarBody(propertyId, [calendarGroup("b-1", "Removed", propertyId === "p-0" ? observedA : "4")]));
+  });
+  const toProperty = async (id: string) => {
+    await userEvent.selectOptions(screen.getByTestId("unseen-popover-property"), id);
+    await screen.findAllByTestId("unseen-popover-group");
+    await waitFor(() => expect(within(screen.getByTestId("unseen-popover")).getByTestId("unseen-popover-total")).toBeTruthy());
+  };
+  const button = () => screen.getByTestId("unseen-popover-mark-seen");
+
+  it("A → B → A with an error that arrives while B is shown: the new view of A, which the GET answers with a NEWER watermark, can be clicked and sends exactly that watermark", async () => {
+    const wire = deferred<unknown>();
+    ui.calendarSeen.mockReturnValueOnce(wire.promise);
+    mountCalendar();
+    await userEvent.click(await screen.findByTestId("unseen-popover-mark-seen"));                          // A at 8, on the wire
+    await toProperty("p-1");
+    await act(async () => wire.resolve({ kind: "failed" }));                                               // A's old call fails while B is shown
+    observedA = "9";
+    await toProperty("p-0");                                                                               // the same mounted popover, A again
+    expect(screen.queryByTestId("unseen-popover-mark-error")).toBeNull();
+    expect(button().getAttribute("aria-disabled")).toBeNull();
+    ui.calendarSeen.mockResolvedValue(answer(false, "9"));
+    await userEvent.click(button());
+    expect(ui.calendarSeen).toHaveBeenLastCalledWith("staff-a", { propertyId: "p-0", entityKind: "room-block", entityId: "b-1", observedWatermark: "9" });
+  });
+
+  it("A → B → A where the GET answers the SAME item as before: an old call that settled while away leaves the new view's button usable, not stuck and not showing the old error", async () => {
+    const wire = deferred<unknown>();
+    ui.calendarSeen.mockReturnValueOnce(wire.promise);
+    mountCalendar();
+    await userEvent.click(await screen.findByTestId("unseen-popover-mark-seen"));
+    await toProperty("p-1");
+    await act(async () => wire.resolve({ kind: "failed" }));
+    await toProperty("p-0");
+    expect(screen.queryByTestId("unseen-popover-mark-error")).toBeNull();
+    expect(button().getAttribute("aria-disabled")).toBeNull();
+    ui.calendarSeen.mockResolvedValue(answer(false, "8"));
+    await userEvent.click(button());
+    expect(ui.calendarSeen).toHaveBeenCalledTimes(2);
+  });
+
+  it("A → B → A with the old call still unsettled: its late success (watermark 8) neither reads A again, nor hides, nor disturbs the new view that shows the item at 9; the button is free afterwards", async () => {
+    const wire = deferred<unknown>();
+    ui.calendarSeen.mockReturnValueOnce(wire.promise);
+    mountCalendar();
+    await userEvent.click(await screen.findByTestId("unseen-popover-mark-seen"));
+    await toProperty("p-1");
+    observedA = "9";
+    await toProperty("p-0");
+    const reads = ui.changes.mock.calls.length;
+    await act(async () => wire.resolve(answer(false, "8")));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); });
+    expect(ui.changes).toHaveBeenCalledTimes(reads);                                                       // the old view's answer read nothing
+    expect(screen.getAllByTestId("unseen-popover-group")).toHaveLength(1);
+    expect(button().getAttribute("aria-disabled")).toBeNull();
+    ui.calendarSeen.mockResolvedValue(answer(false, "9"));
+    await userEvent.click(button());
+    expect(ui.calendarSeen).toHaveBeenLastCalledWith("staff-a", expect.objectContaining({ observedWatermark: "9" }));
+  });
+
+  it("an old view's late error or success cannot overwrite the pending state of a call the new view made", async () => {
+    const old = deferred<unknown>();
+    const fresh = deferred<unknown>();
+    ui.calendarSeen.mockReturnValueOnce(old.promise).mockReturnValueOnce(fresh.promise);
+    mountCalendar();
+    await userEvent.click(await screen.findByTestId("unseen-popover-mark-seen"));
+    await toProperty("p-1");
+    await toProperty("p-0");
+    await userEvent.click(button());                                                                       // the new view of A, the SAME item and watermark: its own call
+    expect(ui.calendarSeen).toHaveBeenCalledTimes(2);
+    expect(button().getAttribute("aria-disabled")).toBe("true");
+    await act(async () => old.resolve({ kind: "failed" }));                                                // the old view's answer arrives
+    expect(button().getAttribute("aria-disabled")).toBe("true");                                           // still the new call's pending
+    expect(screen.queryByTestId("unseen-popover-mark-error")).toBeNull();
+    await act(async () => fresh.resolve({ kind: "failed" }));
+    expect(await screen.findByTestId("unseen-popover-mark-error")).toBeTruthy();                           // the new view's own answer is shown
+    expect(button().getAttribute("aria-disabled")).toBeNull();
+  });
+});
+
 const popoverPanel = () => screen.getByTestId("unseen-popover");

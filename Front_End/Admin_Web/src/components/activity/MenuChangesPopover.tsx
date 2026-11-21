@@ -81,9 +81,12 @@ function removedTarget(group: UnseenGroup): { entityKind: CalendarEntityKind; en
 }
 const groupKey = (group: UnseenGroup) => `${group.entityKind}|${group.entityId ?? ""}|${group.observedWatermark ?? ""}`;
 
-/** What the acknowledgements of ONE scope have done: groups to hide, calls on the wire, calls that failed. Another scope sees none of it. */
+/**
+ * What the acknowledgements of ONE VIEW of a scope have done (PR-13-C1): groups to hide, calls on the wire, calls that failed. `view` is a number that changes every time the scope changes, so
+ * A → B → A is two different views of A: nothing of the first (a pending call, an error, a hidden group) is carried into the second, and an answer that belongs to the first is dropped.
+ */
 interface AckState {
-  scope: string;
+  view: number;
   hidden: readonly string[];
   pending: readonly string[];
   failed: readonly string[];
@@ -117,12 +120,16 @@ export default function MenuChangesPopover({ target, onClose }: { target: Popove
   const { view, retry, reload } = useChanges(scope.identity, resolved?.menu, resolved?.propertyId, scope.reportAuth);
   const seenCalendarEntity = useCalendarSeen();
   const ackScope = `${scope.identity}|${resolved?.menu ?? ""}|${resolved?.propertyId ?? ""}`;
-  const [ackRaw, setAck] = useState<AckState>({ scope: ackScope, hidden: [], pending: [], failed: [] });
-  const ack: AckState = ackRaw.scope === ackScope ? ackRaw : { scope: ackScope, hidden: [], pending: [], failed: [] };
-  const live = useRef({ mounted: true, scope: ackScope });
+  // A new view starts in the very render the scope changes in (also when it comes back to an earlier value), like the list's own life.
+  const [track, setTrack] = useState({ scope: ackScope, view: 0 });
+  if (track.scope !== ackScope) setTrack({ scope: ackScope, view: track.view + 1 });
+  const ackView = track.scope === ackScope ? track.view : track.view + 1;
+  const [ackRaw, setAck] = useState<AckState>({ view: ackView, hidden: [], pending: [], failed: [] });
+  const ack: AckState = ackRaw.view === ackView ? ackRaw : { view: ackView, hidden: [], pending: [], failed: [] };
+  const live = useRef({ mounted: true, view: ackView });
   useEffect(() => {
-    live.current.scope = ackScope;
-  }, [ackScope]);
+    live.current.view = ackView;
+  }, [ackView]);
   useEffect(() => {
     const state = live.current;
     state.mounted = true;
@@ -197,16 +204,16 @@ export default function MenuChangesPopover({ target, onClose }: { target: Popove
     const object = removedTarget(group);
     if (!object || resolved?.menu !== "calendar" || !resolved.propertyId) return;
     const item = groupKey(group);
-    const forScope = ackScope;
+    const forView = ackView;
     const forProperty = resolved.propertyId;
     const change = (update: (state: AckState) => Partial<AckState>) =>
       setAck((state) => {
-        const base = state.scope === forScope ? state : { scope: forScope, hidden: [], pending: [], failed: [] };
+        const base = state.view === forView ? state : { view: forView, hidden: [], pending: [], failed: [] };
         return { ...base, ...update(base) };
       });
     change((state) => ({ pending: [...state.pending, item], failed: state.failed.filter((other) => other !== item) }));
     const result = await seenCalendarEntity(scope.identity, { propertyId: forProperty, ...object });
-    if (!live.current.mounted || live.current.scope !== forScope) return;      // closed, or another Staff/menu/Property now: nothing of this belongs on screen
+    if (!live.current.mounted || live.current.view !== forView) return;        // closed, or another view now (even of the same scope): nothing of this belongs on screen
     const settle = (extra: (state: AckState) => Partial<AckState> = () => ({})) => change((state) => ({ pending: state.pending.filter((other) => other !== item), ...extra(state) }));
     if (result.kind === "dropped") return settle();
     if (result.kind === "failed") return settle((state) => ({ failed: [...state.failed, item] }));
