@@ -380,6 +380,131 @@ describe("the provider's pipeline is per menu", () => {
   });
 });
 
+describe("an acknowledgement for a menu the latest summary does not list yet is kept, not lost (BHA-ADMIN-BADGE-001-PR07-C2)", () => {
+  /** A summary that does not list the Blog menus: the permission was just granted (or restored) and the cached answer has not caught up. */
+  const NOT_YET = { kind: "ok", data: {} } as never;
+  const granted = (count = 3) => ({ kind: "ok", data: { "blog-posts": entry("0", "9", count) } }) as never;
+  const refresh = async () => {
+    const before = summary.mock.calls.length;
+    await act(async () => { window.dispatchEvent(new Event("focus")); });
+    await waitFor(() => expect(summary.mock.calls.length).toBeGreaterThan(before), { timeout: BADGE_COALESCE_MS + 2000 });
+    await flush();
+  };
+  function Count() {
+    return <span data-testid="posts-count">{useMenuUnseen()["blog-posts"]?.count ?? "-"}</span>;
+  }
+  const say_ = (menu: Parameters<typeof say>[0], watermark: string, identity = STAFF_A.staffAccountId) => act(async () => { say(menu, watermark, identity); });
+  const ready = async (node: React.ReactNode = null) => {
+    mount(node);
+    await waitFor(() => expect(summary).toHaveBeenCalledTimes(1));
+    await flush();
+  };
+
+  it("the page read succeeded once, with no menu in the summary: no POST yet; the next summary lists the menu: exactly ONE POST with the watermark of that read, the badge follows the answer, and the page is not reloaded", async () => {
+    summary.mockResolvedValue(NOT_YET);
+    posts.mockResolvedValue(ok(postList(["Bài một"], { viewWatermark: "5" })) as never);
+    await ready(<><Count /><PostsScreen /></>);
+    await screen.findByText("Bài một");
+    await flush();
+    expect(sent()).toEqual([]);                                                              // the menu is not listed: nothing is said yet
+    expect(posts).toHaveBeenCalledTimes(1);
+
+    await refresh();                                                                         // still not listed: it keeps waiting
+    expect(sent()).toEqual([]);
+
+    summary.mockResolvedValue(granted(3));                                                   // the same Staff member's next summary lists it
+    await refresh();
+    await waitFor(() => expect(sent()).toEqual(["blog-posts:5"]));                           // the watermark of the read that was shown, never the summary's 9
+    await waitFor(() => expect(screen.getByTestId("posts-count").textContent).toBe("0"));    // the badge follows the server's answer to that POST
+    expect(posts).toHaveBeenCalledTimes(1);                                                  // no reload was needed
+
+    await refresh();                                                                         // later summaries do not say it again
+    await refresh();
+    expect(sent()).toEqual(["blog-posts:5"]);
+  });
+
+  it("several reads wait: only the largest watermark that is newer than the cursor goes out, once, when the menu is listed", async () => {
+    summary.mockResolvedValue(NOT_YET);
+    await ready();
+    await say_("blog-posts", "5");
+    await say_("blog-posts", "8");
+    await say_("blog-posts", "6");
+    expect(sent()).toEqual([]);
+
+    summary.mockResolvedValue({ kind: "ok", data: { "blog-posts": entry("0", "100", 4) } } as never);
+    await refresh();
+    await waitFor(() => expect(sent()).toEqual(["blog-posts:8"]));
+    await refresh();
+    expect(sent()).toEqual(["blog-posts:8"]);
+  });
+
+  it("a waiting watermark the server's cursor already covers is dropped when the menu is listed", async () => {
+    summary.mockResolvedValue(NOT_YET);
+    await ready();
+    await say_("blog-posts", "5");
+    summary.mockResolvedValue({ kind: "ok", data: { "blog-posts": entry("7", "100", 1) } } as never);       // the cursor is already at 7
+    await refresh();
+    await flush();
+    expect(sent()).toEqual([]);
+  });
+
+  it("a waiting acknowledgement does not survive another Staff member taking over", async () => {
+    summary.mockResolvedValue(NOT_YET);
+    await ready();
+    await say_("blog-posts", "7");
+
+    vi.mocked(fetchStaffSession).mockResolvedValue({ kind: "authenticated", session: STAFF_B });
+    summary.mockResolvedValue(granted(2));
+    await act(async () => { await session!.refresh(); });
+    await waitFor(() => expect(summary.mock.calls.length).toBeGreaterThan(1));
+    await flush();
+    await refresh();
+    expect(sent()).toEqual([]);                                                              // A's 7 was dropped with A's session; B's own page would say its own
+  });
+
+  it("a waiting acknowledgement does not survive a sign-out", async () => {
+    summary.mockResolvedValue(NOT_YET);
+    await ready();
+    await say_("blog-posts", "7");
+
+    await act(async () => { session!.expire(); });
+    vi.mocked(fetchStaffSession).mockResolvedValue({ kind: "authenticated", session: STAFF_A });
+    summary.mockResolvedValue(granted(2));
+    await act(async () => { session!.retry(); });                                            // the same Staff member signs in again: a new life
+    await waitFor(() => expect(summary.mock.calls.length).toBeGreaterThan(1));
+    await flush();
+    await refresh();
+    expect(sent()).toEqual([]);
+  });
+
+  it("a summary of the old session that answers late cannot send anything", async () => {
+    summary.mockResolvedValue(NOT_YET);
+    await ready();
+    await say_("blog-posts", "7");
+
+    const late = deferred<unknown>();
+    summary.mockReturnValueOnce(late.promise as never);
+    await act(async () => { window.dispatchEvent(new Event("focus")); });                    // A asks again …
+    await waitFor(() => expect(summary).toHaveBeenCalledTimes(2), { timeout: BADGE_COALESCE_MS + 2000 });
+    vi.mocked(fetchStaffSession).mockResolvedValue({ kind: "authenticated", session: STAFF_B });
+    summary.mockResolvedValue(NOT_YET);
+    await act(async () => { await session!.refresh(); });                                    // … B takes over before it answers
+    await flush();
+    await act(async () => { late.resolve(granted(3)); await Promise.resolve(); });           // A's late summary now lists the menu
+    await flush();
+    expect(sent()).toEqual([]);
+  });
+
+  it("the Newsletter is untouched: it never waited for the summary", async () => {
+    vi.mocked(markNewsletterSeen).mockResolvedValue({ kind: "ok", data: entry("4", "100") } as never);
+    summary.mockResolvedValue(NOT_YET);
+    await ready();
+    await say_("newsletter", "4");
+    expect(markNewsletterSeen).toHaveBeenCalledWith("4");
+    expect(seenCall).not.toHaveBeenCalled();
+  });
+});
+
 describe("two reads of one stream are only as seen as the older of them", () => {
   const mark = (watermark: string, by = "A"): ReadMark => ({ watermark, by, source: {} });
   it("is the lower watermark, compared as integers, and only for the same identity", () => {

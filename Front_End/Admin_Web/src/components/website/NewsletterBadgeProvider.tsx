@@ -147,6 +147,13 @@ export function MenuUnseenProvider({ children }: { children: React.ReactNode }) 
   const allowed = useRef<Set<string> | null>(null);
   const issued = useRef(0);
   const generation = useRef(0);
+  /**
+   * BHA-ADMIN-BADGE-001-PR07-C2: acknowledgements for a Blog menu that the latest summary did not list (a permission just granted or restored, the cached answer not caught up). The newest
+   * watermark per menu is kept, from a read that WAS shown, until a successful summary of this same life lists the menu; then it goes out through the normal pipeline. Never from a summary,
+   * and emptied with the life (sign-out, expiry, another Staff member).
+   */
+  const deferred = useRef(new Map<SeenMenu, bigint>());
+  const flushDeferred = useRef<(forIdentity: string) => void>(() => undefined);
   const sessionRef = useRef({ refresh, expire, failAccessCheck });
   sessionRef.current = { refresh, expire, failAccessCheck };
 
@@ -168,6 +175,7 @@ export function MenuUnseenProvider({ children }: { children: React.ReactNode }) 
       for (const [key, entry] of Object.entries(summary)) if (entry) offer(known.current, key, entry, seq);
       allowed.current = keys;
       publish(forIdentity);
+      flushDeferred.current(forIdentity);                                                    // a menu that is listed now can say what it was waiting to say
     },
     [publish],
   );
@@ -291,9 +299,14 @@ export function MenuUnseenProvider({ children }: { children: React.ReactNode }) 
     (menu: SeenMenu, watermark: string, forIdentity: string) => {
       if (!identityRef.current || forIdentity !== identityRef.current) return;     // another (or no) Staff identity: not ours to say
       if (!/^(0|[1-9][0-9]*)$/.test(watermark)) return;
-      // A Blog menu the latest answer leaves out: this Staff member may not read it, so there is nothing to acknowledge, and nothing brings it back. (The Newsletter's call is unchanged: it never consulted the answer.)
-      if (menu !== "newsletter" && allowed.current && !allowed.current.has(menu)) return;
       const value = BigInt(watermark);
+      // A Blog menu the latest answer leaves out is not readable as far as the API has said: nothing is sent and the menu is never brought back. The watermark of a read that WAS shown is kept (the
+      // newest per menu) for the next successful summary of this life that lists the menu. (The Newsletter's call is unchanged: it never consulted the answer.)
+      if (menu !== "newsletter" && allowed.current && !allowed.current.has(menu)) {
+        const waiting = deferred.current.get(menu);
+        if (waiting === undefined || value > waiting) deferred.current.set(menu, value);
+        return;
+      }
       const last = known.current.get(menu)?.marks[0]?.last;
       if (last !== undefined && value <= last) return;                             // nothing new to say
       const state = slot(menu);
@@ -306,6 +319,15 @@ export function MenuUnseenProvider({ children }: { children: React.ReactNode }) 
     [send],
   );
   const ack = useCallback((watermark: string, forIdentity: string) => seen("newsletter", watermark, forIdentity), [seen]);
+  useEffect(() => {
+    flushDeferred.current = (forIdentity) => {
+      for (const [menu, value] of [...deferred.current]) {
+        if (!allowed.current?.has(menu)) continue;                                           // still not listed: keep waiting
+        deferred.current.delete(menu);
+        seen(menu, String(value), forIdentity);                                              // the same pipeline: dedupe against the cursor, one call per menu in flight, retry, stale guards
+      }
+    };
+  }, [seen]);
 
   // ---- one life per Staff identity
   useEffect(() => {
@@ -317,6 +339,7 @@ export function MenuUnseenProvider({ children }: { children: React.ReactNode }) 
     fetching.current = false;
     again.current = false;
     acks.current = new Map();
+    deferred.current = new Map();
     void runRefresh();
 
     const poll = setInterval(() => {
@@ -338,6 +361,7 @@ export function MenuUnseenProvider({ children }: { children: React.ReactNode }) 
       fetching.current = false;
       known.current = new Map();
       allowed.current = null;
+      deferred.current = new Map();                                                          // what waited belonged to this life only
       setSnapshot(null);
     };
   }, [identity, runRefresh, requestRefresh]);
