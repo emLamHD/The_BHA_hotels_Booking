@@ -76,8 +76,9 @@ const click = async (testId: string) => userEvent.click(buttonOf(testId));
 const badge = () => screen.getByTestId("badge").textContent;
 const openOf = (kind: "legacy" | "activity") =>
   live.started.filter((started) => !started.controller.dispose.mock.calls.length && (kind === "activity") === (started.options.events !== undefined));
-const connection = () => openOf("legacy").at(-1)!;
-const signal = (id: string) => act(async () => { connection().options.handlers.onSignal({ eventId: id, occurredAtUtc: "" }); });
+// BHA-ADMIN-BADGE-001-PR14: the shell's shared activity Hub is the only connection; a hint for the Newsletter menu is what the screen hears (it carries no id: `_id` only labels the call site).
+const connection = () => openOf("activity").at(-1)!;
+const signal = (_id?: string) => { void _id; return act(async () => { connection().options.handlers.onSignal({ eventId: "", occurredAtUtc: "", menuKey: "newsletter" }); }); };
 
 let server: NewsletterSubscription[];
 let watermark: string | undefined;
@@ -269,8 +270,8 @@ describe("one source, one connection", () => {
     serve();
     mount(true);
     await screen.findByTestId("newsletter-row-r01@example.com");
-    expect(openOf("legacy")).toHaveLength(1);                                                 // the screen shares the shell's legacy connection, and the activity Hub is the shell's too
-    expect(openOf("activity")).toHaveLength(1);
+    expect(openOf("legacy")).toHaveLength(0);                                                 // the legacy Newsletter Hub is never opened by this build
+    expect(openOf("activity")).toHaveLength(1);                                               // the screen shares the shell's one shared Hub
     await signal("e1");
     await screen.findByTestId("newsletter-live-toast");
     expect(screen.getAllByTestId("newsletter-live-toast")).toHaveLength(1);

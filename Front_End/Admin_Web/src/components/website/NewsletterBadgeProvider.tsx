@@ -7,7 +7,7 @@
  * Mounted once, in `AdminStaffScope`, inside the shared Staff session, for ANY confirmed Staff identity (a Blog-only or Property-only Staff included): which menus and Properties they
  * may read is decided by the API, which leaves the others out of its answer. In `LocalGate` nothing is mounted: nothing is requested and no socket opens.
  *
- * What a number is: whatever the API says (`GET menu-unseen`). Nothing is counted here: a SignalR hint or a legacy Newsletter signal only schedules that GET. It is asked for when the
+ * What a number is: whatever the API says (`GET menu-unseen`). Nothing is counted here: a SignalR hint only schedules that GET. It is asked for when the
  * session is confirmed, after a hint (gathered), after a reconnect, when the tab returns to the foreground or gets focus, and every 30 s while visible; one GET is on the wire at a
  * time and one wanted meanwhile runs once afterwards. A failed GET keeps the last valid answer of the same identity (never zero, never a sign-out; only a 401/403 from the API says
  * that, and goes to the session the way every other one does).
@@ -17,8 +17,8 @@
  * (the Newsletter's legacy cascade delete changes a count without moving a watermark). The state is tagged with the identity it was read for and shown only to that identity, so a new
  * Staff, a sign-out or an unmount shows nothing of the old one from the very next render; a new generation also drops whatever is still on the wire.
  *
- * Two connections, one GET path: the shared activity Hub (any identity) and the legacy Newsletter Hub (only a Staff who holds the website permission), which the Newsletter screen
- * shares through `useNewsletterLiveFeed` for its toast, refresh and catch-up (it never opens a third).
+ * One connection, one GET path (BHA-ADMIN-BADGE-001-PR14): the shared activity Hub (any identity). Its hints for the `newsletter` menu are also handed to the Newsletter screen through
+ * `useNewsletterLiveFeed` for its notice, refresh and catch-up; the legacy Newsletter Hub is no longer opened by this build (the API keeps it only for an older Admin build during the rollout).
  *
  * "Seen" is said by a menu's own screen after a list answered successfully, with the watermark THAT answer carried, to `POST menu-unseen/{menu}/seen`: the Newsletter screen through `ack`,
  * the Blog (BHA-ADMIN-BADGE-001-PR07), Website (PR09) and Promotions (PR10) screens through `useMenuSeen`. It is never optimistic: the number changes when the server answers, and a failed call is
@@ -35,7 +35,6 @@
  */
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { WEBSITE_SETTINGS_PERMISSION } from "@/lib/api/staff";
 import {
   MENU_ACTIVITY_EVENT,
   MENU_ACTIVITY_READY_EVENT,
@@ -51,9 +50,9 @@ import {
   type MenuUnseenSummary,
 } from "@/lib/api/menuUnseen";
 import { ADMIN_MENU, type AdminMenuKey } from "@/lib/adminMenus";
-import { startNewsletterLive, type LiveStatus, type LiveStopReason } from "@/lib/website/newsletterLive";
+import { startNewsletterLive, type LiveController, type LiveStatus, type LiveStopReason } from "@/lib/website/newsletterLive";
 import { useStaffSession } from "@/components/auth/StaffSession";
-import { useNewsletterLive, useNewsletterLiveConnection, type LiveCallbacks } from "./useNewsletterLive";
+import { NEWSLETTER_MENU, useNewsletterLive, type LiveCallbacks } from "./useNewsletterLive";
 
 /** How often the numbers are asked for while the tab is visible, whatever the sockets say. */
 export const BADGE_POLL_MS = 30_000;
@@ -188,8 +187,6 @@ export function MenuUnseenProvider({ children }: { children: React.ReactNode }) 
   const { state, refresh, expire, failAccessCheck } = useStaffSession();
   const session = state.status === "authenticated" ? state.session : null;
   const identity = session?.staffAccountId ?? "";
-  // Only a Staff who holds the website permission has a legacy Newsletter connection (its Hub refuses everyone else).
-  const legacyIdentity = session && (session.permissions ?? []).includes(WEBSITE_SETTINGS_PERMISSION) ? identity : "";
   const identityRef = useRef(identity);
   identityRef.current = identity;
 
@@ -521,25 +518,7 @@ export function MenuUnseenProvider({ children }: { children: React.ReactNode }) 
     };
   }, [identity, runRefresh, requestRefresh]);
 
-  // ---- the shared activity Hub: a hint only schedules the GET; its payload is never read for a number
-  useEffect(() => {
-    if (!identity) return undefined;
-    const gen = generation.current;                                                // this life's: a callback of a connection that outlived it can never act on the next one
-    const hub = startNewsletterLive({
-      target: menuActivityLiveTarget(),
-      events: { signal: MENU_ACTIVITY_EVENT, ready: MENU_ACTIVITY_READY_EVENT, isSignal: isMenuActivityHint },
-      handlers: {
-        onReady: requestRefresh,
-        onSignal: requestRefresh,
-        onStatus: () => undefined,
-        onUnauthenticated: () => authFailure("unauthenticated", gen),
-        onDenied: () => authFailure("denied", gen),
-      },
-    });
-    return () => hub.dispose();
-  }, [identity, requestRefresh, authFailure]);
-
-  // ---- the legacy Newsletter connection, shared with the Newsletter screen (toast, refresh, catch-up); its signals too only schedule the GET
+  // ---- the shared activity Hub: a hint only schedules the GET; its payload is never read for a number. The Newsletter screen listens through `subscribe` (toast, refresh, catch-up).
   const listeners = useRef(new Set<LiveCallbacks>());
   const subscribe = useCallback((callbacks: LiveCallbacks) => {
     listeners.current.add(callbacks);
@@ -547,31 +526,44 @@ export function MenuUnseenProvider({ children }: { children: React.ReactNode }) 
       listeners.current.delete(callbacks);
     };
   }, []);
-  const callbacks = useMemo<LiveCallbacks>(
-    () => ({
-      onReady: () => {
-        requestRefresh();
-        for (const listener of [...listeners.current]) listener.onReady();
+  const [hubState, setHubState] = useState<{ status: LiveStatus; stoppedFor?: LiveStopReason }>({ status: "connecting" });
+  const hubController = useRef<LiveController | null>(null);
+  useEffect(() => {
+    if (!identity) return undefined;
+    const gen = generation.current;                                                // this life's: a callback of a connection that outlived it can never act on the next one
+    let closed = false;
+    setHubState({ status: "connecting" });
+    const hub = startNewsletterLive({
+      target: menuActivityLiveTarget(),
+      events: { signal: MENU_ACTIVITY_EVENT, ready: MENU_ACTIVITY_READY_EVENT, isSignal: isMenuActivityHint },
+      handlers: {
+        onReady: () => {
+          requestRefresh();
+          if (!closed) for (const listener of [...listeners.current]) listener.onReady();
+        },
+        onSignal: (signal) => {
+          requestRefresh();
+          if (!closed && signal.menuKey === NEWSLETTER_MENU) for (const listener of [...listeners.current]) listener.onNew(1);
+        },
+        onStatus: (status, stoppedFor) => {
+          if (!closed) setHubState({ status, stoppedFor: status === "stopped" ? stoppedFor : undefined });
+        },
+        onUnauthenticated: () => authFailure("unauthenticated", gen),
+        onDenied: () => authFailure("denied", gen),
       },
-      onNew: (n) => {
-        requestRefresh();
-        for (const listener of [...listeners.current]) listener.onNew(n);
-      },
-    }),
-    [requestRefresh],
-  );
-  const auth = useMemo(
-    () => ({
-      onUnauthenticated: () => authFailure("unauthenticated", generation.current),
-      onDenied: () => authFailure("denied", generation.current),
-    }),
-    [authFailure],
-  );
-  const live = useNewsletterLiveConnection(legacyIdentity, callbacks, auth, legacyIdentity !== "");
+    });
+    hubController.current = hub;
+    return () => {
+      closed = true;
+      hub.dispose();
+      if (hubController.current === hub) hubController.current = null;
+    };
+  }, [identity, requestRefresh, authFailure]);
+  const retry = useCallback(() => hubController.current?.retryNow(), []);
 
   const shared = useMemo<SharedLive>(
-    () => ({ status: live.status, stoppedFor: live.stoppedFor, retry: live.retry, subscribe, ack, seen, seenCalendarEntity }),
-    [live.status, live.stoppedFor, live.retry, subscribe, ack, seen, seenCalendarEntity],
+    () => ({ status: hubState.status, stoppedFor: hubState.stoppedFor, retry, subscribe, ack, seen, seenCalendarEntity }),
+    [hubState, retry, subscribe, ack, seen, seenCalendarEntity],
   );
   // Tagged with the identity it was read for: for any other identity (or none) it is empty from this very render, before any effect has run.
   const menus = snapshot && snapshot.identity === identity ? snapshot.menus : EMPTY;

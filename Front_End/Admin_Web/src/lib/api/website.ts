@@ -625,12 +625,6 @@ export const listNewsletterSubscriptions = (
     { write: false, parse: parseNewsletterSubscriptionPage, signal });
 };
 
-/**
- * BHA-NEWSLETTER-LIVE-001: where the Newsletter live Hub is, built like every other Admin API address (Staff mode, HTTPS base URL). Behind the opt-in same-origin proxy
- * (BHA-ADMIN-PROXY-001) a Next rewrite cannot carry a WebSocket upgrade: the connection then cannot start, the screen says so, and the list keeps working by hand.
- */
-export const newsletterLiveTarget = () => target(`${SETTINGS}/newsletter-live`);
-
 const SUBSCRIPTIONS = `${SETTINGS}/newsletter-subscriptions`;
 const writeRow = (path: string, body: unknown) => call<NewsletterSubscription>("POST", `${SUBSCRIPTIONS}${path}`, body, { write: true, parse: parseNewsletterSubscription });
 

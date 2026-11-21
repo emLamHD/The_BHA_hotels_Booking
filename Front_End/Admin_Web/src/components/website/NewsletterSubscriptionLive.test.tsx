@@ -42,6 +42,7 @@ import WebsiteAccessGate from "./WebsiteAccessGate";
 import { LIVE_COALESCE_MS } from "./useNewsletterLive";
 import { ALLOWED, deferred, ok, renderInGate } from "./websiteTestUtils";
 import { fetchStaffSession } from "@/lib/api/staff";
+import { menuActivityLiveTarget } from "@/lib/api/menuUnseen";
 import {
   archiveNewsletterSubscription,
   createNewsletterSubscription,
@@ -82,7 +83,8 @@ const connection = () => {
   expect(open.length).toBeGreaterThan(0);
   return open[open.length - 1];
 };
-const signal = (eventId: string) => act(async () => { connection().options.handlers.onSignal({ eventId, occurredAtUtc: "2026-11-19T01:00:00+00:00" }); });
+// BHA-ADMIN-BADGE-001-PR14: the screen listens to the shared activity Hub; a hint names the menu and nothing else (no id, no count), so `_id` only labels the call site.
+const signal = (_id?: string) => { void _id; return act(async () => { connection().options.handlers.onSignal({ eventId: "", occurredAtUtc: "", menuKey: "newsletter" }); }); };
 const ready = () => act(async () => { connection().options.handlers.onReady(); });
 
 /** 25 rows over two pages, newest first, served by the (mocked) API like the real one would. */
@@ -119,7 +121,7 @@ describe("page 1", () => {
     server = [row("new@example.com", { status: "Verified", verifiedAtUtc: "2026-11-19T01:00:00+00:00" }), ...server.slice(0, 24)];
     await signal("e1");
     await screen.findByTestId("newsletter-live-toast");
-    expect(screen.getByTestId("newsletter-live-toast-text").textContent).toBe("Có đăng ký mới");
+    expect(screen.getByTestId("newsletter-live-toast-text").textContent).toBe("Có thay đổi đăng ký");
     await waitFor(() => expect(rows()[0]).toBe("new@example.com"));
     expect(reads()).toBe(2);
     expect(list).toHaveBeenLastCalledWith(DEFAULT_QUERY, expect.anything());
@@ -147,21 +149,29 @@ describe("page 1", () => {
     expect(screen.getByTestId("newsletter-empty").textContent).toContain("Không có đăng ký nào khớp");   // not inserted, and no filter cleared to show it
   });
 
-  it("a burst is ONE toast and ONE read; a repeated event id counts once, also after a reconnect", async () => {
+  it("a burst of hints is ONE toast and ONE read, and the toast never states a number (a hint says only that subscriptions changed)", async () => {
     await open();
-    await signal("e1");
-    await signal("e1");
-    await signal("e2");
+    await signal();
+    await signal();
+    await signal();
     await settle();
     expect(screen.getAllByTestId("newsletter-live-toast")).toHaveLength(1);
-    expect(screen.getByTestId("newsletter-live-toast-text").textContent).toBe("Có 2 đăng ký mới");
+    expect(screen.getByTestId("newsletter-live-toast-text").textContent).toBe("Có thay đổi đăng ký");
     expect(reads()).toBe(2);
     await dismissToast();
-    await signal("e1");                                                                       // the same verification delivered again
-    await signal("e2");
+    await signal();                                                                           // a later burst is a later notice and a later read: a hint has no id to de-duplicate on
+    await settle();
+    expect(screen.getAllByTestId("newsletter-live-toast")).toHaveLength(1);
+    expect(reads()).toBe(3);
+  });
+
+  it("a hint for another menu is not this screen's: no toast, no read", async () => {
+    await open();
+    act(() => connection().options.handlers.onSignal({ eventId: "", occurredAtUtc: "", menuKey: "website-hero" }));
+    act(() => connection().options.handlers.onSignal({ eventId: "", occurredAtUtc: "" }));
     await settle();
     expect(screen.queryByTestId("newsletter-live-toast")).toBeNull();
-    expect(reads()).toBe(2);
+    expect(reads()).toBe(1);
   });
 
   it("a signal during the first load is not lost, and an older answer that arrives late never covers the newer one", async () => {
@@ -260,7 +270,7 @@ describe("the connection became ready (first start, reconnect)", () => {
     await ready();
     expect(reads()).toBe(before);
     expect(screen.queryByTestId("newsletter-live-toast")).toBeNull();
-    expect(screen.getByTestId("newsletter-live-banner-text").textContent).toContain("có thể có đăng ký mới");
+    expect(screen.getByTestId("newsletter-live-banner-text").textContent).toContain("có thể có thay đổi đăng ký");
     await click("newsletter-live-view");
     await screen.findByTestId("newsletter-row-r01@example.com");
   });
@@ -290,7 +300,7 @@ describe("something is in progress: the update waits, nothing of Staff's is touc
     const early = connection().options.handlers;                                              // the closure of the very first render
     await click("newsletter-add");
     await screen.findByTestId("newsletter-add-dialog");
-    act(() => early.onSignal({ eventId: "late-callback", occurredAtUtc: "" }));
+    act(() => early.onSignal({ eventId: "", occurredAtUtc: "", menuKey: "newsletter" }));
     await settle();
     expect(reads()).toBe(1);
     await click("newsletter-add-cancel");
@@ -417,6 +427,10 @@ describe("the connection's own lifecycle", () => {
     const open = live.started.filter((entry) => !entry.controller.dispose.mock.calls.length);
     expect(open).toHaveLength(1);
     expect(live.started.length - open.length).toBe(live.started.length - 1);                // every earlier one was disposed
+    // BHA-ADMIN-BADGE-001-PR14: the one connection is the shared activity Hub (its message names), never the legacy Newsletter Hub.
+    expect(open[0].options.target).toEqual(menuActivityLiveTarget());
+    expect(open[0].options.events?.signal).toBe("menuActivity");
+    expect(live.started.every((entry) => entry.options.events !== undefined)).toBe(true);
     await signal("e1");
     await settle();
     expect(screen.getAllByTestId("newsletter-live-toast")).toHaveLength(1);
@@ -760,7 +774,7 @@ describe("the toast", () => {
     expect(screen.queryByTestId("newsletter-live-toast")).toBeNull();
 
     vi.useFakeTimers();
-    act(() => connection().options.handlers.onSignal({ eventId: "e2", occurredAtUtc: "" }));
+    act(() => connection().options.handlers.onSignal({ eventId: "", occurredAtUtc: "", menuKey: "newsletter" }));
     act(() => { vi.advanceTimersByTime(LIVE_COALESCE_MS); });
     expect(screen.getByTestId("newsletter-live-toast")).toBeTruthy();
     act(() => { vi.advanceTimersByTime(8000); });

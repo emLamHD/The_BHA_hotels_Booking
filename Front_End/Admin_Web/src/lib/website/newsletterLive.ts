@@ -20,6 +20,9 @@ export type LiveStopReason = "unauthenticated" | "denied" | "config";
 export interface LiveSignal {
   eventId: string;
   occurredAtUtc: string;
+  /** Only the shared activity hint names what changed (BHA-ADMIN-BADGE-001-PR14): the menu key and, for a Property-scoped menu, the Property. Never a title, a count or an actor. */
+  menuKey?: string;
+  propertyId?: string;
 }
 
 /** The part of a SignalR `HubConnection` this module uses, so a test can stand in for the transport. */
@@ -149,7 +152,12 @@ export function startNewsletterLive(options: LiveOptions): LiveController {
     const onSignal = (...args: unknown[]) => {
       if (!accepts(args[0])) return;
       const message = args[0] as Partial<LiveSignal>;
-      handlers.onSignal({ eventId: String(message.eventId ?? ""), occurredAtUtc: String(message.occurredAtUtc ?? "") });
+      handlers.onSignal({
+        eventId: String(message.eventId ?? ""),
+        occurredAtUtc: String(message.occurredAtUtc ?? ""),
+        ...(typeof message.menuKey === "string" ? { menuKey: message.menuKey } : {}),
+        ...(typeof message.propertyId === "string" ? { propertyId: message.propertyId } : {}),
+      });
     };
     const onReady = () => handlers.onReady();
     // Handlers first, then the start: nothing the server sends right after the handshake can arrive before something listens.

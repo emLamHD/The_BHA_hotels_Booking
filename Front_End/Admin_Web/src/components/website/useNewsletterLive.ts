@@ -1,26 +1,29 @@
 "use client";
 
 /**
- * BHA-NEWSLETTER-LIVE-001: the Newsletter screen's live connection as a hook. It owns the connection (one per mounted screen and Staff identity, closed on unmount, on
- * sign-out and on an account change), drops a signal it has already handled (same `eventId`, also after a reconnect) and gathers signals that arrive close together into
- * ONE call of `onNew`, so a burst is one toast and one read, never a request per signal. It never reads the list itself: the screen decides when it is safe.
+ * BHA-NEWSLETTER-LIVE-001, moved to the shared activity hint by BHA-ADMIN-BADGE-001-PR14: the Newsletter screen's live connection as a hook. It owns ONE connection to the shared activity Hub (one per
+ * mounted screen and Staff identity, closed on unmount, on sign-out and on an account change) and listens only to the hints for the `newsletter` menu. A hint says "something about the subscriptions
+ * changed" and nothing else: no id to de-duplicate on, no count, no actor. Hints that arrive close together are gathered into ONE call of `onNew` (the number of hints, never a count of
+ * subscriptions), so a burst is one notice and one read. It never reads the list itself: the screen decides when it is safe.
  *
  * A 401 on the connection is the session ending and a 403 the permission going: both go to the gate the way a 401/403 from any read does. A network failure only retries.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { newsletterLiveTarget } from "@/lib/api/website";
+import { MENU_ACTIVITY_EVENT, MENU_ACTIVITY_READY_EVENT, isMenuActivityHint, menuActivityLiveTarget } from "@/lib/api/menuUnseen";
 import { startNewsletterLive, type LiveController, type LiveStatus, type LiveStopReason } from "@/lib/website/newsletterLive";
 import { useWebsiteHost } from "./WebsiteAccessGate";
 
 /** Signals that arrive within this window are one event for the screen. */
 export const LIVE_COALESCE_MS = 300;
-const REMEMBERED_EVENTS = 200;
+
+/** The one menu this screen listens for on the shared Hub. */
+export const NEWSLETTER_MENU = "newsletter";
 
 export interface LiveCallbacks {
   /** The server has registered the connection (first start and every reconnect): read the list again, without announcing anything. */
   onReady: () => void;
-  /** `count` verifications this screen has not been told about yet. */
+  /** `count` hints about the subscriptions that this screen has not been told about yet. The number only sizes a burst; it is not a count of subscriptions. */
   onNew: (count: number) => void;
 }
 
@@ -42,7 +45,6 @@ export function useNewsletterLiveConnection(identity: string, callbacks: LiveCal
 
   useEffect(() => {
     if (!enabled) return undefined;
-    const seen = new Set<string>();
     let gathered = 0;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let closed = false;
@@ -50,15 +52,14 @@ export function useNewsletterLiveConnection(identity: string, callbacks: LiveCal
     setStoppedFor(undefined);
 
     const controller = startNewsletterLive({
-      target: newsletterLiveTarget(),
+      target: menuActivityLiveTarget(),
+      events: { signal: MENU_ACTIVITY_EVENT, ready: MENU_ACTIVITY_READY_EVENT, isSignal: isMenuActivityHint },
       handlers: {
         onReady: () => {
           if (!closed) callbacksRef.current.onReady();
         },
         onSignal: (signal) => {
-          if (closed || seen.has(signal.eventId)) return;
-          seen.add(signal.eventId);
-          if (seen.size > REMEMBERED_EVENTS) seen.delete(seen.values().next().value as string);
+          if (closed || signal.menuKey !== NEWSLETTER_MENU) return;
           gathered += 1;
           timer ??= setTimeout(() => {
             timer = null;

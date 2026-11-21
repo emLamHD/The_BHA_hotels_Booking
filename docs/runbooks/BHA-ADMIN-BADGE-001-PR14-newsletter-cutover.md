@@ -1,0 +1,73 @@
+# Runbook — Newsletter activity cutover (BHA-ADMIN-BADGE-001-PR14)
+
+Contract and decisions: `docs/ADR/0011-admin-menu-activity-and-unseen-badges.md` §E (the ADR is still `Proposed`; this runbook does not accept it). This page is what an operator does. **Nothing here has been run on a real environment by the work item that wrote it.** The cutover is an explicit operator command with its own confirmations; no startup step and no migration runs it.
+
+## What changes, in one paragraph
+
+Until the cutover the Newsletter's activity (one row per verification) lives only in `NewsletterVerificationActivities`. The cutover copies the rows that **still exist** into `AdminActivities` (same `Sequence`, same time, actor `Public`, title "a subscription"), writes the one-row marker `MenuActivityCutovers`, and from then on the shared table is the only source. After it, **deleting a subscription keeps its shared activity** (and adds one `Staff` delete event); the legacy table stays one more release for diagnosis, and a legacy insert is refused by a fence. History that the old cascade already deleted **before** the cutover cannot be recovered and no actor is guessed.
+
+## Order (steps 3 and 4 may not be swapped)
+
+| # | Step | Evidence to keep |
+|---|---|---|
+| 1 | **Migration 27 (`AddNewsletterActivityCutover`)**, additive: marker table + an *inert* fence trigger on `NewsletterVerificationActivities`. `dotnet ef database update …` as for any migration. | `__EFMigrationsHistory` shows `20261121162308_AddNewsletterActivityCutover`; `SELECT count(*) FROM "MenuActivityCutovers"` = 0. |
+| 2 | **Deploy the API build that knows the marker** (this release). With no marker it reads **and writes the legacy table** exactly as before; the legacy `GET/POST /api/admin/v1/website/menu-unseen` routes and the Newsletter Hub stay for an older Admin build. | The build id in service. |
+| 3 | **Retire every API instance and worker that runs an older build** (including a background dispatcher that shares the build). Record, **per instance**, the build that was in service and the time it stopped. | A table: instance, old build, stopped at. An old build knows nothing of the marker or the lock order and would be refused by the fence, but it must not be running when the command starts. |
+| 4 | **Run the cutover command, once** (below). Do not create a Staff account while it runs (Staff accounts are only created by the API's CLI; this is what keeps "existed at the cutover" unambiguous). | The command's output (it prints no secret). |
+| 5 | **Check** (below): marker, sequence, count per cursor. | The query results. |
+| 6 | **Deploy the new Admin build** (it opens only the shared activity Hub and reads the shared routes). | The Admin build id. |
+| 7 | **Confirm the old Admin build has left the rollout** (no instance, tab-serving cache or CDN still serves it) before anything removes the old routes or Hub. Removing `website/menu-unseen`, `newsletter-live` and the legacy table is a **later release**, not this one. | The same table as step 3, for Admin. |
+
+## The command
+
+```bash
+dotnet TheBha.Api.dll --newsletter-activity-cutover \
+  --expected-database <name from current_database()> \
+  --confirm-older-api-retired \
+  --confirm-no-staff-creation \
+  [--lock-timeout-seconds 30]
+```
+
+It refuses (exit **2**, nothing changed) unless **all three** are given, and exits **3** if `--expected-database` is not the database this process is connected to. The two `--confirm-…` flags are the operator's statement that step 3 is done and that no Staff account is being created; the command cannot verify either.
+
+What it does, in **one transaction** (READ COMMITTED), in this order:
+
+1. `SET LOCAL lock_timeout` and `LOCK TABLE "NewsletterVerificationActivities" IN SHARE ROW EXCLUSIVE MODE`. It waits for every legacy writer already in flight (a verification insert, or the cascade delete of a subscription) and blocks every later one until it ends; plain reads are not blocked.
+2. Only then the clock is read (`CutoverAtUtc`, from the same clock that stamps `StaffAccounts.CreatedAtUtc`), and the `newsletter` counter row is locked.
+3. If the marker exists: nothing is copied, it reports the marker. If `AdminActivities` already holds `newsletter` rows with no marker: **abort** (never merged).
+4. Copy exactly the legacy rows that exist now, then insert the marker once: `LegacyMaxSequence` = the counter's `LastSequence` **under the lock** (a deleted tail does not lower it), `CutoverAtUtc` as above. COMMIT.
+
+| Exit | Meaning | What to do |
+|---|---|---|
+| 0 `COMMITTED` | copied N rows, marker written | step 5 |
+| 0 `ALREADY DONE` | the marker already existed; **nothing was copied or changed** | step 5 |
+| 1 `LOCK TIMEOUT` / `failed` | the transaction rolled back: **no marker and no copied row**; legacy is still the only source | run it again (a short wait for the lock is normal while a verification is in flight) |
+| 2 | a confirmation or the database name is missing | fix the arguments |
+| 3 | `--expected-database` is not this database | fix the target |
+| 4 `ABORTED` | `AdminActivities` has `newsletter` rows but no marker | stop and investigate; do not delete rows to "make it work" |
+
+**After a timeout or a rollback**: run the same command again; it is safe and starts from the beginning. **After a commit**: running it again only reports the marker; the marker and the copy are never redone. A committed cutover is **not reverted by a migration** (Down of migration 27 refuses while the marker exists); there is no "undo" command.
+
+## Check (step 5)
+
+```sql
+-- the marker, once
+SELECT "MenuKey", "LegacyMaxSequence", "CutoverAtUtc" FROM "MenuActivityCutovers";
+-- the sequence: the counter did not move, and the next event takes the next number of the SAME row
+SELECT "LastSequence" FROM "MenuActivityStreams" WHERE "MenuKey" = 'newsletter';       -- = LegacyMaxSequence right after the cutover
+SELECT count(*), max("Sequence") FROM "AdminActivities" WHERE "MenuKey" = 'newsletter'; -- = rows that still existed, max <= LegacyMaxSequence
+SELECT count(*) FROM "NewsletterVerificationActivities";                                -- equals the line above (the legacy copy is untouched)
+```
+
+Count per cursor (the number an existing Staff member sees must be the same before and after, at the same cursor): read `GET /api/admin/v1/menu-unseen` for a few Staff members before step 4 and after it and compare `menus.newsletter.count`, `lastSeenWatermark`, `currentWatermark`. A Staff member who existed at the cutover keeps every still-existing legacy event above their cursor (with or without a cursor row, including one older than the account); their cursor is never raised. A Staff member created **after** the cutover counts only events at or after their account was created.
+
+## What is different afterwards
+
+- A guest's verification, and a Staff **create, update or delete** of a subscription, append one event to the shared activity (the Staff ones only after the marker). Unsubscribe, archive, restore and invite append nothing (the ADR lists add, update and delete).
+- The old `newsletterVerified` signal is still sent, beside the shared hint (`{ menuKey, propertyId? }` and nothing else), so the Admin build still in service during the rollout keeps working.
+- **Deleting a subscription after the cutover keeps the imported verification and adds exactly one `Staff` delete event** (a change from before: a deleted subscription used to take its count with it). Deleting one **before** the cutover still reads 0 → 0.
+- A legacy insert after the marker fails with SQLSTATE `BH014`. The API retries the verification transaction **once** when it sees exactly that error; a timeout, a deadlock or an unknown commit result is never retried. `BH014` showing up in a log after step 3 means an old build is still running: find it.
+
+## Not covered
+
+No Redis backplane or outbox (a hint reaches only the connections of the instance that committed; the 30 s poll covers the rest). No backfill of history the cascade already removed. No removal of the legacy tables, routes or Hub (a later release). No change to the ADR's status.
