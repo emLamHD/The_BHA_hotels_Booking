@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using TheBha.Application.Activity;
 using TheBha.Application.Website;
 using TheBha.Domain.Website;
 using TheBha.Infrastructure.Persistence.Newsletter;
@@ -10,9 +11,12 @@ namespace TheBha.Infrastructure.Persistence;
 /// BHA-NEWSLETTER-003: Staff operations on newsletter subscriptions. Every write is one transaction that takes the subscription's row lock FIRST (then its mails, as every
 /// other path does), compares the version the screen holds with the stored one, writes with the new version, withdraws the mails that no longer apply (waiting ones AND
 /// ones a worker holds, so the worker's last look finds nothing it owns) and records the action without the address.
+/// BHA-ADMIN-BADGE-001-PR14: from the cutover marker on, a real create, update or delete also appends exactly one <c>Staff</c> event to the shared activity as the last statement before COMMIT
+/// (the table lock, the marker read, then the counter), and the shared hint goes out after COMMIT. Before the marker nothing is appended and nothing is hinted.
 /// </summary>
 internal sealed class NewsletterSubscriptionAdminService(
-    TheBhaDbContext database, TimeProvider timeProvider, NewsletterOptions options, NewsletterSecretProtector protector) : INewsletterSubscriptionAdmin
+    TheBhaDbContext database, TimeProvider timeProvider, NewsletterOptions options, NewsletterSecretProtector protector,
+    IAdminActivityRecorder recorder, IAdminActivityHint hint) : INewsletterSubscriptionAdmin
 {
     private const string UniqueAddressIndex = "UX_NewsletterSubscriptions_Email";
 
@@ -40,7 +44,9 @@ internal sealed class NewsletterSubscriptionAdminService(
 
         NewsletterLifecycle.Audit(database, id, "created", actorStaffId, now);
         await database.SaveChangesAsync(cancellationToken);
+        var recorded = await NewsletterActivityLog.RecordStaffAsync(database, recorder, actorStaffId, "Created", id, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+        if (recorded) await WebsiteActivity.HintAsync(hint, MenuActivityStream.Newsletter);
         return NewsletterAdminResult<NewsletterSubscriptionDto>.Ok((await NewsletterLifecycle.ReadAsync(database, id, cancellationToken))!);
     }
 
@@ -114,7 +120,9 @@ internal sealed class NewsletterSubscriptionAdminService(
 
         NewsletterLifecycle.Audit(database, id, "edited", actorStaffId, now, emailChanged && languageChanged ? "email,language" : emailChanged ? "email" : "language");
         await database.SaveChangesAsync(cancellationToken);
+        var recorded = await NewsletterActivityLog.RecordStaffAsync(database, recorder, actorStaffId, "Updated", id, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+        if (recorded) await WebsiteActivity.HintAsync(hint, MenuActivityStream.Newsletter);
         return NewsletterAdminResult<NewsletterSubscriptionDto>.Ok((await NewsletterLifecycle.ReadAsync(database, id, cancellationToken))!);
     }
 
@@ -201,7 +209,11 @@ internal sealed class NewsletterSubscriptionAdminService(
 
         NewsletterLifecycle.Audit(database, id, "deleted", actorStaffId, now);
         await database.SaveChangesAsync(cancellationToken);
+        // The cascade above already took the legacy table's lock; the helper takes it again (a no-op), reads the marker and, once it is visible, appends the one delete event. It never touches the
+        // imported verification rows: AdminActivities has no foreign key to the subscription.
+        var recorded = await NewsletterActivityLog.RecordStaffAsync(database, recorder, actorStaffId, "Deleted", id, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+        if (recorded) await WebsiteActivity.HintAsync(hint, MenuActivityStream.Newsletter);
         return NewsletterAdminResult<bool>.Ok(true);
     }
 
