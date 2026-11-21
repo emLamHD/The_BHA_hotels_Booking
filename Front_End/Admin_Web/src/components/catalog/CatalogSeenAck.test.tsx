@@ -202,6 +202,69 @@ describe("a read for another Property, view, Staff member or a gone screen is ne
   });
 });
 
+// BHA-ADMIN-BADGE-001-PR11-C1: one mounted workspace throughout; the acknowledgement lifecycle survives a write check.
+describe("the next list opening acknowledges again after a write check, in the same workspace", () => {
+  it("after a Property is created and read back, switching to a saved Property gets a qualifying properties read and acknowledges exactly once with the lower of the two", async () => {
+    const fresh: PropertyChoice = { id: "p3", name: "The BHA House", slug: "the-bha-house" };
+    readProps.mockResolvedValue(props([P1, P2], "9") as never);
+    readProducts.mockResolvedValue(products([product("p1")], "7") as never);
+    mount();
+    await waitFor(() => expect(sent()).toEqual(["catalog:7"]));
+    vi.mocked(createProperty).mockResolvedValue(ok(fresh) as never);
+    vi.mocked(getCatalogProperties).mockResolvedValue(ok([P1, P2, fresh]) as never);
+    readProps.mockResolvedValueOnce(props([P1, P2, fresh], "15") as never).mockResolvedValue(props([P1, P2, fresh], "18") as never);   // the verification read, then the qualifying one
+    readProducts.mockImplementation((async (propertyId: string) => products(propertyId === "p3" ? [] : [product("p1")], "20")) as never);
+    await userEvent.click(await screen.findByRole("button", { name: "Thêm cơ sở" }));
+    await userEvent.type(screen.getByLabelText("Tên cơ sở *"), fresh.name);
+    await userEvent.type(screen.getByLabelText("Địa chỉ *"), "Test address");
+    await userEvent.type(screen.getByLabelText("Thành phố *"), "Test city");
+    await userEvent.type(screen.getByLabelText("Quốc gia *"), "Test country");
+    await userEvent.click(screen.getByRole("button", { name: "Tạo" }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Cơ sở" })).toHaveValue("p3"));
+    await screen.findByText("Cơ sở này chưa có loại phòng để hiển thị.");
+    await waitFor(() => expect(sent()).toEqual(["catalog:7", "catalog:18"]));          // min(18, 20); the verification's 15 was never said
+    await flush(250);
+    expect(sent()).toEqual(["catalog:7", "catalog:18"]);
+    expect(seenCall.mock.calls.every((call) => call.length === 2)).toBe(true);        // never a Property
+  });
+
+  it("opening an editor and coming back WITHOUT saving is a qualifying list read; after a write the return is only a check, and the next plain return acknowledges again", async () => {
+    readProps.mockResolvedValue(props([P1, P2], "20") as never);                          // a valid properties read that stays current: it is reused, never re-read
+    readProducts.mockResolvedValue(products([product("p1")], "7") as never);
+    mount();
+    await waitFor(() => expect(sent()).toEqual(["catalog:7"]));
+
+    // 1. view the editor and go back: the return read answers 12, the properties list (still valid) 20 → one new acknowledgement, 12
+    vi.mocked(getCatalog).mockResolvedValue(ok({ propertyId: "p1" } as unknown as CatalogEditor) as never);
+    readProducts.mockResolvedValue(products([product("p1")], "12") as never);
+    await userEvent.click((await screen.findAllByRole("button", { name: "Xem / Chỉnh sửa" }))[0]);
+    await screen.findByRole("heading", { name: "Phòng thuộc loại này" });
+    await userEvent.click(screen.getByRole("button", { name: "← Quay lại danh sách" }));
+    await waitFor(() => expect(sent()).toEqual(["catalog:7", "catalog:12"]));
+
+    // 2. create a room type from the editor (a write), which ends on the list: both refreshes are checks, nothing is said
+    readProducts.mockResolvedValue(products([product("p1"), product("p1", "r2")], "25") as never);
+    vi.mocked(createRoomType).mockResolvedValue(ok(product("p1", "r2")) as never);
+    vi.mocked(getCatalogProducts).mockResolvedValue(ok([product("p1"), product("p1", "r2")]) as never);
+    await userEvent.click((await screen.findAllByRole("button", { name: "Xem / Chỉnh sửa" }))[0]);
+    await screen.findByRole("heading", { name: "Phòng thuộc loại này" });
+    await userEvent.click(screen.getByRole("button", { name: "Thêm loại phòng" }));
+    await userEvent.type(screen.getByLabelText("Mã loại phòng *"), "R2");
+    await userEvent.type(screen.getByLabelText("Tên *"), "Room r2");
+    await userEvent.click(screen.getByRole("button", { name: "Tạo" }));
+    await screen.findByText("2 loại phòng");
+    await flush(200);
+    expect(sent()).toEqual(["catalog:7", "catalog:12"]);
+
+    // 3. the next plain opening and return (no write) acknowledges again: products 40, properties 20 → 20
+    readProducts.mockResolvedValue(products([product("p1"), product("p1", "r2")], "40") as never);
+    await userEvent.click((await screen.findAllByRole("button", { name: "Xem / Chỉnh sửa" }))[0]);
+    await screen.findByRole("heading", { name: "Phòng thuộc loại này" });
+    await userEvent.click(screen.getByRole("button", { name: "← Quay lại danh sách" }));
+    await waitFor(() => expect(sent()).toEqual(["catalog:7", "catalog:12", "catalog:20"]));
+  });
+});
+
 describe("only the list view acknowledges: the editor, the physical rooms and the read-back of a write never do", () => {
   it("opening the editor or a room type, reading its physical rooms, creating a room type and coming back say nothing more", async () => {
     mount();

@@ -69,12 +69,22 @@ export default function CatalogWorkspace() {
   // never a mark, and no extra read is made for the mark: the two list reads below are the ones that fill the screen.
   const [verified] = useState(() => new WeakSet<object>());
   const verifyNext = useRef({ props: false, products: false });
+  // C1: what the latest properties read was, kept at read time (not from a render) so a navigation right after a refresh sees it: `qualifies` = a normal read with a valid watermark.
+  const propsRead = useRef({ started: 0, applied: 0, inFlight: 0, qualifies: false });
+  // C1: a write was attempted since the list was last opened; the next list return is then only a check. Opening an editor starts a clean slate.
+  const wrote = useRef(false);
   const props = useMarkedList(async signal => {
     const verify = verifyNext.current.props;
     verifyNext.current.props = false;
-    const result = await readCatalogProperties(signal);
-    if (result.kind === "ok" && verify) verified.add(result.data);
-    return result;
+    const tracker = propsRead.current;
+    const seq = ++tracker.started;
+    tracker.inFlight += 1;
+    try {
+      const result = await readCatalogProperties(signal);
+      if (result.kind === "ok" && verify) verified.add(result.data);
+      if (seq > tracker.applied) { tracker.applied = seq; tracker.qualifies = result.kind === "ok" && !verify && result.data.viewWatermark !== undefined; }
+      return result;
+    } finally { tracker.inFlight -= 1; }
   }, [], data => data.viewWatermark, data => !verified.has(data));
   const [owner, setOwner] = useState("");
   const [view, setView] = useState<WorkspaceView>({ kind: "list" });
@@ -150,7 +160,8 @@ export default function CatalogWorkspace() {
     return { ...result, data: answer };
   }, [], data => data.viewWatermark, data => !verified.has(data) && data.propertyId === currentId, currentId);
   /** A reload that checks or refreshes after a write: it fills the screen like any other but never says "seen". */
-  const verifyReload = (which: "props" | "products") => { verifyNext.current[which] = true; return (which === "props" ? props : products).reload(); };
+  const reloadList = (which: "props" | "products", verify: boolean) => { if (verify) verifyNext.current[which] = true; return (which === "props" ? props : products).reload(); };
+  const verifyReload = (which: "props" | "products") => reloadList(which, true);
   // "Seen" for the Catalog (one global cursor): only while the LIST view is on screen, for a persisted Property that the properties list contains, once BOTH lists have answered for the current Staff,
   // the current Property and no write check; the lower of the two watermarks (BigInt). The summary, a hint, the editor, the physical rooms and every write's answer are never a source.
   const lowest: ReadMark | null = view.kind === "list" && currentId !== "" && props.mark && products.mark && products.mark.scope === currentId ? lowestMark(props.mark, products.mark) : null;
@@ -192,15 +203,23 @@ export default function CatalogWorkspace() {
   const matches = (fresh: CatalogEditor | null) => mounted.current && scope.current === ownerKey && fresh !== null && editorKey(fresh.propertyId, fresh.roomTypeId) === ownerKey;
   const finish = () => { busy.current = false; if (mounted.current) setWorking(false); };
   const switchTo = (target: WorkspaceTarget) => {
-    const returningToSameList = target.view.kind === "list" && target.propertyId === currentId;
+    const toList = target.view.kind === "list";
+    const returningToSameList = toList && target.propertyId === currentId;
+    // C1: a return to the list is a real list display. Its products read is a plain one unless a write was attempted since the list was last opened; opening an editor resets that.
+    const afterWrite = toList && wrote.current;
+    wrote.current = false;
     setDraftState(null);
     setNote(""); setFileError(""); setPreviewId(""); setAmenity({ code: "", name: "", category: "" });
     write.reset(); upload.reset(); addWrite.reset();
     setOwner(target.propertyId); setView(target.view); setSwitchPrompt(null);
     if (returningToSameList) {
       setSummaryRefreshing(true);
-      void verifyReload("products").finally(() => setSummaryRefreshing(false));
+      void reloadList("products", afterWrite).finally(() => setSummaryRefreshing(false));
     }
+    // C1: the list now on screen needs a qualifying properties result too. A valid one that is still current is reused (no extra read); one that is only a write check, or has no valid
+    // watermark, is replaced by a plain read. A read already on its way is that read.
+    const propsNow = propsRead.current;
+    if (toList && !propsNow.qualifies && propsNow.inFlight === 0 && props.state.status === "ready") void reloadList("props", false);
   };
   const currentViewKey = `${view.kind}:${view.kind === "product" ? view.roomId : ""}`;
   const askSwitch = (target: WorkspaceTarget) => {
@@ -240,6 +259,7 @@ export default function CatalogWorkspace() {
     busy.current = true; setWorking(true); setCreateMessage("");
     addWrite.reset();
     try {
+      wrote.current = true;
       const result = await addWrite.run<{ id: string }>(async () => {
         if (target.kind === "property") {
           const created = await createProperty(request as CreatePropertyInput, operationId);
@@ -320,6 +340,7 @@ export default function CatalogWorkspace() {
     const body = { ...draft }; // Revision belongs to the draft snapshot, never the latest background read.
     busy.current = true; setWorking(true);
     try {
+      wrote.current = true;
       const result = await write.run(async () => {
         const saved = await saveCatalog(base.propertyId, base.roomTypeId, body);
         if (saved.kind !== "ok") return saved;
@@ -352,6 +373,7 @@ export default function CatalogWorkspace() {
     if (file.size > 10 * 1024 * 1024) { setFileError("Ảnh vượt quá 10 MB."); return; }
     busy.current = true; setWorking(true);
     try {
+      wrote.current = true;
       const result = await upload.run(() => uploadCatalog(base.propertyId, base.roomTypeId, file));
       if (!mounted.current || scope.current !== ownerKey) return;
       if (result?.kind === "ok") { setDraft(x => x ? { ...x, gallery: [...x.gallery, { ...result.data, isCover: x.gallery.length === 0 }] } : x); setFileError(""); setPreviewId(result.data.mediaId); }
@@ -368,6 +390,7 @@ export default function CatalogWorkspace() {
     if (!selected || busy.current || blocked || !amenity.name.trim() || !amenity.code.trim() || !amenity.category.trim()) return;
     busy.current = true; setWorking(true);
     try {
+      wrote.current = true;
       const result = await addWrite.run(async () => {
         const added = await createAmenity(selected.id, amenity);
         if (added.kind !== "ok") return added;
