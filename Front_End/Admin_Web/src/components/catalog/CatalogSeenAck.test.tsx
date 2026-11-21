@@ -204,16 +204,18 @@ describe("a read for another Property, view, Staff member or a gone screen is ne
 
 // BHA-ADMIN-BADGE-001-PR11-C1: one mounted workspace throughout; the acknowledgement lifecycle survives a write check.
 describe("the next list opening acknowledges again after a write check, in the same workspace", () => {
-  it("after a Property is created and read back, switching to a saved Property gets a qualifying properties read and acknowledges exactly once with the lower of the two", async () => {
+  it("the automatic selection of a just-created Property acknowledges nothing, whatever the order of its GETs; the user's next deliberate choice of a saved Property acknowledges once with the lower of two qualifying reads", async () => {
     const fresh: PropertyChoice = { id: "p3", name: "The BHA House", slug: "the-bha-house" };
-    readProps.mockResolvedValue(props([P1, P2], "9") as never);
-    readProducts.mockResolvedValue(products([product("p1")], "7") as never);
     mount();
     await waitFor(() => expect(sent()).toEqual(["catalog:7"]));
+
+    // every GET from here on answers a NEW response object at a higher watermark (the same payload may repeat)
+    let next = 14;
+    const answered = { props: [] as string[], products: [] as string[] };
+    readProps.mockImplementation((async () => { const mark = String(++next); answered.props.push(mark); return props([P1, P2, fresh], mark); }) as never);
+    readProducts.mockImplementation((async (propertyId: string) => { const mark = String(++next); answered.products.push(mark); return products(propertyId === "p3" ? [] : [product(propertyId)], mark); }) as never);
     vi.mocked(createProperty).mockResolvedValue(ok(fresh) as never);
-    vi.mocked(getCatalogProperties).mockResolvedValue(ok([P1, P2, fresh]) as never);
-    readProps.mockResolvedValueOnce(props([P1, P2, fresh], "15") as never).mockResolvedValue(props([P1, P2, fresh], "18") as never);   // the verification read, then the qualifying one
-    readProducts.mockImplementation((async (propertyId: string) => products(propertyId === "p3" ? [] : [product("p1")], "20")) as never);
+    vi.mocked(getCatalogProperties).mockImplementation((async () => ok([P1, P2, fresh])) as never);
     await userEvent.click(await screen.findByRole("button", { name: "Thêm cơ sở" }));
     await userEvent.type(screen.getByLabelText("Tên cơ sở *"), fresh.name);
     await userEvent.type(screen.getByLabelText("Địa chỉ *"), "Test address");
@@ -222,10 +224,20 @@ describe("the next list opening acknowledges again after a write check, in the s
     await userEvent.click(screen.getByRole("button", { name: "Tạo" }));
     await waitFor(() => expect(screen.getByRole("combobox", { name: "Cơ sở" })).toHaveValue("p3"));
     await screen.findByText("Cơ sở này chưa có loại phòng để hiển thị.");
-    await waitFor(() => expect(sent()).toEqual(["catalog:7", "catalog:18"]));          // min(18, 20); the verification's 15 was never said
+    await flush(300);
+    expect(answered.props.length + answered.products.length).toBeGreaterThanOrEqual(2);   // the verification list and the new Property's products both completed
+    expect(sent()).toEqual(["catalog:7"]);                                                   // none of them acknowledged: exactly the initial one remains
+
+    // the user deliberately chooses a saved Property: normal reads, one acknowledgement, the lower of the two, in the same workspace
+    const propsBefore = answered.props.length, productsBefore = answered.products.length;
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Cơ sở" }), "p2");
+    await waitFor(() => expect(sent()).toHaveLength(2));
     await flush(250);
-    expect(sent()).toEqual(["catalog:7", "catalog:18"]);
-    expect(seenCall.mock.calls.every((call) => call.length === 2)).toBe(true);        // never a Property
+    expect(answered.props.length).toBeGreaterThan(propsBefore);                              // the missing properties result was read again (it was only a write check)
+    expect(answered.products.length).toBeGreaterThan(productsBefore);
+    const lowest = [answered.props.at(-1)!, answered.products.at(-1)!].map(BigInt).reduce((a, b) => (a < b ? a : b));
+    expect(sent()).toEqual(["catalog:7", `catalog:${lowest}`]);
+    expect(seenCall.mock.calls.every((call) => call.length === 2)).toBe(true);              // never a Property
   });
 
   it("opening an editor and coming back WITHOUT saving is a qualifying list read; after a write the return is only a check, and the next plain return acknowledges again", async () => {

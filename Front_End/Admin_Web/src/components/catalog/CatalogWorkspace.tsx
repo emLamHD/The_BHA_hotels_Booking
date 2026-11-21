@@ -16,7 +16,8 @@ const btn = "rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-g
 const editorKey = (p: string, r: string | null) => `${p}:${r ?? "property"}`;
 type Draft = { key: string; body: CatalogBody; baseline: CatalogBody };
 type WorkspaceView = { kind: "list" } | { kind: "property" } | { kind: "product"; roomId: string };
-type WorkspaceTarget = { propertyId: string; roomId: string; view: WorkspaceView };
+/** `auto`: the workspace itself moves here after a create succeeded (never a user's choice); every list read this transition launches is a write check and never says "seen". */
+type WorkspaceTarget = { propertyId: string; roomId: string; view: WorkspaceView; auto?: boolean };
 const isRiversideIdentity = (property: { name: string; slug: string }) =>
   ["the-bha-hotel", "the-bha-riverside"].includes(property.slug) &&
   ["The BHA Hotel", "The BHA Riverside"].includes(property.name);
@@ -204,6 +205,7 @@ export default function CatalogWorkspace() {
   const finish = () => { busy.current = false; if (mounted.current) setWorking(false); };
   const switchTo = (target: WorkspaceTarget) => {
     const toList = target.view.kind === "list";
+    const auto = target.auto === true;
     const returningToSameList = toList && target.propertyId === currentId;
     // C1: a return to the list is a real list display. Its products read is a plain one unless a write was attempted since the list was last opened; opening an editor resets that.
     const afterWrite = toList && wrote.current;
@@ -214,12 +216,16 @@ export default function CatalogWorkspace() {
     setOwner(target.propertyId); setView(target.view); setSwitchPrompt(null);
     if (returningToSameList) {
       setSummaryRefreshing(true);
-      void reloadList("products", afterWrite).finally(() => setSummaryRefreshing(false));
+      void reloadList("products", afterWrite || auto).finally(() => setSummaryRefreshing(false));
+    } else if (auto && toList) {
+      // C2: the products read of the just-created Property is launched by the Property change itself, after this render: it is claimed here, so it is a write check whatever order its GETs finish in.
+      verifyNext.current.products = true;
     }
     // C1: the list now on screen needs a qualifying properties result too. A valid one that is still current is reused (no extra read); one that is only a write check, or has no valid
     // watermark, is replaced by a plain read. A read already on its way is that read.
     const propsNow = propsRead.current;
-    if (toList && !propsNow.qualifies && propsNow.inFlight === 0 && props.state.status === "ready") void reloadList("props", false);
+    // (An automatic transition makes no properties read of its own: the create's check already refreshed that list, and the user's next deliberate navigation reads it plainly.)
+    if (toList && !auto && !propsNow.qualifies && propsNow.inFlight === 0 && props.state.status === "ready") void reloadList("props", false);
   };
   const currentViewKey = `${view.kind}:${view.kind === "product" ? view.roomId : ""}`;
   const askSwitch = (target: WorkspaceTarget) => {
@@ -307,7 +313,7 @@ export default function CatalogWorkspace() {
         setCreateDialog(x => x?.operationId === operationId ? { ...x, unknown: false } : x);
         setCreateMessage("Yêu cầu chưa được gửi vì một thao tác Admin khác đang chạy. Hãy thử lại khi thao tác đó hoàn tất.");
       }
-    } finally { busy.current = false; if (mounted.current) setWorking(false); if (switchAfterCreate) queueMicrotask(() => askSwitch({ propertyId: switchAfterCreate!, roomId: "", view: { kind: "list" } })); }
+    } finally { busy.current = false; if (mounted.current) setWorking(false); if (switchAfterCreate) queueMicrotask(() => askSwitch({ propertyId: switchAfterCreate!, roomId: "", view: { kind: "list" }, auto: true })); }
   };
   useEffect(() => { host.setUnsaved(dirty || createDirty || working || unknown); return () => host.setUnsaved(false); }, [dirty, createDirty, working, unknown, host]);
   useEffect(() => {
