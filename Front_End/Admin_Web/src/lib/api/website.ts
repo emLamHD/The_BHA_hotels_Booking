@@ -715,7 +715,8 @@ export const disconnectNewsletterSender = () =>
 
 interface CallOptions<T> {
   write: boolean;
-  parse?: (data: unknown) => T | null;
+  /** Reads the success body; `headers` are the response's (a few answers carry a number in a header, e.g. the Blog categories' watermark). */
+  parse?: (data: unknown, headers: Headers) => T | null;
   /** The success status carries no body (delete). */
   noContent?: boolean;
   /** The success body is plain text (an exported pack). */
@@ -806,7 +807,7 @@ export async function call<T>(method: "GET" | "POST", path: string, body: unknow
   }
   try {
     if (options.text) return { kind: "ok", data: (await response.text()) as T };
-    const parsed = options.parse ? options.parse(await response.json()) : null;
+    const parsed = options.parse ? options.parse(await response.json(), response.headers) : null;
     if (parsed !== null) return { kind: "ok", data: parsed };
   } catch {
     // Falls through: a 2xx whose body cannot be read.

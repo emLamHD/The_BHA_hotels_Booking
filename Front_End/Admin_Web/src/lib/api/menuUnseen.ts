@@ -74,6 +74,13 @@ export const fetchMenuUnseenSummary = (signal?: AbortSignal) =>
 export const markNewsletterSeen = (viewWatermark: string, signal?: AbortSignal) =>
   call<MenuUnseenEntry>("POST", `${MENU_UNSEEN}/newsletter/seen`, { viewWatermark }, { write: false, parse: parseGlobal, signal });
 
+/**
+ * Says "this Staff member has seen a global menu's list up to `viewWatermark`" (BHA-ADMIN-BADGE-001-PR07: the four Blog menus use it; the Newsletter keeps `markNewsletterSeen`). Same
+ * route shape, same answer (the entry after the move), same metadata semantics: `write: false`, safe to repeat with the same watermark, a 404 means the Staff member can no longer read the menu.
+ */
+export const markMenuSeen = (menu: AdminMenuKey, viewWatermark: string, signal?: AbortSignal) =>
+  call<MenuUnseenEntry>("POST", `${MENU_UNSEEN}/${encodeURIComponent(menu)}/seen`, { viewWatermark }, { write: false, parse: parseGlobal, signal });
+
 /** The Hub's messages: `menuActivity` carries `{ menuKey, propertyId? }` and nothing to count; `menuActivityReady` says the connection is registered. */
 export const MENU_ACTIVITY_EVENT = "menuActivity";
 export const MENU_ACTIVITY_READY_EVENT = "menuActivityReady";

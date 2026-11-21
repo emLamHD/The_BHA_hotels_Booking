@@ -31,6 +31,7 @@ import { createPost, getPost, listRevisions, restoreRevision, saveDraft, transit
 import { fetchStaffSession } from "@/lib/api/staff";
 import type { StaffSession } from "@/lib/api/staff";
 
+const UUID = expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);  // BHA-ADMIN-BADGE-001-PR07: the id of one Save-then-Publish click
 const mockedMe = vi.mocked(fetchStaffSession);
 const save = vi.mocked(saveDraft);
 const create = vi.mocked(createPost);
@@ -216,7 +217,7 @@ describe("publishing", () => {
     await userEvent.click(button("post-publish"));
     await waitFor(() => expect(transition).toHaveBeenCalledTimes(1));
     expect(calls).toEqual(["save", "publish"]);
-    expect(transition.mock.calls[0]).toEqual([POST_ID, "vi", "publish", 2]); // the version the save returned
+    expect(transition.mock.calls[0]).toEqual([POST_ID, "vi", "publish", 2, UUID]); // the version the save returned
     await waitFor(() => expect(screen.getByTestId("post-status")).toHaveTextContent("Đã xuất bản"));
   });
 
@@ -235,7 +236,7 @@ describe("publishing", () => {
       await screen.findByTestId("write-unverified");
       expect(save).toHaveBeenCalledTimes(1);
       expect(transition).toHaveBeenCalledTimes(1);
-      expect(transition.mock.calls[0]).toEqual([POST_ID, "vi", "publish", 8]); // the version the save returned
+      expect(transition.mock.calls[0]).toEqual([POST_ID, "vi", "publish", 8, UUID]); // the version the save returned
     }
 
     it("is NOT reported as done when the server shows the save but not the publish", async () => {
@@ -349,7 +350,7 @@ describe("C3 F1 — save and publish on a new post", () => {
     expect(calls).toEqual(["create", "publish"]);
     expect(create).toHaveBeenCalledTimes(1);
     expect(create.mock.calls[0][0]).toBe(CLIENT_ID);
-    expect(transition.mock.calls[0]).toEqual([CLIENT_ID, "vi", "publish", 1]);
+    expect(transition.mock.calls[0]).toEqual([CLIENT_ID, "vi", "publish", 1, UUID]);
     await waitFor(() => expect(screen.getByTestId("post-status")).toHaveTextContent("Đã xuất bản"));
     // The screen is left for the post's own page only after the whole chain, never in the middle of it.
     expect(onCreatedBefore).toBe(0);
@@ -404,7 +405,7 @@ describe("C3 F1 — save and publish on a new post", () => {
     await waitFor(() => expect(transition).toHaveBeenCalledTimes(2));
     expect(create).toHaveBeenCalledTimes(1);
     expect(save.mock.calls[0].slice(0, 3)).toEqual([CLIENT_ID, "vi", 1]);
-    expect(transition.mock.calls[1]).toEqual([CLIENT_ID, "vi", "publish", 2]);
+    expect(transition.mock.calls[1]).toEqual([CLIENT_ID, "vi", "publish", 2, UUID]);
     await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1));
   });
 

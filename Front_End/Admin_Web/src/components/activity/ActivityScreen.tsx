@@ -16,7 +16,7 @@ import { useSearchParams } from "next/navigation";
 import WebsiteAccessGate, { type GateRule } from "@/components/website/WebsiteAccessGate";
 import { useMenuUnseen, useUnseenScope } from "@/components/website/NewsletterBadgeProvider";
 import { ADMIN_MENU } from "@/lib/adminMenus";
-import { GUID, actorLabel, allowedMenus, allowedProperties, dayAfter, dayStart, formatActivityTime, isCalendarDay, resolveScope } from "@/lib/adminActivity";
+import { GUID, activityTitle, actorLabel, allowedMenus, allowedProperties, dayAfter, dayStart, formatActivityTime, isCalendarDay, resolveScope } from "@/lib/adminActivity";
 import { fetchActivity, type ActivityItem, type ActivityPage } from "@/lib/api/menuUnseen";
 import { GONE_MESSAGE, toView } from "./activityRequest";
 
@@ -233,7 +233,7 @@ function ActivityHistory({ start }: { start: { menu?: string; propertyId?: strin
                     {row.actorStaffId && <span className="block break-all text-xs text-gray-500 dark:text-gray-400">{row.actorStaffId}</span>}
                   </td>
                   <td className="py-2 pr-3 text-gray-800 dark:text-white/90">{row.action}</td>
-                  <td className="break-words py-2 pr-3 text-gray-800 dark:text-white/90">{row.titleSnapshot || row.entityKind}</td>
+                  <td className="break-words py-2 pr-3 text-gray-800 dark:text-white/90">{activityTitle(row.titleSnapshot, row.entityKind, row.itemCount)}</td>
                   <td className="py-2 text-gray-600 dark:text-gray-400">{row.itemCount}</td>
                 </tr>
               ))}

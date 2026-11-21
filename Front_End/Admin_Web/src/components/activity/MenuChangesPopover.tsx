@@ -13,7 +13,7 @@ import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { createPortal } from "react-dom";
 import { ADMIN_MENU, type AdminMenuKey } from "@/lib/adminMenus";
-import { actorLabel, allowedMenus, allowedProperties, formatActivityTime, resolveScope } from "@/lib/adminActivity";
+import { activityTitle, actorLabel, allowedMenus, allowedProperties, formatActivityTime, resolveScope } from "@/lib/adminActivity";
 import { fetchMenuChanges, type MenuChanges } from "@/lib/api/menuUnseen";
 import { useMenuUnseen, useUnseenScope } from "@/components/website/NewsletterBadgeProvider";
 import { GONE_MESSAGE, toView, type View } from "./activityRequest";
@@ -215,7 +215,7 @@ export default function MenuChangesPopover({ target, onClose }: { target: Popove
                   {view.data.groups.slice(0, 50).map((group) => (
                     <li key={`${group.entityKind}|${group.entityKey}|${group.latestWatermark}|${group.actors.map((actor) => actor.staffId ?? actor.kind).join(",")}`} data-testid="unseen-popover-group" className="flex flex-col gap-0.5 py-2">
                       <div className="flex items-start justify-between gap-2">
-                        <span className="break-words font-medium text-gray-800 dark:text-white/90">{group.titleSnapshot || group.entityKind}</span>
+                        <span className="break-words font-medium text-gray-800 dark:text-white/90">{activityTitle(group.titleSnapshot, group.entityKind, group.itemCount)}</span>
                         <span data-testid="unseen-popover-group-events" className="shrink-0 rounded-full bg-gray-100 px-2 text-xs leading-5 text-gray-700 dark:bg-white/10 dark:text-gray-300">×{group.events}</span>
                       </div>
                       <span className="text-xs text-gray-500 dark:text-gray-400">

@@ -37,6 +37,15 @@ export function formatActivityTime(iso: string): string {
 export const GUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
 /** Who did it, in words. No Staff name exists in this contract: a Staff actor is "Nhân viên", and the history can be narrowed to one by id. */
+/**
+ * What an event or group is called (BHA-ADMIN-BADGE-001-PR07): its safe title snapshot; a bulk picture upload has none (it is one event for many pictures), so it reads from its item count;
+ * anything else without a title falls back to its kind. The count of events is never taken from here: it stays the server's.
+ */
+export function activityTitle(titleSnapshot: string, entityKind: string, itemCount: number): string {
+  if (titleSnapshot) return titleSnapshot;
+  return entityKind === "media-batch" ? `Tải lên ${itemCount} ảnh` : entityKind;
+}
+
 export function actorLabel(kind: string): string {
   return kind === "Staff" ? "Nhân viên" : kind === "Public" ? "Khách truy cập" : kind === "System" ? "Hệ thống" : kind;
 }

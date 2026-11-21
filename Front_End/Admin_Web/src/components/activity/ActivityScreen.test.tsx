@@ -71,6 +71,15 @@ describe("who can open it", () => {
     expect(fetchStaffSession).not.toHaveBeenCalled();
   });
 
+  it("a bulk picture upload row reads from its item count when it has no title; any other untitled row keeps its kind", async () => {
+    ui.search = "menu=blog-media";
+    ui.menus = { "blog-media": global(0) };
+    ui.activity.mockResolvedValue(page([item(3, "", { entityKind: "media-batch", itemCount: 5 }), item(2, "", { entityKind: "settings" }), item(1, "Ảnh bìa", { entityKind: "media" })]));
+    mount();
+    await screen.findByTestId("activity-table");
+    expect(rows()).toEqual(["Tải lên 5 ảnh", "settings", "Ảnh bìa"]);
+  });
+
   it("with nothing unseen (count 0 everywhere) the history is still there and loads", async () => {
     ui.menus = { "blog-posts": global(0) };
     mount();
