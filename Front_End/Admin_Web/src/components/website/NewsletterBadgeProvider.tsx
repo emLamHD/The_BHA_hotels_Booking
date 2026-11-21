@@ -20,8 +20,10 @@
  * Two connections, one GET path: the shared activity Hub (any identity) and the legacy Newsletter Hub (only a Staff who holds the website permission), which the Newsletter screen
  * shares through `useNewsletterLiveFeed` for its toast, refresh and catch-up (it never opens a third).
  *
- * "Seen" is said by the Newsletter screen after a list answered successfully, with the watermark THAT answer carried (`ack`), to `POST menu-unseen/newsletter/seen`. It is never
- * optimistic: the number changes when the server answers, and a failed call is retried (a few times) with the SAME watermark. The sidebar never says "seen".
+ * "Seen" is said by a menu's own screen after a list answered successfully, with the watermark THAT answer carried, to `POST menu-unseen/{menu}/seen`: the Newsletter screen through `ack`,
+ * the four Blog screens (BHA-ADMIN-BADGE-001-PR07) through `useMenuSeen`. It is never optimistic: the number changes when the server answers, and a failed call is retried (a few times)
+ * with the SAME watermark and identity. Everything about it is per menu (what is on the wire, what waits, what the server last said), so one menu's call never holds up another's.
+ * The sidebar never says "seen", and a watermark never comes from the summary GET.
  */
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
@@ -31,11 +33,13 @@ import {
   MENU_ACTIVITY_READY_EVENT,
   fetchMenuUnseenSummary,
   isMenuActivityHint,
+  markMenuSeen,
   markNewsletterSeen,
   menuActivityLiveTarget,
   type MenuUnseenEntry,
   type MenuUnseenSummary,
 } from "@/lib/api/menuUnseen";
+import type { AdminMenuKey } from "@/lib/adminMenus";
 import { startNewsletterLive, type LiveStatus, type LiveStopReason } from "@/lib/website/newsletterLive";
 import { useStaffSession } from "@/components/auth/StaffSession";
 import { useNewsletterLive, useNewsletterLiveConnection, type LiveCallbacks } from "./useNewsletterLive";
@@ -44,6 +48,9 @@ import { useNewsletterLive, useNewsletterLiveConnection, type LiveCallbacks } fr
 export const BADGE_POLL_MS = 30_000;
 /** Requests wanted close together are one. */
 export const BADGE_COALESCE_MS = 250;
+/** The menus whose screen says "seen": the Newsletter and the four global Blog menus. */
+export type SeenMenu = Extract<AdminMenuKey, "newsletter" | "blog-posts" | "blog-categories" | "blog-media" | "blog-settings">;
+
 /** A failed acknowledgement is tried again after these delays (same watermark, same identity), then left to the next successful list. */
 export const ACK_RETRY_MS: readonly number[] = [1500, 4000];
 
@@ -53,8 +60,10 @@ interface SharedLive {
   retry: () => void;
   /** The screen listens while it is mounted. Returns the way to stop. Nothing that happened before is replayed. */
   subscribe: (callbacks: LiveCallbacks) => () => void;
-  /** Says "seen up to this watermark" for this Staff identity. Safe to call again with the same one. */
+  /** The Newsletter's "seen up to this watermark" for this Staff identity. Safe to call again with the same one. */
   ack: (watermark: string, identity: string) => void;
+  /** The same for any menu that says it. */
+  seen: (menu: SeenMenu, watermark: string, identity: string) => void;
 }
 
 /** One watermark pair: a global menu has one (`id` ""), a Property-scoped menu one per Property. */
@@ -92,6 +101,10 @@ export const useMenuUnseen = (): MenuUnseenSummary => useContext(MenuContext);
 
 /** Who the numbers are for, and what a list under them needs. Without a provider (LocalGate) there is no identity and nothing is ready. */
 export const useUnseenScope = (): UnseenScope => useContext(ScopeContext);
+
+/** A menu's screen says "seen up to this watermark" through this, for the Staff identity that started the read. A no-op without a provider (LocalGate mounts none, so nothing is sent there). */
+export const useMenuSeen = (): SharedLive["seen"] => useContext(SharedContext)?.seen ?? NO_SEEN;
+const NO_SEEN: SharedLive["seen"] = () => undefined;
 
 /** The Newsletter screen's way into the shared connection and the acknowledgement. `null` when no provider is mounted (the screen then runs by itself). */
 export const useSharedNewsletterLive = (): SharedLive | null => useContext(SharedContext);
@@ -134,6 +147,13 @@ export function MenuUnseenProvider({ children }: { children: React.ReactNode }) 
   const allowed = useRef<Set<string> | null>(null);
   const issued = useRef(0);
   const generation = useRef(0);
+  /**
+   * BHA-ADMIN-BADGE-001-PR07-C2: acknowledgements for a Blog menu that the latest summary did not list (a permission just granted or restored, the cached answer not caught up). The newest
+   * watermark per menu is kept, from a read that WAS shown, until a successful summary of this same life lists the menu; then it goes out through the normal pipeline. Never from a summary,
+   * and emptied with the life (sign-out, expiry, another Staff member).
+   */
+  const deferred = useRef(new Map<SeenMenu, bigint>());
+  const flushDeferred = useRef<(forIdentity: string) => void>(() => undefined);
   const sessionRef = useRef({ refresh, expire, failAccessCheck });
   sessionRef.current = { refresh, expire, failAccessCheck };
 
@@ -155,16 +175,17 @@ export function MenuUnseenProvider({ children }: { children: React.ReactNode }) 
       for (const [key, entry] of Object.entries(summary)) if (entry) offer(known.current, key, entry, seq);
       allowed.current = keys;
       publish(forIdentity);
+      flushDeferred.current(forIdentity);                                                    // a menu that is listed now can say what it was waiting to say
     },
     [publish],
   );
 
-  /** An acknowledgement's answer updates the Newsletter's entry, but never puts a menu back that the latest answer left out. Before the first answer it is only remembered (it can be newer than a slow GET). */
+  /** An acknowledgement's answer updates that menu's entry, but never puts a menu back that the latest answer left out. Before the first answer it is only remembered (it can be newer than a slow GET). */
   const applyAck = useCallback(
-    (entry: MenuUnseenEntry, seq: number, forIdentity: string, gen: number) => {
+    (menu: SeenMenu, entry: MenuUnseenEntry, seq: number, forIdentity: string, gen: number) => {
       if (gen !== generation.current || forIdentity !== identityRef.current) return;
-      if (allowed.current && !allowed.current.has("newsletter")) return;
-      offer(known.current, "newsletter", entry, seq);
+      if (allowed.current && !allowed.current.has(menu)) return;
+      offer(known.current, menu, entry, seq);
       if (allowed.current) publish(forIdentity);
     },
     [publish],
@@ -229,19 +250,24 @@ export function MenuUnseenProvider({ children }: { children: React.ReactNode }) 
     }, BADGE_COALESCE_MS);
   }, [runRefresh]);
 
-  // ---- saying "seen" (the Newsletter's only call site in PR-4)
-  const ackInFlight = useRef(false);
-  const queued = useRef<bigint | null>(null);
-  const send = useCallback(async (watermark: bigint, forIdentity: string, gen: number) => {
-    ackInFlight.current = true;
+  // ---- saying "seen": per menu, one on the wire at a time, the newest waiting watermark behind it
+  const acks = useRef(new Map<SeenMenu, { inFlight: boolean; queued: bigint | null }>());
+  const slot = (menu: SeenMenu) => {
+    let state = acks.current.get(menu);
+    if (!state) acks.current.set(menu, (state = { inFlight: false, queued: null }));
+    return state;
+  };
+  const send = useCallback(async (menu: SeenMenu, watermark: bigint, forIdentity: string, gen: number) => {
+    const state = slot(menu);
+    state.inFlight = true;
     try {
       for (let attempt = 0; ; attempt += 1) {
         issued.current += 1;
         const seq = issued.current;
-        const result = await markNewsletterSeen(String(watermark));
+        const result = await (menu === "newsletter" ? markNewsletterSeen(String(watermark)) : markMenuSeen(menu, String(watermark)));
         if (gen !== generation.current) return;
         if (result.kind === "ok") {
-          applyAck(result.data, seq, forIdentity, gen);
+          applyAck(menu, result.data, seq, forIdentity, gen);
           return;
         }
         if (result.kind === "unauthenticated" || result.kind === "denied") {
@@ -260,30 +286,48 @@ export function MenuUnseenProvider({ children }: { children: React.ReactNode }) 
       }
     } finally {
       if (gen === generation.current) {
-        ackInFlight.current = false;
-        const next = queued.current;
-        queued.current = null;
-        const last = known.current.get("newsletter")?.marks[0]?.last;
-        if (next !== null && (last === undefined || next > last)) void send(next, forIdentity, gen);
+        state.inFlight = false;
+        const next = state.queued;
+        state.queued = null;
+        const last = known.current.get(menu)?.marks[0]?.last;
+        if (next !== null && (last === undefined || next > last)) void send(menu, next, forIdentity, gen);
       }
     }
   }, [applyAck, authFailure, requestRefresh]);
 
-  const ack = useCallback(
-    (watermark: string, forIdentity: string) => {
+  const seen = useCallback(
+    (menu: SeenMenu, watermark: string, forIdentity: string) => {
       if (!identityRef.current || forIdentity !== identityRef.current) return;     // another (or no) Staff identity: not ours to say
       if (!/^(0|[1-9][0-9]*)$/.test(watermark)) return;
       const value = BigInt(watermark);
-      const last = known.current.get("newsletter")?.marks[0]?.last;
-      if (last !== undefined && value <= last) return;                             // nothing new to say
-      if (ackInFlight.current) {
-        queued.current = queued.current === null || value > queued.current ? value : queued.current;
+      // A Blog menu the latest answer leaves out is not readable as far as the API has said: nothing is sent and the menu is never brought back. The watermark of a read that WAS shown is kept (the
+      // newest per menu) for the next successful summary of this life that lists the menu. (The Newsletter's call is unchanged: it never consulted the answer.)
+      if (menu !== "newsletter" && allowed.current && !allowed.current.has(menu)) {
+        const waiting = deferred.current.get(menu);
+        if (waiting === undefined || value > waiting) deferred.current.set(menu, value);
         return;
       }
-      void send(value, forIdentity, generation.current);
+      const last = known.current.get(menu)?.marks[0]?.last;
+      if (last !== undefined && value <= last) return;                             // nothing new to say
+      const state = slot(menu);
+      if (state.inFlight) {
+        state.queued = state.queued === null || value > state.queued ? value : state.queued;
+        return;
+      }
+      void send(menu, value, forIdentity, generation.current);
     },
     [send],
   );
+  const ack = useCallback((watermark: string, forIdentity: string) => seen("newsletter", watermark, forIdentity), [seen]);
+  useEffect(() => {
+    flushDeferred.current = (forIdentity) => {
+      for (const [menu, value] of [...deferred.current]) {
+        if (!allowed.current?.has(menu)) continue;                                           // still not listed: keep waiting
+        deferred.current.delete(menu);
+        seen(menu, String(value), forIdentity);                                              // the same pipeline: dedupe against the cursor, one call per menu in flight, retry, stale guards
+      }
+    };
+  }, [seen]);
 
   // ---- one life per Staff identity
   useEffect(() => {
@@ -294,8 +338,8 @@ export function MenuUnseenProvider({ children }: { children: React.ReactNode }) 
     allowed.current = null;
     fetching.current = false;
     again.current = false;
-    ackInFlight.current = false;
-    queued.current = null;
+    acks.current = new Map();
+    deferred.current = new Map();
     void runRefresh();
 
     const poll = setInterval(() => {
@@ -317,6 +361,7 @@ export function MenuUnseenProvider({ children }: { children: React.ReactNode }) 
       fetching.current = false;
       known.current = new Map();
       allowed.current = null;
+      deferred.current = new Map();                                                          // what waited belonged to this life only
       setSnapshot(null);
     };
   }, [identity, runRefresh, requestRefresh]);
@@ -370,8 +415,8 @@ export function MenuUnseenProvider({ children }: { children: React.ReactNode }) 
   const live = useNewsletterLiveConnection(legacyIdentity, callbacks, auth, legacyIdentity !== "");
 
   const shared = useMemo<SharedLive>(
-    () => ({ status: live.status, stoppedFor: live.stoppedFor, retry: live.retry, subscribe, ack }),
-    [live.status, live.stoppedFor, live.retry, subscribe, ack],
+    () => ({ status: live.status, stoppedFor: live.stoppedFor, retry: live.retry, subscribe, ack, seen }),
+    [live.status, live.stoppedFor, live.retry, subscribe, ack, seen],
   );
   // Tagged with the identity it was read for: for any other identity (or none) it is empty from this very render, before any effect has run.
   const menus = snapshot && snapshot.identity === identity ? snapshot.menus : EMPTY;

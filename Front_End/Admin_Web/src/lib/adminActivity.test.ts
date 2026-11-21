@@ -1,6 +1,6 @@
 /** BHA-ADMIN-BADGE-001-PR05: the Admin's day boundary and which scopes a summary allows. */
 import { describe, expect, it } from "vitest";
-import { actorLabel, allowedMenus, allowedProperties, dayAfter, dayStart, isCalendarDay, resolveScope } from "./adminActivity";
+import { activityTitle, actorLabel, allowedMenus, allowedProperties, dayAfter, dayStart, isCalendarDay, resolveScope } from "./adminActivity";
 import type { MenuUnseenSummary } from "./api/menuUnseen";
 
 const global = (count: number) => ({ count, lastSeenWatermark: "0", currentWatermark: String(count) });
@@ -43,5 +43,14 @@ describe("scopes", () => {
   });
   it("words for who did it", () => {
     expect(["Staff", "Public", "System", "Other"].map(actorLabel)).toEqual(["Nhân viên", "Khách truy cập", "Hệ thống", "Other"]);
+  });
+});
+
+describe("activityTitle", () => {
+  it("is the safe title when there is one; a bulk picture upload reads from its item count; anything else untitled keeps its kind", () => {
+    expect(activityTitle("Ảnh bìa", "media", 1)).toBe("Ảnh bìa");
+    expect(activityTitle("Ảnh bìa", "media-batch", 9)).toBe("Ảnh bìa");
+    expect(activityTitle("", "media-batch", 12)).toBe("Tải lên 12 ảnh");
+    expect(activityTitle("", "settings", 1)).toBe("settings");
   });
 });

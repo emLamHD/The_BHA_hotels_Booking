@@ -26,6 +26,7 @@ import {
   type BlogCategory, type BlogPost, type BlogRevisionSummary, type BlogStatus, type BlogTransition, type BlogTranslation, type WebsiteResult,
 } from "@/lib/api/blog";
 import { useWebsiteHost } from "@/components/website/WebsiteAccessGate";
+import { useUnseenScope } from "@/components/website/NewsletterBadgeProvider";
 import { useWebsiteList, useWriteAction } from "@/components/website/useWebsiteData";
 import { useLeaveGuard } from "@/components/website/useLeaveGuard";
 import { ActionButton, Banner, formatWhen } from "@/components/website/WebsiteUi";
@@ -132,6 +133,22 @@ export default function TranslationForm({
   const liveRef = useRef(baseline);
   const confirmedRef = useRef(baseline);
   const chainRef = useRef(false);
+  // BHA-ADMIN-BADGE-001-PR07: who is signed in NOW, read by a Save-then-Publish chain before its publish: a chain started by one Staff member is never continued with another's request.
+  const { identity } = useUnseenScope();
+  const identityRef = useRef(identity);
+  useEffect(() => {
+    identityRef.current = identity;
+  });
+  // BHA-ADMIN-BADGE-001-PR07-C1: whether THIS form instance is still on screen. The Blog gate keys what it shows by the Staff identity, so a change of Staff (or the end of the session) UNMOUNTS this
+  // instance and mounts a new one: this instance never sees the new identity, so `identityRef` alone cannot stop it. What the instance started belongs to the session it was mounted under and
+  // ends with it: an answer that arrives after the unmount is not adopted, does not navigate and never leads to the next step of a chain.
+  const aliveRef = useRef(true);
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+    };
+  }, []);
   const exists = postId !== null || tr !== undefined;
   const id = postId ?? clientId;
   const version = tr?.version ?? 0;
@@ -222,19 +239,28 @@ export default function TranslationForm({
    */
   const leave = useCallback(() => {
     const made = createdRef.current;
+    if (!aliveRef.current) return;                       // a form that is gone (the gate replaced it) never moves the screen of whoever is there now: the router is global
     if (!made || leftRef.current) return;
     if (liveRef.current !== confirmedRef.current) return;
     leftRef.current = true;
     onCreated(made, locale);
   }, [onCreated, locale]);
 
-  const doSave = useCallback(async (): Promise<BlogTranslation | null> => {
+  /** `correlationId` is the id of the Save-then-Publish click this save belongs to (`publish` only); `saveOnly` and `saveAndPreview` send exactly what they always sent. */
+  const doSave = useCallback(async (correlationId?: string): Promise<BlogTranslation | null> => {
     if (!editable || problems.length > 0) return null;
     const draft = draftOf(form, sendBody);
     // The post this form writes to: the prop, or — on /posts/new, after the create — the post the create made.
     const existing = postId ?? createdRef.current?.id ?? null;
-    const next = await send(existing === null ? "create" : "save", version, () => (existing === null ? createPost(clientId, locale, draft) : saveDraft(existing, locale, version, draft)));
+    const next = await send(
+      existing === null ? "create" : "save",
+      version,
+      () => (existing === null
+        ? (correlationId ? createPost(clientId, locale, draft, correlationId) : createPost(clientId, locale, draft))
+        : (correlationId ? saveDraft(existing, locale, version, draft, correlationId) : saveDraft(existing, locale, version, draft))),
+    );
     if (!next) return null;
+    if (!aliveRef.current) return null;                  // the form of the session that sent this save is gone: the draft stays saved on the server, and nothing here acts on the answer
     const saved = translationOf(next, locale);
     // The server trims and normalises; its answer is the copy. If that differs from what was typed, show the server's copy rather than a phantom "unsaved".
     const typed = snapshot;
@@ -251,13 +277,16 @@ export default function TranslationForm({
   }, [editable, problems.length, form, sendBody, send, postId, clientId, locale, version, snapshot, adopt, onPost]);
 
   const doTransition = useCallback(
-    async (action: BlogTransition, expected: number, basis?: string) => {
+    async (action: BlogTransition, expected: number, basis?: string, correlationId?: string) => {
       const target = postId ?? createdRef.current?.id ?? null;
       if (target === null) return false;
       // What the server holds now (`tr`, not the form): a lost answer is judged against it. Publishing is judged by the published copy it sends (`basis`) instead.
       const base = action === "publish" || !tr ? undefined : { content: snapshotOfRevision(workingRevision(tr)), statusAfter: STATUS_AFTER(action, !!tr.published) };
-      const next = await send(action, expected, () => transitionPost(target, locale, action, expected), { basis, base });
+      const next = await send(
+        action, expected, () => (correlationId ? transitionPost(target, locale, action, expected, correlationId) : transitionPost(target, locale, action, expected)), { basis, base },
+      );
       if (!next) return false;
+      if (!aliveRef.current) return false;               // as for the save: an answer for a form that is gone is not adopted and does not navigate
       adopt(next, { replaceForm: false });
       onPost(next);
       leave();
@@ -278,14 +307,18 @@ export default function TranslationForm({
     try {
       let expected = version;
       let basis: string | undefined;
+      // One new id per valid click of "Lưu và xuất bản", for the save and the publish of THIS chain and nothing else (a clean publish has no save to link, and is not given one).
+      const startedBy = identityRef.current;
+      const correlationId = dirty ? crypto.randomUUID() : undefined;
       if (dirty) {
         if (!rights.edit) return;
-        const saved = await doSave();
+        const saved = await doSave(correlationId);
         if (!saved) return;
         expected = saved.version;
         basis = snapshotOfRevision(workingRevision(saved));
+        if (!aliveRef.current || identityRef.current !== startedBy) return;     // the form is gone (the gate replaced it) or the identity changed in this instance: the saved draft stays, the publish is not sent
       }
-      await doTransition("publish", expected, basis);
+      await doTransition("publish", expected, basis, correlationId);
     } finally {
       chainRef.current = false;
     }

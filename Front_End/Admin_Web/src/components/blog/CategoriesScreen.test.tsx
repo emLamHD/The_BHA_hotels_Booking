@@ -11,13 +11,13 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), push: 
 vi.mock("@/lib/api/staff", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/api/staff")>()), fetchStaffSession: vi.fn(), staffLogout: vi.fn() }));
 vi.mock("@/lib/api/blog", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/blog")>()),
-  listCategories: vi.fn(), saveCategory: vi.fn(), createCategory: vi.fn(), deleteCategory: vi.fn(), getPins: vi.fn(), listPosts: vi.fn(),
+  listCategories: vi.fn(), readCategories: vi.fn(), saveCategory: vi.fn(), createCategory: vi.fn(), deleteCategory: vi.fn(), getPins: vi.fn(), listPosts: vi.fn(),
   fetchActiveLanguages: vi.fn(() => Promise.resolve({ kind: "ok", data: [{ code: "vi", displayName: "Vietnamese", nativeName: "Tiếng Việt", isDefault: true }, { code: "en", displayName: "English", nativeName: "English", isDefault: false }] })),
 }));
 
 import CategoriesScreen from "./CategoriesScreen";
 import { BOTH, deferred, ok, renderInBlogGate } from "./blogTestUtils";
-import { createCategory, listCategories, saveCategory, type BlogCategory } from "@/lib/api/blog";
+import { createCategory, listCategories, readCategories, saveCategory, type BlogCategory } from "@/lib/api/blog";
 import { fetchStaffSession } from "@/lib/api/staff";
 
 const list = vi.mocked(listCategories);
@@ -45,6 +45,11 @@ beforeEach(() => {
   for (const m of [list, save, create]) m.mockReset();
   server = [cat(A)];
   list.mockImplementation((() => Promise.resolve(ok(server))) as never);
+  // The screen reads through `readCategories` (the array plus the header's watermark); these tests drive the same server list through it.
+  vi.mocked(readCategories).mockImplementation((async (...args: Parameters<typeof listCategories>) => {
+    const result = await list(...args);
+    return result.kind === "ok" ? ok({ items: result.data }) : result;
+  }) as never);
 });
 afterEach(() => {
   cleanup();

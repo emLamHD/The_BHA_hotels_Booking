@@ -20,12 +20,26 @@ import { getPins, listPosts, savePins, type BlogCategory, type BlogPins, type Bl
 import { useWebsiteList, useWriteAction } from "@/components/website/useWebsiteData";
 import { ActionButton, Banner, DialogActions, DialogShell, ErrorPanel, LoadingPanel } from "@/components/website/WebsiteUi";
 import BlogWriteFeedback from "./BlogWriteFeedback";
+import { useMarkedList, type ReadMark } from "./useMarkedList";
 
 const CANDIDATE_PAGE = 20;
 const MAX_PINS = 50;
 
-export default function PinsDialog({ category, canEdit, languages, onClose }: { category: BlogCategory; canEdit: boolean; languages: string[]; onClose: () => void }) {
-  const pins = useWebsiteList((signal) => getPins(category.id, signal), [category.id]);
+export default function PinsDialog({ category, canEdit, languages, onRead, onClose }: {
+  category: BlogCategory;
+  canEdit: boolean;
+  languages: string[];
+  /** BHA-ADMIN-BADGE-001-PR07: the `blog-categories` mark of the pins read now on screen for THIS category (`null` while it loads, failed, or is superseded). The dialog never says "seen" itself. */
+  onRead?: (categoryId: string, mark: ReadMark | null) => void;
+  onClose: () => void;
+}) {
+  const pins = useMarkedList((signal) => getPins(category.id, signal), [category.id], (data) => data.viewWatermark);
+  const markWatermark = pins.mark?.watermark;
+  const markBy = pins.mark?.by;
+  const markSource = pins.mark?.source;
+  useEffect(() => {
+    onRead?.(category.id, markWatermark && markBy && markSource ? { watermark: markWatermark, by: markBy, source: markSource } : null);
+  }, [onRead, category.id, markWatermark, markBy, markSource]);
   const [typed, setTyped] = useState("");
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);

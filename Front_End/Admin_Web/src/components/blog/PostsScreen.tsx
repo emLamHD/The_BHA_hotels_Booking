@@ -16,6 +16,7 @@ import { STATUS_LABEL, STATUS_TONE } from "@/lib/blog/blogModel";
 import { StaffImage } from "./useStaffImage";
 import { useBlogRights } from "./BlogAccessGate";
 import { useActiveLanguages } from "./useBlogReference";
+import { useAckOnRead, useMarkedList } from "./useMarkedList";
 
 const PAGE_SIZE = 20;
 const TONE: Record<string, string> = {
@@ -34,7 +35,15 @@ export default function PostsScreen() {
   const [page, setPage] = useState(1);
   const languages = useActiveLanguages();
   const categories = useWebsiteList((signal) => listCategories(signal), []);
-  const list = useWebsiteList((signal) => listPosts({ q: q || undefined, status: status || undefined, locale: locale || undefined, categoryId: categoryId || undefined, page, pageSize: PAGE_SIZE }, signal), [q, status, locale, categoryId, page]);
+  // BHA-ADMIN-BADGE-001-PR07: this list (and only this one: not the category filter above) says "seen" for `blog-posts`, once the answer FOR the page on screen is in range (a page past the
+  // end is replaced by the last real one below and is not what the person saw).
+  const list = useMarkedList(
+    (signal) => listPosts({ q: q || undefined, status: status || undefined, locale: locale || undefined, categoryId: categoryId || undefined, page, pageSize: PAGE_SIZE }, signal),
+    [q, status, locale, categoryId, page],
+    (data) => data.viewWatermark,
+    (data) => data.page <= Math.max(1, Math.ceil(data.total / PAGE_SIZE)),
+  );
+  useAckOnRead("blog-posts", list.mark);
 
   const filter = (change: () => void) => { change(); setPage(1); };
   const pages = list.state.status === "ready" ? Math.max(1, Math.ceil(list.state.data.total / PAGE_SIZE)) : 1;

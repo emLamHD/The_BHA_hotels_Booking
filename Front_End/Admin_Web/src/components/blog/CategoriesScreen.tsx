@@ -10,15 +10,16 @@
  * closes the dialog. A stale version keeps the server's copy apart from the local form and shows both; the version moves on only when the person chooses.
  */
 
-import React, { useEffect, useRef, useState } from "react";
-import { createCategory, deleteCategory, listCategories, saveCategory, type BlogCategory, type CategoryTexts } from "@/lib/api/blog";
-import { useWebsiteList, useWriteAction } from "@/components/website/useWebsiteData";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { createCategory, deleteCategory, listCategories, readCategories, saveCategory, type BlogCategory, type CategoryTexts } from "@/lib/api/blog";
+import { useWriteAction } from "@/components/website/useWebsiteData";
 import { ActionButton, DialogActions, DialogShell, ErrorPanel, LoadingPanel, PageHeader, TABLE_CLASSES, TextAreaField, TextField, Banner } from "@/components/website/WebsiteUi";
 import { checkSlugShape, describeBlogFailure } from "@/lib/blog/blogModel";
 import BlogWriteFeedback from "./BlogWriteFeedback";
 import { useBlogRights } from "./BlogAccessGate";
 import { useActiveLanguages } from "./useBlogReference";
 import PinsDialog from "./PinsDialog";
+import { lowestMark, useAckOnRead, useMarkedList, type ReadMark } from "./useMarkedList";
 
 interface Draft {
   id: string | null;
@@ -59,8 +60,12 @@ const blankTexts = (codes: string[], from?: BlogCategory) =>
 
 export default function CategoriesScreen() {
   const rights = useBlogRights();
-  const list = useWebsiteList((signal) => listCategories(signal), []);
+  const list = useMarkedList((signal) => readCategories(signal), [], (data) => data.viewWatermark);
   const languages = useActiveLanguages();
+  // BHA-ADMIN-BADGE-001-PR07: the screen says "seen" for `blog-categories` once it is shown (it waits for the languages too). While a category's pins are open it shows two reads of that one
+  // stream, so it waits for both and says the LOWER watermark; the posts the dialog offers for pinning are another stream and never count.
+  const [pinsRead, setPinsRead] = useState<{ categoryId: string; mark: ReadMark | null } | null>(null);
+  const reportPins = useCallback((categoryId: string, mark: ReadMark | null) => setPinsRead({ categoryId, mark }), []);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [pinsFor, setPinsFor] = useState<BlogCategory | null>(null);
   const [deleting, setDeleting] = useState<BlogCategory | null>(null);
@@ -83,12 +88,15 @@ export default function CategoriesScreen() {
   useEffect(() => {
     draftRef.current = draft;
   });
+  const listMark = languages.status === "ready" ? list.mark : null;
+  const pinsMark = pinsFor && pinsRead?.categoryId === pinsFor.id ? pinsRead.mark : null;
+  useAckOnRead("blog-categories", pinsFor ? (listMark && pinsMark ? lowestMark(listMark, pinsMark) : null) : listMark);
 
   if (list.state.status === "loading" || languages.status === "loading") return <LoadingPanel what="chuyên mục" />;
   if (list.state.status === "error") return <ErrorPanel message={list.state.message} onRetry={() => void list.reload()} />;
   if (languages.status === "error") return <ErrorPanel message={languages.message} onRetry={() => window.location.reload()} />;
   const codes = languages.data.map((l) => l.code);
-  const categories = list.state.data;
+  const categories = list.state.data.items;
   const working = save.status.phase === "pending" || remove.status.phase === "pending";
   const nameIn = (c: BlogCategory, code: string) => c.translations[code]?.name;
 
@@ -313,7 +321,7 @@ export default function CategoriesScreen() {
                 <td className={TABLE_CLASSES.cell}>{c.revisionCount} bản · {c.pinCount} ghim</td>
                 <td className={`${TABLE_CLASSES.cell} whitespace-nowrap`}>
                   <div className="flex gap-2">
-                    <ActionButton variant="outline" onClick={() => setPinsFor(c)} testId="category-pins">Ghim bài</ActionButton>
+                    <ActionButton variant="outline" onClick={() => { setPinsRead(null); setPinsFor(c); }} testId="category-pins">Ghim bài</ActionButton>
                     {rights.publish && <ActionButton variant="outline" onClick={() => open(c)} testId="category-edit">Sửa</ActionButton>}
                     {rights.publish && <span title={whyNotDeletable(c) ? `Chưa xoá được: ${whyNotDeletable(c)}.` : undefined}><ActionButton variant="outline" onClick={() => { remove.reset(); setDeleting(c); }} disabled={whyNotDeletable(c) !== ""} testId="category-delete">Xoá</ActionButton></span>}
                   </div>
@@ -363,7 +371,7 @@ export default function CategoriesScreen() {
         </DialogShell>
       )}
 
-      {pinsFor && <PinsDialog category={pinsFor} canEdit={rights.publish} languages={codes} onClose={() => { setPinsFor(null); void list.reload(); }} />}
+      {pinsFor && <PinsDialog category={pinsFor} canEdit={rights.publish} languages={codes} onRead={reportPins} onClose={() => { setPinsFor(null); setPinsRead(null); void list.reload(); }} />}
     </div>
   );
 }

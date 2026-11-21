@@ -19,6 +19,7 @@ import BlogWriteFeedback from "./BlogWriteFeedback";
 import { useBlogRights } from "./BlogAccessGate";
 import { useWebsiteHost } from "@/components/website/WebsiteAccessGate";
 import { useActiveLanguages } from "./useBlogReference";
+import { useAckOnRead, useMarkedList } from "./useMarkedList";
 
 const nameOf = (category: BlogCategory, locales: string[]) => {
   for (const locale of locales) if (category.translations[locale]?.name) return category.translations[locale].name;
@@ -42,8 +43,11 @@ interface Conflict {
 export default function SettingsScreen() {
   const rights = useBlogRights();
   const host = useWebsiteHost();
-  const settings = useWebsiteList((signal) => getSettings(signal), []);
+  const settings = useMarkedList((signal) => getSettings(signal), [], (data) => data.viewWatermark);
   const categories = useWebsiteList((signal) => listCategories(signal), []);
+  // BHA-ADMIN-BADGE-001-PR07: the SETTINGS read says "seen" for `blog-settings`, once the screen actually shows it (it waits for the category picker too). Not the picker's categories (another
+  // stream), not a save's answer, not the conflict / lost-answer re-reads below.
+  useAckOnRead("blog-settings", categories.state.status === "ready" ? settings.mark : null);
   const languages = useActiveLanguages();
   const write = useWriteAction();
   const [choice, setChoice] = useState<string | null | undefined>(undefined);

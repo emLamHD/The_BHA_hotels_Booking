@@ -7,11 +7,11 @@
 
 import React, { useCallback, useState } from "react";
 import { listMedia, mediaPreviewPath, type BlogMedia } from "@/lib/api/blog";
-import { useWebsiteList } from "@/components/website/useWebsiteData";
 import { ErrorPanel, LoadingPanel } from "@/components/website/WebsiteUi";
 import { StaffImage } from "./useStaffImage";
 import UploadPanel from "./UploadPanel";
 import { useUploadQueue } from "./useUploadQueue";
+import { useAckOnRead, useMarkedList } from "./useMarkedList";
 
 const PAGE_SIZE = 24;
 const BTN = "rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-white/5";
@@ -23,6 +23,7 @@ export default function MediaBrowser({
   reloadToken,
   onBusyChange,
   blockActivationWhileBusy = false,
+  acknowledges = false,
 }: {
   selectedIds?: ReadonlySet<string>;
   onActivate: (media: BlogMedia) => void;
@@ -31,13 +32,21 @@ export default function MediaBrowser({
   reloadToken?: number;
   onBusyChange?: (busy: boolean, isBusy: () => boolean) => void;
   blockActivationWhileBusy?: boolean;
+  /** BHA-ADMIN-BADGE-001-PR07: only the library screen says "seen" for `blog-media` from this list; the picker (a dialog inside an editor) never does. */
+  acknowledges?: boolean;
 }) {
   const [q, setQ] = useState("");
   const [typed, setTyped] = useState("");
   const [usage, setUsage] = useState<"" | "used" | "unused">("");
   const [page, setPage] = useState(1);
 
-  const { state, reload } = useWebsiteList((signal) => listMedia({ q: q || undefined, usage: usage || undefined, page, pageSize: PAGE_SIZE }, signal), [q, usage, page, reloadToken]);
+  const { state, reload, mark } = useMarkedList(
+    (signal) => listMedia({ q: q || undefined, usage: usage || undefined, page, pageSize: PAGE_SIZE }, signal),
+    [q, usage, page, reloadToken],
+    (data) => data.viewWatermark,
+    (data) => data.page <= Math.max(1, Math.ceil(data.total / PAGE_SIZE)),     // a page past the end is replaced by the last real one below
+  );
+  useAckOnRead("blog-media", acknowledges ? mark : null);
   const queue = useUploadQueue({ onUploaded: useCallback(() => void reload(), [reload]) });
   React.useEffect(() => onBusyChange?.(queue.busy, queue.isBusy), [queue.busy, queue.isBusy, onBusyChange]);
 

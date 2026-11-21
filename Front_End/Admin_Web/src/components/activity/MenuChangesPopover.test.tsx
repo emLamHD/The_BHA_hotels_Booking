@@ -58,6 +58,18 @@ describe("what the list shows", () => {
     expect(screen.queryByTestId("unseen-popover-more")).toBeNull();
   });
 
+  it("a bulk picture upload has no title: it reads from its item count (one event, never the count of pictures), and a titled group is untouched", async () => {
+    ui.menus = { ...ui.menus, "blog-media": global(2) };
+    ui.changes.mockResolvedValue(body("blog-media", [group("", 1, { entityKind: "media-batch", itemCount: 12 }), group("Ảnh bìa", 1, { entityKind: "media", itemCount: 1 })], { unseenEvents: 2 }));
+    mount(target(["blog-media"], "blog-media"));
+    const groups = await screen.findAllByTestId("unseen-popover-group");
+    expect(groups[0].textContent).toContain("Tải lên 12 ảnh");
+    expect(groups[0].textContent).not.toContain("media-batch");
+    expect(groups[1].textContent).toContain("Ảnh bìa");
+    expect(screen.getAllByTestId("unseen-popover-group-events").map((node) => node.textContent)).toEqual(["×1", "×1"]);   // the server's events, not 12
+    expect(screen.getByTestId("unseen-popover-total").textContent).toContain("2");
+  });
+
   it("hasMore shows 50+ and the pointer to the history; at most 50 groups are drawn even if more are sent", async () => {
     const many = Array.from({ length: 60 }, (_, index) => group(`Nhóm ${index}`));
     ui.changes.mockResolvedValue(body("newsletter", many, { unseenEvents: 900, hasMore: true }));

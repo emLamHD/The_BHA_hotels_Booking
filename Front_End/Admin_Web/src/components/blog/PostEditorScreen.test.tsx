@@ -35,6 +35,7 @@ import { createPost, fetchActiveLanguages, getPost, saveDraft, transitionPost } 
 import { fetchActiveProperties } from "@/lib/api/client";
 import { fetchStaffSession } from "@/lib/api/staff";
 
+const UUID = expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);  // BHA-ADMIN-BADGE-001-PR07: the id of one Save-then-Publish click
 const create = vi.mocked(createPost);
 const transition = vi.mocked(transitionPost);
 const save = vi.mocked(saveDraft);
@@ -78,7 +79,7 @@ describe("C3 F1 — /posts/new, 'Lưu và xuất bản', through the screen", ()
 
     expect(order).toEqual(["create", "publish", "leave"]);
     const createdId = create.mock.calls[0][0];
-    expect(transition.mock.calls[0]).toEqual([createdId, "vi", "publish", 1]);
+    expect(transition.mock.calls[0]).toEqual([createdId, "vi", "publish", 1, UUID]);
     expect(router.replace).toHaveBeenCalledWith(`/website/blog/posts/${createdId}?locale=vi`);
     expect(create).toHaveBeenCalledTimes(1);
     expect(transition).toHaveBeenCalledTimes(1);
@@ -98,7 +99,7 @@ describe("C3 F1 — /posts/new, 'Lưu và xuất bản', through the screen", ()
     transition.mockImplementationOnce((async (id: string) => ok(post(translation({ version: 2, status: "Published", hasDraft: false, draft: null, published: revision({ title: "Bài mới", slug: "bai-moi", summary: "", state: "Frozen" }) }), id))) as never);
     await userEvent.click(within(screen.getByTestId("post-publish")).getByRole("button"));
     await waitFor(() => expect(router.replace).toHaveBeenCalledTimes(1));
-    expect(transition.mock.calls[1]).toEqual([createdId, "vi", "publish", 1]);
+    expect(transition.mock.calls[1]).toEqual([createdId, "vi", "publish", 1]);  // the retry publishes the already-saved draft: a clean publish, no chain, no header
     expect(create).toHaveBeenCalledTimes(1);
   });
 
@@ -218,7 +219,7 @@ describe("C4 F1 — edits made while a new post is being created are never navig
     transition.mockImplementation((async (id: string) => ok(post(translation({ version: 2, status: "Published", hasDraft: false, draft: null, published: revision({ title: "Bài mới", slug: "bai-moi", state: "Frozen" }) }), id))) as never);
     gate.resolve(ok(post(draftOf("Bài mới"), createdId)) as never);
     await waitFor(() => expect(transition).toHaveBeenCalledTimes(1));
-    expect(transition.mock.calls[0]).toEqual([createdId, "vi", "publish", 1]);
+    expect(transition.mock.calls[0]).toEqual([createdId, "vi", "publish", 1, UUID]);
     await waitFor(() => expect(screen.getByTestId("post-status")).toHaveTextContent("Đã xuất bản"));
     expect((await input()).value).toBe("Bài mới thêm");
     expect(screen.getByTestId("post-dirty")).toBeInTheDocument();
@@ -383,7 +384,7 @@ describe("C6 F4 — after a create the screen opens the translation that was jus
     await userEvent.click(within(screen.getByTestId("post-publish")).getByRole("button"));
     await waitFor(() => expect(router.replace).toHaveBeenCalledTimes(1));
     const createdId = create.mock.calls[0][0];
-    expect(transition.mock.calls[0]).toEqual([createdId, "en", "publish", 1]);
+    expect(transition.mock.calls[0]).toEqual([createdId, "en", "publish", 1, UUID]);
     expect(router.replace).toHaveBeenCalledWith(`/website/blog/posts/${createdId}?locale=en`);
   });
 

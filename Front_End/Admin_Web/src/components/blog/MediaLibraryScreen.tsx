@@ -14,7 +14,7 @@ export default function MediaLibraryScreen() {
   return (
     <div className="flex flex-col gap-4">
       <PageHeader title="Thư viện ảnh Blog">Ảnh dùng chung cho ảnh bìa, ảnh OG và ảnh trong bài. Thông tin và điểm lấy nét của ảnh không làm đổi bài nào.</PageHeader>
-      <MediaBrowser onActivate={(media) => setOpenId(media.id)} canUpload={rights.access} reloadToken={token} />
+      <MediaBrowser onActivate={(media) => setOpenId(media.id)} canUpload={rights.access} reloadToken={token} acknowledges />
       {openId && <MediaDetailDialog key={openId} mediaId={openId} onClose={() => setOpenId(null)} onChanged={() => setToken((n) => n + 1)} />}
     </div>
   );

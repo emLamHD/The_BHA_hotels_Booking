@@ -10,7 +10,7 @@
  * languages is the public configuration (the Blog-only account has no right to the settings route that lists them).
  */
 
-import { call, type WebsiteResult } from "./website";
+import { call, isWatermark, type WebsiteResult } from "./website";
 import { getApiBaseUrl } from "./env";
 import { getAccessMode } from "./accessMode";
 
@@ -112,6 +112,8 @@ export interface BlogPostList {
   page: number;
   pageSize: number;
   total: number;
+  /** BHA-ADMIN-BADGE-001-PR07: the stream number of the SAME snapshot as the rest of this answer (a decimal string). Absent on an older backend or a malformed value: the data is still good, only the acknowledgement is skipped. */
+  viewWatermark?: string;
 }
 
 export interface BlogRevisionSummary {
@@ -157,12 +159,16 @@ export interface BlogPins {
   categoryId: string;
   version: number;
   pins: BlogPin[];
+  /** BHA-ADMIN-BADGE-001-PR07: the stream number of the SAME snapshot as the rest of this answer (a decimal string). Absent on an older backend or a malformed value: the data is still good, only the acknowledgement is skipped. */
+  viewWatermark?: string;
 }
 
 export interface BlogSettings {
   homeSectionCategoryId: string | null;
   version: number;
   updatedAtUtc: string;
+  /** BHA-ADMIN-BADGE-001-PR07: the stream number of the SAME snapshot as the rest of this answer (a decimal string). Absent on an older backend or a malformed value: the data is still good, only the acknowledgement is skipped. */
+  viewWatermark?: string;
 }
 
 export interface BlogMediaVariant {
@@ -202,6 +208,8 @@ export interface BlogMediaList {
   page: number;
   pageSize: number;
   total: number;
+  /** BHA-ADMIN-BADGE-001-PR07: the stream number of the SAME snapshot as the rest of this answer (a decimal string). Absent on an older backend or a malformed value: the data is still good, only the acknowledgement is skipped. */
+  viewWatermark?: string;
 }
 
 export interface BlogMediaUse {
@@ -360,6 +368,9 @@ function row(x: unknown): BlogTranslationRow | null {
   return { locale: x.locale, status: x.status as BlogStatus, version: x.version, title: x.title, slug: x.slug, hasDraft: x.hasDraft, updatedAtUtc: x.updatedAtUtc, updatedBy, coverMediaId: isStr(x.coverMediaId) ? x.coverMediaId : null };
 }
 
+/** The watermark field only when it is a canonical decimal string: a missing or malformed one never makes an otherwise good answer unreadable (it only means "do not acknowledge"). */
+const markOf = (value: unknown): { viewWatermark?: string } => (isWatermark(value) ? { viewWatermark: value } : {});
+
 const parseList = (x: unknown): BlogPostList | null => {
   if (!isRec(x) || !isInt(x.page) || !isInt(x.pageSize) || !isInt(x.total)) return null;
   const items = asList(x.items, (item) => {
@@ -367,7 +378,7 @@ const parseList = (x: unknown): BlogPostList | null => {
     const translations = asList(item.translations, row);
     return translations ? { id: item.id, updatedAtUtc: item.updatedAtUtc, translations } : null;
   });
-  return items ? { items, page: x.page, pageSize: x.pageSize, total: x.total } : null;
+  return items ? { items, page: x.page, pageSize: x.pageSize, total: x.total, ...markOf(x.viewWatermark) } : null;
 };
 
 const parseSummaries = (x: unknown): BlogRevisionSummary[] | null =>
@@ -415,12 +426,12 @@ const parsePins = (x: unknown): BlogPins | null => {
     if (!isRec(pin) || !isStr(pin.postId) || !isInt(pin.position) || typeof pin.effective !== "boolean" || !isRec(pin.titles)) return null;
     return { postId: pin.postId, position: pin.position, effective: pin.effective, titles: Object.fromEntries(Object.entries(pin.titles).filter(([, v]) => isStr(v))) as Record<string, string> };
   });
-  return pins ? { categoryId: x.categoryId, version: x.version, pins } : null;
+  return pins ? { categoryId: x.categoryId, version: x.version, pins, ...markOf(x.viewWatermark) } : null;
 };
 
 const parseSettings = (x: unknown): BlogSettings | null =>
   isRec(x) && isStrOrNull(x.homeSectionCategoryId ?? null) && isInt(x.version) && isStr(x.updatedAtUtc)
-    ? { homeSectionCategoryId: (x.homeSectionCategoryId as string | null | undefined) ?? null, version: x.version, updatedAtUtc: x.updatedAtUtc }
+    ? { homeSectionCategoryId: (x.homeSectionCategoryId as string | null | undefined) ?? null, version: x.version, updatedAtUtc: x.updatedAtUtc, ...markOf(x.viewWatermark) }
     : null;
 
 export function parseBlogMedia(x: unknown): BlogMedia | null {
@@ -449,7 +460,7 @@ export function parseBlogMedia(x: unknown): BlogMedia | null {
 const parseMediaList = (x: unknown): BlogMediaList | null => {
   if (!isRec(x) || !isInt(x.page) || !isInt(x.pageSize) || !isInt(x.total)) return null;
   const items = asList(x.items, parseBlogMedia);
-  return items ? { items, page: x.page, pageSize: x.pageSize, total: x.total } : null;
+  return items ? { items, page: x.page, pageSize: x.pageSize, total: x.total, ...markOf(x.viewWatermark) } : null;
 };
 
 const parseUsage = (x: unknown): BlogMediaUsage | null => {
@@ -510,7 +521,11 @@ const BLOG = "/api/admin/v1/website/blog";
 const enc = encodeURIComponent;
 
 const read = <T,>(path: string, parse: (x: unknown) => T | null, signal?: AbortSignal) => call<T>("GET", `${BLOG}${path}`, undefined, { write: false, parse, signal });
-const write = <T,>(path: string, body: unknown, parse: (x: unknown) => T | null) => call<T>("POST", `${BLOG}${path}`, body, { write: true, parse });
+const write = <T,>(path: string, body: unknown, parse: (x: unknown) => T | null, headers?: Record<string, string>) => call<T>("POST", `${BLOG}${path}`, body, { write: true, parse, ...(headers ? { headers } : {}) });
+
+/** BHA-ADMIN-BADGE-001-PR07 (ADR 0011 §D): the id of ONE Save-then-Publish click, sent on every request of that chain and on nothing else. */
+export const CORRELATION_HEADER = "X-Admin-Correlation-Id";
+const chain = (correlationId: string | undefined) => (correlationId ? { [CORRELATION_HEADER]: correlationId } : undefined);
 const writeNoContent = (path: string, body: unknown) => call<undefined>("POST", `${BLOG}${path}`, body, { write: true, noContent: true });
 
 export interface PostQuery {
@@ -536,16 +551,17 @@ export const listPosts = (query: PostQuery, signal?: AbortSignal) => {
 export const getPost = (id: string, signal?: AbortSignal) => read(`/posts/${enc(id)}`, parseBlogPost, signal);
 
 /** Starts a post. `id` is the client's: the same id is sent again if the answer is lost, so the post exists once (a repeat is 409 `blog.duplicate-id`). */
-export const createPost = (id: string, locale: string, draft: BlogDraftInput) => write("/posts", { id, locale, draft }, parseBlogPost);
+export const createPost = (id: string, locale: string, draft: BlogDraftInput, correlationId?: string) => write("/posts", { id, locale, draft }, parseBlogPost, chain(correlationId));
 
 /** `expectedVersion` 0 creates the translation; any other must be the version last read. */
-export const saveDraft = (postId: string, locale: string, expectedVersion: number, draft: BlogDraftInput) =>
-  write(`/posts/${enc(postId)}/translations/${enc(locale)}/draft`, { expectedVersion, draft }, parseBlogPost);
+export const saveDraft = (postId: string, locale: string, expectedVersion: number, draft: BlogDraftInput, correlationId?: string) =>
+  write(`/posts/${enc(postId)}/translations/${enc(locale)}/draft`, { expectedVersion, draft }, parseBlogPost, chain(correlationId));
 
 export type BlogTransition = "publish" | "unpublish" | "archive" | "unarchive";
 
-export const transitionPost = (postId: string, locale: string, action: BlogTransition, expectedVersion: number) =>
-  write(`/posts/${enc(postId)}/translations/${enc(locale)}/${action}`, { expectedVersion }, parseBlogPost);
+/** `correlationId` is only for `publish` inside a Save-then-Publish chain; every other transition sends exactly what it always sent. */
+export const transitionPost = (postId: string, locale: string, action: BlogTransition, expectedVersion: number, correlationId?: string) =>
+  write(`/posts/${enc(postId)}/translations/${enc(locale)}/${action}`, { expectedVersion }, parseBlogPost, action === "publish" ? chain(correlationId) : undefined);
 
 export const restoreRevision = (postId: string, locale: string, revisionId: string, expectedVersion: number) =>
   write(`/posts/${enc(postId)}/translations/${enc(locale)}/revisions/${enc(revisionId)}/restore`, { expectedVersion }, parseBlogPost);
@@ -560,6 +576,22 @@ export const getPreview = (postId: string, locale: string, signal?: AbortSignal)
   read(`/posts/${enc(postId)}/translations/${enc(locale)}/preview`, parsePreview, signal);
 
 export const listCategories = (signal?: AbortSignal) => read("/categories", parseCategories, signal);
+
+/** The categories as the Categories SCREEN reads them: the same array, with the `blog-categories` watermark of its snapshot from the `X-Admin-View-Watermark` response header (absent or malformed: no `viewWatermark`). Pickers keep `listCategories`. */
+export interface BlogCategoryList {
+  items: BlogCategory[];
+  viewWatermark?: string;
+}
+
+export const readCategories = (signal?: AbortSignal) =>
+  call<BlogCategoryList>("GET", `${BLOG}/categories`, undefined, {
+    write: false,
+    signal,
+    parse: (x, headers) => {
+      const items = parseCategories(x);
+      return items ? { items, ...markOf(headers.get("X-Admin-View-Watermark")) } : null;
+    },
+  });
 
 export type CategoryTexts = Record<string, { name: string; slug: string; description: string | null }>;
 
