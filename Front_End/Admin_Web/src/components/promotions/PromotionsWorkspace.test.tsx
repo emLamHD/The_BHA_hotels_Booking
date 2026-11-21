@@ -11,11 +11,11 @@ vi.mock("next/navigation", () => ({ useRouter: () => router }));
 vi.mock("@/lib/api/staff", async (original) => ({ ...(await original<typeof import("@/lib/api/staff")>()), fetchStaffSession: vi.fn(), staffLogout: vi.fn() }));
 vi.mock("@/lib/api/promotions", async (original) => ({
   ...(await original<typeof import("@/lib/api/promotions")>()),
-  listPromotions: vi.fn(), getPromotion: vi.fn(), getPromotionRoomTypes: vi.fn(), createPromotion: vi.fn(), savePromotion: vi.fn(), setPromotionStatus: vi.fn(), uploadPromotionCover: vi.fn(),
+  listPromotions: vi.fn(), readPromotions: vi.fn(), getPromotion: vi.fn(), getPromotionRoomTypes: vi.fn(), createPromotion: vi.fn(), savePromotion: vi.fn(), setPromotionStatus: vi.fn(), uploadPromotionCover: vi.fn(),
 }));
 import PromotionsScreen from "./PromotionsScreen";
 import { fetchStaffSession } from "@/lib/api/staff";
-import { createPromotion, getPromotion, getPromotionRoomTypes, listPromotions, savePromotion, setPromotionStatus, uploadPromotionCover } from "@/lib/api/promotions";
+import { createPromotion, getPromotion, getPromotionRoomTypes, listPromotions, readPromotions, savePromotion, setPromotionStatus, uploadPromotionCover } from "@/lib/api/promotions";
 
 const MANAGER: StaffSession = {
   staffAccountId: "11111111-1111-1111-1111-111111111111", email: "manager@example.com", permissions: [],
@@ -50,6 +50,7 @@ beforeEach(() => {
   vi.mocked(fetchStaffSession).mockResolvedValue({ kind: "authenticated", session: MANAGER });
   vi.mocked(getPromotionRoomTypes).mockResolvedValue(ok([{ id: "r1", code: "RIV-1BR", name: "Căn hộ một phòng ngủ", isActive: true }, { id: "r2", code: "RIV-2BR", name: "Căn hộ hai phòng ngủ", isActive: true }]));
   vi.mocked(listPromotions).mockImplementation(async () => ok([summary(server)]));
+  vi.mocked(readPromotions).mockImplementation(async () => ok({ items: [summary(server)], viewWatermark: "7" }));
   vi.mocked(getPromotion).mockImplementation(async () => ok(structuredClone(server)));
 });
 afterEach(() => {
@@ -72,7 +73,7 @@ describe("PromotionsScreen access", () => {
     render(<PromotionsScreen />);
 
     expect(await screen.findByTestId("website-no-permission")).toHaveTextContent("không phải Manager");
-    expect(listPromotions).not.toHaveBeenCalled();
+    expect(readPromotions).not.toHaveBeenCalled();
     expect(getPromotionRoomTypes).not.toHaveBeenCalled();
   });
 
@@ -82,14 +83,14 @@ describe("PromotionsScreen access", () => {
     render(<PromotionsScreen />);
 
     await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/signin?returnTo=%2Fpromotions"));
-    expect(listPromotions).not.toHaveBeenCalled();
+    expect(readPromotions).not.toHaveBeenCalled();
   });
 
   it("works only on the properties the account manages", async () => {
     render(<PromotionsScreen />);
 
     await screen.findByTestId("promotion-list");
-    expect(listPromotions).toHaveBeenCalledWith("p1", { status: "", q: "", homepage: "" }, expect.anything());
+    expect(readPromotions).toHaveBeenCalledWith("p1", { status: "", q: "", homepage: "" }, expect.anything());
     expect(screen.queryByTestId("promotion-property")).toBeNull();   // a single managed property: nothing to choose
   });
 });
@@ -114,11 +115,11 @@ describe("PromotionsScreen list", () => {
     await userEvent.selectOptions(screen.getByTestId("promotion-filter-homepage"), "true");
     await userEvent.type(screen.getByTestId("promotion-filter-q"), "sớm");
 
-    await waitFor(() => expect(listPromotions).toHaveBeenLastCalledWith("p1", { status: "Active", q: "sớm", homepage: "true" }, expect.anything()));
+    await waitFor(() => expect(readPromotions).toHaveBeenLastCalledWith("p1", { status: "Active", q: "sớm", homepage: "true" }, expect.anything()));
   });
 
   it("says when nothing matches and when the property has none", async () => {
-    vi.mocked(listPromotions).mockResolvedValue(ok([]));
+    vi.mocked(readPromotions).mockResolvedValue(ok({ items: [], viewWatermark: "7" }));
     render(<PromotionsScreen />);
     expect(await screen.findByTestId("promotion-empty")).toHaveTextContent("chưa có ưu đãi nào");
 
@@ -127,7 +128,7 @@ describe("PromotionsScreen list", () => {
   });
 
   it("offers Retry when the list cannot be read", async () => {
-    vi.mocked(listPromotions).mockResolvedValueOnce({ kind: "network", message: "Không kết nối được." });
+    vi.mocked(readPromotions).mockResolvedValueOnce({ kind: "network", message: "Không kết nối được." });
     render(<PromotionsScreen />);
 
     expect(await screen.findByTestId("website-load-error")).toHaveTextContent("Không kết nối được.");

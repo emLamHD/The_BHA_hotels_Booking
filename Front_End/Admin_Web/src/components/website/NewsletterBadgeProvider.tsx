@@ -21,8 +21,11 @@
  * shares through `useNewsletterLiveFeed` for its toast, refresh and catch-up (it never opens a third).
  *
  * "Seen" is said by a menu's own screen after a list answered successfully, with the watermark THAT answer carried, to `POST menu-unseen/{menu}/seen`: the Newsletter screen through `ack`,
- * the Blog (BHA-ADMIN-BADGE-001-PR07) and Website (PR09) screens through `useMenuSeen`. It is never optimistic: the number changes when the server answers, and a failed call is retried (a few times)
- * with the SAME watermark and identity. Everything about it is per menu (what is on the wire, what waits, what the server last said), so one menu's call never holds up another's.
+ * the Blog (BHA-ADMIN-BADGE-001-PR07), Website (PR09) and Promotions (PR10) screens through `useMenuSeen`. It is never optimistic: the number changes when the server answers, and a failed call is
+ * retried (a few times) with the SAME watermark and identity. Everything about it is per menu (what is on the wire, what waits, what the server last said), so one menu's call never holds up
+ * another's. For a Property-scoped menu (`promotions`) that is per menu AND Property: A's call never holds up or drops B's; an acknowledgement's answer lists every Property, but only the
+ * acknowledged one's row is merged into the latest summary, and only if the latest summary still lists that Property (a revoked Property is never brought back, a late answer or retry of it
+ * is dropped, and what it had to say waits until a summary lists it again).
  * The sidebar never says "seen", and a watermark never comes from the summary GET.
  */
 
@@ -39,7 +42,7 @@ import {
   type MenuUnseenEntry,
   type MenuUnseenSummary,
 } from "@/lib/api/menuUnseen";
-import type { AdminMenuKey } from "@/lib/adminMenus";
+import { ADMIN_MENU, type AdminMenuKey } from "@/lib/adminMenus";
 import { startNewsletterLive, type LiveStatus, type LiveStopReason } from "@/lib/website/newsletterLive";
 import { useStaffSession } from "@/components/auth/StaffSession";
 import { useNewsletterLive, useNewsletterLiveConnection, type LiveCallbacks } from "./useNewsletterLive";
@@ -48,11 +51,12 @@ import { useNewsletterLive, useNewsletterLiveConnection, type LiveCallbacks } fr
 export const BADGE_POLL_MS = 30_000;
 /** Requests wanted close together are one. */
 export const BADGE_COALESCE_MS = 250;
-/** The menus whose screen says "seen": the Newsletter, the four global Blog menus and (BHA-ADMIN-BADGE-001-PR09) the seven Website ones. */
+/** The menus whose screen says "seen": the Newsletter, the four global Blog menus, (BHA-ADMIN-BADGE-001-PR09) the seven Website ones and (PR10) the Property-scoped Promotions. */
 export type SeenMenu = Extract<
   AdminMenuKey,
   | "newsletter" | "blog-posts" | "blog-categories" | "blog-media" | "blog-settings"
   | "website-hero" | "website-menus" | "website-languages" | "website-translations" | "website-currencies" | "website-social" | "newsletter-sender"
+  | "promotions"
 >;
 
 /** A failed acknowledgement is tried again after these delays (same watermark, same identity), then left to the next successful list. */
@@ -66,8 +70,8 @@ interface SharedLive {
   subscribe: (callbacks: LiveCallbacks) => () => void;
   /** The Newsletter's "seen up to this watermark" for this Staff identity. Safe to call again with the same one. */
   ack: (watermark: string, identity: string) => void;
-  /** The same for any menu that says it. */
-  seen: (menu: SeenMenu, watermark: string, identity: string) => void;
+  /** The same for any menu that says it. A Property-scoped menu (`promotions`) names its Property as the fourth argument and nothing is sent without it; a global menu has none. */
+  seen: (menu: SeenMenu, watermark: string, identity: string, propertyId?: string) => void;
 }
 
 /** One watermark pair: a global menu has one (`id` ""), a Property-scoped menu one per Property. */
@@ -113,6 +117,10 @@ const NO_SEEN: SharedLive["seen"] = () => undefined;
 /** The Newsletter screen's way into the shared connection and the acknowledgement. `null` when no provider is mounted (the screen then runs by itself). */
 export const useSharedNewsletterLive = (): SharedLive | null => useContext(SharedContext);
 
+const isPropertyMenu = (menu: SeenMenu): boolean => ADMIN_MENU[menu].scope === "property";
+/** One queue and one waiting watermark per menu, and for a Property-scoped menu per Property. */
+const ackKey = (menu: SeenMenu, propertyId?: string): string => (propertyId === undefined ? menu : `${menu}|${propertyId}`);
+
 const marksOf = (entry: MenuUnseenEntry): Mark[] =>
   entry.byProperty
     ? entry.byProperty.map((property) => ({ id: property.propertyId, last: BigInt(property.lastSeenWatermark), current: BigInt(property.currentWatermark) }))
@@ -156,8 +164,11 @@ export function MenuUnseenProvider({ children }: { children: React.ReactNode }) 
    * watermark per menu is kept, from a read that WAS shown, until a successful summary of this same life lists the menu; then it goes out through the normal pipeline. Never from a summary,
    * and emptied with the life (sign-out, expiry, another Staff member).
    */
-  const deferred = useRef(new Map<SeenMenu, bigint>());
+  const deferred = useRef(new Map<string, { menu: SeenMenu; propertyId?: string; value: bigint }>());
+  /** The Properties the latest answer lists, per Property-scoped menu (from the answer itself, whatever `offer` kept): the only thing that says a Property may be acknowledged now. */
+  const allowedProperties = useRef(new Map<string, Set<string>>());
   const flushDeferred = useRef<(forIdentity: string) => void>(() => undefined);
+  const pauseRevoked = useRef<() => void>(() => undefined);
   const sessionRef = useRef({ refresh, expire, failAccessCheck });
   sessionRef.current = { refresh, expire, failAccessCheck };
 
@@ -178,7 +189,9 @@ export function MenuUnseenProvider({ children }: { children: React.ReactNode }) 
       for (const key of [...known.current.keys()]) if (!keys.has(key)) known.current.delete(key);     // no longer allowed: gone, and nothing can bring it back
       for (const [key, entry] of Object.entries(summary)) if (entry) offer(known.current, key, entry, seq);
       allowed.current = keys;
+      allowedProperties.current = new Map(Object.entries(summary).flatMap(([key, entry]) => (entry?.byProperty ? [[key, new Set(entry.byProperty.map((property) => property.propertyId))] as const] : [])));
       publish(forIdentity);
+      pauseRevoked.current();                                                                // a Property that left the answer stops saying what it had queued
       flushDeferred.current(forIdentity);                                                    // a menu that is listed now can say what it was waiting to say
     },
     [publish],
@@ -186,9 +199,23 @@ export function MenuUnseenProvider({ children }: { children: React.ReactNode }) 
 
   /** An acknowledgement's answer updates that menu's entry, but never puts a menu back that the latest answer left out. Before the first answer it is only remembered (it can be newer than a slow GET). */
   const applyAck = useCallback(
-    (menu: SeenMenu, entry: MenuUnseenEntry, seq: number, forIdentity: string, gen: number) => {
+    (menu: SeenMenu, entry: MenuUnseenEntry, seq: number, forIdentity: string, gen: number, propertyId?: string) => {
       if (gen !== generation.current || forIdentity !== identityRef.current) return;
       if (allowed.current && !allowed.current.has(menu)) return;
+      if (propertyId !== undefined) {
+        // The answer lists every Property as of ITS moment; only the acknowledged Property's row is merged, into the latest answer, and only if that answer still lists the Property and the row is
+        // not older than what is known for it. Another Property's number, the list of Properties and the aggregate stay the latest answer's own.
+        const before = known.current.get(menu);
+        const row = entry.byProperty?.find((property) => property.propertyId === propertyId);
+        const current = before?.entry.byProperty?.find((property) => property.propertyId === propertyId);
+        if (!before || !row || !current || !allowedProperties.current.get(menu)?.has(propertyId)) return;
+        if (BigInt(row.lastSeenWatermark) < BigInt(current.lastSeenWatermark) || BigInt(row.currentWatermark) < BigInt(current.currentWatermark)) return;
+        const byProperty = (before.entry.byProperty ?? []).map((property) => (property.propertyId === propertyId ? row : property));
+        const merged: MenuUnseenEntry = { count: byProperty.reduce((sum, property) => sum + property.count, 0), byProperty };
+        known.current.set(menu, { entry: merged, marks: marksOf(merged), seq: before.seq });
+        publish(forIdentity);
+        return;
+      }
       offer(known.current, menu, entry, seq);
       if (allowed.current) publish(forIdentity);
     },
@@ -254,24 +281,48 @@ export function MenuUnseenProvider({ children }: { children: React.ReactNode }) 
     }, BADGE_COALESCE_MS);
   }, [runRefresh]);
 
-  // ---- saying "seen": per menu, one on the wire at a time, the newest waiting watermark behind it
-  const acks = useRef(new Map<SeenMenu, { inFlight: boolean; queued: bigint | null }>());
-  const slot = (menu: SeenMenu) => {
-    let state = acks.current.get(menu);
-    if (!state) acks.current.set(menu, (state = { inFlight: false, queued: null }));
+  // ---- saying "seen": per menu (and Property), one on the wire at a time, the newest waiting watermark behind it
+  const acks = useRef(new Map<string, { inFlight: boolean; queued: bigint | null; menu: SeenMenu; propertyId?: string }>());
+  const slot = (menu: SeenMenu, propertyId?: string) => {
+    const key = ackKey(menu, propertyId);
+    let state = acks.current.get(key);
+    if (!state) acks.current.set(key, (state = { inFlight: false, queued: null, menu, propertyId }));
     return state;
   };
-  const send = useCallback(async (menu: SeenMenu, watermark: bigint, forIdentity: string, gen: number) => {
-    const state = slot(menu);
+  /** Whether the latest answer lets this menu (and Property) be acknowledged. Before the first answer everything but a known-closed menu is tried, as before; the Newsletter never consulted it. */
+  const readable = (menu: SeenMenu, propertyId?: string): boolean => {
+    if (menu === "newsletter" || !allowed.current) return true;
+    if (!allowed.current.has(menu)) return false;
+    return propertyId === undefined || (allowedProperties.current.get(menu)?.has(propertyId) ?? false);
+  };
+  /** The newest watermark of a read that WAS shown for a menu/Property the latest answer leaves out, kept until a summary of this life lists it again. */
+  const defer = (menu: SeenMenu, propertyId: string | undefined, value: bigint) => {
+    const key = ackKey(menu, propertyId);
+    const waiting = deferred.current.get(key);
+    if (waiting === undefined || value > waiting.value) deferred.current.set(key, { menu, propertyId, value });
+  };
+  const cursorOf = (menu: SeenMenu, propertyId?: string): bigint | undefined => {
+    const marks = known.current.get(menu)?.marks;
+    return propertyId === undefined ? marks?.[0]?.last : marks?.find((mark) => mark.id === propertyId)?.last;
+  };
+  const send = useCallback(async (menu: SeenMenu, watermark: bigint, forIdentity: string, gen: number, propertyId?: string) => {
+    const state = slot(menu, propertyId);
     state.inFlight = true;
     try {
       for (let attempt = 0; ; attempt += 1) {
+        // A retry never goes out for a Property the latest answer no longer lists: what it had to say waits for a summary that lists it again.
+        if (attempt > 0 && !readable(menu, propertyId)) {
+          defer(menu, propertyId, watermark);
+          return;
+        }
         issued.current += 1;
         const seq = issued.current;
-        const result = await (menu === "newsletter" ? markNewsletterSeen(String(watermark)) : markMenuSeen(menu, String(watermark)));
+        const result = await (menu === "newsletter"
+          ? markNewsletterSeen(String(watermark))
+          : propertyId === undefined ? markMenuSeen(menu, String(watermark)) : markMenuSeen(menu, String(watermark), undefined, propertyId));
         if (gen !== generation.current) return;
         if (result.kind === "ok") {
-          applyAck(menu, result.data, seq, forIdentity, gen);
+          applyAck(menu, result.data, seq, forIdentity, gen, propertyId);
           return;
         }
         if (result.kind === "unauthenticated" || result.kind === "denied") {
@@ -293,42 +344,53 @@ export function MenuUnseenProvider({ children }: { children: React.ReactNode }) 
         state.inFlight = false;
         const next = state.queued;
         state.queued = null;
-        const last = known.current.get(menu)?.marks[0]?.last;
-        if (next !== null && (last === undefined || next > last)) void send(menu, next, forIdentity, gen);
+        const last = cursorOf(menu, propertyId);
+        if (next !== null && (last === undefined || next > last)) {
+          if (readable(menu, propertyId)) void send(menu, next, forIdentity, gen, propertyId);
+          else defer(menu, propertyId, next);
+        }
       }
     }
   }, [applyAck, authFailure, requestRefresh]);
 
   const seen = useCallback(
-    (menu: SeenMenu, watermark: string, forIdentity: string) => {
+    (menu: SeenMenu, watermark: string, forIdentity: string, propertyId?: string) => {
       if (!identityRef.current || forIdentity !== identityRef.current) return;     // another (or no) Staff identity: not ours to say
       if (!/^(0|[1-9][0-9]*)$/.test(watermark)) return;
+      if (isPropertyMenu(menu) ? !propertyId : propertyId !== undefined) return;   // a Property-scoped menu is acknowledged per Property, a global one never has one
       const value = BigInt(watermark);
-      // A Blog menu the latest answer leaves out is not readable as far as the API has said: nothing is sent and the menu is never brought back. The watermark of a read that WAS shown is kept (the
-      // newest per menu) for the next successful summary of this life that lists the menu. (The Newsletter's call is unchanged: it never consulted the answer.)
-      if (menu !== "newsletter" && allowed.current && !allowed.current.has(menu)) {
-        const waiting = deferred.current.get(menu);
-        if (waiting === undefined || value > waiting) deferred.current.set(menu, value);
+      // A menu (or Property) the latest answer leaves out is not readable as far as the API has said: nothing is sent and it is never brought back. The watermark of a read that WAS shown is kept
+      // (the newest per menu and Property) for the next successful summary of this life that lists it. (The Newsletter's call is unchanged: it never consulted the answer.)
+      if (!readable(menu, propertyId)) {
+        defer(menu, propertyId, value);
         return;
       }
-      const last = known.current.get(menu)?.marks[0]?.last;
+      const last = cursorOf(menu, propertyId);
       if (last !== undefined && value <= last) return;                             // nothing new to say
-      const state = slot(menu);
+      const state = slot(menu, propertyId);
       if (state.inFlight) {
         state.queued = state.queued === null || value > state.queued ? value : state.queued;
         return;
       }
-      void send(menu, value, forIdentity, generation.current);
+      void send(menu, value, forIdentity, generation.current, propertyId);
     },
     [send],
   );
   const ack = useCallback((watermark: string, forIdentity: string) => seen("newsletter", watermark, forIdentity), [seen]);
   useEffect(() => {
     flushDeferred.current = (forIdentity) => {
-      for (const [menu, value] of [...deferred.current]) {
-        if (!allowed.current?.has(menu)) continue;                                           // still not listed: keep waiting
-        deferred.current.delete(menu);
-        seen(menu, String(value), forIdentity);                                              // the same pipeline: dedupe against the cursor, one call per menu in flight, retry, stale guards
+      for (const [key, waiting] of [...deferred.current]) {
+        if (!allowed.current?.has(waiting.menu) || !readable(waiting.menu, waiting.propertyId)) continue;   // still not listed: keep waiting
+        deferred.current.delete(key);
+        seen(waiting.menu, String(waiting.value), forIdentity, waiting.propertyId);          // the same pipeline: dedupe against the cursor, one call per menu and Property in flight, retry, stale guards
+      }
+    };
+    // A Property the latest answer no longer lists keeps nothing queued: what waited moves to `deferred` (an in-flight call and a retry stop on their own, see `send` and `applyAck`).
+    pauseRevoked.current = () => {
+      for (const state of acks.current.values()) {
+        if (state.queued === null || readable(state.menu, state.propertyId)) continue;
+        defer(state.menu, state.propertyId, state.queued);
+        state.queued = null;
       }
     };
   }, [seen]);
@@ -344,6 +406,7 @@ export function MenuUnseenProvider({ children }: { children: React.ReactNode }) 
     again.current = false;
     acks.current = new Map();
     deferred.current = new Map();
+    allowedProperties.current = new Map();
     void runRefresh();
 
     const poll = setInterval(() => {
@@ -365,6 +428,7 @@ export function MenuUnseenProvider({ children }: { children: React.ReactNode }) 
       fetching.current = false;
       known.current = new Map();
       allowed.current = null;
+      allowedProperties.current = new Map();
       deferred.current = new Map();                                                          // what waited belonged to this life only
       setSnapshot(null);
     };

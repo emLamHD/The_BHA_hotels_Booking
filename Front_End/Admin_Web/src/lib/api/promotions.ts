@@ -1,4 +1,4 @@
-import { call, type WebsiteResult } from "./website";
+import { call, markOf, type WatermarkedItems, type WebsiteResult } from "./website";
 import { getApiBaseUrl } from "./env";
 
 /**
@@ -68,16 +68,32 @@ export function parseEditor(x: unknown): PromotionEditor | null {
 
 const base = (propertyId: string) => `/api/admin/v1/properties/${encodeURIComponent(propertyId)}/promotions`;
 
-export const listPromotions = (propertyId: string, filter: PromotionFilter, signal?: AbortSignal): Promise<WebsiteResult<PromotionSummary[]>> => {
+const listPath = (propertyId: string, filter: PromotionFilter): string => {
   const query = new URLSearchParams();
   if (filter.status) query.set("status", filter.status);
   if (filter.q.trim()) query.set("q", filter.q.trim());
   if (filter.homepage) query.set("homepage", filter.homepage);
   const text = query.toString();
-  return call<PromotionSummary[]>("GET", `${base(propertyId)}${text ? `?${text}` : ""}`, undefined, {
-    write: false, signal, parse: x => Array.isArray(x) && x.every(v => parseSummary(v) !== null) ? x as PromotionSummary[] : null,
-  });
+  return `${base(propertyId)}${text ? `?${text}` : ""}`;
 };
+
+const parseSummaries = (x: unknown): PromotionSummary[] | null => (Array.isArray(x) && x.every(v => parseSummary(v) !== null) ? x as PromotionSummary[] : null);
+
+export const listPromotions = (propertyId: string, filter: PromotionFilter, signal?: AbortSignal): Promise<WebsiteResult<PromotionSummary[]>> =>
+  call<PromotionSummary[]>("GET", listPath(propertyId, filter), undefined, { write: false, signal, parse: parseSummaries });
+
+/**
+ * BHA-ADMIN-BADGE-001-PR10: the same read as `listPromotions` (same route, same bare array) that also exposes the snapshot's `X-Admin-View-Watermark` header. Only the list SCREEN calls it, to be
+ * able to say "seen"; every other caller (the lost-answer check of a create) keeps `listPromotions`. A missing or malformed header is no `viewWatermark`: the items still read.
+ */
+export const readPromotions = (propertyId: string, filter: PromotionFilter, signal?: AbortSignal): Promise<WebsiteResult<WatermarkedItems<PromotionSummary>>> =>
+  call<WatermarkedItems<PromotionSummary>>("GET", listPath(propertyId, filter), undefined, {
+    write: false, signal,
+    parse: (data, headers) => {
+      const items = parseSummaries(data);
+      return items ? { items, ...markOf(headers.get("X-Admin-View-Watermark")) } : null;
+    },
+  });
 
 export const getPromotion = (propertyId: string, id: string, signal?: AbortSignal) =>
   call<PromotionEditor>("GET", `${base(propertyId)}/${encodeURIComponent(id)}`, undefined, { write: false, signal, parse: parseEditor });
