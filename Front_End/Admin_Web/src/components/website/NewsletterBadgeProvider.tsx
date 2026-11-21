@@ -51,12 +51,12 @@ import { useNewsletterLive, useNewsletterLiveConnection, type LiveCallbacks } fr
 export const BADGE_POLL_MS = 30_000;
 /** Requests wanted close together are one. */
 export const BADGE_COALESCE_MS = 250;
-/** The menus whose screen says "seen": the Newsletter, the four global Blog menus, (BHA-ADMIN-BADGE-001-PR09) the seven Website ones and (PR10) the Property-scoped Promotions. */
+/** The menus whose screen says "seen": the Newsletter, the four global Blog menus, (BHA-ADMIN-BADGE-001-PR09) the seven Website ones and (PR10) the Property-scoped Promotions and (PR11) the global Catalog. */
 export type SeenMenu = Extract<
   AdminMenuKey,
   | "newsletter" | "blog-posts" | "blog-categories" | "blog-media" | "blog-settings"
   | "website-hero" | "website-menus" | "website-languages" | "website-translations" | "website-currencies" | "website-social" | "newsletter-sender"
-  | "promotions"
+  | "promotions" | "catalog"
 >;
 
 /** A failed acknowledgement is tried again after these delays (same watermark, same identity), then left to the next successful list. */

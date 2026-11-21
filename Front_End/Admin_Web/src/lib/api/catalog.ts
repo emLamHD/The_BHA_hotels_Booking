@@ -1,4 +1,4 @@
-import { call } from "./website";
+import { call, markOf, type WatermarkedItems } from "./website";
 import { getApiBaseUrl } from "./env";
 
 export interface PropertyChoice { id: string; name: string; slug: string }
@@ -50,12 +50,26 @@ export function parseEditor(x: unknown): CatalogEditor | null {
   return x as unknown as CatalogEditor;
 }
 export const ownerPath = (p: string, r: string | null) => `/api/admin/v1/catalog/properties/${encodeURIComponent(p)}${r ? `/room-types/${encodeURIComponent(r)}` : ""}`;
-export const getCatalogProperties = (signal?: AbortSignal) => call<PropertyChoice[]>("GET", "/api/admin/v1/catalog/properties", undefined, {
-  write: false, signal, parse: x => Array.isArray(x) && x.every(v => rec(v) && [v.id, v.name, v.slug].every(t => typeof t === "string")) ? x : null,
-});
-export const getCatalogProducts = (propertyId: string, signal?: AbortSignal) => call<CatalogProductSummary[]>("GET", `${ownerPath(propertyId, null)}/products`, undefined, {
-  write: false, signal, parse: x => Array.isArray(x) && x.every(v => parseProductSummary(v) !== null) ? x as CatalogProductSummary[] : null,
-});
+const parseProperties = (x: unknown): PropertyChoice[] | null => Array.isArray(x) && x.every(v => rec(v) && [v.id, v.name, v.slug].every(t => typeof t === "string")) ? x : null;
+const parseProducts = (x: unknown): CatalogProductSummary[] | null => Array.isArray(x) && x.every(v => parseProductSummary(v) !== null) ? x as CatalogProductSummary[] : null;
+const PROPERTIES = "/api/admin/v1/catalog/properties";
+export const getCatalogProperties = (signal?: AbortSignal) => call<PropertyChoice[]>("GET", PROPERTIES, undefined, { write: false, signal, parse: parseProperties });
+export const getCatalogProducts = (propertyId: string, signal?: AbortSignal) => call<CatalogProductSummary[]>("GET", `${ownerPath(propertyId, null)}/products`, undefined, { write: false, signal, parse: parseProducts });
+
+/**
+ * BHA-ADMIN-BADGE-001-PR11: the same two list reads (same routes, same bare arrays) that also expose their snapshot's `X-Admin-View-Watermark` header. Only the list VIEW calls them, to be able to
+ * say "seen"; the read-back checks of a create and every other caller keep `get*`. A missing or malformed header is no `viewWatermark`: the items still read.
+ */
+const readItems = <T,>(path: string, parse: (x: unknown) => T[] | null, signal?: AbortSignal) =>
+  call<WatermarkedItems<T>>("GET", path, undefined, {
+    write: false, signal,
+    parse: (data, headers) => {
+      const items = parse(data);
+      return items ? { items, ...markOf(headers.get("X-Admin-View-Watermark")) } : null;
+    },
+  });
+export const readCatalogProperties = (signal?: AbortSignal) => readItems(PROPERTIES, parseProperties, signal);
+export const readCatalogProducts = (propertyId: string, signal?: AbortSignal) => readItems(`${ownerPath(propertyId, null)}/products`, parseProducts, signal);
 const parseRoom = (x: unknown): CatalogPhysicalRoom | null => rec(x) && [x.id, x.propertyId, x.roomTypeId, x.roomNumber].every(v => typeof v === "string") && Number.isInteger(x.floor) && ["Active", "Inactive", "OutOfService"].includes(String(x.operationalStatus)) ? x as unknown as CatalogPhysicalRoom : null;
 export const getPhysicalRooms = (p: string, r: string, signal?: AbortSignal) => call<CatalogPhysicalRoom[]>("GET", `${ownerPath(p, r)}/physical-rooms`, undefined, { write: false, signal, parse: x => Array.isArray(x) && x.every(v => parseRoom(v) !== null) ? x as CatalogPhysicalRoom[] : null });
 export const createProperty = (body: CreatePropertyInput, operationId: string) => call<PropertyChoice>("POST", "/api/admin/v1/catalog/properties", body, { write: true, headers: { "Idempotency-Key": operationId }, parse: x => rec(x) && [x.id, x.name, x.slug].every(v => typeof v === "string") ? x as unknown as PropertyChoice : null });

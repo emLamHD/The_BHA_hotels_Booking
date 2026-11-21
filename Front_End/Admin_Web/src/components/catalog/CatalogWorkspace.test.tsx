@@ -9,11 +9,11 @@ import type { CatalogEditor, CatalogPhysicalRoom } from "@/lib/api/catalog";
 const router = { push: vi.fn(), replace: vi.fn() };
 vi.mock("next/navigation", () => ({ useRouter: () => router }));
 vi.mock("@/lib/api/staff", async original => ({ ...await original<typeof import("@/lib/api/staff")>(), fetchStaffSession: vi.fn(), staffLogout: vi.fn() }));
-vi.mock("@/lib/api/catalog", async original => ({ ...await original<typeof import("@/lib/api/catalog")>(), getCatalogProperties: vi.fn(), getCatalogProducts: vi.fn(), getPhysicalRooms: vi.fn(), createProperty: vi.fn(), createRoomType: vi.fn(), createPhysicalRoom: vi.fn(), getCatalog: vi.fn(), saveCatalog: vi.fn(), createAmenity: vi.fn(), uploadCatalog: vi.fn(), catalogImage: () => "/picture.webp" }));
+vi.mock("@/lib/api/catalog", async original => ({ ...await original<typeof import("@/lib/api/catalog")>(), getCatalogProperties: vi.fn(), getCatalogProducts: vi.fn(), readCatalogProperties: vi.fn(), readCatalogProducts: vi.fn(), getPhysicalRooms: vi.fn(), createProperty: vi.fn(), createRoomType: vi.fn(), createPhysicalRoom: vi.fn(), getCatalog: vi.fn(), saveCatalog: vi.fn(), createAmenity: vi.fn(), uploadCatalog: vi.fn(), catalogImage: () => "/picture.webp" }));
 import WebsiteAccessGate from "@/components/website/WebsiteAccessGate";
 import CatalogWorkspace from "./CatalogWorkspace";
 import { fetchStaffSession, staffLogout } from "@/lib/api/staff";
-import { createAmenity, createProperty, createRoomType, createPhysicalRoom, getPhysicalRooms, getCatalog, getCatalogProducts, getCatalogProperties, saveCatalog, uploadCatalog, type CatalogProductSummary } from "@/lib/api/catalog";
+import { createAmenity, createProperty, createRoomType, createPhysicalRoom, getPhysicalRooms, getCatalog, getCatalogProducts, getCatalogProperties, readCatalogProducts, readCatalogProperties, saveCatalog, uploadCatalog, type CatalogProductSummary } from "@/lib/api/catalog";
 
 const rooms = ["r1", "r2", "r3"].map(id => ({ id, code: id, name: `Room ${id}` }));
 function editor(propertyId = "p1", roomTypeId: string | null = null): CatalogEditor {
@@ -55,6 +55,9 @@ beforeEach(() => {
   server = new Map([editor(), editor("p2"), ...rooms.map(r => editor("p1", r.id))].map(x => [key(x.propertyId, x.roomTypeId), x]));
   vi.mocked(getCatalogProperties).mockResolvedValue(ok([{ id: "p1", name: "The BHA Riverside", slug: "the-bha-riverside" }, { id: "p2", name: "Other", slug: "other" }]));
   vi.mocked(getCatalogProducts).mockImplementation(async p => ok(p === "p1" ? rooms.map(summary) : []));
+  // The list view reads through the header-aware twins; here they follow whatever the scripted get* mocks answer (the watermark has its own tests in CatalogSeenAck.test.tsx).
+  vi.mocked(readCatalogProperties).mockImplementation(async signal => { const r = await getCatalogProperties(signal); return r.kind === "ok" ? ok({ items: r.data }) : r; });
+  vi.mocked(readCatalogProducts).mockImplementation(async (p, signal) => { const r = await getCatalogProducts(p, signal); return r.kind === "ok" ? ok({ items: r.data }) : r; });
   vi.mocked(getPhysicalRooms).mockResolvedValue(ok([]));
   vi.mocked(getCatalog).mockImplementation(async (p, r) => ok(structuredClone(server.get(key(p, r))!)));
   vi.mocked(saveCatalog).mockImplementation(async (p, r, body) => {

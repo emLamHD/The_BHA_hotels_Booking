@@ -139,10 +139,13 @@ public sealed class AdminCatalogFailureTests(PostgreSqlWebApplicationFactory fac
     [Fact]
     public async Task A_lost_ack_after_a_committed_upload_must_not_delete_its_file()
     {
+        var lost = new LostUploadAcknowledgement();
         using var host = CreateHost().WithWebHostBuilder(b => b.ConfigureTestServices(services =>
-            services.AddScoped(_ => new TheBhaDbContext(new DbContextOptionsBuilder<TheBhaDbContext>().UseNpgsql(Factory.ConnectionString).AddInterceptors(new LostUploadAcknowledgement()).Options))));
+            services.AddScoped(_ => new TheBhaDbContext(new DbContextOptionsBuilder<TheBhaDbContext>().UseNpgsql(Factory.ConnectionString).AddInterceptors(lost).Options))));
         var p = await SeedStaffAsync(host); using var client = CreateHttpsClient(host); var cookie = await LoginAsync(client, Site);
+        lost.Armed = true;
         Assert.Equal(HttpStatusCode.InternalServerError, (await client.SendAsync(Upload(Route(p), cookie))).StatusCode);
+        lost.Armed = false;
         Assert.Equal(1, await ScalarAsync<int>("""SELECT count(*) FROM "CatalogUploads" """));
         var id = await ScalarAsync<Guid>("""SELECT "MediaId" FROM "CatalogUploads" """);
         var key = await ScalarAsync<string>("""SELECT "StorageKey" FROM "CatalogUploads" """);
@@ -150,13 +153,12 @@ public sealed class AdminCatalogFailureTests(PostgreSqlWebApplicationFactory fac
         Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(Get(Route(p) + $"/media/{id}", cookie))).StatusCode);
         Assert.Equal(0, await ScalarAsync<int>("""SELECT count(*) FROM "PropertyMedia" """));
     }
-    private sealed class LostUploadAcknowledgement : SaveChangesInterceptor
+    // The upload's metadata now commits in an explicit transaction (with its activity event), so the answer is lost AFTER the real COMMIT, not after SaveChanges.
+    private sealed class LostUploadAcknowledgement : DbTransactionInterceptor
     {
-        public override ValueTask<int> SavedChangesAsync(SaveChangesCompletedEventData eventData, int result, CancellationToken cancellationToken = default)
-        {
-            if (eventData.Context!.ChangeTracker.Entries<CatalogUpload>().Any()) throw new IOException("Injected lost acknowledgement after the real PostgreSQL commit.");
-            return ValueTask.FromResult(result);
-        }
+        public volatile bool Armed;
+        public override Task TransactionCommittedAsync(System.Data.Common.DbTransaction transaction, TransactionEndEventData eventData, CancellationToken cancellationToken = default) =>
+            Armed ? throw new IOException("Injected lost acknowledgement after the real PostgreSQL commit.") : Task.CompletedTask;
     }
 
     [Fact]

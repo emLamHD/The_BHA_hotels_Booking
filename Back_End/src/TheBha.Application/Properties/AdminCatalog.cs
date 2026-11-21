@@ -67,8 +67,8 @@ public interface ICatalogMediaStorage
 public interface ICatalogImageDecoder { CatalogImageInfo? Inspect(ReadOnlyMemory<byte> bytes); }
 public interface IAdminCatalog
 {
-    Task<IReadOnlyList<CatalogPropertyChoice>> ListAsync(CancellationToken ct);
-    Task<IReadOnlyList<CatalogProductSummary>> ListProductsAsync(Guid propertyId, CancellationToken ct);
+    Task<WatermarkedList<CatalogPropertyChoice>> ListAsync(CancellationToken ct);
+    Task<WatermarkedList<CatalogProductSummary>> ListProductsAsync(Guid propertyId, CancellationToken ct);
     Task<IReadOnlyList<CatalogPhysicalRoom>?> ListPhysicalRoomsAsync(Guid propertyId, Guid roomTypeId, CancellationToken ct);
     Task<WebsiteMutationResult<CatalogPropertyChoice>> CreatePropertyAsync(CreateCatalogProperty input, Guid operationId, Guid actor, CancellationToken ct);
     Task<WebsiteMutationResult<CatalogProductSummary>> CreateRoomTypeAsync(Guid propertyId, CreateCatalogRoomType input, Guid operationId, Guid actor, CancellationToken ct);

@@ -5,7 +5,8 @@ import Image from "next/image";
 import { useStaffSession } from "@/components/auth/StaffSession";
 import { useWebsiteHost } from "@/components/website/WebsiteAccessGate";
 import { useWebsiteList, useWriteAction, describeFailure } from "@/components/website/useWebsiteData";
-import { createAmenity, getCatalog, getCatalogProducts, getCatalogProperties, getPhysicalRooms, createProperty, createRoomType, createPhysicalRoom, saveCatalog, uploadCatalog, catalogImage, bodyOf, removeImage, type CatalogBody, type CatalogEditor, type CatalogProductSummary, type GalleryItem, type CreatePropertyInput, type CreateRoomTypeInput, type CreatePhysicalRoomInput } from "@/lib/api/catalog";
+import { lowestMark, useAckOnRead, useMarkedList, type ReadMark } from "@/components/website/useMarkedList";
+import { createAmenity, getCatalog, getCatalogProducts, getCatalogProperties, readCatalogProducts, readCatalogProperties, getPhysicalRooms, createProperty, createRoomType, createPhysicalRoom, saveCatalog, uploadCatalog, catalogImage, bodyOf, removeImage, type CatalogBody, type CatalogEditor, type CatalogProductSummary, type GalleryItem, type CreatePropertyInput, type CreateRoomTypeInput, type CreatePhysicalRoomInput } from "@/lib/api/catalog";
 
 const box = "w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 disabled:cursor-not-allowed disabled:bg-gray-100 read-only:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:placeholder:text-gray-500 dark:disabled:bg-gray-800 dark:read-only:bg-gray-800";
 // Typed number with 1-20 suggestions (datalist); the native spinner arrows are hidden.
@@ -15,7 +16,8 @@ const btn = "rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-g
 const editorKey = (p: string, r: string | null) => `${p}:${r ?? "property"}`;
 type Draft = { key: string; body: CatalogBody; baseline: CatalogBody };
 type WorkspaceView = { kind: "list" } | { kind: "property" } | { kind: "product"; roomId: string };
-type WorkspaceTarget = { propertyId: string; roomId: string; view: WorkspaceView };
+/** `auto`: the workspace itself moves here after a create succeeded (never a user's choice); every list read this transition launches is a write check and never says "seen". */
+type WorkspaceTarget = { propertyId: string; roomId: string; view: WorkspaceView; auto?: boolean };
 const isRiversideIdentity = (property: { name: string; slug: string }) =>
   ["the-bha-hotel", "the-bha-riverside"].includes(property.slug) &&
   ["The BHA Hotel", "The BHA Riverside"].includes(property.name);
@@ -64,7 +66,27 @@ export default function CatalogWorkspace() {
   const staff = useStaffSession();
   const actorStaffId = staff.state.status === "authenticated" ? staff.state.session.staffAccountId : "";
   const router = useRouter();
-  const props = useWebsiteList(getCatalogProperties, []);
+  // BHA-ADMIN-BADGE-001-PR11: the Catalog's one acknowledgement comes from the LIST VIEW only. A reload that exists to check or refresh after a write is tagged (`verifyReload`) so its answer is
+  // never a mark, and no extra read is made for the mark: the two list reads below are the ones that fill the screen.
+  const [verified] = useState(() => new WeakSet<object>());
+  const verifyNext = useRef({ props: false, products: false });
+  // C1: what the latest properties read was, kept at read time (not from a render) so a navigation right after a refresh sees it: `qualifies` = a normal read with a valid watermark.
+  const propsRead = useRef({ started: 0, applied: 0, inFlight: 0, qualifies: false });
+  // C1: a write was attempted since the list was last opened; the next list return is then only a check. Opening an editor starts a clean slate.
+  const wrote = useRef(false);
+  const props = useMarkedList(async signal => {
+    const verify = verifyNext.current.props;
+    verifyNext.current.props = false;
+    const tracker = propsRead.current;
+    const seq = ++tracker.started;
+    tracker.inFlight += 1;
+    try {
+      const result = await readCatalogProperties(signal);
+      if (result.kind === "ok" && verify) verified.add(result.data);
+      if (seq > tracker.applied) { tracker.applied = seq; tracker.qualifies = result.kind === "ok" && !verify && result.data.viewWatermark !== undefined; }
+      return result;
+    } finally { tracker.inFlight -= 1; }
+  }, [], data => data.viewWatermark, data => !verified.has(data));
   const [owner, setOwner] = useState("");
   const [view, setView] = useState<WorkspaceView>({ kind: "list" });
   const [summaryRefreshing, setSummaryRefreshing] = useState(false);
@@ -100,7 +122,7 @@ export default function CatalogWorkspace() {
       else router.push(target);
     }
   };
-  const propertyData = props.state.status === "ready" ? props.state.data : [];
+  const propertyData = props.state.status === "ready" ? props.state.data.items : [];
   const ownerId = owner || propertyData.find(isRiversideIdentity)?.id || "@unconfigured:the-bha-riverside";
   const selected = propertyData.find(x => x.id === ownerId);
   const currentId = selected ? ownerId : "";
@@ -127,13 +149,24 @@ export default function CatalogWorkspace() {
     } catch { /* An unreadable local recovery record cannot authorize another request. */ }
   }, [actorStaffId]);
   const data = useWebsiteList(signal => isEditor && currentId ? getCatalog(currentId, room || null, signal) : Promise.resolve({ kind: "network", message: "Chọn cơ sở đã có catalog." } as const), [currentId, room, isEditor]);
-  const products = useWebsiteList(async signal => {
+  const products = useMarkedList(async signal => {
+    const verify = verifyNext.current.products;
+    verifyNext.current.products = false;
     if (!currentId) return { kind: "network", message: "Chọn cơ sở đã có catalog." } as const;
-    const result = await getCatalogProducts(currentId, signal);
+    const result = await readCatalogProducts(currentId, signal);
     if (result.kind !== "ok") return result;
-    if (result.data.some(product => product.propertyId !== currentId)) return { kind: "invalid-response", message: "Danh sách trả về sản phẩm không thuộc cơ sở đã chọn. Hãy thử tải lại." } as const;
-    return { ...result, data: { propertyId: currentId, products: result.data } };
-  }, [currentId]);
+    if (result.data.items.some(product => product.propertyId !== currentId)) return { kind: "invalid-response", message: "Danh sách trả về sản phẩm không thuộc cơ sở đã chọn. Hãy thử tải lại." } as const;
+    const answer = { propertyId: currentId, products: result.data.items, ...(result.data.viewWatermark ? { viewWatermark: result.data.viewWatermark } : {}) };
+    if (verify) verified.add(answer);
+    return { ...result, data: answer };
+  }, [], data => data.viewWatermark, data => !verified.has(data) && data.propertyId === currentId, currentId);
+  /** A reload that checks or refreshes after a write: it fills the screen like any other but never says "seen". */
+  const reloadList = (which: "props" | "products", verify: boolean) => { if (verify) verifyNext.current[which] = true; return (which === "props" ? props : products).reload(); };
+  const verifyReload = (which: "props" | "products") => reloadList(which, true);
+  // "Seen" for the Catalog (one global cursor): only while the LIST view is on screen, for a persisted Property that the properties list contains, once BOTH lists have answered for the current Staff,
+  // the current Property and no write check; the lower of the two watermarks (BigInt). The summary, a hint, the editor, the physical rooms and every write's answer are never a source.
+  const lowest: ReadMark | null = view.kind === "list" && currentId !== "" && props.mark && products.mark && products.mark.scope === currentId ? lowestMark(props.mark, products.mark) : null;
+  useAckOnRead("catalog", lowest ? { watermark: lowest.watermark, by: lowest.by, source: lowest.source } : null);
   const physicalRooms = useWebsiteList(signal => view.kind === "product" && currentId
     ? getPhysicalRooms(currentId, room, signal)
     : Promise.resolve({ kind: "network", message: "Chọn loại phòng để xem danh sách phòng." } as const), [currentId, room, view.kind]);
@@ -171,15 +204,28 @@ export default function CatalogWorkspace() {
   const matches = (fresh: CatalogEditor | null) => mounted.current && scope.current === ownerKey && fresh !== null && editorKey(fresh.propertyId, fresh.roomTypeId) === ownerKey;
   const finish = () => { busy.current = false; if (mounted.current) setWorking(false); };
   const switchTo = (target: WorkspaceTarget) => {
-    const returningToSameList = target.view.kind === "list" && target.propertyId === currentId;
+    const toList = target.view.kind === "list";
+    const auto = target.auto === true;
+    const returningToSameList = toList && target.propertyId === currentId;
+    // C1: a return to the list is a real list display. Its products read is a plain one unless a write was attempted since the list was last opened; opening an editor resets that.
+    const afterWrite = toList && wrote.current;
+    wrote.current = false;
     setDraftState(null);
     setNote(""); setFileError(""); setPreviewId(""); setAmenity({ code: "", name: "", category: "" });
     write.reset(); upload.reset(); addWrite.reset();
     setOwner(target.propertyId); setView(target.view); setSwitchPrompt(null);
     if (returningToSameList) {
       setSummaryRefreshing(true);
-      void products.reload().finally(() => setSummaryRefreshing(false));
+      void reloadList("products", afterWrite || auto).finally(() => setSummaryRefreshing(false));
+    } else if (auto && toList) {
+      // C2: the products read of the just-created Property is launched by the Property change itself, after this render: it is claimed here, so it is a write check whatever order its GETs finish in.
+      verifyNext.current.products = true;
     }
+    // C1: the list now on screen needs a qualifying properties result too. A valid one that is still current is reused (no extra read); one that is only a write check, or has no valid
+    // watermark, is replaced by a plain read. A read already on its way is that read.
+    const propsNow = propsRead.current;
+    // (An automatic transition makes no properties read of its own: the create's check already refreshed that list, and the user's next deliberate navigation reads it plainly.)
+    if (toList && !auto && !propsNow.qualifies && propsNow.inFlight === 0 && props.state.status === "ready") void reloadList("props", false);
   };
   const currentViewKey = `${view.kind}:${view.kind === "product" ? view.roomId : ""}`;
   const askSwitch = (target: WorkspaceTarget) => {
@@ -219,6 +265,7 @@ export default function CatalogWorkspace() {
     busy.current = true; setWorking(true); setCreateMessage("");
     addWrite.reset();
     try {
+      wrote.current = true;
       const result = await addWrite.run<{ id: string }>(async () => {
         if (target.kind === "property") {
           const created = await createProperty(request as CreatePropertyInput, operationId);
@@ -244,9 +291,9 @@ export default function CatalogWorkspace() {
       if (result?.kind === "ok") {
         removePendingCreate(operationId);
         setCreateDialog(null); setCreateMessage("");
-        if (target.kind === "property") { await props.reload(); switchAfterCreate = result.data.id; }
-        else if (target.kind === "room") { await products.reload(); switchAfterCreate = target.propertyId; }
-        else { await physicalRooms.reload(); await products.reload(); }
+        if (target.kind === "property") { await verifyReload("props"); switchAfterCreate = result.data.id; }
+        else if (target.kind === "room") { await verifyReload("products"); switchAfterCreate = target.propertyId; }
+        else { await physicalRooms.reload(); await verifyReload("products"); }
       } else if (result) {
         const message = result.kind === "refused" ? result.detail : describeFailure(result);
         const currentAttemptWasDefinitelyRefused = result.kind === "refused" || result.kind === "config" || result.kind === "unauthenticated" || result.kind === "denied";
@@ -266,7 +313,7 @@ export default function CatalogWorkspace() {
         setCreateDialog(x => x?.operationId === operationId ? { ...x, unknown: false } : x);
         setCreateMessage("Yêu cầu chưa được gửi vì một thao tác Admin khác đang chạy. Hãy thử lại khi thao tác đó hoàn tất.");
       }
-    } finally { busy.current = false; if (mounted.current) setWorking(false); if (switchAfterCreate) queueMicrotask(() => askSwitch({ propertyId: switchAfterCreate!, roomId: "", view: { kind: "list" } })); }
+    } finally { busy.current = false; if (mounted.current) setWorking(false); if (switchAfterCreate) queueMicrotask(() => askSwitch({ propertyId: switchAfterCreate!, roomId: "", view: { kind: "list" }, auto: true })); }
   };
   useEffect(() => { host.setUnsaved(dirty || createDirty || working || unknown); return () => host.setUnsaved(false); }, [dirty, createDirty, working, unknown, host]);
   useEffect(() => {
@@ -299,6 +346,7 @@ export default function CatalogWorkspace() {
     const body = { ...draft }; // Revision belongs to the draft snapshot, never the latest background read.
     busy.current = true; setWorking(true);
     try {
+      wrote.current = true;
       const result = await write.run(async () => {
         const saved = await saveCatalog(base.propertyId, base.roomTypeId, body);
         if (saved.kind !== "ok") return saved;
@@ -331,6 +379,7 @@ export default function CatalogWorkspace() {
     if (file.size > 10 * 1024 * 1024) { setFileError("Ảnh vượt quá 10 MB."); return; }
     busy.current = true; setWorking(true);
     try {
+      wrote.current = true;
       const result = await upload.run(() => uploadCatalog(base.propertyId, base.roomTypeId, file));
       if (!mounted.current || scope.current !== ownerKey) return;
       if (result?.kind === "ok") { setDraft(x => x ? { ...x, gallery: [...x.gallery, { ...result.data, isCover: x.gallery.length === 0 }] } : x); setFileError(""); setPreviewId(result.data.mediaId); }
@@ -347,6 +396,7 @@ export default function CatalogWorkspace() {
     if (!selected || busy.current || blocked || !amenity.name.trim() || !amenity.code.trim() || !amenity.category.trim()) return;
     busy.current = true; setWorking(true);
     try {
+      wrote.current = true;
       const result = await addWrite.run(async () => {
         const added = await createAmenity(selected.id, amenity);
         if (added.kind !== "ok") return added;
@@ -410,7 +460,7 @@ export default function CatalogWorkspace() {
     return () => { document.removeEventListener("keydown", key); previous?.focus(); };
   }, [createDiscardPrompt]);
   if (props.state.status !== "ready") return <section role={props.state.status === "error" ? "alert" : "status"} className="rounded-2xl border border-gray-200 bg-white p-6 text-sm dark:border-gray-800 dark:bg-white/[0.03]">{props.state.status === "error" ? <>{props.state.message} <button className={btn} onClick={() => void props.reload()}>Thử lại</button></> : "Đang tải danh sách cơ sở…"}</section>;
-  const propertyChoices = props.state.data;
+  const propertyChoices = props.state.data.items;
   const hasRiverside = propertyChoices.some(isRiversideIdentity);
   const productList = products.state.status === "ready" && products.state.data.propertyId === currentId ? products.state.data.products : null;
   const listLoading = summaryRefreshing || products.state.status === "loading" || (products.state.status === "ready" && productList === null);
