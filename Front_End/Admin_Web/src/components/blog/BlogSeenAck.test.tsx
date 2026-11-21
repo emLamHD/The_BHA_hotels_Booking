@@ -412,10 +412,14 @@ describe("an acknowledgement for a menu the latest summary does not list yet is 
     await refresh();                                                                         // still not listed: it keeps waiting
     expect(sent()).toEqual([]);
 
+    const answer = deferred<unknown>();
+    seenCall.mockReturnValueOnce(answer.promise as never);                                   // the server's answer to that POST is held
     summary.mockResolvedValue(granted(3));                                                   // the same Staff member's next summary lists it
     await refresh();
     await waitFor(() => expect(sent()).toEqual(["blog-posts:5"]));                           // the watermark of the read that was shown, never the summary's 9
-    await waitFor(() => expect(screen.getByTestId("posts-count").textContent).toBe("0"));    // the badge follows the server's answer to that POST
+    expect(screen.getByTestId("posts-count").textContent).toBe("3");                         // nothing lowers the badge before the server answers
+    await act(async () => { answer.resolve({ kind: "ok", data: { count: 1, lastSeenWatermark: "5", currentWatermark: "9" } }); await Promise.resolve(); });
+    await waitFor(() => expect(screen.getByTestId("posts-count").textContent).toBe("1"));    // the badge is the server's own number, not a zero of our making
     expect(posts).toHaveBeenCalledTimes(1);                                                  // no reload was needed
 
     await refresh();                                                                         // later summaries do not say it again
