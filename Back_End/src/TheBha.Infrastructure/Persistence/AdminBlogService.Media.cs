@@ -165,7 +165,7 @@ internal sealed partial class AdminBlogService
     }
 
     /// <summary>
-    /// Phase B: ONE READ COMMITTED transaction for the prepared pictures. Each is inserted with its audit row inside its own savepoint, so one the database refuses (or a raced id) is rolled back
+    /// Phase B: ONE READ COMMITTED transaction for the prepared pictures, inserted in MediaId order (see the loop). Each is inserted with its audit row inside its own savepoint, so one the database refuses (or a raced id) is rolled back
     /// alone, its files removed (that rollback is certain) and the others kept. When at least one picture went in, ONE activity is recorded (<c>ItemCount</c> = the pictures that went in) as the
     /// last statement before COMMIT, so the pictures, their audits and the event commit or vanish together. The caller's token is deliberately not used: a caller that went away must not lose
     /// pictures that are complete. A failure BEFORE the commit was sent rolls everything back for certain (every file goes); only a failure of the COMMIT itself leaves the outcome unknown,
@@ -180,7 +180,9 @@ internal sealed partial class AdminBlogService
         {
             await using (var transaction = await db.Database.BeginTransactionAsync(CancellationToken.None))
             {
-                for (var index = 0; index < pictures.Count; index++)
+                // Rows go in by MediaId, the same order in every batch, whatever order the caller sent them: two concurrent batches that name the same ids then queue on the first of them
+                // instead of each holding one the other waits for (a deadlock). `index` stays the picture's place in the request, so results[] and the answer keep the caller's order.
+                foreach (var index in Enumerable.Range(0, pictures.Count).OrderBy(position => pictures[position].Id))
                 {
                     var picture = pictures[index];
                     var savepoint = $"blog_picture_{index}";

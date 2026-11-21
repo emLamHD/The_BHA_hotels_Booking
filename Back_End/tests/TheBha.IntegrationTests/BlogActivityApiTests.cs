@@ -3,8 +3,10 @@ using System.Net;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Npgsql;
 using TheBha.Api.Realtime;
 using TheBha.Application.Activity;
 using TheBha.Application.Blog;
@@ -64,6 +66,52 @@ public sealed class BlogActivityApiTests(PostgreSqlWebApplicationFactory factory
             sent.Enqueue(menuKey);
             return inner.PublishAsync(menuKey, propertyId, cancellationToken);
         }
+    }
+
+    /// <summary>
+    /// Holds each request at the moment its FIRST picture row has been inserted (inside its still-open transaction) until the two requests really overlap there: either both have inserted one, or one
+    /// is observed waiting on a PostgreSQL lock (<c>pg_stat_activity</c>) — never a sleep as the proof. The 30 s deadline only keeps a broken scenario from hanging; <see cref="Overlapped"/> says it was not used.
+    /// </summary>
+    private sealed class InsertOverlap(Func<Task<bool>> someoneWaitsOnALock) : SaveChangesInterceptor
+    {
+        private readonly HashSet<DbContext> _held = [];
+        private int _arrived;
+        public volatile bool Overlapped;
+
+        public override async ValueTask<int> SavedChangesAsync(SaveChangesCompletedEventData eventData, int result, CancellationToken cancellationToken = default)
+        {
+            bool first;
+            lock (_held)
+            {
+                first = eventData.Context!.ChangeTracker.Entries<BlogMedia>().Any() && _held.Add(eventData.Context);
+            }
+
+            if (first)
+            {
+                Interlocked.Increment(ref _arrived);
+                var deadline = DateTime.UtcNow.AddSeconds(30);
+                while (DateTime.UtcNow < deadline)
+                {
+                    if (Volatile.Read(ref _arrived) >= 2 || await someoneWaitsOnALock())
+                    {
+                        Overlapped = true;
+                        break;
+                    }
+
+                    await Task.Delay(20, cancellationToken);
+                }
+            }
+
+            return result;
+        }
+    }
+
+    private async Task<bool> SomeoneWaitsOnALockAsync()
+    {
+        await using var connection = new NpgsqlConnection(Factory.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand($"SELECT count(*) FROM pg_stat_activity WHERE datname = '{Factory.DatabaseName}' AND wait_event_type = 'Lock'", connection);
+        return (long)(await command.ExecuteScalarAsync())! > 0;
     }
 
     /// <summary>Wraps the real image pipeline so a test can stop the caller exactly while the second picture of a batch is being processed.</summary>
@@ -459,6 +507,45 @@ public sealed class BlogActivityApiTests(PostgreSqlWebApplicationFactory factory
         Assert.Equal(["blog-media"], probe.Hints.ToArray());
         Assert.Equal(1, await ScalarAsync<int>("""SELECT count(*)::int FROM "BlogAudits" WHERE "Action" = 'media.upload' """));
         Assert.Equal(7, BlogFiles().Length); // the cut-off picture's files were removed (no row can refer to them)
+    }
+
+    [Fact]
+    public async Task Two_bulk_uploads_that_name_the_same_ids_in_opposite_orders_never_deadlock_and_each_id_is_taken_in_once()
+    {
+        var probe = new Probe();
+        var overlap = new InsertOverlap(SomeoneWaitsOnALockAsync);
+        using var host = await StartMediaAsync(services =>
+        {
+            probe.Install(services);
+            services.AddScoped(_ => new TheBhaDbContext(new DbContextOptionsBuilder<TheBhaDbContext>().UseNpgsql(Factory.ConnectionString).AddInterceptors(overlap).Options));
+        });
+        var (a, b) = (Guid.NewGuid(), Guid.NewGuid());
+
+        var first = BatchAsync(host, host.Cookie(Editor), [("a.jpg", Good), ("b.jpg", Good)], [a, b]);       // A then B
+        var second = BatchAsync(host, host.Cookie(Publisher), [("b.jpg", Good), ("a.jpg", Good)], [b, a]);   // B then A, at the same time
+        var responses = await Task.WhenAll(first, second);
+        Assert.All(responses, response => Assert.Equal(HttpStatusCode.OK, response.StatusCode));
+        var batches = new[] { (Ids: new[] { a, b }, Body: await JsonAsync(responses[0])), (Ids: new[] { b, a }, Body: await JsonAsync(responses[1])) };
+
+        Assert.True(overlap.Overlapped, "the two transactions did overlap at the insert step");
+        // exactly one batch took both pictures in; the other answers, picture by picture and in the order it sent them, that the id is used — never a stale-version from a deadlock
+        var winner = Assert.Single(batches, batch => batch.Body.GetProperty("succeeded").GetInt32() == 2);
+        var loser = Assert.Single(batches, batch => batch.Body.GetProperty("failed").GetInt32() == 2);
+        var items = loser.Body.GetProperty("items").EnumerateArray().ToList();
+        Assert.Equal([0, 1], items.Select(item => item.GetProperty("index").GetInt32()).ToArray());
+        Assert.Equal(loser.Ids, items.Select(item => item.GetProperty("id").GetGuid()).ToArray());
+        Assert.All(items, item => Assert.Equal("blog.duplicate-id", item.GetProperty("error").GetProperty("code").GetString()));
+        Assert.Equal(winner.Ids, winner.Body.GetProperty("items").EnumerateArray().Select(item => item.GetProperty("id").GetGuid()).ToArray());
+
+        Assert.Equal(2, await CountAsync("BlogMedia"));
+        Assert.Equal(1, await ScalarAsync<int>($"""SELECT count(*)::int FROM "BlogMedia" WHERE "Id" = '{a}' """));
+        Assert.Equal(1, await ScalarAsync<int>($"""SELECT count(*)::int FROM "BlogMedia" WHERE "Id" = '{b}' """));
+        Assert.Equal(2, await ScalarAsync<int>("""SELECT count(*)::int FROM "BlogAudits" WHERE "Action" = 'media.upload' """));
+        var row = Assert.Single(await RowsAsync("blog-media"));                       // one event, for the batch that went in; the one that took nothing in recorded none
+        Assert.Equal(("media-batch", 2), (row.EntityKind, row.ItemCount));
+        Assert.Equal(1L, await CounterAsync("blog-media"));
+        Assert.Equal(["blog-media"], probe.Hints.ToArray());
+        Assert.Equal(14, BlogFiles().Length);                                         // two pictures x 7 files; the refused ones left none
     }
 
     // ---------------------------------------------------------------------------------------------------------- the recorder is part of the transaction
