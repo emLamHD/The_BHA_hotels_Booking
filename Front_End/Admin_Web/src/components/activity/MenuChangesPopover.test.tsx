@@ -495,6 +495,24 @@ describe("the Calendar's «Đánh dấu đã xem» (PR-13)", () => {
     errors.mockRestore();
   });
 
+  it("an older answer that arrives after a NEWER list of the same scope cannot hide the group that list shows with a higher watermark", async () => {
+    ui.changes.mockResolvedValueOnce(calendarBody("p-0", [calendarGroup("b-1", "Removed", "8"), calendarGroup("b-2", "Removed", "5")]));
+    ui.changes.mockResolvedValue(calendarBody("p-0", [calendarGroup("b-1", "Removed", "9")]));            // b-2 is gone; b-1 changed again
+    const slow = deferred<unknown>();
+    ui.calendarSeen.mockImplementation((_identity: string, request: { entityId: string }) => (request.entityId === "b-1" ? slow.promise : Promise.resolve(answer(false, "5"))));
+    mountCalendar();
+    const groups = await screen.findAllByTestId("unseen-popover-group");
+    await userEvent.click(within(groups[0]).getByTestId("unseen-popover-mark-seen"));                      // b-1 at 8: stays on the wire
+    await userEvent.click(within(groups[1]).getByTestId("unseen-popover-mark-seen"));                      // b-2: answered, the list is read again
+    await waitFor(() => expect(ui.changes).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getAllByTestId("unseen-popover-group")).toHaveLength(1));
+    await act(async () => slow.resolve(answer(false, "8")));                                               // the old answer for b-1 at 8, unread:false
+    expect(screen.getAllByTestId("unseen-popover-group")).toHaveLength(1);                                 // b-1 at 9 is still shown …
+    expect(screen.getByTestId("unseen-popover-mark-seen").getAttribute("aria-disabled")).toBeNull();      // … and can be acknowledged
+    await userEvent.click(screen.getByTestId("unseen-popover-mark-seen"));
+    expect(ui.calendarSeen).toHaveBeenLastCalledWith("staff-a", expect.objectContaining({ entityId: "b-1", observedWatermark: "9" }));
+  });
+
   it("an answer for Property A that arrives after Property B was chosen leaves B's list and groups alone", async () => {
     ui.changes.mockImplementation(async (_menu: string, propertyId: string) => calendarBody(propertyId, [calendarGroup("b-1", "Removed", "8")]));
     const wire = deferred<unknown>();
